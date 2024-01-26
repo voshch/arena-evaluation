@@ -11,3 +11,13 @@ find_package(catkin REQUIRED COMPONENTS
 )
 catkin_package()
 include_directories(${catkin_INCLUDE_DIRS})
+
+catkin_python_setup()
+
+catkin_install_python(PROGRAMS
+  scripts/data_recorder_node
+  scripts/get_metrics
+  scripts/create_plots
+
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)

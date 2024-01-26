@@ -31,6 +31,8 @@ import pedsim_msgs.msg as pedsim_msgs
 # for transformations
 from tf.transformations import euler_from_quaternion
 
+from arena_evaluation.utils import Pedestrian
+
 
 class DataCollector:
     def __init__(self, topic):
@@ -101,7 +103,7 @@ class DataCollector:
 
     def pedsim_callback(self, msg_pedsim: pedsim_msgs.PedsimAgentsDataframe):
         self.data = [
-            dict(
+            Pedestrian(
                 id = agent.id,
                 type = agent.type,
                 social_state = agent.social_state,

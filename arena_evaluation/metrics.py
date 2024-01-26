@@ -1,36 +1,28 @@
-#!/usr/bin/env python3
 """
 This file is used to calculate from the simulation data, various metrics, such as
 - did a collision occur
 - how long did the robot take form start to goal
 the metrics / evaluation data will be saved to be preproccesed in the next step
 """
+import enum
+import typing
 import numpy as np
 import pandas as pd
 import os
 import yaml
-import argparse 
 import rospkg
 import json
 
-from utils import Utils
+from arena_evaluation.utils import Utils
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--dir", "-d")
-
-    return parser.parse_args()
-
-
-class Action:
+class Action(str, enum.Enum):
     STOP = "STOP"
     ROTATE = "ROTATE"
     MOVE = "MOVE"
 
 
-class DoneReason:
+class DoneReason(str, enum.Enum):
     TIMEOUT = "TIMEOUT"
     GOAL_REACHED = "GOAL_REACHED"
     COLLISION = "COLLISION"
@@ -42,7 +34,10 @@ class Config:
 
 
 class Metrics:
-    def __init__(self, dir):
+
+    _data: pd.DataFrame
+
+    def __init__(self, dir: str, pedsim: typing.Optional[str] = None):
         self.dir = dir
 
         self.robot_params = Metrics.get_robot_params(self.dir)
@@ -64,6 +59,9 @@ class Metrics:
             "goal": Utils.string_to_float_list
         })
 
+        if pedsim is not None:
+            pedsim_data = pd.read_csv(pedsim + "/pedsim_agents_data.csv", converters = {"data": Utils.parse_pedsim})
+
         laserscan = laserscan.rename(columns={"data": "laserscan"})
         odom = odom.rename(columns={"data": "odom"})
         cmd_vel = cmd_vel.rename(columns={"data": "cmd_vel"})
@@ -84,8 +82,11 @@ class Metrics:
             episode_data[i] = self.analyze_episode(current_episode, i)
             i = i + 1
 
-        data = pd.DataFrame(episode_data).transpose().set_index("episode")
-        data.to_csv(os.path.join(dir, "metrics.csv"))
+        self._data = pd.DataFrame(episode_data).transpose().set_index("episode")
+    
+    @property
+    def data(self) -> pd.DataFrame:
+        return self._data
 
     def analyze_episode(self, episode, index):
         positions, velocities = [], []
@@ -376,9 +377,3 @@ class Metrics:
 
         with open(robot_model_params_file, "r") as file:
             return yaml.safe_load(file)
-
-
-if __name__ == "__main__":
-    arguments = parse_args()
-
-    Metrics(arguments.dir)
