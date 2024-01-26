@@ -34,7 +34,10 @@ class Config:
     TIMEOUT_TRESHOLD = 180e9
     MAX_COLLISIONS = 3
     MIN_EPISODE_LENGTH = 5
+    
     PERSONAL_SPACE_RADIUS = 1 # personal space is estimated at around 1'-4'
+    ROBOT_GAZE_ANGLE = np.radians(5) # size of (one half of) direct robot gaze cone
+    PEDESTRIAN_GAZE_ANGLE = np.radians(5) # size of (one half of) direct ped gaze cone
 
 class Math:
 
@@ -93,6 +96,10 @@ class Math:
                 + third[0] * (first[1] - second[1])
             )
         )
+    
+    @classmethod
+    def angle_difference(cls, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
+            return np.pi - np.abs(np.abs(x1 - x2) - np.pi)
 
 class Metrics:
 
@@ -405,26 +412,42 @@ class PedsimMetrics(Metrics):
         peds_position = np.array([[ped.position for ped in peds] for peds in episode["peds"]])
 
         # list of (timestamp, ped) indices, duplicate timestamps allowed
-        personal_space_intrustions = np.array(
-            np.where(
-                np.linalg.norm(
-                    peds_position - robot_position[:,None],
-                    axis=-1
-                ) < Config.PERSONAL_SPACE_RADIUS
-            )
-        )
+        personal_space_frames = np.array(np.where(np.linalg.norm(peds_position - robot_position[:,None], axis=-1) <= Config.PERSONAL_SPACE_RADIUS))
 
+        # time in personal space
         time = np.diff(np.array(episode["time"]), prepend=0)
-        time_in_personal_space = time[personal_space_intrustions[0,:]].sum()
+        time_in_personal_space = time[personal_space_frames[0,:]].sum()
 
+        # v_avg in personal space
         velocity = np.array(super_analysis["velocity"])
-        velocity = velocity[personal_space_intrustions[0,:]]
+        velocity = velocity[personal_space_frames[0,:]]
         avg_velocity_in_personal_space = velocity.mean() if velocity.size else 0
+
+
+        # gazes
+        robot_direction = np.array([odom["position"][2] for odom in episode["odom"]])
+        peds_direction = np.array([[ped.theta for ped in peds] for peds in episode["peds"]])
+        angle_robot_peds = np.squeeze(np.angle(np.array(peds_position - robot_position[:,np.newaxis]).view(np.complex128)))
+
+        # time looking at pedestrians
+        robot_gaze = np.abs(Math.angle_difference(robot_direction[:,np.newaxis], angle_robot_peds))
+        looking_at_frames = np.array(np.where(robot_gaze <= Config.ROBOT_GAZE_ANGLE))
+        time_looking_at_pedestrians = time[np.unique(looking_at_frames[0,:])].sum()
+        cumulative_time_looking_at_pedestrians = time[looking_at_frames].sum()
+        
+        # time being looked at by pedestrians
+        ped_gaze = Math.angle_difference(peds_direction, np.pi - angle_robot_peds)
+        looked_at_frames = np.array(np.where(ped_gaze <= Config.PEDESTRIAN_GAZE_ANGLE))
+        time_looked_at_by_pedestrians = time[np.unique(looked_at_frames[0,:])].sum()
+        cumulative_time_looked_at_by_pedestrians = time[looked_at_frames[0,:]].sum()
 
         return {
             **super_analysis,
             "time_in_personal_space": int(time_in_personal_space),
-            "time_looking_at_people": -1,
-            "time_seen_by_people": -1,
-            "avg_velocity_in_personal_space": avg_velocity_in_personal_space
+            "time_looking_at_pedestrians": int(time_looking_at_pedestrians),
+            "cumulative_time_looking_at_pedestrians": int(cumulative_time_looking_at_pedestrians),
+            "time_looked_at_by_pedestrians": int(time_looked_at_by_pedestrians),
+            "cumulative_time_looked_at_by_pedestrians": int(cumulative_time_looked_at_by_pedestrians),
+            "avg_velocity_in_personal_space": avg_velocity_in_personal_space,
+            "num_pedestrians": peds_position.shape[0]
         }
