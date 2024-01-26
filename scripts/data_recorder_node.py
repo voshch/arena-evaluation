@@ -26,6 +26,7 @@ from geometry_msgs.msg import Pose2D, Pose, PoseWithCovarianceStamped
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
+import pedsim_msgs.msg as pedsim_msgs
 
 # for transformations
 from tf.transformations import euler_from_quaternion
@@ -37,6 +38,7 @@ class DataCollector:
             ("scan", self.laserscan_callback),
             ("odom", self.odometry_callback),
             ("cmd_vel", self.action_callback),
+            ("pedsim_agents_data", self.pedsim_callback)
         ]
 
         try:
@@ -97,6 +99,20 @@ class DataCollector:
             ]
         ]
 
+    def pedsim_callback(self, msg_pedsim: pedsim_msgs.PedsimAgentsDataframe):
+        self.data = [
+            dict(
+                id = agent.id,
+                type = agent.type,
+                social_state = agent.social_state,
+                position = [agent.pose.position.x, agent.pose.position.y],
+                theta = np.arctan2(agent.forces.force.y, agent.forces.force.x),
+                destination = [agent.destination.x, agent.destination.y]
+            )
+            for agent
+            in msg_pedsim.agent_states
+        ]
+
     def get_data(self):
         return (
             self.full_topic_name,
@@ -134,8 +150,6 @@ class Recorder:
 
             if not match: 
                 continue
-
-            print(match, t, topic_matcher, match.group())
 
             topics_to_sub.append([topic_name, *self.get_class_for_topic_name(topic_name)])
 
@@ -205,13 +219,16 @@ class Recorder:
             return ["odom", Odometry]
         if "/cmd_vel" in topic_name:
             return ["cmd_vel", Twist]
+        if "/pedsim_agents_data" in topic_name:
+            return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
 
     def get_topics_to_monitor(self):
         return [
             ("scan", LaserScan),
             ("scenario_reset", Int16),
             ("odom", Odometry),
-            ("cmd_vel", Twist)
+            ("cmd_vel", Twist),
+            ("pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
         ]
 
     def write_data(self, file_name, data, mode="a"):
@@ -226,7 +243,8 @@ class Recorder:
                 "model": self.model,
                 "map_file": rospy.get_param("/map_file", ""),
                 "scenario_file": rospy.get_param("/scenario_file", ""),
-                "local_planner": rospy.get_param(rospy.get_namespace() + "local_planner"),
+                "inter_planner": rospy.get_param(rospy.get_namespace() + "inter_planner", ""),
+                "local_planner": rospy.get_param(rospy.get_namespace() + "local_planner", ""),
                 "agent_name": rospy.get_param(rospy.get_namespace() + "agent_name", ""),
                 "namespace": rospy.get_namespace().replace("/", "")
             }, file)
