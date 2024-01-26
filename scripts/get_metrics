@@ -2,7 +2,7 @@
 
 import argparse
 import os 
-from arena_evaluation.metrics import Metrics
+import arena_evaluation.metrics as Metrics
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -10,8 +10,14 @@ if __name__ == "__main__":
     parser.add_argument("--pedsim", "-p")
     arguments = parser.parse_args()
 
-    data = Metrics(
-        arguments.dir,
-        **(dict(pedsim=arguments.pedsim) if "pedsim" in arguments else dict())
-    ).data
-    data.to_csv(os.path.join(arguments.dir, "metrics.csv"))
+    if "pedsim" in arguments:
+        metrics = Metrics.PedsimMetrics(
+            dir = arguments.dir
+        )
+
+    else:
+        metrics = Metrics.Metrics(
+            dir = arguments.dir
+        )
+
+    metrics.data.to_csv(os.path.join(arguments.dir, "metrics.csv"))

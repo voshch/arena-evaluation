@@ -110,7 +110,7 @@ class DataCollector:
                 position = [agent.pose.position.x, agent.pose.position.y],
                 theta = np.arctan2(agent.forces.force.y, agent.forces.force.x),
                 destination = [agent.destination.x, agent.destination.y]
-            )
+            )._asdict()
             for agent
             in msg_pedsim.agent_states
         ]
@@ -141,7 +141,7 @@ class Recorder:
         topics = rostopic.get_topic_list()
         published_topics = topics[0]
 
-        topic_matcher = re.compile(f"{rospy.get_namespace()}({'|'.join([t[0] for t in topics_to_monitor])})$")
+        topic_matcher = re.compile(f"({'|'.join([t[0] for t in topics_to_monitor])})$")
 
         topics_to_sub = []
 
@@ -226,11 +226,11 @@ class Recorder:
 
     def get_topics_to_monitor(self):
         return [
-            ("scan", LaserScan),
-            ("scenario_reset", Int16),
-            ("odom", Odometry),
-            ("cmd_vel", Twist),
-            ("pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
+            (os.path.join(rospy.get_namespace(), "scan"), LaserScan),
+            (os.path.join(rospy.get_namespace(), "scenario_reset"), Int16),
+            (os.path.join(rospy.get_namespace(), "odom"), Odometry),
+            (os.path.join(rospy.get_namespace(), "cmd_vel"), Twist),
+            ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
         ]
 
     def write_data(self, file_name, data, mode="a"):

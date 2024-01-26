@@ -20,5 +20,4 @@ class Utils:
 
     @classmethod
     def parse_pedsim(cls, entry: str) -> typing.List[Pedestrian]:
-        print(entry)
         return [Pedestrian(**ped) for ped in ast.literal_eval(entry)]
