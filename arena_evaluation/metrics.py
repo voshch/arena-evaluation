@@ -17,7 +17,6 @@ import json
 
 from arena_evaluation.utils import Utils
 
-
 class Action(str, enum.Enum):
     STOP = "STOP"
     ROTATE = "ROTATE"
@@ -28,6 +27,48 @@ class DoneReason(str, enum.Enum):
     TIMEOUT = "TIMEOUT"
     GOAL_REACHED = "GOAL_REACHED"
     COLLISION = "COLLISION"
+
+
+class Metric(typing.TypedDict):
+
+    time: typing.List[int]
+    time_diff: int
+    episode: int
+    goal: typing.List
+    start: typing.List
+
+    path: typing.List
+    path_length_values: typing.List
+    path_length: float
+    angle_over_length: float
+    curvature: typing.List
+    normalized_curvature: typing.List 
+    roughness: typing.List
+
+    cmd_vel: typing.List
+    velocity: typing.List
+    acceleration: typing.List
+    jerk: typing.List
+    
+    collision_amount: int
+    collisions: typing.List
+    
+    action_type: typing.List[Action]
+    result: DoneReason
+
+class PedsimMetric(Metric, typing.TypedDict):
+
+    num_pedestrians: int
+
+    avg_velocity_in_personal_space: float
+    total_time_in_personal_space: int
+    time_in_personal_space: typing.List[int]
+
+    total_time_looking_at_pedestrians: int
+    time_looking_at_pedestrians: typing.List[int]
+
+    total_time_looked_at_by_pedestrians: int
+    time_looked_at_by_pedestrians: typing.List[int]
 
 
 class Config:
@@ -46,56 +87,86 @@ class Math:
         return [round(v, digits) for v in values]
 
     @classmethod
-    def curvature(cls, first, second, third):
-        triangle_area = cls.triangle_area(first, second, third)
+    def grouping(cls, base: np.ndarray, size: int) -> np.ndarray:
+        return np.moveaxis( 
+            np.array([
+                np.roll(base, i, 0)
+                for i
+                in range(size)
+            ]),
+            [1],
+            [0]
+        )[:-size]
 
-        divisor = (
-            np.abs(np.linalg.norm(first - second)) 
-            * np.abs(np.linalg.norm(second - third))
-            * np.abs(np.linalg.norm(third - first))
-        )
+    @classmethod
+    def triangles(cls, position: np.ndarray) -> np.ndarray:
+        return cls.grouping(position, 3)
+    
+    @classmethod
+    def triangle_area(cls, vertices: np.ndarray) -> np.ndarray:
+        return np.linalg.norm(
+            np.cross(
+                vertices[:,1] - vertices[:,0],
+                vertices[:,2] - vertices[:,0],
+                axis=1
+            ),
+            axis=1
+        ) / 2
+    
+    @classmethod
+    def path_length(cls, position: np.ndarray) -> np.ndarray:
+        pairs = cls.grouping(position, 2)
+        return np.linalg.norm(pairs[:,0,:] - pairs[:,1,:], axis=1)
 
-        if divisor == 0:
-            return 0, 0
+    @classmethod
+    def curvature(cls, position: np.ndarray) -> typing.Tuple[np.ndarray, np.ndarray]:
+
+        triangles = cls.triangles(position)
+
+        d01 = np.linalg.norm(triangles[:,0,:] - triangles[:,1,:], axis=1)
+        d12 = np.linalg.norm(triangles[:,1,:] - triangles[:,2,:], axis=1)
+        d20 = np.linalg.norm(triangles[:,2,:] - triangles[:,0,:], axis=1)
+
+        triangle_area = cls.triangle_area(triangles)
+        divisor = np.prod([d01, d12, d20], axis=0)
+        divisor[divisor==0] = np.nan
 
         curvature = 4 * triangle_area / divisor
+        curvature[np.isnan(divisor)] = 0
 
-        normalized = (
-            curvature * (
-                np.abs(np.linalg.norm(first - second)) 
-                + np.abs(np.linalg.norm(second - third))
-            )
+        normalized = np.multiply(
+            curvature,
+            d01 + d12
         )
 
         return curvature, normalized
 
     @classmethod
-    def roughness(cls, first, second, third):
-        triangle_area = cls.triangle_area(first, second, third)
+    def roughness(cls, position: np.ndarray) -> np.ndarray:
+        
+        triangles = cls.triangles(position)
 
-        if np.abs(np.linalg.norm(third - first)) == 0:
-            return 0
+        triangle_area = cls.triangle_area(triangles)
+        length = np.linalg.norm(triangles[:,:,0] - triangles[:,:,2], axis=1)
+        length[length==0] = np.nan
 
-        return 2 * triangle_area / np.abs(np.linalg.norm(third - first)) ** 2
+        roughness = 2 * triangle_area / np.square(length)
+        roughness[np.isnan(length)] = 0
 
-    @classmethod
-    def jerk(cls, first, second, third):
-        a1 = second - first
-        a2 = third - second
-
-        jerk = np.abs(a2 - a1)
-
-        return jerk
+        return roughness
 
     @classmethod
-    def triangle_area(cls, first, second, third):
-        return (
-            0.5 * np.abs(
-                first[0] * (second[1] - third[1]) 
-                + second[0] * (third[1] - first[1]) 
-                + third[0] * (first[1] - second[1])
-            )
-        )
+    def acceleration(cls, speed: np.ndarray) -> np.ndarray:
+        return np.diff(speed)
+
+    @classmethod
+    def jerk(cls, speed: np.ndarray) -> np.ndarray:
+        return np.diff(np.diff(speed))
+
+    @classmethod
+    def turn(cls, yaw: np.ndarray) -> np.ndarray:
+        pairs = cls.grouping(yaw, 2)
+        return cls.angle_difference(pairs[:,0], pairs[:,1])
     
     @classmethod
     def angle_difference(cls, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
@@ -104,7 +175,7 @@ class Math:
 class Metrics:
 
     dir: str
-    _episode_data: typing.Dict
+    _episode_data: typing.Dict[int, Metric]
 
     def _load_data(self) -> typing.List[pd.DataFrame]:
         episode = pd.read_csv(os.path.join(self.dir, "episode.csv"), converters={
@@ -153,29 +224,28 @@ class Metrics:
 
     @property
     def data(self) -> pd.DataFrame:
-        return pd.DataFrame(self._episode_data).transpose().set_index("episode")
+        return pd.DataFrame.from_dict(self._episode_data).transpose().set_index("episode")
 
     
-    def _analyze_episode(self, episode: pd.DataFrame, index):
-        positions, velocities = [], []
+    def _analyze_episode(self, episode: pd.DataFrame, index) -> Metric:
+        
+        positions = np.array([frame["position"] for frame in episode["odom"]])
+        velocities = np.array([frame["position"] for frame in episode["odom"]])
 
-        for odom in episode["odom"]:
-            positions.append(np.array(odom["position"]))
-            velocities.append(np.array(odom["velocity"]))
+        curvature, normalized_curvature = Math.curvature(positions)
+        roughness = Math.roughness(positions)
 
-        curvature, normalized_curvature = self._get_curvature(np.array(positions))
-        roughness = self._get_roughness(np.array(positions))
-
-        vel_absolute = self._get_velocity_abs(velocities)
-        acceleration = self._get_acceleration(vel_absolute)
-        jerk = self._get_jerk(vel_absolute)
+        vel_absolute = np.linalg.norm(velocities, axis=1)
+        acceleration = Math.acceleration(vel_absolute)
+        jerk = Math.jerk(vel_absolute)
 
         collisions, collision_amount = self._get_collisions(
             episode["laserscan"],
             self.robot_params["robot_radius"]
         )
 
-        path_length, path_length_per_step = self._get_path_length(positions)
+        path_length = Math.path_length(positions)
+        turn = Math.turn(positions[:,2])
 
         time = int(list(episode["time"])[-1] - list(episode["time"])[0])
 
@@ -184,29 +254,28 @@ class Metrics:
 
         # print("PATH LENGTH", path_length, path_length_per_step)
 
-        return {
-            "curvature": Math.round_values(curvature),
-            "normalized_curvature": Math.round_values(normalized_curvature),
-            "roughness": Math.round_values(roughness),
-            "path_length_values": Math.round_values(path_length_per_step),
-            "path_length": path_length,
-            "acceleration": Math.round_values(acceleration),
-            "jerk": Math.round_values(jerk),
-            "velocity": Math.round_values(vel_absolute),
-            "collision_amount": collision_amount,
-            "collisions": list(collisions),
-            "path": [list(p) for p in positions],
-            "angle_over_length": self._get_angle_over_length(path_length, positions),
-            "action_type": list(self._get_action_type(episode["cmd_vel"])),
-            ## Ros time in ns
-            "time_diff": time,
-            "time": list(map(int, episode["time"].tolist())),
-            "episode": index,
-            "result": self._get_success(time, collision_amount),
-            "cmd_vel": list(map(list, episode["cmd_vel"].to_list())),
-            "goal": goal_position,
-            "start": start_position
-        }
+        return Metric(
+            curvature = Math.round_values(curvature),
+            normalized_curvature = Math.round_values(normalized_curvature),
+            roughness = Math.round_values(roughness),
+            path_length_values = Math.round_values(path_length),
+            path_length = path_length.sum(),
+            acceleration = Math.round_values(acceleration),
+            jerk = Math.round_values(jerk),
+            velocity = Math.round_values(vel_absolute),
+            collision_amount = collision_amount,
+            collisions = list(collisions),
+            path = [list(p) for p in positions],
+            angle_over_length = np.abs(turn.sum() / path_length.sum()),
+            action_type = list(self._get_action_type(episode["cmd_vel"])),
+            time_diff = time, ## Ros time in ns
+            time = list(map(int, episode["time"].tolist())),
+            episode = index,
+            result = self._get_success(time, collision_amount),
+            cmd_vel = list(map(list, episode["cmd_vel"].to_list())),
+            goal = goal_position,
+            start = start_position
+        )
     
     def _get_robot_params(self):
         with open(os.path.join(self.dir, "params.yaml")) as file:
@@ -243,17 +312,6 @@ class Metrics:
 
         return collisions
 
-    def _get_angle_over_length(self, path_length, positions):
-        total_yaw = 0
-
-        for i, yaw in enumerate(positions[:-1]):
-            yaw = yaw[2]
-            next_yaw = positions[i + 1][2]
-
-            total_yaw += abs(next_yaw - yaw)
-
-        return total_yaw / path_length
-
     def _get_success(self, time, collisions):
         if time >= Config.TIMEOUT_TRESHOLD:
             return DoneReason.TIMEOUT
@@ -262,20 +320,6 @@ class Metrics:
             return DoneReason.COLLISION
 
         return DoneReason.GOAL_REACHED
-
-    def _get_path_length(self, positions):
-        path_length = 0
-        path_length_per_step = []
-
-        for i, position in enumerate(positions[:-1]):
-            next_position = positions[i + 1]
-
-            step_path_length = np.linalg.norm(position - next_position)
-
-            path_length_per_step.append(step_path_length)
-            path_length += step_path_length
-
-        return path_length, path_length_per_step
     
     def _get_collisions(self, laser_scans, lower_bound):
         """
@@ -319,75 +363,13 @@ class Metrics:
 
         for action in actions:
             if sum(action) == 0:
-                action_type.append(Action.STOP)
+                action_type.append(Action.STOP.value)
             elif action[0] == 0 and action[1] == 0:
-                action_type.append(Action.ROTATE)
+                action_type.append(Action.ROTATE.value)
             else:
-                action_type.append(Action.MOVE)
+                action_type.append(Action.MOVE.value)
 
         return action_type
-
-    def _get_curvature(self, positions):
-        """
-        Calculates the curvature and the normalized curvature
-        for all positions in the list
-
-        Returns an array of tuples with (curvature, normalized_curvature)
-        """
-        curvature_list = []
-        normalized_curvature = []
-
-        for i, position in enumerate(positions[:-2]):
-            first = position
-            second = positions[i + 1]
-            third = positions[i + 2]
-
-            curvature, normalized = Math.curvature(first, second, third)
-
-            curvature_list.append(curvature)
-            normalized_curvature.append(normalized)
-
-        return curvature_list, normalized_curvature
-
-    def _get_roughness(self, positions):
-        roughness_list = []
-
-        for i, position in enumerate(positions[:-2]):
-            first = position
-            second = positions[i + 1]
-            third = positions[i + 2]
-
-            roughness_list.append(Math.roughness(first, second, third))
-
-        return roughness_list
-
-    def _get_velocity_abs(self, velocities):
-        return [(i ** 2 + j ** 2) ** 0.5 for i, j, z in velocities]
-
-    def _get_acceleration(self, vel_abs):
-        acc_list = []
-
-        for i, vel in enumerate(vel_abs[:-1]):
-            acc_list.append(vel_abs[i + 1] - vel)
-
-        return acc_list
-
-    def _get_jerk(self, vel_abs):
-        """
-        jerk is the rate at which an objects acceleration changes with respect to time
-        """
-        jerk_list = []
-
-        for i, velocity in enumerate(vel_abs[:-2]):
-            first = velocity
-            second = vel_abs[i + 1]
-            third = vel_abs[i + 2]
-
-            jerk = Math.jerk(first, second, third)
-
-            jerk_list.append(jerk)
-
-        return jerk_list
 
     
         
@@ -412,16 +394,18 @@ class PedsimMetrics(Metrics):
         peds_position = np.array([[ped.position for ped in peds] for peds in episode["peds"]])
 
         # list of (timestamp, ped) indices, duplicate timestamps allowed
-        personal_space_frames = np.array(np.where(np.linalg.norm(peds_position - robot_position[:,None], axis=-1) <= Config.PERSONAL_SPACE_RADIUS))
+        personal_space_frames = np.linalg.norm(peds_position - robot_position[:,None], axis=-1) <= Config.PERSONAL_SPACE_RADIUS
+        # list of timestamp indices, no duplicates
+        is_personal_space = personal_space_frames.max(axis=1)
 
         # time in personal space
         time = np.diff(np.array(episode["time"]), prepend=0)
-        time_in_personal_space = time[np.unique(personal_space_frames[0,:])].sum()
-        cumulative_time_in_personal_space = time[personal_space_frames[0,:]].sum()
+        total_time_in_personal_space = time[is_personal_space].sum()
+        time_in_personal_space = [time[frames].sum(axis=0).astype(np.integer) for frames in personal_space_frames.T]
 
         # v_avg in personal space
         velocity = np.array(super_analysis["velocity"])
-        velocity = velocity[personal_space_frames[0,:]]
+        velocity = velocity[is_personal_space]
         avg_velocity_in_personal_space = velocity.mean() if velocity.size else 0
 
 
@@ -432,24 +416,24 @@ class PedsimMetrics(Metrics):
 
         # time looking at pedestrians
         robot_gaze = np.abs(Math.angle_difference(robot_direction[:,np.newaxis], angle_robot_peds))
-        looking_at_frames = np.array(np.where(robot_gaze <= Config.ROBOT_GAZE_ANGLE))
-        time_looking_at_pedestrians = time[np.unique(looking_at_frames[0,:])].sum()
-        cumulative_time_looking_at_pedestrians = time[looking_at_frames].sum()
+        looking_at_frames = robot_gaze <= Config.ROBOT_GAZE_ANGLE
+        total_time_looking_at_pedestrians = time[looking_at_frames.max(axis=1)].sum()
+        time_looking_at_pedestrians = [time[frames].sum(axis=0).astype(np.integer) for frames in looking_at_frames.T]
         
         # time being looked at by pedestrians
         ped_gaze = Math.angle_difference(peds_direction, np.pi - angle_robot_peds)
-        looked_at_frames = np.array(np.where(ped_gaze <= Config.PEDESTRIAN_GAZE_ANGLE))
-        time_looked_at_by_pedestrians = time[np.unique(looked_at_frames[0,:])].sum()
-        cumulative_time_looked_at_by_pedestrians = time[looked_at_frames[0,:]].sum()
+        looked_at_frames = ped_gaze <= Config.PEDESTRIAN_GAZE_ANGLE
+        total_time_looked_at_by_pedestrians = time[looked_at_frames.max(axis=1)].sum()
+        time_looked_at_by_pedestrians = [time[frames].sum(axis=0).astype(np.integer) for frames in looked_at_frames.T]
 
-        return {
+        return PedsimMetric(
             **super_analysis,
-            "avg_velocity_in_personal_space": avg_velocity_in_personal_space,
-            "time_in_personal_space": int(time_in_personal_space),
-            "cumulative_time_in_personal_space": int(cumulative_time_in_personal_space),
-            "time_looking_at_pedestrians": int(time_looking_at_pedestrians),
-            "cumulative_time_looking_at_pedestrians": int(cumulative_time_looking_at_pedestrians),
-            "time_looked_at_by_pedestrians": int(time_looked_at_by_pedestrians),
-            "cumulative_time_looked_at_by_pedestrians": int(cumulative_time_looked_at_by_pedestrians),
-            "num_pedestrians": peds_position.shape[0]
-        }
+            avg_velocity_in_personal_space = avg_velocity_in_personal_space,
+            total_time_in_personal_space = int(total_time_in_personal_space),
+            time_in_personal_space = time_in_personal_space,
+            total_time_looking_at_pedestrians = int(total_time_looking_at_pedestrians),
+            time_looking_at_pedestrians = time_looking_at_pedestrians,
+            total_time_looked_at_by_pedestrians = int(total_time_looked_at_by_pedestrians),
+            time_looked_at_by_pedestrians = time_looked_at_by_pedestrians,
+            num_pedestrians = peds_position.shape[1]
+        )
