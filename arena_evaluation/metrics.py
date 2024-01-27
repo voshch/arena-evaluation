@@ -416,7 +416,8 @@ class PedsimMetrics(Metrics):
 
         # time in personal space
         time = np.diff(np.array(episode["time"]), prepend=0)
-        time_in_personal_space = time[personal_space_frames[0,:]].sum()
+        time_in_personal_space = time[np.unique(personal_space_frames[0,:])].sum()
+        cumulative_time_in_personal_space = time[personal_space_frames[0,:]].sum()
 
         # v_avg in personal space
         velocity = np.array(super_analysis["velocity"])
@@ -443,11 +444,12 @@ class PedsimMetrics(Metrics):
 
         return {
             **super_analysis,
+            "avg_velocity_in_personal_space": avg_velocity_in_personal_space,
             "time_in_personal_space": int(time_in_personal_space),
+            "cumulative_time_in_personal_space": int(cumulative_time_in_personal_space),
             "time_looking_at_pedestrians": int(time_looking_at_pedestrians),
             "cumulative_time_looking_at_pedestrians": int(cumulative_time_looking_at_pedestrians),
             "time_looked_at_by_pedestrians": int(time_looked_at_by_pedestrians),
             "cumulative_time_looked_at_by_pedestrians": int(cumulative_time_looked_at_by_pedestrians),
-            "avg_velocity_in_personal_space": avg_velocity_in_personal_space,
             "num_pedestrians": peds_position.shape[0]
         }
