@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 # general packages
+import argparse
 from math import nan
 from threading import current_thread
 import time
@@ -123,16 +124,13 @@ class DataCollector:
 
 
 class Recorder:
-    def __init__(self):
+    def __init__(self, result_dir):
         self.model = rospy.get_param(os.path.join(rospy.get_namespace(), "model"), "")
 
-        self.dir = rospkg.RosPack().get_path("arena-evaluation")
-        self.result_dir = os.path.join(self.dir, "data", datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + "_" + rospy.get_namespace().replace("/", "")
+        self.base_dir = rospkg.RosPack().get_path("arena-evaluation")
+        self.result_dir = os.path.join(self.base_dir, "data", result_dir)
 
-        try:
-            os.mkdir(self.result_dir)
-        except:
-            pass
+        os.makedirs(self.result_dir, exist_ok=True)
         
         self.write_params()
 
@@ -175,12 +173,12 @@ class Recorder:
 
         self.config = self.read_config()
 
+        self.current_time = None
         self.clock_sub = rospy.Subscriber("/clock", Clock, self.clock_callback)
+        
         self.scenario_reset_sub = rospy.Subscriber("/scenario_reset", Int16, self.scenario_reset_callback)
 
-        self.current_time = None
-
-        print(rosparam.print_params("", "/"))
+        # print(rosparam.print_params("", "/"))
 
     def scenario_reset_callback(self, data: Int16):
         self.current_episode = data.data
@@ -211,7 +209,7 @@ class Recorder:
         ])
 
     def read_config(self):
-        with open(self.dir + "/data_recorder_config.yaml") as file:
+        with open(self.base_dir + "/data_recorder_config.yaml") as file:
             return yaml.safe_load(file)
 
     def get_class_for_topic_name(self, topic_name):
@@ -253,11 +251,29 @@ class Recorder:
 
 
 if __name__=="__main__":
-    rospy.init_node("data_recorder", anonymous=True) 
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dir", "-d", default="/auto")
+    parser.add_argument('args', nargs=argparse.REMAINDER) # ingore extra args
+    arguments = parser.parse_args()
+
+    directory: str = arguments.dir
+
+    AUTO_PREFIX = "auto:/"
+    PARAM_AUTO_PREFIX = "/data_recorder_autoprefix"
+
+    if directory.startswith(AUTO_PREFIX):
+
+        set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+
+        if not rospy.has_param(PARAM_AUTO_PREFIX):
+            rospy.set_param(PARAM_AUTO_PREFIX, set_prefix)
+        
+        directory = os.path.join(str(rospy.get_param(PARAM_AUTO_PREFIX, set_prefix)), directory[len(AUTO_PREFIX):])
+
+    rospy.init_node("data_recorder", anonymous=True)     
     time.sleep(5)   
 
-    Recorder()
-
+    Recorder(directory)
     rospy.spin()
 
