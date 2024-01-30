@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import seaborn as sns
 import pandas as pd
 import rospkg
@@ -9,7 +11,7 @@ import matplotlib.pyplot as plt
 import json
 import yaml
 
-from utils import Utils
+from arena_evaluation.utils import Utils
 
 """
     TODO: 
