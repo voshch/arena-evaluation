@@ -18,6 +18,7 @@ catkin_install_python(PROGRAMS
   scripts/data_recorder_node
   scripts/get_metrics
   scripts/create_plots
+  scripts/process_data
 
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

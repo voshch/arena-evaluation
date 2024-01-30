@@ -383,8 +383,8 @@ class PedsimMetrics(Metrics):
         
         return super()._load_data() + [pedsim_data]
     
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, dir: str, **kwargs):
+        super().__init__(dir=dir, **kwargs)
 
     def _analyze_episode(self, episode: pd.DataFrame, index):
 
