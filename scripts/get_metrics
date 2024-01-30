@@ -6,7 +6,7 @@ import arena_evaluation.metrics as Metrics
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", "-d")
+    parser.add_argument("dir")
     parser.add_argument("--pedsim", action="store_const", const=True, default=False)
     arguments = parser.parse_args()
 
