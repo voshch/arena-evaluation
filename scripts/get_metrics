@@ -7,10 +7,10 @@ import arena_evaluation.metrics as Metrics
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", "-d")
-    parser.add_argument("--pedsim", "-p")
+    parser.add_argument("--pedsim", action="store_const", const=True, default=False)
     arguments = parser.parse_args()
 
-    if "pedsim" in arguments:
+    if arguments.pedsim:
         metrics = Metrics.PedsimMetrics(
             dir = arguments.dir
         )
