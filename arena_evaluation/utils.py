@@ -43,6 +43,9 @@ class MultiDict(typing.Generic[T]):
     def dimensions(self) -> typing.Tuple[Dimension, ...]:
         return self._dimensions
     
+    def axis(self, dimension: Dimension) -> typing.Tuple[Index, ...]:
+        return tuple(self._dimmap[dimension].keys())
+    
     def _hash(self, point: HardPoint) -> Hash:
         return next(self._hashgen)
 

@@ -228,6 +228,8 @@ class Metrics:
 
     
     def _analyze_episode(self, episode: pd.DataFrame, index) -> Metric:
+
+        episode["time"] /= 10**10
         
         positions = np.array([frame["position"] for frame in episode["odom"]])
         velocities = np.array([frame["position"] for frame in episode["odom"]])
@@ -247,7 +249,7 @@ class Metrics:
         path_length = Math.path_length(positions)
         turn = Math.turn(positions[:,2])
 
-        time = int(list(episode["time"])[-1] - list(episode["time"])[0])
+        time = list(episode["time"])[-1] - list(episode["time"])[0]
 
         start_position = self._get_mean_position(episode, "start")
         goal_position = self._get_mean_position(episode, "goal")
@@ -343,7 +345,7 @@ class Metrics:
 
             is_collision = len(scan[scan <= lower_bound]) > 0
 
-            collisions_marker.append(int(is_collision))
+            collisions_marker.append(is_collision)
             
             if is_collision:
                 collisions.append(i)
@@ -429,11 +431,11 @@ class PedsimMetrics(Metrics):
         return PedsimMetric(
             **super_analysis,
             avg_velocity_in_personal_space = avg_velocity_in_personal_space,
-            total_time_in_personal_space = int(total_time_in_personal_space),
+            total_time_in_personal_space = total_time_in_personal_space,
             time_in_personal_space = time_in_personal_space,
-            total_time_looking_at_pedestrians = int(total_time_looking_at_pedestrians),
+            total_time_looking_at_pedestrians = total_time_looking_at_pedestrians,
             time_looking_at_pedestrians = time_looking_at_pedestrians,
-            total_time_looked_at_by_pedestrians = int(total_time_looked_at_by_pedestrians),
+            total_time_looked_at_by_pedestrians = total_time_looked_at_by_pedestrians,
             time_looked_at_by_pedestrians = time_looked_at_by_pedestrians,
             num_pedestrians = peds_position.shape[1]
         )
