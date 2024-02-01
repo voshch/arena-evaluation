@@ -417,14 +417,14 @@ class PedsimMetrics(Metrics):
         angle_robot_peds = np.squeeze(np.angle(np.array(peds_position - robot_position[:,np.newaxis]).view(np.complex128)))
 
         # time looking at pedestrians
-        robot_gaze = np.abs(Math.angle_difference(robot_direction[:,np.newaxis], angle_robot_peds))
-        looking_at_frames = robot_gaze <= Config.ROBOT_GAZE_ANGLE
+        robot_gaze = Math.angle_difference(robot_direction[:,np.newaxis], angle_robot_peds)
+        looking_at_frames = np.abs(robot_gaze) <= Config.ROBOT_GAZE_ANGLE
         total_time_looking_at_pedestrians = time[looking_at_frames.max(axis=1)].sum()
         time_looking_at_pedestrians = [time[frames].sum(axis=0).astype(np.integer) for frames in looking_at_frames.T]
         
         # time being looked at by pedestrians
         ped_gaze = Math.angle_difference(peds_direction, np.pi - angle_robot_peds)
-        looked_at_frames = ped_gaze <= Config.PEDESTRIAN_GAZE_ANGLE
+        looked_at_frames = np.abs(ped_gaze) <= Config.PEDESTRIAN_GAZE_ANGLE
         total_time_looked_at_by_pedestrians = time[looked_at_frames.max(axis=1)].sum()
         time_looked_at_by_pedestrians = [time[frames].sum(axis=0).astype(np.integer) for frames in looked_at_frames.T]
 
