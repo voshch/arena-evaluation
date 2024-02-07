@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import rospkg
 import seaborn as sns
 
-base_dir = os.path.join(rospkg.RosPack().get_path("arena-evaluation"), "plots")
+base_dir = os.path.join(rospkg.RosPack().get_path("arena_evaluation"), "plots")
 dir = base_dir
 
 def set_dir(_dir):

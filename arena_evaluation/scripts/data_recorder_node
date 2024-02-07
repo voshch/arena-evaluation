@@ -2,37 +2,31 @@
 
 # general packages
 import argparse
-from math import nan
-from threading import current_thread
 import time
 import numpy as np
 import csv
 import os
-import sys
 import math
 import re
 from rosgraph_msgs.msg import Clock
 from rospy.core import traceback
 import rostopic
 import rospkg
-import subprocess
 from datetime import datetime
-import rosparam
 import yaml
 
 # ros packages
 import rospy
 from std_msgs.msg import Int16
-from geometry_msgs.msg import Pose2D, Pose, PoseWithCovarianceStamped
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 import pedsim_msgs.msg as pedsim_msgs
+import arena_evaluation_msgs.srv as arena_evaluation_srvs
+from arena_evaluation.utils import Pedestrian
 
 # for transformations
 from tf.transformations import euler_from_quaternion
-
-from arena_evaluation.utils import Pedestrian
 
 
 class DataCollector:
@@ -127,7 +121,7 @@ class Recorder:
     def __init__(self, result_dir):
         self.model = rospy.get_param(os.path.join(rospy.get_namespace(), "model"), "")
 
-        self.base_dir = rospkg.RosPack().get_path("arena-evaluation")
+        self.base_dir = rospkg.RosPack().get_path("arena_evaluation")
         self.result_dir = os.path.join(self.base_dir, "data", result_dir)
 
         os.makedirs(self.result_dir, exist_ok=True)
@@ -253,27 +247,39 @@ class Recorder:
 if __name__=="__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", "-d", default="/auto")
+    parser.add_argument("--dir", "-d", default="auto:")
     parser.add_argument('args', nargs=argparse.REMAINDER) # ingore extra args
     arguments = parser.parse_args()
 
-    directory: str = arguments.dir
+    rospy.init_node("data_recorder", anonymous=True)
 
-    AUTO_PREFIX = "auto:/"
-    PARAM_AUTO_PREFIX = "/data_recorder_autoprefix"
+    
 
-    if directory.startswith(AUTO_PREFIX):
+    def get_directory(directory:str):
+        AUTO_PREFIX = "auto:/"
+        PARAM_AUTO_PREFIX = "/data_recorder_autoprefix"
 
-        set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+        if directory.startswith(AUTO_PREFIX):
 
-        if not rospy.has_param(PARAM_AUTO_PREFIX):
-            rospy.set_param(PARAM_AUTO_PREFIX, set_prefix)
-        
-        directory = os.path.join(str(rospy.get_param(PARAM_AUTO_PREFIX, set_prefix)), directory[len(AUTO_PREFIX):])
+            set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
-    rospy.init_node("data_recorder", anonymous=True)     
-    time.sleep(5)   
+            if not rospy.has_param(PARAM_AUTO_PREFIX):
+                rospy.set_param(PARAM_AUTO_PREFIX, set_prefix)
+            
+            directory = os.path.join(str(rospy.get_param(PARAM_AUTO_PREFIX, set_prefix)), directory[len(AUTO_PREFIX):])
 
-    Recorder(directory)
+        return directory
+
+    recorder = Recorder(get_directory(arguments.dir))
+
+    def reconfigure(directory:str):
+        global recorder
+        del recorder
+        recorder = Recorder(get_directory(directory))
+        return True
+
+    #time.sleep(5)   
+    rospy.Service("change_directory", arena_evaluation_srvs.ChangeDirectory, lambda s: reconfigure(s.data))
+
     rospy.spin()
 
