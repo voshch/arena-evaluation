@@ -427,7 +427,7 @@ class PathVisualizer:
 
     @staticmethod
     def read_map_file(map_name):
-        map_path = os.path.join(rospkg.RosPack().get_path("arena-simulation-setup"), "maps", map_name)
+        map_path = os.path.join(rospkg.RosPack().get_path("arena_simulation_setup"), "environments", "maps", map_name)
 
         with open(os.path.join(map_path, "map.yaml")) as file:
             content = yaml.safe_load(file)
