@@ -287,7 +287,7 @@ class Metrics:
 
         robot_model_params_file = os.path.join(
             rospkg.RosPack().get_path("arena_simulation_setup"),
-            "entitites",
+            "entities",
             "robots", 
             model, 
             "model_params.yaml"
