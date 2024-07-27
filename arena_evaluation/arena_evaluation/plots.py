@@ -41,7 +41,7 @@ def plot(data):
         ("time", "Time", "s"),
         ("episode", "Episode", ""),
         ("result", "Result", ""),
-        ("cmd_vel", "Velocity Command", ""),
+#        ("cmd_vel", "Velocity Command", ""),
         ("goal", "Goal", ""),
         ("start", "Start", ""),
         ("avg_velocity_in_personal_space", "Velocity in Personal Space (avg.)", "m/s"),

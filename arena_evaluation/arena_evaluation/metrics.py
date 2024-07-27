@@ -45,7 +45,7 @@ class Metric(typing.TypedDict):
     normalized_curvature: typing.List 
     roughness: typing.List
 
-    cmd_vel: typing.List
+#    cmd_vel: typing.List
     velocity: typing.List
     acceleration: typing.List
     jerk: typing.List
@@ -53,7 +53,7 @@ class Metric(typing.TypedDict):
     collision_amount: int
     collisions: typing.List
     
-    action_type: typing.List[Action]
+#    action_type: typing.List[Action]
     result: DoneReason
 
 class PedsimMetric(Metric, typing.TypedDict):
@@ -190,16 +190,22 @@ class Metrics:
             "data": lambda col: json.loads(col.replace("'", "\""))
         }).rename(columns={"data": "odom"})
 
-        cmd_vel = pd.read_csv(os.path.join(self.dir, "cmd_vel.csv"), converters={
-            "data": Utils.string_to_float_list
-        }).rename(columns={"data": "cmd_vel"})
+#        cmd_vel = pd.read_csv(os.path.join(self.dir, "cmd_vel.csv"), converters={
+#            "data": Utils.string_to_float_list
+#        }).rename(columns={"data": "cmd_vel"})
 
         start_goal = pd.read_csv(os.path.join(self.dir, "start_goal.csv"), converters={
             "start": Utils.string_to_float_list,
             "goal": Utils.string_to_float_list
         })
 
-        return [episode, laserscan, odom, cmd_vel, start_goal]
+        return [
+            episode,
+            laserscan,
+            odom,
+#            cmd_vel,
+            start_goal
+        ]
 
     def __init__(self, dir: str):
 
@@ -269,12 +275,12 @@ class Metrics:
             collisions = list(collisions),
             path = [list(p) for p in positions],
             angle_over_length = np.abs(turn.sum() / path_length.sum()),
-            action_type = list(self._get_action_type(episode["cmd_vel"])),
+#            action_type = list(self._get_action_type(episode["cmd_vel"])),
             time_diff = time, ## Ros time in ns
             time = list(map(int, episode["time"].tolist())),
             episode = index,
             result = self._get_success(time, collision_amount),
-            cmd_vel = list(map(list, episode["cmd_vel"].to_list())),
+#            cmd_vel = list(map(list, episode["cmd_vel"].to_list())),
             goal = goal_position,
             start = start_position
         )
