@@ -397,6 +397,9 @@ class PedsimMetrics(Metrics):
 
     def _analyze_episode(self, episode: pd.DataFrame, index):
 
+        max_peds = max(*(len(peds) for peds in episode['peds']), 0)
+        episode = episode.iloc[[len(peds) == max_peds for peds in episode['peds']]].copy()
+
         super_analysis = super()._analyze_episode(episode, index)
 
         robot_position = np.array([odom["position"][:2] for odom in episode["odom"]])
