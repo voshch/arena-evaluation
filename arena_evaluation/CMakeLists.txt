@@ -19,6 +19,7 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(arena_evaluation_msgs REQUIRED)
 
 # Python setup
 ament_python_install_package(${PROJECT_NAME})
@@ -35,6 +36,7 @@ set(dependencies
   sensor_msgs
   nav_msgs
   geometry_msgs
+  arena_evaluation_msgs
 )
 
 # Install Python scripts
