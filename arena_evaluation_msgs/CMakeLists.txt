@@ -1,19 +1,17 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.5)
 project(arena_evaluation_msgs)
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  rospy
-  std_msgs
-  message_generation
+# Find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+# Define the service files (message & service generation)
+# Automatically takes care of generating the necessary include directories for the messages and services
+# These directories are added to the include path as needed.
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/ChangeDirectory.srv"
 )
 
-add_service_files(FILES
-  ChangeDirectory.srv
-)
-generate_messages()
+ament_package()
 
-catkin_package(
-  CATKIN_DEPENDS message_runtime
-)
-include_directories(${catkin_INCLUDE_DIRS})
