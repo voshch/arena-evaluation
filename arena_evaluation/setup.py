@@ -1,9 +1,34 @@
-from distutils.core import setup
-from catkin_pkg.python_setup import generate_distutils_setup
+from glob import glob
+import os
 
-# fetch values from package.xml
-setup_args = generate_distutils_setup(
-    packages=['arena_evaluation']
+from setuptools import find_packages, setup
+
+package_name = 'arena_evaluation'
+
+setup(
+    name=package_name,
+    version='3.0.0',
+    packages=find_packages(include=[package_name]), # This will automatically include the 'arena_evaluation' package directory
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')), # Include non-Python files (like launch files, configuration files, or other resources) in the package's installation
+                                                                                # Include the configuration file in the install directory
+    ],                                                                          
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='Truong',
+    maintainer_email='trannamtruong98@gmail.com',
+    description='Record, evaluate, and plot navigational metrics to evaluate ROS navigation planners',
+    license='BSD',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+        # 'plots = arena_evaluation.create_plots:main',
+        # 'record = arena_evaluation.data_recorder_node:main',
+        # 'metrics = arena_evaluation.get_metrics:main',
+        # 'process = arena_evaluation.process_data:main',
+        ],
+    },
 )
-
-setup(**setup_args)
