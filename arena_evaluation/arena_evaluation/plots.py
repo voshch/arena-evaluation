@@ -2,10 +2,15 @@
 
 import os
 from matplotlib import pyplot as plt
-import rospkg
 import seaborn as sns
 
-base_dir = os.path.join(rospkg.RosPack().get_path("arena_evaluation"), "plots")
+from ament_index_python.packages import get_package_share_directory
+
+base_dir = os.path.join(
+            get_package_share_directory(
+                "arena_evaluation"), 
+                "plots")
+
 dir = base_dir
 
 def set_dir(_dir):
