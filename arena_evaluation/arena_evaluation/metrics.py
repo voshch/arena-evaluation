@@ -12,10 +12,10 @@ import pandas as pd
 import os
 from pandas.core.api import DataFrame as DataFrame
 import yaml
-import rospkg
 import json
 
 from arena_evaluation.utils import Utils
+from ament_index_python.packages import get_package_share_directory
 
 class Action(str, enum.Enum):
     STOP = "STOP"
@@ -55,21 +55,6 @@ class Metric(typing.TypedDict):
     
 #    action_type: typing.List[Action]
     result: DoneReason
-
-class PedsimMetric(Metric, typing.TypedDict):
-
-    num_pedestrians: int
-
-    avg_velocity_in_personal_space: float
-    total_time_in_personal_space: int
-    time_in_personal_space: typing.List[int]
-
-    total_time_looking_at_pedestrians: int
-    time_looking_at_pedestrians: typing.List[int]
-
-    total_time_looked_at_by_pedestrians: int
-    time_looked_at_by_pedestrians: typing.List[int]
-
 
 class Config:
     TIMEOUT_TRESHOLD = 180e9
@@ -292,11 +277,12 @@ class Metrics:
             model = content["model"]
 
         robot_model_params_file = os.path.join(
-            rospkg.RosPack().get_path("arena_simulation_setup"),
-            "entities",
-            "robots", 
-            model, 
-            "model_params.yaml"
+            get_package_share_directory(
+                "arena_simulation_setup"),
+                "entities",
+                "robots",
+                model,
+                "model_params.yaml"
         )
 
         with open(robot_model_params_file, "r") as file:
@@ -314,12 +300,6 @@ class Metrics:
         sorted_positions = dict(sorted(counter.items(), key=lambda x: x))
 
         return [float(r) for r in list(sorted_positions.keys())[0].split(":")]
-
-    def _get_position_for_collision(self, collisions, positions):
-        for i, collision in enumerate(collisions):
-            collisions[i][2] = positions[collision[0]]
-
-        return collisions
 
     def _get_success(self, time, collisions):
         if time >= Config.TIMEOUT_TRESHOLD:
@@ -380,8 +360,30 @@ class Metrics:
 
         return action_type
 
-    
-        
+    def _get_position_for_collision(self, collisions, positions):
+        for i, collision in enumerate(collisions):
+            collisions[i][2] = positions[collision[0]]
+
+        return collisions
+
+
+
+
+
+class PedsimMetric(Metric, typing.TypedDict):
+
+    num_pedestrians: int
+
+    avg_velocity_in_personal_space: float
+    total_time_in_personal_space: int
+    time_in_personal_space: typing.List[int]
+
+    total_time_looking_at_pedestrians: int
+    time_looking_at_pedestrians: typing.List[int]
+
+    total_time_looked_at_by_pedestrians: int
+    time_looked_at_by_pedestrians: typing.List[int]        
+
 class PedsimMetrics(Metrics):
 
     def _load_data(self) -> List[DataFrame]:
