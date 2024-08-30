@@ -46,7 +46,6 @@ def plot(data):
         ("time", "Time", "s"),
         ("episode", "Episode", ""),
         ("result", "Result", ""),
-#        ("cmd_vel", "Velocity Command", ""),
         ("goal", "Goal", ""),
         ("start", "Start", ""),
         ("avg_velocity_in_personal_space", "Velocity in Personal Space (avg.)", "m/s"),
@@ -57,6 +56,7 @@ def plot(data):
         ("total_time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
         ("time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
         ("num_pedestrians", "Number of Pedestrians", "")
+#        ("cmd_vel", "Velocity Command", ""),
     ):
         for kind in ('strip', 'swarm', 'box', 'violin', 'boxen', 'point', 'bar', 'count'):
             try:
@@ -78,7 +78,7 @@ def plot(data):
                 .savefig(save_path(save_name))
                 print(f"saving {save_name}")
             except Exception as e:
-                ...
+                print(f"Failed to save {save_name}: {e}")
 
             try:
                 save_name = f"{kind}: {metric} [v]"
@@ -98,4 +98,4 @@ def plot(data):
                 .savefig(save_path(save_name))
                 print(f"saving {save_name}")
             except Exception as e:
-                ...
+                print(f"Failed to save {save_name}: {e}")
