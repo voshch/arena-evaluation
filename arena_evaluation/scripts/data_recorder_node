@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
 
-# general packages
-import argparse
-import time
-import numpy as np
-import csv
 import os
-import math
 import re
-from rosgraph_msgs.msg import Clock
-from rospy.core import traceback
-import rostopic
-import rospkg
-from datetime import datetime
+import csv
+import time
 import yaml
+import math
+import argparse
+import traceback
+import numpy as np
+from datetime import datetime
 
-# ros packages
-import rospy
-from std_msgs.msg import Int16
-from geometry_msgs.msg import Twist
-from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry
-import pedsim_msgs.msg as pedsim_msgs
-import arena_evaluation_msgs.srv as arena_evaluation_srvs
-from arena_evaluation.utils import Pedestrian
-
+from std_msgs.msg       import Int16
+from nav_msgs.msg       import Odometry
+from sensor_msgs.msg    import LaserScan
+from geometry_msgs.msg  import Twist
+from rosgraph_msgs.msg  import Clock
 # for transformations
-from tf.transformations import euler_from_quaternion
+from tf_transformations import euler_from_quaternion
+
+import rclpy
+from rclpy.node                  import Node
+from rclpy.qos                   import QoSProfile
+from rclpy.qos                   import QoSDurabilityPolicy, QoSHistoryPolicy, QoSReliabilityPolicy
+from rclpy.parameter             import Parameter
+from ament_index_python.packages import get_package_share_directory
 
 
-class DataCollector:
+from arena_evaluation.utils      import Pedestrian
+import pedsim_msgs.msg           as pedsim_msgs
+import arena_evaluation_msgs.srv as arena_evaluation_srvs
+
+
+
+class DataCollector(Node):
+
     def __init__(self, topic):
+
+        super().__init__('data_collector')
+
         topic_callbacks = [
             ("scan", self.laserscan_callback),
             ("odom", self.odometry_callback),
@@ -40,61 +48,75 @@ class DataCollector:
 
         try:
             callback = lambda msg: [t[1] for t in topic_callbacks if t[0] == topic[1]][0](msg)
-        except:
+        except Exception as e:
+            self.get_logger().error(f"Error in callback setup: {e}")
             traceback.print_exc()
             return
 
         self.full_topic_name = topic[1]
         self.data = None
 
-        print(topic[0])
+        pose_qos = QoSProfile(
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
 
-        self.subscriber = rospy.Subscriber(topic[0], topic[2], callback)
+        self.get_logger().info(f"Subscribed to topic: {topic[0]}")
 
-    def episode_callback(self, msg_scenario_reset):
-        print(msg_scenario_reset)
-        
-        self.data = msg_scenario_reset.data
-
+        self.subscription = self.create_subscription(
+            topic[2],
+            topic[0],
+            callback,
+            pose_qos  
+        )
+    
     def laserscan_callback(self, msg_laserscan: LaserScan):
         self.data = [msg_laserscan.range_max if math.isnan(val) else round(val, 3) for val in msg_laserscan.ranges]
 
     def odometry_callback(self, msg_odometry: Odometry):
+
         pose3d = msg_odometry.pose.pose
         twist = msg_odometry.twist.twist
 
+        roll, pitch, yaw = euler_from_quaternion([
+            pose3d.orientation.x, 
+            pose3d.orientation.y,
+            pose3d.orientation.z,
+            pose3d.orientation.w
+        ])
+
         self.data = {
             "position": [
-                round(val, 3) for val in [
-                    pose3d.position.x,
-                    pose3d.position.y,
-                    euler_from_quaternion(
-                        [
-                            pose3d.orientation.x, 
-                            pose3d.orientation.y,
-                            pose3d.orientation.z,
-                            pose3d.orientation.w
-                        ]
-                    )[2]
-                ]
+                round(pose3d.position.x, 3),
+                round(pose3d.position.y, 3),
+                round(yaw, 3)  
             ],
             "velocity": [
-                round(val, 3) for val in [
-                    twist.linear.x,
-                    twist.linear.y,
-                    twist.angular.z
-                ]
-            ]
+                round(twist.linear.x, 3),
+                round(twist.linear.y, 3),
+                round(twist.angular.z, 3)
+            ],
         }
 
     def action_callback(self, msg_action: Twist): # variables will be written to csv whenever an action is published
         self.data = [
-            round(val, 3) for val in [
-                msg_action.linear.x,
-                msg_action.linear.y,
-                msg_action.angular.z
-            ]
+            round(msg_action.linear.x, 3),
+            round(msg_action.linear.y, 3),
+            round(msg_action.angular.z, 3)
         ]
+
+    def get_data(self):
+        return (
+            self.full_topic_name,
+            self.data 
+        )
+    
+    def episode_callback(self, msg_scenario_reset):
+        print(msg_scenario_reset)
+        
+        self.data = msg_scenario_reset.data
 
     def pedsim_callback(self, msg_pedsim: pedsim_msgs.PedsimAgentsDataframe):
         self.data = [
@@ -110,36 +132,35 @@ class DataCollector:
             in msg_pedsim.agent_states
         ]
 
-    def get_data(self):
-        return (
-            self.full_topic_name,
-            self.data 
-        )
 
+    
+class Recorder(Node):
 
-class Recorder:
     def __init__(self, result_dir):
-        self.model = rospy.get_param(os.path.join(rospy.get_namespace(), "model"), "")
 
-        self.base_dir = rospkg.RosPack().get_path("arena_evaluation")
+        super().__init__('recorder')
+
+        self.declare_parameter("data_recorder_autoprefix", "")
+        self.result_dir = self.get_directory(result_dir)
+
+        self.declare_parameter("model", "")
+        self.model = self.get_parameter("model").value                                                                          
+
+        self.base_dir = get_package_share_directory("arena_evaluation")              
         self.result_dir = os.path.join(self.base_dir, "data", result_dir)
-
         os.makedirs(self.result_dir, exist_ok=True)
         
         self.write_params()
 
         topics_to_monitor = self.get_topics_to_monitor()
-
-        topics = rostopic.get_topic_list()
-        published_topics = topics[0]
+        published_topics = [topic[0] for topic in self.get_topic_names_and_types()] # self.get_topic_names_and_types() is a list of tuples each tuple contain the topic name and a list of types
 
         topic_matcher = re.compile(f"({'|'.join([t[0] for t in topics_to_monitor])})$")
 
         topics_to_sub = []
 
-        for t in published_topics:
-            topic_name = t[0]
-
+        for topic_name in published_topics:
+            
             match = re.search(topic_matcher, topic_name)
 
             if not match: 
@@ -152,32 +173,128 @@ class Recorder:
         self.data_collectors = []
 
         for topic in topics_to_sub:
-            self.data_collectors.append(DataCollector(topic))
+            self.data_collectors.append(DataCollector(topic)) 
             self.write_data(
-                topic[1], [
-                    "time", "data"
-                ],
+                topic[1], 
+                ["time", "data"],
                 mode="w"
             )
 
         self.write_data("episode", ["time", "episode"], mode="w")
         self.write_data("start_goal", ["episode", "start", "goal"], mode="w")
 
-        self.current_episode = 0
-
         self.config = self.read_config()
 
+        self.current_episode = 0
         self.current_time = None
-        self.clock_sub = rospy.Subscriber("/clock", Clock, self.clock_callback)
+
+        self.clock_sub = self.create_subscription(
+            Clock,
+            "/clock",
+            self.clock_callback,
+            10  
+        )
         
-        self.scenario_reset_sub = rospy.Subscriber("/scenario_reset", Int16, self.scenario_reset_callback)
+        self.scenario_reset_sub = self.create_subscription(
+            Int16,
+            "/scenario_reset",
+            self.scenario_reset_callback,
+            10
+        )
+
+        # Define the service for changing directory
+        self.change_directory_service = self.create_service(
+            arena_evaluation_srvs.ChangeDirectory,
+            'change_directory',
+            self.change_directory_callback
+        )
 
         # print(rosparam.print_params("", "/"))
 
-    def scenario_reset_callback(self, data: Int16):
-        self.current_episode = data.data
+    def get_directory(self, directory: str):
+        AUTO_PREFIX = "auto:/"
+        PARAM_AUTO_PREFIX = "data_recorder_autoprefix"
+
+        if directory.startswith(AUTO_PREFIX):
+            
+            set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
+            
+            param_value = self.get_parameter(PARAM_AUTO_PREFIX).value
+            if param_value == "":
+                self.set_parameters([rclpy.parameter.Parameter(PARAM_AUTO_PREFIX, rclpy.Parameter.Type.STRING, set_prefix)])
+            else:
+                set_prefix = param_value
+
+            directory = os.path.join(str(set_prefix), directory[len(AUTO_PREFIX):])
+
+        return directory
+
+    def write_params(self):
+
+        with open(self.result_dir + "/params.yaml", "w") as file:
+
+            # Declare the parameters locally in the method
+            self.declare_parameter("map_file", "")
+            self.declare_parameter("scenario_file", "")
+            self.declare_parameter("inter_planner", "")
+            self.declare_parameter("local_planner", "")
+            self.declare_parameter("agent_name", "")
+
+            # Get the parameter values
+            map_file = self.get_parameter("map_file").value
+            scenario_file = self.get_parameter("scenario_file").value
+            inter_planner = self.get_parameter("inter_planner").value
+            local_planner = self.get_parameter("local_planner").value
+            agent_name = self.get_parameter("agent_name").value
+            namespace = self.get_namespace().strip('/')
+
+            yaml.dump({
+                "model": self.model,
+                "map_file": map_file,
+                "scenario_file": scenario_file,
+                "inter_planner": inter_planner,
+                "local_planner": local_planner,
+                "agent_name": agent_name,
+                "namespace": namespace
+            }, file)
+
+    def get_topics_to_monitor(self):
+
+        namespace = self.get_namespace().strip("/")
+
+        return [
+            (f"{namespace}/scan", LaserScan),
+            (f"{namespace}/scenario_reset", Int16),
+            (f"{namespace}/odom", Odometry),
+            (f"{namespace}/cmd_vel", Twist),
+            ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
+        ]
+    
+    def get_class_for_topic_name(self, topic_name):
+        if "/scan" in topic_name:
+            return ["scan", LaserScan]
+        if "/odom" in topic_name:
+            return ["odom", Odometry]
+        if "/cmd_vel" in topic_name:
+            return ["cmd_vel", Twist]
+        if "/pedsim_agents_data" in topic_name:
+            return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
+        
+    def write_data(self, file_name, data, mode="a"):
+        with open(f"{self.result_dir}/{file_name}.csv", mode, newline = "") as file:
+            writer = csv.writer(file, delimiter = ',')
+            writer.writerow(data)
+            file.close()
+
+    def read_config(self):
+        with open(self.base_dir + "/config" + "/data_recorder_config.yaml") as file:
+            return yaml.safe_load(file)
 
     def clock_callback(self, clock: Clock):
+
+        self.declare_parameter('start', [0.0, 0.0, 0.0])
+        self.declare_parameter('goal' , [0.0, 0.0, 0.0])
+
         current_simulation_action_time = clock.clock.secs * 10e9 + clock.clock.nsecs
 
         if not self.current_time:
@@ -198,88 +315,41 @@ class Recorder:
         self.write_data("episode", [self.current_time, self.current_episode])
         self.write_data("start_goal", [
             self.current_episode, 
-            rospy.get_param(rospy.get_namespace() + "start", [0, 0, 0]), 
-            rospy.get_param(rospy.get_namespace() + "goal", [0, 0, 0])
+            self.get_parameter('start').value, 
+            self.get_parameter('goal').value
         ])
 
-    def read_config(self):
-        with open(self.base_dir + "/data_recorder_config.yaml") as file:
-            return yaml.safe_load(file)
+    def scenario_reset_callback(self, data: Int16):
+        self.current_episode = data.data
 
-    def get_class_for_topic_name(self, topic_name):
-        if "/scan" in topic_name:
-            return ["scan", LaserScan]
-        if "/odom" in topic_name:
-            return ["odom", Odometry]
-        if "/cmd_vel" in topic_name:
-            return ["cmd_vel", Twist]
-        if "/pedsim_agents_data" in topic_name:
-            return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
-
-    def get_topics_to_monitor(self):
-        return [
-            (os.path.join(rospy.get_namespace(), "scan"), LaserScan),
-            (os.path.join(rospy.get_namespace(), "scenario_reset"), Int16),
-            (os.path.join(rospy.get_namespace(), "odom"), Odometry),
-            (os.path.join(rospy.get_namespace(), "cmd_vel"), Twist),
-            ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
-        ]
-
-    def write_data(self, file_name, data, mode="a"):
-        with open(f"{self.result_dir}/{file_name}.csv", mode, newline = "") as file:
-            writer = csv.writer(file, delimiter = ',')
-            writer.writerow(data)
-            file.close()
-    
-    def write_params(self):
-        with open(self.result_dir + "/params.yaml", "w") as file:
-            yaml.dump({
-                "model": self.model,
-                "map_file": rospy.get_param("/map_file", ""),
-                "scenario_file": rospy.get_param("/scenario_file", ""),
-                "inter_planner": rospy.get_param(rospy.get_namespace() + "inter_planner", ""),
-                "local_planner": rospy.get_param(rospy.get_namespace() + "local_planner", ""),
-                "agent_name": rospy.get_param(rospy.get_namespace() + "agent_name", ""),
-                "namespace": rospy.get_namespace().replace("/", "")
-            }, file)
+    def change_directory_callback(self, request, response): # ROS2: Change parameters and update configurations on the fly without needing to restart the node
+        new_directory = request.data
+        self.result_dir = self.get_directory(new_directory)
+        response.success = True
+        response.message = "Directory changed successfully"
+        return response    
 
 
 if __name__=="__main__":
 
+    rclpy.init()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", "-d", default="auto:")
-    parser.add_argument('args', nargs=argparse.REMAINDER) # ingore extra args
-    arguments = parser.parse_args()
+    arguments, extra_args = parser.parse_known_args() # Parse the known arguments and ignore the extra_args
 
-    rospy.init_node("data_recorder", anonymous=True)
-
+    # parser.add_argument('args', nargs=argparse.REMAINDER) # ingore extra args
+    # arguments = parser.parse_args()    
     
+    try:
+        recorder = Recorder(arguments.dir)
+        rclpy.spin(recorder)
 
-    def get_directory(directory:str):
-        AUTO_PREFIX = "auto:/"
-        PARAM_AUTO_PREFIX = "/data_recorder_autoprefix"
+    except Exception as e:
+        print(f"Exception in main: {e}")
+        traceback.print_exc()
 
-        if directory.startswith(AUTO_PREFIX):
-
-            set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-
-            if not rospy.has_param(PARAM_AUTO_PREFIX):
-                rospy.set_param(PARAM_AUTO_PREFIX, set_prefix)
-            
-            directory = os.path.join(str(rospy.get_param(PARAM_AUTO_PREFIX, set_prefix)), directory[len(AUTO_PREFIX):])
-
-        return directory
-
-    recorder = Recorder(get_directory(arguments.dir))
-
-    def reconfigure(directory:str):
-        global recorder
-        del recorder
-        recorder = Recorder(get_directory(directory))
-        return True
-
-    #time.sleep(5)   
-    rospy.Service("change_directory", arena_evaluation_srvs.ChangeDirectory, lambda s: reconfigure(s.data))
-
-    rospy.spin()
-
+    finally:
+        recorder.destroy_node()
+        rclpy.shutdown()
+    
