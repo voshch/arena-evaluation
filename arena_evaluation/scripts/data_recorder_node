@@ -59,7 +59,6 @@ class DataCollector(Node):
         pose_qos = QoSProfile(
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             reliability=QoSReliabilityPolicy.RELIABLE,
-            history=QoSHistoryPolicy.KEEP_LAST,
             depth=1,
         )
 
