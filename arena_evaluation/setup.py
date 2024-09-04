@@ -7,8 +7,8 @@ package_name = 'arena_evaluation'
 
 setup(
     name=package_name,
-    version='3.0.0',
-    packages=find_packages(include=[package_name]), # This will automatically include the 'arena_evaluation' package directory
+    version='1.0.0',
+    packages=[package_name], # This will automatically include the 'arena_evaluation' package directory
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -25,10 +25,13 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-        # 'plots = arena_evaluation.create_plots:main',
-        # 'record = arena_evaluation.data_recorder_node:main',
-        # 'metrics = arena_evaluation.get_metrics:main',
-        # 'process = arena_evaluation.process_data:main',
+        'record = arena_evaluation.data_recorder_node:main',
         ],
     },
 )
+
+
+
+        # 'plots = arena_evaluation.create_plots:main',
+        # 'metrics = arena_evaluation.get_metrics:main',
+        # 'process = arena_evaluation.process_data:main',

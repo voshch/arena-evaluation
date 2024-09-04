@@ -7,9 +7,13 @@ import time
 import yaml
 import math
 import argparse
+import threading
 import traceback
 import numpy as np
+from pathlib import Path
 from datetime import datetime
+
+import rclpy
 
 from std_msgs.msg       import Int16
 from nav_msgs.msg       import Odometry
@@ -19,31 +23,31 @@ from rosgraph_msgs.msg  import Clock
 # for transformations
 from tf_transformations import euler_from_quaternion
 
-import rclpy
 from rclpy.node                  import Node
 from rclpy.qos                   import QoSProfile
-from rclpy.qos                   import QoSDurabilityPolicy, QoSHistoryPolicy, QoSReliabilityPolicy
+from rclpy.qos                   import QoSDurabilityPolicy, QoSReliabilityPolicy
+from rclpy.time                  import Time
 from rclpy.parameter             import Parameter
+from rclpy.executors             import MultiThreadedExecutor
+from rosgraph_msgs.msg           import Clock
 from ament_index_python.packages import get_package_share_directory
 
 
-from arena_evaluation.utils      import Pedestrian
-import pedsim_msgs.msg           as pedsim_msgs
+from arena_evaluation.scripts.utils import Pedestrian
+# import pedsim_msgs.msg           as pedsim_msgs
 import arena_evaluation_msgs.srv as arena_evaluation_srvs
-
-
 
 class DataCollector(Node):
 
-    def __init__(self, topic):
+    def __init__(self, topic, unique_name):
 
-        super().__init__('data_collector')
+        super().__init__(f'data_collector{unique_name}')
 
         topic_callbacks = [
             ("scan", self.laserscan_callback),
             ("odom", self.odometry_callback),
-            ("cmd_vel", self.action_callback),
-            ("pedsim_agents_data", self.pedsim_callback)
+            ("cmd_vel", self.action_callback)
+            # ("pedsim_agents_data", self.pedsim_callback)
         ]
 
         try:
@@ -56,26 +60,25 @@ class DataCollector(Node):
         self.full_topic_name = topic[1]
         self.data = None
 
-        pose_qos = QoSProfile(
-            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            depth=1,
+        self.qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=10,
         )
-
-        self.get_logger().info(f"Subscribed to topic: {topic[0]}")
 
         self.subscription = self.create_subscription(
             topic[2],
             topic[0],
             callback,
-            pose_qos  
+            self.qos  
         )
     
     def laserscan_callback(self, msg_laserscan: LaserScan):
+
         self.data = [msg_laserscan.range_max if math.isnan(val) else round(val, 3) for val in msg_laserscan.ranges]
 
     def odometry_callback(self, msg_odometry: Odometry):
-
+        
         pose3d = msg_odometry.pose.pose
         twist = msg_odometry.twist.twist
 
@@ -100,6 +103,7 @@ class DataCollector(Node):
         }
 
     def action_callback(self, msg_action: Twist): # variables will be written to csv whenever an action is published
+
         self.data = [
             round(msg_action.linear.x, 3),
             round(msg_action.linear.y, 3),
@@ -107,46 +111,51 @@ class DataCollector(Node):
         ]
 
     def get_data(self):
+        
         return (
             self.full_topic_name,
             self.data 
         )
     
     def episode_callback(self, msg_scenario_reset):
+        
         print(msg_scenario_reset)
         
         self.data = msg_scenario_reset.data
 
-    def pedsim_callback(self, msg_pedsim: pedsim_msgs.PedsimAgentsDataframe):
-        self.data = [
-            Pedestrian(
-                id = agent.id,
-                type = agent.type,
-                social_state = agent.social_state,
-                position = [agent.pose.position.x, agent.pose.position.y],
-                theta = np.arctan2(agent.forces.force.y, agent.forces.force.x),
-                destination = [agent.destination.x, agent.destination.y]
-            )._asdict()
-            for agent
-            in msg_pedsim.agent_states
-        ]
+    # def pedsim_callback(self, msg_pedsim: pedsim_msgs.PedsimAgentsDataframe):
+    #     self.data = [
+    #         Pedestrian(
+    #             id = agent.id,
+    #             type = agent.type,
+    #             social_state = agent.social_state,
+    #             position = [agent.pose.position.x, agent.pose.position.y],
+    #             theta = np.arctan2(agent.forces.force.y, agent.forces.force.x),
+    #             destination = [agent.destination.x, agent.destination.y]
+    #         )._asdict()
+    #         for agent
+    #         in msg_pedsim.agent_states
+    #     ]
 
-
-    
 class Recorder(Node):
 
     def __init__(self, result_dir):
 
-        super().__init__('recorder')
+        super().__init__("data_recorder_node")
 
         self.declare_parameter("data_recorder_autoprefix", "")
         self.result_dir = self.get_directory(result_dir)
 
+        #print(str(result_dir))
+
         self.declare_parameter("model", "")
         self.model = self.get_parameter("model").value                                                                          
 
-        self.base_dir = get_package_share_directory("arena_evaluation")              
-        self.result_dir = os.path.join(self.base_dir, "data", result_dir)
+        #self.base_dir = get_package_share_directory("arena_evaluation")
+        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = os.path.abspath(os.path.join(current_script_dir, '..', '..', '..', 'src', 'arena', 'evaluation', 'arena_evaluation'))
+        self.result_dir = os.path.join(self.base_dir, "data", "test1")
+        #self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
         os.makedirs(self.result_dir, exist_ok=True)
         
         self.write_params()
@@ -167,12 +176,16 @@ class Recorder(Node):
 
             topics_to_sub.append([topic_name, *self.get_class_for_topic_name(topic_name)])
 
-            # topics_to_sub.append([topic_name, *[t for t in topics_to_monitor if t[0] == match.group()][0]])
-
         self.data_collectors = []
 
+        self.declare_parameter('start', [0.0, 0.0, 0.0])
+        self.declare_parameter('goal' , [0.0, 0.0, 0.0])
+
         for topic in topics_to_sub:
-            self.data_collectors.append(DataCollector(topic)) 
+            topic_name = topic[0]
+            unique_name = topic_name.replace('/', '_')
+            data_collector = DataCollector(topic, unique_name)
+            self.data_collectors.append(data_collector)
             self.write_data(
                 topic[1], 
                 ["time", "data"],
@@ -187,18 +200,24 @@ class Recorder(Node):
         self.current_episode = 0
         self.current_time = None
 
+        self.qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=10,
+        )
+
         self.clock_sub = self.create_subscription(
             Clock,
             "/clock",
             self.clock_callback,
-            10  
+            self.qos  
         )
-        
+
         self.scenario_reset_sub = self.create_subscription(
             Int16,
             "/scenario_reset",
             self.scenario_reset_callback,
-            10
+            self.qos
         )
 
         # Define the service for changing directory
@@ -208,25 +227,25 @@ class Recorder(Node):
             self.change_directory_callback
         )
 
-        # print(rosparam.print_params("", "/"))
-
     def get_directory(self, directory: str):
         AUTO_PREFIX = "auto:/"
         PARAM_AUTO_PREFIX = "data_recorder_autoprefix"
-
+    
         if directory.startswith(AUTO_PREFIX):
-            
             set_prefix = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
-            
+            print(f"Generated timestamp: {set_prefix}")
+    
             param_value = self.get_parameter(PARAM_AUTO_PREFIX).value
+    
             if param_value == "":
                 self.set_parameters([rclpy.parameter.Parameter(PARAM_AUTO_PREFIX, rclpy.Parameter.Type.STRING, set_prefix)])
             else:
                 set_prefix = param_value
-
+    
             directory = os.path.join(str(set_prefix), directory[len(AUTO_PREFIX):])
-
+    
         return directory
+
 
     def write_params(self):
 
@@ -266,7 +285,7 @@ class Recorder(Node):
             (f"{namespace}/scenario_reset", Int16),
             (f"{namespace}/odom", Odometry),
             (f"{namespace}/cmd_vel", Twist),
-            ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
+            # ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
         ]
     
     def get_class_for_topic_name(self, topic_name):
@@ -276,8 +295,8 @@ class Recorder(Node):
             return ["odom", Odometry]
         if "/cmd_vel" in topic_name:
             return ["cmd_vel", Twist]
-        if "/pedsim_agents_data" in topic_name:
-            return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
+        # if "/pedsim_agents_data" in topic_name:
+        #     return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
         
     def write_data(self, file_name, data, mode="a"):
         with open(f"{self.result_dir}/{file_name}.csv", mode, newline = "") as file:
@@ -290,11 +309,8 @@ class Recorder(Node):
             return yaml.safe_load(file)
 
     def clock_callback(self, clock: Clock):
-
-        self.declare_parameter('start', [0.0, 0.0, 0.0])
-        self.declare_parameter('goal' , [0.0, 0.0, 0.0])
-
-        current_simulation_action_time = clock.clock.secs * 10e9 + clock.clock.nsecs
+        
+        current_simulation_action_time = clock.clock.sec * 10e9 + clock.clock.nanosec
 
         if not self.current_time:
             self.current_time = current_simulation_action_time
@@ -307,6 +323,7 @@ class Recorder(Node):
         self.current_time = current_simulation_action_time
 
         for collector in self.data_collectors:
+
             topic_name, data = collector.get_data()
             
             self.write_data(topic_name, [self.current_time, data])
@@ -328,27 +345,33 @@ class Recorder(Node):
         response.message = "Directory changed successfully"
         return response    
 
-
-if __name__=="__main__":
-
-    rclpy.init()
+def main(args=None):
+    
+    rclpy.init(args=args)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", "-d", default="auto:")
+    parser.add_argument("--dir", "-d", default="auto:/")
     arguments, extra_args = parser.parse_known_args() # Parse the known arguments and ignore the extra_args
 
-    # parser.add_argument('args', nargs=argparse.REMAINDER) # ingore extra args
-    # arguments = parser.parse_args()    
-    
     try:
         recorder = Recorder(arguments.dir)
-        rclpy.spin(recorder)
+
+        executor = MultiThreadedExecutor()
+        executor.add_node(recorder)
+
+        for collector in recorder.data_collectors:
+            executor.add_node(collector)
+            print(collector)
+
+        executor.spin()
 
     except Exception as e:
         print(f"Exception in main: {e}")
         traceback.print_exc()
-
     finally:
         recorder.destroy_node()
         rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
     
