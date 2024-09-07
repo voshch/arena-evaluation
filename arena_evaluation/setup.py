@@ -8,7 +8,7 @@ package_name = 'arena_evaluation'
 setup(
     name=package_name,
     version='1.0.0',
-    packages=[package_name], # This will automatically include the 'arena_evaluation' package directory
+    packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -26,12 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
         'record = arena_evaluation.data_recorder_node:main',
+        'metrics = arena_evaluation.get_metrics:main',
         ],
     },
 )
-
-
-
-        # 'plots = arena_evaluation.create_plots:main',
-        # 'metrics = arena_evaluation.get_metrics:main',
-        # 'process = arena_evaluation.process_data:main',

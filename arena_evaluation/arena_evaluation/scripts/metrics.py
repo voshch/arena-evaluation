@@ -14,7 +14,7 @@ from pandas.core.api import DataFrame as DataFrame
 import yaml
 import json
 
-from arena_evaluation.utils import Utils
+from arena_evaluation.scripts.utils import Utils
 from ament_index_python.packages import get_package_share_directory
 
 class Action(str, enum.Enum):
@@ -163,26 +163,27 @@ class Metrics:
     _episode_data: typing.Dict[int, Metric]
 
     def _load_data(self) -> typing.List[pd.DataFrame]:
-        episode = pd.read_csv(os.path.join(self.dir, "episode.csv"), converters={
-            "data": lambda val: 0 if len(val) <= 0 else int(val) 
-        })
-
-        laserscan = pd.read_csv(os.path.join(self.dir, "scan.csv"), converters={
-            "data": Utils.string_to_float_list
-        }).rename(columns={"data": "laserscan"})
 
         odom = pd.read_csv(os.path.join(self.dir, "odom.csv"), converters={
             "data": lambda col: json.loads(col.replace("'", "\""))
         }).rename(columns={"data": "odom"})
 
-#        cmd_vel = pd.read_csv(os.path.join(self.dir, "cmd_vel.csv"), converters={
-#            "data": Utils.string_to_float_list
-#        }).rename(columns={"data": "cmd_vel"})
+        laserscan = pd.read_csv(os.path.join(self.dir, "scan.csv"), converters={
+            "data": Utils.string_to_float_list
+        }).rename(columns={"data": "laserscan"})
+
+        episode = pd.read_csv(os.path.join(self.dir, "episode.csv"), converters={
+            "data": lambda val: 0 if len(val) <= 0 else int(val) 
+        })
 
         start_goal = pd.read_csv(os.path.join(self.dir, "start_goal.csv"), converters={
             "start": Utils.string_to_float_list,
             "goal": Utils.string_to_float_list
         })
+
+#        cmd_vel = pd.read_csv(os.path.join(self.dir, "cmd_vel.csv"), converters={
+#            "data": Utils.string_to_float_list
+#        }).rename(columns={"data": "cmd_vel"})
 
         return [
             episode,
@@ -195,6 +196,7 @@ class Metrics:
     def __init__(self, dir: str):
 
         self.dir = dir
+
         self.robot_params = self._get_robot_params()
 
         data = pd.concat(self._load_data(), axis=1, join="inner")
@@ -271,22 +273,36 @@ class Metrics:
         )
     
     def _get_robot_params(self):
+
+        # print("Current working directory:", os.getcwd())
+
         with open(os.path.join(self.dir, "params.yaml")) as file:
+
             content = yaml.safe_load(file)
 
             model = content["model"]
 
+        # robot_model_params_file = os.path.join(
+        #     get_package_share_directory(
+        #         "arena_simulation_setup"),
+        #         "entities",
+        #         "robots",
+        #         model,
+        #         "model_params.yaml"
+        # )    
+
         robot_model_params_file = os.path.join(
             get_package_share_directory(
-                "arena_simulation_setup"),
-                "entities",
-                "robots",
-                model,
+                "arena_evaluation"),
+                "data",
+                self.dir,
                 "model_params.yaml"
-        )
-
+        )     
+        
         with open(robot_model_params_file, "r") as file:
-            return yaml.safe_load(file)
+            robot_model_param = yaml.safe_load(file)
+            nested = robot_model_param['/**']['ros__parameters']
+            return nested
 
     def _get_mean_position(self, episode, key):
         positions = episode[key].to_list()

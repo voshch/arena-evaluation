@@ -7,10 +7,9 @@ import time
 import yaml
 import math
 import argparse
-import threading
 import traceback
-import numpy as np
-from pathlib import Path
+import numpy  as np
+from pathlib  import Path
 from datetime import datetime
 
 import rclpy
@@ -31,7 +30,6 @@ from rclpy.parameter             import Parameter
 from rclpy.executors             import MultiThreadedExecutor
 from rosgraph_msgs.msg           import Clock
 from ament_index_python.packages import get_package_share_directory
-
 
 from arena_evaluation.scripts.utils import Pedestrian
 # import pedsim_msgs.msg           as pedsim_msgs
@@ -146,15 +144,13 @@ class Recorder(Node):
         self.declare_parameter("data_recorder_autoprefix", "")
         self.result_dir = self.get_directory(result_dir)
 
-        #print(str(result_dir))
-
         self.declare_parameter("model", "")
         self.model = self.get_parameter("model").value                                                                          
 
-        #self.base_dir = get_package_share_directory("arena_evaluation")
-        current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.base_dir = os.path.abspath(os.path.join(current_script_dir, '..', '..', '..', 'src', 'arena', 'evaluation', 'arena_evaluation'))
-        self.result_dir = os.path.join(self.base_dir, "data", "test1")
+        self.base_dir = get_package_share_directory("arena_evaluation")
+        self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
+        #current_script_dir = os.path.dirname(os.path.abspath(__file__))
+        #self.base_dir = os.path.abspath(os.path.join(current_script_dir, '..', '..', '..', 'src', 'arena', 'evaluation', 'arena_evaluation'))
         #self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
         os.makedirs(self.result_dir, exist_ok=True)
         

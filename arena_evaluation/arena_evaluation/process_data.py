@@ -11,6 +11,7 @@ import arena_evaluation.utils as utils
 import arena_evaluation.plots as plots
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument("path")
@@ -51,10 +52,7 @@ if __name__ == "__main__":
     plots.set_dir(args.output)
     plots.plot(combined_data)
 
-    
-
     # with open(os.path.join("plot_declarations", args.declaration_file)) as file:
     #     declaration_file = yaml.safe_load(file)
-
 
     # create_plots_from_declaration_file(declaration_file)
