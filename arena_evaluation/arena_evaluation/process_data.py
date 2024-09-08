@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-import argparse
-import enum
 import os
-import pandas as pd
+import enum
 import rospkg
+import argparse
+import pandas as pd
 
-import arena_evaluation.metrics as metrics
-import arena_evaluation.utils as utils
-import arena_evaluation.plots as plots
+import arena_evaluation.scripts.utils   as utils
+import arena_evaluation.scripts.plots   as plots
+import arena_evaluation.scripts.metrics as metrics
 
 if __name__ == "__main__":
 

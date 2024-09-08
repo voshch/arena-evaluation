@@ -12,8 +12,6 @@ import numpy  as np
 from pathlib  import Path
 from datetime import datetime
 
-import rclpy
-
 from std_msgs.msg       import Int16
 from nav_msgs.msg       import Odometry
 from sensor_msgs.msg    import LaserScan
@@ -22,6 +20,7 @@ from rosgraph_msgs.msg  import Clock
 # for transformations
 from tf_transformations import euler_from_quaternion
 
+import rclpy
 from rclpy.node                  import Node
 from rclpy.qos                   import QoSProfile
 from rclpy.qos                   import QoSDurabilityPolicy, QoSReliabilityPolicy
@@ -148,7 +147,7 @@ class Recorder(Node):
         self.model = self.get_parameter("model").value                                                                          
 
         self.base_dir = get_package_share_directory("arena_evaluation")
-        self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
+        self.result_dir = os.path.join(self.base_dir, "data", "self.result_dir")
         #current_script_dir = os.path.dirname(os.path.abspath(__file__))
         #self.base_dir = os.path.abspath(os.path.join(current_script_dir, '..', '..', '..', 'src', 'arena', 'evaluation', 'arena_evaluation'))
         #self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
@@ -241,7 +240,6 @@ class Recorder(Node):
             directory = os.path.join(str(set_prefix), directory[len(AUTO_PREFIX):])
     
         return directory
-
 
     def write_params(self):
 
@@ -357,7 +355,6 @@ def main(args=None):
 
         for collector in recorder.data_collectors:
             executor.add_node(collector)
-            print(collector)
 
         executor.spin()
 

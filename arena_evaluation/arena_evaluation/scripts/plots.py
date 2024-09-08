@@ -1,8 +1,8 @@
-
+#!/usr/bin/env python3
 
 import os
+import seaborn                as sns
 from matplotlib import pyplot as plt
-import seaborn as sns
 
 from ament_index_python.packages import get_package_share_directory
 

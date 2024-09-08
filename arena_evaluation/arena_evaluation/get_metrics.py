@@ -7,9 +7,9 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def main():
-    
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("dir", help="Directory where the data is stored")
+    parser.add_argument("--dir", "-d", help="Directory where the data is stored")
     parser.add_argument("--pedsim", action="store_const", const=True, default=False, help="Flag to enable Pedsim metrics")
     arguments = parser.parse_args()
 

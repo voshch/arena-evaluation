@@ -4,30 +4,30 @@ This file is used to calculate from the simulation data, various metrics, such a
 - how long did the robot take form start to goal
 the metrics / evaluation data will be saved to be preproccesed in the next step
 """
-import enum
-import typing
-from typing import List
-import numpy as np
-import pandas as pd
-import os
-from pandas.core.api import DataFrame as DataFrame
-import yaml
-import json
 
+import os
+import yaml
+import enum
+import json
+import typing
+import pandas as pd
+import numpy  as np
+
+from typing          import List
+from pandas.core.api import DataFrame as DataFrame
+
+from ament_index_python.packages    import get_package_share_directory
 from arena_evaluation.scripts.utils import Utils
-from ament_index_python.packages import get_package_share_directory
 
 class Action(str, enum.Enum):
     STOP = "STOP"
     ROTATE = "ROTATE"
     MOVE = "MOVE"
 
-
 class DoneReason(str, enum.Enum):
     TIMEOUT = "TIMEOUT"
     GOAL_REACHED = "GOAL_REACHED"
     COLLISION = "COLLISION"
-
 
 class Metric(typing.TypedDict):
 
@@ -57,6 +57,7 @@ class Metric(typing.TypedDict):
     result: DoneReason
 
 class Config:
+
     TIMEOUT_TRESHOLD = 180e9
     MAX_COLLISIONS = 3
     MIN_EPISODE_LENGTH = 5
@@ -289,15 +290,16 @@ class Metrics:
         #         "robots",
         #         model,
         #         "model_params.yaml"
-        # )    
+        # )  
 
         robot_model_params_file = os.path.join(
             get_package_share_directory(
-                "arena_evaluation"),
-                "data",
-                self.dir,
+                "simulation-setup"),
+                "entities",
+                "robots",
+                "waffle",
                 "model_params.yaml"
-        )     
+        )      
         
         with open(robot_model_params_file, "r") as file:
             robot_model_param = yaml.safe_load(file)
@@ -305,6 +307,7 @@ class Metrics:
             return nested
 
     def _get_mean_position(self, episode, key):
+
         positions = episode[key].to_list()
         counter = {}
 
@@ -318,6 +321,7 @@ class Metrics:
         return [float(r) for r in list(sorted_positions.keys())[0].split(":")]
 
     def _get_success(self, time, collisions):
+
         if time >= Config.TIMEOUT_TRESHOLD:
             return DoneReason.TIMEOUT
 
@@ -437,7 +441,6 @@ class PedsimMetrics(Metrics):
         velocity = np.array(super_analysis["velocity"])
         velocity = velocity[is_personal_space]
         avg_velocity_in_personal_space = velocity.mean() if velocity.size else 0
-
 
         # gazes
         robot_direction = np.array([odom["position"][2] for odom in episode["odom"]])
