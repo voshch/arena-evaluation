@@ -14,6 +14,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')), # Include non-Python files (like launch files, configuration files, or other resources) in the package's installation
                                                                                 # Include the configuration file in the install directory
+        (os.path.join('share', package_name, 'plots'), glob('arena_evaluation/plots/')),
+        (os.path.join('share', package_name, 'data') , glob('arena_evaluation/data/')),
     ],                                                                          
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,6 +28,7 @@ setup(
         'console_scripts': [
         'record = arena_evaluation.data_recorder_node:main',
         'metrics = arena_evaluation.get_metrics:main',
+        'process = arena_evaluation.process_data:main',
         ],
     },
 )

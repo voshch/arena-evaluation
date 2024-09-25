@@ -160,7 +160,7 @@ class Math:
 
 class Metrics:
 
-    dir: str
+    dir: str 
     _episode_data: typing.Dict[int, Metric]
 
     def _load_data(self) -> typing.List[pd.DataFrame]:
@@ -223,6 +223,9 @@ class Metrics:
     
     def _analyze_episode(self, episode: pd.DataFrame, index) -> Metric:
 
+        # Create a copy to avoid SettingWithCopyWarning
+        episode = episode.copy()
+        
         episode["time"] /= 10**10
         
         positions = np.array([frame["position"] for frame in episode["odom"]])
@@ -248,6 +251,14 @@ class Metrics:
         start_position = self._get_mean_position(episode, "start")
         goal_position = self._get_mean_position(episode, "goal")
 
+        # Handle potential division by zero
+        path_length_sum = path_length.sum()
+        turn_sum = turn.sum()
+        if path_length_sum != 0:
+            angle_over_length = np.abs(turn_sum / path_length_sum)
+        else:
+            angle_over_length = 0 
+
         # print("PATH LENGTH", path_length, path_length_per_step)
 
         return Metric(
@@ -262,7 +273,7 @@ class Metrics:
             collision_amount = collision_amount,
             collisions = list(collisions),
             path = [list(p) for p in positions],
-            angle_over_length = np.abs(turn.sum() / path_length.sum()),
+            angle_over_length = angle_over_length,
 #            action_type = list(self._get_action_type(episode["cmd_vel"])),
             time_diff = time, ## Ros time in ns
             time = list(map(int, episode["time"].tolist())),
@@ -297,7 +308,7 @@ class Metrics:
                 "simulation-setup"),
                 "entities",
                 "robots",
-                "waffle",
+                "jackal",
                 "model_params.yaml"
         )      
         

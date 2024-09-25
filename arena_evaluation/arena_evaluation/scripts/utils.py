@@ -25,6 +25,7 @@ class Utils:
     
 
 T = typing.TypeVar("T")
+
 class MultiDict(typing.Generic[T]):
 
     Hash = int
@@ -63,6 +64,17 @@ class MultiDict(typing.Generic[T]):
         self._dimensions = dimensions
         self._entries = dict()
         self._dimmap = {dimension:dict() for dimension in dimensions}
+
+    def insert(self, point: Point, value: T):
+        point = self._point(point)
+
+        hash = self._hash(point)
+
+        for dim, index in point.items():
+            self._dimmap[dim].setdefault(index, set())
+            self._dimmap[dim][index].add(hash)
+
+        self._entries[hash] = value
 
     def retrieve(self, point: Point) -> typing.Collection[T]:
         point = self._point(point)
@@ -108,13 +120,3 @@ class MultiDict(typing.Generic[T]):
             if full or len(v)
         )
 
-    def insert(self, point: Point, value: T):
-        point = self._point(point)
-
-        hash = self._hash(point)
-
-        for dim, index in point.items():
-            self._dimmap[dim].setdefault(index, set())
-            self._dimmap[dim][index].add(hash)
-
-        self._entries[hash] = value

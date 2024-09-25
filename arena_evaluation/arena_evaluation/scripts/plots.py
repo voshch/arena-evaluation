@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 
 import os
-import seaborn                as sns
-from matplotlib import pyplot as plt
+import numpy                    as np
+import seaborn                  as sns
+from   matplotlib import pyplot as plt
 
 from ament_index_python.packages import get_package_share_directory
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module='seaborn')
 
 base_dir = os.path.join(
             get_package_share_directory(
@@ -48,22 +52,23 @@ def plot(data):
         ("result", "Result", ""),
         ("goal", "Goal", ""),
         ("start", "Start", ""),
-        ("avg_velocity_in_personal_space", "Velocity in Personal Space (avg.)", "m/s"),
-        ("total_time_in_personal_space", "Time in Personal Space", "s"),
-        ("time_in_personal_space", "Time in Personal Space", "s"),
-        ("total_time_looking_at_pedestrians", "Time Looking at Pedestrians", "s"),
-        ("time_looking_at_pedestrians", "Time Looking at Pedestrians", "s"),
-        ("total_time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
-        ("time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
-        ("num_pedestrians", "Number of Pedestrians", "")
-#        ("cmd_vel", "Velocity Command", ""),
+        # ("avg_velocity_in_personal_space", "Velocity in Personal Space (avg.)", "m/s"),
+        # ("total_time_in_personal_space", "Time in Personal Space", "s"),
+        # ("time_in_personal_space", "Time in Personal Space", "s"),
+        # ("total_time_looking_at_pedestrians", "Time Looking at Pedestrians", "s"),
+        # ("time_looking_at_pedestrians", "Time Looking at Pedestrians", "s"),
+        # ("total_time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
+        # ("time_looked_at_by_pedestrians", "Time Seen by Pedestrians", "s"),
+        # ("num_pedestrians", "Number of Pedestrians", "")
+        # ("cmd_vel", "Velocity Command", ""),
     ):
-        for kind in ('strip', 'swarm', 'box', 'violin', 'boxen', 'point', 'bar', 'count'):
+        for kind in ('swarm', 'box', 'violin', 'boxen', 'point', 'bar'):
+        #for kind in ('strip', 'swarm', 'box', 'violin', 'boxen', 'point', 'bar', 'count'):
             try:
                 save_name = f"{kind}: {metric} [h]"
                 plt.close()
                 sns.catplot(
-                    data,
+                    data,  
                     y = "planner",
                     x = metric,
                     hue = "planner",
@@ -73,13 +78,12 @@ def plot(data):
                     title = title,
                     xlabel = unit,
                     ylabel = "",
-                    ylabels = []
+                    #ylabels = []
                 )\
                 .savefig(save_path(save_name))
                 print(f"saving {save_name}")
             except Exception as e:
                 print(f"Failed to save {save_name}: {e}")
-
             try:
                 save_name = f"{kind}: {metric} [v]"
                 plt.close()
@@ -87,8 +91,8 @@ def plot(data):
                     data,
                     x = "planner",
                     y = metric,
-                    #hue = "inter",
                     kind=kind,
+                    # hue = "inter",
                 )\
                 .set(
                     title = title,
