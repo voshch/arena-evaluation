@@ -152,6 +152,12 @@ class Recorder(Node):
         self.declare_parameter("model", "")
         self.model = self.get_parameter("model").value
 
+        self.declare_parameter("map_file", "")
+        self.declare_parameter("scenario_file", "")
+        self.declare_parameter("inter_planner", "")
+        self.declare_parameter("local_planner", "")
+        self.declare_parameter("agent_name", "")
+
         self.base_dir = get_package_share_directory("arena_evaluation")
         self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
         # current_script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -162,7 +168,7 @@ class Recorder(Node):
         self.write_params()
 
         topics_to_monitor = self.get_topics_to_monitor()
-        published_topics = [topic[0] for topic in self.get_topic_names_and_types()]  # self.get_topic_names_and_types() is a list of tuples each tuple contain the topic name and a list of types
+        published_topics = [t[0] for t in topics_to_monitor]
 
         topic_matcher = re.compile(f"({'|'.join([t[0] for t in topics_to_monitor])})$")
 
@@ -225,7 +231,7 @@ class Recorder(Node):
         # Define the service for changing directory
         self.change_directory_service = self.create_service(
             arena_evaluation_srvs.ChangeDirectory,
-            'change_directory',
+            '~/change_directory',
             self.change_directory_callback
         )
 
@@ -252,13 +258,6 @@ class Recorder(Node):
 
         with open(self.result_dir + "/params.yaml", "w") as file:
 
-            # Declare the parameters locally in the method
-            self.declare_parameter("map_file", "")
-            self.declare_parameter("scenario_file", "")
-            self.declare_parameter("inter_planner", "")
-            self.declare_parameter("local_planner", "")
-            self.declare_parameter("agent_name", "")
-
             # Get the parameter values
             map_file = self.get_parameter("map_file").value
             scenario_file = self.get_parameter("scenario_file").value
@@ -279,23 +278,29 @@ class Recorder(Node):
 
     def get_topics_to_monitor(self):
 
-        namespace = self.get_namespace().strip("/")
+        namespace = self.get_namespace()
 
         return [
             (f"{namespace}/scan", LaserScan),
+            (f"{namespace}/lidar", LaserScan),
             (f"{namespace}/scenario_reset", Int16),
             (f"{namespace}/odom", Odometry),
             (f"{namespace}/cmd_vel", Twist),
+            (f"{namespace}/human_states", Agents),
             # ("/pedsim_simulator/pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe)
         ]
 
     def get_class_for_topic_name(self, topic_name):
-        if "/scan" in topic_name:
+        if "/scan" in topic_name or "/lidar" in topic_name:
             return ["scan", LaserScan]
         if "/odom" in topic_name:
             return ["odom", Odometry]
         if "/cmd_vel" in topic_name:
             return ["cmd_vel", Twist]
+        if "/scenario_reset" in topic_name:
+            return ["scenario_reset", Int16]
+        if "/human_states" in topic_name:
+            return ["human_states", Agents]  # hunav topic
         # if "/pedsim_agents_data" in topic_name:
         #     return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
 
@@ -311,7 +316,7 @@ class Recorder(Node):
 
     def clock_callback(self, clock: Clock):
 
-        current_simulation_action_time = clock.clock.sec * 10e9 + clock.clock.nanosec
+        current_simulation_action_time = clock.clock.sec * int(1e9) + clock.clock.nanosec
 
         if not self.current_time:
             self.current_time = current_simulation_action_time
@@ -342,8 +347,24 @@ class Recorder(Node):
     def change_directory_callback(self, request, response):  # ROS2: Change parameters and update configurations on the fly without needing to restart the node
         new_directory = request.data
         self.result_dir = self.get_directory(new_directory)
-        response.success = True
-        response.message = "Directory changed successfully"
+        
+        # Ensure the full path is set correctly
+        self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
+        os.makedirs(self.result_dir, exist_ok=True)
+        
+        # Write fresh parameters to the new directory
+        self.write_params()
+        
+        # Reset headers for new CSV files in the new directory
+        topics_to_monitor = self.get_topics_to_monitor()
+        for topic in topics_to_monitor:
+            if (topic_class := self.get_class_for_topic_name(topic[0])) is not None:
+                self.write_data(topic_class[0], ["time", "data"], mode="w")
+        
+        self.write_data("episode", ["time", "episode"], mode="w")
+        self.write_data("start_goal", ["episode", "start", "goal"], mode="w")
+
+        response.result = True
         return response
 
 
@@ -359,6 +380,12 @@ class BagRecorder(Node):
 
         self.declare_parameter("world", "")
         self.world = self.get_parameter("world").value
+
+        self.declare_parameter("map_file", "")
+        self.declare_parameter("scenario_file", "")
+        self.declare_parameter("inter_planner", "")
+        self.declare_parameter("local_planner", "")
+        self.declare_parameter("agent_name", "")
 
         self.base_dir = get_package_share_directory("arena_evaluation")
         self.result_dir = os.path.join(self.base_dir, "data", self.result_dir)
@@ -443,7 +470,7 @@ class BagRecorder(Node):
 
         self.change_directory_service = self.create_service(
             arena_evaluation_srvs.ChangeDirectory,
-            'change_directory',
+            '~/change_directory',
             self.change_directory_callback
         )
 
@@ -467,12 +494,6 @@ class BagRecorder(Node):
         # Write runtime parameters to a YAML file (for record keeping)
         params_path = os.path.join(self.result_dir, "params.yaml")
         with open(params_path, "w") as file:
-            self.declare_parameter("map_file", "")
-            self.declare_parameter("scenario_file", "")
-            self.declare_parameter("inter_planner", "")
-            self.declare_parameter("local_planner", "")
-            self.declare_parameter("agent_name", "")
-
             map_file = self.get_parameter("map_file").value
             scenario_file = self.get_parameter("scenario_file").value
             inter_planner = self.get_parameter("inter_planner").value
@@ -481,7 +502,6 @@ class BagRecorder(Node):
             namespace = self.get_namespace().strip('/')
             yaml.dump({
                 "model": self.model,
-                "world": self.world,
                 "map_file": map_file,
                 "scenario_file": scenario_file,
                 "inter_planner": inter_planner,
@@ -497,7 +517,6 @@ class BagRecorder(Node):
             (f"{namespace}/scenario_reset", Int16),
             (f"{namespace}/odom", Odometry),
             (f"{namespace}/cmd_vel", Twist),
-            (f"{namespace}/human_states", Agents),
         ]
 
     def get_class_for_topic_name(self, topic_name: str):
@@ -507,10 +526,6 @@ class BagRecorder(Node):
             return ["odom", Odometry]
         if "/cmd_vel" in topic_name:
             return ["cmd_vel", Twist]
-        if "/scenario_reset" in topic_name:
-            return ["scenario_reset", Int16]
-        if "/human_states" in topic_name:
-            return ["human_states", Agents]  # hunav topic
         # if "/pedsim_agents_data" in topic_name:
         #     return ["pedsim_agents_data", pedsim_msgs.PedsimAgentsDataframe]
 
@@ -549,8 +564,7 @@ class BagRecorder(Node):
     def change_directory_callback(self, request, response):
         new_directory = request.data
         self.result_dir = self.get_directory(new_directory)
-        response.success = True
-        response.message = "Directory changed successfully"
+        response.result = True
         return response
 
     def read_config(self):
@@ -568,7 +582,7 @@ def main(args=None):
     arguments, extra_args = parser.parse_known_args()  # Parse the known arguments and ignore the extra_args
 
     try:
-        recorder = BagRecorder(arguments.dir)
+        recorder = Recorder(arguments.dir)
 
         executor = MultiThreadedExecutor()
         executor.add_node(recorder)

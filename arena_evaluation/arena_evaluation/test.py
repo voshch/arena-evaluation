@@ -224,7 +224,7 @@ class Recorder(Node):
         # Define the service for changing directory
         self.change_directory_service = self.create_service(
             arena_evaluation_srvs.ChangeDirectory,
-            'change_directory',
+            '~/change_directory',
             self.change_directory_callback
         )
 
@@ -341,8 +341,7 @@ class Recorder(Node):
     def change_directory_callback(self, request, response): # ROS2: Change parameters and update configurations on the fly without needing to restart the node
         new_directory = request.data
         self.result_dir = self.get_directory(new_directory)
-        response.success = True
-        response.message = "Directory changed successfully"
+        response.result = True
         return response    
 
 class BagRecorder(Node):
@@ -415,7 +414,7 @@ class BagRecorder(Node):
 
         self.change_directory_service = self.create_service(
             arena_evaluation_srvs.ChangeDirectory,
-            'change_directory',
+            '~/change_directory',
             self.change_directory_callback
         )
 
@@ -546,8 +545,7 @@ class BagRecorder(Node):
     def change_directory_callback(self, request, response):
         new_directory = request.data
         self.result_dir = self.get_directory(new_directory)
-        response.success = True
-        response.message = "Directory changed successfully"
+        response.result = True
         return response
 
     def read_config(self):

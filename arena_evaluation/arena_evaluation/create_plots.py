@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import json
 import yaml
 
-from arena_evaluation.utils import Utils
+from arena_evaluation.scripts.utils import Utils
 
 """
     TODO: 
@@ -310,7 +310,7 @@ class PathVisualizer:
     def __init__(self, scenario):
         # self.scenario_file, self.scenario_content = PathVisualizer.read_scenario_file(scenario)
 
-        self.map_name = "small_warehouse" # self.scenario_content["map"]
+        self.map_name = "map_empty" # self.scenario_content["map"]
         self.map_path, self.map_content = PathVisualizer.read_map_file(self.map_name)
 
         print(self.map_content)
@@ -427,7 +427,8 @@ class PathVisualizer:
 
     @staticmethod
     def read_map_file(map_name):
-        map_path = os.path.join(rospkg.RosPack().get_path("arena_simulation_setup"), "environments", "maps", map_name)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        map_path = os.path.abspath(os.path.join(current_dir, "../../../arena_simulation_setup/worlds", map_name, "map"))
 
         with open(os.path.join(map_path, "map.yaml")) as file:
             content = yaml.safe_load(file)

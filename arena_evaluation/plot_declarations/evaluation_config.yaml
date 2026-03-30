@@ -1,0 +1,28 @@
+show_plots: false
+save_location: "benchmark_plots"
+datasets: ["mar27_1results"]
+
+results:
+    plot: true
+    title: "Success Rate"
+    save_name: "success_rate.png"
+    differentiate: "local_planner"
+    plot_args: {}
+
+single_episode_line:
+  - data_key: "velocity"
+    episode: 0
+    title: "Robot Velocity (Episode 0)"
+    save_name: "velocity_episode_0.png"
+    differentiate: "local_planner"
+    plot_args:
+        xlabel: "Time"
+        ylabel: "Velocity"
+
+all_episodes_distribution:
+  - data_key: "path_length"
+    plot_key: "box"
+    title: "Path Length Distribution"
+    save_name: "path_length_dist.png"
+    differentiate: "local_planner"
+    plot_args: {}

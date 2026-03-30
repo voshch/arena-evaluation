@@ -62,7 +62,7 @@ class Metric(typing.TypedDict):
 
 class Config:
 
-    TIMEOUT_TRESHOLD = 180e9
+    TIMEOUT_TRESHOLD = 30e9
     MAX_COLLISIONS = 3
     MIN_EPISODE_LENGTH = 5
 
@@ -175,7 +175,11 @@ class Metrics:
             "data": lambda col: json.loads(col.replace("'", "\""))
         }).rename(columns={"data": "odom"})
 
-        laserscan = pd.read_csv(os.path.join(self.dir, "scan.csv"), converters={
+        scan_path = os.path.join(self.dir, "scan.csv")
+        if not os.path.exists(scan_path):
+            scan_path = os.path.join(self.dir, "lidar.csv")
+
+        laserscan = pd.read_csv(scan_path, converters={
             "data": Utils.string_to_float_list
         }).rename(columns={"data": "laserscan"})
 
@@ -288,28 +292,51 @@ class Metrics:
 
             model = content["model"]
 
-        # robot_model_params_file = os.path.join(
-        #     get_package_share_directory(
-        #         "arena_simulation_setup"),
-        #         "entities",
-        #         "robots",
-        #         model,
-        #         "model_params.yaml"
-        # )
+        # Try to find model_params.yaml in arena_robots or arena_simulation_setup
+        robot_model_params_file = None
+        
+        try:
+            path = os.path.join(
+                get_package_share_directory("arena_robots"),
+                "robots",
+                model,
+                "model_params.yaml"
+            )
+            if os.path.exists(path):
+                robot_model_params_file = path
+        except:
+            pass
 
-        robot_model_params_file = os.path.join(
-            get_package_share_directory(
-                "arena_simulation_setup"),
-            "entities",
-            "robots",
-            "waffle",
-            "model_params.yaml"
-        )
+        if robot_model_params_file is None:
+            try:
+                path = os.path.join(
+                    get_package_share_directory("arena_simulation_setup"),
+                    "entities",
+                    "robots",
+                    model,
+                    "model_params.yaml"
+                )
+                if os.path.exists(path):
+                    robot_model_params_file = path
+            except:
+                pass
+
+        # Fallback to waffle if still not found
+        if robot_model_params_file is None:
+            robot_model_params_file = os.path.join(
+                get_package_share_directory("arena_simulation_setup"),
+                "entities",
+                "robots",
+                "waffle",
+                "model_params.yaml"
+            )
 
         with open(robot_model_params_file, "r") as file:
             robot_model_param = yaml.safe_load(file)
-            nested = robot_model_param['/**']['ros__parameters']
-            return nested
+            # Handle potential different structures
+            if '/**' in robot_model_param:
+                return robot_model_param['/**']['ros__parameters']
+            return robot_model_param
 
     def _get_mean_position(self, episode, key):
 
@@ -355,7 +382,7 @@ class Metrics:
 
         for i, scan in enumerate(laser_scans):
 
-            is_collision = len(scan[scan <= lower_bound]) > 0
+            is_collision = len(scan[(scan <= lower_bound) & (scan > 0)]) > 0
 
             collisions_marker.append(is_collision)
 

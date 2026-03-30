@@ -14,10 +14,14 @@ class Pedestrian(typing.NamedTuple):
 class Utils:
     @staticmethod
     def string_to_float_list(d):
-        if not d:
-            return []
+        if not d or d == "[]":
+            return np.array([])
 
-        return np.array(d.replace("[", "").replace("]", "").split(r", ")).astype(float)
+        try:
+            return np.array([float(x) for x in d.strip("[]").replace(" ", "").split(",") if x])
+        except ValueError:
+            # Fallback if the format is slightly different
+            return np.array(d.replace("[", "").replace("]", "").split()).astype(float)
 
     @classmethod
     def parse_pedsim(cls, entry: str) -> typing.List[Pedestrian]:
