@@ -212,6 +212,11 @@ class DataRecorderNode(Node):
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=10,
         )
+        self.audio_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=1000,
+        )
 
         self.is_shutting_down = False
         self.episodes_recorded = 0
@@ -220,6 +225,7 @@ class DataRecorderNode(Node):
 
         self._log_info(f"Subscribing to /clock for sim time")
         self.clock_sub = self.create_subscription(Clock, "/clock", self.clock_callback, self.qos)
+        self._register_topic("/clock", Clock)
 
         self._log_info(f"Setting up topic subscriptions")
         self._setup_subscriptions()
@@ -378,7 +384,10 @@ class DataRecorderNode(Node):
         topics_dict = get_topics(namespace="", parent_namespace=env_namespace)
 
         for key, t_def in topics_dict.items():
-            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot"):
+            if key not in (
+                "episode_record", "robots_fleet", "peds", "agent_states",
+                "semantic_snapshot", "map", "door_mask", "tf", "tf_static",
+            ):
                 continue
 
             topic_name = t_def.name_template
@@ -463,6 +472,10 @@ class DataRecorderNode(Node):
             self.last_recorded_times.clear()
 
         self.current_time = new_time
+
+        # Store /clock beside audio and poses. Both the bag timestamp and the
+        # message payload are this exact simulation-time tick.
+        self._write_to_bag_at("/clock", msg, new_time)
 
         if self._pre_clock_buffer:
             self._log_info(f"Flushing {len(self._pre_clock_buffer)} pre-clock buffered messages")
@@ -557,7 +570,10 @@ class DataRecorderNode(Node):
                 topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
 
                 for key, t_def in topics_dict.items():
-                    if key in ("episode_record", "robots_fleet", "peds", "agent_states"):
+                    if key in (
+                        "episode_record", "robots_fleet", "peds", "agent_states",
+                        "semantic_snapshot", "map", "door_mask", "tf", "tf_static",
+                    ):
                         continue
 
                     topic_name = t_def.name_template
@@ -569,6 +585,8 @@ class DataRecorderNode(Node):
                     self._register_topic(topic_name, msg_type)
 
                     qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
+                    if key in ("audio_raw", "audio_rendered"):
+                        qos_profile = self.audio_qos
                     if t_def.qos_transient_local:
                         self.latched_topic_names.add(topic_name.strip('/'))
 

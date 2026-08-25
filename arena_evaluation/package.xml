@@ -17,6 +17,7 @@
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>task_generator_msgs</depend>
   <depend>arena_evaluation_msgs</depend>
   <depend>arena_simulation_setup</depend>
   <depend>hunav_msgs</depend>
