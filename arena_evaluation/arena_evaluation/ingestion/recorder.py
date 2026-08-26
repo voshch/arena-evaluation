@@ -1,65 +1,79 @@
-import argparse
-from typing import Any
+from __future__ import annotations
+
 import os
-import shutil
-import threading
-import traceback
-from datetime import datetime, timezone
-import yaml
 import pathlib
-import sys
+import shutil
 import signal
+import sys
+import threading
+from datetime import UTC, datetime
+from types import FrameType
+from typing import TYPE_CHECKING, Callable
 
 import rclpy
+import rosbag2_py
+import yaml
 from ament_index_python.packages import get_package_share_directory
+from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
-
-import rosbag2_py
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import LaserScan, JointState
-from geometry_msgs.msg import Twist, PoseStamped, PoseWithCovarianceStamped
-from nav_msgs.msg import Odometry, Path
-from tf2_msgs.msg import TFMessage
+
+if TYPE_CHECKING:
+    from arena_evaluation_msgs.srv import RecordEpisode
 
 try:
     from arena_people_msgs.msg import Pedestrians
+
     HAS_PEDESTRIANS = True
 except ImportError:
+
     class Pedestrians:
         pass
+
     HAS_PEDESTRIANS = False
 
 try:
     from arena_robots_msgs.msg import CollisionEvents
+
     HAS_COLLISION = True
 except ImportError:
+
     class CollisionEvents:
         pass
+
     HAS_COLLISION = False
 
 try:
-    from arena_robots_msgs.msg import Power, Energy
+    from arena_robots_msgs.msg import Energy, Power
+
     HAS_POWER = True
 except ImportError:
+
     class Power:
         pass
+
     class Energy:
         pass
+
     HAS_POWER = False
 
 try:
     from task_generator_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
+
     HAS_TASK_GEN = True
 except ImportError:
+
     class EpisodeRecord:
         pass
+
     class RobotFleet:
         pass
+
     HAS_TASK_GEN = False
 
 _OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
@@ -70,10 +84,9 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.FATAL,
 }
 
-import arena_evaluation_msgs.srv as arena_evaluation_srvs
 
-from .metadata import IngestionMetadata
 from ..storage.manifest import MetadataWriter
+from .metadata import IngestionMetadata
 
 
 class DataRecorderNode(Node):
@@ -98,6 +111,7 @@ class DataRecorderNode(Node):
             ("is_reference", False),
             ("reference_type", ""),
             ("episode_id_offset", 0),
+            ("workspace_dir", ""),
         ]:
             if not self.has_parameter(name):
                 try:
@@ -196,7 +210,6 @@ class DataRecorderNode(Node):
         self._pre_episode_buffer = []
         self.latched_topic_names = set()
 
-
         self.qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -223,11 +236,11 @@ class DataRecorderNode(Node):
         self._seen_episodes = set()
         self.recorded_topics: set[str] = set()
 
-        self._log_info(f"Subscribing to /clock for sim time")
+        self._log_info("Subscribing to /clock for sim time")
         self.clock_sub = self.create_subscription(Clock, "/clock", self.clock_callback, self.qos)
         self._register_topic("/clock", Clock)
 
-        self._log_info(f"Setting up topic subscriptions")
+        self._log_info("Setting up topic subscriptions")
         self._setup_subscriptions()
 
         try:
@@ -236,14 +249,11 @@ class DataRecorderNode(Node):
             RecordEpisode = None
         if RecordEpisode is not None:
             self.service_cb_group = MutuallyExclusiveCallbackGroup()
-            self._start_service = self.create_service(
-                RecordEpisode, "start_episode", self._start_episode_service_callback,
-                callback_group=self.service_cb_group
-            )
+            self._start_service = self.create_service(RecordEpisode, "start_episode", self._start_episode_service_callback, callback_group=self.service_cb_group)
             self._log_info("start_episode service ready")
         else:
             self._start_service = None
-        self._log_info(f"Topic subscriptions ready. Waiting for first episode to open MCAP writer...")
+        self._log_info("Topic subscriptions ready. Waiting for first episode to open MCAP writer...")
 
     def _open_log_file(self):
         if self.log_file is not None and not self.log_file.closed:
@@ -290,7 +300,7 @@ class DataRecorderNode(Node):
 
         mcap_config_path = os.path.join(self.base_dir, "config", "mcap_writer_options.yaml")
         if not os.path.exists(mcap_config_path):
-            self._log_warn(f"mcap_writer_options.yaml not found - recording without compression")
+            self._log_warn("mcap_writer_options.yaml not found - recording without compression")
             mcap_config_path = ""
 
         storage_options = rosbag2_py.StorageOptions(
@@ -355,13 +365,14 @@ class DataRecorderNode(Node):
                 if rosbag_meta.exists():
                     try:
                         import yaml
-                        with open(rosbag_meta, 'r') as f:
+
+                        with open(rosbag_meta) as f:
                             bag_info = yaml.safe_load(f).get("rosbag2_bagfile_information", {})
 
                         if self.current_metadata is not None:
                             self.current_metadata.rosbag2_message_count = bag_info.get("message_count")
                             self.current_metadata.rosbag2_topics = bag_info.get("topics_with_message_count")
-                            self._log_info(f"Merged rosbag2 metadata into episode metadata.")
+                            self._log_info("Merged rosbag2 metadata into episode metadata.")
 
                         rosbag_meta.unlink()
                     except Exception as e:
@@ -381,12 +392,20 @@ class DataRecorderNode(Node):
         self.subs = []
 
         from .topics import get_topics
+
         topics_dict = get_topics(namespace="", parent_namespace=env_namespace)
 
         for key, t_def in topics_dict.items():
             if key not in (
-                "episode_record", "robots_fleet", "peds", "agent_states",
-                "semantic_snapshot", "map", "door_mask", "tf", "tf_static",
+                "episode_record",
+                "robots_fleet",
+                "peds",
+                "agent_states",
+                "semantic_snapshot",
+                "map",
+                "door_mask",
+                "tf",
+                "tf_static",
             ):
                 continue
 
@@ -445,27 +464,28 @@ class DataRecorderNode(Node):
                 self._subscribe_discovered(name, Odometry)
                 if self.robot_model in ("unknown", ""):
                     for part in reversed(name.split("/")):
-                        if part and part not in ("odom", "eval_sim", "task_generator_node", "arena") \
-                                and "velocity_controller" not in part \
-                                and not part.startswith("env_"):
+                        if part and part not in ("odom", "eval_sim", "task_generator_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
                             self.robot_model = part
                             if self.current_metadata is not None:
                                 self.current_metadata.robot_model = [part]
                                 MetadataWriter.write(self.current_metadata, self.current_metadata_path)
                             break
 
-    def _subscribe_discovered(self, topic_name: str, msg_type):
+    def _subscribe_discovered(
+        self,
+        topic_name: str,
+        msg_type: type[object],
+    ) -> None:
         self._register_topic(topic_name, msg_type)
         sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
         self.subs.append(sub)
         self.get_logger().info(f"Dynamically subscribed to: {topic_name}")
 
-
     def clock_callback(self, msg: Clock):
         new_time = msg.clock.sec * int(1e9) + msg.clock.nanosec
         self._clock_received_count += 1
         if self._clock_received_count <= 5:
-            self._log_info(f"/clock tick #{self._clock_received_count}: sim_time_ns={new_time} ({new_time/1e9:.3f}s)")
+            self._log_info(f"/clock tick #{self._clock_received_count}: sim_time_ns={new_time} ({new_time / 1e9:.3f}s)")
 
         if self.current_time is not None and new_time < self.current_time:
             self._log_warn(f"Backward time jump detected: {self.current_time} -> {new_time}")
@@ -508,7 +528,11 @@ class DataRecorderNode(Node):
         self._close_current_writer()
         self._pre_episode_buffer.clear()
 
-    def _start_episode_service_callback(self, request, response):
+    def _start_episode_service_callback(
+        self,
+        request: RecordEpisode.Request,
+        response: RecordEpisode.Response,
+    ) -> RecordEpisode.Response:
         """Authoritative episode lifecycle: START opens the writer, STOP closes it."""
         episode_id = int(request.episode_id)
         command = request.command
@@ -530,10 +554,7 @@ class DataRecorderNode(Node):
     def episode_record_callback(self, msg: EpisodeRecord):
         outcome_state = msg.outcome_state
         outcome_label = _OUTCOME_LABELS.get(outcome_state, f"UNKNOWN({outcome_state})")
-        self._log_info(
-            f"EpisodeRecord received: episode_id={msg.episode_id} "
-            f"outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}"
-        )
+        self._log_info(f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}")
 
         if msg.episode_id not in self._seen_episodes and outcome_state in (0, 1):
             self._begin_episode(msg.episode_id, source="episode_record")
@@ -551,7 +572,7 @@ class DataRecorderNode(Node):
         topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
         self._write_to_bag_at(topic, msg, now)
 
-    def robots_fleet_callback(self, msg):
+    def robots_fleet_callback(self, msg: RobotFleet) -> None:
         env_namespace = self.get_namespace().strip('/')
         now = self.current_time or self.get_clock().now().nanoseconds
         topic = f"/{env_namespace}/state/robots" if env_namespace else "/state/robots"
@@ -571,8 +592,15 @@ class DataRecorderNode(Node):
 
                 for key, t_def in topics_dict.items():
                     if key in (
-                        "episode_record", "robots_fleet", "peds", "agent_states",
-                        "semantic_snapshot", "map", "door_mask", "tf", "tf_static",
+                        "episode_record",
+                        "robots_fleet",
+                        "peds",
+                        "agent_states",
+                        "semantic_snapshot",
+                        "map",
+                        "door_mask",
+                        "tf",
+                        "tf_static",
                     ):
                         continue
 
@@ -619,6 +647,7 @@ class DataRecorderNode(Node):
 
                     try:
                         from ..storage.manifest import MetadataWriter
+
                         MetadataWriter.write(self.current_metadata, self.current_metadata_path)
                     except Exception as e:
                         self.get_logger().warn(f"Failed to write episode metadata: {e}")
@@ -632,10 +661,13 @@ class DataRecorderNode(Node):
                 return float(ms)
         return float(self.freqs.get("default", 20.0))
 
-    def _create_throttled_callback(self, topic_name: str):
+    def _create_throttled_callback(
+        self,
+        topic_name: str,
+    ) -> Callable[[object], None]:
         throttle_ms = self._resolve_throttle_ms(topic_name)
 
-        def callback(msg):
+        def callback(msg: object) -> None:
             if self.current_time is None:
                 self._pre_clock_buffer.append((topic_name, msg))
                 return
@@ -644,15 +676,20 @@ class DataRecorderNode(Node):
             if (now - last_time) / 1e6 >= throttle_ms:
                 self._write_to_bag_at(topic_name, msg, now)
                 self.last_recorded_times[topic_name] = now
+
         return callback
 
-    def _create_unthrottled_callback(self, topic_name: str):
-        def callback(msg):
+    def _create_unthrottled_callback(
+        self,
+        topic_name: str,
+    ) -> Callable[[object], None]:
+        def callback(msg: object) -> None:
             if self.current_time is None:
                 self._pre_clock_buffer.append((topic_name, msg))
                 return
             now = self.current_time
             self._write_to_bag_at(topic_name, msg, now)
+
         return callback
 
     def _log_info(self, msg: str):
@@ -691,7 +728,12 @@ class DataRecorderNode(Node):
         except Exception:
             print(full_msg, flush=True)
 
-    def _write_to_bag_at(self, topic_name: str, msg, timestamp_ns: int):
+    def _write_to_bag_at(
+        self,
+        topic_name: str,
+        msg: object,
+        timestamp_ns: int,
+    ) -> None:
         if self.is_shutting_down:
             return
 
@@ -724,8 +766,11 @@ class DataRecorderNode(Node):
             except Exception as e:
                 self._log_error(f"WRITE ERROR topic={topic_name} ts={timestamp_ns} err={e}")
 
-
-    def _register_topic(self, topic_name: str, msg_type):
+    def _register_topic(
+        self,
+        topic_name: str,
+        msg_type: type[object],
+    ) -> None:
         """Pre-register a topic so we know its type string before the first message."""
         if topic_name in self._topic_registry:
             return
@@ -749,7 +794,6 @@ class DataRecorderNode(Node):
             self.writer.create_topic(self._topic_registry[topic_name])
             self.topics_metadata[strip] = self._topic_registry[topic_name]
 
-
     def _write_episode_metadata(self, episode_id: int):
         """Write initial episode_XXX.yaml for this episode."""
         metadata = IngestionMetadata.create_episode_metadata(
@@ -769,6 +813,7 @@ class DataRecorderNode(Node):
             inter_planner=self.inter_planner,
             task_generator_episode_id=self.current_sim_episode_id,
             agent_name=self.robot_model,
+            workspace_dir=str(self.get_parameter("workspace_dir").value or self.episodes_root),
         )
         try:
             MetadataWriter.write(metadata, self.current_metadata_path)
@@ -783,10 +828,8 @@ class DataRecorderNode(Node):
         if self.current_metadata is None or self.current_metadata_path is None:
             return
         try:
-            self.current_metadata.recording_ended_at = datetime.now(timezone.utc).isoformat()
-            self.current_metadata.pedsim_available = any(
-                "arena_peds" in t or "agent_states" in t for t in self.recorded_topics
-            )
+            self.current_metadata.recording_ended_at = datetime.now(UTC).isoformat()
+            self.current_metadata.pedsim_available = any("arena_peds" in t or "agent_states" in t for t in self.recorded_topics)
             self.current_metadata.recorded_topics = sorted(self.recorded_topics)
             MetadataWriter.write(self.current_metadata, self.current_metadata_path)
             self._log_info(f"Finalized episode metadata: {self.current_metadata_path}")
@@ -807,6 +850,11 @@ class DataRecorderNode(Node):
             self.current_metadata.tm_robots = msg.tm_robots
             self.current_metadata.tm_modules = list(msg.tm_modules)
 
+            self.current_metadata.task_generator_episode_id = int(msg.episode_id)
+            if int(msg.outcome_state) in _TERMINAL_OUTCOMES:
+                self.current_metadata.outcome_state = int(msg.outcome_state)
+                self.current_metadata.outcome_info = str(msg.outcome_info)
+
             obstacles_params = {p.name: self._param_value_to_py(p.value) for p in msg.obstacles_params}
             robots_params = {p.name: self._param_value_to_py(p.value) for p in msg.robots_params}
             self.current_metadata.obstacles_params = self._unflatten_dict(obstacles_params)
@@ -816,8 +864,9 @@ class DataRecorderNode(Node):
         except Exception as e:
             self._log_error(f"Failed to update episode metadata: {e}")
 
-    def _param_value_to_py(self, val):
+    def _param_value_to_py(self, val: object) -> object:
         from rcl_interfaces.msg import ParameterType
+
         mapping = {
             ParameterType.PARAMETER_BOOL: lambda v: v.bool_value,
             ParameterType.PARAMETER_INTEGER: lambda v: v.integer_value,
@@ -841,12 +890,10 @@ class DataRecorderNode(Node):
             curr[parts[-1]] = v
         return res
 
-
-
-    def read_config(self):
+    def read_config(self) -> dict[str, object]:
         config_path = os.path.join(self.base_dir, "config", "data_recorder_config.yaml")
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 return yaml.safe_load(f)
         except Exception:
             return {"record_frequencies": {"default": 20.0}}
@@ -864,20 +911,14 @@ class DataRecorderNode(Node):
             pass
 
         print(
-            f"[DataRecorder] finalize() called. "
-            f"clock_ticks={self._clock_received_count} "
-            f"writes_ok={self._write_success_count} "
-            f"writes_dropped={self._write_drop_count} "
-            f"episodes={self.episodes_recorded}",
+            f"[DataRecorder] finalize() called. clock_ticks={self._clock_received_count} writes_ok={self._write_success_count} writes_dropped={self._write_drop_count} episodes={self.episodes_recorded}",
             flush=True,
         )
         self._log_info("Finalizing recording - closing last episode writer...")
 
         self._close_current_writer()
 
-        self._log_info(
-            f"Recording finished. {self.episodes_recorded} episodes recorded to {self.episodes_root}"
-        )
+        self._log_info(f"Recording finished. {self.episodes_recorded} episodes recorded to {self.episodes_root}")
 
     def destroy_node(self):
         self.finalize()
@@ -898,12 +939,13 @@ def _bind_to_parent():
         os._exit(0)
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
     import os
 
     _bind_to_parent()
 
-    def _on_term(signum, frame):
+    def _on_term(signum: int, frame: FrameType | None) -> None:
+        del signum, frame
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, _on_term)
@@ -932,6 +974,7 @@ def main(args=None):
     except Exception as e:
         print(f"[DataRecorder] Exception in main: {e}", flush=True)
         import traceback
+
         traceback.print_exc()
         if rclpy.ok():
             rclpy.shutdown()
