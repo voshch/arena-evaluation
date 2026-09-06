@@ -1,0 +1,81 @@
+# Benchmarks robot planners against the map_empty animation smoke-test scenarios
+# (arena_simulation_setup/worlds/map_empty/scenarios/test_*), i.e. the humansim
+# gesture/animation clips from feature/animation-clean-up: beckon, collapse_to_ground,
+# shake_hand, wave_high, and the halt/point gesture-grid scene.
+#
+# Those scenario files ship with `robots: []` (they're pedestrian-animation QA
+# fixtures, not navigation tasks), so each stage pairs `tm_obstacles: scenario`
+# (loads the animator pedestrian(s) from the fixture) with `tm_robots: random`
+# (robot start/goal sampled in map_empty's free space, seeded below) rather than
+# `tm_robots: scenario`. Increase `episodes` for broader start/goal coverage of
+# each animation.
+#
+# references: true adds reference (unobstructed_robot / unhindered_peds) episodes,
+# needed by the `social` report manifest's pedestrian-disturbance normalization.
+#
+# Run:
+#   arena evaluation benchmark --suite animations --contest basic -- headless:=true env.n:=4
+# Report:
+#   arena evaluation run --benchmark-dir <run_id> --report-manifest social
+
+references: true
+stages:
+  - name: anim_beckon
+    map: map_empty
+    robot: jackal
+    tm_robots: random
+    tm_obstacles: scenario
+    episodes: 5
+    seed: 1001
+    timeout: 90s
+    config:
+      scenario:
+        file: test_beckon
+
+  - name: anim_collapse_to_ground
+    map: map_empty
+    robot: jackal
+    tm_robots: random
+    tm_obstacles: scenario
+    episodes: 5
+    seed: 1002
+    timeout: 90s
+    config:
+      scenario:
+        file: test_collapse_to_ground
+
+  - name: anim_shake_hand
+    map: map_empty
+    robot: jackal
+    tm_robots: random
+    tm_obstacles: scenario
+    episodes: 5
+    seed: 1003
+    timeout: 90s
+    config:
+      scenario:
+        file: test_shake_hand
+
+  - name: anim_wave_high
+    map: map_empty
+    robot: jackal
+    tm_robots: random
+    tm_obstacles: scenario
+    episodes: 5
+    seed: 1004
+    timeout: 90s
+    config:
+      scenario:
+        file: test_wave_high
+
+  - name: anim_halt
+    map: map_empty
+    robot: jackal
+    tm_robots: random
+    tm_obstacles: scenario
+    episodes: 5
+    seed: 1005
+    timeout: 90s
+    config:
+      scenario:
+        file: test_halt
