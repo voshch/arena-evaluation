@@ -10,6 +10,7 @@ import re
 import sys
 import time
 import shutil
+import tempfile
 import json
 import logging
 import traceback
@@ -360,12 +361,13 @@ class ProcessingPipeline:
         _ctx = self.profiler.phase("extract") if self.profiler else contextlib.nullcontext()
         with _ctx:
             if topics_dir.exists():
-                import shutil
-
                 shutil.rmtree(topics_dir)
-            reader = MCAPReader(mcap_path)
-            bundles = reader.read(map_name_fallback=ep.map)
-            TopicParquetStore.write(bundles, topics_dir, overwrite=True)
+            with tempfile.TemporaryDirectory(dir=episode_dir, prefix=".extract-") as scratch:
+                bundles = MCAPReader(mcap_path).read(pathlib.Path(scratch), map_name_fallback=ep.map)
+                TopicParquetStore.write(bundles, topics_dir, overwrite=True)
+            bundles = TopicParquetStore.read(topics_dir)
+            if bundles is None:
+                raise RuntimeError(f"no parquet written to {topics_dir}")
             return bundles
 
     def process_episode(

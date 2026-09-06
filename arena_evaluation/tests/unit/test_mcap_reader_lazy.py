@@ -93,10 +93,10 @@ def test_mcap_reader_lazy_chunking():
             mock_reader_inst._decoder_factories = [_identity_decoder_factory()]
 
             reader = MCAPReader(mcap_file)
-            bundles = reader.read()
+            bundles = reader.read(tmp_path / "raw")
             bundle = bundles["env_0"]
 
-            odom_parquet = tmp_path / "topics" / "env_0" / "odom.parquet"
+            odom_parquet = tmp_path / "raw" / "env_0" / "odom.parquet"
             assert odom_parquet.exists()
 
             assert isinstance(bundle, TopicBundle)
@@ -169,10 +169,10 @@ def test_mcap_reader_tf_gt_extraction():
             mock_reader_inst._decoder_factories = [_identity_decoder_factory()]
 
             reader = MCAPReader(mcap_file)
-            bundles = reader.read()
+            bundles = reader.read(tmp_path / "raw")
             bundle = bundles["env_0"]
 
-            tf_gt_parquet = tmp_path / "topics" / "env_0" / "tf_gt.parquet"
+            tf_gt_parquet = tmp_path / "raw" / "env_0" / "tf_gt.parquet"
             assert tf_gt_parquet.exists()
 
             assert bundle.tf_gt is not None
@@ -227,7 +227,7 @@ def test_mcap_reader_env_offset_auto_detection():
         odom_df.write_parquet(env_1_dir / "odom.parquet")
 
         reader = MCAPReader(tmp_path / "dummy.mcap")
-        bundles = reader.load_bundles(topics_dir)
+        bundles = reader.load_bundles(topics_dir, tmp_path)
         bundle = bundles["env_1"]
 
         assert bundle.tf_gt is not None

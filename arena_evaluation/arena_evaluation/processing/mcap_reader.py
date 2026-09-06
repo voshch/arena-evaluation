@@ -119,8 +119,8 @@ class MCAPReader:
                 curr[parts[-1]] = v
         return res
 
-    def read(self, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
-        """Read data source and return raw TopicBundle by robot namespace."""
+    def read(self, out_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
+        """Stream the MCAP into per-topic parquet under out_dir and return lazy TopicBundles over it."""
         if self.data_path.is_dir():
             mcap_files = sorted(list(self.data_path.glob("*.mcap")))
             if not mcap_files:
@@ -133,11 +133,7 @@ class MCAPReader:
                 raise FileNotFoundError(f"MCAP file not found: {path_item}")
 
         path = self.data_path.resolve()
-        if path.is_dir():
-            run_dir = path
-        else:
-            run_dir = path.parent
-        topics_dir = run_dir / "topics"
+        run_dir = path if path.is_dir() else path.parent
 
         def new_robot_data():
             return {
@@ -176,7 +172,7 @@ class MCAPReader:
 
         env_prefix = None
 
-        topics_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         writers = {}
         accumulated_count = 0
@@ -191,7 +187,7 @@ class MCAPReader:
                 writer_key = ("__global__", topic_name)
 
                 if writer_key not in writers:
-                    final_path = topics_dir / f"{topic_name}.parquet"
+                    final_path = out_dir / f"{topic_name}.parquet"
                     writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
                 writers[writer_key].write_batch(batch)
                 topic_data.clear()
@@ -205,7 +201,7 @@ class MCAPReader:
                     writer_key = (env_name, topic_name)
 
                     if writer_key not in writers:
-                        env_dir = topics_dir / env_name
+                        env_dir = out_dir / env_name
                         env_dir.mkdir(parents=True, exist_ok=True)
                         final_path = env_dir / f"{topic_name}.parquet"
                         writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
@@ -221,7 +217,7 @@ class MCAPReader:
                     writer_key = (robot_name, topic_name)
 
                     if writer_key not in writers:
-                        robot_dir = topics_dir / robot_name
+                        robot_dir = out_dir / robot_name
                         robot_dir.mkdir(parents=True, exist_ok=True)
                         final_path = robot_dir / f"{topic_name}.parquet"
                         writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
@@ -576,7 +572,7 @@ class MCAPReader:
             for writer in writers.values():
                 writer.close()
 
-        return self.load_bundles(topics_dir, map_name_fallback=map_name_fallback)
+        return self.load_bundles(out_dir, run_dir, map_name_fallback=map_name_fallback)
 
     @staticmethod
     def _frame_env(frame: str, default: str) -> str:
@@ -643,7 +639,7 @@ class MCAPReader:
         MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, "members", "members", value_list=list(ent.members))
 
     @staticmethod
-    def load_bundles(topics_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
+    def load_bundles(topics_dir: pathlib.Path, run_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
         # Reconstruct dict[str, TopicBundle]
         bundles = {}
 
@@ -743,7 +739,7 @@ class MCAPReader:
                 try:
                     from arena_evaluation.processing.map_registry import MapRegistry
 
-                    map_meta = MapRegistry.get_map_metadata(map_name, run_dir=topics_dir.parent)
+                    map_meta = MapRegistry.get_map_metadata(map_name, run_dir=run_dir)
                     if map_meta and "origin" in map_meta and map_meta["origin"]:
                         mx, my = float(map_meta["origin"][0]), float(map_meta["origin"][1])
                 except Exception:
