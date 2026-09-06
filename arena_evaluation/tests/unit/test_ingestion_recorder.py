@@ -120,6 +120,7 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.freqs = {"default": 20.0}
     node.qos = object()
     node.tf_qos = object()
+    node.audio_qos = object()
     node.latched_qos = object()
     node.reliable_volatile_qos = object()
     node._seen_episodes = set()
@@ -142,6 +143,7 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.episodes_requested = 0
     node.local_planner = ""
     node.inter_planner = ""
+    node.workspace_dir = ""
     node.logger = _FakeLogger()
     node.get_logger = lambda: node.logger
     for key, value in overrides.items():
@@ -234,9 +236,9 @@ def test_constructor_auto_mode_reuses_existing_autoprefix(tmp_path, fake_share, 
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 7
+    assert len(full_node.subs) == 9
     # /tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "tf_static"}
+    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
 
 
@@ -840,17 +842,17 @@ def test_robots_fleet_callback_writes_and_discovers_robots(tmp_path, monkeypatch
     assert node.robot_model == "jackal"
     assert node.current_metadata.robot_model == ["jackal"]
     write_spy.assert_called_once()
-    # 15 of the 21 per-robot topics (state/peds/tf topics skipped) + the model's controller odom and cmd_vel
-    assert node.create_subscription.call_count == 17
+    # 16 of the 25 per-robot topics (state/peds/tf/map topics skipped) + the model's controller odom and cmd_vel
+    assert node.create_subscription.call_count == 18
     assert (tmp_path / "episode_000.yaml").exists()
 
     # second sighting of the same robot: no re-subscription
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
-    assert node.create_subscription.call_count == 17
+    assert node.create_subscription.call_count == 18
 
     # a new robot triggers a new subscription wave, no controller topics for a model without model_params
     node.robots_fleet_callback(_fleet_message([("robot_1", "turtlebot3")]))
-    assert node.create_subscription.call_count == 32
+    assert node.create_subscription.call_count == 34
     assert "robot_1" in node.known_robots
     assert node.current_metadata.robot_model == ["jackal", "turtlebot3"]
 
