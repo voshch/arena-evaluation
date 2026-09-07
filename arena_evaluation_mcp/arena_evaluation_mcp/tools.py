@@ -1056,7 +1056,7 @@ def _validate_scenario(
                     min_x, max_x = mb["x"]
                     min_y, max_y = mb["y"]
 
-                    def _check_pt(pt, label):
+                    def _check_pt(pt: object, label: str) -> None:
                         if isinstance(pt, (list, tuple)) and len(pt) >= 2:
                             x, y = float(pt[0]), float(pt[1])
                             if not (min_x - 1.0 <= x <= max_x + 1.0) or not (min_y - 1.0 <= y <= max_y + 1.0):

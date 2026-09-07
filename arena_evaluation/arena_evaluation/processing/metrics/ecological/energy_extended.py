@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import typing
+
 import numpy as np
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 
 def _median_filter_window3(arr: np.ndarray) -> np.ndarray:
@@ -54,21 +54,20 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
         "friction_dissipation_j": "lower",
     }
 
-    def __init__(self, robot_params):
+    def __init__(self, robot_params: RobotParams):
         super().__init__(robot_params)
-        model = getattr(robot_params, 'model', None) if robot_params else None
-        self._rolling_resistance = self._load_rolling_resistance(model) if model else 0.015
+        self._rolling_resistance = self._load_rolling_resistance(robot_params.model)
 
     @staticmethod
     def _load_rolling_resistance(model: str) -> float:
         import os
+
         import yaml
+
         try:
             from ament_index_python.packages import get_package_share_directory
-            power_path = os.path.join(
-                get_package_share_directory("arena_robots"),
-                "robots", model, "telemetry", "power.yaml"
-            )
+
+            power_path = os.path.join(get_package_share_directory("arena_robots"), "robots", model, "telemetry", "power.yaml")
             with open(power_path) as f:
                 data = yaml.safe_load(f)
             return float(data.get("power_system", {}).get("rolling_resistance_crr", 0.015))
@@ -88,13 +87,13 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
 
     def calculate(
         self,
-        episode: "AlignedEpisodeBundle",
+        episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         if episode.data is None:
             return {k: None for k in self.output_keys()}
 
-        g = 9.81         # m/s^2
+        g = 9.81  # m/s^2
         v_thresh = 0.01  # m/s, standstill threshold
         mass = self.robot_params.mass
 
@@ -110,13 +109,7 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
         # task including static and compute overhead, not just locomotion.
         # An undeclared mass leaves it unreported rather than guessed.
         cot = None
-        if (
-            mass > 0
-            and energy_total_wh is not None
-            and path_length is not None
-            and path_length > 0.1
-            and energy_total_wh > 0
-        ):
+        if mass > 0 and energy_total_wh is not None and path_length is not None and path_length > 0.1 and energy_total_wh > 0:
             e_total_j = float(energy_total_wh) * 3600.0
             with np.errstate(divide="ignore", invalid="ignore"):
                 cot = e_total_j / (mass * g * float(path_length))
@@ -125,12 +118,7 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
         result["specific_cost_of_transport"] = float(cot) if cot is not None else None
 
         epm = None
-        if (
-            energy_total_wh is not None
-            and path_length is not None
-            and path_length > 0.1
-            and energy_total_wh > 0
-        ):
+        if energy_total_wh is not None and path_length is not None and path_length > 0.1 and energy_total_wh > 0:
             with np.errstate(divide="ignore", invalid="ignore"):
                 epm = float(energy_total_wh) / float(path_length)
                 if not np.isfinite(epm):
@@ -150,21 +138,9 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
                         pmpr = None
         result["peak_to_mean_power_ratio"] = float(pmpr) if pmpr is not None else None
 
-        vel = (
-            np.array(velocity_list, dtype=float)
-            if velocity_list is not None and len(velocity_list) > 0
-            else np.array([])
-        )
-        p_ts = (
-            np.array(power_ts, dtype=float)
-            if power_ts is not None and len(power_ts) > 0
-            else np.array([])
-        )
-        t_ts = (
-            np.array(time_ts, dtype=float)
-            if time_ts is not None and len(time_ts) > 0
-            else np.array([])
-        )
+        vel = np.array(velocity_list, dtype=float) if velocity_list is not None and len(velocity_list) > 0 else np.array([])
+        p_ts = np.array(power_ts, dtype=float) if power_ts is not None and len(power_ts) > 0 else np.array([])
+        t_ts = np.array(time_ts, dtype=float) if time_ts is not None and len(time_ts) > 0 else np.array([])
 
         lengths = [len(vel), len(p_ts), len(t_ts)]
         min_len = min(lengths) if lengths else 0
@@ -185,7 +161,7 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
                 starts = np.where(edges == 1)[0]
                 ends = np.where(edges == -1)[0]
 
-                for s, e in zip(starts, ends):
+                for s, e in zip(starts, ends, strict=True):
                     block_duration = float(np.sum(dt[s:e]))
                     if block_duration >= 0.5:  # ignore micro-jitter blocks
                         sep_wh += float(np.sum(p_ts_trim[s:e] * dt[s:e])) / 3600.0
@@ -197,7 +173,7 @@ class EnergyExtendedCalculator(BaseMetricCalculator):
         # Kinetic Energy Demand
         ked = None
         if mass > 0 and len(vel) > 1 and len(t_ts) > 1:
-            inertia = 0.5 * mass * self.robot_params.robot_radius ** 2
+            inertia = 0.5 * mass * self.robot_params.robot_radius**2
             omega = np.array(prior_results.get("angular_velocity", []), dtype=float)
             if len(omega) == 0:
                 omega = np.zeros_like(vel)

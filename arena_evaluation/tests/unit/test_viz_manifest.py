@@ -39,7 +39,6 @@ def test_available_manifests_contains_all_manifests():
         assert expected in manifests, f"Expected manifest '{expected}' in available_manifests()"
 
 
-
 def test_old_style_manifest_still_validates():
     manifest = VizManifest.model_validate({"plots": []})
     assert manifest.data_source == "metrics"
@@ -60,9 +59,6 @@ def test_characterization_manifest_loads():
     line_specs = [s for s in manifest.plots if s.type == "line"]
     assert line_specs, "characterization manifest must use line charts"
     # Curves aggregate per working point from the long per-sample frame.
-    assert any(
-        s.options.get("aggregate") for s in manifest.plots
-    )
+    assert any(s.options.get("aggregate") for s in manifest.plots)
     assert manifest.units.get("timeseries_char_power_total_w") == "W"
     assert manifest.units.get("timeseries_char_dba") == "dBA"
-

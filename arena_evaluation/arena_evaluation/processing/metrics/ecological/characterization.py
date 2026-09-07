@@ -19,8 +19,7 @@ import typing
 import polars as pl
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
-
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 logger = logging.getLogger(__name__)
 
@@ -345,14 +344,10 @@ class CharacterizationCalculator(BaseMetricCalculator):
             "timeseries_char_power_total_w": out["_p_total"].to_list(),
             "timeseries_char_power_mech_w": out["_p_mech"].to_list(),
             "timeseries_char_dba": out["_dba"].to_list(),
-            "timeseries_char_vx_achieved": out["vel_linear"].cast(pl.Float64).fill_null(0.0).to_list()
-            if "vel_linear" in out.columns else [0.0] * len(out),
-            "timeseries_char_vy_achieved": out["vel_lateral"].cast(pl.Float64).fill_null(0.0).to_list()
-            if "vel_lateral" in out.columns else [0.0] * len(out),
-            "timeseries_char_wz_achieved": out["vel_angular"].cast(pl.Float64).fill_null(0.0).to_list()
-            if "vel_angular" in out.columns else [0.0] * len(out),
-            "timeseries_char_speed_achieved": out["vel_linear"].cast(pl.Float64).abs().fill_null(0.0).to_list()
-            if "vel_linear" in out.columns else [0.0] * len(out),
+            "timeseries_char_vx_achieved": out["vel_linear"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_linear" in out.columns else [0.0] * len(out),
+            "timeseries_char_vy_achieved": out["vel_lateral"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_lateral" in out.columns else [0.0] * len(out),
+            "timeseries_char_wz_achieved": out["vel_angular"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_angular" in out.columns else [0.0] * len(out),
+            "timeseries_char_speed_achieved": out["vel_linear"].cast(pl.Float64).abs().fill_null(0.0).to_list() if "vel_linear" in out.columns else [0.0] * len(out),
             "timeseries_char_accel_achieved": accel_achieved.tolist(),
             "timeseries_char_accel_target": out["accel_target"].fill_null(0.0).to_list(),
             "timeseries_char_efficiency": eff_arr.tolist(),

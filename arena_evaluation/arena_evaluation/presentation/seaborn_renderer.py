@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import pathlib
+
 import polars as pl
+
 from arena_evaluation.storage.schemas import PlotSpec
+
 
 class SeabornRenderer:
     """Dispatches plot rendering to the correct static PNG class."""
@@ -11,17 +14,17 @@ class SeabornRenderer:
         self.generate_gifs = generate_gifs
         self.units = units or {}
         from .plot_types import (
-            ViolinRenderer,
-            BoxRenderer,
+            AcousticFieldAnimationRenderer,
+            AcousticFieldRenderer,
             BarRenderer,
-            TrajectoryRenderer,
+            BoxRenderer,
+            HeatmapRenderer,
+            HistogramRenderer,
+            LineRenderer,
             RadarRenderer,
             ScatterRenderer,
-            HistogramRenderer,
-            HeatmapRenderer,
-            LineRenderer,
-            AcousticFieldRenderer,
-            AcousticFieldAnimationRenderer,
+            TrajectoryRenderer,
+            ViolinRenderer,
         )
 
         self.renderers = {
@@ -39,6 +42,7 @@ class SeabornRenderer:
         }
 
         from .color_utils import set_global_color_palette
+
         set_global_color_palette()
 
     def render(self, spec: PlotSpec, df: pl.DataFrame, out_path: pathlib.Path, run_dir: pathlib.Path | None = None) -> None:

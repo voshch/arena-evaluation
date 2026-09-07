@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import typing
+
 import numpy as np
-import polars as pl
 from scipy.spatial.distance import cdist
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.path.theta_star import (
     compute_theta_star_for_episode,
-    compute_theta_star_path,
 )
-
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
@@ -87,7 +85,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
 
     def calculate(
         self,
-        episode: "AlignedEpisodeBundle",
+        episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         del prior_results
@@ -141,7 +139,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
                             ped_series[p_idx] = []
                         ped_series[p_idx].append((float(rpx[i]), float(rpy[i]), float(parsed[p_idx, 0]), float(parsed[p_idx, 1])))
 
-                for p_idx, samples in ped_series.items():
+                for samples in ped_series.values():
                     if len(samples) > 1:
                         s_arr = np.array(samples)
                         rel_x = s_arr[:, 0] - s_arr[:, 2]
@@ -178,14 +176,14 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
 
             # Final Displacement Error (FDE) vs goal or reference end
             if goal_pt:
-                fde = np.sqrt((pos_x[-1] - goal_pt[0])**2 + (pos_y[-1] - goal_pt[1])**2)
+                fde = np.sqrt((pos_x[-1] - goal_pt[0]) ** 2 + (pos_y[-1] - goal_pt[1]) ** 2)
             else:
-                fde = np.sqrt((pos_x[-1] - ref_x[-1])**2 + (pos_y[-1] - ref_y[-1])**2)
+                fde = np.sqrt((pos_x[-1] - ref_x[-1]) ** 2 + (pos_y[-1] - ref_y[-1]) ** 2)
             results["fde"] = float(fde)
 
             # Average Displacement Error (ADE) via arc-length parameterization
-            curr_dist = np.insert(np.cumsum(np.sqrt(np.diff(pos_x)**2 + np.diff(pos_y)**2)), 0, 0)
-            ref_dist = np.insert(np.cumsum(np.sqrt(np.diff(ref_x)**2 + np.diff(ref_y)**2)), 0, 0)
+            curr_dist = np.insert(np.cumsum(np.sqrt(np.diff(pos_x) ** 2 + np.diff(pos_y) ** 2)), 0, 0)
+            ref_dist = np.insert(np.cumsum(np.sqrt(np.diff(ref_x) ** 2 + np.diff(ref_y) ** 2)), 0, 0)
 
             if curr_dist[-1] > 0 and ref_dist[-1] > 0:
                 curr_frac = curr_dist / curr_dist[-1]
@@ -194,7 +192,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
                 interp_ref_x = np.interp(curr_frac, ref_frac, ref_x)
                 interp_ref_y = np.interp(curr_frac, ref_frac, ref_y)
 
-                ade = np.mean(np.sqrt((pos_x - interp_ref_x)**2 + (pos_y - interp_ref_y)**2))
+                ade = np.mean(np.sqrt((pos_x - interp_ref_x) ** 2 + (pos_y - interp_ref_y) ** 2))
                 results["ade"] = float(ade)
 
             # Modified Hausdorff Distance (MHD) on 100% full-resolution paths via cKDTree (sub-millisecond O(N log M))
@@ -203,6 +201,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
 
             try:
                 from scipy.spatial import cKDTree
+
                 tree_robot = cKDTree(pts_robot)
                 tree_ref = cKDTree(pts_ref)
                 d_r2ref, _ = tree_ref.query(pts_robot, k=1)
@@ -228,6 +227,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
 
             try:
                 from dtaidistance import dtw_ndim
+
                 adtw = dtw_ndim.distance(pts_r_sub, pts_ref_sub)
                 results["adtw"] = float(adtw)
             except Exception:
@@ -253,8 +253,8 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         elif goal_pt:
             # Fallback when map or Theta* solver is unavailable: use Euclidean straight line
             if len(pos_x) > 0:
-                results["fde"] = float(np.sqrt((pos_x[-1] - goal_pt[0])**2 + (pos_y[-1] - goal_pt[1])**2))
-            eucl_len = float(np.sqrt((goal_pt[0] - start_pt[0])**2 + (goal_pt[1] - start_pt[1])**2)) if start_pt else 0.0
+                results["fde"] = float(np.sqrt((pos_x[-1] - goal_pt[0]) ** 2 + (pos_y[-1] - goal_pt[1]) ** 2))
+            eucl_len = float(np.sqrt((goal_pt[0] - start_pt[0]) ** 2 + (goal_pt[1] - start_pt[1]) ** 2)) if start_pt else 0.0
             results["theta_star_length"] = eucl_len
 
         return results

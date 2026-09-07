@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 import typing
+
 import numpy as np
 import polars as pl
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
@@ -86,11 +87,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
                 .sort("time_ns")
             )
             scan_min_arr = joined["scan_min"].to_numpy()
-            scan_max_arr = (
-                joined["scan_range_max"].to_numpy()
-                if "scan_range_max" in joined.columns
-                else None
-            )
+            scan_max_arr = joined["scan_range_max"].to_numpy() if "scan_range_max" in joined.columns else None
 
         peds_positions_list = None
         num_peds_col = None
@@ -121,17 +118,8 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
             obs_clear = None
             if scan_min_arr is not None and i < len(scan_min_arr):
                 sm = scan_min_arr[i]
-                if (
-                    sm is not None
-                    and not np.isnan(sm)
-                    and not np.isinf(sm)
-                    and sm > 0
-                ):
-                    r_max = (
-                        scan_max_arr[i]
-                        if scan_max_arr is not None and i < len(scan_max_arr)
-                        else None
-                    )
+                if sm is not None and not np.isnan(sm) and not np.isinf(sm) and sm > 0:
+                    r_max = scan_max_arr[i] if scan_max_arr is not None and i < len(scan_max_arr) else None
                     # At or beyond max range means nothing was detected
                     if r_max is None or np.isnan(r_max) or sm < float(r_max) - 1e-6:
                         obs_clear = max(0.0, float(sm) - robot_radius)

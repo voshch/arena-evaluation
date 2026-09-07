@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import polars as pl
 from typing import TYPE_CHECKING
 
-from arena_evaluation.storage.planner_names import split_planner_name
+import polars as pl
 
 if TYPE_CHECKING:
     from arena_evaluation.storage.schemas import PlotSpec
@@ -12,7 +11,6 @@ if TYPE_CHECKING:
 IDENTITY_COLS: list[str] = ["local_planner", "inter_planner", "robot", "stage", "map", "benchmark_id"]
 
 COMPOUND_LABEL_COL = "__label__"
-
 
 
 def detect_varying_dims(df: pl.DataFrame) -> list[str]:
@@ -40,7 +38,7 @@ def build_label_column(df: pl.DataFrame, dims: list[str]) -> pl.DataFrame:
     return df.with_columns(label_expr.alias(COMPOUND_LABEL_COL))
 
 
-def resolve_differentiate(spec: "PlotSpec", df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
+def resolve_differentiate(spec: PlotSpec, df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
     """Determine the effective differentiation column for spec given df."""
     auto = spec.auto_differentiate
     requested = spec.differentiate

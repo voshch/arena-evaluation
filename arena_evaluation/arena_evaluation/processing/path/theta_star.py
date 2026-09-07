@@ -10,7 +10,7 @@ import heapq
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, List, Optional
+
 import numpy as np
 from PIL import Image
 from scipy.ndimage import binary_dilation
@@ -61,8 +61,7 @@ def _line_of_sight(
             error += dx
         else:
             # Diagonal step: check both adjacent cells to prevent corner cutting
-            if (0 <= y < h and 0 <= x + x_inc < w and grid[y, x + x_inc]) or \
-               (0 <= y + y_inc < h and 0 <= x < w and grid[y + y_inc, x]):
+            if (0 <= y < h and 0 <= x + x_inc < w and grid[y, x + x_inc]) or (0 <= y + y_inc < h and 0 <= x < w and grid[y + y_inc, x]):
                 return False
             x += x_inc
             y += y_inc
@@ -71,12 +70,11 @@ def _line_of_sight(
 
 
 import ctypes
-import os
 
 _c_lib = None
 
 
-def _get_c_solver():
+def _get_c_solver() -> ctypes.CDLL | None:
     global _c_lib
     if _c_lib is not None:
         return _c_lib
@@ -86,6 +84,7 @@ def _get_c_solver():
         cpp_path = Path(__file__).parent / "solver.cpp"
         if cpp_path.exists():
             import subprocess
+
             try:
                 subprocess.run(
                     ["g++", "-O3", "-shared", "-fPIC", "-std=c++17", str(cpp_path), "-o", str(so_path)],
@@ -153,7 +152,7 @@ class GeometricThetaStar:
 
         r_px = int(math.ceil(self.robot_radius / self.resolution))
         if r_px > 0:
-            y, x = np.ogrid[-r_px:r_px + 1, -r_px:r_px + 1]
+            y, x = np.ogrid[-r_px : r_px + 1, -r_px : r_px + 1]
             struct = (x * x + y * y) <= (r_px * r_px)
             self.dilated_grid = binary_dilation(raw_obstacle, structure=struct)
         else:
@@ -193,8 +192,7 @@ class GeometricThetaStar:
         goal_gx, goal_gy = self.world_to_grid(goal_world[0], goal_world[1])
 
         # Bounds check
-        if not (0 <= start_gx < self.width and 0 <= start_gy < self.height and
-                0 <= goal_gx < self.width and 0 <= goal_gy < self.height):
+        if not (0 <= start_gx < self.width and 0 <= start_gy < self.height and 0 <= goal_gx < self.width and 0 <= goal_gy < self.height):
             dist = math.hypot(goal_world[0] - start_world[0], goal_world[1] - start_world[1])
             res = (np.array([start_world, goal_world], dtype=np.float64), dist)
             self._cache[cache_key] = res
@@ -265,10 +263,7 @@ class GeometricThetaStar:
         heapq.heappush(open_set, (h(start), 0.0, start))
         closed_set: set[tuple[int, int]] = set()
 
-        neighbors = [
-            (1, 0), (-1, 0), (0, 1), (0, -1),
-            (1, 1), (1, -1), (-1, 1), (-1, -1)
-        ]
+        neighbors = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
 
         found = False
         max_iters = max(self.width * self.height * 2, 10000)
@@ -401,6 +396,7 @@ def compute_theta_star_for_episode(
     if solver_key not in _solver_instances:
         try:
             from arena_evaluation.processing.map_registry import MapRegistry
+
             map_info = MapRegistry.get_map(map_name, run_dir=run_dir)
             if map_info and "png_path" in map_info and Path(map_info["png_path"]).exists():
                 png_path = map_info["png_path"]

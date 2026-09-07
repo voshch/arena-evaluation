@@ -7,6 +7,7 @@ matching, and the per-pixel TL assembly (walls 47 dB / doors 25 dB / open 0 dB).
 All world.yaml files are synthesized in tmp_path; the module's `pathlib.Path`
 binding is remapped when the absolute ws_root candidates must be exercised.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -55,8 +56,7 @@ def _install_fake_ament(monkeypatch, tmp_path: pathlib.Path, *, raise_error: boo
     monkeypatch.setitem(sys.modules, "ament_index_python.packages", pkg)
 
 
-def _door(name=None, start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding",
-          tl_db=None, coords_as_dict=True) -> dict:
+def _door(name=None, start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding", tl_db=None, coords_as_dict=True) -> dict:
     d: dict = {"width": width, "kind": kind}
     if name is not None:
         d["name"] = name
@@ -71,8 +71,7 @@ def _door(name=None, start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding"
     return d
 
 
-def _write_world(base: pathlib.Path, *, levels: dict | None = None, flat: dict | None = None,
-                 corrupt: bool = False) -> pathlib.Path:
+def _write_world(base: pathlib.Path, *, levels: dict | None = None, flat: dict | None = None, corrupt: bool = False) -> pathlib.Path:
     base.mkdir(parents=True, exist_ok=True)
     path = base / "world.yaml"
     if corrupt:
@@ -96,16 +95,14 @@ def _wall_grid(height: int = 20, width: int = 30, wall_rows=(5, 12)) -> np.ndarr
 
 def _levels_world(door_lists: list[list[dict]], level_names=None) -> dict:
     level_names = level_names or [f"level_{i}" for i in range(len(door_lists))]
-    levels = {
-        name: {"zones": [{"doors": doors}]}
-        for name, doors in zip(level_names, door_lists)
-    }
+    levels = {name: {"zones": [{"doors": doors}]} for name, doors in zip(level_names, door_lists)}
     return levels
 
 
 # ---------------------------------------------------------------------------
 # _bresenham_line
 # ---------------------------------------------------------------------------
+
 
 def test_bresenham_horizontal():
     assert _bresenham_line(0, 0, 4, 0) == [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]
@@ -155,6 +152,7 @@ def test_bresenham_properties(x0, y0, x1, y1):
 # _find_world_yaml
 # ---------------------------------------------------------------------------
 
+
 def test_find_world_yaml_run_dir_zero_subdir_preferred(tmp_path):
     run = tmp_path / "run"
     deep = _write_world(run / "worlds" / "m1" / "0", flat={"name": "deep"})
@@ -187,9 +185,7 @@ def test_find_world_yaml_ws_root_fallback(tmp_path, monkeypatch):
 
 def test_find_world_yaml_ws_root_zero_subdir(tmp_path, monkeypatch):
     _remap_pathlib(monkeypatch, tmp_path)
-    ws_world = _write_world(
-        tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m5" / "0", flat={}
-    )
+    ws_world = _write_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m5" / "0", flat={})
     assert _find_world_yaml("m5", run_dir=None) == ws_world
 
 
@@ -210,6 +206,7 @@ def test_load_world_yaml_cached(tmp_path):
 # ---------------------------------------------------------------------------
 # door_segments
 # ---------------------------------------------------------------------------
+
 
 def test_door_segments_no_world_yaml(tmp_path):
     assert door_segments("ae_nonesuch_map", _wall_grid(), 0.05, (0.0, 0.0, 0.0)) == {}
@@ -328,6 +325,7 @@ def test_door_segments_missing_start_end_default_to_origin(tmp_path):
 # _entity_matches_door
 # ---------------------------------------------------------------------------
 
+
 def test_entity_matches_door_exact():
     assert _entity_matches_door("world/d1", "world/d1")
 
@@ -354,6 +352,7 @@ def test_entity_matches_door_no_match():
 # ---------------------------------------------------------------------------
 # build_pixel_tl
 # ---------------------------------------------------------------------------
+
 
 def test_build_pixel_tl_baseline():
     grid = _wall_grid()
@@ -494,4 +493,3 @@ def test_door_segments_and_build_pixel_tl_integration(tmp_path):
     assert np.all(opened[mask] == 0.0)
     # neighbours beyond the door remain wall-blocked
     assert np.all(opened[5, 0:10] == 47.0)
-

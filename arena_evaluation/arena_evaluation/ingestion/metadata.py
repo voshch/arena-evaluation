@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
-import sys
 import datetime
+import os
 import subprocess
+import sys
 
-from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.planner_names import split_planner_name
 from arena_evaluation.storage.schemas import RunMetadata
 
@@ -16,13 +15,7 @@ class IngestionMetadata:
     @staticmethod
     def get_git_sha(workspace_dir: str) -> str | None:
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], 
-                cwd=workspace_dir, 
-                capture_output=True, 
-                text=True, 
-                check=True
-            )
+            result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workspace_dir, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except Exception:
             return None
@@ -30,13 +23,7 @@ class IngestionMetadata:
     @staticmethod
     def is_git_dirty(workspace_dir: str) -> bool:
         try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"], 
-                cwd=workspace_dir, 
-                capture_output=True, 
-                text=True, 
-                check=True
-            )
+            result = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_dir, capture_output=True, text=True, check=True)
             return len(result.stdout.strip()) > 0
         except Exception:
             return False
@@ -78,7 +65,7 @@ class IngestionMetadata:
             inter_planner=inter_planner if inter_planner else fallback_ip,
             agent_name=agent_name,
             task_generator_episode_id=task_generator_episode_id,
-            recording_started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            recording_started_at=datetime.datetime.now(datetime.UTC).isoformat(),
             arena_git_sha=IngestionMetadata.get_git_sha(workspace_dir),
             arena_git_dirty=IngestionMetadata.is_git_dirty(workspace_dir),
             python_version=sys.version.split()[0],
@@ -87,5 +74,3 @@ class IngestionMetadata:
             is_reference=is_reference,
             reference_type=reference_type,
         )
-
-

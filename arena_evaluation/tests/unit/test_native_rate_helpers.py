@@ -43,18 +43,22 @@ def test_native_topics_absent_is_empty_dict(probe):
 
 def test_resolve_native_pose_prefers_tf_gt(probe):
     topics = {
-        "odom": pl.DataFrame({
-            "time_ns": [0, SEC],
-            "pos_x": [0.0, 1.0],
-            "pos_y": [0.0, 0.0],
-            "yaw": [0.0, 0.0],
-        }),
-        "tf_gt": pl.DataFrame({
-            "time_ns": [0, SEC],
-            "pos_x_gt": [5.0, 6.0],
-            "pos_y_gt": [7.0, 7.0],
-            "yaw_gt": [0.1, 0.1],
-        }),
+        "odom": pl.DataFrame(
+            {
+                "time_ns": [0, SEC],
+                "pos_x": [0.0, 1.0],
+                "pos_y": [0.0, 0.0],
+                "yaw": [0.0, 0.0],
+            }
+        ),
+        "tf_gt": pl.DataFrame(
+            {
+                "time_ns": [0, SEC],
+                "pos_x_gt": [5.0, 6.0],
+                "pos_y_gt": [7.0, 7.0],
+                "yaw_gt": [0.1, 0.1],
+            }
+        ),
     }
     x, y, yaw, t = probe.resolve_native_pose(_bundle(topics=topics))
     assert x.tolist() == [5.0, 6.0]
@@ -66,12 +70,14 @@ def test_resolve_native_pose_prefers_tf_gt(probe):
 def test_resolve_native_pose_odom_fallback_is_world_framed(probe):
     """Odom starts at its own origin; the start pose maps it into the world."""
     topics = {
-        "odom": pl.DataFrame({
-            "time_ns": [0, SEC, 2 * SEC],
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
-            "yaw": [0.0, 0.0, 0.0],
-        }),
+        "odom": pl.DataFrame(
+            {
+                "time_ns": [0, SEC, 2 * SEC],
+                "pos_x": [0.0, 1.0, 2.0],
+                "pos_y": [0.0, 0.0, 0.0],
+                "yaw": [0.0, 0.0, 0.0],
+            }
+        ),
     }
     x, y, _yaw, _t = probe.resolve_native_pose(_bundle(topics=topics, start_pos=[10.0, 20.0, 0.0]))
     assert np.allclose(x, [10.0, 11.0, 12.0])
@@ -80,16 +86,16 @@ def test_resolve_native_pose_odom_fallback_is_world_framed(probe):
 
 def test_resolve_native_pose_odom_fallback_rotates_by_start_yaw(probe):
     topics = {
-        "odom": pl.DataFrame({
-            "time_ns": [0, SEC],
-            "pos_x": [0.0, 1.0],
-            "pos_y": [0.0, 0.0],
-            "yaw": [0.0, 0.0],
-        }),
+        "odom": pl.DataFrame(
+            {
+                "time_ns": [0, SEC],
+                "pos_x": [0.0, 1.0],
+                "pos_y": [0.0, 0.0],
+                "yaw": [0.0, 0.0],
+            }
+        ),
     }
-    x, y, _yaw, _t = probe.resolve_native_pose(
-        _bundle(topics=topics, start_pos=[0.0, 0.0, np.pi / 2])
-    )
+    x, y, _yaw, _t = probe.resolve_native_pose(_bundle(topics=topics, start_pos=[0.0, 0.0, np.pi / 2]))
     assert np.allclose(x, [0.0, 0.0], atol=1e-9)
     assert np.allclose(y, [0.0, 1.0], atol=1e-9)
 
@@ -110,17 +116,13 @@ def test_pose_at_times_backward_asof(probe):
     assert qyaw.tolist() == [0.0, 0.5, 1.0]
 
     # 50 ms after a sample is inside the 100 ms tolerance and holds its value.
-    qx, _qy, _qyaw = probe.pose_at_times(
-        np.array([2 * SEC + 50_000_000]), px, py, yaw, pose_t
-    )
+    qx, _qy, _qyaw = probe.pose_at_times(np.array([2 * SEC + 50_000_000]), px, py, yaw, pose_t)
     assert qx.tolist() == [2.0]
 
 
 def test_pose_at_times_beyond_tolerance_is_zero_filled(probe):
     pose_t = np.array([0])
-    out_x, out_y, out_yaw = probe.pose_at_times(
-        np.array([5 * SEC]), np.array([3.0]), np.array([4.0]), np.array([1.0]), pose_t
-    )
+    out_x, out_y, out_yaw = probe.pose_at_times(np.array([5 * SEC]), np.array([3.0]), np.array([4.0]), np.array([1.0]), pose_t)
     assert out_x.tolist() == [0.0]
     assert out_y.tolist() == [0.0]
     assert out_yaw.tolist() == [0.0]

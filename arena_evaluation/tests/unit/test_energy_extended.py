@@ -41,9 +41,7 @@ def test_without_episode_data_all_outputs_are_none(calc):
 
 def test_cost_of_transport_is_energy_over_weight_times_distance(calc):
     results = calc.calculate(_episode(), {"energy_total_wh": 1.0, "path_length": 10.0})
-    assert results["specific_cost_of_transport"] == pytest.approx(
-        3600.0 / (MASS * G * 10.0), rel=1e-9
-    )
+    assert results["specific_cost_of_transport"] == pytest.approx(3600.0 / (MASS * G * 10.0), rel=1e-9)
 
 
 def test_energy_per_meter(calc):

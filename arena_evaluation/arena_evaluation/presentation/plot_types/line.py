@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import pathlib
+import typing
 
 import polars as pl
 
 from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
+if typing.TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+
 
 class LineRenderer(BasePlotRenderer):
     PLOT_TYPE = "line"
 
-    def _prepare(self, df: pl.DataFrame):
+    def _prepare(self, df: pl.DataFrame) -> tuple[pd.DataFrame, str, str, list[str], str | None, dict] | None:
         """Validate and return (pdf, x_col, y_col, group_cols, error_col, opts) or None."""
         df_filtered = self._apply_filters(df)
         x_col = self.spec.data_key
@@ -44,9 +49,7 @@ class LineRenderer(BasePlotRenderer):
         bin_x = opts.get("bin_x")
         if bin_x is not None and float(bin_x) > 0 and x_col in df_filtered.columns:
             bx = float(bin_x)
-            df_filtered = df_filtered.with_columns(
-                ((pl.col(x_col) / bx).round() * bx).round(4).alias(x_col)
-            )
+            df_filtered = df_filtered.with_columns(((pl.col(x_col) / bx).round() * bx).round(4).alias(x_col))
 
         trim_p = float(opts.get("trim_percentile", 0.0) or (1.0 - float(opts.get("inliers", 1.0))))
         if 0.0 < trim_p < 0.5 and len(df_filtered) > 0 and y_col in df_filtered.columns:
@@ -54,22 +57,15 @@ class LineRenderer(BasePlotRenderer):
             p_low = trim_p / 2.0
             p_high = 1.0 - (trim_p / 2.0)
             if group_keys:
-                df_filtered = df_filtered.filter(
-                    (pl.col(y_col) >= pl.col(y_col).quantile(p_low).over(group_keys))
-                    & (pl.col(y_col) <= pl.col(y_col).quantile(p_high).over(group_keys))
-                )
+                df_filtered = df_filtered.filter((pl.col(y_col) >= pl.col(y_col).quantile(p_low).over(group_keys)) & (pl.col(y_col) <= pl.col(y_col).quantile(p_high).over(group_keys)))
 
         if opts.get("aggregate") and len(df_filtered) > 0:
             agg_cols = [x_col, *group_cols]
             reduce_ = opts.get("reduce", "mean")
             if reduce_ == "leq":
-                df_filtered = df_filtered.group_by(agg_cols).agg(
-                    (10.0 * (10.0 ** (pl.col(y_col) / 10.0)).mean().log10()).alias(y_col)
-                )
+                df_filtered = df_filtered.group_by(agg_cols).agg((10.0 * (10.0 ** (pl.col(y_col) / 10.0)).mean().log10()).alias(y_col))
             elif reduce_ == "max":
-                df_filtered = df_filtered.group_by(agg_cols).agg(
-                    pl.col(y_col).max().alias(y_col)
-                )
+                df_filtered = df_filtered.group_by(agg_cols).agg(pl.col(y_col).max().alias(y_col))
             else:
                 error_mode = str(opts.get("error_mode", "std")).lower()
                 if error_mode in ("ci95", "ci_95", "ci"):
@@ -89,16 +85,14 @@ class LineRenderer(BasePlotRenderer):
                     )
                 error_col = "__std__"
 
-        pdf = df_filtered.select(
-            pl.col(x_col), pl.col(y_col), *[pl.col(g) for g in group_cols], *([pl.col(error_col)] if error_col else [])
-        ).to_pandas()
+        pdf = df_filtered.select(pl.col(x_col), pl.col(y_col), *[pl.col(g) for g in group_cols], *([pl.col(error_col)] if error_col else [])).to_pandas()
         if pdf.empty:
             return None
 
         return pdf, x_col, y_col, group_cols, error_col, opts
 
     @staticmethod
-    def _trace_data(pdf, x_col, y_col, error_col, opts, time_to_s, time_relative):
+    def _trace_data(pdf: pd.DataFrame, x_col: str, y_col: str, error_col: str | None, opts: dict, time_to_s: bool, time_relative: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
         """Downsample + transform one trace's frame -> (x, y, err) arrays."""
         import numpy as np
 
@@ -183,24 +177,32 @@ class LineRenderer(BasePlotRenderer):
                 is_non_neg = np.all(y >= 0)
                 if error_style == "bars":
                     arrayminus = np.minimum(err, y) if is_non_neg else err
-                    fig.add_trace(go.Scatter(
-                        x=x, y=y, mode=mode, name=label, line=dict(color=color),
-                        error_y=dict(type="data", array=err, arrayminus=arrayminus, symmetric=False, visible=True),
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x,
+                            y=y,
+                            mode=mode,
+                            name=label,
+                            line=dict(color=color),
+                            error_y=dict(type="data", array=err, arrayminus=arrayminus, symmetric=False, visible=True),
+                        )
+                    )
                 else:
                     y_low = np.maximum(0.0, y - err) if is_non_neg else y - err
                     y_high = y + err
                     fig.add_trace(go.Scatter(x=x, y=y, mode=mode, name=label, line=dict(color=color)))
-                    fig.add_trace(go.Scatter(
-                        x=np.concatenate([x, x[::-1]]),
-                        y=np.concatenate([y_high, y_low[::-1]]),
-                        fill="toself",
-                        fillcolor=_with_alpha(color, 0.2),
-                        line=dict(width=0),
-                        name=f"{label} {band_suffix}",
-                        legendgroup=label,
-                        showlegend=False,
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=np.concatenate([x, x[::-1]]),
+                            y=np.concatenate([y_high, y_low[::-1]]),
+                            fill="toself",
+                            fillcolor=_with_alpha(color, 0.2),
+                            line=dict(width=0),
+                            name=f"{label} {band_suffix}",
+                            legendgroup=label,
+                            showlegend=False,
+                        )
+                    )
             else:
                 fig.add_trace(go.Scatter(x=x, y=y, mode=mode, name=label, line=dict(color=color)))
 
@@ -214,8 +216,8 @@ class LineRenderer(BasePlotRenderer):
         return fig.to_html(full_html=False, include_plotlyjs=False, config={"responsive": True})
 
     def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        import numpy as np
         import matplotlib.pyplot as plt
+        import numpy as np
 
         prepared = self._prepare(df)
         if prepared is None:
@@ -285,13 +287,13 @@ def _color_cycle() -> list[str]:
 
 def _with_alpha(hex_color: str, alpha: float) -> str:
     try:
-        r, g, b = (int(hex_color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = (int(hex_color.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4))
         return f"rgba({r},{g},{b},{alpha})"
     except Exception:
         return f"rgba(31,119,180,{alpha})"
 
 
-def pd_series(d: dict):
+def pd_series(d: dict) -> pd.Series:
     """Build a pandas Series for row-masking (import lazily)."""
     import pandas as pd
 

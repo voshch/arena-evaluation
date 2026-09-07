@@ -1,12 +1,11 @@
 import argparse
 import contextlib
-import datetime
 import os
 import pathlib
 import sys
 
-from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.presentation.report_builder import ReportBuilder
+from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.data_root import latest_benchmark
 from arena_evaluation.storage.folder_manager import FolderManager
 
@@ -33,6 +32,7 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
 
     try:
         from ament_index_python.packages import get_package_share_directory
+
         pkg_data = pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
         if pkg_data.is_dir():
             search_roots.append(pkg_data)
@@ -56,6 +56,7 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
                 if candidate.is_dir():
                     return candidate.resolve()
         return p
+
     for dest, value in list(vars(args).items()):
         subdirs = _PATH_ARG_SUBDIRS.get(dest)
         if subdirs is None or value is None:
@@ -68,7 +69,7 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def _main_impl():
+def _main_impl() -> int | None:
     parser = argparse.ArgumentParser(
         description="Arena Evaluation Pipeline CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -136,8 +137,7 @@ Examples:
         type=str,
         default=None,
         metavar="NAME|PATH|{...}",
-        help="Report manifest: a name from configs/benchmark/manifests/, a path to a "
-        "YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
+        help="Report manifest: a name from configs/benchmark/manifests/, a path to a YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
     )
     run_parent.add_argument(
         "--list-manifests",
@@ -178,6 +178,7 @@ Examples:
     )
 
     from arena_evaluation.cli_acoustic import setup_acoustic_subparsers
+
     setup_acoustic_subparsers(subparsers)
 
     args = parser.parse_args()
@@ -195,6 +196,7 @@ Examples:
     # acoustic subcommand handler
     if args.command == "acoustic":
         from arena_evaluation.cli_acoustic import _handle_acoustic
+
         _handle_acoustic(args)
         return 0
 
@@ -225,13 +227,13 @@ Examples:
     if args.command in ("extract", "run", "process"):
         force_extract = args.force_extract
         if args.command == "run":
-            force_extract = True 
+            force_extract = True
 
         if args.run_dir:
             for run_dir in args.run_dir:
                 fm = FolderManager(data_root=run_dir.parent)
                 pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
-                
+
                 if args.command == "extract":
                     print(f"Extracting single run: {run_dir}")
                     pipeline.extract_run_dir(run_dir)
@@ -247,7 +249,7 @@ Examples:
             for benchmark_dir in args.benchmark_dir:
                 fm = FolderManager(data_root=benchmark_dir.parent)
                 pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
-                
+
                 if args.command == "extract":
                     print(f"Extracting benchmark: {benchmark_dir.name}")
                     pipeline.extract_benchmark(benchmark_dir.name)

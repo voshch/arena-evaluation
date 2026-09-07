@@ -12,8 +12,6 @@ from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _DoorGeometry,
     _extract_door_geometry,
-    _offset_doors,
-    _offset_zones,
     _reconstruct_events,
     _zone_membership,
 )
@@ -21,8 +19,10 @@ from arena_evaluation.processing.metrics.ecological.semantic_metrics import (
     _parse_bool,
     _parse_float,
 )
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+if typing.TYPE_CHECKING:
+    from arena_simulation_setup.tree.World import LevelDescription
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class _CapZoneGeometry:
     polygon: object
 
 
-def _extract_occupancy_zone_geometry(flattened: typing.Any) -> list[_CapZoneGeometry]:
+def _extract_occupancy_zone_geometry(flattened: LevelDescription) -> list[_CapZoneGeometry]:
     """Zones annotated with the occupancy_cap preset (`cap`, `occupancy`, or `over_cap`)."""
     import shapely
 
@@ -44,11 +44,7 @@ def _extract_occupancy_zone_geometry(flattened: typing.Any) -> list[_CapZoneGeom
         if len(zone.corners) < 3:
             continue
 
-        has_cap = any(
-            (cfg.role == "state" and cfg.name in ("cap", "occupancy"))
-            or (cfg.role == "predicate" and cfg.name == "over_cap")
-            for cfg in zone.semantics
-        )
+        has_cap = any((cfg.role == "state" and cfg.name in ("cap", "occupancy")) or (cfg.role == "predicate" and cfg.name == "over_cap") for cfg in zone.semantics)
         if not has_cap:
             continue
 
@@ -114,11 +110,7 @@ def _used_elevator_during_alarm(events: pl.DataFrame, end_time_ns: int | None) -
     all_alarm = [w for entity_windows in alarm_windows.values() for w in entity_windows]
     all_occupancy = [w for entity_windows in occupancy_windows.values() for w in entity_windows]
 
-    return sum(
-        1
-        for a_start, a_end in all_alarm
-        if any(_overlaps(a_start, a_end, o_start, o_end) for o_start, o_end in all_occupancy)
-    )
+    return sum(1 for a_start, a_end in all_alarm if any(_overlaps(a_start, a_end, o_start, o_end) for o_start, o_end in all_occupancy))
 
 
 def _entered_over_cap_zone(
@@ -196,20 +188,10 @@ def _replan_triggers(events: pl.DataFrame) -> list[int]:
     `state` change, any schedule `active` change (SPEC_M2 M2.C8)."""
     triggers: list[int] = []
 
-    door_open = events.filter(
-        (pl.col("kind") == "door")
-        & (pl.col("field") == "open")
-        & (pl.col("previous") == "false")
-        & (pl.col("current") == "true")
-    )
+    door_open = events.filter((pl.col("kind") == "door") & (pl.col("field") == "open") & (pl.col("previous") == "false") & (pl.col("current") == "true"))
     triggers.extend(door_open["time_ns"].to_list())
 
-    gate_unlock = events.filter(
-        (pl.col("kind") == "gate")
-        & (pl.col("field") == "locked")
-        & (pl.col("previous") == "true")
-        & (pl.col("current") == "false")
-    )
+    gate_unlock = events.filter((pl.col("kind") == "gate") & (pl.col("field") == "locked") & (pl.col("previous") == "true") & (pl.col("current") == "false"))
     triggers.extend(gate_unlock["time_ns"].to_list())
 
     signal_state = events.filter((pl.col("kind") == "signal") & (pl.col("field") == "state"))
@@ -262,7 +244,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
 
     world: str | None = None
 
-    def __init__(self, robot_params: typing.Any) -> None:
+    def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
         self._world_cache: dict[str, tuple[list[_CapZoneGeometry], list[_DoorGeometry]] | None] = {}
 
@@ -341,9 +323,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
                 if has_events and "occupancy_cap" in kinds and zones:
                     zone_idx = _zone_membership(pos_x, pos_y, zones)
                     zone_names = [zone.name for zone in zones]
-                    results["entered_over_cap_zone"] = _entered_over_cap_zone(
-                        events, zone_idx, time_ns, end_time_ns, zone_names
-                    )
+                    results["entered_over_cap_zone"] = _entered_over_cap_zone(events, zone_idx, time_ns, end_time_ns, zone_names)
 
                 if has_events and "signal" in kinds:
                     results["ran_red_signal"] = _ran_red_signal(events, pos_x, pos_y, time_ns, end_time_ns, doors)

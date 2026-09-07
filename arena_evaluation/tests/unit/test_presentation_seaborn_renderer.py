@@ -13,8 +13,17 @@ from arena_evaluation.storage.schemas import PlotSpec
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 _ALL_PLOT_TYPES = [
-    "violin", "box", "bar", "trajectory", "radar", "scatter", "histogram",
-    "heatmap", "line", "acoustic_field", "acoustic_field_animation",
+    "violin",
+    "box",
+    "bar",
+    "trajectory",
+    "radar",
+    "scatter",
+    "histogram",
+    "heatmap",
+    "line",
+    "acoustic_field",
+    "acoustic_field_animation",
 ]
 
 
@@ -30,8 +39,7 @@ def _df() -> pl.DataFrame:
 
 
 def _spec(ptype: str, **options) -> PlotSpec:
-    return PlotSpec(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}",
-                    data_key="success", options=options)
+    return PlotSpec(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}", data_key="success", options=options)
 
 
 def _assert_png(path: pathlib.Path) -> None:
@@ -41,6 +49,7 @@ def _assert_png(path: pathlib.Path) -> None:
 
 
 # ── construction ───────────────────────────────────────────────────────────
+
 
 def test_all_plot_types_registered():
     renderer = SeabornRenderer()
@@ -58,6 +67,7 @@ def test_units_default_to_empty_dict():
 
 
 # ── dispatch behaviour ─────────────────────────────────────────────────────
+
 
 def test_render_bar_writes_png(tmp_path):
     out = tmp_path / "bar.png"
@@ -82,9 +92,7 @@ def test_render_sets_run_dir_and_units(monkeypatch, tmp_path):
 
     monkeypatch.setattr(TrajectoryRenderer, "render_seaborn", _fake_render_seaborn)
     out = tmp_path / "t.png"
-    SeabornRenderer(units={"success": "%"}).render(
-        _spec("trajectory"), _df(), out, run_dir=tmp_path
-    )
+    SeabornRenderer(units={"success": "%"}).render(_spec("trajectory"), _df(), out, run_dir=tmp_path)
     assert seen["run_dir"] == tmp_path
     assert seen["units"] == {"success": "%"}
     assert out.read_bytes() == b"png"

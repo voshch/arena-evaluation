@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import datetime
 import html as html_escape
 import pathlib
-import datetime
 import typing
 
 import jinja2
+import pandas as pd
 import polars as pl
 
 from arena_evaluation.presentation.manifest_registry import resolve_manifest
@@ -14,6 +15,9 @@ from arena_evaluation.presentation.seaborn_renderer import SeabornRenderer
 from arena_evaluation.presentation.viz_manifest import VizManifest
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.parquet_store import ParquetStore
+
+if typing.TYPE_CHECKING:
+    from arena_evaluation.storage.schemas import PlotSpec
 
 # Data source name -> parquet filename. Any other data_source string ending in
 # ".parquet" is used verbatim as the filename in the benchmark/output dir.
@@ -45,7 +49,7 @@ def data_file_for(data_source: str | None) -> str | None:
     return None
 
 
-def _has_values(df: "pl.DataFrame", col: str) -> bool:
+def _has_values(df: pl.DataFrame, col: str) -> bool:
     """Check if column exists and contains at least one non-null value."""
     return col in df.columns and bool(df[col].is_not_null().any())
 
@@ -63,17 +67,11 @@ def _status_table_html(df: pl.DataFrame) -> str:
     cols = [c for c in _STATUS_COLS if c in rows.columns]
     rows = rows.select(cols).sort([c for c in ("stage", "episode") if c in cols])
     head = "".join(f"<th>{html_escape.escape(c.replace('_', ' '))}</th>" for c in cols)
-    body = "".join(
-        "<tr>" + "".join(f"<td>{html_escape.escape('' if v is None else str(v))}</td>" for v in row) + "</tr>"
-        for row in rows.iter_rows()
-    )
-    return (
-        f"<h3>Episodes not fully evaluated ({len(rows)} of {len(df)})</h3>"
-        f"<table class=\"dataframe\"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
-    )
+    body = "".join("<tr>" + "".join(f"<td>{html_escape.escape('' if v is None else str(v))}</td>" for v in row) + "</tr>" for row in rows.iter_rows())
+    return f"<h3>Episodes not fully evaluated ({len(rows)} of {len(df)})</h3><table class=\"dataframe\"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
-def _default_summary_group_cols(df: "pl.DataFrame") -> list[str]:
+def _default_summary_group_cols(df: pl.DataFrame) -> list[str]:
     """Determine grouping columns for summary tables."""
     from .dimension_detector import detect_varying_dims
 
@@ -82,8 +80,7 @@ def _default_summary_group_cols(df: "pl.DataFrame") -> list[str]:
     return ([lead] if lead else []) + rest
 
 
-
-def _aggregate(df: "pl.DataFrame", group_cols: list[str], agg_exprs: list) -> "pd.DataFrame":
+def _aggregate(df: pl.DataFrame, group_cols: list[str], agg_exprs: list) -> pd.DataFrame:
     """Grouped aggregate, or a single ``All runs`` row when nothing identifies a run."""
     if group_cols:
         return df.group_by(group_cols).agg(agg_exprs).sort(group_cols).to_pandas()
@@ -92,7 +89,7 @@ def _aggregate(df: "pl.DataFrame", group_cols: list[str], agg_exprs: list) -> "p
     return out
 
 
-def _labelled(df: "pl.DataFrame", group_cols: list[str]) -> "pl.DataFrame":
+def _labelled(df: pl.DataFrame, group_cols: list[str]) -> pl.DataFrame:
     """Make grouping keys renderable: nulls become an explicit label.
 
     List columns are left alone; they are exploded before they are grouped on.
@@ -100,9 +97,7 @@ def _labelled(df: "pl.DataFrame", group_cols: list[str]) -> "pl.DataFrame":
     scalar = [c for c in group_cols if c in df.columns and df.schema[c] != pl.List]
     if not scalar:
         return df
-    return df.with_columns([
-        pl.col(c).cast(pl.Utf8).fill_null("unknown") for c in scalar
-    ])
+    return df.with_columns([pl.col(c).cast(pl.Utf8).fill_null("unknown") for c in scalar])
 
 
 def _render_markdown_light(text: str) -> str:
@@ -153,7 +148,7 @@ class ReportBuilder:
         manifest_path: pathlib.Path | None = None,
         manifest: VizManifest | str | None = None,
         generate_gifs: bool = False,
-    ) -> "ReportBuilder":
+    ) -> ReportBuilder:
         """Build a ReportBuilder that merges data from multiple source directories."""
         instance = cls.__new__(cls)
         instance.benchmark_dir = source_dirs[0] if source_dirs else output_dir
@@ -165,11 +160,7 @@ class ReportBuilder:
         instance._manifest_obj = None
 
         if manifest is not None:
-            instance._manifest_obj = (
-                manifest
-                if isinstance(manifest, VizManifest)
-                else resolve_manifest(manifest, benchmark_dir=instance.benchmark_dir)
-            )
+            instance._manifest_obj = manifest if isinstance(manifest, VizManifest) else resolve_manifest(manifest, benchmark_dir=instance.benchmark_dir)
             instance.manifest_path = None
         else:
             if manifest_path and pathlib.Path(manifest_path).exists():
@@ -230,17 +221,13 @@ class ReportBuilder:
             return dfs[0]
         return pl.concat(dfs, how="diagonal_relaxed")
 
-
     def _load_primary_frame(self, manifest: VizManifest) -> pl.DataFrame | None:
         """Load the manifest's primary data frame (from benchmark_dir)."""
         data_file = data_file_for(manifest.data_source)
         if data_file:
             target_path = self.benchmark_dir / data_file
             if not target_path.exists():
-                print(
-                    f"Cannot generate report: '{data_file}' (data_source="
-                    f"{manifest.data_source!r}) not found in {self.benchmark_dir}."
-                )
+                print(f"Cannot generate report: '{data_file}' (data_source={manifest.data_source!r}) not found in {self.benchmark_dir}.")
                 return None
             df, _ = ParquetStore.read(target_path)
             return df
@@ -253,17 +240,14 @@ class ReportBuilder:
         elif metrics_path.exists():
             target_path = metrics_path
         if target_path is None:
-            print(
-                f"Cannot generate report: neither combined_metrics.parquet nor "
-                f"metrics.parquet found in {self.benchmark_dir}."
-            )
+            print(f"Cannot generate report: neither combined_metrics.parquet nor metrics.parquet found in {self.benchmark_dir}.")
             return None
         df, _ = ParquetStore.read(target_path)
         return df
 
     def _frame_for_spec(
         self,
-        spec,
+        spec: PlotSpec,
         manifest: VizManifest,
         df: pl.DataFrame,
         df_contestants: pl.DataFrame,
@@ -284,7 +268,6 @@ class ReportBuilder:
             self._source_frames[src] = ParquetStore.read(p)[0]
         return self._source_frames[src]
 
-
     def build(self) -> None:
         """Execute the report building process."""
         manifest = self._manifest_obj if self._manifest_obj is not None else VizManifest.load(self.manifest_path)
@@ -298,22 +281,20 @@ class ReportBuilder:
 
         if "planner" in df.columns:
             if "local_planner" not in df.columns or "inter_planner" not in df.columns:
-                from .dimension_detector import split_planner_name
+                from arena_evaluation.storage.planner_names import split_planner_name
+
                 lp_list = []
                 ip_list = []
                 for p_val in df["planner"].to_list():
                     lp, ip = split_planner_name(p_val)
                     lp_list.append(lp)
                     ip_list.append(ip)
-                df = df.with_columns([
-                    pl.Series("local_planner", lp_list),
-                    pl.Series("inter_planner", ip_list)
-                ])
+                df = df.with_columns([pl.Series("local_planner", lp_list), pl.Series("inter_planner", ip_list)])
 
         # Separate contestant evaluation runs from reference runs (metrics only;
         # characterization frames have no is_reference column -> no-op).
         if "is_reference" in df.columns:
-            df_contestants = df.filter(pl.col("is_reference").is_null() | (pl.col("is_reference") == False))
+            df_contestants = df.filter(pl.col("is_reference").is_null() | (~pl.col("is_reference")))
             if len(df_contestants) == 0:
                 df_contestants = df
         else:
@@ -374,6 +355,7 @@ class ReportBuilder:
             f.write(html_content)
 
         import plotly.offline
+
         js_path = self.output_dir / "plotly.min.js"
         with open(js_path, "w") as f:
             f.write(plotly.offline.get_plotlyjs())
@@ -383,7 +365,7 @@ class ReportBuilder:
         print(f"Report generated successfully: {self.report_path}")
         print(f"Static plots saved to: {self.plots_dir}")
 
-    def _plot_note_html(self, spec) -> str:
+    def _plot_note_html(self, spec: PlotSpec) -> str:
         """Per-plot agent note, rendered under the plot.
 
         Sources (in priority order):
@@ -404,9 +386,7 @@ class ReportBuilder:
                     notes_path = self.benchmark_dir / "notes.yaml"
                     if notes_path.is_file():
                         data = _yaml.safe_load(notes_path.read_text())
-                        rows = data if isinstance(data, list) else (
-                            [{"label": str(k), "value": str(v)} for k, v in (data or {}).items()]
-                        )
+                        rows = data if isinstance(data, list) else ([{"label": str(k), "value": str(v)} for k, v in (data or {}).items()])
                         for row in rows:
                             if isinstance(row, dict) and str(row.get("label", "")) == str(key):
                                 note = row.get("value")
@@ -423,19 +403,17 @@ class ReportBuilder:
             return
         try:
             import yaml
+
             note = {
                 "name": manifest.name,
                 "title": manifest.title,
                 "data_source": manifest.data_source,
                 "n_plots": len(manifest.plots),
-                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
-            (self.output_dir / "report_manifest.yaml").write_text(
-                yaml.safe_dump(note, sort_keys=False)
-            )
+            (self.output_dir / "report_manifest.yaml").write_text(yaml.safe_dump(note, sort_keys=False))
         except Exception as e:
             print(f"Warning: failed to write report_manifest.yaml note: {e}")
-
 
     def _generate_summary_table(self, df: pl.DataFrame) -> str:
         """Legacy summary table (used when the manifest declares no summary).
@@ -465,22 +443,15 @@ class ReportBuilder:
         summary = _aggregate(df, group_cols, agg_exprs)
 
         import pandas as pd
+
         if "success_rate" in summary.columns:
-            summary["success_rate"] = summary["success_rate"].map(
-                lambda x: f"{x * 100:.1f}%" if not pd.isna(x) else "N/A"
-            )
+            summary["success_rate"] = summary["success_rate"].map(lambda x: f"{x * 100:.1f}%" if not pd.isna(x) else "N/A")
         if "avg_time" in summary.columns:
-            summary["avg_time"] = summary["avg_time"].map(
-                lambda x: f"{x:.2f}s" if not pd.isna(x) else "N/A"
-            )
+            summary["avg_time"] = summary["avg_time"].map(lambda x: f"{x:.2f}s" if not pd.isna(x) else "N/A")
         if "avg_path_length" in summary.columns:
-            summary["avg_path_length"] = summary["avg_path_length"].map(
-                lambda x: f"{x:.2f}m" if not pd.isna(x) else "N/A"
-            )
+            summary["avg_path_length"] = summary["avg_path_length"].map(lambda x: f"{x:.2f}m" if not pd.isna(x) else "N/A")
         if "avg_collisions" in summary.columns:
-            summary["avg_collisions"] = summary["avg_collisions"].map(
-                lambda x: f"{x:.2f}" if not pd.isna(x) else "N/A"
-            )
+            summary["avg_collisions"] = summary["avg_collisions"].map(lambda x: f"{x:.2f}" if not pd.isna(x) else "N/A")
 
         return summary.to_html(index=False, classes="dataframe")
 
@@ -516,6 +487,7 @@ class ReportBuilder:
         summary = _aggregate(df, group_cols, agg_exprs)
 
         import pandas as pd
+
         spec_by_metric = {s.metric: s for s in manifest.summary}
         rename = {}
         for metric in summary.columns:
@@ -525,9 +497,7 @@ class ReportBuilder:
             if spec is None:
                 continue
             fmt = spec.format
-            summary[metric] = summary[metric].map(
-                lambda x: fmt.format(x) if not pd.isna(x) else "N/A"
-            )
+            summary[metric] = summary[metric].map(lambda x, fmt=fmt: fmt.format(x) if not pd.isna(x) else "N/A")
             rename[metric] = spec.label
         summary = summary.rename(columns=rename)
 
@@ -550,10 +520,7 @@ class ReportBuilder:
             if group_id not in grouped_plots:
                 grouped_plots[group_id] = []
                 ordered_groups.append(group_id)
-            grouped_plots[group_id].append({
-                "title": title,
-                "html": html
-            })
+            grouped_plots[group_id].append({"title": title, "html": html})
 
         group_titles = {g.id: g.title for g in manifest.groups} or _LEGACY_GROUP_TITLES
 
@@ -561,11 +528,7 @@ class ReportBuilder:
         for group_id in ordered_groups:
             plots = grouped_plots[group_id]
             title = group_titles.get(group_id, group_id.replace("_", " ").title())
-            plot_groups.append({
-                "id": group_id,
-                "title": title,
-                "plots": plots
-            })
+            plot_groups.append({"id": group_id, "title": title, "plots": plots})
 
         overview_plots = [html for group, html, title in plot_htmls if group == "overview"]
 
@@ -575,11 +538,4 @@ class ReportBuilder:
 
         generated_on = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        return template.render(
-            benchmark_id=report_title,
-            report_dir=str(self.output_dir.resolve()),
-            generated_on=generated_on,
-            summary_html=summary_html,
-            overview_plots=overview_plots,
-            plot_groups=plot_groups
-        )
+        return template.render(benchmark_id=report_title, report_dir=str(self.output_dir.resolve()), generated_on=generated_on, summary_html=summary_html, overview_plots=overview_plots, plot_groups=plot_groups)

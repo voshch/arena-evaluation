@@ -21,6 +21,7 @@ from arena_evaluation.presentation.manifest_registry import share_dir, source_tr
 
 if typing.TYPE_CHECKING:
     from arena_evaluation.presentation.viz_manifest import VizManifest
+
     from .config import Contest, Suite
 
 _BENCH_TTL_S = 365 * 86400

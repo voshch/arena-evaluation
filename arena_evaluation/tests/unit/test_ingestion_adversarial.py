@@ -14,6 +14,7 @@ from task_generator_msgs.msg import EpisodeRecord
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.storage.manifest import MetadataWriter
 
+
 @pytest.fixture
 def recorder_node(tmp_path):
     if not rclpy.ok():
@@ -23,6 +24,7 @@ def recorder_node(tmp_path):
     node.episodes_root.mkdir(parents=True, exist_ok=True)
     yield node
     node.destroy_node()
+
 
 def test_backward_time_jump(recorder_node):
     """Test that if /clock goes backward, the recorder resets its throttle timers and doesn't drop messages."""

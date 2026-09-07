@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 import pathlib
-import polars as pl
+
 import plotly.express as px
-import plotly.graph_objects as go
+import polars as pl
 
 from .base import BasePlotRenderer
 
@@ -26,30 +26,23 @@ class BarRenderer(BasePlotRenderer):
             metrics = self.spec.options.get("metrics", [])
             if not metrics:
                 return None
-            
+
             # Aggregate the sum of each metric per planner, divide by count (mean) or use absolute sum
             agg_exprs = [pl.col(m).mean().alias(m) for m in metrics if m in df_filtered.columns]
             if not agg_exprs:
                 return None
-                
+
             grouped = df_filtered.group_by(diff_col).agg(agg_exprs).to_pandas()
             if grouped.empty:
                 return None
-                
+
             # Normalize to 100%
             grouped[metrics] = grouped[metrics].div(grouped[metrics].sum(axis=1), axis=0) * 100
-            
-            fig = px.bar(
-                grouped,
-                x=diff_col,
-                y=metrics,
-                template="plotly_white",
-                barmode="stack",
-                labels={"value": "Percentage (%)", "variable": "Component", diff_col: diff_col.lstrip("_").replace("_", " ").title()}
-            )
+
+            fig = px.bar(grouped, x=diff_col, y=metrics, template="plotly_white", barmode="stack", labels={"value": "Percentage (%)", "variable": "Component", diff_col: diff_col.lstrip("_").replace("_", " ").title()})
             fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
             return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
-            
+
         else:
             if self.spec.data_key not in df_filtered.columns:
                 return None
@@ -58,19 +51,7 @@ class BarRenderer(BasePlotRenderer):
             if grouped.empty:
                 return None
 
-            fig = px.bar(
-                grouped,
-                x=diff_col,
-                y="mean",
-                color=diff_col,
-                error_y="err_plus",
-                error_y_minus="err_minus",
-                template="plotly_white",
-                labels={
-                    "mean": self.format_label(self.spec.data_key.replace("_", " ").title(), self.spec.data_key),
-                    diff_col: diff_col.lstrip("_").replace("_", " ").title()
-                }
-            )
+            fig = px.bar(grouped, x=diff_col, y="mean", color=diff_col, error_y="err_plus", error_y_minus="err_minus", template="plotly_white", labels={"mean": self.format_label(self.spec.data_key.replace("_", " ").title(), self.spec.data_key), diff_col: diff_col.lstrip("_").replace("_", " ").title()})
             fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
 
             return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
@@ -90,21 +71,27 @@ class BarRenderer(BasePlotRenderer):
         """Per-group mean with asymmetric error columns: Wilson for boolean data, one std otherwise."""
         key = self.spec.data_key
         if df_filtered.schema[key] == pl.Boolean:
-            grouped = df_filtered.group_by(diff_col).agg([
-                pl.col(key).cast(pl.Float64).mean().alias("mean"),
-                pl.col(key).cast(pl.Int64).sum().alias("k"),
-                pl.col(key).count().alias("n"),
-            ])
-            bounds = [self._wilson(int(k), int(n)) for k, n in zip(grouped["k"].to_list(), grouped["n"].to_list())]
+            grouped = df_filtered.group_by(diff_col).agg(
+                [
+                    pl.col(key).cast(pl.Float64).mean().alias("mean"),
+                    pl.col(key).cast(pl.Int64).sum().alias("k"),
+                    pl.col(key).count().alias("n"),
+                ]
+            )
+            bounds = [self._wilson(int(k), int(n)) for k, n in zip(grouped["k"].to_list(), grouped["n"].to_list(), strict=True)]
             means = grouped["mean"].to_list()
-            return grouped.with_columns([
-                pl.Series("err_plus", [hi - m for (_, hi), m in zip(bounds, means)]),
-                pl.Series("err_minus", [m - lo for (lo, _), m in zip(bounds, means)]),
-            ]).drop(["k", "n"])
-        grouped = df_filtered.group_by(diff_col).agg([
-            pl.col(key).mean().alias("mean"),
-            pl.col(key).std().fill_null(0.0).alias("std"),
-        ])
+            return grouped.with_columns(
+                [
+                    pl.Series("err_plus", [hi - m for (_, hi), m in zip(bounds, means, strict=True)]),
+                    pl.Series("err_minus", [m - lo for (lo, _), m in zip(bounds, means, strict=True)]),
+                ]
+            ).drop(["k", "n"])
+        grouped = df_filtered.group_by(diff_col).agg(
+            [
+                pl.col(key).mean().alias("mean"),
+                pl.col(key).std().fill_null(0.0).alias("std"),
+            ]
+        )
         return grouped.with_columns([pl.col("std").alias("err_plus"), pl.col("std").alias("err_minus")]).drop("std")
 
     def _explode_needed(self, df_filtered: pl.DataFrame, diff_col: str) -> pl.DataFrame:

@@ -21,6 +21,7 @@ from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_metadata(
     *,
     benchmark_id: str = "bench",
@@ -60,9 +61,7 @@ def _write_episode(
     ep_dir = root / benchmark_id / "episodes" / name
     ep_dir.mkdir(parents=True, exist_ok=True)
     if valid:
-        meta = _make_metadata(
-            benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs
-        )
+        meta = _make_metadata(benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs)
         sidecar = ep_dir / ("metadata.yaml" if legacy else f"{name}.yaml")
         MetadataWriter.write(meta, sidecar)
     return ep_dir
@@ -77,6 +76,7 @@ def _make_episode_dir(root: pathlib.Path, benchmark_id: str = "bench") -> pathli
 # ---------------------------------------------------------------------------
 # __init__
 # ---------------------------------------------------------------------------
+
 
 def test_init_resolves_data_root(tmp_path: pathlib.Path):
     fm = FolderManager(tmp_path)
@@ -114,6 +114,7 @@ def test_init_default_root_uses_package_share(monkeypatch, tmp_path: pathlib.Pat
 # episodes_dir / episode_dir
 # ---------------------------------------------------------------------------
 
+
 def test_episodes_dir(tmp_path: pathlib.Path):
     fm = FolderManager(tmp_path)
     assert fm.episodes_dir("bench") == (tmp_path / "bench" / "episodes").resolve()
@@ -129,9 +130,7 @@ def test_episode_dir_formatting(tmp_path: pathlib.Path):
     "episode_id, expected_name",
     [(0, "episode_000"), (42, "episode_042"), (1234, "episode_1234")],
 )
-def test_episode_dir_zero_padding(
-    tmp_path: pathlib.Path, episode_id: int, expected_name: str
-):
+def test_episode_dir_zero_padding(tmp_path: pathlib.Path, episode_id: int, expected_name: str):
     fm = FolderManager(tmp_path)
     expected = (tmp_path / "bench" / "episodes" / expected_name).resolve()
     assert fm.episode_dir("bench", episode_id) == expected
@@ -152,6 +151,7 @@ def test_episode_dir_returns_pathlib_path(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 # traversal protection
 # ---------------------------------------------------------------------------
+
 
 def test_episodes_dir_blocks_parent_traversal(tmp_path: pathlib.Path):
     fm = FolderManager(tmp_path)
@@ -196,6 +196,7 @@ def test_combined_metrics_path_blocks_absolute_escape(tmp_path: pathlib.Path):
 # discover_episodes
 # ---------------------------------------------------------------------------
 
+
 def test_discover_episodes_no_episodes_dir(tmp_path: pathlib.Path):
     fm = FolderManager(tmp_path)
     assert fm.discover_episodes("bench") == []
@@ -223,9 +224,7 @@ def test_discover_episodes_single(tmp_path: pathlib.Path):
 
 
 def test_discover_episodes_descriptor_fields(tmp_path: pathlib.Path):
-    ep_dir = _write_episode(
-        tmp_path, 5, planner="dwb", stage="stage_one", map_name="map_empty"
-    )
+    ep_dir = _write_episode(tmp_path, 5, planner="dwb", stage="stage_one", map_name="map_empty")
     fm = FolderManager(tmp_path)
     episodes = fm.discover_episodes("bench")
     assert len(episodes) == 1
@@ -242,9 +241,7 @@ def test_discover_episodes_descriptor_fields(tmp_path: pathlib.Path):
 
 
 def test_discover_episodes_reference_descriptor(tmp_path: pathlib.Path):
-    _write_episode(
-        tmp_path, 7, is_reference=True, reference_type="unobstructed_robot"
-    )
+    _write_episode(tmp_path, 7, is_reference=True, reference_type="unobstructed_robot")
     fm = FolderManager(tmp_path)
     descriptor = fm.discover_episodes("bench")[0]
     assert descriptor.is_reference is True
@@ -323,6 +320,7 @@ def test_discover_episodes_sorted_and_filtered(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 # mcap_path_for_episode
 # ---------------------------------------------------------------------------
+
 
 def test_mcap_canonical_preferred(tmp_path: pathlib.Path):
     ep_dir = _make_episode_dir(tmp_path)
@@ -415,12 +413,11 @@ def test_mcap_broken_symlink_propagates_filenotfound(tmp_path: pathlib.Path):
 # extracted_topics_path_for_episode
 # ---------------------------------------------------------------------------
 
+
 def test_extracted_topics_path(tmp_path: pathlib.Path):
     ep_dir = _make_episode_dir(tmp_path)
     fm = FolderManager(tmp_path)
-    assert fm.extracted_topics_path_for_episode(ep_dir) == (
-        ep_dir / "topics"
-    ).resolve()
+    assert fm.extracted_topics_path_for_episode(ep_dir) == (ep_dir / "topics").resolve()
 
 
 def test_extracted_topics_path_escape_raises(tmp_path: pathlib.Path):
@@ -433,8 +430,7 @@ def test_extracted_topics_path_escape_raises(tmp_path: pathlib.Path):
 # combined_metrics_path
 # ---------------------------------------------------------------------------
 
+
 def test_combined_metrics_path(tmp_path: pathlib.Path):
     fm = FolderManager(tmp_path)
-    assert fm.combined_metrics_path("bench") == (
-        tmp_path / "bench" / "combined_metrics.parquet"
-    ).resolve()
+    assert fm.combined_metrics_path("bench") == (tmp_path / "bench" / "combined_metrics.parquet").resolve()

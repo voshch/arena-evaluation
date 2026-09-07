@@ -5,6 +5,7 @@ live ROS graph is required; the full constructor is exercised against a
 monkeypatched package share directory so all filesystem state stays under
 tmp_path. The rosbag2 writer is mocked at every call site.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -181,6 +182,7 @@ def full_node(tmp_path, fake_share, monkeypatch):
 # Constructor
 # ---------------------------------------------------------------------------
 
+
 def test_constructor_uses_dir_flag(tmp_path, full_node):
     assert full_node.episodes_root == (tmp_path / "episodes").resolve()
     assert full_node.episodes_root.is_dir()
@@ -254,6 +256,7 @@ def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
 # read_config
 # ---------------------------------------------------------------------------
 
+
 def test_read_config_falls_back_when_file_missing(tmp_path):
     node = _bare_node(base_dir=str(tmp_path / "missing"))
     assert node.read_config() == {"record_frequencies": {"default": 20.0}, "tf_frames": []}
@@ -262,9 +265,7 @@ def test_read_config_falls_back_when_file_missing(tmp_path):
 def test_read_config_parses_file(tmp_path):
     cfg_dir = tmp_path / "share" / "config"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "data_recorder_config.yaml").write_text(
-        "record_frequencies:\n  default: 50.0\n  odom: 5.0\n"
-    )
+    (cfg_dir / "data_recorder_config.yaml").write_text("record_frequencies:\n  default: 50.0\n  odom: 5.0\n")
     node = _bare_node(base_dir=str(tmp_path / "share"))
     assert node.read_config() == {"record_frequencies": {"default": 50.0, "odom": 5.0}}
 
@@ -280,6 +281,7 @@ def test_read_config_falls_back_on_corrupt_yaml(tmp_path):
 # ---------------------------------------------------------------------------
 # Throttling / callbacks
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_throttle_ms_matches_topic_substring():
     node = _bare_node(freqs={"default": 20.0, "odom": 10.0, "power": 2.0})
@@ -380,6 +382,7 @@ def test_unthrottled_callback_discards_message_when_clock_buffer_already_flushed
 # Clock handling
 # ---------------------------------------------------------------------------
 
+
 def test_clock_callback_computes_sim_time_ns():
     node = _bare_node()
     msg = Clock()
@@ -418,6 +421,7 @@ def test_clock_callback_flushes_pre_clock_buffer_once():
 # ---------------------------------------------------------------------------
 # /tf merging: _tf_callback / _flush_tf
 # ---------------------------------------------------------------------------
+
 
 def _tf_writes(node):
     """(timestamp, {child_frame: x}) for every /tf write on the mocked writer."""
@@ -544,6 +548,7 @@ def test_flush_tf_writes_nothing_when_nothing_is_pending():
 # ---------------------------------------------------------------------------
 # Writer plumbing: _register_topic / _ensure_topic_in_bag / _write_to_bag_at
 # ---------------------------------------------------------------------------
+
 
 def test_register_topic_builds_ros_type_string():
     node = _bare_node()
@@ -679,6 +684,7 @@ def test_write_to_bag_at_writer_error_is_logged():
 # Episode lifecycle: _begin_episode / _stop_episode / start_episode service
 # ---------------------------------------------------------------------------
 
+
 def test_begin_episode_opens_new_episode_once():
     node = _bare_node()
     node._start_episode_recording = MagicMock()
@@ -751,9 +757,7 @@ def test_service_callback_stop_command():
     node = _bare_node()
     node._stop_episode = MagicMock()
     resp = SimpleNamespace()
-    node._start_episode_service_callback(
-        _service_request(command=2, outcome_state=3, outcome_info="collision"), resp
-    )
+    node._start_episode_service_callback(_service_request(command=2, outcome_state=3, outcome_info="collision"), resp)
     assert resp.success is True
     assert resp.message == "stopped"
     node._stop_episode.assert_called_once_with(9, outcome_state=3, outcome_info="collision")
@@ -770,6 +774,7 @@ def test_service_callback_unknown_command():
 # ---------------------------------------------------------------------------
 # Topic callbacks: episode_record / semantic_snapshot / robots_fleet
 # ---------------------------------------------------------------------------
+
 
 def _episode_message(episode_id=3, outcome=1):
     msg = EpisodeRecord()
@@ -881,6 +886,7 @@ def test_robots_fleet_callback_without_metadata_does_not_write(monkeypatch):
 # discover_topics
 # ---------------------------------------------------------------------------
 
+
 def _discover_node(**overrides):
     node = _bare_node(**overrides)
     node.get_namespace = lambda: "/env_0"
@@ -950,6 +956,7 @@ def test_discover_topics_skips_robot_model_inference_when_known(tmp_path, monkey
 # ---------------------------------------------------------------------------
 # Episode metadata: write / finalize / update-from-EpisodeRecord
 # ---------------------------------------------------------------------------
+
 
 def test_write_episode_metadata_writes_yaml(tmp_path):
     node = _bare_node(
@@ -1093,6 +1100,7 @@ def test_update_metadata_from_episode_write_failure_logged(tmp_path, monkeypatch
 # _param_value_to_py / _unflatten_dict
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "ptype, field, value",
     [
@@ -1135,6 +1143,7 @@ def test_unflatten_dict_empty():
 # ---------------------------------------------------------------------------
 # _start_episode_recording
 # ---------------------------------------------------------------------------
+
 
 def _recording_node(tmp_path, **overrides):
     episodes_root = tmp_path / "episodes"
@@ -1262,20 +1271,14 @@ def test_start_episode_recording_increments_global_episode_id(tmp_path, monkeypa
 # _close_current_writer (flush + flatten + rosbag metadata merge)
 # ---------------------------------------------------------------------------
 
+
 def _episode_dir_with_bag(tmp_path):
     ep_dir = tmp_path / "episode_000"
     inner = ep_dir / "episode_000"
     inner.mkdir(parents=True)
     (inner / "episode_000_0.mcap").write_bytes(b"mcap-bytes")
     (inner / "episode_000_1.mcap").write_bytes(b"mcap-bytes")
-    (inner / "metadata.yaml").write_text(
-        "rosbag2_bagfile_information:\n"
-        "  message_count: 42\n"
-        "  topics_with_message_count:\n"
-        "    - topic_metadata:\n"
-        "        name: /cmd_vel\n"
-        "      message_count: 42\n"
-    )
+    (inner / "metadata.yaml").write_text("rosbag2_bagfile_information:\n  message_count: 42\n  topics_with_message_count:\n    - topic_metadata:\n        name: /cmd_vel\n      message_count: 42\n")
     return ep_dir
 
 
@@ -1396,6 +1399,7 @@ def test_close_current_writer_corrupt_rosbag_metadata_is_logged(tmp_path):
 # ---------------------------------------------------------------------------
 # Shutdown / lifecycle
 # ---------------------------------------------------------------------------
+
 
 def test_finalize_closes_writer_once(capsys):
     node = _bare_node()
@@ -1527,6 +1531,7 @@ def test_bind_to_parent_tolerates_ctypes_failure(monkeypatch):
 # ---------------------------------------------------------------------------
 # End-to-end service flow on a fully constructed node
 # ---------------------------------------------------------------------------
+
 
 def test_start_stop_episode_service_end_to_end(tmp_path, full_node, monkeypatch):
     fake_writer = MagicMock()

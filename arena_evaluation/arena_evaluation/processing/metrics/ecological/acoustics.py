@@ -51,8 +51,8 @@ class AcousticsCalculator(BaseMetricCalculator):
     }
 
     _DEFAULT_DBA = 42.0  # dBA, idle noise floor
-    _MIN_DBA = 1.0       # dBA, clamp before log
-    _L_GATE_DBA = 65.0   # dBA, ASF level gate
+    _MIN_DBA = 1.0  # dBA, clamp before log
+    _L_GATE_DBA = 65.0  # dBA, ASF level gate
 
     @classmethod
     def output_keys(cls) -> list[str]:
@@ -73,22 +73,12 @@ class AcousticsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         topics = self.native_topics(episode)
         acous = topics.get("acoustics")
-        if (
-            acous is None
-            or "total_level_af_dba" not in acous.columns
-            or "time_ns" not in acous.columns
-        ):
+        if acous is None or "total_level_af_dba" not in acous.columns or "time_ns" not in acous.columns:
             return {k: None for k in self.output_keys()}
 
         acous = acous.sort("time_ns")
         try:
-            dba = (
-                acous["total_level_af_dba"]
-                .cast(pl.Float64)
-                .fill_null(strategy="forward")
-                .fill_null(self._DEFAULT_DBA)
-                .to_numpy()
-            )
+            dba = acous["total_level_af_dba"].cast(pl.Float64).fill_null(strategy="forward").fill_null(self._DEFAULT_DBA).to_numpy()
         except Exception:
             return {k: None for k in self.output_keys()}
 

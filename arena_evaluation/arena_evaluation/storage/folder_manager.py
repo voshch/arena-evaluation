@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import pathlib
+
 from ament_index_python.packages import get_package_share_directory
 
-from .schemas import RunDescriptor, EpisodeDescriptor
 from .manifest import MetadataWriter
+from .schemas import EpisodeDescriptor
 
 
 class FolderManager:
@@ -13,9 +13,7 @@ class FolderManager:
 
     def __init__(self, data_root: pathlib.Path | None = None):
         if data_root is None:
-            self.data_root = pathlib.Path(
-                get_package_share_directory("arena_evaluation")
-            ) / "data"
+            self.data_root = pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
         else:
             self.data_root = pathlib.Path(data_root).resolve()
 
@@ -28,7 +26,7 @@ class FolderManager:
         try:
             resolved.relative_to(self.data_root)
         except ValueError:
-            raise ValueError(f"Path {resolved} is outside data_root {self.data_root}")
+            raise ValueError(f"Path {resolved} is outside data_root {self.data_root}") from None
         return resolved
 
     def episodes_dir(self, benchmark_id: str) -> pathlib.Path:
@@ -69,16 +67,18 @@ class FolderManager:
 
             try:
                 meta = MetadataWriter.read(yaml_path)
-                episodes.append(EpisodeDescriptor(
-                    episode_dir=str(ep_dir),
-                    benchmark_id=benchmark_id,
-                    episode_id=ep_id,
-                    planner=meta.planner,
-                    stage=meta.stage,
-                    map=meta.map,
-                    is_reference=meta.is_reference,
-                    reference_type=meta.reference_type,
-                ))
+                episodes.append(
+                    EpisodeDescriptor(
+                        episode_dir=str(ep_dir),
+                        benchmark_id=benchmark_id,
+                        episode_id=ep_id,
+                        planner=meta.planner,
+                        stage=meta.stage,
+                        map=meta.map,
+                        is_reference=meta.is_reference,
+                        reference_type=meta.reference_type,
+                    )
+                )
             except Exception:
                 continue
 
@@ -108,4 +108,3 @@ class FolderManager:
             if cand.parent.exists():
                 return self._safe_resolve(cand)
         return self._safe_resolve(self.data_root / benchmark_id / "combined_metrics.parquet")
-

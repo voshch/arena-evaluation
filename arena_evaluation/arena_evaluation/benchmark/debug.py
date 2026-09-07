@@ -5,13 +5,13 @@ the ``arena_evaluation_mcp`` server (``list_running_processes`` /
 ``get_benchmark_console``). The console log is the runner's own
 ``benchmarks/<run_id>/runner.log``, tailed in place.
 """
+
 from __future__ import annotations
 
 import os
 import pathlib
 import subprocess
 import time
-import typing
 
 # Command-line markers used to classify arena-related processes.
 _BENCHMARK_RUNNER_MARKERS = (
@@ -37,7 +37,9 @@ def _ps_lines() -> list[tuple[int, str]]:
     try:
         out = subprocess.run(
             ["ps", "-eo", "pid=,args="],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         ).stdout
     except Exception:
         return []
@@ -63,9 +65,9 @@ def _ps_lines() -> list[tuple[int, str]]:
 def _elapsed_s(pid: int) -> float | None:
     """Seconds since process start (via /proc/<pid>/stat starttime and /proc/uptime)."""
     try:
-        with open("/proc/uptime", "r") as fh:
+        with open("/proc/uptime") as fh:
             uptime = float(fh.read().split()[0])
-        with open(f"/proc/{pid}/stat", "r") as fh:
+        with open(f"/proc/{pid}/stat") as fh:
             fields = fh.read().split()
         start_ticks = int(fields[21])
         clk = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
@@ -110,12 +112,14 @@ def running_processes() -> list[dict]:
         kind = _classify(cmdline)
         if kind is None:
             continue
-        rows.append({
-            "pid": pid,
-            "kind": kind,
-            "elapsed_s": _elapsed_s(pid),
-            "command": cmdline[:200],
-        })
+        rows.append(
+            {
+                "pid": pid,
+                "kind": kind,
+                "elapsed_s": _elapsed_s(pid),
+                "command": cmdline[:200],
+            }
+        )
     rows.sort(key=lambda r: (_KIND_ORDER.get(r["kind"], 9), r["pid"]))
     return rows
 
@@ -123,7 +127,7 @@ def running_processes() -> list[dict]:
 def _runner_starttime(pid: int) -> float:
     """Start timestamp (seconds) of a process; 0 on failure."""
     try:
-        with open(f"/proc/{pid}/stat", "r") as fh:
+        with open(f"/proc/{pid}/stat") as fh:
             fields = fh.read().split()
         start_ticks = int(fields[21])
         clk = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
@@ -165,7 +169,7 @@ def running_pids_by_run_id() -> dict[str, int]:
         match = None
         idx = cmdline.find("--run-id")
         if idx != -1:
-            rest = cmdline[idx + len("--run-id"):].lstrip()
+            rest = cmdline[idx + len("--run-id") :].lstrip()
             match = rest.split()[0].strip("'\"") if rest else None
         if not match:
             # Fallback: any run-id-looking token (timestamp-suite-contest)

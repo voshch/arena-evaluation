@@ -56,14 +56,14 @@ def _sample_episode() -> AlignedEpisodeBundle:
             "velocity": [[0.0, 0.0], [2.0, 2.0], [4.0, 4.0], [8.0, 8.0]],
             "effort": [[0.1, 0.1], [0.5, -0.5], [1.0, 1.0], [1.0, -1.0]],
             "label": [
-                "ramp_apex_vx_0.25_h_1.00", "ramp_apex_vx_0.25_h_1.00",
-                "ramp_apex_vx_0.50_h_1.00", "ramp_apex_vx_0.50_h_1.00",
+                "ramp_apex_vx_0.25_h_1.00",
+                "ramp_apex_vx_0.25_h_1.00",
+                "ramp_apex_vx_0.50_h_1.00",
+                "ramp_apex_vx_0.50_h_1.00",
             ],
         }
     )
-    return AlignedEpisodeBundle(
-        episode_id=0, data=df, start_pos=[], goal_pos=[], robot_name="env_0_jackal"
-    )
+    return AlignedEpisodeBundle(episode_id=0, data=df, start_pos=[], goal_pos=[], robot_name="env_0_jackal")
 
 
 def test_calculate_produces_timeseries():
@@ -132,9 +132,7 @@ def test_calculate_missing_power_and_acoustics():
 
 
 def test_calculate_empty_returns_none_keys():
-    ep = AlignedEpisodeBundle(
-        episode_id=0, data=pl.DataFrame(), start_pos=[], goal_pos=[], robot_name="env_0_jackal"
-    )
+    ep = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame(), start_pos=[], goal_pos=[], robot_name="env_0_jackal")
     out = _calc().calculate(ep, {})
     assert all(v is None for v in out.values())
 
@@ -160,7 +158,6 @@ def test_energy_intensity_speed_threshold_gating():
     assert out["timeseries_char_energy_intensity"][2] is not None
 
 
-
 def test_accel_target_is_signed_by_direction_of_change():
     # ramp_down decelerates from its target to rest, so its acceleration is the
     # negative of the ramp_up that reached that target.
@@ -172,8 +169,10 @@ def test_accel_target_is_signed_by_direction_of_change():
             "vel_linear": [1.0, 0.5, -1.0, -0.5],
             "total_power_w": [60.0, 60.0, 60.0, 60.0],
             "label": [
-                "ramp_up_vx_1.00_h_1.00", "ramp_down_vx_1.00_h_1.00",
-                "ramp_up_vx_-1.00_h_1.00", "ramp_down_vx_-1.00_h_1.00",
+                "ramp_up_vx_1.00_h_1.00",
+                "ramp_down_vx_1.00_h_1.00",
+                "ramp_up_vx_-1.00_h_1.00",
+                "ramp_down_vx_-1.00_h_1.00",
             ],
         }
     )
@@ -231,7 +230,11 @@ def test_recorded_schedule_beats_the_rebuild():
         }
     )
     ep = AlignedEpisodeBundle(
-        episode_id=0, data=df, start_pos=[], goal_pos=[], robot_name="env_0_jackal",
+        episode_id=0,
+        data=df,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
         topics={"characterization_schedule": schedule},
     )
     out = _calc().calculate(ep, {})
@@ -268,7 +271,11 @@ def test_duplicate_recorded_schedule_rows_do_not_duplicate_samples():
         }
     )
     ep = AlignedEpisodeBundle(
-        episode_id=0, data=df, start_pos=[], goal_pos=[], robot_name="env_0_jackal",
+        episode_id=0,
+        data=df,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
         topics={"characterization_schedule": schedule},
     )
     out = _calc().calculate(ep, {})

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import typing
-import polars as pl
-import numpy as np
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 
+import numpy as np
+
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
@@ -14,7 +14,7 @@ class EnergyMetricCalculator(BaseMetricCalculator):
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
     REQUIRED_TOPICS = [("power", "energy", "odom")]
-    
+
     UNITS = {
         "energy_static_wh": "Wh",
         "energy_mechanical_wh": "Wh",
@@ -48,11 +48,11 @@ class EnergyMetricCalculator(BaseMetricCalculator):
             "timeseries_time_s",
         ]
 
-    def calculate(self, episode: "AlignedEpisodeBundle", dependencies: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, dependencies: dict[str, typing.Any]) -> dict[str, typing.Any]:
         df = episode.data
         if df is None or df.is_empty():
             return {k: None for k in self.output_keys()}
-            
+
         # We need a time axis in seconds relative to start
         if "time_ns" in df.columns:
             t_ns = df["time_ns"].to_numpy()
@@ -65,9 +65,9 @@ class EnergyMetricCalculator(BaseMetricCalculator):
         p_static = df["static_power_w"].to_numpy() if "static_power_w" in df.columns else np.zeros_like(t_s)
         p_mech = df["total_mechanical_power_w"].to_numpy() if "total_mechanical_power_w" in df.columns else np.zeros_like(t_s)
         p_therm = df["total_thermal_power_w"].to_numpy() if "total_thermal_power_w" in df.columns else np.zeros_like(t_s)
-        
+
         # We need to fill nulls which happen if the 'power' topic was joined but had missing data at odom timestamps (backward join leaves nulls at the start)
-        def fill_nulls(arr):
+        def fill_nulls(arr: np.ndarray) -> np.ndarray:
             arr = np.array(arr, dtype=float)
             mask = np.isnan(arr)
             if np.all(mask):
@@ -76,7 +76,7 @@ class EnergyMetricCalculator(BaseMetricCalculator):
             idx = np.where(~mask, np.arange(mask.shape[0]), 0)
             np.maximum.accumulate(idx, out=idx)
             out = arr[idx]
-            
+
             # backward fill remaining
             mask = np.isnan(out)
             if np.any(mask):
@@ -91,11 +91,11 @@ class EnergyMetricCalculator(BaseMetricCalculator):
         p_static = fill_nulls(p_static)
         p_mech = fill_nulls(p_mech)
         p_therm = fill_nulls(p_therm)
-        
+
         # Velocity timeseries
         vel = df["vel_linear"].to_numpy() if "vel_linear" in df.columns else np.zeros_like(t_s)
         vel = fill_nulls(vel)
-        
+
         # Battery timeseries - normalized to start at 100.0% per episode
         batt = df["battery_soc_percent"].to_numpy() if "battery_soc_percent" in df.columns else np.zeros_like(t_s)
         batt = fill_nulls(batt)
@@ -116,9 +116,9 @@ class EnergyMetricCalculator(BaseMetricCalculator):
         e_static = np.sum(p_static * dt) / 3600.0
         e_mech = np.sum(p_mech * dt) / 3600.0
         e_therm = np.sum(p_therm * dt) / 3600.0
-        
+
         # Alternative: use the final value from the /energy topic
-        # The /energy topic publishes cumulative energy since node start. 
+        # The /energy topic publishes cumulative energy since node start.
         # The energy used in THIS episode is the final value minus the initial value.
         if "total_energy_consumed_wh" in df.columns:
             energy_arr = fill_nulls(df["total_energy_consumed_wh"].to_numpy())

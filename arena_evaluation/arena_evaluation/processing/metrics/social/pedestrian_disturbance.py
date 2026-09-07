@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import typing
+
 import numpy as np
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
@@ -33,9 +34,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         ]
 
     @staticmethod
-    def _compute_trajectory_deflection(
-        actual_coords: np.ndarray, reference_coords: np.ndarray
-    ) -> float:
+    def _compute_trajectory_deflection(actual_coords: np.ndarray, reference_coords: np.ndarray) -> float:
         """
         Compute mean distance between actual trajectory points and nearest reference trajectory points.
         actual_coords: (N, 2) or (N, 3)
@@ -54,11 +53,13 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
 
         try:
             from scipy.spatial import cKDTree
+
             tree = cKDTree(valid_ref)
             dists, _ = tree.query(valid_act, k=1)
             return float(np.mean(dists))
         except Exception:
             from scipy.spatial.distance import cdist
+
             dists = cdist(valid_act, valid_ref)
             return float(np.mean(np.min(dists, axis=1)))
 
@@ -78,11 +79,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         agent_paths: dict[int, list[tuple[float, float]]] = {}
         for row in peds_pos:
             arr = self._parse_peds(row)
-            pts = [
-                (float(item[0]), float(item[1]))
-                for item in arr
-                if np.isfinite(item[0]) and np.isfinite(item[1]) and abs(item[0]) < 1e6 and abs(item[1]) < 1e6
-            ]
+            pts = [(float(item[0]), float(item[1])) for item in arr if np.isfinite(item[0]) and np.isfinite(item[1]) and abs(item[0]) < 1e6 and abs(item[1]) < 1e6]
 
             for agent_idx, (px, py) in enumerate(pts):
                 if agent_idx not in agent_paths:
@@ -100,7 +97,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         total_deflection = 0.0
         num_agents = len(agent_paths)
 
-        for agent_idx, coords in agent_paths.items():
+        for coords in agent_paths.values():
             arr = np.array(coords)
             if len(arr) < 5:
                 continue
@@ -110,12 +107,12 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
             step_dists = np.hypot(dx, dy)
             finite_steps = step_dists[np.isfinite(step_dists)]
             total_dist = float(np.sum(finite_steps)) if len(finite_steps) > 0 else 0.0
-            
+
             diffs = arr - arr[0]
             dists_from_start = np.hypot(diffs[:, 0], diffs[:, 1])
             finite_disp = dists_from_start[np.isfinite(dists_from_start)]
             max_disp = float(np.max(finite_disp)) if len(finite_disp) > 0 else 0.0
-            
+
             if np.isfinite(max_disp) and max_disp > 0.5:
                 trips = (total_dist / 2.0) / max_disp
                 if np.isfinite(trips):

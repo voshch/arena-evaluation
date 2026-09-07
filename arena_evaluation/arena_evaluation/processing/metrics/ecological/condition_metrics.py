@@ -8,17 +8,16 @@ from collections import defaultdict
 
 import numpy as np
 import polars as pl
+from arena_simulation_setup.shared.conditions import EntityAtom, EpisodeCondition, MembershipAtom, parse_atom
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
-    _ZoneGeometry,
     _extract_zone_geometry,
-    _offset_zones,
     _reconstruct_events,
     _zone_membership,
+    _ZoneGeometry,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
-from arena_simulation_setup.shared.conditions import EntityAtom, EpisodeCondition, MembershipAtom, parse_atom
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +236,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
 
     world: str | None = None
 
-    def __init__(self, robot_params: typing.Any) -> None:
+    def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
         self._world_cache: dict[str, list[_ZoneGeometry] | None] = {}
 

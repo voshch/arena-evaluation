@@ -72,10 +72,18 @@ def _snap(rows):
         value_str.append(v if fk == "discrete" else None)
         value_num.append(float(v) if fk == "continuous" else None)
         value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame({
-        "time_ns": time_ns, "entity": entity, "kind": kind, "field": field, "field_kind": field_kind,
-        "value_str": value_str, "value_num": value_num, "value_bool": value_bool,
-    })
+    return pl.DataFrame(
+        {
+            "time_ns": time_ns,
+            "entity": entity,
+            "kind": kind,
+            "field": field,
+            "field_kind": field_kind,
+            "value_str": value_str,
+            "value_num": value_num,
+            "value_bool": value_bool,
+        }
+    )
 
 
 def _ctx(time_ns, pos_x=None, pos_y=None, snapshot=None, data=None, zones=None):
@@ -98,6 +106,7 @@ def _ctx(time_ns, pos_x=None, pos_y=None, snapshot=None, data=None, zones=None):
 
 
 # -- small helpers --------------------------------------------------------
+
 
 def test_strip_env_removes_only_leading_env_segment():
     assert _strip_env("env_0/ward_a_door") == "ward_a_door"
@@ -128,6 +137,7 @@ def test_first_true_returns_earliest_index_or_none():
 
 
 # -- operator verdicts ----------------------------------------------------
+
 
 def test_always_true_and_false():
     assert _operator_verdict("always", np.array([True, True]), True, None, False) is True
@@ -199,11 +209,14 @@ def test_never_during_unknown_when_atom_unresolvable():
 
 # -- entity atoms ---------------------------------------------------------
 
+
 def test_entity_atom_true_after_recorded_change():
-    snapshot = _snap([
-        (0, "env_0/door_1", "door", "open", "predicate", False),
-        (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
-    ])
+    snapshot = _snap(
+        [
+            (0, "env_0/door_1", "door", "open", "predicate", False),
+            (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
+        ]
+    )
     ctx = _ctx([0, 1_000_000_000, 3_000_000_000], snapshot=snapshot)
     series, ok = _entity_atom_series(parse_atom("door_1.open == true"), ctx)
 
@@ -212,9 +225,11 @@ def test_entity_atom_true_after_recorded_change():
 
 
 def test_entity_atom_holds_seed_value_when_never_changed():
-    snapshot = _snap([
-        (0, "env_0/door_1", "door", "open", "predicate", False),
-    ])
+    snapshot = _snap(
+        [
+            (0, "env_0/door_1", "door", "open", "predicate", False),
+        ]
+    )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
     series, ok = _entity_atom_series(parse_atom("door_1.open == false"), ctx)
 
@@ -223,9 +238,11 @@ def test_entity_atom_holds_seed_value_when_never_changed():
 
 
 def test_entity_atom_unresolvable_unknown_entity():
-    snapshot = _snap([
-        (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-    ])
+    snapshot = _snap(
+        [
+            (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
+        ]
+    )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
     series, ok = _entity_atom_series(parse_atom("ghost.open == true"), ctx)
 
@@ -234,9 +251,11 @@ def test_entity_atom_unresolvable_unknown_entity():
 
 
 def test_entity_atom_unresolvable_field_not_registered():
-    snapshot = _snap([
-        (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-    ])
+    snapshot = _snap(
+        [
+            (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
+        ]
+    )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
     series, ok = _entity_atom_series(parse_atom("door_1.nonsense == x"), ctx)
 
@@ -245,24 +264,28 @@ def test_entity_atom_unresolvable_field_not_registered():
 
 
 def test_entity_roster_drops_ambiguous_bare_names():
-    snapshot = _snap([
-        (0, "env_0/door_1", "door", "state", "discrete", "open"),
-        (0, "env_1/door_1", "door", "state", "discrete", "open"),
-    ])
+    snapshot = _snap(
+        [
+            (0, "env_0/door_1", "door", "state", "discrete", "open"),
+            (0, "env_1/door_1", "door", "state", "discrete", "open"),
+        ]
+    )
     roster = _entity_roster(snapshot)
 
     assert "door_1" not in roster
 
 
 def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
-    snapshot = _snap([
-        (0, "env_0/main_door/0", "door", "open", "predicate", False),
-        (2_000_000_000, "env_0/main_door/0", "door", "open", "predicate", True),
-        (0, "env_0/main_door/0", "gate", "locked", "predicate", True),
-        (2_000_000_000, "env_0/main_door/0", "gate", "locked", "predicate", False),
-        (0, "env_0/x/0", "door", "open", "predicate", True),
-        (0, "env_1/x/0", "door", "open", "predicate", True),
-    ])
+    snapshot = _snap(
+        [
+            (0, "env_0/main_door/0", "door", "open", "predicate", False),
+            (2_000_000_000, "env_0/main_door/0", "door", "open", "predicate", True),
+            (0, "env_0/main_door/0", "gate", "locked", "predicate", True),
+            (2_000_000_000, "env_0/main_door/0", "gate", "locked", "predicate", False),
+            (0, "env_0/x/0", "door", "open", "predicate", True),
+            (0, "env_1/x/0", "door", "open", "predicate", True),
+        ]
+    )
     ctx = _ctx([0, 3_000_000_000], snapshot=snapshot)
 
     open_series, open_ok = _entity_atom_series(parse_atom("main_door/0.open == true"), ctx)
@@ -275,6 +298,7 @@ def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
 
 
 # -- robot zone atoms -----------------------------------------------------
+
 
 def test_robot_zone_membership_inside_and_outside():
     ctx = _ctx([0, 1_000_000_000], pos_x=[1.0, 10.0], pos_y=[1.0, 10.0], zones=[_square("lobby")])
@@ -311,12 +335,15 @@ def test_robot_zone_unresolvable_without_pose_anchor():
 
 # -- ped zone atoms -------------------------------------------------------
 
+
 def _ped_data(time_ns, names, positions):
-    return pl.DataFrame({
-        "time_ns": list(time_ns),
-        "peds_names": names,
-        "peds_positions": positions,
-    })
+    return pl.DataFrame(
+        {
+            "time_ns": list(time_ns),
+            "peds_names": names,
+            "peds_positions": positions,
+        }
+    )
 
 
 def test_ped_zone_zero_order_hold_and_before_first_sample_false():
@@ -357,10 +384,12 @@ def test_ped_zone_unresolvable_without_peds_names_column():
 
 
 def test_atom_series_dispatches_membership_and_entity():
-    snapshot = _snap([
-        (0, "env_0/door_1", "door", "open", "predicate", False),
-        (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
-    ])
+    snapshot = _snap(
+        [
+            (0, "env_0/door_1", "door", "open", "predicate", False),
+            (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
+        ]
+    )
     ctx = _ctx([0, 3_000_000_000], pos_x=[1.0, 1.0], pos_y=[1.0, 1.0], snapshot=snapshot, zones=[_square("lobby")])
 
     robot_series, robot_ok = _atom_series(parse_atom("robot in lobby"), ctx)
@@ -371,6 +400,7 @@ def test_atom_series_dispatches_membership_and_entity():
 
 
 # -- clause verdicts / malformed ------------------------------------------
+
 
 def test_clause_verdict_scores_valid_clause():
     ctx = _ctx([0, 1_000_000_000], pos_x=[1.0, 10.0], pos_y=[1.0, 10.0], zones=[_square("lobby")])
@@ -389,6 +419,7 @@ def test_clause_verdict_unknown_on_malformed_dict():
 
 
 # -- calculator end to end ------------------------------------------------
+
 
 def test_calculate_all_none_without_conditions():
     calc = _calc()
@@ -415,12 +446,14 @@ def test_calculate_false_dominates_unknown():
     calc.world = "synthetic_conditions"
     calc._world_cache["synthetic_conditions"] = [_square("pharmacy")]
 
-    data = pl.DataFrame({
-        "time_ns": [0, 1_000_000_000],
-        "pos_x": [1.0, 1.0],
-        "pos_y": [1.0, 1.0],
-        "yaw": [0.0, 0.0],
-    })
+    data = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "pos_x": [1.0, 1.0],
+            "pos_y": [1.0, 1.0],
+            "yaw": [0.0, 0.0],
+        }
+    )
     conditions = [
         {"op": "never", "p": "robot in pharmacy"},
         {"op": "eventually", "p": "robot in ghost_zone"},
@@ -440,12 +473,14 @@ def test_calculate_unknown_when_only_unknown_and_true():
     calc.world = "synthetic_conditions2"
     calc._world_cache["synthetic_conditions2"] = [_square("pharmacy")]
 
-    data = pl.DataFrame({
-        "time_ns": [0, 1_000_000_000],
-        "pos_x": [10.0, 10.0],
-        "pos_y": [10.0, 10.0],
-        "yaw": [0.0, 0.0],
-    })
+    data = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "pos_x": [10.0, 10.0],
+            "pos_y": [10.0, 10.0],
+            "yaw": [0.0, 0.0],
+        }
+    )
     conditions = [
         {"op": "never", "p": "robot in pharmacy"},
         {"op": "eventually", "p": "robot in ghost_zone"},
@@ -464,12 +499,14 @@ def test_calculate_success_when_all_true():
     calc.world = "synthetic_conditions3"
     calc._world_cache["synthetic_conditions3"] = [_square("pharmacy")]
 
-    data = pl.DataFrame({
-        "time_ns": [0, 1_000_000_000],
-        "pos_x": [10.0, 10.0],
-        "pos_y": [10.0, 10.0],
-        "yaw": [0.0, 0.0],
-    })
+    data = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "pos_x": [10.0, 10.0],
+            "pos_y": [10.0, 10.0],
+            "yaw": [0.0, 0.0],
+        }
+    )
     conditions = [{"op": "never", "p": "robot in pharmacy"}]
 
     results = calc.calculate(_episode(data, conditions=conditions), {})
@@ -477,6 +514,5 @@ def test_calculate_success_when_all_true():
     assert results["condition_success"] == 1.0
     assert results["clauses_passed"] == 1
     assert results["clauses_total"] == 1
-
 
     assert set(results) == set(calc.output_keys())

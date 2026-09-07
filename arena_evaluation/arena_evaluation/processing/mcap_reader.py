@@ -3,16 +3,16 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import pathlib
 import math
-import typing
+import pathlib
 import re
-import polars as pl
 from collections import defaultdict
-from mcap.reader import make_reader, NonSeekingReader
-from mcap_ros2.decoder import DecoderFactory
+
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+from mcap.reader import NonSeekingReader
+from mcap_ros2.decoder import DecoderFactory
 
 from arena_evaluation.storage.schemas import TopicBundle
 
@@ -78,12 +78,12 @@ class MCAPReader:
         return math.atan2(siny_cosp, cosy_cosp)
 
     @staticmethod
-    def _stamp_ns(header) -> int:
+    def _stamp_ns(header: object) -> int:
         """Header stamp (sim time) in ns."""
         return int(header.stamp.sec) * 1_000_000_000 + int(header.stamp.nanosec)
 
     @staticmethod
-    def _param_value_to_py(val) -> typing.Any:
+    def _param_value_to_py(val: object) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
         p_type = val.type
         if p_type == 1:
             return val.bool_value
@@ -135,7 +135,7 @@ class MCAPReader:
         path = self.data_path.resolve()
         run_dir = path if path.is_dir() else path.parent
 
-        def new_robot_data():
+        def new_robot_data() -> dict[str, defaultdict[str, list]]:
             return {
                 "odom": defaultdict(list),
                 "odom_controller": defaultdict(list),
@@ -155,7 +155,7 @@ class MCAPReader:
                 "characterization_schedule": defaultdict(list),
             }
 
-        def new_env_data():
+        def new_env_data() -> dict[str, defaultdict[str, list]]:
             return {"peds": defaultdict(list), "episode_record": defaultdict(list)}
 
         env_data = defaultdict(new_env_data)
@@ -167,8 +167,6 @@ class MCAPReader:
         }
 
         robot_data = defaultdict(new_robot_data)
-
-        from mcap.reader import NonSeekingReader
 
         env_prefix = None
 
@@ -263,7 +261,7 @@ class MCAPReader:
                         if match:
                             env_key = match.group(1)
 
-                        def get_robot_name(parts, env_key):
+                        def get_robot_name(parts: list[str], env_key: str) -> str:
                             if len(parts) < 2:
                                 return f"{env_key}_unknown"
                             base = parts[-2]
@@ -628,13 +626,13 @@ class MCAPReader:
         target["value_list"].append(value_list)
 
     @staticmethod
-    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent) -> None:
+    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent: object) -> None:
         """Flatten one SemanticEntityState into long-format rows."""
-        for name, value in zip(ent.discrete_names, ent.discrete_values):
+        for name, value in zip(ent.discrete_names, ent.discrete_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "discrete", value_str=str(value))
-        for name, value in zip(ent.continuous_names, ent.continuous_values):
+        for name, value in zip(ent.continuous_names, ent.continuous_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "continuous", value_num=float(value))
-        for name, value in zip(ent.predicate_names, ent.predicate_values):
+        for name, value in zip(ent.predicate_names, ent.predicate_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "predicate", value_bool=bool(value))
         MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, "members", "members", value_list=list(ent.members))
 
@@ -643,7 +641,7 @@ class MCAPReader:
         # Reconstruct dict[str, TopicBundle]
         bundles = {}
 
-        def load_parquet(path):
+        def load_parquet(path: pathlib.Path) -> pl.LazyFrame | None:
             if path.exists():
                 lf = pl.scan_parquet(path)
                 if "time_ns" in lf.collect_schema().names():

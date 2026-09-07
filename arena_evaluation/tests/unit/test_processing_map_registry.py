@@ -4,6 +4,7 @@ All filesystem state is confined to tmp_path. The module's `pathlib.Path`
 attribute is swapped for a remapping proxy where the absolute /opt/arena_ws
 locations need to be exercised, so no real workspace directories are touched.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -39,7 +40,7 @@ def _remap_pathlib(monkeypatch, module, tmp_path: pathlib.Path) -> None:
         s = str(s)
         for prefix in ("/opt/arena_ws", "/home/nelson/arena_ws"):
             if s.startswith(prefix):
-                return real_path(str(tmp_path) + s[len(prefix):])
+                return real_path(str(tmp_path) + s[len(prefix) :])
         return real_path(s)
 
     monkeypatch.setattr(module, "pathlib", types.SimpleNamespace(Path=_patched))
@@ -51,8 +52,7 @@ def _write_pgm(path: pathlib.Path, width: int, height: int, gray: int = 200) -> 
     path.write_bytes(header + bytes([gray]) * (width * height))
 
 
-def _write_world_yaml(base: pathlib.Path, subdir: str | None, image: str = "map.pgm",
-                      resolution: float = 0.05, origin: list[float] | None = None) -> pathlib.Path:
+def _write_world_yaml(base: pathlib.Path, subdir: str | None, image: str = "map.pgm", resolution: float = 0.05, origin: list[float] | None = None) -> pathlib.Path:
     target = base / subdir if subdir else base
     target.mkdir(parents=True, exist_ok=True)
     meta: dict = {"image": image, "resolution": resolution}
@@ -66,6 +66,7 @@ def _write_world_yaml(base: pathlib.Path, subdir: str | None, image: str = "map.
 # ---------------------------------------------------------------------------
 # _find_ros_map_dir
 # ---------------------------------------------------------------------------
+
 
 def test_find_ros_map_dir_rospack_hit(tmp_path, monkeypatch):
     pkg = tmp_path / "pkg"
@@ -106,6 +107,7 @@ def test_find_ros_map_dir_not_found(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # get_map — guards and cache
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("name", [None, "", "unknown"])
 def test_get_map_invalid_names(name, tmp_path):

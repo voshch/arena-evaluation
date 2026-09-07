@@ -34,11 +34,11 @@ SEC = 1_000_000_000
 # 1. NATURALNESS & GEOMETRIC BASELINES (Theta*, ADE, FDE, MHD, Topology, PI)
 # ==============================================================================
 
+
 def test_literature_theta_star_any_angle_optimality():
     """Bhattacharya et al. (2012): Theta* must find Euclidean straight line in free space."""
     grid = np.zeros((50, 50), dtype=np.uint8)
-    res = compute_theta_star_path(grid, resolution=0.1, origin=(0.0, 0.0, 0.0),
-                                  start_pos=(1.0, 1.0), goal_pos=(4.0, 5.0), robot_radius=0.0)
+    res = compute_theta_star_path(grid, resolution=0.1, origin=(0.0, 0.0, 0.0), start_pos=(1.0, 1.0), goal_pos=(4.0, 5.0), robot_radius=0.0)
     assert res.success
     expected_len = np.hypot(3.0, 4.0)  # 5.0m
     assert abs(res.geodesic_length - expected_len) < 1e-3
@@ -50,23 +50,27 @@ def test_literature_path_irregularity_straight_vs_weaving():
     calc = TrajectoryMetricsCalculator(RobotParams(robot_radius=0.25))
 
     # Case A: Straight line trajectory
-    df_straight = pl.DataFrame({
-        "time_ns": [0, SEC, 2 * SEC],
-        "pos_x_gt": [0.0, 5.0, 10.0],
-        "pos_y_gt": [0.0, 0.0, 0.0],
-        "yaw_gt": [0.0, 0.0, 0.0],
-    })
+    df_straight = pl.DataFrame(
+        {
+            "time_ns": [0, SEC, 2 * SEC],
+            "pos_x_gt": [0.0, 5.0, 10.0],
+            "pos_y_gt": [0.0, 0.0, 0.0],
+            "yaw_gt": [0.0, 0.0, 0.0],
+        }
+    )
     ep_straight = AlignedEpisodeBundle(1, df_straight, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0], topics={"tf_gt": df_straight})
     res_straight = calc.calculate(ep_straight, {})
     assert abs(res_straight["path_irregularity"]) < 1e-4
 
     # Case B: Weaving trajectory (zigzagging yaw changes)
-    df_weave = pl.DataFrame({
-        "time_ns": [0, SEC, 2 * SEC, 3 * SEC, 4 * SEC],
-        "pos_x_gt": [0.0, 2.5, 5.0, 7.5, 10.0],
-        "pos_y_gt": [0.0, 1.0, 0.0, 1.0, 0.0],
-        "yaw_gt": [0.38, -0.38, 0.38, -0.38, 0.0],
-    })
+    df_weave = pl.DataFrame(
+        {
+            "time_ns": [0, SEC, 2 * SEC, 3 * SEC, 4 * SEC],
+            "pos_x_gt": [0.0, 2.5, 5.0, 7.5, 10.0],
+            "pos_y_gt": [0.0, 1.0, 0.0, 1.0, 0.0],
+            "yaw_gt": [0.38, -0.38, 0.38, -0.38, 0.0],
+        }
+    )
     ep_weave = AlignedEpisodeBundle(2, df_weave, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0], topics={"tf_gt": df_weave})
     res_weave = calc.calculate(ep_weave, {})
     assert res_weave["path_irregularity"] > 0.1
@@ -96,6 +100,7 @@ def test_literature_topological_complexity_winding_loops():
 # 2. SOCIAL PROXEMICS, FORCES & MUTUAL ACCOMMODATION (Hall, Helbing, Trautman)
 # ==============================================================================
 
+
 def test_literature_proxemics_four_zones_and_monotonic_psii():
     """Hall (1966) & Gao & Huang (2022): Clearance classifies zones; PSII increases monotonically with intrusion depth."""
     calc = ProxemicsExtendedCalculator(RobotParams(robot_radius=0.35))
@@ -104,17 +109,17 @@ def test_literature_proxemics_four_zones_and_monotonic_psii():
 
     # Case A: Intimate Intrusion
     peds_intimate = pl.DataFrame({"time_ns": [0, SEC], "peds_positions": ["[ [0.8, 0.0] ]", "[ [0.8, 0.0] ]"]})
-    ep_a = AlignedEpisodeBundle(1, tf_df, [0,0,0], [0,0,0], topics={"tf_gt": tf_df, "peds": peds_intimate})
+    ep_a = AlignedEpisodeBundle(1, tf_df, [0, 0, 0], [0, 0, 0], topics={"tf_gt": tf_df, "peds": peds_intimate})
     res_a = calc.calculate(ep_a, {})
 
     # Case B: Personal Intrusion
     peds_personal = pl.DataFrame({"time_ns": [0, SEC], "peds_positions": ["[ [1.45, 0.0] ]", "[ [1.45, 0.0] ]"]})
-    ep_b = AlignedEpisodeBundle(2, tf_df, [0,0,0], [0,0,0], topics={"tf_gt": tf_df, "peds": peds_personal})
+    ep_b = AlignedEpisodeBundle(2, tf_df, [0, 0, 0], [0, 0, 0], topics={"tf_gt": tf_df, "peds": peds_personal})
     res_b = calc.calculate(ep_b, {})
 
     # Case C: Free / Public
     peds_free = pl.DataFrame({"time_ns": [0, SEC], "peds_positions": ["[ [4.0, 0.0] ]", "[ [4.0, 0.0] ]"]})
-    ep_c = AlignedEpisodeBundle(3, tf_df, [0,0,0], [0,0,0], topics={"tf_gt": tf_df, "peds": peds_free})
+    ep_c = AlignedEpisodeBundle(3, tf_df, [0, 0, 0], [0, 0, 0], topics={"tf_gt": tf_df, "peds": peds_free})
     res_c = calc.calculate(ep_c, {})
 
     assert res_a["time_in_intimate_zone"] > 0.9
@@ -130,16 +135,18 @@ def test_literature_social_forces_anisotropic_potential():
     calc = SocialForcesCalculator(RobotParams(robot_radius=0.35))
 
     tf_front = pl.DataFrame({"time_ns": [0, SEC], "pos_x_gt": [1.0, 1.0], "pos_y_gt": [0.0, 0.0], "yaw_gt": [np.pi, np.pi]})
-    tf_side = pl.DataFrame({"time_ns": [0, SEC], "pos_x_gt": [0.0, 0.0], "pos_y_gt": [1.0, 1.0], "yaw_gt": [-np.pi/2, -np.pi/2]})
+    tf_side = pl.DataFrame({"time_ns": [0, SEC], "pos_x_gt": [0.0, 0.0], "pos_y_gt": [1.0, 1.0], "yaw_gt": [-np.pi / 2, -np.pi / 2]})
 
-    peds_df = pl.DataFrame({
-        "time_ns": [0, SEC],
-        "peds_positions": ["[ [0.0, 0.0] ]", "[ [0.0, 0.0] ]"],
-        "peds_headings": ["[ 0.0 ]", "[ 0.0 ]"],
-    })
+    peds_df = pl.DataFrame(
+        {
+            "time_ns": [0, SEC],
+            "peds_positions": ["[ [0.0, 0.0] ]", "[ [0.0, 0.0] ]"],
+            "peds_headings": ["[ 0.0 ]", "[ 0.0 ]"],
+        }
+    )
 
-    ep_front = AlignedEpisodeBundle(1, tf_front, [0,0,0], [0,0,0], topics={"tf_gt": tf_front, "peds": peds_df})
-    ep_side = AlignedEpisodeBundle(2, tf_side, [0,0,0], [0,0,0], topics={"tf_gt": tf_side, "peds": peds_df})
+    ep_front = AlignedEpisodeBundle(1, tf_front, [0, 0, 0], [0, 0, 0], topics={"tf_gt": tf_front, "peds": peds_df})
+    ep_side = AlignedEpisodeBundle(2, tf_side, [0, 0, 0], [0, 0, 0], topics={"tf_gt": tf_side, "peds": peds_df})
 
     res_front = calc.calculate(ep_front, {})
     res_side = calc.calculate(ep_side, {})
@@ -188,12 +195,13 @@ def test_literature_mutual_accommodation_ratio_burden_sharing():
 # 3. PERFORMANCE & EFFICIENCY (Anderson et al. SPL, Jerk, Path Efficiency)
 # ==============================================================================
 
+
 def test_literature_spl_and_path_efficiency():
     """Anderson et al. (2018): SPL = Success * (L_optimal / max(L_actual, L_optimal))."""
     calc_coll = CollisionMetricsCalculator(RobotParams(0.25))
     calc_eff = PathEfficiencyCalculator(RobotParams(0.25))
 
-    ep_success = AlignedEpisodeBundle(1, pl.DataFrame(), [0,0,0], [10,0,0])
+    ep_success = AlignedEpisodeBundle(1, pl.DataFrame(), [0, 0, 0], [10, 0, 0])
 
     # Case 1: Optimal traversal
     prior_opt = {"path_length": 10.0, "theta_star_length": 10.0, "time_to_goal": 10.0, "collision_amount": 0}
@@ -223,13 +231,15 @@ def test_literature_kinematic_jerk_smoothness():
     t = np.linspace(0, 5, 50)
     t_ns = (t * SEC).astype(int)
 
-    df_smooth = pl.DataFrame({
-        "time_ns": t_ns,
-        "pos_x_gt": 0.25 * t**2,
-        "pos_y_gt": np.zeros_like(t),
-        "yaw_gt": np.zeros_like(t),
-    })
-    ep_smooth = AlignedEpisodeBundle(1, df_smooth, [0,0,0], [10,0,0], topics={"tf_gt": df_smooth})
+    df_smooth = pl.DataFrame(
+        {
+            "time_ns": t_ns,
+            "pos_x_gt": 0.25 * t**2,
+            "pos_y_gt": np.zeros_like(t),
+            "yaw_gt": np.zeros_like(t),
+        }
+    )
+    ep_smooth = AlignedEpisodeBundle(1, df_smooth, [0, 0, 0], [10, 0, 0], topics={"tf_gt": df_smooth})
     res_smooth = calc.calculate(ep_smooth, {})
 
     assert res_smooth["jerk_mean"] is not None
@@ -239,6 +249,7 @@ def test_literature_kinematic_jerk_smoothness():
 # ==============================================================================
 # 4. ECOLOGICAL, PASSING RULES & HOLISTIC (CoT, E-CoT, Right-Hand Passing)
 # ==============================================================================
+
 
 def test_literature_corridor_passing_rule_compliance():
     """Continental Traffic Rule: Head-on encounters require passing to the right of oncoming pedestrians."""
@@ -250,13 +261,13 @@ def test_literature_corridor_passing_rule_compliance():
 
     # Case A: Robot moves in +X direction at y = -0.5 (to the right of oncoming ped -> Compliant)
     tf_right = pl.DataFrame({"time_ns": t_ns, "pos_x_gt": [1.0, 3.0, 5.0, 7.0], "pos_y_gt": [-0.5, -0.5, -0.5, -0.5], "yaw_gt": [0.0, 0.0, 0.0, 0.0]})
-    ep_right = AlignedEpisodeBundle(1, tf_right, [0,0,0], [10,0,0], topics={"tf_gt": tf_right, "peds": peds_df})
+    ep_right = AlignedEpisodeBundle(1, tf_right, [0, 0, 0], [10, 0, 0], topics={"tf_gt": tf_right, "peds": peds_df})
     comp_right = calc._compute_passing_compliance(ep_right)
     assert comp_right == 1.0
 
     # Case B: Robot moves in +X direction at y = +0.5 (to the left of oncoming ped -> Non-compliant)
     tf_left = pl.DataFrame({"time_ns": t_ns, "pos_x_gt": [1.0, 3.0, 5.0, 7.0], "pos_y_gt": [0.5, 0.5, 0.5, 0.5], "yaw_gt": [0.0, 0.0, 0.0, 0.0]})
-    ep_left = AlignedEpisodeBundle(2, tf_left, [0,0,0], [10,0,0], topics={"tf_gt": tf_left, "peds": peds_df})
+    ep_left = AlignedEpisodeBundle(2, tf_left, [0, 0, 0], [10, 0, 0], topics={"tf_gt": tf_left, "peds": peds_df})
     comp_left = calc._compute_passing_compliance(ep_left)
     assert comp_left == 0.0
 
@@ -264,7 +275,7 @@ def test_literature_corridor_passing_rule_compliance():
 def test_literature_holistic_effective_cost_of_transport():
     """Gao & Huang (2022) & Master Spec: E-CoT = CoT * (1.0 + 2.0*N_coll + 0.5*PSII/T)."""
     calc = HolisticMetricsCalculator(RobotParams(0.35, 0.0, 20.0))
-    ep = AlignedEpisodeBundle(1, pl.DataFrame(), [0,0,0], [10,0,0])
+    ep = AlignedEpisodeBundle(1, pl.DataFrame(), [0, 0, 0], [10, 0, 0])
 
     # Unimpeded run
     prior_clean = {"specific_cost_of_transport": 2.0, "collision_amount": 0, "personal_space_intrusion_integral": 0.0, "time_to_goal": 20.0}
