@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-import pathlib
-import datetime
-import contextlib
-import typing
-import polars as pl
-import os
-import re
-import sys
-import time
-import shutil
-import json
-import logging
-import traceback
-import multiprocessing
 import concurrent.futures
+import contextlib
+import logging
+import multiprocessing
+import os
+import pathlib
+import re
+import shutil
+import tempfile
+import time
+import typing
 
-from ..storage.schemas import RobotParams, EpisodeDescriptor, TopicBundle, AlignedEpisodeBundle, RunMetadata
-from ..storage.folder_manager import FolderManager
+import polars as pl
+
+from arena_evaluation.storage.folder_manager import FolderManager
+from arena_evaluation.storage.schemas import (
+    AlignedEpisodeBundle,
+    EpisodeDescriptor,
+    RobotParams,
+    RunMetadata,
+    TopicBundle,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -39,7 +43,7 @@ def _worker_init():
 def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor):
     """Force terminate all child worker processes without blocking on wait=True."""
     try:
-        processes = list(getattr(executor, "_processes", {}).values())
+        processes = list(executor._processes.values())
         for proc in processes:
             try:
                 proc.kill()
@@ -53,11 +57,17 @@ def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor)
         pass
 
 
-def _extract_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bool, status_dict: typing.Any = None) -> int:
-    from arena_evaluation.processing.pipeline import ProcessingPipeline
-    from arena_evaluation.storage.folder_manager import FolderManager
+def _extract_worker(
+    data_root_str: str,
+    ep: EpisodeDescriptor,
+    force_extract: bool,
+    status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
+) -> int:
     import pathlib
     import time
+
+    from arena_evaluation.processing.pipeline import ProcessingPipeline
+    from arena_evaluation.storage.folder_manager import FolderManager
 
     if status_dict is not None:
         try:
@@ -75,11 +85,17 @@ def _extract_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bo
     return ep.episode_id
 
 
-def _process_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bool, status_dict: typing.Any = None) -> typing.Tuple[int, typing.Any]:
-    from arena_evaluation.processing.pipeline import ProcessingPipeline
-    from arena_evaluation.storage.folder_manager import FolderManager
+def _process_worker(
+    data_root_str: str,
+    ep: EpisodeDescriptor,
+    force_extract: bool,
+    status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
+) -> tuple[int, typing.Any]:
     import pathlib
     import time
+
+    from arena_evaluation.processing.pipeline import ProcessingPipeline
+    from arena_evaluation.storage.folder_manager import FolderManager
 
     if status_dict is not None:
         try:
@@ -101,10 +117,10 @@ def _process_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bo
     return ep.episode_id, result
 
 
-def _resolve_odom_frame(aligned_df) -> "pl.DataFrame | None":
+def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
     """Filter null poses and slice to longest consistent segment."""
-    import polars as pl
     import numpy as np
+    import polars as pl
 
     from .pose_segments import teleport_jumps
 
@@ -216,13 +232,12 @@ def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
     return topics
 
 
-from ..storage.manifest import MetadataWriter
-from ..benchmark.profiler import PipelineProfiler
-
-from .mcap_reader import MCAPReader
-from .topic_aligner import TopicAligner
-from .parquet_store import ParquetStore, TopicParquetStore
-from .pose_anchor import resolve_pose_source
+from arena_evaluation.benchmark.profiler import PipelineProfiler
+from arena_evaluation.processing.mcap_reader import MCAPReader
+from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
+from arena_evaluation.processing.pose_anchor import resolve_pose_source
+from arena_evaluation.processing.topic_aligner import TopicAligner
+from arena_evaluation.storage.manifest import MetadataWriter
 
 # Columns whose values are all-None (no kind in the recording) or all-empty
 # (no collisions) would otherwise infer as Null / List(Null) and clash with
@@ -243,10 +258,8 @@ _METRIC_DTYPES = {
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
 }
+
 from .metrics.registry import MetricRegistry
-
-import arena_evaluation
-
 
 # EpisodeRecord.outcome_state -> (result, success)
 _OUTCOME_VERDICTS = {2: ("GOAL_REACHED", True), 3: ("FAILED", False), 4: ("CANCELLED", False), 5: ("FATAL", False)}
@@ -273,7 +286,7 @@ def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMet
 def _planner_split(ep: EpisodeDescriptor, metadata: RunMetadata | None) -> tuple[str, str]:
     if metadata is not None and metadata.local_planner:
         return metadata.local_planner, metadata.inter_planner or ""
-    from ..presentation.dimension_detector import split_planner_name
+    from arena_evaluation.storage.planner_names import split_planner_name
 
     return split_planner_name(ep.planner)
 
@@ -360,19 +373,20 @@ class ProcessingPipeline:
         _ctx = self.profiler.phase("extract") if self.profiler else contextlib.nullcontext()
         with _ctx:
             if topics_dir.exists():
-                import shutil
-
                 shutil.rmtree(topics_dir)
-            reader = MCAPReader(mcap_path)
-            bundles = reader.read(map_name_fallback=ep.map)
-            TopicParquetStore.write(bundles, topics_dir, overwrite=True)
+            with tempfile.TemporaryDirectory(dir=episode_dir, prefix=".extract-") as scratch:
+                bundles = MCAPReader(mcap_path).read(pathlib.Path(scratch), map_name_fallback=ep.map)
+                TopicParquetStore.write(bundles, topics_dir, overwrite=True)
+            bundles = TopicParquetStore.read(topics_dir)
+            if bundles is None:
+                raise RuntimeError(f"no parquet written to {topics_dir}")
             return bundles
 
     def process_episode(
         self,
         ep: EpisodeDescriptor,
         force_extract: bool = False,
-        status_dict: typing.Any = None,
+        status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
     ) -> list[dict]:
         """Extract and evaluate one episode: one row per robot, a status row where metrics are impossible."""
         episode_dir = pathlib.Path(ep.episode_dir)
@@ -537,7 +551,7 @@ class ProcessingPipeline:
                         ep_metrics["local_planner"] = metadata.local_planner
                         ep_metrics["inter_planner"] = metadata.inter_planner or ""
                     else:
-                        from ..presentation.dimension_detector import split_planner_name
+                        from arena_evaluation.storage.planner_names import split_planner_name
 
                         lp, ip = split_planner_name(ep.planner)
                         ep_metrics["local_planner"] = lp

@@ -790,6 +790,7 @@ plots:
     layout_group: environmental_acoustics
     options:
       downsample: 1
+      overlay_trajectories: true
 
   - id: acoustic_field_animation
     type: acoustic_field_animation
@@ -802,6 +803,7 @@ plots:
       downsample: 2
       fps: 10
       max_frames: 100
+      overlay_trajectories: true
       format: gif
 
   # ============================================================================

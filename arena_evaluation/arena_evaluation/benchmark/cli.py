@@ -6,10 +6,10 @@ import subprocess
 import sys
 import time
 
+from arena_evaluation.storage.data_root import benchmarks_root
+
 
 def _data_root() -> pathlib.Path:
-    from ..storage.data_root import benchmarks_root
-
     return benchmarks_root()
 
 
@@ -69,18 +69,20 @@ def _cmd_list(args: argparse.Namespace) -> int:
         counts = _count_by_status(state.steps)
         total = len(manifest.steps)
         created = manifest.created_at[:16].replace("T", " ") if manifest.created_at else ""
-        rows.append((
-            manifest.run_id,
-            manifest.suite_name,
-            manifest.contest_name,
-            total,
-            counts["ok"],
-            counts["partial"],
-            counts["failed"],
-            counts["skipped"],
-            counts["in_progress"],
-            created,
-        ))
+        rows.append(
+            (
+                manifest.run_id,
+                manifest.suite_name,
+                manifest.contest_name,
+                total,
+                counts["ok"],
+                counts["partial"],
+                counts["failed"],
+                counts["skipped"],
+                counts["in_progress"],
+                created,
+            )
+        )
 
     if not rows:
         print(f"no benchmark runs in {data_root}")
@@ -111,18 +113,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         in_flight: int | str,
         created: str,
     ) -> str:
-        return (
-            f"{str(run_id):<{col_widths[0]}}  "
-            f"{str(suite):<{col_widths[1]}}  "
-            f"{str(contest):<{col_widths[2]}}  "
-            f"{str(total):>{col_widths[3]}}  "
-            f"{str(ok):>{col_widths[4]}}  "
-            f"{str(partial):>{col_widths[5]}}  "
-            f"{str(failed):>{col_widths[6]}}  "
-            f"{str(skipped):>{col_widths[7]}}  "
-            f"{str(in_flight):>{col_widths[8]}}  "
-            f"{str(created)}"
-        )
+        return f"{str(run_id):<{col_widths[0]}}  {str(suite):<{col_widths[1]}}  {str(contest):<{col_widths[2]}}  {str(total):>{col_widths[3]}}  {str(ok):>{col_widths[4]}}  {str(partial):>{col_widths[5]}}  {str(failed):>{col_widths[6]}}  {str(skipped):>{col_widths[7]}}  {str(in_flight):>{col_widths[8]}}  {str(created)}"
 
     print(_row("RUN_ID", "SUITE", "CONTEST", "STEPS", "OK", "PARTIAL", "FAILED", "SKIPPED", "IN_FLIGHT", "CREATED"))
     for r in rows:
@@ -317,16 +308,13 @@ def _cmd_ps(args: argparse.Namespace) -> int:
 
     print(f"{'PID':<{w_pid}}  {'KIND':<{w_kind}}  {'ELAPSED':<{w_el}}  CMD")
     for r in rows:
-        print(
-            f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  "
-            f"{_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}"
-        )
+        print(f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  {_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}")
     return 0
 
 
 def _cmd_console(args: argparse.Namespace) -> int:
     """Tail a benchmark run's console log."""
-    from .debug import console_log_path, tail_console
+    from .debug import tail_console
 
     run_id = args.run_id
     if not run_id:

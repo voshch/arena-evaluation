@@ -15,6 +15,7 @@ def _ros_gate():
 # Suite.parse
 # ---------------------------------------------------------------------------
 
+
 def _make_stage_dict(**overrides: object) -> dict:
     base: dict = {
         "name": "stage_one",
@@ -80,6 +81,7 @@ def test_suite_parse_launch_args_from_launch_mapping():
 # ---------------------------------------------------------------------------
 # Suite.Stage.parse
 # ---------------------------------------------------------------------------
+
 
 def test_stage_parse_happy_path():
     from arena_evaluation.benchmark.config import Suite
@@ -159,6 +161,7 @@ def test_stage_parse_invalid_tm_obstacles_raises():
 # Contest.parse - list form
 # ---------------------------------------------------------------------------
 
+
 def test_contest_parse_list_happy_path():
     from arena_evaluation.benchmark.config import Contest
 
@@ -229,6 +232,7 @@ def test_contest_parse_list_all_keys_except_name_go_to_args():
 # Contest.parse - list form (dict-cap)
 # ---------------------------------------------------------------------------
 
+
 def test_contest_parse_list_dict_cap():
     """Dict-valued arg stores the cap dict as-is."""
     from arena_evaluation.benchmark.config import Contest
@@ -271,6 +275,7 @@ def test_contest_parse_list_dict_cap_no_driver():
 # ---------------------------------------------------------------------------
 # Contest.parse - dict-wrapped list form (name + contestants)
 # ---------------------------------------------------------------------------
+
 
 def test_contest_parse_dict_with_contestants_list():
     from arena_evaluation.benchmark.config import Contest
@@ -328,6 +333,7 @@ def test_contest_parse_dict_with_contestants_list_and_description():
 # ---------------------------------------------------------------------------
 # Contest.parse - sweep form
 # ---------------------------------------------------------------------------
+
 
 def test_contest_parse_sweep_one_axis():
     from arena_evaluation.benchmark.config import Contest
@@ -426,6 +432,7 @@ def test_contest_parse_invalid_type_raises():
 # Contest.parse - sweep form (dict-cap)
 # ---------------------------------------------------------------------------
 
+
 def test_contest_parse_sweep_dict_cap_one_inner_axis():
     """Dict-form cap with one sweep axis inside."""
     from arena_evaluation.benchmark.config import Contest
@@ -482,48 +489,58 @@ def test_contest_parse_sweep_dict_cap_with_prefix():
 # _parse_duration
 # ---------------------------------------------------------------------------
 
+
 def test_parse_duration_plain_int():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("60") == 60.0
 
 
 def test_parse_duration_plain_float():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("60.0") == 60.0
 
 
 def test_parse_duration_ms():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("500ms") == pytest.approx(0.5)
 
 
 def test_parse_duration_seconds_suffix():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("5s") == pytest.approx(5.0)
 
 
 def test_parse_duration_minutes():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("5m") == pytest.approx(300.0)
 
 
 def test_parse_duration_hours():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("1h") == pytest.approx(3600.0)
 
 
 def test_parse_duration_compound():
     from arena_evaluation.benchmark.config import _parse_duration
+
     assert _parse_duration("1h30m") == pytest.approx(5400.0)
 
 
 def test_parse_duration_garbage_raises():
     from arena_evaluation.benchmark.config import _parse_duration
+
     with pytest.raises(ValueError):
         _parse_duration("not_a_duration")
 
 
 def test_parse_duration_empty_raises():
     from arena_evaluation.benchmark.config import _parse_duration
+
     with pytest.raises(ValueError):
         _parse_duration("abc")

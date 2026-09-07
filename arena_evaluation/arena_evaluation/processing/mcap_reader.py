@@ -3,18 +3,18 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import pathlib
 import math
-import typing
+import pathlib
 import re
-import polars as pl
 from collections import defaultdict
-from mcap.reader import make_reader, NonSeekingReader
-from mcap_ros2.decoder import DecoderFactory
+
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+from mcap.reader import NonSeekingReader
+from mcap_ros2.decoder import DecoderFactory
 
-from ..storage.schemas import TopicBundle
+from arena_evaluation.storage.schemas import TopicBundle
 
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
@@ -78,12 +78,12 @@ class MCAPReader:
         return math.atan2(siny_cosp, cosy_cosp)
 
     @staticmethod
-    def _stamp_ns(header) -> int:
+    def _stamp_ns(header: object) -> int:
         """Header stamp (sim time) in ns."""
         return int(header.stamp.sec) * 1_000_000_000 + int(header.stamp.nanosec)
 
     @staticmethod
-    def _param_value_to_py(val) -> typing.Any:
+    def _param_value_to_py(val: object) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
         p_type = val.type
         if p_type == 1:
             return val.bool_value
@@ -119,8 +119,8 @@ class MCAPReader:
                 curr[parts[-1]] = v
         return res
 
-    def read(self, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
-        """Read data source and return raw TopicBundle by robot namespace."""
+    def read(self, out_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
+        """Stream the MCAP into per-topic parquet under out_dir and return lazy TopicBundles over it."""
         if self.data_path.is_dir():
             mcap_files = sorted(list(self.data_path.glob("*.mcap")))
             if not mcap_files:
@@ -133,13 +133,9 @@ class MCAPReader:
                 raise FileNotFoundError(f"MCAP file not found: {path_item}")
 
         path = self.data_path.resolve()
-        if path.is_dir():
-            run_dir = path
-        else:
-            run_dir = path.parent
-        topics_dir = run_dir / "topics"
+        run_dir = path if path.is_dir() else path.parent
 
-        def new_robot_data():
+        def new_robot_data() -> dict[str, defaultdict[str, list]]:
             return {
                 "odom": defaultdict(list),
                 "odom_controller": defaultdict(list),
@@ -159,7 +155,7 @@ class MCAPReader:
                 "characterization_schedule": defaultdict(list),
             }
 
-        def new_env_data():
+        def new_env_data() -> dict[str, defaultdict[str, list]]:
             return {"peds": defaultdict(list), "episode_record": defaultdict(list)}
 
         env_data = defaultdict(new_env_data)
@@ -172,11 +168,9 @@ class MCAPReader:
 
         robot_data = defaultdict(new_robot_data)
 
-        from mcap.reader import NonSeekingReader
-
         env_prefix = None
 
-        topics_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         writers = {}
         accumulated_count = 0
@@ -191,7 +185,7 @@ class MCAPReader:
                 writer_key = ("__global__", topic_name)
 
                 if writer_key not in writers:
-                    final_path = topics_dir / f"{topic_name}.parquet"
+                    final_path = out_dir / f"{topic_name}.parquet"
                     writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
                 writers[writer_key].write_batch(batch)
                 topic_data.clear()
@@ -205,7 +199,7 @@ class MCAPReader:
                     writer_key = (env_name, topic_name)
 
                     if writer_key not in writers:
-                        env_dir = topics_dir / env_name
+                        env_dir = out_dir / env_name
                         env_dir.mkdir(parents=True, exist_ok=True)
                         final_path = env_dir / f"{topic_name}.parquet"
                         writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
@@ -221,7 +215,7 @@ class MCAPReader:
                     writer_key = (robot_name, topic_name)
 
                     if writer_key not in writers:
-                        robot_dir = topics_dir / robot_name
+                        robot_dir = out_dir / robot_name
                         robot_dir.mkdir(parents=True, exist_ok=True)
                         final_path = robot_dir / f"{topic_name}.parquet"
                         writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
@@ -267,7 +261,7 @@ class MCAPReader:
                         if match:
                             env_key = match.group(1)
 
-                        def get_robot_name(parts, env_key):
+                        def get_robot_name(parts: list[str], env_key: str) -> str:
                             if len(parts) < 2:
                                 return f"{env_key}_unknown"
                             base = parts[-2]
@@ -576,7 +570,7 @@ class MCAPReader:
             for writer in writers.values():
                 writer.close()
 
-        return self.load_bundles(topics_dir, map_name_fallback=map_name_fallback)
+        return self.load_bundles(out_dir, run_dir, map_name_fallback=map_name_fallback)
 
     @staticmethod
     def _frame_env(frame: str, default: str) -> str:
@@ -632,22 +626,22 @@ class MCAPReader:
         target["value_list"].append(value_list)
 
     @staticmethod
-    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent) -> None:
+    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent: object) -> None:
         """Flatten one SemanticEntityState into long-format rows."""
-        for name, value in zip(ent.discrete_names, ent.discrete_values):
+        for name, value in zip(ent.discrete_names, ent.discrete_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "discrete", value_str=str(value))
-        for name, value in zip(ent.continuous_names, ent.continuous_values):
+        for name, value in zip(ent.continuous_names, ent.continuous_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "continuous", value_num=float(value))
-        for name, value in zip(ent.predicate_names, ent.predicate_values):
+        for name, value in zip(ent.predicate_names, ent.predicate_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "predicate", value_bool=bool(value))
         MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, "members", "members", value_list=list(ent.members))
 
     @staticmethod
-    def load_bundles(topics_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
+    def load_bundles(topics_dir: pathlib.Path, run_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
         # Reconstruct dict[str, TopicBundle]
         bundles = {}
 
-        def load_parquet(path):
+        def load_parquet(path: pathlib.Path) -> pl.LazyFrame | None:
             if path.exists():
                 lf = pl.scan_parquet(path)
                 if "time_ns" in lf.collect_schema().names():
@@ -743,7 +737,7 @@ class MCAPReader:
                 try:
                     from arena_evaluation.processing.map_registry import MapRegistry
 
-                    map_meta = MapRegistry.get_map_metadata(map_name, run_dir=topics_dir.parent)
+                    map_meta = MapRegistry.get_map_metadata(map_name, run_dir=run_dir)
                     if map_meta and "origin" in map_meta and map_meta["origin"]:
                         mx, my = float(map_meta["origin"][0]), float(map_meta["origin"][1])
                 except Exception:

@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import polars as pl
 
-from pydantic import BaseModel, Field
-from dataclasses import dataclass, field, fields
 import typing
+from dataclasses import dataclass, field, fields
+
+from pydantic import BaseModel, Field
 
 
 class RunMetadata(BaseModel):
@@ -78,9 +79,10 @@ class RobotParams:
         return self.base_mass + sum(self.component_masses.values())
 
     @classmethod
-    def load(cls, model: str) -> "RobotParams":
+    def load(cls, model: str) -> RobotParams:
         """Load parameters from arena_robots share directory, returning defaults on failure."""
         import os
+
         import yaml
         from ament_index_python.packages import get_package_share_directory
 
@@ -96,7 +98,7 @@ class RobotParams:
 
         def _read(path: str) -> dict:
             try:
-                with open(path, "r") as file:
+                with open(path) as file:
                     return yaml.safe_load(file) or {}
             except Exception:
                 return {}

@@ -33,19 +33,29 @@ def _snap(rows):
         value_str.append(v if fk == "discrete" else None)
         value_num.append(float(v) if fk == "continuous" else None)
         value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame({
-        "time_ns": time_ns, "entity": entity, "kind": kind, "field": field, "field_kind": field_kind,
-        "value_str": value_str, "value_num": value_num, "value_bool": value_bool,
-    })
+    return pl.DataFrame(
+        {
+            "time_ns": time_ns,
+            "entity": entity,
+            "kind": kind,
+            "field": field,
+            "field_kind": field_kind,
+            "value_str": value_str,
+            "value_num": value_num,
+            "value_bool": value_bool,
+        }
+    )
 
 
 def test_time_waiting_at_doors_counts_triggered_not_open():
-    snapshot = _snap([
-        (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
-        (3_000_000_000, "env_0/door_1", "door", "state", "discrete", "opening"),
-        (4_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-        (5_000_000_000, "env_0/door_1", "door", "triggered", "predicate", False),
-    ])
+    snapshot = _snap(
+        [
+            (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
+            (3_000_000_000, "env_0/door_1", "door", "state", "discrete", "opening"),
+            (4_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
+            (5_000_000_000, "env_0/door_1", "door", "triggered", "predicate", False),
+        ]
+    )
 
     results = _calc().calculate(_episode(snapshot), {})
 
@@ -55,12 +65,14 @@ def test_time_waiting_at_doors_counts_triggered_not_open():
 
 
 def test_time_waiting_at_doors_sums_across_doors():
-    snapshot = _snap([
-        (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
-        (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-        (1_000_000_000, "env_0/door_2", "door", "triggered", "predicate", True),
-        (3_000_000_000, "env_0/door_2", "door", "state", "discrete", "open"),
-    ])
+    snapshot = _snap(
+        [
+            (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
+            (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
+            (1_000_000_000, "env_0/door_2", "door", "triggered", "predicate", True),
+            (3_000_000_000, "env_0/door_2", "door", "state", "discrete", "open"),
+        ]
+    )
 
     results = _calc().calculate(_episode(snapshot), {})
 
@@ -69,13 +81,15 @@ def test_time_waiting_at_doors_sums_across_doors():
 
 
 def test_elevator_rides_requires_nonzero_occupants():
-    snapshot = _snap([
-        (1_000_000_000, "env_0/1_elevator", "elevator", "occupants", "continuous", 1.0),
-        (2_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", True),
-        (3_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", False),
-        (4_000_000_000, "env_0/1_elevator", "elevator", "occupants", "continuous", 0.0),
-        (5_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", True),
-    ])
+    snapshot = _snap(
+        [
+            (1_000_000_000, "env_0/1_elevator", "elevator", "occupants", "continuous", 1.0),
+            (2_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", True),
+            (3_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", False),
+            (4_000_000_000, "env_0/1_elevator", "elevator", "occupants", "continuous", 0.0),
+            (5_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", True),
+        ]
+    )
 
     results = _calc().calculate(_episode(snapshot), {})
 
@@ -92,10 +106,18 @@ def test_no_semantic_snapshot_returns_zero_defaults():
 
 
 def test_empty_semantic_snapshot_returns_zero_defaults():
-    snapshot = pl.DataFrame({
-        "time_ns": [], "entity": [], "kind": [], "field": [], "field_kind": [],
-        "value_str": [], "value_num": [], "value_bool": [],
-    })
+    snapshot = pl.DataFrame(
+        {
+            "time_ns": [],
+            "entity": [],
+            "kind": [],
+            "field": [],
+            "field_kind": [],
+            "value_str": [],
+            "value_num": [],
+            "value_bool": [],
+        }
+    )
 
     results = _calc().calculate(_episode(snapshot), {})
 

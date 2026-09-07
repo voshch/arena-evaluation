@@ -222,10 +222,7 @@ class Contest:
         else:
             combos = [()]
 
-        varying_idx = [
-            i for i, (_, _, vs) in enumerate(axes)
-            if len({_yamlable(v) for v in vs}) > 1
-        ]
+        varying_idx = [i for i, (_, _, vs) in enumerate(axes) if len({_yamlable(v) for v in vs}) > 1]
 
         contestants = []
         for combo in combos:

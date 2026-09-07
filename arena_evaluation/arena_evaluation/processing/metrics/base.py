@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import ast
 import typing
+from abc import ABC, abstractmethod
 
 import numpy as np
 import polars as pl
@@ -29,7 +29,7 @@ class BaseMetricCalculator(ABC):
         """Initializes the calculator with robot parameters."""
         self.robot_params = robot_params
 
-    def resolve_robot_pose(self, episode: "AlignedEpisodeBundle") -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Map-frame robot pose (pos_x, pos_y, yaw); the start-pose re-anchor is the odom-only fallback."""
         if episode.data is not None and len(episode.data) > 0:
             if "pos_x_gt" in episode.data.columns:
@@ -126,11 +126,11 @@ class BaseMetricCalculator(ABC):
 
         return pos_x, pos_y, yaw, odom_x_trans, odom_y_trans, odom_yaw_trans
 
-    def native_topics(self, episode: "AlignedEpisodeBundle") -> dict:
+    def native_topics(self, episode: AlignedEpisodeBundle) -> dict:
         """Raw native-rate topic frames keyed by topic name; {} when absent."""
         return episode.topics if isinstance(episode.topics, dict) else {}
 
-    def resolve_native_pose(self, episode: "AlignedEpisodeBundle") -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def resolve_native_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Ground-truth-first robot pose on the native odom time axis.
 
         Returns (pos_x, pos_y, yaw, time_ns) float64 arrays.
@@ -178,7 +178,7 @@ class BaseMetricCalculator(ABC):
 
         return ox, oy, oyaw, time_ns
 
-    def native_ped_frame(self, episode: "AlignedEpisodeBundle") -> pl.DataFrame | None:
+    def native_ped_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
         """Raw pedestrian frame (native rate) sorted by time_ns, or None."""
         topics = self.native_topics(episode)
         peds = topics.get("peds")
@@ -289,7 +289,7 @@ class BaseMetricCalculator(ABC):
         return np.nan_to_num(vx, nan=0.0), np.nan_to_num(vy, nan=0.0)
 
     @staticmethod
-    def _parse_peds(peds_raw, num_peds_hint=None) -> np.ndarray:
+    def _parse_peds(peds_raw: object, num_peds_hint: float | None = None) -> np.ndarray:
         """Parse pedestrian positions into an (N, 2) or (N, 3) array of coordinates."""
         if peds_raw is None or len(peds_raw) == 0:
             return np.empty((0, 2))
@@ -351,6 +351,6 @@ class BaseMetricCalculator(ABC):
         pass
 
     @abstractmethod
-    def calculate(self, episode: "AlignedEpisodeBundle", prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Calculate metrics for a single episode."""
         pass

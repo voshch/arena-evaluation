@@ -3,18 +3,18 @@ from __future__ import annotations
 import importlib
 import inspect
 import pkgutil
+import types
 import typing
 from collections import defaultdict, deque
 
-from .base import BaseMetricCalculator
-from ...storage.exceptions import CircularDependencyError
-
-if typing.TYPE_CHECKING:
-    from ...storage.schemas import RobotParams, AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.exceptions import CircularDependencyError
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 
 class MetricRegistry:
     """Discovers, validates, and executes metric calculators in topological order."""
+
     def __init__(self, robot_params: RobotParams, world: str | None = None):
         self.robot_params = robot_params
         self.world = world
@@ -27,13 +27,13 @@ class MetricRegistry:
     def discover_calculators_cls(cls) -> None:
         """Recursively discover all BaseMetricCalculator subclasses in the metrics package."""
         import arena_evaluation.processing.metrics as metrics_pkg
-        
-        def iter_namespace(pkg):
+
+        def iter_namespace(pkg: types.ModuleType) -> typing.Iterator[pkgutil.ModuleInfo]:
             return pkgutil.iter_modules(pkg.__path__, pkg.__name__ + ".")
 
         for _, name, _ in iter_namespace(metrics_pkg):
             importlib.import_module(name)
-            
+
         # Recursive discovery for subpackages
         for _, name, ispkg in iter_namespace(metrics_pkg):
             if ispkg:
@@ -82,17 +82,17 @@ class MetricRegistry:
         while queue:
             stage_size = len(queue)
             current_stage = []
-            
+
             for _ in range(stage_size):
                 u = queue.popleft()
                 current_stage.append(u)
                 processed_count += 1
-                
+
                 for v in adj_list[u]:
                     in_degree[v] -= 1
                     if in_degree[v] == 0:
                         queue.append(v)
-            
+
             stages.append(current_stage)
 
         if processed_count != len(self.calculators):
@@ -138,7 +138,7 @@ class MetricRegistry:
             for calc_name in stage:
                 calc_idx += 1
                 calc = self.calculators[calc_name]
-                
+
                 # Check topic dependencies
                 skip_due_to_topics = False
                 for req in calc.REQUIRED_TOPICS:
@@ -162,7 +162,7 @@ class MetricRegistry:
                     for key in calc.output_keys():
                         results[key] = None
                     continue
-                
+
                 if progress_callback is not None:
                     try:
                         progress_callback(calc_name, calc_idx, total_calcs)
@@ -172,21 +172,20 @@ class MetricRegistry:
                 try:
                     # Pass a read-only view of prior results
                     calc_out = calc.calculate(episode, dict(results))
-                    
+
                     # Validate output keys
                     expected_keys = set(calc.output_keys())
                     actual_keys = set(calc_out.keys())
                     if not expected_keys.issubset(actual_keys):
                         missing = expected_keys - actual_keys
                         raise ValueError(f"Calculator {calc_name} missing output keys: {missing}")
-                        
+
                     results.update(calc_out)
-                    
+
                 except Exception as e:
                     import logging
-                    logging.getLogger(__name__).warning(
-                        f"Calculator {calc_name} failed on episode {episode.episode_id}: {e}"
-                    )
+
+                    logging.getLogger(__name__).warning(f"Calculator {calc_name} failed on episode {episode.episode_id}: {e}")
                     # Fill with None for schema consistency on failure
                     for key in calc.output_keys():
                         results[key] = None

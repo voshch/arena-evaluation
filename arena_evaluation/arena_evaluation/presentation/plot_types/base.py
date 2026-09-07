@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-import polars as pl
 import pathlib
+from abc import ABC, abstractmethod
 
-from ...storage.schemas import PlotSpec
-from ..dimension_detector import resolve_differentiate
+import polars as pl
+
+from arena_evaluation.presentation.dimension_detector import resolve_differentiate
+from arena_evaluation.storage.schemas import PlotSpec
 
 
 class BasePlotRenderer(ABC):
@@ -51,9 +52,7 @@ class BasePlotRenderer(ABC):
                 if isinstance(v, (list, tuple, set)):
                     v_list = list(v)
                     if v_list:
-                        res_df = res_df.filter(
-                            pl.any_horizontal([pl.col(k).list.contains(x) for x in v_list])
-                        )
+                        res_df = res_df.filter(pl.any_horizontal([pl.col(k).list.contains(x) for x in v_list]))
                     else:
                         res_df = res_df.filter(pl.lit(False))
                 else:

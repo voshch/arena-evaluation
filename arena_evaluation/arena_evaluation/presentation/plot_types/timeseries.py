@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pathlib
-import polars as pl
+
 import plotly.graph_objects as go
+import polars as pl
 
 from .base import BasePlotRenderer
 
@@ -11,8 +12,8 @@ class TimeseriesRenderer(BasePlotRenderer):
     PLOT_TYPE = "timeseries"
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
-        import plotly.express as px
         import numpy as np
+        import plotly.express as px
 
         df_filtered = self._apply_filters(df)
         diff_col, df_filtered = self.resolve_diff_col(df_filtered)
@@ -88,7 +89,7 @@ class TimeseriesRenderer(BasePlotRenderer):
 
                     # If sizes differ, interpolate or match lengths
                     if len(x_data) != len(y_data):
-                        cur_x = np.linspace(x_data[0], x_data[-1], len(y_data)) if len(y_data) > 1 else x_data[:len(y_data)]
+                        cur_x = np.linspace(x_data[0], x_data[-1], len(y_data)) if len(y_data) > 1 else x_data[: len(y_data)]
                     else:
                         cur_x = x_data
 
@@ -97,16 +98,18 @@ class TimeseriesRenderer(BasePlotRenderer):
                     showlegend = True if m_idx == 0 else False
 
                     m_label = self.format_label(metric.replace("timeseries_", "").replace("_", " ").title(), metric)
-                    fig.add_trace(go.Scatter(
-                        x=cur_x.tolist(),
-                        y=y_data.tolist(),
-                        mode="lines",
-                        name=f"{legend_group}" if m_idx == 0 else m_label,
-                        legendgroup=legend_group,
-                        line=dict(color=base_color, dash=dash, width=2),
-                        hovertemplate=f"Ep {episode_val}<br>Time: %{{x:.2f}}s<br>{m_label}: %{{y:.3f}}<extra></extra>",
-                        showlegend=showlegend
-                    ))
+                    fig.add_trace(
+                        go.Scatter(
+                            x=cur_x.tolist(),
+                            y=y_data.tolist(),
+                            mode="lines",
+                            name=f"{legend_group}" if m_idx == 0 else m_label,
+                            legendgroup=legend_group,
+                            line=dict(color=base_color, dash=dash, width=2),
+                            hovertemplate=f"Ep {episode_val}<br>Time: %{{x:.2f}}s<br>{m_label}: %{{y:.3f}}<extra></extra>",
+                            showlegend=showlegend,
+                        )
+                    )
                     traces_added += 1
 
         fig.update_layout(
@@ -114,7 +117,7 @@ class TimeseriesRenderer(BasePlotRenderer):
             xaxis_title=self.format_label(x_col.replace("timeseries_", "").replace("_", " ").title(), x_col),
             yaxis_title=self.format_label(valid_metrics[0].replace("timeseries_", "").replace("_", " ").title(), valid_metrics[0]),
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-            margin=dict(r=150)
+            margin=dict(r=150),
         )
 
         return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})

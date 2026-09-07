@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 
+
 def test_acoustics_free_space():
     # 10x10 empty grid
     grid = np.zeros((10, 10), dtype=np.uint8)
@@ -15,14 +16,12 @@ def test_acoustics_free_space():
     tx = np.array([3.0], dtype=np.float32)
     ty = np.array([4.0], dtype=np.float32)
 
-    att = compute_attenuations(
-        grid, resolution, sx, sy, tx, ty,
-        wall_tl=47.0, mic_distance=1.0
-    )
+    att = compute_attenuations(grid, resolution, sx, sy, tx, ty, wall_tl=47.0, mic_distance=1.0)
 
     expected_dist = np.sqrt(3.0**2 + 4.0**2)  # = 5.0 m (true Euclidean, not staircase)
     expected = 20.0 * np.log10(expected_dist + 1.0)
     assert np.isclose(att[0], expected, atol=0.1)
+
 
 def test_acoustics_one_wall():
     # 10x10 grid with a vertical wall at x=2
@@ -35,10 +34,7 @@ def test_acoustics_one_wall():
     tx = np.array([3.0], dtype=np.float32)
     ty = np.array([4.0], dtype=np.float32)
 
-    att = compute_attenuations(
-        grid, resolution, sx, sy, tx, ty,
-        wall_tl=47.0, mic_distance=1.0
-    )
+    att = compute_attenuations(grid, resolution, sx, sy, tx, ty, wall_tl=47.0, mic_distance=1.0)
 
     # The shortest path must cross the wall once.
     # With Theta* the path through the wall uses true Euclidean distance
@@ -47,6 +43,7 @@ def test_acoustics_one_wall():
     expected_dist = np.sqrt(3.0**2 + 4.0**2)  # = 5.0 m
     expected = 20.0 * np.log10(expected_dist + 1.0) + 47.0
     assert np.isclose(att[0], expected, atol=0.5)  # slightly wider: wall forces grid step
+
 
 def test_acoustics_pruning_dominance():
     # Grid where going around the wall is cheaper than going through it
@@ -59,10 +56,7 @@ def test_acoustics_pruning_dominance():
     tx = np.array([4.0], dtype=np.float32)
     ty = np.array([3.0], dtype=np.float32)
 
-    att = compute_attenuations(
-        grid, resolution, sx, sy, tx, ty,
-        wall_tl=47.0, mic_distance=1.0
-    )
+    att = compute_attenuations(grid, resolution, sx, sy, tx, ty, wall_tl=47.0, mic_distance=1.0)
 
     # Path 1: through the wall: distance = 4m, walls = 1. Cost = 20log10(5) + 47 = 60.97
     # Path 2: around the wall: dist is roughly 4 + 4 + 4 = 12m. Cost = 20log10(13) = 22.2

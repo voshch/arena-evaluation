@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import pathlib
+
 import polars as pl
-from ..storage.schemas import PlotSpec
+
+from arena_evaluation.storage.schemas import PlotSpec
+
 
 class PlotlyRenderer:
     """Dispatches plot rendering to the correct Plotly class."""
@@ -10,22 +13,23 @@ class PlotlyRenderer:
     def __init__(self, units: dict[str, str] | None = None):
         self.units = units or {}
         from .color_utils import set_global_color_palette
+
         set_global_color_palette()
 
         from .plot_types import (
-            ViolinRenderer,
-            BoxRenderer,
+            AcousticFieldAnimationRenderer,
+            AcousticFieldRenderer,
             BarRenderer,
-            TrajectoryRenderer,
+            BoxRenderer,
+            HeatmapRenderer,
+            HistogramRenderer,
+            LineRenderer,
             RadarRenderer,
             ScatterRenderer,
-            HistogramRenderer,
-            HeatmapRenderer,
-            TimeseriesRenderer,
-            LineRenderer,
             TableRenderer,
-            AcousticFieldRenderer,
-            AcousticFieldAnimationRenderer,
+            TimeseriesRenderer,
+            TrajectoryRenderer,
+            ViolinRenderer,
         )
 
         self.renderers = {

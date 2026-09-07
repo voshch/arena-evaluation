@@ -10,12 +10,12 @@ transmission loss (closed).
 Door pixels are represented as a boolean mask per door, aligned with the
 occupancy grid (row 0 = bottom of the map, matching MapRegistry output).
 """
+
 from __future__ import annotations
 
 import functools
 import logging
 import pathlib
-import typing
 
 import numpy as np
 import yaml
@@ -33,7 +33,7 @@ def _load_world_yaml(world_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def _find_world_yaml(map_name: str, run_dir: typing.Any = None) -> pathlib.Path | None:
+def _find_world_yaml(map_name: str, run_dir: pathlib.Path | str | None = None) -> pathlib.Path | None:
     """Locate the world.yaml for a map: run_dir/worlds/<map>... or via the
     arena_simulation_setup package worlds/ directory."""
     import os
@@ -94,7 +94,7 @@ def door_segments(
     grid: np.ndarray,
     resolution: float,
     origin: tuple[float, float, float],
-    run_dir: typing.Any = None,
+    run_dir: pathlib.Path | str | None = None,
 ) -> dict[str, tuple[np.ndarray, float]]:
     """Build per-door pixel masks + TL for a map's occupancy grid.
 
@@ -123,7 +123,7 @@ def door_segments(
                 name = door.get("name") or f"door_{len(result)}"
 
                 # door coords may be {x, y} dicts or [x, y, ...] lists
-                def _pt(entry) -> tuple[float, float]:
+                def _pt(entry: dict | list | tuple) -> tuple[float, float]:
                     if isinstance(entry, dict):
                         return float(entry.get("x", 0.0)), float(entry.get("y", 0.0))
                     if isinstance(entry, (list, tuple)) and len(entry) >= 2:
@@ -151,7 +151,7 @@ def door_segments(
                 half = max(1, int(round((width_m / 2.0) / resolution)))
 
                 mask = np.zeros((h, w), dtype=bool)
-                for (px, py) in line:
+                for px, py in line:
                     for off in range(-half, half + 1):
                         oxx = px - uy * off
                         oyy = py + ux * off
@@ -163,7 +163,8 @@ def door_segments(
                 if n_on_wall == 0:
                     logger.warning(
                         "Door %r (%s) lands on no wall pixels - skipping (map/world mismatch?)",
-                        name, world_path,
+                        name,
+                        world_path,
                     )
                     continue
 
@@ -179,6 +180,7 @@ def door_segments(
         logger.info("Door geometry: %d doors from %s", len(result), world_path)
     return result
 
+
 def _entity_matches_door(door_key: str, entity: str) -> bool:
     """Check whether a semantic entity name refers to a world.yaml door.
 
@@ -189,6 +191,7 @@ def _entity_matches_door(door_key: str, entity: str) -> bool:
     door-state timeline can be wired to the geometry.
     """
     import re
+
     # Strip env_N/ prefix and trailing /N (Gazebo model instance id)
     normalized = re.sub(r"^env_\d+/", "", entity)
     normalized = re.sub(r"/\d+$", "", normalized)

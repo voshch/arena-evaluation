@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import typing
-import yaml
-import polars as pl
 
-from ..storage.schemas import TopicBundle, AlignedEpisodeBundle
-from .topic_aligner import TopicAligner
+import polars as pl
+import yaml
+
+from arena_evaluation.processing.topic_aligner import TopicAligner
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, TopicBundle
 
 
 def _parse_conditions(raw: str | None) -> list[dict] | None:
@@ -24,9 +24,7 @@ def _env_offset(tf_static: pl.DataFrame | None) -> tuple[float, float] | None:
     """Env packing translation from the `map -> env_<n>/map` transform, None if multi-env ambiguous."""
     if tf_static is None or len(tf_static) == 0:
         return (0.0, 0.0)
-    rows = tf_static.filter(
-        (pl.col("frame_id") == "map") & pl.col("child_frame_id").str.contains(r"^env_\d+/map$")
-    ).select("trans_x", "trans_y").unique()
+    rows = tf_static.filter((pl.col("frame_id") == "map") & pl.col("child_frame_id").str.contains(r"^env_\d+/map$")).select("trans_x", "trans_y").unique()
     if len(rows) == 0:
         return (0.0, 0.0)
     if len(rows) > 1:
@@ -58,6 +56,7 @@ class EpisodeSplitter:
     """
     Splits continuous topic data into discrete episodes using EpisodeRecord messages.
     """
+
     def __init__(self, aligner: TopicAligner, min_episode_frames: int = 5):
         self.aligner = aligner
         self.min_episode_frames = min_episode_frames
@@ -69,7 +68,7 @@ class EpisodeSplitter:
         if bundle.odom is None:
             return []
 
-        def _to_df(lf_or_df):
+        def _to_df(lf_or_df: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
             if isinstance(lf_or_df, pl.LazyFrame):
                 return lf_or_df.collect()
             return lf_or_df
@@ -102,7 +101,7 @@ class EpisodeSplitter:
                     start_pos = [first_row["pos_x"], first_row["pos_y"], first_row.get("yaw", 0.0)]
                 if "pos_x" in last_row and "pos_y" in last_row and last_row["pos_x"] is not None:
                     goal_pos = [last_row["pos_x"], last_row["pos_y"], last_row.get("yaw", 0.0)]
-                
+
                 episodes.append(
                     AlignedEpisodeBundle(
                         episode_id=0,
@@ -117,16 +116,15 @@ class EpisodeSplitter:
                 )
             return episodes
 
-
         rows = list(record_df.iter_rows(named=True))
-        
+
         i = 0
         while i < len(rows):
             row = rows[i]
             start_time = row["time_ns"]
-            
-            if i + 1 < len(rows) and rows[i+1]["episode_id"] == row["episode_id"]:
-                end_time = rows[i+1]["time_ns"]
+
+            if i + 1 < len(rows) and rows[i + 1]["episode_id"] == row["episode_id"]:
+                end_time = rows[i + 1]["time_ns"]
                 i += 2
             else:
                 if i + 1 < len(rows):
@@ -137,16 +135,16 @@ class EpisodeSplitter:
                     else:
                         end_time = bundle.odom.select(pl.col("time_ns").max()).item()
                 i += 1
-                
+
             aligned_df = self.aligner.align(bundle, start_time, end_time)
             aligned_df = _to_df(aligned_df)
-            
+
             if aligned_df is None or len(aligned_df) < self.min_episode_frames:
                 continue
-                
+
             start_pos = []
             goal_pos = []
-            
+
             try:
                 params_str = row["robots_params"]
                 if params_str:
@@ -159,7 +157,7 @@ class EpisodeSplitter:
                         break
             except Exception:
                 pass
-                
+
             if not start_pos and initialpose_df is not None and len(initialpose_df) > 0:
                 df_init = initialpose_df.filter(pl.col("time_ns") >= start_time)
                 if len(df_init) > 0:
@@ -167,7 +165,7 @@ class EpisodeSplitter:
                 else:
                     row_init = initialpose_df.row(-1, named=True)
                 start_pos = [row_init["pos_x"], row_init["pos_y"], row_init["yaw"]]
-                
+
             if start_pos and len(start_pos) == 3 and plan_df is not None and len(plan_df) > 0:
                 df_plan = plan_df.filter(pl.col("time_ns") >= start_time)
                 if len(df_plan) > 0:
@@ -207,7 +205,7 @@ class EpisodeSplitter:
                     env_offset=env_offset,
                 )
             )
-            
+
         return episodes
 
     def _estimate_peds(self, df: pl.DataFrame) -> int:

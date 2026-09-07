@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import typing
+
 import numpy as np
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class HolisticMetricsCalculator(BaseMetricCalculator):
@@ -32,7 +31,7 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
 
     def calculate(
         self,
-        episode: "AlignedEpisodeBundle",
+        episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         result: dict[str, typing.Any] = {"aeps_linear_s": None, "e_cot": None}
@@ -41,7 +40,7 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
         # integral of 10^(Lp(t)/10) dt for frames where d_eff < 1.2m
         ts_min_clearance = prior_results.get("timeseries_min_ped_clearance")
         ts_acoustic = prior_results.get("timeseries_acoustic_exposure_dba") or prior_results.get("timeseries_total_level_dba")
-        
+
         if ts_min_clearance is not None:
             clearance = np.array([c if c is not None else float('inf') for c in ts_min_clearance], dtype=float)
             if ts_acoustic is not None and len(ts_acoustic) > 0:

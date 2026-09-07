@@ -14,6 +14,7 @@ Scenarios:
   - corridor_narrowing            corridor that narrows mid-way
   - corridor_side_door            corridor with a closed door splitting it
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -66,14 +67,16 @@ def scenarios() -> dict[str, dict]:
     s["two_rooms_door_open_middle"] = {
         "grid": _room_pair((mid - door_h // 2, mid + door_h // 2)),
         "desc": "10x10m rooms, 2m door centered on the shared wall, OPEN",
-        "start": (0.5, 5.0), "target": (19.5, 5.0),  # meters, straight through the door
+        "start": (0.5, 5.0),
+        "target": (19.5, 5.0),  # meters, straight through the door
         "expect": "line_of_sight",
         "door_pixels": door_mid,
     }
     s["two_rooms_door_closed_middle"] = {
         "grid": _room_pair(None),
         "desc": "10x10m rooms, door CLOSED (25 dB door TL, lighter than the 47 dB wall)",
-        "start": (0.5, 5.0), "target": (19.5, 5.0),
+        "start": (0.5, 5.0),
+        "target": (19.5, 5.0),
         "expect": "blocked",
         "door_pixels": door_mid,
     }
@@ -81,39 +84,45 @@ def scenarios() -> dict[str, dict]:
     s["two_rooms_door_open_side"] = {
         "grid": _room_pair((10, 10 + door_h)),
         "desc": "10x10m rooms, 2m door at the BOTTOM side of the shared wall, OPEN",
-        "start": (0.5, 5.0), "target": (19.5, 5.0),
+        "start": (0.5, 5.0),
+        "target": (19.5, 5.0),
         "expect": "detour",
         "door_pixels": door_side,
     }
     s["two_rooms_door_closed_side"] = {
         "grid": _room_pair(None),
         "desc": "10x10m rooms, side door CLOSED (25 dB door TL)",
-        "start": (0.5, 5.0), "target": (19.5, 5.0),
+        "start": (0.5, 5.0),
+        "target": (19.5, 5.0),
         "expect": "blocked",
         "door_pixels": door_side,
     }
     s["two_rooms_wall_only"] = {
         "grid": _room_pair(None),
         "desc": "10x10m rooms, solid wall, NO door at all",
-        "start": (0.5, 5.0), "target": (19.5, 5.0),
+        "start": (0.5, 5.0),
+        "target": (19.5, 5.0),
         "expect": "blocked",
     }
     s["long_corridor"] = {
         "grid": _corridor(30, 300),  # 3 m wide, 30 m long
         "desc": "30m straight corridor, 3m wide",
-        "start": (1.0, 1.5), "target": (29.0, 1.5),
+        "start": (1.0, 1.5),
+        "target": (29.0, 1.5),
         "expect": "line_of_sight",
     }
     s["corridor_narrowing"] = {
         "grid": _corridor(30, 300),
         "desc": "corridor narrowing from 3m to 1m mid-way",
-        "start": (1.0, 1.5), "target": (29.0, 1.5),
+        "start": (1.0, 1.5),
+        "target": (29.0, 1.5),
         "expect": "narrowed",
     }
     s["corridor_side_door"] = {
         "grid": _corridor(30, 300),
         "desc": "corridor split by a closed door across its width",
-        "start": (1.0, 1.5), "target": (29.0, 1.5),
+        "start": (1.0, 1.5),
+        "target": (29.0, 1.5),
         "expect": "blocked",
     }
     return s
@@ -128,7 +137,7 @@ def build(spec: dict) -> np.ndarray:
         mid = grid.shape[1] // 2
         h = grid.shape[0]
         pinch = h - 10
-        grid[10:pinch, mid - 5:mid + 5] = WALL
+        grid[10:pinch, mid - 5 : mid + 5] = WALL
     elif name == "corridor_side_door":
         # full-width wall with a closed 2m door gap (blocked = keep wall)
         mid = grid.shape[1] // 2
@@ -147,7 +156,7 @@ def export_pngs(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
     for name, spec in scenarios().items():
         grid = build({**spec, "_name": name})
         img = (grid * 255).astype(np.uint8)
-        for (y, x) in door_pixels(spec):
+        for y, x in door_pixels(spec):
             if 0 <= y < img.shape[0] and 0 <= x < img.shape[1]:
                 img[y, x] = 128  # door: gray
         p = out_dir / f"{name}.png"
@@ -158,6 +167,7 @@ def export_pngs(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
 
 if __name__ == "__main__":
     import sys
+
     out = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path("test_images")
     paths = export_pngs(out)
     for name, p in paths.items():

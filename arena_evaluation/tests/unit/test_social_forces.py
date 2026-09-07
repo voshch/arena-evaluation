@@ -29,12 +29,14 @@ def _episode(times_ns, peds_positions, robot_xy, yaw, headings=None):
         peds["peds_headings"] = headings
     topics = {
         "peds": pl.DataFrame(peds),
-        "tf_gt": pl.DataFrame({
-            "time_ns": times_ns,
-            "pos_x_gt": [p[0] for p in robot_xy],
-            "pos_y_gt": [p[1] for p in robot_xy],
-            "yaw_gt": yaw,
-        }),
+        "tf_gt": pl.DataFrame(
+            {
+                "time_ns": times_ns,
+                "pos_x_gt": [p[0] for p in robot_xy],
+                "pos_y_gt": [p[1] for p in robot_xy],
+                "yaw_gt": yaw,
+            }
+        ),
     }
     return AlignedEpisodeBundle(
         episode_id=1,
@@ -52,9 +54,7 @@ def calc():
 
 
 def test_no_topics_yields_all_none(calc):
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0
-    )
+    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0)
     results = calc.calculate(episode, {})
     assert set(results) == set(calc.output_keys())
     assert all(v is None for v in results.values())
@@ -81,28 +81,18 @@ def test_esfm_de_weights_pedestrians_behind_the_robot(calc):
 
     assert r_ahead["sfm_peak_force"] == pytest.approx(r_behind["sfm_peak_force"])
     assert r_ahead["esfm_peak_force"] == pytest.approx(_sfm(d), rel=1e-9)
-    assert r_behind["esfm_peak_force"] == pytest.approx(
-        _sfm(d) * SocialForcesCalculator._LAMBDA_ESFM, rel=1e-9
-    )
+    assert r_behind["esfm_peak_force"] == pytest.approx(_sfm(d) * SocialForcesCalculator._LAMBDA_ESFM, rel=1e-9)
 
 
 def test_esfm_ped_variant_uses_pedestrian_heading(calc):
     """The ped-heading variant weights by where the pedestrian faces, not the robot."""
     d = 1.0
-    facing_robot = _episode(
-        [0, SEC], [[d, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0], headings=[[math.pi]] * 2
-    )
-    facing_away = _episode(
-        [0, SEC], [[d, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0], headings=[[0.0]] * 2
-    )
+    facing_robot = _episode([0, SEC], [[d, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0], headings=[[math.pi]] * 2)
+    facing_away = _episode([0, SEC], [[d, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0], headings=[[0.0]] * 2)
     lam = SocialForcesCalculator._LAMBDA_ESFM
 
-    assert calc.calculate(facing_robot, {})["esfm_ped_peak_force"] == pytest.approx(
-        _sfm(d), rel=1e-9
-    )
-    assert calc.calculate(facing_away, {})["esfm_ped_peak_force"] == pytest.approx(
-        _sfm(d) * lam, rel=1e-9
-    )
+    assert calc.calculate(facing_robot, {})["esfm_ped_peak_force"] == pytest.approx(_sfm(d), rel=1e-9)
+    assert calc.calculate(facing_away, {})["esfm_ped_peak_force"] == pytest.approx(_sfm(d) * lam, rel=1e-9)
 
 
 def test_pedestrians_beyond_cutoff_contribute_no_force_but_still_score_ci(calc):

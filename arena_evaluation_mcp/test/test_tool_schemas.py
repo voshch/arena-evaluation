@@ -1,4 +1,5 @@
 """Validate all tool input_schema definitions and the dispatch seam."""
+
 import asyncio
 import json
 
@@ -65,9 +66,12 @@ class TestToolSchemas:
     def test_discovery_tools_have_no_required_fields(self):
         """Discovery tools that take no arguments should have empty required list."""
         discovery_tools = [
-            "list_available_maps", "list_available_robots",
-            "list_available_planners", "list_available_inter_planners",
-            "list_available_task_modes", "list_available_manifests",
+            "list_available_maps",
+            "list_available_robots",
+            "list_available_planners",
+            "list_available_inter_planners",
+            "list_available_task_modes",
+            "list_available_manifests",
             "list_available_metrics",
         ]
         tools = {t.name: t for t in _get_tools()}
@@ -151,7 +155,8 @@ class TestDispatchSeam:
 
         bridge = EvalBridge()
         params = CallToolRequestParams(
-            name="read_notes", arguments={"benchmark_id": "../escape"},
+            name="read_notes",
+            arguments={"benchmark_id": "../escape"},
         )
         result = asyncio.run(dispatch_tool_call(params, bridge))
         assert result.is_error

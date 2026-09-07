@@ -1,13 +1,12 @@
 from __future__ import annotations
+
 import typing
+
 import numpy as np
 import polars as pl
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
-
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 # task_generator_msgs/msg/EpisodeRecord outcome_state values.
 _OUTCOME_SUCCESS = 2

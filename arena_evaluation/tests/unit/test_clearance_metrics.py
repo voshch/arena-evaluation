@@ -13,21 +13,25 @@ PED_RADIUS = ClearanceMetricsCalculator._PED_RADIUS
 
 def _episode(times_ns, scan=None, peds=None):
     n = len(times_ns)
-    data = pl.DataFrame({
-        "time_ns": times_ns,
-        "pos_x": [0.0] * n,
-        "pos_y": [0.0] * n,
-        "yaw": [0.0] * n,
-    })
+    data = pl.DataFrame(
+        {
+            "time_ns": times_ns,
+            "pos_x": [0.0] * n,
+            "pos_y": [0.0] * n,
+            "yaw": [0.0] * n,
+        }
+    )
     topics = {}
     if scan is not None:
         topics["scan"] = pl.DataFrame({"time_ns": times_ns, **scan})
     if peds is not None:
-        topics["peds"] = pl.DataFrame({
-            "time_ns": times_ns,
-            "peds_positions": peds,
-            "num_pedestrians": [len(p) // 2 for p in peds],
-        })
+        topics["peds"] = pl.DataFrame(
+            {
+                "time_ns": times_ns,
+                "peds_positions": peds,
+                "num_pedestrians": [len(p) // 2 for p in peds],
+            }
+        )
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,

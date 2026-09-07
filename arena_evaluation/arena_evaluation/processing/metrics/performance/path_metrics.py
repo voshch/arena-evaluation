@@ -1,17 +1,17 @@
 from __future__ import annotations
+
 import typing
+
 import numpy as np
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class PathMetricsCalculator(BaseMetricCalculator):
     """
     Calculates path-related metrics based on odometry.
-    
+
     Metrics:
     - path: List of [x, y, yaw] coordinates
     - path_length_values: Step-by-step path length
@@ -22,16 +22,16 @@ class PathMetricsCalculator(BaseMetricCalculator):
     - roughness: Roughness of the path
     - roughness_mean: Average roughness
     - angle_over_length: Mean change of the angle over the complete path
-    
+
     References:
     - Math implementation ported from legacy scripts/metrics.py
     """
-    
+
     NAME = "path_metrics"
     CATEGORY = "performance"
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["odom"]
-    
+
     UNITS = {
         "path": "m",
         "path_odom": "m",
@@ -48,7 +48,7 @@ class PathMetricsCalculator(BaseMetricCalculator):
     }
 
     PRIMARY_OUTPUTS = ["path_length", "curvature_mean", "roughness_mean"]
-    
+
     @classmethod
     def output_keys(cls) -> list[str]:
         return [
@@ -65,22 +65,18 @@ class PathMetricsCalculator(BaseMetricCalculator):
             "roughness_max",
             "angle_over_length",
         ]
-        
-    def calculate(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        
+
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+
         if episode.data is None or "pos_x" not in episode.data.columns:
             return {k: None for k in self.output_keys()}
-            
+
         pos_x, pos_y, yaw, odom_x_trans, odom_y_trans, odom_yaw_trans = self.resolve_robot_pose(episode)
         path_odom_3d = np.column_stack((odom_x_trans, odom_y_trans, odom_yaw_trans))
-            
+
         path_3d = np.column_stack((pos_x, pos_y, yaw))
         path_2d = np.column_stack((pos_x, pos_y))
-        
+
         N = len(path_2d)
         if N < 2:
             return {
@@ -95,22 +91,22 @@ class PathMetricsCalculator(BaseMetricCalculator):
                 "roughness_mean": 0.0,
                 "angle_over_length": 0.0,
             }
-            
+
         path_length_values = np.linalg.norm(path_2d[1:] - path_2d[:-1], axis=1)
         path_length = float(np.sum(path_length_values))
-        
-        def angle_difference(x1, x2):
+
+        def angle_difference(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
             return np.pi - np.abs(np.abs(x1 - x2) - np.pi)
-            
+
         turn = angle_difference(yaw[:-1], yaw[1:])
         angle_over_length = float(np.abs(np.sum(turn) / path_length)) if path_length > 0 else 0.0
-        
+
         diffs = np.linalg.norm(path_2d[1:] - path_2d[:-1], axis=1)
         keep_mask = np.concatenate(([True], diffs > 0.001))
         path_2d_clean = path_2d[keep_mask]
-        
+
         N_clean = len(path_2d_clean)
-        
+
         if N_clean < 3:
             return {
                 "path": path_3d.tolist(),
@@ -126,15 +122,15 @@ class PathMetricsCalculator(BaseMetricCalculator):
                 "roughness_max": 0.0,
                 "angle_over_length": angle_over_length,
             }
-            
+
         p0 = path_2d_clean[:-2]
         p1 = path_2d_clean[1:-1]
         p2 = path_2d_clean[2:]
-        
+
         d01 = np.linalg.norm(p0 - p1, axis=1)
         d12 = np.linalg.norm(p1 - p2, axis=1)
         d20 = np.linalg.norm(p2 - p0, axis=1)
-        
+
         v1 = p1 - p0
         v2 = p2 - p0
         triangle_area = np.abs(v1[:, 0] * v2[:, 1] - v1[:, 1] * v2[:, 0]) / 2.0
@@ -145,7 +141,7 @@ class PathMetricsCalculator(BaseMetricCalculator):
             normalized_curvature = curvature * (d01 + d12)
 
             roughness = np.where(d20 == 0, 0, 2 * triangle_area / np.square(d20))
-            
+
         return {
             "path": path_3d.tolist(),
             "path_odom": path_odom_3d.tolist(),

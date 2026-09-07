@@ -1,13 +1,12 @@
 from __future__ import annotations
+
 import typing
 
 import polars as pl
 
-from ..base import BaseMetricCalculator
-from .compliance_metrics import _reconstruct_events
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import _reconstruct_events
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 def _parse_bool(token: str) -> bool:
@@ -40,11 +39,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
             "elevator_rides",
         ]
 
-    def calculate(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
 
         events = _reconstruct_events(episode.semantic_snapshot)
         if len(events) == 0:
@@ -65,9 +60,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
         }
 
     def _time_waiting_at_doors(self, events: pl.DataFrame, end_time_ns: int | None) -> float:
-        door_events = events.filter(
-            (pl.col("kind") == "door") & pl.col("field").is_in(["state", "triggered"])
-        ).sort("time_ns")
+        door_events = events.filter((pl.col("kind") == "door") & pl.col("field").is_in(["state", "triggered"])).sort("time_ns")
 
         if len(door_events) == 0:
             return 0.0
@@ -89,16 +82,13 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
                     triggered = _parse_bool(row["current"])
                 prev_time_ns = t
 
-            if end_time_ns is not None and prev_time_ns is not None and end_time_ns > prev_time_ns \
-                    and triggered and state != "open":
+            if end_time_ns is not None and prev_time_ns is not None and end_time_ns > prev_time_ns and triggered and state != "open":
                 total_s += (end_time_ns - prev_time_ns) / 1e9
 
         return total_s
 
     def _elevator_rides(self, events: pl.DataFrame) -> int:
-        elevator_events = events.filter(
-            (pl.col("kind") == "elevator") & pl.col("field").is_in(["occupants", "just_arrived"])
-        ).sort("time_ns")
+        elevator_events = events.filter((pl.col("kind") == "elevator") & pl.col("field").is_in(["occupants", "just_arrived"])).sort("time_ns")
 
         if len(elevator_events) == 0:
             return 0
