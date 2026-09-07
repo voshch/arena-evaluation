@@ -670,6 +670,8 @@ class BenchmarkRunner(ArenaMixinNode):
         self._run_dir = run_dir
         self._retry_failed = retry_failed
         self._arena_passthrough: dict[str, str] = dict(arena_passthrough or {})
+        self._viz = self._arena_passthrough.get("viz", str(not self._headless)).lower() in ("true", "1")
+        self._viz_proc: subprocess.Popen | None = None
         self._noexit = noexit
         self._lockstep_verdict = lockstep_verdict
         self._strict = strict
@@ -1343,7 +1345,28 @@ class BenchmarkRunner(ArenaMixinNode):
         await self._await_alive(self._await_env_visible(env_id), what=f"env {env_id} to appear on /arena/state/envs")
         env_ns_root = self._env_records[env_id].fqn
         await self._setup_env_clients(env_id, env_ns_root, launch_step.stage.robot)
+        if self._viz and (self._viz_proc is None or self._viz_proc.poll() is not None):
+            self._start_viz(env_ns_root)
         return env_id, env_ns_root
+
+    def _start_viz(self, ns: str) -> None:
+        cmd = [
+            "ros2",
+            "launch",
+            "rviz_utils",
+            "rviz_config.launch.py",
+            f"ns:={ns}",
+        ]
+        _log.info(f"benchmark: spawning rviz for {ns}")
+        try:
+            self._viz_proc = subprocess.Popen(
+                cmd,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            _log.warning(f"benchmark: failed to spawn rviz: {exc}")
 
     async def _despawn_env(self, env_id: int) -> None:
         """Tear down clients and despawn an env, waiting for it to disappear from the registry."""
@@ -1721,6 +1744,16 @@ class BenchmarkRunner(ArenaMixinNode):
                 p.kill()
                 p.wait(timeout=2.0)
 
+        if self._viz_proc is not None:
+            if self._viz_proc.poll() is None:
+                with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                    os.killpg(os.getpgid(self._viz_proc.pid), signal.SIGTERM)
+                try:
+                    self._viz_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                        os.killpg(os.getpgid(self._viz_proc.pid), signal.SIGKILL)
+            self._viz_proc = None
         deadline = time.time() + _ARENA_ORPHAN_GRACE_S
         while time.time() < deadline:
             if not any(_proc_starttime(pid) == start for pid, start in descendants.items()):

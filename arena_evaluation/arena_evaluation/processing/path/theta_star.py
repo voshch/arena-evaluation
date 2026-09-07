@@ -400,7 +400,7 @@ def compute_theta_star_for_episode(
     solver_key = f"{map_name}_{round(robot_radius, 2)}"
     if solver_key not in _solver_instances:
         try:
-            from ..map_registry import MapRegistry
+            from arena_evaluation.processing.map_registry import MapRegistry
             map_info = MapRegistry.get_map(map_name, run_dir=run_dir)
             if map_info and "png_path" in map_info and Path(map_info["png_path"]).exists():
                 png_path = map_info["png_path"]

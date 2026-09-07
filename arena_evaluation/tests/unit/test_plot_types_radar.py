@@ -538,14 +538,19 @@ def test_compute_field_timeseries_stride_and_nan_position():
 @pytest.mark.slow
 def test_compute_field_timeseries_collision_boost_and_null_source():
     renderer = _new_renderer(_af_spec(), pathlib.Path("."))
+    # Frame 0: normal source (60 dBA)
+    # Frame 1: published collision impact (100 dBA)
+    # Frame 2: ongoing driving source (60 dBA)
+    # Frame 3: null source (falls back to floor 30 dBA)
     df = _anim_df().with_columns(
-        pl.Series("source_dba", [60.0, 60.0, None, 60.0]),
-        pl.Series("has_collision", [False, True, False, False]),
+        pl.Series("source_dba", [60.0, 100.0, 60.0, None]),
     )
     fields = renderer.compute_field_timeseries(df, _grid(12), 0.1, 0.0, 0.0, {},
                                                stride=1, max_frames=4)
-    assert fields[1][4] == 100.0  # collision impulse boost
-    assert fields[2][4] == 30.0   # null source falls back to floor
+    assert fields[0][4] == 60.0   # normal driving
+    assert fields[1][4] == 100.0  # collision impact from telemetry
+    assert fields[2][4] == 60.0   # subsequent driving
+    assert fields[3][4] == af_mod._FIELD_VMIN_DBA   # null source falls back to floor
 
 
 @pytest.mark.slow
@@ -848,7 +853,7 @@ def _patch_animation(monkeypatch, seen: dict):
                                state_timeline=None, out_path=None, downsample=1,
                                stride=1, max_frames=120, fps=10, dpi=150,
                                vmin=None, vmax=None, robot_trail=0,
-                               show_doors=True, fmt="gif"):
+                               show_doors=True, fmt="gif", overlay_trajectories=False):
         seen.update({"out_path": out_path, "fmt": fmt, "fps": fps, "vmin": vmin,
                      "downsample": downsample, "stride": stride, "max_frames": max_frames,
                      "state_timeline": state_timeline, "vmax": vmax})
@@ -978,3 +983,136 @@ def test_animation_renderer_seaborn_characterization_null_peds(monkeypatch, tmp_
     renderer.run_dir = bench
     renderer.render_seaborn(df, out)
     assert seen.get("out_path") == tmp_path / "anim.gif"
+
+
+def test_extract_trajectory_data_robot_and_peds():
+    """Verify _extract_trajectory_data extracts robot path, start, goal, and ped tracks with 2 waypoints."""
+    import polars as pl
+    df = pl.DataFrame({
+        "time_ns": [0, 100000000, 200000000],
+        "pos_x_gt": [1.0, 2.0, 3.0],
+        "pos_y_gt": [0.5, 0.5, 0.5],
+        "start": [[1.0, 0.5]] * 3,
+        "goal": [[3.0, 0.5]] * 3,
+        "peds_positions": [
+            [{"id": 10, "x": 5.0, "y": 2.0}, {"id": 20, "x": 8.0, "y": 4.0}],
+            [{"id": 10, "x": 5.5, "y": 2.0}, {"id": 20, "x": 7.5, "y": 4.0}],
+            [{"id": 10, "x": 6.0, "y": 2.0}, {"id": 20, "x": 7.0, "y": 4.0}],
+        ],
+    })
+    traj_data = AcousticFieldRenderer._extract_trajectory_data(df)
+    assert traj_data["robot_path"] is not None
+    rx, ry = traj_data["robot_path"]
+    assert len(rx) == 3 and rx[0] == 1.0 and rx[-1] == 3.0
+    assert traj_data["robot_start"] == (1.0, 0.5)
+    assert traj_data["robot_goal"] == (3.0, 0.5)
+
+    # Pedestrian tracks are keyed by slot index within each frame
+    ped_trajs = traj_data["ped_trajectories"]
+    assert 0 in ped_trajs and len(ped_trajs[0]) == 3
+    assert 1 in ped_trajs and len(ped_trajs[1]) == 3
+
+    # Check 2 waypoints per ped (WP1: start, WP2: goal/max displacement)
+    ped_wps = traj_data["ped_waypoints"]
+    assert ped_wps[0] == ((5.0, 2.0), (6.0, 2.0))
+    assert ped_wps[1] == ((8.0, 4.0), (7.0, 4.0))
+
+
+def test_draw_trajectories_overlay_artists():
+    """Verify _draw_trajectories_overlay draws lines and scatter artists on matplotlib axis."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    traj_data = {
+        "robot_path": (np.array([0.0, 1.0, 2.0]), np.array([0.0, 0.5, 1.0])),
+        "robot_start": (0.0, 0.0),
+        "robot_goal": (2.0, 1.0),
+        "ped_trajectories": {
+            1: [(5.0, 5.0), (5.0, 6.0), (5.0, 7.0)]
+        },
+        "ped_waypoints": {
+            1: ((5.0, 5.0), (5.0, 7.0))
+        },
+    }
+
+    fig, ax = plt.subplots()
+    AcousticFieldRenderer._draw_trajectories_overlay(ax, traj_data)
+    # Check lines (robot track, ped track) and collections (start, goal, wp1, wp2)
+    assert len(ax.lines) >= 2
+    assert len(ax.collections) >= 3
+    plt.close(fig)
+
+
+@pytest.mark.slow
+def test_render_cell_png_with_overlay_trajectories(tmp_path):
+    """Verify _render_cell_png successfully overlays trajectories when requested."""
+    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
+    grid = _grid(10)
+    out_path = tmp_path / "cell_with_trajectories.png"
+    traj_data = {
+        "robot_path": (np.array([1.0, 1.5, 2.0]), np.array([1.0, 1.0, 1.0])),
+        "robot_start": (1.0, 1.0),
+        "robot_goal": (2.0, 1.0),
+        "collision_pos": (1.5, 1.0),
+        "ped_trajectories": {0: [(3.0, 3.0), (3.0, 3.5)]},
+        "ped_waypoints": {0: ((3.0, 3.0), (3.0, 3.5))},
+    }
+    ok = renderer._render_cell_png(
+        grid=grid, resolution=0.1, ox=0.0, oy=0.0,
+        rx_m=1.0, ry_m=1.0, source_dba=60.0, peds=[(3.0, 3.0)],
+        title="Test Trajectory Overlay", out_path=out_path,
+        overlay_trajectories=True, trajectory_data=traj_data,
+    )
+    assert ok is True
+    assert out_path.exists() and out_path.stat().st_size > 0
+
+
+def test_extract_trajectory_data_flat_float_list():
+    """Verify _extract_trajectory_data handles flat [x0,y0,z0,x1,y1,z1,...] list format."""
+    import polars as pl
+    df = pl.DataFrame({
+        "time_ns": [0, 100000000],
+        "pos_x_gt": [0.0, 1.0],
+        "pos_y_gt": [0.0, 1.0],
+        "has_collision": [False, True],
+        "peds_positions": [
+            [1.0, 2.0, 0.0, 4.0, 5.0, 0.0],
+            [1.5, 2.5, 0.0, 4.2, 5.2, 0.0],
+        ],
+    })
+    traj_data = AcousticFieldRenderer._extract_trajectory_data(df)
+    assert 0 in traj_data["ped_trajectories"]
+    assert 1 in traj_data["ped_trajectories"]
+    assert traj_data["ped_trajectories"][0][0] == (1.0, 2.0)
+    assert traj_data["ped_trajectories"][1][0] == (4.0, 5.0)
+    assert traj_data["collision_pos"] == (1.0, 1.0)
+
+
+def test_extract_trajectory_data_disk_fallback(tmp_path):
+    """Verify _extract_trajectory_data falls back to disk topics/peds.parquet when df has no peds."""
+    import polars as pl
+    ep_dir = tmp_path / "episodes" / "episode_005" / "topics"
+    ep_dir.mkdir(parents=True)
+    peds_df = pl.DataFrame({
+        "time_ns": [0, 100000000, 200000000],
+        "peds_positions": [
+            [2.0, 3.0, 0.0],
+            [2.5, 3.5, 0.0],
+            [3.0, 4.0, 0.0],
+        ],
+    })
+    peds_df.write_parquet(ep_dir / "peds.parquet")
+
+    # Pass empty df or df without peds_positions
+    df_empty = pl.DataFrame({"pos_x_gt": [0.0], "pos_y_gt": [0.0]})
+    traj_data = AcousticFieldRenderer._extract_trajectory_data(
+        df_empty, run_dir=tmp_path, episode_id=5
+    )
+    assert 0 in traj_data["ped_trajectories"]
+    assert len(traj_data["ped_trajectories"][0]) == 3
+    assert traj_data["ped_trajectories"][0][0] == (2.0, 3.0)
+    assert traj_data["ped_trajectories"][0][-1] == (3.0, 4.0)
+
+
+

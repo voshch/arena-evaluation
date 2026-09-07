@@ -7,9 +7,10 @@ import sys
 import time
 
 
-def _data_root() -> pathlib.Path:
-    from ..storage.data_root import benchmarks_root
+from arena_evaluation.storage.data_root import benchmarks_root
 
+
+def _data_root() -> pathlib.Path:
     return benchmarks_root()
 
 

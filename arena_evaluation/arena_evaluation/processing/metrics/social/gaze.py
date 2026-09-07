@@ -4,10 +4,9 @@ import ast
 import typing
 import numpy as np
 
-from ..base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class GazeMetricsCalculator(BaseMetricCalculator):

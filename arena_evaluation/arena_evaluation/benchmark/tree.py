@@ -17,10 +17,10 @@ from arena_simulation_setup.tree import (
     SimplePathResolver,
 )
 
-from ..presentation.manifest_registry import share_dir, source_tree_dir
+from arena_evaluation.presentation.manifest_registry import share_dir, source_tree_dir
 
 if typing.TYPE_CHECKING:
-    from ..presentation.viz_manifest import VizManifest
+    from arena_evaluation.presentation.viz_manifest import VizManifest
     from .config import Contest, Suite
 
 _BENCH_TTL_S = 365 * 86400
@@ -80,7 +80,7 @@ class ManifestIdentifier(AssetIdentifier['VizManifest']):
 
     def load(self, path: Path, /, **kwargs: object) -> VizManifest:
         del kwargs
-        from ..presentation.viz_manifest import VizManifest
+        from arena_evaluation.presentation.viz_manifest import VizManifest
 
         return VizManifest.load(_config_file(path, self._asset_type))
 

@@ -494,3 +494,4 @@ def test_door_segments_and_build_pixel_tl_integration(tmp_path):
     assert np.all(opened[mask] == 0.0)
     # neighbours beyond the door remain wall-blocked
     assert np.all(opened[5, 0:10] == 47.0)
+

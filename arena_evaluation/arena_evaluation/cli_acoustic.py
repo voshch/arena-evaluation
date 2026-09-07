@@ -1,6 +1,8 @@
 import argparse
-import sys
 import pathlib
+import sys
+
+import numpy as np
 
 def _handle_acoustic(args: argparse.Namespace) -> None:
     """Handle 'evaluation acoustic' subcommands."""
@@ -8,6 +10,10 @@ def _handle_acoustic(args: argparse.Namespace) -> None:
     from arena_evaluation.processing.parquet_store import ParquetStore
 
     benchmark_dir = args.benchmark_dir
+    if isinstance(benchmark_dir, list):
+        benchmark_dir = benchmark_dir[0]
+    args.benchmark_dir = benchmark_dir
+
     if not benchmark_dir.is_dir():
         print(f"Error: benchmark directory does not exist: {benchmark_dir}")
         sys.exit(1)
@@ -222,6 +228,7 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         robot_trail=args.robot_trail,
         show_doors=not args.no_door_overlay,
         fmt=args.format,
+        overlay_trajectories=args.overlay_trajectories,
     )
 
     if result_path:
@@ -319,6 +326,17 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
 
     print(f"Rendering snapshot: frame {frame_idx}, t={time_ns/1e9:.1f}s, source={source_dba:.0f} dBA, {len(open_set)} doors open")
 
+    traj_data = renderer._extract_trajectory_data(
+        episode_df,
+        run_dir=args.benchmark_dir,
+        episode_id=episode_id,
+    ) if args.overlay_trajectories else None
+
+    open_doors = set(open_set) if doors else None
+
+    vmin = args.vmin if args.vmin is not None else 20.0
+    vmax = args.vmax if args.vmax is not None else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
+
     ok = renderer._render_cell_png(
         grid, resolution, ox, oy,
         rx_m, ry_m, source_dba,
@@ -326,10 +344,12 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         title=f"{episode_id}  frame {frame_idx}  t={time_ns/1e9:.1f}s  {source_dba:.0f} dBA",
         out_path=out_path,
         downsample=args.downsample,
-        vmin=42.0,
-        vmax=None,
-        pixel_tl=pixel_tl,
-        doors=doors if pixel_tl is not None else None,
+        vmin=vmin,
+        vmax=vmax,
+        open_doors=open_doors,
+        doors=doors if doors else None,
+        overlay_trajectories=args.overlay_trajectories,
+        trajectory_data=traj_data,
     )
 
     if ok:
@@ -365,9 +385,11 @@ def setup_acoustic_subparsers(subparsers):
     acoustic_anim.add_argument("--format", type=str, default="gif", choices=["gif", "mp4", "frames"],
                                help="Output format (default: gif).")
     acoustic_anim.add_argument("--dpi", type=int, default=150, help="Output resolution (default: 150).")
-    acoustic_anim.add_argument("--vmin", type=float, default=42.0, help="Color-scale floor in dBA (default: 42).")
+    acoustic_anim.add_argument("--vmin", type=float, default=20.0, help="Color-scale floor in dBA (default: 20).")
     acoustic_anim.add_argument("--vmax", type=float, default=None, help="Color-scale ceiling in dBA (default: auto).")
     acoustic_anim.add_argument("--no-door-overlay", action="store_true", help="Hide door contours.")
+    acoustic_anim.add_argument("--no-trajectories", action="store_false", dest="overlay_trajectories",
+                               help="Disable trajectory overlay.")
     acoustic_anim.add_argument("--robot-trail", type=int, default=0, help="Show past N robot positions as trail (default: 0).")
     acoustic_anim.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH",
                                help="Override output path (default: plots/{episode}_acoustic.{format}).")
@@ -380,5 +402,9 @@ def setup_acoustic_subparsers(subparsers):
                                help="Episode ID or keyword (default: worst).")
     acoustic_snap.add_argument("--frame", type=int, default=None, help="Frame index (default: worst-case frame).")
     acoustic_snap.add_argument("--downsample", type=int, default=2, help="Solver grid downsample (default: 2).")
+    acoustic_snap.add_argument("--vmin", type=float, default=20.0, help="Color-scale floor in dBA (default: 20).")
+    acoustic_snap.add_argument("--vmax", type=float, default=None, help="Color-scale ceiling in dBA (default: auto).")
+    acoustic_snap.add_argument("--no-trajectories", action="store_false", dest="overlay_trajectories",
+                               help="Disable trajectory overlay.")
     acoustic_snap.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH",
                                help="Override output path (default: plots/{episode}_acoustic_snapshot.png).")

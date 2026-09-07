@@ -3,11 +3,10 @@ import typing
 
 import polars as pl
 
-from ..base import BaseMetricCalculator
-from .compliance_metrics import _reconstruct_events
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import _reconstruct_events
 
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 def _parse_bool(token: str) -> bool:

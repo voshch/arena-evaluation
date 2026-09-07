@@ -8,8 +8,8 @@ import typing
 import numpy as np
 import polars as pl
 
-from ..base import BaseMetricCalculator
-from .compliance_metrics import (
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _DoorGeometry,
     _extract_door_geometry,
     _offset_doors,
@@ -17,10 +17,12 @@ from .compliance_metrics import (
     _reconstruct_events,
     _zone_membership,
 )
-from .semantic_metrics import _parse_bool, _parse_float
+from arena_evaluation.processing.metrics.ecological.semantic_metrics import (
+    _parse_bool,
+    _parse_float,
+)
 
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 logger = logging.getLogger(__name__)
 

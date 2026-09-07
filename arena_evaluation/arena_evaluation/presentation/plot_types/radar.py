@@ -6,9 +6,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import matplotlib.pyplot as plt
-from ..color_utils import get_color_palette
-
-from .base import BasePlotRenderer
+from arena_evaluation.presentation.color_utils import get_color_palette
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
 
 class RadarRenderer(BasePlotRenderer):

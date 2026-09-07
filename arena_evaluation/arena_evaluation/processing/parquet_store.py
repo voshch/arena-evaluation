@@ -4,8 +4,8 @@ import pathlib
 import json
 import polars as pl
 
-from ..storage.schemas import RunMetadata, TopicBundle
-from ..storage.exceptions import SchemaViolationError
+from arena_evaluation.storage.exceptions import SchemaViolationError
+from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 
 
 def _without_empty_structs(value: object) -> object:

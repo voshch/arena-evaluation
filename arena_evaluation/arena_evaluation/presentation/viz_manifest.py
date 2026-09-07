@@ -5,7 +5,7 @@ import typing
 import yaml
 from pydantic import BaseModel, Field
 
-from ..storage.schemas import PlotSpec
+from arena_evaluation.storage.schemas import PlotSpec
 
 
 class ManifestGroup(BaseModel):

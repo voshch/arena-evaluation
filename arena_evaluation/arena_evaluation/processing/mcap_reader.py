@@ -14,7 +14,7 @@ from mcap_ros2.decoder import DecoderFactory
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..storage.schemas import TopicBundle
+from arena_evaluation.storage.schemas import TopicBundle
 
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))

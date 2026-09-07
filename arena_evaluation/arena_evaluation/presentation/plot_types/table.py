@@ -8,10 +8,10 @@ import typing
 
 import polars as pl
 
-from .base import BasePlotRenderer
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
 if typing.TYPE_CHECKING:
-    from ..report_builder import ReportBuilder  # noqa: F401
+    from arena_evaluation.presentation.report_builder import ReportBuilder  # noqa: F401
 
 
 def _load_notes(notes, benchmark_dir: pathlib.Path | None) -> list[dict[str, str]]:

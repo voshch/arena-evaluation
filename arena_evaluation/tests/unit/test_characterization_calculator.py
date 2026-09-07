@@ -116,7 +116,8 @@ def test_arc_and_lateral_characterization_phases():
     out = _calc().calculate(ep, {})
     # Jackal's arc radii scale off its 0.267 m footprint, so these labels exist.
     assert out["char_phase_coverage"] == 1.0
-    assert out["timeseries_char_turn_radius_m"][0] == 1.0
+    # turn radius is the schedule's commanded radius, not the achieved vx/wz ratio
+    assert abs(out["timeseries_char_turn_radius_m"][0] - 0.6675) < 1e-4
     # Energy per rad: 60W / 0.5 rad/s = 120 J/rad
     assert abs(out["timeseries_char_energy_per_rad"][0] - 120.0) < 1e-4
 

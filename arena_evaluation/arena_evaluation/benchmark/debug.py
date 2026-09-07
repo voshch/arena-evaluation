@@ -180,7 +180,7 @@ def running_pids_by_run_id() -> dict[str, int]:
 
 def console_log_path(run_id: str) -> pathlib.Path:
     """Path of the console log for a benchmark run."""
-    from ..storage.data_root import benchmarks_root
+    from arena_evaluation.storage.data_root import benchmarks_root
 
     return benchmarks_root() / run_id / "runner.log"
 

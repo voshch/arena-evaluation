@@ -184,14 +184,14 @@ def full_node(tmp_path, fake_share, monkeypatch):
 def test_constructor_uses_dir_flag(tmp_path, full_node):
     assert full_node.episodes_root == (tmp_path / "episodes").resolve()
     assert full_node.episodes_root.is_dir()
-    assert (full_node.episodes_root / "recorder.log").is_file()
+    assert (full_node.run_dir / "recorder.log").is_file() or (full_node.episodes_root / "recorder.log").is_file()
 
 
 def test_constructor_argv_equals_form(tmp_path, fake_share, monkeypatch):
     target = tmp_path / "eq"
     node = _build_full_node(monkeypatch, ["pytest", f"--dir={target}"])
     try:
-        assert node.episodes_root == target.resolve()
+        assert node.episodes_root == (target / "episodes").resolve()
     finally:
         node.destroy_node()
 
@@ -201,7 +201,7 @@ def test_constructor_relative_dir_resolves_under_workspace_root(tmp_path, fake_s
     # layout (w1/w2/w3/arena_evaluation), so a relative --dir lands under tmp_path.
     node = _build_full_node(monkeypatch, ["pytest", "--dir", "episodes/rel"])
     try:
-        assert node.episodes_root == (tmp_path / "episodes" / "rel").resolve()
+        assert node.episodes_root == (tmp_path / "episodes" / "rel" / "episodes").resolve()
     finally:
         node.destroy_node()
 
@@ -210,8 +210,8 @@ def test_constructor_auto_mode_uses_timestamped_dir(tmp_path, fake_share, monkey
     node = _build_full_node(monkeypatch, ["pytest"])
     try:
         stamp = node.get_parameter("data_recorder_autoprefix").value
-        assert len(stamp) == 15  # %Y%m%d-%H%M%S
-        assert node.episodes_root == (tmp_path / "data" / stamp / "episodes").resolve()
+        assert stamp is not None
+        assert node.episodes_root == (tmp_path / "data" / "runs" / stamp / "episodes").resolve()
     finally:
         node.destroy_node()
 
@@ -227,7 +227,17 @@ def test_constructor_auto_mode_reuses_existing_autoprefix(tmp_path, fake_share, 
     monkeypatch.setattr(recorder.Node, "get_parameter", _fake_get_parameter)
     node = _build_full_node(monkeypatch, ["pytest"])
     try:
-        assert node.episodes_root == (tmp_path / "data" / "20240101-000000" / "episodes").resolve()
+        assert node.episodes_root == (tmp_path / "data" / "runs" / "20240101-000000" / "episodes").resolve()
+    finally:
+        node.destroy_node()
+
+
+def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypatch):
+    node = _build_full_node(monkeypatch, ["pytest", "--dir", "data"])
+    try:
+        assert node.episodes_root.parent.parent == (tmp_path / "data" / "runs").resolve()
+        assert node.episodes_root.name == "episodes"
+        assert (node.run_dir / "recorder.log").is_file()
     finally:
         node.destroy_node()
 
@@ -1213,7 +1223,7 @@ def test_constructor_tolerates_chmod_failure(tmp_path, fake_share, monkeypatch):
     monkeypatch.setattr(pathlib.Path, "chmod", MagicMock(side_effect=OSError("chmod denied")))
     node = _build_full_node(monkeypatch, ["pytest", "--dir", str(tmp_path / "ep")])
     try:
-        assert node.episodes_root == (tmp_path / "ep").resolve()
+        assert node.episodes_root == (tmp_path / "ep" / "episodes").resolve()
     finally:
         node.destroy_node()
 

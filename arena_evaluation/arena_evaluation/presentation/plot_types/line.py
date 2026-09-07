@@ -6,7 +6,7 @@ import pathlib
 
 import polars as pl
 
-from .base import BasePlotRenderer
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
 
 class LineRenderer(BasePlotRenderer):
@@ -34,7 +34,8 @@ class LineRenderer(BasePlotRenderer):
         if error_col and error_col not in df_filtered.columns:
             error_col = None
 
-        keep = [c for c in [x_col, y_col, *group_cols, error_col] if c]
+        filter_keys = [k for k in (self.spec.filter or {}) if k in df_filtered.columns]
+        keep = list(dict.fromkeys([c for c in [x_col, y_col, *group_cols, error_col, *filter_keys] if c]))
         list_cols = [c for c in keep if df_filtered.schema[c] == pl.List]
         if list_cols:
             df_filtered = df_filtered.select(keep).explode(list_cols)
@@ -272,7 +273,7 @@ class LineRenderer(BasePlotRenderer):
 
 def _color_cycle() -> list[str]:
     try:
-        from ..color_utils import get_color_palette
+        from arena_evaluation.presentation.color_utils import get_color_palette
 
         palette = get_color_palette()
         if palette:

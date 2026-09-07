@@ -74,7 +74,7 @@ _TERMINAL_OUTCOMES = {
 import arena_evaluation_msgs.srv as arena_evaluation_srvs
 
 from .metadata import IngestionMetadata
-from ..storage.manifest import MetadataWriter
+from arena_evaluation.storage.manifest import MetadataWriter
 
 
 class DataRecorderNode(Node):
@@ -120,28 +120,83 @@ class DataRecorderNode(Node):
         if not record_data_dir:
             record_data_dir = "auto:/"
 
+        workspace_root = pathlib.Path(self.base_dir).parents[3]
+        ws_data = (workspace_root / "data").resolve()
+        ws_runs = (workspace_root / "data" / "runs").resolve()
+
+        map_val = str(self.get_parameter("map").value or self.get_parameter("world").value or "")
+        robot_val = str(self.get_parameter("robot").value or "")
+        planner_val = str(self.get_parameter("local_planner").value or self.get_parameter("contestant").value or "")
+        bench_id_val = str(self.get_parameter("benchmark_id").value or "")
+
+        def _generate_run_id() -> str:
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            if bench_id_val and bench_id_val != "unknown":
+                return f"{ts}-{bench_id_val}" if not bench_id_val.startswith(ts) else bench_id_val
+            details = []
+            if map_val and map_val != "unknown":
+                details.append(pathlib.Path(map_val).stem)
+            if robot_val and robot_val != "unknown":
+                details.append(robot_val)
+            if planner_val and planner_val != "unknown":
+                details.append(planner_val)
+            if details:
+                return f"{ts}-{'-'.join(details)}"
+            return f"{ts}-run"
+
         if record_data_dir.startswith("auto:/"):
             if not self.has_parameter("data_recorder_autoprefix"):
                 try:
                     self.declare_parameter("data_recorder_autoprefix", "")
                 except Exception:
                     pass
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             param_value = self.get_parameter("data_recorder_autoprefix").value
             if not param_value:
-                self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, timestamp)])
+                run_id = _generate_run_id()
+                self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
             else:
-                timestamp = param_value
-            workspace_root = pathlib.Path(self.base_dir).parents[3]
-            record_data_dir_path = workspace_root / "data" / timestamp / "episodes"
+                run_id = str(param_value)
+            self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
+            record_data_dir_path = self.run_dir / "episodes"
         else:
-            record_data_dir_path = pathlib.Path(record_data_dir)
-            if not record_data_dir_path.is_absolute():
-                workspace_root = pathlib.Path(self.base_dir).parents[3]
-                record_data_dir_path = workspace_root / record_data_dir_path
+            p = pathlib.Path(record_data_dir)
+            if not p.is_absolute():
+                p = workspace_root / p
+            p_resolved = p.resolve()
+
+            # If pointing to base "data", "data/runs", or "runs", generate data/runs/<run_id>/episodes
+            if (
+                p_resolved == ws_data
+                or p_resolved == ws_runs
+                or (p.name in ("data", "runs") and (p_resolved.parent in (workspace_root.resolve(), ws_data)))
+            ):
+                if not self.has_parameter("data_recorder_autoprefix"):
+                    try:
+                        self.declare_parameter("data_recorder_autoprefix", "")
+                    except Exception:
+                        pass
+                param_value = self.get_parameter("data_recorder_autoprefix").value
+                if not param_value:
+                    run_id = _generate_run_id()
+                    self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
+                else:
+                    run_id = str(param_value)
+                self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
+                record_data_dir_path = self.run_dir / "episodes"
+            elif p.name == "episodes":
+                record_data_dir_path = p_resolved
+                self.run_dir = record_data_dir_path.parent
+            else:
+                self.run_dir = p_resolved
+                record_data_dir_path = p_resolved / "episodes"
 
         self.episodes_root = record_data_dir_path.resolve()
         self.episodes_root.mkdir(parents=True, exist_ok=True)
+        if self.run_dir.exists():
+            try:
+                self.run_dir.chmod(0o777)
+            except Exception:
+                pass
         try:
             self.episodes_root.chmod(0o777)
         except Exception:
@@ -257,7 +312,10 @@ class DataRecorderNode(Node):
                 self.log_file.close()
             except Exception:
                 pass
-        self.log_file_path = self.episodes_root / "recorder.log"
+        if self.run_dir != self.episodes_root:
+            self.log_file_path = self.run_dir / "recorder.log"
+        else:
+            self.log_file_path = self.episodes_root / "recorder.log"
         try:
             self.log_file = open(self.log_file_path, "a", buffering=1)
         except Exception as e:
@@ -636,7 +694,6 @@ class DataRecorderNode(Node):
                         self.current_metadata.robot_model.append(robot.model)
 
                     try:
-                        from ..storage.manifest import MetadataWriter
                         MetadataWriter.write(self.current_metadata, self.current_metadata_path)
                     except Exception as e:
                         self.get_logger().warn(f"Failed to write episode metadata: {e}")

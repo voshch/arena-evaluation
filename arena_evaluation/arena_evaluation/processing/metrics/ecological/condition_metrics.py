@@ -9,13 +9,16 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 
-from ..base import BaseMetricCalculator
-from .compliance_metrics import _extract_zone_geometry, _offset_zones, _reconstruct_events, _zone_membership, _ZoneGeometry
-
-if typing.TYPE_CHECKING:
-    from arena_simulation_setup.shared.conditions import EntityAtom, MembershipAtom
-
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
+    _ZoneGeometry,
+    _extract_zone_geometry,
+    _offset_zones,
+    _reconstruct_events,
+    _zone_membership,
+)
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_simulation_setup.shared.conditions import EntityAtom, EpisodeCondition, MembershipAtom, parse_atom
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +157,6 @@ def _ped_zone_series(atom: MembershipAtom, ctx: _EvalContext) -> tuple[np.ndarra
 
 
 def _atom_series(atom: EntityAtom | MembershipAtom, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
-    from arena_simulation_setup.shared.conditions import MembershipAtom
-
     if isinstance(atom, MembershipAtom):
         if atom.subject == "robot":
             return _robot_zone_series(atom, ctx)
@@ -191,8 +192,6 @@ def _operator_verdict(
 
 def _clause_verdict(clause: dict, ctx: _EvalContext) -> bool | None:
     """Score one clause dict, returning UNKNOWN (None) on any malformed or unresolvable input."""
-    from arena_simulation_setup.shared.conditions import EpisodeCondition, parse_atom
-
     try:
         cond = EpisodeCondition.parse(clause)
         p_atom = parse_atom(cond.p)

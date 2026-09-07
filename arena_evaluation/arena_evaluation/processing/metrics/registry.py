@@ -6,11 +6,10 @@ import pkgutil
 import typing
 from collections import defaultdict, deque
 
-from .base import BaseMetricCalculator
-from ...storage.exceptions import CircularDependencyError
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.exceptions import CircularDependencyError
 
-if typing.TYPE_CHECKING:
-    from ...storage.schemas import RobotParams, AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 
 class MetricRegistry:

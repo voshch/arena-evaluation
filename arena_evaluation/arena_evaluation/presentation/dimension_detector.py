@@ -3,10 +3,10 @@ from __future__ import annotations
 import polars as pl
 from typing import TYPE_CHECKING
 
-from ..storage.planner_names import split_planner_name
+from arena_evaluation.storage.planner_names import split_planner_name
 
 if TYPE_CHECKING:
-    from ..storage.schemas import PlotSpec
+    from arena_evaluation.storage.schemas import PlotSpec
 
 # Ordered priority list of identity columns
 IDENTITY_COLS: list[str] = ["local_planner", "inter_planner", "robot", "stage", "map", "benchmark_id"]

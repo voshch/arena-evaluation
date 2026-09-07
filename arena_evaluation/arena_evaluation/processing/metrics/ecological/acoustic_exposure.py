@@ -1,24 +1,27 @@
 from __future__ import annotations
-import typing
+
 import logging
+import typing
+
 import numpy as np
-import polars as pl
 from PIL import Image
+import polars as pl
 
-from ..base import BaseMetricCalculator
-from ...map_registry import MapRegistry
-from ..ecological.characterization import _ACOUSTIC_DEFAULTS
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.acoustics.door_map import (
+    _entity_matches_door,
+    build_pixel_tl,
+    door_segments,
+)
+from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+from arena_evaluation.processing.map_registry import MapRegistry
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.characterization import _ACOUSTIC_DEFAULTS
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 try:
-    from ...acoustics.impedance_grid import compute_attenuations
+    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 except ImportError:
     compute_attenuations = None
-
-from ...acoustics.door_map import door_segments, build_pixel_tl, _entity_matches_door
-from ...acoustics.door_state import DoorStateTimeline
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +67,11 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 row = []
         if not isinstance(row, (list, tuple, np.ndarray)) or len(row) == 0:
             return pts
-        if isinstance(row[0], (list, tuple, np.ndarray)):
+        if isinstance(row[0], dict):
+            for item in row:
+                if isinstance(item, dict) and "x" in item and "y" in item:
+                    pts.append((float(item["x"]), float(item["y"])))
+        elif isinstance(row[0], (list, tuple, np.ndarray)):
             for item in row:
                 if len(item) >= 2 and not np.isnan(item[0]) and not np.isnan(item[1]):
                     pts.append((float(item[0]), float(item[1])))
@@ -83,8 +90,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         try:
             img = Image.open(meta["png_path"]).convert("L")
             img_data = np.array(img)
-            # PIL row 0 = top of map; flip so row 0 = bottom (y = origin_y).
-            # ascontiguousarray required: flipud returns a view that is not C_CONTIGUOUS.
             grid = np.ascontiguousarray(np.flipud((img_data < 200).astype(np.uint8)))
             return grid, meta["resolution"], meta["origin"]
         except Exception as e:
@@ -190,21 +195,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         POS_THRESHOLD = 0.5  # meters (attenuation changes < 0.3 dB over 0.5m)
         total_frames = len(rx_m)
 
-        # Pre-compute collision frame mask (used for per-pedestrian impulse).
-        COLLISION_IMPULSE_DBA = 100.0
-        collision_mask = None
-        if "collision_event" in df.columns:
-            col_events = df["collision_event"].to_numpy()
-            col_clean = np.nan_to_num(col_events.astype(float), nan=0.0)
-            collision_mask = col_clean > 0
-            n_collisions = int(np.sum(collision_mask))
-            if n_collisions > 0:
-                logger.info(
-                    "AcousticExposureCalculator: %d collision frames detected -- "
-                    "will apply %.0f dB(A) per-pedestrian impulse.",
-                    n_collisions, COLLISION_IMPULSE_DBA,
-                )
-
         eval_count = 0
         last_attenuations: np.ndarray | None = None
 
@@ -286,13 +276,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             att_valid = attenuations[valid]
             # SPL received = instantaneous source level - geometric attenuation
             exp_valid = current_source - att_valid
-
-            # Per-pedestrian collision impulse: crash events add a ~100 dB(A)
-            # penalty directly to each pedestrian's exposure at that frame.
-            # This keeps the field visualization clean (no source-level bloom)
-            # while the scalar metrics still capture the acoustic startle.
-            if collision_mask is not None and collision_mask[i]:
-                exp_valid = np.maximum(exp_valid, COLLISION_IMPULSE_DBA)
 
             ts_attenuation.append(att_valid.tolist())
             ts_exposure.append(exp_valid.tolist())

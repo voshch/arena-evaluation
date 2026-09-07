@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 import polars as pl
 import pathlib
 
-from ...storage.schemas import PlotSpec
-from ..dimension_detector import resolve_differentiate
+from arena_evaluation.presentation.dimension_detector import resolve_differentiate
+from arena_evaluation.storage.schemas import PlotSpec
 
 
 class BasePlotRenderer(ABC):

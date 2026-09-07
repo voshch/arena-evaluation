@@ -55,7 +55,7 @@ def test_characterization_manifest_loads():
     manifest = VizManifest.load(p)
     assert manifest.name == "characterization"
     assert manifest.data_source == "metrics"
-    assert manifest.summary_group_by == ["timeseries_char_phase_kind"]
+    assert manifest.summary_group_by == ["timeseries_char_phase_kind", "timeseries_char_speed_target"]
     assert manifest.summary  # declarative summary table
     line_specs = [s for s in manifest.plots if s.type == "line"]
     assert line_specs, "characterization manifest must use line charts"

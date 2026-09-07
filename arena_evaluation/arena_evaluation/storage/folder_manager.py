@@ -32,18 +32,23 @@ class FolderManager:
         return resolved
 
     def episodes_dir(self, benchmark_id: str) -> pathlib.Path:
-        """Return the episodes directory for a benchmark."""
+        """Return the episodes directory for a benchmark or run."""
+        for cand in [
+            self.data_root / benchmark_id / "episodes",
+            self.data_root / "runs" / benchmark_id / "episodes",
+            self.data_root / "benchmarks" / benchmark_id / "episodes",
+        ]:
+            if cand.exists():
+                return self._safe_resolve(cand)
         return self._safe_resolve(self.data_root / benchmark_id / "episodes")
 
     def episode_dir(self, benchmark_id: str, episode_id: int) -> pathlib.Path:
         """Return the directory for a specific episode."""
-        return self._safe_resolve(
-            self.data_root / benchmark_id / "episodes" / f"episode_{episode_id:03d}"
-        )
+        return self._safe_resolve(self.episodes_dir(benchmark_id) / f"episode_{episode_id:03d}")
 
     def discover_episodes(self, benchmark_id: str) -> list[EpisodeDescriptor]:
         """Discover valid episode directories and their metadata."""
-        eps_dir = self.data_root / benchmark_id / "episodes"
+        eps_dir = self.episodes_dir(benchmark_id)
         if not eps_dir.exists() or not eps_dir.is_dir():
             return []
 
@@ -95,6 +100,12 @@ class FolderManager:
 
     def combined_metrics_path(self, benchmark_id: str) -> pathlib.Path:
         """Get path for combined benchmark metrics Parquet file."""
-        target = self.data_root / benchmark_id / "combined_metrics.parquet"
-        return self._safe_resolve(target)
+        for cand in [
+            self.data_root / benchmark_id / "combined_metrics.parquet",
+            self.data_root / "runs" / benchmark_id / "combined_metrics.parquet",
+            self.data_root / "benchmarks" / benchmark_id / "combined_metrics.parquet",
+        ]:
+            if cand.parent.exists():
+                return self._safe_resolve(cand)
+        return self._safe_resolve(self.data_root / benchmark_id / "combined_metrics.parquet")
 

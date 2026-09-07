@@ -5,8 +5,8 @@ import typing
 import yaml
 import polars as pl
 
-from ..storage.schemas import TopicBundle, AlignedEpisodeBundle
-from .topic_aligner import TopicAligner
+from arena_evaluation.processing.topic_aligner import TopicAligner
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, TopicBundle
 
 
 def _parse_conditions(raw: str | None) -> list[dict] | None:

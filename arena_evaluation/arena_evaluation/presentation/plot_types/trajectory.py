@@ -7,9 +7,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 
-from .base import BasePlotRenderer
-from ..color_utils import get_color_palette
-from ...processing.map_registry import MapRegistry
+from arena_evaluation.presentation.color_utils import get_color_palette
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
+from arena_evaluation.processing.map_registry import MapRegistry
 
 
 class TrajectoryRenderer(BasePlotRenderer):
@@ -273,7 +273,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         # 1. Overlay Theta* Synthetic Demonstration Baseline Path
         if self.spec.options.get("overlay_theta_star", False) or self.spec.options.get("show_theta_star", False) or (self.spec.data_key and "theta" in self.spec.data_key):
             try:
-                from ...processing.path.theta_star import compute_theta_star_for_episode
+                from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
                 theta_rendered = False
                 seen_theta_endpoints = set()
                 # Iterate through evaluated dynamic episodes to render matching Theta* baseline for each stage
@@ -866,7 +866,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         # 1. Overlay Theta* Synthetic Demonstration Baseline
         if self.spec.options.get("overlay_theta_star", False) or self.spec.options.get("show_theta_star", False) or (self.spec.data_key and "theta" in self.spec.data_key):
             try:
-                from ...processing.path.theta_star import compute_theta_star_for_episode
+                from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
                 for _, r in pdf.iterrows():
                     m_name = map_name or r.get("map")
                     s_pt = r.get("start")

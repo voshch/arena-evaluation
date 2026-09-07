@@ -192,6 +192,12 @@ Examples:
 
     args = resolve_paths(args)
 
+    # acoustic subcommand handler
+    if args.command == "acoustic":
+        from arena_evaluation.cli_acoustic import _handle_acoustic
+        _handle_acoustic(args)
+        return 0
+
     if args.benchmark_dir is None and args.run_dir is None:
         latest = latest_benchmark()
         if latest is None:
@@ -201,17 +207,13 @@ Examples:
         args.benchmark_dir = [latest]
 
     target_dirs = args.benchmark_dir or args.run_dir
+    if isinstance(target_dirs, pathlib.Path):
+        target_dirs = [target_dirs]
 
     for d in target_dirs:
         if not d.exists() or not d.is_dir():
             print(f"Error: directory does not exist: {d}")
             sys.exit(1)
-
-    # acoustic subcommand handler
-    if args.command == "acoustic":
-        from arena_evaluation.cli_acoustic import _handle_acoustic
-        _handle_acoustic(args)
-        return 0
 
     profiler = None
     if args.profile:

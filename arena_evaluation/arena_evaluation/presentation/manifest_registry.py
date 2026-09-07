@@ -38,7 +38,7 @@ def source_tree_dir() -> pathlib.Path | None:
 
 def find_manifest_file(stem: str) -> pathlib.Path | None:
     """Resolve a manifest name to its YAML file, stopping at the first resolver that has it."""
-    from ..benchmark.tree import ManifestIdentifier
+    from arena_evaluation.benchmark.tree import ManifestIdentifier
 
     try:
         return ManifestIdentifier(name=stem).resolve_source_sync().path
@@ -48,7 +48,7 @@ def find_manifest_file(stem: str) -> pathlib.Path | None:
 
 def available_manifests() -> list[str]:
     """Sorted stems of all bundled manifests."""
-    from ..benchmark.tree import ManifestIdentifier
+    from arena_evaluation.benchmark.tree import ManifestIdentifier
 
     return sorted({m.shortname for m in ManifestIdentifier.listall()})
 

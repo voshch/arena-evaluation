@@ -5,11 +5,13 @@ import numpy as np
 import polars as pl
 from scipy.spatial.distance import cdist
 
-from ..base import BaseMetricCalculator
-from ...path.theta_star import compute_theta_star_for_episode, compute_theta_star_path
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.path.theta_star import (
+    compute_theta_star_for_episode,
+    compute_theta_star_path,
+)
 
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 def _discrete_frechet(p: np.ndarray, q: np.ndarray) -> float:

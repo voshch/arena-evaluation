@@ -4,7 +4,7 @@ import polars as pl
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..storage.schemas import TopicBundle, AlignedEpisodeBundle
+    from arena_evaluation.storage.schemas import AlignedEpisodeBundle, TopicBundle
 
 
 class TopicAligner:

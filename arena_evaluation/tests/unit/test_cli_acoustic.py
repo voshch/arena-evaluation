@@ -111,6 +111,10 @@ class _FakeRenderer:
     def _render_cell_png(self, *args, **kwargs) -> bool:
         return self.cell_render_ok
 
+    @classmethod
+    def _extract_trajectory_data(cls, df=None, run_dir=None, episode_id=None):  # noqa: ARG003
+        return None
+
 
 def _install_stubs(monkeypatch, *, doors: list[int] | None = None) -> types.SimpleNamespace:
     """Swap heavy acoustic deps for stubs via sys.modules (imports are lazy)."""
@@ -182,7 +186,7 @@ def test_acoustic_subparsers_animate_defaults():
     assert args.downsample == 2
     assert args.format == "gif"
     assert args.dpi == 150
-    assert args.vmin == 42.0
+    assert args.vmin == 20.0
     assert args.vmax is None
     assert args.robot_trail == 0
     assert args.no_door_overlay is False

@@ -1,27 +1,37 @@
 from __future__ import annotations
 
-import pathlib
 import logging
-import numpy as np
-import polars as pl
-from PIL import Image
+import pathlib
+import typing
 
-from .base import BasePlotRenderer
-from ...processing.map_registry import MapRegistry
-from ...processing.acoustics.impedance_grid import downsample_occupancy
-from ...processing.acoustics.door_map import door_segments, build_pixel_tl, _entity_matches_door
+import numpy as np
+from PIL import Image
+import polars as pl
+
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
+from arena_evaluation.processing.acoustics.door_map import (
+    _entity_matches_door,
+    build_pixel_tl,
+    door_segments,
+)
+from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+from arena_evaluation.processing.acoustics.impedance_grid import downsample_occupancy
+from arena_evaluation.processing.map_registry import MapRegistry
 
 try:
-    from ...processing.acoustics.impedance_grid import compute_attenuations
+    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 except ImportError:
     compute_attenuations = None
+
+if typing.TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 logger = logging.getLogger(__name__)
 
 _CELL_FIGSIZE = (5, 4)
 _CELL_DPI = 150
 
-_FIELD_VMIN_DBA = 30.0
+_FIELD_VMIN_DBA = 20.0
 
 
 class AcousticFieldRenderer(BasePlotRenderer):
@@ -73,7 +83,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
     def _render_cell_png(self, grid, resolution, ox, oy,
                          rx_m, ry_m, source_dba, peds, title, out_path,
-                         downsample=1, vmin=None, vmax=None, open_doors=None, doors=None):
+                         downsample=1, vmin=None, vmax=None, open_doors=None, doors=None,
+                         overlay_trajectories: bool = False, trajectory_data: dict | None = None):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -132,31 +143,36 @@ class AcousticFieldRenderer(BasePlotRenderer):
                    linewidths=0.3, alpha=0.25)
         if door_overlay is not None:
             ax.contour(cx, cy, door_overlay.astype(np.uint8), levels=[0.5],
-                       colors=["#00ffd5"], linewidths=1.2, alpha=0.85)
+                       colors=["#64748b"], linewidths=0.9, alpha=0.6, linestyles="dashed")
             if open_door_mask.any():
                 ax.contour(cx, cy, open_door_mask.astype(np.uint8), levels=[0.5],
-                           colors=["#00ff00"], linewidths=2.0, alpha=0.9)
+                           colors=["#10b981"], linewidths=1.4, alpha=0.75)
         plt.colorbar(im, label="dBA", fraction=0.046, pad=0.04)
 
-        plt.plot(rx_m, ry_m, "g*", markersize=8, label="Robot")
+        if overlay_trajectories and trajectory_data:
+            self._draw_trajectories_overlay(ax, trajectory_data)
+
+        # Current Robot Position (Layer 4 - Foreground Topmost, zorder=10)
+        plt.plot(rx_m, ry_m, marker="o", color="#00f0ff", markeredgecolor="#ffffff",
+                 markeredgewidth=1.2, markersize=6.5, linestyle="None", zorder=10, label="Robot (Position)")
         if peds:
             px = [p[0] for p in peds if len(p) >= 2]
             py = [p[1] for p in peds if len(p) >= 2]
             if px:
-                plt.plot(px, py, "ro", markersize=4, label="Peds")
+                # Current Pedestrian Positions (Layer 4 - Foreground Topmost, zorder=10)
+                plt.plot(px, py, marker="o", color="#ff5722", markeredgecolor="#ffffff",
+                         markeredgewidth=0.8, markersize=4.8, linestyle="None", zorder=10, label="Peds (Position)")
 
         plt.title(title, fontsize=9)
         plt.xlabel("X (m)", fontsize=8)
         plt.ylabel("Y (m)", fontsize=8)
         plt.tick_params(labelsize=7)
-        plt.legend(fontsize=7)
+        plt.legend(fontsize=6.5, loc="upper right", framealpha=0.75, facecolor="#181825", edgecolor="#313244", labelcolor="#ffffff")
         plt.tight_layout()
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(out_path, dpi=_CELL_DPI, bbox_inches="tight")
         plt.close()
-        return True
-        logger.info("AcousticFieldRenderer: saved %s", out_path)
         return True
 
     @staticmethod
@@ -187,6 +203,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             "ped_max_exposure_dba": float(row["ped_max_exposure_dba"]),
             "planner": row.get("planner", row.get("local_planner", "")),
             "stage": row.get("stage", ""),
+            "episode": row.get("episode", row.get("episode_id", None)),
         }
 
     def _prepared_df(self, df):
@@ -279,6 +296,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
             door_states = worst.get("door_states") or {}
             open_doors = {n for n, st in door_states.items() if st == "open"} if doors else None
 
+            overlay_trajectories = self._overlay_trajectories()
+            traj_data = self._cell_trajectories(worst, work_df) if overlay_trajectories else None
+
             ok = self._render_cell_png(
                 grid, resolution, ox, oy,
                 worst["robot_x"], worst["robot_y"], src_dba,
@@ -290,6 +310,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 vmax=vmax,
                 open_doors=open_doors,
                 doors=doors,
+                overlay_trajectories=overlay_trajectories,
+                trajectory_data=traj_data,
             )
             if not ok:
                 return ""
@@ -332,6 +354,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         logger.info("AcousticFieldRenderer: shared color scale %.0f..%.0f dBA across %d cells.",
                     vmin, global_max, len(entries))
 
+        overlay_trajectories = self._overlay_trajectories()
+
         # second pass: render each cell with the shared vmin/vmax
         cells = []
         for worst, row_label, col_label in entries:
@@ -346,6 +370,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             door_states = worst.get("door_states") or {}
             open_doors = {n for n, st in door_states.items() if st == "open"} if doors else None
 
+            traj_data = self._cell_trajectories(worst, work_df) if overlay_trajectories else None
+
             cell_src = _eff_src(worst)
             ok = self._render_cell_png(
                 grid, resolution, ox, oy,
@@ -358,6 +384,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 vmax=global_max,
                 open_doors=open_doors,
                 doors=doors,
+                overlay_trajectories=overlay_trajectories,
+                trajectory_data=traj_data,
             )
             if ok:
                 cells.append({
@@ -421,6 +449,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
         door_states = worst.get("door_states") or {}
         open_doors = {n for n, st in door_states.items() if st == "open"} if doors else None
 
+        overlay_trajectories = self._overlay_trajectories()
+        traj_data = self._cell_trajectories(worst, work_df) if overlay_trajectories else None
+
         self._render_cell_png(
             grid, resolution, ox, oy,
             worst["robot_x"], worst["robot_y"], src_dba,
@@ -432,6 +463,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             vmax=vmax,
             open_doors=open_doors,
             doors=doors,
+            overlay_trajectories=overlay_trajectories,
+            trajectory_data=traj_data,
         )
 
     # Animation / timeseries
@@ -448,7 +481,14 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 row = []
         if not isinstance(row, (list, tuple, np.ndarray)) or len(row) == 0:
             return pts
-        if isinstance(row[0], (list, tuple, np.ndarray)):
+        if isinstance(row[0], dict):
+            for item in row:
+                if "x" in item and "y" in item:
+                    x = item["x"]
+                    y = item["y"]
+                    if x is not None and y is not None and not np.isnan(x) and not np.isnan(y):
+                        pts.append((float(x), float(y)))
+        elif isinstance(row[0], (list, tuple, np.ndarray)):
             for item in row:
                 if len(item) >= 2 and not np.isnan(item[0]) and not np.isnan(item[1]):
                     pts.append((float(item[0]), float(item[1])))
@@ -458,6 +498,231 @@ class AcousticFieldRenderer(BasePlotRenderer):
                     if not np.isnan(row[j]) and not np.isnan(row[j + 1]):
                         pts.append((float(row[j]), float(row[j + 1])))
         return pts
+
+    def _overlay_trajectories(self) -> bool:
+        return bool(self.spec.options.get("overlay_trajectories"))
+
+    def _cell_trajectories(self, worst: dict, work_df: pl.DataFrame) -> dict:
+        """Trajectory overlay data for a worst-case cell, from the episode's topic parquets when available."""
+        ep_val = worst.get("episode")
+        if ep_val is not None and self.run_dir:
+            ep_df = self._load_episode_data(pathlib.Path(self.run_dir), f"episode_{int(ep_val):03d}")
+            if ep_df is not None:
+                return self._extract_trajectory_data(ep_df, run_dir=self.run_dir, episode_id=ep_val)
+        return self._extract_trajectory_data(work_df, run_dir=self.run_dir, episode_id=ep_val)
+
+    @staticmethod
+    def _extract_trajectory_data(
+        df: pl.DataFrame | None = None,
+        run_dir: pathlib.Path | str | None = None,
+        episode_id: str | int | None = None,
+    ) -> dict:
+        """Extract full robot path, start, goal, collision, and full pedestrian trajectories + 2 waypoints."""
+        traj_data: dict[str, typing.Any] = {
+            "robot_path": None,
+            "robot_start": None,
+            "robot_goal": None,
+            "collision_pos": None,
+            "ped_trajectories": {},
+            "ped_waypoints": {},
+        }
+
+        cols = df.columns if df is not None else []
+
+        # 1. Robot path
+        rx_col = "pos_x_gt" if "pos_x_gt" in cols else ("pos_x" if "pos_x" in cols else None)
+        ry_col = "pos_y_gt" if "pos_y_gt" in cols else ("pos_y" if "pos_y" in cols else None)
+
+        if rx_col and ry_col and df is not None:
+            rx = df[rx_col].to_numpy()
+            ry = df[ry_col].to_numpy()
+            valid = ~np.isnan(rx) & ~np.isnan(ry)
+            if np.any(valid):
+                rx_clean = rx[valid]
+                ry_clean = ry[valid]
+                traj_data["robot_path"] = (rx_clean, ry_clean)
+
+                # Check for explicit start/goal
+                start_val = df["start"][0] if "start" in cols else (df["start_pos"][0] if "start_pos" in cols else None)
+                if isinstance(start_val, (list, tuple, np.ndarray)) and len(start_val) >= 2:
+                    traj_data["robot_start"] = (float(start_val[0]), float(start_val[1]))
+                elif len(rx_clean) > 0:
+                    traj_data["robot_start"] = (float(rx_clean[0]), float(ry_clean[0]))
+
+                goal_val = df["goal"][0] if "goal" in cols else (df["goal_pos"][0] if "goal_pos" in cols else None)
+                if isinstance(goal_val, (list, tuple, np.ndarray)) and len(goal_val) >= 2:
+                    traj_data["robot_goal"] = (float(goal_val[0]), float(goal_val[1]))
+                elif len(rx_clean) > 0:
+                    traj_data["robot_goal"] = (float(rx_clean[-1]), float(ry_clean[-1]))
+
+        # Check for collision event position
+        if "has_collision" in cols and rx_col and ry_col and df is not None:
+            try:
+                coll_df = df.filter(pl.col("has_collision"))
+                if len(coll_df) > 0:
+                    cx = coll_df[rx_col][0]
+                    cy = coll_df[ry_col][0]
+                    if cx is not None and cy is not None and not np.isnan(cx) and not np.isnan(cy):
+                        traj_data["collision_pos"] = (float(cx), float(cy))
+            except Exception:
+                pass
+
+        # 2. Pedestrians: precomputed paths, else the positions timeseries, else the episode's parquets on disk
+        ped_trajs: dict[int, list[tuple[float, float]]] = {}
+        if df is not None and len(df) > 0:
+            if "pedestrian_path" in cols:
+                ped_trajs = AcousticFieldRenderer._ped_tracks_from_paths(df["pedestrian_path"][0])
+            if not ped_trajs:
+                peds_col = "peds_positions" if "peds_positions" in cols else ("peds" if "peds" in cols else None)
+                if peds_col:
+                    ped_trajs = AcousticFieldRenderer._ped_tracks_from_positions(df[peds_col].to_list())
+        if not ped_trajs and run_dir is not None:
+            try:
+                ped_trajs = AcousticFieldRenderer._ped_tracks_from_disk(pathlib.Path(run_dir), episode_id)
+            except Exception as e:
+                logger.debug("Pedestrian trajectory disk fallback error: %s", e)
+
+        traj_data["ped_trajectories"] = ped_trajs
+
+        # Compute 2 waypoints (WP1: start, WP2: goal/max displacement turnaround) for all pedestrians
+        ped_wps = {}
+        for pid, pts in ped_trajs.items():
+            if len(pts) >= 1:
+                wp1 = pts[0]
+                wp2 = pts[-1]
+                if len(pts) > 2:
+                    dists = [np.hypot(p[0] - wp1[0], p[1] - wp1[1]) for p in pts]
+                    max_i = int(np.argmax(dists))
+                    if dists[max_i] > np.hypot(wp2[0] - wp1[0], wp2[1] - wp1[1]):
+                        wp2 = pts[max_i]
+                ped_wps[pid] = (wp1, wp2)
+        traj_data["ped_waypoints"] = ped_wps
+
+        return traj_data
+
+    @staticmethod
+    def _ped_tracks_from_paths(p_paths: object) -> dict[int, list[tuple[float, float]]]:
+        """Per-pedestrian tracks from a precomputed pedestrian_path cell."""
+        tracks: dict[int, list[tuple[float, float]]] = {}
+        if not isinstance(p_paths, (list, tuple)):
+            return tracks
+        for k, p_arr in enumerate(p_paths):
+            if p_arr is None or len(p_arr) == 0:
+                continue
+            arr = np.array(p_arr)
+            if arr.ndim == 2 and arr.shape[1] >= 2:
+                pts = [(float(pt[0]), float(pt[1])) for pt in arr if not np.isnan(pt[0]) and not np.isnan(pt[1])]
+                if pts:
+                    tracks[k] = pts
+        return tracks
+
+    @staticmethod
+    def _ped_tracks_from_positions(raw_pos: list) -> dict[int, list[tuple[float, float]]]:
+        """Per-pedestrian tracks (keyed by slot index) from a peds_positions timeseries of nested, dict, or flat frames."""
+        frames: list[list[list[float]]] = []
+        for frame_raw in raw_pos:
+            if frame_raw is None or len(frame_raw) == 0:
+                frames.append([])
+            elif isinstance(frame_raw[0], (list, tuple, np.ndarray)):
+                frames.append([[float(p[0]), float(p[1])] for p in frame_raw if len(p) >= 2])
+            elif isinstance(frame_raw[0], dict):
+                frames.append([[float(p["x"]), float(p["y"])] for p in frame_raw if "x" in p and "y" in p])
+            else:
+                stride = 3 if len(frame_raw) % 3 == 0 and len(frame_raw) >= 3 else 2
+                frames.append([[float(frame_raw[j]), float(frame_raw[j + 1])] for j in range(0, len(frame_raw) - 1, stride)])
+        tracks: dict[int, list[tuple[float, float]]] = {}
+        for p_idx in range(max((len(f) for f in frames), default=0)):
+            pts = [(f[p_idx][0], f[p_idx][1]) for f in frames if len(f) > p_idx and not np.isnan(f[p_idx][0]) and not np.isnan(f[p_idx][1])]
+            if len(pts) > 1:
+                tracks[p_idx] = pts
+        return tracks
+
+    @staticmethod
+    def _ped_tracks_from_disk(bdir: pathlib.Path, episode_id: str | int | None) -> dict[int, list[tuple[float, float]]]:
+        """Tracks from an episode's topics/peds.parquet, else its metrics.parquet, searching bdir and its parents."""
+        if episode_id is None:
+            ep_names = [d.name for d in (bdir / "episodes").iterdir() if d.is_dir()] if (bdir / "episodes").is_dir() else []
+        elif str(episode_id).isdigit():
+            ep_names = [f"episode_{int(episode_id):03d}"]
+        else:
+            ep_names = [str(episode_id)]
+        for ep_name in ep_names:
+            peds_pq = next(
+                (c for c in (root / "episodes" / ep_name / "topics" / "peds.parquet" for root in (bdir, *bdir.parents)) if c.exists()),
+                None,
+            )
+            if peds_pq is not None:
+                p_df = pl.read_parquet(peds_pq)
+                p_col = "peds_positions" if "peds_positions" in p_df.columns else ("peds" if "peds" in p_df.columns else None)
+                if p_col:
+                    tracks = AcousticFieldRenderer._ped_tracks_from_positions(p_df[p_col].to_list())
+                    if tracks:
+                        return tracks
+            ep_m_path = bdir / "episodes" / ep_name / "metrics.parquet"
+            if ep_m_path.exists():
+                ep_m = pl.read_parquet(ep_m_path)
+                if "pedestrian_path" in ep_m.columns and len(ep_m) > 0:
+                    tracks = AcousticFieldRenderer._ped_tracks_from_paths(ep_m["pedestrian_path"][0])
+                    if tracks:
+                        return tracks
+        return {}
+
+    @staticmethod
+    def _draw_trajectories_overlay(ax: Axes, traj_data: dict) -> None:
+        """Draw trajectory tracks (Layer 2, zorder=3) and fixed markers (Layer 3, zorder=4..6)."""
+        if not traj_data:
+            return
+
+        # 1. Full Robot Trajectory Path (Layer 2: Trajectory Lowest, zorder=3)
+        robot_path = traj_data.get("robot_path")
+        if robot_path is not None and len(robot_path[0]) > 0:
+            rx, ry = robot_path
+            ax.plot(rx, ry, color="#00f0ff", linestyle="-", linewidth=1.3,
+                    alpha=0.75, zorder=3, label="Robot Track")
+
+        # 2. Pedestrian Full Trajectory Paths (Layer 2: Trajectory Lowest, zorder=3)
+        ped_trajs = traj_data.get("ped_trajectories") or {}
+        first_ped_labeled = False
+        for pts in ped_trajs.values():
+            if not pts or len(pts) < 2:
+                continue
+            px = [p[0] for p in pts]
+            py = [p[1] for p in pts]
+            lbl = "Pedestrians" if not first_ped_labeled else None
+            ax.plot(px, py, color="#c084fc", linestyle=":", linewidth=1.2,
+                    alpha=0.6, zorder=3, label=lbl)
+            first_ped_labeled = True
+
+        # 3. Pedestrian 2 Waypoints (Layer 3: Overlayed Fixed Points, zorder=4)
+        ped_wps = traj_data.get("ped_waypoints") or {}
+        first_wp_labeled = False
+        for wp1, wp2 in ped_wps.values():
+            if wp1 is not None and len(wp1) >= 2:
+                lbl = "Ped Waypoints" if not first_wp_labeled else None
+                ax.scatter(wp1[0], wp1[1], marker="d", color="#c084fc", edgecolor="#ffffff",
+                           linewidth=0.5, s=14, zorder=4, label=lbl)
+                first_wp_labeled = True
+            if wp2 is not None and len(wp2) >= 2:
+                ax.scatter(wp2[0], wp2[1], marker="d", color="#c084fc", edgecolor="#ffffff",
+                           linewidth=0.5, s=14, zorder=4)
+
+        # 4. Robot Start Marker (Layer 3: Overlayed Fixed Points, zorder=5)
+        start = traj_data.get("robot_start")
+        if start is not None and len(start) >= 2:
+            ax.scatter(start[0], start[1], marker="o", color="#00f0ff", edgecolor="#ffffff",
+                       linewidth=0.8, s=24, zorder=5, label="Start")
+
+        # 5. Robot Goal Marker (Layer 3: Overlayed Fixed Points, zorder=5)
+        goal = traj_data.get("robot_goal")
+        if goal is not None and len(goal) >= 2:
+            ax.scatter(goal[0], goal[1], marker="*", color="#fbbf24", edgecolor="#ffffff",
+                       linewidth=0.6, s=55, zorder=5, label="Goal")
+
+        # 6. Collision Marker (Layer 3: Overlayed Fixed Points, zorder=6)
+        col = traj_data.get("collision_pos")
+        if col is not None and len(col) >= 2:
+            ax.scatter(col[0], col[1], marker="X", color="#ef4444", edgecolor="#ffffff",
+                       linewidth=0.5, s=45, zorder=6, label="Collision")
 
     @staticmethod
     def _load_episode_data(benchmark_dir: pathlib.Path, episode_id: str):
@@ -523,11 +788,11 @@ class AcousticFieldRenderer(BasePlotRenderer):
         if not frames:
             return None
 
-        # Align all topics on time_ns via forward-fill ASOF join
-        df = frames[0].collect()
+        # Align all topics on time_ns via nearest ASOF join
+        df = frames[0].collect().sort("time_ns")
         for f in frames[1:]:
-            right = f.collect()
-            df = df.join_asof(right, on="time_ns", strategy="forward")
+            right = f.collect().sort("time_ns")
+            df = df.join_asof(right, on="time_ns", strategy="nearest")
 
         return df
 
@@ -545,8 +810,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
         max_frames: int = 120,
     ):
         """Compute the 2D acoustic field for a sequence of episode frames."""
-        from ...processing.acoustics.door_state import DoorStateTimeline
-
         if compute_attenuations is None:
             logger.warning("C++ solver not available for timeseries.")
             return []
@@ -584,8 +847,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         tl_cache: dict[tuple, np.ndarray] = {}
         results: list = []
-
         rows = df.rows(named=True)
+
         for frame_idx in indices:
             row = rows[frame_idx]
 
@@ -600,11 +863,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
             rx_px = (float(rx_m) - ox) / resolution
             ry_px = (float(ry_m) - oy) / resolution
-
-            # Collision impulse: boost source to 100 dBA so the field shows the crash
-            is_collision = bool(row.get("has_collision", False))
-            if is_collision:
-                source_dba = 100.0
 
             open_set: frozenset = frozenset()
             if state_timeline is not None:
@@ -660,6 +918,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         robot_trail: int = 0,
         show_doors: bool = True,
         fmt: str = "gif",
+        overlay_trajectories: bool = False,
     ) -> pathlib.Path | None:
         """Render an animated GIF/MP4/PNG-sequence of the acoustic field timeseries."""
         import matplotlib
@@ -743,15 +1002,23 @@ class AcousticFieldRenderer(BasePlotRenderer):
         open_door_contour = None
         if show_doors and door_mask_all.any():
             door_contour = ax.contour(cx, cy, door_mask_all.astype(np.uint8), levels=[0.5],
-                                      colors=["#00ffd5"], linewidths=1.2, alpha=0.85)
+                                      colors=["#64748b"], linewidths=0.9, alpha=0.6, linestyles="dashed")
             if open_door_masks[0].any():
                 open_door_contour = ax.contour(cx, cy, open_door_masks[0].astype(np.uint8),
-                                               levels=[0.5], colors=["#00ff00"],
-                                               linewidths=2.0, alpha=0.9)
+                                               levels=[0.5], colors=["#10b981"],
+                                               linewidths=1.4, alpha=0.75)
 
-        robot_dot, = ax.plot([], [], "g*", markersize=8, label="Robot")
+        if overlay_trajectories:
+            traj_data = self._extract_trajectory_data(df, run_dir=self.run_dir)
+            self._draw_trajectories_overlay(ax, traj_data)
 
-        ped_dots, = ax.plot([], [], "ro", markersize=4, label="Peds")
+        # Layer 4: Foreground dynamic position markers (zorder=10)
+        robot_dot, = ax.plot([], [], marker="o", color="#00f0ff", markeredgecolor="#ffffff",
+                             markeredgewidth=1.2, markersize=6.5, linestyle="None", zorder=10, label="Robot (Position)")
+
+        ped_dots, = ax.plot([], [], marker="o", color="#ff5722", markeredgecolor="#ffffff",
+                            markeredgewidth=0.8, markersize=4.8, linestyle="None", zorder=10, label="Peds (Position)")
+        ax.legend(fontsize=6.5, loc="upper right", framealpha=0.75, facecolor="#181825", edgecolor="#313244", labelcolor="#ffffff")
 
         trail_line = None
         if robot_trail > 0:
@@ -773,7 +1040,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
             indices = [indices[int(i * step)] for i in range(max_frames)]
 
         peds_per_frame = []
-        has_collision_col = "has_collision" in df.columns
         collision_per_frame = []
         for orig_idx, _ in valid:
             row_idx = indices[orig_idx]
@@ -782,7 +1048,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             peds_raw = row.get("peds_positions", [])
             peds = self._parse_pedestrian_positions(peds_raw)
             peds_per_frame.append(peds)
-            coll = bool(row.get("has_collision", False)) if has_collision_col else False
+            src_val = float(row.get("total_level_af_dba") or row.get("source_dba") or 0.0)
+            coll = (src_val >= 99.0) or (row.get("operating_state") == "collision")
             collision_per_frame.append(coll)
 
         # Red flash rectangle for collision frames (hidden initially)
@@ -885,21 +1152,23 @@ class AcousticFieldRenderer(BasePlotRenderer):
                     rx_frame = float(row.get("pos_x_gt", 0) or 0)
                     ry_frame = float(row.get("pos_y_gt", 0) or 0)
                     t_s = float(row.get("time_ns", 0)) / 1e9
-                    ax_frame.plot(rx_frame, ry_frame, "g*", markersize=8, label="Robot")
+                    ax_frame.plot(rx_frame, ry_frame, marker="o", color="#00e5ff", markeredgecolor="#ffffff",
+                                  markeredgewidth=0.7, markersize=5.5, linestyle="None", label="Robot")
 
                     peds = peds_per_frame[fi]
                     if peds:
                         px_f = [p[0] for p in peds if len(p) >= 2]
                         py_f = [p[1] for p in peds if len(p) >= 2]
                         if px_f:
-                            ax_frame.plot(px_f, py_f, "ro", markersize=4, label="Peds")
+                            ax_frame.plot(px_f, py_f, marker="o", color="#ff5722", markeredgecolor="#ffffff",
+                                          markeredgewidth=0.8, markersize=4.8, linestyle="None", zorder=10, label="Peds")
 
                     if show_doors and door_mask_all.any():
                         ax_frame.contour(cx, cy, door_mask_all.astype(np.uint8), levels=[0.5],
-                                         colors=["#00ffd5"], linewidths=1.2, alpha=0.85)
+                                         colors=["#64748b"], linewidths=0.9, alpha=0.6, linestyles="dashed")
                         if open_dm.any():
                             ax_frame.contour(cx, cy, open_dm.astype(np.uint8), levels=[0.5],
-                                             colors=["#00ff00"], linewidths=2.0, alpha=0.9)
+                                             colors=["#10b981"], linewidths=1.4, alpha=0.75)
 
                     is_collision = collision_per_frame[fi]
                     collision_label = "  COLLISION!" if is_collision else ""
@@ -1051,8 +1320,6 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             logger.warning("No episode data for %s", episode_dir_name)
             return None
 
-        from ...processing.acoustics.door_state import DoorStateTimeline
-
         semantic_path = bdir / "episodes" / episode_dir_name / "topics" / "semantic_snapshot.parquet"
         state_timeline = None
         if semantic_path.exists():
@@ -1066,6 +1333,8 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             if fmt == "frames":
                 gif_path = out_path.with_suffix("")
 
+        overlay_trajectories = self._overlay_trajectories()
+
         try:
             self.render_animation(
                 episode_df, grid, resolution, ox, oy, doors,
@@ -1075,6 +1344,7 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
                 fps=fps, vmin=vmin, vmax=None,
                 show_doors=bool(doors),
                 fmt=fmt,
+                overlay_trajectories=overlay_trajectories,
             )
         except Exception as e:
             logger.warning("Failed to render animation for %s: %s", episode_dir_name, e)

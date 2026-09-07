@@ -23,7 +23,8 @@ class ScatterRenderer(BasePlotRenderer):
         if diff_col not in df_filtered.columns:
             return None
 
-        keep = [c for c in [x_col, y_col, diff_col] if c in df_filtered.columns]
+        filter_keys = [k for k in (self.spec.filter or {}) if k in df_filtered.columns]
+        keep = list(dict.fromkeys([c for c in [x_col, y_col, diff_col, *filter_keys] if c in df_filtered.columns]))
         list_cols = [c for c in keep if df_filtered.schema[c] == pl.List]
         if list_cols:
             df_filtered = df_filtered.select(keep).explode(list_cols)

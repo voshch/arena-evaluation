@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import polars as pl
-from ..storage.schemas import PlotSpec
+from arena_evaluation.storage.schemas import PlotSpec
 
 class PlotlyRenderer:
     """Dispatches plot rendering to the correct Plotly class."""

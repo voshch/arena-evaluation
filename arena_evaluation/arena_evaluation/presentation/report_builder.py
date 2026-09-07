@@ -8,11 +8,12 @@ import typing
 import jinja2
 import polars as pl
 
-from .viz_manifest import VizManifest
-from .manifest_registry import resolve_manifest
-from .plotly_renderer import PlotlyRenderer
-from .seaborn_renderer import SeabornRenderer
-from ..processing.parquet_store import ParquetStore
+from arena_evaluation.presentation.manifest_registry import resolve_manifest
+from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
+from arena_evaluation.presentation.seaborn_renderer import SeabornRenderer
+from arena_evaluation.presentation.viz_manifest import VizManifest
+from arena_evaluation.processing.metrics.registry import MetricRegistry
+from arena_evaluation.processing.parquet_store import ParquetStore
 
 # Data source name -> parquet filename. Any other data_source string ending in
 # ".parquet" is used verbatim as the filename in the benchmark/output dir.
@@ -321,7 +322,6 @@ class ReportBuilder:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.plots_dir.mkdir(exist_ok=True)
 
-        from ..processing.metrics.registry import MetricRegistry
         units = MetricRegistry.get_all_units()
         units.update(manifest.units or {})
 

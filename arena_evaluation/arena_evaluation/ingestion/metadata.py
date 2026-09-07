@@ -5,9 +5,9 @@ import sys
 import datetime
 import subprocess
 
-from ..storage.schemas import RunMetadata
-from ..storage.manifest import MetadataWriter
-from ..storage.planner_names import split_planner_name
+from arena_evaluation.storage.manifest import MetadataWriter
+from arena_evaluation.storage.planner_names import split_planner_name
+from arena_evaluation.storage.schemas import RunMetadata
 
 
 class IngestionMetadata:
