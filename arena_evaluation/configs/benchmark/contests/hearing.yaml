@@ -1,0 +1,17 @@
+# Robot-side hearing arms on the acoustics suite: nominal, belief mask only,
+# plus the corner listen cap, plus creep-yield. bus = ground-truth events from
+# the simulator (no ego-noise masking), seld = the four-mic front-end.
+- name: nominal
+  mobile: {driver: nav2, local_planner: regulated}
+- name: belief-bus
+  mobile: {driver: nav2, local_planner: regulated}
+  args: {auditory: arena, auditory.playback: none, robot.hearing: bus, robot.hearing.policy: belief}
+- name: listen-bus
+  mobile: {driver: nav2, local_planner: regulated}
+  args: {auditory: arena, auditory.playback: none, robot.hearing: bus, robot.hearing.policy: listen}
+- name: full-bus
+  mobile: {driver: nav2, local_planner: regulated}
+  args: {auditory: arena, auditory.playback: none, robot.hearing: bus, robot.hearing.policy: full}
+- name: full-seld
+  mobile: {driver: nav2, local_planner: regulated}
+  args: {auditory: arena, auditory.playback: none, robot.hearing: seld, robot.hearing.policy: full}
