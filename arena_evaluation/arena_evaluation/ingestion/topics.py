@@ -61,7 +61,10 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         # AudioFrame.header.stamp is the simulation time of its first sample.
         # These high-rate streams must never be throttled by the evaluator.
         "audio_raw": TopicDefinition(f"{ns}/audio/raw_array", AudioFrame, throttled=False),
+        "audio_stem_motor": TopicDefinition(f"{ns}/audio/stem_motor", AudioFrame, throttled=False),
         "audio_rendered": TopicDefinition(f"{ns}/audio/headphones/stereo", AudioFrame, throttled=False),
+        # One JSON object per audio block, so a replay can rebuild the mix. Throttling would drop blocks.
+        "audio_render_inputs": TopicDefinition(f"{ns}/audio/diagnostics/render_inputs", String, throttled=False),
         "map": TopicDefinition(f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True),
         "door_mask": TopicDefinition(f"{p_ns}/door_mask", OccupancyGrid, throttled=False, qos_transient_local=True),
     }

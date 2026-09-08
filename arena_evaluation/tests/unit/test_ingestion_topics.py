@@ -51,7 +51,9 @@ _TOPIC_EXPECTATIONS = [
     ("characterization_schedule", "/characterization_schedule", "String", False, True),
     ("collision_monitor_state", "/collision_monitor_state", "CollisionMonitorState", False, False),
     ("audio_raw", "/audio/raw_array", "AudioFrame", False, False),
+    ("audio_stem_motor", "/audio/stem_motor", "AudioFrame", False, False),
     ("audio_rendered", "/audio/headphones/stereo", "AudioFrame", False, False),
+    ("audio_render_inputs", "/audio/diagnostics/render_inputs", "String", False, False),
     ("map", "/map", "OccupancyGrid", False, True),
     ("door_mask", "/door_mask", "OccupancyGrid", False, True),
 ]

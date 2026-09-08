@@ -612,7 +612,7 @@ class DataRecorderNode(Node):
                     self._register_topic(topic_name, msg_type)
 
                     qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
-                    if key in ("audio_raw", "audio_rendered"):
+                    if key in ("audio_raw", "audio_rendered", "audio_stem_motor", "audio_render_inputs"):
                         qos_profile = self.audio_qos
                     if t_def.qos_transient_local:
                         self.latched_topic_names.add(topic_name.strip('/'))
