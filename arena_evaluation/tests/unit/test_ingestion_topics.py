@@ -52,6 +52,7 @@ _TOPIC_EXPECTATIONS = [
     ("collision_monitor_state", "/collision_monitor_state", "CollisionMonitorState", False, False),
     ("audio_raw", "/audio/raw_array", "AudioFrame", False, False),
     ("audio_stem_motor", "/audio/stem_motor", "AudioFrame", False, False),
+    ("audio_stem_pedestrian", "/audio/stem_pedestrian", "AudioFrame", False, False),
     ("audio_rendered", "/audio/headphones/stereo", "AudioFrame", False, False),
     ("audio_render_inputs", "/audio/diagnostics/render_inputs", "String", False, False),
     ("map", "/map", "OccupancyGrid", False, True),
