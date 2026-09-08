@@ -402,7 +402,7 @@ class DataRecorderNode(Node):
         topics_dict = get_topics(namespace="", parent_namespace=env_namespace)
 
         for key, t_def in topics_dict.items():
-            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static"):
+            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
                 continue
 
             topic_name = t_def.name_template
@@ -416,6 +416,11 @@ class DataRecorderNode(Node):
             qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
             if t_def.qos_transient_local:
                 self.latched_topic_names.add(topic_name.strip('/'))
+
+            if key in ("heard_sound_events", "four_mic_heard_sound_events"):
+                qos_profile = self.reliable_volatile_qos
+            elif key == "continuous_heard_sounds":
+                qos_profile = self.audio_qos
 
             if key == "episode_record":
                 qos_profile = QoSProfile(
@@ -600,7 +605,7 @@ class DataRecorderNode(Node):
                 topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
 
                 for key, t_def in topics_dict.items():
-                    if key in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static"):
+                    if key in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
                         continue
 
                     topic_name = t_def.name_template

@@ -23,7 +23,7 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
     from tf2_msgs.msg import TFMessage
     from arena_people_msgs.msg import Pedestrians
     from arena_humansim_msgs.msg import AgentStates
-    from task_generator_msgs.msg import AudioFrame, EpisodeRecord, RobotFleet, SemanticSnapshot
+    from task_generator_msgs.msg import AudioFrame, ContinuousHeardSoundState, EpisodeRecord, HeardSoundEvent, RobotFleet, SemanticSnapshot
     from arena_robots_msgs.msg import CollisionEvents, Power, Energy, Acoustics
     from nav2_msgs.msg import CollisionMonitorState
 
@@ -66,6 +66,10 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "audio_rendered": TopicDefinition(f"{ns}/audio/headphones/stereo", AudioFrame, throttled=False),
         # One JSON object per audio block, so a replay can rebuild the mix. Throttling would drop blocks.
         "audio_render_inputs": TopicDefinition(f"{ns}/audio/diagnostics/render_inputs", String, throttled=False),
+        # Carry the per-event `occluded` flag. Task generator level, not per robot.
+        "heard_sound_events": TopicDefinition(f"{p_ns}/heard_sound_events", HeardSoundEvent, throttled=False),
+        "four_mic_heard_sound_events": TopicDefinition(f"{p_ns}/four_mic_heard_sound_events", HeardSoundEvent, throttled=False),
+        "continuous_heard_sounds": TopicDefinition(f"{p_ns}/continuous_heard_sounds", ContinuousHeardSoundState, throttled=False),
         "map": TopicDefinition(f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True),
         "door_mask": TopicDefinition(f"{p_ns}/door_mask", OccupancyGrid, throttled=False, qos_transient_local=True),
     }
