@@ -327,6 +327,7 @@ class MCAPReader:
                         elif topic.endswith("/arena_peds") or topic.endswith("/peds") or topic.endswith("/agent_states"):
                             target = env_data[env_key]["peds_engine" if topic.endswith("/agent_states") else "peds"]
                             target["time_ns"].append(ts_ns)
+                            target["peds_frame_id"].append(ros_msg.header.frame_id)
 
                             if schema.name == "arena_people_msgs/msg/Pedestrians":
                                 agents = ros_msg.pedestrians
@@ -700,10 +701,6 @@ class MCAPReader:
             except Exception:
                 pass
 
-        # Fallback for env_0 if tf_static recording missed it
-        if "env_0" not in env_offsets:
-            env_offsets["env_0"] = (5.0, 5.0)
-
         # If no explicit robot dirs but we have data, maybe it was named "unknown"
         for robot_dir in robot_dirs:
             robot_name = robot_dir.name
@@ -717,6 +714,8 @@ class MCAPReader:
 
             match = re.search(r'(env_\d+)', robot_name)
             env_key = match.group(1) if match else "env_0"
+            if env_offsets and env_key not in env_offsets:
+                raise ValueError(f"{env_key}: no map -> {env_key}/map anchor in tf_static, anchors recorded: {dict(sorted(env_offsets.items()))}")
             ox, oy = env_offsets.get(env_key, (0.0, 0.0))
 
             # Copy global references
@@ -785,6 +784,10 @@ class MCAPReader:
                     pass
 
             if rb.peds is not None and (total_ox != 0.0 or total_oy != 0.0):
+                if "peds_frame_id" in rb.peds.collect_schema().names():
+                    frames = set(rb.peds.select(pl.col("peds_frame_id").str.strip_chars("/")).unique().collect()["peds_frame_id"].to_list()) - {"", "map"}
+                    if frames:
+                        raise ValueError(f"{env_key}: peds stamped {sorted(frames)}, offset ({total_ox}, {total_oy}) is only valid for frame map")
                 try:
                     rb.peds = rb.peds.with_columns([pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - total_ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - total_oy).otherwise(pl.element()))])
                 except Exception:
