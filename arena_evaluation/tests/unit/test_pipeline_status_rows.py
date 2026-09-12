@@ -81,3 +81,12 @@ def test_metadata_robot_uses_bundle_key_style() -> None:
     assert _metadata_robot(meta, {"env_0": TopicBundle()}) == "env_0_jackal"
     assert _metadata_robot(meta, None) == "jackal"
     assert _metadata_robot(None, {"env_0": TopicBundle()}) == ""
+
+
+def test_record_outcome_skips_the_previous_episodes_latched_record() -> None:
+    # previous episode's FAILED row, this episode's RUNNING row, terminal row missed by the recorder
+    record = pl.DataFrame({"time_ns": [50, 100], "outcome_state": [3, 1], "outcome_info": ["timeout", ""]})
+    assert _record_outcome(record, _meta(2, "finished after 77.2s")) == (2, "finished after 77.2s")
+    assert _record_outcome(record, None) == (1, "")
+    with_terminal = pl.DataFrame({"time_ns": [50, 100, 900], "outcome_state": [3, 1, 2], "outcome_info": ["timeout", "", "done"]})
+    assert _record_outcome(with_terminal, _meta(3)) == (2, "done")
