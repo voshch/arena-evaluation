@@ -37,6 +37,8 @@ def _yamlable(v: object) -> object:
 _STAGE_OWNED_KEYS = frozenset({"world", "robot", "run_seed"})
 _STAGE_OWNED_PREFIXES = ("task.", "record.")
 
+_SUITE_METRIC_KEYS = frozenset({"max_collisions"})
+
 
 class Suite(typing.NamedTuple):
     @classmethod
@@ -46,6 +48,7 @@ class Suite(typing.NamedTuple):
             stages=[cls.Stage.parse(stage) for stage in obj["stages"]],
             launch_args=cls._parse_launch(obj.get("launch") or {}),
             references=bool(obj.get("references", False)),
+            metrics=cls._parse_metrics(obj.get("metrics") or {}),
         )
 
     @staticmethod
@@ -55,6 +58,19 @@ class Suite(typing.NamedTuple):
         if owned:
             raise ValueError(f"suite launch: {owned} are set per stage, not suite-wide")
         return launch
+
+    @staticmethod
+    def _parse_metrics(obj: dict) -> dict[str, int]:
+        unknown = sorted(set(obj) - _SUITE_METRIC_KEYS)
+        if unknown:
+            raise ValueError(f"suite metrics: unknown keys {unknown}, known: {sorted(_SUITE_METRIC_KEYS)}")
+        metrics: dict[str, int] = {}
+        if "max_collisions" in obj:
+            v = int(obj["max_collisions"])
+            if v < 1:
+                raise ValueError(f"suite metrics: max_collisions must be >= 1, got {v}")
+            metrics["max_collisions"] = v
+        return metrics
 
     class Index(int):
         pass
@@ -126,6 +142,7 @@ class Suite(typing.NamedTuple):
     stages: list[Suite.Stage]
     launch_args: dict[str, str] = {}
     references: bool = False
+    metrics: dict[str, int] = {}
 
     @property
     def min_index(self) -> Suite.Index:

@@ -198,3 +198,28 @@ def test_missing_record_keeps_trace_verdict() -> None:
     results = calc.calculate(_episode_with_outcome(None), {"time_to_goal": 200.0})
     assert results["result"] == "TIMEOUT"
     assert results["success"] is False
+
+
+def test_max_collisions_override() -> None:
+    df = pl.DataFrame({"collision_event": [0, 2, 0]})
+    episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
+    calc = CollisionMetricsCalculator(RobotParams(0.2, 0.0, 10.0))
+    calc.metrics_config = {"max_collisions": 1}
+
+    results = calc.calculate(episode, {"time_to_goal": 10.0})
+
+    assert results["collision_amount"] == 1
+    assert results["result"] == "COLLISION"
+    assert results["success"] is False
+
+
+def test_max_collisions_default_unchanged() -> None:
+    df = pl.DataFrame({"collision_event": [0, 2, 0, 1]})
+    episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
+    calc = CollisionMetricsCalculator(RobotParams(0.2, 0.0, 10.0))
+
+    results = calc.calculate(episode, {"time_to_goal": 10.0})
+
+    assert results["collision_amount"] == 2
+    assert results["result"] == "GOAL_REACHED"
+    assert results["success"] is True

@@ -343,6 +343,32 @@ def _metadata_robot(metadata: RunMetadata | None, bundles: dict[str, TopicBundle
     return f"{env}_{model}" if env and model else model
 
 
+def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[str, int]:
+    """Suite-level metric overrides from the run's manifest.yaml, {} for bare run dirs and junk values."""
+    import yaml
+
+    for parent in episode_dir.parents:
+        manifest_path = parent / "manifest.yaml"
+        if manifest_path.exists():
+            try:
+                suite = yaml.safe_load(manifest_path.read_text()).get("suite") or {}
+                raw = suite.get("metrics") or {}
+            except Exception as e:
+                _log.warning(f"{manifest_path}: unreadable, ignoring suite metrics: {e!r}")
+                return {}
+            metrics: dict[str, int] = {}
+            v = raw.get("max_collisions")
+            if v is not None:
+                try:
+                    metrics["max_collisions"] = int(v)
+                except (TypeError, ValueError):
+                    _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
+            return metrics
+        if parent == data_root:
+            break
+    return {}
+
+
 class ProcessingPipeline:
     """
     Orchestrates the data processing pipeline:
@@ -423,7 +449,7 @@ class ProcessingPipeline:
                 pedsim_avail = metadata.pedsim_available or False
 
             robot_params = RobotParams.load(robot_model)
-            registry = MetricRegistry(robot_params)
+            registry = MetricRegistry(robot_params, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
 
             all_results: list[dict] = []
             robots = {name: bundle for name, bundle in bundles.items() if bundle.odom is not None}
