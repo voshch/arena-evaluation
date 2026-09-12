@@ -1,15 +1,17 @@
+from __future__ import annotations
+
 import asyncio
-import os
 import sys
-import time
 import threading
+import time
+import types
 import typing
 
 try:
     from rich.console import Console
     from rich.live import Live
     from rich.table import Table
-    from rich.text import Text
+
     _HAS_RICH = True
 except ImportError:
     _HAS_RICH = False
@@ -45,7 +47,7 @@ class BenchmarkProgressDisplay:
 
         self.active_slots: dict[int, dict[str, typing.Any]] = {}
 
-    def __enter__(self):
+    def __enter__(self) -> typing.Self:
         if _HAS_RICH and sys.stdout.isatty():
             self.console.print(f"[bold cyan]{self.title}[/bold cyan] [dim](run_id: {self.run_id}, env_n: {self.env_n})[/dim]")
             self.live = Live(
@@ -78,7 +80,12 @@ class BenchmarkProgressDisplay:
                 except Exception:
                     pass
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         if self.live is not None:
             try:
                 self.live.__exit__(exc_type, exc_val, exc_tb)
@@ -90,21 +97,9 @@ class BenchmarkProgressDisplay:
             elapsed = time.perf_counter() - self.start_time
             mins, secs = divmod(int(elapsed), 60)
             if exc_type is not None and issubclass(exc_type, (asyncio.CancelledError, KeyboardInterrupt)):
-                self.console.print(
-                    f"\n[bold yellow]⚠ Benchmark interrupted after {mins:02d}:{secs:02d}[/bold yellow] "
-                    f"(completed: {self.completed_steps}/{self.total_steps}, "
-                    f"ok: [green]{self.ok_steps}[/green], "
-                    f"failed: [red]{self.failed_steps}[/red], "
-                    f"partial: [yellow]{self.partial_steps}[/yellow])"
-                )
+                self.console.print(f"\n[bold yellow]⚠ Benchmark interrupted after {mins:02d}:{secs:02d}[/bold yellow] (completed: {self.completed_steps}/{self.total_steps}, ok: [green]{self.ok_steps}[/green], failed: [red]{self.failed_steps}[/red], partial: [yellow]{self.partial_steps}[/yellow])")
             else:
-                self.console.print(
-                    f"\n[bold green]✔ Benchmark completed in {mins:02d}:{secs:02d}[/bold green] "
-                    f"(ok: [green]{self.ok_steps}[/green], "
-                    f"failed: [red]{self.failed_steps}[/red], "
-                    f"partial: [yellow]{self.partial_steps}[/yellow], "
-                    f"skipped: [dim]{self.skipped_steps}[/dim])"
-                )
+                self.console.print(f"\n[bold green]✔ Benchmark completed in {mins:02d}:{secs:02d}[/bold green] (ok: [green]{self.ok_steps}[/green], failed: [red]{self.failed_steps}[/red], partial: [yellow]{self.partial_steps}[/yellow], skipped: [dim]{self.skipped_steps}[/dim])")
 
     def update_slot(
         self,
@@ -169,18 +164,14 @@ class BenchmarkProgressDisplay:
             elif status == "skipped":
                 self.skipped_steps += 1
                 icon = "[dim]⊘[/dim]"
-                status_colored = f"[dim]skipped[/dim]"
+                status_colored = "[dim]skipped[/dim]"
             else:
                 self.failed_steps += 1
                 icon = "[bold red]✘[/bold red]"
                 status_colored = f"[red]failed ({episodes_failed}/{episodes_total} eps failed)[/red]"
 
             timing = f"in {elapsed_sec:.1f}s wall" + (f", {sim_sec:.1f}s sim" if sim_sec is not None else "")
-            line = (
-                f"{icon} [{self.completed_steps:2d}/{self.total_steps:2d}] "
-                f"[bold]{contestant}[/bold] • [cyan]{stage}[/cyan] "
-                f"[{status_colored}] {timing}"
-            )
+            line = f"{icon} [{self.completed_steps:2d}/{self.total_steps:2d}] [bold]{contestant}[/bold] • [cyan]{stage}[/cyan] [{status_colored}] {timing}"
             if error_detail and status == "failed":
                 line += f" • [dim red]{error_detail}[/dim red]"
             has_live = self.live is not None
@@ -213,19 +204,12 @@ class BenchmarkProgressDisplay:
         elapsed = time.perf_counter() - self.start_time
         mins, secs = divmod(int(elapsed), 60)
 
-        table.add_row(
-            f"[{bar}] [bold green]{completed}/{total}[/bold green] "
-            f"steps ({pct:.0f}%) | "
-            f"ok: [green]{ok}[/green] fail: [red]{failed}[/red] part: [yellow]{partial}[/yellow] | "
-            f"Elapsed: [yellow]{mins:02d}:{secs:02d}[/yellow]"
-        )
+        table.add_row(f"[{bar}] [bold green]{completed}/{total}[/bold green] steps ({pct:.0f}%) | ok: [green]{ok}[/green] fail: [red]{failed}[/red] part: [yellow]{partial}[/yellow] | Elapsed: [yellow]{mins:02d}:{secs:02d}[/yellow]")
         table.add_row("")
 
         # Active Envs Table
         if slots_snapshot:
-            worker_table = Table(
-                show_header=True, header_style="bold blue", box=None, padding=(0, 2), expand=False
-            )
+            worker_table = Table(show_header=True, header_style="bold blue", box=None, padding=(0, 2), expand=False)
             worker_table.add_column("Env", style="cyan", no_wrap=True)
             worker_table.add_column("Contestant / Stage", style="white", no_wrap=True, overflow="ellipsis", max_width=60)
             worker_table.add_column("State", style="yellow", no_wrap=True)

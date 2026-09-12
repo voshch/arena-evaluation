@@ -18,12 +18,8 @@ import typing
 
 import polars as pl
 
-from ..base import BaseMetricCalculator
-from ....storage.schemas import AlignedEpisodeBundle
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import RobotParams
-
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +60,14 @@ class CharacterizationCalculator(BaseMetricCalculator):
         "timeseries_char_vx_achieved": "m/s",
         "timeseries_char_vy_achieved": "m/s",
         "timeseries_char_wz_achieved": "rad/s",
+        "timeseries_char_speed_achieved": "m/s",
         "timeseries_char_accel_achieved": "m/s^2",
         "timeseries_char_accel_target": "m/s^2",
         "timeseries_char_efficiency": "",
         "timeseries_char_vx_target": "m/s",
         "timeseries_char_vy_target": "m/s",
         "timeseries_char_wz_target": "rad/s",
+        "timeseries_char_speed_target": "m/s",
         "timeseries_char_turn_radius_m": "m",
         "timeseries_char_energy_intensity": "J/m",
         "timeseries_char_energy_per_rad": "J/rad",
@@ -84,6 +82,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         "timeseries_char_vx_achieved",
         "timeseries_char_vy_achieved",
         "timeseries_char_wz_achieved",
+        "timeseries_char_speed_achieved",
         "timeseries_char_accel_achieved",
         "timeseries_char_accel_target",
         "timeseries_char_efficiency",
@@ -91,6 +90,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         "timeseries_char_vx_target",
         "timeseries_char_vy_target",
         "timeseries_char_wz_target",
+        "timeseries_char_speed_target",
         "timeseries_char_turn_radius_m",
         "timeseries_char_energy_intensity",
         "timeseries_char_energy_per_rad",
@@ -202,13 +202,19 @@ class CharacterizationCalculator(BaseMetricCalculator):
                 ((pl.col("time_ns") - pl.col("time_ns").min().over("_phase_block_id")).cast(pl.Float64) / 1e9).alias("_phase_elapsed_s"),
                 ((pl.col("time_ns").max().over("_phase_block_id") - pl.col("time_ns").min().over("_phase_block_id")).cast(pl.Float64) / 1e9).alias("_phase_total_duration_s"),
             )
-            is_trans_dwell = pl.col("phase_label").str.starts_with("linear_vx_") | pl.col("phase_label").str.starts_with("lateral_vy_") | pl.col("phase_label").str.starts_with("arc_vx_")
+            is_settle = pl.col("phase_label").str.contains("settle")
+            is_linear_dwell = pl.col("phase_label").str.starts_with("linear_vx_")
+            is_lateral_dwell = pl.col("phase_label").str.starts_with("lateral_vy_")
+            is_arc_dwell = pl.col("phase_label").str.starts_with("arc_vx_")
+            is_trans_dwell = is_linear_dwell | is_lateral_dwell | is_arc_dwell
             is_angular_dwell = pl.col("phase_label").str.starts_with("angular_wz_")
             is_long_block = pl.col("_phase_total_duration_s") >= 4.0
             t_out = pl.min_horizontal(pl.lit(0.8), pl.col("_phase_total_duration_s") * 0.15)
             in_tail = is_long_block & (pl.col("_phase_elapsed_s") > (pl.col("_phase_total_duration_s") - t_out))
             out = out.with_columns(
-                pl.when(is_trans_dwell & ((pl.col("_phase_elapsed_s") < _TRANSIENT_S) | in_tail))
+                pl.when(is_settle)
+                .then(pl.lit("transient"))
+                .when(is_trans_dwell & ((pl.col("_phase_elapsed_s") < _TRANSIENT_S) | in_tail))
                 .then(pl.lit("transient"))
                 .when(is_angular_dwell & ((pl.col("_phase_elapsed_s") < _TRANSIENT_ANGULAR_S) | in_tail))
                 .then(pl.lit("transient"))
@@ -309,7 +315,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         out = out.with_columns(
             pl.when(speed >= 0.05).then(out["_p_total"] / speed).otherwise(None).alias("_e_per_m"),
             pl.when(wz_achieved >= 0.05).then(out["_p_total"] / wz_achieved).otherwise(None).alias("_e_per_rad"),
-            pl.when((speed >= 0.05) & (wz_achieved >= 0.05)).then(speed / wz_achieved).otherwise(out["turn_radius_m"]).alias("_turn_radius"),
+            out["turn_radius_m"].fill_null(0.0).alias("_turn_radius"),
         )
 
         import numpy as np
@@ -341,6 +347,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
             "timeseries_char_vx_achieved": out["vel_linear"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_linear" in out.columns else [0.0] * len(out),
             "timeseries_char_vy_achieved": out["vel_lateral"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_lateral" in out.columns else [0.0] * len(out),
             "timeseries_char_wz_achieved": out["vel_angular"].cast(pl.Float64).fill_null(0.0).to_list() if "vel_angular" in out.columns else [0.0] * len(out),
+            "timeseries_char_speed_achieved": out["vel_linear"].cast(pl.Float64).abs().fill_null(0.0).to_list() if "vel_linear" in out.columns else [0.0] * len(out),
             "timeseries_char_accel_achieved": accel_achieved.tolist(),
             "timeseries_char_accel_target": out["accel_target"].fill_null(0.0).to_list(),
             "timeseries_char_efficiency": eff_arr.tolist(),
@@ -348,6 +355,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
             "timeseries_char_vx_target": out["vx_target"].fill_null(0.0).to_list(),
             "timeseries_char_vy_target": out["vy_target"].fill_null(0.0).to_list(),
             "timeseries_char_wz_target": out["wz_target"].fill_null(0.0).to_list(),
+            "timeseries_char_speed_target": out["vx_target"].cast(pl.Float64).abs().fill_null(0.0).to_list(),
             "timeseries_char_turn_radius_m": out["_turn_radius"].to_list(),
             "timeseries_char_energy_intensity": out["_e_per_m"].to_list(),
             "timeseries_char_energy_per_rad": out["_e_per_rad"].to_list(),

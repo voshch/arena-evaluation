@@ -29,10 +29,18 @@ def test_deep_nesting():
 
 
 def test_no_doors_episode_writes_parquet(tmp_path: pathlib.Path):
-    rows = [{"episode": 1, "worst_case_acoustic_frame": {
-        "robot_x": 1.0, "robot_y": 2.0, "source_dba": 60.0,
-        "pedestrians": [], "door_states": {},
-    }}]
+    rows = [
+        {
+            "episode": 1,
+            "worst_case_acoustic_frame": {
+                "robot_x": 1.0,
+                "robot_y": 2.0,
+                "source_dba": 60.0,
+                "pedestrians": [],
+                "door_states": {},
+            },
+        }
+    ]
     dest = tmp_path / "combined_metrics.parquet"
     ParquetStore.write_rows(rows, dest)
     back, _ = ParquetStore.read(dest)

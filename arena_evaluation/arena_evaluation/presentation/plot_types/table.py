@@ -8,13 +8,13 @@ import typing
 
 import polars as pl
 
-from .base import BasePlotRenderer
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
 if typing.TYPE_CHECKING:
-    from ..report_builder import ReportBuilder  # noqa: F401
+    from arena_evaluation.presentation.report_builder import ReportBuilder  # noqa: F401
 
 
-def _load_notes(notes, benchmark_dir: pathlib.Path | None) -> list[dict[str, str]]:
+def _load_notes(notes: object | None, benchmark_dir: pathlib.Path | None) -> list[dict[str, str]]:
     """Normalize notes input into a list of label/value mappings."""
     rows: list[dict[str, str]] = []
     if notes is None:
@@ -86,17 +86,9 @@ def _render_notes_callout(notes_rows: list[dict[str, str]]) -> str:
         label = html_escape.escape(note.get("label", ""), quote=True)
         value = html_escape.escape(note.get("value", ""), quote=True).replace("\n", "<br>")
         if label:
-            parts.append(
-                f"<div class='notes-callout-row'>"
-                f"<span class='notes-callout-label'>{label}</span>"
-                f"<span class='notes-callout-value'>{value}</span>"
-                f"</div>"
-            )
+            parts.append(f"<div class='notes-callout-row'><span class='notes-callout-label'>{label}</span><span class='notes-callout-value'>{value}</span></div>")
         else:
-            parts.append(
-                f"<div class='notes-callout-row notes-callout-row-plain'>"
-                f"<span class='notes-callout-value'>{value}</span></div>"
-            )
+            parts.append(f"<div class='notes-callout-row notes-callout-row-plain'><span class='notes-callout-value'>{value}</span></div>")
     parts.append("</div>")
     return "".join(parts)
 
@@ -107,12 +99,7 @@ class TableRenderer(BasePlotRenderer):
 
     def _columns(self) -> list[dict[str, str]]:
         cols = (self.spec.options or {}).get("columns") or []
-        return [
-            {"metric": str(c.get("metric", "")), "label": str(c.get("label", c.get("metric", ""))),
-             "format": str(c.get("format", "{:.2f}"))}
-            for c in cols
-            if isinstance(c, dict) and c.get("metric")
-        ]
+        return [{"metric": str(c.get("metric", "")), "label": str(c.get("label", c.get("metric", ""))), "format": str(c.get("format", "{:.2f}"))} for c in cols if isinstance(c, dict) and c.get("metric")]
 
     def _agent_rows(self) -> list[dict[str, str]]:
         """Agent-authored rows: exactly as given, no predefined layout."""
@@ -120,10 +107,12 @@ class TableRenderer(BasePlotRenderer):
         out: list[dict[str, str]] = []
         for item in rows:
             if isinstance(item, dict):
-                out.append({
-                    "label": str(item.get("label", item.get("key", ""))),
-                    "value": str(item.get("value", "")),
-                })
+                out.append(
+                    {
+                        "label": str(item.get("label", item.get("key", ""))),
+                        "value": str(item.get("value", "")),
+                    }
+                )
         return out
 
     def _data_rows(self, df: pl.DataFrame) -> list[list[str]]:
@@ -142,11 +131,7 @@ class TableRenderer(BasePlotRenderer):
             df = df.select(need).explode(list_cols)
         df = self._apply_row_filters(df)
 
-        agg = [
-            pl.col(c["metric"]).mean().alias(f"__m{i}__")
-            for i, c in enumerate(cols)
-            if c["metric"] in df.columns
-        ]
+        agg = [pl.col(c["metric"]).mean().alias(f"__m{i}__") for i, c in enumerate(cols) if c["metric"] in df.columns]
         if not agg:
             return []
         grouped = df.group_by(group_cols).agg(agg).sort(group_cols)
@@ -193,15 +178,11 @@ class TableRenderer(BasePlotRenderer):
         rows = self._agent_rows()
         if not rows:
             return None
-        parts = ["<table class='dataframe' style='border-collapse: collapse; margin: 8px 0;'>",
-                 "<thead><tr><th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Label</th>"
-                 "<th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Value</th></tr></thead>",
-                 "<tbody>"]
+        parts = ["<table class='dataframe' style='border-collapse: collapse; margin: 8px 0;'>", "<thead><tr><th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Label</th><th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Value</th></tr></thead>", "<tbody>"]
         for row in rows:
             label = html_escape.escape(row.get("label", ""), quote=True)
             value = html_escape.escape(row.get("value", ""), quote=True).replace("\n", "<br>")
-            parts.append(f"<tr><td style='border:1px solid #ccc; padding:4px 10px;'>{label}</td>"
-                         f"<td style='border:1px solid #ccc; padding:4px 10px;'>{value}</td></tr>")
+            parts.append(f"<tr><td style='border:1px solid #ccc; padding:4px 10px;'>{label}</td><td style='border:1px solid #ccc; padding:4px 10px;'>{value}</td></tr>")
         parts.append("</tbody></table>")
         return "".join(parts)
 

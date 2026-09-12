@@ -3,6 +3,7 @@
 Covers :mod:`arena_evaluation.benchmark.step`. Contestants and stages are
 represented by lightweight stand-ins (only ``.name`` is ever read).
 """
+
 from __future__ import annotations
 
 import collections
@@ -32,6 +33,7 @@ def _stage(name: str) -> _Name:
 # ---------------------------------------------------------------------------
 # Step.key
 # ---------------------------------------------------------------------------
+
 
 def test_step_key_plain():
     step = Step(contestant=_contestant("planner_a"), stage=_stage("stage_one"))
@@ -88,6 +90,7 @@ def test_step_key_type_without_reference_flag_ignored():
 # Step defaults / immutability
 # ---------------------------------------------------------------------------
 
+
 def test_step_defaults():
     step = Step(contestant=_contestant("c"), stage=_stage("s"))
     assert step.episodes == 1
@@ -115,9 +118,15 @@ def test_step_equality_and_hash():
 # StepErrorKind
 # ---------------------------------------------------------------------------
 
+
 def test_step_error_kind_members_and_values():
     assert {k.value for k in StepErrorKind} == {
-        "env_setup", "robot_setup", "episode_timeout", "sim_dead", "cancelled", "internal",
+        "env_setup",
+        "robot_setup",
+        "episode_timeout",
+        "sim_dead",
+        "cancelled",
+        "internal",
     }
 
 
@@ -139,10 +148,16 @@ def test_step_error_kind_invalid_raises():
 # StepResult
 # ---------------------------------------------------------------------------
 
+
 def test_step_result_defaults():
     r = StepResult(
-        key="c/s", status="in_progress", env_id=None,
-        started_at=0.0, ended_at=None, error_kind=None, error_detail=None,
+        key="c/s",
+        status="in_progress",
+        env_id=None,
+        started_at=0.0,
+        ended_at=None,
+        error_kind=None,
+        error_detail=None,
     )
     assert r.episodes_run == 0
     assert r.episodes_failed == 0
@@ -151,10 +166,16 @@ def test_step_result_defaults():
 
 def test_step_result_fields():
     r = StepResult(
-        key="c/s", status="failed", env_id=2,
-        started_at=1.0, ended_at=5.0,
-        error_kind=StepErrorKind.ROBOT_SETUP, error_detail="nav failed",
-        episodes_run=3, episodes_failed=1, episodes_total=5,
+        key="c/s",
+        status="failed",
+        env_id=2,
+        started_at=1.0,
+        ended_at=5.0,
+        error_kind=StepErrorKind.ROBOT_SETUP,
+        error_detail="nav failed",
+        episodes_run=3,
+        episodes_failed=1,
+        episodes_total=5,
     )
     assert r.status == "failed"
     assert r.env_id == 2
@@ -164,8 +185,13 @@ def test_step_result_fields():
 
 def test_step_result_is_frozen():
     r = StepResult(
-        key="c/s", status="ok", env_id=0,
-        started_at=0.0, ended_at=1.0, error_kind=None, error_detail=None,
+        key="c/s",
+        status="ok",
+        env_id=0,
+        started_at=0.0,
+        ended_at=1.0,
+        error_kind=None,
+        error_detail=None,
     )
     with pytest.raises(attrs.exceptions.FrozenInstanceError):
         r.status = "failed"
@@ -173,7 +199,12 @@ def test_step_result_is_frozen():
 
 def test_step_result_equality():
     kwargs = dict(
-        key="c/s", status="ok", env_id=0,
-        started_at=0.0, ended_at=1.0, error_kind=None, error_detail=None,
+        key="c/s",
+        status="ok",
+        env_id=0,
+        started_at=0.0,
+        ended_at=1.0,
+        error_kind=None,
+        error_detail=None,
     )
     assert StepResult(**kwargs) == StepResult(**kwargs)

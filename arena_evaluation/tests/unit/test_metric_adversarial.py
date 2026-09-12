@@ -8,19 +8,10 @@ from arena_evaluation.processing.metrics.social.pedestrian_disturbance import Pe
 from arena_evaluation.processing.metrics.social.gaze import GazeMetricsCalculator
 from arena_evaluation.processing.metrics.social.proxemics import ProxemicsCalculator
 
+
 def test_collision_adversarial_overlapping_hitboxes():
     # Overlapping hitboxes causing extreme or corrupt collision counts (NaN, Inf, massive ints)
-    df = pl.DataFrame({
-        "collision_event": [
-            0.0,
-            float('nan'),
-            1000.0,
-            float('inf'),
-            -1.0,
-            0.0
-        ],
-        "action_type": [0, 0, 0, 0, 0, 0]
-    })
+    df = pl.DataFrame({"collision_event": [0.0, float('nan'), 1000.0, float('inf'), -1.0, 0.0], "action_type": [0, 0, 0, 0, 0, 0]})
     episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 1.0, 0.0])
     params = RobotParams(0.2, 0.0, 10.0)
     calc = CollisionMetricsCalculator(params)
@@ -31,6 +22,7 @@ def test_collision_adversarial_overlapping_hitboxes():
     assert "collision_amount" in results
     assert not np.isnan(results["collision_amount"])
     assert not np.isinf(results["collision_amount"])
+
 
 def test_efficiency_adversarial_zero_length():
     # Mathematically zero-length paths and near-zero floats
@@ -55,20 +47,10 @@ def test_efficiency_adversarial_zero_length():
     results = calc.calculate(episode, prior)
     assert not np.isnan(results["path_efficiency"])
 
+
 def test_pedestrian_disturbance_adversarial_chaotic():
     # Infinite velocities, massive jumps, and NaNs
-    df = pl.DataFrame({
-        "time_ns": [0, 1, 2, 3, 4, 5, 6],
-        "peds_positions": [
-            [(0.0, 0.0)],
-            [(1.0, 1.0)],
-            [(float('inf'), float('inf'))],
-            [(-float('inf'), 1e300)],
-            [(float('nan'), float('nan'))],
-            [(1.0, 1.0)],
-            [(2.0, 2.0)]
-        ]
-    })
+    df = pl.DataFrame({"time_ns": [0, 1, 2, 3, 4, 5, 6], "peds_positions": [[(0.0, 0.0)], [(1.0, 1.0)], [(float('inf'), float('inf'))], [(-float('inf'), 1e300)], [(float('nan'), float('nan'))], [(1.0, 1.0)], [(2.0, 2.0)]]})
     episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
     params = RobotParams(0.2, 0.0, 10.0)
     calc = PedestrianDisturbanceCalculator(params)
@@ -81,24 +63,11 @@ def test_pedestrian_disturbance_adversarial_chaotic():
     assert not np.isnan(results["ped_round_trips_completed"])
     assert not np.isinf(results["ped_path_deflection_m"])
 
+
 def test_gaze_adversarial_chaotic():
-    df = pl.DataFrame({
-        "time_ns": [0, 1000000000, 2000000000],
-        "pos_x": [0.0, 0.0, 0.0],
-        "pos_y": [0.0, 0.0, 0.0],
-        "yaw": [0.0, 0.0, 0.0],
-        "peds_positions": [
-            [(float('nan'), float('nan'))],
-            [(float('inf'), float('inf'))],
-            [(1.0, 1.0)]
-        ],
-        "peds_headings": [
-            [float('nan')],
-            [float('inf')],
-            [0.0]
-        ],
-        "num_pedestrians": [1, 1, 1]
-    })
+    df = pl.DataFrame(
+        {"time_ns": [0, 1000000000, 2000000000], "pos_x": [0.0, 0.0, 0.0], "pos_y": [0.0, 0.0, 0.0], "yaw": [0.0, 0.0, 0.0], "peds_positions": [[(float('nan'), float('nan'))], [(float('inf'), float('inf'))], [(1.0, 1.0)]], "peds_headings": [[float('nan')], [float('inf')], [0.0]], "num_pedestrians": [1, 1, 1]}
+    )
     episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
     params = RobotParams(0.2, 0.0, 10.0)
     calc = GazeMetricsCalculator(params)
@@ -107,19 +76,9 @@ def test_gaze_adversarial_chaotic():
     results = calc.calculate(episode, {})
     assert "time_looking_at_pedestrians" in results
 
+
 def test_proxemics_adversarial_chaotic():
-    df = pl.DataFrame({
-        "time_ns": [0, 1000000000, 2000000000],
-        "pos_x": [0.0, 0.0, 0.0],
-        "pos_y": [0.0, 0.0, 0.0],
-        "yaw": [0.0, 0.0, 0.0],
-        "peds_positions": [
-            [(0.0, 0.0)],
-            [(float('inf'), float('inf'))],
-            [(float('nan'), float('nan'))]
-        ],
-        "num_pedestrians": [1, 1, 1]
-    })
+    df = pl.DataFrame({"time_ns": [0, 1000000000, 2000000000], "pos_x": [0.0, 0.0, 0.0], "pos_y": [0.0, 0.0, 0.0], "yaw": [0.0, 0.0, 0.0], "peds_positions": [[(0.0, 0.0)], [(float('inf'), float('inf'))], [(float('nan'), float('nan'))]], "num_pedestrians": [1, 1, 1]})
     episode = AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
     episode.num_pedestrians = 1
     params = RobotParams(0.2, 0.0, 10.0)

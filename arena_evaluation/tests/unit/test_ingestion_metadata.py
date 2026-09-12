@@ -4,6 +4,7 @@ Covers per-episode metadata generation: planner-name splitting, git
 workspace fingerprinting, environment-derived fields, and the flat
 RunMetadata record persisted to episode_XXX.yaml.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -40,6 +41,7 @@ def _base_kwargs(tmp_path, **overrides) -> dict:
 # ---------------------------------------------------------------------------
 # create_episode_metadata
 # ---------------------------------------------------------------------------
+
 
 def test_create_episode_metadata_populates_flat_fields(tmp_path):
     meta = IngestionMetadata.create_episode_metadata(**_base_kwargs(tmp_path))
@@ -162,6 +164,7 @@ def test_create_episode_metadata_ros_distro_unknown_without_env(monkeypatch, tmp
 # get_git_sha / is_git_dirty
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
 def test_get_git_sha_returns_stripped_head_from_repo(tmp_path):
     repo = tmp_path / "repo"
@@ -173,9 +176,7 @@ def test_get_git_sha_returns_stripped_head_from_repo(tmp_path):
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
 
-    expected = subprocess.check_output(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-    ).strip()
+    expected = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     sha = IngestionMetadata.get_git_sha(str(repo))
     assert sha == expected
     assert len(sha) == 40
@@ -200,6 +201,7 @@ def test_is_git_dirty_detects_modified_files(tmp_path):
 def test_get_git_sha_returns_none_when_rev_parse_fails(monkeypatch, tmp_path):
     def _raise_called(*_a, **_k):
         raise subprocess.CalledProcessError(1, "git")
+
     monkeypatch.setattr("arena_evaluation.ingestion.metadata.subprocess.run", _raise_called)
     assert IngestionMetadata.get_git_sha(str(tmp_path)) is None
 
@@ -207,6 +209,7 @@ def test_get_git_sha_returns_none_when_rev_parse_fails(monkeypatch, tmp_path):
 def test_get_git_sha_returns_none_when_git_missing(monkeypatch, tmp_path):
     def _raise_missing(*_a, **_k):
         raise FileNotFoundError("git")
+
     monkeypatch.setattr("arena_evaluation.ingestion.metadata.subprocess.run", _raise_missing)
     assert IngestionMetadata.get_git_sha(str(tmp_path)) is None
 
@@ -214,6 +217,7 @@ def test_get_git_sha_returns_none_when_git_missing(monkeypatch, tmp_path):
 def test_is_git_dirty_false_on_subprocess_error(monkeypatch, tmp_path):
     def _raise_called(*_a, **_k):
         raise subprocess.CalledProcessError(1, "git")
+
     monkeypatch.setattr("arena_evaluation.ingestion.metadata.subprocess.run", _raise_called)
     assert IngestionMetadata.is_git_dirty(str(tmp_path)) is False
 
@@ -234,6 +238,7 @@ def test_is_git_dirty_reflects_porcelain_output(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # YAML round-trip (the per-episode episode_XXX.yaml lifecycle)
 # ---------------------------------------------------------------------------
+
 
 def test_episode_metadata_roundtrip_through_metadata_writer(tmp_path):
     meta = IngestionMetadata.create_episode_metadata(**_base_kwargs(tmp_path))

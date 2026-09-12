@@ -1,24 +1,27 @@
 from __future__ import annotations
 
-import pathlib
-import datetime
+import concurrent.futures
 import contextlib
-import typing
-import polars as pl
+import logging
+import multiprocessing
 import os
+import pathlib
 import re
-import sys
-import time
 import shutil
 import tempfile
-import json
-import logging
-import traceback
-import multiprocessing
-import concurrent.futures
+import time
+import typing
 
-from ..storage.schemas import RobotParams, EpisodeDescriptor, TopicBundle, AlignedEpisodeBundle, RunMetadata
-from ..storage.folder_manager import FolderManager
+import polars as pl
+
+from arena_evaluation.storage.folder_manager import FolderManager
+from arena_evaluation.storage.schemas import (
+    AlignedEpisodeBundle,
+    EpisodeDescriptor,
+    RobotParams,
+    RunMetadata,
+    TopicBundle,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -40,7 +43,7 @@ def _worker_init():
 def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor):
     """Force terminate all child worker processes without blocking on wait=True."""
     try:
-        processes = list(getattr(executor, "_processes", {}).values())
+        processes = list(executor._processes.values())
         for proc in processes:
             try:
                 proc.kill()
@@ -54,11 +57,17 @@ def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor)
         pass
 
 
-def _extract_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bool, status_dict: typing.Any = None) -> int:
-    from arena_evaluation.processing.pipeline import ProcessingPipeline
-    from arena_evaluation.storage.folder_manager import FolderManager
+def _extract_worker(
+    data_root_str: str,
+    ep: EpisodeDescriptor,
+    force_extract: bool,
+    status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
+) -> int:
     import pathlib
     import time
+
+    from arena_evaluation.processing.pipeline import ProcessingPipeline
+    from arena_evaluation.storage.folder_manager import FolderManager
 
     if status_dict is not None:
         try:
@@ -76,11 +85,17 @@ def _extract_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bo
     return ep.episode_id
 
 
-def _process_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bool, status_dict: typing.Any = None) -> typing.Tuple[int, typing.Any]:
-    from arena_evaluation.processing.pipeline import ProcessingPipeline
-    from arena_evaluation.storage.folder_manager import FolderManager
+def _process_worker(
+    data_root_str: str,
+    ep: EpisodeDescriptor,
+    force_extract: bool,
+    status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
+) -> tuple[int, typing.Any]:
     import pathlib
     import time
+
+    from arena_evaluation.processing.pipeline import ProcessingPipeline
+    from arena_evaluation.storage.folder_manager import FolderManager
 
     if status_dict is not None:
         try:
@@ -102,10 +117,10 @@ def _process_worker(data_root_str: str, ep: EpisodeDescriptor, force_extract: bo
     return ep.episode_id, result
 
 
-def _resolve_odom_frame(aligned_df) -> "pl.DataFrame | None":
+def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
     """Filter null poses and slice to longest consistent segment."""
-    import polars as pl
     import numpy as np
+    import polars as pl
 
     from .pose_segments import teleport_jumps
 
@@ -217,13 +232,12 @@ def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
     return topics
 
 
-from ..storage.manifest import MetadataWriter
-from ..benchmark.profiler import PipelineProfiler
-
-from .mcap_reader import MCAPReader
-from .topic_aligner import TopicAligner
-from .parquet_store import ParquetStore, TopicParquetStore
-from .pose_anchor import resolve_pose_source
+from arena_evaluation.benchmark.profiler import PipelineProfiler
+from arena_evaluation.processing.mcap_reader import MCAPReader
+from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
+from arena_evaluation.processing.pose_anchor import resolve_pose_source
+from arena_evaluation.processing.topic_aligner import TopicAligner
+from arena_evaluation.storage.manifest import MetadataWriter
 
 # Columns whose values are all-None (no kind in the recording) or all-empty
 # (no collisions) would otherwise infer as Null / List(Null) and clash with
@@ -244,10 +258,8 @@ _METRIC_DTYPES = {
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
 }
+
 from .metrics.registry import MetricRegistry
-
-import arena_evaluation
-
 
 # EpisodeRecord.outcome_state -> (result, success)
 _OUTCOME_VERDICTS = {2: ("GOAL_REACHED", True), 3: ("FAILED", False), 4: ("CANCELLED", False), 5: ("FATAL", False)}
@@ -274,7 +286,7 @@ def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMet
 def _planner_split(ep: EpisodeDescriptor, metadata: RunMetadata | None) -> tuple[str, str]:
     if metadata is not None and metadata.local_planner:
         return metadata.local_planner, metadata.inter_planner or ""
-    from ..presentation.dimension_detector import split_planner_name
+    from arena_evaluation.storage.planner_names import split_planner_name
 
     return split_planner_name(ep.planner)
 
@@ -331,6 +343,32 @@ def _metadata_robot(metadata: RunMetadata | None, bundles: dict[str, TopicBundle
     return f"{env}_{model}" if env and model else model
 
 
+def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[str, int]:
+    """Suite-level metric overrides from the run's manifest.yaml, {} for bare run dirs and junk values."""
+    import yaml
+
+    for parent in episode_dir.parents:
+        manifest_path = parent / "manifest.yaml"
+        if manifest_path.exists():
+            try:
+                suite = yaml.safe_load(manifest_path.read_text()).get("suite") or {}
+                raw = suite.get("metrics") or {}
+            except Exception as e:
+                _log.warning(f"{manifest_path}: unreadable, ignoring suite metrics: {e!r}")
+                return {}
+            metrics: dict[str, int] = {}
+            v = raw.get("max_collisions")
+            if v is not None:
+                try:
+                    metrics["max_collisions"] = int(v)
+                except (TypeError, ValueError):
+                    _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
+            return metrics
+        if parent == data_root:
+            break
+    return {}
+
+
 class ProcessingPipeline:
     """
     Orchestrates the data processing pipeline:
@@ -374,7 +412,7 @@ class ProcessingPipeline:
         self,
         ep: EpisodeDescriptor,
         force_extract: bool = False,
-        status_dict: typing.Any = None,
+        status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
     ) -> list[dict]:
         """Extract and evaluate one episode: one row per robot, a status row where metrics are impossible."""
         episode_dir = pathlib.Path(ep.episode_dir)
@@ -411,7 +449,7 @@ class ProcessingPipeline:
                 pedsim_avail = metadata.pedsim_available or False
 
             robot_params = RobotParams.load(robot_model)
-            registry = MetricRegistry(robot_params)
+            registry = MetricRegistry(robot_params, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
 
             all_results: list[dict] = []
             robots = {name: bundle for name, bundle in bundles.items() if bundle.odom is not None}
@@ -539,7 +577,7 @@ class ProcessingPipeline:
                         ep_metrics["local_planner"] = metadata.local_planner
                         ep_metrics["inter_planner"] = metadata.inter_planner or ""
                     else:
-                        from ..presentation.dimension_detector import split_planner_name
+                        from arena_evaluation.storage.planner_names import split_planner_name
 
                         lp, ip = split_planner_name(ep.planner)
                         ep_metrics["local_planner"] = lp

@@ -2,6 +2,7 @@
 import ctypes
 import subprocess
 from pathlib import Path
+
 import numpy as np
 
 # Find the C++ source file
@@ -40,16 +41,16 @@ try:
 
     _lib.solve_acoustic_field.argtypes = [
         np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags='C_CONTIGUOUS'),  # grid
-        ctypes.c_int,     # width
-        ctypes.c_int,     # height
-        ctypes.c_float,   # resolution
-        ctypes.c_float,   # start_x
-        ctypes.c_float,   # start_y
+        ctypes.c_int,  # width
+        ctypes.c_int,  # height
+        ctypes.c_float,  # resolution
+        ctypes.c_float,  # start_x
+        ctypes.c_float,  # start_y
         np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_xs
         np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_ys
-        ctypes.c_int,     # num_targets
-        ctypes.c_float,   # wall_tl
-        ctypes.c_float,   # mic_distance
+        ctypes.c_int,  # num_targets
+        ctypes.c_float,  # wall_tl
+        ctypes.c_float,  # mic_distance
         ctypes.c_void_p,  # pixel_tl (NULL when None)
         np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # out_attenuations
     ]
@@ -111,11 +112,19 @@ def compute_attenuations(
         tl_ptr = pixel_tl.ctypes.data_as(ctypes.c_void_p)
 
     _lib.solve_acoustic_field(
-        occupancy_grid, width, height,
-        float(resolution), float(start_x_px), float(start_y_px),
-        target_xs_px, target_ys_px, num_targets,
-        float(wall_tl), float(mic_distance),
-        tl_ptr, out_attenuations,
+        occupancy_grid,
+        width,
+        height,
+        float(resolution),
+        float(start_x_px),
+        float(start_y_px),
+        target_xs_px,
+        target_ys_px,
+        num_targets,
+        float(wall_tl),
+        float(mic_distance),
+        tl_ptr,
+        out_attenuations,
     )
 
     return out_attenuations

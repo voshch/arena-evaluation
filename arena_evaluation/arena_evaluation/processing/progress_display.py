@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import os
 import sys
-import time
 import threading
+import time
+import types
 import typing
 
 try:
     from rich.console import Console
     from rich.live import Live
     from rich.table import Table
-    from rich.text import Text
+
     _HAS_RICH = True
 except ImportError:
     _HAS_RICH = False
@@ -24,7 +24,7 @@ class PipelineProgressDisplay:
         title: str,
         total_items: int,
         num_workers: int,
-        status_dict: typing.Any = None,
+        status_dict: typing.MutableMapping[int, tuple[str, str, str, int, int, float]] | None = None,
     ):
         self.title = title
         self.total_items = total_items
@@ -38,7 +38,7 @@ class PipelineProgressDisplay:
         self.start_time = time.perf_counter()
         self._monitor_thread = None
 
-    def __enter__(self):
+    def __enter__(self) -> typing.Self:
         # Only use rich Live if stdout is a real terminal
         if _HAS_RICH and sys.stdout.isatty():
             self.console.print(f"[bold cyan]{self.title}[/bold cyan]")
@@ -52,9 +52,7 @@ class PipelineProgressDisplay:
             self._running = True
 
             if self.status_dict is not None:
-                self._monitor_thread = threading.Thread(
-                    target=self._monitor_loop, daemon=True
-                )
+                self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
                 self._monitor_thread.start()
         else:
             print(
@@ -63,15 +61,18 @@ class PipelineProgressDisplay:
             )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         self._running = False
         if self.live is not None:
             self.live.__exit__(exc_type, exc_val, exc_tb)
             elapsed = time.perf_counter() - self.start_time
             mins, secs = divmod(int(elapsed), 60)
-            self.console.print(
-                f"[bold green]✔ All {self.total_items} episodes completed in {mins:02d}:{secs:02d}[/bold green]"
-            )
+            self.console.print(f"[bold green]✔ All {self.total_items} episodes completed in {mins:02d}:{secs:02d}[/bold green]")
 
     def _monitor_loop(self):
         while self._running:
@@ -91,10 +92,7 @@ class PipelineProgressDisplay:
     ):
         with self._lock:
             self.completed_items += 1
-            line = (
-                f"[bold green]✔[/bold green] [{self.completed_items:2d}/{self.total_items:2d}] "
-                f"episode_{ep_id:03d} ({label}) completed in {elapsed_sec:.2f}s"
-            )
+            line = f"[bold green]✔[/bold green] [{self.completed_items:2d}/{self.total_items:2d}] episode_{ep_id:03d} ({label}) completed in {elapsed_sec:.2f}s"
             if extra:
                 line += f" • {extra}"
 
@@ -120,24 +118,13 @@ class PipelineProgressDisplay:
         table = Table.grid(padding=(0, 1))
 
         # Overall Progress Bar
-        pct = (
-            (self.completed_items / self.total_items) * 100
-            if self.total_items > 0
-            else 0
-        )
-        filled = (
-            int(30 * (self.completed_items / self.total_items))
-            if self.total_items > 0
-            else 0
-        )
+        pct = (self.completed_items / self.total_items) * 100 if self.total_items > 0 else 0
+        filled = int(30 * (self.completed_items / self.total_items)) if self.total_items > 0 else 0
         bar = "█" * filled + "░" * (30 - filled)
         elapsed = time.perf_counter() - self.start_time
         mins, secs = divmod(int(elapsed), 60)
 
-        table.add_row(
-            f"[{bar}] [bold green]{self.completed_items}/{self.total_items}[/bold green] "
-            f"episodes ({pct:.0f}%) | Elapsed: [yellow]{mins:02d}:{secs:02d}[/yellow]"
-        )
+        table.add_row(f"[{bar}] [bold green]{self.completed_items}/{self.total_items}[/bold green] episodes ({pct:.0f}%) | Elapsed: [yellow]{mins:02d}:{secs:02d}[/yellow]")
         table.add_row("")
 
         # Active Workers Table
@@ -149,9 +136,7 @@ class PipelineProgressDisplay:
                 active_items = {}
 
         if active_items:
-            worker_table = Table(
-                show_header=True, header_style="bold blue", box=None, padding=(0, 2)
-            )
+            worker_table = Table(show_header=True, header_style="bold blue", box=None, padding=(0, 2))
             worker_table.add_column("Episode", style="cyan", no_wrap=True)
             worker_table.add_column("Planner / Stage", style="white")
             worker_table.add_column("Active Step", style="yellow")

@@ -28,7 +28,6 @@ class Step:
         return f"{self.contestant.name}/{self.stage.name}"
 
 
-
 class StepErrorKind(enum.StrEnum):
     ENV_SETUP = "env_setup"
     ROBOT_SETUP = "robot_setup"

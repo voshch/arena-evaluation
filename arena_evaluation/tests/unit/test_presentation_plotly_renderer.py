@@ -11,8 +11,18 @@ from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
 from arena_evaluation.storage.schemas import PlotSpec
 
 _ALL_PLOT_TYPES = [
-    "violin", "box", "bar", "trajectory", "radar", "scatter", "histogram",
-    "heatmap", "timeseries", "line", "table", "acoustic_field",
+    "violin",
+    "box",
+    "bar",
+    "trajectory",
+    "radar",
+    "scatter",
+    "histogram",
+    "heatmap",
+    "timeseries",
+    "line",
+    "table",
+    "acoustic_field",
     "acoustic_field_animation",
 ]
 
@@ -29,11 +39,11 @@ def _df() -> pl.DataFrame:
 
 
 def _spec(ptype: str, **options) -> PlotSpec:
-    return PlotSpec(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}",
-                    data_key="success", options=options)
+    return PlotSpec(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}", data_key="success", options=options)
 
 
 # ── construction ───────────────────────────────────────────────────────────
+
 
 def test_all_plot_types_registered():
     renderer = PlotlyRenderer()
@@ -50,6 +60,7 @@ def test_units_passed_through():
 
 
 # ── dispatch behaviour ─────────────────────────────────────────────────────
+
 
 def test_render_bar_returns_html_fragment():
     html = PlotlyRenderer().render(_spec("bar"), _df())
@@ -70,9 +81,7 @@ def test_render_none_result_is_passed_through(monkeypatch):
 
 
 def test_render_list_result_is_passed_through(monkeypatch):
-    monkeypatch.setattr(
-        TrajectoryRenderer, "render_plotly", lambda self, df: ["<div>a</div>", "<div>b</div>"]
-    )
+    monkeypatch.setattr(TrajectoryRenderer, "render_plotly", lambda self, df: ["<div>a</div>", "<div>b</div>"])
     spec = _spec("trajectory")
     assert PlotlyRenderer().render(spec, _df()) == ["<div>a</div>", "<div>b</div>"]
 

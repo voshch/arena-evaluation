@@ -13,9 +13,16 @@ def _ep() -> EpisodeDescriptor:
 
 def _meta(outcome_state: int | None, outcome_info: str = "") -> RunMetadata:
     return RunMetadata(
-        benchmark_id="b", planner="bev-policy", map="scene_08", stage="s8", robot_model=["jackal"],
-        outcome_state=outcome_state, outcome_info=outcome_info,
-        recording_started_at="2026-01-01T00:00:00+00:00", python_version="3.12", ros_distro="jazzy",
+        benchmark_id="b",
+        planner="bev-policy",
+        map="scene_08",
+        stage="s8",
+        robot_model=["jackal"],
+        outcome_state=outcome_state,
+        outcome_info=outcome_info,
+        recording_started_at="2026-01-01T00:00:00+00:00",
+        python_version="3.12",
+        ros_distro="jazzy",
     )
 
 

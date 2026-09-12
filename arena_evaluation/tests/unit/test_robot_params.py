@@ -11,9 +11,7 @@ def _robot_yaml(model: str, *parts: str) -> dict:
 
     from ament_index_python.packages import get_package_share_directory
 
-    path = os.path.join(
-        get_package_share_directory("arena_robots"), "robots", model, *parts
-    )
+    path = os.path.join(get_package_share_directory("arena_robots"), "robots", model, *parts)
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -29,12 +27,8 @@ def test_unknown_model_declares_no_mass():
 
 def test_base_mass_and_radius_come_from_the_robot_definition():
     params = RobotParams.load("jackal")
-    assert params.base_mass == pytest.approx(
-        float(_robot_yaml("jackal", "model_params.yaml")["mass"]["base_kg"])
-    )
-    assert params.robot_radius == pytest.approx(
-        float(_robot_yaml("jackal", "caps", "mobile.yaml")["radius"])
-    )
+    assert params.base_mass == pytest.approx(float(_robot_yaml("jackal", "model_params.yaml")["mass"]["base_kg"]))
+    assert params.robot_radius == pytest.approx(float(_robot_yaml("jackal", "caps", "mobile.yaml")["radius"]))
 
 
 def test_total_mass_is_base_plus_components():

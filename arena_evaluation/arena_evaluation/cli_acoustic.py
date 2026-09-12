@@ -1,13 +1,20 @@
 import argparse
-import sys
 import pathlib
+import sys
+
+import numpy as np
+import polars as pl
+
 
 def _handle_acoustic(args: argparse.Namespace) -> None:
     """Handle 'evaluation acoustic' subcommands."""
-    import polars as pl
     from arena_evaluation.processing.parquet_store import ParquetStore
 
     benchmark_dir = args.benchmark_dir
+    if isinstance(benchmark_dir, list):
+        benchmark_dir = benchmark_dir[0]
+    args.benchmark_dir = benchmark_dir
+
     if not benchmark_dir.is_dir():
         print(f"Error: benchmark directory does not exist: {benchmark_dir}")
         sys.exit(1)
@@ -30,7 +37,7 @@ def _handle_acoustic(args: argparse.Namespace) -> None:
         _acoustic_snapshot(df, args)
 
 
-def _acoustic_list(df: "pl.DataFrame") -> None:
+def _acoustic_list(df: pl.DataFrame) -> None:
     """Print a table of episodes with acoustic metrics."""
     import polars as pl
 
@@ -74,7 +81,7 @@ def _acoustic_list(df: "pl.DataFrame") -> None:
         print()
 
 
-def _resolve_episode(df: "pl.DataFrame", episode_spec: str) -> str | None:
+def _resolve_episode(df: pl.DataFrame, episode_spec: str) -> str | None:
     """Resolve an episode specifier ('worst', 'loudest-source', 'max-total', or 'episode_NNN')."""
     import polars as pl
 
@@ -109,6 +116,7 @@ def _resolve_episode(df: "pl.DataFrame", episode_spec: str) -> str | None:
                 continue
             if isinstance(wf, str):
                 import json
+
                 try:
                     wf = json.loads(wf)
                 except Exception:
@@ -141,15 +149,16 @@ def _resolve_episode(df: "pl.DataFrame", episode_spec: str) -> str | None:
     return None
 
 
-def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
+def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
     """Generate an animated acoustic field visualization."""
     episode_id = _resolve_episode(df, args.episode)
     if episode_id is None:
         sys.exit(1)
 
+    import polars as pl
+
     from arena_evaluation.presentation.plot_types.acoustic_field import AcousticFieldRenderer
     from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
-    import polars as pl
 
     renderer = AcousticFieldRenderer(None)
     renderer.run_dir = args.benchmark_dir
@@ -161,6 +170,7 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         metrics_path = args.benchmark_dir / "metrics.parquet"
     if metrics_path.exists():
         from arena_evaluation.processing.parquet_store import ParquetStore
+
         metrics_df, _ = ParquetStore.read(metrics_path)
         if "map" in metrics_df.columns and len(metrics_df) > 0:
             map_name = metrics_df["map"][0]
@@ -186,6 +196,7 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
 
     # Load doors
     from arena_evaluation.processing.acoustics.door_map import door_segments
+
     doors = door_segments(map_name, grid, resolution, (ox, oy, 0.0), run_dir=args.benchmark_dir)
 
     # Load door state timeline
@@ -209,7 +220,12 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
     print(f"  doors: {len(doors)} found" + (f", timeline: {'present' if state_timeline else 'ABSENT'}" if doors else ""))
 
     result_path = renderer.render_animation(
-        episode_df, grid, resolution, ox, oy, doors,
+        episode_df,
+        grid,
+        resolution,
+        ox,
+        oy,
+        doors,
         state_timeline=state_timeline,
         out_path=out_path,
         downsample=args.downsample,
@@ -222,6 +238,7 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         robot_trail=args.robot_trail,
         show_doors=not args.no_door_overlay,
         fmt=args.format,
+        overlay_trajectories=args.overlay_trajectories,
     )
 
     if result_path:
@@ -231,15 +248,16 @@ def _acoustic_animate(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
+def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
     """Render a single acoustic field frame."""
     episode_id = _resolve_episode(df, args.episode)
     if episode_id is None:
         sys.exit(1)
 
+    import polars as pl
+
     from arena_evaluation.presentation.plot_types.acoustic_field import AcousticFieldRenderer
     from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
-    import polars as pl
 
     renderer = AcousticFieldRenderer(None)
     renderer.run_dir = args.benchmark_dir
@@ -250,6 +268,7 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         metrics_path = args.benchmark_dir / "metrics.parquet"
     if metrics_path.exists():
         from arena_evaluation.processing.parquet_store import ParquetStore
+
         metrics_df, _ = ParquetStore.read(metrics_path)
         if "map" in metrics_df.columns and len(metrics_df) > 0:
             map_name = metrics_df["map"][0]
@@ -273,6 +292,7 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         sys.exit(1)
 
     from arena_evaluation.processing.acoustics.door_map import door_segments
+
     doors = door_segments(map_name, grid, resolution, (ox, oy, 0.0), run_dir=args.benchmark_dir)
 
     state_timeline = None
@@ -312,24 +332,47 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         open_set = state_timeline.open_doors_at(time_ns)
 
     from arena_evaluation.processing.acoustics.door_map import build_pixel_tl
+
     pixel_tl = build_pixel_tl(grid, doors, open_doors=set(open_set)) if doors else None
 
     out_path = args.output or (args.benchmark_dir / "plots" / f"{episode_id}_acoustic_snapshot.png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Rendering snapshot: frame {frame_idx}, t={time_ns/1e9:.1f}s, source={source_dba:.0f} dBA, {len(open_set)} doors open")
+    print(f"Rendering snapshot: frame {frame_idx}, t={time_ns / 1e9:.1f}s, source={source_dba:.0f} dBA, {len(open_set)} doors open")
+
+    traj_data = (
+        renderer._extract_trajectory_data(
+            episode_df,
+            run_dir=args.benchmark_dir,
+            episode_id=episode_id,
+        )
+        if args.overlay_trajectories
+        else None
+    )
+
+    open_doors = set(open_set) if doors else None
+
+    vmin = args.vmin if args.vmin is not None else 20.0
+    vmax = args.vmax if args.vmax is not None else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
 
     ok = renderer._render_cell_png(
-        grid, resolution, ox, oy,
-        rx_m, ry_m, source_dba,
+        grid,
+        resolution,
+        ox,
+        oy,
+        rx_m,
+        ry_m,
+        source_dba,
         peds,
-        title=f"{episode_id}  frame {frame_idx}  t={time_ns/1e9:.1f}s  {source_dba:.0f} dBA",
+        title=f"{episode_id}  frame {frame_idx}  t={time_ns / 1e9:.1f}s  {source_dba:.0f} dBA",
         out_path=out_path,
         downsample=args.downsample,
-        vmin=42.0,
-        vmax=None,
-        pixel_tl=pixel_tl,
-        doors=doors if pixel_tl is not None else None,
+        vmin=vmin,
+        vmax=vmax,
+        open_doors=open_doors,
+        doors=doors if doors else None,
+        overlay_trajectories=args.overlay_trajectories,
+        trajectory_data=traj_data,
     )
 
     if ok:
@@ -339,7 +382,7 @@ def _acoustic_snapshot(df: "pl.DataFrame", args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def setup_acoustic_subparsers(subparsers):
+def setup_acoustic_subparsers(subparsers: argparse._SubParsersAction) -> None:
     """Add acoustic subcommands to the main parser."""
     acoustic_parser = subparsers.add_parser(
         "acoustic",
@@ -349,36 +392,32 @@ def setup_acoustic_subparsers(subparsers):
 
     # acoustic list
     acoustic_list = acoustic_sub.add_parser("list", help="List episodes with acoustic metrics.")
-    acoustic_list.add_argument("--benchmark-dir", type=pathlib.Path, required=True,
-                               metavar="DIR", help="Path to benchmark directory.")
+    acoustic_list.add_argument("--benchmark-dir", type=pathlib.Path, required=True, metavar="DIR", help="Path to benchmark directory.")
 
     # acoustic animate
     acoustic_anim = acoustic_sub.add_parser("animate", help="Generate animated GIF/MP4 of acoustic field.")
-    acoustic_anim.add_argument("--benchmark-dir", type=pathlib.Path, required=True,
-                               metavar="DIR", help="Path to benchmark directory.")
-    acoustic_anim.add_argument("--episode", type=str, default="worst", metavar="EP",
-                               help="Episode ID, 'worst', 'loudest-source', or 'max-total' (default: worst).")
+    acoustic_anim.add_argument("--benchmark-dir", type=pathlib.Path, required=True, metavar="DIR", help="Path to benchmark directory.")
+    acoustic_anim.add_argument("--episode", type=str, default="worst", metavar="EP", help="Episode ID, 'worst', 'loudest-source', or 'max-total' (default: worst).")
     acoustic_anim.add_argument("--fps", type=int, default=10, help="Output frame rate (default: 10).")
     acoustic_anim.add_argument("--max-frames", type=int, default=120, help="Cap rendered frames (default: 120).")
     acoustic_anim.add_argument("--stride", type=int, default=1, help="Render every Nth data frame (default: 1).")
     acoustic_anim.add_argument("--downsample", type=int, default=2, help="Solver grid downsample (default: 2).")
-    acoustic_anim.add_argument("--format", type=str, default="gif", choices=["gif", "mp4", "frames"],
-                               help="Output format (default: gif).")
+    acoustic_anim.add_argument("--format", type=str, default="gif", choices=["gif", "mp4", "frames"], help="Output format (default: gif).")
     acoustic_anim.add_argument("--dpi", type=int, default=150, help="Output resolution (default: 150).")
-    acoustic_anim.add_argument("--vmin", type=float, default=42.0, help="Color-scale floor in dBA (default: 42).")
+    acoustic_anim.add_argument("--vmin", type=float, default=20.0, help="Color-scale floor in dBA (default: 20).")
     acoustic_anim.add_argument("--vmax", type=float, default=None, help="Color-scale ceiling in dBA (default: auto).")
     acoustic_anim.add_argument("--no-door-overlay", action="store_true", help="Hide door contours.")
+    acoustic_anim.add_argument("--no-trajectories", action="store_false", dest="overlay_trajectories", help="Disable trajectory overlay.")
     acoustic_anim.add_argument("--robot-trail", type=int, default=0, help="Show past N robot positions as trail (default: 0).")
-    acoustic_anim.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH",
-                               help="Override output path (default: plots/{episode}_acoustic.{format}).")
+    acoustic_anim.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH", help="Override output path (default: plots/{episode}_acoustic.{format}).")
 
     # acoustic snapshot
     acoustic_snap = acoustic_sub.add_parser("snapshot", help="Render a single acoustic field frame.")
-    acoustic_snap.add_argument("--benchmark-dir", type=pathlib.Path, required=True,
-                               metavar="DIR", help="Path to benchmark directory.")
-    acoustic_snap.add_argument("--episode", type=str, default="worst", metavar="EP",
-                               help="Episode ID or keyword (default: worst).")
+    acoustic_snap.add_argument("--benchmark-dir", type=pathlib.Path, required=True, metavar="DIR", help="Path to benchmark directory.")
+    acoustic_snap.add_argument("--episode", type=str, default="worst", metavar="EP", help="Episode ID or keyword (default: worst).")
     acoustic_snap.add_argument("--frame", type=int, default=None, help="Frame index (default: worst-case frame).")
     acoustic_snap.add_argument("--downsample", type=int, default=2, help="Solver grid downsample (default: 2).")
-    acoustic_snap.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH",
-                               help="Override output path (default: plots/{episode}_acoustic_snapshot.png).")
+    acoustic_snap.add_argument("--vmin", type=float, default=20.0, help="Color-scale floor in dBA (default: 20).")
+    acoustic_snap.add_argument("--vmax", type=float, default=None, help="Color-scale ceiling in dBA (default: auto).")
+    acoustic_snap.add_argument("--no-trajectories", action="store_false", dest="overlay_trajectories", help="Disable trajectory overlay.")
+    acoustic_snap.add_argument("--output", type=pathlib.Path, default=None, metavar="PATH", help="Override output path (default: plots/{episode}_acoustic_snapshot.png).")

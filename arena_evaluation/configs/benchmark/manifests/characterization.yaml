@@ -37,11 +37,12 @@ units:
   timeseries_char_energy_per_rad: J/rad
   timeseries_char_time_s: s
 summary:
-  - {metric: timeseries_char_power_total_w, label: Mean Power, format: "{:.1f}"}
+  - {metric: timeseries_char_speed_achieved, label: Mean Speed, format: "{:.2f}"}
+  - {metric: timeseries_char_power_total_w, label: Total Power, format: "{:.1f}"}
   - {metric: timeseries_char_power_mech_w, label: Mech Power, format: "{:.1f}"}
-  - {metric: timeseries_char_dba, label: Mean Level, format: "{:.1f}"}
+  - {metric: timeseries_char_dba, label: Sound Level, format: "{:.1f}"}
   - {metric: timeseries_char_energy_intensity, label: Energy Intensity, format: "{:.2f}"}
-summary_group_by: [timeseries_char_phase_kind]
+summary_group_by: [timeseries_char_phase_kind, timeseries_char_speed_target]
 plots:
   # ── Overview & Summary ──────────────────────────────────────────────────────
   - id: notes_table

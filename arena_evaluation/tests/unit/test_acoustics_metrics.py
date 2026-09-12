@@ -16,9 +16,7 @@ def _episode(levels_dba, dt_s=1.0):
         data=pl.DataFrame({"time_ns": times}),
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[5.0, 0.0],
-        topics={
-            "acoustics": pl.DataFrame({"time_ns": times, "total_level_af_dba": levels_dba})
-        },
+        topics={"acoustics": pl.DataFrame({"time_ns": times, "total_level_af_dba": levels_dba})},
     )
 
 
@@ -28,9 +26,7 @@ def calc():
 
 
 def test_without_the_acoustics_topic_all_outputs_are_none(calc):
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[]
-    )
+    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[])
     results = calc.calculate(episode, {})
     assert set(results) == set(calc.output_keys())
     assert all(v is None for v in results.values())

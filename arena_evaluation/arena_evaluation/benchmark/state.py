@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import csv
 import dataclasses
 import hashlib
@@ -10,7 +11,6 @@ import pathlib
 import subprocess
 import typing
 
-import numpy as np
 import yaml
 from rclpy.parameter import Parameter
 
@@ -61,13 +61,17 @@ def capture_git_sha(workspace: pathlib.Path) -> tuple[str | None, bool]:
     try:
         sha = subprocess.run(
             ["git", "-C", str(workspace), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if sha.returncode != 0:
             return None, False
         dirty_out = subprocess.run(
             ["git", "-C", str(workspace), "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return sha.stdout.strip(), bool(dirty_out.stdout.strip())
     except Exception:
@@ -164,7 +168,7 @@ def _params_to_json(params: list) -> str:
     for p in params:
         try:
             value = Parameter.from_parameter_msg(p).value
-            if hasattr(value, "tolist"):
+            if isinstance(value, array.array):
                 value = value.tolist()
             elif isinstance(value, (bytes, bytearray)):
                 value = list(value)
@@ -217,40 +221,42 @@ class ProgressLog:
     ) -> None:
         rec = episode_record
         runtime = round(ended_at - started_at, 3)
-        self._writer.writerow([
-            ts_iso,
-            run_id,
-            step_key,
-            contestant,
-            stage,
-            env_id if env_id is not None else "",
-            episode_id,
-            parent_episode_id if parent_episode_id is not None else "",
-            "true" if is_reference else "false",
-            reference_type or "",
-            rec.world,
-            rec.seed,
-            rec.tm_robots,
-            rec.tm_obstacles,
-            ",".join(rec.tm_modules),
-            ",".join(rec.robots),
-            rec.outcome_state,
-            rec.outcome_info,
-            started_at,
-            ended_at,
-            runtime,
-            _params_to_json(rec.robots_params),
-            _params_to_json(rec.obstacles_params),
-            error_kind.value if error_kind is not None else "",
-            error_detail or "",
-            lockstep.stalls if lockstep is not None else "",
-            round(lockstep.max_stall_s, 3) if lockstep is not None else "",
-            round(lockstep.rtf, 3) if lockstep is not None else "",
-            ",".join(ch for ch in lockstep.channels if ch.startswith(BEAT_PREFIXES)) if lockstep is not None else "",
-            rec.goal_dist_start,
-            rec.goal_dist_min,
-            rec.path_length,
-        ])
+        self._writer.writerow(
+            [
+                ts_iso,
+                run_id,
+                step_key,
+                contestant,
+                stage,
+                env_id if env_id is not None else "",
+                episode_id,
+                parent_episode_id if parent_episode_id is not None else "",
+                "true" if is_reference else "false",
+                reference_type or "",
+                rec.world,
+                rec.seed,
+                rec.tm_robots,
+                rec.tm_obstacles,
+                ",".join(rec.tm_modules),
+                ",".join(rec.robots),
+                rec.outcome_state,
+                rec.outcome_info,
+                started_at,
+                ended_at,
+                runtime,
+                _params_to_json(rec.robots_params),
+                _params_to_json(rec.obstacles_params),
+                error_kind.value if error_kind is not None else "",
+                error_detail or "",
+                lockstep.stalls if lockstep is not None else "",
+                round(lockstep.max_stall_s, 3) if lockstep is not None else "",
+                round(lockstep.rtf, 3) if lockstep is not None else "",
+                ",".join(ch for ch in lockstep.channels if ch.startswith(BEAT_PREFIXES)) if lockstep is not None else "",
+                rec.goal_dist_start,
+                rec.goal_dist_min,
+                rec.path_length,
+            ]
+        )
         self._fh.flush()
 
     def write_comment(self, text: str) -> None:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pathlib
-import polars as pl
+
 import plotly.express as px
+import polars as pl
 
 from .base import BasePlotRenderer
 
@@ -34,7 +35,7 @@ class HistogramRenderer(BasePlotRenderer):
 
         global_min = pdf[x_col].min()
         global_max = pdf[x_col].max()
-        
+
         if global_min == global_max:
             global_min -= 1
             global_max += 1
@@ -46,20 +47,13 @@ class HistogramRenderer(BasePlotRenderer):
             binned_dfs = []
             for name, group in pdf.groupby(diff_col, observed=False):
                 counts, _ = np.histogram(group[x_col], bins=bins)
-                df_group = pd.DataFrame({
-                    "bin_center": bin_centers,
-                    "count": counts,
-                    diff_col: name
-                })
+                df_group = pd.DataFrame({"bin_center": bin_centers, "count": counts, diff_col: name})
                 binned_dfs.append(df_group)
             counts_df = pd.concat(binned_dfs)
             color_arg = diff_col
         else:
             counts, _ = np.histogram(pdf[x_col], bins=bins)
-            counts_df = pd.DataFrame({
-                "bin_center": bin_centers,
-                "count": counts
-            })
+            counts_df = pd.DataFrame({"bin_center": bin_centers, "count": counts})
             color_arg = None
 
         fig = px.area(
@@ -69,14 +63,10 @@ class HistogramRenderer(BasePlotRenderer):
             color=color_arg,
             template="plotly_white",
         )
-        
+
         fig.update_traces(opacity=opacity, line=dict(shape="spline", smoothing=0.8))
 
-        fig.update_layout(
-            xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col),
-            yaxis_title="Count",
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5)
-        )
+        fig.update_layout(xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col), yaxis_title="Count", legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
 
         return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
 
@@ -96,15 +86,15 @@ class HistogramRenderer(BasePlotRenderer):
         if pdf.empty:
             return
 
+        import matplotlib.pyplot as plt
         import numpy as np
         import pandas as pd
-        import matplotlib.pyplot as plt
 
         num_bins = self.spec.options.get("nbins", 15)
 
         global_min = pdf[x_col].min()
         global_max = pdf[x_col].max()
-        
+
         if global_min == global_max:
             global_min -= 1
             global_max += 1
@@ -116,24 +106,17 @@ class HistogramRenderer(BasePlotRenderer):
             binned_dfs = []
             for name, group in pdf.groupby(diff_col, observed=False):
                 counts, _ = np.histogram(group[x_col], bins=bins)
-                df_group = pd.DataFrame({
-                    "bin_center": bin_centers,
-                    "count": counts,
-                    diff_col: name
-                })
+                df_group = pd.DataFrame({"bin_center": bin_centers, "count": counts, diff_col: name})
                 binned_dfs.append(df_group)
             counts_df = pd.concat(binned_dfs)
             hue_arg = diff_col
         else:
             counts, _ = np.histogram(pdf[x_col], bins=bins)
-            counts_df = pd.DataFrame({
-                "bin_center": bin_centers,
-                "count": counts
-            })
+            counts_df = pd.DataFrame({"bin_center": bin_centers, "count": counts})
             hue_arg = None
 
         plt.figure(figsize=(10, 6))
-        
+
         if hue_arg:
             for name, group in counts_df.groupby(hue_arg, observed=False):
                 plt.plot(group["bin_center"], group["count"], label=name, marker='o', linewidth=2)

@@ -1,4 +1,5 @@
 """Manifest validation via the shipped _validate_manifest from tools.py."""
+
 import pytest
 
 pytest.importorskip("yaml")
@@ -53,12 +54,7 @@ class TestManifestValidationSchema:
 
     def test_missing_required_plot_field_fails(self):
         pytest.importorskip("arena_evaluation.presentation.viz_manifest")
-        result = _validate(
-            "plots:\n"
-            "  - id: bad\n"
-            "    type: violin\n"
-            "    title: No data_key\n"
-        )
+        result = _validate("plots:\n  - id: bad\n    type: violin\n    title: No data_key\n")
         assert result["valid"] is False
 
     def test_reserialized_bundled_manifest_still_validates(self):

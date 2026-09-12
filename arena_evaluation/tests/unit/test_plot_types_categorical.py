@@ -23,15 +23,16 @@ def _df() -> pl.DataFrame:
             "path_efficiency": [0.8, 0.6, 0.7, 0.9],
         },
         schema={
-            "planner": pl.Utf8, "episode": pl.Int64,
-            "success": pl.Float64, "path_efficiency": pl.Float64,
+            "planner": pl.Utf8,
+            "episode": pl.Int64,
+            "success": pl.Float64,
+            "path_efficiency": pl.Float64,
         },
     )
 
 
 def _spec(ptype: str, data_key: str = "success", **overrides) -> PlotSpec:
-    base = dict(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}",
-                data_key=data_key, differentiate="planner")
+    base = dict(id=f"p_{ptype}", type=ptype, title=f"Title {ptype}", data_key=data_key, differentiate="planner")
     base.update(overrides)
     return PlotSpec(**base)
 
@@ -45,6 +46,7 @@ def _assert_png(path: pathlib.Path) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # BarRenderer
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_bar_plotly_happy_path_with_units():
     html = BarRenderer(_spec("bar"), units={"success": "%"}).render_plotly(_df())
@@ -63,8 +65,7 @@ def test_bar_plotly_missing_data_key_returns_none():
 
 
 def test_bar_plotly_stacked_happy_path():
-    spec = _spec("bar", options={"stacked": True,
-                                 "metrics": ["success", "path_efficiency"]})
+    spec = _spec("bar", options={"stacked": True, "metrics": ["success", "path_efficiency"]})
     html = BarRenderer(spec).render_plotly(_df())
     assert html is not None
     assert "Percentage (%)" in html
@@ -120,6 +121,7 @@ def test_bar_seaborn_filtered_empty_writes_nothing(tmp_path):
 # BoxRenderer
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_box_plotly_happy_path_with_units():
     html = BoxRenderer(_spec("box"), units={"success": "%"}).render_plotly(_df())
     assert html is not None
@@ -171,6 +173,7 @@ def test_box_seaborn_empty_df_writes_nothing(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════
 # HistogramRenderer
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _hist_df() -> pl.DataFrame:
     return pl.DataFrame(
@@ -257,6 +260,7 @@ def test_histogram_seaborn_all_nan_writes_nothing(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════
 # ViolinRenderer
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_violin_plotly_happy_path_with_units():
     html = ViolinRenderer(_spec("violin"), units={"success": "%"}).render_plotly(_df())

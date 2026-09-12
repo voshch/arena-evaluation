@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pathlib
-import typing
 
 import yaml
 
@@ -35,10 +34,9 @@ def source_tree_dir() -> pathlib.Path | None:
     return None
 
 
-
 def find_manifest_file(stem: str) -> pathlib.Path | None:
     """Resolve a manifest name to its YAML file, stopping at the first resolver that has it."""
-    from ..benchmark.tree import ManifestIdentifier
+    from arena_evaluation.benchmark.tree import ManifestIdentifier
 
     try:
         return ManifestIdentifier(name=stem).resolve_source_sync().path
@@ -48,7 +46,7 @@ def find_manifest_file(stem: str) -> pathlib.Path | None:
 
 def available_manifests() -> list[str]:
     """Sorted stems of all bundled manifests."""
-    from ..benchmark.tree import ManifestIdentifier
+    from arena_evaluation.benchmark.tree import ManifestIdentifier
 
     return sorted({m.shortname for m in ManifestIdentifier.listall()})
 
@@ -59,11 +57,7 @@ class ManifestNotFoundError(FileNotFoundError):
     def __init__(self, name: str, message: str | None = None) -> None:
         self.name = name
         available = ", ".join(available_manifests()) or "(none bundled)"
-        super().__init__(
-            message
-            or f"Report manifest '{name}' not found. Available: {available}. "
-            f"Pass a name, a path to a YAML file, or inline {{...}} YAML."
-        )
+        super().__init__(message or f"Report manifest '{name}' not found. Available: {available}. Pass a name, a path to a YAML file, or inline {{...}} YAML.")
 
 
 def _load_note_manifest(benchmark_dir: pathlib.Path) -> VizManifest | None:

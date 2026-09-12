@@ -7,6 +7,7 @@ from unittest import mock
 
 from arena_evaluation.cli import resolve_paths
 
+
 def test_resolve_paths_literal_exists():
     """Ensure existing path is not modified."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -15,6 +16,7 @@ def test_resolve_paths_literal_exists():
         resolved = resolve_paths(args)
         assert resolved.run_dir == tmp_path
         assert resolved.benchmark_dir == tmp_path
+
 
 @mock.patch.dict(os.environ, {}, clear=True)
 def test_resolve_paths_recording_id():
@@ -30,6 +32,7 @@ def test_resolve_paths_recording_id():
             resolved = resolve_paths(args)
             assert resolved.run_dir == rec_dir.resolve()
 
+
 @mock.patch.dict(os.environ, {}, clear=True)
 def test_resolve_paths_benchmark_id():
     """Ensure benchmark_dir is resolved when specifying only ID."""
@@ -43,6 +46,7 @@ def test_resolve_paths_benchmark_id():
             args = argparse.Namespace(benchmark_dir=pathlib.Path("my_benchmark"))
             resolved = resolve_paths(args)
             assert resolved.benchmark_dir == bench_dir.resolve()
+
 
 def test_resolve_paths_env_var():
     """Ensure ARENA_DATA_DIR env variable is respected."""
@@ -58,12 +62,10 @@ def test_resolve_paths_env_var():
             resolved = resolve_paths(args)
             assert resolved.run_dir == rec_dir.resolve()
 
+
 def test_resolve_paths_nonexistent():
     """Ensure paths that do not exist are left as is."""
-    args = argparse.Namespace(
-        run_dir=pathlib.Path("nonexistent_run"),
-        benchmark_dir=pathlib.Path("nonexistent_bench")
-    )
+    args = argparse.Namespace(run_dir=pathlib.Path("nonexistent_run"), benchmark_dir=pathlib.Path("nonexistent_bench"))
     resolved = resolve_paths(args)
     assert resolved.run_dir == pathlib.Path("nonexistent_run")
     assert resolved.benchmark_dir == pathlib.Path("nonexistent_bench")

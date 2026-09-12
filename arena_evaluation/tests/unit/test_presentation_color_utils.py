@@ -19,12 +19,19 @@ from arena_evaluation.presentation.color_utils import (
 )
 
 _DEFAULT_PALETTE = [
-    "#41b6e6", "#d3273e", "#00bfb2", "#ffc845",
-    "#be84a3", "#dc582a", "#1d4289", "#94a596",
+    "#41b6e6",
+    "#d3273e",
+    "#00bfb2",
+    "#ffc845",
+    "#be84a3",
+    "#dc582a",
+    "#1d4289",
+    "#94a596",
 ]
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _reset_cache(monkeypatch) -> None:
     monkeypatch.setattr(color_utils, "_PALETTE_CACHE", None)
@@ -36,6 +43,7 @@ def _fake_path_module(exists: bool = True):
     NOTE: the source calls the *builtin* ``open(config_path)`` (not
     ``Path.open``), so file content is faked via ``color_utils.open`` instead.
     """
+
     class _FakePath(pathlib.PosixPath):
         def exists(self):  # noqa: A003 - override of pathlib API
             return exists
@@ -69,6 +77,7 @@ def _restore_real_global_state() -> None:
 
 # ── get_color_palette ──────────────────────────────────────────────────────
 
+
 def test_default_palette_when_config_missing(monkeypatch):
     _reset_cache(monkeypatch)
     _patch_config_file(monkeypatch, content="", exists=False)
@@ -86,13 +95,7 @@ def test_palette_is_cached_between_calls(monkeypatch):
 
 def test_palette_loaded_from_yaml_excludes_white_and_black(monkeypatch):
     _reset_cache(monkeypatch)
-    yaml_content = (
-        "palette:\n"
-        "  white: '#ffffff'\n"
-        "  black: '#000000'\n"
-        "  accent_blue: '#123456'\n"
-        "  alert_red: '#654321'\n"
-    )
+    yaml_content = "palette:\n  white: '#ffffff'\n  black: '#000000'\n  accent_blue: '#123456'\n  alert_red: '#654321'\n"
     _patch_config_file(monkeypatch, content=yaml_content)
     assert get_color_palette() == ["#123456", "#654321"]
 
@@ -144,6 +147,7 @@ def test_palette_yaml_parse_failure_warns_and_falls_back(monkeypatch, capsys):
 
 # ── set_global_color_palette (real Plotly/Seaborn) ─────────────────────────
 
+
 def test_set_global_color_palette_applies_plotly_colorway(monkeypatch):
     import plotly.io as pio
 
@@ -161,6 +165,7 @@ def test_set_global_color_palette_does_not_raise_with_real_libs(monkeypatch):
 
 
 # ── set_global_color_palette (fake modules → branch coverage) ──────────────
+
 
 class _TemplateStore:
     """dict-like stand-in for pio.templates with a ``default`` attribute."""

@@ -6,6 +6,9 @@ import dataclasses
 import threading
 import typing
 
+if typing.TYPE_CHECKING:
+    from arena_runtime_msgs.msg import LockstepStatus
+
 STALL_FAIL_S = 5.0
 # the scheduler publishes a stall only after this long at the gate, so observed stalls start late by it
 STALL_REPORT_LAG_S = 1.0
@@ -97,7 +100,7 @@ class LockstepMonitor:
         self._channels: set[str] = set()
         self._waiting: set[str] = set()
 
-    def observe(self, msg: typing.Any, now: float) -> None:
+    def observe(self, msg: LockstepStatus, now: float) -> None:
         waiting = set(msg.waiting_on)
         channels = {ch.name for reg in msg.registrations for ch in reg.channels if ch.hard}
         with self._lock:

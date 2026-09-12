@@ -1,7 +1,7 @@
 from .mcap_reader import MCAPReader
-from .topic_aligner import TopicAligner
 from .parquet_store import ParquetStore
 from .pipeline import ProcessingPipeline
+from .topic_aligner import TopicAligner
 
 __all__ = [
     "MCAPReader",

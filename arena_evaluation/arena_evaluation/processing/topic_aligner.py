@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import polars as pl
 import typing
 
+import polars as pl
+
 if typing.TYPE_CHECKING:
-    from ..storage.schemas import TopicBundle, AlignedEpisodeBundle
+    from arena_evaluation.storage.schemas import TopicBundle
 
 
 class TopicAligner:
     """Aligns asynchronous topics onto the odom time axis using asof joins."""
+
     def __init__(self, tolerance_ns: int = 100_000_000):
         self.tolerance_ns = tolerance_ns
 
@@ -22,7 +24,7 @@ class TopicAligner:
         if bundle.odom is None:
             return None
 
-        def is_empty(frame):
+        def is_empty(frame: pl.DataFrame | pl.LazyFrame) -> bool:
             if isinstance(frame, pl.LazyFrame):
                 return frame.limit(1).collect().height == 0
             return len(frame) == 0
@@ -32,7 +34,7 @@ class TopicAligner:
 
         df = bundle.odom
         should_collect = not isinstance(df, pl.LazyFrame)
-        
+
         if isinstance(df, pl.DataFrame):
             df = df.lazy()
 
@@ -40,16 +42,16 @@ class TopicAligner:
             df = df.filter(pl.col("time_ns") >= start_time_ns)
         if end_time_ns is not None:
             df = df.filter(pl.col("time_ns") <= end_time_ns)
-            
+
         if is_empty(df):
             return None
 
         df = df.sort("time_ns")
-        
+
         def join_topic(primary: pl.LazyFrame, secondary: pl.DataFrame | pl.LazyFrame | None, prefix: str) -> pl.LazyFrame:
             if secondary is None or is_empty(secondary):
                 return primary
-                
+
             sec_df = secondary
             if isinstance(sec_df, pl.DataFrame):
                 sec_df = sec_df.lazy()
@@ -58,16 +60,11 @@ class TopicAligner:
                 sec_df = sec_df.filter(pl.col("time_ns") >= start_time_ns - self.tolerance_ns)
             if end_time_ns is not None:
                 sec_df = sec_df.filter(pl.col("time_ns") <= end_time_ns + self.tolerance_ns)
-                
+
             if is_empty(sec_df):
                 return primary
-                
-            return primary.join_asof(
-                sec_df.sort("time_ns"),
-                on="time_ns",
-                strategy="backward",
-                tolerance=self.tolerance_ns
-            )
+
+            return primary.join_asof(sec_df.sort("time_ns"), on="time_ns", strategy="backward", tolerance=self.tolerance_ns)
 
         df = join_topic(df, bundle.scan, "scan")
         df = join_topic(df, bundle.cmd_vel, "cmd")

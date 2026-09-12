@@ -6,8 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..storage.planner_names import split_planner_name
-from ..storage.schemas import RunMetadata
+from arena_evaluation.storage.planner_names import split_planner_name
+from arena_evaluation.storage.schemas import RunMetadata
 
 
 class IngestionMetadata:

@@ -8,6 +8,7 @@ Open determination:
   - discrete field 'state' == "open"
   - continuous field 'progress' > 0.5 (mid-transition counts as open)
 """
+
 from __future__ import annotations
 
 import bisect
@@ -43,9 +44,7 @@ _SEM_SCHEMA = pl.Schema(
 )
 
 
-def _row(time_ns: int, entity: str, field: str, kind: str = "door",
-         vstr: str | None = None, vnum: float | None = None,
-         vbool: bool | None = None) -> dict:
+def _row(time_ns: int, entity: str, field: str, kind: str = "door", vstr: str | None = None, vnum: float | None = None, vbool: bool | None = None) -> dict:
     return {
         "time_ns": time_ns,
         "env_id": 0,
@@ -75,6 +74,7 @@ def _frame_strict_schema(rows: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Construction guards
 # ---------------------------------------------------------------------------
+
 
 def test_from_semantic_frame_none():
     assert DoorStateTimeline.from_semantic_frame(None) is None
@@ -109,21 +109,26 @@ def test_from_semantic_frame_lazy_input_collected():
 # Open determination
 # ---------------------------------------------------------------------------
 
+
 def test_open_via_boolean_predicate():
-    df = _frame_strict_schema([
-        _row(100, "d1", "open", vbool=True),
-        _row(100, "d2", "open", vbool=False),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "open", vbool=True),
+            _row(100, "d2", "open", vbool=False),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_sets[0] == frozenset({"d1"})
 
 
 def test_open_via_discrete_state():
-    df = _frame_strict_schema([
-        _row(100, "d1", "state", vstr="open"),
-        _row(100, "d2", "state", vstr="closed"),
-        _row(100, "d3", "state", vstr="opening"),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "state", vstr="open"),
+            _row(100, "d2", "state", vstr="closed"),
+            _row(100, "d3", "state", vstr="opening"),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_sets[0] == frozenset({"d1"})
 
@@ -147,19 +152,23 @@ def test_open_via_progress_nan_is_closed():
 
 def test_entity_open_by_any_field():
     # contradictory rows: predicate closed, but state open -> open wins
-    df = _frame_strict_schema([
-        _row(100, "d1", "open", vbool=False),
-        _row(100, "d1", "state", vstr="open"),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "open", vbool=False),
+            _row(100, "d1", "state", vstr="open"),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_sets[0] == frozenset({"d1"})
 
 
 def test_non_door_kind_ignored_even_with_open_fields():
-    df = _frame_strict_schema([
-        _row(100, "door", "open", vbool=True),
-        _row(100, "robot", "open", vbool=True, kind="robot"),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "door", "open", vbool=True),
+            _row(100, "robot", "open", vbool=True, kind="robot"),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_sets[0] == frozenset({"door"})
 
@@ -174,12 +183,15 @@ def test_entity_names_preserved_verbatim():
 # Timeline structure
 # ---------------------------------------------------------------------------
 
+
 def test_multiple_timestamps_sorted():
-    df = _frame_strict_schema([
-        _row(300, "d1", "open", vbool=True),
-        _row(100, "d2", "open", vbool=True),
-        _row(200, "d3", "open", vbool=True),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(300, "d1", "open", vbool=True),
+            _row(100, "d2", "open", vbool=True),
+            _row(200, "d3", "open", vbool=True),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.times_ns.dtype == np.int64
     assert tl.times_ns.tolist() == [100, 200, 300]
@@ -187,20 +199,24 @@ def test_multiple_timestamps_sorted():
 
 
 def test_state_changes_over_time():
-    df = _frame_strict_schema([
-        _row(100, "d1", "open", vbool=True),
-        _row(200, "d1", "open", vbool=False),
-        _row(300, "d1", "open", vbool=True),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "open", vbool=True),
+            _row(200, "d1", "open", vbool=False),
+            _row(300, "d1", "open", vbool=True),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_sets == [frozenset({"d1"}), frozenset(), frozenset({"d1"})]
 
 
 def test_duplicate_stamps_merged_into_one_frame():
-    df = _frame_strict_schema([
-        _row(100, "d1", "open", vbool=True),
-        _row(100, "d2", "open", vbool=True),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "open", vbool=True),
+            _row(100, "d2", "open", vbool=True),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.times_ns.tolist() == [100]
     assert tl.open_sets == [frozenset({"d1", "d2"})]
@@ -209,6 +225,7 @@ def test_duplicate_stamps_merged_into_one_frame():
 # ---------------------------------------------------------------------------
 # open_doors_at (backward-asof)
 # ---------------------------------------------------------------------------
+
 
 def test_open_doors_at_before_first_is_empty():
     tl = DoorStateTimeline(np.array([100, 200], dtype=np.int64), [frozenset({"d1"}), frozenset()])
@@ -243,6 +260,7 @@ def test_open_doors_at_returns_fresh_frozenset():
 # ---------------------------------------------------------------------------
 # Property tests
 # ---------------------------------------------------------------------------
+
 
 @given(
     timestamps=st.lists(st.integers(min_value=0, max_value=100_000), min_size=1, max_size=8, unique=True),
@@ -302,12 +320,14 @@ def test_open_doors_at_asof_semantics(times, door_names, seed):
 
 def test_open_doors_at_with_all_semantics_mixed():
     """Mixed predicates at the same stamp: bool, state and progress combine."""
-    df = _frame_strict_schema([
-        _row(100, "d1", "open", vbool=True),
-        _row(100, "d2", "state", vstr="open"),
-        _row(100, "d3", "progress", vnum=0.6),
-        _row(100, "d4", "open", vbool=False),
-    ])
+    df = _frame_strict_schema(
+        [
+            _row(100, "d1", "open", vbool=True),
+            _row(100, "d2", "state", vstr="open"),
+            _row(100, "d3", "progress", vnum=0.6),
+            _row(100, "d4", "open", vbool=False),
+        ]
+    )
     tl = DoorStateTimeline.from_semantic_frame(df)
     assert tl.open_doors_at(100) == frozenset({"d1", "d2", "d3"})
     assert tl.open_doors_at(99) == frozenset()

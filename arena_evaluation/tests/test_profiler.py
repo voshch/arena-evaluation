@@ -280,7 +280,6 @@ class TestPipelineProfiler:
             assert phase["cpu_percent_max"] >= phase["cpu_percent_mean"]
 
 
-
 class TestRunningStats:
     """Unit tests for the O(1) accumulator."""
 
@@ -316,6 +315,7 @@ class TestRunningStats:
 
         stats = _RunningStats()
         import random
+
         random.seed(42)
         for _ in range(100):
             stats.update(random.uniform(0, 100))

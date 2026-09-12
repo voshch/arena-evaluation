@@ -4,6 +4,7 @@ Covers ParquetStore (metric frames with Pydantic metadata in the schema footer)
 and TopicParquetStore (per-topic parquet caches for a dict of TopicBundles,
 global-vs-robot file layout, zstd compression, overwrite semantics, sorting).
 """
+
 from __future__ import annotations
 
 import json
@@ -67,6 +68,7 @@ def _write_src(tmp_path: pathlib.Path, name: str, df: pl.DataFrame) -> pathlib.P
 # ---------------------------------------------------------------------------
 # ParquetStore.write / read
 # ---------------------------------------------------------------------------
+
 
 def test_write_read_roundtrip_no_metadata(tmp_path):
     df = _df()
@@ -141,6 +143,7 @@ def test_write_none_metadata_keeps_footer_clean(tmp_path):
 # ---------------------------------------------------------------------------
 # ParquetStore.combine
 # ---------------------------------------------------------------------------
+
 
 def test_combine_empty_sources_noop(tmp_path):
     dest = tmp_path / "combined.parquet"
@@ -241,6 +244,7 @@ def test_roundtrip_hypothesis(tmp_path, n, with_str, with_bool):
 # TopicParquetStore.write / read
 # ---------------------------------------------------------------------------
 
+
 def _topics(tmp_path: pathlib.Path) -> tuple[dict[str, TopicBundle], pathlib.Path]:
     """Two-robot bundle set: shared globals + per-robot odom/plan."""
     odom_1 = _df(4, 1_000)
@@ -260,8 +264,12 @@ def _topics(tmp_path: pathlib.Path) -> tuple[dict[str, TopicBundle], pathlib.Pat
     bundles = {
         "robot_1": TopicBundle(odom=odom_1, plan=plan_1, peds=peds, episode_record=episode_record),
         "robot_2": TopicBundle(
-            odom=odom_2, plan=plan_2, peds=peds, episode_record=episode_record,
-            tf_static=tf_static, semantic_snapshot=semantic_snapshot,
+            odom=odom_2,
+            plan=plan_2,
+            peds=peds,
+            episode_record=episode_record,
+            tf_static=tf_static,
+            semantic_snapshot=semantic_snapshot,
         ),
     }
     return bundles, tmp_path / "cache"

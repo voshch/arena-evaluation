@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 import typing
 
 _T = typing.TypeVar("_T")
@@ -29,7 +30,6 @@ from arena_rclpy_mixins.spin import start_loop_watchdog
 from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, LockstepStatus, SimState
 from arena_runtime_msgs.srv import DespawnEnv, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
-
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
@@ -58,6 +58,8 @@ _EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED",
 
 from ..storage.planner_names import split_planner_name
 from .config import Contest, Suite
+from .lockstep import LockstepMonitor, LockstepSummary, format_report, format_table
+from .progress_display import BenchmarkProgressDisplay
 from .state import (
     Manifest,
     RunDir,
@@ -65,9 +67,7 @@ from .state import (
     compute_config_hash,
     find_most_recent_resumable,
 )
-from .lockstep import LockstepMonitor, LockstepSummary, format_report, format_table
 from .step import Step, StepErrorKind, StepResult
-from .progress_display import BenchmarkProgressDisplay
 from .tree import ContestIdentifier, SuiteIdentifier
 
 
@@ -562,8 +562,8 @@ class BenchmarkRunner(ArenaMixinNode):
     def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         import rclpy
+        from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
         from rclpy.signals import SignalHandlerOptions
-        from rclpy.executors import MultiThreadedExecutor, ExternalShutdownException
 
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         loop = asyncio.new_event_loop()
@@ -581,7 +581,7 @@ class BenchmarkRunner(ArenaMixinNode):
         spin_future = loop.run_in_executor(None, _spin)
         main_task: asyncio.Task | None = None
 
-        def _sig_handler(signum, _frame):
+        def _sig_handler(signum: int, _frame: types.FrameType | None) -> None:
             if main_task and not main_task.done():
                 loop.call_soon_threadsafe(main_task.cancel)
 
@@ -670,6 +670,8 @@ class BenchmarkRunner(ArenaMixinNode):
         self._run_dir = run_dir
         self._retry_failed = retry_failed
         self._arena_passthrough: dict[str, str] = dict(arena_passthrough or {})
+        self._viz = self._arena_passthrough.get("viz", str(not self._headless)).lower() in ("true", "1")
+        self._viz_proc: subprocess.Popen | None = None
         self._noexit = noexit
         self._lockstep_verdict = lockstep_verdict
         self._strict = strict
@@ -840,7 +842,7 @@ class BenchmarkRunner(ArenaMixinNode):
                         if curr_size < last_pos:
                             last_pos = 0
                         if curr_size > last_pos:
-                            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                            with open(p, encoding="utf-8", errors="replace") as f:
                                 f.seek(last_pos)
                                 new_text = f.read()
                                 last_positions[p] = f.tell()
@@ -1139,7 +1141,7 @@ class BenchmarkRunner(ArenaMixinNode):
                         env_id=env_id,
                         what=f"run_episode goal on env {env_id}",
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     episodes_failed += 1
                     _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} send_goal timed out after 15s; abandoning env")
                     return _result("failed", StepErrorKind.ENV_SETUP, f"send_goal timed out after 15s on env {env_id}")
@@ -1314,7 +1316,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 inactivity_timeout=inactivity_timeout,
                 max_total_timeout=self._spawn_budget,
             )
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             orphans = _orphaned_env_ids(known, self._env_records, registered)
             _log.error(f"spawn_env stalled for {launch_step.key} (no progress/output for {inactivity_timeout:.0f}s); despawning orphaned env(s) {orphans}")
             for env_id in orphans:
@@ -1343,7 +1345,28 @@ class BenchmarkRunner(ArenaMixinNode):
         await self._await_alive(self._await_env_visible(env_id), what=f"env {env_id} to appear on /arena/state/envs")
         env_ns_root = self._env_records[env_id].fqn
         await self._setup_env_clients(env_id, env_ns_root, launch_step.stage.robot)
+        if self._viz and (self._viz_proc is None or self._viz_proc.poll() is not None):
+            self._start_viz(env_ns_root)
         return env_id, env_ns_root
+
+    def _start_viz(self, ns: str) -> None:
+        cmd = [
+            "ros2",
+            "launch",
+            "rviz_utils",
+            "rviz_config.launch.py",
+            f"ns:={ns}",
+        ]
+        _log.info(f"benchmark: spawning rviz for {ns}")
+        try:
+            self._viz_proc = subprocess.Popen(
+                cmd,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            _log.warning(f"benchmark: failed to spawn rviz: {exc}")
 
     async def _despawn_env(self, env_id: int) -> None:
         """Tear down clients and despawn an env, waiting for it to disappear from the registry."""
@@ -1581,7 +1604,7 @@ class BenchmarkRunner(ArenaMixinNode):
                         try:
                             os.killpg(os.getpgid(recorder_proc.pid), signal.SIGINT)
                             await asyncio.wait_for(recorder_proc.wait(), timeout=2.0)
-                        except (asyncio.TimeoutError, Exception):
+                        except (TimeoutError, Exception):
                             with contextlib.suppress(Exception):
                                 os.killpg(os.getpgid(recorder_proc.pid), signal.SIGKILL)
 
@@ -1721,6 +1744,16 @@ class BenchmarkRunner(ArenaMixinNode):
                 p.kill()
                 p.wait(timeout=2.0)
 
+        if self._viz_proc is not None:
+            if self._viz_proc.poll() is None:
+                with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                    os.killpg(os.getpgid(self._viz_proc.pid), signal.SIGTERM)
+                try:
+                    self._viz_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                        os.killpg(os.getpgid(self._viz_proc.pid), signal.SIGKILL)
+            self._viz_proc = None
         deadline = time.time() + _ARENA_ORPHAN_GRACE_S
         while time.time() < deadline:
             if not any(_proc_starttime(pid) == start for pid, start in descendants.items()):
@@ -1889,7 +1922,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
                     cap = max(1, min(self._env_n, len(world_steps) or 1))
 
-                    async def _worker(slot_index: int) -> bool:
+                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step]]]) -> bool:
                         try:
                             while True:
                                 target_q = None
@@ -1912,7 +1945,7 @@ class BenchmarkRunner(ArenaMixinNode):
                                 self._progress.clear_slot(slot_index)
 
                     for slot in range(cap):
-                        in_flight.add(asyncio.create_task(_worker(slot), name=f"worker_{slot}"))
+                        in_flight.add(asyncio.create_task(_worker(slot, block_queues), name=f"worker_{slot}"))
 
                     while in_flight:
                         done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
@@ -1920,7 +1953,7 @@ class BenchmarkRunner(ArenaMixinNode):
                             abort = t.result()
                             if abort:
                                 aborted_systemic = True
-                                _log.error(f"benchmark: worker hit a systemic setup failure; aborting run")
+                                _log.error("benchmark: worker hit a systemic setup failure; aborting run")
                                 for t2 in in_flight:
                                     t2.cancel()
                                 with contextlib.suppress(Exception):

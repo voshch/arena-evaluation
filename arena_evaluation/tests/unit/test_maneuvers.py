@@ -83,9 +83,7 @@ def test_ramp_tests():
 def test_angular_sweep():
     phases = build_schedule()
     angular = [p for p in phases if p.kind == PhaseKind.ANGULAR]
-    assert [p.wz_target for p in angular] == [
-        -2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5
-    ]
+    assert [p.wz_target for p in angular] == [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
     assert all(p.duration_s == ANGULAR_DWELL_S for p in angular)
     assert all(p.vx_target == 0.0 for p in angular)
 
@@ -153,10 +151,7 @@ def test_labels_never_encode_a_duration():
     # The offline calculator rebuilds the schedule without knowing the run's
     # duration config, so no configurable duration may reach a label.
     baseline = [p.name for p in build_schedule()]
-    retimed = [
-        p.name
-        for p in build_schedule(**{name: default + 3.0 for name, default in DURATION_DEFAULTS.items()})
-    ]
+    retimed = [p.name for p in build_schedule(**{name: default + 3.0 for name, default in DURATION_DEFAULTS.items()})]
     assert baseline == retimed
 
 
@@ -174,15 +169,7 @@ def test_resolve_envelope_from_caps(tmp_path: pathlib.Path):
     caps_dir = _caps(
         tmp_path,
         "some_robot",
-        "radius: 0.42\n"
-        "actions:\n"
-        "  continuous:\n"
-        "    linear:\n"
-        "      min: -1.5\n"
-        "      max: 3.0\n"
-        "    angular:\n"
-        "      min: -4.0\n"
-        "      max: 4.0\n",
+        "radius: 0.42\nactions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n",
     )
     assert resolve_envelope("some_robot", caps_dir=caps_dir) == {
         "vx_max": 3.0,
@@ -250,8 +237,11 @@ def test_ramp_horizons_produce_distinct_families():
 
 def test_custom_arc_factors_change_targets_and_respect_the_rated_wz_limit():
     phases = build_schedule(
-        vx_max=2.0, wz_max=2.5, radius=0.5,
-        arc_speed_factors=[0.5], arc_radius_factors=[2.0],
+        vx_max=2.0,
+        wz_max=2.5,
+        radius=0.5,
+        arc_speed_factors=[0.5],
+        arc_radius_factors=[2.0],
     )
     arcs = [p for p in phases if p.kind == PhaseKind.ARC]
     assert arcs

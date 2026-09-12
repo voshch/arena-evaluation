@@ -37,13 +37,13 @@ def _df() -> pl.DataFrame:
 
 
 def _spec(**overrides) -> PlotSpec:
-    base = dict(id="t", type="concrete", title="T", data_key="success",
-                differentiate="planner")
+    base = dict(id="t", type="concrete", title="T", data_key="success", differentiate="planner")
     base.update(overrides)
     return PlotSpec(**base)
 
 
 # ── abstractness / construction ────────────────────────────────────────────
+
 
 def test_base_is_abstract():
     with pytest.raises(TypeError):
@@ -72,6 +72,7 @@ def test_init_units_preserved():
 
 # ── format_label ───────────────────────────────────────────────────────────
 
+
 def test_format_label_with_unit_appends_bracket():
     renderer = _ConcreteRenderer(_spec(), units={"time_to_goal": "s"})
     assert renderer.format_label("Time To Goal", "time_to_goal") == "Time To Goal [s]"
@@ -93,6 +94,7 @@ def test_format_label_empty_unit_unchanged():
 
 
 # ── resolve_diff_col delegation ────────────────────────────────────────────
+
 
 def test_resolve_diff_col_compound_when_two_dims_vary():
     df = pl.DataFrame(
@@ -119,6 +121,7 @@ def test_resolve_diff_col_single_varying_dim():
 
 
 # ── _apply_filters ─────────────────────────────────────────────────────────
+
 
 def test_apply_filters_no_filter_returns_same_frame():
     df = _df()

@@ -23,6 +23,7 @@ from arena_evaluation.storage.schemas import PlotSpec
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+
 def _identity_frame(n_varying: int) -> pl.DataFrame:
     """Frame over all identity columns; the first ``n_varying`` columns vary."""
     data = {}
@@ -44,6 +45,7 @@ def _spec(differentiate="planner", auto_differentiate=True) -> PlotSpec:
 
 
 # ── detect_varying_dims ────────────────────────────────────────────────────
+
 
 def test_detect_all_identity_columns_varying():
     df = _identity_frame(n_varying=len(IDENTITY_COLS))
@@ -101,6 +103,7 @@ def test_detect_varying_dims_property(varying, constant):
 
 # ── build_label_column ─────────────────────────────────────────────────────
 
+
 def test_build_label_no_dims_returns_same_frame():
     df = _identity_frame(n_varying=0)
     out = build_label_column(df, [])
@@ -146,6 +149,7 @@ def test_build_label_overwrites_existing_label_column():
 
 # ── resolve_differentiate: auto=False ──────────────────────────────────────
 
+
 def test_resolve_auto_false_uses_requested_in_columns():
     df = _identity_frame(n_varying=3)
     col, out = resolve_differentiate(_spec(differentiate="robot", auto_differentiate=False), df)
@@ -172,6 +176,7 @@ def test_resolve_auto_false_empty_requested_falls_back():
 
 
 # ── resolve_differentiate: auto=True ───────────────────────────────────────
+
 
 def test_resolve_auto_no_varying_requested_present():
     df = _identity_frame(n_varying=0)
@@ -249,8 +254,7 @@ def test_resolve_differentiate_property(n_varying, requested, auto):
         assert col == COMPOUND_LABEL_COL
         assert COMPOUND_LABEL_COL in out.columns
     elif auto and len(varying) <= 1:
-        expected = requested if (requested and requested in df.columns) else (
-            varying[0] if varying else "planner")
+        expected = requested if (requested and requested in df.columns) else (varying[0] if varying else "planner")
         assert col == expected
     else:
         expected = requested if (requested and requested in df.columns) else "planner"
