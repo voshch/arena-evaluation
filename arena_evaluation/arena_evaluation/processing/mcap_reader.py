@@ -156,7 +156,7 @@ class MCAPReader:
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
-            return {"peds": defaultdict(list), "episode_record": defaultdict(list)}
+            return {"peds": defaultdict(list), "peds_engine": defaultdict(list), "episode_record": defaultdict(list)}
 
         env_data = defaultdict(new_env_data)
 
@@ -325,7 +325,7 @@ class MCAPReader:
 
                         # Pedestrians
                         elif topic.endswith("/arena_peds") or topic.endswith("/peds") or topic.endswith("/agent_states"):
-                            target = env_data[env_key]["peds"]
+                            target = env_data[env_key]["peds_engine" if topic.endswith("/agent_states") else "peds"]
                             target["time_ns"].append(ts_ns)
 
                             if schema.name == "arena_people_msgs/msg/Pedestrians":
@@ -569,6 +569,15 @@ class MCAPReader:
             flush_buffers()
             for writer in writers.values():
                 writer.close()
+            for env_dir in (d for d in out_dir.iterdir() if d.is_dir()):
+                engine_peds = env_dir / "peds_engine.parquet"
+                arena_peds = env_dir / "peds.parquet"
+                if not engine_peds.exists():
+                    continue
+                if arena_peds.exists():
+                    engine_peds.unlink()
+                else:
+                    engine_peds.replace(arena_peds)
 
         return self.load_bundles(out_dir, run_dir, map_name_fallback=map_name_fallback)
 
