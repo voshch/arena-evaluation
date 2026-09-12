@@ -15,9 +15,10 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 class MetricRegistry:
     """Discovers, validates, and executes metric calculators in topological order."""
 
-    def __init__(self, robot_params: RobotParams, world: str | None = None):
+    def __init__(self, robot_params: RobotParams, world: str | None = None, metrics_config: dict[str, int] | None = None):
         self.robot_params = robot_params
         self.world = world
+        self.metrics_config = dict(metrics_config or {})
         self.calculators: dict[str, BaseMetricCalculator] = {}
         self.discover_calculators_cls()
         self._register_calculators()
@@ -51,6 +52,7 @@ class MetricRegistry:
                     raise ValueError(f"Duplicate calculator NAME: {calc_cls.NAME}")
                 calc = calc_cls(self.robot_params)
                 calc.world = self.world
+                calc.metrics_config = self.metrics_config
                 self.calculators[calc_cls.NAME] = calc
 
     @classmethod

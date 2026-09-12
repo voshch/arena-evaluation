@@ -544,3 +544,31 @@ def test_parse_duration_empty_raises():
 
     with pytest.raises(ValueError):
         _parse_duration("abc")
+
+
+def test_suite_parse_metrics_defaults_empty():
+    from arena_evaluation.benchmark.config import Suite
+
+    suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()]})
+    assert suite.metrics == {}
+
+
+def test_suite_parse_metrics_max_collisions():
+    from arena_evaluation.benchmark.config import Suite
+
+    suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 1}})
+    assert suite.metrics == {"max_collisions": 1}
+
+
+def test_suite_parse_metrics_unknown_key_raises():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="unknown keys"):
+        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_colisions": 1}})
+
+
+def test_suite_parse_metrics_nonpositive_raises():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="max_collisions"):
+        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 0}})
