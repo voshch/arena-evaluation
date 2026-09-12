@@ -1,0 +1,25 @@
+# Costmap-based subset of paper_planners, for study B, narrow-passage pointing (EVALUATION.md §B).
+# navigate_to_pose_w_replanning_and_recovery: with pedestrians visible, a pair on the path makes the controller
+# report a collision; navigate_w_replanning_time then fails the goal for good and the robot parks until timeout.
+# social_cost_layer: arena_social_cost_layer in the local costmap (reads arena_peds), on for every costmap
+# planner (decision 2026-09-12). AttnGraph runs through the drl adapter, no nav2 costmap.
+name: paper_costmap_planners
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: true
+- name: mppi
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: true
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: true

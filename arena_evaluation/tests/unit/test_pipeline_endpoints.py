@@ -63,6 +63,13 @@ def test_episode_window_spans_running_to_terminal_record():
     assert _episode_window(pl.DataFrame({"time_ns": []})) == (None, None)
 
 
+def test_episode_window_stays_open_when_the_terminal_record_was_not_captured():
+    # previous episode's latched terminal row, then this episode's RUNNING row, and the recorder closed first
+    record = pl.DataFrame({"time_ns": [50, 100], "outcome_state": [3, 1]})
+    assert _episode_window(record) == (100, None)
+    assert _episode_window(pl.DataFrame({"time_ns": [100], "outcome_state": [1]})) == (100, None)
+
+
 def test_start_is_the_anchored_pose_not_the_odom_origin():
     t = (np.arange(100) * 33_333_333).astype(np.int64)
     x = np.linspace(0.0, 10.0, 100)

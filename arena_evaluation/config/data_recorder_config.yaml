@@ -7,6 +7,8 @@ record_frequencies:
   scan:  100.0   # alias for scan-named topics
   odom:   20.0   # odometry, moderate frequency
   peds:   20.0   # pedestrian positions
+  animation_states: 50.0 # clip / playhead / gesture phase per ped, 20 Hz
+  interactions: 0.0      # interaction lifecycle edges (discovered, recorded unthrottled regardless)
   goal_pose: 0.0 # event-driven (recorded unthrottled)
   initialpose: 0.0 # event-driven (recorded unthrottled)
   robots: 0.0    # latched fleet state (recorded unthrottled)

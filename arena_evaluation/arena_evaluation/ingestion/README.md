@@ -87,6 +87,19 @@ All topics use simulation time from `/clock`. Messages prior to the first `/cloc
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
 
+Interaction and animation state is picked up by discovery (by message type and topic basename, anywhere under
+the env namespace, i.e. one level above the recorder) rather than from the fixed list above:
+
+| Topic | Message Type | Throttle |
+|---|---|---|
+| `/{parent_ns}/interactions` | `arena_humansim_msgs/Interactions` | unthrottled, reliable (carries edge-triggered ACTIVATED / HOLD_ONSET / RELEASED events) |
+| `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 50 ms (per-ped clip, playhead, gesture phase, blend weight) |
+| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states` | fallback if the fixed paths above miss them | 20 ms |
+
+The reader turns them into `interactions`, `interaction_events`, `animation_states` and `ped_gestures` env tables,
+and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as
+`peds` and `peds_physics`.
+
 `/tf` is merged rather than throttled: the newest transform per `(frame_id, child_frame_id)` is kept and written as one `TFMessage` per 20 ms window, so no publisher can starve the others. `tf_frames` in `config/data_recorder_config.yaml` is an ordered `[regex, ms]` list matched against the child frame that caps frame families; by default skeleton bones go out at 5 Hz.
 
 ### Shutdown

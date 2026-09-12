@@ -19,6 +19,11 @@ from arena_evaluation.storage.schemas import TopicBundle
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
 
+# arena_humansim_msgs/InteractionEvent.event
+INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
+# env-level tables beside peds / episode_record, loaded into the bundle when present
+ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
+
 
 # Topic -> explicit PyArrow schema.  Only needed when RecordBatch.from_pydict
 # cannot infer column types from data (e.g. semantic_snapshot where each row
@@ -47,6 +52,65 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("collision_static", pa.int64()),
             ("collision_pedestrian", pa.int64()),
             ("collision_obstacle_ids", pa.list_(pa.string())),
+        ]
+    ),
+    # interaction / animation state (humansim InteractionManager, task_generator animation layer)
+    "interactions": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("stamp_ns", pa.int64()),
+            ("interaction_id", pa.int64()),
+            ("interaction_type", pa.int64()),
+            ("outcome", pa.int64()),
+            ("participants", pa.list_(pa.int64())),
+            ("queue", pa.list_(pa.int64())),
+            ("arrived", pa.bool_()),
+            ("holding", pa.bool_()),
+            ("hold_elapsed", pa.float64()),
+            ("duration", pa.float64()),
+        ]
+    ),
+    "interaction_events": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("stamp_ns", pa.int64()),
+            ("interaction_id", pa.int64()),
+            ("interaction_type", pa.int64()),
+            ("event", pa.int64()),
+            ("event_name", pa.string()),
+            ("participants", pa.list_(pa.int64())),
+        ]
+    ),
+    "animation_states": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("ped_id", pa.int64()),
+            ("ped_name", pa.string()),
+            ("base", pa.string()),
+            ("base_phase", pa.float64()),
+            ("slot", pa.string()),
+            ("kind", pa.string()),
+            ("channel", pa.string()),
+            ("phase", pa.string()),
+            ("clip", pa.string()),
+            ("animation", pa.string()),
+            ("playhead", pa.float64()),
+            ("duration", pa.float64()),
+            ("weight", pa.float64()),
+            ("loop", pa.bool_()),
+        ]
+    ),
+    "ped_gestures": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("ped_id", pa.int64()),
+            ("slot", pa.string()),
+            ("clip", pa.string()),
+            ("hand", pa.string()),
+            ("at_x", pa.float64()),
+            ("at_y", pa.float64()),
+            ("at_z", pa.float64()),
+            ("render_pose_override", pa.bool_()),
         ]
     ),
     "characterization_schedule": pa.schema(
@@ -156,7 +220,7 @@ class MCAPReader:
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
-            return {"peds": defaultdict(list), "episode_record": defaultdict(list)}
+            return {"peds": defaultdict(list), "episode_record": defaultdict(list), **{name: defaultdict(list) for name in ENV_STATE_TABLES}}
 
         env_data = defaultdict(new_env_data)
 
@@ -195,7 +259,7 @@ class MCAPReader:
                     if not topic_data or not any(len(column) for column in topic_data.values()):
                         continue
 
-                    batch = pa.RecordBatch.from_pydict(dict(topic_data))
+                    batch = pa.RecordBatch.from_pydict(dict(topic_data), schema=_TOPIC_SCHEMAS.get(topic_name))
                     writer_key = (env_name, topic_name)
 
                     if writer_key not in writers:
@@ -323,17 +387,18 @@ class MCAPReader:
                             target["effort"].append(list(ros_msg.effort))
                             appended = True
 
-                        # Pedestrians
+                        # Pedestrians. arena_peds is what the robot's world renders (env frame, contact pairs
+                        # drawn on their formation slot); agent_states is the crowd engine's physics
+                        # (engine frame) - separate tables, a merged one would interleave two frames
                         elif topic.endswith("/arena_peds") or topic.endswith("/peds") or topic.endswith("/agent_states"):
-                            target = env_data[env_key]["peds"]
+                            is_pose2d = schema.name != "arena_people_msgs/msg/Pedestrians"
+                            target = env_data[env_key]["peds_physics" if is_pose2d else "peds"]
                             target["time_ns"].append(ts_ns)
 
-                            if schema.name == "arena_people_msgs/msg/Pedestrians":
-                                agents = ros_msg.pedestrians
-                                is_pose2d = False
-                            else:
+                            if is_pose2d:
                                 agents = [a for a in ros_msg.agents if a.kind == 0]
-                                is_pose2d = True
+                            else:
+                                agents = ros_msg.pedestrians
 
                             target["num_pedestrians"].append(len(agents))
 
@@ -360,7 +425,75 @@ class MCAPReader:
                             target["peds_positions"].append(positions)
                             target["peds_headings"].append(headings)
                             target["peds_twists"].append(twists)
+                            # per-ped identity and animation/interaction state, aligned with the lists above
+                            target["peds_ids"].append([int(p.agent_id if is_pose2d else p.id) for p in agents])
+                            target["peds_animation_states"].append([int(p.animation_state) for p in agents])
+                            target["peds_interaction_ids"].append([int(getattr(p, "interaction_id", -1)) for p in agents])
+                            target["peds_interaction_types"].append([int(getattr(p, "interaction_type", 0)) for p in agents])
 
+                            gestures = env_data[env_key]["ped_gestures"]
+                            for p in [] if is_pose2d else agents:  # rendered side only, agent_states repeats them in the engine frame
+                                pid = int(p.id)
+                                for g in getattr(p, "gestures", ()):
+                                    gestures["time_ns"].append(ts_ns)
+                                    gestures["ped_id"].append(pid)
+                                    gestures["slot"].append(g.slot)
+                                    gestures["clip"].append(g.clip)
+                                    gestures["hand"].append(g.hand)
+                                    gestures["at_x"].append(g.at.x)
+                                    gestures["at_y"].append(g.at.y)
+                                    gestures["at_z"].append(g.at.z)
+                                    gestures["render_pose_override"].append(bool(getattr(g, "render_pose_override", False)))
+
+                            appended = True
+
+                        # Interaction lifecycle (humansim): live snapshot rows + edge-triggered events
+                        elif topic.endswith("/interactions") and schema.name == "arena_humansim_msgs/msg/Interactions":
+                            stamp = self._stamp_ns(ros_msg.header)
+                            rows = env_data[env_key]["interactions"]
+                            for it in ros_msg.interactions:
+                                rows["time_ns"].append(ts_ns)
+                                rows["stamp_ns"].append(stamp)
+                                rows["interaction_id"].append(it.interaction_id)
+                                rows["interaction_type"].append(it.interaction_type)
+                                rows["outcome"].append(it.outcome)
+                                rows["participants"].append(list(it.participants))
+                                rows["queue"].append(list(it.queue))
+                                rows["arrived"].append(bool(it.arrived))
+                                rows["holding"].append(bool(it.holding))
+                                rows["hold_elapsed"].append(float(it.hold_elapsed))
+                                rows["duration"].append(float(it.duration))
+                            events = env_data[env_key]["interaction_events"]
+                            for ev in ros_msg.events:
+                                events["time_ns"].append(ts_ns)
+                                events["stamp_ns"].append(stamp)
+                                events["interaction_id"].append(ev.interaction_id)
+                                events["interaction_type"].append(ev.interaction_type)
+                                events["event"].append(ev.event)
+                                events["event_name"].append(INTERACTION_EVENT_NAMES.get(ev.event, str(ev.event)))
+                                events["participants"].append(list(ev.participants))
+                            appended = True
+
+                        # Animation layer (task_generator): one row per (ped, overlay slot), slot "" = base only
+                        elif topic.endswith("/animation_states") and schema.name == "arena_people_msgs/msg/AnimationStates":
+                            rows = env_data[env_key]["animation_states"]
+                            for ped in ros_msg.peds:
+                                for s in list(ped.slots) or [None]:
+                                    rows["time_ns"].append(ts_ns)
+                                    rows["ped_id"].append(int(ped.id))
+                                    rows["ped_name"].append(ped.name)
+                                    rows["base"].append(ped.base)
+                                    rows["base_phase"].append(float(ped.base_phase))
+                                    rows["slot"].append(s.slot if s is not None else "")
+                                    rows["kind"].append(s.kind if s is not None else "")
+                                    rows["channel"].append(s.channel if s is not None else "")
+                                    rows["phase"].append(s.phase if s is not None else "")
+                                    rows["clip"].append(s.clip if s is not None else "")
+                                    rows["animation"].append(s.animation if s is not None else "")
+                                    rows["playhead"].append(float(s.playhead) if s is not None else None)
+                                    rows["duration"].append(float(s.duration) if s is not None else None)
+                                    rows["weight"].append(float(s.weight) if s is not None else None)
+                                    rows["loop"].append(bool(s.loop) if s is not None else None)
                             appended = True
 
                         # Acoustics (ego-noise estimates from the M4 model)
@@ -719,6 +852,8 @@ class MCAPReader:
             env_dir = topics_dir / env_key
             rb.peds = load_parquet(env_dir / "peds.parquet")
             rb.episode_record = load_parquet(env_dir / "episode_record.parquet")
+            for t_name in ENV_STATE_TABLES:
+                setattr(rb, t_name, load_parquet(env_dir / f"{t_name}.parquet"))
 
             mx, my = 0.0, 0.0
             map_name = None
@@ -780,6 +915,9 @@ class MCAPReader:
                     rb.peds = rb.peds.with_columns([pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - total_ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - total_oy).otherwise(pl.element()))])
                 except Exception:
                     pass
+            if rb.ped_gestures is not None and (total_ox != 0.0 or total_oy != 0.0):
+                # gesture targets come off arena_peds, so they share its frame and its offset
+                rb.ped_gestures = rb.ped_gestures.with_columns([(pl.col("at_x") - total_ox).alias("at_x"), (pl.col("at_y") - total_oy).alias("at_y")])
 
             for parquet in sorted(robot_dir.glob("*.parquet")):
                 t_name = parquet.stem

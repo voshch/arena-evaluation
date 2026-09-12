@@ -165,6 +165,15 @@ class TopicBundle:
     cmd_vel: pl.DataFrame | None = None
     joint_states: pl.DataFrame | None = None
     peds: pl.DataFrame | None = None
+    # crowd-engine physics poses (engine frame), where contact pairs are not drawn on their slot
+    peds_physics: pl.DataFrame | None = None
+    # one row per active attention channel of a ped (from arena_peds)
+    ped_gestures: pl.DataFrame | None = None
+    # humansim interaction snapshots and lifecycle edges (ACTIVATED / HOLD_ONSET / RELEASED / ...)
+    interactions: pl.DataFrame | None = None
+    interaction_events: pl.DataFrame | None = None
+    # task_generator animation layer: one row per (ped, overlay slot)
+    animation_states: pl.DataFrame | None = None
     episode_record: pl.DataFrame | None = None
     collision_events: pl.DataFrame | None = None
     collision_monitor_state: pl.DataFrame | None = None
