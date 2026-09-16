@@ -1,6 +1,7 @@
-# Planner set for the animation paper (EVALUATION.md "Episode budget"), revised 2026-09-11:
-# three costmap planners plus one learned planner. HATEB is excluded, AttnGraph replaces DRL-VO.
-# Study B (narrow-passage pointing) uses the costmap subset only (dwb, mppi, graceful): contests/paper_costmap_planners.yaml
+# Planner set for the animation paper, revised 2026-09-12: two costmap planners plus one learned planner.
+# HATEB is excluded and AttnGraph replaces DRL-VO. MPPI was dropped after the Study A run: a second MPPI
+# environment never finished spawning inside the runner's 600 s limit, and 5 of the 6 episodes that did run
+# reached the episode timeout at about half the route. See 26_ICRA_BECKON/results/STUDY_A.md.
 # navigate_to_pose_w_replanning_and_recovery: with pedestrians visible, a pair on the path makes the controller
 # report a collision; navigate_w_replanning_time then fails the goal for good and the robot parks until timeout.
 # social_cost_layer: arena_social_cost_layer in the local costmap (reads arena_peds), on for every costmap
@@ -11,12 +12,6 @@ contestants:
   mobile:
     driver: nav2
     local_planner: dwb
-    inter_planner: navigate_to_pose_w_replanning_and_recovery
-    social_cost_layer: true
-- name: mppi
-  mobile:
-    driver: nav2
-    local_planner: mppi
     inter_planner: navigate_to_pose_w_replanning_and_recovery
     social_cost_layer: true
 - name: graceful

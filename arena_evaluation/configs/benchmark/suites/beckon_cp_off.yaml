@@ -1,0 +1,19 @@
+# Study B pilot: caller on the last checkpoint; cost layer off in both arms
+stages:
+- name: beckon_checkpoint_off
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: patrol
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 77000
+  timeout: 180s
+  config:
+    scenario:
+      file: beckon_checkpoint
+      gesture_mode: disabled
+    patrol:
+      service_agent: caller
+      clip: beckon
+      service_radius: 2.5
+      service_dwell: 0.0
