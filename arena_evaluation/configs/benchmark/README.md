@@ -34,6 +34,8 @@ A suite defines an ordered list of stages executed sequentially across all conte
 ```yaml
 launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task.*, record.*) are rejected
   lockstep: true
+metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
+  max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
 stages:
   - name: scenario
     map: arena_hospital_small

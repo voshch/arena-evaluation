@@ -11,6 +11,7 @@ import time
 
 import polars as pl
 import yaml
+
 from arena_evaluation.processing.parquet_store import ParquetStore
 from arena_evaluation.storage.data_root import benchmarks_root
 from arena_evaluation.storage.folder_manager import FolderManager

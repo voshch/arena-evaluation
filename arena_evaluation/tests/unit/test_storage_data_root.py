@@ -18,6 +18,7 @@ from arena_evaluation.storage.data_root import benchmarks_root, latest_benchmark
 # benchmarks_root
 # ---------------------------------------------------------------------------
 
+
 def test_benchmarks_root_uses_arena_data_dir(monkeypatch, tmp_path: pathlib.Path):
     monkeypatch.setenv("ARENA_DATA_DIR", str(tmp_path))
     assert benchmarks_root() == tmp_path / "benchmarks"
@@ -58,6 +59,7 @@ def test_benchmarks_root_empty_env_var_falls_back(monkeypatch, tmp_path: pathlib
 # ---------------------------------------------------------------------------
 # latest_benchmark
 # ---------------------------------------------------------------------------
+
 
 def test_latest_benchmark_empty_root(tmp_path: pathlib.Path):
     root = tmp_path / "benchmarks"

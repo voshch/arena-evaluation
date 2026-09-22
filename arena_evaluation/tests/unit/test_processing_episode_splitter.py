@@ -7,6 +7,7 @@ Covers processing/episode_splitter.py:
   - LazyFrame inputs and chunked (multi-record-batch) pyarrow input
 Property tests (hypothesis) over arbitrary timestamps / snapshots.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -44,6 +45,7 @@ class _BundleWithEnvOffset(AlignedEpisodeBundle):
 @pytest.fixture(autouse=True)
 def _patch_bundle_class(monkeypatch):
     monkeypatch.setattr(es_mod, "AlignedEpisodeBundle", _BundleWithEnvOffset)
+
 
 # ---------------------------------------------------------------------------
 # Shared builders
@@ -165,6 +167,7 @@ def _splitter(aligner) -> EpisodeSplitter:
 # _parse_conditions
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("raw", [None, "", "   ", "\n"])
 def test_parse_conditions_empty(raw):
     assert _parse_conditions(raw) is None
@@ -199,6 +202,7 @@ def test_parse_conditions_roundtrip():
 # _env_offset
 # ---------------------------------------------------------------------------
 
+
 def test_env_offset_none_and_empty():
     assert _env_offset(None) == (0.0, 0.0)
     assert _env_offset(pl.DataFrame(schema={"frame_id": pl.String})) == (0.0, 0.0)
@@ -215,9 +219,7 @@ def test_env_offset_single_env():
 
 
 def test_env_offset_duplicate_rows_dedup():
-    df = _tf_static(
-        [("map", "env_0/map", 3.0, 4.0), ("map", "env_0/map", 3.0, 4.0)]
-    )
+    df = _tf_static([("map", "env_0/map", 3.0, 4.0), ("map", "env_0/map", 3.0, 4.0)])
     assert _env_offset(df) == (3.0, 4.0)
 
 
@@ -268,6 +270,7 @@ def test_env_offset_shape_property(n, n_env):
 # ---------------------------------------------------------------------------
 # _episode_snapshot
 # ---------------------------------------------------------------------------
+
 
 def test_episode_snapshot_none_and_empty():
     assert _episode_snapshot(None, 100, 200) is None
@@ -355,9 +358,7 @@ def test_episode_snapshot_properties(times, start, end):
     # row-set identity: out == (seed rows) union (window rows)
     seed_time = max(seed_candidates) if seed_candidates else (min(in_window) if in_window else None)
     expected_rows = set(df.rows())
-    expected_rows = {
-        r for r in df.rows() if (r[0] == seed_time) or (start <= r[0] <= end)
-    }
+    expected_rows = {r for r in df.rows() if (r[0] == seed_time) or (start <= r[0] <= end)}
     assert set(out.rows()) == expected_rows
     assert out.height == len(expected_rows)
 
@@ -369,6 +370,7 @@ def test_episode_snapshot_properties(times, start, end):
 # ---------------------------------------------------------------------------
 # env_offset source-bug regression pins
 # ---------------------------------------------------------------------------
+
 
 def test_production_bundle_class_lacks_env_offset_field():
     """Documented source bug: split() passes env_offset= but the dataclass
@@ -394,6 +396,7 @@ def test_split_real_bundle_raises_typeerror_with_records(monkeypatch):
 # EpisodeSplitter.split — odom guards
 # ---------------------------------------------------------------------------
 
+
 def test_split_odom_none_returns_empty():
     aligner = _FakeAligner(_aligned())
     out = _splitter(aligner).split(TopicBundle())
@@ -418,6 +421,7 @@ def test_split_empty_odom_lazyframe_returns_empty():
 # ---------------------------------------------------------------------------
 # EpisodeSplitter.split — no episode_record
 # ---------------------------------------------------------------------------
+
 
 def test_split_no_records_single_episode():
     aligned = _aligned(6)
@@ -496,6 +500,7 @@ def test_split_no_records_lazy_odom_and_lazy_record():
 # EpisodeSplitter.split — episode_record windows
 # ---------------------------------------------------------------------------
 
+
 def test_split_paired_records_single_episode():
     records = _records([(1000, 3, None, None), (2000, 3, None, None)])
     aligner = _FakeAligner(_aligned(6))
@@ -534,9 +539,7 @@ def test_split_single_record_lazy_odom_ends_at_odom_max():
 
 def test_split_short_window_skipped():
     records = _records([(1000, 3, None, None), (2000, 4, None, None)])
-    aligner = _FakeAligner(
-        callable_result=lambda start, end: _aligned(2) if start == 1000 else _aligned(6)
-    )
+    aligner = _FakeAligner(callable_result=lambda start, end: _aligned(2) if start == 1000 else _aligned(6))
     episodes = _splitter(aligner).split(TopicBundle(odom=_odom(), episode_record=records))
     assert [e.episode_id for e in episodes] == [4]
 
@@ -559,14 +562,7 @@ def test_split_three_records_pair_then_single():
 # start/goal recovery
 # ---------------------------------------------------------------------------
 
-ROBOT_PARAMS_YAML = (
-    "robot_a:\n"
-    "  start: [1.0, 2.0, 0.1]\n"
-    "  goal: [9.0, 8.0, 3.1]\n"
-    "  other: 1\n"
-    "robot_b:\n"
-    "  start: [99.0, 99.0, 0.0]\n"
-)
+ROBOT_PARAMS_YAML = "robot_a:\n  start: [1.0, 2.0, 0.1]\n  goal: [9.0, 8.0, 3.1]\n  other: 1\nrobot_b:\n  start: [99.0, 99.0, 0.0]\n"
 
 
 def test_split_start_goal_from_robots_params():
@@ -584,9 +580,7 @@ def test_split_robots_params_no_start_key_falls_back_to_initialpose():
         {"time_ns": [1100], "pos_x": [7.0], "pos_y": [8.0], "yaw": [1.5]},
         schema=_INIT_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=init)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=init))[0]
     assert ep.start_pos == [7.0, 8.0, 1.5]
     assert ep.goal_pos == [5.0, 5.0, 0.0]
 
@@ -611,9 +605,7 @@ def test_split_initialpose_first_row_after_start():
         {"time_ns": [1050, 1150], "pos_x": [1.0, 2.0], "pos_y": [3.0, 4.0], "yaw": [0.5, 0.7]},
         schema=_INIT_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=init)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=init))[0]
     assert ep.start_pos == [1.0, 3.0, 0.5]
 
 
@@ -623,9 +615,7 @@ def test_split_initialpose_last_row_before_start():
         {"time_ns": [500, 900], "pos_x": [1.0, 2.0], "pos_y": [3.0, 4.0], "yaw": [0.5, 0.7]},
         schema=_INIT_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=init)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=init))[0]
     assert ep.start_pos == [2.0, 4.0, 0.7]
 
 
@@ -642,9 +632,7 @@ def test_split_plan_yaw_correction_applied():
         {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[2.0]]},
         schema=_PLAN_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
     # initialpose yaw 0.0, plan yaw 2.0 -> |0 - 2| > 1 -> replaced
     assert ep.start_pos == [1.0, 2.0, 2.0]
 
@@ -655,9 +643,7 @@ def test_split_plan_yaw_correction_not_applied_when_close():
         {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[0.5]]},
         schema=_PLAN_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
     # |0 - 0.5| <= 1.0 -> yaw kept from initialpose
     assert ep.start_pos == [1.0, 2.0, 0.0]
 
@@ -668,9 +654,7 @@ def test_split_plan_yaw_zero_not_applied():
         {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[0.0]]},
         schema=_PLAN_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
     assert ep.start_pos == [1.0, 2.0, 0.0]
 
 
@@ -680,43 +664,33 @@ def test_split_goal_from_plan_within_window():
         {"time_ns": [1000, 2500], "poses_x": [[0.0, 1.0], [9.0]], "poses_y": [[0.0, 2.0], [9.0]], "poses_yaw": [[0.0, 1.0], [9.0]]},
         schema=_PLAN_SCHEMA,
     )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records, plan=plan)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, plan=plan))[0]
     assert ep.goal_pos == [1.0, 2.0, 1.0]
 
 
 def test_split_goal_falls_back_to_aligned_last_row():
     records = _records([(1000, 3, None, None)])
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     assert ep.goal_pos == [5.0, 10.0, 0.0]
     assert ep.start_pos == [0.0, 0.0, 0.0]
 
 
 def test_split_conditions_parsed_into_episode():
     records = _records([(1000, 3, None, '[{"phase": "one"}, {"phase": "two"}]')])
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     assert ep.conditions == [{"phase": "one"}, {"phase": "two"}]
 
 
 def test_split_conditions_invalid_is_none():
     records = _records([(1000, 3, None, "{bad json")])
-    ep = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(), episode_record=records)
-    )[0]
+    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     assert ep.conditions is None
 
 
 def test_split_semantic_snapshot_scoped_per_episode():
     records = _records([(1000, 3, None, None), (2000, 4, None, None)])
     snap = _snapshot([500, 1500, 2500, 3500])
-    episodes = _splitter(_FakeAligner(_aligned(6))).split(
-        TopicBundle(odom=_odom(20), episode_record=records, semantic_snapshot=snap)
-    )
+    episodes = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(20), episode_record=records, semantic_snapshot=snap))
     assert episodes[0].semantic_snapshot["time_ns"].to_list() == [500, 1500]
     assert episodes[1].semantic_snapshot["time_ns"].to_list() == [1500, 2500]
 
@@ -730,13 +704,9 @@ def test_split_num_pedestrians_estimated_from_aligned():
             "pos_y": [0.0] * 6,
             "num_pedestrians": [0, 0, 4, 4, None, 2],
         },
-        schema=pl.Schema(
-            {"time_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64, "num_pedestrians": pl.Int64}
-        ),
+        schema=pl.Schema({"time_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64, "num_pedestrians": pl.Int64}),
     )
-    ep = _splitter(_FakeAligner(aligned)).split(
-        TopicBundle(odom=_odom(), episode_record=records)
-    )[0]
+    ep = _splitter(_FakeAligner(aligned)).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     assert ep.num_pedestrians == 4
 
 
@@ -798,10 +768,10 @@ def test_split_chunked_record_batches():
     assert aligner_chunked.calls == aligner_plain.calls
 
 
-
 # ---------------------------------------------------------------------------
 # _estimate_peds
 # ---------------------------------------------------------------------------
+
 
 def test_estimate_peds_max_ignores_nulls():
     splitter = EpisodeSplitter(_FakeAligner(None))

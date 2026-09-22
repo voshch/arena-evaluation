@@ -1,13 +1,12 @@
 from __future__ import annotations
+
 import typing
+
 import numpy as np
 import polars as pl
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
-
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 # task_generator_msgs/msg/EpisodeRecord outcome_state values.
 _OUTCOME_SUCCESS = 2
@@ -108,10 +107,12 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
 
         time_to_goal = prior_results.get("time_to_goal")
 
+        max_collisions = self.metrics_config.get("max_collisions", self.MAX_COLLISIONS)
+
         if time_to_goal is not None and float(time_to_goal) >= self.TIMEOUT_THRESHOLD_S:
             result = "TIMEOUT"
             success = False
-        elif collision_amount >= self.MAX_COLLISIONS:
+        elif collision_amount >= max_collisions:
             result = "COLLISION"
             success = False
         else:

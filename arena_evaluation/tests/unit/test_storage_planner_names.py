@@ -21,6 +21,7 @@ from arena_evaluation.storage.planner_names import split_planner_name
 # falsy inputs
 # ---------------------------------------------------------------------------
 
+
 def test_none_returns_unknown_pair():
     assert split_planner_name(None) == ("unknown", "unknown")
 
@@ -32,6 +33,7 @@ def test_empty_string_returns_unknown_pair():
 # ---------------------------------------------------------------------------
 # one part
 # ---------------------------------------------------------------------------
+
 
 def test_single_part_returns_none_inter():
     assert split_planner_name("teb") == ("teb", "none")
@@ -49,6 +51,7 @@ def test_whitespace_only_name_is_truthy_single_part():
 # two parts
 # ---------------------------------------------------------------------------
 
+
 def test_two_parts_split():
     assert split_planner_name("teb-dwa") == ("teb", "dwa")
 
@@ -64,6 +67,7 @@ def test_two_parts_first_empty():
 # ---------------------------------------------------------------------------
 # three or more parts: first segment dropped, remainder joined
 # ---------------------------------------------------------------------------
+
 
 def test_three_parts_drop_first():
     assert split_planner_name("contestant-local-inter") == ("local", "inter")
@@ -81,6 +85,7 @@ def test_five_parts_join_remainder():
 # type contract
 # ---------------------------------------------------------------------------
 
+
 def test_returns_tuple_of_two_strings():
     result = split_planner_name("nav2-teb-smac")
     assert isinstance(result, tuple)
@@ -91,6 +96,7 @@ def test_returns_tuple_of_two_strings():
 # ---------------------------------------------------------------------------
 # hypothesis properties
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=100, deadline=None, derandomize=True)
 @given(st.text(max_size=20))

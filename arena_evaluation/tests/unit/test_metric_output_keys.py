@@ -9,11 +9,7 @@ _PACKAGE = "arena_evaluation.processing.metrics."
 def _shipped_calculators():
     """Every registered calculator in the package, ignoring test-local subclasses."""
     MetricRegistry.discover_calculators_cls()
-    return [
-        cls
-        for cls in BaseMetricCalculator.__subclasses__()
-        if cls.__module__.startswith(_PACKAGE) and cls.NAME
-    ]
+    return [cls for cls in BaseMetricCalculator.__subclasses__() if cls.__module__.startswith(_PACKAGE) and cls.NAME]
 
 
 def test_calculator_names_are_unique():

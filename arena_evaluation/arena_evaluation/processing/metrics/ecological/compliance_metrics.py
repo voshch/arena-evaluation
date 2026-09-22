@@ -7,10 +7,11 @@ import typing
 import numpy as np
 import polars as pl
 
-from ..base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+    from arena_simulation_setup.tree.World import LevelDescription
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class _DoorGeometry:
     radius: float
 
 
-def _extract_zone_geometry(flattened: typing.Any, require_annotation: bool = True) -> list[_ZoneGeometry]:
+def _extract_zone_geometry(flattened: LevelDescription, require_annotation: bool = True) -> list[_ZoneGeometry]:
     import shapely
 
     zones: list[_ZoneGeometry] = []
@@ -64,7 +65,7 @@ def _extract_zone_geometry(flattened: typing.Any, require_annotation: bool = Tru
     return zones
 
 
-def _extract_door_geometry(flattened: typing.Any) -> list[_DoorGeometry]:
+def _extract_door_geometry(flattened: LevelDescription) -> list[_DoorGeometry]:
     doors: list[_DoorGeometry] = []
     for door in flattened.all_doors:
         center_x = (door.start.x + door.end.x) / 2.0
@@ -80,20 +81,14 @@ def _offset_zones(zones: list[_ZoneGeometry], offset: tuple[float, float]) -> li
         return zones
     import shapely.affinity
 
-    return [
-        dataclasses.replace(zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1]))
-        for zone in zones
-    ]
+    return [dataclasses.replace(zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1])) for zone in zones]
 
 
 def _offset_doors(doors: list[_DoorGeometry], offset: tuple[float, float]) -> list[_DoorGeometry]:
     """World-frame door centers translated into the recorded map frame."""
     if offset == (0.0, 0.0):
         return doors
-    return [
-        dataclasses.replace(door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1])
-        for door in doors
-    ]
+    return [dataclasses.replace(door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]) for door in doors]
 
 
 def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: list[_ZoneGeometry]) -> np.ndarray:
@@ -109,9 +104,7 @@ def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: list[_ZoneGeom
     return idx
 
 
-def _speed_zone_metrics(
-    zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[_ZoneGeometry]
-) -> tuple[int, float]:
+def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[_ZoneGeometry]) -> tuple[int, float]:
     mask = np.zeros(len(zone_idx), dtype=bool)
     for i, j in enumerate(zone_idx):
         if j == -1:
@@ -152,8 +145,12 @@ def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[_ZoneGeometry]) -
 
 
 _RECONSTRUCTED_EVENTS_SCHEMA = {
-    "time_ns": pl.Int64, "entity": pl.Utf8, "kind": pl.Utf8, "field": pl.Utf8,
-    "previous": pl.Utf8, "current": pl.Utf8,
+    "time_ns": pl.Int64,
+    "entity": pl.Utf8,
+    "kind": pl.Utf8,
+    "field": pl.Utf8,
+    "previous": pl.Utf8,
+    "current": pl.Utf8,
 }
 
 
@@ -202,14 +199,16 @@ def _reconstruct_events(snapshot: pl.DataFrame | None) -> pl.DataFrame:
     if not out_time:
         return empty
 
-    return pl.DataFrame({
-        "time_ns": out_time,
-        "entity": out_entity,
-        "kind": out_kind,
-        "field": out_field,
-        "previous": out_previous,
-        "current": out_current,
-    }).sort("time_ns")
+    return pl.DataFrame(
+        {
+            "time_ns": out_time,
+            "entity": out_entity,
+            "kind": out_kind,
+            "field": out_field,
+            "previous": out_previous,
+            "current": out_current,
+        }
+    ).sort("time_ns")
 
 
 def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -279,7 +278,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
     world: str | None = None
 
-    def __init__(self, robot_params: typing.Any) -> None:
+    def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
         self._world_cache: dict[str, tuple[list[_ZoneGeometry], list[_DoorGeometry]] | None] = {}
 
@@ -357,33 +356,33 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         peds_df = self.native_ped_frame(episode)
         if peds_df is None or "peds_positions" not in peds_df.columns:
             return None
-        
+
         pos_x, pos_y, yaw, t_odom = self.resolve_native_pose(episode)
         if len(pos_x) == 0:
             return None
-            
+
         peds_time_ns = peds_df["time_ns"].to_numpy()
         N = len(peds_time_ns)
         if N == 0:
             return None
-            
+
         vx_full, vy_full = self.velocity_from_pose(pos_x, pos_y, t_odom)
         rvx = self.values_at_times(vx_full, t_odom, peds_time_ns)
         rvy = self.values_at_times(vy_full, t_odom, peds_time_ns)
         rpx, rpy, _ = self.pose_at_times(peds_time_ns, pos_x, pos_y, yaw, t_odom)
         dt = np.diff(peds_time_ns, prepend=peds_time_ns[0]) / 1e9
-        
+
         peds_positions = peds_df["peds_positions"].to_list()
         num_peds_col = peds_df["num_pedestrians"].to_numpy() if "num_pedestrians" in peds_df.columns else None
         peds_twists_list = peds_df["peds_twists"].to_list() if "peds_twists" in peds_df.columns else None
-        
+
         in_encounter = False
         min_dist = float('inf')
         lat_offset_at_min = 0.0
-        
+
         encounters_total = 0
         encounters_compliant = 0
-        
+
         prev_peds_arr: np.ndarray | None = None
         for i in range(N):
             peds_arr = self._parse_peds(peds_positions[i], num_peds_col[i] if num_peds_col is not None else None)
@@ -396,6 +395,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                 tw_raw = peds_twists_list[i]
                 if tw_raw and len(tw_raw) > 0:
                     import ast
+
                     if isinstance(tw_raw, str):
                         try:
                             tw_raw = ast.literal_eval(tw_raw)
@@ -414,20 +414,20 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             rx, ry = float(rpx[i]), float(rpy[i])
             vr_x, vr_y = float(rvx[i]), float(rvy[i])
             speed_r = np.hypot(vr_x, vr_y)
-            
+
             head_on_found = False
             curr_min_dist = float('inf')
             curr_lat = 0.0
-            
+
             for j in range(peds_arr.shape[0]):
                 vp_x, vp_y = 0.0, 0.0
                 if ped_vels is not None and j < ped_vels.shape[0]:
                     vp_x, vp_y = float(ped_vels[j, 0]), float(ped_vels[j, 1])
                 speed_p = np.hypot(vp_x, vp_y)
-                
+
                 px, py = float(peds_arr[j, 0]), float(peds_arr[j, 1])
                 dist = np.hypot(px - rx, py - ry)
-                
+
                 if dist <= 4.0 and speed_r > 0.05 and speed_p > 0.05:
                     cos_angle = (vr_x * vp_x + vr_y * vp_y) / (speed_r * speed_p)
                     # Opposing direction: approaching each other within 120 degrees
@@ -437,12 +437,12 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                             curr_min_dist = dist
                             # Positive when pedestrian is to the robot's left (robot passes on right)
                             curr_lat = vr_x * (py - ry) - vr_y * (px - rx)
-            
+
             if head_on_found:
                 if not in_encounter:
                     in_encounter = True
                     min_dist = float('inf')
-                
+
                 if curr_min_dist < min_dist:
                     min_dist = curr_min_dist
                     lat_offset_at_min = curr_lat
@@ -454,18 +454,17 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                         encounters_compliant += 1
                     elif self.passing_convention == "left" and lat_offset_at_min <= 0.0:
                         encounters_compliant += 1
-                        
+
         if in_encounter:
             encounters_total += 1
             if self.passing_convention == "right" and lat_offset_at_min >= 0.0:
                 encounters_compliant += 1
             elif self.passing_convention == "left" and lat_offset_at_min <= 0.0:
                 encounters_compliant += 1
-                
+
         if encounters_total == 0:
             return 1.0
         return float(encounters_compliant) / encounters_total
-
 
     def calculate(
         self,
@@ -497,12 +496,14 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                         restricted_entries = _restricted_zone_entries(zone_idx, zones)
                         doorway_blocking = self._doorway_blocking_time(episode, pos_x, pos_y, speed, time_ns, doors)
 
-                        result.update({
-                            "speed_zone_violations": violations,
-                            "speed_zone_violation_seconds": violation_seconds,
-                            "quiet_zone_dwell_seconds": quiet_seconds,
-                            "restricted_zone_entries": restricted_entries,
-                            "doorway_blocking_time": doorway_blocking,
-                        })
+                        result.update(
+                            {
+                                "speed_zone_violations": violations,
+                                "speed_zone_violation_seconds": violation_seconds,
+                                "quiet_zone_dwell_seconds": quiet_seconds,
+                                "restricted_zone_entries": restricted_entries,
+                                "doorway_blocking_time": doorway_blocking,
+                            }
+                        )
 
         return result

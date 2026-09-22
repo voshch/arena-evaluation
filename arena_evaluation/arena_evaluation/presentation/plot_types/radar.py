@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import pathlib
-import polars as pl
-import plotly.graph_objects as go
-import plotly.express as px
-import numpy as np
-import matplotlib.pyplot as plt
-from ..color_utils import get_color_palette
 
-from .base import BasePlotRenderer
+import matplotlib.pyplot as plt
+import numpy as np
+import plotly.graph_objects as go
+import polars as pl
+
+from arena_evaluation.presentation.color_utils import get_color_palette
+from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
 
 class RadarRenderer(BasePlotRenderer):
@@ -26,20 +26,12 @@ class RadarRenderer(BasePlotRenderer):
             ["path_efficiency", "time_to_goal", "collision_amount", "roughness_mean", "jerk_mean"],
         )
 
-        valid_metrics = [
-            m for m in metrics
-            if m in df_filtered.columns and not df_filtered[m].is_null().all()
-        ]
+        valid_metrics = [m for m in metrics if m in df_filtered.columns and not df_filtered[m].is_null().all()]
 
         if len(valid_metrics) < 3:
             return None
 
-        grouped = (
-            df_filtered
-            .group_by(diff_col)
-            .agg([pl.col(m).mean().alias(m) for m in valid_metrics])
-            .to_pandas()
-        )
+        grouped = df_filtered.group_by(diff_col).agg([pl.col(m).mean().alias(m) for m in valid_metrics]).to_pandas()
         grouped = grouped.fillna(0.0)
 
         if grouped.empty:
@@ -53,9 +45,14 @@ class RadarRenderer(BasePlotRenderer):
                 normalized[m] = np.log1p(normalized[m])
 
         positive_metrics = {
-            "success", "success_rate", "spl", "path_efficiency",
-            "relative_throughput", "passing_rule_compliance",
-            "velocity_mean", "velocity_max",
+            "success",
+            "success_rate",
+            "spl",
+            "path_efficiency",
+            "relative_throughput",
+            "passing_rule_compliance",
+            "velocity_mean",
+            "velocity_max",
         }
 
         for m in valid_metrics:
@@ -81,21 +78,18 @@ class RadarRenderer(BasePlotRenderer):
             formatted_metrics = [self.format_label(m.replace("_", " ").title(), m) for m in valid_metrics]
             labels = formatted_metrics + [formatted_metrics[0]]
 
-            fig.add_trace(go.Scatterpolar(
-                r=values,
-                theta=labels,
-                fill=None,
-                line=dict(width=3),
-                name=row[diff_col],
-                opacity=1.0,
-            ))
+            fig.add_trace(
+                go.Scatterpolar(
+                    r=values,
+                    theta=labels,
+                    fill=None,
+                    line=dict(width=3),
+                    name=row[diff_col],
+                    opacity=1.0,
+                )
+            )
 
-        fig.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-            showlegend=True,
-            template="plotly_white",
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5)
-        )
+        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 1])), showlegend=True, template="plotly_white", legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
 
         return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
 
@@ -110,19 +104,11 @@ class RadarRenderer(BasePlotRenderer):
             "metrics",
             ["path_efficiency", "time_to_goal", "collision_amount", "roughness_mean", "jerk_mean"],
         )
-        valid_metrics = [
-            m for m in metrics
-            if m in df_filtered.columns and not df_filtered[m].is_null().all()
-        ]
+        valid_metrics = [m for m in metrics if m in df_filtered.columns and not df_filtered[m].is_null().all()]
         if len(valid_metrics) < 3:
             return
 
-        grouped = (
-            df_filtered
-            .group_by(diff_col)
-            .agg([pl.col(m).mean().alias(m) for m in valid_metrics])
-            .to_pandas()
-        )
+        grouped = df_filtered.group_by(diff_col).agg([pl.col(m).mean().alias(m) for m in valid_metrics]).to_pandas()
         grouped = grouped.fillna(0.0)
         if grouped.empty:
             return
@@ -134,9 +120,14 @@ class RadarRenderer(BasePlotRenderer):
                 normalized[m] = np.log1p(normalized[m])
 
         positive_metrics = {
-            "success", "success_rate", "spl", "path_efficiency",
-            "relative_throughput", "passing_rule_compliance",
-            "velocity_mean", "velocity_max",
+            "success",
+            "success_rate",
+            "spl",
+            "path_efficiency",
+            "relative_throughput",
+            "passing_rule_compliance",
+            "velocity_mean",
+            "velocity_max",
         }
         for m in valid_metrics:
             max_val = normalized[m].max()
@@ -151,7 +142,6 @@ class RadarRenderer(BasePlotRenderer):
                         normalized[m] = min_val / normalized[m]
                     else:
                         normalized[m] = 1.0 - (normalized[m] / max_val)
-
 
         num_vars = len(valid_metrics)
         angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()

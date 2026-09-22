@@ -28,12 +28,14 @@ def _episode(times_ns, peds_positions, robot_xy=None, twists=None):
         peds["peds_twists"] = twists
     topics = {
         "peds": pl.DataFrame(peds),
-        "tf_gt": pl.DataFrame({
-            "time_ns": times_ns,
-            "pos_x_gt": [p[0] for p in robot_xy],
-            "pos_y_gt": [p[1] for p in robot_xy],
-            "yaw_gt": [0.0] * len(times_ns),
-        }),
+        "tf_gt": pl.DataFrame(
+            {
+                "time_ns": times_ns,
+                "pos_x_gt": [p[0] for p in robot_xy],
+                "pos_y_gt": [p[1] for p in robot_xy],
+                "yaw_gt": [0.0] * len(times_ns),
+            }
+        ),
     }
     return AlignedEpisodeBundle(
         episode_id=1,
@@ -52,16 +54,12 @@ def calc():
 
 def test_output_keys_do_not_collide_with_legacy_proxemics():
     """Both calculators land in the same results dict, so keys must be disjoint."""
-    overlap = set(ProxemicsCalculator.output_keys()) & set(
-        ProxemicsExtendedCalculator.output_keys()
-    )
+    overlap = set(ProxemicsCalculator.output_keys()) & set(ProxemicsExtendedCalculator.output_keys())
     assert overlap == set()
 
 
 def test_no_topics_yields_all_none(calc):
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0
-    )
+    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0)
     results = calc.calculate(episode, {})
     assert set(results) == set(calc.output_keys())
     assert all(v is None for v in results.values())
@@ -71,10 +69,10 @@ def test_time_is_attributed_to_the_hall_zone_of_the_edge_distance(calc):
     """One second in each zone, classified on d_eff rather than center distance."""
     times = [0, SEC, 2 * SEC, 3 * SEC]
     peds = [
-        _at_clearance(0.2),   # intimate
-        _at_clearance(0.8),   # personal
-        _at_clearance(2.0),   # social
-        _at_clearance(5.0),   # public, final frame carries a negligible dt
+        _at_clearance(0.2),  # intimate
+        _at_clearance(0.8),  # personal
+        _at_clearance(2.0),  # social
+        _at_clearance(5.0),  # public, final frame carries a negligible dt
     ]
     results = calc.calculate(_episode(times, peds), {})
 
@@ -90,9 +88,7 @@ def test_zone_boundaries_use_edge_to_edge_not_center_distance(calc):
     results = calc.calculate(_episode([0, SEC], [[center_distance, 0.0]] * 2), {})
     assert results["time_in_intimate_zone"] > 0.0
     assert results["time_in_personal_zone"] == 0.0
-    assert results["timeseries_min_ped_clearance"][0] == pytest.approx(
-        center_distance - D_COMBINED
-    )
+    assert results["timeseries_min_ped_clearance"][0] == pytest.approx(center_distance - D_COMBINED)
 
 
 def test_psii_integrates_clearance_inside_personal_space(calc):
@@ -101,7 +97,6 @@ def test_psii_integrates_clearance_inside_personal_space(calc):
     results = calc.calculate(_episode(times, peds), {})
     # Penetration depth: (1.2 - 0.2) * 1s + (1.2 - 0.8) * 1s = 1.0 + 0.4 = 1.4 m·s; social frame is outside the band.
     assert results["personal_space_intrusion_integral"] == pytest.approx(1.4)
-
 
 
 def test_frames_without_pedestrians_report_no_clearance(calc):

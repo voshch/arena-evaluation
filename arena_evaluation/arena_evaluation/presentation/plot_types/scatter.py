@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pathlib
-import polars as pl
+
 import plotly.express as px
+import polars as pl
 
 from .base import BasePlotRenderer
 
@@ -23,7 +24,8 @@ class ScatterRenderer(BasePlotRenderer):
         if diff_col not in df_filtered.columns:
             return None
 
-        keep = [c for c in [x_col, y_col, diff_col] if c in df_filtered.columns]
+        filter_keys = [k for k in (self.spec.filter or {}) if k in df_filtered.columns]
+        keep = list(dict.fromkeys([c for c in [x_col, y_col, diff_col, *filter_keys] if c in df_filtered.columns]))
         list_cols = [c for c in keep if df_filtered.schema[c] == pl.List]
         if list_cols:
             df_filtered = df_filtered.select(keep).explode(list_cols)
@@ -49,11 +51,7 @@ class ScatterRenderer(BasePlotRenderer):
             opacity=0.7,
         )
 
-        fig.update_layout(
-            xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col),
-            yaxis_title=self.format_label(y_col.replace("_", " ").title(), y_col),
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5)
-        )
+        fig.update_layout(xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col), yaxis_title=self.format_label(y_col.replace("_", " ").title(), y_col), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
 
         return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
 
@@ -99,4 +97,3 @@ class ScatterRenderer(BasePlotRenderer):
         plt.tight_layout()
         plt.savefig(out_path, dpi=300)
         plt.close()
-

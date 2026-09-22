@@ -1,4 +1,5 @@
 """Analysis functions from tools.py on synthetic Polars DataFrames."""
+
 import pytest
 
 pl = pytest.importorskip("polars")
@@ -25,21 +26,17 @@ _DECLARATIONS = {
 
 @pytest.fixture
 def sample_df() -> "pl.DataFrame":
-    return pl.DataFrame({
-        "local_planner": ["dwb"] * 6 + ["teb"] * 6 + ["dwa"] * 6,
-        "stage": ["stage_a", "stage_b"] * 9,
-        "map": ["map_empty"] * 18,
-        "success": [1.0] * 5 + [0.0] + [0.9] * 4 + [0.0, 0.0] + [0.8] * 6,
-        "time_to_goal": [45.0, 48.0, 42.0, 47.0, 44.0, 0.0,
-                         52.0, 55.0, 50.0, 53.0, 0.0, 0.0,
-                         60.0, 62.0, 58.0, 61.0, 59.0, 63.0],
-        "collision_amount": [0.1, 0.0, 0.2, 0.1, 0.0, 0.0,
-                             0.3, 0.2, 0.4, 0.3, 0.0, 0.0,
-                             0.5, 0.6, 0.4, 0.5, 0.6, 0.5],
-        "jerk_mean": [0.01, 0.02, 0.01, 0.02, 0.01, 0.0,
-                      0.03, 0.04, 0.03, 0.04, 0.0, 0.0,
-                      0.05, 0.06, 0.05, 0.06, 0.05, 0.04],
-    })
+    return pl.DataFrame(
+        {
+            "local_planner": ["dwb"] * 6 + ["teb"] * 6 + ["dwa"] * 6,
+            "stage": ["stage_a", "stage_b"] * 9,
+            "map": ["map_empty"] * 18,
+            "success": [1.0] * 5 + [0.0] + [0.9] * 4 + [0.0, 0.0] + [0.8] * 6,
+            "time_to_goal": [45.0, 48.0, 42.0, 47.0, 44.0, 0.0, 52.0, 55.0, 50.0, 53.0, 0.0, 0.0, 60.0, 62.0, 58.0, 61.0, 59.0, 63.0],
+            "collision_amount": [0.1, 0.0, 0.2, 0.1, 0.0, 0.0, 0.3, 0.2, 0.4, 0.3, 0.0, 0.0, 0.5, 0.6, 0.4, 0.5, 0.6, 0.5],
+            "jerk_mean": [0.01, 0.02, 0.01, 0.02, 0.01, 0.0, 0.03, 0.04, 0.03, 0.04, 0.0, 0.0, 0.05, 0.06, 0.05, 0.06, 0.05, 0.04],
+        }
+    )
 
 
 class TestComparePlanners:
@@ -104,7 +101,9 @@ class TestComparePlanners:
         from arena_evaluation_mcp.tools import _compare_planners_frame
 
         result = _compare_planners_frame(
-            sample_df, metrics=["nonexistent"], declarations=_DECLARATIONS,
+            sample_df,
+            metrics=["nonexistent"],
+            declarations=_DECLARATIONS,
         )
         assert "error" in result
 
@@ -114,7 +113,10 @@ class TestFindTopN:
         from arena_evaluation_mcp.tools import _find_top_n_frame
 
         result = _find_top_n_frame(
-            sample_df, metrics=["success"], declarations=_DECLARATIONS, n=2,
+            sample_df,
+            metrics=["success"],
+            declarations=_DECLARATIONS,
+            n=2,
         )
         assert len(result["top_n"]) == 2
 
@@ -149,7 +151,10 @@ class TestFindTopN:
         from arena_evaluation_mcp.tools import _find_top_n_frame
 
         result = _find_top_n_frame(
-            sample_df, metrics=["collision_amount"], declarations=_DECLARATIONS, n=1,
+            sample_df,
+            metrics=["collision_amount"],
+            declarations=_DECLARATIONS,
+            n=1,
         )
         assert len(result["top_n"]) == 1
 

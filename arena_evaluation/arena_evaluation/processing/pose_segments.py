@@ -18,6 +18,7 @@ log time: under lockstep the wall clock runs at an arbitrary real-time
 factor, and a reset happens with the sim paused, so in wall time it is a
 slow drift rather than a jump. Without sim stamps the distance rule stands.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,7 +27,7 @@ MIN_JUMP_M = 0.5
 MAX_SPEED_MPS = 5.0  # above any ground robot in the fleet; a reset moves the robot within one sample
 
 
-def teleport_jumps(x, y, time_ns=None) -> np.ndarray:
+def teleport_jumps(x: np.ndarray, y: np.ndarray, time_ns: np.ndarray | None = None) -> np.ndarray:
     """Indices ``i`` where the step from sample ``i`` to ``i+1`` is a teleport."""
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)

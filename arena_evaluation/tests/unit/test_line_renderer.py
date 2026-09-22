@@ -159,4 +159,3 @@ def test_line_outlier_trimming():
     pdf = prepared[0]
     # The mean should be 50.0 (the 1000.0 spike was trimmed out)
     assert abs(pdf["power"].iloc[0] - 50.0) < 1e-3
-

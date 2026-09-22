@@ -1,4 +1,5 @@
 """Door state timeline constructed from SemanticSnapshot messages."""
+
 from __future__ import annotations
 
 import bisect
@@ -17,7 +18,7 @@ class DoorStateTimeline:
         self.open_sets = open_sets
 
     @classmethod
-    def from_semantic_frame(cls, semantic: pl.DataFrame | None) -> "DoorStateTimeline | None":
+    def from_semantic_frame(cls, semantic: pl.DataFrame | None) -> DoorStateTimeline | None:
         """Build the timeline from the flattened semantic snapshot table."""
         if semantic is None:
             return None

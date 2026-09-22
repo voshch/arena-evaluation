@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from .base import BaseMetricCalculator
 from .registry import MetricRegistry
 

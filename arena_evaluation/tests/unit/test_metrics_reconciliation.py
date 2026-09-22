@@ -30,7 +30,7 @@ def test_geometric_theta_star_obstacle_detour():
     # Put a vertical wall in the middle x=50, y from 20 to 80
     grid[20:80, 48:52] = True
     start = (1.0, 2.5)  # left of wall
-    goal = (4.0, 2.5)   # right of wall
+    goal = (4.0, 2.5)  # right of wall
 
     solver = GeometricThetaStar(grid, resolution=0.05, origin=(0.0, 0.0), robot_radius=0.1)
     pts, length = solver.solve(start, goal)
@@ -88,11 +88,13 @@ def test_psii_penetration_depth_monotonicity():
     # Ped 2: Shallow skimming at (1.5, 0.0) -> d_center = 1.5, d_eff = 1.5 - 0.6 = 0.9 -> penetration depth = 1.2 - 0.9 = 0.3
 
     # Case A: Deep
-    df_deep = pl.DataFrame({
-        "time_ns": [0, 1_000_000_000],
-        "peds_positions": ["[ [0.4, 0.0] ]", "[ [0.4, 0.0] ]"],
-        "num_pedestrians": [1, 1],
-    })
+    df_deep = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "peds_positions": ["[ [0.4, 0.0] ]", "[ [0.4, 0.0] ]"],
+            "num_pedestrians": [1, 1],
+        }
+    )
     tf_df = pl.DataFrame({"time_ns": [0, 1_000_000_000], "pos_x_gt": [0.0, 0.0], "pos_y_gt": [0.0, 0.0], "yaw_gt": [0.0, 0.0]})
     ep_deep = AlignedEpisodeBundle(
         episode_id=1,
@@ -106,11 +108,13 @@ def test_psii_penetration_depth_monotonicity():
     )
 
     # Case B: Shallow
-    df_shallow = pl.DataFrame({
-        "time_ns": [0, 1_000_000_000],
-        "peds_positions": ["[ [1.5, 0.0] ]", "[ [1.5, 0.0] ]"],
-        "num_pedestrians": [1, 1],
-    })
+    df_shallow = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "peds_positions": ["[ [1.5, 0.0] ]", "[ [1.5, 0.0] ]"],
+            "num_pedestrians": [1, 1],
+        }
+    )
     ep_shallow = AlignedEpisodeBundle(
         episode_id=2,
         data=tf_df,

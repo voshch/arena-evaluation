@@ -211,6 +211,7 @@ plots:
     layout_group: acoustic_impact
     options:
       downsample: 1
+      overlay_trajectories: true
   - id: acoustic_field_animation
     type: acoustic_field_animation
     title: "Acoustic Field Timeline (Animated)"
@@ -222,6 +223,7 @@ plots:
       downsample: 2
       fps: 10
       max_frames: 100
+      overlay_trajectories: true
       format: gif
 
   # ── Power & Velocity Time Profiles ──────────────────────────────────────────

@@ -80,10 +80,12 @@ def test_notes_render_as_standalone_callout_not_table_rows():
 
 def test_agent_rows_rendered_cleanly():
     """options.rows is an agent-authored table, exactly as given."""
-    spec = _spec(rows=[
-        {"label": "Key Finding", "value": "DWB wins on success"},
-        {"label": "Recommendation", "value": "Use DWB in corridors"},
-    ])
+    spec = _spec(
+        rows=[
+            {"label": "Key Finding", "value": "DWB wins on success"},
+            {"label": "Recommendation", "value": "Use DWB in corridors"},
+        ]
+    )
     html = TableRenderer(spec).render_plotly(_df())
     assert html is not None
     assert "Key Finding" in html and "DWB wins on success" in html
@@ -102,7 +104,7 @@ def test_rows_and_data_table_coexist():
     )
     html = TableRenderer(spec).render_plotly(_df())
     assert html is not None
-    assert "88%" in html          # data table
+    assert "88%" in html  # data table
     assert "Key Finding" in html  # agent rows table
     assert "notes-callout" in html and "Conclusion" in html
 

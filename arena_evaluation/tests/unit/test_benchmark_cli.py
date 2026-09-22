@@ -5,6 +5,7 @@ Covers :mod:`arena_evaluation.benchmark.cli`. No subprocesses are executed:
 driven with in-memory stub modules (the real import stays lazy), and all
 filesystem state lives under ``tmp_path``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,6 +24,7 @@ from arena_evaluation.benchmark.step import StepErrorKind, StepResult
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_manifest(run_id: str = "r1", **overrides: object) -> Manifest:
     base: dict[str, object] = {
@@ -46,10 +48,7 @@ def _make_manifest(run_id: str = "r1", **overrides: object) -> Manifest:
     return Manifest(**base)  # type: ignore[arg-type]
 
 
-def _make_run(data_root: pathlib.Path, run_id: str,
-              manifest: Manifest | None = None,
-              state_steps: dict[str, StepResult] | None = None,
-              progress_csv: str | None = None) -> pathlib.Path:
+def _make_run(data_root: pathlib.Path, run_id: str, manifest: Manifest | None = None, state_steps: dict[str, StepResult] | None = None, progress_csv: str | None = None) -> pathlib.Path:
     run_dir = RunDir.create(data_root, run_id, manifest or _make_manifest(run_id=run_id))
     if state_steps:
         run_dir.state.write(state_steps)
@@ -65,6 +64,7 @@ def _args(**kw: object) -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # _resolve_run
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_run_explicit_id(tmp_path: pathlib.Path):
     _make_run(tmp_path, "r1")
@@ -96,6 +96,7 @@ def test_resolve_run_returns_most_recent(tmp_path: pathlib.Path):
 # _count_by_status
 # ---------------------------------------------------------------------------
 
+
 def _sr(key: str, status: str) -> StepResult:
     return StepResult(key, status, None, 0.0, 1.0, None, None)
 
@@ -121,6 +122,7 @@ def test_count_by_status_unknown_status_ignored():
 # _cmd_list
 # ---------------------------------------------------------------------------
 
+
 def test_cmd_list_missing_root(tmp_path: pathlib.Path, capsys):
     rc = cli_mod._cmd_list(_args(data_root=str(tmp_path / "nope")))
     assert rc == 0
@@ -144,15 +146,15 @@ def test_cmd_list_skips_runs_without_valid_manifest(tmp_path: pathlib.Path, caps
 
 def test_cmd_list_prints_table(tmp_path: pathlib.Path, capsys):
     _make_run(
-        tmp_path, "run-b",
-        manifest=_make_manifest(run_id="run-b", suite_name="suite_b", contest_name="contest_b",
-                                 created_at="2026-06-23T20:25:09+00:00"),
+        tmp_path,
+        "run-b",
+        manifest=_make_manifest(run_id="run-b", suite_name="suite_b", contest_name="contest_b", created_at="2026-06-23T20:25:09+00:00"),
         state_steps={"c1/s1": _sr("c1/s1", "ok"), "c1/s2": _sr("c1/s2", "failed")},
     )
     _make_run(
-        tmp_path, "run-a",
-        manifest=_make_manifest(run_id="run-a", suite_name="suite_a", contest_name="contest_a",
-                                 created_at="2026-06-23T20:25:09+00:00"),
+        tmp_path,
+        "run-a",
+        manifest=_make_manifest(run_id="run-a", suite_name="suite_a", contest_name="contest_a", created_at="2026-06-23T20:25:09+00:00"),
         state_steps={"c1/s1": _sr("c1/s1", "in_progress")},
     )
     rc = cli_mod._cmd_list(_args(data_root=str(tmp_path)))
@@ -178,20 +180,45 @@ def test_cmd_list_empty_created_at(tmp_path: pathlib.Path, capsys):
 # _format_status_block
 # ---------------------------------------------------------------------------
 
+
 def test_format_status_block_counts_and_pending():
     block = cli_mod._format_status_block(
-        run_id="r1", suite="s", contest="c", simulator="gazebo", env_n=2, headless=False,
-        created_at="when", steps_total=6, ok=2, partial=1, failed=1, skipped=1, in_flight=1,
-        active=[], failed_steps=[],
+        run_id="r1",
+        suite="s",
+        contest="c",
+        simulator="gazebo",
+        env_n=2,
+        headless=False,
+        created_at="when",
+        steps_total=6,
+        ok=2,
+        partial=1,
+        failed=1,
+        skipped=1,
+        in_flight=1,
+        active=[],
+        failed_steps=[],
     )
     assert "steps: 6    ok: 2  partial: 1  failed: 1  skipped: 1  in_flight: 1  pending: 0" in block
 
 
 def test_format_status_block_active_with_and_without_started():
     block = cli_mod._format_status_block(
-        run_id="r1", suite="s", contest="c", simulator="gazebo", env_n=1, headless=True,
-        created_at="when", steps_total=2, ok=0, partial=0, failed=0, skipped=0, in_flight=2,
-        active=[("p/s1", "30s ago"), ("p/s2", None)], failed_steps=[],
+        run_id="r1",
+        suite="s",
+        contest="c",
+        simulator="gazebo",
+        env_n=1,
+        headless=True,
+        created_at="when",
+        steps_total=2,
+        ok=0,
+        partial=0,
+        failed=0,
+        skipped=0,
+        in_flight=2,
+        active=[("p/s1", "30s ago"), ("p/s2", None)],
+        failed_steps=[],
     )
     assert "active:" in block
     assert "p/s1 (started 30s ago)" in block
@@ -200,9 +227,21 @@ def test_format_status_block_active_with_and_without_started():
 
 def test_format_status_block_failed_with_unknown_kind():
     block = cli_mod._format_status_block(
-        run_id="r1", suite="s", contest="c", simulator="gazebo", env_n=1, headless=False,
-        created_at="when", steps_total=1, ok=0, partial=0, failed=1, skipped=0, in_flight=0,
-        active=[], failed_steps=[("p/s1", None, None)],
+        run_id="r1",
+        suite="s",
+        contest="c",
+        simulator="gazebo",
+        env_n=1,
+        headless=False,
+        created_at="when",
+        steps_total=1,
+        ok=0,
+        partial=0,
+        failed=1,
+        skipped=0,
+        in_flight=0,
+        active=[],
+        failed_steps=[("p/s1", None, None)],
     )
     assert "failed:" in block
     assert "p/s1: unknown: " in block
@@ -210,9 +249,21 @@ def test_format_status_block_failed_with_unknown_kind():
 
 def test_format_status_block_failed_with_kind_and_detail():
     block = cli_mod._format_status_block(
-        run_id="r1", suite="s", contest="c", simulator="", env_n=1, headless=False,
-        created_at="when", steps_total=1, ok=0, partial=0, failed=1, skipped=0, in_flight=0,
-        active=[], failed_steps=[("p/s1", "internal", "boom")],
+        run_id="r1",
+        suite="s",
+        contest="c",
+        simulator="",
+        env_n=1,
+        headless=False,
+        created_at="when",
+        steps_total=1,
+        ok=0,
+        partial=0,
+        failed=1,
+        skipped=0,
+        in_flight=0,
+        active=[],
+        failed_steps=[("p/s1", "internal", "boom")],
     )
     assert "p/s1: internal: boom" in block
 
@@ -220,6 +271,7 @@ def test_format_status_block_failed_with_kind_and_detail():
 # ---------------------------------------------------------------------------
 # _ago
 # ---------------------------------------------------------------------------
+
 
 def test_ago_none():
     assert cli_mod._ago(None) is None
@@ -236,12 +288,17 @@ def test_ago_seconds_minutes_hours():
 # _status_from_disk / _cmd_status
 # ---------------------------------------------------------------------------
 
+
 def test_status_from_disk_active_and_failed(tmp_path: pathlib.Path):
-    _make_run(tmp_path, "r1", state_steps={
-        "p/s0": _sr("p/s0", "ok"),  # neither active nor failed
-        "p/s1": StepResult("p/s1", "in_progress", None, 100.0, None, None, None),
-        "p/s2": StepResult("p/s2", "failed", 1, 0.0, 1.0, StepErrorKind.INTERNAL, "boom"),
-    })
+    _make_run(
+        tmp_path,
+        "r1",
+        state_steps={
+            "p/s0": _sr("p/s0", "ok"),  # neither active nor failed
+            "p/s1": StepResult("p/s1", "in_progress", None, 100.0, None, None, None),
+            "p/s2": StepResult("p/s2", "failed", 1, 0.0, 1.0, StepErrorKind.INTERNAL, "boom"),
+        },
+    )
     block = cli_mod._status_from_disk(tmp_path, "r1")
     assert "run: r1" in block
     assert "p/s2: internal: boom" in block
@@ -268,6 +325,7 @@ def test_cmd_status_no_run_id_resolves_latest(tmp_path: pathlib.Path, capsys):
 
 
 # -- status --watch, driven through in-memory stub modules (imports stay lazy) --
+
 
 def _install_watch_stubs(monkeypatch) -> types.SimpleNamespace:
     """Stub rclpy / arena_evaluation_msgs / arena_rclpy_mixins so the --watch
@@ -352,6 +410,7 @@ def test_cmd_status_watch_keyboard_interrupt(tmp_path: pathlib.Path, capsys, mon
 # _cmd_tail
 # ---------------------------------------------------------------------------
 
+
 def test_cmd_tail_waits_for_csv_then_tails(tmp_path: pathlib.Path, capsys, monkeypatch):
     run_path = _make_run(tmp_path, "r1")
     csv_path = run_path / "progress.csv"
@@ -388,6 +447,7 @@ def test_cmd_tail_keyboard_interrupt(tmp_path: pathlib.Path, monkeypatch):
 # _cmd_ps
 # ---------------------------------------------------------------------------
 
+
 def test_cmd_ps_no_processes(capsys, monkeypatch):
     # _cmd_ps re-imports running_processes at call time from .debug
     monkeypatch.setattr("arena_evaluation.benchmark.debug.running_processes", lambda: [])
@@ -397,17 +457,20 @@ def test_cmd_ps_no_processes(capsys, monkeypatch):
 
 
 def test_cmd_ps_prints_rows_and_elapsed_formats(capsys, monkeypatch):
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.running_processes", lambda: [
-        {"pid": 7, "kind": "benchmark_runner", "elapsed_s": None, "command": "eval benchmark r1"},
-        {"pid": 12, "kind": "simulation", "elapsed_s": 12.0, "command": "gz sim"},
-        {"pid": 305, "kind": "arena_node", "elapsed_s": 305.0, "command": "arena_node"},
-        {"pid": 3900, "kind": "arena_cli", "elapsed_s": 3900.0, "command": "arena_cli x"},
-    ])
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.running_processes",
+        lambda: [
+            {"pid": 7, "kind": "benchmark_runner", "elapsed_s": None, "command": "eval benchmark r1"},
+            {"pid": 12, "kind": "simulation", "elapsed_s": 12.0, "command": "gz sim"},
+            {"pid": 305, "kind": "arena_node", "elapsed_s": 305.0, "command": "arena_node"},
+            {"pid": 3900, "kind": "arena_cli", "elapsed_s": 3900.0, "command": "arena_cli x"},
+        ],
+    )
     rc = cli_mod._cmd_ps(_args(data_root=None))
     out = capsys.readouterr().out
     assert rc == 0
     assert "PID" in out and "KIND" in out and "ELAPSED" in out
-    assert "?" in out          # None elapsed
+    assert "?" in out  # None elapsed
     assert "12s" in out
     assert "5m05s" in out
     assert "1h05m" in out
@@ -417,6 +480,7 @@ def test_cmd_ps_prints_rows_and_elapsed_formats(capsys, monkeypatch):
 # ---------------------------------------------------------------------------
 # _cmd_console
 # ---------------------------------------------------------------------------
+
 
 def test_cmd_console_resolves_latest_run(monkeypatch, tmp_path: pathlib.Path, capsys):
     monkeypatch.setenv("ARENA_DATA_DIR", str(tmp_path))
@@ -433,10 +497,18 @@ def test_cmd_console_resolves_latest_run(monkeypatch, tmp_path: pathlib.Path, ca
 
 def test_cmd_console_log_missing(capsys, monkeypatch):
     # _cmd_console re-imports tail_console at call time from .debug
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", lambda run_id, lines: {
-        "run_id": run_id, "path": "/logs/runner.log", "exists": False,
-        "pid": None, "alive": False, "truncated": False, "lines": [],
-    })
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.tail_console",
+        lambda run_id, lines: {
+            "run_id": run_id,
+            "path": "/logs/runner.log",
+            "exists": False,
+            "pid": None,
+            "alive": False,
+            "truncated": False,
+            "lines": [],
+        },
+    )
     rc = cli_mod._cmd_console(_args(data_root=None, run_id="r1", lines=200, follow=False))
     out = capsys.readouterr().out
     assert rc == 1
@@ -445,11 +517,18 @@ def test_cmd_console_log_missing(capsys, monkeypatch):
 
 
 def test_cmd_console_prints_log(capsys, monkeypatch):
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", lambda run_id, lines: {
-        "run_id": run_id, "path": "/logs/runner.log", "exists": True,
-        "pid": 42, "alive": True, "truncated": False,
-        "lines": ["line1", "line2"],
-    })
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.tail_console",
+        lambda run_id, lines: {
+            "run_id": run_id,
+            "path": "/logs/runner.log",
+            "exists": True,
+            "pid": 42,
+            "alive": True,
+            "truncated": False,
+            "lines": ["line1", "line2"],
+        },
+    )
     rc = cli_mod._cmd_console(_args(data_root=None, run_id="r1", lines=200, follow=False))
     out = capsys.readouterr().out
     assert rc == 0
@@ -460,10 +539,18 @@ def test_cmd_console_prints_log(capsys, monkeypatch):
 def test_cmd_console_truncated_message(capsys, monkeypatch):
     """Pins current truncation notice. NOTE: it reports args.lines twice
     instead of the actual line count — suspected source bug."""
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", lambda run_id, lines: {
-        "run_id": run_id, "path": "/logs/runner.log", "exists": True,
-        "pid": 1, "alive": False, "truncated": True, "lines": ["a", "b", "c"],
-    })
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.tail_console",
+        lambda run_id, lines: {
+            "run_id": run_id,
+            "path": "/logs/runner.log",
+            "exists": True,
+            "pid": 1,
+            "alive": False,
+            "truncated": True,
+            "lines": ["a", "b", "c"],
+        },
+    )
     rc = cli_mod._cmd_console(_args(data_root=None, run_id="r1", lines=2, follow=False))
     out = capsys.readouterr().out
     assert rc == 0
@@ -476,13 +563,10 @@ def test_cmd_console_follow_until_runner_exits(capsys, monkeypatch):
     def _tail(run_id, lines):  # noqa: ARG001
         state["n"] += 1
         if state["n"] == 1:
-            return {"run_id": run_id, "path": "/logs/runner.log", "exists": True,
-                    "pid": 7, "alive": True, "truncated": False, "lines": ["a", "b"]}
+            return {"run_id": run_id, "path": "/logs/runner.log", "exists": True, "pid": 7, "alive": True, "truncated": False, "lines": ["a", "b"]}
         if state["n"] == 2:
-            return {"run_id": run_id, "path": "/logs/runner.log", "exists": False,
-                    "pid": 7, "alive": True, "truncated": False, "lines": []}
-        return {"run_id": run_id, "path": "/logs/runner.log", "exists": True,
-                "pid": 7, "alive": False, "truncated": False, "lines": ["a", "b", "c"]}
+            return {"run_id": run_id, "path": "/logs/runner.log", "exists": False, "pid": 7, "alive": True, "truncated": False, "lines": []}
+        return {"run_id": run_id, "path": "/logs/runner.log", "exists": True, "pid": 7, "alive": False, "truncated": False, "lines": ["a", "b", "c"]}
 
     monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", _tail)
     monkeypatch.setattr(cli_mod.time, "sleep", lambda secs: None)
@@ -499,10 +583,18 @@ def test_cmd_console_follow_until_runner_exits(capsys, monkeypatch):
 
 def test_cmd_console_follow_runner_died_log_missing(capsys, monkeypatch):
     """Runner exits while the log file is gone: still reports runner exited."""
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", lambda run_id, lines: {
-        "run_id": run_id, "path": "/logs/runner.log", "exists": False,
-        "pid": None, "alive": False, "truncated": False, "lines": [],
-    })
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.tail_console",
+        lambda run_id, lines: {
+            "run_id": run_id,
+            "path": "/logs/runner.log",
+            "exists": False,
+            "pid": None,
+            "alive": False,
+            "truncated": False,
+            "lines": [],
+        },
+    )
     monkeypatch.setattr(cli_mod.time, "sleep", lambda secs: None)
     rc = cli_mod._cmd_console(_args(data_root=None, run_id="r1", lines=200, follow=True))
     out = capsys.readouterr().out
@@ -514,6 +606,7 @@ def test_cmd_console_follow_runner_died_log_missing(capsys, monkeypatch):
 # ---------------------------------------------------------------------------
 # main() dispatch
 # ---------------------------------------------------------------------------
+
 
 def test_main_list_command(tmp_path: pathlib.Path, capsys):
     _make_run(tmp_path, "r1")

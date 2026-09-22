@@ -15,12 +15,8 @@ def manifests_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     bench_dir = tmp_path / "configs" / "benchmark"
     d = bench_dir / "manifests"
     d.mkdir(parents=True)
-    (d / "foo.yaml").write_text(
-        "manifest_version: '1.0'\nname: foo\ntitle: Foo Report\ndata_source: metrics\nplots: []\n"
-    )
-    (d / "standard.yaml").write_text(
-        "manifest_version: '1.0'\nname: standard\nplots: []\n"
-    )
+    (d / "foo.yaml").write_text("manifest_version: '1.0'\nname: foo\ntitle: Foo Report\ndata_source: metrics\nplots: []\n")
+    (d / "standard.yaml").write_text("manifest_version: '1.0'\nname: standard\nplots: []\n")
     registered = ManifestIdentifier._resolvers
     ManifestIdentifier._resolvers = [ConfigPathResolver(ManifestIdentifier, bench_dir)]
     try:
@@ -64,17 +60,13 @@ def test_resolve_missing_name_raises(manifests_dir):
 
 
 def test_legacy_benchmark_viz_manifest(tmp_path: pathlib.Path):
-    (tmp_path / "viz_manifest.yaml").write_text(
-        "manifest_version: '1.0'\nname: legacy\ndata_source: metrics\nplots: []\n"
-    )
+    (tmp_path / "viz_manifest.yaml").write_text("manifest_version: '1.0'\nname: legacy\ndata_source: metrics\nplots: []\n")
     m = registry.resolve_manifest(None, benchmark_dir=tmp_path)
     assert m.name == "legacy"
 
 
 def test_note_file_readback(tmp_path: pathlib.Path, manifests_dir):
-    (tmp_path / "report_manifest.yaml").write_text(
-        "name: foo\ndata_source: metrics\nn_plots: 0\n"
-    )
+    (tmp_path / "report_manifest.yaml").write_text("name: foo\ndata_source: metrics\nn_plots: 0\n")
     m = registry.resolve_manifest(None, benchmark_dir=tmp_path)
     assert m.name == "foo"
 

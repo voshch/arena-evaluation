@@ -4,6 +4,7 @@ config hashing, git SHA capture, and resumability scanning.
 Covers :mod:`arena_evaluation.benchmark.state` (importable without a ROS graph;
 only ``rclpy.parameter`` is imported for parameter serialization).
 """
+
 from __future__ import annotations
 
 import csv
@@ -34,6 +35,7 @@ from arena_evaluation.benchmark.step import StepErrorKind, StepResult
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_manifest(**overrides: object) -> Manifest:
     base: dict[str, object] = {
@@ -78,8 +80,13 @@ def _make_episode_record(*, episode_id: int = 1) -> types.SimpleNamespace:
 
 def _ok_step(key: str, **overrides: object) -> StepResult:
     fields: dict[str, object] = dict(
-        key=key, status="ok", env_id=1, started_at=1.0, ended_at=2.0,
-        error_kind=None, error_detail=None,
+        key=key,
+        status="ok",
+        env_id=1,
+        started_at=1.0,
+        ended_at=2.0,
+        error_kind=None,
+        error_detail=None,
     )
     fields.update(overrides)
     return StepResult(**fields)  # type: ignore[arg-type]
@@ -88,6 +95,7 @@ def _ok_step(key: str, **overrides: object) -> StepResult:
 # ---------------------------------------------------------------------------
 # compute_config_hash
 # ---------------------------------------------------------------------------
+
 
 def test_compute_config_hash_deterministic():
     suite = {"stages": [{"name": "s1", "map": "m1"}]}
@@ -121,18 +129,14 @@ def test_compute_config_hash_differs_on_input():
 # find_most_recent_resumable
 # ---------------------------------------------------------------------------
 
-def _make_resumable_run(root: pathlib.Path, name: str, *, state_steps: object | None = None,
-                        manifest_text: str | None = None, with_state: bool = True) -> pathlib.Path:
+
+def _make_resumable_run(root: pathlib.Path, name: str, *, state_steps: object | None = None, manifest_text: str | None = None, with_state: bool = True) -> pathlib.Path:
     """Create a run dir that is structurally resumable (manifest + state)."""
     run_path = root / name
     run_path.mkdir(parents=True)
-    (run_path / "manifest.yaml").write_text(
-        manifest_text if manifest_text is not None else _make_manifest(run_id=name).to_yaml()
-    )
+    (run_path / "manifest.yaml").write_text(manifest_text if manifest_text is not None else _make_manifest(run_id=name).to_yaml())
     if with_state:
-        (run_path / ".benchmark_state.json").write_text(
-            json.dumps({"steps": state_steps or {}})
-        )
+        (run_path / ".benchmark_state.json").write_text(json.dumps({"steps": state_steps or {}}))
     return run_path
 
 
@@ -195,6 +199,7 @@ def test_find_resumable_returns_most_recent(tmp_path: pathlib.Path):
 # capture_git_sha
 # ---------------------------------------------------------------------------
 
+
 def _install_fake_git(monkeypatch, results: list[subprocess.CompletedProcess]) -> list[list[str]]:
     calls: list[list[str]] = []
 
@@ -247,6 +252,7 @@ def test_capture_git_sha_raises_returns_none(monkeypatch):
 # Manifest round trip
 # ---------------------------------------------------------------------------
 
+
 def test_manifest_round_trip_all_fields():
     man = _make_manifest()
     man2 = Manifest.from_yaml(man.to_yaml())
@@ -287,6 +293,7 @@ def test_manifest_from_yaml_missing_fields_raises():
 # StateFile
 # ---------------------------------------------------------------------------
 
+
 def test_state_file_open_empty(tmp_path: pathlib.Path):
     sf = StateFile.open(tmp_path)
     assert sf.steps == {}
@@ -298,9 +305,15 @@ def test_state_file_write_round_trip(tmp_path: pathlib.Path):
     steps = {
         "p/s1": _ok_step("p/s1"),
         "p/s2": StepResult(
-            key="p/s2", status="partial", env_id=0, started_at=3.0, ended_at=4.0,
-            error_kind=StepErrorKind.EPISODE_TIMEOUT, error_detail="slow",
-            episodes_run=2, episodes_failed=1,
+            key="p/s2",
+            status="partial",
+            env_id=0,
+            started_at=3.0,
+            ended_at=4.0,
+            error_kind=StepErrorKind.EPISODE_TIMEOUT,
+            error_detail="slow",
+            episodes_run=2,
+            episodes_failed=1,
         ),
     }
     sf.write(steps)
@@ -336,14 +349,21 @@ def test_state_file_write_updates_member(tmp_path: pathlib.Path):
 
 
 def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
-    (tmp_path / ".benchmark_state.json").write_text(json.dumps({
-        "steps": {
-            "p/s": {
-                "status": "failed", "env_id": None, "started_at": 0.0, "ended_at": 1.0,
-                "error": "legacy message",
+    (tmp_path / ".benchmark_state.json").write_text(
+        json.dumps(
+            {
+                "steps": {
+                    "p/s": {
+                        "status": "failed",
+                        "env_id": None,
+                        "started_at": 0.0,
+                        "ended_at": 1.0,
+                        "error": "legacy message",
+                    }
+                }
             }
-        }
-    }))
+        )
+    )
     sf = StateFile.open(tmp_path)
     r = sf.steps["p/s"]
     assert r.error_detail == "legacy message"
@@ -352,9 +372,7 @@ def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
 
 
 def test_state_file_open_invalid_error_kind_raises(tmp_path: pathlib.Path):
-    (tmp_path / ".benchmark_state.json").write_text(json.dumps({
-        "steps": {"p/s": {"status": "failed", "error_kind": "bogus_kind"}}
-    }))
+    (tmp_path / ".benchmark_state.json").write_text(json.dumps({"steps": {"p/s": {"status": "failed", "error_kind": "bogus_kind"}}}))
     with pytest.raises(ValueError):
         StateFile.open(tmp_path)
 
@@ -368,6 +386,7 @@ def test_state_file_open_corrupt_json_raises(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 # _params_to_json
 # ---------------------------------------------------------------------------
+
 
 def _msg_param(name: str, ptype: int, value) -> MsgParameter:
     p = MsgParameter()
@@ -410,12 +429,31 @@ def test_params_to_json_empty():
 # ---------------------------------------------------------------------------
 
 _HEADERS = [
-    "ts_iso", "run_id", "step_key", "contestant", "stage", "env_id", "episode_id", "parent_episode_id",
-    "is_reference", "reference_type",
-    "world", "seed", "tm_robots", "tm_obstacles", "tm_modules", "robots",
-    "outcome_state", "outcome_info", "started_at", "ended_at", "runtime_s",
-    "robots_params_json", "obstacles_params_json",
-    "error_kind", "error_detail",
+    "ts_iso",
+    "run_id",
+    "step_key",
+    "contestant",
+    "stage",
+    "env_id",
+    "episode_id",
+    "parent_episode_id",
+    "is_reference",
+    "reference_type",
+    "world",
+    "seed",
+    "tm_robots",
+    "tm_obstacles",
+    "tm_modules",
+    "robots",
+    "outcome_state",
+    "outcome_info",
+    "started_at",
+    "ended_at",
+    "runtime_s",
+    "robots_params_json",
+    "obstacles_params_json",
+    "error_kind",
+    "error_detail",
     "lockstep_stalls",
     "lockstep_max_stall_s",
     "lockstep_rtf",
@@ -438,10 +476,17 @@ def test_progress_log_full_row(tmp_path: pathlib.Path):
     rec = _make_episode_record(episode_id=5)
     log.append(
         ts_iso="2026-06-23T20:25:09+00:00",
-        run_id="r1", step_key="c1/s1", contestant="c1", stage="s1",
-        env_id=3, episode_id=5, episode_record=rec,
-        started_at=100.0, ended_at=105.5,
-        is_reference=True, reference_type="unobstructed_robot",
+        run_id="r1",
+        step_key="c1/s1",
+        contestant="c1",
+        stage="s1",
+        env_id=3,
+        episode_id=5,
+        episode_record=rec,
+        started_at=100.0,
+        ended_at=105.5,
+        is_reference=True,
+        reference_type="unobstructed_robot",
     )
     log.close()
 
@@ -461,9 +506,16 @@ def test_progress_log_optional_fields_empty(tmp_path: pathlib.Path):
     log = ProgressLog(tmp_path / "progress.csv")
     rec = _make_episode_record(episode_id=1)
     log.append(
-        ts_iso="t", run_id="r", step_key="k", contestant="c", stage="s",
-        env_id=None, episode_id=1, episode_record=rec,
-        started_at=0.0, ended_at=1.0,
+        ts_iso="t",
+        run_id="r",
+        step_key="k",
+        contestant="c",
+        stage="s",
+        env_id=None,
+        episode_id=1,
+        episode_record=rec,
+        started_at=0.0,
+        ended_at=1.0,
     )
     log.close()
     with (tmp_path / "progress.csv").open(newline="") as fh:
@@ -478,10 +530,18 @@ def test_progress_log_error_fields(tmp_path: pathlib.Path):
     log = ProgressLog(tmp_path / "progress.csv")
     rec = _make_episode_record(episode_id=2)
     log.append(
-        ts_iso="t", run_id="r", step_key="k", contestant="c", stage="s",
-        env_id=0, episode_id=2, episode_record=rec,
-        started_at=0.0, ended_at=1.0,
-        error_kind=StepErrorKind.INTERNAL, error_detail="boom",
+        ts_iso="t",
+        run_id="r",
+        step_key="k",
+        contestant="c",
+        stage="s",
+        env_id=0,
+        episode_id=2,
+        episode_record=rec,
+        started_at=0.0,
+        ended_at=1.0,
+        error_kind=StepErrorKind.INTERNAL,
+        error_detail="boom",
     )
     log.close()
     with (tmp_path / "progress.csv").open(newline="") as fh:
@@ -512,15 +572,32 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
     """Integration: rcl_interfaces Parameter msgs flow through _params_to_json."""
     log = ProgressLog(tmp_path / "progress.csv")
     rec = types.SimpleNamespace(
-        episode_id=1, world="w", seed=1, tm_robots="r", tm_obstacles="o",
-        tm_modules=["m"], robots=["bot"], outcome_state=1, outcome_info="",
+        episode_id=1,
+        world="w",
+        seed=1,
+        tm_robots="r",
+        tm_obstacles="o",
+        tm_modules=["m"],
+        robots=["bot"],
+        outcome_state=1,
+        outcome_info="",
         robots_params=[_msg_param("speed", ParameterType.PARAMETER_INTEGER, 3)],
         obstacles_params=[],
-        goal_dist_start=0.0, goal_dist_min=0.0, path_length=0.0,
+        goal_dist_start=0.0,
+        goal_dist_min=0.0,
+        path_length=0.0,
     )
     log.append(
-        ts_iso="t", run_id="r", step_key="k", contestant="c", stage="s",
-        env_id=0, episode_id=1, episode_record=rec, started_at=0.0, ended_at=1.0,
+        ts_iso="t",
+        run_id="r",
+        step_key="k",
+        contestant="c",
+        stage="s",
+        env_id=0,
+        episode_id=1,
+        episode_record=rec,
+        started_at=0.0,
+        ended_at=1.0,
     )
     log.close()
     with (tmp_path / "progress.csv").open(newline="") as fh:
@@ -529,6 +606,7 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
 
 
 # -- dedupe_in_place --
+
 
 def _write_log_lines(path: pathlib.Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n")
@@ -555,14 +633,17 @@ def test_dedupe_comment_only_noop(tmp_path: pathlib.Path):
 
 def test_dedupe_keeps_latest_ts_and_sorts(tmp_path: pathlib.Path):
     path = tmp_path / "progress.csv"
-    _write_log_lines(path, [
-        ",".join(_HEADERS),
-        "2026-01-01T00:00:03+00:00,r,k,c,s,,3,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
-        "2026-01-01T00:00:01+00:00,r,k,c,s,,1,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
-        "2026-01-01T00:00:02+00:00,r,k,c,s,,2,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
-        "2026-01-01T00:00:00+00:00,r,k,c,s,,2,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
-        "2026-01-01T00:00:05+00:00,r,k,c,s,,1,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
-    ])
+    _write_log_lines(
+        path,
+        [
+            ",".join(_HEADERS),
+            "2026-01-01T00:00:03+00:00,r,k,c,s,,3,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
+            "2026-01-01T00:00:01+00:00,r,k,c,s,,1,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
+            "2026-01-01T00:00:02+00:00,r,k,c,s,,2,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
+            "2026-01-01T00:00:00+00:00,r,k,c,s,,2,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
+            "2026-01-01T00:00:05+00:00,r,k,c,s,,1,,false,,w,1,o,o,m,b,1,,1,2,1,[],[],,",
+        ],
+    )
     log = ProgressLog(path)
     log.dedupe_in_place()
     log.close()
@@ -578,6 +659,7 @@ def test_dedupe_keeps_latest_ts_and_sorts(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 # RunDir
 # ---------------------------------------------------------------------------
+
 
 def test_run_dir_create_layout(tmp_path: pathlib.Path):
     run_dir = RunDir.create(tmp_path, "r1", _make_manifest(run_id="r1"))

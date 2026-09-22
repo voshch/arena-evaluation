@@ -9,7 +9,6 @@ import datetime
 import logging
 import os
 import pathlib
-import signal
 import threading
 import time
 import typing
@@ -149,7 +148,6 @@ class SystemSampler:
         self._prev_disk_write: int = 0
         self._prev_ts: float = 0.0
 
-
     @staticmethod
     def _read_proc_stat() -> tuple[list[int], list[int], int, int]:
         """Parse /proc/stat for per-core and aggregate CPU jiffies."""
@@ -158,7 +156,7 @@ class SystemSampler:
         total_all = 0
         idle_all = 0
 
-        with open("/proc/stat", "r") as f:
+        with open("/proc/stat") as f:
             for line in f:
                 if line.startswith("cpu"):
                     parts = line.split()
@@ -208,12 +206,11 @@ class SystemSampler:
 
         return cpu_pct, per_core
 
-
     @staticmethod
     def _sample_ram() -> tuple[float, float]:
         """Return (used_mb, percent_used) from /proc/meminfo."""
         mem: dict[str, int] = {}
-        with open("/proc/meminfo", "r") as f:
+        with open("/proc/meminfo") as f:
             for line in f:
                 parts = line.split()
                 if len(parts) >= 2:
@@ -228,7 +225,6 @@ class SystemSampler:
         used_mb = used_kb / 1024.0
         percent = (used_kb / total_kb * 100.0) if total_kb > 0 else 0.0
         return used_mb, percent
-
 
     @staticmethod
     def _sample_gpu() -> _GpuSnapshot | None:
@@ -249,7 +245,6 @@ class SystemSampler:
         except Exception:
             return None
 
-
     @staticmethod
     def _read_diskstats() -> tuple[int, int]:
         """Sum read/write sectors across all block devices from /proc/diskstats.
@@ -258,7 +253,7 @@ class SystemSampler:
         """
         total_read = 0
         total_write = 0
-        with open("/proc/diskstats", "r") as f:
+        with open("/proc/diskstats") as f:
             for line in f:
                 parts = line.split()
                 if len(parts) < 14:
@@ -278,14 +273,13 @@ class SystemSampler:
         """Return cumulative (read_bytes, write_bytes) since boot."""
         return self._read_diskstats()
 
-
     @staticmethod
     def _read_process_io() -> tuple[int, int]:
         """Read cumulative rchar and wchar from /proc/self/io."""
         rchar = 0
         wchar = 0
         try:
-            with open("/proc/self/io", "r") as f:
+            with open("/proc/self/io") as f:
                 for line in f:
                     if line.startswith("rchar:"):
                         rchar = int(line.split()[1])
@@ -294,7 +288,6 @@ class SystemSampler:
         except Exception:
             pass
         return rchar, wchar
-
 
     def sample(self) -> _ResourceSnapshot:
         """Take one full resource snapshot."""
@@ -357,7 +350,7 @@ class SimulationProfiler:
         if self._thread is not None:
             return
 
-        self._started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self._started_at = datetime.datetime.now(datetime.UTC).isoformat()
         self._start_mono = time.monotonic()
 
         snap = self._sampler.sample()
@@ -426,7 +419,7 @@ class SimulationProfiler:
         with contextlib.suppress(Exception):
             atexit.unregister(self.stop)
 
-        ended_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        ended_at = datetime.datetime.now(datetime.UTC).isoformat()
         duration = time.monotonic() - self._start_mono if self._start_mono else 0.0
 
         self._write_yaml(ended_at, duration)

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import ast
 import typing
+
 import numpy as np
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class ProxemicsExtendedCalculator(BaseMetricCalculator):
@@ -96,16 +95,8 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
 
         peds_time_ns = peds_df["time_ns"].to_numpy()
         peds_positions = peds_df["peds_positions"].to_list()
-        num_peds_col = (
-            peds_df["num_pedestrians"].to_numpy()
-            if "num_pedestrians" in peds_df.columns
-            else None
-        )
-        peds_twists_list = (
-            peds_df["peds_twists"].to_list()
-            if "peds_twists" in peds_df.columns
-            else None
-        )
+        num_peds_col = peds_df["num_pedestrians"].to_numpy() if "num_pedestrians" in peds_df.columns else None
+        peds_twists_list = peds_df["peds_twists"].to_list() if "peds_twists" in peds_df.columns else None
 
         N = len(peds_time_ns)
         if N == 0:
@@ -176,9 +167,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             max_speed_zone[z] = max(max_speed_zone[z], float(rspeed[i]))
 
             min_idx = int(np.argmin(dists))
-            r_to_ped = np.array(
-                [peds_arr[min_idx, 0] - rx, peds_arr[min_idx, 1] - ry]
-            )
+            r_to_ped = np.array([peds_arr[min_idx, 0] - rx, peds_arr[min_idx, 1] - ry])
             v_robot = np.array([rvx[i], rvy[i]])
             if np.dot(v_robot, r_to_ped) > 0:
                 approaching_count += 1
@@ -225,7 +214,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             gap_ns = int(self._EVENT_GAP_S * 1e9)
             events = 0
             prev_end_ns = 0
-            for s, e in zip(starts, ends):
+            for s, e in zip(starts, ends, strict=True):
                 start_ns = int(peds_time_ns[s]) if s < len(peds_time_ns) else 0
                 # Blocks closer together than the gap belong to one interaction.
                 if events == 0 or start_ns - prev_end_ns >= gap_ns:
@@ -253,9 +242,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             "max_speed_personal_zone": float(max_speed_zone["personal"]),
             "max_speed_social_zone": float(max_speed_zone["social"]),
             "max_speed_public_zone": float(max_speed_zone["public"]),
-            "movement_towards_peds_ratio": (
-                float(approaching_count / peds_frames) if peds_frames > 0 else None
-            ),
+            "movement_towards_peds_ratio": (float(approaching_count / peds_frames) if peds_frames > 0 else None),
             "tti_min": tti_min,
             "tti_mean": tti_mean,
             "personal_space_intrusion_integral": float(psii_sum),

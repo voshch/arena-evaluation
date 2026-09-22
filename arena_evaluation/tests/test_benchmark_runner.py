@@ -38,6 +38,7 @@ from task_generator.constants import Constants
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_stage(name: str = "s1") -> Suite.Stage:
     return Suite.Stage(
         name=name,
@@ -102,6 +103,7 @@ def _make_env_record(env_id: int, ready: bool) -> types.SimpleNamespace:
 # Step.key
 # ---------------------------------------------------------------------------
 
+
 def test_step_key():
     step = Step(
         contestant=_make_contestant("planner_a"),
@@ -126,15 +128,26 @@ def test_step_key_uses_names():
 # StateFile roundtrip
 # ---------------------------------------------------------------------------
 
+
 def test_state_file_roundtrip(tmp_path: pathlib.Path):
     steps: dict[str, StepResult] = {
         "p1/s1": StepResult(
-            key="p1/s1", status="ok", env_id=1, started_at=1.0, ended_at=2.0,
-            error_kind=None, error_detail=None,
+            key="p1/s1",
+            status="ok",
+            env_id=1,
+            started_at=1.0,
+            ended_at=2.0,
+            error_kind=None,
+            error_detail=None,
         ),
         "p1/s2": StepResult(
-            key="p1/s2", status="failed", env_id=None, started_at=3.0, ended_at=4.0,
-            error_kind=StepErrorKind.ENV_SETUP, error_detail="oops",
+            key="p1/s2",
+            status="failed",
+            env_id=None,
+            started_at=3.0,
+            ended_at=4.0,
+            error_kind=StepErrorKind.ENV_SETUP,
+            error_detail="oops",
         ),
     }
     sf = StateFile.open(tmp_path)
@@ -173,10 +186,15 @@ def test_state_file_overwrite(tmp_path: pathlib.Path):
 def test_state_file_roundtrip_episodes_fields(tmp_path: pathlib.Path):
     steps = {
         "p/s": StepResult(
-            key="p/s", status="partial", env_id=0,
-            started_at=0.0, ended_at=5.0,
-            error_kind=None, error_detail=None,
-            episodes_run=8, episodes_failed=2,
+            key="p/s",
+            status="partial",
+            env_id=0,
+            started_at=0.0,
+            ended_at=5.0,
+            error_kind=None,
+            error_detail=None,
+            episodes_run=8,
+            episodes_failed=2,
         )
     }
     sf = StateFile.open(tmp_path)
@@ -190,6 +208,7 @@ def test_state_file_roundtrip_episodes_fields(tmp_path: pathlib.Path):
 def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
     """Old state files with a single 'error' field are loaded into error_detail."""
     import json
+
     state_data = {
         "steps": {
             "p/s": {
@@ -216,12 +235,31 @@ def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 
 _EXPECTED_HEADERS = [
-    "ts_iso", "run_id", "step_key", "contestant", "stage", "env_id", "episode_id", "parent_episode_id",
-    "is_reference", "reference_type",
-    "world", "seed", "tm_robots", "tm_obstacles", "tm_modules", "robots",
-    "outcome_state", "outcome_info", "started_at", "ended_at", "runtime_s",
-    "robots_params_json", "obstacles_params_json",
-    "error_kind", "error_detail",
+    "ts_iso",
+    "run_id",
+    "step_key",
+    "contestant",
+    "stage",
+    "env_id",
+    "episode_id",
+    "parent_episode_id",
+    "is_reference",
+    "reference_type",
+    "world",
+    "seed",
+    "tm_robots",
+    "tm_obstacles",
+    "tm_modules",
+    "robots",
+    "outcome_state",
+    "outcome_info",
+    "started_at",
+    "ended_at",
+    "runtime_s",
+    "robots_params_json",
+    "obstacles_params_json",
+    "error_kind",
+    "error_detail",
     "lockstep_stalls",
     "lockstep_max_stall_s",
     "lockstep_rtf",
@@ -255,14 +293,22 @@ def test_progress_log_append(tmp_path: pathlib.Path):
     t0 = time.time()
 
     rec1 = _make_episode_record(
-        episode_id=1, world="map1", seed=42,
-        tm_robots="random", tm_obstacles="random",
-        tm_modules=["benchmark"], robots=["burger"],
-        outcome_state=1, outcome_info="",
+        episode_id=1,
+        world="map1",
+        seed=42,
+        tm_robots="random",
+        tm_obstacles="random",
+        tm_modules=["benchmark"],
+        robots=["burger"],
+        outcome_state=1,
+        outcome_info="",
     )
     rec2 = _make_episode_record(
-        episode_id=2, world="map1", seed=43,
-        outcome_state=2, outcome_info="collision",
+        episode_id=2,
+        world="map1",
+        seed=43,
+        outcome_state=2,
+        outcome_info="collision",
     )
 
     ts = datetime.datetime.now(tz=datetime.UTC).isoformat()
@@ -334,15 +380,31 @@ def test_progress_log_append_to_existing(tmp_path: pathlib.Path):
 
     log1 = ProgressLog(tmp_path / "progress.csv")
     log1.append(
-        ts_iso=ts, run_id="r", step_key="p/s", contestant="p", stage="s",
-        env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0,
+        ts_iso=ts,
+        run_id="r",
+        step_key="p/s",
+        contestant="p",
+        stage="s",
+        env_id=0,
+        episode_id=1,
+        episode_record=rec,
+        started_at=t0,
+        ended_at=t0 + 1.0,
     )
     log1.close()
 
     log2 = ProgressLog(tmp_path / "progress.csv")
     log2.append(
-        ts_iso=ts, run_id="r", step_key="p/s", contestant="p", stage="s",
-        env_id=0, episode_id=2, episode_record=rec, started_at=t0 + 1.0, ended_at=t0 + 2.0,
+        ts_iso=ts,
+        run_id="r",
+        step_key="p/s",
+        contestant="p",
+        stage="s",
+        env_id=0,
+        episode_id=2,
+        episode_record=rec,
+        started_at=t0 + 1.0,
+        ended_at=t0 + 2.0,
     )
     log2.close()
 
@@ -355,6 +417,7 @@ def test_progress_log_append_to_existing(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 # compute_config_hash determinism
 # ---------------------------------------------------------------------------
+
 
 def test_compute_config_hash_deterministic():
     suite = {"stages": [{"name": "s1"}]}
@@ -386,17 +449,26 @@ def test_compute_config_hash_is_string():
 # resume config resolution (regression: resume must use the manifest, not argv)
 # ---------------------------------------------------------------------------
 
+
 def _make_resume_manifest() -> Manifest:
     suite_dict = {
         "stages": [
             {
-                "name": "ladder_01", "map": "ladder_01", "robot": "jackal",
-                "tm_robots": "scenario", "tm_obstacles": "random", "episodes": 3,
+                "name": "ladder_01",
+                "map": "ladder_01",
+                "robot": "jackal",
+                "tm_robots": "scenario",
+                "tm_obstacles": "random",
+                "episodes": 3,
                 "config": {"scenario": {"file": "ladder.json"}},
             },
             {
-                "name": "ladder_05", "map": "ladder_05", "robot": "jackal",
-                "tm_robots": "scenario", "tm_obstacles": "random", "episodes": 3,
+                "name": "ladder_05",
+                "map": "ladder_05",
+                "robot": "jackal",
+                "tm_robots": "scenario",
+                "tm_obstacles": "random",
+                "episodes": 3,
                 "config": {"scenario": {"file": "ladder.json"}},
             },
         ]
@@ -461,6 +533,7 @@ def test_manifest_without_launch_args_defaults_empty():
 # _parse_duration
 # ---------------------------------------------------------------------------
 
+
 def test_parse_duration_plain_int():
     assert _parse_duration("60") == 60.0
 
@@ -502,6 +575,7 @@ def test_parse_duration_empty_raises():
 # ---------------------------------------------------------------------------
 # build_launch_args
 # ---------------------------------------------------------------------------
+
 
 def _make_cell(
     contestant_name: str = "planner_a",
@@ -635,11 +709,13 @@ def test_build_launch_args_passthrough_cli_args_forwarded():
 
 
 def test_build_launch_args_multiple_cap_keys_all_pass():
-    cell = _make_cell(contestant_args={
-        "mobile.local_planner": "teb",
-        "mobile.inter_planner": "bypass",
-        "mobile.global_planner": "smac",
-    })
+    cell = _make_cell(
+        contestant_args={
+            "mobile.local_planner": "teb",
+            "mobile.inter_planner": "bypass",
+            "mobile.global_planner": "smac",
+        }
+    )
     args = build_launch_args(cell, "gazebo")
     assert "robot.mobile.local_planner:=teb" in args
     assert "robot.mobile.inter_planner:=bypass" in args
@@ -698,6 +774,7 @@ def test_build_launch_args_dict_cap_stage_collision_dropped():
 # build_pending
 # ---------------------------------------------------------------------------
 
+
 def _fake_run_dir(state_steps: dict[str, StepResult]) -> types.SimpleNamespace:
     state = types.SimpleNamespace(steps=state_steps)
     return types.SimpleNamespace(state=state)
@@ -723,6 +800,7 @@ def _make_suite(*stage_names: str) -> Suite:
 
 def _make_contest(*contestant_names: str) -> Contest:
     from arena_evaluation.benchmark.config import Contestant
+
     return Contest(
         name="test_contest",
         description=None,
@@ -738,7 +816,10 @@ def test_build_pending_empty_state_all_steps_pending(tmp_path: pathlib.Path):
     steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
     keys = {c.key for c in steps}
     assert keys == {
-        "pa/s1", "pa/s2", "pb/s1", "pb/s2",
+        "pa/s1",
+        "pa/s2",
+        "pb/s1",
+        "pb/s2",
     }
 
 
@@ -788,8 +869,15 @@ def test_build_pending_partial_always_retried(tmp_path: pathlib.Path):
     contest = _make_contest("pa")
     state_steps = {
         "pa/s1": StepResult(
-            "pa/s1", "partial", None, 0.0, 1.0, None, None,
-            episodes_run=3, episodes_failed=2,
+            "pa/s1",
+            "partial",
+            None,
+            0.0,
+            1.0,
+            None,
+            None,
+            episodes_run=3,
+            episodes_failed=2,
         ),
         "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "ok", None, 0.0, 1.0, None, None),
         "unhindered_peds/s1": StepResult("unhindered_peds/s1", "ok", None, 0.0, 1.0, None, None),
@@ -864,6 +952,7 @@ def test_build_pending_record_dir_set_from_record_root(tmp_path: pathlib.Path):
 def test_build_pending_duplicate_key_raises(tmp_path: pathlib.Path):
     # Two contestants with the same name produce duplicate step keys.
     from arena_evaluation.benchmark.config import Contestant
+
     suite = _make_suite("s1")
     # Bypass Contest._reject_duplicate_names by constructing directly.
     contest = Contest(
@@ -888,17 +977,16 @@ def test_build_pending_scale_episodes(tmp_path: pathlib.Path):
 # ProgressLog.dedupe_in_place
 # ---------------------------------------------------------------------------
 
+
 def test_dedupe_in_place_no_duplicates(tmp_path: pathlib.Path):
     log = ProgressLog(tmp_path / "progress.csv")
     t0 = time.time()
     ts1 = "2024-01-01T00:00:01+00:00"
     ts2 = "2024-01-01T00:00:02+00:00"
     rec = _make_episode_record(episode_id=1)
-    log.append(ts_iso=ts1, run_id="r", step_key="p/s", contestant="p", stage="s",
-                env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso=ts1, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
     rec2 = _make_episode_record(episode_id=2)
-    log.append(ts_iso=ts2, run_id="r", step_key="p/s", contestant="p", stage="s",
-                env_id=0, episode_id=2, episode_record=rec2, started_at=t0 + 1.0, ended_at=t0 + 2.0)
+    log.append(ts_iso=ts2, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=2, episode_record=rec2, started_at=t0 + 1.0, ended_at=t0 + 2.0)
     log.dedupe_in_place()
     log.close()
 
@@ -915,10 +1003,8 @@ def test_dedupe_in_place_keeps_latest_ts(tmp_path: pathlib.Path):
     ts_new = "2024-01-01T00:00:05+00:00"
     rec = _make_episode_record(episode_id=1, outcome_info="old")
     rec_new = _make_episode_record(episode_id=1, outcome_info="new")
-    log.append(ts_iso=ts_old, run_id="r", step_key="p/s", contestant="p", stage="s",
-                env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
-    log.append(ts_iso=ts_new, run_id="r", step_key="p/s", contestant="p", stage="s",
-                env_id=0, episode_id=1, episode_record=rec_new, started_at=t0 + 1.0, ended_at=t0 + 2.0)
+    log.append(ts_iso=ts_old, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso=ts_new, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec_new, started_at=t0 + 1.0, ended_at=t0 + 2.0)
     log.dedupe_in_place()
     log.close()
 
@@ -938,8 +1024,7 @@ def test_dedupe_in_place_result_sorted_by_ts(tmp_path: pathlib.Path):
     ts_c = "2024-01-01T00:00:02+00:00"
     for ts, eid in [(ts_a, 3), (ts_b, 1), (ts_c, 2)]:
         r = _make_episode_record(episode_id=eid)
-        log.append(ts_iso=ts, run_id="r", step_key="p/s", contestant="p", stage="s",
-                    env_id=0, episode_id=eid, episode_record=r, started_at=t0, ended_at=t0 + 1.0)
+        log.append(ts_iso=ts, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=eid, episode_record=r, started_at=t0, ended_at=t0 + 1.0)
     log.dedupe_in_place()
     log.close()
 
@@ -954,9 +1039,7 @@ def test_dedupe_in_place_discards_comment_lines(tmp_path: pathlib.Path):
     log.write_comment("resumed at 2024-01-01T00:00:00+00:00")
     t0 = time.time()
     rec = _make_episode_record(episode_id=1)
-    log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s",
-                contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec,
-                started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
     log.dedupe_in_place()
     log.close()
 
@@ -972,9 +1055,7 @@ def test_dedupe_in_place_preserves_header(tmp_path: pathlib.Path):
     log = ProgressLog(path)
     t0 = time.time()
     rec = _make_episode_record(episode_id=1)
-    log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s",
-                contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec,
-                started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
     log.dedupe_in_place()
     log.close()
 
@@ -1044,6 +1125,7 @@ def _make_step_for(contestant_name: str, stage_name: str, robot: str = "jackal",
 
 def test_group_pending_single_contestant_same_robot():
     from arena_evaluation.benchmark.runner import group_pending
+
     steps = [_make_step_for("alpha", f"s{i}") for i in range(4)]
     groups = group_pending(steps, "gazebo")
     assert len(groups) == 1
@@ -1052,10 +1134,8 @@ def test_group_pending_single_contestant_same_robot():
 
 def test_group_pending_splits_on_contestant_change():
     from arena_evaluation.benchmark.runner import group_pending
-    steps = (
-        [_make_step_for("alpha", f"s{i}") for i in range(3)]
-        + [_make_step_for("beta", f"s{i}") for i in range(2)]
-    )
+
+    steps = [_make_step_for("alpha", f"s{i}") for i in range(3)] + [_make_step_for("beta", f"s{i}") for i in range(2)]
     groups = group_pending(steps, "gazebo")
     assert len(groups) == 2
     assert len(groups[0]) == 3
@@ -1064,6 +1144,7 @@ def test_group_pending_splits_on_contestant_change():
 
 def test_group_pending_splits_on_robot_change():
     from arena_evaluation.benchmark.runner import group_pending
+
     steps = [
         _make_step_for("alpha", "s0", robot="jackal"),
         _make_step_for("alpha", "s1", robot="jackal"),
@@ -1078,6 +1159,7 @@ def test_group_pending_splits_on_robot_change():
 
 def test_group_pending_preserves_suite_order():
     from arena_evaluation.benchmark.runner import group_pending
+
     steps = [_make_step_for("alpha", f"s{i}") for i in range(3)]
     groups = group_pending(steps, None)
     assert len(groups) == 1
@@ -1086,11 +1168,13 @@ def test_group_pending_preserves_suite_order():
 
 def test_group_pending_empty():
     from arena_evaluation.benchmark.runner import group_pending
+
     assert group_pending([], "gazebo") == []
 
 
 def test_env_key_components():
     from arena_evaluation.benchmark.runner import env_key
+
     step = _make_step_for("planner_a", "indoor", robot="jackal")
     key = env_key(step, "gazebo")
     assert key == ("planner_a", "jackal", "map1", "gazebo")
@@ -1098,6 +1182,7 @@ def test_env_key_components():
 
 def test_env_key_simulator_none():
     from arena_evaluation.benchmark.runner import env_key
+
     step = _make_step_for("planner_a", "indoor", robot="jackal")
     key = env_key(step, None)
     assert key == ("planner_a", "jackal", "map1", None)
@@ -1111,9 +1196,8 @@ def test_env_key_simulator_none():
 def test_flatten_scenario_file_strips_suffix():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
     from rcl_interfaces.msg import ParameterType
-    obs, rob = _flatten_per_mode_params(
-        {"scenario": {"file": "4.json"}}, tm_obstacles="scenario", tm_robots="scenario"
-    )
+
+    obs, rob = _flatten_per_mode_params({"scenario": {"file": "4.json"}}, tm_obstacles="scenario", tm_robots="scenario")
     by_name = {p.name: p for p in obs}
     assert "file" in by_name
     p = by_name["file"]
@@ -1125,6 +1209,7 @@ def test_flatten_scenario_file_strips_suffix():
 def test_flatten_random_nested_counts():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
     from rcl_interfaces.msg import ParameterType
+
     obs, _rob = _flatten_per_mode_params(
         {"random": {"dynamic": {"min": 2, "max": 5}}},
         tm_obstacles="random",
@@ -1136,14 +1221,15 @@ def test_flatten_random_nested_counts():
     assert list(by_name["dynamic.n"].value.integer_array_value) == [2, 5]
 
 
-
 def test_flatten_empty_config_yields_empty():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+
     assert _flatten_per_mode_params({}, tm_obstacles="random", tm_robots="random") == ([], [])
 
 
 def test_flatten_routes_per_active_mode():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+
     obs, rob = _flatten_per_mode_params(
         {"scenario": {"file": "x"}, "random": {"n": 3}},
         tm_obstacles="random",
@@ -1155,14 +1241,14 @@ def test_flatten_routes_per_active_mode():
 
 def test_flatten_drops_inactive_modes():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
-    obs, rob = _flatten_per_mode_params(
-        {"unrelated": {"key": "value"}}, tm_obstacles="random", tm_robots="random"
-    )
+
+    obs, rob = _flatten_per_mode_params({"unrelated": {"key": "value"}}, tm_obstacles="random", tm_robots="random")
     assert obs == [] and rob == []
 
 
 def test_flatten_skips_non_dict_top_level():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+
     obs, _rob = _flatten_per_mode_params(
         {"scenario": "not_a_dict", "random": {"n": 3}},
         tm_obstacles="random",
@@ -1175,6 +1261,7 @@ def test_flatten_skips_non_dict_top_level():
 def test_flatten_typed_values():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
     from rcl_interfaces.msg import ParameterType
+
     obs, _rob = _flatten_per_mode_params(
         {
             "random": {
@@ -1201,6 +1288,7 @@ def test_flatten_typed_values():
 # ---------------------------------------------------------------------------
 # BenchmarkProgressDisplay tests
 # ---------------------------------------------------------------------------
+
 
 def test_progress_display_slot_lifecycle():
     from arena_evaluation.benchmark.progress_display import BenchmarkProgressDisplay
@@ -1277,12 +1365,14 @@ def test_progress_display_render_empty_and_with_slots():
 
 def test_runner_start_and_restart_arena_defined():
     from arena_evaluation.benchmark.runner import BenchmarkRunner
+
     assert hasattr(BenchmarkRunner, "_start_arena")
     assert hasattr(BenchmarkRunner, "_restart_arena")
 
 
 def test_world_batch_ordering():
     from arena_evaluation.benchmark.runner import group_pending
+
     steps = [
         _make_step_for("p1", "s1", map="hospital_1"),
         _make_step_for("p2", "s2", map="hospital_1"),
@@ -1291,17 +1381,16 @@ def test_world_batch_ordering():
     ]
     world_maps = list(dict.fromkeys(s.stage.map for s in steps))
     assert world_maps == ["hospital_1", "hospital_2", "office_1"]
-    
+
     h1_steps = [s for s in steps if s.stage.map == "hospital_1"]
     blocks = group_pending(h1_steps, "gazebo")
     assert len(blocks) == 2
 
 
-
-
 # ---------------------------------------------------------------------------
 # retry bookkeeping
 # ---------------------------------------------------------------------------
+
 
 def test_sim_dead_is_systemic():
     assert StepErrorKind.SIM_DEAD in _SYSTEMIC
@@ -1379,6 +1468,7 @@ def test_requeue_front_puts_the_step_back_at_the_head():
 # orphan despawn on spawn timeout
 # ---------------------------------------------------------------------------
 
+
 def test_orphaned_env_ids_picks_new_not_ready_envs():
     known = {1}
     records = {
@@ -1417,6 +1507,7 @@ def test_orphaned_env_ids_empty_when_nothing_new():
 # closed_fraction
 # ---------------------------------------------------------------------------
 
+
 def test_closed_fraction_zero_start_is_zero():
     assert closed_fraction(0.0, 0.0) == 0.0
     assert closed_fraction(0.0, 5.0) == 0.0
@@ -1446,34 +1537,65 @@ def test_closed_fraction_clamps_below_zero_min():
 # cell_verdict
 # ---------------------------------------------------------------------------
 
+
 def test_cell_verdict_wedged_on_error_kind():
     r = StepResult(
-        "p/s", "failed", 0, 0.0, 1.0, StepErrorKind.ENV_SETUP, "boom",
-        episodes_run=0, episodes_total=5,
+        "p/s",
+        "failed",
+        0,
+        0.0,
+        1.0,
+        StepErrorKind.ENV_SETUP,
+        "boom",
+        episodes_run=0,
+        episodes_total=5,
     )
     assert cell_verdict(r) == "wedged"
 
 
 def test_cell_verdict_wedged_on_incomplete_episodes():
     r = StepResult(
-        "p/s", "partial", 0, 0.0, 1.0, None, None,
-        episodes_run=3, episodes_total=5,
+        "p/s",
+        "partial",
+        0,
+        0.0,
+        1.0,
+        None,
+        None,
+        episodes_run=3,
+        episodes_total=5,
     )
     assert cell_verdict(r) == "wedged"
 
 
 def test_cell_verdict_weak_when_episodes_weak():
     r = StepResult(
-        "p/s", "ok", 0, 0.0, 1.0, None, None,
-        episodes_run=5, episodes_total=5, episodes_weak=2,
+        "p/s",
+        "ok",
+        0,
+        0.0,
+        1.0,
+        None,
+        None,
+        episodes_run=5,
+        episodes_total=5,
+        episodes_weak=2,
     )
     assert cell_verdict(r) == "weak"
 
 
 def test_cell_verdict_ok():
     r = StepResult(
-        "p/s", "ok", 0, 0.0, 1.0, None, None,
-        episodes_run=5, episodes_total=5, episodes_weak=0,
+        "p/s",
+        "ok",
+        0,
+        0.0,
+        1.0,
+        None,
+        None,
+        episodes_run=5,
+        episodes_total=5,
+        episodes_weak=0,
     )
     assert cell_verdict(r) == "ok"
 

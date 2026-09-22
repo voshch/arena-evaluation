@@ -6,6 +6,7 @@ renderer/parquet plumbing (``AcousticFieldRenderer``, ``door_segments``,
 ``DoorStateTimeline``, ``ParquetStore``) is replaced with in-memory stubs so
 no plotting backend or ROS graph is required; parquet files are still real.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,8 @@ from arena_evaluation.cli_acoustic import (
 # helpers
 # ---------------------------------------------------------------------------
 
-def _write_metrics(benchmark_dir: pathlib.Path, df: pl.DataFrame,
-                   name: str = "metrics.parquet") -> pathlib.Path:
+
+def _write_metrics(benchmark_dir: pathlib.Path, df: pl.DataFrame, name: str = "metrics.parquet") -> pathlib.Path:
     benchmark_dir.mkdir(parents=True, exist_ok=True)
     path = benchmark_dir / name
     df.write_parquet(path)
@@ -78,13 +79,15 @@ class _FakeTimeline:
 
 class _FakeRenderer:
     load_grid_result = ({"grid": True}, {"resolution": 0.1, "origin": (1.0, 2.0)})
-    episode_df: pl.DataFrame | None = pl.DataFrame({
-        "pos_x_gt": [1.0, 2.0, 3.0],
-        "pos_y_gt": [1.0, 2.0, 3.0],
-        "source_dba": [50.0, 60.0, 90.0],
-        "time_ns": [100, 200, 300],
-        "peds_positions": [[], [], []],
-    })
+    episode_df: pl.DataFrame | None = pl.DataFrame(
+        {
+            "pos_x_gt": [1.0, 2.0, 3.0],
+            "pos_y_gt": [1.0, 2.0, 3.0],
+            "source_dba": [50.0, 60.0, 90.0],
+            "time_ns": [100, 200, 300],
+            "peds_positions": [[], [], []],
+        }
+    )
     render_result: str | None = "rendered.gif"
     cell_render_ok = True
     peds: list = []
@@ -111,11 +114,19 @@ class _FakeRenderer:
     def _render_cell_png(self, *args, **kwargs) -> bool:
         return self.cell_render_ok
 
+    @classmethod
+    def _extract_trajectory_data(cls, df=None, run_dir=None, episode_id=None):  # noqa: ARG003
+        return None
+
 
 def _install_stubs(monkeypatch, *, doors: list[int] | None = None) -> types.SimpleNamespace:
     """Swap heavy acoustic deps for stubs via sys.modules (imports are lazy)."""
     calls = types.SimpleNamespace(
-        render_animation=[], render_cell=[], build_pixel_tl=[], door_segments=[], timeline=[],
+        render_animation=[],
+        render_cell=[],
+        build_pixel_tl=[],
+        door_segments=[],
+        timeline=[],
     )
 
     class _FakeParquetStore:
@@ -166,6 +177,7 @@ def _install_stubs(monkeypatch, *, doors: list[int] | None = None) -> types.Simp
 # setup_acoustic_subparsers
 # ---------------------------------------------------------------------------
 
+
 def test_acoustic_subparsers_list_defaults():
     args = _acoustic_argv("list", "--benchmark-dir", "/tmp/b")
     assert args.acoustic_command == "list"
@@ -182,7 +194,7 @@ def test_acoustic_subparsers_animate_defaults():
     assert args.downsample == 2
     assert args.format == "gif"
     assert args.dpi == 150
-    assert args.vmin == 42.0
+    assert args.vmin == 20.0
     assert args.vmax is None
     assert args.robot_trail == 0
     assert args.no_door_overlay is False
@@ -197,11 +209,30 @@ def test_acoustic_subparsers_snapshot_defaults():
 
 def test_acoustic_subparsers_animate_custom():
     args = _acoustic_argv(
-        "animate", "--benchmark-dir", "/tmp/b",
-        "--episode", "episode_005", "--fps", "5", "--format", "mp4",
-        "--max-frames", "60", "--stride", "2", "--downsample", "4",
-        "--vmin", "35.0", "--vmax", "95.0", "--robot-trail", "3",
-        "--no-door-overlay", "--output", "/tmp/out.mp4",
+        "animate",
+        "--benchmark-dir",
+        "/tmp/b",
+        "--episode",
+        "episode_005",
+        "--fps",
+        "5",
+        "--format",
+        "mp4",
+        "--max-frames",
+        "60",
+        "--stride",
+        "2",
+        "--downsample",
+        "4",
+        "--vmin",
+        "35.0",
+        "--vmax",
+        "95.0",
+        "--robot-trail",
+        "3",
+        "--no-door-overlay",
+        "--output",
+        "/tmp/out.mp4",
     )
     assert args.episode == "episode_005"
     assert args.fps == 5 and args.format == "mp4"
@@ -229,6 +260,7 @@ def test_acoustic_subparsers_missing_benchmark_dir_rejected():
 # ---------------------------------------------------------------------------
 # _resolve_episode
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_episode_explicit_found():
     df = _metrics_df()
@@ -269,36 +301,42 @@ def test_resolve_episode_worst_all_null_crashes(capsys):
 
 
 def test_resolve_episode_loudest_source(capsys):
-    df = pl.DataFrame({
-        "episode": [1, 2, 3, 4],
-        "ped_max_exposure_dba": [70.0, 80.0, 90.0, 60.0],
-        "worst_case_acoustic_frame": [
-            {"source_dba": 55.0},
-            None,
-            {"source_dba": 88.5},
-            {"source_dba": 30.0},  # lower than current best: not selected
-        ],
-    })
+    df = pl.DataFrame(
+        {
+            "episode": [1, 2, 3, 4],
+            "ped_max_exposure_dba": [70.0, 80.0, 90.0, 60.0],
+            "worst_case_acoustic_frame": [
+                {"source_dba": 55.0},
+                None,
+                {"source_dba": 88.5},
+                {"source_dba": 30.0},  # lower than current best: not selected
+            ],
+        }
+    )
     assert _resolve_episode(df, "loudest-source") == "episode_003"
     assert "Using loudest-source episode: episode_003 (source=88.5 dBA)" in capsys.readouterr().out
 
 
 def test_resolve_episode_loudest_source_json_string(capsys):
-    df = pl.DataFrame({
-        "episode": [1, 2],
-        "ped_max_exposure_dba": [70.0, 80.0],
-        "worst_case_acoustic_frame": ['{"source_dba": 40.0}', '{"source_dba": 72.0}'],
-    })
+    df = pl.DataFrame(
+        {
+            "episode": [1, 2],
+            "ped_max_exposure_dba": [70.0, 80.0],
+            "worst_case_acoustic_frame": ['{"source_dba": 40.0}', '{"source_dba": 72.0}'],
+        }
+    )
     assert _resolve_episode(df, "loudest-source") == "episode_002"
     assert "source=72.0 dBA" in capsys.readouterr().out
 
 
 def test_resolve_episode_loudest_source_invalid_json_skipped(capsys):
-    df = pl.DataFrame({
-        "episode": [1, 2],
-        "ped_max_exposure_dba": [70.0, 80.0],
-        "worst_case_acoustic_frame": ["{not json", '{"source_dba": 66.0}'],
-    })
+    df = pl.DataFrame(
+        {
+            "episode": [1, 2],
+            "ped_max_exposure_dba": [70.0, 80.0],
+            "worst_case_acoustic_frame": ["{not json", '{"source_dba": 66.0}'],
+        }
+    )
     assert _resolve_episode(df, "loudest-source") == "episode_002"
 
 
@@ -316,11 +354,13 @@ def test_resolve_episode_max_total(capsys):
     )
     # ped_max_exposure_dba must be present: the source gates all non-explicit
     # specifiers on it before dispatching to max-total.
-    df = pl.DataFrame({
-        "episode": [1, 2, 3, 4],
-        "ped_max_exposure_dba": [70.0, 80.0, 90.0, 60.0],
-        "timeseries_acoustic_exposure_dba": ts,  # totals 6, 11, skip, 1
-    })
+    df = pl.DataFrame(
+        {
+            "episode": [1, 2, 3, 4],
+            "ped_max_exposure_dba": [70.0, 80.0, 90.0, 60.0],
+            "timeseries_acoustic_exposure_dba": ts,  # totals 6, 11, skip, 1
+        }
+    )
     assert _resolve_episode(df, "max-total") == "episode_002"
     assert "Using max-total episode: episode_002 (total=11.0)" in capsys.readouterr().out
 
@@ -348,6 +388,7 @@ def test_resolve_episode_non_numeric_suffix_raises_value_error():
 # ---------------------------------------------------------------------------
 # _acoustic_list
 # ---------------------------------------------------------------------------
+
 
 def test_acoustic_list_no_metric_columns(capsys):
     """No episode column and no acoustic columns -> cols stays empty."""
@@ -383,9 +424,7 @@ def test_acoustic_list_total_exposure_column(capsys):
         [[[1.0, 2.0], [3.0]], None],
         dtype=pl.List(pl.List(pl.Float64)),
     )
-    df = pl.DataFrame({"episode": [1, 2], "ped_max_exposure_dba": [70.0, 80.0],
-                       "ped_leq_exposure_dba": [55.0, 60.0],
-                       "timeseries_acoustic_exposure_dba": ts})
+    df = pl.DataFrame({"episode": [1, 2], "ped_max_exposure_dba": [70.0, 80.0], "ped_leq_exposure_dba": [55.0, 60.0], "timeseries_acoustic_exposure_dba": ts})
     _acoustic_list(df)
     out = capsys.readouterr().out
     assert "TOTAL_EXP" in out
@@ -402,6 +441,7 @@ def test_acoustic_list_episode_placeholder_without_episode_col(capsys):
 # ---------------------------------------------------------------------------
 # _handle_acoustic dispatch
 # ---------------------------------------------------------------------------
+
 
 def test_handle_acoustic_missing_dir(capsys):
     args = _acoustic_argv("list", "--benchmark-dir", "/nonexistent/dir")
@@ -435,12 +475,24 @@ def test_handle_acoustic_list_dispatch(tmp_path: pathlib.Path, capsys, monkeypat
 def test_handle_acoustic_prefers_combined_metrics(tmp_path: pathlib.Path, capsys, monkeypatch):
     _install_stubs(monkeypatch)
     bench_dir = tmp_path / "bench"
-    _write_metrics(bench_dir, _metrics_df(
-        episode=[9], ped_max_exposure_dba=[70.0], ped_leq_exposure_dba=[55.0],
-    ), name="metrics.parquet")
-    _write_metrics(bench_dir, _metrics_df(
-        episode=[1, 2], ped_max_exposure_dba=[70.0, 83.4], ped_leq_exposure_dba=[55.1, 60.2],
-    ), name="combined_metrics.parquet")
+    _write_metrics(
+        bench_dir,
+        _metrics_df(
+            episode=[9],
+            ped_max_exposure_dba=[70.0],
+            ped_leq_exposure_dba=[55.0],
+        ),
+        name="metrics.parquet",
+    )
+    _write_metrics(
+        bench_dir,
+        _metrics_df(
+            episode=[1, 2],
+            ped_max_exposure_dba=[70.0, 83.4],
+            ped_leq_exposure_dba=[55.1, 60.2],
+        ),
+        name="combined_metrics.parquet",
+    )
     args = _acoustic_argv("list", "--benchmark-dir", str(bench_dir))
     _handle_acoustic(args)
     out = capsys.readouterr().out
@@ -463,6 +515,7 @@ def test_handle_acoustic_animate_resolution_failure(tmp_path: pathlib.Path, caps
 # ---------------------------------------------------------------------------
 # _acoustic_animate
 # ---------------------------------------------------------------------------
+
 
 def test_animate_success_default_output(tmp_path: pathlib.Path, capsys, monkeypatch):
     calls = _install_stubs(monkeypatch)
@@ -495,8 +548,7 @@ def test_animate_success_output_override(tmp_path: pathlib.Path, capsys, monkeyp
     bench_dir = tmp_path / "bench"
     _write_metrics(bench_dir, _metrics_df(map="map1"))
     out_path = tmp_path / "custom" / "my.gif"
-    args = _acoustic_argv("animate", "--benchmark-dir", str(bench_dir),
-                          "--output", str(out_path))
+    args = _acoustic_argv("animate", "--benchmark-dir", str(bench_dir), "--output", str(out_path))
     _acoustic_animate(_metrics_df(map="map1"), args)
     assert _RENDER_CALLS[-1]["out_path"] == out_path
     assert "Animation saved to: rendered.gif" in capsys.readouterr().out
@@ -540,11 +592,15 @@ def test_animate_missing_episode_data_exits(tmp_path: pathlib.Path, capsys, monk
         assert exc.value.code == 1
         assert "Error: no topic data for episode_002. Run 'evaluation extract' first." in capsys.readouterr().out
     finally:
-        _FakeRenderer.episode_df = pl.DataFrame({
-            "pos_x_gt": [1.0, 2.0, 3.0], "pos_y_gt": [1.0, 2.0, 3.0],
-            "source_dba": [50.0, 60.0, 90.0], "time_ns": [100, 200, 300],
-            "peds_positions": [[], [], []],
-        })
+        _FakeRenderer.episode_df = pl.DataFrame(
+            {
+                "pos_x_gt": [1.0, 2.0, 3.0],
+                "pos_y_gt": [1.0, 2.0, 3.0],
+                "source_dba": [50.0, 60.0, 90.0],
+                "time_ns": [100, 200, 300],
+                "peds_positions": [[], [], []],
+            }
+        )
 
 
 def test_animate_render_failure_exits(tmp_path: pathlib.Path, capsys, monkeypatch):
@@ -601,6 +657,7 @@ def test_animate_with_semantic_timeline(capsys, monkeypatch, tmp_path: pathlib.P
 # _acoustic_snapshot
 # ---------------------------------------------------------------------------
 
+
 def test_snapshot_success_explicit_frame(tmp_path: pathlib.Path, capsys, monkeypatch):
     _install_stubs(monkeypatch)
     bench_dir = tmp_path / "bench"
@@ -630,21 +687,29 @@ def test_snapshot_out_of_range_frame_falls_back(tmp_path: pathlib.Path, capsys, 
     bench_dir = tmp_path / "bench"
     _write_metrics(bench_dir, _metrics_df(map="map1"))
     # non-monotonic sources exercise the "lower than best" branch
-    _FakeRenderer.episode_df = pl.DataFrame({
-        "pos_x_gt": [1.0, 2.0, 3.0], "pos_y_gt": [1.0, 2.0, 3.0],
-        "source_dba": [50.0, 90.0, 60.0], "time_ns": [100, 200, 300],
-        "peds_positions": [[], [], []],
-    })
+    _FakeRenderer.episode_df = pl.DataFrame(
+        {
+            "pos_x_gt": [1.0, 2.0, 3.0],
+            "pos_y_gt": [1.0, 2.0, 3.0],
+            "source_dba": [50.0, 90.0, 60.0],
+            "time_ns": [100, 200, 300],
+            "peds_positions": [[], [], []],
+        }
+    )
     try:
         args = _acoustic_argv("snapshot", "--benchmark-dir", str(bench_dir), "--frame", "99")
         _acoustic_snapshot(_metrics_df(map="map1"), args)
         assert "Using frame 1 (source=90.0 dBA). Use --frame N to pick a specific frame." in capsys.readouterr().out
     finally:
-        _FakeRenderer.episode_df = pl.DataFrame({
-            "pos_x_gt": [1.0, 2.0, 3.0], "pos_y_gt": [1.0, 2.0, 3.0],
-            "source_dba": [50.0, 60.0, 90.0], "time_ns": [100, 200, 300],
-            "peds_positions": [[], [], []],
-        })
+        _FakeRenderer.episode_df = pl.DataFrame(
+            {
+                "pos_x_gt": [1.0, 2.0, 3.0],
+                "pos_y_gt": [1.0, 2.0, 3.0],
+                "source_dba": [50.0, 60.0, 90.0],
+                "time_ns": [100, 200, 300],
+                "peds_positions": [[], [], []],
+            }
+        )
 
 
 def test_snapshot_uses_combined_metrics(capsys, monkeypatch, tmp_path: pathlib.Path):
@@ -757,11 +822,15 @@ def test_snapshot_missing_episode_data_exits(tmp_path: pathlib.Path, capsys, mon
         assert exc.value.code == 1
         assert "Error: no topic data for episode_002." in capsys.readouterr().out
     finally:
-        _FakeRenderer.episode_df = pl.DataFrame({
-            "pos_x_gt": [1.0, 2.0, 3.0], "pos_y_gt": [1.0, 2.0, 3.0],
-            "source_dba": [50.0, 60.0, 90.0], "time_ns": [100, 200, 300],
-            "peds_positions": [[], [], []],
-        })
+        _FakeRenderer.episode_df = pl.DataFrame(
+            {
+                "pos_x_gt": [1.0, 2.0, 3.0],
+                "pos_y_gt": [1.0, 2.0, 3.0],
+                "source_dba": [50.0, 60.0, 90.0],
+                "time_ns": [100, 200, 300],
+                "peds_positions": [[], [], []],
+            }
+        )
 
 
 def test_snapshot_output_override(tmp_path: pathlib.Path, capsys, monkeypatch):
@@ -769,8 +838,7 @@ def test_snapshot_output_override(tmp_path: pathlib.Path, capsys, monkeypatch):
     bench_dir = tmp_path / "bench"
     _write_metrics(bench_dir, _metrics_df(map="map1"))
     out_path = tmp_path / "custom" / "snap.png"
-    args = _acoustic_argv("snapshot", "--benchmark-dir", str(bench_dir),
-                          "--output", str(out_path))
+    args = _acoustic_argv("snapshot", "--benchmark-dir", str(bench_dir), "--output", str(out_path))
     _acoustic_snapshot(_metrics_df(map="map1"), args)
     assert str(out_path) in capsys.readouterr().out
     assert out_path.parent.is_dir()

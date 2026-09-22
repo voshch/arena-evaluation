@@ -1,4 +1,5 @@
 """notes.yaml read/write/append/merge via the shipped tools.py helpers."""
+
 import pathlib
 import tempfile
 
@@ -29,10 +30,14 @@ class TestNotesWriter:
     def test_write_new_file(self, notes_dir):
         load, _save, write = _helpers()
         path = notes_dir / "notes.yaml"
-        result = write(path, [
-            {"label": "Key 1", "value": "Value 1"},
-            {"label": "Key 2", "value": "Value 2"},
-        ], "replace")
+        result = write(
+            path,
+            [
+                {"label": "Key 1", "value": "Value 1"},
+                {"label": "Key 2", "value": "Value 2"},
+            ],
+            "replace",
+        )
         assert result["n_notes"] == 2
         assert path.exists()
 
@@ -65,14 +70,22 @@ class TestNotesWriter:
     def test_merge_updates_existing(self, notes_dir):
         load, _save, write = _helpers()
         path = notes_dir / "notes.yaml"
-        write(path, [
-            {"label": "A", "value": "old_a"},
-            {"label": "B", "value": "old_b"},
-        ], "replace")
-        write(path, [
-            {"label": "A", "value": "new_a"},
-            {"label": "C", "value": "new_c"},
-        ], "merge")
+        write(
+            path,
+            [
+                {"label": "A", "value": "old_a"},
+                {"label": "B", "value": "old_b"},
+            ],
+            "replace",
+        )
+        write(
+            path,
+            [
+                {"label": "A", "value": "new_a"},
+                {"label": "C", "value": "new_c"},
+            ],
+            "merge",
+        )
 
         loaded = load(path)
         assert len(loaded) == 3  # A (updated), B (unchanged), C (new)

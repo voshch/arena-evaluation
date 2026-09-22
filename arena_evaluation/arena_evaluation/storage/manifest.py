@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import pathlib
+
 import yaml
 
-from .schemas import RunMetadata
 from .exceptions import ManifestGenerationError
+from .schemas import RunMetadata
 
 
 class MetadataWriter:
@@ -22,7 +23,7 @@ class MetadataWriter:
             except Exception:
                 pass
         except Exception as e:
-            raise ManifestGenerationError(f"Failed to write metadata to {dest}: {e}")
+            raise ManifestGenerationError(f"Failed to write metadata to {dest}: {e}") from e
 
     @staticmethod
     def read(source: pathlib.Path) -> RunMetadata:
@@ -31,14 +32,14 @@ class MetadataWriter:
             raise ManifestGenerationError(f"Metadata file not found: {source}")
 
         try:
-            with open(source, "r") as f:
+            with open(source) as f:
                 data = yaml.safe_load(f)
             return RunMetadata.model_validate(data)
         except Exception as e:
-            raise ManifestGenerationError(f"Failed to read metadata from {source}: {e}")
+            raise ManifestGenerationError(f"Failed to read metadata from {source}: {e}") from e
 
     @staticmethod
-    def update(source: pathlib.Path, **kwargs) -> RunMetadata:
+    def update(source: pathlib.Path, **kwargs: object) -> RunMetadata:
         """Update existing metadata with new fields and save."""
         metadata = MetadataWriter.read(source)
 

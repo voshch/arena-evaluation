@@ -1,24 +1,28 @@
 from __future__ import annotations
-import typing
+
 import logging
+import pathlib
+import typing
+
 import numpy as np
 import polars as pl
 from PIL import Image
 
-from ..base import BaseMetricCalculator
-from ...map_registry import MapRegistry
-from ..ecological.characterization import _ACOUSTIC_DEFAULTS
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.acoustics.door_map import (
+    _entity_matches_door,
+    build_pixel_tl,
+    door_segments,
+)
+from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+from arena_evaluation.processing.map_registry import MapRegistry
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.characterization import _ACOUSTIC_DEFAULTS
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 try:
-    from ...acoustics.impedance_grid import compute_attenuations
+    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 except ImportError:
     compute_attenuations = None
-
-from ...acoustics.door_map import door_segments, build_pixel_tl, _entity_matches_door
-from ...acoustics.door_state import DoorStateTimeline
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 class AcousticExposureCalculator(BaseMetricCalculator):
     """Computes pedestrian exposure to robotic ego-noise using a multi-criteria
     Acoustic Dijkstra solver over the 2D impedance map."""
+
     NAME = "acoustic_exposure"
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = False
@@ -53,18 +58,23 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         ]
 
     @staticmethod
-    def _parse_pedestrian_positions(row) -> list[tuple[float, float]]:
+    def _parse_pedestrian_positions(row: object) -> list[tuple[float, float]]:
         """Parse a single frame's pedestrian positions (flat or nested schema)."""
         pts: list[tuple[float, float]] = []
         if isinstance(row, str):
             import json
+
             try:
                 row = json.loads(row)
             except Exception:
                 row = []
         if not isinstance(row, (list, tuple, np.ndarray)) or len(row) == 0:
             return pts
-        if isinstance(row[0], (list, tuple, np.ndarray)):
+        if isinstance(row[0], dict):
+            for item in row:
+                if isinstance(item, dict) and "x" in item and "y" in item:
+                    pts.append((float(item["x"]), float(item["y"])))
+        elif isinstance(row[0], (list, tuple, np.ndarray)):
             for item in row:
                 if len(item) >= 2 and not np.isnan(item[0]) and not np.isnan(item[1]):
                     pts.append((float(item[0]), float(item[1])))
@@ -75,7 +85,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                         pts.append((float(row[j]), float(row[j + 1])))
         return pts
 
-    def _get_map_occupancy(self, map_name: str, run_dir=None) -> tuple[np.ndarray, float, tuple[float, float, float]] | None:
+    def _get_map_occupancy(self, map_name: str, run_dir: pathlib.Path | None = None) -> tuple[np.ndarray, float, tuple[float, float, float]] | None:
         """Load the map PNG as a binary occupancy grid, flipped so row 0 = bottom (y = origin_y)."""
         meta = MapRegistry.get_map(map_name, run_dir=run_dir)
         if not meta or "png_path" not in meta:
@@ -83,15 +93,13 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         try:
             img = Image.open(meta["png_path"]).convert("L")
             img_data = np.array(img)
-            # PIL row 0 = top of map; flip so row 0 = bottom (y = origin_y).
-            # ascontiguousarray required: flipud returns a view that is not C_CONTIGUOUS.
             grid = np.ascontiguousarray(np.flipud((img_data < 200).astype(np.uint8)))
             return grid, meta["resolution"], meta["origin"]
         except Exception as e:
             logging.getLogger(__name__).warning(f"Failed to load map image for acoustics: {e}")
             return None
 
-    def calculate(self, episode: "AlignedEpisodeBundle", prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         nulls = {k: None for k in self.output_keys()}
 
         # Skip heavy calculation for reference runs
@@ -135,13 +143,10 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         # Doors are per-pixel entities: closed = door TL (25 dB), open = carved.
         doors = door_segments(map_name, grid, resolution, origin, run_dir=run_dir)
         tl_cache: dict[tuple, np.ndarray] = {}
-        state_timeline = DoorStateTimeline.from_semantic_frame(
-            episode.semantic_snapshot
-        )
+        state_timeline = DoorStateTimeline.from_semantic_frame(episode.semantic_snapshot)
         if doors:
             logger.info(
-                "AcousticExposureCalculator: %d semantic doors loaded; "
-                "semantic timeline %s",
+                "AcousticExposureCalculator: %d semantic doors loaded; semantic timeline %s",
                 len(doors),
                 "present" if state_timeline is not None else "ABSENT (doors default closed)",
             )
@@ -162,12 +167,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             # Forward-fill source dropouts; leading nulls fall back to the idle
             # baseline. fill_null(0.0) previously made gap frames "silent"
             # (exposure ~= -attenuation), dragging Leq down.
-            source_dba = (
-                df["total_level_af_dba"].cast(pl.Float64)
-                .fill_null(strategy="forward")
-                .fill_null(_ACOUSTIC_DEFAULTS["L_base_0"])
-                .to_numpy()
-            )
+            source_dba = df["total_level_af_dba"].cast(pl.Float64).fill_null(strategy="forward").fill_null(_ACOUSTIC_DEFAULTS["L_base_0"]).to_numpy()
         else:
             # Fallback to constant idle noise if acoustics topic missing
             source_dba = np.full(len(rx_m), _ACOUSTIC_DEFAULTS["L_base_0"])
@@ -189,21 +189,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
 
         POS_THRESHOLD = 0.5  # meters (attenuation changes < 0.3 dB over 0.5m)
         total_frames = len(rx_m)
-
-        # Pre-compute collision frame mask (used for per-pedestrian impulse).
-        COLLISION_IMPULSE_DBA = 100.0
-        collision_mask = None
-        if "collision_event" in df.columns:
-            col_events = df["collision_event"].to_numpy()
-            col_clean = np.nan_to_num(col_events.astype(float), nan=0.0)
-            collision_mask = col_clean > 0
-            n_collisions = int(np.sum(collision_mask))
-            if n_collisions > 0:
-                logger.info(
-                    "AcousticExposureCalculator: %d collision frames detected -- "
-                    "will apply %.0f dB(A) per-pedestrian impulse.",
-                    n_collisions, COLLISION_IMPULSE_DBA,
-                )
 
         eval_count = 0
         last_attenuations: np.ndarray | None = None
@@ -249,11 +234,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 py_px = (py_m - oy) / resolution
 
                 # Door-aware per-pixel TL (open doors carved to 0 dB)
-                open_set = (
-                    state_timeline.open_doors_at(int(df["time_ns"][i]))
-                    if state_timeline is not None
-                    else frozenset()
-                )
+                open_set = state_timeline.open_doors_at(int(df["time_ns"][i])) if state_timeline is not None else frozenset()
                 tl_key = tuple(sorted(open_set))
                 pixel_tl = tl_cache.get(tl_key)
                 if pixel_tl is None:
@@ -287,13 +268,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             # SPL received = instantaneous source level - geometric attenuation
             exp_valid = current_source - att_valid
 
-            # Per-pedestrian collision impulse: crash events add a ~100 dB(A)
-            # penalty directly to each pedestrian's exposure at that frame.
-            # This keeps the field visualization clean (no source-level bloom)
-            # while the scalar metrics still capture the acoustic startle.
-            if collision_mask is not None and collision_mask[i]:
-                exp_valid = np.maximum(exp_valid, COLLISION_IMPULSE_DBA)
-
             ts_attenuation.append(att_valid.tolist())
             ts_exposure.append(exp_valid.tolist())
 
@@ -301,12 +275,15 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             if eval_count % 50 == 0:
                 logger.info(
                     "AcousticExposureCalculator: Evaluated %d frames... (%d/%d total frames processed)",
-                    eval_count, i, total_frames,
+                    eval_count,
+                    i,
+                    total_frames,
                 )
 
         logger.info(
             "AcousticExposureCalculator: Finished episode %s with %d unique solver evaluations.",
-            episode.episode_id, eval_count,
+            episode.episode_id,
+            eval_count,
         )
 
         # Post-process for scalar metrics
@@ -339,9 +316,9 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         time_s = df["time_ns"].to_numpy() / 1e9
         startle_rates: list[float] = []
         for i in range(1, len(ts_exposure)):
-            prev = ts_exposure[i-1]
+            prev = ts_exposure[i - 1]
             curr = ts_exposure[i]
-            dt = time_s[i] - time_s[i-1]
+            dt = time_s[i] - time_s[i - 1]
             if dt > 0 and len(prev) == len(curr) and len(curr) > 0:
                 diffs = np.array(curr) - np.array(prev)
                 rates = diffs / dt
@@ -366,18 +343,15 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             "robot_y": float(ry_m[max_idx]),
             "source_dba": float(source_dba[max_idx]),
             "pedestrians": [[float(p[0]), float(p[1])] for p in worst_pts],
-            "door_states": {
-                name: ("open" if state_timeline is not None and any(
-                    _entity_matches_door(name, e)
-                    for e in state_timeline.open_doors_at(int(df["time_ns"][max_idx]))
-                ) else "closed")
-                for name in doors
-            },
+            "door_states": {name: ("open" if state_timeline is not None and any(_entity_matches_door(name, e) for e in state_timeline.open_doors_at(int(df["time_ns"][max_idx]))) else "closed") for name in doors},
         }
 
         logger.info(
             "AcousticExposureCalculator: episode %s, max_exp=%.1f dBA, leq=%.1f dBA, startle=%.2f dBA/s",
-            episode.episode_id, max_exp, leq_exp, max_startle,
+            episode.episode_id,
+            max_exp,
+            leq_exp,
+            max_startle,
         )
 
         return {

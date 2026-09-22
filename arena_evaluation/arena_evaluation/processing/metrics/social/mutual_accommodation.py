@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import typing
+
 import numpy as np
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class MutualAccommodationCalculator(BaseMetricCalculator):
     """
     Mutual Accommodation Ratio (MAR) and multi-agent reference metrics.
-    
+
     Evaluates the allocation of collision-avoidance responsibility by comparing:
     1. Dynamic Robot vs. Unobstructed Robot Reference (P_unobstructed)
     2. Dynamic Pedestrians vs. Unhindered Pedestrians Reference (P_unhindered)
@@ -52,9 +51,7 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
         ]
 
     @staticmethod
-    def compute_orthogonal_deviation(
-        pts: np.ndarray | list, ref_polyline: np.ndarray | list
-    ) -> tuple[float, float]:
+    def compute_orthogonal_deviation(pts: np.ndarray | list, ref_polyline: np.ndarray | list) -> tuple[float, float]:
         """
         Compute (max_dev, mean_dev) of trajectory points orthogonally projected onto reference polyline.
         Decouples lateral detour from temporal/speed differences (Frenet-Serret frame).
@@ -118,6 +115,7 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
                 r_arr = r_arr[idx_r]
             try:
                 from scipy.spatial.distance import cdist
+
                 dist_m = cdist(a_arr[:, :2], r_arr[:, :2])
                 nr, nc = dist_m.shape
                 cost = np.full((nr, nc), np.inf)
@@ -128,9 +126,7 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
                     cost[0, col_j] = cost[0, col_j - 1] + dist_m[0, col_j]
                 for row_i in range(1, nr):
                     for col_j in range(1, nc):
-                        cost[row_i, col_j] = dist_m[row_i, col_j] + min(
-                            cost[row_i - 1, col_j], cost[row_i, col_j - 1], cost[row_i - 1, col_j - 1]
-                        )
+                        cost[row_i, col_j] = dist_m[row_i, col_j] + min(cost[row_i - 1, col_j], cost[row_i, col_j - 1], cost[row_i - 1, col_j - 1])
                 errors.append(float(cost[-1, -1] / max(nr, nc)))
             except Exception:
                 continue
@@ -161,18 +157,11 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
                 results["pfi"] = round(float(pfi_val), 4)
 
             try:
-                actual_pts = (
-                    np.concatenate([np.array(p) for p in actual_ped_paths if len(p) > 0], axis=0)
-                    if isinstance(actual_ped_paths, list)
-                    else np.array(actual_ped_paths)
-                )
-                ref_pts = (
-                    np.concatenate([np.array(p) for p in ref_ped_paths if len(p) > 0], axis=0)
-                    if isinstance(ref_ped_paths, list)
-                    else np.array(ref_ped_paths)
-                )
+                actual_pts = np.concatenate([np.array(p) for p in actual_ped_paths if len(p) > 0], axis=0) if isinstance(actual_ped_paths, list) else np.array(actual_ped_paths)
+                ref_pts = np.concatenate([np.array(p) for p in ref_ped_paths if len(p) > 0], axis=0) if isinstance(ref_ped_paths, list) else np.array(ref_ped_paths)
                 if len(actual_pts) > 0 and len(ref_pts) > 0 and actual_pts.ndim == 2 and ref_pts.ndim == 2:
                     from .pedestrian_disturbance import PedestrianDisturbanceCalculator
+
                     deflect = PedestrianDisturbanceCalculator._compute_trajectory_deflection(actual_pts, ref_pts)
                     results["ped_path_deflection_m"] = round(float(deflect), 3)
             except Exception:

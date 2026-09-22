@@ -1,5 +1,6 @@
 """Tests for the knowledge tools: get_config_template, inspect_map,
 describe_task_mode, describe_metric, planner catalog."""
+
 import pathlib
 
 import pytest
@@ -79,13 +80,10 @@ class TestConfigTemplates:
     def test_write_targets_are_absolute_in_share_dir(self, bridge):
         """create_suite/contest must write where listing + runner read:
         the install share dir - never a relative path."""
-        for kind, method in (("suite", bridge.suite_path),
-                             ("contest", bridge.contest_path)):
+        for kind, method in (("suite", bridge.suite_path), ("contest", bridge.contest_path)):
             p = method("zz_never_exists")
             assert p.is_absolute(), f"{kind} write target must be absolute"
-            assert "install" in str(p) or "src" in str(p), (
-                f"{kind} write target should resolve in install/source tree"
-            )
+            assert "install" in str(p) or "src" in str(p), f"{kind} write target should resolve in install/source tree"
             assert "configs/benchmark" in str(p)
 
     def test_write_target_traversal_rejected(self, bridge):
@@ -121,11 +119,16 @@ class TestRunBenchmark:
     def test_launch_config_overridable(self):
         from arena_evaluation_mcp.tools import _benchmark_cmd_args
 
-        args = _benchmark_cmd_args({
-            "suite": "s", "contest": "c",
-            "sim": "isaac", "headless": False,
-            "env_n": 4, "optim_obstacles": "full",
-        })
+        args = _benchmark_cmd_args(
+            {
+                "suite": "s",
+                "contest": "c",
+                "sim": "isaac",
+                "headless": False,
+                "env_n": 4,
+                "optim_obstacles": "full",
+            }
+        )
         assert "sim:=isaac" in args
         assert "headless:=false" in args
         assert "env.n:=4" in args
@@ -134,20 +137,27 @@ class TestRunBenchmark:
     def test_extra_passthrough(self):
         from arena_evaluation_mcp.tools import _benchmark_cmd_args
 
-        args = _benchmark_cmd_args({
-            "suite": "s", "contest": "c",
-            "extra_passthrough": {"task.fail_on_collision": True, "complexity": 2},
-        })
+        args = _benchmark_cmd_args(
+            {
+                "suite": "s",
+                "contest": "c",
+                "extra_passthrough": {"task.fail_on_collision": True, "complexity": 2},
+            }
+        )
         assert "task.fail_on_collision:=True" in args
         assert "complexity:=2" in args
 
     def test_command_shape(self):
         from arena_evaluation_mcp.tools import _benchmark_cmd_args
 
-        args = _benchmark_cmd_args({
-            "suite": "my_suite", "contest": "my_contest",
-            "scale_episodes": 2.0, "run_id": "run123",
-        })
+        args = _benchmark_cmd_args(
+            {
+                "suite": "my_suite",
+                "contest": "my_contest",
+                "scale_episodes": 2.0,
+                "run_id": "run123",
+            }
+        )
         assert args[0] == "benchmark"
         assert "--suite" in args and args[args.index("--suite") + 1] == "my_suite"
         assert "--contest" in args
@@ -275,9 +285,7 @@ class TestBenchmarkFilters:
         by_suite = bridge.list_benchmarks(suite=all_runs[0]["suite"])
         assert all(r["suite"] == all_runs[0]["suite"] for r in by_suite)
         by_query = bridge.list_benchmarks(query=all_runs[0]["run_id"][:8])
-        assert all(
-            all_runs[0]["run_id"][:8] in r["run_id"] for r in by_query
-        )
+        assert all(all_runs[0]["run_id"][:8] in r["run_id"] for r in by_query)
         assert len(by_query) >= 1
 
     def test_status_filter_consistent(self, bridge):
@@ -338,8 +346,10 @@ stages:
     def test_validate_suite_includes_model_warnings(self, bridge):
         from arena_evaluation_mcp.tools import _dispatch
 
-        result = _dispatch("validate_suite", {
-            "yaml_content": """
+        result = _dispatch(
+            "validate_suite",
+            {
+                "yaml_content": """
 stages:
   - name: s1
     map: hospital_1
@@ -351,7 +361,9 @@ stages:
       random:
         dynamic: {min: 1, max: 2, models: [bogus_ped]}
 """,
-        }, bridge)
+            },
+            bridge,
+        )
         if not result.get("valid"):
             pytest.skip(f"suite schema validation unavailable: {result.get('error')}")
         assert result["model_warnings"], "expected model warnings"

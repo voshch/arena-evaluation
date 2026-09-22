@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pathlib
-import polars as pl
+
 import plotly.express as px
+import polars as pl
 
 from .base import BasePlotRenderer
 

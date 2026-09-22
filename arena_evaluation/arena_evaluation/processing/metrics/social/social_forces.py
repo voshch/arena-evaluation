@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import ast
 import typing
+
 import numpy as np
 
-from ..base import BaseMetricCalculator
-
-if typing.TYPE_CHECKING:
-    from ....storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 
 class SocialForcesCalculator(BaseMetricCalculator):
@@ -48,8 +47,8 @@ class SocialForcesCalculator(BaseMetricCalculator):
     }
 
     # SFM constants (Helbing & Molnar)
-    _A = 2.1       # interaction strength (N)
-    _B = 0.3       # interaction range (m)
+    _A = 2.1  # interaction strength (N)
+    _B = 0.3  # interaction range (m)
     _PED_RADIUS = 0.3  # m
     _CUTOFF = 5.0  # m, ignore pedestrians beyond this radius
     _MAX_FORCE = 100.0  # N, clamp so near-zero d_ij cannot overflow
@@ -57,7 +56,7 @@ class SocialForcesCalculator(BaseMetricCalculator):
 
     # CI / SII personal-space sigmas
     _SIGMA_FRONT = 1.0  # m, along pedestrian heading
-    _SIGMA_SIDE = 0.5   # m, perpendicular to heading
+    _SIGMA_SIDE = 0.5  # m, perpendicular to heading
     _SIGMA_PX0 = 0.28  # m
     _SIGMA_PY0 = 0.28  # m
 
@@ -97,16 +96,8 @@ class SocialForcesCalculator(BaseMetricCalculator):
 
         peds_time_ns = peds_df["time_ns"].to_numpy()
         peds_positions = peds_df["peds_positions"].to_list()
-        num_peds_col = (
-            peds_df["num_pedestrians"].to_numpy()
-            if "num_pedestrians" in peds_df.columns
-            else None
-        )
-        peds_headings_list = (
-            peds_df["peds_headings"].to_list()
-            if "peds_headings" in peds_df.columns
-            else None
-        )
+        num_peds_col = peds_df["num_pedestrians"].to_numpy() if "num_pedestrians" in peds_df.columns else None
+        peds_headings_list = peds_df["peds_headings"].to_list() if "peds_headings" in peds_df.columns else None
 
         N = len(peds_time_ns)
         if N == 0:
@@ -120,8 +111,8 @@ class SocialForcesCalculator(BaseMetricCalculator):
         dt = np.where(dt == 0.0, 1e-6, dt)
 
         d_combined = self.robot_params.robot_radius + self._PED_RADIUS
-        sx2 = 2.0 * self._SIGMA_PX0 ** 2
-        sy2 = 2.0 * self._SIGMA_PY0 ** 2
+        sx2 = 2.0 * self._SIGMA_PX0**2
+        sy2 = 2.0 * self._SIGMA_PY0**2
 
         sfm_forces = []
         esfm_forces = []

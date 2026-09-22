@@ -4,15 +4,14 @@ import polars as pl
 from unittest.mock import patch, MagicMock
 from arena_evaluation.processing.mcap_reader import MCAPReader
 
+
 def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
     reader = MCAPReader(tmp_path)
     # create dummy dir so it passes existence check
     dummy_mcap = tmp_path / "test.mcap"
     dummy_mcap.touch()
 
-    with patch("arena_evaluation.processing.mcap_reader.NonSeekingReader") as mock_reader_cls, \
-         patch("builtins.open", new_callable=MagicMock):
-
+    with patch("arena_evaluation.processing.mcap_reader.NonSeekingReader") as mock_reader_cls, patch("builtins.open", new_callable=MagicMock):
         mock_instance = mock_reader_cls.return_value
         mock_instance.__enter__.return_value = mock_instance
 
@@ -42,7 +41,7 @@ def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
         msgs = [
             make_msg(5000, 5.0),
             make_msg(1000, 1.0),
-            make_msg(1000, 1.1), # Duplicate timestamp
+            make_msg(1000, 1.1),  # Duplicate timestamp
             make_msg(3000, 3.0),
         ]
 
@@ -55,14 +54,13 @@ def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
             # It's tricky to mock the local decoder function.
             pass
 
+
 def test_unflatten_dict_adversarial():
     # What if dict has overlapping paths?
-    d = {
-        "a.b": 1,
-        "a.b.c": 2
-    }
+    d = {"a.b": 1, "a.b.c": 2}
     res = MCAPReader._unflatten_dict(d)
     assert res == {"a": {"b": {"c": 2}}}
+
 
 def test_quaternion_to_yaw_adversarial():
     # Invalid quaternion (0,0,0,0)
