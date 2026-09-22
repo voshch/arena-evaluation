@@ -1246,6 +1246,23 @@ def test_flatten_drops_inactive_modes():
     assert obs == [] and rob == []
 
 
+def test_human_params_keep_their_namespace():
+    from arena_evaluation.benchmark.runner import _flatten_per_mode_params, _human_params
+
+    config = {"humansim": {"global_planner": {"resolution": 0.1}}, "random": {"static": {"n": 3}}}
+    human = _human_params(config)
+    assert [(p.name, p.value.double_value) for p in human] == [("humansim.global_planner.resolution", 0.1)]
+    obs, rob = _flatten_per_mode_params(config, tm_obstacles="random", tm_robots="random")
+    assert [p.name for p in obs] == ["static.n"] and [p.name for p in rob] == ["static.n"]
+    assert _human_params({}) == []
+
+
+def test_reserved_human_block_is_forwarded_for_rejection():
+    from arena_evaluation.benchmark.runner import _human_params
+
+    assert [p.name for p in _human_params({"human": {"speed": 1.2}})] == ["human.speed"]
+
+
 def test_flatten_skips_non_dict_top_level():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params
 

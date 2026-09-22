@@ -49,6 +49,8 @@ stages:
       random:
         dynamic:  {min: 3, max: 5, models: [arenian]}  # -> task.random.dynamic.n=[3,5], task.random.dynamic.models
         static:   {min: 5, max: 10, models: [shelf]}
+      humansim:
+        global_planner: {resolution: 0.1}              # -> human_params humansim.global_planner.resolution
 ```
 
 A `{min, max}` pair anywhere in `config` is a runner-side convenience: it collapses to a
@@ -68,7 +70,7 @@ extension has the extension stripped before it is sent (`4.json` and `4` are equ
 | `tm_robots` | string | `Constants.TaskMode.TM_Robots` enum key (case-insensitive) |
 | `tm_obstacles` | string | `Constants.TaskMode.TM_Obstacles` enum key (case-insensitive) |
 | `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
-| `config` | dict | Per-mode params; top-level keys must match `tm_robots`/`tm_obstacles` (e.g. `scenario`, `random`). Inner leaves map to `task.<mode>.<leaf>` via QueueEpisode (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)) |
+| `config` | dict | Per-mode params. Top-level keys must match `tm_robots`/`tm_obstacles` (e.g. `scenario`, `random`). Inner leaves map to `task.<mode>.<leaf>` via QueueEpisode (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
 | `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`); can be set explicitly |
 | `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
 | `timeout_peds` | string | Same budget for the `unhindered_peds` reference step of this stage (see `references` below). Defaults to `timeout` if absent |

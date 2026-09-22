@@ -472,6 +472,16 @@ def _flatten_per_mode_params(
     return obs, rob
 
 
+def _human_params(stage_config: dict) -> list[Parameter]:
+    """The stage.config human backend blocks as namespaced Parameter[]."""
+    out: list[Parameter] = []
+    for namespace in (*Constants.HUMAN_PARAM_NAMESPACES.values(), Constants.HUMAN_PARAM_RESERVED):
+        block = (stage_config or {}).get(namespace)
+        if isinstance(block, dict):
+            out.extend(_walk_dict(block, namespace))
+    return out
+
+
 _LATCHED = QoSProfile(
     depth=1,
     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -1041,6 +1051,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
         req.obstacles_params = obs_params
         req.robots_params = rob_params
+        req.human_params = _human_params(stage_config)
         _log.info(f"[env {env_id}] pushing stage config for {step.key} (map={step.stage.map}, tm_robots={req.tm_robots}, tm_obstacles={req.tm_obstacles})")
         resp = await self._await_alive(queue.call_timeout(req, timeout_sec=10.0), env_id=env_id, what=f"queue_episode on env {env_id}")
         if resp is None:
