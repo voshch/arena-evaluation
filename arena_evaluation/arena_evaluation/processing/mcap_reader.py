@@ -20,6 +20,12 @@ _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
 
 
+def nearest_return(ranges: object, range_min: float, range_max: float) -> float:
+    """Nearest valid LaserScan return, range_max when nothing is in range."""
+    valid = [r for r in ranges if range_min <= r < range_max]
+    return min(valid) if valid else range_max
+
+
 # Topic -> explicit PyArrow schema.  Only needed when RecordBatch.from_pydict
 # cannot infer column types from data (e.g. semantic_snapshot where each row
 # populates exactly one value_* column, leaving the rest None).
@@ -295,7 +301,7 @@ class MCAPReader:
                             target = robot_data[robot_name]["scan"]
                             target["time_ns"].append(ts_ns)
                             target["scan_ranges"].append(list(ros_msg.ranges))
-                            target["scan_min"].append(ros_msg.range_min)
+                            target["scan_min"].append(nearest_return(ros_msg.ranges, ros_msg.range_min, ros_msg.range_max))
                             target["scan_range_max"].append(ros_msg.range_max)
                             appended = True
 
