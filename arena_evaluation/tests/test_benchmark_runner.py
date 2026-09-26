@@ -1192,6 +1192,28 @@ def test_group_pending_preserves_suite_order():
     assert [s.stage.name for s in groups[0]] == ["s0", "s1", "s2"]
 
 
+def test_group_pending_splits_on_map_change():
+    from arena_evaluation.benchmark.runner import group_pending
+
+    steps = [_make_step_for("alpha", "s0", map="map1"), _make_step_for("alpha", "s1", map="map2")]
+    groups = group_pending(steps, "gazebo")
+    assert len(groups) == 2
+
+
+def test_group_pending_world_swap_keeps_contestant_across_maps():
+    from arena_evaluation.benchmark.runner import group_pending
+
+    steps = [
+        _make_step_for("alpha", "s0", map="map1"),
+        _make_step_for("alpha", "s1", map="map2"),
+        _make_step_for("beta", "s0", map="map1"),
+        _make_step_for("beta", "s1", map="map2"),
+    ]
+    groups = group_pending(steps, "gazebo", world_swap=True)
+    assert len(groups) == 2
+    assert [s.stage.map for s in groups[0]] == ["map1", "map2"]
+
+
 def test_group_pending_empty():
     from arena_evaluation.benchmark.runner import group_pending
 
@@ -1204,6 +1226,13 @@ def test_env_key_components():
     step = _make_step_for("planner_a", "indoor", robot="jackal")
     key = env_key(step, "gazebo")
     assert key == ("planner_a", "jackal", "map1", "gazebo")
+
+
+def test_env_key_world_swap_drops_map():
+    from arena_evaluation.benchmark.runner import env_key
+
+    step = _make_step_for("planner_a", "indoor", robot="jackal")
+    assert env_key(step, "gazebo", world_swap=True) == ("planner_a", "jackal", "gazebo")
 
 
 def test_env_key_simulator_none():

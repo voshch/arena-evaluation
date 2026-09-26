@@ -352,12 +352,14 @@ def _preflight_contest(contest: Contest) -> list[str]:
     return problems
 
 
-def env_key(step: Step, simulator: str | None) -> tuple:
-    """Steps with the same env_key reuse one env. Changing contestant, robot, or map forces a fresh env."""
+def env_key(step: Step, simulator: str | None, world_swap: bool = False) -> tuple:
+    """Steps with the same env_key reuse one env. Changing contestant, robot, or map (unless worlds swap in place) forces a fresh env."""
+    if world_swap:
+        return (step.contestant.name, step.stage.robot, simulator)
     return (step.contestant.name, step.stage.robot, step.stage.map, simulator)
 
 
-def group_pending(steps: list[Step], simulator: str | None) -> list[list[Step]]:
+def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = False) -> list[list[Step]]:
     groups = collections.defaultdict(list)
     peds_steps = []
 
@@ -365,7 +367,7 @@ def group_pending(steps: list[Step], simulator: str | None) -> list[list[Step]]:
         if step.is_reference and step.reference_type == "unhindered_peds":
             peds_steps.append(step)
         else:
-            groups[env_key(step, simulator)].append(step)
+            groups[env_key(step, simulator, world_swap)].append(step)
 
     sorted_groups = sorted(groups.values(), key=len, reverse=True)
 
@@ -669,6 +671,7 @@ class BenchmarkRunner(ArenaMixinNode):
         max_sim_deaths: int = _MAX_SIM_DEATHS,
         spawn_budget: float = 600.0,
         efficacy: float | None = None,
+        world_swap: bool = False,
     ) -> None:
         super().__init__("arena_benchmark_runner")
         self._suite = suite
@@ -691,6 +694,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._max_sim_deaths = max_sim_deaths
         self._spawn_budget = spawn_budget
         self._efficacy = efficacy
+        self._world_swap = world_swap
         self._lockstep = LockstepMonitor()
         self._total_groups = 0
         self._completed_groups = 0
@@ -1856,7 +1860,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 except Exception:
                     pass
 
-        all_blocks = group_pending(pending, self._simulator)
+        all_blocks = group_pending(pending, self._simulator, self._world_swap)
         self._total_groups = len(all_blocks)
 
         step_map: dict[str, Step] = {s.key: s for s in (*_all_steps_grid(self._suite, self._contest, self._scale_episodes, self._run_dir.path), *pending)}
@@ -1913,13 +1917,13 @@ class BenchmarkRunner(ArenaMixinNode):
                 return False
             return res.status == "failed" and res.error_kind in _SYSTEMIC
 
-        world_maps = list(dict.fromkeys(s.stage.map for s in pending))
+        world_maps: list[str | None] = [None] if self._world_swap else list(dict.fromkeys(s.stage.map for s in pending))
         in_flight: set[asyncio.Task[bool]] = set()
 
         with self._progress:
             try:
                 for world_idx, world_map in enumerate(world_maps):
-                    world_steps = [s for s in pending if s.stage.map == world_map]
+                    world_steps = [s for s in pending if world_map is None or s.stage.map == world_map]
                     if not world_steps:
                         continue
 
@@ -1928,7 +1932,7 @@ class BenchmarkRunner(ArenaMixinNode):
                     if world_idx > 0 and self._simulator == "gazebo":
                         await self._restart_arena()
 
-                    blocks = group_pending(world_steps, self._simulator)
+                    blocks = group_pending(world_steps, self._simulator, self._world_swap)
                     block_queues: list[tuple[Step, asyncio.Queue[Step]]] = []
                     for block in blocks:
                         q = asyncio.Queue()
@@ -2185,6 +2189,11 @@ def cli_main(argv: list[str] | None = None) -> int:
         help="Maximum wall time in seconds to wait for a single env spawn, on top of the inactivity heuristic, before giving up and despawning it.",
     )
     p.add_argument(
+        "--world-swap",
+        action="store_true",
+        help="Swap worlds in place through each env's task generator instead of restarting arena_runtime per world, so an env keeps its contestant across worlds.",
+    )
+    p.add_argument(
         "--efficacy",
         type=float,
         default=None,
@@ -2355,6 +2364,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             max_sim_deaths=args.max_sim_deaths,
             spawn_budget=args.spawn_budget,
             efficacy=args.efficacy,
+            world_swap=args.world_swap,
         )
     except KeyboardInterrupt:
         return 130
