@@ -712,6 +712,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._queue_clients: dict[int, ClientWrapper] = {}
         self._param_clients: dict[int, ClientWrapper] = {}
         self._param_get_clients: dict[int, ClientWrapper] = {}
+        self._tf_namespaces: dict[int, str] = {}
 
         self._episode_records: dict[int, dict[int, EpisodeRecord]] = {}
         self._env_subs: dict[int, list] = {}
@@ -947,6 +948,10 @@ class BenchmarkRunner(ArenaMixinNode):
         self._queue_clients[env_id] = queue_client
         self._param_clients[env_id] = self.create_client_wrapper(SetParameters, f"{env_ns_root}/set_parameters")
         self._param_get_clients[env_id] = self.create_client_wrapper(GetParameters, f"{env_ns_root}/get_parameters")
+        what = f"tf_namespace param on env {env_id}"
+        tf_req = GetParameters.Request(names=["tf_namespace"])
+        tf_resp = await self._await_alive(self._await_hb(self.await_ros(self._param_get_clients[env_id].client.call_async(tf_req)), what), env_id=env_id, what=what)
+        self._tf_namespaces[env_id] = tf_resp.values[0].string_value if tf_resp.values else ""
 
         self._recorder_clients[env_id] = self.create_client_wrapper(RecordEpisode, f"{env_ns_root}/start_episode")
         self._triggered_episodes[env_id] = set()
@@ -1001,6 +1006,7 @@ class BenchmarkRunner(ArenaMixinNode):
         gc = self._param_get_clients.pop(env_id, None)
         if gc is not None:
             gc.client.destroy()
+        self._tf_namespaces.pop(env_id, None)
         rc = self._recorder_clients.pop(env_id, None)
         if rc is not None:
             rc.client.destroy()
@@ -1550,6 +1556,9 @@ class BenchmarkRunner(ArenaMixinNode):
                             f"__ns:={env_ns_root}",
                         ]
                     )
+                    tf_namespace = self._tf_namespaces.get(env_id, "")
+                    if tf_namespace:
+                        recorder_args.extend(["-r", f"/tf:={tf_namespace}/tf", "-r", f"/tf_static:={tf_namespace}/tf_static"])
 
                     recorder_proc = await asyncio.create_subprocess_exec(
                         "ros2",
