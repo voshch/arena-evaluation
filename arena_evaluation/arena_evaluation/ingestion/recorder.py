@@ -68,7 +68,7 @@ except ImportError:
     HAS_POWER = False
 
 try:
-    from task_generator_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
+    from task_generator_msgs.msg import EpisodeRecord, RobotFleet
 
     HAS_TASK_GEN = True
 except ImportError:
@@ -88,6 +88,8 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.SKIPPED,
     EpisodeRecord.FATAL,
 }
+
+_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -511,7 +513,8 @@ class DataRecorderNode(Node):
             else:
                 callback = self._create_unthrottled_callback(topic_name)
 
-            sub = self.create_subscription(msg_type, topic_name, callback, qos_profile)
+            raw = key not in _DESERIALIZED_TOPIC_KEYS
+            sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)
             self.subs.append(sub)
             if key == "episode_record":
                 self.get_logger().info(f"Subscribed to EpisodeRecord on {topic_name}")
@@ -547,7 +550,7 @@ class DataRecorderNode(Node):
 
     def _subscribe_discovered(self, topic_name: str, msg_type: type):
         self._register_topic(topic_name, msg_type)
-        sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
+        sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos, raw=True)
         self.subs.append(sub)
         self.get_logger().info(f"Dynamically subscribed to: {topic_name}")
 
@@ -644,7 +647,7 @@ class DataRecorderNode(Node):
             return
         self._write_to_bag_at(topic, msg, self.current_time)
 
-    def semantic_snapshot_callback(self, msg: SemanticSnapshot):
+    def semantic_snapshot_callback(self, msg: bytes):
         env_namespace = self.get_namespace().strip('/')
         now = self.current_time or self.get_clock().now().nanoseconds
         topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
@@ -691,7 +694,7 @@ class DataRecorderNode(Node):
                     else:
                         callback = self._create_unthrottled_callback(topic_name)
 
-                    sub = self.create_subscription(msg_type, topic_name, callback, qos_profile)
+                    sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=True)
                     self.subs.append(sub)
                     self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
 
@@ -701,7 +704,7 @@ class DataRecorderNode(Node):
                     if rel and "/" in rel:
                         topic = f"{ns_prefix}/{rel}"
                         self._register_topic(topic, msg_type)
-                        self.subs.append(self.create_subscription(msg_type, topic, self._create_throttled_callback(topic), self.qos))
+                        self.subs.append(self.create_subscription(msg_type, topic, self._create_throttled_callback(topic), self.qos, raw=True))
 
                 if self.robot_model == "unknown":
                     self.robot_model = robot.model
@@ -839,12 +842,15 @@ class DataRecorderNode(Node):
         if self.is_shutting_down:
             return
 
-        try:
-            serialized_msg = serialize_message(msg)
-        except Exception as e:
-            if not self.is_shutting_down:
-                self._log_error(f"Serialization failed for {topic_name}: {e}")
-            return
+        if isinstance(msg, (bytes, bytearray)):
+            serialized_msg = bytes(msg)
+        else:
+            try:
+                serialized_msg = serialize_message(msg)
+            except Exception as e:
+                if not self.is_shutting_down:
+                    self._log_error(f"Serialization failed for {topic_name}: {e}")
+                return
 
         with self.writer_lock:
             if self.writer is None:

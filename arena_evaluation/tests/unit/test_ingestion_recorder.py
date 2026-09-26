@@ -25,6 +25,7 @@ import yaml
 from rcl_interfaces.msg import Parameter as RclParameter
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rclpy.parameter import Parameter
+from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import String
 from task_generator_msgs.msg import EpisodeRecord, RobotFleet, RobotState
@@ -680,6 +681,55 @@ def test_write_to_bag_at_writer_error_is_logged():
     node.writer.write.side_effect = RuntimeError("disk full")
     node._write_to_bag_at("/cmd_vel", String(), 1)
     assert any("WRITE ERROR" in e for e in node.logger.errors)
+
+
+# ---------------------------------------------------------------------------
+# Raw (already-serialized) subscriptions: bytes reach the bag unchanged
+# ---------------------------------------------------------------------------
+
+
+def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(tmp_path: pathlib.Path) -> None:
+    node = _bare_node()
+    node._register_topic("/cmd_vel", Twist)
+
+    converter_options = rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr")
+    writer = rosbag2_py.SequentialWriter()
+    writer.open(rosbag2_py.StorageOptions(uri=str(tmp_path / "bag"), storage_id="mcap"), converter_options)
+    node.writer = writer
+
+    twist = Twist()
+    twist.linear.x = 1.5
+    raw_bytes = serialize_message(twist)
+
+    node._write_to_bag_at("/cmd_vel", raw_bytes, 42)
+    writer.close()
+
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=str(tmp_path / "bag"), storage_id="mcap"), converter_options)
+    topic, data, ts = reader.read_next()
+    assert topic == "cmd_vel"
+    assert data == raw_bytes
+    assert ts == 42
+    assert not reader.has_next()
+
+
+def test_write_to_bag_at_buffers_raw_bytes_unchanged_when_no_writer() -> None:
+    node = _bare_node(latched_topic_names={"env_0/state/episode"})
+    payload = b"\x01\x02\x03"
+    node._write_to_bag_at("/env_0/state/episode", payload, 5)
+    topic, buffered_payload, ts = node._pre_episode_buffer[0]
+    assert topic == "/env_0/state/episode"
+    assert buffered_payload == payload
+    assert ts == 5
+
+
+def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_node: DataRecorderNode) -> None:
+    by_topic = {sub.topic: sub for sub in full_node.subs}
+    assert by_topic["/tf"].raw is False
+    assert by_topic["/state/episode"].raw is False
+    assert by_topic["/state/robots"].raw is False
+    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask"):
+        assert by_topic[topic].raw is True
 
 
 # ---------------------------------------------------------------------------
