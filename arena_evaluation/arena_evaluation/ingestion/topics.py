@@ -21,10 +21,10 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
     from arena_robots_msgs.msg import Acoustics, CollisionEvents, Energy, Power
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
     from nav2_msgs.msg import CollisionMonitorState
-    from nav_msgs.msg import Path
+    from nav_msgs.msg import OccupancyGrid, Path
     from sensor_msgs.msg import JointState, LaserScan
     from std_msgs.msg import String
-    from task_generator_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
+    from task_generator_msgs.msg import AudioFrame, ContinuousHeardSoundState, EpisodeRecord, HeardSoundEvent, RobotFleet, SemanticSnapshot
     from tf2_msgs.msg import TFMessage
 
     ns = f"/{namespace}" if namespace else ""
@@ -58,6 +58,20 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "characterization_phase": TopicDefinition(f"{ns}/characterization_phase", String, throttled=False),
         "characterization_schedule": TopicDefinition(f"{ns}/characterization_schedule", String, throttled=False, qos_transient_local=True),
         "collision_monitor_state": TopicDefinition(f"{ns}/collision_monitor_state", CollisionMonitorState, throttled=False),
+        # AudioFrame.header.stamp is the simulation time of its first sample.
+        # These high-rate streams must never be throttled by the evaluator.
+        "audio_raw": TopicDefinition(f"{ns}/audio/raw_array", AudioFrame, throttled=False),
+        "audio_stem_motor": TopicDefinition(f"{ns}/audio/stem_motor", AudioFrame, throttled=False),
+        "audio_stem_pedestrian": TopicDefinition(f"{ns}/audio/stem_pedestrian", AudioFrame, throttled=False),
+        "audio_rendered": TopicDefinition(f"{ns}/audio/headphones/stereo", AudioFrame, throttled=False),
+        # One JSON object per audio block, so a replay can rebuild the mix. Throttling would drop blocks.
+        "audio_render_inputs": TopicDefinition(f"{ns}/audio/diagnostics/render_inputs", String, throttled=False),
+        # Carry the per-event `occluded` flag. Task generator level, not per robot.
+        "heard_sound_events": TopicDefinition(f"{p_ns}/heard_sound_events", HeardSoundEvent, throttled=False),
+        "four_mic_heard_sound_events": TopicDefinition(f"{p_ns}/four_mic_heard_sound_events", HeardSoundEvent, throttled=False),
+        "continuous_heard_sounds": TopicDefinition(f"{p_ns}/continuous_heard_sounds", ContinuousHeardSoundState, throttled=False),
+        "map": TopicDefinition(f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True),
+        "door_mask": TopicDefinition(f"{p_ns}/door_mask", OccupancyGrid, throttled=False, qos_transient_local=True),
     }
 
     return topics

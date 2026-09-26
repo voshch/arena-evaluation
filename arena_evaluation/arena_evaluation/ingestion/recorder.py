@@ -117,6 +117,7 @@ class DataRecorderNode(Node):
             ("is_reference", False),
             ("reference_type", ""),
             ("episode_id_offset", 0),
+            ("workspace_dir", ""),
         ]:
             if not self.has_parameter(name):
                 try:
@@ -230,6 +231,7 @@ class DataRecorderNode(Node):
         ref_type = self.get_parameter("reference_type").value
         self.reference_type = ref_type if ref_type else None
         self._episode_id_offset = int(self.get_parameter("episode_id_offset").value or 0)
+        self.workspace_dir = str(self.get_parameter("workspace_dir").value or "")
 
         env_namespace = self.get_namespace().strip('/')
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
@@ -291,6 +293,11 @@ class DataRecorderNode(Node):
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=100,
+        )
+        self.audio_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=1000,
         )
 
         self.is_shutting_down = False
@@ -465,7 +472,7 @@ class DataRecorderNode(Node):
         topics_dict = get_topics(namespace="", parent_namespace=env_namespace)
 
         for key, t_def in topics_dict.items():
-            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "tf", "tf_static"):
+            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
                 continue
 
             topic_name = t_def.name_template
@@ -479,6 +486,11 @@ class DataRecorderNode(Node):
             qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
             if t_def.qos_transient_local:
                 self.latched_topic_names.add(topic_name.strip('/'))
+
+            if key in ("heard_sound_events", "four_mic_heard_sound_events"):
+                qos_profile = self.reliable_volatile_qos
+            elif key == "continuous_heard_sounds":
+                qos_profile = self.audio_qos
 
             if key == "episode_record":
                 qos_profile = QoSProfile(
@@ -657,7 +669,7 @@ class DataRecorderNode(Node):
                 topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
 
                 for key, t_def in topics_dict.items():
-                    if key in ("episode_record", "robots_fleet", "peds", "agent_states", "tf", "tf_static"):
+                    if key in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
                         continue
 
                     topic_name = t_def.name_template
@@ -669,6 +681,8 @@ class DataRecorderNode(Node):
                     self._register_topic(topic_name, msg_type)
 
                     qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
+                    if key in ("audio_raw", "audio_rendered", "audio_stem_motor", "audio_stem_pedestrian", "audio_render_inputs"):
+                        qos_profile = self.audio_qos
                     if t_def.qos_transient_local:
                         self.latched_topic_names.add(topic_name.strip('/'))
 
@@ -897,6 +911,7 @@ class DataRecorderNode(Node):
             inter_planner=self.inter_planner,
             task_generator_episode_id=self.current_sim_episode_id,
             agent_name=self.robot_model,
+            workspace_dir=str(self.workspace_dir or self.episodes_root or "/opt/arena_ws"),
         )
         try:
             MetadataWriter.write(metadata, self.current_metadata_path)
@@ -932,6 +947,11 @@ class DataRecorderNode(Node):
             self.current_metadata.tm_obstacles = msg.tm_obstacles
             self.current_metadata.tm_robots = msg.tm_robots
             self.current_metadata.tm_modules = list(msg.tm_modules)
+
+            self.current_metadata.task_generator_episode_id = int(msg.episode_id)
+            if int(msg.outcome_state) in _TERMINAL_OUTCOMES:
+                self.current_metadata.outcome_state = int(msg.outcome_state)
+                self.current_metadata.outcome_info = str(msg.outcome_info)
 
             obstacles_params = {p.name: self._param_value_to_py(p.value) for p in msg.obstacles_params}
             robots_params = {p.name: self._param_value_to_py(p.value) for p in msg.robots_params}

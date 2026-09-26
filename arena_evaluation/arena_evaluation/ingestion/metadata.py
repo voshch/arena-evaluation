@@ -4,6 +4,7 @@ import datetime
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from arena_evaluation.storage.planner_names import split_planner_name
 from arena_evaluation.storage.schemas import RunMetadata
@@ -29,6 +30,23 @@ class IngestionMetadata:
             return False
 
     @staticmethod
+    def resolve_git_workspace(workspace_dir: str) -> str:
+        """Resolve an Arena checkout from either a checkout or colcon workspace.
+
+        Container recordings normally run below ``/opt/arena_ws`` while the
+        Git repository itself is ``/opt/arena_ws/src/Arena``.  Native installs
+        use the same colcon layout.  Falling back to the supplied directory
+        preserves the previous null-SHA behavior for non-Git deployments.
+        """
+        start = Path(workspace_dir).expanduser().resolve()
+        ancestry = [start, *start.parents]
+        candidates = [candidate for parent in ancestry for candidate in (parent, parent / "src" / "Arena")]
+        for candidate in candidates:
+            if (candidate / ".git").exists():
+                return str(candidate)
+        return str(start)
+
+    @staticmethod
     def create_episode_metadata(
         benchmark_id: str,
         planner: str,
@@ -51,6 +69,7 @@ class IngestionMetadata:
         """Create metadata for a single episode (new flat structure)."""
 
         fallback_lp, fallback_ip = split_planner_name(planner)
+        git_workspace = IngestionMetadata.resolve_git_workspace(workspace_dir)
         return RunMetadata(
             benchmark_id=benchmark_id,
             planner=planner,
@@ -66,8 +85,8 @@ class IngestionMetadata:
             agent_name=agent_name,
             task_generator_episode_id=task_generator_episode_id,
             recording_started_at=datetime.datetime.now(datetime.UTC).isoformat(),
-            arena_git_sha=IngestionMetadata.get_git_sha(workspace_dir),
-            arena_git_dirty=IngestionMetadata.is_git_dirty(workspace_dir),
+            arena_git_sha=IngestionMetadata.get_git_sha(git_workspace),
+            arena_git_dirty=IngestionMetadata.is_git_dirty(git_workspace),
             python_version=sys.version.split()[0],
             ros_distro=os.environ.get("ROS_DISTRO", "unknown"),
             env_ns_root=env_ns_root,
