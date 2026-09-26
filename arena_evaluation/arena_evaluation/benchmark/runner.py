@@ -305,7 +305,7 @@ def build_pending(
             continue
         if existing.status == "ok":
             continue
-        if existing.status == "failed" and not retry_failed:
+        if existing.status == "failed" and not retry_failed and existing.error_kind not in _RETRY_ON_RESUME:
             continue
         pending.append(step)
     return pending
@@ -489,6 +489,8 @@ _LATCHED = QoSProfile(
 )
 
 _SYSTEMIC = (StepErrorKind.ENV_SETUP, StepErrorKind.ROBOT_SETUP, StepErrorKind.SIM_DEAD)
+_RETRY_ON_RESUME = (*_SYSTEMIC, StepErrorKind.EPISODE_TIMEOUT)
+_ADAPTER_RESET_FAILED = "adapter reset failed"
 
 _SPAWN_CHATTER_PATTERNS = (
     "waiting on env_",
@@ -1194,6 +1196,9 @@ class BenchmarkRunner(ArenaMixinNode):
                 if result.state == RunEpisode.Result.FATAL:
                     _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} FATAL: {result.info} -- aborting step")
                     return _result("failed", StepErrorKind.ROBOT_SETUP, f"env reported FATAL: {result.info}")
+                if result.state == RunEpisode.Result.FAILED and _ADAPTER_RESET_FAILED in result.info:
+                    _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} robot reset failed: {result.info} -- aborting step")
+                    return _result("failed", StepErrorKind.ROBOT_SETUP, f"robot reset failed: {result.info}")
 
                 recs = self._episode_records.get(env_id, {})
                 rec = recs.get(episode_id)

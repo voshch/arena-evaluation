@@ -840,13 +840,39 @@ def test_build_pending_failed_without_retry_skipped(tmp_path: pathlib.Path):
     suite = _make_suite("s1")
     contest = _make_contest("pa")
     state_steps = {
-        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
-        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
-        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
     }
     run_dir = _fake_run_dir(state_steps)
     steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
     assert steps == []
+
+
+def test_build_pending_systemic_failure_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "ok", None, 0.0, 1.0, None, None),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, StepErrorKind.INTERNAL, "error"),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
+
+
+def test_build_pending_sim_stalled_failure_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.EPISODE_TIMEOUT, "sim stalled 60s"),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "ok", None, 0.0, 1.0, None, None),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "ok", None, 0.0, 1.0, None, None),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
 
 
 def test_build_pending_failed_with_retry_included(tmp_path: pathlib.Path):
