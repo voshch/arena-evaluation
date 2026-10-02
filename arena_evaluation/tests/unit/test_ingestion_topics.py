@@ -55,6 +55,9 @@ _TOPIC_EXPECTATIONS = [
     ("audio_stem_pedestrian", "/audio/stem_pedestrian", "AudioFrame", False, False),
     ("audio_rendered", "/audio/headphones/stereo", "AudioFrame", False, False),
     ("audio_render_inputs", "/audio/diagnostics/render_inputs", "String", False, False),
+    ("heard_sound_events", "/heard_sound_events", "HeardSoundEvent", False, False),
+    ("four_mic_heard_sound_events", "/four_mic_heard_sound_events", "HeardSoundEvent", False, False),
+    ("continuous_heard_sounds", "/continuous_heard_sounds", "ContinuousHeardSoundState", False, False),
     ("map", "/map", "OccupancyGrid", False, True),
     ("door_mask", "/door_mask", "OccupancyGrid", False, True),
 ]
