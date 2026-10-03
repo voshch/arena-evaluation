@@ -358,6 +358,8 @@ Override with `--data-root`. Inside Docker: `/opt/arena_ws/data/benchmarks/<run_
 `-- report_manifest.yaml       # Used report manifest
 ```
 
+Runs shared across lanes add per-lane files, see [Shared Runs](../../arena_evaluation/benchmark/README.md#shared-runs).
+
 ## Inspection & Management Commands
 ```bash
 arena evaluation list                          # List runs

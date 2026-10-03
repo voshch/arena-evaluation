@@ -17,7 +17,7 @@ Runs multi-planner benchmark campaigns: spawns simulation environments, drives e
 ```bash
 arena evaluation list                          # List all benchmark runs
 arena evaluation status [<run_id>]             # Show run progress (--watch for live)
-arena evaluation tail [<run_id>]               # tail -F progress.csv
+arena evaluation tail [<run_id>]               # tail -F progress.csv and every progress.<lane>.csv
 arena evaluation ps                            # List running arena OS processes
 arena evaluation kill [<pid>...] [-9]          # Terminate running arena/sim processes (-9 for SIGKILL)
 arena evaluation console [<run_id>]            # Tail runner.log (--follow for streaming)
@@ -135,5 +135,19 @@ runner.run()
 
 `StateFile` manages `.benchmark_state.json` atomically. Each step has status: `ok | partial | failed | skipped | in_progress`. Interrupted runs resume with `--resume <run_id>`.
 
-Run ID format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}`.
+Run ID format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}`, `{YYYYMMDD-HHMMSS}-{lane}-{suite}-{contest}` inside a lane, `{YYYYMMDD-HHMMSS}-{suite}-x{N}` for `--lanes N`.
+
+## Shared Runs
+
+`--lanes N` starts one runner per lane on the same run dir. Lanes claim env blocks so each runs once, and fold their files into `progress.csv` and `.benchmark_state.json`:
+
+```
+<run_id>/
+|-- progress.<lane>.csv        # This lane's episodes
+|-- .benchmark_state.<lane>.json
+|-- runner.<lane>.log
+|-- runner.<lane>.pid          # Signalled by --lanes on Ctrl-C
+|-- claims/<token>/            # One file per (env, world) block, taken atomically
+`-- episodes/.next_episode_id  # Episode id counter, locked across lanes
+```
 
