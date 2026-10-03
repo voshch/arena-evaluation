@@ -609,9 +609,9 @@ def test_build_launch_args_required_fields():
     assert "world:=map1" in args
     assert f"task.robots:={Constants.TaskMode.TM_Robots.RANDOM.value}" in args
     assert f"task.obstacles:={Constants.TaskMode.TM_Obstacles.RANDOM.value}" in args
-    assert not any(a.startswith("task.episodes:=") for a in args)
+    assert not any(a.startswith("task.episode.count:=") for a in args)
     assert "run_seed:=42" in args
-    assert "task.auto_reset:=false" in args
+    assert "task.episode.auto_reset:=false" in args
     assert "task.modules:=" in args
 
 

@@ -87,7 +87,7 @@ for, but every env that showed up on `/arena/state/envs` during the wait and nev
 `ready`: `arena_node` reserves an env before it activates, so a spawn that stalls before
 `SpawnEnv` returns can still leave a live, unregistered env behind.
 
-Episode budgets are sim time, enforced by the task generator through its `timeout` parameter
+Episode budgets are sim time, enforced by the task generator through its `task.episode.timeout` parameter
 (a timed-out episode arrives as a normal FAILED `EpisodeRecord` with `outcome_info='timeout'`).
 The runner keeps only a stall guard: while an episode result is pending it samples the sim
 clock once a second and gives up after 60 wall seconds of a frozen clock outside a reset

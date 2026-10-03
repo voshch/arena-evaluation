@@ -169,7 +169,7 @@ def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, 
         f"task.robots:={s.tm_robots.value}",
         f"task.obstacles:={s.tm_obstacles.value}",
         f"run_seed:={s.seed}",
-        "task.auto_reset:=false",
+        "task.episode.auto_reset:=false",
         "task.modules:=",
     ]
     if s.optim:
@@ -1087,22 +1087,22 @@ class BenchmarkRunner(ArenaMixinNode):
             raise RuntimeError(f"queue_episode failed for {step.key}: {resp.error_msg}")
 
         budget = self._episode_budget(step)
-        get_resp = await self._await_alive(self._param_get_clients[env_id].call_timeout(GetParameters.Request(names=["timeout"]), timeout_sec=10.0), env_id=env_id, what=f"episode timeout param type on env {env_id}")
+        get_resp = await self._await_alive(self._param_get_clients[env_id].call_timeout(GetParameters.Request(names=["task.episode.timeout"]), timeout_sec=10.0), env_id=env_id, what=f"episode timeout param type on env {env_id}")
         if get_resp is None or not get_resp.values:
-            raise RuntimeError(f"get_parameters(timeout) failed on env {env_id} for {step.key}")
+            raise RuntimeError(f"get_parameters(task.episode.timeout) failed on env {env_id} for {step.key}")
         if get_resp.values[0].type == ParameterType.PARAMETER_INTEGER:
             budget_value = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=round(budget))
         else:
             budget_value = ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=float(budget))
         timeout_client = self._param_clients[env_id]
         timeout_req = SetParameters.Request()
-        timeout_req.parameters = [Parameter(name="timeout", value=budget_value)]
+        timeout_req.parameters = [Parameter(name="task.episode.timeout", value=budget_value)]
         timeout_resp = await self._await_alive(timeout_client.call_timeout(timeout_req, timeout_sec=10.0), env_id=env_id, what=f"episode timeout param on env {env_id}")
         if timeout_resp is None:
-            raise RuntimeError(f"set_parameters(timeout) timed out after 10s on env {env_id} for {step.key}")
+            raise RuntimeError(f"set_parameters(task.episode.timeout) timed out after 10s on env {env_id} for {step.key}")
         if not all(r.successful for r in timeout_resp.results):
             reasons = "; ".join(r.reason for r in timeout_resp.results if not r.successful)
-            raise RuntimeError(f"set_parameters(timeout={budget}s) rejected on env {env_id} for {step.key}: {reasons}")
+            raise RuntimeError(f"set_parameters(task.episode.timeout={budget}s) rejected on env {env_id} for {step.key}: {reasons}")
         _log.info(f"[env {env_id}] stage config applied for {step.key} (episode budget {budget:.0f}s sim)")
 
     async def _run_episodes(

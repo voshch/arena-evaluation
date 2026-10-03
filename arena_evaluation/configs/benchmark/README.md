@@ -72,7 +72,7 @@ extension has the extension stripped before it is sent (`4.json` and `4` are equ
 | `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
 | `config` | dict | Per-mode params. Top-level keys must match `tm_robots`/`tm_obstacles` (e.g. `scenario`, `random`). Inner leaves map to `task.<mode>.<leaf>` via QueueEpisode (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
 | `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`); can be set explicitly |
-| `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
+| `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `task.episode.timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
 | `timeout_peds` | string | Same budget for the `unhindered_peds` reference step of this stage (see `references` below). Defaults to `timeout` if absent |
 | `optim` | dict | Extra `optim.<key>:=<value>` launch args for this stage's env |
 
@@ -269,12 +269,12 @@ start). See
 for the recommended key shapes.
 
 The runner drops keys that collide with stage-owned launch args (`sim`,
-`robot`, `world`, `task.robots`, `task.obstacles`, `run_seed`, `task.auto_reset`,
+`robot`, `world`, `task.robots`, `task.obstacles`, `run_seed`, `task.episode.auto_reset`,
 `task.modules`, `record.dir`, `record.auto`) and logs a warning, since those are
 controlled by the suite stage. Anything else is passed through to the launch
 layer, which binds it if declared or raises an error if not.
 
-A useful passthrough example: `task.fail_on_collision: true` makes the env abort
+A useful passthrough example: `task.episode.fail_on_collision: true` makes the env abort
 an episode as FAILED (`outcome_info='collision'`) the moment the robot
 footprint contacts a wall, static obstacle, or pedestrian, instead of the
 default run-to-goal-or-timeout. See
@@ -301,7 +301,7 @@ For each group the runner:
 
 1. Calls `/arena/spawn_env` once with the first step's launch args: `sim`,
    `robot`, `world`, `task.robots`, `task.obstacles`, `run_seed`,
-   `task.auto_reset:=false`, `task.modules:=` (empty), any `optim.<key>:=<value>`
+   `task.episode.auto_reset:=false`, `task.modules:=` (empty), any `optim.<key>:=<value>`
    from the stage's `optim` dict, and any contestant args of
    shape `mobile`, `arm`, `mobile.<key>`, or `arm.<key>` (emitted as
    `robot.mobile...` / `robot.arm...`). `record.dir` and `record.auto:=false`
@@ -318,7 +318,7 @@ For each group the runner:
      `file`, `dynamic.min`). MERGE semantics: empty fields leave the prior
      queued value untouched. Called for every step including the first; the
      env owns no stage-specific config until the runner pushes it.
-   - Sets the env's `timeout` parameter to the stage's `timeout` (or
+   - Sets the env's `task.episode.timeout` parameter to the stage's `timeout` (or
      `timeout_peds` for the `unhindered_peds` reference step) via
      `<env_ns>/set_parameters`, so the episode budget is spent in sim time.
      The runner keeps no wall-clock episode ceiling, only a 60 s sim-stall
