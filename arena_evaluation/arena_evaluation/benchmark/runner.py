@@ -5,6 +5,8 @@ import asyncio
 import collections
 import contextlib
 import datetime
+import hashlib
+import json
 import logging
 import os
 import pathlib
@@ -359,6 +361,12 @@ def env_key(step: Step, simulator: str | None, world_swap: bool = False) -> tupl
     return (step.contestant.name, step.stage.robot, step.stage.map, simulator)
 
 
+def block_claim_key(block: list[Step], world_map: str | None, simulator: str | None, world_swap: bool = False) -> str:
+    """Claim file name of an env block, identical across the lanes of a shared run."""
+    blob = json.dumps([list(env_key(block[0], simulator, world_swap)), world_map], default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()
+
+
 def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = False) -> list[list[Step]]:
     groups = collections.defaultdict(list)
     peds_steps = []
@@ -672,6 +680,7 @@ class BenchmarkRunner(ArenaMixinNode):
         spawn_budget: float = 600.0,
         efficacy: float | None = None,
         world_swap: bool = False,
+        shared: str | None = None,
     ) -> None:
         super().__init__("arena_benchmark_runner")
         self._suite = suite
@@ -695,6 +704,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._spawn_budget = spawn_budget
         self._efficacy = efficacy
         self._world_swap = world_swap
+        self._shared = shared
         self._lockstep = LockstepMonitor()
         self._total_groups = 0
         self._completed_groups = 0
@@ -786,8 +796,13 @@ class BenchmarkRunner(ArenaMixinNode):
     def _deadman(self) -> None:
         """Loop-watchdog callback: the event loop is hung, take the runtime down and exit."""
         with contextlib.suppress(OSError):
-            with (self._run_dir.path / "runner.log").open("a") as fh:
+            with self._run_dir.log_path.open("a") as fh:
                 fh.write(f"benchmark: runner event loop hung for {_LOOP_DEADLINE_S:.0f}s, killing arena runtime and exiting {_HUNG_EXIT_CODE}\n")
+        if self._shared is not None:
+            with contextlib.suppress(Exception):
+                self._run_dir.fold()
+            with contextlib.suppress(OSError):
+                self._run_dir.pid_path.unlink()
         p = self._arena_proc
         if p is not None and p.poll() is None:
             with contextlib.suppress(ProcessLookupError, OSError):
@@ -819,7 +834,7 @@ class BenchmarkRunner(ArenaMixinNode):
         Times out if there is no substantive progress for `inactivity_timeout` seconds,
         or if `max_total_timeout` is exceeded."""
         task = asyncio.ensure_future(awaitable)
-        log_path = self._run_dir.path / "runner.log"
+        log_path = self._run_dir.log_path
         last_positions: dict[pathlib.Path, int] = {}
         last_activity = time.monotonic()
         total_waited = 0.0
@@ -1509,8 +1524,11 @@ class BenchmarkRunner(ArenaMixinNode):
 
                 recorder_proc = None
                 if step.record_dir is not None:
-                    episode_id_offset = self._global_episode_id_offset
-                    self._global_episode_id_offset += step.episodes
+                    if self._shared is None:
+                        episode_id_offset = self._global_episode_id_offset
+                        self._global_episode_id_offset += step.episodes
+                    else:
+                        episode_id_offset = self._run_dir.reserve_episode_ids(step.episodes)
 
                     lp, ip = resolve_planner_identity(step.contestant)
                     recorder_args = [
@@ -1812,7 +1830,7 @@ class BenchmarkRunner(ArenaMixinNode):
             *(f"{k}:={v}" for k, v in passthrough.items()),
         ]
 
-        log_path = self._run_dir.path / "runner.log"
+        log_path = self._run_dir.log_path
         self._arena_log_file = log_path.open("a")
 
         proc_env = None
@@ -1882,6 +1900,11 @@ class BenchmarkRunner(ArenaMixinNode):
             sim_now=lambda: self.sim_time.to_seconds(),
         )
 
+        owned: set[str] = set()
+
+        def _write_state() -> None:
+            self._run_dir.state.write(results if self._shared is None else {k: results[k] for k in owned})
+
         def _mark_step_in_progress(step: Step) -> None:
             results[step.key] = StepResult(
                 step.key,
@@ -1893,7 +1916,8 @@ class BenchmarkRunner(ArenaMixinNode):
                 None,
                 episodes_total=step.episodes,
             )
-            self._run_dir.state.write(results)
+            owned.add(step.key)
+            _write_state()
             self._publish_state(results, steps_total)
 
         def _flush_step_result(res: StepResult) -> bool:
@@ -1901,7 +1925,8 @@ class BenchmarkRunner(ArenaMixinNode):
             elapsed = (res.ended_at or time.time()) - res.started_at
             lockstep_note = f" {res.lockstep.short()}" if res.lockstep is not None and res.lockstep.active else ""
             _log.info(f"[{res.status}] {res.key} env={res.env_id} episodes={res.episodes_run}/{res.episodes_total} (failed={res.episodes_failed}) t={elapsed:.1f}s{lockstep_note}")
-            self._run_dir.state.write(results)
+            owned.add(res.key)
+            _write_state()
             self._publish_state(results, steps_total)
 
             if self._progress is not None:
@@ -1928,6 +1953,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
         world_maps: list[str | None] = [None] if self._world_swap else list(dict.fromkeys(s.stage.map for s in pending))
         in_flight: set[asyncio.Task[bool]] = set()
+        sim_used = False
 
         with self._progress:
             try:
@@ -1936,34 +1962,45 @@ class BenchmarkRunner(ArenaMixinNode):
                     if not world_steps:
                         continue
 
+                    blocks = group_pending(world_steps, self._simulator, self._world_swap)
+                    claim_keys = [block_claim_key(block, world_map, self._simulator, self._world_swap) for block in blocks]
+                    if self._shared is not None and all(self._run_dir.claimed(self._shared, k) for k in claim_keys):
+                        _log.info(f"benchmark: every block of world {world_map} is claimed by other lanes, skipping it")
+                        continue
+
                     # If switching to a new world map in Gazebo, restart arena_runtime now that
                     # all previous workers are completely finished and 0 tasks are running
-                    if world_idx > 0 and self._simulator == "gazebo":
+                    if world_idx > 0 and self._simulator == "gazebo" and (self._shared is None or sim_used):
                         await self._restart_arena()
+                        sim_used = False
 
-                    blocks = group_pending(world_steps, self._simulator, self._world_swap)
-                    block_queues: list[tuple[Step, asyncio.Queue[Step]]] = []
-                    for block in blocks:
+                    block_queues: list[tuple[Step, asyncio.Queue[Step], str]] = []
+                    for block, claim_key in zip(blocks, claim_keys, strict=True):
                         q = asyncio.Queue()
                         for step in block:
                             q.put_nowait(step)
-                        block_queues.append((block[0], q))
+                        block_queues.append((block[0], q, claim_key))
 
                     cap = max(1, min(self._env_n, len(world_steps) or 1))
 
-                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step]]]) -> bool:
+                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]]) -> bool:
+                        nonlocal sim_used
                         try:
                             while True:
                                 target_q = None
                                 rep_step = None
-                                for r_step, q in block_queues:
-                                    if not q.empty():
-                                        target_q = q
-                                        rep_step = r_step
-                                        break
+                                for r_step, q, claim_key in block_queues:
+                                    if q.empty():
+                                        continue
+                                    if self._shared is not None and not self._run_dir.claim(self._shared, claim_key):
+                                        continue
+                                    target_q = q
+                                    rep_step = r_step
+                                    break
 
                                 if target_q is None:
                                     break
+                                sim_used = True
 
                                 abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
                                 if abort:
@@ -2127,6 +2164,8 @@ def _resolve_resume_config(
 
 def _default_run_id(suite_name: str, contest_name: str) -> str:
     ts = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%d-%H%M%S")
+    if lane := os.environ.get("ARENA_LANE"):
+        ts = f"{ts}-{lane}"
     if _is_inline_suite(suite_name):
         suite_stem = "inline"
     else:
@@ -2139,6 +2178,25 @@ def _default_run_id(suite_name: str, contest_name: str) -> str:
 
 
 _KV_RE = re.compile(r"^[\w\.\-]+:=.*$")
+_SHARED_NAME_RE = re.compile(r"^[\w\-][\w\.\-]*$")
+
+
+def _shared_lane(shared: str | None, run_id: str | None, resume: str | None) -> tuple[str | None, str | None]:
+    """Validate --shared arguments, returning (lane, error message)."""
+    if shared is None:
+        return None, None
+    if not _SHARED_NAME_RE.match(shared):
+        return None, f"--shared token {shared!r} must be a plain file name (letters, digits, '_', '-', '.')"
+    lane = os.environ.get("ARENA_LANE", "")
+    if not lane:
+        return None, "--shared needs ARENA_LANE set to this runner's lane name (e.g. ARENA_LANE=p1)"
+    if not _SHARED_NAME_RE.match(lane):
+        return None, f"ARENA_LANE {lane!r} must be a plain file name (letters, digits, '_', '-', '.')"
+    if resume == "__auto__":
+        return None, "--shared refuses bare --resume, pass --resume <run_id> so every lane opens the same run"
+    if resume is None and run_id is None:
+        return None, "--shared needs --run-id <id> for a fresh run or --resume <run_id>, shared by every lane"
+    return lane, None
 
 
 def cli_main(argv: list[str] | None = None) -> int:
@@ -2214,7 +2272,18 @@ def cli_main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="On completion, leave arena_runtime.launch.py and the last env running so you can poke at it. Recording stops with the last episode as usual.",
     )
+    p.add_argument(
+        "--shared",
+        default=None,
+        metavar="TOKEN",
+        help="Run as one lane (named by ARENA_LANE) of a run several lanes share. Every lane gets the same TOKEN, a fresh one per launch, and the same --run-id or --resume <run_id>. Lanes claim env blocks under claims/<TOKEN>/ and fold their lane files into progress.csv and .benchmark_state.json on exit.",
+    )
     args, extras = p.parse_known_args(argv)
+
+    lane, shared_error = _shared_lane(args.shared, args.run_id, args.resume)
+    if shared_error is not None:
+        print(f"benchmark: {shared_error}", file=sys.stderr)
+        return 2
 
     for arg in extras:
         if not _KV_RE.match(arg):
@@ -2257,7 +2326,7 @@ def cli_main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 resume_id = resolved
-            run_dir = RunDir.open(data_root, resume_id)
+            run_dir = RunDir.open(data_root, resume_id, lane=lane)
             man = run_dir.manifest
             suite, contest, scale_episodes, simulator = _resolve_resume_config(man)
             suite_bundle_dir = _suite_bundle_dir(man.suite_name)
@@ -2329,7 +2398,7 @@ def cli_main(argv: list[str] | None = None) -> int:
                 suite_provenance=suite_provenance,
                 contest_provenance=contest_provenance,
             )
-            run_dir = RunDir.create(data_root, run_id, manifest)
+            run_dir = RunDir.create(data_root, run_id, manifest, lane=lane)
     except FileNotFoundError as exc:
         print(f"benchmark: config file not found: {exc}", file=sys.stderr)
         return 2
@@ -2345,6 +2414,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     )
 
     run_dir.attach_log_handler(logging.getLogger())
+    if lane is not None:
+        run_dir.pid_path.write_text(f"{os.getpid()}\n")
 
     profiler = None
     if args.profile:
@@ -2374,12 +2445,20 @@ def cli_main(argv: list[str] | None = None) -> int:
             spawn_budget=args.spawn_budget,
             efficacy=args.efficacy,
             world_swap=args.world_swap,
+            shared=args.shared,
         )
     except KeyboardInterrupt:
         return 130
     finally:
         if profiler is not None:
             profiler.stop()
+        if lane is not None:
+            try:
+                run_dir.progress.close()
+                run_dir.fold()
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    run_dir.pid_path.unlink()
     return BenchmarkRunner.exit_code
 
 
