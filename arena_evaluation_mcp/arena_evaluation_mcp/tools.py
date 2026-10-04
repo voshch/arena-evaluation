@@ -1158,7 +1158,7 @@ def _warn_unknown_models(yaml_content: str, bridge: EvalBridge) -> list[str]:
             models = (rnd.get(key) or {}).get("models") or []
             for m in models:
                 if m not in catalog:
-                    warnings.append(f"stage '{stage_name}': {key} model '{m}' is not in the bundled catalog {sorted(catalog)} - {what}. Fetch extra models via `arena_models net fetch` or fix the typo.")
+                    warnings.append(f"stage '{stage_name}': {key} model '{m}' is not in the bundled catalog {sorted(catalog)} - {what}. Fetch extra models via `arena-assets net fetch` or fix the typo.")
     return warnings
 
 
