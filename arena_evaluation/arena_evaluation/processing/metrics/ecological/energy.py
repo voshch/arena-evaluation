@@ -60,18 +60,9 @@ class EnergyMetricCalculator(BaseMetricCalculator):
         else:
             t_s = np.zeros(len(df))
 
-        # Power timeseries
-        p_total = df["total_power_w"].to_numpy() if "total_power_w" in df.columns else np.zeros_like(t_s)
-        p_static = df["static_power_w"].to_numpy() if "static_power_w" in df.columns else np.zeros_like(t_s)
-        p_mech = df["total_mechanical_power_w"].to_numpy() if "total_mechanical_power_w" in df.columns else np.zeros_like(t_s)
-        p_therm = df["total_thermal_power_w"].to_numpy() if "total_thermal_power_w" in df.columns else np.zeros_like(t_s)
-
         # We need to fill nulls which happen if the 'power' topic was joined but had missing data at odom timestamps (backward join leaves nulls at the start)
         def fill_nulls(arr: np.ndarray) -> np.ndarray:
-            arr = np.array(arr, dtype=float)
             mask = np.isnan(arr)
-            if np.all(mask):
-                return np.zeros_like(arr)
             # Forward fill, then backward fill
             idx = np.where(~mask, np.arange(mask.shape[0]), 0)
             np.maximum.accumulate(idx, out=idx)
@@ -81,68 +72,69 @@ class EnergyMetricCalculator(BaseMetricCalculator):
             mask = np.isnan(out)
             if np.any(mask):
                 valid_idx = np.where(~np.isnan(arr))[0]
-                if len(valid_idx) > 0:
-                    out[mask] = arr[valid_idx[0]]
-                else:
-                    out[mask] = 0.0
+                out[mask] = arr[valid_idx[0]]
             return out
 
-        p_total = fill_nulls(p_total)
-        p_static = fill_nulls(p_static)
-        p_mech = fill_nulls(p_mech)
-        p_therm = fill_nulls(p_therm)
+        def column_or_none(name: str) -> np.ndarray | None:
+            if name not in df.columns:
+                return None
+            arr = df[name].to_numpy().astype(float)
+            if np.all(np.isnan(arr)):
+                return None
+            return fill_nulls(arr)
+
+        p_total = column_or_none("total_power_w")
+        p_static = column_or_none("static_power_w")
+        p_mech = column_or_none("total_mechanical_power_w")
+        p_therm = column_or_none("total_thermal_power_w")
 
         # Velocity timeseries
-        vel = df["vel_linear"].to_numpy() if "vel_linear" in df.columns else np.zeros_like(t_s)
-        vel = fill_nulls(vel)
+        vel = column_or_none("vel_linear")
 
         # Battery timeseries - normalized to start at 100.0% per episode
-        batt = df["battery_soc_percent"].to_numpy() if "battery_soc_percent" in df.columns else np.zeros_like(t_s)
-        batt = fill_nulls(batt)
-        if len(batt) > 0:
+        batt = column_or_none("battery_soc_percent")
+        if batt is not None:
             batt_initial = batt[0]
-            batt_final = batt[-1]
+            batt_final = float(batt[-1])
             batt_drop = max(float(batt_initial - batt_final), 0.0)
             batt_normalized = np.clip(100.0 - (batt_initial - batt), 0.0, 100.0)
         else:
-            batt_initial = 0.0
-            batt_final = 0.0
-            batt_drop = 0.0
-            batt_normalized = batt
+            batt_final = None
+            batt_drop = None
+            batt_normalized = None
 
         # Integration for total energy consumption over the episode
         # Energy = integral of Power dt
         dt = np.diff(t_s, prepend=0.0)
-        e_static = np.sum(p_static * dt) / 3600.0
-        e_mech = np.sum(p_mech * dt) / 3600.0
-        e_therm = np.sum(p_therm * dt) / 3600.0
+        e_static = float(np.sum(p_static * dt) / 3600.0) if p_static is not None else None
+        e_mech = float(np.sum(p_mech * dt) / 3600.0) if p_mech is not None else None
+        e_therm = float(np.sum(p_therm * dt) / 3600.0) if p_therm is not None else None
 
         # Alternative: use the final value from the /energy topic
         # The /energy topic publishes cumulative energy since node start.
         # The energy used in THIS episode is the final value minus the initial value.
-        if "total_energy_consumed_wh" in df.columns:
-            energy_arr = fill_nulls(df["total_energy_consumed_wh"].to_numpy())
-            if len(energy_arr) > 0:
-                e_total = energy_arr[-1] - energy_arr[0]
-            else:
-                e_total = np.sum(p_total * dt) / 3600.0
+        energy_arr = column_or_none("total_energy_consumed_wh")
+        if energy_arr is not None:
+            e_total = float(energy_arr[-1] - energy_arr[0])
+        elif p_total is not None:
+            e_total = float(np.sum(p_total * dt) / 3600.0)
         else:
-            e_total = np.sum(p_total * dt) / 3600.0
-        power_peak = float(np.max(p_total)) if len(p_total) > 0 else 0.0
+            e_total = None
+        power_peak = float(np.max(p_total)) if p_total is not None else None
 
         return {
-            "energy_static_wh": float(e_static),
-            "energy_mechanical_wh": float(e_mech),
-            "energy_thermal_wh": float(e_therm),
-            "energy_total_wh": float(e_total),
+            "energy_static_wh": e_static,
+            "energy_mechanical_wh": e_mech,
+            "energy_thermal_wh": e_therm,
+            "energy_total_wh": e_total,
             "power_peak_w": power_peak,
-            "battery_soc_final": float(batt_final),
-            "battery_soc_drop_pct": float(batt_drop),
-            "timeseries_power_total_w": p_total.tolist(),
-            "timeseries_power_static_w": p_static.tolist(),
-            "timeseries_power_mechanical_w": p_mech.tolist(),
-            "timeseries_power_thermal_w": p_therm.tolist(),
-            "timeseries_battery_soc": batt_normalized.tolist(),
-            "timeseries_velocity_linear": vel.tolist(),
+            "battery_soc_final": batt_final,
+            "battery_soc_drop_pct": batt_drop,
+            "timeseries_power_total_w": p_total.tolist() if p_total is not None else None,
+            "timeseries_power_static_w": p_static.tolist() if p_static is not None else None,
+            "timeseries_power_mechanical_w": p_mech.tolist() if p_mech is not None else None,
+            "timeseries_power_thermal_w": p_therm.tolist() if p_therm is not None else None,
+            "timeseries_battery_soc": batt_normalized.tolist() if batt_normalized is not None else None,
+            "timeseries_velocity_linear": vel.tolist() if vel is not None else None,
             "timeseries_time_s": t_s.tolist(),
         }

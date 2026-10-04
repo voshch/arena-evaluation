@@ -33,7 +33,7 @@ struct Label {
     int   walls;       // number of air->wall transitions so far
     int   index;       // grid pixel index (y*width + x)
     float tl;          // accumulated transmission loss (dB) along the path
-    float cost;        // 20*log10(dist + mic_distance) + tl  (priority key)
+    float cost;        // 20*log10(max(dist, mic_distance)) + tl  (priority key)
     int   parent_x;    // pixel x of THIS label's parent node (for Theta*)
     int   parent_y;    // pixel y of THIS label's parent node (for Theta*)
     float parent_dist; // accumulated distance at the parent node (for Theta*)
@@ -88,7 +88,7 @@ extern "C" {
         };
 
         float start_tl    = start_is_wall ? pixel_tl_of(start_idx) : 0.0f;
-        float init_cost   = 20.0f * log10f(0.0f + mic_distance) + start_tl;
+        float init_cost   = 20.0f * log10f(mic_distance) + start_tl;
         int   start_walls = start_is_wall ? 1 : 0;
         min_dist[start_idx][start_walls] = 0.0f;
         min_cost[start_idx] = init_cost;
@@ -179,12 +179,12 @@ extern "C" {
                 min_dist[nidx][nwalls] = ndist;
 
                 float new_tl = curr.tl + next_tl_contrib;
-                float ncost  = 20.0f * log10f(ndist + mic_distance) + new_tl;
+                float ncost  = 20.0f * log10f(fmaxf(ndist, mic_distance)) + new_tl;
                 if (ncost < min_cost[nidx]) {
                     min_cost[nidx] = ncost;
-                    pq.push({ndist, nwalls, nidx, new_tl, ncost,
-                             new_par_x, new_par_y, new_par_dist});
                 }
+                pq.push({ndist, nwalls, nidx, new_tl, ncost,
+                         new_par_x, new_par_y, new_par_dist});
             }
         }
 

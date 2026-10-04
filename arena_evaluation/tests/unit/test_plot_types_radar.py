@@ -580,19 +580,7 @@ def test_compute_field_timeseries_with_door_timeline_caches_pixel_tl(monkeypatch
     assert built == [frozenset(["d1"]), frozenset()]  # per-unique-open-set only
 
 
-def test_compute_field_timeseries_no_solver_returns_empty(monkeypatch):
-    monkeypatch.setattr(af_mod, "compute_attenuations", None)
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer.compute_field_timeseries(_anim_df(), _grid(12), 0.1, 0.0, 0.0, {}) == []
-
-
 # ── render_plotly (single + grid mode) ─────────────────────────────────────
-
-
-def test_af_plotly_no_solver_returns_empty(monkeypatch):
-    monkeypatch.setattr(af_mod, "compute_attenuations", None)
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer.render_plotly(_af_df()) == ""
 
 
 def test_af_plotly_empty_after_reference_filter(monkeypatch):
@@ -736,14 +724,6 @@ def test_af_plotly_cell_render_failure_returns_empty(monkeypatch, tmp_path):
 
 
 # ── render_seaborn (AcousticFieldRenderer) ─────────────────────────────────
-
-
-def test_af_seaborn_no_solver_writes_nothing(monkeypatch, tmp_path):
-    monkeypatch.setattr(af_mod, "compute_attenuations", None)
-    out = tmp_path / "af.png"
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    renderer.render_seaborn(_af_df(), out)
-    assert not out.exists()
 
 
 def test_af_seaborn_empty_after_filter_writes_nothing(monkeypatch, tmp_path):
@@ -922,15 +902,6 @@ def test_animation_renderer_seaborn_finds_episode_in_parent_dir(monkeypatch, tmp
     assert seen["out_path"] == run_dir / "anim.gif"
 
 
-def test_animation_renderer_seaborn_no_solver(monkeypatch, tmp_path):
-    monkeypatch.setattr(af_mod, "compute_attenuations", None)
-    out = tmp_path / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    renderer.run_dir = tmp_path
-    renderer.render_seaborn(_af_df(), out)
-    assert not out.exists()
-
-
 def test_animation_renderer_seaborn_empty_df(monkeypatch, tmp_path):
     _patch_grid(monkeypatch)
     df = _af_df().with_columns(pl.Series("is_reference", [True, True]))
@@ -966,12 +937,6 @@ def test_animation_renderer_plotly_empty_df_returns_empty_string():
     assert renderer.render_plotly(pl.DataFrame()) == ""
 
 
-def test_animation_renderer_plotly_no_solver_returns_empty(monkeypatch):
-    monkeypatch.setattr(af_mod, "compute_attenuations", None)
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    assert renderer.render_plotly(_af_df()) == ""
-
-
 def test_animation_renderer_plotly_frames_format_returns_empty():
     renderer = AcousticFieldAnimationRenderer(_anim_spec(format="frames"))
     assert renderer.render_plotly(_af_df()) == ""
@@ -984,12 +949,10 @@ def test_animation_renderer_plotly_embeds_gif():
     assert "Acoustic Animation" in html
 
 
-def test_animation_renderer_plotly_mp4_embeds_gif_reference():
-    """options.format=mp4 still embeds a .gif src (ext maps mp4->gif) —
-    documented source quirk."""
+def test_animation_renderer_plotly_mp4_embeds_video():
     renderer = AcousticFieldAnimationRenderer(_anim_spec(format="mp4"))
     html = renderer.render_plotly(_af_df())
-    assert '<img src="plots/af_anim.gif"' in html
+    assert '<video src="plots/af_anim.mp4"' in html
 
 
 def test_animation_renderer_seaborn_characterization_null_peds(monkeypatch, tmp_path):

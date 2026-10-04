@@ -282,7 +282,7 @@ def test_door_segments_width_controls_thickness(tmp_path):
 
 def test_door_segments_off_wall_door_skipped(tmp_path):
     # door placed in free space, away from any wall pixel -> dropped
-    flat = {"zones": [{"doors": [_door("float", start=(10.0, 3.0), end=(16.0, 3.0))]}]}
+    flat = {"zones": [{"doors": [_door("float", start=(10.0, 8.0), end=(16.0, 8.0))]}]}
     _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert result == {}

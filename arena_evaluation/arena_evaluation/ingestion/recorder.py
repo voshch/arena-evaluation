@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
     from rcl_interfaces.msg import ParameterValue
 
+    from .topics import TopicDefinition
+
 try:
     from arena_people_msgs.msg import Pedestrians
 
@@ -90,6 +92,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -474,7 +477,7 @@ class DataRecorderNode(Node):
         topics_dict = get_topics(namespace="", parent_namespace=env_namespace)
 
         for key, t_def in topics_dict.items():
-            if key not in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
+            if key not in _ENV_TOPIC_KEYS or not self._records(key, t_def):
                 continue
 
             topic_name = t_def.name_template
@@ -489,7 +492,7 @@ class DataRecorderNode(Node):
             if t_def.qos_transient_local:
                 self.latched_topic_names.add(topic_name.strip('/'))
 
-            if key in ("heard_sound_events", "four_mic_heard_sound_events"):
+            if key == "heard_sound_events":
                 qos_profile = self.reliable_volatile_qos
             elif key == "continuous_heard_sounds":
                 qos_profile = self.audio_qos
@@ -653,6 +656,10 @@ class DataRecorderNode(Node):
         topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
         self._write_to_bag_at(topic, msg, now)
 
+    def _records(self, key: str, t_def: TopicDefinition) -> bool:
+        """Default topics always, the others only when listed under optional_topics in data_recorder_config.yaml."""
+        return t_def.recorded or key in self.config.get("optional_topics", [])
+
     def robots_fleet_callback(self, msg: RobotFleet):
         env_namespace = self.get_namespace().strip('/')
         now = self.current_time or self.get_clock().now().nanoseconds
@@ -672,7 +679,7 @@ class DataRecorderNode(Node):
                 topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
 
                 for key, t_def in topics_dict.items():
-                    if key in ("episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "four_mic_heard_sound_events", "continuous_heard_sounds"):
+                    if key in _ENV_TOPIC_KEYS or not self._records(key, t_def):
                         continue
 
                     topic_name = t_def.name_template
@@ -684,7 +691,7 @@ class DataRecorderNode(Node):
                     self._register_topic(topic_name, msg_type)
 
                     qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
-                    if key in ("audio_raw", "audio_rendered", "audio_stem_motor", "audio_stem_pedestrian", "audio_render_inputs"):
+                    if key in ("audio_raw", "audio_rendered", "audio_stem_motor", "audio_stem_pedestrian", "audio_stem_ambient", "audio_render_inputs"):
                         qos_profile = self.audio_qos
                     if t_def.qos_transient_local:
                         self.latched_topic_names.add(topic_name.strip('/'))

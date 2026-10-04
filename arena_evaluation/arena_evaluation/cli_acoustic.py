@@ -211,7 +211,7 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
         out_path = args.output
     else:
         plots_dir = args.benchmark_dir / "plots"
-        ext = "gif" if args.format != "frames" else ""
+        ext = args.format if args.format != "frames" else ""
         out_path = plots_dir / f"{episode_id}_acoustic.{ext}" if ext else plots_dir / f"{episode_id}_acoustic_frames"
 
     print(f"Rendering animation for {episode_id} ({len(episode_df)} data frames)...")

@@ -15,13 +15,12 @@ from arena_evaluation.processing.acoustics.door_map import (
     door_segments,
 )
 from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
-from arena_evaluation.processing.acoustics.impedance_grid import downsample_occupancy
+from arena_evaluation.processing.acoustics.impedance_grid import (
+    compute_attenuations,
+    downsample_mask,
+    downsample_occupancy,
+)
 from arena_evaluation.processing.map_registry import MapRegistry
-
-try:
-    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
-except ImportError:
-    compute_attenuations = None
 
 if typing.TYPE_CHECKING:
     from matplotlib.artist import Artist
@@ -129,12 +128,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         if downsample > 1:
             grid_eval = downsample_occupancy(grid, downsample)
             eff_res = resolution * downsample
-            h, w = grid_eval.shape
             if doors:
-                doors_eval = {}
-                for name, (mask, tl_db) in doors.items():
-                    m_ds = mask[::downsample, ::downsample][:h, :w]
-                    doors_eval[name] = (m_ds, tl_db)
+                doors_eval = {name: (downsample_mask(mask, downsample), tl_db) for name, (mask, tl_db) in doors.items()}
 
         h, w = grid_eval.shape
         pixel_tl = build_pixel_tl(grid_eval, doors_eval, open_doors=open_doors) if doors_eval else None
@@ -275,10 +270,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
     def render_plotly(self, df: pl.DataFrame) -> str:
         """Return an HTML string embedding the acoustic-field image(s)."""
-        if compute_attenuations is None:
-            logger.warning("AcousticFieldRenderer: C++ solver not available.")
-            return ""
-
         work_df = self._prepared_df(df)
         if len(work_df) == 0:
             logger.info("AcousticFieldRenderer: no rows after filters.")
@@ -812,10 +803,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
         max_frames: int = 120,
     ) -> list[tuple[np.ndarray, float, tuple[int, int], frozenset[str], float] | None]:
         """Compute the 2D acoustic field for a sequence of episode frames."""
-        if compute_attenuations is None:
-            logger.warning("C++ solver not available for timeseries.")
-            return []
-
         if downsample > 1:
             grid = downsample_occupancy(grid, downsample)
             resolution = resolution * downsample
@@ -825,9 +812,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         doors_ds = {}
         if doors:
             for name, (mask, tl_db) in doors.items():
-                m_ds = mask[::downsample, ::downsample] if downsample > 1 else mask
-                m_ds = m_ds[:h, :w]
-                doors_ds[name] = (m_ds, tl_db)
+                doors_ds[name] = (downsample_mask(mask, downsample), tl_db)
         else:
             doors_ds = doors
 
@@ -973,8 +958,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         door_mask_all = np.zeros((h, w), dtype=bool)
         if doors:
             for _name, (m, _tl) in doors.items():
-                m_ds = m[::downsample, ::downsample] if downsample > 1 else m
-                m_ds = m_ds[:h, :w]
+                m_ds = downsample_mask(m, downsample)
                 doors_ds[_name] = (m_ds, _tl)
                 door_mask_all |= m_ds
 
@@ -1217,10 +1201,6 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
 
     def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Generate acoustic-field animations."""
-        if compute_attenuations is None:
-            logger.warning("AcousticFieldAnimationRenderer: C++ solver not available.")
-            return
-
         work_df = self._prepared_df(df)
         if len(work_df) == 0:
             return
@@ -1387,24 +1367,28 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
         return gif_path
 
     def render_plotly(self, df: pl.DataFrame) -> str | list[str]:
-        """Return HTML snippet(s) embedding the animated GIF(s) in the report."""
+        """Return HTML snippet(s) embedding the animation(s) in the report."""
         work_df = self._prepared_df(df)
-        if len(work_df) == 0 or compute_attenuations is None:
+        if len(work_df) == 0:
             return ""
 
         fmt = str(self.spec.options.get("format", "gif"))
-        ext = "gif" if fmt in ("gif", "mp4") else ""
-        if not ext:
+        if fmt not in ("gif", "mp4"):
             return ""
+
+        def _media(rel: str) -> str:
+            if fmt == "mp4":
+                return f'<video src="{rel}" controls loop style="max-width:100%;border-radius:4px;"></video>'
+            return f'<img src="{rel}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}">'
 
         per_episode = bool(self.spec.options.get("per_episode", False))
         if per_episode and "episode" in work_df.columns:
             chunks = []
             for ep_id in sorted(int(v) for v in work_df["episode"].unique().to_list()):
-                gif_rel = f"plots/{self.spec.id}_episode_{ep_id:03d}.{ext}"
+                rel = f"plots/{self.spec.id}_episode_{ep_id:03d}.{fmt}"
                 caption = f"{self.spec.title} - episode_{ep_id:03d}"
-                chunks.append(f'<div style="text-align:center;"><img src="{gif_rel}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}"><br><span style="font-size:0.78em;color:#475569;">{caption}</span></div>')
+                chunks.append(f'<div style="text-align:center;">{_media(rel)}<br><span style="font-size:0.78em;color:#475569;">{caption}</span></div>')
             return chunks
 
-        gif_rel = f"plots/{self.spec.id}.{ext}"
-        return f'<div style="text-align:center;"><img src="{gif_rel}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}"><br><span style="font-size:0.78em;color:#475569;">{self.spec.title}</span></div>'
+        rel = f"plots/{self.spec.id}.{fmt}"
+        return f'<div style="text-align:center;">{_media(rel)}<br><span style="font-size:0.78em;color:#475569;">{self.spec.title}</span></div>'

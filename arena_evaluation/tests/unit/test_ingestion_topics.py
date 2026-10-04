@@ -50,22 +50,38 @@ _TOPIC_EXPECTATIONS = [
     ("characterization_phase", "/characterization_phase", "String", False, False),
     ("characterization_schedule", "/characterization_schedule", "String", False, True),
     ("collision_monitor_state", "/collision_monitor_state", "CollisionMonitorState", False, False),
-    ("audio_raw", "/audio/raw_array", "AudioFrame", False, False),
-    ("audio_stem_motor", "/audio/stem_motor", "AudioFrame", False, False),
-    ("audio_stem_pedestrian", "/audio/stem_pedestrian", "AudioFrame", False, False),
-    ("audio_rendered", "/audio/headphones/stereo", "AudioFrame", False, False),
-    ("audio_render_inputs", "/audio/diagnostics/render_inputs", "String", False, False),
-    ("heard_sound_events", "/heard_sound_events", "HeardSoundEvent", False, False),
-    ("four_mic_heard_sound_events", "/four_mic_heard_sound_events", "HeardSoundEvent", False, False),
-    ("continuous_heard_sounds", "/continuous_heard_sounds", "ContinuousHeardSoundState", False, False),
     ("map", "/map", "OccupancyGrid", False, True),
     ("door_mask", "/door_mask", "OccupancyGrid", False, True),
 ]
 
+_AUDITORY_TOPIC_EXPECTATIONS = [
+    ("audio_raw", "/audio/raw_array", "AudioFrame", False, False),
+    ("audio_stem_motor", "/audio/stem_motor", "AudioFrame", False, False),
+    ("audio_stem_pedestrian", "/audio/stem_pedestrian", "AudioFrame", False, False),
+    ("audio_stem_ambient", "/audio/stem_ambient", "AudioFrame", False, False),
+    ("audio_rendered", "/audio/headphones/stereo", "AudioFrame", False, False),
+    ("audio_render_inputs", "/audio/diagnostics/render_inputs", "String", False, False),
+    ("heard_sound_events", "/heard_sound_events", "HeardSoundEvent", False, False),
+    ("continuous_heard_sounds", "/continuous_heard_sounds", "ContinuousHeardSoundState", False, False),
+    ("room_impulses", "/acoustic/impulses", "RoomImpulse", False, True),
+]
+
+
+def _require_auditory() -> None:
+    pytest.importorskip("arena_auditory_msgs.msg")
+    pytest.importorskip("arena_auditory.constants")
+
 
 def test_get_topics_returns_expected_key_set():
     topics = get_topics("")
-    assert set(topics) == {row[0] for row in _TOPIC_EXPECTATIONS}
+    auditory_keys = {row[0] for row in _AUDITORY_TOPIC_EXPECTATIONS}
+    assert set(topics) - auditory_keys == {row[0] for row in _TOPIC_EXPECTATIONS}
+
+
+def test_get_topics_returns_auditory_keys_with_the_feature():
+    _require_auditory()
+    topics = get_topics("")
+    assert set(topics) == {row[0] for row in (*_TOPIC_EXPECTATIONS, *_AUDITORY_TOPIC_EXPECTATIONS)}
 
 
 def test_get_topics_default_namespaces():
@@ -76,6 +92,16 @@ def test_get_topics_default_namespaces():
 
 @pytest.mark.parametrize("key, name, msg_name, throttled, qos_transient_local", _TOPIC_EXPECTATIONS)
 def test_get_topics_topic_definition_properties(key, name, msg_name, throttled, qos_transient_local):
+    _assert_topic_definition(key, name, msg_name, throttled, qos_transient_local)
+
+
+@pytest.mark.parametrize("key, name, msg_name, throttled, qos_transient_local", _AUDITORY_TOPIC_EXPECTATIONS)
+def test_get_topics_auditory_topic_definition_properties(key, name, msg_name, throttled, qos_transient_local):
+    _require_auditory()
+    _assert_topic_definition(key, name, msg_name, throttled, qos_transient_local)
+
+
+def _assert_topic_definition(key, name, msg_name, throttled, qos_transient_local):
     topics = get_topics("")
     td = topics[key]
     assert isinstance(td, TopicDefinition)
