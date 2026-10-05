@@ -195,8 +195,12 @@ def _peds_count(peds: pl.DataFrame | pl.LazyFrame | None, window: tuple[int | No
     return int(counts.max()) if len(counts) > 0 else 0
 
 
-def _episode_endpoints(aligned_df: pl.DataFrame, plan: pl.DataFrame | pl.LazyFrame | None) -> tuple[list[float], list[float]]:
-    """Map-frame (x, y, yaw) of the first sample and of the goal, the last planned pose when a plan exists."""
+def _episode_endpoints(
+    aligned_df: pl.DataFrame,
+    plan: pl.DataFrame | pl.LazyFrame | None,
+    goal: pl.DataFrame | pl.LazyFrame | None = None,
+) -> tuple[list[float], list[float]]:
+    """Map-frame (x, y, yaw) of the first sample and of the goal: the last recorded goal pose, else the last planned pose, else the last sample."""
     first_row = aligned_df.row(0, named=True)
     last_row = aligned_df.row(-1, named=True)
     # Ground truth is map frame, odom starts wherever the robot's odometry happened to be.
@@ -217,6 +221,13 @@ def _episode_endpoints(aligned_df: pl.DataFrame, plan: pl.DataFrame | pl.LazyFra
         row_plan = plan_df.row(-1, named=True)
         if "poses_x" in row_plan and len(row_plan["poses_x"]) > 0:
             goal_pos = [row_plan["poses_x"][-1], row_plan["poses_y"][-1], row_plan["poses_yaw"][-1]]
+
+    goal_df = goal.collect() if isinstance(goal, pl.LazyFrame) else goal
+    if goal_df is not None and "time_ns" in goal_df.columns and "time_ns" in aligned_df.columns:
+        goal_df = goal_df.filter(pl.col("time_ns") <= aligned_df["time_ns"].max())
+    if goal_df is not None and len(goal_df) > 0:
+        row_goal = goal_df.row(-1, named=True)
+        goal_pos = [row_goal["pos_x"], row_goal["pos_y"], row_goal["yaw"]]
     return start_pos, goal_pos
 
 
@@ -255,6 +266,13 @@ _METRIC_DTYPES = {
     "result": pl.String,
     "outcome_info": pl.String,
     "success": pl.Boolean,
+    "ne": pl.Float64,
+    "osr": pl.Boolean,
+    "success_geodesic": pl.Boolean,
+    "spl_geodesic": pl.Float64,
+    "ndtw": pl.Float64,
+    "sdtw": pl.Float64,
+    "stuck": pl.Boolean,
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
 }
@@ -498,7 +516,7 @@ class ProcessingPipeline:
                     tol = 100_000_000
                     topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if "time_ns" in df.columns else df for name, df in topics.items()}
 
-                start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan)
+                start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, bundle.goal)
 
                 num_pedestrians = peds_count if pose_source.kind == "odom" else 0
                 if "num_pedestrians" in aligned_df.columns:
@@ -513,6 +531,7 @@ class ProcessingPipeline:
                 conditions = None
                 outcome_state = None
                 outcome_info = None
+                goal_tolerance = None
                 if bundle.episode_record is not None:
                     er = bundle.episode_record
                     if isinstance(er, pl.LazyFrame):
@@ -531,6 +550,8 @@ class ProcessingPipeline:
                             outcome_state = int(er_sorted["outcome_state"][-1])
                             if "outcome_info" in er_sorted.columns:
                                 outcome_info = er_sorted["outcome_info"][-1]
+                            if "goal_tolerance" in er_sorted.columns:
+                                goal_tolerance = er_sorted["goal_tolerance"][-1] or None
 
                 aligned_ep = AlignedEpisodeBundle(
                     episode_id=ep.episode_id,
@@ -543,6 +564,7 @@ class ProcessingPipeline:
                     conditions=conditions,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
+                    goal_tolerance=goal_tolerance,
                     map=ep.map,
                     topics=topics,
                 )

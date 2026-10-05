@@ -5,6 +5,7 @@ from .motion_metrics import MotionMetricsCalculator
 from .path_metrics import PathMetricsCalculator
 from .pedestrian_path_metrics import PedestrianPathMetricsCalculator
 from .time_metrics import TimeMetricsCalculator
+from .vln_metrics import VlnMetricsCalculator
 
 __all__ = [
     "PathMetricsCalculator",
@@ -14,4 +15,5 @@ __all__ = [
     "PathEfficiencyCalculator",
     "PedestrianPathMetricsCalculator",
     "ClearanceMetricsCalculator",
+    "VlnMetricsCalculator",
 ]

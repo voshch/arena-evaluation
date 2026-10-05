@@ -160,6 +160,16 @@ class GeometricThetaStar:
 
         self.height, self.width = self.dilated_grid.shape
 
+    def obstacle_grid(self, *cells: tuple[int, int]) -> np.ndarray:
+        """Dilated obstacle mask with the 5x5 window around each (gx, gy) cell cleared."""
+        grid = self.dilated_grid.copy()
+        for gx, gy in cells:
+            for dy_i in range(-2, 3):
+                for dx_i in range(-2, 3):
+                    if 0 <= gy + dy_i < self.height and 0 <= gx + dx_i < self.width:
+                        grid[gy + dy_i, gx + dx_i] = False
+        return grid
+
     def world_to_grid(self, wx: float, wy: float) -> tuple[int, int]:
         gx = int(round((wx - self.origin[0]) / self.resolution))
         gy = int(round((wy - self.origin[1]) / self.resolution))
@@ -198,13 +208,7 @@ class GeometricThetaStar:
             self._cache[cache_key] = res
             return res
 
-        grid = self.dilated_grid.copy()
-        for dy_i in range(-2, 3):
-            for dx_i in range(-2, 3):
-                if 0 <= start_gy + dy_i < self.height and 0 <= start_gx + dx_i < self.width:
-                    grid[start_gy + dy_i, start_gx + dx_i] = False
-                if 0 <= goal_gy + dy_i < self.height and 0 <= goal_gx + dx_i < self.width:
-                    grid[goal_gy + dy_i, goal_gx + dx_i] = False
+        grid = self.obstacle_grid((start_gx, start_gy), (goal_gx, goal_gy))
 
         if _line_of_sight(grid, start_gx, start_gy, goal_gx, goal_gy):
             dist = math.hypot(goal_world[0] - start_world[0], goal_world[1] - start_world[1])
@@ -373,25 +377,14 @@ def compute_theta_star_path(
     )
 
 
-def compute_theta_star_for_episode(
+def load_map_solver(
     map_name: str,
-    start_pos: tuple[float, float],
-    goal_pos: tuple[float, float],
     robot_radius: float = 0.3,
     run_dir: str | None = None,
-) -> ThetaStarResult:
-    """Compute Theta* reference path for a named map in the registry or fallback to Euclidean."""
+) -> GeometricThetaStar | None:
+    """Cached solver over the named map's occupancy grid, None when the map does not resolve."""
     if not map_name or map_name == "unknown":
-        eucl_dist = math.hypot(goal_pos[0] - start_pos[0], goal_pos[1] - start_pos[1])
-        pts = np.array([start_pos, goal_pos], dtype=np.float64)
-        return ThetaStarResult(
-            success=True,
-            path_x=pts[:, 0],
-            path_y=pts[:, 1],
-            geodesic_length=eucl_dist,
-            path_points=pts,
-        )
-
+        return None
     solver_key = f"{map_name}_{round(robot_radius, 2)}"
     if solver_key not in _solver_instances:
         try:
@@ -416,7 +409,18 @@ def compute_theta_star_for_episode(
         except Exception:
             pass
 
-    solver = _solver_instances.get(solver_key)
+    return _solver_instances.get(solver_key)
+
+
+def compute_theta_star_for_episode(
+    map_name: str,
+    start_pos: tuple[float, float],
+    goal_pos: tuple[float, float],
+    robot_radius: float = 0.3,
+    run_dir: str | None = None,
+) -> ThetaStarResult:
+    """Compute Theta* reference path for a named map in the registry or fallback to Euclidean."""
+    solver = load_map_solver(map_name, robot_radius=robot_radius, run_dir=run_dir)
     if solver is not None:
         pts, length = solver.solve(start_pos, goal_pos, map_id=map_name)
         return ThetaStarResult(

@@ -55,6 +55,25 @@ def test_plans_after_the_aligned_window_do_not_define_the_goal():
     assert goal == [18.9, 17.95, -1.2]
 
 
+def test_recorded_goal_pose_defines_the_goal_over_the_plan():
+    plan = pl.DataFrame({"time_ns": [0], "poses_x": [[1.0, 18.9]], "poses_y": [[1.0, 17.95]], "poses_yaw": [[0.0, -1.2]]})
+    goal = pl.DataFrame({"time_ns": [0, 600_000_000], "pos_x": [19.0, 19.0], "pos_y": [18.0, 18.0], "yaw": [-1.1, -1.1]})
+    _, end = _episode_endpoints(_aligned(with_gt=True), plan, goal.lazy())
+    assert end == [19.0, 18.0, -1.1]
+
+
+def test_recorded_goal_pose_defines_the_goal_without_a_plan():
+    goal = pl.DataFrame({"time_ns": [200_000_000], "pos_x": [7.5], "pos_y": [-2.0], "yaw": [0.3]})
+    _, end = _episode_endpoints(_aligned(with_gt=True), None, goal)
+    assert end == [7.5, -2.0, 0.3]
+
+
+def test_goal_poses_after_the_aligned_window_do_not_define_the_goal():
+    goal = pl.DataFrame({"time_ns": [200_000_000, 5_000_000_000], "pos_x": [7.5, 40.0], "pos_y": [-2.0, 40.0], "yaw": [0.3, 0.0]})
+    _, end = _episode_endpoints(_aligned(with_gt=True), None, goal)
+    assert end == [7.5, -2.0, 0.3]
+
+
 def test_episode_window_spans_running_to_terminal_record():
     # A latched terminal record from the previous episode can precede this episode's RUNNING row.
     record = pl.DataFrame({"time_ns": [50, 100, 900], "outcome_state": [2, 1, 4]})

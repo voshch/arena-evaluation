@@ -172,6 +172,7 @@ class TopicBundle:
     energy: pl.DataFrame | None = None
     acoustics: pl.DataFrame | None = None
     plan: pl.DataFrame | None = None
+    goal: pl.DataFrame | None = None
     characterization_phase: pl.DataFrame | None = None
     characterization_schedule: pl.DataFrame | None = None
     initialpose: pl.DataFrame | None = None
@@ -200,6 +201,8 @@ class AlignedEpisodeBundle:
     # Final EpisodeRecord.outcome_state of the recording, None when no record was captured.
     outcome_state: int | None = None
     outcome_info: str | None = None
+    # Distance tolerance of the robot's goal from the last EpisodeRecord, None for recordings without it.
+    goal_tolerance: float | None = None
     run: typing.Any = None
     folder_manager: typing.Any = None
     peds: pl.DataFrame | None = None
