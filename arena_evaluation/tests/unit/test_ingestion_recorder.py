@@ -25,6 +25,7 @@ import yaml
 from rcl_interfaces.msg import Parameter as RclParameter
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rclpy.parameter import Parameter
+from rclpy.qos import QoSDurabilityPolicy, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import String
@@ -249,9 +250,9 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 11
+    assert len(full_node.subs) == 12
     # /tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "map", "door_mask", "tf_static"}
+    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
 
 
@@ -728,8 +729,15 @@ def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_no
     assert by_topic["/tf"].raw is False
     assert by_topic["/state/episode"].raw is False
     assert by_topic["/state/robots"].raw is False
-    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask"):
+    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask", "/agent_states", "/agent_meta"):
         assert by_topic[topic].raw is True
+
+
+def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) -> None:
+    by_topic = {sub.topic: sub for sub in full_node.subs}
+    assert by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    assert by_topic["/agent_meta"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    assert by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
 
 
 # ---------------------------------------------------------------------------

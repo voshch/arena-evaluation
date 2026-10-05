@@ -92,7 +92,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -483,7 +483,7 @@ class DataRecorderNode(Node):
             topic_name = t_def.name_template
             msg_type = t_def.msg_type
 
-            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentStates", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
+            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
                 continue
 
             self._register_topic(topic_name, msg_type)

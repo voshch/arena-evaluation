@@ -8,6 +8,7 @@ import pathlib
 import re
 from collections import defaultdict
 
+import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -335,25 +336,17 @@ class MCAPReader:
                             target["time_ns"].append(ts_ns)
                             target["peds_frame_id"].append(ros_msg.header.frame_id)
 
-                            if schema.name == "arena_people_msgs/msg/Pedestrians":
-                                agents = ros_msg.pedestrians
-                                is_pose2d = False
-                            else:
-                                agents = [a for a in ros_msg.agents if a.kind == 0]
-                                is_pose2d = True
-
-                            target["num_pedestrians"].append(len(agents))
-
-                            positions = []
-                            headings = []
-                            twists = []
-
-                            for p in agents:
-                                if is_pose2d:
-                                    positions.extend([p.pose.x, p.pose.y, 0.0])
-                                    headings.append(p.pose.theta)
-                                    twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
-                                else:
+                            if schema.name == "arena_humansim_msgs/msg/AgentFrame":
+                                humans = np.frombuffer(ros_msg.kind, dtype=np.uint8) == 0
+                                zeros = np.zeros(int(humans.sum()))
+                                target["num_pedestrians"].append(len(zeros))
+                                positions = np.column_stack((np.asarray(ros_msg.x, dtype=np.float64)[humans], np.asarray(ros_msg.y, dtype=np.float64)[humans], zeros)).ravel().tolist()
+                                headings = np.asarray(ros_msg.theta, dtype=np.float64)[humans].tolist()
+                                twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
+                            elif schema.name == "arena_people_msgs/msg/Pedestrians":
+                                target["num_pedestrians"].append(len(ros_msg.pedestrians))
+                                positions, headings, twists = [], [], []
+                                for p in ros_msg.pedestrians:
                                     # Positions: flattened list [x1, y1, z1, x2, y2, z2, ...]
                                     positions.extend([p.pose.position.x, p.pose.position.y, p.pose.position.z])
 
@@ -363,6 +356,14 @@ class MCAPReader:
 
                                     # Twists: flattened list of linear velocities [vx1, vy1, vz1, vx2, vy2, vz2, ...]
                                     twists.extend([p.twist.linear.x, p.twist.linear.y, p.twist.linear.z])
+                            else:
+                                agents = [a for a in ros_msg.agents if a.kind == 0]
+                                target["num_pedestrians"].append(len(agents))
+                                positions, headings, twists = [], [], []
+                                for p in agents:
+                                    positions.extend([p.pose.x, p.pose.y, 0.0])
+                                    headings.append(p.pose.theta)
+                                    twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
 
                             target["peds_positions"].append(positions)
                             target["peds_headings"].append(headings)
