@@ -25,6 +25,7 @@ import yaml
 from rcl_interfaces.msg import Parameter as RclParameter
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rclpy.parameter import Parameter
+from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import String
 from task_generator_msgs.msg import EpisodeRecord, RobotFleet, RobotState
@@ -121,6 +122,7 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.freqs = {"default": 20.0}
     node.qos = object()
     node.tf_qos = object()
+    node.audio_qos = object()
     node.latched_qos = object()
     node.reliable_volatile_qos = object()
     node._seen_episodes = set()
@@ -144,6 +146,7 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.episodes_requested = 0
     node.local_planner = ""
     node.inter_planner = ""
+    node.workspace_dir = ""
     node.logger = _FakeLogger()
     node.get_logger = lambda: node.logger
     for key, value in overrides.items():
@@ -247,9 +250,9 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 7
+    assert len(full_node.subs) == 12
     # /tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "tf_static"}
+    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
 
 
@@ -682,6 +685,55 @@ def test_write_to_bag_at_writer_error_is_logged():
 
 
 # ---------------------------------------------------------------------------
+# Raw (already-serialized) subscriptions: bytes reach the bag unchanged
+# ---------------------------------------------------------------------------
+
+
+def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(tmp_path: pathlib.Path) -> None:
+    node = _bare_node()
+    node._register_topic("/cmd_vel", Twist)
+
+    converter_options = rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr")
+    writer = rosbag2_py.SequentialWriter()
+    writer.open(rosbag2_py.StorageOptions(uri=str(tmp_path / "bag"), storage_id="mcap"), converter_options)
+    node.writer = writer
+
+    twist = Twist()
+    twist.linear.x = 1.5
+    raw_bytes = serialize_message(twist)
+
+    node._write_to_bag_at("/cmd_vel", raw_bytes, 42)
+    writer.close()
+
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=str(tmp_path / "bag"), storage_id="mcap"), converter_options)
+    topic, data, ts = reader.read_next()
+    assert topic == "cmd_vel"
+    assert data == raw_bytes
+    assert ts == 42
+    assert not reader.has_next()
+
+
+def test_write_to_bag_at_buffers_raw_bytes_unchanged_when_no_writer() -> None:
+    node = _bare_node(latched_topic_names={"env_0/state/episode"})
+    payload = b"\x01\x02\x03"
+    node._write_to_bag_at("/env_0/state/episode", payload, 5)
+    topic, buffered_payload, ts = node._pre_episode_buffer[0]
+    assert topic == "/env_0/state/episode"
+    assert buffered_payload == payload
+    assert ts == 5
+
+
+def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_node: DataRecorderNode) -> None:
+    by_topic = {sub.topic: sub for sub in full_node.subs}
+    assert by_topic["/tf"].raw is False
+    assert by_topic["/state/episode"].raw is False
+    assert by_topic["/state/robots"].raw is False
+    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask"):
+        assert by_topic[topic].raw is True
+
+
+# ---------------------------------------------------------------------------
 # Episode lifecycle: _begin_episode / _stop_episode / start_episode service
 # ---------------------------------------------------------------------------
 
@@ -856,17 +908,17 @@ def test_robots_fleet_callback_writes_and_discovers_robots(tmp_path, monkeypatch
     assert node.robot_model == "jackal"
     assert node.current_metadata.robot_model == ["jackal"]
     write_spy.assert_called_once()
-    # 15 of the 21 per-robot topics (state/peds/tf topics skipped) + the model's controller odom and cmd_vel
-    assert node.create_subscription.call_count == 17
+    # 19 of the 28 per-robot topics (state/peds/tf/map topics skipped) + the model's controller odom and cmd_vel
+    assert node.create_subscription.call_count == 21
     assert (tmp_path / "episode_000.yaml").exists()
 
     # second sighting of the same robot: no re-subscription
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
-    assert node.create_subscription.call_count == 17
+    assert node.create_subscription.call_count == 21
 
     # a new robot triggers a new subscription wave, no controller topics for a model without model_params
     node.robots_fleet_callback(_fleet_message([("robot_1", "turtlebot3")]))
-    assert node.create_subscription.call_count == 32
+    assert node.create_subscription.call_count == 40
     assert "robot_1" in node.known_robots
     assert node.current_metadata.robot_model == ["jackal", "turtlebot3"]
 

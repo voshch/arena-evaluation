@@ -609,9 +609,9 @@ def test_build_launch_args_required_fields():
     assert "world:=map1" in args
     assert f"task.robots:={Constants.TaskMode.TM_Robots.RANDOM.value}" in args
     assert f"task.obstacles:={Constants.TaskMode.TM_Obstacles.RANDOM.value}" in args
-    assert not any(a.startswith("task.episodes:=") for a in args)
+    assert not any(a.startswith("task.episode.count:=") for a in args)
     assert "run_seed:=42" in args
-    assert "task.auto_reset:=false" in args
+    assert "task.episode.auto_reset:=false" in args
     assert "task.modules:=" in args
 
 
@@ -840,13 +840,39 @@ def test_build_pending_failed_without_retry_skipped(tmp_path: pathlib.Path):
     suite = _make_suite("s1")
     contest = _make_contest("pa")
     state_steps = {
-        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
-        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
-        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, None, None, episodes_run=1, episodes_failed=1),
     }
     run_dir = _fake_run_dir(state_steps)
     steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
     assert steps == []
+
+
+def test_build_pending_systemic_failure_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.ENV_SETUP, "error"),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "ok", None, 0.0, 1.0, None, None),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "failed", None, 0.0, 1.0, StepErrorKind.INTERNAL, "error"),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
+
+
+def test_build_pending_sim_stalled_failure_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, StepErrorKind.EPISODE_TIMEOUT, "sim stalled 60s"),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "ok", None, 0.0, 1.0, None, None),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "ok", None, 0.0, 1.0, None, None),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
 
 
 def test_build_pending_failed_with_retry_included(tmp_path: pathlib.Path):
@@ -1166,6 +1192,28 @@ def test_group_pending_preserves_suite_order():
     assert [s.stage.name for s in groups[0]] == ["s0", "s1", "s2"]
 
 
+def test_group_pending_splits_on_map_change():
+    from arena_evaluation.benchmark.runner import group_pending
+
+    steps = [_make_step_for("alpha", "s0", map="map1"), _make_step_for("alpha", "s1", map="map2")]
+    groups = group_pending(steps, "gazebo")
+    assert len(groups) == 2
+
+
+def test_group_pending_world_swap_keeps_contestant_across_maps():
+    from arena_evaluation.benchmark.runner import group_pending
+
+    steps = [
+        _make_step_for("alpha", "s0", map="map1"),
+        _make_step_for("alpha", "s1", map="map2"),
+        _make_step_for("beta", "s0", map="map1"),
+        _make_step_for("beta", "s1", map="map2"),
+    ]
+    groups = group_pending(steps, "gazebo", world_swap=True)
+    assert len(groups) == 2
+    assert [s.stage.map for s in groups[0]] == ["map1", "map2"]
+
+
 def test_group_pending_empty():
     from arena_evaluation.benchmark.runner import group_pending
 
@@ -1178,6 +1226,13 @@ def test_env_key_components():
     step = _make_step_for("planner_a", "indoor", robot="jackal")
     key = env_key(step, "gazebo")
     assert key == ("planner_a", "jackal", "map1", "gazebo")
+
+
+def test_env_key_world_swap_drops_map():
+    from arena_evaluation.benchmark.runner import env_key
+
+    step = _make_step_for("planner_a", "indoor", robot="jackal")
+    assert env_key(step, "gazebo", world_swap=True) == ("planner_a", "jackal", "gazebo")
 
 
 def test_env_key_simulator_none():
@@ -1244,6 +1299,23 @@ def test_flatten_drops_inactive_modes():
 
     obs, rob = _flatten_per_mode_params({"unrelated": {"key": "value"}}, tm_obstacles="random", tm_robots="random")
     assert obs == [] and rob == []
+
+
+def test_human_params_keep_their_namespace():
+    from arena_evaluation.benchmark.runner import _flatten_per_mode_params, _human_params
+
+    config = {"humansim": {"global_planner": {"resolution": 0.1}}, "random": {"static": {"n": 3}}}
+    human = _human_params(config)
+    assert [(p.name, p.value.double_value) for p in human] == [("humansim.global_planner.resolution", 0.1)]
+    obs, rob = _flatten_per_mode_params(config, tm_obstacles="random", tm_robots="random")
+    assert [p.name for p in obs] == ["static.n"] and [p.name for p in rob] == ["static.n"]
+    assert _human_params({}) == []
+
+
+def test_reserved_human_block_is_forwarded_for_rejection():
+    from arena_evaluation.benchmark.runner import _human_params
+
+    assert [p.name for p in _human_params({"human": {"speed": 1.2}})] == ["human.speed"]
 
 
 def test_flatten_skips_non_dict_top_level():

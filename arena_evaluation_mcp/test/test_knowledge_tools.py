@@ -141,10 +141,10 @@ class TestRunBenchmark:
             {
                 "suite": "s",
                 "contest": "c",
-                "extra_passthrough": {"task.fail_on_collision": True, "complexity": 2},
+                "extra_passthrough": {"task.episode.fail_on_collision": True, "complexity": 2},
             }
         )
-        assert "task.fail_on_collision:=True" in args
+        assert "task.episode.fail_on_collision:=True" in args
         assert "complexity:=2" in args
 
     def test_command_shape(self):

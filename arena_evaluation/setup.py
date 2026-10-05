@@ -19,17 +19,12 @@ def _walk_data_files(*roots):
 
 setup(
     name=package_name,
-    version='1.0.0',
     packages=find_packages(where='.', include=[f'{package_name}*']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         *_walk_data_files('config', 'configs'),
     ],
-    install_requires=['setuptools'],
-    extras_require={
-        'test': ['pytest>=7'],
-    },
     zip_safe=True,
     maintainer='NelsonHecker',
     maintainer_email='heckernelson@gmail.com',

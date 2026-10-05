@@ -1,3 +1,30 @@
+[project]
+name = "arena_evaluation"
+version = "1.0.0"
+dependencies = [
+    "attrs",
+    "jinja2",
+    "matplotlib",
+    "mcap",
+    "mcap-ros2-support",
+    "numpy",
+    "pandas",
+    "pillow",
+    "plotly",
+    "polars",
+    "pyarrow",
+    "pydantic",
+    "pyyaml",
+    "rich",
+    "scipy",
+    "seaborn",
+    "shapely",
+]
+dynamic = ["description", "license", "maintainers", "scripts"]
+
+[tool.uv]
+package = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
