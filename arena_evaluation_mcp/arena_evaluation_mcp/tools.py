@@ -312,7 +312,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "ARG NAMESPACES: cap keys are mobile / arm / lift. Valid mobile drivers: nav2, "
                 "rosnav_rl, none, external. Inside a cap: local_planner, inter_planner, "
                 "global_planner, plus any key from the robot's caps YAML (e.g. velocity limits). "
-                "Common passthroughs: task.fail_on_collision: true, complexity: 1|2|3. "
+                "Common passthroughs: task.episode.fail_on_collision: true, complexity: 1|2|3. "
                 "See list_available_planners for valid names; get_config_template(kind='contest') "
                 "for examples. Validated via Contest.parse() before writing."
             ),
@@ -439,7 +439,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "the run_id. Spawns 'arena evaluation benchmark --suite <S> --contest <C>' "
                 "with the recommended launch configuration by default: sim:=gazebo, "
                 "headless:=true, env.n:=2, optim.obstacles:=bbox. All are overridable, and "
-                "arbitrary extra passthrough args (e.g. task.fail_on_collision:=true) can be "
+                "arbitrary extra passthrough args (e.g. task.episode.fail_on_collision:=true) can be "
                 "passed via extra_passthrough. Use read_benchmark_status(run_id) to poll."
             ),
             inputSchema={
@@ -480,7 +480,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                     },
                     "extra_passthrough": {
                         "type": "object",
-                        "description": "Additional launch args as {key: value} - each becomes key:=value, e.g. {\"task.fail_on_collision\": true} -> task.fail_on_collision:=true.",
+                        "description": "Additional launch args as {key: value} - each becomes key:=value, e.g. {\"task.episode.fail_on_collision\": true} -> task.episode.fail_on_collision:=true.",
                     },
                 },
                 "required": ["suite", "contest"],

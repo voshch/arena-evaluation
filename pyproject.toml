@@ -1,0 +1,21 @@
+[project]
+name = "arena-evaluation-workspace"
+version = "0.0.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "arena-evaluation",
+    "arena-evaluation-mcp",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+arena-evaluation = { workspace = true }
+arena-evaluation-mcp = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "arena_evaluation",
+    "arena_evaluation_mcp",
+]

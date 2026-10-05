@@ -1,0 +1,12 @@
+[project]
+name = "arena_evaluation_mcp"
+version = "0.0.1"
+dependencies = [
+    "mcp>=2.0.0",
+    "polars",
+    "pyyaml",
+]
+dynamic = ["authors", "description", "license", "maintainers", "scripts"]
+
+[tool.uv]
+package = false

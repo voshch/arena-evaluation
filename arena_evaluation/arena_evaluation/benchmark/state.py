@@ -3,6 +3,7 @@ from __future__ import annotations
 import array
 import csv
 import dataclasses
+import fcntl
 import hashlib
 import json
 import logging
@@ -107,59 +108,83 @@ class Manifest:
         return cls(**yaml.safe_load(text))
 
 
+def _load_steps(state_path: pathlib.Path) -> dict[str, StepResult]:
+    data = json.loads(state_path.read_text())
+    steps: dict[str, StepResult] = {}
+    for key, val in data.get("steps", {}).items():
+        raw_kind = val.get("error_kind")
+        error_kind = StepErrorKind(raw_kind) if raw_kind is not None else None
+        # Backward-compat: old state files stored a single "error" string.
+        error_detail = val.get("error_detail") or val.get("error")
+        steps[key] = StepResult(
+            key=key,
+            status=val["status"],
+            env_id=val.get("env_id"),
+            started_at=val["started_at"],
+            ended_at=val.get("ended_at"),
+            error_kind=error_kind,
+            error_detail=error_detail,
+            episodes_run=val.get("episodes_run", 0),
+            episodes_failed=val.get("episodes_failed", 0),
+            lockstep=LockstepSummary.from_dict(val["lockstep"]) if val.get("lockstep") else None,
+        )
+    return steps
+
+
+def _dump_steps(steps: typing.Mapping[str, StepResult]) -> str:
+    data = {
+        "steps": {
+            k: {
+                "status": v.status,
+                "env_id": v.env_id,
+                "started_at": v.started_at,
+                "ended_at": v.ended_at,
+                "error_kind": v.error_kind.value if v.error_kind is not None else None,
+                "error_detail": v.error_detail,
+                "episodes_run": v.episodes_run,
+                "episodes_failed": v.episodes_failed,
+                "lockstep": v.lockstep.to_dict() if v.lockstep is not None else None,
+            }
+            for k, v in steps.items()
+        }
+    }
+    return json.dumps(data, indent=2)
+
+
+def _union_steps(path: pathlib.Path) -> dict[str, StepResult]:
+    """Merge the run state with every lane state: an ok entry wins, otherwise the latest started_at."""
+    merged: dict[str, StepResult] = {}
+    sources = [path / StateFile._STATE_FILENAME, *sorted(path.glob(".benchmark_state.*.json"))]
+    for state_path in sources:
+        if not state_path.exists():
+            continue
+        for key, res in _load_steps(state_path).items():
+            cur = merged.get(key)
+            if cur is None or (res.status == "ok", res.started_at) > (cur.status == "ok", cur.started_at):
+                merged[key] = res
+    return merged
+
+
 class StateFile:
     _STATE_FILENAME = ".benchmark_state.json"
 
-    def __init__(self, path: pathlib.Path, steps: dict[str, StepResult]) -> None:
+    def __init__(self, path: pathlib.Path, steps: dict[str, StepResult], lane: str | None = None) -> None:
         self.path = path
         self.steps = steps
+        self.lane = lane
+
+    @property
+    def filename(self) -> str:
+        return self._STATE_FILENAME if self.lane is None else f".benchmark_state.{self.lane}.json"
 
     @classmethod
-    def open(cls, path: pathlib.Path) -> StateFile:
-        state_path = path / cls._STATE_FILENAME
-        if state_path.exists():
-            data = json.loads(state_path.read_text())
-            steps: dict[str, StepResult] = {}
-            for key, val in data.get("steps", {}).items():
-                raw_kind = val.get("error_kind")
-                error_kind = StepErrorKind(raw_kind) if raw_kind is not None else None
-                # Backward-compat: old state files stored a single "error" string.
-                error_detail = val.get("error_detail") or val.get("error")
-                steps[key] = StepResult(
-                    key=key,
-                    status=val["status"],
-                    env_id=val.get("env_id"),
-                    started_at=val["started_at"],
-                    ended_at=val.get("ended_at"),
-                    error_kind=error_kind,
-                    error_detail=error_detail,
-                    episodes_run=val.get("episodes_run", 0),
-                    episodes_failed=val.get("episodes_failed", 0),
-                    lockstep=LockstepSummary.from_dict(val["lockstep"]) if val.get("lockstep") else None,
-                )
-            return cls(path, steps)
-        return cls(path, {})
+    def open(cls, path: pathlib.Path, lane: str | None = None) -> StateFile:
+        return cls(path, _union_steps(path), lane)
 
     def write(self, steps: typing.Mapping[str, StepResult]) -> None:
-        data = {
-            "steps": {
-                k: {
-                    "status": v.status,
-                    "env_id": v.env_id,
-                    "started_at": v.started_at,
-                    "ended_at": v.ended_at,
-                    "error_kind": v.error_kind.value if v.error_kind is not None else None,
-                    "error_detail": v.error_detail,
-                    "episodes_run": v.episodes_run,
-                    "episodes_failed": v.episodes_failed,
-                    "lockstep": v.lockstep.to_dict() if v.lockstep is not None else None,
-                }
-                for k, v in steps.items()
-            }
-        }
-        tmp = self.path / ".benchmark_state.json.tmp"
-        tmp.write_text(json.dumps(data, indent=2))
-        os.replace(tmp, self.path / self._STATE_FILENAME)
+        tmp = self.path / f"{self.filename}.tmp"
+        tmp.write_text(_dump_steps(steps))
+        os.replace(tmp, self.path / self.filename)
         self.steps = dict(steps)
 
 
@@ -271,36 +296,15 @@ class ProgressLog:
         self._fh.flush()
         path = self._path
 
-        raw_rows: list[dict] = []
-        with path.open(newline="") as fh:
-            for line in fh:
-                stripped = line.rstrip("\n")
-                if stripped.startswith("#") or not stripped:
-                    continue
-                raw_rows.append(stripped)
+        raw_rows = [line.rstrip("\n") for line in _csv_lines(path)]
 
         if not raw_rows:
             return
 
         header_line = raw_rows[0]
         header = next(csv.reader([header_line]))
-        data_lines = raw_rows[1:]
-
-        step_key_idx = header.index("step_key")
-        episode_id_idx = header.index("episode_id")
+        best = _latest_rows(header, (next(csv.reader([line])) for line in raw_rows[1:]))
         ts_iso_idx = header.index("ts_iso")
-
-        best: dict[tuple[str, str], list[str]] = {}
-        for line in data_lines:
-            row = next(csv.reader([line]))
-            sk = row[step_key_idx]
-            eid = row[episode_id_idx]
-            ts = row[ts_iso_idx]
-            key = (sk, eid)
-            existing = best.get(key)
-            if existing is None or ts > existing[ts_iso_idx]:
-                best[key] = row
-
         deduped = sorted(best.values(), key=lambda r: r[ts_iso_idx])
 
         tmp = path.with_suffix(".csv.tmp")
@@ -311,6 +315,72 @@ class ProgressLog:
         os.replace(tmp, path)
 
 
+def _csv_lines(path: pathlib.Path) -> list[str]:
+    """Non-empty, non-comment lines of a progress csv, line endings kept."""
+    with path.open(newline="") as fh:
+        return [line for line in fh if line.rstrip("\n") and not line.startswith("#")]
+
+
+def _latest_rows(header: list[str], rows: typing.Iterable[list[str]]) -> dict[tuple[str, str], list[str]]:
+    """Rows keyed by (step_key, episode_id), keeping the latest ts_iso."""
+    step_key_idx = header.index("step_key")
+    episode_id_idx = header.index("episode_id")
+    ts_iso_idx = header.index("ts_iso")
+    best: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        key = (row[step_key_idx], row[episode_id_idx])
+        existing = best.get(key)
+        if existing is None or row[ts_iso_idx] > existing[ts_iso_idx]:
+            best[key] = row
+    return best
+
+
+def _fold_progress(path: pathlib.Path) -> None:
+    sources = [p for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv"))) if p.exists()]
+    header: list[str] | None = None
+    rows: list[list[str]] = []
+    for source in sources:
+        lines = _csv_lines(source)
+        if lines and not lines[-1].endswith("\n"):
+            lines.pop()
+        records = list(csv.reader(lines))
+        if not records:
+            continue
+        src_header = records[0]
+        if header is None:
+            header = src_header
+        for row in records[1:]:
+            if len(row) != len(src_header):
+                continue
+            by_name = dict(zip(src_header, row, strict=True))
+            rows.append([by_name.get(col, "") for col in header])
+    if header is None:
+        header = next(csv.reader([ProgressLog._HEADER]))
+    ts_iso_idx = header.index("ts_iso")
+    folded = sorted(_latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r))
+    tmp = path / "progress.csv.fold.tmp"
+    with tmp.open("w", newline="") as out:
+        writer = csv.writer(out)
+        out.write(",".join(header) + "\n")
+        writer.writerows(folded)
+    os.replace(tmp, path / "progress.csv")
+
+
+def fold_run_dir(path: pathlib.Path) -> None:
+    """Merge every lane state and progress file into .benchmark_state.json and progress.csv."""
+    with (path / ".fold.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        steps = _union_steps(path)
+        tmp = path / ".benchmark_state.json.fold.tmp"
+        tmp.write_text(_dump_steps(dict(sorted(steps.items()))))
+        os.replace(tmp, path / StateFile._STATE_FILENAME)
+        _fold_progress(path)
+
+
+class ManifestMismatchError(ValueError):
+    """Raised when a lane joins a shared run dir created with a different config."""
+
+
 class RunDir:
     def __init__(
         self,
@@ -318,32 +388,104 @@ class RunDir:
         manifest: Manifest,
         state: StateFile,
         progress: ProgressLog,
+        lane: str | None = None,
     ) -> None:
         self.path = path
         self.manifest = manifest
         self.state = state
         self.progress = progress
+        self.lane = lane
+
+    @property
+    def log_path(self) -> pathlib.Path:
+        return self.path / ("runner.log" if self.lane is None else f"runner.{self.lane}.log")
+
+    @property
+    def pid_path(self) -> pathlib.Path:
+        return self.path / f"runner.{self.lane}.pid"
 
     @classmethod
-    def create(cls, data_root: pathlib.Path, run_id: str, manifest: Manifest) -> RunDir:
+    def create(cls, data_root: pathlib.Path, run_id: str, manifest: Manifest, lane: str | None = None) -> RunDir:
         path = data_root / run_id
-        path.mkdir(parents=True, exist_ok=False)
+        if lane is None:
+            path.mkdir(parents=True, exist_ok=False)
+            manifest_path = path / "manifest.yaml"
+            manifest_path.write_text(manifest.to_yaml())
+            state = StateFile.open(path)
+            progress = ProgressLog(path / "progress.csv")
+            return cls(path, manifest, state, progress)
+        path.mkdir(parents=True, exist_ok=True)
         manifest_path = path / "manifest.yaml"
-        manifest_path.write_text(manifest.to_yaml())
-        state = StateFile.open(path)
-        progress = ProgressLog(path / "progress.csv")
-        return cls(path, manifest, state, progress)
+        tmp = path / f".manifest.{lane}.{os.getpid()}.tmp"
+        tmp.write_text(manifest.to_yaml())
+        try:
+            os.link(tmp, manifest_path)
+        except FileExistsError:
+            existing = Manifest.from_yaml(manifest_path.read_text())
+            if existing.config_hash != manifest.config_hash:
+                raise ManifestMismatchError(f"run dir {path} was created with config_hash {existing.config_hash}, lane {lane!r} has {manifest.config_hash}") from None
+            manifest = existing
+        finally:
+            tmp.unlink()
+        return cls._open_lane(path, manifest, lane)
 
     @classmethod
-    def open(cls, data_root: pathlib.Path, run_id: str) -> RunDir:
+    def open(cls, data_root: pathlib.Path, run_id: str, lane: str | None = None) -> RunDir:
         path = data_root / run_id
         manifest_path = path / "manifest.yaml"
         manifest = Manifest.from_yaml(manifest_path.read_text())
+        if lane is not None:
+            return cls._open_lane(path, manifest, lane)
         state = StateFile.open(path)
         progress = ProgressLog(path / "progress.csv")
         return cls(path, manifest, state, progress)
 
+    @classmethod
+    def _open_lane(cls, path: pathlib.Path, manifest: Manifest, lane: str) -> RunDir:
+        fold_run_dir(path)
+        state = StateFile.open(path, lane)
+        progress = ProgressLog(path / f"progress.{lane}.csv")
+        return cls(path, manifest, state, progress, lane)
+
     def attach_log_handler(self, logger: logging.Logger) -> None:
-        handler = logging.FileHandler(self.path / "runner.log")
+        handler = logging.FileHandler(self.log_path)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
+
+    def fold(self) -> None:
+        fold_run_dir(self.path)
+
+    def claim(self, token: str, name: str) -> bool:
+        """Atomically take claims/<token>/<name> for this lane, False when it already exists."""
+        claim_dir = self.path / "claims" / token
+        claim_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(claim_dir / name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            return False
+        with os.fdopen(fd, "w") as fh:
+            fh.write(f"{self.lane}\n")
+        return True
+
+    def claimed(self, token: str, name: str) -> bool:
+        return os.path.exists(self.path / "claims" / token / name)
+
+    def reserve_episode_ids(self, count: int) -> int:
+        """Reserve count consecutive episode ids across lanes, returning the first."""
+        episodes_dir = self.path / "episodes"
+        episodes_dir.mkdir(parents=True, exist_ok=True)
+        counter = episodes_dir / ".next_episode_id"
+        with (episodes_dir / ".episode_id.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            first = 0
+            for d in episodes_dir.glob("episode_*"):
+                try:
+                    first = max(first, int(d.name.split("_")[1]) + 1)
+                except (IndexError, ValueError):
+                    pass
+            if counter.exists():
+                first = max(first, int(counter.read_text().strip() or 0))
+            tmp = episodes_dir / ".next_episode_id.tmp"
+            tmp.write_text(f"{first + count}\n")
+            os.replace(tmp, counter)
+        return first

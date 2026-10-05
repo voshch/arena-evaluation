@@ -277,7 +277,7 @@ def _cmd_tail(args: argparse.Namespace) -> int:
         time.sleep(1)
 
     try:
-        subprocess.run(["tail", "-n", "50", "-F", str(csv_path)], check=False)
+        subprocess.run(["tail", "-n", "50", "-F", str(csv_path), *map(str, sorted(run_path.glob("progress.*.csv")))], check=False)
     except KeyboardInterrupt:
         pass
     return 0
