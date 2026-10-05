@@ -203,6 +203,8 @@ class AlignedEpisodeBundle:
     outcome_info: str | None = None
     # Distance tolerance of the robot's goal from the last EpisodeRecord, None for recordings without it.
     goal_tolerance: float | None = None
+    # Goals of the goto legs before the final one, in order, as recorded on goal_pose.
+    waypoints: list[list[float]] = field(default_factory=list)
     run: typing.Any = None
     folder_manager: typing.Any = None
     peds: pl.DataFrame | None = None

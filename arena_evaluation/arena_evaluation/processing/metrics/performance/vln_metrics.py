@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import math
 import typing
 
@@ -185,13 +186,15 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         if not finite[0]:
             return results
 
+        legs = [start_xy, *((float(w[0]), float(w[1])) for w in episode.waypoints), goal_xy]
+        solved = [solver.solve(a, b, map_id=episode.map or "") for a, b in itertools.pairwise(legs)]
+        reference = np.vstack([solved[0][0], *(pts[1:] for pts, _ in solved[1:])])
         path_length = prior_results.get("path_length")
-        l0 = prior_results.get("theta_star_length")
+        l0 = sum(length for _, length in solved) if episode.waypoints else prior_results.get("theta_star_length")
         if results["success_geodesic"] is not None and path_length is not None and l0 is not None:
             denom = max(float(path_length), float(l0))
             results["spl_geodesic"] = float(results["success_geodesic"]) * (float(l0) / denom if denom > 0 else 1.0)
 
-        reference, _ = solver.solve(start_xy, goal_xy, map_id=episode.map or "")
         results["ndtw"] = ndtw(reference, np.column_stack((pos_x, pos_y)), threshold, self.NDTW_SPACING_M)
         if results["success_geodesic"] is not None:
             results["sdtw"] = float(results["success_geodesic"]) * results["ndtw"]

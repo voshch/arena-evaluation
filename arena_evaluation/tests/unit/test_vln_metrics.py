@@ -239,3 +239,26 @@ def test_registry_runs_vln_after_its_dependencies() -> None:
     stage_of = {name: i for i, stage in enumerate(registry.execution_order()) for name in stage}
     for dep in VlnMetricsCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of[VlnMetricsCalculator.NAME]
+
+
+def _with_waypoints(episode: AlignedEpisodeBundle, waypoints: list[tuple[float, float]]) -> AlignedEpisodeBundle:
+    episode.waypoints = [[x, y, 0.0] for x, y in waypoints]
+    return episode
+
+
+def test_route_through_leg_goals_scores_against_the_chained_reference() -> None:
+    leg = (8.0, 16.0)
+    route = [START, leg, GOAL]
+    chained = _run(_with_waypoints(_episode(route, "vln_free_two_legs"), [leg]), _solver(wall=False), success=True)
+    direct = _run(_episode(route, "vln_free_two_legs_direct"), _solver(wall=False), success=True)
+    assert chained["ndtw"] == pytest.approx(1.0, abs=0.02)
+    assert chained["spl_geodesic"] == pytest.approx(1.0, abs=0.02)
+    assert direct["ndtw"] < chained["ndtw"] - 0.2
+    assert direct["spl_geodesic"] < 0.8
+
+
+def test_skipping_a_leg_goal_lowers_ndtw_but_not_success() -> None:
+    leg = (8.0, 16.0)
+    out = _run(_with_waypoints(_episode([START, GOAL], "vln_free_skip_leg"), [leg]), _solver(wall=False), success=True)
+    assert out["success_geodesic"] is True
+    assert out["ndtw"] < 0.8

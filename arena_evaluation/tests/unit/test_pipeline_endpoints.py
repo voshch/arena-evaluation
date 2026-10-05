@@ -3,7 +3,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_window
+from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_waypoints, _episode_window
 from arena_evaluation.processing.pose_anchor import resolve_pose_source
 from arena_evaluation.processing.topic_aligner import TopicAligner
 from arena_evaluation.storage.schemas import TopicBundle
@@ -72,6 +72,24 @@ def test_goal_poses_after_the_aligned_window_do_not_define_the_goal():
     goal = pl.DataFrame({"time_ns": [200_000_000, 5_000_000_000], "pos_x": [7.5, 40.0], "pos_y": [-2.0, 40.0], "yaw": [0.3, 0.0]})
     _, end = _episode_endpoints(_aligned(with_gt=True), None, goal)
     assert end == [7.5, -2.0, 0.3]
+
+
+def test_leg_goals_are_the_distinct_recorded_goals_before_the_final_one():
+    goal = pl.DataFrame(
+        {
+            "time_ns": [-500_000_000, 0, 300_000_000, 400_000_000, 700_000_000, 900_000_000, 5_000_000_000],
+            "pos_x": [99.0, 4.0, 4.0, 8.0, 8.0, 12.0, 50.0],
+            "pos_y": [99.0, 1.0, 1.0, 2.0, 2.0, 3.0, 50.0],
+            "yaw": [0.0, 0.1, 0.1, 0.2, 0.2, 0.3, 0.0],
+        }
+    )
+    assert _episode_waypoints(_aligned(with_gt=True), goal) == [[4.0, 1.0, 0.1], [8.0, 2.0, 0.2]]
+
+
+def test_single_goal_episode_has_no_leg_goals():
+    goal = pl.DataFrame({"time_ns": [0, 600_000_000], "pos_x": [19.0, 19.0], "pos_y": [18.0, 18.0], "yaw": [-1.1, -1.1]})
+    assert _episode_waypoints(_aligned(with_gt=True), goal) == []
+    assert _episode_waypoints(_aligned(with_gt=True), None) == []
 
 
 def test_episode_window_spans_running_to_terminal_record():

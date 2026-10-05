@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
+import math
 import multiprocessing
 import os
 import pathlib
@@ -229,6 +230,23 @@ def _episode_endpoints(
         row_goal = goal_df.row(-1, named=True)
         goal_pos = [row_goal["pos_x"], row_goal["pos_y"], row_goal["yaw"]]
     return start_pos, goal_pos
+
+
+_SAME_GOAL_M = 1e-3
+
+
+def _episode_waypoints(aligned_df: pl.DataFrame, goal: pl.DataFrame | pl.LazyFrame | None) -> list[list[float]]:
+    """Distinct goal poses recorded inside the aligned window, in order, without the final one."""
+    goal_df = goal.collect() if isinstance(goal, pl.LazyFrame) else goal
+    if goal_df is None or len(goal_df) == 0 or "time_ns" not in goal_df.columns or "time_ns" not in aligned_df.columns:
+        return []
+    window = goal_df.filter((pl.col("time_ns") >= aligned_df["time_ns"].min()) & (pl.col("time_ns") <= aligned_df["time_ns"].max())).sort("time_ns")
+    legs: list[list[float]] = []
+    for row in window.iter_rows(named=True):
+        pose = [row["pos_x"], row["pos_y"], row["yaw"]]
+        if not legs or math.hypot(pose[0] - legs[-1][0], pose[1] - legs[-1][1]) > _SAME_GOAL_M:
+            legs.append(pose)
+    return legs[:-1]
 
 
 def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
@@ -517,6 +535,7 @@ class ProcessingPipeline:
                     topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if "time_ns" in df.columns else df for name, df in topics.items()}
 
                 start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, bundle.goal)
+                waypoints = _episode_waypoints(aligned_df, bundle.goal)
 
                 num_pedestrians = peds_count if pose_source.kind == "odom" else 0
                 if "num_pedestrians" in aligned_df.columns:
@@ -565,6 +584,7 @@ class ProcessingPipeline:
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
                     goal_tolerance=goal_tolerance,
+                    waypoints=waypoints,
                     map=ep.map,
                     topics=topics,
                 )
