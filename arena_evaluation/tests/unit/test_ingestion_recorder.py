@@ -250,8 +250,8 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 12
-    # /tf and /tf_static are subscribed once, at construction
+    assert len(full_node.subs) == 13
+    # /tf, humans/tf and /tf_static are subscribed once, at construction
     assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
 

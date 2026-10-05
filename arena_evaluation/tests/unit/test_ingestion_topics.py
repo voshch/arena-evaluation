@@ -38,6 +38,7 @@ _TOPIC_EXPECTATIONS = [
     ("initialpose", "/initialpose", "PoseWithCovarianceStamped", False, False),
     ("tf", "/tf", "TFMessage", True, False),
     ("tf_static", "/tf_static", "TFMessage", False, True),
+    ("tf_humans", "/humans/tf", "TFMessage", True, False),
     ("peds", "/arena_peds", "Pedestrians", True, False),
     ("agent_states", "/agent_states", "AgentFrame", True, False),
     ("agent_meta", "/agent_meta", "AgentMeta", False, True),

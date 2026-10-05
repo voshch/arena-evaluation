@@ -61,6 +61,7 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "initialpose": TopicDefinition(f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False),
         "tf": TopicDefinition("/tf", TFMessage, throttled=True),
         "tf_static": TopicDefinition("/tf_static", TFMessage, throttled=False, qos_transient_local=True),
+        "tf_humans": TopicDefinition(f"{env_ns}/humans/tf", TFMessage, throttled=True),
         "peds": TopicDefinition(f"{env_ns}/arena_peds", Pedestrians, throttled=True),
         "agent_states": TopicDefinition(f"{p_ns}/agent_states", AgentFrame, throttled=True),
         "agent_meta": TopicDefinition(f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True),

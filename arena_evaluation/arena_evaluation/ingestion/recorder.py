@@ -91,8 +91,8 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.FATAL,
 }
 
-_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
+_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -486,7 +486,8 @@ class DataRecorderNode(Node):
             if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
                 continue
 
-            self._register_topic(topic_name, msg_type)
+            if key != "tf_humans":
+                self._register_topic(topic_name, msg_type)
 
             qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
             if t_def.qos_transient_local:
@@ -508,7 +509,7 @@ class DataRecorderNode(Node):
                 callback = self.robots_fleet_callback
             elif key == "semantic_snapshot":
                 callback = self.semantic_snapshot_callback
-            elif key == "tf":
+            elif key in ("tf", "tf_humans"):
                 qos_profile = self.tf_qos
                 callback = self._tf_callback
             elif t_def.throttled:
