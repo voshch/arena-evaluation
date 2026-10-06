@@ -170,7 +170,6 @@ class MCAPReader:
                 "energy": defaultdict(list),
                 "acoustics": defaultdict(list),
                 "plan": defaultdict(list),
-                "goal": defaultdict(list),
                 "initialpose": defaultdict(list),
                 "task_pose": defaultdict(list),
                 "tf_gt": defaultdict(list),
@@ -253,7 +252,6 @@ class MCAPReader:
                     msg_count = 0
                     decoders = {}
                     collision_kind_schema_cache: dict[int, bool] = {}
-                    goal_tolerance_schema_cache: dict[int, bool] = {}
 
                     for schema, channel, message in reader.iter_messages(log_time_order=False):
                         try:
@@ -434,12 +432,6 @@ class MCAPReader:
                             target["outcome_info"].append(ros_msg.outcome_info)
                             target["goal_uuid"].append(ros_msg.goal_uuid)
 
-                            has_tolerance = goal_tolerance_schema_cache.get(schema.id)
-                            if has_tolerance is None:
-                                has_tolerance = re.search(r"^\s*float32\s+goal_tolerance\b", schema.data.decode(), re.M) is not None
-                                goal_tolerance_schema_cache[schema.id] = has_tolerance
-                            target["goal_tolerance"].append(float(ros_msg.goal_tolerance) if has_tolerance else None)
-
                             robots_yaml = ""
                             try:
                                 import yaml
@@ -523,15 +515,6 @@ class MCAPReader:
                             target["time_ns"].append(ts_ns)
                             target["total_energy_consumed_wh"].append(ros_msg.total_energy_consumed_wh)
                             target["battery_soc_percent"].append(ros_msg.battery_soc_percent)
-                            appended = True
-
-                        elif topic.endswith("/goal_pose"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["goal"]
-                            target["time_ns"].append(ts_ns)
-                            target["pos_x"].append(ros_msg.pose.position.x)
-                            target["pos_y"].append(ros_msg.pose.position.y)
-                            target["yaw"].append(self._quaternion_to_yaw(ros_msg.pose.orientation.x, ros_msg.pose.orientation.y, ros_msg.pose.orientation.z, ros_msg.pose.orientation.w))
                             appended = True
 
                         # Global plan
@@ -642,6 +625,16 @@ class MCAPReader:
         """The env_N segment of a frame id, else default."""
         match = re.search(r"(env_\d+)", frame)
         return match.group(1) if match else default
+
+    @staticmethod
+    def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
+        """EpisodeRecord.phases with every robot's map_poses moved by (-ox, -oy)."""
+        if not payload:
+            return payload
+        robots = json.loads(payload)
+        for entry in robots.values():
+            entry["map_poses"] = [None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]] for pose in entry["map_poses"]]
+        return json.dumps(robots)
 
     @staticmethod
     def _schedule_rows(payload: str) -> dict[str, list] | None:
@@ -831,6 +824,8 @@ class MCAPReader:
                             new_goals.append(json.dumps(g))
 
                         ep_df = ep_df.with_columns([pl.Series("start_pos", new_starts), pl.Series("goal_pos", new_goals)])
+                        if "phases" in ep_df.columns:
+                            ep_df = ep_df.with_columns(pl.Series("phases", [MCAPReader._shift_map_poses(payload, total_ox, total_oy) for payload in ep_df["phases"].to_list()]))
                         rb.episode_record = ep_df.lazy() if isinstance(rb.episode_record, pl.LazyFrame) else ep_df
                 except Exception as e:
                     import logging
@@ -864,11 +859,6 @@ class MCAPReader:
                     elif t_name == "tf_gt":
                         try:
                             lf = lf.with_columns([(pl.col("pos_x_gt") - total_ox).alias("pos_x_gt"), (pl.col("pos_y_gt") - total_oy).alias("pos_y_gt")])
-                        except Exception:
-                            pass
-                    elif t_name == "goal":
-                        try:
-                            lf = lf.with_columns([(pl.col("pos_x") - total_ox).alias("pos_x"), (pl.col("pos_y") - total_oy).alias("pos_y")])
                         except Exception:
                             pass
                     elif t_name == "plan":

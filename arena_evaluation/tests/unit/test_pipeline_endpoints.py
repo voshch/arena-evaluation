@@ -3,7 +3,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_waypoints, _episode_window
+from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_window
 from arena_evaluation.processing.pose_anchor import resolve_pose_source
 from arena_evaluation.processing.topic_aligner import TopicAligner
 from arena_evaluation.storage.schemas import TopicBundle
@@ -55,41 +55,25 @@ def test_plans_after_the_aligned_window_do_not_define_the_goal():
     assert goal == [18.9, 17.95, -1.2]
 
 
-def test_recorded_goal_pose_defines_the_goal_over_the_plan():
+def _phases(map_poses: list[list[float] | None]) -> dict:
+    return {"phases": [{} for _ in map_poses], "conditions": [], "map_poses": map_poses}
+
+
+def test_final_goto_of_the_recorded_phases_defines_the_goal_over_the_plan():
     plan = pl.DataFrame({"time_ns": [0], "poses_x": [[1.0, 18.9]], "poses_y": [[1.0, 17.95]], "poses_yaw": [[0.0, -1.2]]})
-    goal = pl.DataFrame({"time_ns": [0, 600_000_000], "pos_x": [19.0, 19.0], "pos_y": [18.0, 18.0], "yaw": [-1.1, -1.1]})
-    _, end = _episode_endpoints(_aligned(with_gt=True), plan, goal.lazy())
+    _, end = _episode_endpoints(_aligned(with_gt=True), plan.lazy(), _phases([[4.0, 1.0, 0.1], [19.0, 18.0, -1.1]]))
     assert end == [19.0, 18.0, -1.1]
 
 
-def test_recorded_goal_pose_defines_the_goal_without_a_plan():
-    goal = pl.DataFrame({"time_ns": [200_000_000], "pos_x": [7.5], "pos_y": [-2.0], "yaw": [0.3]})
-    _, end = _episode_endpoints(_aligned(with_gt=True), None, goal)
+def test_final_goto_of_the_recorded_phases_defines_the_goal_without_a_plan():
+    _, end = _episode_endpoints(_aligned(with_gt=True), None, _phases([[7.5, -2.0, 0.3], None]))
     assert end == [7.5, -2.0, 0.3]
 
 
-def test_goal_poses_after_the_aligned_window_do_not_define_the_goal():
-    goal = pl.DataFrame({"time_ns": [200_000_000, 5_000_000_000], "pos_x": [7.5, 40.0], "pos_y": [-2.0, 40.0], "yaw": [0.3, 0.0]})
-    _, end = _episode_endpoints(_aligned(with_gt=True), None, goal)
-    assert end == [7.5, -2.0, 0.3]
-
-
-def test_leg_goals_are_the_distinct_recorded_goals_before_the_final_one():
-    goal = pl.DataFrame(
-        {
-            "time_ns": [-500_000_000, 0, 300_000_000, 400_000_000, 700_000_000, 900_000_000, 5_000_000_000],
-            "pos_x": [99.0, 4.0, 4.0, 8.0, 8.0, 12.0, 50.0],
-            "pos_y": [99.0, 1.0, 1.0, 2.0, 2.0, 3.0, 50.0],
-            "yaw": [0.0, 0.1, 0.1, 0.2, 0.2, 0.3, 0.0],
-        }
-    )
-    assert _episode_waypoints(_aligned(with_gt=True), goal) == [[4.0, 1.0, 0.1], [8.0, 2.0, 0.2]]
-
-
-def test_single_goal_episode_has_no_leg_goals():
-    goal = pl.DataFrame({"time_ns": [0, 600_000_000], "pos_x": [19.0, 19.0], "pos_y": [18.0, 18.0], "yaw": [-1.1, -1.1]})
-    assert _episode_waypoints(_aligned(with_gt=True), goal) == []
-    assert _episode_waypoints(_aligned(with_gt=True), None) == []
+def test_phases_without_a_goto_leave_the_goal_to_the_plan():
+    plan = pl.DataFrame({"time_ns": [0], "poses_x": [[1.0, 18.9]], "poses_y": [[1.0, 17.95]], "poses_yaw": [[0.0, -1.2]]})
+    _, end = _episode_endpoints(_aligned(with_gt=True), plan, _phases([None]))
+    assert end == [18.9, 17.95, -1.2]
 
 
 def test_episode_window_spans_running_to_terminal_record():

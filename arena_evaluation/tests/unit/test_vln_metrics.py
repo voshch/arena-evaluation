@@ -10,6 +10,7 @@ from arena_evaluation.processing.metrics.performance.vln_metrics import (
     geodesic_distances,
     geodesic_field,
     ndtw,
+    route,
     stuck_window,
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
@@ -50,12 +51,22 @@ def _densify(waypoints: list[tuple[float, float]], step: float) -> np.ndarray:
     return np.array(pts)
 
 
+def _phases(gotos: list[tuple[float, float]], tolerance: float | None) -> dict:
+    phase = {} if tolerance is None else {"tolerance_radius": tolerance}
+    return {
+        "phases": [{"goto": [x, y, 0.0], **phase} for x, y in gotos],
+        "conditions": [],
+        "map_poses": [[x, y, 0.0] for x, y in gotos],
+    }
+
+
 def _episode(
     waypoints: list[tuple[float, float]],
     map_name: str,
     dwell_s: float = 0.0,
     goal: tuple[float, float] = GOAL,
-    goal_tolerance: float | None = TOLERANCE,
+    tolerance: float | None = TOLERANCE,
+    legs: tuple[tuple[float, float], ...] = (),
 ) -> AlignedEpisodeBundle:
     pts = _densify(waypoints, 0.1)
     steps = np.linalg.norm(np.diff(pts, axis=0), axis=1)
@@ -83,7 +94,7 @@ def _episode(
         data=data,
         start_pos=[pts[0, 0], pts[0, 1], yaw[0]],
         goal_pos=list(goal),
-        goal_tolerance=goal_tolerance,
+        phases=_phases([*legs, goal], tolerance),
         map=map_name,
     )
 
@@ -91,9 +102,7 @@ def _episode(
 def _run(episode: AlignedEpisodeBundle, solver: GeometricThetaStar, success: bool) -> dict:
     params = RobotParams(robot_radius=RADIUS)
     prior = PathMetricsCalculator(params).calculate(episode, {})
-    start = (float(episode.data["pos_x_gt"][0]), float(episode.data["pos_y_gt"][0]))
-    _, l0 = solver.solve(start, (episode.goal_pos[0], episode.goal_pos[1]), map_id=episode.map)
-    prior.update(success=success, theta_star_length=l0)
+    prior.update(success=success)
     return VlnMetricsCalculator(params).calculate_on_grid(episode, prior, solver)
 
 
@@ -144,14 +153,14 @@ def test_stop_four_meters_from_goal_fails() -> None:
     assert out["sdtw"] == 0.0
 
 
-def test_threshold_is_the_episode_goal_tolerance() -> None:
-    out = _run(_episode([START, (11.0, 10.0)], "vln_free_stop_4m_wide", goal_tolerance=5.0), _solver(wall=False), success=True)
+def test_threshold_is_the_final_goto_tolerance() -> None:
+    out = _run(_episode([START, (11.0, 10.0)], "vln_free_stop_4m_wide", tolerance=5.0), _solver(wall=False), success=True)
     assert out["success_geodesic"] is True
     assert out["osr"] is True
 
 
-def test_recording_without_goal_tolerance_keeps_only_ne() -> None:
-    out = _run(_episode([START, (11.0, 10.0)], "vln_free_no_tolerance", goal_tolerance=None), _solver(wall=False), success=True)
+def test_goto_without_tolerance_keeps_only_ne() -> None:
+    out = _run(_episode([START, (11.0, 10.0)], "vln_free_no_tolerance", tolerance=None), _solver(wall=False), success=True)
     assert out["ne"] == pytest.approx(4.0, abs=RES)
     assert all(out[k] is None for k in ("osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
 
@@ -228,7 +237,7 @@ def test_stuck_flags_failed_dwell_and_ignores_success() -> None:
 def test_calculate_without_map_leaves_geodesic_outputs_none() -> None:
     episode = _episode([START, (11.0, 10.0)], "", dwell_s=15.0)
     episode.map = None
-    out = VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False, "path_length": 9.0, "theta_star_length": 13.0})
+    out = VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False, "path_length": 9.0})
     assert set(out) == set(VlnMetricsCalculator.output_keys())
     assert all(out[k] is None for k in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
     assert out["stuck"] is True
@@ -241,16 +250,11 @@ def test_registry_runs_vln_after_its_dependencies() -> None:
         assert stage_of[dep] < stage_of[VlnMetricsCalculator.NAME]
 
 
-def _with_waypoints(episode: AlignedEpisodeBundle, waypoints: list[tuple[float, float]]) -> AlignedEpisodeBundle:
-    episode.waypoints = [[x, y, 0.0] for x, y in waypoints]
-    return episode
-
-
 def test_route_through_leg_goals_scores_against_the_chained_reference() -> None:
     leg = (8.0, 16.0)
-    route = [START, leg, GOAL]
-    chained = _run(_with_waypoints(_episode(route, "vln_free_two_legs"), [leg]), _solver(wall=False), success=True)
-    direct = _run(_episode(route, "vln_free_two_legs_direct"), _solver(wall=False), success=True)
+    path = [START, leg, GOAL]
+    chained = _run(_episode(path, "vln_free_two_legs", legs=(leg,)), _solver(wall=False), success=True)
+    direct = _run(_episode(path, "vln_free_two_legs_direct"), _solver(wall=False), success=True)
     assert chained["ndtw"] == pytest.approx(1.0, abs=0.02)
     assert chained["spl_geodesic"] == pytest.approx(1.0, abs=0.02)
     assert direct["ndtw"] < chained["ndtw"] - 0.2
@@ -259,6 +263,28 @@ def test_route_through_leg_goals_scores_against_the_chained_reference() -> None:
 
 def test_skipping_a_leg_goal_lowers_ndtw_but_not_success() -> None:
     leg = (8.0, 16.0)
-    out = _run(_with_waypoints(_episode([START, GOAL], "vln_free_skip_leg"), [leg]), _solver(wall=False), success=True)
+    out = _run(_episode([START, GOAL], "vln_free_skip_leg", legs=(leg,)), _solver(wall=False), success=True)
     assert out["success_geodesic"] is True
     assert out["ndtw"] < 0.8
+
+
+def test_route_is_the_map_pose_of_every_goto_and_the_last_tolerance() -> None:
+    phases = {
+        "phases": [{"goto": [1.0, 2.0, 0.0], "tolerance_radius": 0.3}, {"gesture": "wave"}, {"goto": "kitchen", "tolerance_radius": 0.8}],
+        "conditions": [],
+        "map_poses": [[6.0, 7.0, 0.0], None, [9.5, 4.0, 1.57]],
+    }
+    assert route(phases) == ([(6.0, 7.0), (9.5, 4.0)], 0.8)
+
+
+def test_route_is_empty_without_a_goto() -> None:
+    assert route(None) == ([], None)
+    assert route({"phases": [{"gesture": "wave"}], "conditions": [], "map_poses": [None]}) == ([], None)
+
+
+def test_episode_without_phases_leaves_geodesic_outputs_none() -> None:
+    episode = _episode([START, (14.0, 10.0)], "vln_free_no_phases")
+    episode.phases = None
+    out = _run(episode, _solver(wall=False), success=True)
+    assert all(out[k] is None for k in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
+    assert out["stuck"] is False

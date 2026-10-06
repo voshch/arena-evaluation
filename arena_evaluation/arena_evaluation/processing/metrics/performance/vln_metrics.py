@@ -91,12 +91,22 @@ def stuck_window(xs: np.ndarray, ys: np.ndarray, yaw: np.ndarray, time_ns: np.nd
     return bool(np.any((shift < max_shift_m) & (turn < max_turn_rad)))
 
 
+def route(phases: dict | None) -> tuple[list[tuple[float, float]], float | None]:
+    """Map-frame (x, y) of every goto in the robot's EpisodeRecord.phases entry, in order, and the last one's tolerance radius."""
+    if not phases:
+        return [], None
+    legs = [(phase, pose) for phase, pose in zip(phases["phases"], phases["map_poses"], strict=True) if pose is not None]
+    if not legs:
+        return [], None
+    return [(float(pose[0]), float(pose[1])) for _, pose in legs], legs[-1][0].get("tolerance_radius") or None
+
+
 class VlnMetricsCalculator(BaseMetricCalculator):
     """VLN metrics (NE, OSR, SR, SPL, nDTW, SDTW, stuck) on the Theta* occupancy grid and reference path."""
 
     NAME = "vln_metrics"
     CATEGORY = "performance"
-    DEPENDS_ON = ["collision_metrics", "path_metrics", "trajectory_naturalness"]
+    DEPENDS_ON = ["collision_metrics", "path_metrics"]
     REQUIRED_TOPICS = [("tf_gt", "odom")]
 
     UNITS = {
@@ -142,14 +152,14 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         return self.calculate_on_grid(episode, prior_results, solver)
 
     def calculate_on_grid(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any], solver: GeometricThetaStar | None) -> dict[str, typing.Any]:
-        """Metrics over the solver's grid against the episode's goal tolerance, geodesic outputs None without a grid, threshold outputs None without a tolerance."""
+        """Metrics over the solver's grid against the final goto's tolerance, geodesic outputs None without a grid or goto, threshold outputs None without a tolerance."""
         results: dict[str, typing.Any] = {k: None for k in self.output_keys()}
         pos_x, pos_y, yaw, _, _, _ = self.resolve_robot_pose(episode)
         if len(pos_x) == 0:
             return results
 
         success = prior_results.get("success")
-        threshold = episode.goal_tolerance
+        goals, threshold = route(episode.phases)
 
         if success is not None and "time_ns" in episode.data.columns:
             results["stuck"] = not bool(success) and stuck_window(
@@ -162,11 +172,11 @@ class VlnMetricsCalculator(BaseMetricCalculator):
                 math.radians(self.STUCK_TURN_DEG),
             )
 
-        if solver is None or not episode.goal_pos or len(episode.goal_pos) < 2:
+        if solver is None or not goals:
             return results
 
         start_xy = (float(pos_x[0]), float(pos_y[0]))
-        goal_xy = (float(episode.goal_pos[0]), float(episode.goal_pos[1]))
+        goal_xy = goals[-1]
         goal_cell = solver.world_to_grid(*goal_xy)
         blocked = solver.obstacle_grid(solver.world_to_grid(*start_xy), goal_cell)
         field = geodesic_field(blocked, goal_cell, solver.resolution)
@@ -186,11 +196,10 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         if not finite[0]:
             return results
 
-        legs = [start_xy, *((float(w[0]), float(w[1])) for w in episode.waypoints), goal_xy]
-        solved = [solver.solve(a, b, map_id=episode.map or "") for a, b in itertools.pairwise(legs)]
+        solved = [solver.solve(a, b, map_id=episode.map or "") for a, b in itertools.pairwise([start_xy, *goals])]
         reference = np.vstack([solved[0][0], *(pts[1:] for pts, _ in solved[1:])])
         path_length = prior_results.get("path_length")
-        l0 = sum(length for _, length in solved) if episode.waypoints else prior_results.get("theta_star_length")
+        l0 = sum(length for _, length in solved)
         if results["success_geodesic"] is not None and path_length is not None and l0 is not None:
             denom = max(float(path_length), float(l0))
             results["spl_geodesic"] = float(results["success_geodesic"]) * (float(l0) / denom if denom > 0 else 1.0)
