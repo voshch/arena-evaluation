@@ -58,6 +58,7 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "joint_states": TopicDefinition(f"{ns}/joint_states", JointState, throttled=True),
         "plan": TopicDefinition(f"{ns}/plan", Path, throttled=False),
         "goal_pose": TopicDefinition(f"{ns}/goal_pose", PoseStamped, throttled=False),
+        "task_pose": TopicDefinition(f"{ns}/task_pose", PoseStamped, throttled=False),
         "initialpose": TopicDefinition(f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False),
         "tf": TopicDefinition("/tf", TFMessage, throttled=True),
         "tf_static": TopicDefinition("/tf_static", TFMessage, throttled=False, qos_transient_local=True),

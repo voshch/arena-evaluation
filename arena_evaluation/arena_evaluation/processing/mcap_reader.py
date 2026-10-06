@@ -30,6 +30,18 @@ def nearest_return(ranges: object, range_min: float, range_max: float) -> float:
 # Topic -> explicit PyArrow schema.  Only needed when RecordBatch.from_pydict
 # cannot infer column types from data (e.g. semantic_snapshot where each row
 # populates exactly one value_* column, leaving the rest None).
+_PEDS_SCHEMA = pa.schema(
+    [
+        ("time_ns", pa.int64()),
+        ("peds_frame_id", pa.string()),
+        ("num_pedestrians", pa.int64()),
+        ("peds_names", pa.list_(pa.string())),
+        ("peds_positions", pa.list_(pa.float64())),
+        ("peds_headings", pa.list_(pa.float64())),
+        ("peds_twists", pa.list_(pa.float64())),
+    ]
+)
+
 _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
     "semantic_snapshot": pa.schema(
         [
@@ -46,6 +58,8 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("value_list", pa.list_(pa.string())),
         ]
     ),
+    "peds": _PEDS_SCHEMA,
+    "peds_engine": _PEDS_SCHEMA,
     "collision_events": pa.schema(
         [
             ("time_ns", pa.int64()),
@@ -158,6 +172,7 @@ class MCAPReader:
                 "plan": defaultdict(list),
                 "goal": defaultdict(list),
                 "initialpose": defaultdict(list),
+                "task_pose": defaultdict(list),
                 "tf_gt": defaultdict(list),
                 "characterization_phase": defaultdict(list),
                 "characterization_schedule": defaultdict(list),
@@ -203,7 +218,7 @@ class MCAPReader:
                     if not topic_data or not any(len(column) for column in topic_data.values()):
                         continue
 
-                    batch = pa.RecordBatch.from_pydict(dict(topic_data))
+                    batch = pa.RecordBatch.from_pydict(dict(topic_data), schema=_TOPIC_SCHEMAS.get(topic_name))
                     writer_key = (env_name, topic_name)
 
                     if writer_key not in writers:
@@ -338,15 +353,18 @@ class MCAPReader:
                             target["time_ns"].append(ts_ns)
                             target["peds_frame_id"].append(ros_msg.header.frame_id)
 
+                            names: list[str] = []
                             if schema.name == "arena_humansim_msgs/msg/AgentFrame":
                                 humans = np.frombuffer(ros_msg.kind, dtype=np.uint8) == 0
                                 zeros = np.zeros(int(humans.sum()))
                                 target["num_pedestrians"].append(len(zeros))
+                                names = [str(i) for i in np.asarray(ros_msg.agent_id)[humans].tolist()]
                                 positions = np.column_stack((np.asarray(ros_msg.x, dtype=np.float64)[humans], np.asarray(ros_msg.y, dtype=np.float64)[humans], zeros)).ravel().tolist()
                                 headings = np.asarray(ros_msg.theta, dtype=np.float64)[humans].tolist()
                                 twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
                             elif schema.name == "arena_people_msgs/msg/Pedestrians":
                                 target["num_pedestrians"].append(len(ros_msg.pedestrians))
+                                names = [str(p.name) for p in ros_msg.pedestrians]
                                 positions, headings, twists = [], [], []
                                 for p in ros_msg.pedestrians:
                                     # Positions: flattened list [x1, y1, z1, x2, y2, z2, ...]
@@ -361,12 +379,14 @@ class MCAPReader:
                             else:
                                 agents = [a for a in ros_msg.agents if a.kind == 0]
                                 target["num_pedestrians"].append(len(agents))
+                                names = [str(a.agent_id) for a in agents]
                                 positions, headings, twists = [], [], []
                                 for p in agents:
                                     positions.extend([p.pose.x, p.pose.y, 0.0])
                                     headings.append(p.pose.theta)
                                     twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
 
+                            target["peds_names"].append(names)
                             target["peds_positions"].append(positions)
                             target["peds_headings"].append(headings)
                             target["peds_twists"].append(twists)
@@ -529,6 +549,17 @@ class MCAPReader:
                             target["poses_x"].append(poses_x)
                             target["poses_y"].append(poses_y)
                             target["poses_yaw"].append(poses_yaw)
+                            appended = True
+
+                        # Task pose
+                        elif topic.endswith("/task_pose"):
+                            robot_name = get_robot_name(parts, env_key)
+                            target = robot_data[robot_name]["task_pose"]
+                            target["time_ns"].append(ts_ns)
+                            target["stamp_ns"].append(self._stamp_ns(ros_msg.header))
+                            target["pos_x"].append(ros_msg.pose.position.x)
+                            target["pos_y"].append(ros_msg.pose.position.y)
+                            target["yaw"].append(self._quaternion_to_yaw(ros_msg.pose.orientation.x, ros_msg.pose.orientation.y, ros_msg.pose.orientation.z, ros_msg.pose.orientation.w))
                             appended = True
 
                         # Initialpose

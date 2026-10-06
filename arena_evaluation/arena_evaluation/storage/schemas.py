@@ -176,6 +176,7 @@ class TopicBundle:
     characterization_phase: pl.DataFrame | None = None
     characterization_schedule: pl.DataFrame | None = None
     initialpose: pl.DataFrame | None = None
+    task_pose: pl.DataFrame | None = None
     tf: pl.DataFrame | None = None
     tf_static: pl.DataFrame | None = None
     tf_gt: pl.DataFrame | None = None
@@ -198,6 +199,10 @@ class AlignedEpisodeBundle:
     robot_name: str | None = None
     semantic_snapshot: pl.DataFrame | None = None
     conditions: list[dict] | None = None
+    # This robot's entry of EpisodeRecord.phases ({phases, conditions}), None when the record has none.
+    phases: dict | None = None
+    # Judge poses of every robot in the env by bare name, this robot included.
+    fleet: dict[str, pl.DataFrame] = field(default_factory=dict)
     # Final EpisodeRecord.outcome_state of the recording, None when no record was captured.
     outcome_state: int | None = None
     outcome_info: str | None = None

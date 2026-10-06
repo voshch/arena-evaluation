@@ -8,6 +8,7 @@ record_frequencies:
   odom:   20.0   # odometry, moderate frequency
   peds:   20.0   # pedestrian positions
   goal_pose: 0.0 # event-driven (recorded unthrottled)
+  task_pose: 0.0 # one per judge tick (recorded unthrottled)
   initialpose: 0.0 # event-driven (recorded unthrottled)
   robots: 0.0    # latched fleet state (recorded unthrottled)
   semantics: 0.0 # latched semantic snapshot (recorded unthrottled)

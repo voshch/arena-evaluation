@@ -247,6 +247,46 @@ def _episode_waypoints(aligned_df: pl.DataFrame, goal: pl.DataFrame | pl.LazyFra
         if not legs or math.hypot(pose[0] - legs[-1][0], pose[1] - legs[-1][1]) > _SAME_GOAL_M:
             legs.append(pose)
     return legs[:-1]
+def _robot_phases(record: pl.DataFrame, robot_dir: str) -> dict | None:
+    """This robot's {phases, conditions} from the last EpisodeRecord row that carries any, None without."""
+    if "phases" not in record.columns:
+        return None
+    import json
+
+    from arena_evaluation.processing.metrics.ecological.condition_metrics import bare_robot_name
+
+    bare = bare_robot_name(robot_dir)
+    for raw in reversed(record["phases"].to_list()):
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw).get(bare)
+        except (ValueError, AttributeError):
+            return None
+        if entry is not None:
+            return entry
+    return None
+
+
+def _fleet_poses(robots: dict[str, TopicBundle], window: tuple[int | None, int | None]) -> dict[str, pl.DataFrame]:
+    """Recorded judge poses of every robot in the episode by bare name, cut to the window."""
+    from arena_evaluation.processing.metrics.ecological.condition_metrics import bare_robot_name
+
+    start_ns, end_ns = window
+    fleet: dict[str, pl.DataFrame] = {}
+    for name, bundle in robots.items():
+        frame = bundle.task_pose
+        if frame is None:
+            continue
+        if isinstance(frame, pl.LazyFrame):
+            frame = frame.collect()
+        if start_ns is not None:
+            frame = frame.filter(pl.col("time_ns") >= start_ns - _ALIGN_TOLERANCE_NS)
+        if end_ns is not None:
+            frame = frame.filter(pl.col("time_ns") <= end_ns + _ALIGN_TOLERANCE_NS)
+        if len(frame) > 0:
+            fleet[bare_robot_name(name)] = frame
+    return fleet
 
 
 def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
@@ -548,6 +588,7 @@ class ProcessingPipeline:
                     semantic_snapshot_df = semantic_snapshot_df.collect()
 
                 conditions = None
+                phases = None
                 outcome_state = None
                 outcome_info = None
                 goal_tolerance = None
@@ -571,6 +612,10 @@ class ProcessingPipeline:
                                 outcome_info = er_sorted["outcome_info"][-1]
                             if "goal_tolerance" in er_sorted.columns:
                                 goal_tolerance = er_sorted["goal_tolerance"][-1] or None
+                            phases = _robot_phases(er_sorted, robot_name)
+
+                fleet = _fleet_poses(robots, window)
+                peds_df = bundle.peds.collect() if isinstance(bundle.peds, pl.LazyFrame) else bundle.peds
 
                 aligned_ep = AlignedEpisodeBundle(
                     episode_id=ep.episode_id,
@@ -581,10 +626,13 @@ class ProcessingPipeline:
                     robot_name=robot_name,
                     semantic_snapshot=semantic_snapshot_df,
                     conditions=conditions,
+                    phases=phases,
+                    fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
                     goal_tolerance=goal_tolerance,
                     waypoints=waypoints,
+                    peds=peds_df,
                     map=ep.map,
                     topics=topics,
                 )

@@ -35,6 +35,7 @@ _TOPIC_EXPECTATIONS = [
     ("joint_states", "/joint_states", "JointState", True, False),
     ("plan", "/plan", "Path", False, False),
     ("goal_pose", "/goal_pose", "PoseStamped", False, False),
+    ("task_pose", "/task_pose", "PoseStamped", False, False),
     ("initialpose", "/initialpose", "PoseWithCovarianceStamped", False, False),
     ("tf", "/tf", "TFMessage", True, False),
     ("tf_static", "/tf_static", "TFMessage", False, True),
