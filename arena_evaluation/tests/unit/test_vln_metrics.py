@@ -143,6 +143,14 @@ def test_stop_one_meter_from_goal_succeeds() -> None:
     assert out["stuck"] is False
 
 
+def test_stop_inside_tolerance_on_an_octile_diagonal_succeeds() -> None:
+    stop = (GOAL[0] - 2.75, GOAL[1] + 1.14)
+    out = _run(_episode([START, stop], "vln_free_stop_octile"), _solver(wall=False), success=True)
+    assert out["ne"] == pytest.approx(math.hypot(2.75, 1.14), abs=0.01)
+    assert out["osr"] is True
+    assert out["success_geodesic"] is True
+
+
 def test_stop_four_meters_from_goal_fails() -> None:
     out = _run(_episode([START, (11.0, 10.0)], "vln_free_stop_4m"), _solver(wall=False), success=True)
     assert out["ne"] == pytest.approx(4.0, abs=RES)

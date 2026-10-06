@@ -42,13 +42,18 @@ def _values_equal(recorded: str, expected: str) -> bool:
 
 
 def _entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
-    """Bare entity name -> recorded sim_path, for names resolving to a single sim_path."""
+    """Bare entity name -> recorded sim_path, for names resolving to a single sim_path, a world entity also by its name without the level suffix."""
     if snapshot is None or len(snapshot) == 0 or "entity" not in snapshot.columns:
         return {}
     paths: dict[str, set[str]] = defaultdict(set)
     for entity in snapshot["entity"].unique().to_list():
         paths[_strip_env(entity)].add(entity)
-    return {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
+    unsuffixed: dict[str, set[str]] = defaultdict(set)
+    for bare, recorded in paths.items():
+        if "/" in bare:
+            unsuffixed[bare.rsplit("/", 1)[0]] |= recorded
+    roster = {name: next(iter(p)) for name, p in unsuffixed.items() if name not in paths and len(p) == 1}
+    return roster | {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
 
 
 def _ped_roster(data: pl.DataFrame) -> dict[str, str]:

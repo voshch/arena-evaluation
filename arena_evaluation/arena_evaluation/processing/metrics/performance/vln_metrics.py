@@ -14,6 +14,7 @@ from arena_evaluation.processing.path.theta_star import GeometricThetaStar, load
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _STEPS = ((0, 1, 1.0), (1, 0, 1.0), (1, 1, math.sqrt(2.0)), (1, -1, math.sqrt(2.0)))
+_OCTILE_MAX_RATIO = math.sqrt(4.0 - 2.0 * math.sqrt(2.0))
 
 
 def geodesic_field(blocked: np.ndarray, goal_cell: tuple[int, int], resolution: float) -> np.ndarray:
@@ -184,12 +185,14 @@ class VlnMetricsCalculator(BaseMetricCalculator):
 
         finite = np.isfinite(dists)
         if finite[-1]:
-            results["ne"] = float(dists[-1])
+            results["ne"] = float(solver.solve((float(pos_x[-1]), float(pos_y[-1])), goal_xy, map_id=episode.map or "")[1])
         if threshold is None:
             return results
 
-        if finite.any():
-            results["osr"] = bool(np.any(dists[finite] <= threshold))
+        near = np.flatnonzero(finite & (dists <= threshold * _OCTILE_MAX_RATIO + solver.resolution * math.sqrt(2.0)))
+        euclid = np.hypot(pos_x[near] - goal_xy[0], pos_y[near] - goal_xy[1])
+        near = near[euclid <= threshold][np.argsort(euclid[euclid <= threshold])]
+        results["osr"] = any(solver.solve((float(pos_x[i]), float(pos_y[i])), goal_xy, map_id=episode.map or "")[1] <= threshold for i in near)
         if results["ne"] is not None and success is not None:
             results["success_geodesic"] = bool(success) and results["ne"] <= threshold
 

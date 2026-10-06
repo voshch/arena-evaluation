@@ -506,7 +506,7 @@ class ProcessingPipeline:
                 pedsim_avail = metadata.pedsim_available or False
 
             robot_params = RobotParams.load(robot_model)
-            registry = MetricRegistry(robot_params, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
+            registry = MetricRegistry(robot_params, world=ep.map, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
 
             all_results: list[dict] = []
             robots = {name: bundle for name, bundle in bundles.items() if bundle.odom is not None}

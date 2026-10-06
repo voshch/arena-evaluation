@@ -99,6 +99,16 @@ def test_replay_agrees_with_recorded_gotos():
     assert results["judge_disagreements"] == []
 
 
+def test_replay_judges_the_tick_that_closed_the_phase():
+    phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}, {"goto": [9.0, 9.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
+    poses = _poses([(1.0, 5.0, 5.0), (2.0, 1.0, 1.0), (3.0, 5.0, 5.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _robot_rows(2 * S, "1", met="0"))
+    results = _calc().calculate(_episode(phases, poses, snapshot), {})
+    assert results["phase_outcomes"] == ["met", "pending"]
+    assert results["judge_agrees"] is True
+    assert results["judge_disagreements"] == []
+
+
 def test_replay_disagrees_when_recorded_met_is_not_reached():
     phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
     poses = _poses([(0.0, 5.0, 5.0), (1.0, 4.0, 4.0)])

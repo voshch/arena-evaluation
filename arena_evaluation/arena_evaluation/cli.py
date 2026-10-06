@@ -108,7 +108,7 @@ Examples:
         type=pathlib.Path,
         nargs="+",
         metavar="DIR",
-        help="Path to one or more single recording directories (contains metadata.yaml + recording/)",
+        help="Path to one or more recorder output directories (contains episodes/episode_NNN/)",
     )
     run_parent.add_argument(
         "--output-dir",
@@ -229,33 +229,16 @@ Examples:
         if args.command == "run":
             force_extract = True
 
-        if args.run_dir:
-            for run_dir in args.run_dir:
-                fm = FolderManager(data_root=run_dir.parent)
-                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
+        for target_dir in target_dirs:
+            fm = FolderManager(data_root=target_dir.parent)
+            pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
 
-                if args.command == "extract":
-                    print(f"Extracting single run: {run_dir}")
-                    pipeline.extract_run_dir(run_dir)
-                else:
-                    print(f"Processing single run: {run_dir}")
-                    out = pipeline.process_run_dir(run_dir, force_extract=force_extract)
-                    if out:
-                        print(f"Metrics written to: {out}")
-                    else:
-                        print(f"Processing failed for {run_dir} - see errors above.")
-
-        else:
-            for benchmark_dir in args.benchmark_dir:
-                fm = FolderManager(data_root=benchmark_dir.parent)
-                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
-
-                if args.command == "extract":
-                    print(f"Extracting benchmark: {benchmark_dir.name}")
-                    pipeline.extract_benchmark(benchmark_dir.name)
-                else:
-                    print(f"Processing benchmark: {benchmark_dir.name}")
-                    pipeline.process_benchmark(benchmark_dir.name, force_extract=force_extract)
+            if args.command == "extract":
+                print(f"Extracting: {target_dir.name}")
+                pipeline.extract_benchmark(target_dir.name)
+            else:
+                print(f"Processing: {target_dir.name}")
+                pipeline.process_benchmark(target_dir.name, force_extract=force_extract)
 
     if args.command in ("run", "report", "plot"):
         output_dir = args.output_dir

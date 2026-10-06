@@ -154,7 +154,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
             if span is None:
                 continue
             lo = int(np.searchsorted(time_ns, span[0], side="left"))
-            hi = int(np.searchsorted(time_ns, span[1], side="left"))
+            hi = int(np.searchsorted(time_ns, span[1], side="right"))
             monitor = PhaseMonitor(phase, "robot")
             replay_met = False
             for i in range(lo, hi):

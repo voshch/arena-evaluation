@@ -1,6 +1,8 @@
 import argparse
 import os
 import pathlib
+import subprocess
+import sys
 import tempfile
 import pytest
 from unittest import mock
@@ -69,3 +71,11 @@ def test_resolve_paths_nonexistent():
     resolved = resolve_paths(args)
     assert resolved.run_dir == pathlib.Path("nonexistent_run")
     assert resolved.benchmark_dir == pathlib.Path("nonexistent_bench")
+
+
+def test_process_run_dir_without_episodes_reports_none_found(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    out = subprocess.run([sys.executable, "-m", "arena_evaluation.cli", "process", "--run-dir", str(run)], capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    assert "No episodes found for benchmark 'run'" in out.stdout

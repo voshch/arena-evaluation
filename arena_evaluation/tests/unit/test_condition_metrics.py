@@ -297,6 +297,27 @@ def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
     assert dup_series is None and dup_ok is False
 
 
+def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
+    snapshot = _snap(
+        [
+            (0, "env_0/ward/0", "zone", "quiet", "predicate", True),
+            (2_000_000_000, "env_0/ward/0", "zone", "quiet", "predicate", False),
+            (0, "env_0/lift/0", "elevator", "open", "predicate", True),
+            (0, "env_0/lift/1", "elevator", "open", "predicate", True),
+            (0, "env_0/jackal", "robot", "phase", "discrete", "0"),
+            (0, "env_0/jackal/0", "door", "open", "predicate", True),
+        ]
+    )
+    ctx = _ctx([0, 3_000_000_000], snapshot=snapshot)
+
+    quiet_series, quiet_ok = _entity_atom_series(parse_atom("ward.quiet == false"), ctx)
+    lift_series, lift_ok = _entity_atom_series(parse_atom("lift.open == true"), ctx)
+
+    assert quiet_ok is True and list(quiet_series) == [False, True]
+    assert lift_series is None and lift_ok is False
+    assert _entity_roster(snapshot)["jackal"] == "env_0/jackal"
+
+
 # -- robot zone atoms -----------------------------------------------------
 
 

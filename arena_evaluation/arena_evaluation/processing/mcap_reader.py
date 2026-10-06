@@ -252,6 +252,7 @@ class MCAPReader:
                     msg_count = 0
                     decoders = {}
                     collision_kind_schema_cache: dict[int, bool] = {}
+                    phases_schema_cache: dict[int, bool] = {}
 
                     for schema, channel, message in reader.iter_messages(log_time_order=False):
                         try:
@@ -431,6 +432,12 @@ class MCAPReader:
                             target["outcome_state"].append(ros_msg.outcome_state)
                             target["outcome_info"].append(ros_msg.outcome_info)
                             target["goal_uuid"].append(ros_msg.goal_uuid)
+
+                            has_phases = phases_schema_cache.get(schema.id)
+                            if has_phases is None:
+                                has_phases = re.search(r"^\s*string\s+phases\b", schema.data.decode(), re.M) is not None
+                                phases_schema_cache[schema.id] = has_phases
+                            target["phases"].append(ros_msg.phases if has_phases else "")
 
                             robots_yaml = ""
                             try:
@@ -764,7 +771,7 @@ class MCAPReader:
             env_key = match.group(1) if match else "env_0"
             if env_offsets and env_key not in env_offsets:
                 raise ValueError(f"{env_key}: no map -> {env_key}/map anchor in tf_static, anchors recorded: {dict(sorted(env_offsets.items()))}")
-            ox, oy = env_offsets.get(env_key, (0.0, 0.0))
+            total_ox, total_oy = env_offsets.get(env_key, (0.0, 0.0))
 
             # Copy global references
             rb.tf = global_bundle.tf
@@ -775,32 +782,6 @@ class MCAPReader:
             env_dir = topics_dir / env_key
             rb.peds = load_parquet(env_dir / "peds.parquet")
             rb.episode_record = load_parquet(env_dir / "episode_record.parquet")
-
-            mx, my = 0.0, 0.0
-            map_name = None
-            if rb.episode_record is not None:
-                try:
-                    ep_df = rb.episode_record.collect() if isinstance(rb.episode_record, pl.LazyFrame) else rb.episode_record
-                    if "map" in ep_df.columns and len(ep_df) > 0:
-                        map_name = str(ep_df["map"][0])
-                except Exception:
-                    pass
-
-            if not map_name and map_name_fallback:
-                map_name = map_name_fallback
-
-            if map_name:
-                try:
-                    from arena_evaluation.processing.map_registry import MapRegistry
-
-                    map_meta = MapRegistry.get_map_metadata(map_name, run_dir=run_dir)
-                    if map_meta and "origin" in map_meta and map_meta["origin"]:
-                        mx, my = float(map_meta["origin"][0]), float(map_meta["origin"][1])
-                except Exception:
-                    pass
-
-            total_ox = ox + mx
-            total_oy = oy + my
 
             if rb.episode_record is not None and (total_ox != 0.0 or total_oy != 0.0):
                 try:
