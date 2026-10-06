@@ -378,6 +378,30 @@ def pick_block(block_queues: typing.Sequence[tuple[Step, asyncio.Queue[Step], st
     return None
 
 
+def robot_has_depth_camera(robot: str) -> bool:
+    """True when a `robot:=` entry resolves to a depth sensor, False for anything that does not resolve."""
+    from arena_robots import assembly as arena_assembly  # noqa: PLC0415
+    from arena_robots.Robot import RobotIdentifier  # noqa: PLC0415
+    from arena_robots.Sensor import SensorType  # noqa: PLC0415
+    from arena_robots.SetupFile import Config  # noqa: PLC0415
+    from task_generator.manager.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
+
+    for entry in split_robot_arg(robot):
+        try:
+            for config in Config.parse(desugar_robot_entry(entry)):
+                view = RobotIdentifier.parse(config.robot).resolve_sync()
+                if view.assembly is None:
+                    sensors = view.model_params.sensors
+                else:
+                    request, _, _ = arena_assembly.build_request(view.assembly, config.parts)
+                    sensors = view.effective_sensors(request, frames=config.frames)
+                if any(sensor.type == SensorType.DEPTH for sensor in sensors):
+                    return True
+        except (RuntimeError, FileNotFoundError, arena_assembly.AssemblyError):
+            continue
+    return False
+
+
 def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = False) -> list[list[Step]]:
     groups = collections.defaultdict(list)
     peds_steps = []
@@ -1970,69 +1994,82 @@ class BenchmarkRunner(ArenaMixinNode):
                     if not world_steps:
                         continue
 
-                    blocks = group_pending(world_steps, self._simulator, self._world_swap)
-                    claim_keys = [block_claim_key(block, world_map, self._simulator, self._world_swap) for block in blocks]
-                    if self._shared is not None and all(self._run_dir.claimed(self._shared, k) for k in claim_keys):
+                    all_blocks = group_pending(world_steps, self._simulator, self._world_swap)
+                    all_claim_keys = [block_claim_key(block, world_map, self._simulator, self._world_swap) for block in all_blocks]
+                    if self._shared is not None and all(self._run_dir.claimed(self._shared, k) for k in all_claim_keys):
                         _log.info(f"benchmark: every block of world {world_map} is claimed by other lanes, skipping it")
                         continue
 
-                    # If switching to a new world map in Gazebo, restart arena_runtime now that
-                    # all previous workers are completely finished and 0 tasks are running
-                    if world_idx > 0 and self._simulator == "gazebo" and (self._shared is None or sim_used):
-                        await self._restart_arena()
-                        sim_used = False
+                    # gz-sim 8 stops answering world control once a robot with a depth camera was deleted and another
+                    # spawned in the same session, so such robots get a fresh runtime per block
+                    fresh_per_block = self._simulator == "gazebo" and any(robot_has_depth_camera(s.stage.robot) for s in world_steps)
+                    batches = [[i] for i in range(len(all_blocks))] if fresh_per_block else [list(range(len(all_blocks)))]
+                    for batch_idx, batch in enumerate(batches):
+                        blocks = [all_blocks[i] for i in batch]
+                        claim_keys = [all_claim_keys[i] for i in batch]
 
-                    block_queues: list[tuple[Step, asyncio.Queue[Step], str]] = []
-                    for block, claim_key in zip(blocks, claim_keys, strict=True):
-                        q = asyncio.Queue()
-                        for step in block:
-                            q.put_nowait(step)
-                        block_queues.append((block[0], q, claim_key))
+                        # If switching to a new world map in Gazebo, restart arena_runtime now that
+                        # all previous workers are completely finished and 0 tasks are running
+                        if (world_idx > 0 or batch_idx > 0) and self._simulator == "gazebo" and (self._shared is None or sim_used):
+                            if batch_idx > 0:
+                                _log.info("benchmark: restarting arena_runtime for the next contestant, the robot carries a depth camera")
+                            await self._restart_arena()
+                            sim_used = False
 
-                    cap = max(1, min(self._env_n, len(world_steps) or 1))
-                    attached: collections.Counter[int] = collections.Counter()
+                        block_queues: list[tuple[Step, asyncio.Queue[Step], str]] = []
+                        for block, claim_key in zip(blocks, claim_keys, strict=True):
+                            q = asyncio.Queue()
+                            for step in block:
+                                q.put_nowait(step)
+                            block_queues.append((block[0], q, claim_key))
 
-                    def _claim(claim_key: str) -> bool:
-                        return self._shared is None or self._run_dir.claim(self._shared, claim_key)
+                        cap = max(1, min(self._env_n, len(world_steps) or 1))
+                        attached: collections.Counter[int] = collections.Counter()
 
-                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]], attached: collections.Counter[int], claim: typing.Callable[[str], bool]) -> bool:
-                        nonlocal sim_used
-                        try:
-                            while True:
-                                index = pick_block(block_queues, attached, claim)
-                                if index is None:
-                                    break
-                                rep_step, target_q, _ = block_queues[index]
-                                sim_used = True
+                        def _claim(claim_key: str) -> bool:
+                            return self._shared is None or self._run_dir.claim(self._shared, claim_key)
 
-                                attached[id(target_q)] += 1
-                                try:
-                                    abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
-                                finally:
-                                    attached[id(target_q)] -= 1
+                        async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]], attached: collections.Counter[int], claim: typing.Callable[[str], bool]) -> bool:
+                            nonlocal sim_used
+                            try:
+                                while True:
+                                    index = pick_block(block_queues, attached, claim)
+                                    if index is None:
+                                        break
+                                    rep_step, target_q, _ = block_queues[index]
+                                    sim_used = True
+
+                                    attached[id(target_q)] += 1
+                                    try:
+                                        abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
+                                    finally:
+                                        attached[id(target_q)] -= 1
+                                    if abort:
+                                        return True
+                                return False
+                            finally:
+                                if self._progress is not None:
+                                    self._progress.clear_slot(slot_index)
+
+                        for slot in range(cap):
+                            in_flight.add(asyncio.create_task(_worker(slot, block_queues, attached, _claim), name=f"worker_{slot}"))
+
+                        while in_flight:
+                            done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+                            for t in done:
+                                abort = t.result()
                                 if abort:
-                                    return True
-                            return False
-                        finally:
-                            if self._progress is not None:
-                                self._progress.clear_slot(slot_index)
-
-                    for slot in range(cap):
-                        in_flight.add(asyncio.create_task(_worker(slot, block_queues, attached, _claim), name=f"worker_{slot}"))
-
-                    while in_flight:
-                        done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
-                        for t in done:
-                            abort = t.result()
-                            if abort:
-                                aborted_systemic = True
-                                _log.error("benchmark: worker hit a systemic setup failure; aborting run")
-                                for t2 in in_flight:
-                                    t2.cancel()
-                                with contextlib.suppress(Exception):
-                                    await asyncio.gather(*in_flight, return_exceptions=True)
-                                in_flight.clear()
+                                    aborted_systemic = True
+                                    _log.error("benchmark: worker hit a systemic setup failure; aborting run")
+                                    for t2 in in_flight:
+                                        t2.cancel()
+                                    with contextlib.suppress(Exception):
+                                        await asyncio.gather(*in_flight, return_exceptions=True)
+                                    in_flight.clear()
+                                    break
+                            if aborted_systemic:
                                 break
+
                         if aborted_systemic:
                             break
 

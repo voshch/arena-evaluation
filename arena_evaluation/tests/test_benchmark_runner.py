@@ -1721,3 +1721,20 @@ def test_pick_block_skips_drained_and_unclaimed():
     bq = _block_queues([0, 2, 2])
     assert pick_block(bq, {}, lambda k: k != "claim1") == 2
     assert pick_block(bq, {}, lambda _k: False) is None
+
+
+@pytest.mark.parametrize(
+    ("robot", "expected"),
+    [
+        ("jackal[camera=vln_rgbd]", True),
+        ("jackal[camera=vln_navid]", False),
+        ("jackal", False),
+        ("auto", False),
+        ("jackal,jackal[camera=vln_rgbd]", True),
+    ],
+)
+def test_robot_has_depth_camera_resolves_the_camera_component(robot: str, expected: bool):
+    pytest.importorskip("arena_robots")
+    from arena_evaluation.benchmark.runner import robot_has_depth_camera
+
+    assert robot_has_depth_camera(robot) is expected
