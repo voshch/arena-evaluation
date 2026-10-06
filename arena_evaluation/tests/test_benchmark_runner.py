@@ -24,6 +24,7 @@ from arena_evaluation.benchmark.runner import (
     build_pending,
     cell_verdict,
     closed_fraction,
+    pick_block,
 )
 from arena_evaluation.benchmark.state import (
     Manifest,
@@ -1678,3 +1679,45 @@ def test_requeue_front_into_an_empty_queue():
     _requeue_front(q, only)
     assert q.qsize() == 1
     assert q.get_nowait().key == only.key
+
+
+# ---------------------------------------------------------------------------
+# pick_block
+# ---------------------------------------------------------------------------
+
+
+def _block_queues(sizes: list[int]) -> list[tuple[Step, asyncio.Queue, str]]:
+    queues = []
+    for i, n in enumerate(sizes):
+        step = Step(contestant=_make_contestant(f"c{i}"), stage=_make_stage())
+        q: asyncio.Queue = asyncio.Queue()
+        for _ in range(n):
+            q.put_nowait(step)
+        queues.append((step, q, f"claim{i}"))
+    return queues
+
+
+def test_pick_block_one_step_per_block_spreads_workers():
+    bq = _block_queues([1, 1, 1])
+    attached: dict[int, int] = {}
+    picks = []
+    for _ in range(3):
+        idx = pick_block(bq, attached, lambda _k: True)
+        picks.append(idx)
+        attached[id(bq[idx][1])] = attached.get(id(bq[idx][1]), 0) + 1
+    assert picks == [0, 1, 2]
+    assert pick_block(bq, attached, lambda _k: True) is None
+
+
+def test_pick_block_shares_a_block_with_spare_steps():
+    bq = _block_queues([3, 1])
+    attached = {id(bq[0][1]): 1}
+    assert pick_block(bq, attached, lambda _k: True) == 0
+    attached[id(bq[0][1])] = 3
+    assert pick_block(bq, attached, lambda _k: True) == 1
+
+
+def test_pick_block_skips_drained_and_unclaimed():
+    bq = _block_queues([0, 2, 2])
+    assert pick_block(bq, {}, lambda k: k != "claim1") == 2
+    assert pick_block(bq, {}, lambda _k: False) is None
