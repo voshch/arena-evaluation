@@ -1,5 +1,5 @@
 """Suites, contests, and report manifests as Identifiers, resolved through the
-same chain (local share dir -> source tree -> network -> local fallback) as
+same chain (imported root -> share dir -> source tree -> network -> local fallback) as
 every other asset in :mod:`arena_simulation_setup.tree`."""
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import yaml
 from arena_simulation_setup.tree import (
     BENCHMARK_PROVIDERS,
     AssetIdentifier,
+    DynamicPaths,
     FallbackResolver,
     NetResolver,
     SimplePathResolver,
@@ -122,7 +123,8 @@ class ConfigPathResolver(SimplePathResolver):
 
 
 def _bench_dirs() -> Iterator[Path]:
-    """configs/benchmark under the package share dir, then the source-tree fallback."""
+    """The imported assets root, then configs/benchmark under the package share dir, then the source-tree fallback."""
+    yield DynamicPaths.IMPORTED.path
     for base in (share_dir(), source_tree_dir()):
         if base is not None:
             yield base / 'configs' / 'benchmark'
