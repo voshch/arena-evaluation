@@ -380,7 +380,7 @@ def compute_theta_star_path(
 def load_map_solver(
     map_name: str,
     robot_radius: float = 0.3,
-    run_dir: str | None = None,
+    run_dir: str | Path | None = None,
 ) -> GeometricThetaStar | None:
     """Cached solver over the named map's occupancy grid, None when the map does not resolve."""
     if not map_name or map_name == "unknown":
@@ -417,7 +417,7 @@ def compute_theta_star_for_episode(
     start_pos: tuple[float, float],
     goal_pos: tuple[float, float],
     robot_radius: float = 0.3,
-    run_dir: str | None = None,
+    run_dir: str | Path | None = None,
 ) -> ThetaStarResult:
     """Compute Theta* reference path for a named map in the registry or fallback to Euclidean."""
     solver = load_map_solver(map_name, robot_radius=robot_radius, run_dir=run_dir)

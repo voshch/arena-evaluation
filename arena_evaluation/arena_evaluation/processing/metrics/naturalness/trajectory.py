@@ -166,6 +166,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
                     start_pt,
                     goal_pt,
                     robot_radius=robot_radius,
+                    run_dir=episode.run_dir,
                 )
             except Exception:
                 theta_res = None
