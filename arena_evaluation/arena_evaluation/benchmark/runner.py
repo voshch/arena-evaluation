@@ -11,6 +11,7 @@ import logging
 import os
 import pathlib
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -2189,6 +2190,20 @@ def _resolve_contest_source(contest_name: str) -> tuple[pathlib.Path, dict | Non
     return _config_file(verdict.path, ContestIdentifier._asset_type), _provenance(verdict)
 
 
+def _snapshot_bundle_worlds(bundle_dir: pathlib.Path | None, maps: typing.Iterable[str], run_path: pathlib.Path) -> list[str]:
+    """Copy the bundle worlds the stages use into <run>/worlds, where evaluation looks maps up."""
+    copied: list[str] = []
+    if bundle_dir is None:
+        return copied
+    for name in sorted(set(maps)):
+        source = bundle_dir / "worlds" / name
+        target = run_path / "worlds" / name
+        if source.is_dir() and not target.exists():
+            shutil.copytree(source, target)
+            copied.append(name)
+    return copied
+
+
 def _suite_bundle_dir(suite_name: str) -> pathlib.Path | None:
     """Re-derive the bundle dir for a suite name; None for inline or unresolvable names."""
     if _is_inline_suite(suite_name):
@@ -2503,6 +2518,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         f"{PREPARED}{run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
         file=sys.stderr,
     )
+    _snapshot_bundle_worlds(suite_bundle_dir, (step.stage.map for step in steps), run_dir.path)
 
     run_dir.attach_log_handler(logging.getLogger())
     if lane is not None:

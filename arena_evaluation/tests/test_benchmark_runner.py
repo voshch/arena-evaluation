@@ -13,6 +13,7 @@ import types
 import pytest
 from arena_evaluation.benchmark.config import Contest, Suite, _parse_duration
 from arena_evaluation.benchmark.runner import (
+    _snapshot_bundle_worlds,
     _MAX_SIM_DEATHS,
     _RetryBudget,
     _SYSTEMIC,
@@ -1824,3 +1825,20 @@ def test_new_env_logs_skips_logs_present_before_the_wait(tmp_path: pathlib.Path)
 
 def test_new_env_logs_empty_for_a_missing_dir(tmp_path: pathlib.Path):
     assert _new_env_logs(tmp_path / "roslog", set()) == []
+
+
+def test_bundle_worlds_of_the_stages_land_where_evaluation_reads_maps(tmp_path: pathlib.Path):
+    from arena_evaluation.processing.map_registry import MapRegistry
+
+    bundle = tmp_path / "suites" / "acme"
+    for name in ("used", "unused"):
+        (bundle / "worlds" / name / "0").mkdir(parents=True)
+        (bundle / "worlds" / name / "0" / "map.yaml").write_text(f"image: {name}.png\n")
+    run = tmp_path / "run"
+    run.mkdir()
+    assert _snapshot_bundle_worlds(bundle, ["used", "used"], run) == ["used"]
+    assert (run / "worlds" / "used" / "0" / "map.yaml").read_text() == "image: used.png\n"
+    assert not (run / "worlds" / "unused").exists()
+    assert MapRegistry._find_ros_map_dir("used", run_dir=run) == run / "worlds" / "used"
+    assert _snapshot_bundle_worlds(bundle, ["used"], run) == []
+    assert _snapshot_bundle_worlds(None, ["used"], run) == []
