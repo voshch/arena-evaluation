@@ -15,7 +15,7 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 class MetricRegistry:
     """Discovers, validates, and executes metric calculators in topological order."""
 
-    def __init__(self, robot_params: RobotParams, world: str | None = None, metrics_config: dict[str, int] | None = None):
+    def __init__(self, robot_params: RobotParams, world: str | None = None, metrics_config: dict[str, typing.Any] | None = None):
         self.robot_params = robot_params
         self.world = world
         self.metrics_config = dict(metrics_config or {})

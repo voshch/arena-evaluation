@@ -30,7 +30,7 @@ class BaseMetricCalculator(ABC):
     def __init__(self, robot_params: RobotParams):
         """Initializes the calculator with robot parameters."""
         self.robot_params = robot_params
-        self.metrics_config: dict[str, int] = {}
+        self.metrics_config: dict[str, typing.Any] = {}
 
     def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Map-frame robot pose (pos_x, pos_y, yaw), the longest teleport-free piece of the track."""

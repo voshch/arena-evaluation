@@ -32,3 +32,14 @@ def test_suite_metrics_no_manifest(tmp_path: pathlib.Path) -> None:
 def test_suite_metrics_junk_value_ignored(tmp_path: pathlib.Path) -> None:
     episode = _episode_dir(tmp_path, {"metrics": {"max_collisions": "many"}})
     assert _suite_metrics(episode, tmp_path) == {}
+
+
+def test_suite_metrics_barn_reference_from_manifest(tmp_path: pathlib.Path) -> None:
+    barn = {"start": [2.25, 3.0], "goal": [2.25, 13.0], "path_length": {"barn_0": 11.5}}
+    episode = _episode_dir(tmp_path, {"metrics": {"max_collisions": 1, "barn": barn}})
+    assert _suite_metrics(episode, tmp_path) == {"max_collisions": 1, "barn": barn}
+
+
+def test_suite_metrics_junk_barn_reference_ignored(tmp_path: pathlib.Path) -> None:
+    episode = _episode_dir(tmp_path, {"metrics": {"max_collisions": 1, "barn": {"path_length": {"barn_0": "long"}}}})
+    assert _suite_metrics(episode, tmp_path) == {"max_collisions": 1}

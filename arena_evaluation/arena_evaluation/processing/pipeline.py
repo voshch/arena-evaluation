@@ -447,7 +447,7 @@ def _metadata_robot(metadata: RunMetadata | None, bundles: dict[str, TopicBundle
     return f"{env}_{model}" if env and model else model
 
 
-def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[str, int]:
+def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[str, typing.Any]:
     """Suite-level metric overrides from the run's manifest.yaml, {} for bare run dirs and junk values."""
     import yaml
 
@@ -460,13 +460,21 @@ def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[s
             except Exception as e:
                 _log.warning(f"{manifest_path}: unreadable, ignoring suite metrics: {e!r}")
                 return {}
-            metrics: dict[str, int] = {}
+            metrics: dict[str, typing.Any] = {}
             v = raw.get("max_collisions")
             if v is not None:
                 try:
                     metrics["max_collisions"] = int(v)
                 except (TypeError, ValueError):
                     _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
+            barn = raw.get("barn")
+            if barn is not None:
+                from .metrics.performance.barn_metrics import parse_reference
+
+                try:
+                    metrics["barn"] = parse_reference(barn)
+                except ValueError as e:
+                    _log.warning(f"{manifest_path}: suite metrics.barn ignored: {e}")
             return metrics
         if parent == data_root:
             break

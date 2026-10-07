@@ -661,3 +661,31 @@ def test_suite_parse_metrics_nonpositive_raises():
 
     with pytest.raises(ValueError, match="max_collisions"):
         Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 0}})
+
+
+def test_suite_parse_metrics_barn_reference():
+    from arena_evaluation.benchmark.config import Suite
+
+    barn = {"start": [2.25, 3], "goal": [2.25, 13], "path_length": {"map1": 11.5}}
+    suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": barn}})
+    assert suite.metrics == {"barn": {"start": [2.25, 3.0], "goal": [2.25, 13.0], "path_length": {"map1": 11.5}}}
+
+
+def test_suite_parse_metrics_barn_reference_junk_raises():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="suite metrics: barn: path_length"):
+        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": {"start": [0, 0], "goal": [0, 1], "path_length": {"map1": -1}}}})
+
+
+def test_stage_fields_are_plain_yaml_once_task_modes_are_values():
+    import yaml
+
+    from arena_evaluation.benchmark.config import Suite
+
+    stage = Suite.Stage.parse(_make_stage_dict(timeout="90s"))
+    record = {**stage._asdict(), "tm_robots": stage.tm_robots.value, "tm_obstacles": stage.tm_obstacles.value}
+    assert set(record) == set(Suite.Stage._fields)
+    assert yaml.safe_load(yaml.dump({"stage": record}, sort_keys=False))["stage"] == record
+    assert record["timeout"] == 90.0
+    assert record["map"] == "map1"
