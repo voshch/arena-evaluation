@@ -39,6 +39,16 @@ def test_data_derived_rows():
     assert "Avg Time" in html
 
 
+def test_two_group_columns_fill_one_cell_each():
+    import re
+
+    df = _df().with_columns(pl.Series("map", ["a", "a", "b", "b"]))
+    spec = _spec(group_by=["local_planner", "map"], columns=[{"metric": "success", "label": "Success", "format": "{:.2f}"}])
+    html = TableRenderer(spec).render_plotly(df)
+    rows = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row) for row in re.findall(r"<tr>(.*?)</tr>", html)]
+    assert rows == [["Local Planner", "Map", "Success"], ["dwb", "a", "1.00"], ["dwb", "b", "0.75"], ["teb", "a", "0.50"], ["teb", "b", "0.25"]]
+
+
 def test_notes_from_file(tmp_path: pathlib.Path):
     notes = tmp_path / "notes.yaml"
     notes.write_text("- {label: Conclusion, value: DWB wins}\n- {label: Best planner, value: dwb}\n")

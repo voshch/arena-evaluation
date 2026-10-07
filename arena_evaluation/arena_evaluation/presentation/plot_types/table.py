@@ -138,7 +138,6 @@ class TableRenderer(BasePlotRenderer):
 
         rows: list[list[str]] = []
         for row in grouped.iter_rows(named=True):
-            key = " / ".join(str(row.get(g, "")) for g in group_cols)
             values = []
             for i, c in enumerate(cols):
                 val = row.get(f"__m{i}__")
@@ -146,7 +145,7 @@ class TableRenderer(BasePlotRenderer):
                     values.append(c["format"].format(float(val)) if val is not None else "N/A")
                 except (TypeError, ValueError):
                     values.append("N/A")
-            rows.append([key, *values])
+            rows.append([*(str(row.get(g, "")) for g in group_cols), *values])
         return rows
 
     def _render_data_table(self, df: pl.DataFrame) -> str | None:
