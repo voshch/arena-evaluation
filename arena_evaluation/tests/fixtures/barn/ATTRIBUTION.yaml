@@ -1,0 +1,11 @@
+source: BARN Challenge (the-barn-challenge)
+url: https://github.com/Daffan/the-barn-challenge
+license: MIT
+authors: Zifan Xu, Daniel Perille, Abigail Truong, Xuesu Xiao, Peter Stone
+items:
+  - jackal_helper/worlds/BARN/path_files/path_0.npy
+  - jackal_helper/worlds/BARN/world_0.world
+citation: >-
+  D. Perille, A. Truong, X. Xiao, P. Stone. Benchmarking Metric Ground Navigation.
+  IEEE International Symposium on Safety, Security, and Rescue Robotics (SSRR), 2020.
+  arXiv:2008.13315. Generator: https://github.com/dperille/jackal-map-creation

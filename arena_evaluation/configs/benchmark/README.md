@@ -38,6 +38,10 @@ launch:                       # optional. launch args for the whole run, CLI pas
   lockstep: true              # steps from bringup, lockstep.paused defaults to false in a benchmark
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
   max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
+  barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
+    start: [2.25, 3.0]
+    goal: [2.25, 13.0]
+    path_length: {barn_0: 13.5923}   # published reference path length in m per stage map
 stages:
   - name: scenario
     map: arena_hospital_small
@@ -134,6 +138,10 @@ every resolver's verdict without downloading. Reading is anonymous. Pushing requ
 its stages name would resolve for someone else, counting worlds bundled under the suite.
 Task modes are not checked, since they are code rather than data shipped with the suite.
 Contests and manifests carry no such closure and publish as-is.
+
+### BARN
+
+`arena asset import suite barn barn` writes the BARN challenge into the imported assets root (`$ARENA_ASSETS_DIR_IMPORTED`), where suites, contests and manifests resolve ahead of the shipped ones: the bundle `suites/barn` with 300 stages, one per challenge world, each world bundled under `worlds/barn_<i>` and built by the `barn` world generator from the upstream world file, the bundle `contests/barn` whose contestant pins the challenge episode rules (a collision ends the episode, goal reached within 1 m, no heading check), and the report manifest `manifests/barn`, selected with `arena evaluation run --benchmark-dir <run_id> --report-manifest barn`, which tabulates the challenge's summary line per contestant and the score per contestant and world. The suite's `metrics.barn` block carries the challenge start, the goal and the published reference path length of every world. The `barn_score` calculator replays the loop of the challenge's `run.py` on each recorded episode: the clock starts once the robot is 0.1 m from the start, the run is polled every 0.1 s, it succeeds within 1 m of the goal before any collision and before 100 s, and scores `success * optimal_time / clip(time, 2 * optimal_time, 8 * optimal_time)` with `optimal_time = path_length / 2 m/s`. It writes `barn_score`, `barn_time`, `barn_success`, `barn_collided`, `barn_timeout` and `barn_optimal_time`, all null for an episode whose map has no entry in the block. Stages time out after 110 s so that a robot that starts moving late still gets its 100 s, and a recording that ends before the loop decides scores 0 with no outcome flag set. A single challenge world without the benchmark is `arena asset import world barn <i>`, which writes `barn_<i>` into the imported worlds root where it launches by name.
 
 Suite-level `references: true` enables automatically generated reference steps
 (`unobstructed_robot` / `unhindered_peds`) per stage. The default is `false`. Enable it for
