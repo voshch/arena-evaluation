@@ -19,6 +19,7 @@ ROS 2 node that records live simulation runs into structured MCAP files.
 | File | Purpose |
 |---|---|
 | `recorder.py` | `DataRecorderNode` recording node |
+| `episode_writer.py` | `EpisodeWriter`: episode directory, MCAP writer, flatten and metadata finalize, shared by the recorder node and offline importers |
 | `metadata.py` | `IngestionMetadata` helper building initial `RunMetadata` |
 | `topics.py` | Topic name constants and type-string mapping |
 

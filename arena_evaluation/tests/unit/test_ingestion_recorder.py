@@ -33,7 +33,7 @@ from task_generator_msgs.msg import EpisodeRecord, RecordedTopic, RecordedTopics
 from geometry_msgs.msg import TransformStamped, Twist
 from tf2_msgs.msg import TFMessage
 
-from arena_evaluation.ingestion import recorder
+from arena_evaluation.ingestion import episode_writer, recorder
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import RunMetadata
@@ -1590,7 +1590,7 @@ def test_close_current_writer_move_failure_is_logged(tmp_path, monkeypatch):
     node.current_episode_dir = ep_dir
     node.current_metadata = _make_run_metadata()
     node.current_metadata_path = ep_dir / "episode_000.yaml"
-    monkeypatch.setattr(recorder.shutil, "move", MagicMock(side_effect=OSError("move failed")))
+    monkeypatch.setattr(episode_writer.shutil, "move", MagicMock(side_effect=OSError("move failed")))
 
     node._close_current_writer()
 
