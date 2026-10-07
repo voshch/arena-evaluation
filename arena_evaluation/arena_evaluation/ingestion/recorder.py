@@ -105,8 +105,8 @@ from .metadata import IngestionMetadata
 
 
 class DataRecorderNode(Node):
-    def __init__(self):
-        super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True)
+    def __init__(self, **node_kwargs: object):
+        super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
