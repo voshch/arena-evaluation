@@ -1100,25 +1100,30 @@ _RUN_ID_RE = re.compile(r"^\d{8}-\d{6}-[\w]+-[\w]+$")
 
 
 def test_default_run_id_format():
-    run_id = _default_run_id("basic", "basic")
+    run_id = _default_run_id("basic", "basic", None)
     assert _RUN_ID_RE.match(run_id), f"run_id {run_id!r} did not match expected pattern"
     assert run_id.endswith("-basic-basic")
 
 
 def test_default_run_id_inline():
-    run_id = _default_run_id("basic", "[{name: teb, mobile.local_planner: teb}]")
+    run_id = _default_run_id("basic", "[{name: teb, mobile.local_planner: teb}]", None)
     assert _RUN_ID_RE.match(run_id), f"run_id {run_id!r} did not match expected pattern"
     assert run_id.endswith("-basic-inline")
 
 
+def test_default_run_id_lane_follows_timestamp():
+    run_id = _default_run_id("basic", "basic", "p1")
+    assert re.match(r"^\d{8}-\d{6}-p1-basic-basic$", run_id), f"run_id {run_id!r} did not match expected pattern"
+
+
 def test_default_run_id_strips_yaml_suffix():
-    run_id = _default_run_id("basic.yaml", "planners.yaml")
+    run_id = _default_run_id("basic.yaml", "planners.yaml", None)
     assert run_id.endswith("-basic-planners")
 
 
 def test_default_run_id_lex_sort_is_chronological():
-    run_id_a = _default_run_id("basic", "basic")
-    run_id_b = _default_run_id("basic", "basic")
+    run_id_a = _default_run_id("basic", "basic", None)
+    run_id_b = _default_run_id("basic", "basic", None)
     assert run_id_a <= run_id_b
 
 

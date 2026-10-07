@@ -2169,9 +2169,9 @@ def _resolve_resume_config(
     )
 
 
-def _default_run_id(suite_name: str, contest_name: str) -> str:
+def _default_run_id(suite_name: str, contest_name: str, lane: str | None) -> str:
     ts = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%d-%H%M%S")
-    if lane := os.environ.get("ARENA_LANE"):
+    if lane:
         ts = f"{ts}-{lane}"
     if _is_inline_suite(suite_name):
         suite_stem = "inline"
@@ -2372,7 +2372,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             seen.add(c.key)
 
         if not args.resume:
-            run_id = args.run_id or _default_run_id(args.suite, args.contest)
+            run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
             sha, dirty = capture_git_sha(share.parent.parent.parent)
             steps_list = [
                 {
