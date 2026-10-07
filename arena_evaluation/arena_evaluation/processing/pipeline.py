@@ -229,7 +229,7 @@ def _episode_endpoints(
 
 
 def _robot_phases(record: pl.DataFrame, robot_dir: str) -> dict | None:
-    """This robot's {phases, conditions, map_poses} from the last EpisodeRecord row that carries any, None without."""
+    """This robot's {phases, conditions, map_poses, goal_inputs, instructions} from the last EpisodeRecord row that carries any, None without."""
     if "phases" not in record.columns:
         return None
     import json

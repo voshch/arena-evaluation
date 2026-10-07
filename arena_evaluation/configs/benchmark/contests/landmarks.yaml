@@ -1,0 +1,46 @@
+- name: nav2
+  mobile:
+    driver: nav2
+- name: socialnav-pose
+  mobile:
+    driver: vla
+    planner: socialnav
+- name: omnivla-edge-pose
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: pose
+- name: omnivla-edge-goal
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: instruction
+    wording: goal
+- name: omnivla-edge-route
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: instruction
+    wording: route
+- name: omnivla-goal
+  mobile:
+    driver: vla
+    planner: omnivla
+    goal: instruction
+    wording: goal
+- name: omnivla-route
+  mobile:
+    driver: vla
+    planner: omnivla
+    goal: instruction
+    wording: route
+- name: navid-goal
+  mobile:
+    driver: vla
+    planner: navid
+    wording: goal
+- name: navid-route
+  mobile:
+    driver: vla
+    planner: navid
+    wording: route

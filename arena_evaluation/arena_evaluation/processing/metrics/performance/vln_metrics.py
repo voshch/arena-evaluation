@@ -102,6 +102,20 @@ def route(phases: dict | None) -> tuple[list[tuple[float, float]], float | None]
     return [(float(pose[0]), float(pose[1])) for _, pose in legs], legs[-1][0].get("tolerance_radius") or None
 
 
+def goal_inputs(phases: dict | None) -> str | None:
+    """What the planner was given, joined by `+`: `pose`, `pose:oracle` (a pose inside a named target), `instruction`, `instruction:route` or `instruction:coordinates` (rendered from the goal pose), None when the record names no inputs."""
+    if not phases or not phases.get("goal_inputs"):
+        return None
+    gotos = [(phase, told) for phase, pose, told in zip(phases["phases"], phases["map_poses"], phases["instructions"], strict=True) if pose is not None]
+    labels = []
+    if "pose" in phases["goal_inputs"]:
+        labels.append("pose:oracle" if any(isinstance(phase.get("goto"), str) for phase, _ in gotos) else "pose")
+    if "instruction" in phases["goal_inputs"]:
+        sources = {told["source"] for _, told in gotos if told}
+        labels.append("instruction:coordinates" if "coordinates" in sources else "instruction:route" if "route" in sources else "instruction")
+    return "+".join(labels)
+
+
 class VlnMetricsCalculator(BaseMetricCalculator):
     """VLN metrics (NE, OSR, SR, SPL, nDTW, SDTW, stuck) on the Theta* occupancy grid and reference path."""
 
@@ -118,6 +132,7 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         "ndtw": "",
         "sdtw": "",
         "stuck": "",
+        "goal_inputs": "",
     }
 
     PRIMARY_OUTPUTS = ["ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"]
@@ -146,6 +161,7 @@ class VlnMetricsCalculator(BaseMetricCalculator):
             "ndtw",
             "sdtw",
             "stuck",
+            "goal_inputs",
         ]
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -161,6 +177,7 @@ class VlnMetricsCalculator(BaseMetricCalculator):
 
         success = prior_results.get("success")
         goals, threshold = route(episode.phases)
+        results["goal_inputs"] = goal_inputs(episode.phases)
 
         if success is not None and "time_ns" in episode.data.columns:
             results["stuck"] = not bool(success) and stuck_window(

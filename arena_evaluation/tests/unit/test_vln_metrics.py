@@ -9,6 +9,7 @@ from arena_evaluation.processing.metrics.performance.vln_metrics import (
     VlnMetricsCalculator,
     geodesic_distances,
     geodesic_field,
+    goal_inputs,
     ndtw,
     route,
     stuck_window,
@@ -296,3 +297,25 @@ def test_episode_without_phases_leaves_geodesic_outputs_none() -> None:
     out = _run(episode, _solver(wall=False), success=True)
     assert all(out[k] is None for k in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
     assert out["stuck"] is False
+
+
+@pytest.mark.parametrize(
+    ("inputs", "gotos", "instructions", "label"),
+    [
+        (["pose"], [[4.0, 4.0, 0.0]], [None], "pose"),
+        (["pose"], ["ward"], [None], "pose:oracle"),
+        (["instruction"], ["ward"], [{"source": "target", "text": "Go to the ward."}], "instruction"),
+        (["instruction"], [[4.0, 4.0, 0.0]], [{"source": "authored", "text": "Find the bed."}], "instruction"),
+        (["instruction"], ["ward", [4.0, 4.0, 0.0]], [{"source": "target", "text": "Go to the ward."}, {"source": "route", "text": "Walk about 3 meters and stop."}], "instruction:route"),
+        (["instruction"], [[4.0, 4.0, 0.0], [6.0, 4.0, 0.0]], [{"source": "route", "text": "Walk about 3 meters and stop."}, {"source": "coordinates", "text": "Go to (6.0, 4.0)."}], "instruction:coordinates"),
+        (["pose", "instruction"], ["ward"], [{"source": "target", "text": "Go to the ward."}], "pose:oracle+instruction"),
+    ],
+)
+def test_goal_inputs_label_names_derived_inputs(inputs, gotos, instructions, label) -> None:
+    phases = {"phases": [{"goto": goto} for goto in gotos], "map_poses": [[4.0, 4.0, 0.0]] * len(gotos), "goal_inputs": inputs, "instructions": instructions}
+    assert goal_inputs(phases) == label
+
+
+def test_goal_inputs_label_is_none_for_recordings_without_inputs() -> None:
+    assert goal_inputs(None) is None
+    assert goal_inputs({"phases": [{"goto": [4.0, 4.0, 0.0]}], "map_poses": [[4.0, 4.0, 0.0]]}) is None

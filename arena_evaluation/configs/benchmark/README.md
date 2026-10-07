@@ -170,6 +170,23 @@ arena evaluation benchmark --suite characterization --contest characterization
 arena evaluation run --benchmark-dir <run_id> --report-manifest characterization
 ```
 
+### Landmark suite
+
+`landmarks` sends a jackal to named rooms of `hospital_1` (scenarios
+`landmark_*`, one or two `{goto: <zone>}` phases, each judged by zone membership). The
+`landmarks` contest runs every language planner under both values of `robot.mobile.wording`
+(`goal`: "Go to the pharmacy.", `route`: walking directions through the doors), next to `nav2`
+and pose-revealed runs, which receive a pose inside the room. `vln_metrics.goal_inputs` labels
+each episode (`pose:oracle`, `instruction`, `instruction:route`), so rows that were handed the
+grounding stay apart from rows that had to find the room.
+
+```bash
+arena evaluation benchmark --suite landmarks --contest landmarks
+```
+
+The stages carry `robot: jackal[camera=vln_navid]`. A planner that needs another camera runs
+the same stages with the suite passed inline and its own `robot`.
+
 ### Lockstep soak
 
 `arena planners test <planner...|--all>` runs one short crowded stage per

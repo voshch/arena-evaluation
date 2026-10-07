@@ -485,6 +485,26 @@ def test_contest_parse_sweep_dict_cap_with_prefix():
     assert names == ["basic-teb", "basic-dwa"]
 
 
+def test_shipped_landmarks_suite_and_contest_parse():
+    import pathlib
+
+    import yaml
+
+    from arena_evaluation.benchmark.config import Contest, Suite
+
+    configs = pathlib.Path(__file__).parents[1] / "configs" / "benchmark"
+    suite = Suite.parse("landmarks", yaml.safe_load((configs / "suites" / "landmarks.yaml").read_text()))
+    contest = Contest.parse("landmarks", yaml.safe_load((configs / "contests" / "landmarks.yaml").read_text()))
+
+    assert {stage.map for stage in suite.stages} == {"hospital_1"}
+    assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.tm_robots.value == "scenario" for stage in suite.stages)
+    assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
+    wordings = {c.name: c.args["mobile"].get("wording") for c in contest.contestants}
+    assert wordings["nav2"] is None and wordings["omnivla-edge-pose"] is None
+    assert {name.rsplit("-", 1)[1] for name, wording in wordings.items() if wording} == {"goal", "route"}
+    assert all(name.endswith(wording) for name, wording in wordings.items() if wording)
+
+
 # ---------------------------------------------------------------------------
 # _parse_duration
 # ---------------------------------------------------------------------------
