@@ -30,6 +30,7 @@ from tf2_msgs.msg import TFMessage
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
     from rcl_interfaces.msg import ParameterValue
+    from task_generator_msgs.msg import RecordedTopic
 
     from .topics import TopicDefinition
 
@@ -70,12 +71,15 @@ except ImportError:
     HAS_POWER = False
 
 try:
-    from task_generator_msgs.msg import EpisodeRecord, RobotFleet
+    from task_generator_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
 
     HAS_TASK_GEN = True
 except ImportError:
 
     class EpisodeRecord:
+        pass
+
+    class RecordedTopics:
         pass
 
     class RobotFleet:
@@ -92,7 +96,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static", "heard_sound_events", "continuous_heard_sounds", "room_impulses"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -289,26 +293,18 @@ class DataRecorderNode(Node):
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             depth=100,
         )
-        self.reliable_volatile_qos = QoSProfile(
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            durability=QoSDurabilityPolicy.VOLATILE,
-            depth=10,
-        )
         self.tf_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=100,
-        )
-        self.audio_qos = QoSProfile(
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,
-            durability=QoSDurabilityPolicy.VOLATILE,
-            depth=1000,
         )
 
         self.is_shutting_down = False
         self.episodes_recorded = 0
         self._seen_episodes = set()
         self.recorded_topics: set[str] = set()
+        self._recorded_rows: dict[str, RecordedTopic] = {}
+        self._unresolved_types: set[str] = set()
 
         self._log_info("Subscribing to /clock for sim time")
         self.clock_sub = self.create_subscription(Clock, "/clock", self.clock_callback, self.qos)
@@ -493,11 +489,6 @@ class DataRecorderNode(Node):
             if t_def.qos_transient_local:
                 self.latched_topic_names.add(topic_name.strip('/'))
 
-            if key == "heard_sound_events":
-                qos_profile = self.reliable_volatile_qos
-            elif key == "continuous_heard_sounds":
-                qos_profile = self.audio_qos
-
             if key == "episode_record":
                 qos_profile = QoSProfile(
                     reliability=QoSReliabilityPolicy.RELIABLE,
@@ -525,7 +516,61 @@ class DataRecorderNode(Node):
             elif key == "robots_fleet":
                 self.get_logger().info(f"Subscribed to RobotFleet on {topic_name}")
 
+        if HAS_TASK_GEN:
+            recorded_topics_qos = QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                depth=1,
+            )
+            topic_name = f"{env_prefix}/state/recorded_topics"
+            self.subs.append(self.create_subscription(RecordedTopics, topic_name, self.recorded_topics_callback, recorded_topics_qos))
+            self.get_logger().info(f"Subscribed to RecordedTopics on {topic_name}")
+
         self.create_timer(1.0, self.discover_topics)
+
+    def recorded_topics_callback(self, msg: RecordedTopics):
+        for row in msg.topics:
+            self._recorded_rows[row.key] = row
+        self._subscribe_recorded_rows(None)
+        for robot_ns in sorted(self.known_robots):
+            self._subscribe_recorded_rows(robot_ns)
+
+    def _subscribe_recorded_rows(self, robot_ns: str | None):
+        """Subscribe the env rows (robot_ns None) or one robot's rows of the backend-declared recorded topics."""
+        from .topics import recorded_topic_definition
+
+        env_namespace = self.get_namespace().strip('/')
+        for key, row in self._recorded_rows.items():
+            if row.robot_scoped != (robot_ns is not None):
+                continue
+            t_def = recorded_topic_definition(row, env_namespace, robot_ns or "")
+            if t_def is None:
+                if row.msg_type not in self._unresolved_types:
+                    self._unresolved_types.add(row.msg_type)
+                    self._log_warn(f"Not recording {key}: message type {row.msg_type!r} does not import")
+                continue
+            topic_name = t_def.name_template
+            if topic_name in self._topic_registry or not self._records(key, t_def):
+                continue
+
+            self._register_topic(topic_name, t_def.msg_type)
+
+            default_qos = self.latched_qos if t_def.qos_transient_local else self.qos
+            qos_profile = QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE if t_def.reliable else QoSReliabilityPolicy.BEST_EFFORT,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL if t_def.qos_transient_local else QoSDurabilityPolicy.VOLATILE,
+                depth=t_def.depth or default_qos.depth,
+            )
+            if t_def.qos_transient_local:
+                self.latched_topic_names.add(topic_name.strip('/'))
+
+            if t_def.throttled:
+                callback = self._create_throttled_callback(topic_name)
+            else:
+                callback = self._create_unthrottled_callback(topic_name)
+
+            self.subs.append(self.create_subscription(t_def.msg_type, topic_name, callback, qos_profile, raw=True))
+            self.get_logger().info(f"Subscribed to recorded topic: {topic_name}")
 
     def discover_topics(self):
         namespace = self.get_namespace().strip('/')
@@ -692,8 +737,6 @@ class DataRecorderNode(Node):
                     self._register_topic(topic_name, msg_type)
 
                     qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
-                    if key in ("audio_raw", "audio_rendered", "audio_stem_motor", "audio_stem_pedestrian", "audio_stem_ambient", "audio_render_inputs"):
-                        qos_profile = self.audio_qos
                     if t_def.qos_transient_local:
                         self.latched_topic_names.add(topic_name.strip('/'))
 
@@ -705,6 +748,8 @@ class DataRecorderNode(Node):
                     sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=True)
                     self.subs.append(sub)
                     self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
+
+                self._subscribe_recorded_rows(robot_ns)
 
                 ns_prefix = f"/{robot_ns}" if robot_ns else ""
                 cmd_vel_topic, odom_topic = self._control_topics(robot.model)

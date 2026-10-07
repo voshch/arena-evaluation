@@ -87,6 +87,8 @@ All topics use simulation time from `/clock`. Messages prior to the first `/cloc
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
 
+Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`task_generator_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
+
 `/tf` is merged rather than throttled: the newest transform per `(frame_id, child_frame_id)` is kept and written as one `TFMessage` per 20 ms window, so no publisher can starve the others. `tf_frames` in `config/data_recorder_config.yaml` is an ordered `[regex, ms]` list matched against the child frame that caps frame families; by default skeleton bones go out at 5 Hz.
 
 ### Shutdown
@@ -126,6 +128,8 @@ from arena_evaluation.ingestion.topics import get_topics
 
 topics = get_topics(namespace="arena/env_0/task_generator_node/jackal")
 ```
+
+`recorded_topic_definition(row, tg_namespace, robot_namespace)` turns one `RecordedTopic` row into a `TopicDefinition`, or `None` when its message type does not import.
 
 ---
 

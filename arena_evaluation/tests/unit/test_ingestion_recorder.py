@@ -123,15 +123,15 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.freqs = {"default": 20.0}
     node.qos = object()
     node.tf_qos = object()
-    node.audio_qos = object()
     node.latched_qos = object()
-    node.reliable_volatile_qos = object()
     node._seen_episodes = set()
     node.episodes_recorded = 0
     node._episode_id_offset = 0
     node.episodes_root = None
     node.robot_model = "unknown"
     node.known_robots = set()
+    node._recorded_rows = {}
+    node._unresolved_types = set()
     node.subs = []
     # metadata-writing attributes used by _write_episode_metadata
     node.benchmark_id = ""
@@ -250,7 +250,7 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 13
+    assert len(full_node.subs) == 12
     # /tf, humans/tf and /tf_static are subscribed once, at construction
     assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
@@ -915,16 +915,16 @@ def test_robots_fleet_callback_writes_and_discovers_robots(tmp_path, monkeypatch
     assert node.robot_model == "jackal"
     assert node.current_metadata.robot_model == ["jackal"]
     write_spy.assert_called_once()
-    assert node.create_subscription.call_count == 22
+    assert node.create_subscription.call_count == 16
     assert (tmp_path / "episode_000.yaml").exists()
 
     # second sighting of the same robot: no re-subscription
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
-    assert node.create_subscription.call_count == 22
+    assert node.create_subscription.call_count == 16
 
     # a new robot triggers a new subscription wave, no controller topics for a model without model_params
     node.robots_fleet_callback(_fleet_message([("robot_1", "turtlebot3")]))
-    assert node.create_subscription.call_count == 42
+    assert node.create_subscription.call_count == 30
     assert "robot_1" in node.known_robots
     assert node.current_metadata.robot_model == ["jackal", "turtlebot3"]
 
