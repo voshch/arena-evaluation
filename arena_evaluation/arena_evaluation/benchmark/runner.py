@@ -72,7 +72,7 @@ from .state import (
     find_most_recent_resumable,
 )
 from .step import Step, StepErrorKind, StepResult
-from .tree import ContestIdentifier, SuiteIdentifier
+from .tree import ContestIdentifier, SuiteIdentifier, _config_file
 
 
 def _proc_starttime(pid: int) -> int | None:
@@ -2177,15 +2177,16 @@ def _resolve_suite_source(suite_name: str) -> tuple[pathlib.Path, pathlib.Path |
     wins over the directory-bundle form `<stem>/suite.yaml`, whose parent is the bundle dir."""
     verdict = SuiteIdentifier(name=suite_name.removesuffix(".yaml")).resolve_source_sync()
     assert verdict.path is not None
-    bundle_dir = verdict.path.parent if verdict.path.name == "suite.yaml" else None
-    return verdict.path, bundle_dir, _provenance(verdict)
+    path = _config_file(verdict.path, SuiteIdentifier._asset_type)
+    bundle_dir = path.parent if path.name == "suite.yaml" else None
+    return path, bundle_dir, _provenance(verdict)
 
 
 def _resolve_contest_source(contest_name: str) -> tuple[pathlib.Path, dict | None]:
     """Resolve a contest name to (yaml path, provenance)."""
     verdict = ContestIdentifier(name=contest_name.removesuffix(".yaml")).resolve_source_sync()
     assert verdict.path is not None
-    return verdict.path, _provenance(verdict)
+    return _config_file(verdict.path, ContestIdentifier._asset_type), _provenance(verdict)
 
 
 def _suite_bundle_dir(suite_name: str) -> pathlib.Path | None:
