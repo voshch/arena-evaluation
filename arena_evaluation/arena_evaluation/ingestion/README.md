@@ -19,7 +19,7 @@ ROS 2 node that records live simulation runs into structured MCAP files.
 | File | Purpose |
 |---|---|
 | `recorder.py` | `DataRecorderNode` recording node |
-| `episode_writer.py` | `EpisodeWriter`: episode directory, MCAP writer, flatten and metadata finalize, shared by the recorder node and offline importers |
+| `episode_writer.py` | `EpisodeWriter`: episode directory, MCAP writer, flatten and metadata finalize, shared by the recorder node and offline importers (`arena asset import episode musohu <bag>` writes MuSoHu rosbag1 runs as reference episodes of the robot model `human`: scan, odom with the `/action` twist and cmd_vel on the recorder's topics, every other topic with a ROS 2 type under the robot namespace and tf on `/tf` and `/tf_static`, frames prefixed `env_0/human/`) |
 | `metadata.py` | `IngestionMetadata` helper building initial `RunMetadata` |
 | `topics.py` | Topic name constants and type-string mapping |
 

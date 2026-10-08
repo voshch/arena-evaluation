@@ -20,6 +20,7 @@ Each `episode_XXX.mcap` is aligned directly onto its odom axis.
 | `parquet_store.py` | Reads and writes extraction cache (`TopicParquetStore`) and output metrics (`ParquetStore`) |
 | `topic_aligner.py` | Aligns multi-rate topics onto the odom time axis |
 | `pipeline.py` | `ProcessingPipeline` orchestrates benchmark processing |
+| `recorded_episodes.py` | `RecordedEpisodes`: per-step frames of the episodes of one run directory, recorded or imported |
 | `map_registry.py` | Discovers, converts (PGM to PNG), and caches map images |
 | `metrics/` | Metric calculators (performance, social, ecological, naturalness, edge_case) |
 

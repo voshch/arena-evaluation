@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from arena_evaluation.benchmark import runner
@@ -59,3 +60,18 @@ def runner_log() -> Iterator[list[str]]:
     runner._log.addHandler(handler)
     yield handler.messages
     runner._log.removeHandler(handler)
+
+
+@pytest.fixture
+def bag(tmp_path: Path) -> Path:
+    pytest.importorskip("rosbags")
+    from musohu_bag import write_bag
+
+    return write_bag(tmp_path / "run.bag", cmd=True)
+
+
+@pytest.fixture
+def converted(tmp_path: Path, bag: Path) -> Path:
+    from musohu_bag import CMD_VEL, convert
+
+    return convert(bag, tmp_path / "musohu", cmd_vel=CMD_VEL)
