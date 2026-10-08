@@ -9,6 +9,7 @@ import json
 import logging
 import shutil
 import struct
+import time
 import typing
 from array import array
 from collections.abc import Iterable, Iterator
@@ -17,8 +18,8 @@ from pathlib import Path
 import attrs
 import numpy as np
 
-from arena_assets.importers import IMPORTERS, Attribution, Importer
-from arena_assets.importers.providers import Http, Provider
+from arena_assets.importers import IMPORTERS, LISTING_TTL_S, Attribution, Importer
+from arena_assets.importers.providers import TRANSPORT_ERRORS, Http, Provider
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +94,21 @@ class MuSoHu(Importer):
         return Http(ACCESS_URL)
 
     def listing(self) -> dict:
-        if self._listing is None:
-            path = self.cache / "dataset.json"
-            if not path.is_file():
-                path.parent.mkdir(parents=True, exist_ok=True)
+        """Dataverse dataset record, fetched again once older than LISTING_TTL_S, the old copy kept when the host fails."""
+        if self._listing is not None:
+            return self._listing
+        path = self.cache / "dataset.json"
+        if not path.is_file() or time.time() - path.stat().st_mtime >= LISTING_TTL_S:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
                 path.write_bytes(self.provider.read(DATASET_API)[0])
-            with open(path) as f:
-                self._listing = json.load(f)["data"]["latestVersion"]
-        return self._listing
+            except TRANSPORT_ERRORS:
+                if not path.is_file():
+                    raise
+        with open(path) as f:
+            listing: dict = json.load(f)["data"]["latestVersion"]
+        self._listing = listing
+        return listing
 
     def files(self) -> dict[str, dict]:
         return {Path(f["dataFile"]["filename"]).stem: f["dataFile"] for f in self.listing()["files"] if f["dataFile"]["filename"].endswith(".bag")}
