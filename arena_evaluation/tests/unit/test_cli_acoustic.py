@@ -543,7 +543,6 @@ def test_animate_success_frames_format(tmp_path: pathlib.Path, capsys, monkeypat
     capsys.readouterr().out
 
 
-
 def test_animate_success_output_override(tmp_path: pathlib.Path, capsys, monkeypatch):
     _install_stubs(monkeypatch)
     bench_dir = tmp_path / "bench"
