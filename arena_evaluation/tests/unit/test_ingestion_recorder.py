@@ -29,7 +29,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from std_msgs.msg import String
-from task_generator_msgs.msg import EpisodeRecord, RobotFleet, RobotState
+from task_generator_msgs.msg import EpisodeRecord, RecordedTopic, RecordedTopics, RobotFleet, RobotState
 from geometry_msgs.msg import TransformStamped, Twist
 from tf2_msgs.msg import TFMessage
 
@@ -123,15 +123,15 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.freqs = {"default": 20.0}
     node.qos = object()
     node.tf_qos = object()
-    node.audio_qos = object()
     node.latched_qos = object()
-    node.reliable_volatile_qos = object()
     node._seen_episodes = set()
     node.episodes_recorded = 0
     node._episode_id_offset = 0
     node.episodes_root = None
     node.robot_model = "unknown"
     node.known_robots = set()
+    node._recorded_rows = {}
+    node._unresolved_types = set()
     node.subs = []
     # metadata-writing attributes used by _write_episode_metadata
     node.benchmark_id = ""
@@ -250,7 +250,7 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 13
+    assert len(full_node.subs) == 12
     # /tf, humans/tf and /tf_static are subscribed once, at construction
     assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
@@ -740,6 +740,83 @@ def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) 
     assert by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
 
 
+@pytest.fixture
+def recorder_node(tmp_path):
+    node = DataRecorderNode(parameter_overrides=[Parameter("record_data_dir", value=str(tmp_path / "episodes"))])
+    yield node
+    node.destroy_node()
+
+
+def _recorded_rows() -> RecordedTopics:
+    string = "std_msgs/msg/String"
+    return RecordedTopics(
+        topics=[
+            RecordedTopic(key="audio_raw", topic="{ns}/audio/raw_array", msg_type=string, robot_scoped=True, depth=1000, recorded=True),
+            RecordedTopic(key="heard_sound_events", topic="{tg}/heard_sound_events", msg_type=string, reliable=True, recorded=True),
+            RecordedTopic(key="pose_log", topic="{tg}/pose_log", msg_type=string, throttled=True, recorded=True),
+            RecordedTopic(key="room_impulses", topic="{tg}/acoustic/impulses", msg_type=string, qos_transient_local=True, reliable=True),
+            RecordedTopic(key="unknown_type", topic="{tg}/unknown", msg_type="no_such_package_msgs/msg/Nothing", recorded=True),
+        ]
+    )
+
+
+def test_recorder_writes_below_the_record_data_dir_parameter(tmp_path, recorder_node: DataRecorderNode) -> None:
+    assert recorder_node.episodes_root.is_relative_to((tmp_path / "episodes").resolve())
+    assert recorder_node.run_dir.is_relative_to(tmp_path.resolve())
+
+
+def test_recorded_topics_message_subscribes_the_env_rows_with_their_qos(recorder_node: DataRecorderNode) -> None:
+    before = len(recorder_node.subs)
+    recorder_node.recorded_topics_callback(_recorded_rows())
+
+    added = {sub.topic: sub for sub in recorder_node.subs[before:]}
+    assert set(added) == {"/heard_sound_events", "/pose_log"}
+    events = added["/heard_sound_events"]
+    assert events.raw is True
+    assert events.qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    assert events.qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+    assert events.qos_profile.depth == recorder_node.qos.depth
+    assert added["/pose_log"].qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
+    assert "heard_sound_events" not in recorder_node.latched_topic_names
+
+
+def test_recorded_topics_message_is_applied_once(recorder_node: DataRecorderNode) -> None:
+    recorder_node.recorded_topics_callback(_recorded_rows())
+    count = len(recorder_node.subs)
+    recorder_node.recorded_topics_callback(_recorded_rows())
+    assert len(recorder_node.subs) == count
+
+
+def test_recorded_topics_message_reaches_robots_known_before_it(recorder_node: DataRecorderNode) -> None:
+    recorder_node.known_robots.add("robot_0")
+    before = len(recorder_node.subs)
+    recorder_node.recorded_topics_callback(_recorded_rows())
+
+    audio = {sub.topic: sub for sub in recorder_node.subs[before:]}["/robot_0/audio/raw_array"]
+    assert audio.qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
+    assert audio.qos_profile.depth == 1000
+
+
+def test_robot_seen_after_the_recorded_topics_message_gets_its_rows(recorder_node: DataRecorderNode) -> None:
+    recorder_node.recorded_topics_callback(_recorded_rows())
+    before = len(recorder_node.subs)
+    recorder_node.robots_fleet_callback(_fleet_message([("robot_1", "jackal")]))
+    assert "/robot_1/audio/raw_array" in {sub.topic for sub in recorder_node.subs[before:]}
+
+
+def test_optional_recorded_row_is_subscribed_latched_only_when_listed(recorder_node: DataRecorderNode) -> None:
+    recorder_node.recorded_topics_callback(_recorded_rows())
+    assert "/acoustic/impulses" not in {sub.topic for sub in recorder_node.subs}
+
+    recorder_node.config["optional_topics"] = ["room_impulses"]
+    recorder_node.recorded_topics_callback(_recorded_rows())
+    impulses = {sub.topic: sub for sub in recorder_node.subs}["/acoustic/impulses"]
+    assert impulses.qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    assert impulses.qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    assert impulses.qos_profile.depth == recorder_node.latched_qos.depth
+    assert "acoustic/impulses" in recorder_node.latched_topic_names
+
+
 # ---------------------------------------------------------------------------
 # Episode lifecycle: _begin_episode / _stop_episode / start_episode service
 # ---------------------------------------------------------------------------
@@ -915,16 +992,16 @@ def test_robots_fleet_callback_writes_and_discovers_robots(tmp_path, monkeypatch
     assert node.robot_model == "jackal"
     assert node.current_metadata.robot_model == ["jackal"]
     write_spy.assert_called_once()
-    assert node.create_subscription.call_count == 23
+    assert node.create_subscription.call_count == 17
     assert (tmp_path / "episode_000.yaml").exists()
 
     # second sighting of the same robot: no re-subscription
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
-    assert node.create_subscription.call_count == 23
+    assert node.create_subscription.call_count == 17
 
     # a new robot triggers a new subscription wave, no controller topics for a model without model_params
     node.robots_fleet_callback(_fleet_message([("robot_1", "turtlebot3")]))
-    assert node.create_subscription.call_count == 44
+    assert node.create_subscription.call_count == 32
     assert "robot_1" in node.known_robots
     assert node.current_metadata.robot_model == ["jackal", "turtlebot3"]
 

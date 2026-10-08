@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
-import types
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from task_generator_msgs.msg import RecordedTopic
 
 
 @dataclasses.dataclass
@@ -15,18 +17,8 @@ class TopicDefinition:
     throttle_rate_hz: float = 10.0
     qos_transient_local: bool = False
     recorded: bool = True
-
-
-@functools.cache
-def _auditory() -> tuple[types.ModuleType, types.ModuleType] | None:
-    """The arena_auditory constants and message modules, None without the auditory feature."""
-    try:
-        import arena_auditory_msgs.msg
-
-        import arena_auditory.constants
-    except ImportError:
-        return None
-    return arena_auditory.constants, arena_auditory_msgs.msg
+    reliable: bool = False
+    depth: int = 0
 
 
 def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDefinition]:
@@ -80,23 +72,25 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "door_mask": TopicDefinition(f"{p_ns}/door_mask", OccupancyGrid, throttled=False, qos_transient_local=True),
     }
 
-    auditory = _auditory()
-    if auditory is not None:
-        constants, msgs = auditory
-        stream = constants.ArrayStream
-        topics.update(
-            {
-                # AudioFrame.header.stamp is the simulation time of its first sample
-                "audio_raw": TopicDefinition(constants.array_stream(ns, stream.RAW), msgs.AudioFrame, throttled=False),
-                "audio_stem_motor": TopicDefinition(constants.array_stream(ns, stream.STEM_MOTOR), msgs.AudioFrame, throttled=False),
-                "audio_stem_pedestrian": TopicDefinition(constants.array_stream(ns, stream.STEM_PEDESTRIAN), msgs.AudioFrame, throttled=False),
-                "audio_stem_ambient": TopicDefinition(constants.array_stream(ns, stream.STEM_AMBIENT), msgs.AudioFrame, throttled=False),
-                "audio_rendered": TopicDefinition(constants.array_stream(ns, stream.MONITOR), msgs.AudioFrame, throttled=False),
-                "audio_render_inputs": TopicDefinition(constants.array_stream(ns, stream.RENDER_INPUTS), String, throttled=False),
-                "heard_sound_events": TopicDefinition(f"{p_ns}/{constants.HEARD_SOUND_EVENTS}", msgs.HeardSoundEvent, throttled=False),
-                "continuous_heard_sounds": TopicDefinition(f"{p_ns}/{constants.CONTINUOUS_HEARD_SOUNDS}", msgs.ContinuousHeardSoundState, throttled=False),
-                "room_impulses": TopicDefinition(f"{p_ns}/{constants.ROOM_IMPULSES}", msgs.RoomImpulse, throttled=False, qos_transient_local=True, recorded=False),
-            }
-        )
-
     return topics
+
+
+def recorded_topic_definition(row: RecordedTopic, tg_namespace: str, robot_namespace: str = "") -> TopicDefinition | None:
+    """The TopicDefinition of one recorded-topics row, None when its message type does not import."""
+    from rosidl_runtime_py.utilities import get_message
+
+    try:
+        msg_type = get_message(row.msg_type)
+    except (ImportError, AttributeError, ValueError):
+        return None
+    tg = f"/{tg_namespace}" if tg_namespace else ""
+    ns = f"/{robot_namespace}" if robot_namespace else ""
+    return TopicDefinition(
+        row.topic.replace("{tg}", tg).replace("{ns}", ns),
+        msg_type,
+        throttled=row.throttled,
+        qos_transient_local=row.qos_transient_local,
+        recorded=row.recorded,
+        reliable=row.reliable,
+        depth=row.depth,
+    )
