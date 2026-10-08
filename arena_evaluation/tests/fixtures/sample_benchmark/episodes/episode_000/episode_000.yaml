@@ -1,0 +1,205 @@
+benchmark_id: golden_barn2
+planner: dwb
+robot_model:
+- jackal
+map: barn_0
+stage: barn_0
+episode_id: 0
+episodes_requested: 1
+suite_name: barn_one
+contest_name: barn
+local_planner: dwb
+inter_planner: navigate_w_replanning_time
+agent_name: jackal
+task_generator_episode_id: 1
+outcome_state: 2
+outcome_info: finished after 20.4s
+recording_started_at: '2026-10-07T05:04:37.387108+00:00'
+arena_git_sha: ba4fb594d0bf3ed1a4940e16824598431507e4a3
+arena_git_dirty: true
+python_version: 3.12.3
+ros_distro: jazzy
+tm_obstacles: scenario
+tm_robots: scenario
+tm_modules: []
+obstacles_params:
+  linger_after_completion: false
+  file: barn
+robots_params:
+  linger_after_completion: false
+  file: barn
+recording_ended_at: '2026-10-07T05:05:07.277876+00:00'
+pedsim_available: true
+recorded_topics:
+- arena/env_0/arena_peds
+- arena/env_0/task_generator_node/agent_meta
+- arena/env_0/task_generator_node/agent_states
+- arena/env_0/task_generator_node/jackal/acoustics
+- arena/env_0/task_generator_node/jackal/cmd_vel
+- arena/env_0/task_generator_node/jackal/collision_events
+- arena/env_0/task_generator_node/jackal/collision_monitor_state
+- arena/env_0/task_generator_node/jackal/jackal_velocity_controller/cmd_vel
+- arena/env_0/task_generator_node/jackal/jackal_velocity_controller/odom
+- arena/env_0/task_generator_node/jackal/joint_states
+- arena/env_0/task_generator_node/jackal/lidar
+- arena/env_0/task_generator_node/jackal/odom
+- arena/env_0/task_generator_node/jackal/plan
+- arena/env_0/task_generator_node/jackal/power_publisher/energy
+- arena/env_0/task_generator_node/jackal/power_publisher/power
+- arena/env_0/task_generator_node/map
+- arena/env_0/task_generator_node/state/episode
+- arena/env_0/task_generator_node/state/robots
+- arena/env_0/task_generator_node/state/semantics
+- tf
+- tf_static
+rosbag2_message_count: 6561
+rosbag2_topics:
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/collision_events
+    type: arena_robots_msgs/msg/CollisionEvents
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 200
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/collision_monitor_state
+    type: nav2_msgs/msg/CollisionMonitorState
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 200
+- topic_metadata:
+    name: arena/env_0/task_generator_node/agent_states
+    type: arena_humansim_msgs/msg/AgentFrame
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 400
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/power_publisher/energy
+    type: arena_robots_msgs/msg/Energy
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 593
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/power_publisher/power
+    type: arena_robots_msgs/msg/Power
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 596
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/jackal_velocity_controller/odom
+    type: nav_msgs/msg/Odometry
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 599
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/cmd_vel
+    type: geometry_msgs/msg/Twist
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 406
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/odom
+    type: nav_msgs/msg/Odometry
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 584
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/jackal_velocity_controller/cmd_vel
+    type: geometry_msgs/msg/TwistStamped
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 399
+- topic_metadata:
+    name: tf_static
+    type: tf2_msgs/msg/TFMessage
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 5
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/plan
+    type: nav_msgs/msg/Path
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 74
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/acoustics
+    type: arena_robots_msgs/msg/Acoustics
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 595
+- topic_metadata:
+    name: arena/env_0/task_generator_node/agent_meta
+    type: arena_humansim_msgs/msg/AgentMeta
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 2
+- topic_metadata:
+    name: arena/env_0/task_generator_node/map
+    type: nav_msgs/msg/OccupancyGrid
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 1
+- topic_metadata:
+    name: arena/env_0/task_generator_node/state/episode
+    type: task_generator_msgs/msg/EpisodeRecord
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 2
+- topic_metadata:
+    name: arena/env_0/task_generator_node/state/robots
+    type: task_generator_msgs/msg/RobotFleet
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 2
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/lidar
+    type: sensor_msgs/msg/LaserScan
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 102
+- topic_metadata:
+    name: tf
+    type: tf2_msgs/msg/TFMessage
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 598
+- topic_metadata:
+    name: arena/env_0/arena_peds
+    type: arena_people_msgs/msg/Pedestrians
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 601
+- topic_metadata:
+    name: arena/env_0/task_generator_node/state/semantics
+    type: task_generator_msgs/msg/SemanticSnapshot
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 2
+- topic_metadata:
+    name: arena/env_0/task_generator_node/jackal/joint_states
+    type: sensor_msgs/msg/JointState
+    serialization_format: cdr
+    offered_qos_profiles: []
+    type_description_hash: ''
+  message_count: 600
+env_ns_root: /arena/env_0/task_generator_node
+is_reference: false

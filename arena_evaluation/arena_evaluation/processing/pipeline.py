@@ -408,6 +408,24 @@ class ProcessingPipeline:
                 raise RuntimeError(f"no parquet written to {topics_dir}")
             return bundles
 
+    def _describe_run_dir(self, run_dir: pathlib.Path) -> EpisodeDescriptor:
+        ep = self.folder_manager.describe_episode(pathlib.Path(run_dir))
+        if ep is None:
+            raise FileNotFoundError(f"{run_dir} is not an episode directory (episode_NNN with episode_NNN.yaml)")
+        return ep
+
+    def extract_run_dir(self, run_dir: pathlib.Path, force_extract: bool = False) -> dict[str, TopicBundle] | None:
+        """Extract one `episode_NNN` directory into its topics/ folder."""
+        return self.extract_episode(self._describe_run_dir(run_dir), force_extract=force_extract)
+
+    def process_run_dir(self, run_dir: pathlib.Path, force_extract: bool = False) -> pathlib.Path | None:
+        """Extract and evaluate one `episode_NNN` directory, returning its metrics.parquet path."""
+        rows = self.process_episode(self._describe_run_dir(run_dir), force_extract=force_extract)
+        if not rows:
+            return None
+        out = pathlib.Path(run_dir) / "metrics.parquet"
+        return out if out.exists() else None
+
     def process_episode(
         self,
         ep: EpisodeDescriptor,
