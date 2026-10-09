@@ -60,7 +60,7 @@ def _solve(grid, start_m, target_m, wall_tl=WALL_TL, mic=MIC_DIST, pixel_tl=None
 
 def _los_db(start_m, target_m, mic=MIC_DIST) -> float:
     d = np.hypot(target_m[0] - start_m[0], target_m[1] - start_m[1])
-    return 20.0 * np.log10(d + mic)
+    return 20.0 * np.log10(max(d, mic))
 
 
 # Inverse-square law (the 3 dB / 6 dB doubling rules)
@@ -71,14 +71,12 @@ def test_free_field_six_db_per_doubling():
     grid = np.zeros((400, 400), dtype=np.uint8)
     a1 = _solve(grid, (1.0, 20.0), (11.0, 20.0))  # d = 10 m
     a2 = _solve(grid, (1.0, 20.0), (21.0, 20.0))  # d = 20 m
-    expect = 20.0 * np.log10((20.0 + 1.0) / (10.0 + 1.0))  # mic-corrected doubling
+    expect = 20.0 * np.log10(20.0 / 10.0)
     assert np.isclose(a2 - a1, expect, atol=0.15), f"{a2 - a1:.2f} vs {expect:.2f} dB"
 
 
 def test_free_field_three_db_double_energy():
-    """+3 dB == double acoustic energy (10*log10(2)); distance ratio ~sqrt(2).
-    Uses mic=0.01 so the +mic term is negligible and pixel-exact distances
-    (5 m vs 7 m, ratio 1.4) approximate the sqrt(2) ratio."""
+    """+3 dB is double acoustic energy, so 5 m against 7 m differs by 20*log10(1.4)."""
     grid = np.zeros((400, 400), dtype=np.uint8)
     a1 = _solve(grid, (1.0, 20.0), (6.0, 20.0), mic=0.01)  # d = 5 m
     a2 = _solve(grid, (1.0, 20.0), (8.0, 20.0), mic=0.01)  # d = 7 m
@@ -242,3 +240,33 @@ def test_door_carving_open_vs_closed():
     los = _los_db(start, target)
     assert a_open < los + 2.0, f"open door should be ~LOS: {a_open:.1f}"
     assert a_closed >= los + 20.0, f"closed door should block: {a_closed:.1f}"
+
+
+def test_world_yaml_door_leaf_spans_free_doorway(tmp_path):
+    """A world.yaml door leaf across a doorway rendered as free space still blocks when closed."""
+    import yaml
+
+    from arena_evaluation.processing.acoustics.door_map import build_pixel_tl, door_segments
+
+    grid = np.zeros((60, 60), dtype=np.uint8)
+    grid[30, :] = 1
+    grid[30, 20:41] = 0
+
+    world_dir = tmp_path / "worlds" / "doorworld" / "0"
+    world_dir.mkdir(parents=True)
+    door = {"name": "d", "start": {"x": 2.0, "y": 3.0}, "end": {"x": 4.0, "y": 3.0}}
+    (world_dir / "world.yaml").write_text(yaml.safe_dump({"zones": [{"doors": [door]}]}))
+
+    doors = door_segments("doorworld", grid, RES, (0.0, 0.0, 0.0), run_dir=tmp_path)
+    assert set(doors) == {"world/d"}
+    mask, tl_db = doors["world/d"]
+    assert tl_db == DOOR_TL
+    assert mask[29:32, 20:41].all()
+    assert mask.sum() == 3 * 21
+
+    start, target = (3.0, 1.0), (3.0, 5.0)
+    los = _los_db(start, target)
+    att = _solve(grid, start, target, pixel_tl=build_pixel_tl(grid, doors))
+    assert np.isclose(att, los + DOOR_TL, atol=0.5), f"closed door must block: {att:.1f} vs LOS {los:.1f}"
+    att_open = _solve(grid, start, target, pixel_tl=build_pixel_tl(grid, doors, open_doors={"world/d"}))
+    assert np.isclose(att_open, los, atol=0.5), f"open door should be LOS: {att_open:.1f} vs {los:.1f}"

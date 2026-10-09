@@ -29,13 +29,12 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_rclpy_mixins import ActionClientWrapper, ArenaMixinNode, ClientWrapper
 from arena_rclpy_mixins.spin import start_loop_watchdog
-from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, LockstepStatus, SimState
+from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldRegistry, LockstepStatus, SimState
 from arena_runtime_msgs.srv import DespawnEnv, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-from std_msgs.msg import Bool
 from task_generator.constants import Constants
 from task_generator_msgs.action import RunEpisode
 from task_generator_msgs.msg import EpisodeRecord
@@ -43,6 +42,7 @@ from task_generator_msgs.srv import QueueEpisode
 
 STATE_TOPIC = "/arena/benchmark/state"
 SIM_STATE_TOPIC = "/arena/state/sim"
+ARENA_NODE_FQN = "/arena"
 
 _CANCEL_SETTLE_S = 30.0
 _HEARTBEAT_S = 30.0
@@ -367,6 +367,17 @@ def block_claim_key(block: list[Step], world_map: str | None, simulator: str | N
     return hashlib.sha1(blob.encode()).hexdigest()
 
 
+def pick_block(block_queues: typing.Sequence[tuple[Step, asyncio.Queue[Step], str]], attached: typing.Mapping[int, int], claim: typing.Callable[[str], bool]) -> int | None:
+    """Index of the first block with more queued steps than workers already on it, claimed, or None."""
+    for index, (_, q, claim_key) in enumerate(block_queues):
+        if q.qsize() <= attached.get(id(q), 0):
+            continue
+        if not claim(claim_key):
+            continue
+        return index
+    return None
+
+
 def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = False) -> list[list[Step]]:
     groups = collections.defaultdict(list)
     peds_steps = []
@@ -584,14 +595,15 @@ class BenchmarkRunner(ArenaMixinNode):
     def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         import rclpy
-        from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+        from arena_rclpy_mixins.spin import create_executor
+        from rclpy.executors import ExternalShutdownException
         from rclpy.signals import SignalHandlerOptions
 
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        executor = MultiThreadedExecutor()
+        executor = create_executor()
         node: BenchmarkRunner | None = None
 
         def _spin():
@@ -728,7 +740,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._env_subs: dict[int, list] = {}
         self._recorder_clients: dict[int, ClientWrapper] = {}
         self._triggered_episodes: dict[int, set[int]] = {}
-        self._env_resetting: dict[int, bool] = {}
+        self._env_holds = False
 
         self._sim_dead = asyncio.Event()
         self._sim_dead_reason = ""
@@ -741,6 +753,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self.create_subscription(EnvRegistry, "/arena/state/envs", self._on_envs, _LATCHED)
         self.create_subscription(SimState, SIM_STATE_TOPIC, self._on_sim_state, _LATCHED)
         self.create_subscription(LockstepStatus, "/arena/state/lockstep", self._on_lockstep, _LATCHED)
+        self.create_subscription(HoldRegistry, "/arena/state/holders", self._on_holders, _LATCHED)
         self._state_pub = self.create_publisher(BenchmarkState, STATE_TOPIC, _LATCHED)
 
         self._arena_proc: subprocess.Popen | None = None
@@ -808,6 +821,9 @@ class BenchmarkRunner(ArenaMixinNode):
             with contextlib.suppress(ProcessLookupError, OSError):
                 os.killpg(os.getpgid(p.pid), signal.SIGTERM)
         os._exit(_HUNG_EXIT_CODE)
+
+    def _on_holders(self, msg: HoldRegistry) -> None:
+        self._env_holds = any(h.caller_id != ARENA_NODE_FQN for h in msg.holds)
 
     def _on_lockstep(self, msg: LockstepStatus) -> None:
         self._lockstep.observe(msg, time.time())
@@ -997,13 +1013,7 @@ class BenchmarkRunner(ArenaMixinNode):
             10,
         )
 
-        self._env_resetting[env_id] = False
-
-        def _on_resetting(msg: Bool) -> None:
-            self._env_resetting[env_id] = msg.data
-
-        sub_reset = self.create_subscription(Bool, f"{env_ns_root}/state/resetting", _on_resetting, _LATCHED)
-        self._env_subs[env_id] = [sub_ep, sub_reset]
+        self._env_subs[env_id] = [sub_ep]
 
     def _teardown_env_clients(self, env_id: int) -> None:
         """Destroy per-env subscriptions, action client, and queue_episode client."""
@@ -1028,7 +1038,6 @@ class BenchmarkRunner(ArenaMixinNode):
         self._triggered_episodes.pop(env_id, None)
         self._episode_records.pop(env_id, None)
         self._env_visible_events.pop(env_id, None)
-        self._env_resetting.pop(env_id, None)
 
     @staticmethod
     def _episode_budget(step: Step) -> float:
@@ -1323,7 +1332,7 @@ class BenchmarkRunner(ArenaMixinNode):
         return _result(status)
 
     async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: object, env_id: int) -> object:
-        """Await an episode result with no wall ceiling, raising _SimStalled if the sim clock freezes outside a reset."""
+        """Await an episode result with no wall ceiling, raising _SimStalled if the sim clock freezes while no env holds the sim."""
         result_task = asyncio.ensure_future(self._await_alive(ac.await_result(goal_handle), env_id=env_id, what=f"run_episode result on env {env_id}"))
         last_sim = self.sim_time.to_seconds()
         last_move = time.monotonic()
@@ -1333,7 +1342,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 if result_task in done:
                     return result_task.result()
                 now_sim = self.sim_time.to_seconds()
-                if now_sim > last_sim or self._env_resetting.get(env_id, False):
+                if now_sim > last_sim or self._env_holds:
                     last_sim = now_sim
                     last_move = time.monotonic()
                     continue
@@ -1982,27 +1991,26 @@ class BenchmarkRunner(ArenaMixinNode):
                         block_queues.append((block[0], q, claim_key))
 
                     cap = max(1, min(self._env_n, len(world_steps) or 1))
+                    attached: collections.Counter[int] = collections.Counter()
 
-                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]]) -> bool:
+                    def _claim(claim_key: str) -> bool:
+                        return self._shared is None or self._run_dir.claim(self._shared, claim_key)
+
+                    async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]], attached: collections.Counter[int], claim: typing.Callable[[str], bool]) -> bool:
                         nonlocal sim_used
                         try:
                             while True:
-                                target_q = None
-                                rep_step = None
-                                for r_step, q, claim_key in block_queues:
-                                    if q.empty():
-                                        continue
-                                    if self._shared is not None and not self._run_dir.claim(self._shared, claim_key):
-                                        continue
-                                    target_q = q
-                                    rep_step = r_step
+                                index = pick_block(block_queues, attached, claim)
+                                if index is None:
                                     break
-
-                                if target_q is None:
-                                    break
+                                rep_step, target_q, _ = block_queues[index]
                                 sim_used = True
 
-                                abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
+                                attached[id(target_q)] += 1
+                                try:
+                                    abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
+                                finally:
+                                    attached[id(target_q)] -= 1
                                 if abort:
                                     return True
                             return False
@@ -2011,7 +2019,7 @@ class BenchmarkRunner(ArenaMixinNode):
                                 self._progress.clear_slot(slot_index)
 
                     for slot in range(cap):
-                        in_flight.add(asyncio.create_task(_worker(slot, block_queues), name=f"worker_{slot}"))
+                        in_flight.add(asyncio.create_task(_worker(slot, block_queues, attached, _claim), name=f"worker_{slot}"))
 
                     while in_flight:
                         done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
@@ -2162,9 +2170,9 @@ def _resolve_resume_config(
     )
 
 
-def _default_run_id(suite_name: str, contest_name: str) -> str:
+def _default_run_id(suite_name: str, contest_name: str, lane: str | None) -> str:
     ts = datetime.datetime.now(tz=datetime.UTC).strftime("%Y%m%d-%H%M%S")
-    if lane := os.environ.get("ARENA_LANE"):
+    if lane:
         ts = f"{ts}-{lane}"
     if _is_inline_suite(suite_name):
         suite_stem = "inline"
@@ -2365,7 +2373,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             seen.add(c.key)
 
         if not args.resume:
-            run_id = args.run_id or _default_run_id(args.suite, args.contest)
+            run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
             sha, dirty = capture_git_sha(share.parent.parent.parent)
             steps_list = [
                 {

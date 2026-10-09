@@ -10,12 +10,12 @@ Dijkstra:
        tolerance for *all* directions, not just the 8 grid-aligned ones.
 
   2. True Euclidean distance recovery:
-       The solver must return exactly 20*log10(d + mic) (closed-form) for
+       The solver must return exactly 20*log10(max(d, mic)) (closed-form) for
        unobstructed point pairs.  The old staircase distance must NOT appear.
 
   3. Single-wall crossing:
        After one air->wall transition the cost must be
-       20*log10(euclidean_dist + mic) + wall_TL within tolerance.
+       20*log10(max(euclidean_dist, mic)) + wall_TL within tolerance.
 
   4. Multi-path wall routing:
        The solver prefers the shortest *total-cost* path (around vs through).
@@ -41,7 +41,7 @@ from arena_evaluation.processing.acoustics.impedance_grid import compute_attenua
 # ---------------------------------------------------------------------------
 
 RES = 0.05  # 5 cm/px  (matches real maps)
-MIC = 0.01  # very small so 20*log10(d + mic) ≈ 20*log10(d)
+MIC = 0.01  # near-field floor, inactive at the tested distances
 WALL_TL = 47.0
 
 
@@ -66,7 +66,7 @@ def _att(grid, sx_px, sy_px, tx_px, ty_px, *, res=RES, mic=MIC, wall_tl=WALL_TL,
 def _expected_db(dx_px, dy_px, *, res=RES, mic=MIC) -> float:
     """Expected attenuation for a straight unobstructed path (dB)."""
     d = np.sqrt(dx_px**2 + dy_px**2) * res
-    return 20.0 * np.log10(d + mic)
+    return 20.0 * np.log10(max(d, mic))
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ def _expected_db(dx_px, dy_px, *, res=RES, mic=MIC) -> float:
 
 class TestRadialSymmetry:
     """In a 50x50 empty grid with source at centre, all pixels at the same
-    Euclidean radius must have attenuation within 0.15 dB of 20*log10(r + mic).
+    Euclidean radius must have attenuation within 0.15 dB of 20*log10(max(r, mic)).
     """
 
     @pytest.fixture(scope="class")
@@ -96,7 +96,7 @@ class TestRadialSymmetry:
         dx = (xx - cx) * RES
         dy = (yy - cy) * RES
         dist = np.sqrt(dx**2 + dy**2)
-        expected = 20.0 * np.log10(dist + MIC)
+        expected = 20.0 * np.log10(np.maximum(dist, MIC))
         # exclude source pixel itself (dist=0 -> -inf expected)
         mask = dist > 0.5 * RES
         err = np.abs(att[mask] - expected[mask])
@@ -136,7 +136,7 @@ class TestRadialSymmetry:
 
 
 class TestEuclideanRecovery:
-    """Theta* must return 20*log10(euclidean + mic), not the staircase distance."""
+    """Theta* must return 20*log10(max(euclidean, mic)), not the staircase distance."""
 
     @pytest.mark.parametrize(
         "dx,dy",
@@ -155,7 +155,7 @@ class TestEuclideanRecovery:
         size = max(dx, dy) + 5
         grid = np.zeros((size, size), dtype=np.uint8)
         att = _att(grid, 0, 0, dx, dy, res=res, mic=mic)
-        expected = 20.0 * np.log10(np.sqrt(dx**2 + dy**2) + mic)
+        expected = 20.0 * np.log10(max(np.sqrt(dx**2 + dy**2), mic))
         assert np.isclose(att, expected, atol=0.1), f"dx={dx} dy={dy}: got {att:.3f} dB, expected {expected:.3f} dB"
 
     def test_staircase_distance_not_returned(self):
@@ -165,8 +165,8 @@ class TestEuclideanRecovery:
         mic = 0.01
         grid = np.zeros((10, 10), dtype=np.uint8)
         att = _att(grid, 0, 0, 3, 4, res=res, mic=mic)
-        staircase_db = 20.0 * np.log10(3 * np.sqrt(2) + 1 + mic)  # old Dijkstra
-        euclidean_db = 20.0 * np.log10(5.0 + mic)  # Theta*
+        staircase_db = 20.0 * np.log10(3 * np.sqrt(2) + 1)  # old Dijkstra
+        euclidean_db = 20.0 * np.log10(5.0)  # Theta*
         # Must be much closer to Euclidean than to staircase
         assert abs(att - euclidean_db) < abs(att - staircase_db), f"Solver returned {att:.3f} dB, staircase={staircase_db:.3f}, euclidean={euclidean_db:.3f} — Dijkstra bias still present"
 
@@ -180,7 +180,7 @@ class TestSingleWallCrossing:
     """Vertical wall at column 25; source left, target right.
 
     The straight path crosses one wall pixel.  Expected cost:
-        20*log10(euclidean_dist + mic) + wall_TL
+        20*log10(max(euclidean_dist, mic)) + wall_TL
     where euclidean_dist is the pixel-space straight-line distance.
     """
 

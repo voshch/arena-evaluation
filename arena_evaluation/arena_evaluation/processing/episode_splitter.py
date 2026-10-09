@@ -5,6 +5,7 @@ import json
 import polars as pl
 import yaml
 
+from arena_evaluation.processing.mcap_reader import anchor_at
 from arena_evaluation.processing.topic_aligner import TopicAligner
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, TopicBundle
 
@@ -20,16 +21,18 @@ def _parse_conditions(raw: str | None) -> list[dict] | None:
     return parsed if isinstance(parsed, list) else None
 
 
-def _env_offset(tf_static: pl.DataFrame | None) -> tuple[float, float] | None:
-    """Env packing translation from the `map -> env_<n>/map` transform, None if multi-env ambiguous."""
+def _env_offset(tf_static: pl.DataFrame | None, at_ns: int | None = None) -> tuple[float, float] | None:
+    """Env packing translation from the `map -> env_<n>/map` transform in effect at `at_ns` (the latest when None), None if multi-env ambiguous."""
     if tf_static is None or len(tf_static) == 0:
         return (0.0, 0.0)
-    rows = tf_static.filter((pl.col("frame_id") == "map") & pl.col("child_frame_id").str.contains(r"^env_\d+/map$")).select("trans_x", "trans_y").unique()
+    rows = tf_static.filter((pl.col("frame_id") == "map") & pl.col("child_frame_id").str.contains(r"^env_\d+/map$"))
     if len(rows) == 0:
         return (0.0, 0.0)
-    if len(rows) > 1:
+    if rows["child_frame_id"].n_unique() > 1:
         return None
-    return (float(rows["trans_x"][0]), float(rows["trans_y"][0]))
+    times = rows["time_ns"].to_list() if "time_ns" in rows.columns else [0] * len(rows)
+    anchors = list(zip(times, rows["trans_x"].cast(pl.Float64).to_list(), rows["trans_y"].cast(pl.Float64).to_list(), strict=True))
+    return anchor_at(anchors, at_ns) if at_ns is not None else anchors[-1][1:]
 
 
 def _episode_snapshot(snapshot: pl.DataFrame | None, start_time: int, end_time: int) -> pl.DataFrame | None:
@@ -86,7 +89,7 @@ class EpisodeSplitter:
         initialpose_df = _to_df(bundle.initialpose)
         plan_df = _to_df(bundle.plan)
         semantic_snapshot_df = _to_df(bundle.semantic_snapshot)
-        env_offset = _env_offset(_to_df(bundle.tf_static))
+        tf_static_df = _to_df(bundle.tf_static)
 
         episodes = []
 
@@ -111,7 +114,7 @@ class EpisodeSplitter:
                         num_pedestrians=self._estimate_peds(aligned_df),
                         robot_name=robot_name,
                         semantic_snapshot=semantic_snapshot_df,
-                        env_offset=env_offset,
+                        env_offset=_env_offset(tf_static_df),
                     )
                 )
             return episodes
@@ -202,7 +205,7 @@ class EpisodeSplitter:
                     robot_name=robot_name,
                     semantic_snapshot=_episode_snapshot(semantic_snapshot_df, start_time, end_time),
                     conditions=_parse_conditions(row.get("conditions")),
-                    env_offset=env_offset,
+                    env_offset=_env_offset(tf_static_df, start_time),
                 )
             )
 

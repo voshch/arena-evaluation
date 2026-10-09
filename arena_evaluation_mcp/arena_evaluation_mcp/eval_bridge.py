@@ -289,10 +289,18 @@ class EvalBridge:
         Humans are asset-bucket bundles resolved by name (`arena asset ls human`).
         'arenian' is the default.
         """
-        local = self._share_subdirs("arena_simulation_setup", "assets/Common/Human")
+        fallback = "arenian"
+        try:
+            from arena_simulation_setup import DOMAIN_DEFAULT
+            from arena_simulation_setup.tree.assets.Human import HumanIdentifier
+
+            local = {identifier.name if identifier.domain == DOMAIN_DEFAULT else identifier.shortname for identifier in HumanIdentifier.listall()}
+        except ImportError as exc:
+            logger.warning("human catalog unavailable: %s", exc)
+            local = set()
         return {
-            "bundled": sorted(local),
-            "fallback": "arenian",
+            "bundled": sorted(local | {fallback}),
+            "fallback": fallback,
             "note": "Unknown models silently fall back to 'arenian', which is fetched from the asset bucket.",
         }
 

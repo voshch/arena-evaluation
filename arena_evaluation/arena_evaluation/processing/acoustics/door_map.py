@@ -132,11 +132,9 @@ def door_segments(
 
                 sx, sy = _pt(door.get("start") or {})
                 ex, ey = _pt(door.get("end") or {})
-                width_m = float(door.get("width", 1.0))
-                kind = str(door.get("kind", "sliding"))
+                width_m = float(door.get("width", 0.1))
                 tl_db = float(door.get("tl_db", DEFAULT_DOOR_TL_DB))
 
-                # door axis: line from start to end; thickness = width perpendicular
                 x0, y0 = int(round((sx - ox) / resolution)), int(round((sy - oy) / resolution))
                 x1, y1 = int(round((ex - ox) / resolution)), int(round((ey - oy) / resolution))
 
@@ -159,8 +157,12 @@ def door_segments(
                         if 0 <= ix < w and 0 <= iy < h:
                             mask[iy, ix] = True
 
-                n_on_wall = int(np.sum(mask & (grid == 1)))
-                if n_on_wall == 0:
+                near = mask.copy()
+                near[1:, :] |= mask[:-1, :]
+                near[:-1, :] |= mask[1:, :]
+                near[:, 1:] |= mask[:, :-1]
+                near[:, :-1] |= mask[:, 1:]
+                if not (near & (grid == 1)).any():
                     logger.warning(
                         "Door %r (%s) lands on no wall pixels - skipping (map/world mismatch?)",
                         name,

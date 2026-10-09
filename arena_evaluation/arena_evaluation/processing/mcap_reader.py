@@ -6,8 +6,10 @@ import logging
 import math
 import pathlib
 import re
+import typing
 from collections import defaultdict
 
+import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -23,6 +25,30 @@ _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
 INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
 # env-level tables beside peds / episode_record, loaded into the bundle when present
 ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
+
+Anchor = tuple[int, float, float]
+
+
+def anchor_at(anchors: list[Anchor], time_ns: int) -> tuple[float, float]:
+    """The anchor in effect at time_ns: the last one at or before it, the first one before any."""
+    ox, oy = anchors[0][1:]
+    for t, ax, ay in anchors[1:]:
+        if t > time_ns:
+            break
+        ox, oy = ax, ay
+    return ox, oy
+
+
+def by_anchor(anchors: list[Anchor], value: typing.Callable[[float, float], pl.Expr]) -> pl.Expr:
+    """`value(ox, oy)` of the anchor in effect at each row's time_ns, as in anchor_at."""
+    (_, ox, oy), *later = anchors
+    if not later:
+        return value(ox, oy)
+    chain = None
+    for t, ax, ay in reversed(later):
+        cond = pl.col("time_ns") >= t
+        chain = pl.when(cond).then(value(ax, ay)) if chain is None else chain.when(cond).then(value(ax, ay))
+    return chain.otherwise(value(ox, oy))
 
 
 def nearest_return(ranges: object, range_min: float, range_max: float) -> float:
@@ -401,23 +427,22 @@ class MCAPReader:
                             target["time_ns"].append(ts_ns)
                             target["peds_frame_id"].append(ros_msg.header.frame_id)
 
-                            if is_pose2d:
-                                agents = [a for a in ros_msg.agents if a.kind == 0]
-                            else:
-                                agents = ros_msg.pedestrians
-
-                            target["num_pedestrians"].append(len(agents))
-
-                            positions = []
-                            headings = []
-                            twists = []
-
-                            for p in agents:
-                                if is_pose2d:
-                                    positions.extend([p.pose.x, p.pose.y, 0.0])
-                                    headings.append(p.pose.theta)
-                                    twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
-                                else:
+                            rendered: list = []  # Pedestrians entries, the only ones that carry gestures (agent_states repeats them in the engine frame)
+                            if schema.name == "arena_humansim_msgs/msg/AgentFrame":
+                                humans = np.frombuffer(ros_msg.kind, dtype=np.uint8) == 0
+                                zeros = np.zeros(int(humans.sum()))
+                                positions = np.column_stack((np.asarray(ros_msg.x, dtype=np.float64)[humans], np.asarray(ros_msg.y, dtype=np.float64)[humans], zeros)).ravel().tolist()
+                                headings = np.asarray(ros_msg.theta, dtype=np.float64)[humans].tolist()
+                                twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
+                                ids = np.asarray(ros_msg.agent_id, dtype=np.int64)[humans].tolist()
+                                anim_states = np.frombuffer(ros_msg.animation_state, dtype=np.uint8)[humans].tolist()
+                                # the engine frame carries no interaction membership
+                                interaction_ids = [-1] * len(ids)
+                                interaction_types = [0] * len(ids)
+                            elif schema.name == "arena_people_msgs/msg/Pedestrians":
+                                rendered = list(ros_msg.pedestrians)
+                                positions, headings, twists = [], [], []
+                                for p in rendered:
                                     # Positions: flattened list [x1, y1, z1, x2, y2, z2, ...]
                                     positions.extend([p.pose.position.x, p.pose.position.y, p.pose.position.z])
 
@@ -427,18 +452,34 @@ class MCAPReader:
 
                                     # Twists: flattened list of linear velocities [vx1, vy1, vz1, vx2, vy2, vz2, ...]
                                     twists.extend([p.twist.linear.x, p.twist.linear.y, p.twist.linear.z])
+                                ids = [int(p.id) for p in rendered]
+                                anim_states = [int(p.animation_state) for p in rendered]
+                                interaction_ids = [int(getattr(p, "interaction_id", -1)) for p in rendered]
+                                interaction_types = [int(getattr(p, "interaction_type", 0)) for p in rendered]
+                            else:
+                                agents = [a for a in ros_msg.agents if a.kind == 0]
+                                positions, headings, twists = [], [], []
+                                for p in agents:
+                                    positions.extend([p.pose.x, p.pose.y, 0.0])
+                                    headings.append(p.pose.theta)
+                                    twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
+                                ids = [int(p.agent_id) for p in agents]
+                                anim_states = [int(p.animation_state) for p in agents]
+                                interaction_ids = [int(getattr(p, "interaction_id", -1)) for p in agents]
+                                interaction_types = [int(getattr(p, "interaction_type", 0)) for p in agents]
 
+                            target["num_pedestrians"].append(len(ids))
                             target["peds_positions"].append(positions)
                             target["peds_headings"].append(headings)
                             target["peds_twists"].append(twists)
                             # per-ped identity and animation/interaction state, aligned with the lists above
-                            target["peds_ids"].append([int(p.agent_id if is_pose2d else p.id) for p in agents])
-                            target["peds_animation_states"].append([int(p.animation_state) for p in agents])
-                            target["peds_interaction_ids"].append([int(getattr(p, "interaction_id", -1)) for p in agents])
-                            target["peds_interaction_types"].append([int(getattr(p, "interaction_type", 0)) for p in agents])
+                            target["peds_ids"].append(ids)
+                            target["peds_animation_states"].append(anim_states)
+                            target["peds_interaction_ids"].append(interaction_ids)
+                            target["peds_interaction_types"].append(interaction_types)
 
                             gestures = env_data[env_key]["ped_gestures"]
-                            for p in [] if is_pose2d else agents:  # rendered side only, agent_states repeats them in the engine frame
+                            for p in rendered:
                                 pid = int(p.id)
                                 for g in getattr(p, "gestures", ()):
                                     gestures["time_ns"].append(ts_ns)
@@ -793,7 +834,7 @@ class MCAPReader:
             if path.exists():
                 lf = pl.scan_parquet(path)
                 if "time_ns" in lf.collect_schema().names():
-                    lf = lf.sort("time_ns")
+                    lf = lf.sort("time_ns", maintain_order=True)
                 return lf
             return None
 
@@ -807,8 +848,7 @@ class MCAPReader:
         # Build each robot's bundle
         robot_dirs = [d for d in topics_dir.iterdir() if d.is_dir()]
 
-        # Calculate env offsets
-        env_offsets = {}
+        env_anchors: dict[str, list[Anchor]] = {}
         if global_bundle.tf_static is not None:
             try:
                 tf_df = global_bundle.tf_static.collect()
@@ -819,13 +859,14 @@ class MCAPReader:
                     is_robot_base = child.endswith("base_link") or child.endswith("base_footprint") or "base_link" in child or "base_footprint" in child
                     if parent_is_world and not is_robot_base:
                         match = re.match(r'^(env_\d+)(?:/map)?$', child)
-                        if match and match.group(1) not in env_offsets:
-                            env_offsets[match.group(1)] = (row["trans_x"], row["trans_y"])
+                        if match:
+                            env_anchors.setdefault(match.group(1), []).append((row["time_ns"], row["trans_x"], row["trans_y"]))
             except Exception:
                 pass
 
         if global_bundle.tf is not None:
             try:
+                tf_anchors: dict[str, list[Anchor]] = {}
                 tf_df = global_bundle.tf.collect()
                 for row in tf_df.iter_rows(named=True):
                     parent = row["frame_id"].strip('/').lower()
@@ -834,10 +875,14 @@ class MCAPReader:
                     is_robot_base = child.endswith("base_link") or child.endswith("base_footprint") or "base_link" in child or "base_footprint" in child
                     if parent_is_world and not is_robot_base:
                         match = re.match(r'^(env_\d+)/map$', child)
-                        if match and match.group(1) not in env_offsets:
-                            env_offsets[match.group(1)] = (row["trans_x"], row["trans_y"])
+                        if match:
+                            tf_anchors.setdefault(match.group(1), []).append((row["time_ns"], row["trans_x"], row["trans_y"]))
+                for env, anchors in tf_anchors.items():
+                    env_anchors.setdefault(env, anchors)
             except Exception:
                 pass
+
+        env_anchors = {env: [a for i, a in enumerate(anchors) if i == 0 or a[1:] != anchors[i - 1][1:]] for env, anchors in env_anchors.items()}
 
         # If no explicit robot dirs but we have data, maybe it was named "unknown"
         for robot_dir in robot_dirs:
@@ -852,9 +897,8 @@ class MCAPReader:
 
             match = re.search(r'(env_\d+)', robot_name)
             env_key = match.group(1) if match else "env_0"
-            if env_offsets and env_key not in env_offsets:
-                raise ValueError(f"{env_key}: no map -> {env_key}/map anchor in tf_static, anchors recorded: {dict(sorted(env_offsets.items()))}")
-            ox, oy = env_offsets.get(env_key, (0.0, 0.0))
+            if env_anchors and env_key not in env_anchors:
+                raise ValueError(f"{env_key}: no map -> {env_key}/map anchor in tf_static, anchors recorded: {dict(sorted(env_anchors.items()))}")
 
             # Copy global references
             rb.tf = global_bundle.tf
@@ -891,10 +935,10 @@ class MCAPReader:
                 except Exception:
                     pass
 
-            total_ox = ox + mx
-            total_oy = oy + my
+            shifts = [(t, ox + mx, oy + my) for t, ox, oy in env_anchors.get(env_key, [(0, 0.0, 0.0)])]
+            shifted = any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts)
 
-            if rb.episode_record is not None and (total_ox != 0.0 or total_oy != 0.0):
+            if rb.episode_record is not None and shifted:
                 try:
                     import json
 
@@ -906,12 +950,13 @@ class MCAPReader:
                         for row in ep_df.iter_rows(named=True):
                             s = json.loads(row.get("start_pos", "[]"))
                             g = json.loads(row.get("goal_pos", "[]"))
+                            ox, oy = anchor_at(shifts, row["time_ns"])
                             if len(s) >= 2:
-                                s[0] -= total_ox
-                                s[1] -= total_oy
+                                s[0] -= ox
+                                s[1] -= oy
                             if len(g) >= 2:
-                                g[0] -= total_ox
-                                g[1] -= total_oy
+                                g[0] -= ox
+                                g[1] -= oy
                             new_starts.append(json.dumps(s))
                             new_goals.append(json.dumps(g))
 
@@ -923,18 +968,20 @@ class MCAPReader:
                     logging.getLogger(__name__).warning(f"Failed to offset episode_record coordinates: {e}")
                     pass
 
-            if rb.peds is not None and (total_ox != 0.0 or total_oy != 0.0):
+            if rb.peds is not None and shifted:
                 if "peds_frame_id" in rb.peds.collect_schema().names():
                     frames = set(rb.peds.select(pl.col("peds_frame_id").str.strip_chars("/")).unique().collect()["peds_frame_id"].to_list()) - {"", "map"}
                     if frames:
-                        raise ValueError(f"{env_key}: peds stamped {sorted(frames)}, offset ({total_ox}, {total_oy}) is only valid for frame map")
+                        raise ValueError(f"{env_key}: peds stamped {sorted(frames)}, offsets {[a[1:] for a in shifts]} are only valid for frame map")
                 try:
-                    rb.peds = rb.peds.with_columns([pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - total_ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - total_oy).otherwise(pl.element()))])
+                    rb.peds = rb.peds.with_columns(
+                        [by_anchor(shifts, lambda ox, oy: pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - oy).otherwise(pl.element()))).alias("peds_positions")]
+                    )
                 except Exception:
                     pass
-            if rb.ped_gestures is not None and (total_ox != 0.0 or total_oy != 0.0):
-                # gesture targets come off arena_peds, so they share its frame and its offset
-                rb.ped_gestures = rb.ped_gestures.with_columns([(pl.col("at_x") - total_ox).alias("at_x"), (pl.col("at_y") - total_oy).alias("at_y")])
+            if rb.ped_gestures is not None and shifted:
+                # gesture targets come off arena_peds, so they share its frame and its anchors
+                rb.ped_gestures = rb.ped_gestures.with_columns([by_anchor(shifts, lambda ox, _: pl.col("at_x") - ox).alias("at_x"), by_anchor(shifts, lambda _, oy: pl.col("at_y") - oy).alias("at_y")])
 
             for parquet in sorted(robot_dir.glob("*.parquet")):
                 t_name = parquet.stem
@@ -943,20 +990,20 @@ class MCAPReader:
                 lf = load_parquet(parquet)
                 if lf is None:
                     continue
-                if total_ox != 0.0 or total_oy != 0.0:
+                if shifted:
                     if t_name == "initialpose":
                         try:
-                            lf = lf.with_columns([(pl.col("pos_x") - total_ox).alias("pos_x"), (pl.col("pos_y") - total_oy).alias("pos_y")])
+                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("pos_x") - ox).alias("pos_x"), by_anchor(shifts, lambda _, oy: pl.col("pos_y") - oy).alias("pos_y")])
                         except Exception:
                             pass
                     elif t_name == "tf_gt":
                         try:
-                            lf = lf.with_columns([(pl.col("pos_x_gt") - total_ox).alias("pos_x_gt"), (pl.col("pos_y_gt") - total_oy).alias("pos_y_gt")])
+                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("pos_x_gt") - ox).alias("pos_x_gt"), by_anchor(shifts, lambda _, oy: pl.col("pos_y_gt") - oy).alias("pos_y_gt")])
                         except Exception:
                             pass
                     elif t_name == "plan":
                         try:
-                            lf = lf.with_columns([pl.col("poses_x").list.eval(pl.element() - total_ox), pl.col("poses_y").list.eval(pl.element() - total_oy)])
+                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("poses_x").list.eval(pl.element() - ox)).alias("poses_x"), by_anchor(shifts, lambda _, oy: pl.col("poses_y").list.eval(pl.element() - oy)).alias("poses_y")])
                         except Exception:
                             pass
                 setattr(rb, t_name, lf)
