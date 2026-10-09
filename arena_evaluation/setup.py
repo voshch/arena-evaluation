@@ -41,5 +41,6 @@ setup(
     package_data={
         'arena_evaluation.processing.acoustics': ['solver.cpp'],
         'arena_evaluation.presentation': ['*.j2', '*.html.j2'],
+        'arena_evaluation.generation': ['promptgen/*.md', 'promptgen/*.yaml', 'promptgen/prompts/*.yaml', 'scenario/*.yaml', 'scenario/agent_types/*.yaml'],
     },
 )

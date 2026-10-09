@@ -1,7 +1,7 @@
 # arena_evaluation
 > ROS 2 package for recording, processing, and visualising navigation and ecological evaluation metrics for Arena robots.
 
-Evaluation pipeline converting simulation data into structured metric reports across recording, processing, and presentation layers.
+Evaluation pipeline converting simulation data into structured metric reports across recording, processing, and presentation layers, plus the generator that writes the edge-case scenarios it benchmarks.
 
 ---
 
@@ -49,6 +49,7 @@ Evaluation pipeline converting simulation data into structured metric reports ac
 ```
 arena_evaluation/
 |-- arena_evaluation/          <- Python package root
+|   |-- generation/            <- Layer 0: Edge-case scenario generation (bases, prompt-driven cases, suites)
 |   |-- ingestion/             <- Layer 1: Live recording (ROS node)
 |   |   |-- recorder.py        <- DataRecorderNode (service-driven episode lifecycle)
 |   |   |-- metadata.py        <- IngestionMetadata (per-episode YAML context)
@@ -123,6 +124,13 @@ Open-loop characterization:
 arena evaluation benchmark --suite characterization --contest characterization
 ```
 
+Edge cases: generate the scenarios and a suite over them first ([generation/README.md](arena_evaluation/generation/README.md)).
+
+```bash
+ros2 run arena_evaluation evaluation generate suite hospital_1 --robot jackal --name edge_case_core
+arena evaluation benchmark --suite edge_case_core --contest edge_case_differential
+```
+
 ### 2. Process and report (offline)
 
 ```bash
@@ -158,6 +166,7 @@ Commands:
   report    Generate report.html from existing metrics.parquet
   plot      Generate static PNG plots only
   acoustic  Acoustic analysis subcommands (list, animate, snapshot)
+  generate  Edge-case scenario generation (zones, classify, populate, promptgen, suite)
 ```
 
 | Flag | Description |
@@ -185,6 +194,7 @@ pytest tests/ -v
 
 ## Sub-package Documentation
 
+- [generation/README.md](arena_evaluation/generation/README.md): edge-case bases, prompt-driven cases, suites
 - [ingestion/README.md](arena_evaluation/ingestion/README.md): recording, topics, episode lifecycle
 - [processing/README.md](arena_evaluation/processing/README.md): extraction, alignment, metrics
 - [processing/metrics/README.md](arena_evaluation/processing/metrics/README.md): metric calculator framework

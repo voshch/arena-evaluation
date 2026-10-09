@@ -1,0 +1,13 @@
+# Zone name -> role, for the names `zones.py`'s substring rules do not cover.
+# `source: llm` entries were proposed by a model and may be overruled: change the
+# role and set `source: human`, and nothing will overwrite it again.
+# Read through `propose.load_overrides`; no model is called at generation time.
+
+zones:
+  3_study:
+    role: work
+    source: llm
+    model: gemini-3.5-flash
+    prompt_sha: 12a42fdc3c28fdd0
+    why: A study or home office is used for working.
+updated: '2026-08-26'

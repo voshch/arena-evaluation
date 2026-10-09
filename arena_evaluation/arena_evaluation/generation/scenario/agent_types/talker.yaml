@@ -1,0 +1,58 @@
+# Behaviour-tree agent type copied beside every generated scenario that has talkers; the builtin
+# types are all `mode: simple`, so the behaviour-tree retunes (`need_decay`, `duration`) act on this one.
+#
+#   * GROUP_CONVERSATION is symmetric: it takes no `target`, so it does not
+#     depend on world-object resolution, which does not work in subsystem mode
+#     (adapter registers objects under the env-prefixed sim_path, BT steps use
+#     the plain name).
+#
+#   * At nominal decay the conversation completes before the transition can
+#     fire (30 s duration vs 40 s to reach the threshold), so a nominal talker
+#     just chats. A raised `need_decay` is what makes it break off: at 2.16/s
+#     the threshold is reached at 18.5 s, mid-conversation.
+#
+#   * p99 duration (48.6 s) stays under the 60 s nominal patience, so a
+#     conversation runs to completion instead of being cut by the patience
+#     watchdog.
+
+name: talker
+mode: behavior_tree
+extends: adult
+
+desired_velocity: {mean: 1.1, std: 0.15, clip_low: 0.6, clip_high: 1.6}
+
+needs:
+  social:
+    initial:    {mean: 80.0, std: 12.0, clip_low: 40.0, clip_high: 100.0}
+    decay_rate: {mean:  1.0, std:  0.5, clip_low:  0.2, clip_high:   5.0}
+
+utility_weights:
+  social: 1.0
+
+initial_sequence: chat
+
+sequences:
+  # Hold a standing conversation. Completing it tops `social` back up, so a
+  # nominal agent loops here indefinitely and never takes the transition.
+  chat:
+    steps:
+      hold_conversation:
+        interaction: GROUP_CONVERSATION
+        duration: {mean: 30.0, std:  8.0, clip_low: 10.0, clip_high:  60.0}
+        patience: {mean: 60.0, std: 12.0, clip_low: 30.0, clip_high: 150.0}
+        satisfies: {social: 100.0}
+    then: chat
+    transitions:
+      - when: {social: {below: 40.0}}
+        goto: step_aside
+
+  # Need-driven preemption: break off and stand still. A pure-wait step (no
+  # interaction, duration only) compiles to ClearOutcome -> Hold, which pins the
+  # agent in place — so this is also what makes the agent an obstacle.
+  step_aside:
+    steps:
+      pause:
+        duration: {mean:  8.0, std: 2.0, clip_low:  3.0, clip_high: 20.0}
+        patience: {mean: 30.0, std: 6.0, clip_low: 15.0, clip_high: 90.0}
+        satisfies: {social: 60.0}
+    then: chat
