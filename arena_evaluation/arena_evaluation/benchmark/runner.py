@@ -595,14 +595,15 @@ class BenchmarkRunner(ArenaMixinNode):
     def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         import rclpy
-        from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+        from arena_rclpy_mixins.spin import create_executor
+        from rclpy.executors import ExternalShutdownException
         from rclpy.signals import SignalHandlerOptions
 
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        executor = MultiThreadedExecutor()
+        executor = create_executor()
         node: BenchmarkRunner | None = None
 
         def _spin():
