@@ -1,0 +1,9 @@
+# Differential drive (jackal): the nav2 control and the learned planners whose action_type is differential_drive.
+- name: nav2
+  mobile: {driver: nav2, rate: 10}
+- name: cadrl
+  mobile: {driver: drl, planner: cadrl, rate: 10}
+- name: her-drl
+  mobile: {driver: drl, planner: her-drl, rate: 10}
+- name: sicnav
+  mobile: {driver: drl, planner: sicnav, rate: 10}

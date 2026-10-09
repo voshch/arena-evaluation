@@ -181,7 +181,16 @@ Examples:
 
     setup_acoustic_subparsers(subparsers)
 
+    from arena_evaluation.generation.cli import add_parsers as add_generate_parsers
+
+    add_generate_parsers(subparsers)
+
     args = parser.parse_args()
+
+    if args.command == "generate":
+        from arena_evaluation.generation.cli import run
+
+        return run(args)
 
     if args.list_manifests:
         from arena_evaluation.presentation.manifest_registry import available_manifests
@@ -285,7 +294,7 @@ Examples:
 
 def main():
     try:
-        _main_impl()
+        sys.exit(_main_impl())
     except KeyboardInterrupt:
         print("\n\nEvaluation cancelled by user (Ctrl+C). Exiting.\n", flush=True)
         sys.exit(130)
