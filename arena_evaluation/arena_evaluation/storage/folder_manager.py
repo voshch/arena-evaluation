@@ -52,37 +52,41 @@ class FolderManager:
 
         episodes: list[EpisodeDescriptor] = []
         for ep_dir in sorted(eps_dir.iterdir()):
-            if not ep_dir.is_dir() or not ep_dir.name.startswith("episode_"):
-                continue
-            try:
-                ep_id = int(ep_dir.name.split("_", 1)[1])
-            except (IndexError, ValueError):
-                continue
-
-            yaml_path = ep_dir / f"{ep_dir.name}.yaml"
-            if not yaml_path.exists():
-                yaml_path = ep_dir / "metadata.yaml"
-            if not yaml_path.exists():
-                continue
-
-            try:
-                meta = MetadataWriter.read(yaml_path)
-                episodes.append(
-                    EpisodeDescriptor(
-                        episode_dir=str(ep_dir),
-                        benchmark_id=benchmark_id,
-                        episode_id=ep_id,
-                        planner=meta.planner,
-                        stage=meta.stage,
-                        map=meta.map,
-                        is_reference=meta.is_reference,
-                        reference_type=meta.reference_type,
-                    )
-                )
-            except Exception:
-                continue
-
+            ep = self.describe_episode(ep_dir, benchmark_id)
+            if ep is not None:
+                episodes.append(ep)
         return episodes
+
+    @staticmethod
+    def describe_episode(ep_dir: pathlib.Path, benchmark_id: str | None = None) -> EpisodeDescriptor | None:
+        """Descriptor of one `episode_NNN` directory, None when it is not a readable episode."""
+        if not ep_dir.is_dir() or not ep_dir.name.startswith("episode_"):
+            return None
+        try:
+            ep_id = int(ep_dir.name.split("_", 1)[1])
+        except (IndexError, ValueError):
+            return None
+
+        yaml_path = ep_dir / f"{ep_dir.name}.yaml"
+        if not yaml_path.exists():
+            yaml_path = ep_dir / "metadata.yaml"
+        if not yaml_path.exists():
+            return None
+
+        try:
+            meta = MetadataWriter.read(yaml_path)
+        except Exception:
+            return None
+        return EpisodeDescriptor(
+            episode_dir=str(ep_dir),
+            benchmark_id=benchmark_id or meta.benchmark_id or ep_dir.parent.parent.name,
+            episode_id=ep_id,
+            planner=meta.planner,
+            stage=meta.stage,
+            map=meta.map,
+            is_reference=meta.is_reference,
+            reference_type=meta.reference_type,
+        )
 
     def mcap_path_for_episode(self, episode_dir: pathlib.Path) -> pathlib.Path:
         """Get MCAP file path for an episode directory."""

@@ -14,15 +14,11 @@ from arena_evaluation.processing.acoustics.door_map import (
     door_segments,
 )
 from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 from arena_evaluation.processing.map_registry import MapRegistry
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.characterization import _ACOUSTIC_DEFAULTS
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
-
-try:
-    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
-except ImportError:
-    compute_attenuations = None
 
 logger = logging.getLogger(__name__)
 
@@ -107,10 +103,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             logger.info("Skipping acoustic calculation for reference episode %s", episode.episode_id)
             return nulls
 
-        if compute_attenuations is None:
-            logger.warning("Acoustics C++ solver not available.")
-            return nulls
-
         df = episode.data
         if df is None or len(df) == 0:
             logger.debug("No episode data for episode %s", episode.episode_id)
@@ -186,9 +178,11 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         last_eval_ry = None
         last_eval_peds = None
         last_eval_source = None
+        last_eval_tl_key = None
 
         POS_THRESHOLD = 0.5  # meters (attenuation changes < 0.3 dB over 0.5m)
         total_frames = len(rx_m)
+        time_ns = df["time_ns"].to_numpy()
 
         eval_count = 0
         last_attenuations: np.ndarray | None = None
@@ -206,11 +200,16 @@ class AcousticExposureCalculator(BaseMetricCalculator):
 
             current_source = source_dba[i]
 
+            open_set = state_timeline.open_doors_at(int(time_ns[i])) if state_timeline is not None else frozenset()
+            tl_key = tuple(sorted(open_set))
+
             # Check if we should re-evaluate geometric attenuation field
             should_eval = False
             if i == 0 or i == total_frames - 1:
                 should_eval = True
             elif last_eval_rx is None or last_attenuations is None:
+                should_eval = True
+            elif tl_key != last_eval_tl_key:
                 should_eval = True
             else:
                 if np.hypot(rx_m[i] - last_eval_rx, ry_m[i] - last_eval_ry) > POS_THRESHOLD:
@@ -226,6 +225,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 last_eval_rx = rx_m[i]
                 last_eval_ry = ry_m[i]
                 last_eval_peds = (px_m, py_m)
+                last_eval_tl_key = tl_key
 
                 rx_px = (rx_m[i] - ox) / resolution
                 ry_px = (ry_m[i] - oy) / resolution
@@ -233,9 +233,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 px_px = (px_m - ox) / resolution
                 py_px = (py_m - oy) / resolution
 
-                # Door-aware per-pixel TL (open doors carved to 0 dB)
-                open_set = state_timeline.open_doors_at(int(df["time_ns"][i])) if state_timeline is not None else frozenset()
-                tl_key = tuple(sorted(open_set))
                 pixel_tl = tl_cache.get(tl_key)
                 if pixel_tl is None:
                     pixel_tl = build_pixel_tl(grid, doors, open_doors=set(open_set))

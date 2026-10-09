@@ -1,9 +1,12 @@
 # Wrapper for the per-pixel TL solver.
 import ctypes
+import logging
 import subprocess
 from pathlib import Path
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Find the C++ source file
 _SRC_DIR = Path(__file__).parent
@@ -16,7 +19,7 @@ def _compile_solver():
         if _CPP_FILE.stat().st_mtime <= _SO_FILE.stat().st_mtime:
             return
 
-    print(f"Compiling C++ acoustic solver: {_CPP_FILE} -> {_SO_FILE}")
+    logger.info("Compiling C++ acoustic solver: %s -> %s", _CPP_FILE, _SO_FILE)
     cmd = [
         "g++",
         "-O3",
@@ -35,30 +38,25 @@ def _compile_solver():
 
 
 # Compile on import
-try:
-    _compile_solver()
-    _lib = ctypes.CDLL(str(_SO_FILE))
+_compile_solver()
+_lib = ctypes.CDLL(str(_SO_FILE))
 
-    _lib.solve_acoustic_field.argtypes = [
-        np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags='C_CONTIGUOUS'),  # grid
-        ctypes.c_int,  # width
-        ctypes.c_int,  # height
-        ctypes.c_float,  # resolution
-        ctypes.c_float,  # start_x
-        ctypes.c_float,  # start_y
-        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_xs
-        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_ys
-        ctypes.c_int,  # num_targets
-        ctypes.c_float,  # wall_tl
-        ctypes.c_float,  # mic_distance
-        ctypes.c_void_p,  # pixel_tl (NULL when None)
-        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # out_attenuations
-    ]
-    _lib.solve_acoustic_field.restype = None
-
-except Exception as e:
-    print(f"Warning: Failed to load C++ acoustic solver. It will not be available. {e}")
-    _lib = None
+_lib.solve_acoustic_field.argtypes = [
+    np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags='C_CONTIGUOUS'),  # grid
+    ctypes.c_int,  # width
+    ctypes.c_int,  # height
+    ctypes.c_float,  # resolution
+    ctypes.c_float,  # start_x
+    ctypes.c_float,  # start_y
+    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_xs
+    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_ys
+    ctypes.c_int,  # num_targets
+    ctypes.c_float,  # wall_tl
+    ctypes.c_float,  # mic_distance
+    ctypes.c_void_p,  # pixel_tl (NULL when None)
+    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # out_attenuations
+]
+_lib.solve_acoustic_field.restype = None
 
 
 def compute_attenuations(
@@ -72,10 +70,7 @@ def compute_attenuations(
     mic_distance: float = 1.0,
     pixel_tl: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Compute acoustic attenuation from start pixel to target pixels."""
-    if _lib is None:
-        raise RuntimeError("C++ solver library not loaded.")
-
+    """Compute acoustic attenuation from start pixel to target pixels, with mic_distance as the near-field floor (m)."""
     if not isinstance(occupancy_grid, np.ndarray) or occupancy_grid.dtype != np.uint8:
         occupancy_grid = np.ascontiguousarray(occupancy_grid, dtype=np.uint8)
 
@@ -94,16 +89,6 @@ def compute_attenuations(
     height, width = occupancy_grid.shape
 
     # pixel_tl: None -> pass a NULL pointer; otherwise C-contiguous float32
-    if pixel_tl is not None:
-        if pixel_tl.shape != (height, width):
-            raise ValueError(f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}")
-        pixel_tl = np.ascontiguousarray(pixel_tl, dtype=np.float32)
-    else:
-        # ctypes requires a concrete array; pass a zero buffer and let C++ use
-        # NULL semantics via a size-0 check is not possible - instead pass None
-        # converted below.
-        pixel_tl_arr = None
-
     tl_ptr = None
     if pixel_tl is not None:
         if pixel_tl.shape != (height, width):
@@ -139,3 +124,10 @@ def downsample_occupancy(grid: np.ndarray, ds: int) -> np.ndarray:
     g = grid[: h2 * ds, : w2 * ds].reshape(h2, ds, w2, ds)
     pooled = g.max(axis=(1, 3)).astype(np.uint8)
     return np.ascontiguousarray(pooled)
+
+
+def downsample_mask(mask: np.ndarray, ds: int) -> np.ndarray:
+    """Downsample a boolean mask with the same max-pool windows as downsample_occupancy."""
+    if ds <= 1:
+        return mask
+    return downsample_occupancy(mask.astype(np.uint8), ds).astype(bool)

@@ -75,8 +75,8 @@ def _main_impl() -> int | None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process a single ad-hoc recording directory:
-  evaluation process --run-dir /opt/arena_ws/data/recordings/20260528-215316
+  # Process single episodes (any episode_NNN directory of a benchmark):
+  evaluation process --run-dir /opt/arena_ws/data/benchmarks/my_benchmark/episodes/episode_004
 
   # Process all runs in a benchmark:
   evaluation process --benchmark-dir /opt/arena_ws/data/my_benchmark
@@ -108,7 +108,7 @@ Examples:
         type=pathlib.Path,
         nargs="+",
         metavar="DIR",
-        help="Path to one or more single recording directories (contains metadata.yaml + recording/)",
+        help="Path to one or more episode directories (episode_NNN with episode_NNN.yaml and the MCAP). process and extract handle each alone, report and plot merge their metrics.parquet",
     )
     run_parent.add_argument(
         "--output-dir",

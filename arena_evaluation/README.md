@@ -162,6 +162,8 @@ Commands:
 
 | Flag | Description |
 |---|---|
+| `--benchmark-dir DIR...` | Benchmark root directories, every episode under them |
+| `--run-dir DIR...` | Single `episode_NNN` directories: `process` and `extract` handle each alone, `report` and `plot` merge their `metrics.parquet` |
 | `--output-dir DIR` | Output directory for reports and plots (defaults to first input dir) |
 | `--workers N` | Worker count for parallel processing (`-1` = auto CPU count) |
 | `--force-extract` | Force re-extraction of MCAP files |
