@@ -1338,6 +1338,15 @@ def test_flatten_drops_inactive_modes():
     assert obs == [] and rob == []
 
 
+def test_task_params_reach_blocks_no_queued_mode_owns():
+    from arena_evaluation.benchmark.runner import _task_params
+
+    config = {"scenario": {"file": "normal__u_001.yaml"}, "edge_case": {"score_scope": "all"}, "edge_case_robot": {"traversals": 2}, "humansim": {"global_planner": {"resolution": 0.1}}}
+    params = _task_params(config, tm_obstacles="edge_case", tm_robots="edge_case")
+    assert [(p.name, p.value.string_value or p.value.integer_value) for p in params] == [("task.scenario.file", "normal__u_001"), ("task.edge_case_robot.traversals", 2)]
+    assert _task_params({"scenario": {"file": "x"}}, tm_obstacles="random", tm_robots="scenario") == []
+
+
 def test_human_params_keep_their_namespace():
     from arena_evaluation.benchmark.runner import _flatten_per_mode_params, _human_params
 
