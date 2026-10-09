@@ -97,12 +97,7 @@ def paired_differences(
 ) -> pl.DataFrame:
     """treatment - control per (cell, scenario, seed); rows missing either arm or the metric drop out."""
     keys = [*cell, scenario, seed]
-    wide = (
-        df.filter(pl.col(arm).is_in([treatment, control]) & pl.col(metric).is_not_null())
-        .select([*keys, arm, pl.col(metric).cast(pl.Float64)])
-        .unique(subset=[*keys, arm], keep="first")
-        .pivot(on=arm, index=keys, values=metric)
-    )
+    wide = df.filter(pl.col(arm).is_in([treatment, control]) & pl.col(metric).is_not_null()).select([*keys, arm, pl.col(metric).cast(pl.Float64)]).unique(subset=[*keys, arm], keep="first").pivot(on=arm, index=keys, values=metric)
     if treatment not in wide.columns or control not in wide.columns:
         return pl.DataFrame(schema={**{k: df.schema[k] for k in keys}, "diff": pl.Float64})
     return wide.with_columns((pl.col(treatment) - pl.col(control)).alias("diff")).drop_nulls("diff").select([*keys, "diff"])

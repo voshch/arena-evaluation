@@ -21,6 +21,7 @@ import math
 import pathlib
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 
 import numpy as np
 from mcap.reader import make_reader
@@ -109,7 +110,7 @@ def transition_times(states: list) -> list[float]:
     return out
 
 
-def link_steps(samples: list, fk, body) -> tuple[np.ndarray, np.ndarray]:
+def link_steps(samples: list, fk: Callable[..., tuple[dict, object]], body: object) -> tuple[np.ndarray, np.ndarray]:
     """(t, worst link step in m per tick) between consecutive joint-state samples, rescaled to a 50 ms tick."""
     ts, pos = [], []
     for t, angles in samples:
@@ -125,7 +126,7 @@ def link_steps(samples: list, fk, body) -> tuple[np.ndarray, np.ndarray]:
     return ts[1:][ok], (step[ok] * TICK_S / dt[ok])
 
 
-def analyze_episode(mcap_path: pathlib.Path, fk, body, source: str = "replay") -> dict:
+def analyze_episode(mcap_path: pathlib.Path, fk: Callable[..., tuple[dict, object]], body: object, source: str = "replay") -> dict:
     joints, anim, inputs = episode_tracks(mcap_path)
     if source == "replay":
         joints = replay(inputs)

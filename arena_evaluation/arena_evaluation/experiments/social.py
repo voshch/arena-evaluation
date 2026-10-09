@@ -239,16 +239,20 @@ def analyze(on: pathlib.Path, off: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, 
     df = pl.concat([load(on, "on"), load(off, "off")], how="diagonal")
     df = df.with_columns((pl.col("episode").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
 
-    descriptive = df.group_by(["case", "planner", "arm"], maintain_order=True).agg(
-        pl.len().alias("n"),
-        pl.col("success").mean().alias("success"),
-        pl.col("pierced").mean().alias("pierce_rate"),
-        pl.col("min_pedestrian_clearance").median().alias("clearance_m"),
-        pl.col("time_in_intimate_zone").median().alias("intimate_s"),
-        pl.col("time_in_personal_zone").median().alias("personal_s"),
-        pl.col("path_length").median().alias("path_m"),
-        pl.col("time_to_goal").median().alias("ttg_s"),
-    ).sort(["case", "planner", "arm"])
+    descriptive = (
+        df.group_by(["case", "planner", "arm"], maintain_order=True)
+        .agg(
+            pl.len().alias("n"),
+            pl.col("success").mean().alias("success"),
+            pl.col("pierced").mean().alias("pierce_rate"),
+            pl.col("min_pedestrian_clearance").median().alias("clearance_m"),
+            pl.col("time_in_intimate_zone").median().alias("intimate_s"),
+            pl.col("time_in_personal_zone").median().alias("personal_s"),
+            pl.col("path_length").median().alias("path_m"),
+            pl.col("time_to_goal").median().alias("ttg_s"),
+        )
+        .sort(["case", "planner", "arm"])
+    )
 
     rows = []
     rng = np.random.default_rng(0)
