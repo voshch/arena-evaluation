@@ -1,0 +1,25 @@
+# Planner set for the animation paper, revised 2026-09-12: two costmap planners plus one learned planner.
+# HATEB is excluded and AttnGraph replaces DRL-VO. MPPI was dropped after the Study A run: a second MPPI
+# environment never finished spawning inside the runner's 600 s limit, and 5 of the 6 episodes that did run
+# reached the episode timeout at about half the route. See 26_ICRA_BECKON/results/STUDY_A.md.
+# navigate_to_pose_w_replanning_and_recovery: with pedestrians visible, a pair on the path makes the controller
+# report a collision; navigate_w_replanning_time then fails the goal for good and the robot parks until timeout.
+# social_cost_layer: arena_social_cost_layer in the local costmap (reads arena_peds), on for every costmap
+# planner (decision 2026-09-12). AttnGraph runs through the drl adapter, no nav2 costmap.
+name: paper_planners
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: true
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: true
+- name: attngraph
+  mobile: drl
+  mobile.planner: attngraph

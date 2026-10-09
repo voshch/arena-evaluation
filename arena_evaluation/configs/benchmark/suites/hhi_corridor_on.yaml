@@ -1,0 +1,15 @@
+# pilot
+stages:
+- name: hhi_corridor_on
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 75000
+  timeout: 90s
+  config:
+    scenario:
+      file: hhi_corridor
+      gesture_mode: enabled
+      contact_mode: enabled

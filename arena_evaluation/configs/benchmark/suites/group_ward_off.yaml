@@ -1,0 +1,14 @@
+# pilot
+stages:
+- name: group_ward_off
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 74300
+  timeout: 90s
+  config:
+    scenario:
+      file: group_ward
+      gesture_mode: disabled

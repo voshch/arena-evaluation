@@ -1,0 +1,20 @@
+# The no-layer arm of the animation on/off comparison: the same planners with the social cost layer
+# off. Paired with suites that also set scenario.gesture_mode=disabled, so in this arm the pedestrians
+# behave identically but publish no clip and no interaction id, and nothing consumes either.
+name: paper_planners_blind
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: false
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    social_cost_layer: false
+- name: attngraph
+  mobile: drl
+  mobile.planner: attngraph

@@ -1,0 +1,19 @@
+# gestures published, but the mode looks for a clip that never appears
+stages:
+- name: beckon_checkpoint_nomatch
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: patrol
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 77000
+  timeout: 180s
+  config:
+    scenario:
+      file: beckon_checkpoint
+      gesture_mode: enabled
+    patrol:
+      service_agent: caller
+      clip: nonexistent_clip
+      service_radius: 2.5
+      service_dwell: 0.0
