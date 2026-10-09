@@ -277,6 +277,23 @@ mobile.local_planner: [teb, dwa]
 mobile.inter_planner: bypass
 ```
 
+### Contestant parts
+
+`parts` gives a contestant its own robot parts on every stage: each key replaces the stage
+robot's bracket item of the same name, so `robot: jackal[camera=d435_color]` with the entry
+below spawns `jackal[camera=vln_rgbd]`. It is not forwarded as a launch arg. In sweep form
+`parts` is shared by all generated contestants.
+
+```yaml
+- name: cma-route
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: cma
+    wording: route
+```
+
 ### Contestant args
 
 Contestant `args` keys are forwarded verbatim as launch args to the env on

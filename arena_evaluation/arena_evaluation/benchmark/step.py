@@ -6,7 +6,7 @@ import typing
 
 import attrs
 
-from .config import Contest, Suite
+from .config import Contest, Suite, robot_with_parts
 from .lockstep import LockstepSummary
 
 
@@ -18,6 +18,11 @@ class Step:
     record_dir: pathlib.Path | None = None
     is_reference: bool = False
     reference_type: str | None = None
+
+    @property
+    def robot(self) -> str:
+        """The stage's robot with the contestant's parts."""
+        return robot_with_parts(self.stage.robot, self.contestant.parts)
 
     @property
     def key(self) -> str:

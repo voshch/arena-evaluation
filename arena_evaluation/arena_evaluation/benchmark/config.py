@@ -156,10 +156,33 @@ class Suite(typing.NamedTuple):
         return self.stages[index]
 
 
+def robot_with_parts(robot: str, parts: typing.Mapping[str, str]) -> str:
+    """`robot:=` value whose every entry carries `parts` as bracket items, in place of its own items of the same key."""
+    if not parts:
+        return robot
+    from task_generator.manager.robot_manager.robots_manager import split_robot_arg  # noqa: PLC0415
+
+    entries = []
+    for entry in split_robot_arg(robot):
+        model, _, body = entry.partition("[")
+        kept = [item for item in split_robot_arg(body.rpartition("]")[0]) if item.partition("=")[0].strip() not in parts]
+        entries.append(f"{model.strip()}[{','.join([*kept, *(f'{k}={v}' for k, v in parts.items())])}]")
+    return ",".join(entries)
+
+
+def _parse_parts(name: str, obj: object) -> dict[str, str]:
+    if obj is None:
+        return {}
+    if not isinstance(obj, dict) or not all(isinstance(v, (str, int, float)) and not isinstance(v, bool) for v in obj.values()):
+        raise ValueError(f"contestant {name!r}: parts must map a part key to one value, e.g. {{camera: vln_rgbd}}, got {obj!r}")
+    return {str(k): str(v) for k, v in obj.items()}
+
+
 @attrs.frozen
 class Contestant:
     name: str
     args: dict[str, typing.Any] = attrs.field(factory=dict)
+    parts: dict[str, str] = attrs.field(factory=dict)
 
 
 @attrs.frozen
@@ -205,8 +228,8 @@ class Contest:
             if "name" not in item:
                 raise ValueError(f"contestant in list-form requires 'name': {item!r}")
             entry_name = item["name"]
-            args = {k: v for k, v in item.items() if k != "name"}
-            contestants.append(Contestant(name=entry_name, args=args))
+            args = {k: v for k, v in item.items() if k not in ("name", "parts")}
+            contestants.append(Contestant(name=entry_name, args=args, parts=_parse_parts(entry_name, item.get("parts"))))
         cls._reject_duplicate_names(contestants)
         return cls(name=name, description=None, contestants=contestants)
 
@@ -215,6 +238,7 @@ class Contest:
         spec = dict(spec)
         description = spec.pop("description", None)
         prefix = spec.pop("name", None)
+        robot_parts = _parse_parts(prefix or name, spec.pop("parts", None))
 
         axes: list[tuple[str, str | None, list]] = []
         consts: dict[str, typing.Any] = {}
@@ -261,7 +285,7 @@ class Contest:
             else:
                 derived = "single"
             entry_name = f"{prefix}-{derived}" if prefix else derived
-            contestants.append(Contestant(name=entry_name, args=args))
+            contestants.append(Contestant(name=entry_name, args=args, parts=robot_parts))
 
         cls._reject_duplicate_names(contestants)
         return cls(name=name, description=description, contestants=contestants)

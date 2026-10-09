@@ -1234,6 +1234,30 @@ def test_env_key_components():
     assert key == ("planner_a", "jackal", "map1", "gazebo")
 
 
+def test_contestant_parts_reach_env_key_and_launch_args():
+    from arena_evaluation.benchmark.runner import build_launch_args, env_key
+
+    stage = _make_step_for("planner_a", "indoor", robot="jackal[camera=vln_navid]").stage
+    step = Step(contestant=Contest.Contestant(name="cma", args={"mobile": {"driver": "vla", "planner": "cma"}}, parts={"camera": "vln_rgbd"}), stage=stage, episodes=5, record_dir=None)
+
+    assert env_key(step, "gazebo") == ("cma", "jackal[camera=vln_rgbd]", "map1", "gazebo")
+    args = build_launch_args(step, "gazebo")
+    assert "robot:=jackal[camera=vln_rgbd]" in args
+    assert not any(arg.startswith("parts") or arg.startswith("robot.parts") for arg in args)
+
+
+def test_contestant_parts_keep_the_stage_seed():
+    from arena_evaluation.benchmark.runner import build_launch_args
+
+    stage = Suite.Stage.parse({"name": "s", "episodes": 1, "robot": "jackal", "map": "map1", "tm_robots": "random", "tm_obstacles": "random"})
+    plain = Step(contestant=Contest.Contestant(name="nav2"), stage=stage, episodes=1, record_dir=None)
+    camera = Step(contestant=Contest.Contestant(name="cma", parts={"camera": "vln_rgbd"}), stage=stage, episodes=1, record_dir=None)
+
+    assert f"run_seed:={stage.seed}" in build_launch_args(plain, "gazebo")
+    assert f"run_seed:={stage.seed}" in build_launch_args(camera, "gazebo")
+    assert stage.seed != Suite.Stage.parse({"name": "s", "episodes": 1, "robot": camera.robot, "map": "map1", "tm_robots": "random", "tm_obstacles": "random"}).seed
+
+
 def test_env_key_world_swap_drops_map():
     from arena_evaluation.benchmark.runner import env_key
 

@@ -505,6 +505,40 @@ def test_shipped_landmarks_suite_and_contest_parse():
     assert all(name.endswith(wording) for name, wording in wordings.items() if wording)
 
 
+def test_contest_parse_list_parts_stay_out_of_args():
+    from arena_evaluation.benchmark.config import Contest
+
+    result = Contest.parse("c", [{"name": "cma", "parts": {"camera": "vln_rgbd"}, "mobile": {"driver": "vla", "planner": "cma"}}])
+
+    assert result.contestants[0].parts == {"camera": "vln_rgbd"}
+    assert result.contestants[0].args == {"mobile": {"driver": "vla", "planner": "cma"}}
+
+
+def test_contest_parse_sweep_shares_parts():
+    from arena_evaluation.benchmark.config import Contest
+
+    result = Contest.parse("c", {"name": "navid", "parts": {"camera": "vln_navid"}, "mobile": {"driver": "vla", "planner": "navid", "wording": ["goal", "route"]}})
+
+    assert [c.name for c in result.contestants] == ["navid-goal", "navid-route"]
+    assert all(c.parts == {"camera": "vln_navid"} and "parts" not in c.args for c in result.contestants)
+
+
+def test_contest_parse_parts_rejects_lists():
+    from arena_evaluation.benchmark.config import Contest
+
+    with pytest.raises(ValueError, match="parts must map"):
+        Contest.parse("c", [{"name": "cma", "parts": {"camera": ["vln_rgbd", "vln_navid"]}}])
+
+
+def test_robot_with_parts_replaces_items_of_the_same_key():
+    from arena_evaluation.benchmark.config import robot_with_parts
+
+    assert robot_with_parts("jackal", {}) == "jackal"
+    assert robot_with_parts("jackal", {"camera": "vln_rgbd"}) == "jackal[camera=vln_rgbd]"
+    assert robot_with_parts("jackal[camera=vln_navid]", {"camera": "vln_rgbd"}) == "jackal[camera=vln_rgbd]"
+    assert robot_with_parts("jackal[2,camera=[a,b],lidar=x],burger", {"camera": "vln_rgbd"}) == "jackal[2,lidar=x,camera=vln_rgbd],burger[camera=vln_rgbd]"
+
+
 # ---------------------------------------------------------------------------
 # _parse_duration
 # ---------------------------------------------------------------------------

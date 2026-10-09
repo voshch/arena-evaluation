@@ -164,7 +164,7 @@ def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, 
     s = step.stage
     args = [
         *([f"sim:={simulator}"] if simulator is not None else []),
-        f"robot:={s.robot}",
+        f"robot:={step.robot}",
         f"world:={s.map}",
         f"task.robots:={s.tm_robots.value}",
         f"task.obstacles:={s.tm_obstacles.value}",
@@ -357,8 +357,8 @@ def _preflight_contest(contest: Contest) -> list[str]:
 def env_key(step: Step, simulator: str | None, world_swap: bool = False) -> tuple:
     """Steps with the same env_key reuse one env. Changing contestant, robot, or map (unless worlds swap in place) forces a fresh env."""
     if world_swap:
-        return (step.contestant.name, step.stage.robot, simulator)
-    return (step.contestant.name, step.stage.robot, step.stage.map, simulator)
+        return (step.contestant.name, step.robot, simulator)
+    return (step.contestant.name, step.robot, step.stage.map, simulator)
 
 
 def block_claim_key(block: list[Step], world_map: str | None, simulator: str | None, world_swap: bool = False) -> str:
@@ -1417,7 +1417,7 @@ class BenchmarkRunner(ArenaMixinNode):
         registered.append(env_id)
         await self._await_alive(self._await_env_visible(env_id), what=f"env {env_id} to appear on /arena/state/envs")
         env_ns_root = self._env_records[env_id].fqn
-        await self._setup_env_clients(env_id, env_ns_root, launch_step.stage.robot)
+        await self._setup_env_clients(env_id, env_ns_root, launch_step.robot)
         if self._viz and (self._viz_proc is None or self._viz_proc.poll() is not None):
             self._start_viz(env_ns_root)
         return env_id, env_ns_root
@@ -1589,7 +1589,7 @@ class BenchmarkRunner(ArenaMixinNode):
                         "-p",
                         f"inter_planner:={ip}",
                         "-p",
-                        f"robot:={step.stage.robot}",
+                        f"robot:={step.robot}",
                         "-p",
                         f"episodes_requested:={step.episodes}",
                         "-p",
@@ -2002,7 +2002,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
                     # gz-sim 8 stops answering world control once a robot with a depth camera was deleted and another
                     # spawned in the same session, so such robots get a fresh runtime per block
-                    fresh_per_block = self._simulator == "gazebo" and any(robot_has_depth_camera(s.stage.robot) for s in world_steps)
+                    fresh_per_block = self._simulator == "gazebo" and any(robot_has_depth_camera(s.robot) for s in world_steps)
                     batches = [[i] for i in range(len(all_blocks))] if fresh_per_block else [list(range(len(all_blocks)))]
                     for batch_idx, batch in enumerate(batches):
                         blocks = [all_blocks[i] for i in batch]
