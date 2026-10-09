@@ -86,6 +86,7 @@ except ImportError:
 
     HAS_TASK_GEN = False
 
+
 def _state_types() -> dict[str, tuple[type, str, bool]]:
     """Interaction / animation state topics recorded wherever discovery finds them in this env.
 
