@@ -3,10 +3,12 @@ launch:
   sim: gazebo
   headless: true
   env.n: 1
+  lockstep: true
+  lockstep.paused: false
 stages:
 - name: h_pharmacy
   map: hospital_1
-  robot: jackal[camera=vln_navid]
+  robot: jackal
   episodes: 1
   timeout: 240.0
   tm_robots: scenario
@@ -16,7 +18,7 @@ stages:
       file: landmark_pharmacy
 - name: h_laboratory
   map: hospital_1
-  robot: jackal[camera=vln_navid]
+  robot: jackal
   episodes: 1
   timeout: 240.0
   tm_robots: scenario
@@ -26,7 +28,7 @@ stages:
       file: landmark_laboratory
 - name: h_operating_room
   map: hospital_1
-  robot: jackal[camera=vln_navid]
+  robot: jackal
   episodes: 1
   timeout: 240.0
   tm_robots: scenario
@@ -36,7 +38,7 @@ stages:
       file: landmark_operating_room
 - name: h_waiting_area
   map: hospital_1
-  robot: jackal[camera=vln_navid]
+  robot: jackal
   episodes: 1
   timeout: 360.0
   tm_robots: scenario
@@ -46,7 +48,7 @@ stages:
       file: landmark_waiting_area
 - name: h_reception_then_ward
   map: hospital_1
-  robot: jackal[camera=vln_navid]
+  robot: jackal
   episodes: 1
   timeout: 420.0
   tm_robots: scenario

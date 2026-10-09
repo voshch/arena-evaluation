@@ -184,8 +184,10 @@ grounding stay apart from rows that had to find the room.
 arena evaluation benchmark --suite landmarks --contest landmarks
 ```
 
-The stages carry `robot: jackal[camera=vln_navid]`. A planner that needs another camera runs
-the same stages with the suite passed inline and its own `robot`.
+The stages carry a bare `robot: jackal`, and every contestant mounts the camera its model was
+trained with through `parts` (see [Contestant parts](#contestant-parts)). The suite runs under
+lockstep, so the sim waits for each planner's action and slow models are not penalized for
+their inference time.
 
 ### Lockstep soak
 

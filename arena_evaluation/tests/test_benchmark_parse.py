@@ -499,10 +499,17 @@ def test_shipped_landmarks_suite_and_contest_parse():
     assert {stage.map for stage in suite.stages} == {"hospital_1"}
     assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.tm_robots.value == "scenario" for stage in suite.stages)
     assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
+    assert {stage.robot for stage in suite.stages} == {"jackal"}
+    assert suite.launch_args["lockstep"] == "True" and suite.launch_args["lockstep.paused"] == "False"
     wordings = {c.name: c.args["mobile"].get("wording") for c in contest.contestants}
     assert wordings["nav2"] is None and wordings["omnivla-edge-pose"] is None
     assert {name.rsplit("-", 1)[1] for name, wording in wordings.items() if wording} == {"goal", "route"}
     assert all(name.endswith(wording) for name, wording in wordings.items() if wording)
+    cameras = {c.args["mobile"]["planner"]: c.parts["camera"] for c in contest.contestants if c.name != "nav2"}
+    assert set(cameras) == {"cma", "navid", "navila", "streamvln", "omnivla", "omnivla-edge", "pi05", "navdp", "iplanner", "viplanner", "socialnav", "citywalker", "xmobility"}
+    assert cameras["cma"] == "vln_rgbd" and cameras["navila"] == "vln_navila"
+    assert next(c for c in contest.contestants if c.name == "nav2").parts == {}
+    assert {c.parts["camera"] for c in contest.contestants if c.args["mobile"].get("config.variant") == "uninavid"} == {"vln_uninavid"}
 
 
 def test_contest_parse_list_parts_stay_out_of_args():

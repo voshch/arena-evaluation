@@ -2,45 +2,177 @@
   mobile:
     driver: nav2
 - name: socialnav-pose
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
     planner: socialnav
-- name: omnivla-edge-pose
+- name: citywalker-pose
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
-    planner: omnivla-edge
+    planner: citywalker
+- name: xmobility-pose
+  parts:
+    camera: vln_uninavid
+  mobile:
+    driver: vla
+    planner: xmobility
+- name: navdp-pose
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: navdp
+- name: x-navdp-pose
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: navdp
+    config.variant: x-navdp
+- name: iplanner-pose
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: iplanner
+- name: viplanner-pose
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: viplanner
+- name: omnivla-pose
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: omnivla
     goal: pose
-- name: omnivla-edge-goal
-  mobile:
-    driver: vla
-    planner: omnivla-edge
-    goal: instruction
-    wording: goal
-- name: omnivla-edge-route
-  mobile:
-    driver: vla
-    planner: omnivla-edge
-    goal: instruction
-    wording: route
 - name: omnivla-goal
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
     planner: omnivla
     goal: instruction
     wording: goal
 - name: omnivla-route
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
     planner: omnivla
     goal: instruction
     wording: route
+- name: omnivla-edge-pose
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: pose
+- name: omnivla-edge-goal
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: instruction
+    wording: goal
+- name: omnivla-edge-route
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: omnivla-edge
+    goal: instruction
+    wording: route
 - name: navid-goal
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
     planner: navid
     wording: goal
 - name: navid-route
+  parts:
+    camera: vln_navid
   mobile:
     driver: vla
     planner: navid
+    wording: route
+- name: uninavid-goal
+  parts:
+    camera: vln_uninavid
+  mobile:
+    driver: vla
+    planner: navid
+    config.variant: uninavid
+    wording: goal
+- name: uninavid-route
+  parts:
+    camera: vln_uninavid
+  mobile:
+    driver: vla
+    planner: navid
+    config.variant: uninavid
+    wording: route
+- name: navila-goal
+  parts:
+    camera: vln_navila
+  mobile:
+    driver: vla
+    planner: navila
+    wording: goal
+- name: navila-route
+  parts:
+    camera: vln_navila
+  mobile:
+    driver: vla
+    planner: navila
+    wording: route
+- name: streamvln-goal
+  parts:
+    camera: vln_streamvln
+  mobile:
+    driver: vla
+    planner: streamvln
+    wording: goal
+- name: streamvln-route
+  parts:
+    camera: vln_streamvln
+  mobile:
+    driver: vla
+    planner: streamvln
+    wording: route
+- name: cma-goal
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: cma
+    wording: goal
+- name: cma-route
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: cma
+    wording: route
+- name: pi05-goal
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: pi05
+    wording: goal
+- name: pi05-route
+  parts:
+    camera: vln_navid
+  mobile:
+    driver: vla
+    planner: pi05
     wording: route
