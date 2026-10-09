@@ -436,9 +436,14 @@ class MCAPReader:
                                 twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
                                 ids = np.asarray(ros_msg.agent_id, dtype=np.int64)[humans].tolist()
                                 anim_states = np.frombuffer(ros_msg.animation_state, dtype=np.uint8)[humans].tolist()
-                                # the engine frame carries no interaction membership
-                                interaction_ids = [-1] * len(ids)
-                                interaction_types = [0] * len(ids)
+                                # interaction membership arrays are newer than the message, older recordings read as none
+                                frame_iids = getattr(ros_msg, "interaction_id", None)
+                                if frame_iids is not None and len(frame_iids) == len(humans):
+                                    interaction_ids = np.asarray(frame_iids, dtype=np.int64)[humans].tolist()
+                                    interaction_types = np.frombuffer(bytes(ros_msg.interaction_type), dtype=np.uint8)[humans].tolist()
+                                else:
+                                    interaction_ids = [-1] * len(ids)
+                                    interaction_types = [0] * len(ids)
                             elif schema.name == "arena_people_msgs/msg/Pedestrians":
                                 rendered = list(ros_msg.pedestrians)
                                 positions, headings, twists = [], [], []
