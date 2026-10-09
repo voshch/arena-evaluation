@@ -68,5 +68,10 @@ def test_agent_states_nested_and_flat_layouts_read_into_identical_peds(tmp_path:
             "peds_positions": [1.5, -2.0, 0.0, -0.5, 3.25, 0.0],
             "peds_headings": [0.75, -1.5],
             "peds_twists": [0.3, 0.4, 0.0, -0.2, 0.1, 0.0],
+            # per-ped identity and state; neither layout here carries animation or interaction membership
+            "peds_ids": [3, 7],
+            "peds_animation_states": [0, 0],
+            "peds_interaction_ids": [-1, -1],
+            "peds_interaction_types": [0, 0],
         }
     ]

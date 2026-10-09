@@ -318,6 +318,12 @@ class DataRecorderNode(Node):
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             depth=100,
         )
+        # interaction lifecycle edges: a dropped message loses an edge
+        self.reliable_volatile_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+            depth=10,
+        )
         self.tf_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,

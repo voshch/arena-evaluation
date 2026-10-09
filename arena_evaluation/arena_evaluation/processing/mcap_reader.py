@@ -6,6 +6,7 @@ import logging
 import math
 import pathlib
 import re
+import shutil
 import typing
 from collections import defaultdict
 
@@ -252,7 +253,7 @@ class MCAPReader:
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
-            return {"peds": defaultdict(list), "peds_engine": defaultdict(list), "episode_record": defaultdict(list)}
+            return {"peds": defaultdict(list), "episode_record": defaultdict(list), **{name: defaultdict(list) for name in ENV_STATE_TABLES}}
 
         env_data = defaultdict(new_env_data)
 
@@ -423,7 +424,7 @@ class MCAPReader:
                         # drawn on their formation slot); agent_states is the crowd engine's physics
                         # (engine frame) - separate tables, a merged one would interleave two frames
                         elif topic.endswith("/arena_peds") or topic.endswith("/peds") or topic.endswith("/agent_states"):
-                            target = env_data[env_key]["peds_engine" if topic.endswith("/agent_states") else "peds"]
+                            target = env_data[env_key]["peds_physics" if topic.endswith("/agent_states") else "peds"]
                             target["time_ns"].append(ts_ns)
                             target["peds_frame_id"].append(ros_msg.header.frame_id)
 
@@ -435,7 +436,8 @@ class MCAPReader:
                                 headings = np.asarray(ros_msg.theta, dtype=np.float64)[humans].tolist()
                                 twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
                                 ids = np.asarray(ros_msg.agent_id, dtype=np.int64)[humans].tolist()
-                                anim_states = np.frombuffer(ros_msg.animation_state, dtype=np.uint8)[humans].tolist()
+                                frame_anim = np.frombuffer(bytes(ros_msg.animation_state), dtype=np.uint8)
+                                anim_states = frame_anim[humans].tolist() if len(frame_anim) == len(humans) else [0] * len(ids)
                                 # interaction membership arrays are newer than the message, older recordings read as none
                                 frame_iids = getattr(ros_msg, "interaction_id", None)
                                 if frame_iids is not None and len(frame_iids) == len(humans):
@@ -755,14 +757,11 @@ class MCAPReader:
             for writer in writers.values():
                 writer.close()
             for env_dir in (d for d in out_dir.iterdir() if d.is_dir()):
-                engine_peds = env_dir / "peds_engine.parquet"
+                # nothing rendered (no arena_peds recorded): the crowd engine's peds stand in, and stay as peds_physics too
+                engine_peds = env_dir / "peds_physics.parquet"
                 arena_peds = env_dir / "peds.parquet"
-                if not engine_peds.exists():
-                    continue
-                if arena_peds.exists():
-                    engine_peds.unlink()
-                else:
-                    engine_peds.replace(arena_peds)
+                if engine_peds.exists() and not arena_peds.exists():
+                    shutil.copyfile(engine_peds, arena_peds)
 
         return self.load_bundles(out_dir, run_dir, map_name_fallback=map_name_fallback)
 
