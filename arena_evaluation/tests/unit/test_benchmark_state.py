@@ -29,6 +29,7 @@ from arena_evaluation.benchmark.state import (
     compute_config_hash,
     find_most_recent_resumable,
 )
+from arena_evaluation.benchmark.lockstep import LockstepSummary
 from arena_evaluation.benchmark.step import StepErrorKind, StepResult
 
 
@@ -457,7 +458,10 @@ _HEADERS = [
     "lockstep_stalls",
     "lockstep_max_stall_s",
     "lockstep_rtf",
+    "lockstep_beat_channels",
+    "lockstep_ticks",
     "lockstep_beats",
+    "lockstep_beats_due",
     "goal_dist_start",
     "goal_dist_min",
     "path_length",
@@ -524,6 +528,29 @@ def test_progress_log_optional_fields_empty(tmp_path: pathlib.Path):
     assert row["parent_episode_id"] == ""
     assert row["is_reference"] == "false"
     assert row["reference_type"] == ""
+
+
+def test_progress_log_lockstep_counts(tmp_path: pathlib.Path):
+    log = ProgressLog(tmp_path / "progress.csv")
+    summary = LockstepSummary(active=True, rtf=1.5, channels=("engine", "nav/jackal", "planner/jackal"), ticks=90, beats=88, beats_due=90)
+    log.append(
+        ts_iso="t",
+        run_id="r",
+        step_key="k",
+        contestant="c",
+        stage="s",
+        env_id=0,
+        episode_id=1,
+        episode_record=_make_episode_record(episode_id=1),
+        started_at=0.0,
+        ended_at=1.0,
+        lockstep=summary,
+    )
+    log.close()
+    with (tmp_path / "progress.csv").open(newline="") as fh:
+        row = next(csv.DictReader(fh))
+    assert row["lockstep_beat_channels"] == "nav/jackal,planner/jackal"
+    assert (row["lockstep_ticks"], row["lockstep_beats"], row["lockstep_beats_due"]) == ("90", "88", "90")
 
 
 def test_progress_log_error_fields(tmp_path: pathlib.Path):

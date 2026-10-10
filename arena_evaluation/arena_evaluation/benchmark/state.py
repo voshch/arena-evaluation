@@ -15,7 +15,7 @@ import typing
 import yaml
 from rclpy.parameter import Parameter
 
-from .lockstep import BEAT_PREFIXES, LockstepSummary
+from .lockstep import LockstepSummary
 from .step import StepErrorKind, StepResult
 
 
@@ -211,7 +211,7 @@ class ProgressLog:
         "outcome_state,outcome_info,started_at,ended_at,runtime_s,"
         "robots_params_json,obstacles_params_json,"
         "error_kind,error_detail,"
-        "lockstep_stalls,lockstep_max_stall_s,lockstep_rtf,lockstep_beats,"
+        "lockstep_stalls,lockstep_max_stall_s,lockstep_rtf,lockstep_beat_channels,lockstep_ticks,lockstep_beats,lockstep_beats_due,"
         "goal_dist_start,goal_dist_min,path_length"
     )
 
@@ -276,7 +276,10 @@ class ProgressLog:
                 lockstep.stalls if lockstep is not None else "",
                 round(lockstep.max_stall_s, 3) if lockstep is not None else "",
                 round(lockstep.rtf, 3) if lockstep is not None else "",
-                ",".join(ch for ch in lockstep.channels if ch.startswith(BEAT_PREFIXES)) if lockstep is not None else "",
+                ",".join(lockstep.beat_channels) if lockstep is not None else "",
+                lockstep.ticks if lockstep is not None else "",
+                lockstep.beats if lockstep is not None else "",
+                lockstep.beats_due if lockstep is not None else "",
                 rec.goal_dist_start,
                 rec.goal_dist_min,
                 rec.path_length,

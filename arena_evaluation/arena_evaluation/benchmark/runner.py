@@ -1131,6 +1131,8 @@ class BenchmarkRunner(ArenaMixinNode):
         lockstep: LockstepSummary | None = None
         window: list[object] = []
         ac = self._episode_action_clients[env_id]
+        record = self._env_records.get(env_id)
+        env_fqn = record.fqn if record is not None else ""
 
         def _fold_window() -> LockstepSummary | None:
             nonlocal lockstep
@@ -1178,7 +1180,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 goal.seed = (step.stage.seed + ep_idx) if step.stage.seed is not None else ep_idx
 
                 window.append((step.key, ep_idx))
-                self._lockstep.open(window[-1], time.time())
+                self._lockstep.open(window[-1], time.time(), env=env_fqn)
                 ep_started_sim = self.sim_time.to_seconds()
                 ep_started_wall = time.time()
 
