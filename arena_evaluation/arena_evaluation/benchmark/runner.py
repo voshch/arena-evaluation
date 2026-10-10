@@ -619,14 +619,15 @@ class BenchmarkRunner(ArenaMixinNode):
     def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         import rclpy
-        from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+        from arena_rclpy_mixins.spin import create_executor
+        from rclpy.executors import ExternalShutdownException
         from rclpy.signals import SignalHandlerOptions
 
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        executor = MultiThreadedExecutor()
+        executor = create_executor()
         node: BenchmarkRunner | None = None
 
         def _spin():
@@ -1154,6 +1155,8 @@ class BenchmarkRunner(ArenaMixinNode):
         lockstep: LockstepSummary | None = None
         window: list[object] = []
         ac = self._episode_action_clients[env_id]
+        record = self._env_records.get(env_id)
+        env_fqn = record.fqn if record is not None else ""
 
         def _fold_window() -> LockstepSummary | None:
             nonlocal lockstep
@@ -1201,7 +1204,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 goal.seed = (step.stage.seed + ep_idx) if step.stage.seed is not None else ep_idx
 
                 window.append((step.key, ep_idx))
-                self._lockstep.open(window[-1], time.time())
+                self._lockstep.open(window[-1], time.time(), env=env_fqn)
                 ep_started_sim = self.sim_time.to_seconds()
                 ep_started_wall = time.time()
 

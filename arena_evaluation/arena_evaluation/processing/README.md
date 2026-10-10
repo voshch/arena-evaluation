@@ -35,6 +35,8 @@ from arena_evaluation.processing.mcap_reader import MCAPReader
 bundle = MCAPReader(path).read()
 ```
 
+Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, episode start and goal) are moved into the env's world frame by the recorded `map -> env_<n>/map` anchor. A world swap moves the anchor mid-recording, so each row takes the anchor in effect at its `time_ns`: the last one at or before it, a later message winning a tie, the first one for rows before any.
+
 ### Extracted Fields per Topic
 
 | Topic | Polars Columns |

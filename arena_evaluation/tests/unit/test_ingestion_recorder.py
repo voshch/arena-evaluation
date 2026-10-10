@@ -1609,29 +1609,6 @@ def _fake_signal_module():
     return fake
 
 
-def test_main_success_path(monkeypatch):
-    fake_rclpy = MagicMock()
-    fake_rclpy.ok.return_value = True
-    monkeypatch.setattr(recorder, "rclpy", fake_rclpy)
-    node = MagicMock()
-    monkeypatch.setattr(recorder, "DataRecorderNode", MagicMock(return_value=node))
-    executor = MagicMock()
-    executor.spin.side_effect = KeyboardInterrupt
-    monkeypatch.setattr(recorder, "MultiThreadedExecutor", MagicMock(return_value=executor))
-    monkeypatch.setattr(recorder, "signal", _fake_signal_module())
-    exit_mock = MagicMock()
-    monkeypatch.setattr(recorder.os, "_exit", exit_mock)
-
-    recorder.main(args=["test-args"])
-
-    fake_rclpy.init.assert_called_once_with(args=["test-args"])
-    node.finalize.assert_called_once()
-    executor.shutdown.assert_called_once()
-    node.destroy_node.assert_called_once()
-    fake_rclpy.shutdown.assert_called_once()
-    exit_mock.assert_called_once_with(0)
-
-
 def test_main_exception_path_exits_nonzero(monkeypatch):
     fake_rclpy = MagicMock()
     fake_rclpy.ok.return_value = True

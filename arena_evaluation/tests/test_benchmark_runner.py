@@ -264,7 +264,10 @@ _EXPECTED_HEADERS = [
     "lockstep_stalls",
     "lockstep_max_stall_s",
     "lockstep_rtf",
+    "lockstep_beat_channels",
+    "lockstep_ticks",
     "lockstep_beats",
+    "lockstep_beats_due",
     "goal_dist_start",
     "goal_dist_min",
     "path_length",
@@ -286,7 +289,7 @@ def test_progress_log_header_column_count(tmp_path: pathlib.Path):
     with (tmp_path / "progress.csv").open(newline="") as fh:
         reader = csv.reader(fh)
         headers = next(reader)
-    assert len(headers) == 32
+    assert len(headers) == 35
 
 
 def test_progress_log_append(tmp_path: pathlib.Path):

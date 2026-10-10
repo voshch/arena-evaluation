@@ -9,17 +9,16 @@ import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
-from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 import rclpy
 import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from arena_rclpy_mixins.spin import create_executor, spin_node
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
@@ -1101,32 +1100,10 @@ def main(args: list[str] | None = None):
 
     _bind_to_parent()
 
-    def _on_term(signum: int, frame: FrameType | None):
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, _on_term)
-
     rclpy.init(args=args)
 
-    node = None
     try:
-        node = DataRecorderNode()
-
-        executor = MultiThreadedExecutor()
-        executor.add_node(node)
-        try:
-            executor.spin()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            print("[DataRecorder] Finalizing node...", flush=True)
-            if node:
-                node.finalize()
-            print("[DataRecorder] Shutting down executor...", flush=True)
-            executor.shutdown()
-            print("[DataRecorder] Destroying node...", flush=True)
-            if node:
-                node.destroy_node()
+        spin_node(DataRecorderNode(), executor=create_executor())
     except Exception as e:
         print(f"[DataRecorder] Exception in main: {e}", flush=True)
         import traceback

@@ -73,9 +73,9 @@ def test_resolve_paths_nonexistent():
     assert resolved.benchmark_dir == pathlib.Path("nonexistent_bench")
 
 
-def test_process_run_dir_without_episodes_reports_none_found(tmp_path):
+def test_process_run_dir_outside_an_episode_names_the_expected_layout(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
     out = subprocess.run([sys.executable, "-m", "arena_evaluation.cli", "process", "--run-dir", str(run)], capture_output=True, text=True, check=False)
-    assert out.returncode == 0, out.stderr
-    assert "No episodes found for benchmark 'run'" in out.stdout
+    assert out.returncode != 0
+    assert f"{run} is not an episode directory (episode_NNN with episode_NNN.yaml)" in out.stderr

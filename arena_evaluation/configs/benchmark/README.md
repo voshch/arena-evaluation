@@ -194,9 +194,16 @@ their inference time.
 `arena planners test <planner...|--all>` runs one short crowded stage per
 contestant with `lockstep: true` (`lockstep.paused: false`, headless). The
 runner always watches `/arena/state/lockstep` and records, per episode and per
-step, the stall count, the longest stall, the mean measured rtf and the hard
-channels registered (`lockstep_*` columns in `progress.csv`, `lockstep` in
-`.benchmark_state.json`). When any step ran under lockstep the run ends with a
+step, the stall count, the longest stall, the mean measured rtf, the
+`nav/`/`planner/` beat channels registered, the gated ticks, and the beat
+heartbeats received against the ticks those beats were due on
+(`lockstep_stalls`, `lockstep_max_stall_s`, `lockstep_rtf`,
+`lockstep_beat_channels`, `lockstep_ticks`, `lockstep_beats`,
+`lockstep_beats_due` in `progress.csv`, `lockstep` in `.benchmark_state.json`).
+Beat counts cover only the episode's env, and all counts come from the
+scheduler's once-a-second status, so an episode's window is shifted by up to a
+second. `lockstep_beats` equal to `lockstep_beats_due` means the planner beat
+exactly once per due tick. When any step ran under lockstep the run ends with a
 report table, and `--lockstep-verdict` turns a `fail` row into exit code 3. A
 row fails when a stall reaches 5 s or no `nav/`/`planner/` beat ever
 registered for the contestant, i.e. the planner never engaged the gate.

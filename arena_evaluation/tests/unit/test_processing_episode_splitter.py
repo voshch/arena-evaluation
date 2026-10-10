@@ -228,6 +228,18 @@ def test_env_offset_multi_env_ambiguous():
     assert _env_offset(df) is None
 
 
+def test_env_offset_follows_a_resent_anchor():
+    df = _tf_static([("map", "env_0/map", 4.975, 152.075), ("map", "env_0/map", 773.354, 5.0)]).with_columns(pl.Series("time_ns", [100, 200]))
+    assert _env_offset(df, 150) == (4.975, 152.075)
+    assert _env_offset(df, 200) == (773.354, 5.0)
+    assert _env_offset(df) == (773.354, 5.0)
+
+
+def test_env_offset_equal_times_take_the_later_anchor():
+    df = _tf_static([("map", "env_0/map", 4.975, 152.075), ("map", "env_0/map", 773.354, 5.0)]).with_columns(pl.Series("time_ns", [100, 100]))
+    assert _env_offset(df, 100) == (773.354, 5.0)
+
+
 def test_env_offset_ignores_non_map_frame():
     df = _tf_static([("odom", "env_0/map", 9.0, 9.0)])
     assert _env_offset(df) == (0.0, 0.0)
@@ -259,9 +271,7 @@ def test_env_offset_shape_property(n, n_env):
         )
     off = _env_offset(_tf_static(rows))
     if off is None:
-        # only reachable when >=2 distinct env translations exist
-        tx = {r[2] for r in rows if r[1].startswith("env_")}
-        assert len(tx) > 1
+        assert len({r[1] for r in rows if r[1].startswith("env_")}) > 1
     else:
         assert len(off) == 2
         assert all(isinstance(v, float) for v in off)
