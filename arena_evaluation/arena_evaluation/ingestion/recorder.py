@@ -683,7 +683,7 @@ class DataRecorderNode(Node):
         outcome_label = _OUTCOME_LABELS.get(outcome_state, f"UNKNOWN({outcome_state})")
         self._log_info(f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}")
 
-        if msg.episode_id not in self._seen_episodes and outcome_state in (0, 1):
+        if msg.episode_id not in self._seen_episodes and outcome_state == EpisodeRecord.RUNNING:
             self._begin_episode(msg.episode_id, source="episode_record")
 
         self._update_metadata_from_episode(msg)

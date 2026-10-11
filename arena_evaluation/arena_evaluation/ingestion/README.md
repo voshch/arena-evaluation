@@ -40,6 +40,13 @@ ros2 run arena_evaluation record \
     --ros-args -p record_data_dir:=/opt/arena_ws/data/recordings/20260528-210000
 ```
 
+### Episode Lifecycle
+
+An episode opens on the first `RUNNING` `EpisodeRecord` of an episode id or on a START call of the
+`start_episode` service, whichever arrives first, so a recording begins when the reset is over.
+`QUEUED` records, which the task generator publishes during the reset, open nothing. A STOP call
+closes the episode and moves its MCAP to `episode_XXX/episode_XXX.mcap`.
+
 ### Output Path Resolution
 
 The `record_data_dir` parameter resolution order:

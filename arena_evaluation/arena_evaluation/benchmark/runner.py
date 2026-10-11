@@ -1017,7 +1017,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 recs[msg.episode_id] = msg
             label = _EPISODE_OUTCOME_LABELS.get(msg.outcome_state, f"UNKNOWN({msg.outcome_state})")
             _log.info(f"[env {env_id}] episode record: id={msg.episode_id} outcome={msg.outcome_state} ({label}) info={msg.outcome_info!r}")
-            if msg.outcome_state in (EpisodeRecord.QUEUED, EpisodeRecord.RUNNING):
+            if msg.outcome_state == EpisodeRecord.RUNNING:
                 triggered = self._triggered_episodes.get(env_id)
                 if triggered is not None and msg.episode_id not in triggered:
                     triggered.add(msg.episode_id)

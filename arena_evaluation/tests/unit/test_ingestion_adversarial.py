@@ -30,6 +30,7 @@ def test_backward_time_jump(recorder_node):
     """Test that if /clock goes backward, the recorder resets its throttle timers and doesn't drop messages."""
     msg = EpisodeRecord()
     msg.episode_id = 1
+    msg.outcome_state = EpisodeRecord.RUNNING
     recorder_node.episode_record_callback(msg)
 
     clock_msg = Clock()
@@ -76,6 +77,7 @@ def test_high_frequency_spam(recorder_node):
     """Test high frequency messages concurrently locking writer_lock."""
     msg = EpisodeRecord()
     msg.episode_id = 3
+    msg.outcome_state = EpisodeRecord.RUNNING
     recorder_node.episode_record_callback(msg)
 
     clock_msg = Clock()

@@ -5,9 +5,15 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 NAMESPACE = "/recorder_process_test/env"
+RESET_NAMESPACE = "/recorder_reset_test/env"
 TICKS = 3000
 RATE_HZ = 1000.0
+RESET_AT_S = 100.0
+ROSTER_HZ = 30.0
+HISTORY_PUBLISHED = "history published"
 
 
 def _drive() -> None:
@@ -53,22 +59,117 @@ def _drive() -> None:
     rclpy.shutdown()
 
 
-def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: pathlib.Path) -> None:
-    recorder = subprocess.Popen(
-        [sys.executable, "-m", "arena_evaluation.ingestion.recorder", "--ros-args", "-p", f"record_data_dir:={tmp_path}", "-p", "benchmark_id:=recorder_process_test", "-r", f"__ns:={NAMESPACE}"],
+def _drive_reset() -> None:
+    """Latch the records of four finished episodes, then run a fifth through a paused reset as the task generator and the runner do."""
+    import rclpy
+    import rclpy.executors
+    from arena_evaluation_msgs.srv import RecordEpisode
+    from arena_people_msgs.msg import Pedestrian, Pedestrians
+    from rclpy.qos import DurabilityPolicy, QoSProfile
+    from rosgraph_msgs.msg import Clock
+    from task_generator_msgs.msg import EpisodeRecord
+
+    rclpy.init()
+    node = rclpy.create_node("recorder_reset_test_driver")
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
+
+    def call(**fields: object) -> None:
+        future = client.call_async(RecordEpisode.Request(**fields))
+        executor.spin_until_future_complete(future, timeout_sec=20.0)
+        response = future.result()
+        assert response is not None and response.success, response
+
+    def record(episode_id: int, state: int) -> None:
+        records.publish(EpisodeRecord(episode_id=episode_id, outcome_state=state))
+
+    def tick(sim_s: float) -> None:
+        stamp_ns = round(sim_s * 1e9)
+        message = Clock()
+        message.clock.sec = stamp_ns // 1_000_000_000
+        message.clock.nanosec = stamp_ns % 1_000_000_000
+        clock.publish(message)
+
+    def roster(name: str) -> None:
+        peds.publish(Pedestrians(pedestrians=[Pedestrian(name=name)]))
+        time.sleep(1.0 / ROSTER_HZ)
+
+    client = node.create_client(RecordEpisode, f"{RESET_NAMESPACE}/start_episode")
+    records = node.create_publisher(EpisodeRecord, f"{RESET_NAMESPACE}/state/episode", QoSProfile(depth=20, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+    clock = node.create_publisher(Clock, "/clock", 10)
+    peds = node.create_publisher(Pedestrians, f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds", 10)
+
+    record(1, EpisodeRecord.RUNNING)
+    record(1, EpisodeRecord.FAILED)
+    for episode_id in (2, 3, 4):
+        for state in (EpisodeRecord.QUEUED, EpisodeRecord.QUEUED, EpisodeRecord.QUEUED, EpisodeRecord.RUNNING, EpisodeRecord.SUCCESS):
+            record(episode_id, state)
+    print(HISTORY_PUBLISHED, flush=True)
+
+    assert client.wait_for_service(timeout_sec=60.0)
+    deadline = time.monotonic() + 10.0
+    while min(records.get_subscription_count(), clock.get_subscription_count(), peds.get_subscription_count()) == 0 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert min(records.get_subscription_count(), clock.get_subscription_count(), peds.get_subscription_count()) > 0
+
+    for _ in range(3):
+        record(5, EpisodeRecord.QUEUED)
+        for _ in range(10):
+            tick(RESET_AT_S)
+            roster("previous")
+    record(5, EpisodeRecord.RUNNING)
+    call(command=RecordEpisode.Request.COMMAND_START, episode_id=5)
+    for step in range(1, 61):
+        tick(RESET_AT_S + step / ROSTER_HZ)
+        roster("current")
+    record(5, EpisodeRecord.SUCCESS)
+    call(command=RecordEpisode.Request.COMMAND_STOP, episode_id=5, outcome_state=EpisodeRecord.SUCCESS, outcome_info="done")
+
+    executor.shutdown()
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+def _recorder(record_dir: pathlib.Path, namespace: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, "-m", "arena_evaluation.ingestion.recorder", "--ros-args", "-p", f"record_data_dir:={record_dir}", "-p", "benchmark_id:=recorder_process_test", "-r", f"__ns:={namespace}"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
+
+
+def _terminate(recorder: subprocess.Popen) -> str:
+    recorder.send_signal(signal.SIGTERM)
     try:
-        driver = subprocess.run([sys.executable, __file__], capture_output=True, text=True, timeout=120.0, check=False)
+        output, _ = recorder.communicate(timeout=30.0)
+    except subprocess.TimeoutExpired:
+        recorder.kill()
+        output, _ = recorder.communicate()
+    return output
+
+
+def _pedestrian_batches(mcap: pathlib.Path, topic: str) -> list[list[str]]:
+    import rosbag2_py
+    from arena_people_msgs.msg import Pedestrians
+    from rclpy.serialization import deserialize_message
+
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=str(mcap), storage_id="mcap"), rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"))
+    batches = []
+    while reader.has_next():
+        name, data, _ = reader.read_next()
+        if name == topic:
+            batches.append([ped.name for ped in deserialize_message(data, Pedestrians).pedestrians])
+    return batches
+
+
+def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: pathlib.Path) -> None:
+    recorder = _recorder(tmp_path, NAMESPACE)
+    try:
+        driver = subprocess.run([sys.executable, __file__, "clock"], capture_output=True, text=True, timeout=120.0, check=False)
     finally:
-        recorder.send_signal(signal.SIGTERM)
-        try:
-            output, _ = recorder.communicate(timeout=30.0)
-        except subprocess.TimeoutExpired:
-            recorder.kill()
-            output, _ = recorder.communicate()
+        output = _terminate(recorder)
 
     assert driver.returncode == 0, driver.stdout + driver.stderr
     assert recorder.returncode == 0, output
@@ -79,5 +180,33 @@ def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: 
     assert list(tmp_path.rglob("episode_000.yaml")), output
 
 
+def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Path) -> None:
+    driver = subprocess.Popen([sys.executable, __file__, "reset"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert driver.stdout is not None
+    published = driver.stdout.readline().strip()
+    recorder = _recorder(tmp_path, RESET_NAMESPACE)
+    try:
+        try:
+            driven, _ = driver.communicate(timeout=120.0)
+        except subprocess.TimeoutExpired:
+            driver.kill()
+            driven, _ = driver.communicate()
+    finally:
+        output = _terminate(recorder)
+
+    assert published == HISTORY_PUBLISHED, driven
+    assert driver.returncode == 0, driven
+    assert recorder.returncode == 0, output
+    episodes = tmp_path / "episodes"
+    assert sorted(path.name for path in episodes.iterdir() if path.is_dir()) == ["episode_000"], output
+    assert sorted(path.name for path in (episodes / "episode_000").iterdir()) == ["episode_000.mcap", "episode_000.yaml"], output
+    metadata = yaml.safe_load((episodes / "episode_000" / "episode_000.yaml").read_text())
+    assert metadata["task_generator_episode_id"] == 5
+    assert metadata["outcome_state"] == 2
+    batches = _pedestrian_batches(episodes / "episode_000" / "episode_000.mcap", f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds".strip("/"))
+    assert len(batches) >= 20, output
+    assert all(batch == ["current"] for batch in batches), batches
+
+
 if __name__ == "__main__":
-    _drive()
+    {"clock": _drive, "reset": _drive_reset}[sys.argv[1]]()
