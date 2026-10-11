@@ -371,7 +371,15 @@ class DataRecorderNode(Node):
 
         self._write_episode_metadata(global_episode_id)
 
-        mcap_uri = str(ep_dir / ep_name)
+        bag_dir = ep_dir / ep_name
+        if bag_dir.exists():
+            index = 0
+            while (kept := ep_dir / f"{ep_name}_unclosed_{index}").exists():
+                index += 1
+            bag_dir.rename(kept)
+            self._log_warn(f"{ep_name} held a bag an earlier recorder left unclosed, kept as {kept.name}")
+
+        mcap_uri = str(bag_dir)
         self._log_info(f"Opening MCAP writer for {ep_name}: uri={mcap_uri}")
 
         mcap_config_path = os.path.join(self.base_dir, "config", "mcap_writer_options.yaml")

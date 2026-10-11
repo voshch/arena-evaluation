@@ -208,5 +208,26 @@ def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Pat
     assert all(batch == ["current"] for batch in batches), batches
 
 
+def test_recorder_records_into_an_episode_whose_bag_was_left_unclosed(tmp_path: pathlib.Path) -> None:
+    episode = tmp_path / "episodes" / "episode_000"
+    unclosed = episode / "episode_000"
+    unclosed.mkdir(parents=True)
+    (unclosed / "episode_000_0.mcap").write_bytes(b"")
+
+    recorder = _recorder(tmp_path, NAMESPACE)
+    try:
+        driver = subprocess.run([sys.executable, __file__, "clock"], capture_output=True, text=True, timeout=120.0, check=False)
+    finally:
+        output = _terminate(recorder)
+
+    assert driver.returncode == 0, driver.stdout + driver.stderr
+    assert recorder.returncode == 0, output
+    assert "Bag directory already exists" not in output
+    assert (episode / "episode_000.mcap").stat().st_size > 0, output
+    assert yaml.safe_load((episode / "episode_000.yaml").read_text())["outcome_state"] == 2
+    assert not unclosed.exists()
+    assert [path.name for path in (episode / "episode_000_unclosed_0").iterdir()] == ["episode_000_0.mcap"]
+
+
 if __name__ == "__main__":
     {"clock": _drive, "reset": _drive_reset}[sys.argv[1]]()
