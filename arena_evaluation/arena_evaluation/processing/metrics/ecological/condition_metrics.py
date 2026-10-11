@@ -9,7 +9,7 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import Atom, EpisodeCondition, parse_atom
-from arena_simulation_setup.shared.judge import Sample, atom_holds, operator_verdict, values_equal
+from arena_simulation_setup.shared.judge import Sample, atom_holds, operator_verdict, values_equal, zone_polygons
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
@@ -18,6 +18,9 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _ZoneGeometry,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+
+if typing.TYPE_CHECKING:
+    from arena_simulation_setup.tree.World import LevelDescription
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +91,16 @@ def _first_true(series: np.ndarray) -> int | None:
     return int(idxs[0]) if len(idxs) else None
 
 
+def judge_zone_geometry(flattened: LevelDescription) -> list[_ZoneGeometry]:
+    """Every polygon the online judge resolves by name on a flattened world: zones, doors and elevator cabins."""
+    zones = _extract_zone_geometry(flattened, require_annotation=False)
+    known = {zone.name for zone in zones}
+    zones.extend(_ZoneGeometry(name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False) for name, polygon in zone_polygons(flattened).items() if name not in known)
+    return zones
+
+
 def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
-    """Zone polygons of a world in the flattened map frame, None when the world asset is not available locally."""
+    """Zone, door and elevator polygons of a world in the flattened map frame, None when the world asset is not available locally."""
     if world_name in _world_cache:
         return _world_cache[world_name]
 
@@ -108,7 +119,7 @@ def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
         origins = {level_id: (0.0, 0.0) for level_id in world.levels}
     flattened = world.compact_world(origins)
 
-    zones = _extract_zone_geometry(flattened, require_annotation=False)
+    zones = judge_zone_geometry(flattened)
     _world_cache[world_name] = zones
     return zones
 
