@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 
+import pytest
 import yaml
 
 NAMESPACE = "/recorder_process_test/env"
@@ -59,8 +60,8 @@ def _drive() -> None:
     rclpy.shutdown()
 
 
-def _drive_reset() -> None:
-    """Latch the records of four finished episodes, then run a fifth through a paused reset as the task generator and the runner do."""
+def _drive_reset(clock: str) -> None:
+    """Latch the records of four finished episodes, then run a fifth through a paused reset as the task generator and the runner do, with the clock frozen or silent during the reset."""
     import rclpy
     import rclpy.executors
     from arena_evaluation_msgs.srv import RecordEpisode
@@ -115,7 +116,8 @@ def _drive_reset() -> None:
     for _ in range(3):
         record(5, EpisodeRecord.QUEUED)
         for _ in range(10):
-            tick(RESET_AT_S)
+            if clock == "frozen":
+                tick(RESET_AT_S)
             roster("previous")
     record(5, EpisodeRecord.RUNNING)
     call(command=RecordEpisode.Request.COMMAND_START, episode_id=5)
@@ -149,19 +151,18 @@ def _terminate(recorder: subprocess.Popen) -> str:
     return output
 
 
-def _pedestrian_batches(mcap: pathlib.Path, topic: str) -> list[list[str]]:
+def _messages(mcap: pathlib.Path, topic: str, msg_type: type) -> list:
     import rosbag2_py
-    from arena_people_msgs.msg import Pedestrians
     from rclpy.serialization import deserialize_message
 
     reader = rosbag2_py.SequentialReader()
     reader.open(rosbag2_py.StorageOptions(uri=str(mcap), storage_id="mcap"), rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"))
-    batches = []
+    messages = []
     while reader.has_next():
         name, data, _ = reader.read_next()
         if name == topic:
-            batches.append([ped.name for ped in deserialize_message(data, Pedestrians).pedestrians])
-    return batches
+            messages.append(deserialize_message(data, msg_type))
+    return messages
 
 
 def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: pathlib.Path) -> None:
@@ -180,8 +181,12 @@ def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: 
     assert list(tmp_path.rglob("episode_000.yaml")), output
 
 
-def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Path) -> None:
-    driver = subprocess.Popen([sys.executable, __file__, "reset"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+@pytest.mark.parametrize("clock", ["frozen", "silent"])
+def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Path, clock: str) -> None:
+    from arena_people_msgs.msg import Pedestrians
+    from task_generator_msgs.msg import EpisodeRecord
+
+    driver = subprocess.Popen([sys.executable, __file__, "reset", clock], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     assert driver.stdout is not None
     published = driver.stdout.readline().strip()
     recorder = _recorder(tmp_path, RESET_NAMESPACE)
@@ -203,9 +208,12 @@ def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Pat
     metadata = yaml.safe_load((episodes / "episode_000" / "episode_000.yaml").read_text())
     assert metadata["task_generator_episode_id"] == 5
     assert metadata["outcome_state"] == 2
-    batches = _pedestrian_batches(episodes / "episode_000" / "episode_000.mcap", f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds".strip("/"))
+    mcap = episodes / "episode_000" / "episode_000.mcap"
+    batches = [[ped.name for ped in msg.pedestrians] for msg in _messages(mcap, f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds".strip("/"), Pedestrians)]
     assert len(batches) >= 20, output
     assert all(batch == ["current"] for batch in batches), batches
+    records = [(msg.episode_id, msg.outcome_state) for msg in _messages(mcap, f"{RESET_NAMESPACE}/state/episode".strip("/"), EpisodeRecord)]
+    assert (5, EpisodeRecord.RUNNING) in records, records
 
 
 def test_recorder_records_into_an_episode_whose_bag_was_left_unclosed(tmp_path: pathlib.Path) -> None:
@@ -230,4 +238,7 @@ def test_recorder_records_into_an_episode_whose_bag_was_left_unclosed(tmp_path: 
 
 
 if __name__ == "__main__":
-    {"clock": _drive, "reset": _drive_reset}[sys.argv[1]]()
+    if sys.argv[1] == "reset":
+        _drive_reset(sys.argv[2])
+    else:
+        _drive()

@@ -359,6 +359,13 @@ class DataRecorderNode(Node):
 
         ep_name = f"episode_{global_episode_id:03d}"
         ep_dir = self.episodes_root / ep_name
+
+        buffered = self._pre_clock_buffer
+        if buffered:
+            kept = [entry for entry in buffered if entry[0].strip('/') in self.latched_topic_names]
+            self._log_info(f"Dropping {len(buffered) - len(kept)} pre-clock messages that arrived before {ep_name}")
+            buffered[:] = kept
+
         ep_dir.mkdir(parents=True, exist_ok=True)
         try:
             ep_dir.chmod(0o777)

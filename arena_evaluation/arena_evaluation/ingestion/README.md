@@ -78,7 +78,9 @@ data/recordings/<YYYYMMDD-HHMMSS>/
 
 ### Recorded Topics
 
-All topics use simulation time from `/clock`. Messages prior to the first `/clock` tick are dropped.
+All topics use simulation time from `/clock`. Messages that arrive before the first `/clock` tick are held and
+written at that tick. When an episode opens first, which happens while a paused simulator publishes no clock,
+the held messages of non-latched topics predate it and are dropped.
 
 | Topic | Message Type | Throttle |
 |---|---|---|
