@@ -63,6 +63,19 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
             dists = cdist(valid_act, valid_ref)
             return float(np.mean(np.min(dists, axis=1)))
 
+    @staticmethod
+    def _count_round_trips(dists_from_start: np.ndarray, max_disp: float) -> int:
+        """Counts returns to within a quarter of the farthest reach, each after passing three quarters of it."""
+        trips = 0
+        away = False
+        for dist in dists_from_start:
+            if not away and dist >= 0.75 * max_disp:
+                away = True
+            elif away and dist <= 0.25 * max_disp:
+                trips += 1
+                away = False
+        return trips
+
     def calculate(
         self,
         episode: AlignedEpisodeBundle,
@@ -79,12 +92,10 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         agent_paths: dict[int, list[tuple[float, float]]] = {}
         for row in peds_pos:
             arr = self._parse_peds(row)
-            pts = [(float(item[0]), float(item[1])) for item in arr if np.isfinite(item[0]) and np.isfinite(item[1]) and abs(item[0]) < 1e6 and abs(item[1]) < 1e6]
-
-            for agent_idx, (px, py) in enumerate(pts):
-                if agent_idx not in agent_paths:
-                    agent_paths[agent_idx] = []
-                agent_paths[agent_idx].append((px, py))
+            for agent_idx, item in enumerate(arr):
+                if not (np.isfinite(item[0]) and np.isfinite(item[1]) and abs(item[0]) < 1e6 and abs(item[1]) < 1e6):
+                    continue
+                agent_paths.setdefault(agent_idx, []).append((float(item[0]), float(item[1])))
 
         if not agent_paths:
             return {
@@ -102,20 +113,12 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
             if len(arr) < 5:
                 continue
 
-            dx = np.diff(arr[:, 0])
-            dy = np.diff(arr[:, 1])
-            step_dists = np.hypot(dx, dy)
-            finite_steps = step_dists[np.isfinite(step_dists)]
-            total_dist = float(np.sum(finite_steps)) if len(finite_steps) > 0 else 0.0
-
             diffs = arr - arr[0]
             dists_from_start = np.hypot(diffs[:, 0], diffs[:, 1])
-            finite_disp = dists_from_start[np.isfinite(dists_from_start)]
-            max_disp = float(np.max(finite_disp)) if len(finite_disp) > 0 else 0.0
+            max_disp = float(np.max(dists_from_start))
 
-            if np.isfinite(max_disp) and max_disp > 0.5:
-                trips = (total_dist / 2.0) / max_disp
-                round_trips += max(0, int(np.round(trips)))
+            if max_disp > 0.5:
+                round_trips += self._count_round_trips(dists_from_start, max_disp)
 
             # Standalone geometric lateral deflection against straight-line start-to-end vector
             p_start, p_end = arr[0], arr[-1]

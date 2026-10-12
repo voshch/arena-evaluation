@@ -107,6 +107,10 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
             r_arr = np.asarray(r, dtype=np.float64)
             if a_arr.ndim != 2 or r_arr.ndim != 2 or a_arr.shape[1] < 2 or r_arr.shape[1] < 2:
                 continue
+            a_arr = a_arr[np.isfinite(a_arr[:, :2]).all(axis=1)]
+            r_arr = r_arr[np.isfinite(r_arr[:, :2]).all(axis=1)]
+            if len(a_arr) < 2 or len(r_arr) < 2:
+                continue
             if len(a_arr) > 300:
                 idx_a = np.linspace(0, len(a_arr) - 1, 300, dtype=int)
                 a_arr = a_arr[idx_a]

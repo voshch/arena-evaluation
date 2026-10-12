@@ -41,6 +41,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
     }
 
     world: str | None = None
+    maps_cache: pathlib.Path | None = None
 
     @classmethod
     def output_keys(cls) -> list[str]:
@@ -83,7 +84,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
 
     def _get_map_occupancy(self, map_name: str, run_dir: pathlib.Path | None = None) -> tuple[np.ndarray, float, tuple[float, float, float]] | None:
         """Load the map PNG as a binary occupancy grid, flipped so row 0 = bottom (y = origin_y)."""
-        meta = MapRegistry.get_map(map_name, run_dir=run_dir)
+        meta = MapRegistry.get_map(map_name, cache_dir=self.maps_cache, run_dir=run_dir)
         if not meta or "png_path" not in meta:
             return None
         try:
@@ -184,7 +185,8 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         total_frames = len(rx_m)
         time_ns = df["time_ns"].to_numpy()
 
-        eval_count = 0
+        solver_evals = 0
+        scored_frames = 0
         last_attenuations: np.ndarray | None = None
 
         for i in range(total_frames):
@@ -250,7 +252,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                     pixel_tl=pixel_tl,
                 )
                 last_attenuations = attenuations
-                eval_count += 1
+                solver_evals += 1
             else:
                 attenuations = last_attenuations
 
@@ -268,19 +270,19 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             ts_attenuation.append(att_valid.tolist())
             ts_exposure.append(exp_valid.tolist())
 
-            eval_count += 1
-            if eval_count % 50 == 0:
+            scored_frames += 1
+            if scored_frames % 50 == 0:
                 logger.info(
                     "AcousticExposureCalculator: Evaluated %d frames... (%d/%d total frames processed)",
-                    eval_count,
-                    i,
+                    scored_frames,
+                    i + 1,
                     total_frames,
                 )
 
         logger.info(
             "AcousticExposureCalculator: Finished episode %s with %d unique solver evaluations.",
             episode.episode_id,
-            eval_count,
+            solver_evals,
         )
 
         # Post-process for scalar metrics

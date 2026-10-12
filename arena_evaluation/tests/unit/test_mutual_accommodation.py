@@ -82,6 +82,17 @@ def test_pfi_is_none_when_every_pair_is_unusable():
     assert M.compute_pfi_dtw([[[0.0, 0.0]], None], [PED_REFERENCE[0], PED_REFERENCE[0]]) is None
 
 
+def test_pfi_skips_pairs_left_with_one_finite_sample():
+    nan = [math.nan, math.nan]
+    assert M.compute_pfi_dtw([[nan, nan, [0.0, 0.0]]], [PED_REFERENCE[0]]) is None
+    assert M.compute_pfi_dtw([PED_REFERENCE[0]], [[nan, [0.0, 0.0], nan]]) is None
+
+
+def test_pfi_drops_non_finite_samples_before_alignment():
+    nan = [math.nan, math.nan]
+    assert M.compute_pfi_dtw([[nan, *PED_SHIFTED[0]]], [[*PED_REFERENCE[0], nan]]) == pytest.approx(1.0, abs=1e-12)
+
+
 def test_pfi_downsamples_long_actual_path_to_300_samples():
     actual = [[0.0, 0.0]] * 301
     actual[299] = [0.0, 5.0]
@@ -205,7 +216,6 @@ def test_reconcile_empty_robot_reference_is_ignored():
     assert _reconcile({"time_to_goal": 20.0, "energy_total_wh": 5.0, "path": [[0.0, 0.0], [1.0, 1.0]]}, {}) == ALL_NONE
 
 
-@pytest.mark.xfail(strict=True, reason="mutual_accommodation feeds NaN samples into the DTW, and pedestrian_path rows before the first peds sample are NaN, so pfi is NaN")
 def test_reconcile_pfi_ignores_samples_before_first_pedestrian_message():
     calc = PedestrianPathMetricsCalculator(RobotParams())
 

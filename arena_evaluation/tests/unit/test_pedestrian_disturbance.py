@@ -140,14 +140,22 @@ def test_delay_is_zero_when_every_agent_has_one_sample():
     assert _calc(_frame([[1.0, 1.0, 0.0], []], [0, 1]))["ped_velocity_delay_ratio"] == 0.0
 
 
-@pytest.mark.xfail(strict=True, reason="pedestrian_disturbance indexes agents after dropping invalid points, so one NaN sample shifts every later pedestrian into the wrong path")
 def test_invalid_sample_does_not_shift_pedestrian_identity():
     rows = [[0.0, 0.0, 0.0, 10.0, 0.0, 0.0] for _ in range(6)]
     rows[2] = [math.nan, math.nan, 0.0, 10.0, 0.0, 0.0]
     assert _calc(_frame(rows, [0, 1, 2, 3, 4, 5])) == {"ped_path_deflection_m": 0.0, "ped_velocity_delay_ratio": 0.0, "ped_round_trips_completed": 0.0}
 
 
-@pytest.mark.xfail(strict=True, reason="pedestrian_disturbance rounds (length / 2) / max displacement, which exceeds 0.5 on any one-way detour, to one completed round trip")
 def test_one_way_detour_completes_no_round_trip():
     rows = _walk((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 0.0))
     assert _calc(_frame(rows, [0, 1, 2, 3, 4]))["ped_round_trips_completed"] == 0.0
+
+
+def test_return_short_of_start_completes_no_round_trip():
+    rows = _walk((0.0, 0.0), (2.0, 0.0), (4.0, 0.0), (3.0, 0.0), (2.0, 0.0))
+    assert _calc(_frame(rows, [0, 1, 2, 3, 4]))["ped_round_trips_completed"] == 0.0
+
+
+def test_round_trip_counts_return_near_start_after_reaching_far_end():
+    rows = _walk((0.0, 0.0), (1.0, 0.0), (4.0, 0.0), (3.9, 0.0), (0.9, 0.0), (0.5, 0.0), (4.0, 0.0))
+    assert _calc(_frame(rows, [0, 1, 2, 3, 4, 5, 6]))["ped_round_trips_completed"] == 1.0
