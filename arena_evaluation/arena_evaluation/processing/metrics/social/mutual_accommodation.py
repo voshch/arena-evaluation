@@ -113,23 +113,20 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
             if len(r_arr) > 300:
                 idx_r = np.linspace(0, len(r_arr) - 1, 300, dtype=int)
                 r_arr = r_arr[idx_r]
-            try:
-                from scipy.spatial.distance import cdist
+            from scipy.spatial.distance import cdist
 
-                dist_m = cdist(a_arr[:, :2], r_arr[:, :2])
-                nr, nc = dist_m.shape
-                cost = np.full((nr, nc), np.inf)
-                cost[0, 0] = dist_m[0, 0]
-                for row_i in range(1, nr):
-                    cost[row_i, 0] = cost[row_i - 1, 0] + dist_m[row_i, 0]
+            dist_m = cdist(a_arr[:, :2], r_arr[:, :2])
+            nr, nc = dist_m.shape
+            cost = np.full((nr, nc), np.inf)
+            cost[0, 0] = dist_m[0, 0]
+            for row_i in range(1, nr):
+                cost[row_i, 0] = cost[row_i - 1, 0] + dist_m[row_i, 0]
+            for col_j in range(1, nc):
+                cost[0, col_j] = cost[0, col_j - 1] + dist_m[0, col_j]
+            for row_i in range(1, nr):
                 for col_j in range(1, nc):
-                    cost[0, col_j] = cost[0, col_j - 1] + dist_m[0, col_j]
-                for row_i in range(1, nr):
-                    for col_j in range(1, nc):
-                        cost[row_i, col_j] = dist_m[row_i, col_j] + min(cost[row_i - 1, col_j], cost[row_i, col_j - 1], cost[row_i - 1, col_j - 1])
-                errors.append(float(cost[-1, -1] / max(nr, nc)))
-            except Exception:
-                continue
+                    cost[row_i, col_j] = dist_m[row_i, col_j] + min(cost[row_i - 1, col_j], cost[row_i, col_j - 1], cost[row_i - 1, col_j - 1])
+            errors.append(float(cost[-1, -1] / max(nr, nc)))
 
         return float(np.mean(errors)) if errors else None
 

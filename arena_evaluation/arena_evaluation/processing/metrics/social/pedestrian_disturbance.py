@@ -115,8 +115,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
 
             if np.isfinite(max_disp) and max_disp > 0.5:
                 trips = (total_dist / 2.0) / max_disp
-                if np.isfinite(trips):
-                    round_trips += max(0, int(np.round(trips)))
+                round_trips += max(0, int(np.round(trips)))
 
             # Standalone geometric lateral deflection against straight-line start-to-end vector
             p_start, p_end = arr[0], arr[-1]
@@ -128,10 +127,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
                 rel_pos = arr - p_start
                 lateral_dists = np.abs(rel_pos[:, 0] * u_vec[1] - rel_pos[:, 1] * u_vec[0])
                 finite_lat = lateral_dists[np.isfinite(lateral_dists)]
-                if len(finite_lat) > 0:
-                    mean_def = float(np.mean(finite_lat))
-                    if np.isfinite(mean_def):
-                        total_deflection += mean_def
+                total_deflection += float(np.mean(finite_lat))
 
         # Velocity delay: compare actual mean speed to baseline desired speed (~1.2 m/s)
         time_ns = episode.data["time_ns"].to_numpy() if "time_ns" in episode.data.columns else None
@@ -145,12 +141,9 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
                         p_arr = np.array(pts)
                         step_dists = np.hypot(np.diff(p_arr[:, 0]), np.diff(p_arr[:, 1]))
                         finite_d = step_dists[np.isfinite(step_dists)]
-                        if len(finite_d) > 0:
-                            all_dists.append(float(np.sum(finite_d)))
+                        all_dists.append(float(np.sum(finite_d)))
                 if all_dists:
-                    avg_dist = float(np.mean(all_dists))
-                    if np.isfinite(avg_dist):
-                        avg_speed = avg_dist / dt_s
+                    avg_speed = float(np.mean(all_dists)) / dt_s
 
         desired_speed = 1.2  # Nominal pedsim desired speed
         velocity_delay_ratio = max(0.0, float(1.0 - (avg_speed / desired_speed))) if avg_speed > 0 and np.isfinite(avg_speed) else 0.0
