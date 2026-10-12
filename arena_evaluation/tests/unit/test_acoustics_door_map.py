@@ -1,11 +1,11 @@
 """Unit tests for door geometry extraction (acoustics/door_map.py).
 
-Covers Bresenham rasterization, world.yaml discovery (run_dir / ament / ws-root),
+Covers Bresenham rasterization, world discovery (run_dir / ament / ws-root),
 per-door pixel-mask building with thickness and wall-overlap checks, entity-name
 matching, and the per-pixel TL assembly (walls 47 dB / doors 25 dB / open 0 dB).
 
-All world.yaml files are synthesized in tmp_path; the module's `pathlib.Path`
-binding is remapped when the absolute ws_root candidates must be exercised.
+All worlds are synthesized in tmp_path; ARENA_DIR is pointed at tmp_path when
+the ws_root candidate must be exercised.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from arena_evaluation.processing.acoustics.door_map import (
     DEFAULT_DOOR_TL_DB,
     _bresenham_line,
     _entity_matches_door,
-    _find_world_yaml,
-    _load_world_yaml,
+    _find_world_doors,
+    _load_doors,
     build_pixel_tl,
     door_segments,
 )
@@ -56,34 +56,40 @@ def _install_fake_ament(monkeypatch, tmp_path: pathlib.Path, *, raise_error: boo
     monkeypatch.setitem(sys.modules, "ament_index_python.packages", pkg)
 
 
-def _door(name=None, start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding", tl_db=None, coords_as_dict=True) -> dict:
-    d: dict = {"width": width, "kind": kind}
-    if name is not None:
-        d["name"] = name
-    if tl_db is not None:
-        d["tl_db"] = tl_db
-    if coords_as_dict:
-        d["start"] = {"x": start[0], "y": start[1]}
-        d["end"] = {"x": end[0], "y": end[1]}
-    else:
-        d["start"] = list(start)
-        d["end"] = list(end)
-    return d
+def _door(name="door", start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding", coords_as_dict=False) -> dict:
+    span = [{"x": start[0], "y": start[1]}, {"x": end[0], "y": end[1]}] if coords_as_dict else [list(start), list(end)]
+    return {"name": name, "span": span, "width": width, "kind": kind}
 
 
-def _write_world(base: pathlib.Path, *, levels: dict | None = None, flat: dict | None = None, corrupt: bool = False) -> pathlib.Path:
+_ROOM = [[0.0, 0.0], [30.0, 0.0], [30.0, 20.0], [0.0, 20.0]]
+
+
+def _level(level_id: str, doors: list[dict], zones: bool = True) -> dict:
+    level: dict = {"id": level_id, "doors": doors}
+    if zones:
+        level["zones"] = [{"name": f"room_{level_id}", "polygon": _ROOM}]
+    return level
+
+
+def _write_world(base: pathlib.Path, *, levels: list[dict] | None = None, doors: list[dict] | None = None, corrupt: bool = False) -> pathlib.Path:
     base.mkdir(parents=True, exist_ok=True)
     path = base / "world.yaml"
     if corrupt:
         path.write_text("{{{{ not yaml ]]]")
     else:
-        doc: dict = {}
-        if levels is not None:
-            doc["levels"] = levels
-        if flat is not None:
-            doc.update(flat)
-        path.write_text(yaml.safe_dump(doc))
-    return path
+        if levels is None:
+            levels = [_level("0", doors or [])]
+        path.write_text(yaml.safe_dump({"format": "arena-world/2", "levels": levels}))
+    return base
+
+
+def _write_legacy_world(base: pathlib.Path, doors: list[dict]) -> pathlib.Path:
+    level = base / "0"
+    level.mkdir(parents=True, exist_ok=True)
+    legacy_doors = [{"name": door["name"], "start": door["span"][0], "end": door["span"][1], "width": door["width"]} for door in doors]
+    zone = {"name": "room", "corners": _ROOM, "doors": legacy_doors}
+    (level / "world.yaml").write_text(yaml.safe_dump({"zones": [zone]}))
+    return base
 
 
 def _wall_grid(height: int = 20, width: int = 30, wall_rows=(5, 12)) -> np.ndarray:
@@ -91,12 +97,6 @@ def _wall_grid(height: int = 20, width: int = 30, wall_rows=(5, 12)) -> np.ndarr
     for r in wall_rows:
         grid[r, :] = 1
     return grid
-
-
-def _levels_world(door_lists: list[list[dict]], level_names=None) -> dict:
-    level_names = level_names or [f"level_{i}" for i in range(len(door_lists))]
-    levels = {name: {"zones": [{"doors": doors}]} for name, doors in zip(level_names, door_lists)}
-    return levels
 
 
 # ---------------------------------------------------------------------------
@@ -149,58 +149,73 @@ def test_bresenham_properties(x0, y0, x1, y1):
 
 
 # ---------------------------------------------------------------------------
-# _find_world_yaml
+# _find_world_doors
 # ---------------------------------------------------------------------------
 
 
-def test_find_world_yaml_run_dir_zero_subdir_preferred(tmp_path):
+def test_find_world_doors_run_dir_legacy_layout(tmp_path):
     run = tmp_path / "run"
-    deep = _write_world(run / "worlds" / "m1" / "0", flat={"name": "deep"})
-    _write_world(run / "worlds" / "m1", flat={"name": "shallow"})
-    assert _find_world_yaml("m1", run_dir=run) == deep
+    world = _write_legacy_world(run / "worlds" / "m1", [_door("d1")])
+    found = _find_world_doors("m1", run_dir=run)
+    assert found is not None
+    assert found[0] == world
+    assert [door.name for door in found[1]] == ["d1"]
 
 
-def test_find_world_yaml_run_dir_flat(tmp_path):
+def test_find_world_doors_run_dir_format2(tmp_path):
     run = tmp_path / "run"
-    flat = _write_world(run / "worlds" / "m2", flat={"name": "flat"})
-    assert _find_world_yaml("m2", run_dir=run) == flat
+    world = _write_world(run / "worlds" / "m2", doors=[_door("d2")])
+    found = _find_world_doors("m2", run_dir=run)
+    assert found is not None
+    assert found[0] == world
 
 
-def test_find_world_yaml_ament_share(tmp_path, monkeypatch):
+def test_find_world_doors_run_dir_without_world_skipped(tmp_path):
+    run = tmp_path / "run"
+    (run / "worlds" / "ae_nonesuch_map" / "scenarios").mkdir(parents=True)
+    assert _find_world_doors("ae_nonesuch_map", run_dir=run) is None
+
+
+def test_find_world_doors_ament_share(tmp_path, monkeypatch):
     _install_fake_ament(monkeypatch, tmp_path)
-    share_world = _write_world(tmp_path / "share" / "worlds" / "m3" / "0", flat={})
-    assert _find_world_yaml("m3", run_dir=None) == share_world
+    share_world = _write_world(tmp_path / "share" / "worlds" / "m3")
+    found = _find_world_doors("m3", run_dir=None)
+    assert found is not None
+    assert found[0] == share_world
 
 
-def test_find_world_yaml_ament_failure_ignored(tmp_path, monkeypatch):
+def test_find_world_doors_ament_failure_ignored(tmp_path, monkeypatch):
     _install_fake_ament(monkeypatch, tmp_path, raise_error=True)
-    assert _find_world_yaml("ae_nonesuch_map", run_dir=None) is None
+    assert _find_world_doors("ae_nonesuch_map", run_dir=None) is None
 
 
-def test_find_world_yaml_ws_root_fallback(tmp_path, monkeypatch):
+def test_find_world_doors_ws_root_fallback(tmp_path, monkeypatch):
     _remap_pathlib(monkeypatch, tmp_path)
-    ws_world = _write_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m4", flat={})
-    assert _find_world_yaml("m4", run_dir=None) == ws_world
+    ws_world = _write_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m4")
+    found = _find_world_doors("m4", run_dir=None)
+    assert found is not None
+    assert found[0] == ws_world
 
 
-def test_find_world_yaml_ws_root_zero_subdir(tmp_path, monkeypatch):
+def test_find_world_doors_ws_root_legacy_layout(tmp_path, monkeypatch):
     _remap_pathlib(monkeypatch, tmp_path)
-    ws_world = _write_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m5" / "0", flat={})
-    assert _find_world_yaml("m5", run_dir=None) == ws_world
+    ws_world = _write_legacy_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m5", [_door("d5")])
+    found = _find_world_doors("m5", run_dir=None)
+    assert found is not None
+    assert found[0] == ws_world
 
 
-def test_find_world_yaml_not_found(tmp_path):
+def test_find_world_doors_not_found(tmp_path):
     # fake name cannot exist in run_dir, ament share, or the real ws roots
-    assert _find_world_yaml("ae_nonesuch_map", run_dir=tmp_path / "run") is None
+    assert _find_world_doors("ae_nonesuch_map", run_dir=tmp_path / "run") is None
 
 
-def test_load_world_yaml_cached(tmp_path):
-    path = tmp_path / "w.yaml"
-    path.write_text(yaml.safe_dump({"a": 1}))
-    assert _load_world_yaml(str(path)) == {"a": 1}
+def test_load_doors_cached(tmp_path):
+    world = _write_world(tmp_path / "w", doors=[_door("first")])
+    assert [door.name for door in _load_doors(str(world))] == ["first"]
     # lru_cache: mutation on disk is not picked up
-    path.write_text(yaml.safe_dump({"a": 2}))
-    assert _load_world_yaml(str(path)) == {"a": 1}
+    _write_world(tmp_path / "w", doors=[_door("second")])
+    assert [door.name for door in _load_doors(str(world))] == ["first"]
 
 
 # ---------------------------------------------------------------------------
@@ -208,73 +223,74 @@ def test_load_world_yaml_cached(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_door_segments_no_world_yaml(tmp_path):
+def test_door_segments_no_world(tmp_path):
     assert door_segments("ae_nonesuch_map", _wall_grid(), 0.05, (0.0, 0.0, 0.0)) == {}
 
 
 def test_door_segments_corrupt_world_yaml(tmp_path):
-    world = _write_world(tmp_path / "run" / "worlds" / "m1" / "0", corrupt=True)
+    world = _write_world(tmp_path / "run" / "worlds" / "m1", corrupt=True)
     assert door_segments("m1", _wall_grid(), 0.05, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
-    assert world.exists()
+    assert (world / "world.yaml").exists()
 
 
-def test_door_segments_levels_layout(tmp_path):
-    doors_a = [_door("d1", start=(10.0, 5.0), end=(16.0, 5.0))]
-    doors_b = [_door("d2", start=(10.0, 12.0), end=(16.0, 12.0))]
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", levels=_levels_world([doors_a, doors_b]))
+def test_door_segments_levels_in_compacted_frame(tmp_path):
+    levels = [_level("0", [_door("d1", start=(10.0, 5.0), end=(16.0, 5.0))]), _level("1", [_door("d2", start=(10.0, 12.0), end=(16.0, 12.0))])]
+    _write_world(tmp_path / "run" / "worlds" / "m1", levels=levels)
 
-    grid = _wall_grid()
-    result = door_segments("m1", grid, 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
-    assert set(result) == {"level_0/d1", "level_1/d2"}
+    grid = _wall_grid(height=50, wall_rows=(12, 30))
+    result = door_segments("m1", grid, 1.0, (0.0, -25.0, 0.0), run_dir=tmp_path / "run")
+    assert set(result) == {"world/d1", "world/d2"}
     for name, (mask, tl) in result.items():
         assert mask.shape == grid.shape
         assert mask.dtype == bool
         assert tl == DEFAULT_DOOR_TL_DB
         assert mask.sum() > 0
     # door masks land on the wall rows
-    assert np.all(result["level_0/d1"][0][4:7, 10:17].sum(axis=0) > 0)
+    assert np.all(result["world/d1"][0][29:32, 10:17].sum(axis=0) > 0)
+    assert np.all(result["world/d2"][0][11:14, 10:17].sum(axis=0) > 0)
 
 
-def test_door_segments_flat_layout(tmp_path):
-    flat = {"zones": [{"doors": [_door("main_door", start=(10.0, 5.0), end=(16.0, 5.0))]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+def test_door_segments_single_level(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("main_door", start=(10.0, 5.0), end=(16.0, 5.0))])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert set(result) == {"world/main_door"}
 
 
-def test_door_segments_empty_levels_falls_back_to_flat(tmp_path):
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", levels={})
+def test_door_segments_legacy_world(tmp_path):
+    _write_legacy_world(tmp_path / "run" / "worlds" / "m1", [_door("main_door", start=(10.0, 5.0), end=(16.0, 5.0))])
+    result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
+    assert set(result) == {"world/main_door"}
+
+
+def test_door_segments_empty_levels(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", levels=[])
     assert door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
 
 
-def test_door_segments_missing_name_generated(tmp_path):
-    flat = {"zones": [{"doors": [_door(start=(10.0, 5.0), end=(16.0, 5.0))]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
-    result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
-    assert set(result) == {"world/door_0"}
+def test_door_segments_unnamed_door_world_yields_nothing(tmp_path):
+    door = _door(start=(10.0, 5.0), end=(16.0, 5.0))
+    del door["name"]
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[door])
+    assert door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
 
 
-def test_door_segments_coords_as_lists(tmp_path):
-    flat = {"zones": [{"doors": [_door("l1", start=(10.0, 5.0), end=(16.0, 5.0), coords_as_dict=False)]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+def test_door_segments_coords_as_mappings(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("l1", start=(10.0, 5.0), end=(16.0, 5.0), coords_as_dict=True)])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert "world/l1" in result
 
 
-def test_door_segments_custom_tl_db(tmp_path):
-    flat = {"zones": [{"doors": [_door("s", start=(10.0, 5.0), end=(16.0, 5.0), tl_db=18.0)]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+def test_door_segments_closed_door_takes_default_tl(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("s", start=(10.0, 5.0), end=(16.0, 5.0))])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
-    assert result["world/s"][1] == 18.0
+    assert result["world/s"][1] == DEFAULT_DOOR_TL_DB
 
 
 def test_door_segments_width_controls_thickness(tmp_path):
-    # NOTE: separate run dirs so the lru-cached world.yaml never serves the
+    # NOTE: separate run dirs so the lru-cached world never serves the
     # first (thin) document for the second call.
-    thin = {"zones": [{"doors": [_door("thin", start=(10.0, 5.0), end=(16.0, 5.0), width=0.5)]}]}
-    thick = {"zones": [{"doors": [_door("thick", start=(10.0, 5.0), end=(16.0, 5.0), width=4.0)]}]}
-    _write_world(tmp_path / "run_a" / "worlds" / "m1" / "0", flat=thin)
-    _write_world(tmp_path / "run_b" / "worlds" / "m1" / "0", flat=thick)
+    _write_world(tmp_path / "run_a" / "worlds" / "m1", doors=[_door("thin", start=(10.0, 5.0), end=(16.0, 5.0), width=0.5)])
+    _write_world(tmp_path / "run_b" / "worlds" / "m1", doors=[_door("thick", start=(10.0, 5.0), end=(16.0, 5.0), width=4.0)])
     thin_result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run_a")
     thick_result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run_b")
     assert thick_result["world/thick"][0].sum() > thin_result["world/thin"][0].sum()
@@ -282,42 +298,36 @@ def test_door_segments_width_controls_thickness(tmp_path):
 
 def test_door_segments_off_wall_door_skipped(tmp_path):
     # door placed in free space, away from any wall pixel -> dropped
-    flat = {"zones": [{"doors": [_door("float", start=(10.0, 8.0), end=(16.0, 8.0))]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("float", start=(10.0, 8.0), end=(16.0, 8.0))])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert result == {}
 
 
 def test_door_segments_out_of_bounds_door_skipped(tmp_path):
-    flat = {"zones": [{"doors": [_door("far", start=(200.0, 200.0), end=(210.0, 200.0))]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("far", start=(200.0, 200.0), end=(210.0, 200.0))])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert result == {}
 
 
 def test_door_segments_degenerate_point_door_on_wall(tmp_path):
-    flat = {"zones": [{"doors": [_door("dot", start=(10.0, 5.0), end=(10.0, 5.0))]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("dot", start=(10.0, 5.0), end=(10.0, 5.0))])
     result = door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
     assert "world/dot" in result
     assert result["world/dot"][0].sum() >= 1
 
 
 def test_door_segments_no_doors_declared(tmp_path):
-    flat = {"zones": [{"doors": []}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[])
     assert door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
 
 
-def test_door_segments_world_without_zones_key(tmp_path):
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat={"name": "plain"})
+def test_door_segments_level_without_zones(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", levels=[_level("0", [], zones=False)])
     assert door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
 
 
-def test_door_segments_missing_start_end_default_to_origin(tmp_path):
-    # start/end absent -> (0,0) -> mask at grid origin; no wall there -> skipped
-    flat = {"zones": [{"doors": [{"width": 1.0, "kind": "sliding"}]}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+def test_door_segments_door_without_span_world_yields_nothing(tmp_path):
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[{"name": "d", "width": 1.0, "kind": "sliding"}])
     assert door_segments("m1", _wall_grid(), 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run") == {}
 
 
@@ -475,10 +485,8 @@ def test_build_pixel_tl_property(width, height, wall_rows, open_flags, tl_db):
 
 
 def test_door_segments_and_build_pixel_tl_integration(tmp_path):
-    """End-to-end: world.yaml door geometry carved into the TL map."""
-    doors_yaml = [_door("main_door", start=(10.0, 5.0), end=(16.0, 5.0), tl_db=20.0)]
-    flat = {"zones": [{"doors": doors_yaml}]}
-    _write_world(tmp_path / "run" / "worlds" / "m1" / "0", flat=flat)
+    """End-to-end: world door geometry carved into the TL map."""
+    _write_world(tmp_path / "run" / "worlds" / "m1", doors=[_door("main_door", start=(10.0, 5.0), end=(16.0, 5.0))])
 
     grid = _wall_grid()
     segs = door_segments("m1", grid, 1.0, (0.0, 0.0, 0.0), run_dir=tmp_path / "run")
@@ -486,8 +494,8 @@ def test_door_segments_and_build_pixel_tl_integration(tmp_path):
 
     closed = build_pixel_tl(grid, segs)
     mask = segs["world/main_door"][0]
-    assert np.all(closed[mask] == 20.0)
-    assert closed[mask].max() == 20.0
+    assert np.all(closed[mask] == DEFAULT_DOOR_TL_DB)
+    assert closed[mask].max() == DEFAULT_DOOR_TL_DB
 
     opened = build_pixel_tl(grid, segs, open_doors={"env_0/world/main_door/2"})
     assert np.all(opened[mask] == 0.0)

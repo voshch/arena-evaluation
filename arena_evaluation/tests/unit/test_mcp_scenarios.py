@@ -11,17 +11,18 @@ def bridge():
 
 def test_validate_scenario_valid(bridge):
     valid_yaml = """
+format: arena-scenario/2
 robots:
   - start: [10.0, 2.0, 1.57]
     phases:
       - goto: [10.0, 30.0, 1.57]
-dynamic:
+humans:
   - name: ped_1
     model: arenian
     pose: [10.0, 28.0, -1.57]
     velocity: 1.2
     waypoints: [[10.0, 4.0, -1.57]]
-static: []
+objects: []
 regions: {}
 """
     res = _dispatch(
@@ -37,9 +38,10 @@ regions: {}
 
 def test_validate_scenario_missing_robot_start(bridge):
     invalid_yaml = """
+format: arena-scenario/2
 robots:
   - phases: [{goto: [10.0, 30.0, 1.57]}]
-dynamic: []
+humans: []
 """
     res = _dispatch(
         "validate_scenario",
@@ -50,13 +52,30 @@ dynamic: []
     assert "missing required 'start'" in res.get("error", "")
 
 
+def test_validate_scenario_format1_rejected(bridge):
+    legacy_yaml = """
+robots:
+  - start: [10.0, 2.0, 1.57]
+    phases: [{goto: [10.0, 30.0, 1.57]}]
+dynamic: []
+"""
+    res = _dispatch(
+        "validate_scenario",
+        {"yaml_content": legacy_yaml},
+        bridge,
+    )
+    assert res.get("valid") is False
+    assert "arena-scenario/2" in res.get("error", "")
+
+
 def test_validate_scenario_out_of_bounds_warning(bridge):
     oob_yaml = """
+format: arena-scenario/2
 robots:
   - start: [1000.0, 2000.0, 1.57]
     phases:
       - goto: [10.0, 30.0, 1.57]
-dynamic:
+humans:
   - name: ped_1
     model: arenian
     pose: [10.0, 28.0, -1.57]
@@ -73,11 +92,12 @@ dynamic:
 
 def test_create_scenario_execution(bridge, tmp_path, monkeypatch):
     test_yaml = """
+format: arena-scenario/2
 robots:
   - start: [10.0, 2.0, 1.57]
     phases:
       - goto: [10.0, 30.0, 1.57]
-dynamic:
+humans:
   - name: ped_1
     model: arenian
     pose: [10.0, 28.0, -1.57]
@@ -103,4 +123,5 @@ dynamic:
     assert res.get("scenario_valid") is True
     assert target_file.is_file()
     loaded = yaml.safe_load(target_file.read_text())
+    assert loaded["format"] == "arena-scenario/2"
     assert loaded["robots"][0]["start"] == [10.0, 2.0, 1.57]

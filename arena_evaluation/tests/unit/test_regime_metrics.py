@@ -329,19 +329,19 @@ def test_latency_distribution_drops_trigger_without_subsequent_change():
 
 def test_extract_occupancy_zone_geometry_filters_by_annotation():
     from arena_simulation_setup.shared.semantics import SemanticCfg
-    from arena_simulation_setup.tree.World.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    annotated = LevelDescription.Zone(
+    annotated = Zone(
         name="lobby",
-        corners=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
         semantics=[SemanticCfg(role="state", name="cap", value=2.0)],
     )
-    plain = LevelDescription.Zone(
+    plain = Zone(
         name="plain_room",
-        corners=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
     )
-    level = LevelDescription(zones=[annotated, plain])
+    level = Level(zones=[annotated, plain])
 
     zones = _extract_occupancy_zone_geometry(level)
 

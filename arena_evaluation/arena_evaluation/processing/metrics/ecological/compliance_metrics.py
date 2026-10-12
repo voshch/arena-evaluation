@@ -11,7 +11,7 @@ from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
-    from arena_simulation_setup.tree.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,12 @@ class _DoorGeometry:
     radius: float
 
 
-def _extract_zone_geometry(flattened: LevelDescription, require_annotation: bool = True) -> list[_ZoneGeometry]:
+def _extract_zone_geometry(flattened: Level, require_annotation: bool = True) -> list[_ZoneGeometry]:
     import shapely
 
     zones: list[_ZoneGeometry] = []
     for zone in flattened.zones:
-        if len(zone.corners) < 3:
+        if len(zone.polygon) < 3:
             continue
 
         max_speed = None
@@ -60,12 +60,12 @@ def _extract_zone_geometry(flattened: LevelDescription, require_annotation: bool
         if require_annotation and not has_annotation:
             continue
 
-        polygon = shapely.Polygon([(corner.x, corner.y) for corner in zone.corners])
+        polygon = shapely.Polygon([(corner.x, corner.y) for corner in zone.polygon])
         zones.append(_ZoneGeometry(name=zone.name, polygon=polygon, max_speed=max_speed, quiet=quiet, restricted=restricted))
     return zones
 
 
-def _extract_door_geometry(flattened: LevelDescription) -> list[_DoorGeometry]:
+def _extract_door_geometry(flattened: Level) -> list[_DoorGeometry]:
     doors: list[_DoorGeometry] = []
     for door in flattened.all_doors:
         center_x = (door.start.x + door.end.x) / 2.0
@@ -246,7 +246,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     Zone membership is evaluated per odom sample against zone polygons loaded from
     the recorded world asset by name, not from the semantic snapshot (which only
     republishes the same literal YAML values), flattened into the single map frame
-    the runtime renders via `WorldDescription.compact_world`. Doorway blocking
+    the runtime renders via `World.compact_world`. Doorway blocking
     replays the same door-state transitions reconstructed from `semantic_snapshot`
     that `_time_waiting_at_doors` uses, seeded from the entity's first recorded
     snapshot value.

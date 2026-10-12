@@ -209,18 +209,21 @@ def test_replay_zones_cover_doors_and_elevator_cabins():
     from arena_simulation_setup.shared import Door, Elevator
     from arena_simulation_setup.shared.judge import PhaseMonitor, Sample
     from arena_simulation_setup.shared.task import TaskPhase
-    from arena_simulation_setup.tree.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
     from arena_evaluation.processing.metrics.ecological.condition_metrics import judge_zone_geometry
 
-    hall = LevelDescription.Zone(
+    hall = Zone(
         name="hall",
-        corners=[Position(0, 0), Position(20, 0), Position(20, 10), Position(0, 10)],
-        doors=[Door(name="front", start=Position(0, 4), end=Position(0, 6))],
-        elevators=[Elevator(name="lift_a", position=Position(5, 5, 0.0), destination="lift_b"), Elevator(name="lift_b", position=Position(15, 5, 0.0), destination="lift_a")],
+        polygon=[Position(0, 0), Position(20, 0), Position(20, 10), Position(0, 10)],
     )
-    polygons = {zone.name: zone.polygon for zone in judge_zone_geometry(LevelDescription(zones=[hall]))}
+    level = Level(
+        zones=[hall],
+        doors=[Door(name="front", start=Position(0, 4), end=Position(0, 6))],
+        elevators=[Elevator(name="lift_a", position=Position(5, 5, 0.0), destinations=["lift_b"]), Elevator(name="lift_b", position=Position(15, 5, 0.0), destinations=["lift_a"])],
+    )
+    polygons = {zone.name: zone.polygon for zone in judge_zone_geometry(level)}
     assert set(polygons) == {"hall", "front", "lift_a", "lift_b"}
 
     monitor = PhaseMonitor(TaskPhase.parse({"goto": "lift_a", "pose": [4.5, 5.0, 0.0], "until": "robot in lift_b", "hold_time": 0.0}), "robot")

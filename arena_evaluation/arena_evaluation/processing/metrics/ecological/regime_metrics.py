@@ -22,7 +22,7 @@ from arena_evaluation.processing.metrics.ecological.semantic_metrics import (
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
-    from arena_simulation_setup.tree.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
 
@@ -35,20 +35,20 @@ class _CapZoneGeometry:
     polygon: object
 
 
-def _extract_occupancy_zone_geometry(flattened: LevelDescription) -> list[_CapZoneGeometry]:
+def _extract_occupancy_zone_geometry(flattened: Level) -> list[_CapZoneGeometry]:
     """Zones annotated with the occupancy_cap preset (`cap`, `occupancy`, or `over_cap`)."""
     import shapely
 
     zones: list[_CapZoneGeometry] = []
     for zone in flattened.zones:
-        if len(zone.corners) < 3:
+        if len(zone.polygon) < 3:
             continue
 
         has_cap = any((cfg.role == "state" and cfg.name in ("cap", "occupancy")) or (cfg.role == "predicate" and cfg.name == "over_cap") for cfg in zone.semantics)
         if not has_cap:
             continue
 
-        polygon = shapely.Polygon([(corner.x, corner.y) for corner in zone.corners])
+        polygon = shapely.Polygon([(corner.x, corner.y) for corner in zone.polygon])
         zones.append(_CapZoneGeometry(name=zone.name, polygon=polygon))
     return zones
 

@@ -242,8 +242,8 @@ def test_door_carving_open_vs_closed():
     assert a_closed >= los + 20.0, f"closed door should block: {a_closed:.1f}"
 
 
-def test_world_yaml_door_leaf_spans_free_doorway(tmp_path):
-    """A world.yaml door leaf across a doorway rendered as free space still blocks when closed."""
+def test_world_door_leaf_spans_free_doorway(tmp_path):
+    """A world door leaf across a doorway rendered as free space still blocks when closed."""
     import yaml
 
     from arena_evaluation.processing.acoustics.door_map import build_pixel_tl, door_segments
@@ -252,10 +252,10 @@ def test_world_yaml_door_leaf_spans_free_doorway(tmp_path):
     grid[30, :] = 1
     grid[30, 20:41] = 0
 
-    world_dir = tmp_path / "worlds" / "doorworld" / "0"
+    world_dir = tmp_path / "worlds" / "doorworld"
     world_dir.mkdir(parents=True)
-    door = {"name": "d", "start": {"x": 2.0, "y": 3.0}, "end": {"x": 4.0, "y": 3.0}}
-    (world_dir / "world.yaml").write_text(yaml.safe_dump({"zones": [{"doors": [door]}]}))
+    door = {"name": "d", "span": [[2.0, 3.0], [4.0, 3.0]]}
+    (world_dir / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": [{"id": "0", "doors": [door]}]}))
 
     doors = door_segments("doorworld", grid, RES, (0.0, 0.0, 0.0), run_dir=tmp_path)
     assert set(doors) == {"world/d"}

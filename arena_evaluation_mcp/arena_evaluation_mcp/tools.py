@@ -402,7 +402,9 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         ),
         Tool(
             name="create_scenario",
-            description=("Create or update a scenario YAML for a map. Pass map_name (e.g. 'hospital_1'), scenario_name (e.g. 's01_head_on'), and the complete scenario yaml_content. Validates robot goals and dynamic obstacles before writing. Writes directly to the arena_simulation_setup scenarios directory."),
+            description=(
+                "Create or update a scenario YAML for a map. Pass map_name (e.g. 'hospital_1'), scenario_name (e.g. 's01_head_on'), and the complete scenario yaml_content. Validates robot phases and humans of a format 2 scenario (format: arena-scenario/2) before writing. Writes directly to the arena_simulation_setup scenarios directory."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1027,25 +1029,30 @@ def _validate_scenario(
         if not isinstance(data, dict):
             return {"valid": False, "error": f"Expected a mapping, got {type(data).__name__}"}
 
+        from arena_simulation_setup.tree.World.Scenario import SCENARIO_FORMAT
+
+        if data.get("format") != SCENARIO_FORMAT:
+            return {"valid": False, "error": f"'format' must be {SCENARIO_FORMAT!r}"}
+
         robots = data.get("robots", [])
         if not isinstance(robots, list):
             return {"valid": False, "error": "'robots' must be a list"}
         for idx, r in enumerate(robots):
             if not isinstance(r, dict):
                 return {"valid": False, "error": f"robots[{idx}] must be a dict, got {type(r).__name__}"}
-            if "start" not in r and "start_pos" not in r:
-                return {"valid": False, "error": f"robots[{idx}] missing required 'start' (or 'start_pos') field"}
-            if "phases" not in r and "goal" not in r:
-                return {"valid": False, "error": f"robots[{idx}] missing 'phases' or 'goal'"}
+            if "start" not in r:
+                return {"valid": False, "error": f"robots[{idx}] missing required 'start' field"}
+            if "phases" not in r:
+                return {"valid": False, "error": f"robots[{idx}] missing 'phases'"}
 
-        dynamic = data.get("dynamic", [])
-        if not isinstance(dynamic, list):
-            return {"valid": False, "error": "'dynamic' must be a list"}
-        for idx, d in enumerate(dynamic):
+        humans = data.get("humans", [])
+        if not isinstance(humans, list):
+            return {"valid": False, "error": "'humans' must be a list"}
+        for idx, d in enumerate(humans):
             if not isinstance(d, dict):
-                return {"valid": False, "error": f"dynamic[{idx}] must be a dict, got {type(d).__name__}"}
-            if "pose" not in d and "position" not in d:
-                return {"valid": False, "error": f"dynamic[{idx}] missing 'pose' or 'position'"}
+                return {"valid": False, "error": f"humans[{idx}] must be a dict, got {type(d).__name__}"}
+            if "pose" not in d:
+                return {"valid": False, "error": f"humans[{idx}] missing 'pose'"}
 
         warnings: list[str] = []
         if map_name and bridge is not None:
@@ -1068,18 +1075,18 @@ def _validate_scenario(
                             if isinstance(p, dict) and "goto" in p:
                                 _check_pt(p["goto"], f"robots[{idx}].phases[{pidx}].goto")
 
-                    for idx, d in enumerate(dynamic):
-                        _check_pt(d.get("pose"), f"dynamic[{idx}].pose")
+                    for idx, d in enumerate(humans):
+                        _check_pt(d.get("pose"), f"humans[{idx}].pose")
                         for widx, wp in enumerate(d.get("waypoints") or []):
-                            _check_pt(wp, f"dynamic[{idx}].waypoints[{widx}]")
+                            _check_pt(wp, f"humans[{idx}].waypoints[{widx}]")
             except Exception as exc:
                 logger.warning("bounds check failed for map %s: %s", map_name, exc)
 
         return {
             "valid": True,
             "n_robots": len(robots),
-            "n_dynamic_peds": len(dynamic),
-            "n_static": len(data.get("static", [])),
+            "n_dynamic_peds": len(humans),
+            "n_static": len(data.get("objects", [])),
             "n_regions": len(data.get("regions", {})),
             "conditions": len(data.get("conditions", [])),
             "timeline": len(data.get("timeline", [])),

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Door geometry extraction: world.yaml door definitions -> pixel segments.
+"""Door geometry extraction: world doors -> pixel segments.
 
 The acoustic solver works on the occupancy grid derived from the map PNG; doors
 are not distinguishable there. This module overlays the *declarative* door
-geometry (world.yaml, the same source the sim uses) onto the grid so each door
-owns a pixel segment that the calculator can carve (open) or give a distinct
-transmission loss (closed).
+geometry (the world, read through the same loader the sim uses) onto the grid so
+each door owns a pixel segment that the calculator can carve (open) or give a
+distinct transmission loss (closed).
 
 Door pixels are represented as a boolean mask per door, aligned with the
 occupancy grid (row 0 = bottom of the map, matching MapRegistry output).
@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import pathlib
+import typing
 
 import numpy as np
-import yaml
+
+if typing.TYPE_CHECKING:
+    from arena_simulation_setup.shared import Door
 
 logger = logging.getLogger(__name__)
 
@@ -28,41 +32,41 @@ DEFAULT_DOOR_TL_DB = 25.0
 
 
 @functools.lru_cache(maxsize=32)
-def _load_world_yaml(world_path: str) -> dict:
-    with open(world_path) as f:
-        return yaml.safe_load(f)
+def _load_doors(world_dir: str) -> tuple[Door, ...]:
+    """The doors of a world in the map frame its levels are flattened into."""
+    from arena_simulation_setup.tree.World import WorldView
+
+    world = WorldView(pathlib.Path(world_dir)).load(validate=False)
+    origins = world.level_origins() if len(world.levels) > 1 else dict.fromkeys(world.level_ids, (0.0, 0.0))
+    return tuple(world.compact_world(origins).doors)
 
 
-def _find_world_yaml(map_name: str, run_dir: pathlib.Path | str | None = None) -> pathlib.Path | None:
-    """Locate the world.yaml for a map: run_dir/worlds/<map>... or via the
-    arena_simulation_setup package worlds/ directory."""
-    import os
-
+def _world_dirs(map_name: str, run_dir: pathlib.Path | str | None = None) -> list[pathlib.Path]:
+    """Candidate world directories for a map: run_dir/worlds/<map>, the arena_simulation_setup package, then ARENA_DIR."""
     candidates: list[pathlib.Path] = []
     if run_dir is not None:
-        candidates.append(pathlib.Path(run_dir) / "worlds" / map_name / "0" / "world.yaml")
-        candidates.append(pathlib.Path(run_dir) / "worlds" / map_name / "world.yaml")
+        candidates.append(pathlib.Path(run_dir) / "worlds" / map_name)
 
-    # package worlds (same layout the sim uses)
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        share = pathlib.Path(get_package_share_directory("arena_simulation_setup"))
-        candidates.append(share / "worlds" / map_name / "0" / "world.yaml")
-        candidates.append(share / "worlds" / map_name / "world.yaml")
+        candidates.append(pathlib.Path(get_package_share_directory("arena_simulation_setup")) / "worlds" / map_name)
     except Exception:
         pass
 
-    ws_roots = []
     if arena_dir := os.environ.get("ARENA_DIR"):
-        ws_roots.append(pathlib.Path(arena_dir) / "arena_simulation_setup" / "worlds")
-    for root in ws_roots:
-        candidates.append(root / map_name / "0" / "world.yaml")
-        candidates.append(root / map_name / "world.yaml")
+        candidates.append(pathlib.Path(arena_dir) / "arena_simulation_setup" / "worlds" / map_name)
 
-    for cand in candidates:
-        if cand.exists():
-            return cand
+    return [cand for cand in candidates if cand.is_dir()]
+
+
+def _find_world_doors(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, tuple[Door, ...]] | None:
+    """The first candidate directory holding a world, and that world's doors."""
+    for cand in _world_dirs(map_name, run_dir=run_dir):
+        try:
+            return cand, _load_doors(str(cand))
+        except FileNotFoundError:
+            continue
     return None
 
 
@@ -98,97 +102,73 @@ def door_segments(
 ) -> dict[str, tuple[np.ndarray, float]]:
     """Build per-door pixel masks + TL for a map's occupancy grid.
 
-    Returns {door_name: (mask, closed_tl_db)} where mask is a bool array the
-    same shape as *grid* (True on the door's pixels). Empty dict when no
-    world.yaml is found or it declares no doors.
+    Returns {world/<door name>: (mask, closed_tl_db)} where mask is a bool array
+    the same shape as *grid* (True on the door's pixels). Empty dict when no
+    world is found or it declares no doors.
     """
-    world_path = _find_world_yaml(map_name, run_dir=run_dir)
-    if world_path is None:
-        logger.debug("No world.yaml found for map %r, no door geometry", map_name)
-        return {}
-
     try:
-        world = _load_world_yaml(str(world_path))
+        found = _find_world_doors(map_name, run_dir=run_dir)
     except Exception as e:
-        logger.warning("Failed to load world.yaml %s: %s", world_path, e)
+        logger.warning("Failed to load world %r: %s", map_name, e)
         return {}
+    if found is None:
+        logger.debug("No world found for map %r, no door geometry", map_name)
+        return {}
+    world_dir, doors = found
 
     ox, oy, _ = origin
     h, w = grid.shape
     result: dict[str, tuple[np.ndarray, float]] = {}
 
-    def collect_doors(level: dict, level_name: str) -> None:
-        for zone in level.get("zones", []) or []:
-            for door in zone.get("doors", []) or []:
-                name = door.get("name") or f"door_{len(result)}"
+    for door in doors:
+        x0, y0 = int(round((door.start.x - ox) / resolution)), int(round((door.start.y - oy) / resolution))
+        x1, y1 = int(round((door.end.x - ox) / resolution)), int(round((door.end.y - oy) / resolution))
 
-                # door coords may be {x, y} dicts or [x, y, ...] lists
-                def _pt(entry: dict | list | tuple) -> tuple[float, float]:
-                    if isinstance(entry, dict):
-                        return float(entry.get("x", 0.0)), float(entry.get("y", 0.0))
-                    if isinstance(entry, (list, tuple)) and len(entry) >= 2:
-                        return float(entry[0]), float(entry[1])
-                    return 0.0, 0.0
+        line = _bresenham_line(x0, y0, x1, y1)
+        if not line:
+            continue
 
-                sx, sy = _pt(door.get("start") or {})
-                ex, ey = _pt(door.get("end") or {})
-                width_m = float(door.get("width", 0.1))
-                tl_db = float(door.get("tl_db", DEFAULT_DOOR_TL_DB))
+        # thickness: offset the line perpendicular by +/- width/2
+        dx, dy = x1 - x0, y1 - y0
+        length = max(np.hypot(dx, dy), 1e-9)
+        ux, uy = dx / length, dy / length
+        half = max(1, int(round((door.width / 2.0) / resolution)))
 
-                x0, y0 = int(round((sx - ox) / resolution)), int(round((sy - oy) / resolution))
-                x1, y1 = int(round((ex - ox) / resolution)), int(round((ey - oy) / resolution))
+        mask = np.zeros((h, w), dtype=bool)
+        for px, py in line:
+            for off in range(-half, half + 1):
+                oxx = px - uy * off
+                oyy = py + ux * off
+                ix, iy = int(round(oxx)), int(round(oyy))
+                if 0 <= ix < w and 0 <= iy < h:
+                    mask[iy, ix] = True
 
-                line = _bresenham_line(x0, y0, x1, y1)
-                if not line:
-                    continue
+        near = mask.copy()
+        near[1:, :] |= mask[:-1, :]
+        near[:-1, :] |= mask[1:, :]
+        near[:, 1:] |= mask[:, :-1]
+        near[:, :-1] |= mask[:, 1:]
+        if not (near & (grid == 1)).any():
+            logger.warning(
+                "Door %r (%s) lands on no wall pixels - skipping (map/world mismatch?)",
+                door.name,
+                world_dir,
+            )
+            continue
 
-                # thickness: offset the line perpendicular by +/- width/2
-                dx, dy = x1 - x0, y1 - y0
-                length = max(np.hypot(dx, dy), 1e-9)
-                ux, uy = dx / length, dy / length
-                half = max(1, int(round((width_m / 2.0) / resolution)))
-
-                mask = np.zeros((h, w), dtype=bool)
-                for px, py in line:
-                    for off in range(-half, half + 1):
-                        oxx = px - uy * off
-                        oyy = py + ux * off
-                        ix, iy = int(round(oxx)), int(round(oyy))
-                        if 0 <= ix < w and 0 <= iy < h:
-                            mask[iy, ix] = True
-
-                near = mask.copy()
-                near[1:, :] |= mask[:-1, :]
-                near[:-1, :] |= mask[1:, :]
-                near[:, 1:] |= mask[:, :-1]
-                near[:, :-1] |= mask[:, 1:]
-                if not (near & (grid == 1)).any():
-                    logger.warning(
-                        "Door %r (%s) lands on no wall pixels - skipping (map/world mismatch?)",
-                        name,
-                        world_path,
-                    )
-                    continue
-
-                result[f"{level_name}/{name}"] = (mask, tl_db)
-
-    for fid, level in (world.get("levels") or {}).items():
-        collect_doors(level, str(fid))
-    if not result:
-        # flat single-level layout
-        collect_doors(world, "world")
+        result[f"world/{door.name}"] = (mask, DEFAULT_DOOR_TL_DB)
 
     if result:
-        logger.info("Door geometry: %d doors from %s", len(result), world_path)
+        logger.info("Door geometry: %d doors from %s", len(result), world_dir)
     return result
 
 
 def _entity_matches_door(door_key: str, entity: str) -> bool:
-    """Check whether a semantic entity name refers to a world.yaml door.
+    """Check whether a semantic entity name refers to a world door.
 
     Semantic entities arrive with an ``env_N/`` prefix and a trailing
     ``/N`` Gazebo model-instance suffix (e.g. ``env_0/main_hallway/0``)
-    while world.yaml doors are keyed as ``{level}/{name}`` (e.g.
+    while world doors are keyed as ``world/{name}`` (e.g.
     ``world/main_hallway``).  This helper strips both decorations so the
     door-state timeline can be wired to the geometry.
     """

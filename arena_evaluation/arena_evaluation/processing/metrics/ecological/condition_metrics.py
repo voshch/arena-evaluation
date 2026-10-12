@@ -20,7 +20,7 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
-    from arena_simulation_setup.tree.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _first_true(series: np.ndarray) -> int | None:
     return int(idxs[0]) if len(idxs) else None
 
 
-def judge_zone_geometry(flattened: LevelDescription) -> list[_ZoneGeometry]:
+def judge_zone_geometry(flattened: Level) -> list[_ZoneGeometry]:
     """Every polygon the online judge resolves by name on a flattened world: zones, doors and elevator cabins."""
     zones = _extract_zone_geometry(flattened, require_annotation=False)
     known = {zone.name for zone in zones}

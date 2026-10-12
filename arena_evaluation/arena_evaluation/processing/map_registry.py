@@ -45,6 +45,23 @@ class MapRegistry:
         return cache_meta
 
     @staticmethod
+    def _world_preview(world_dir: pathlib.Path) -> pathlib.Path | None:
+        """The preview map yaml of a single-level world directory, read through the world loader."""
+        try:
+            from arena_simulation_setup.tree.World import WorldView
+        except ImportError:
+            return None
+        view = WorldView(world_dir)
+        try:
+            world = view.load(validate=False)
+        except (FileNotFoundError, ValueError):
+            return None
+        if len(world.levels) != 1:
+            return None
+        path = view.map_yaml(next(iter(world.levels)))
+        return path if path.exists() else None
+
+    @staticmethod
     def _find_ros_map_dir(map_name: str, run_dir: pathlib.Path | None = None) -> pathlib.Path | None:
         candidates = [map_name]
         if "_stage" in map_name:
@@ -123,11 +140,7 @@ class MapRegistry:
         if not ros_map_dir:
             return MapRegistry._render_world_map(map_name, cache_dir)
 
-        yaml_path = None
-        for cand in ["map/map.yaml", "0/map.yaml", "map.yaml"]:
-            if (ros_map_dir / cand).exists():
-                yaml_path = ros_map_dir / cand
-                break
+        yaml_path = next((ros_map_dir / cand for cand in ("map/map.yaml", "map.yaml") if (ros_map_dir / cand).exists()), None) or MapRegistry._world_preview(ros_map_dir)
 
         if not yaml_path:
             return MapRegistry._render_world_map(map_name, cache_dir)

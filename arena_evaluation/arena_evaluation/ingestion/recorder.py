@@ -126,6 +126,8 @@ class DataRecorderNode(Node):
             ("reference_type", ""),
             ("episode_id_offset", 0),
             ("workspace_dir", ""),
+            ("world.lighting", "authored"),
+            ("kg.derive", "auto"),
         ]:
             if not self.has_parameter(name):
                 try:
@@ -240,6 +242,9 @@ class DataRecorderNode(Node):
         self.reference_type = ref_type if ref_type else None
         self._episode_id_offset = int(self.get_parameter("episode_id_offset").value or 0)
         self.workspace_dir = str(self.get_parameter("workspace_dir").value or "")
+        self.world_lighting = str(self.get_parameter("world.lighting").value or "authored")
+        self.kg_derive = str(self.get_parameter("kg.derive").value or "auto")
+        self._snapshot_worlds: set[str] = set()
 
         env_namespace = self.get_namespace().strip('/')
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
@@ -702,6 +707,8 @@ class DataRecorderNode(Node):
             self._begin_episode(msg.episode_id, source="episode_record")
 
         self._update_metadata_from_episode(msg)
+        if msg.world:
+            self._snapshot_world(msg.world)
 
         env_namespace = self.get_namespace().strip('/')
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
@@ -1006,6 +1013,29 @@ class DataRecorderNode(Node):
             self._log_info(f"Finalized episode metadata: {self.current_metadata_path}")
         except Exception as e:
             self._log_error(f"Failed to finalize episode metadata: {e}")
+
+    def _snapshot_world(self, world_name: str) -> None:
+        """Write the world an episode runs in to run_dir/worlds/<name>, once per world and run, off the callback thread."""
+        from arena_simulation_setup.tree.World import WorldIdentifier
+
+        name, level_filter = WorldIdentifier.parse(world_name)
+        if name in self._snapshot_worlds:
+            return
+        self._snapshot_worlds.add(name)
+        threading.Thread(target=self._write_world_snapshot, args=(name, level_filter), name=f"world_snapshot_{name}", daemon=True).start()
+
+    def _write_world_snapshot(self, name: str, level_filter: set[str] | None) -> None:
+        from arena_simulation_setup.tree.World import WorldIdentifier, save_snapshot
+
+        directory = self.run_dir / "worlds" / name
+        if (directory / "world.yaml").exists():
+            return
+        try:
+            world = WorldIdentifier(name).resolve_sync().load(validate=False, level_filter=level_filter, derive=self.kg_derive)
+            save_snapshot(world, directory, self.world_lighting)
+            self._log_info(f"Wrote world snapshot: {directory}")
+        except Exception as e:
+            self._log_error(f"Failed to write the world snapshot of {name}: {e}")
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""

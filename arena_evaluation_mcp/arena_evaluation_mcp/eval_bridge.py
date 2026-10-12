@@ -361,7 +361,7 @@ class EvalBridge:
             "scenario": {
                 "purpose": "Robot follows a SCRIPTED fixed route (start pose + goto/gesture phases) from the world's scenario file - use this for an authored route independent of seeding.",
                 "config_keys": {"file": "scenario name, resolved to worlds/<map>/scenarios/<file>/scenario.yaml (e.g. 'default', 'flow'). Shared with tm_obstacles: scenario."},
-                "file_format": ("robots: [{start: [x, y, yaw], phases: [{goto: [x, y, yaw]}]}]\nstatic: [{name, model, pose: [x, y, yaw]}]\ndynamic: [{name, model, pose, waypoints: [[x, y, yaw], ...]}]\nregions: {<name>: {type: source|sink, polygon: [{x, y}, ...]}}"),
+                "file_format": ("format: arena-scenario/2\nrobots: [{start: [x, y, yaw], phases: [{goto: [x, y, yaw]}]}]\nobjects: [{name, model, pose: [x, y, yaw]}]\nhumans: [{name, model, pose, waypoints: [[x, y], ...]}]\nregions: {<name>: {type: source|sink, polygon: [{x, y}, ...]}}"),
                 "example": ("stages:\n  - name: scripted_route\n    map: hospital_1\n    robot: jackal\n    tm_robots: scenario\n    tm_obstacles: random\n    episodes: 3\n    config:\n      scenario:\n        file: default\n      random:\n        dynamic: {min: 5, max: 10, models: [arenian]}"),
             },
             "guided": {
@@ -498,26 +498,27 @@ class EvalBridge:
         except Exception as exc:
             info["map_metadata"] = {"error": str(exc)}
 
+        from arena_simulation_setup.tree.World import WorldView
+        from arena_simulation_setup.tree.World.Scenario import ScenarioView
+
         zones: list[dict] = []
-        for cand in (world_dir / "0" / "world.yaml", world_dir / "world.yaml"):
-            if not cand.is_file():
-                continue
-            try:
-                data = yaml.safe_load(cand.read_text())
-            except (OSError, yaml.YAMLError) as exc:
-                logger.warning("failed to parse %s: %s", cand, exc)
-                continue
-            for zone in (data or {}).get("zones", []) or []:
-                corners = zone.get("corners") or []
-                xs = [c["x"] for c in corners if isinstance(c, dict) and "x" in c]
-                ys = [c["y"] for c in corners if isinstance(c, dict) and "y" in c]
-                if xs and ys:
-                    zones.append(
-                        {
-                            "name": zone.get("name", "?"),
-                            "bounds": {"x": [round(min(xs), 2), round(max(xs), 2)], "y": [round(min(ys), 2), round(max(ys), 2)]},
-                        }
-                    )
+        try:
+            world = WorldView(world_dir).load(validate=False)
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            logger.warning("failed to load world %s: %s", world_dir, exc)
+        else:
+            for level_id, level in world.levels.items():
+                for zone in level.zones:
+                    xs = [corner.x for corner in zone.polygon]
+                    ys = [corner.y for corner in zone.polygon]
+                    if xs and ys:
+                        zones.append(
+                            {
+                                "name": zone.name,
+                                "level": level_id,
+                                "bounds": {"x": [round(min(xs), 2), round(max(xs), 2)], "y": [round(min(ys), 2), round(max(ys), 2)]},
+                            }
+                        )
         info["zones"] = zones
         if zones:
             all_x = [b["bounds"]["x"] for b in zones]
@@ -534,26 +535,24 @@ class EvalBridge:
                 if not sd.is_dir():
                     continue
                 entry: dict = {"name": sd.name}
-                for cand in (sd / "scenario.yaml", sd / "scenario.json"):
-                    if not cand.is_file():
-                        continue
+                view = ScenarioView(sd)
+                if pathlib.Path(view.scenario_path).is_file():
                     try:
-                        data = yaml.safe_load(cand.read_text())
-                    except (OSError, yaml.YAMLError) as exc:
-                        logger.warning("failed to parse %s: %s", cand, exc)
-                        continue
-                    robots = (data or {}).get("robots") or []
-                    if robots:
-                        r0 = robots[0]
-                        entry["robot"] = {
-                            "start": r0.get("start") or r0.get("start_pos"),
-                            "goal": r0.get("goal"),
-                            "n_phases": len(r0.get("phases") or []) if r0.get("phases") else None,
-                        }
-                    entry["n_dynamic_peds"] = len((data or {}).get("dynamic") or [])
-                    entry["n_static"] = len((data or {}).get("static") or [])
-                    entry["regions"] = sorted((data or {}).get("regions") or {})
-                    entry["has_robot_route"] = bool(robots)
+                        data = view.read()
+                    except (OSError, ValueError, yaml.YAMLError) as exc:
+                        logger.warning("failed to parse %s: %s", view.scenario_path, exc)
+                    else:
+                        robots = data.get("robots") or []
+                        if robots:
+                            r0 = robots[0]
+                            entry["robot"] = {
+                                "start": r0.get("start"),
+                                "n_phases": len(r0.get("phases") or []) if r0.get("phases") else None,
+                            }
+                        entry["n_dynamic_peds"] = len(data.get("humans") or [])
+                        entry["n_static"] = len(data.get("objects") or [])
+                        entry["regions"] = sorted(data.get("regions") or {})
+                        entry["has_robot_route"] = bool(robots)
                 scenarios.append(entry)
         info["scenarios"] = scenarios
 

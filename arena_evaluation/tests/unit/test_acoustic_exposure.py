@@ -193,8 +193,8 @@ def module_log():
 def _door_run(tmp_path: pathlib.Path, map_name: str) -> tuple[FolderManager, EpisodeDescriptor]:
     world_dir = tmp_path / "bench" / "worlds" / map_name
     world_dir.mkdir(parents=True)
-    door = {"name": "front_door", "start": {"x": 2.5, "y": 2.0}, "end": {"x": 2.5, "y": 3.0}, "width": 0.1}
-    (world_dir / "world.yaml").write_text(yaml.dump({"zones": [{"doors": [door]}]}))
+    door = {"name": "front_door", "span": [[2.5, 2.0], [2.5, 3.0]], "width": 0.1}
+    (world_dir / "world.yaml").write_text(yaml.dump({"format": "arena-world/2", "levels": [{"id": "0", "doors": [door]}]}))
     run = EpisodeDescriptor(episode_dir=str(tmp_path / "bench" / "ep"), benchmark_id="bench", episode_id=7, planner="p", stage="s", map=map_name)
     return FolderManager(tmp_path), run
 

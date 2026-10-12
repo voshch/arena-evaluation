@@ -247,20 +247,19 @@ def test_doorway_blocking_degrades_to_zero_without_snapshot():
 def test_extract_zone_and_door_geometry_reads_world_assets():
     from arena_simulation_setup.shared.semantics import SemanticCfg
     from arena_simulation_setup.shared.world import Door
-    from arena_simulation_setup.tree.World.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
     door = Door(name="door_1", start=Position(5.0, 1.0), end=Position(5.0, 2.0), activation_distance=(1.5, 1.5))
-    zone = LevelDescription.Zone(
+    zone = Zone(
         name="lobby",
-        corners=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
-        doors=[door],
+        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
         semantics=[
             SemanticCfg(role="state", name="max_speed", value=1.0),
             SemanticCfg(role="predicate", name="quiet", value=True),
         ],
     )
-    level = LevelDescription(zones=[zone])
+    level = Level(zones=[zone], doors=[door])
 
     zones = _extract_zone_geometry(level)
     doors = _extract_door_geometry(level)
@@ -279,27 +278,27 @@ def test_extract_zone_and_door_geometry_reads_world_assets():
 
 
 def test_extract_zone_geometry_skips_unannotated_zones():
-    from arena_simulation_setup.tree.World.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    zone = LevelDescription.Zone(
+    zone = Zone(
         name="plain_room",
-        corners=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
     )
-    level = LevelDescription(zones=[zone])
+    level = Level(zones=[zone])
 
     assert _extract_zone_geometry(level) == []
 
 
 def test_extract_zone_geometry_keeps_unannotated_when_not_required():
-    from arena_simulation_setup.tree.World.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    zone = LevelDescription.Zone(
+    zone = Zone(
         name="plain_room",
-        corners=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
     )
-    level = LevelDescription(zones=[zone])
+    level = Level(zones=[zone])
 
     zones = _extract_zone_geometry(level, require_annotation=False)
 
@@ -311,18 +310,18 @@ def test_extract_zone_geometry_keeps_unannotated_when_not_required():
 
 def test_calculate_end_to_end_with_cached_world():
     from arena_simulation_setup.shared.semantics import SemanticCfg
-    from arena_simulation_setup.tree.World.World import LevelDescription
+    from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    zone = LevelDescription.Zone(
+    zone = Zone(
         name="lobby",
-        corners=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
         semantics=[
             SemanticCfg(role="state", name="max_speed", value=1.0),
             SemanticCfg(role="predicate", name="quiet", value=True),
         ],
     )
-    level = LevelDescription(zones=[zone])
+    level = Level(zones=[zone])
 
     calc = _calc()
     calc.world = "synthetic_world"

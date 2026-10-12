@@ -105,6 +105,53 @@ def test_find_ros_map_dir_not_found(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# _world_preview
+# ---------------------------------------------------------------------------
+
+
+def _write_format2_world(base: pathlib.Path, level_ids: list[str]) -> pathlib.Path:
+    base.mkdir(parents=True, exist_ok=True)
+    levels = [{"id": level_id, "zones": [{"name": f"room_{level_id}", "polygon": [[0, 0], [4, 0], [4, 3], [0, 3]]}]} for level_id in level_ids]
+    (base / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": levels}))
+    return base
+
+
+def test_world_preview_single_level_map(tmp_path):
+    world = _write_format2_world(tmp_path / "world", ["0"])
+    preview = _write_world_yaml(world, "map")
+    (preview / "map.yaml").rename(preview / "0.yaml")
+    assert MapRegistry._world_preview(world) == world / "map" / "0.yaml"
+
+
+def test_world_preview_without_preview_file(tmp_path):
+    world = _write_format2_world(tmp_path / "world", ["0"])
+    assert MapRegistry._world_preview(world) is None
+
+
+def test_world_preview_multi_level_world(tmp_path):
+    world = _write_format2_world(tmp_path / "world", ["0", "1"])
+    for level_id in ("0", "1"):
+        preview = _write_world_yaml(world, "map")
+        (preview / "map.yaml").rename(preview / f"{level_id}.yaml")
+    assert MapRegistry._world_preview(world) is None
+
+
+def test_world_preview_directory_without_world(tmp_path):
+    assert MapRegistry._world_preview(tmp_path) is None
+
+
+def test_get_map_reads_single_level_world_preview(tmp_path):
+    world = _write_format2_world(tmp_path / "run" / "worlds" / "ae_map_r1", ["0"])
+    preview = _write_world_yaml(world, "map", image="0.pgm", resolution=0.1)
+    (preview / "map.yaml").rename(preview / "0.yaml")
+    _write_pgm(preview / "0.pgm", 4, 3)
+    meta = MapRegistry.get_map("ae_map_r1", cache_dir=tmp_path / "cache", run_dir=tmp_path / "run")
+    assert meta is not None
+    assert meta["resolution"] == 0.1
+    assert (meta["width"], meta["height"]) == (4, 3)
+
+
+# ---------------------------------------------------------------------------
 # get_map — guards and cache
 # ---------------------------------------------------------------------------
 

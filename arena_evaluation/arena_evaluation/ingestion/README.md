@@ -76,6 +76,15 @@ data/recordings/<YYYYMMDD-HHMMSS>/
     `-- recording_0.mcap
 ```
 
+### World snapshot
+
+On the first episode of each world, the recorder writes that world as it runs
+to `<run_dir>/worlds/<world name>/`: `world.yaml` (format 2, linked levels
+written out, ceilings under the `world.lighting` mode) and `kg.yaml`
+(stated and derived facts under `kg.derive`). Env offsets and other
+runtime state stay out. Evaluation reads world geometry from there before the
+package worlds.
+
 ### Recorded Topics
 
 All topics use simulation time from `/clock`. Messages that arrive before the first `/clock` tick are held and
