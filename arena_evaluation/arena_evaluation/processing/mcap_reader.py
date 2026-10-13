@@ -325,7 +325,7 @@ class MCAPReader:
                         if topic.endswith("/odom"):
                             robot_name = get_robot_name(parts, env_key)
 
-                            target = robot_data[robot_name]["odom_controller" if parts[-2].endswith("_controller") else "odom"]
+                            target = robot_data[robot_name]["odom_controller" if len(parts) >= 2 and parts[-2].endswith("_controller") else "odom"]
                             target["time_ns"].append(ts_ns)
                             target["stamp_ns"].append(self._stamp_ns(ros_msg.header))
                             target["pos_x"].append(ros_msg.pose.pose.position.x)
@@ -350,7 +350,7 @@ class MCAPReader:
                         # Cmd_vel
                         elif topic.endswith("/cmd_vel"):
                             robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["cmd_vel_controller" if parts[-2].endswith("_controller") else "cmd_vel"]
+                            target = robot_data[robot_name]["cmd_vel_controller" if len(parts) >= 2 and parts[-2].endswith("_controller") else "cmd_vel"]
                             twist = ros_msg.twist if schema.name == "geometry_msgs/msg/TwistStamped" else ros_msg
                             target["time_ns"].append(ts_ns)
                             target["linear_x"].append(twist.linear.x)
