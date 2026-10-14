@@ -1,0 +1,14 @@
+# gestures published, but the scenario waits for a clip that never appears
+stages:
+- name: beckon_checkpoint_nomatch
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 77000
+  timeout: 180s
+  config:
+    scenario:
+      file: beckon_checkpoint_nomatch
+      gesture_mode: enabled

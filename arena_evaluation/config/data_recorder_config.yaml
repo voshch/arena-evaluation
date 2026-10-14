@@ -7,6 +7,8 @@ record_frequencies:
   scan:  100.0   # alias for scan-named topics
   odom:   20.0   # odometry, moderate frequency
   peds:   20.0   # pedestrian positions
+  animation_states: 50.0 # animation layer state per ped
+  interactions: 0.0 # latched interaction frame (recorded unthrottled)
   goal_pose: 0.0 # event-driven (recorded unthrottled)
   task_pose: 0.0 # one per judge tick (recorded unthrottled)
   initialpose: 0.0 # event-driven (recorded unthrottled)

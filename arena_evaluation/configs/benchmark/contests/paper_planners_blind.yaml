@@ -1,0 +1,16 @@
+# The no-layer arm of the animation on/off comparison: the same planners with the social cost layer off.
+name: paper_planners_blind
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+- name: attngraph
+  mobile: drl
+  mobile.planner: attngraph

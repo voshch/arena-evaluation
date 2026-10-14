@@ -1,0 +1,26 @@
+# pilot
+stages:
+- name: beckon_hall_far_off
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 72001
+  timeout: 90s
+  config:
+    scenario:
+      file: beckon_hall_far
+      gesture_mode: disabled
+- name: beckon_ward_door_off
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 72002
+  timeout: 90s
+  config:
+    scenario:
+      file: beckon_ward_door
+      gesture_mode: disabled

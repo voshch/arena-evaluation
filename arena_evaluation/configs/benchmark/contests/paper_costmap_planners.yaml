@@ -1,0 +1,21 @@
+# Costmap-based subset of paper_planners, for study B, narrow-passage pointing (EVALUATION.md section B).
+name: paper_costmap_planners
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: mppi
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer

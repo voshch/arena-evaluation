@@ -222,7 +222,7 @@ def test_arena_peds_win_over_engine_agent_states(every_topic: tuple[pathlib.Path
     out, bundles = every_topic
 
     peds = bundles["env_0_jackal"].peds.collect().to_dicts()
-    assert not (out / "env_0" / "peds_engine.parquet").exists()
+    assert (out / "env_0" / "peds_physics.parquet").exists()
     assert peds == [
         {
             "time_ns": 2 * SEC,
@@ -232,6 +232,10 @@ def test_arena_peds_win_over_engine_agent_states(every_topic: tuple[pathlib.Path
             "peds_positions": [3.0, 4.0, 0.0],
             "peds_headings": [pytest.approx(math.pi / 2)],
             "peds_twists": [pytest.approx(0.3), pytest.approx(-0.1), 0.0],
+            "peds_ids": [0],
+            "peds_animation_states": [0],
+            "peds_interaction_ids": [-1],
+            "peds_interaction_types": [0],
         }
     ]
 

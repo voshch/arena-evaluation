@@ -173,9 +173,12 @@ def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | N
     if len(df) == 0 or "time_ns" not in df.columns:
         return None, None
     df = df.sort("time_ns")
-    running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING) if "outcome_state" in df.columns else df
+    if "outcome_state" not in df.columns:
+        return int(df["time_ns"][0]), int(df["time_ns"][-1])
+    running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
     start = int(running["time_ns"][0]) if len(running) else int(df["time_ns"][0])
-    return start, int(df["time_ns"][-1])
+    terminal = df.filter((pl.col("time_ns") > start) & (pl.col("outcome_state") != _RECORD_RUNNING))
+    return start, (int(terminal["time_ns"][-1]) if len(terminal) else None)
 
 
 _ALIGN_TOLERANCE_NS = 100_000_000
@@ -331,13 +334,22 @@ def _outcome_verdict(outcome_state: int | None, outcome_info: str | None) -> tup
 
 
 def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMetadata | None) -> tuple[int | None, str | None]:
-    """Last recorded (outcome_state, outcome_info), from the yaml when no record was captured."""
+    """(outcome_state, outcome_info): the episode's own terminal record, else the runner's yaml outcome, else the last record."""
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
-    if df is not None and len(df) > 0 and "outcome_state" in df.columns and "time_ns" in df.columns:
-        last = df.sort("time_ns").row(-1, named=True)
-        return int(last["outcome_state"]), last.get("outcome_info")
-    if metadata is not None:
+    rows = df is not None and len(df) > 0 and "outcome_state" in df.columns and "time_ns" in df.columns
+    if rows:
+        df = df.sort("time_ns")
+        running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
+        after = df.filter(pl.col("time_ns") > running["time_ns"][0]) if len(running) else df
+        terminal = after.filter(pl.col("outcome_state") != _RECORD_RUNNING)
+        if len(terminal):
+            last = terminal.row(-1, named=True)
+            return int(last["outcome_state"]), last.get("outcome_info")
+    if metadata is not None and metadata.outcome_state is not None:
         return metadata.outcome_state, metadata.outcome_info
+    if rows:
+        last = df.row(-1, named=True)
+        return int(last["outcome_state"]), last.get("outcome_info")
     return None, None
 
 
@@ -613,11 +625,8 @@ class ProcessingPipeline:
                         except Exception:
                             conditions = None
                         if "outcome_state" in er.columns and "time_ns" in er.columns:
-                            er_sorted = er.sort("time_ns")
-                            outcome_state = int(er_sorted["outcome_state"][-1])
-                            if "outcome_info" in er_sorted.columns:
-                                outcome_info = er_sorted["outcome_info"][-1]
-                            phases = _robot_phases(er_sorted, robot_name)
+                            phases = _robot_phases(er.sort("time_ns"), robot_name)
+                        outcome_state, outcome_info = _record_outcome(er, metadata)
 
                 integrity = _record_integrity(bundle.episode_record, metadata)
                 start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, phases)

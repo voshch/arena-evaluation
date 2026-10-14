@@ -86,6 +86,27 @@ except ImportError:
 
     HAS_TASK_GEN = False
 
+
+def _state_types() -> dict[str, tuple[type, str, bool]]:
+    """ros type name -> (msg class, topic basename, latched) of the state topics discovery subscribes in this env."""
+    types: dict[str, tuple[type, str, bool]] = {}
+    try:
+        from arena_humansim_msgs.msg import AgentStates, InteractionFrame
+
+        types["arena_humansim_msgs/msg/InteractionFrame"] = (InteractionFrame, "interactions", True)
+        types["arena_humansim_msgs/msg/AgentStates"] = (AgentStates, "agent_states", False)
+    except ImportError:
+        pass
+    try:
+        from arena_people_msgs.msg import AnimationStates, Pedestrians
+
+        types["arena_people_msgs/msg/AnimationStates"] = (AnimationStates, "animation_states", False)
+        types["arena_people_msgs/msg/Pedestrians"] = (Pedestrians, "arena_peds", False)
+    except ImportError:
+        pass
+    return types
+
+
 _OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
 _TERMINAL_OUTCOMES = {
     EpisodeRecord.SUCCESS,
@@ -95,7 +116,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "interactions", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -498,7 +519,7 @@ class DataRecorderNode(Node):
             topic_name = t_def.name_template
             msg_type = t_def.msg_type
 
-            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
+            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "InteractionFrame", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
                 continue
 
             if key != "tf_humans":
@@ -535,6 +556,7 @@ class DataRecorderNode(Node):
             elif key == "robots_fleet":
                 self.get_logger().info(f"Subscribed to RobotFleet on {topic_name}")
 
+        self._state_types = _state_types()
         if HAS_TASK_GEN:
             recorded_topics_qos = QoSProfile(
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -594,10 +616,13 @@ class DataRecorderNode(Node):
     def discover_topics(self):
         namespace = self.get_namespace().strip('/')
         ns_prefix = f"/{namespace}" if namespace else ""
+        env_prefix = ns_prefix.rsplit("/", 1)[0] + "/"
 
         for name, types in self.get_topic_names_and_types():
             if name in self._topic_registry:
                 continue
+            if name.startswith(env_prefix):
+                self._discover_state_topic(name, types)
             if not name.startswith(ns_prefix):
                 continue
 
@@ -615,6 +640,24 @@ class DataRecorderNode(Node):
                                 self.current_metadata.robot_model = [part]
                                 MetadataWriter.write(self.current_metadata, self.current_metadata_path)
                             break
+
+    def _discover_state_topic(self, topic_name: str, types: list[str]) -> None:
+        for type_name in types:
+            entry = self._state_types.get(type_name)
+            if entry is None:
+                continue
+            msg_type, basename, latched = entry
+            if topic_name.rsplit("/", 1)[-1] != basename:
+                continue
+            self._register_topic(topic_name, msg_type)
+            if latched:
+                self.latched_topic_names.add(topic_name.strip('/'))
+                sub = self.create_subscription(msg_type, topic_name, self._create_unthrottled_callback(topic_name), self.latched_qos)
+            else:
+                sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
+            self.subs.append(sub)
+            self._log_info(f"Discovered state topic: {topic_name} [{type_name}]{' latched' if latched else ''}")
+            return
 
     def _subscribe_discovered(self, topic_name: str, msg_type: type):
         self._register_topic(topic_name, msg_type)

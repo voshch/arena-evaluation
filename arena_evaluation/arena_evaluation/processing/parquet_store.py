@@ -5,6 +5,7 @@ import pathlib
 
 import polars as pl
 
+from arena_evaluation.processing.mcap_reader import ENV_STATE_TABLES
 from arena_evaluation.storage.exceptions import SchemaViolationError
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 
@@ -113,7 +114,7 @@ class TopicParquetStore:
         import dataclasses
 
         # Determine global fields that are shared among all robots to save space
-        global_fields = {"peds", "episode_record", "tf", "tf_static", "semantic_snapshot"}
+        global_fields = {"peds", "episode_record", "tf", "tf_static", "semantic_snapshot", *ENV_STATE_TABLES}
         global_written = set()
 
         for robot_name, bundle in bundles.items():
@@ -192,6 +193,8 @@ class TopicParquetStore:
             rb.tf = global_bundle.tf
             rb.tf_static = global_bundle.tf_static
             rb.semantic_snapshot = global_bundle.semantic_snapshot
+            for name in ENV_STATE_TABLES:
+                setattr(rb, name, getattr(global_bundle, name))
 
             for p in robot_dir.glob("*.parquet"):
                 lf = load_parquet(p)

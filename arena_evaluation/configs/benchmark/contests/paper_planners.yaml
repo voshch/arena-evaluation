@@ -1,0 +1,18 @@
+# Planner set for the animation paper: two costmap planners plus one learned planner.
+name: paper_planners
+contestants:
+- name: dwb
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: graceful
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: attngraph
+  mobile: drl
+  mobile.planner: attngraph

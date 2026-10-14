@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 from arena_humansim_msgs.msg import AgentFrame, AgentState, AgentStates
 from rclpy.serialization import serialize_message
 
-from arena_evaluation.processing.mcap_reader import MCAPReader
+from arena_evaluation.processing.mcap_reader import _PEDS_SCHEMA, MCAPReader
 
 _TOPIC = "/arena/env_0/task_generator_node/agent_states"
 
@@ -69,5 +69,51 @@ def test_agent_states_nested_and_flat_layouts_read_into_identical_peds(tmp_path:
             "peds_positions": [1.5, -2.0, 0.0, -0.5, 3.25, 0.0],
             "peds_headings": [0.75, -1.5],
             "peds_twists": [0.3, 0.4, 0.0, -0.2, 0.1, 0.0],
+            "peds_ids": [3, 7],
+            "peds_animation_states": [0, 0],
+            "peds_interaction_ids": [-1, -1],
+            "peds_interaction_types": [0, 0],
+        }
+    ]
+
+
+def _robot_only() -> AgentFrame:
+    msg = AgentFrame()
+    msg.header.frame_id = "map"
+    msg.header.stamp.sec = 1
+    msg.agent_id, msg.kind, msg.x, msg.y, msg.theta, msg.vx, msg.vy = [99], [AgentState.KIND_ROBOT], [4.0], [4.0], [0.0], [1.0], [0.0]
+    return msg
+
+
+def test_agent_frames_without_humans_before_the_first_flush_keep_the_peds_schema(tmp_path: pathlib.Path) -> None:
+    bag = tmp_path / "late_humans"
+    writer = rosbag2_py.SequentialWriter()
+    writer.open(rosbag2_py.StorageOptions(uri=str(bag), storage_id="mcap"), rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"))
+    writer.create_topic(rosbag2_py.TopicMetadata(0, _TOPIC, "arena_humansim_msgs/msg/AgentFrame", "cdr"))
+    empty = serialize_message(_robot_only())
+    for i in range(10_000):
+        writer.write(_TOPIC, empty, 1_000_000_000 + i)
+    writer.write(_TOPIC, serialize_message(_flat()), 2_000_000_000)
+    writer.close()
+    out_dir = tmp_path / "late_humans_out"
+    MCAPReader(bag).read(out_dir)
+
+    table = pq.read_table(out_dir / "env_0" / "peds_physics.parquet")
+    assert table.schema.equals(_PEDS_SCHEMA)
+    assert table.num_rows == 10_001
+    assert table.slice(0, 1).to_pylist()[0]["peds_positions"] == []
+    assert table.slice(10_000).to_pylist() == [
+        {
+            "time_ns": 2_000_000_000,
+            "peds_frame_id": "map",
+            "num_pedestrians": 2,
+            "peds_names": ["3", "7"],
+            "peds_positions": [1.5, -2.0, 0.0, -0.5, 3.25, 0.0],
+            "peds_headings": [0.75, -1.5],
+            "peds_twists": [0.3, 0.4, 0.0, -0.2, 0.1, 0.0],
+            "peds_ids": [3, 7],
+            "peds_animation_states": [0, 0],
+            "peds_interaction_ids": [-1, -1],
+            "peds_interaction_types": [0, 0],
         }
     ]

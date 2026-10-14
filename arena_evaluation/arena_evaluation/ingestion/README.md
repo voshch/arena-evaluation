@@ -106,11 +106,28 @@ the held messages of non-latched topics predate it and are dropped.
 | `/{parent_ns}/goal_pose` | `geometry_msgs/PoseStamped` | unthrottled |
 | `/{parent_ns}/initialpose` | `geometry_msgs/PoseWithCovarianceStamped` | unthrottled |
 | `/{parent_ns}/arena_peds` | `arena_people_msgs/Pedestrians` | 20 ms |
+| `/{parent_ns}/interactions` | `arena_humansim_msgs/InteractionFrame` | latched |
 | `/{parent_ns}/state/episode` | `task_generator_msgs/EpisodeRecord` | unthrottled |
 | `/{parent_ns}/state/robots` | `task_generator_msgs/RobotFleet` | latched |
 | `/tf` | `tf2_msgs/TFMessage` | 20 ms, merged |
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
+
+`/{parent_ns}/interactions` is humansim's latched `InteractionFrame`: the live interactions (type, outcome, anchor object,
+members with their participant or queued role, arrived, holding, hold duration) plus the ACTIVATED / HOLD_ONSET /
+RELEASED / INTERRUPTED / CANCELED edges fired that tick, published only when its content changes or an edge fires.
+
+Animation state is picked up by discovery (by message type and topic basename, anywhere under
+the env namespace, i.e. one level above the recorder) rather than from the fixed list above:
+
+| Topic | Message Type | Throttle |
+|---|---|---|
+| `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 50 ms (per-ped clip, playhead, gesture phase, blend weight) |
+| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states`, `/{parent_ns}/interactions` | fallback if the fixed paths above miss them | 20 ms, interactions latched |
+
+The reader turns them into `interactions`, `interaction_events`, `animation_states` and `ped_gestures` env tables,
+and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as
+`peds` and `peds_physics`.
 
 Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`task_generator_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
 

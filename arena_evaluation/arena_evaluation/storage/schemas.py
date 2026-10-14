@@ -166,6 +166,11 @@ class TopicBundle:
     cmd_vel: pl.DataFrame | None = None
     joint_states: pl.DataFrame | None = None
     peds: pl.DataFrame | None = None
+    peds_physics: pl.DataFrame | None = None
+    ped_gestures: pl.DataFrame | None = None
+    interactions: pl.DataFrame | None = None
+    interaction_events: pl.DataFrame | None = None
+    animation_states: pl.DataFrame | None = None
     episode_record: pl.DataFrame | None = None
     collision_events: pl.DataFrame | None = None
     collision_monitor_state: pl.DataFrame | None = None

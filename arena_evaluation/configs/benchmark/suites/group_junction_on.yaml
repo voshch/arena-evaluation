@@ -1,0 +1,14 @@
+# pilot
+stages:
+- name: group_junction_on
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 74100
+  timeout: 90s
+  config:
+    scenario:
+      file: group_junction
+      gesture_mode: enabled

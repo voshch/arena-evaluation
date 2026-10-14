@@ -1,0 +1,14 @@
+# control: the same route driven once, no call answered
+stages:
+- name: beckon_checkpoint_scenariomode
+  map: hospital_1_bare
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  seed: 77000
+  timeout: 120s
+  config:
+    scenario:
+      file: beckon_checkpoint_once
+      gesture_mode: disabled

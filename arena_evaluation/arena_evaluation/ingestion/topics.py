@@ -23,7 +23,7 @@ class TopicDefinition:
 
 def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDefinition]:
     """Return the dictionary of topics to subscribe to."""
-    from arena_humansim_msgs.msg import AgentFrame, AgentMeta
+    from arena_humansim_msgs.msg import AgentFrame, AgentMeta, InteractionFrame
     from arena_people_msgs.msg import Pedestrians
     from arena_robots_msgs.msg import Acoustics, CollisionEvents, Energy, Power
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
@@ -58,6 +58,7 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
         "peds": TopicDefinition(f"{env_ns}/arena_peds", Pedestrians, throttled=True),
         "agent_states": TopicDefinition(f"{p_ns}/agent_states", AgentFrame, throttled=True),
         "agent_meta": TopicDefinition(f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True),
+        "interactions": TopicDefinition(f"{p_ns}/interactions", InteractionFrame, throttled=False, qos_transient_local=True),
         "episode_record": TopicDefinition(f"{p_ns}/state/episode", EpisodeRecord, throttled=False, qos_transient_local=True),
         "robots_fleet": TopicDefinition(f"{p_ns}/state/robots", RobotFleet, throttled=False, qos_transient_local=True),
         "semantic_snapshot": TopicDefinition(f"{p_ns}/state/semantics", SemanticSnapshot, throttled=False, qos_transient_local=True),
