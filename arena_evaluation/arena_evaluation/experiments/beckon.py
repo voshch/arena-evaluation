@@ -16,11 +16,13 @@ import argparse
 import math
 import pathlib
 import sys
+from collections.abc import Mapping
 
 import numpy as np
 import polars as pl
 import yaml
 
+from arena_evaluation.benchmark.config import _parse_duration
 from arena_evaluation.experiments.stats import DEFAULT_BOOT, cluster_bootstrap, holm
 
 WORLD = "hospital_1_bare"
@@ -246,17 +248,25 @@ def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
     return parsed
 
 
-def paper_outcomes(df: pl.DataFrame) -> pl.DataFrame:
-    """Waiting time per episode, censored at the run's own timeout (its longest episode) when the caller was never served."""
+def stage_timeouts(benchmark_dir: pathlib.Path) -> dict[str, float]:
+    """Episode timeout in seconds per stage name from the run's manifest, empty without one."""
+    manifest = benchmark_dir / "manifest.yaml"
+    if not manifest.is_file():
+        return {}
+    stages = yaml.safe_load(manifest.read_text())["suite"]["stages"]
+    return {stage["name"]: _parse_duration(str(stage["timeout"])) for stage in stages if "timeout" in stage}
+
+
+def paper_outcomes(df: pl.DataFrame, timeouts: Mapping[str, float] | None = None) -> pl.DataFrame:
+    """Waiting time per episode, censored at the stage's timeout when the caller was never served, at the run's longest episode without a known timeout."""
     served = pl.col("status_reason").is_null() & (pl.col("success") == 1)
     longest = df.select(pl.col("time_to_goal").max()).item() if "time_to_goal" in df.columns else None
-    timeout = max(float(longest), float(TIMEOUT_S)) if longest is not None else float(TIMEOUT_S)
-    duration = pl.col("time_to_goal").fill_null(timeout)
-    return df.with_columns(
+    fallback = max(float(longest), float(TIMEOUT_S)) if longest is not None else float(TIMEOUT_S)
+    censor = pl.col("stage").replace_strict(dict(timeouts), default=fallback, return_dtype=pl.Float64) if timeouts else pl.lit(fallback)
+    return df.with_columns(censor.alias("censor_at_s")).with_columns(
         served.alias("served"),
-        pl.when(served).then(duration - CALL_ONSET_S).otherwise(timeout - CALL_ONSET_S).alias("wait_s"),
+        pl.when(served).then(pl.col("time_to_goal") - CALL_ONSET_S).otherwise(pl.col("censor_at_s") - CALL_ONSET_S).alias("wait_s"),
         (~served).alias("censored"),
-        pl.lit(timeout).alias("censor_at_s"),
     )
 
 
@@ -333,7 +343,7 @@ def _metrics_path(benchmark_dir: pathlib.Path) -> pathlib.Path:
 
 
 def analyze(benchmark_dir: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, out_dir: pathlib.Path | None = None) -> dict[str, pl.DataFrame]:
-    episodes = paper_outcomes(load_episodes(pl.read_parquet(_metrics_path(benchmark_dir))))
+    episodes = paper_outcomes(load_episodes(pl.read_parquet(_metrics_path(benchmark_dir))), stage_timeouts(benchmark_dir))
     tables = {
         "cases": case_table(episodes, n_boot=n_boot),
         "planners": planner_table(episodes, n_boot=n_boot),

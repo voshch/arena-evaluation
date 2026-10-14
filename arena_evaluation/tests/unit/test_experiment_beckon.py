@@ -147,12 +147,25 @@ def test_load_episodes_tags_case_arm_and_seed_and_drops_other_stages() -> None:
 
 
 def test_paper_outcomes_censor_unserved_calls_at_the_longest_episode() -> None:
-    df = pl.DataFrame({"status_reason": [None, "timeout", None], "success": [1, 0, 0], "time_to_goal": [25.0, None, 95.0]}, infer_schema_length=None)
+    df = pl.DataFrame({"stage": ["a", "a", "a"], "status_reason": [None, "timeout", None], "success": [1, 0, 0], "time_to_goal": [25.0, None, 95.0]}, infer_schema_length=None)
     out = beckon.paper_outcomes(df)
     assert out["served"].to_list() == [True, False, False]
     assert out["censored"].to_list() == [False, True, True]
     assert out["censor_at_s"].to_list() == [95.0] * 3
     assert out["wait_s"].to_list() == [20.0, 90.0, 90.0]
+
+
+def test_paper_outcomes_censor_at_the_stage_timeout_when_known() -> None:
+    df = pl.DataFrame({"stage": ["cp", "cp", "hall"], "status_reason": [None, "timeout", "timeout"], "success": [1, 0, 0], "time_to_goal": [150.0, None, None]}, infer_schema_length=None)
+    out = beckon.paper_outcomes(df, {"cp": 180.0})
+    assert out["censor_at_s"].to_list() == [180.0, 180.0, 150.0]
+    assert out["wait_s"].to_list() == [145.0, 175.0, 145.0]
+
+
+def test_stage_timeouts_come_from_the_run_manifest(tmp_path: pathlib.Path) -> None:
+    assert beckon.stage_timeouts(tmp_path) == {}
+    (tmp_path / "manifest.yaml").write_text(yaml.safe_dump({"suite": {"stages": [{"name": "beckon_checkpoint_on", "timeout": "180s"}, {"name": "quick", "timeout": "2m"}, {"name": "untimed"}]}}))
+    assert beckon.stage_timeouts(tmp_path) == {"beckon_checkpoint_on": 180.0, "quick": 120.0}
 
 
 def test_case_table_pairs_the_arms_by_seed_and_adjusts_within_the_family() -> None:
