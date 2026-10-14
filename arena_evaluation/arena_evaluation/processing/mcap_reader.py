@@ -484,8 +484,8 @@ class MCAPReader:
                                     twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
                                 ids = [int(p.agent_id) for p in agents]
                                 anim_states = [int(p.animation_state) for p in agents]
-                                interaction_ids = [int(p.interaction_id) for p in agents]
-                                interaction_types = [int(p.interaction_type) for p in agents]
+                                interaction_ids = [-1] * len(agents)
+                                interaction_types = [0] * len(agents)
 
                             target["num_pedestrians"].append(len(ids))
                             target["peds_positions"].append(positions)
