@@ -117,3 +117,19 @@ def test_agent_frames_without_humans_before_the_first_flush_keep_the_peds_schema
             "peds_interaction_types": [0, 0],
         }
     ]
+
+
+def _flat_with_interactions() -> AgentFrame:
+    msg = _flat()
+    msg.animation_state = [1, 0, 2]
+    msg.interaction_id = [4, -1, -1]
+    msg.interaction_type = [10, 0, 0]
+    return msg
+
+
+def test_agent_frames_keep_the_animation_and_interaction_arrays_of_the_humans(tmp_path: pathlib.Path) -> None:
+    (row,) = _peds_rows(tmp_path, "flat_interactions", "arena_humansim_msgs/msg/AgentFrame", _flat_with_interactions())
+    assert row["peds_ids"] == [3, 7]
+    assert row["peds_animation_states"] == [1, 2]
+    assert row["peds_interaction_ids"] == [4, -1]
+    assert row["peds_interaction_types"] == [10, 0]

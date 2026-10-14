@@ -15,6 +15,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     _entity_atom_series,
     _entity_roster,
     _first_true,
+    _level_cache,
     _operator_verdict,
     _ped_roster,
     _ped_zone_series,
@@ -23,7 +24,10 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     _value_at,
     _values_equal,
     _wall_cache,
+    _world_cache,
     clips_on_axis,
+    load_wall_grid,
+    load_zone_geometry,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -620,3 +624,12 @@ def test_calculate_plays_atom_from_the_recorded_gestures():
     results = calc.calculate(episode, {})
 
     assert results["clauses_unknown"] == 3
+
+
+def test_zone_and_wall_loaders_answer_from_their_caches():
+    _world_cache["synthetic_cached"] = [_square("pharmacy")]
+    assert load_zone_geometry("synthetic_cached") == _world_cache["synthetic_cached"]
+    _level_cache["synthetic_missing"] = None
+    assert load_wall_grid("synthetic_missing") is None
+    assert load_zone_geometry("synthetic_missing") is None
+    assert _wall_cache["synthetic_missing"] is None and _world_cache["synthetic_missing"] is None

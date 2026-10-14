@@ -142,3 +142,39 @@ def test_calculator_without_contact_events() -> None:
     assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None
     assert out["hhi_stalls_approach"] == out["hhi_stall_count"] == 1
     assert out["hhi_passes_between"] is None
+
+
+def test_speed_of_a_single_sample_is_zero() -> None:
+    assert smoothed_speed(np.array([0.0]), np.array([1.0]), np.array([2.0])).tolist() == [0.0]
+
+
+def test_no_stalls_without_samples_or_prior_motion() -> None:
+    assert stall_intervals(np.zeros(0), np.zeros(0)) == []
+    assert stall_intervals(np.arange(5.0), np.zeros(5)) == []
+
+
+def test_crossings_need_a_robot_move() -> None:
+    assert segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist() == []
+
+
+def test_pair_track_skips_rows_without_pedestrians() -> None:
+    track = pair_track([None, [1]], [None, [3.0, 4.0, 0.0]], 1)
+    assert np.isnan(track[0]).all()
+    assert track[1].tolist() == [3.0, 4.0]
+
+
+def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
+    ep = _episode()
+    ep.topics = {"interaction_events": ep.topics["interaction_events"].filter(pl.col("event_name") == "RELEASED")}
+    out = ContactInteractionCalculator(RobotParams()).calculate(ep, {})
+    assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None and out["hhi_release_s"] is None
+    assert out["hhi_stall_count"] == 1
+
+
+def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
+    empty = dict.fromkeys(ContactInteractionCalculator.output_keys())
+    short = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
+    assert ContactInteractionCalculator(RobotParams()).calculate(short, {}) == empty
+    nan = float("nan")
+    lost = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0, SEC], "pos_x": [nan, nan], "pos_y": [nan, nan], "yaw": [0.0, 0.0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
+    assert ContactInteractionCalculator(RobotParams()).calculate(lost, {}) == empty

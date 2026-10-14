@@ -11,9 +11,10 @@ import yaml
 from arena_evaluation.experiments import hhi
 
 
-def test_geometry_is_admissible_and_meets_near_the_path() -> None:
-    rng = np.random.default_rng(0)
-    for _ in range(50):
+@pytest.mark.parametrize("seed", [0, 186])
+def test_geometry_is_admissible_and_meets_near_the_path(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    for _ in range(100):
         g = hhi.sample_geometry(rng)
         for p in (*g.ped_start, *g.ped_exit, g.meet):
             assert hhi._inside(p)
@@ -133,3 +134,49 @@ def test_stage_regex_round_trips() -> None:
         m = hhi.STAGE_RE.match(hhi.stage_name(kind, 7, "loco"))
         assert m is not None and (m["kind"], int(m["scenario"]), m["arm"]) == (kind, 7, "loco")
     assert math.isclose(hhi.MEET_OFFSET * 2, hhi.STANDING_DISTANCE + 0.2)
+
+
+def test_sampling_gives_up_after_its_tries() -> None:
+    with pytest.raises(RuntimeError, match="no admissible geometry"):
+        hhi.sample_geometry(np.random.default_rng(0), max_tries=0)
+
+
+def test_default_paths_sit_beside_the_package() -> None:
+    suite = hhi._default_suite_path()
+    assert suite.parts[-4:] == ("configs", "benchmark", "suites", "hhi_contact.yaml")
+    assert (suite.parents[3] / "arena_evaluation" / "experiments" / "hhi.py").is_file()
+    try:
+        scenarios = hhi._default_scenarios_dir()
+    except FileNotFoundError:
+        pytest.skip(f"world {hhi.MAP} is not in the source tree")
+    assert scenarios.parts[-3:] == ("worlds", hhi.MAP, "scenarios")
+
+
+def test_tables_are_empty_without_their_columns() -> None:
+    df = hhi.load_episodes(_metrics()).select("stage", "planner", "episode", "kind", "scenario", "arm", "seed", "interaction")
+    assert hhi.family_table(df, n_boot=10).height == 0
+    assert hhi.window_table(df, n_boot=10).height == 0
+    assert hhi.manipulation_check(df).height == 0
+
+
+def test_metrics_path_prefers_the_run_root_and_falls_back_to_a_nested_run(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(FileNotFoundError, match="no combined_metrics.parquet"):
+        hhi._metrics_path(tmp_path)
+    nested = tmp_path / "lanes" / "p1" / "combined_metrics.parquet"
+    nested.parent.mkdir(parents=True)
+    nested.touch()
+    assert hhi._metrics_path(tmp_path) == nested
+    (tmp_path / "metrics.parquet").touch()
+    assert hhi._metrics_path(tmp_path) == tmp_path / "metrics.parquet"
+
+
+def test_main_generates_then_analyzes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert hhi.main(["generate", "--scenarios", "1", "--episodes", "2", "--scenarios-dir", str(tmp_path / "scenarios"), "--suite", str(tmp_path / "suite.yaml")]) == 0
+    assert capsys.readouterr().out.strip() == "4 stages x 2 episodes per contestant"
+    run = tmp_path / "run"
+    run.mkdir()
+    _metrics().write_parquet(run / "combined_metrics.parquet")
+    assert hhi.main(["analyze", "--benchmark-dir", str(run), "--boot", "50", "--out", str(tmp_path / "out")]) == 0
+    out = capsys.readouterr().out
+    assert "== family_a" in out and "== windows" in out and "== manipulation_check" in out
+    assert (tmp_path / "out" / "windows.csv").is_file()

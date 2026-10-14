@@ -104,3 +104,7 @@ def test_start_is_the_anchored_pose_not_the_odom_origin():
 
     start, _ = _episode_endpoints(TopicAligner().align(bundle), None)
     assert start == pytest.approx([3.0, -2.0, 0.7])
+
+
+def test_episode_window_without_outcome_states_spans_the_whole_record():
+    assert _episode_window(pl.DataFrame({"time_ns": [300, 100, 900]})) == (100, 900)

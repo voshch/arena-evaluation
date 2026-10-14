@@ -173,3 +173,23 @@ def test_empty_episode_record_passes_through_the_offset(shifted_env: pathlib.Pat
 
     assert record.columns == ["time_ns", "start_pos"]
     assert len(record) == 0
+
+
+def test_gesture_targets_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
+    pl.DataFrame(
+        {
+            "time_ns": [50, 150],
+            "ped_id": [1, 1],
+            "slot": ["arm", "arm"],
+            "clip": ["", ""],
+            "hand": ["r", "r"],
+            "at_x": [11.0, 32.0],
+            "at_y": [22.0, 43.0],
+            "at_z": [1.0, 1.0],
+            "render_pose_override": [False, False],
+        }
+    ).write_parquet(shifted_env / "env_3" / "ped_gestures.parquet")
+
+    gestures = _load(shifted_env)["env_3_jackal"].ped_gestures.collect()
+
+    assert gestures.select("at_x", "at_y", "at_z").rows() == [(1.0, 2.0, 1.0), (2.0, 3.0, 1.0)]
