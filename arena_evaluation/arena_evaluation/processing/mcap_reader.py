@@ -22,7 +22,6 @@ from arena_evaluation.storage.schemas import TopicBundle
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
 
-# arena_humansim_msgs/InteractionEvent.event
 INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
 ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
 
@@ -539,7 +538,7 @@ class MCAPReader:
                                 events["participants"].append(list(ev.participants))
                             appended = True
 
-                        # Animation layer (task_generator): one row per (ped, overlay slot), slot "" = base only
+                        # Animation states
                         elif topic.endswith("/animation_states") and schema.name == "arena_people_msgs/msg/AnimationStates":
                             rows = env_data[env_key]["animation_states"]
                             for ped in ros_msg.peds:

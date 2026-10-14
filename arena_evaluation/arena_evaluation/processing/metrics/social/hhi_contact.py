@@ -15,17 +15,17 @@ import polars as pl
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-CONTACT_TYPES = {10: "hug", 11: "shake_hand"}  # arena_humansim InteractionType
+CONTACT_TYPES = {10: "hug", 11: "shake_hand"}
 EVENT_HOLD_ONSET = "HOLD_ONSET"
 EVENT_RELEASED = "RELEASED"
 EVENT_ACTIVATED = "ACTIVATED"
 
-STALL_SPEED = 0.05  # m/s, below this the robot counts as stopped
-STALL_MIN_S = 3.0  # s, a shorter stop is not a stall
-SPEED_WINDOW_S = 0.25  # moving-average window of the speed signal
-MOVING_SPEED = 0.1  # m/s, the robot counts as started once above this
-GOAL_TOLERANCE = 0.5  # m, stops this close to the goal are arrival
-POST_S = 5.0  # post-release window length
+STALL_SPEED = 0.05
+STALL_MIN_S = 3.0
+SPEED_WINDOW_S = 0.25
+MOVING_SPEED = 0.1
+GOAL_TOLERANCE = 0.5
+POST_S = 5.0
 
 WINDOWS = ("approach", "hold", "post", "rest")
 

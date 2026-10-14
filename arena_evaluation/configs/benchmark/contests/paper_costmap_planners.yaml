@@ -1,7 +1,4 @@
 # Costmap-based subset of paper_planners, for study B, narrow-passage pointing (EVALUATION.md section B).
-# navigate_to_pose_w_replanning_and_recovery: with pedestrians visible, a pair on the path makes the controller
-# report a collision. navigate_w_replanning_time then fails the goal for good and the robot parks until timeout.
-# social_cost_layer: arena_social_cost_layer in the local costmap (reads arena_peds), on for every costmap planner.
 name: paper_costmap_planners
 contestants:
 - name: dwb

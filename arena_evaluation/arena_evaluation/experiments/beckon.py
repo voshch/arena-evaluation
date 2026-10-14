@@ -36,7 +36,7 @@ EPISODES = 2
 SEED_BASE = 72000
 MODEL = "female_adult_business_02"
 
-SCENARIO_TO_MAP = (0.0, 0.0)  # world frame to map frame offset
+SCENARIO_TO_MAP = (0.0, 0.0)
 
 START = (10.0, 2.0, 1.5708)
 ROUTE = [(10.0, 18.0, 1.5708), (10.0, 2.0, -1.5708)]

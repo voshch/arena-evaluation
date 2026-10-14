@@ -69,6 +69,7 @@ def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, 
 
 def replay(inputs: dict[int, list]) -> dict[int, list]:
     """Joint angles the current layer produces from the recorded inputs, the way publish_arena_peds computes them."""
+    from arena_people_msgs.msg import Pedestrian
     from task_generator.simulators.human import animation_manager as am
     from task_generator.simulators.human.gestures import Channel, GestureLayer, GestureRequest
 
@@ -76,7 +77,7 @@ def replay(inputs: dict[int, list]) -> dict[int, list]:
     mgr = am.AnimationManager(logger=log, fps=20.0)
     layer = GestureLayer(mgr, log)
     mgr.gesture_hook = layer
-    moving_states = (1, 2)  # Pedestrian.WALKING, RUNNING
+    moving_states = (Pedestrian.WALKING, Pedestrian.RUNNING)
     out: dict[int, list] = defaultdict(list)
     samples = sorted((t, pid, state, speed, pose, chans) for pid, rows in inputs.items() for t, state, speed, pose, chans in rows)
     prev: dict[int, float] = {}

@@ -1,6 +1,4 @@
-# The no-layer arm of the animation on/off comparison: the same planners with the social cost layer
-# off. Paired with suites that also set scenario.gesture_mode=disabled, so in this arm the pedestrians
-# behave identically but publish no clip and no interaction id, and nothing consumes either.
+# The no-layer arm of the animation on/off comparison: the same planners with the social cost layer off.
 name: paper_planners_blind
 contestants:
 - name: dwb

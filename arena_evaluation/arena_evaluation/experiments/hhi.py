@@ -32,14 +32,14 @@ ARMS = {"contact": "enabled", "loco": "locomotion_only"}
 STAGE_RE = re.compile(r"^hhi_(?P<kind>hug|shake)_(?P<scenario>\d+)_(?P<arm>contact|loco)$")
 
 MAP = "map_empty"
-BOUNDS = (1.5, 1.5, 28.5, 21.5)  # map_empty interior, walls at 0 / 30 x 0 / 23
-STANDING_DISTANCE = 1.2  # locomotion-only hold separation
-MEET_OFFSET = STANDING_DISTANCE / 2 + 0.1  # meeting point off the midpoint
-PED_SPEED = 1.2  # m/s
-ROBOT_SPEED = 0.6  # m/s
-ROBOT_LATENCY = 2.0  # s before the robot moves
+BOUNDS = (1.5, 1.5, 28.5, 21.5)
+STANDING_DISTANCE = 1.2
+MEET_OFFSET = STANDING_DISTANCE / 2 + 0.1
+PED_SPEED = 1.2
+ROBOT_SPEED = 0.6
+ROBOT_LATENCY = 2.0
 TIMEOUT = "180s"
-EPISODES = 3  # seeds per scenario
+EPISODES = 3
 SEED_BASE = 71_000
 
 _ROOT = pathlib.Path(__file__).resolve()
@@ -63,14 +63,16 @@ def _default_suite_path() -> pathlib.Path:
 class Geometry(typing.NamedTuple):
     start: tuple[float, float, float]
     goal: tuple[float, float, float]
-    meet: tuple[float, float]  # pair midpoint
-    axis: float  # pair axis heading, rad
+    meet: tuple[float, float]
+    axis: float
     ped_start: tuple[tuple[float, float], tuple[float, float]]
     ped_meet: tuple[tuple[float, float], tuple[float, float]]
     ped_exit: tuple[tuple[float, float], tuple[float, float]]
     hold_s: float
-    lead_s: float  # how long before the robot's nominal arrival the pair starts holding
-    wait_s: float  # the pair stands at its start points this long, then walks
+    lead_s: float
+    wait_s: float
+
+
 def _pair(points: typing.Sequence[np.ndarray]) -> tuple[tuple[float, float], tuple[float, float]]:
     a, b = points
     return (float(a[0]), float(a[1])), (float(b[0]), float(b[1]))

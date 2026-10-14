@@ -23,7 +23,6 @@ import sys
 import numpy as np
 import polars as pl
 
-# F-formation radius for n participants, from humansim's f_formation: (base + per_member * (n - 1)) * scale
 FORMATION_BASE_M = 0.7
 FORMATION_PER_MEMBER_M = 0.12
 
