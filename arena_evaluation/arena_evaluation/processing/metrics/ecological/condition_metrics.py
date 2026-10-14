@@ -9,7 +9,7 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import Atom, EpisodeCondition, parse_atom
-from arena_simulation_setup.shared.judge import Sample, atom_holds, operator_verdict, values_equal, zone_polygons
+from arena_simulation_setup.shared.judge import Sample, WallGrid, atom_holds, operator_verdict, values_equal, zone_polygons
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 _ENV_PREFIX = re.compile(r"^env_\d+/")
 _ROBOT_DIR_PREFIX = re.compile(r"^env_\d+_")
 
+_level_cache: dict[str, Level | None] = {}
 _world_cache: dict[str, list[_ZoneGeometry] | None] = {}
+_wall_cache: dict[str, WallGrid | None] = {}
 
 
 def _strip_env(name: str) -> str:
@@ -99,10 +101,10 @@ def judge_zone_geometry(flattened: Level) -> list[_ZoneGeometry]:
     return zones
 
 
-def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
-    """Zone, door and elevator polygons of a world in the flattened map frame, None when the world asset is not available locally."""
-    if world_name in _world_cache:
-        return _world_cache[world_name]
+def _flattened_level(world_name: str) -> Level | None:
+    """The world compacted into the flattened map frame, None when the world asset is not available locally."""
+    if world_name in _level_cache:
+        return _level_cache[world_name]
 
     from arena_simulation_setup.tree.World import WorldIdentifier
 
@@ -111,17 +113,52 @@ def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
         world = view.load()
     except FileNotFoundError as e:
         logger.warning("condition_compliance: world '%s' not available locally: %s", world_name, e)
-        _world_cache[world_name] = None
+        _level_cache[world_name] = None
         return None
 
     origins = view.level_origins()
     if origins is None:
         origins = {level_id: (0.0, 0.0) for level_id in world.levels}
     flattened = world.compact_world(origins)
+    _level_cache[world_name] = flattened
+    return flattened
 
-    zones = judge_zone_geometry(flattened)
+
+def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
+    """Zone, door and elevator polygons of a world in the flattened map frame, None when the world asset is not available locally."""
+    if world_name in _world_cache:
+        return _world_cache[world_name]
+    flattened = _flattened_level(world_name)
+    zones = None if flattened is None else judge_zone_geometry(flattened)
     _world_cache[world_name] = zones
     return zones
+
+
+def load_wall_grid(world_name: str) -> WallGrid | None:
+    """Wall cells of a world in the flattened map frame, None when the world asset is not available locally."""
+    if world_name in _wall_cache:
+        return _wall_cache[world_name]
+    flattened = _flattened_level(world_name)
+    walls = None if flattened is None else WallGrid.of_level(flattened)
+    _wall_cache[world_name] = walls
+    return walls
+
+
+def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, time_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
+    """Per instant, the gesture clips of every pedestrian in the peds message held at it, None when the recording carries no ped_gestures table."""
+    if gestures is None or peds is None or len(peds) == 0 or "peds_ids" not in peds.columns:
+        return None
+    playing: dict[int, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for t, ped_id, clip in zip(gestures["time_ns"].to_list(), gestures["ped_id"].to_list(), gestures["clip"].to_list(), strict=True):
+        playing[int(t)][int(ped_id)].add(str(clip))
+    peds = peds.sort("time_ns")
+    times = peds["time_ns"].to_numpy()
+    rows: list[dict[str, frozenset[str]]] = []
+    for t, names, ids in zip(times.tolist(), peds["peds_names"].to_list(), peds["peds_ids"].to_list(), strict=True):
+        at = playing.get(int(t), {})
+        rows.append({_strip_env(name): frozenset(at.get(int(ped_id), ())) for name, ped_id in zip(names or [], ids or [], strict=True)})
+    idx = np.searchsorted(times, time_ns, side="right") - 1
+    return [rows[i] if i >= 0 else {} for i in idx]
 
 
 @dataclasses.dataclass
@@ -139,6 +176,8 @@ class _EvalContext:
     pose_valid: bool = True
     yaw: np.ndarray | None = None
     fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(default_factory=dict)
+    walls: WallGrid | None = None
+    clips: list[dict[str, frozenset[str]]] | None = None
     _fields: dict[tuple[str, str], tuple[np.ndarray, list[str]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     _ped_rows: tuple[list, list] | None = dataclasses.field(default=None, init=False, repr=False)
 
@@ -179,7 +218,8 @@ class _EvalContext:
             robots[name] = (float(xs[i]), float(ys[i]), float(yaws[i]))
         t_ns = int(self.time_ns[i])
         known = frozenset(self.ped_roster) | frozenset(self.fleet)
-        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known)
+        clips = self.clips[i] if self.clips is not None else {}
+        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls)
 
     @property
     def polygons(self) -> dict[str, object]:
@@ -259,11 +299,13 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
     `never_during`) over atoms judged per odom sample by the shared judge
     (`arena_simulation_setup.shared.judge`), the same code the task generator runs
     online: `entity.field == value` from the stepwise `semantic_snapshot` series (seeded
-    by the latest snapshot at-or-before the episode start), `<subject> in <zone>` and
-    `<subject> within <r> of <subject>` on the ego pose, other robots' recorded judge
-    poses and recorded pedestrians, against zone polygons loaded from the recorded world
-    asset in the flattened multi-level frame. An atom is UNKNOWN when its zone, entity
-    field, ped or robot is unresolvable on any sample, a clause is UNKNOWN when any of
+    by the latest snapshot at-or-before the episode start), `<subject> in <zone>`,
+    `<subject> within <r> of <subject>` and `robot sees <ped> within <r>` on the ego
+    pose, other robots' recorded judge poses and recorded pedestrians, against zone
+    polygons and the wall grid loaded from the recorded world asset in the flattened
+    multi-level frame, and `<ped> plays <clip>` on the recorded `ped_gestures` table.
+    An atom is UNKNOWN when its zone, entity field, ped, robot, wall grid or gesture
+    table is unresolvable on any sample, a clause is UNKNOWN when any of
     its atoms is, and `condition_success` is FALSE when any clause is FALSE, else UNKNOWN
     when any clause is UNKNOWN, else TRUE. An episode with no `conditions` and an absent
     world asset both report every key as None.
@@ -338,6 +380,8 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             pose_valid=bool(episode.start_pos),
             yaw=yaw,
             fleet=_resample_fleet(episode.fleet, time_ns, bare_robot_name(episode.robot_name or "")),
+            walls=load_wall_grid(self.world),
+            clips=clips_on_axis(episode.peds, episode.topics.get("ped_gestures") if episode.topics else None, time_ns),
         )
 
         verdicts = [_clause_verdict(clause, ctx) for clause in conditions]

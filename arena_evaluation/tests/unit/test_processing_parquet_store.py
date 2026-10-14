@@ -324,6 +324,15 @@ def test_topic_empty_frames_not_written(tmp_path):
     assert restored["r1"].odom is None
 
 
+def test_topic_empty_gesture_table_survives_the_round_trip(tmp_path):
+    gestures = pl.DataFrame(schema={"time_ns": pl.Int64, "ped_id": pl.Int64, "slot": pl.String, "clip": pl.String})
+    dest = tmp_path / "cache"
+    TopicParquetStore.write({"r1": TopicBundle(odom=_df(2), ped_gestures=gestures)}, dest)
+    assert (dest / "ped_gestures.parquet").exists()
+    restored = TopicParquetStore.read(dest)
+    assert restored["r1"].ped_gestures.collect().equals(gestures)
+
+
 def test_topic_lazy_frames_collected(tmp_path):
     dest = tmp_path / "cache"
     lf = _df(3).lazy()

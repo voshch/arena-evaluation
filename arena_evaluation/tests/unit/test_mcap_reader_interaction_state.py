@@ -180,6 +180,23 @@ def test_animation_states_one_row_per_slot_and_base_only_peds(bundle) -> None:
     assert (walker["base"], walker["slot"], walker["playhead"]) == ("walk", "", None)
 
 
+def test_gesture_capable_peds_without_a_gesture_keep_an_empty_table(tmp_path: pathlib.Path) -> None:
+    idle = Pedestrians(pedestrians=[Pedestrian(name="walker", id=3)])
+    mcap = _write(tmp_path / "bag", [(f"{NS}/arena_peds", idle, 1 * SEC), (f"{NS}/arena_peds", idle, 2 * SEC)])
+    (tmp_path / "topics" / "env_0_jackal").mkdir(parents=True)
+    bundles = MCAPReader(mcap).read(tmp_path / "topics")
+    gestures = _table(tmp_path / "topics" / "env_0", "ped_gestures")
+    assert gestures.height == 0
+    assert gestures.columns == ["time_ns", "ped_id", "slot", "clip", "hand", "at_x", "at_y", "at_z", "render_pose_override"]
+    assert "ped_gestures" in bundles["env_0_jackal"].available()
+
+
+def test_agent_states_without_gesture_support_write_no_gesture_table(tmp_path: pathlib.Path) -> None:
+    mcap = _write(tmp_path / "bag", [(f"{NS}/task_generator_node/agent_states", _agents(), 1 * SEC)])
+    MCAPReader(mcap).read(tmp_path / "topics")
+    assert not (tmp_path / "topics" / "env_0" / "ped_gestures.parquet").exists()
+
+
 def test_load_bundles_exposes_the_state_tables(tmp_path: pathlib.Path) -> None:
     mcap = _write(
         tmp_path / "bag",

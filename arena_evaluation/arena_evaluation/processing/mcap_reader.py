@@ -26,6 +26,7 @@ INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "I
 MEMBER_ROLE_PARTICIPANT = 0
 MEMBER_ROLE_QUEUED = 1
 ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
+KEPT_EMPTY_TABLES = ("ped_gestures",)
 
 Anchor = tuple[int, float, float]
 
@@ -308,6 +309,7 @@ class MCAPReader:
         robot_data = defaultdict(new_robot_data)
 
         env_prefix = None
+        gesture_envs: set[str] = set()
 
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -536,6 +538,8 @@ class MCAPReader:
                             target["peds_interaction_ids"].append(interaction_ids)
                             target["peds_interaction_types"].append(interaction_types)
 
+                            if has_gestures:
+                                gesture_envs.add(env_key)
                             gestures = env_data[env_key]["ped_gestures"]
                             for p in rendered if has_gestures else ():
                                 pid = int(p.id)
@@ -836,6 +840,10 @@ class MCAPReader:
             flush_buffers()
             for writer in writers.values():
                 writer.close()
+            for env_key in gesture_envs:
+                if (env_key, "ped_gestures") not in writers:
+                    (out_dir / env_key).mkdir(parents=True, exist_ok=True)
+                    pq.write_table(_TOPIC_SCHEMAS["ped_gestures"].empty_table(), out_dir / env_key / "ped_gestures.parquet", compression="zstd")
             for env_dir in (d for d in out_dir.iterdir() if d.is_dir()):
                 engine_peds = env_dir / "peds_physics.parquet"
                 arena_peds = env_dir / "peds.parquet"

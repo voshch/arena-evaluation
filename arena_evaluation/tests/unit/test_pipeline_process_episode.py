@@ -9,7 +9,7 @@ pytest.importorskip("arena_simulation_setup.shared.judge")
 import shapely
 
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry
-from arena_evaluation.processing.metrics.ecological.condition_metrics import _world_cache
+from arena_evaluation.processing.metrics.ecological.condition_metrics import _wall_cache, _world_cache
 from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.folder_manager import FolderManager
@@ -82,6 +82,7 @@ def _episode(tmp_path: pathlib.Path) -> tuple[FolderManager, EpisodeDescriptor]:
 
 def test_process_episode_replays_the_task_on_the_episode_world(tmp_path: pathlib.Path) -> None:
     _world_cache[WORLD] = [_ZoneGeometry(name="kitchen", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]), max_speed=None, quiet=False, restricted=False)]
+    _wall_cache[WORLD] = None
     folders, descriptor = _episode(tmp_path)
     rows = ProcessingPipeline(folders, workers=1).process_episode(descriptor)
     assert [row["robot"] for row in rows] == [ROBOT]

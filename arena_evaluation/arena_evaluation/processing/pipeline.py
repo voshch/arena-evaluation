@@ -280,13 +280,13 @@ def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
         df = getattr(bundle, name)
         if isinstance(df, pl.LazyFrame):
             df = df.collect()
-        if len(df) > 0:
+        if len(df) > 0 or name in KEPT_EMPTY_TABLES:
             topics[name] = df
     return topics
 
 
 from arena_evaluation.benchmark.profiler import PipelineProfiler
-from arena_evaluation.processing.mcap_reader import MCAPReader
+from arena_evaluation.processing.mcap_reader import KEPT_EMPTY_TABLES, MCAPReader
 from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
 from arena_evaluation.processing.pose_anchor import resolve_pose_source
 from arena_evaluation.processing.topic_aligner import TopicAligner

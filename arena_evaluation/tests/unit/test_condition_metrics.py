@@ -22,6 +22,8 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     _strip_env,
     _value_at,
     _values_equal,
+    _wall_cache,
+    clips_on_axis,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -466,6 +468,7 @@ def test_calculate_false_dominates_unknown():
     calc = _calc()
     calc.world = "synthetic_conditions"
     calc._world_cache["synthetic_conditions"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions"] = None
 
     data = pl.DataFrame(
         {
@@ -493,6 +496,7 @@ def test_calculate_unknown_when_only_unknown_and_true():
     calc = _calc()
     calc.world = "synthetic_conditions2"
     calc._world_cache["synthetic_conditions2"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions2"] = None
 
     data = pl.DataFrame(
         {
@@ -519,6 +523,7 @@ def test_calculate_success_when_all_true():
     calc = _calc()
     calc.world = "synthetic_conditions3"
     calc._world_cache["synthetic_conditions3"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions3"] = None
 
     data = pl.DataFrame(
         {
@@ -537,3 +542,81 @@ def test_calculate_success_when_all_true():
     assert results["clauses_total"] == 1
 
     assert set(results) == set(calc.output_keys())
+
+
+# -- gesture clips --------------------------------------------------------
+
+
+def _gestures(rows):
+    return pl.DataFrame(
+        {
+            "time_ns": [t for t, _, _ in rows],
+            "ped_id": [pid for _, pid, _ in rows],
+            "slot": ["body"] * len(rows),
+            "clip": [clip for _, _, clip in rows],
+            "hand": [""] * len(rows),
+            "at_x": [0.0] * len(rows),
+            "at_y": [0.0] * len(rows),
+            "at_z": [0.0] * len(rows),
+            "render_pose_override": [False] * len(rows),
+        }
+    )
+
+
+def test_clips_on_axis_holds_the_peds_message_and_names_every_pedestrian_in_it():
+    peds = pl.DataFrame(
+        {
+            "time_ns": [1_000_000_000, 3_000_000_000],
+            "peds_names": [["env_0/alice", "env_0/bob"], ["env_0/alice"]],
+            "peds_ids": [[1, 2], [1]],
+            "peds_positions": [[1.0, 1.0, 0.0, 2.0, 2.0, 0.0], [1.0, 1.0, 0.0]],
+        }
+    )
+    gestures = _gestures([(1_000_000_000, 2, "wave"), (3_000_000_000, 1, "beckon"), (3_000_000_000, 1, "gaze")])
+    axis = np.array([0, 1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000])
+
+    assert clips_on_axis(peds, gestures, axis) == [
+        {},
+        {"alice": frozenset(), "bob": frozenset({"wave"})},
+        {"alice": frozenset(), "bob": frozenset({"wave"})},
+        {"alice": frozenset({"beckon", "gaze"})},
+        {"alice": frozenset({"beckon", "gaze"})},
+    ]
+    assert clips_on_axis(peds, gestures.clear(), axis) == [{}, {"alice": frozenset(), "bob": frozenset()}, {"alice": frozenset(), "bob": frozenset()}, {"alice": frozenset()}, {"alice": frozenset()}]
+    assert clips_on_axis(peds, None, axis) is None
+    assert clips_on_axis(peds.drop("peds_ids"), gestures, axis) is None
+    assert clips_on_axis(None, gestures, axis) is None
+
+
+def test_calculate_plays_atom_from_the_recorded_gestures():
+    calc = _calc()
+    calc.world = "synthetic_conditions4"
+    calc._world_cache["synthetic_conditions4"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions4"] = None
+    times = [0, 1_000_000_000, 2_000_000_000]
+    data = pl.DataFrame({"time_ns": times, "pos_x": [1.0] * 3, "pos_y": [1.0] * 3, "yaw": [0.0] * 3, "peds_names": [["env_0/alice"]] * 3, "peds_positions": [[2.0, 2.0, 0.0]] * 3})
+    peds = pl.DataFrame({"time_ns": times, "peds_names": [["env_0/alice"]] * 3, "peds_ids": [[1]] * 3, "peds_positions": [[2.0, 2.0, 0.0]] * 3})
+    gestures = _gestures([(2_000_000_000, 1, "beckon")])
+    conditions = [{"op": "eventually", "p": "alice plays beckon"}, {"op": "always", "p": "not alice plays wave"}, {"op": "eventually", "p": "bob plays beckon"}]
+
+    episode = _episode(data, conditions=conditions)
+    episode.peds = peds
+    episode.topics = {"ped_gestures": gestures}
+    results = calc.calculate(episode, {})
+
+    assert results["clauses_passed"] == 2
+    assert results["clauses_unknown"] == 1
+    assert results["condition_success"] is None
+
+    episode.topics = {"ped_gestures": gestures.clear()}
+    results = calc.calculate(episode, {})
+
+    assert results["condition_success"] == 0.0
+    assert results["clauses_failed"] == 1
+    assert results["clauses_passed"] == 1
+    assert results["clauses_unknown"] == 1
+
+    episode.topics = {}
+    results = calc.calculate(episode, {})
+
+    assert results["clauses_unknown"] == 3

@@ -20,6 +20,8 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     _resample_fleet,
     _world_cache,
     bare_robot_name,
+    clips_on_axis,
+    load_wall_grid,
     load_zone_geometry,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
@@ -129,6 +131,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
 
         poses = poses.sort("time_ns")
         time_ns = poses["time_ns"].to_numpy()
+        gestures = episode.topics.get("ped_gestures") if episode.topics else None
         ctx = _EvalContext(
             events=events,
             time_ns=time_ns,
@@ -140,6 +143,8 @@ class TaskReplayCalculator(BaseMetricCalculator):
             ped_roster={},
             yaw=poses["yaw"].to_numpy(),
             fleet=_resample_fleet(episode.fleet, time_ns, robot),
+            walls=load_wall_grid(self.world),
+            clips=clips_on_axis(episode.peds, gestures, time_ns),
         )
         ctx.ped_roster = _ped_roster(ctx.data)
         polygons = ctx.polygons

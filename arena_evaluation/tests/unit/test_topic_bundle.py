@@ -41,3 +41,14 @@ def test_collect_native_topics_excludes_shared_frames_but_keeps_schedule():
     assert "episode_record" not in topics
     assert "odom" in topics
     assert "characterization_schedule" in topics
+
+
+def test_collect_native_topics_keeps_an_empty_gesture_table():
+    odom = pl.DataFrame({"time_ns": [0, 1], "pos_x": [0.0, 1.0]})
+    gestures = pl.DataFrame(schema={"time_ns": pl.Int64, "ped_id": pl.Int64, "clip": pl.String})
+    interactions = pl.DataFrame(schema={"time_ns": pl.Int64, "interaction_id": pl.Int64})
+
+    topics = _collect_native_topics(TopicBundle(odom=odom, ped_gestures=gestures, interactions=interactions))
+    assert "ped_gestures" in topics
+    assert len(topics["ped_gestures"]) == 0
+    assert "interactions" not in topics

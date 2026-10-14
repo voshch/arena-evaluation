@@ -5,7 +5,7 @@ import pathlib
 
 import polars as pl
 
-from arena_evaluation.processing.mcap_reader import ENV_STATE_TABLES
+from arena_evaluation.processing.mcap_reader import ENV_STATE_TABLES, KEPT_EMPTY_TABLES
 from arena_evaluation.storage.exceptions import SchemaViolationError
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 
@@ -138,7 +138,7 @@ class TopicParquetStore:
                             continue
                         df = df.collect()
 
-                    if not df.is_empty():
+                    if not df.is_empty() or field.name in KEPT_EMPTY_TABLES:
                         temp_path = final_path.with_suffix(".parquet.tmp")
                         df.write_parquet(temp_path, compression="zstd")
                         temp_path.rename(final_path)
