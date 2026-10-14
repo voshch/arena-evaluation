@@ -88,12 +88,12 @@ except ImportError:
 
 
 def _state_types() -> dict[str, tuple[type, str, bool]]:
-    """ros type name -> (msg class, topic basename, unthrottled) of the state topics discovery subscribes in this env."""
+    """ros type name -> (msg class, topic basename, latched) of the state topics discovery subscribes in this env."""
     types: dict[str, tuple[type, str, bool]] = {}
     try:
-        from arena_humansim_msgs.msg import AgentStates, Interactions
+        from arena_humansim_msgs.msg import AgentStates, InteractionFrame
 
-        types["arena_humansim_msgs/msg/Interactions"] = (Interactions, "interactions", True)
+        types["arena_humansim_msgs/msg/InteractionFrame"] = (InteractionFrame, "interactions", True)
         types["arena_humansim_msgs/msg/AgentStates"] = (AgentStates, "agent_states", False)
     except ImportError:
         pass
@@ -116,7 +116,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
+_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "interactions", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
 
 
 from arena_evaluation.storage.manifest import MetadataWriter
@@ -313,11 +313,6 @@ class DataRecorderNode(Node):
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             depth=100,
         )
-        self.reliable_volatile_qos = QoSProfile(
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            durability=QoSDurabilityPolicy.VOLATILE,
-            depth=10,
-        )
         self.tf_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -504,7 +499,7 @@ class DataRecorderNode(Node):
             topic_name = t_def.name_template
             msg_type = t_def.msg_type
 
-            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
+            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "InteractionFrame", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
                 continue
 
             if key != "tf_humans":
@@ -631,16 +626,17 @@ class DataRecorderNode(Node):
             entry = self._state_types.get(type_name)
             if entry is None:
                 continue
-            msg_type, basename, unthrottled = entry
+            msg_type, basename, latched = entry
             if topic_name.rsplit("/", 1)[-1] != basename:
                 continue
             self._register_topic(topic_name, msg_type)
-            if unthrottled:
-                sub = self.create_subscription(msg_type, topic_name, self._create_unthrottled_callback(topic_name), self.reliable_volatile_qos)
+            if latched:
+                self.latched_topic_names.add(topic_name.strip('/'))
+                sub = self.create_subscription(msg_type, topic_name, self._create_unthrottled_callback(topic_name), self.latched_qos)
             else:
                 sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
             self.subs.append(sub)
-            self._log_info(f"Discovered state topic: {topic_name} [{type_name}]{' unthrottled' if unthrottled else ''}")
+            self._log_info(f"Discovered state topic: {topic_name} [{type_name}]{' latched' if latched else ''}")
             return
 
     def _subscribe_discovered(self, topic_name: str, msg_type: type):

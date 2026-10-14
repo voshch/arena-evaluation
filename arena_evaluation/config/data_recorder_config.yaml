@@ -8,7 +8,7 @@ record_frequencies:
   odom:   20.0   # odometry, moderate frequency
   peds:   20.0   # pedestrian positions
   animation_states: 50.0 # animation layer state per ped
-  interactions: 0.0 # event-driven (recorded unthrottled)
+  interactions: 0.0 # latched interaction frame (recorded unthrottled)
   goal_pose: 0.0 # event-driven (recorded unthrottled)
   initialpose: 0.0 # event-driven (recorded unthrottled)
   robots: 0.0    # latched fleet state (recorded unthrottled)

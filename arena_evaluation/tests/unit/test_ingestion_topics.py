@@ -45,6 +45,7 @@ _TOPIC_EXPECTATIONS = [
     ("peds", "/arena_peds", "Pedestrians", True, False),
     ("agent_states", "/agent_states", "AgentFrame", True, False),
     ("agent_meta", "/agent_meta", "AgentMeta", False, True),
+    ("interactions", "/interactions", "InteractionFrame", False, True),
     ("episode_record", "/state/episode", "EpisodeRecord", False, True),
     ("robots_fleet", "/state/robots", "RobotFleet", False, True),
     ("semantic_snapshot", "/state/semantics", "SemanticSnapshot", False, True),
@@ -95,6 +96,7 @@ def test_get_topics_namespace_and_parent_namespace():
     assert topics["peds"].name_template == "/arena_0/arena_peds"
     assert topics["agent_states"].name_template == "/arena_0/task_generator_node/agent_states"
     assert topics["agent_meta"].name_template == "/arena_0/task_generator_node/agent_meta"
+    assert topics["interactions"].name_template == "/arena_0/task_generator_node/interactions"
     assert topics["episode_record"].name_template == "/arena_0/task_generator_node/state/episode"
     assert topics["robots_fleet"].name_template == "/arena_0/task_generator_node/state/robots"
     assert topics["semantic_snapshot"].name_template == "/arena_0/task_generator_node/state/semantics"

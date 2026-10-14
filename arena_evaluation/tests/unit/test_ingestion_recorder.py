@@ -124,7 +124,6 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.qos = object()
     node.tf_qos = object()
     node.latched_qos = object()
-    node.reliable_volatile_qos = object()
     node._seen_episodes = set()
     node.episodes_recorded = 0
     node._episode_id_offset = 0
@@ -252,9 +251,9 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypat
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 12
+    assert len(full_node.subs) == 13
     # /tf, humans/tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "map", "door_mask", "tf_static"}
+    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "interactions", "map", "door_mask", "tf_static"}
     assert full_node.freqs == {"default": 20.0}
 
 
@@ -731,7 +730,7 @@ def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_no
     assert by_topic["/tf"].raw is False
     assert by_topic["/state/episode"].raw is False
     assert by_topic["/state/robots"].raw is False
-    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask", "/agent_states", "/agent_meta"):
+    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask", "/agent_states", "/agent_meta", "/interactions"):
         assert by_topic[topic].raw is True
 
 
@@ -739,6 +738,8 @@ def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) 
     by_topic = {sub.topic: sub for sub in full_node.subs}
     assert by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
     assert by_topic["/agent_meta"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    assert by_topic["/interactions"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    assert by_topic["/interactions"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
     assert by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
 
 
@@ -1102,7 +1103,7 @@ def _state_node():
 def test_state_types_cover_interactions_and_animation():
     pytest.importorskip("arena_humansim_msgs.msg")
     types = recorder._state_types()
-    assert types["arena_humansim_msgs/msg/Interactions"][1:] == ("interactions", True)
+    assert types["arena_humansim_msgs/msg/InteractionFrame"][1:] == ("interactions", True)
     assert types["arena_people_msgs/msg/AnimationStates"][1:] == ("animation_states", False)
 
 
@@ -1110,7 +1111,7 @@ def test_discover_topics_records_interaction_and_animation_states_of_its_env():
     pytest.importorskip("arena_humansim_msgs.msg")
     node = _state_node()
     node.get_topic_names_and_types = lambda: [
-        ("/arena/env_1/task_generator_node/interactions", ["arena_humansim_msgs/msg/Interactions"]),
+        ("/arena/env_1/task_generator_node/interactions", ["arena_humansim_msgs/msg/InteractionFrame"]),
         ("/arena/env_1/animation_states", ["arena_people_msgs/msg/AnimationStates"]),
         ("/arena/env_10/animation_states", ["arena_people_msgs/msg/AnimationStates"]),
         ("/arena/env_1/human/stream", ["arena_people_msgs/msg/Pedestrians"]),
@@ -1118,24 +1119,25 @@ def test_discover_topics_records_interaction_and_animation_states_of_its_env():
     node.discover_topics()
     subscribed = {c.args[1]: c for c in node.create_subscription.call_args_list}
     assert set(subscribed) == {"/arena/env_1/task_generator_node/interactions", "/arena/env_1/animation_states"}
-    assert subscribed["/arena/env_1/task_generator_node/interactions"].args[3] is node.reliable_volatile_qos
+    assert subscribed["/arena/env_1/task_generator_node/interactions"].args[3] is node.latched_qos
     assert subscribed["/arena/env_1/animation_states"].args[3] is node.qos
-    assert node._topic_registry["/arena/env_1/task_generator_node/interactions"].type == "arena_humansim_msgs/msg/Interactions"
+    assert node.latched_topic_names == {"arena/env_1/task_generator_node/interactions"}
+    assert node._topic_registry["/arena/env_1/task_generator_node/interactions"].type == "arena_humansim_msgs/msg/InteractionFrame"
     assert node._topic_registry["/arena/env_1/animation_states"].type == "arena_people_msgs/msg/AnimationStates"
 
 
 def test_discovered_interactions_are_written_unthrottled():
     pytest.importorskip("arena_humansim_msgs.msg")
-    from arena_humansim_msgs.msg import Interactions
+    from arena_humansim_msgs.msg import InteractionFrame
 
     node = _state_node()
-    node.get_topic_names_and_types = lambda: [("/arena/env_1/task_generator_node/interactions", ["arena_humansim_msgs/msg/Interactions"])]
+    node.get_topic_names_and_types = lambda: [("/arena/env_1/task_generator_node/interactions", ["arena_humansim_msgs/msg/InteractionFrame"])]
     node.discover_topics()
     callback = node.create_subscription.call_args.args[2]
     node.current_time = 1_000
     node._write_to_bag_at = MagicMock()
-    callback(Interactions())
-    callback(Interactions())
+    callback(InteractionFrame())
+    callback(InteractionFrame())
     assert node._write_to_bag_at.call_count == 2
 
 

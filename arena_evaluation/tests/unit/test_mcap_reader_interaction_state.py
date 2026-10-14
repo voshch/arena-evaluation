@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Sequence
 
 import pytest
 
@@ -10,7 +11,7 @@ rosbag2_py = pytest.importorskip("rosbag2_py")
 pytest.importorskip("arena_humansim_msgs.msg")
 pytest.importorskip("arena_people_msgs.msg")
 
-from arena_humansim_msgs.msg import AgentState, AgentStates, InteractionEvent, Interactions, InteractionStatus
+from arena_humansim_msgs.msg import AgentState, AgentStates, InteractionEvent, InteractionFrame
 from arena_people_msgs.msg import AnimationSlot, AnimationState, AnimationStates, Gesture, Pedestrian, Pedestrians
 from rclpy.serialization import serialize_message
 
@@ -50,12 +51,32 @@ def _agents() -> AgentStates:
     return AgentStates(agents=[a, robot])
 
 
-def _interactions(stamp_s: int, events: list[int]) -> Interactions:
-    msg = Interactions()
+HUG = (4, 10, 1, "", [1, 2], [], True, True, 3.0)
+QUEUE_USE = (7, 6, 0, "counter", [3], [5, 8], False, False, -1.0)
+
+
+def _frame(stamp_s: int, rows: list[tuple], events: Sequence[int] = ()) -> InteractionFrame:
+    msg = InteractionFrame()
     msg.header.stamp.sec = stamp_s
-    msg.interactions = [InteractionStatus(interaction_id=4, interaction_type=10, outcome=1, participants=[1, 2], arrived=True, holding=True, hold_elapsed=0.5, duration=3.0)]
+    offsets = [0]
+    for iid, itype, outcome, object_id, participants, queue, arrived, holding, duration in rows:
+        msg.interaction_id.append(iid)
+        msg.interaction_type.append(itype)
+        msg.outcome.append(outcome)
+        msg.object_id.append(object_id)
+        msg.arrived.append(arrived)
+        msg.holding.append(holding)
+        msg.duration.append(duration)
+        msg.member_id.extend(participants + queue)
+        msg.member_role.extend([0] * len(participants) + [1] * len(queue))
+        offsets.append(len(msg.member_id))
+    msg.member_offset = offsets
     msg.events = [InteractionEvent(interaction_id=4, interaction_type=10, event=e, participants=[1, 2]) for e in events]
     return msg
+
+
+def _interactions(stamp_s: int, events: list[int]) -> InteractionFrame:
+    return _frame(stamp_s, [HUG], events)
 
 
 def _animation() -> AnimationStates:
@@ -118,8 +139,36 @@ def test_interaction_events_and_snapshots(bundle) -> None:
     assert events["participants"][0].to_list() == [1, 2]
     snapshots = _table(bundle, "interactions")
     assert snapshots.height == 2
+    assert snapshots.columns == ["time_ns", "stamp_ns", "interaction_id", "interaction_type", "outcome", "object_id", "participants", "queue", "arrived", "holding", "duration"]
+    assert snapshots["stamp_ns"].to_list() == [1 * SEC, 2 * SEC]
+    assert snapshots["interaction_type"].to_list() == [10, 10]
+    assert snapshots["participants"][0].to_list() == [1, 2]
+    assert snapshots["queue"][0].to_list() == []
+    assert snapshots["arrived"].to_list() == [True, True]
     assert snapshots["holding"].to_list() == [True, True]
     assert snapshots["duration"][0] == 3.0
+
+
+def test_members_split_into_participants_and_queue_with_the_anchor_object(tmp_path: pathlib.Path) -> None:
+    mcap = _write(tmp_path / "bag", [(f"{NS}/task_generator_node/interactions", _frame(1, [HUG, QUEUE_USE]), 1 * SEC)])
+    MCAPReader(mcap).read(tmp_path / "topics")
+    rows = _table(tmp_path / "topics" / "env_0", "interactions").sort("interaction_id")
+    assert rows["interaction_id"].to_list() == [4, 7]
+    assert rows["object_id"].to_list() == ["", "counter"]
+    assert rows["outcome"].to_list() == [1, 0]
+    assert rows["participants"].to_list() == [[1, 2], [3]]
+    assert rows["queue"].to_list() == [[], [5, 8]]
+    assert rows["arrived"].to_list() == [True, False]
+    assert rows["duration"].to_list() == [3.0, -1.0]
+
+
+def test_empty_frames_add_no_interaction_rows(tmp_path: pathlib.Path) -> None:
+    topic = f"{NS}/task_generator_node/interactions"
+    mcap = _write(tmp_path / "bag", [(topic, _frame(1, []), 1 * SEC), (topic, _frame(2, [HUG], [0]), 2 * SEC), (topic, _frame(3, []), 3 * SEC)])
+    MCAPReader(mcap).read(tmp_path / "topics")
+    rows = _table(tmp_path / "topics" / "env_0", "interactions")
+    assert rows["time_ns"].to_list() == [2 * SEC]
+    assert _table(tmp_path / "topics" / "env_0", "interaction_events")["event_name"].to_list() == ["ACTIVATED"]
 
 
 def test_animation_states_one_row_per_slot_and_base_only_peds(bundle) -> None:

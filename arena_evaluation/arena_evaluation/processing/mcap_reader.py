@@ -23,6 +23,8 @@ _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
 
 INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
+MEMBER_ROLE_PARTICIPANT = 0
+MEMBER_ROLE_QUEUED = 1
 ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
 
 Anchor = tuple[int, float, float]
@@ -109,11 +111,11 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("interaction_id", pa.int64()),
             ("interaction_type", pa.int64()),
             ("outcome", pa.int64()),
+            ("object_id", pa.string()),
             ("participants", pa.list_(pa.int64())),
             ("queue", pa.list_(pa.int64())),
             ("arrived", pa.bool_()),
             ("holding", pa.bool_()),
-            ("hold_elapsed", pa.float64()),
             ("duration", pa.float64()),
         ]
     ),
@@ -512,21 +514,27 @@ class MCAPReader:
                             appended = True
 
                         # Interaction lifecycle (humansim)
-                        elif topic.endswith("/interactions") and schema.name == "arena_humansim_msgs/msg/Interactions":
+                        elif topic.endswith("/interactions") and schema.name == "arena_humansim_msgs/msg/InteractionFrame":
                             stamp = self._stamp_ns(ros_msg.header)
                             rows = env_data[env_key]["interactions"]
-                            for it in ros_msg.interactions:
+                            offsets = [int(o) for o in ros_msg.member_offset]
+                            member_ids = [int(m) for m in ros_msg.member_id]
+                            member_roles = list(bytes(ros_msg.member_role))
+                            interaction_types = list(bytes(ros_msg.interaction_type))
+                            outcomes = list(bytes(ros_msg.outcome))
+                            for i, iid in enumerate(ros_msg.interaction_id):
+                                members = list(zip(member_ids[offsets[i] : offsets[i + 1]], member_roles[offsets[i] : offsets[i + 1]], strict=True))
                                 rows["time_ns"].append(ts_ns)
                                 rows["stamp_ns"].append(stamp)
-                                rows["interaction_id"].append(it.interaction_id)
-                                rows["interaction_type"].append(it.interaction_type)
-                                rows["outcome"].append(it.outcome)
-                                rows["participants"].append(list(it.participants))
-                                rows["queue"].append(list(it.queue))
-                                rows["arrived"].append(bool(it.arrived))
-                                rows["holding"].append(bool(it.holding))
-                                rows["hold_elapsed"].append(float(it.hold_elapsed))
-                                rows["duration"].append(float(it.duration))
+                                rows["interaction_id"].append(int(iid))
+                                rows["interaction_type"].append(interaction_types[i])
+                                rows["outcome"].append(outcomes[i])
+                                rows["object_id"].append(str(ros_msg.object_id[i]))
+                                rows["participants"].append([m for m, role in members if role == MEMBER_ROLE_PARTICIPANT])
+                                rows["queue"].append([m for m, role in members if role == MEMBER_ROLE_QUEUED])
+                                rows["arrived"].append(bool(ros_msg.arrived[i]))
+                                rows["holding"].append(bool(ros_msg.holding[i]))
+                                rows["duration"].append(float(ros_msg.duration[i]))
                             events = env_data[env_key]["interaction_events"]
                             for ev in ros_msg.events:
                                 events["time_ns"].append(ts_ns)

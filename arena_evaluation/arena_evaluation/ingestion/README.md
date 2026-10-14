@@ -81,20 +81,24 @@ All topics use simulation time from `/clock`. Messages prior to the first `/cloc
 | `/{parent_ns}/goal_pose` | `geometry_msgs/PoseStamped` | unthrottled |
 | `/{parent_ns}/initialpose` | `geometry_msgs/PoseWithCovarianceStamped` | unthrottled |
 | `/{parent_ns}/arena_peds` | `arena_people_msgs/Pedestrians` | 20 ms |
+| `/{parent_ns}/interactions` | `arena_humansim_msgs/InteractionFrame` | latched |
 | `/{parent_ns}/state/episode` | `task_generator_msgs/EpisodeRecord` | unthrottled |
 | `/{parent_ns}/state/robots` | `task_generator_msgs/RobotFleet` | latched |
 | `/tf` | `tf2_msgs/TFMessage` | 20 ms, merged |
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
 
-Interaction and animation state is picked up by discovery (by message type and topic basename, anywhere under
+`/{parent_ns}/interactions` is humansim's latched `InteractionFrame`: the live interactions (type, outcome, anchor object,
+members with their participant or queued role, arrived, holding, hold duration) plus the ACTIVATED / HOLD_ONSET /
+RELEASED / INTERRUPTED / CANCELED edges fired that tick, published only when its content changes or an edge fires.
+
+Animation state is picked up by discovery (by message type and topic basename, anywhere under
 the env namespace, i.e. one level above the recorder) rather than from the fixed list above:
 
 | Topic | Message Type | Throttle |
 |---|---|---|
-| `/{parent_ns}/interactions` | `arena_humansim_msgs/Interactions` | unthrottled, reliable (carries edge-triggered ACTIVATED / HOLD_ONSET / RELEASED events) |
 | `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 50 ms (per-ped clip, playhead, gesture phase, blend weight) |
-| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states` | fallback if the fixed paths above miss them | 20 ms |
+| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states`, `/{parent_ns}/interactions` | fallback if the fixed paths above miss them | 20 ms, interactions latched |
 
 The reader turns them into `interactions`, `interaction_events`, `animation_states` and `ped_gestures` env tables,
 and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as

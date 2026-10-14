@@ -51,7 +51,12 @@ Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, epi
 | energy | `time_ns`, `total_energy_consumed_wh`, `battery_soc_percent` |
 | acoustics | `time_ns`, `total_level_af_dba`, `total_level_zf_db`, `baseline_level_dba`, `drivetrain_level_dba`, `uncertainty_1sigma_dba`, `validity_flags` |
 | characterization_phase | `time_ns`, `label` |
-| peds | `time_ns`, `peds_positions`, `peds_headings`, `num_pedestrians` |
+| peds | `time_ns`, `peds_frame_id`, `num_pedestrians`, `peds_ids`, `peds_positions`, `peds_headings`, `peds_twists`, `peds_animation_states`, `peds_interaction_ids`, `peds_interaction_types` (per-ped lists in `peds_ids` order) |
+| peds_physics | same as peds, from the crowd engine's `agent_states` in the engine frame |
+| ped_gestures | `time_ns`, `ped_id`, `slot`, `clip`, `hand`, `at_x`, `at_y`, `at_z`, `render_pose_override` |
+| interactions | one row per interaction per `InteractionFrame`: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `outcome`, `object_id`, `participants`, `queue`, `arrived`, `holding`, `duration`; an empty frame adds no row. Kept as its own frame, not aligned onto odom |
+| interaction_events | one row per lifecycle edge: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `event`, `event_name`, `participants` |
+| animation_states | one row per (ped, overlay slot), `slot` empty for a base-only ped: `time_ns`, `ped_id`, `ped_name`, `base`, `base_phase`, `slot`, `kind`, `channel`, `phase`, `clip`, `animation`, `playhead`, `duration`, `weight`, `loop` |
 | episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `robots_params` |
 | collision_events | `time_ns`, `collision_event` |
 | collision_monitor_state | `time_ns`, `action_type`, `polygon_name` |
