@@ -27,7 +27,6 @@ import numpy as np
 from mcap.reader import make_reader
 from mcap_ros2.decoder import DecoderFactory
 
-GATE_LINK_STEP_M = 0.25  # task_generator gestures/qa.py MAX_LINK_STEP_M, per 50 ms tick
 TICK_S = 0.05
 LINKS = ("l_wrist", "r_wrist", "l_elbow", "r_elbow", "head")
 WINDOW_BEFORE_S = 0.1
@@ -142,12 +141,18 @@ def analyze_episode(mcap_path: pathlib.Path, fk: Callable[..., tuple[dict, objec
             in_window |= w
             if w.any():
                 events += 1
-                events_over += int(step[w].max() > GATE_LINK_STEP_M)
+                events_over += int(step[w].max() > gate_link_step_m())
         trans_steps.append(step[in_window])
         steady_steps.append(step[~in_window])
     trans = np.concatenate(trans_steps) if trans_steps else np.zeros(0)
     steady = np.concatenate(steady_steps) if steady_steps else np.zeros(0)
     return {"episode": mcap_path.parent.name, "peds": len(joints), "events": events, "events_over_gate": events_over, "trans": trans, "steady": steady}
+
+
+def gate_link_step_m() -> float:
+    from task_generator.simulators.human.gestures.qa import MAX_LINK_STEP_M
+
+    return MAX_LINK_STEP_M
 
 
 _NAMES: list[str] = []
@@ -168,7 +173,7 @@ def summarize(results: list[dict]) -> dict:
     def stats(x: np.ndarray) -> dict:
         if len(x) == 0:
             return {"ticks": 0}
-        return {"ticks": int(len(x)), "median_m": float(np.median(x)), "p99_m": float(np.percentile(x, 99)), "max_m": float(x.max()), "over_gate": int((x > GATE_LINK_STEP_M).sum())}
+        return {"ticks": int(len(x)), "median_m": float(np.median(x)), "p99_m": float(np.percentile(x, 99)), "max_m": float(x.max()), "over_gate": int((x > gate_link_step_m()).sum())}
 
     events = sum(r["events"] for r in results)
     over = sum(r["events_over_gate"] for r in results)
