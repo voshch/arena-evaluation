@@ -21,7 +21,7 @@ def test_link_steps_are_rescaled_to_a_50ms_tick() -> None:
     samples = [(0.0, {"x": 0.0}), (0.025, {"x": 0.1}), (0.075, {"x": 0.2})]
     t, step = B.link_steps(samples, fk, None)
     assert t.tolist() == pytest.approx([0.025, 0.075])
-    assert step.tolist() == pytest.approx([0.2, 0.1])  # 0.1 m in 25 ms is 0.2 m per tick
+    assert step.tolist() == pytest.approx([0.2, 0.1])
 
 
 def test_summary_counts_gate_violations() -> None:

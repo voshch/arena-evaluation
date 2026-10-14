@@ -21,9 +21,9 @@ EVENT_RELEASED = "RELEASED"
 EVENT_ACTIVATED = "ACTIVATED"
 
 STALL_SPEED = 0.05  # m/s, below this the robot counts as stopped
-STALL_MIN_S = 3.0  # a stop shorter than this is not a stall (manuscript §4.1: at least 3 s)
+STALL_MIN_S = 3.0  # s, a shorter stop is not a stall
 SPEED_WINDOW_S = 0.25  # moving-average window of the speed signal
-MOVING_SPEED = 0.1  # stops before the robot first exceeds this are start-up latency, not stalls
+MOVING_SPEED = 0.1  # m/s, the robot counts as started once above this
 GOAL_TOLERANCE = 0.5  # m, stops this close to the goal are arrival
 POST_S = 5.0  # post-release window length
 
@@ -110,11 +110,7 @@ def _cross(o: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def segment_crossings(robot: np.ndarray, ped_a: np.ndarray, ped_b: np.ndarray) -> np.ndarray:
-    """Per step i: does the robot's move robot[i]->robot[i+1] cross the pair segment a[i]-b[i].
-
-    A point on a line counts to its non-negative side, so a sample landing exactly on the
-    segment is one crossing, not zero (strict signs) or two (inclusive signs).
-    """
+    """Per step i: whether the move robot[i]->robot[i+1] crosses the pair segment a[i]-b[i], a sample on the segment counting once."""
     if len(robot) < 2:
         return np.zeros(0, dtype=bool)
     p, q = robot[:-1], robot[1:]
@@ -213,7 +209,7 @@ class ContactInteractionCalculator(BaseMetricCalculator):
             return out
         topics = episode.topics or {}
         pos_x, pos_y, _, _, _, _ = self.resolve_robot_pose(episode)
-        data = episode.data  # resolve_robot_pose may trim it to the pose segment
+        data = episode.data
         time_ns = data["time_ns"].to_numpy()
         n = min(len(time_ns), len(pos_x))
         if n < 2:
@@ -250,7 +246,6 @@ class ContactInteractionCalculator(BaseMetricCalculator):
             robot = np.column_stack([pos_x, pos_y])
             present = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
             if hold_onset is not None:
-                # only the hold: before it the partners can stand metres apart on either side of the path
                 h0, h1 = windows["hold"]
                 in_hold = (t_s >= h0) & (t_s <= h1) & present
                 if len(in_hold) > 1:

@@ -45,7 +45,7 @@ def _peds(x_a: float) -> Pedestrians:
 
 def _agents() -> AgentStates:
     a = AgentState(agent_id=1, kind=0, interaction_id=4, interaction_type=10)
-    a.pose.x = 100.0  # engine frame: far from the rendered pose on purpose
+    a.pose.x = 100.0
     robot = AgentState(agent_id=99, kind=1)
     return AgentStates(agents=[a, robot])
 
@@ -91,7 +91,7 @@ def _table(env_dir: pathlib.Path, name: str):
 
 def test_arena_peds_and_agent_states_land_in_separate_tables(bundle) -> None:
     peds = _table(bundle, "peds")
-    assert peds.height == 2  # agent_states rows no longer interleave into the rendered table
+    assert peds.height == 2
     assert peds["peds_positions"][0][0] == 8.0
     assert peds["peds_ids"][0].to_list() == [1, 2]
     assert peds["peds_interaction_ids"][0].to_list() == [4, -1]
@@ -99,13 +99,13 @@ def test_arena_peds_and_agent_states_land_in_separate_tables(bundle) -> None:
     assert peds["peds_animation_states"][0].to_list() == [0, 1]
     physics = _table(bundle, "peds_physics")
     assert physics.height == 1
-    assert physics["peds_ids"][0].to_list() == [1]  # the robot entry is dropped
+    assert physics["peds_ids"][0].to_list() == [1]
     assert physics["peds_positions"][0][0] == 100.0
 
 
 def test_gestures_come_from_the_rendered_side_only(bundle) -> None:
     gestures = _table(bundle, "ped_gestures")
-    assert gestures.height == 2  # one per arena_peds message, none from agent_states
+    assert gestures.height == 2
     assert set(gestures["ped_id"]) == {1}
     assert gestures["clip"].to_list() == ["hug", "hug"]
     assert gestures["render_pose_override"].to_list() == [True, True]

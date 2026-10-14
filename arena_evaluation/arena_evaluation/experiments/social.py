@@ -27,6 +27,7 @@ import numpy as np
 import polars as pl
 import yaml
 
+from arena_evaluation.experiments.group import formation_radius
 from arena_evaluation.experiments.stats import DEFAULT_BOOT, cluster_bootstrap, holm
 
 WORLD = "hospital_1_bare"
@@ -37,22 +38,20 @@ MODELS = ("female_adult_business_02", "male_adult_construction_01", "female_adul
 
 _ROOT = pathlib.Path(__file__).resolve().parent
 
-# Layouts measured on the world's map before the runs: the corridor is 3.7 m wide, the ward 7.8 x 14.7 m open,
-# the junction a 3.7 m corridor opening into a 9.75 m crossing.
 LAYOUTS = {
-    "ward": {"centre": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
-    "corridor": {"centre": (9.2, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
+    "ward": {"center": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
+    "corridor": {"center": (9.2, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
 }
 GROUP_LAYOUTS = {
-    "ward": {"centre": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
-    "corridor": {"centre": (10.4, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
-    "junction": {"centre": (10.0, 26.0), "start": (10.0, 22.0, 1.5708), "goal": (10.0, 30.0, 1.5708), "space": "corridor into a 9.75 m crossing"},
+    "ward": {"center": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
+    "corridor": {"center": (10.4, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
+    "junction": {"center": (10.0, 26.0), "start": (10.0, 22.0, 1.5708), "goal": (10.0, 30.0, 1.5708), "space": "corridor into a 9.75 m crossing"},
 }
 
 # interaction -> (participants, separation between partners)
 CONTACT = {"hug": (2, 0.30), "handshake": (2, 0.60)}
 INTERACTION_TYPES = {"hug": "HUG", "handshake": "SHAKE_HAND"}
-GROUP_RADIUS_M = 0.94  # humansim f_formation, three participants
+GROUP_RADIUS_M = formation_radius(3)
 
 
 def _world_dir() -> pathlib.Path:
@@ -80,16 +79,16 @@ def _agent(name: str, interaction: str) -> dict:
     }
 
 
-def contact_positions(centre: tuple[float, float], separation: float) -> list[tuple[float, float, float]]:
+def contact_positions(center: tuple[float, float], separation: float) -> list[tuple[float, float, float]]:
     half = separation / 2.0
-    return [(centre[0] - half, centre[1], 0.0), (centre[0] + half, centre[1], 3.14159)]
+    return [(center[0] - half, center[1], 0.0), (center[0] + half, center[1], 3.14159)]
 
 
-def group_positions(centre: tuple[float, float], members: int = 3) -> list[tuple[float, float, float]]:
+def group_positions(center: tuple[float, float], members: int = 3) -> list[tuple[float, float, float]]:
     out = []
     for i in range(members):
         angle = 2.0 * np.pi * i / members
-        out.append((float(centre[0] + GROUP_RADIUS_M * np.cos(angle)), float(centre[1] + GROUP_RADIUS_M * np.sin(angle)), float(angle + np.pi)))
+        out.append((float(center[0] + GROUP_RADIUS_M * np.cos(angle)), float(center[1] + GROUP_RADIUS_M * np.sin(angle)), float(angle + np.pi)))
     return out
 
 
@@ -122,23 +121,23 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
     scenarios_dir = _world_dir() / "scenarios"
     stages: dict[str, list] = {"on": [], "off": []}
     index = 0
-    catalogue = []
+    catalog = []
 
     for interaction, (members, separation) in CONTACT.items():
         for layout_name, layout in LAYOUTS.items():
             case = f"contact_{interaction}_{layout_name}"
-            poses = contact_positions(layout["centre"], separation)
+            poses = contact_positions(layout["center"], separation)
             write_scenario(scenarios_dir / case, INTERACTION_TYPES[interaction], layout, poses)
-            catalogue.append((case, f"{members} people {separation:.2f} m apart in a {layout['space']}"))
+            catalog.append((case, f"{members} people {separation:.2f} m apart in a {layout['space']}"))
             index += 1
             for arm, mode in (("on", "enabled"), ("off", "disabled")):
                 stages[arm].append(_stage(case, arm, mode, SEED_BASE + index, episodes))
 
     for layout_name, layout in GROUP_LAYOUTS.items():
         case = f"group_{layout_name}"
-        poses = group_positions(layout["centre"])
+        poses = group_positions(layout["center"])
         write_scenario(scenarios_dir / case, "GROUP_CONVERSATION", layout, poses)
-        catalogue.append((case, f"3 people in conversation in a {layout['space']}"))
+        catalog.append((case, f"3 people in conversation in a {layout['space']}"))
         index += 1
         for arm, mode in (("on", "enabled"), ("off", "disabled")):
             stages[arm].append(_stage(case, arm, mode, SEED_BASE + index, episodes))
@@ -152,7 +151,7 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
     for arm in ("on", "off"):
         path = _ROOT.parents[1] / "configs" / "benchmark" / "suites" / f"social_{arm}.yaml"
         path.write_text(header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False))
-    for case, description in catalogue:
+    for case, description in catalog:
         print(f"  {case:28s} {description}")
     print(f"\n{len(stages['on'])} stages per arm x {episodes} episodes per contestant")
     return {arm: len(v) for arm, v in stages.items()}
@@ -174,17 +173,12 @@ def _stage(case: str, arm: str, mode: str, seed: int, episodes: int) -> dict:
 
 # -- analysis -----------------------------------------------------------------------------------
 
-CENTRES = {f"contact_{i}_{k}": v["centre"] for i in CONTACT for k, v in LAYOUTS.items()} | {f"group_{k}": v["centre"] for k, v in GROUP_LAYOUTS.items()}
+CENTERS = {f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()} | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
 METRICS = ("min_pedestrian_clearance", "time_in_intimate_zone", "time_in_personal_zone", "path_length", "time_to_goal", "pierced", "success")
 
 
 def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
-    """Episodes of one arm, with the two derived route metrics and without the harness's own casualties.
-
-    An episode the runner marks ``UNRESOLVED`` was cut off when its environment disappeared mid-run, not when
-    the robot gave up: counting it as a failure would charge the planner for a crash of the benchmark. Genuine
-    give-ups are marked ``FAILED`` and are kept.
-    """
+    """Episodes of one arm with the two route metrics, minus the ``UNRESOLVED`` ones whose environment disappeared mid-run."""
     path = run / "combined_metrics.parquet"
     if not path.is_file():
         raise FileNotFoundError(f"{path} not found; process the run first")
@@ -197,9 +191,9 @@ def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
     )
     pierced, closest = [], []
     for row in df.iter_rows(named=True):
-        centre = np.array(CENTRES.get(row["case"], (0.0, 0.0)))
+        center = np.array(CENTERS.get(row["case"], (0.0, 0.0)))
         pts = np.array([[float(p[0]), float(p[1])] for p in (row.get("path") or [])])
-        d = np.linalg.norm(pts - centre, axis=1) if len(pts) else np.array([float("nan")])
+        d = np.linalg.norm(pts - center, axis=1) if len(pts) else np.array([float("nan")])
         radius = GROUP_RADIUS_M if row["case"].startswith("group") else 0.8
         pierced.append(bool(np.nansum(d < radius) > 0))
         closest.append(float(np.nanmin(d)))
@@ -211,14 +205,7 @@ def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
 
 
 def matched(df: pl.DataFrame) -> pl.DataFrame:
-    """Per planner and arm, pooled over the cases that produced episodes in *both* arms.
-
-    Six on-arm steps lost their environment before running an episode, so the two arms do not cover the same
-    cases for every planner. Pooling each arm over everything it happens to have would compare DWB's five
-    surviving on-arm cases against seven off-arm ones, and the missing two are exactly the ones the blind
-    planner walks through -- flattering the result with an accident of the harness. Restricting both arms to
-    the cases they share is what the paired differences already do.
-    """
+    """Per planner and arm, pooled over the cases that produced episodes in both arms."""
     have = df.group_by(["planner", "case", "arm"]).agg(pl.len()).pivot(on="arm", index=["planner", "case"], values="len")
     both = have.filter(pl.col("on").is_not_null() & pl.col("off").is_not_null()).select(["planner", "case"])
     return (

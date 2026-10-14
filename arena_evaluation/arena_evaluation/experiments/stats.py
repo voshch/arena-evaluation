@@ -37,13 +37,7 @@ def cluster_bootstrap(
     rng: np.random.Generator | None = None,
     level: float = 0.95,
 ) -> BootResult:
-    """Resample clusters (scenarios) with replacement, each carrying all of its rows (seeds).
-
-    statistic maps the drawn clusters to a number, default the mean over every drawn row, so a
-    scenario with a missing seed weighs less instead of being re-weighted to full.
-    p is two-sided, 2 * min(share of draws <= 0, share >= 0), so p < 1 - level exactly when the
-    percentile interval excludes zero.
-    """
+    """Percentile bootstrap over whole clusters, with a two-sided p that is below 1 - level exactly when the interval excludes zero."""
     clusters = [np.asarray(c, dtype=float) for c in clusters]
     clusters = [c[np.isfinite(c)] if c.ndim == 1 else c for c in clusters]
     clusters = [c for c in clusters if len(c) > 0]

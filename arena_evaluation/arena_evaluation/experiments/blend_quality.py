@@ -1,4 +1,4 @@
-"""Runtime blending quality, read back from recorded episodes (manuscript §3.2 playback gate, applied in the loop).
+"""Runtime blending quality, read back from recorded episodes (manuscript section 3.2 playback gate, applied in the loop).
 
 Every recorded pedestrian's joint state goes through the rig's own FK, and the per-tick step of the wrist,
 elbow and head links is compared against the playback gate's 0.25 m per 50 ms. Ticks are split into
@@ -31,13 +31,12 @@ GATE_LINK_STEP_M = 0.25  # task_generator gestures/qa.py MAX_LINK_STEP_M, per 50
 TICK_S = 0.05
 LINKS = ("l_wrist", "r_wrist", "l_elbow", "r_elbow", "head")
 WINDOW_BEFORE_S = 0.1
-WINDOW_AFTER_S = 0.9  # FADE_S 0.25 plus the longest move/transition (MOVE_MAX_S 0.9)
+WINDOW_AFTER_S = 0.9
 
 
 def _messages(mcap_path: pathlib.Path, suffixes: tuple[str, ...]):
     with open(mcap_path, "rb") as f:
         reader = make_reader(f, decoder_factories=[DecoderFactory()])
-        # decode only the wanted channels, the lidar and tf traffic dominates an episode
         topics = [c.topic for c in reader.get_summary().channels.values() if c.topic.endswith(suffixes)]
         for _schema, channel, message, ros_msg in reader.iter_decoded_messages(topics=topics):
             yield channel.topic, message.log_time, ros_msg
@@ -48,8 +47,7 @@ def _yaw(q: object) -> float:
 
 
 def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, list], dict[int, list]]:
-    """Per ped: [(t_s, angles)] as published, [(t_s, frozenset of slot keys, base)] from animation_states,
-    and [(t_s, layer input)] with what publish_arena_peds fed the animation layer."""
+    """Per ped: joint angles as published, animation_states slot keys and base, and the layer inputs off arena_peds."""
     joints: dict[int, list] = defaultdict(list)
     anim: dict[int, list] = defaultdict(list)
     inputs: dict[int, list] = defaultdict(list)
@@ -200,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     for m in mcaps:
         try:
             results.append(analyze_episode(m, S.fk, body, args.source))
-        except Exception as e:  # an episode still being written or truncated
+        except Exception as e:
             print(f"skip {m.parent.name}: {e!r}", file=sys.stderr)
     summary = {"source": args.source, **summarize(results)}
     out = args.out or args.benchmark_dir / "layer"

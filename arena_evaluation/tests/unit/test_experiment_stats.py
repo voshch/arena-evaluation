@@ -8,7 +8,6 @@ from arena_evaluation.experiments.stats import cluster_bootstrap, holm, paired_d
 
 
 def test_holm_matches_the_textbook_example() -> None:
-    # m = 4: 0.01*4, 0.02*3, 0.03*2, 0.04*1, made monotone
     assert holm([0.03, 0.01, 0.04, 0.02]) == pytest.approx([0.06, 0.04, 0.06, 0.06])
 
 
@@ -33,11 +32,10 @@ def test_bootstrap_of_a_null_contains_zero() -> None:
 
 
 def test_bootstrap_resamples_whole_scenarios() -> None:
-    # one scenario carries all the signal: a row-level bootstrap would be far tighter
     clusters = [np.array([10.0, 10.0, 10.0])] + [np.zeros(3)] * 9
     res = cluster_bootstrap(clusters, n_boot=4000, rng=np.random.default_rng(0))
     assert res.estimate == pytest.approx(1.0)
-    assert res.ci_low == 0.0  # a draw without the loud scenario is common with 10 clusters
+    assert res.ci_low == 0.0
 
 
 def test_p_below_alpha_iff_interval_excludes_zero() -> None:
@@ -54,7 +52,7 @@ def test_paired_differences_and_family_summary() -> None:
             for seed in range(3):
                 rows.append({"planner": planner, "scenario": scenario, "seed": seed, "arm": "contact", "stalls": 3.0 if planner == "dwb" else 1.0})
                 rows.append({"planner": planner, "scenario": scenario, "seed": seed, "arm": "locomotion", "stalls": 1.0})
-    rows.append({"planner": "dwb", "scenario": 0, "seed": 9, "arm": "contact", "stalls": 5.0})  # unpaired: drops out
+    rows.append({"planner": "dwb", "scenario": 0, "seed": 9, "arm": "contact", "stalls": 5.0})
     df = pl.DataFrame(rows)
     diffs = paired_differences(df, cell=["planner"], metric="stalls", arm="arm", treatment="contact", control="locomotion")
     assert diffs.height == 36

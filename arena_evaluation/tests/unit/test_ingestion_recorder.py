@@ -1112,8 +1112,8 @@ def test_discover_topics_records_interaction_and_animation_states_of_its_env():
     node.get_topic_names_and_types = lambda: [
         ("/arena/env_1/task_generator_node/interactions", ["arena_humansim_msgs/msg/Interactions"]),
         ("/arena/env_1/animation_states", ["arena_people_msgs/msg/AnimationStates"]),
-        ("/arena/env_10/animation_states", ["arena_people_msgs/msg/AnimationStates"]),  # another env
-        ("/arena/env_1/human/stream", ["arena_people_msgs/msg/Pedestrians"]),  # right type, not a state topic
+        ("/arena/env_10/animation_states", ["arena_people_msgs/msg/AnimationStates"]),
+        ("/arena/env_1/human/stream", ["arena_people_msgs/msg/Pedestrians"]),
     ]
     node.discover_topics()
     subscribed = {c.args[1]: c for c in node.create_subscription.call_args_list}
@@ -1135,7 +1135,7 @@ def test_discovered_interactions_are_written_unthrottled():
     node.current_time = 1_000
     node._write_to_bag_at = MagicMock()
     callback(Interactions())
-    callback(Interactions())  # same sim time: a throttle would drop this one
+    callback(Interactions())
     assert node._write_to_bag_at.call_count == 2
 
 

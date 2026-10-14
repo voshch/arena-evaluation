@@ -22,10 +22,10 @@ SEC = 1_000_000_000
 def test_stall_needs_the_minimum_duration_and_prior_motion() -> None:
     t = np.arange(0.0, 12.0, 0.1)
     speed = np.full_like(t, 0.5)
-    speed[:10] = 0.0  # start-up latency: not a stall
-    speed[30:35] = 0.0  # 0.5 s: too short
-    speed[40:50] = 0.0  # 1 s: under the 3 s floor
-    speed[60:95] = 0.0  # 3.5 s stall
+    speed[:10] = 0.0
+    speed[30:35] = 0.0
+    speed[40:50] = 0.0
+    speed[60:95] = 0.0
     assert stall_intervals(t, speed) == [(pytest.approx(6.0), pytest.approx(9.4))]
 
 
@@ -87,7 +87,6 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
     for i, ti in enumerate(t):
         x[i] = min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
     y = np.zeros_like(t)
-    # the pair straddles y=0 at x=6 and the robot crosses their segment around t=6
     peds_ids = [[1, 2]] * len(t)
     peds_positions = [[6.0, -0.6, 0.0, 6.0, 0.6, 0.0]] * len(t)
     data = pl.DataFrame(

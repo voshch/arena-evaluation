@@ -11,7 +11,7 @@ differ in everything the animation layer contributes and nothing else:
 The outcome is the route: whether the robot's path passes inside the formation, and how close it comes to a
 person while doing so.
 
-    python -m arena_evaluation.experiments.group measure --benchmark-dir <data_root>/<run_id> --centre 4.0 17.5
+    python -m arena_evaluation.experiments.group measure --benchmark-dir <data_root>/<run_id> --center 4.0 17.5
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ def formation_radius(members: int, scale: float = 1.0) -> float:
     return (FORMATION_BASE_M + FORMATION_PER_MEMBER_M * max(0, members - 1)) * scale
 
 
-def episode_routes(metrics: pl.DataFrame, centre: tuple[float, float], radius: float) -> pl.DataFrame:
+def episode_routes(metrics: pl.DataFrame, center: tuple[float, float], radius: float) -> pl.DataFrame:
     """Per episode: how far the path stayed from the conversation, and whether it went through it."""
     rows = []
-    origin = np.asarray(centre, dtype=float)
+    origin = np.asarray(center, dtype=float)
     for row in metrics.iter_rows(named=True):
         path = row.get("path") or []
         points = np.array([[float(p[0]), float(p[1])] for p in path]) if len(path) else np.zeros((0, 2))
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     measure = sub.add_parser("measure")
     measure.add_argument("--benchmark-dir", type=pathlib.Path, required=True, nargs="+")
-    measure.add_argument("--centre", type=float, nargs=2, required=True, metavar=("X", "Y"))
+    measure.add_argument("--center", type=float, nargs=2, required=True, metavar=("X", "Y"))
     measure.add_argument("--members", type=int, default=3)
     measure.add_argument("--scale", type=float, default=1.0)
     args = parser.parse_args(argv)
@@ -89,9 +89,9 @@ def main(argv: list[str] | None = None) -> int:
         path = directory / "combined_metrics.parquet"
         if not path.is_file():
             raise SystemExit(f"{path} not found; run `arena_evaluation.cli process --benchmark-dir {directory}` first")
-        frames.append(episode_routes(pl.read_parquet(path), tuple(args.centre), radius))
+        frames.append(episode_routes(pl.read_parquet(path), tuple(args.center), radius))
     routes = pl.concat(frames)
-    print(f"formation radius {radius:.2f} m about ({args.centre[0]}, {args.centre[1]})\n")
+    print(f"formation radius {radius:.2f} m about ({args.center[0]}, {args.center[1]})\n")
     print(routes)
     print()
     print(summarize(routes))

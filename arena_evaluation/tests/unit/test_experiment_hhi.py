@@ -23,7 +23,7 @@ def test_geometry_is_admissible_and_meets_near_the_path() -> None:
         off = abs(d[0] * v[1] - d[1] * v[0]) / np.linalg.norm(d)
         assert off <= 1.0 + 1e-9
         gap = np.linalg.norm(np.subtract(*g.ped_meet))
-        assert gap == pytest.approx(2 * hhi.MEET_OFFSET)  # both arms approach to the same points
+        assert gap == pytest.approx(2 * hhi.MEET_OFFSET)
         assert 4.0 <= g.hold_s <= 8.0
 
 
@@ -38,7 +38,7 @@ def test_generate_writes_paired_stages_sharing_seeds(tmp_path: pathlib.Path) -> 
             assert contact["seed"] == loco["seed"]
             assert contact["config"]["scenario"]["file"] == loco["config"]["scenario"]["file"]
             assert (contact["config"]["scenario"]["contact_mode"], loco["config"]["scenario"]["contact_mode"]) == ("enabled", "locomotion_only")
-    assert len({s["seed"] for s in stages}) == 2 * 3  # distinct across scenarios
+    assert len({s["seed"] for s in stages}) == 2 * 3
     reloaded = yaml.safe_load((tmp_path / "suite.yaml").read_text())
     assert reloaded == suite
 
@@ -107,7 +107,7 @@ def test_family_and_window_tables(tmp_path: pathlib.Path) -> None:
     metrics.write_parquet(tmp_path / "run" / "combined_metrics.parquet")
     tables = hhi.analyze(tmp_path / "run", n_boot=300)
     fam = tables["family_a"]
-    assert fam.height == 2 * 2 * 4  # planner x interaction x metric
+    assert fam.height == 2 * 2 * 4
     dwb_stalls = fam.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "stalls"))
     assert dwb_stalls["estimate"].to_list() == pytest.approx([2.0, 2.0], abs=0.6)
     assert dwb_stalls["excludes_zero"].to_list() == [True, True]

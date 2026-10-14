@@ -177,8 +177,6 @@ def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | N
         return int(df["time_ns"][0]), int(df["time_ns"][-1])
     running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
     start = int(running["time_ns"][0]) if len(running) else int(df["time_ns"][0])
-    # The terminal row can land after the recorder closed (stop_episode races the record), leaving this
-    # episode's RUNNING row last; ending there would make the window empty, so the end stays open instead.
     terminal = df.filter((pl.col("time_ns") > start) & (pl.col("outcome_state") != _RECORD_RUNNING))
     return start, (int(terminal["time_ns"][-1]) if len(terminal) else None)
 
@@ -278,12 +276,7 @@ def _outcome_verdict(outcome_state: int | None, outcome_info: str | None) -> tup
 
 
 def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMetadata | None) -> tuple[int | None, str | None]:
-    """(outcome_state, outcome_info) of the episode: its own terminal record, else the runner's yaml outcome, else the last record.
-
-    A latched terminal row of the previous episode can precede this episode's RUNNING row, and this
-    episode's terminal row can miss the recording (stop_episode closes the writer first), so neither the
-    first nor the last row is reliable on its own.
-    """
+    """(outcome_state, outcome_info): the episode's own terminal record, else the runner's yaml outcome, else the last record."""
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
     rows = df is not None and len(df) > 0 and "outcome_state" in df.columns and "time_ns" in df.columns
     if rows:

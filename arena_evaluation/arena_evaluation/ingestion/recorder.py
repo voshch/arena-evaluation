@@ -88,17 +88,11 @@ except ImportError:
 
 
 def _state_types() -> dict[str, tuple[type, str, bool]]:
-    """Interaction / animation state topics recorded wherever discovery finds them in this env.
-
-    ros type name -> (msg class, topic basename, unthrottled). Matched by type and basename rather
-    than a fixed path, so a namespace change upstream cannot silently drop them. Missing packages
-    (other human sims) just leave their types out.
-    """
+    """ros type name -> (msg class, topic basename, unthrottled) of the state topics discovery subscribes in this env."""
     types: dict[str, tuple[type, str, bool]] = {}
     try:
         from arena_humansim_msgs.msg import AgentStates, Interactions
 
-        # lifecycle edges (hold onset, release) ride on single messages: never throttle them
         types["arena_humansim_msgs/msg/Interactions"] = (Interactions, "interactions", True)
         types["arena_humansim_msgs/msg/AgentStates"] = (AgentStates, "agent_states", False)
     except ImportError:
@@ -319,7 +313,6 @@ class DataRecorderNode(Node):
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
             depth=100,
         )
-        # interaction lifecycle edges: a dropped message loses an edge
         self.reliable_volatile_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -608,7 +601,6 @@ class DataRecorderNode(Node):
     def discover_topics(self):
         namespace = self.get_namespace().strip('/')
         ns_prefix = f"/{namespace}" if namespace else ""
-        # the recorder sits in the task generator's namespace, the human sim publishes one level up
         env_prefix = ns_prefix.rsplit("/", 1)[0] + "/"
 
         for name, types in self.get_topic_names_and_types():

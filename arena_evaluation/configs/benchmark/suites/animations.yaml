@@ -1,6 +1,6 @@
 # Benchmarks robot planners against the map_empty animation smoke-test scenarios
 # (arena_simulation_setup/worlds/map_empty/scenarios/test_*), i.e. the humansim
-# gesture/animation clips from feature/animation-clean-up: beckon, collapse_to_ground,
+# gesture/animation clips: beckon, collapse_to_ground,
 # shake_hand, wave_high, and the halt/point gesture-grid scene.
 #
 # Those scenario files ship with `robots: []` (they're pedestrian-animation QA
