@@ -304,6 +304,7 @@ _METRIC_DTYPES = {
     "status_reason": pl.String,
     "result": pl.String,
     "outcome_info": pl.String,
+    "integrity": pl.List(pl.String),
     "success": pl.Boolean,
     "ne": pl.Float64,
     "osr": pl.Boolean,
@@ -338,6 +339,16 @@ def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMet
     if metadata is not None:
         return metadata.outcome_state, metadata.outcome_info
     return None, None
+
+
+def _record_integrity(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMetadata | None) -> list[str]:
+    """Integrity reasons of the last recorded record, from the yaml when no record carries them."""
+    df = record.collect() if isinstance(record, pl.LazyFrame) else record
+    if df is not None and len(df) > 0 and "integrity" in df.columns and "time_ns" in df.columns:
+        return df.sort("time_ns").row(-1, named=True)["integrity"] or []
+    if metadata is not None:
+        return list(metadata.integrity)
+    return []
 
 
 def _planner_split(ep: EpisodeDescriptor, metadata: RunMetadata | None) -> tuple[str, str]:
@@ -377,6 +388,7 @@ def _status_row(
         "status_reason": reason,
         "pose_source": None,
         "outcome_info": outcome_info,
+        "integrity": _record_integrity(record, metadata),
         "result": result,
         "success": success,
     }
@@ -607,6 +619,7 @@ class ProcessingPipeline:
                                 outcome_info = er_sorted["outcome_info"][-1]
                             phases = _robot_phases(er_sorted, robot_name)
 
+                integrity = _record_integrity(bundle.episode_record, metadata)
                 start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, phases)
 
                 fleet = _fleet_poses(robots, window)
@@ -673,6 +686,7 @@ class ProcessingPipeline:
                     ep_metrics["goal"] = aligned_ep.goal_pos
                     ep_metrics["is_reference"] = ep.is_reference
                     ep_metrics["reference_type"] = ep.reference_type
+                    ep_metrics["integrity"] = integrity
                     if pose_source.kind == "odom":
                         ep_metrics["num_pedestrians"] = aligned_ep.num_pedestrians
                     ep_metrics["pose_source"] = pose_source.kind

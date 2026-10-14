@@ -52,7 +52,7 @@ Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, epi
 | acoustics | `time_ns`, `total_level_af_dba`, `total_level_zf_db`, `baseline_level_dba`, `drivetrain_level_dba`, `uncertainty_1sigma_dba`, `validity_flags` |
 | characterization_phase | `time_ns`, `label` |
 | peds | `time_ns`, `peds_positions`, `peds_headings`, `num_pedestrians` |
-| episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `robots_params` |
+| episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `integrity` (list of reasons the episode is compromised, empty when intact or recorded before the field existed), `phases`, `robots_params` |
 | collision_events | `time_ns`, `collision_event` |
 | collision_monitor_state | `time_ns`, `action_type`, `polygon_name` |
 | tf / tf_static | `time_ns`, frame/child/trans/rot columns |
@@ -92,7 +92,7 @@ For each episode:
 6. Computes metrics with `MetricRegistry`.
 7. Attaches run identifiers and writes `metrics.parquet`.
 
-Every recorded episode yields a row. `status` is `evaluated`, `path_only` (no map-frame pose), `no_trajectory`, `no_recording` or `error`, with `status_reason`; rows without a trajectory carry the runtime verdict in `result` and `success` and null metrics. `pose_source` (`tf`, `anchored`, `tf_sparse`, `odom`), `pose_samples` and `pose_anchor_residual_m` say how the robot pose was obtained. The report lists every non-`evaluated` row above the summary.
+Every recorded episode yields a row. `status` is `evaluated`, `path_only` (no map-frame pose), `no_trajectory`, `no_recording` or `error`, with `status_reason`; rows without a trajectory carry the runtime verdict in `result` and `success` and null metrics. `pose_source` (`tf`, `anchored`, `tf_sparse`, `odom`), `pose_samples` and `pose_anchor_residual_m` say how the robot pose was obtained. `integrity` (`List(String)`) holds the reasons the episode is compromised from the last recorded `EpisodeRecord`, or from the episode yaml when none was recorded, and is empty when the episode is intact. The report lists every non-`evaluated` row above the summary.
 
 ---
 

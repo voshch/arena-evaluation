@@ -1055,6 +1055,8 @@ class DataRecorderNode(Node):
             if int(msg.outcome_state) in _TERMINAL_OUTCOMES:
                 self.current_metadata.outcome_state = int(msg.outcome_state)
                 self.current_metadata.outcome_info = str(msg.outcome_info)
+            if int(msg.episode_id) == self.current_sim_episode_id:
+                self.current_metadata.integrity = list(msg.integrity)
 
             obstacles_params = {p.name: self._param_value_to_py(p.value) for p in msg.obstacles_params}
             robots_params = {p.name: self._param_value_to_py(p.value) for p in msg.robots_params}

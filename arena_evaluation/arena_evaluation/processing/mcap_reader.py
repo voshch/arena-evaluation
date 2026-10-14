@@ -95,6 +95,18 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("collision_obstacle_ids", pa.list_(pa.string())),
         ]
     ),
+    "episode_record": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("episode_id", pa.int64()),
+            ("outcome_state", pa.int64()),
+            ("outcome_info", pa.string()),
+            ("goal_uuid", pa.string()),
+            ("integrity", pa.list_(pa.string())),
+            ("phases", pa.string()),
+            ("robots_params", pa.string()),
+        ]
+    ),
     "characterization_schedule": pa.schema(
         [
             ("phase_label", pa.string()),
@@ -278,6 +290,7 @@ class MCAPReader:
                     decoders = {}
                     collision_kind_schema_cache: dict[int, bool] = {}
                     phases_schema_cache: dict[int, bool] = {}
+                    integrity_schema_cache: dict[int, bool] = {}
 
                     for schema, channel, message in reader.iter_messages(log_time_order=False):
                         try:
@@ -457,6 +470,12 @@ class MCAPReader:
                             target["outcome_state"].append(ros_msg.outcome_state)
                             target["outcome_info"].append(ros_msg.outcome_info)
                             target["goal_uuid"].append(ros_msg.goal_uuid)
+
+                            has_integrity = integrity_schema_cache.get(schema.id)
+                            if has_integrity is None:
+                                has_integrity = re.search(r"^\s*string\[\]\s+integrity\b", schema.data.decode(), re.M) is not None
+                                integrity_schema_cache[schema.id] = has_integrity
+                            target["integrity"].append(list(ros_msg.integrity) if has_integrity else [])
 
                             has_phases = phases_schema_cache.get(schema.id)
                             if has_phases is None:

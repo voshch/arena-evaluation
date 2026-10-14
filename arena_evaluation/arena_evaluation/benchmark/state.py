@@ -126,6 +126,7 @@ def _load_steps(state_path: pathlib.Path) -> dict[str, StepResult]:
             error_detail=error_detail,
             episodes_run=val.get("episodes_run", 0),
             episodes_failed=val.get("episodes_failed", 0),
+            episodes_compromised=val.get("episodes_compromised", 0),
             lockstep=LockstepSummary.from_dict(val["lockstep"]) if val.get("lockstep") else None,
         )
     return steps
@@ -143,6 +144,7 @@ def _dump_steps(steps: typing.Mapping[str, StepResult]) -> str:
                 "error_detail": v.error_detail,
                 "episodes_run": v.episodes_run,
                 "episodes_failed": v.episodes_failed,
+                "episodes_compromised": v.episodes_compromised,
                 "lockstep": v.lockstep.to_dict() if v.lockstep is not None else None,
             }
             for k, v in steps.items()
@@ -212,12 +214,15 @@ class ProgressLog:
         "robots_params_json,obstacles_params_json,"
         "error_kind,error_detail,"
         "lockstep_stalls,lockstep_max_stall_s,lockstep_rtf,lockstep_beat_channels,lockstep_ticks,lockstep_beats,lockstep_beats_due,"
-        "goal_dist_start,goal_dist_min,path_length"
+        "goal_dist_start,goal_dist_min,path_length,"
+        "integrity"
     )
 
     def __init__(self, path: pathlib.Path) -> None:
         self._path = path
         is_empty = not path.exists() or path.stat().st_size == 0
+        if not is_empty:
+            _upgrade_header(path)
         self._fh = path.open("a", newline="")
         if is_empty:
             self._fh.write(self._HEADER + "\n")
@@ -283,6 +288,7 @@ class ProgressLog:
                 rec.goal_dist_start,
                 rec.goal_dist_min,
                 rec.path_length,
+                json.dumps(list(rec.integrity)),
             ]
         )
         self._fh.flush()
@@ -338,9 +344,8 @@ def _latest_rows(header: list[str], rows: typing.Iterable[list[str]]) -> dict[tu
     return best
 
 
-def _fold_progress(path: pathlib.Path) -> None:
-    sources = [p for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv"))) if p.exists()]
-    header: list[str] | None = None
+def _rows_by_column(sources: typing.Iterable[pathlib.Path], header: list[str]) -> list[list[str]]:
+    """Complete rows of progress csvs, each mapped onto header by column name."""
     rows: list[list[str]] = []
     for source in sources:
         lines = _csv_lines(source)
@@ -350,15 +355,32 @@ def _fold_progress(path: pathlib.Path) -> None:
         if not records:
             continue
         src_header = records[0]
-        if header is None:
-            header = src_header
         for row in records[1:]:
             if len(row) != len(src_header):
                 continue
             by_name = dict(zip(src_header, row, strict=True))
             rows.append([by_name.get(col, "") for col in header])
-    if header is None:
-        header = next(csv.reader([ProgressLog._HEADER]))
+    return rows
+
+
+def _upgrade_header(path: pathlib.Path) -> None:
+    """Rewrite a progress csv under ProgressLog._HEADER when its header differs."""
+    lines = _csv_lines(path)
+    if not lines or lines[0].rstrip("\r\n") == ProgressLog._HEADER:
+        return
+    header = next(csv.reader([ProgressLog._HEADER]))
+    rows = _rows_by_column([path], header)
+    tmp = path.with_suffix(".csv.upgrade.tmp")
+    with tmp.open("w", newline="") as out:
+        out.write(ProgressLog._HEADER + "\n")
+        csv.writer(out).writerows(rows)
+    os.replace(tmp, path)
+
+
+def _fold_progress(path: pathlib.Path) -> None:
+    sources = [p for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv"))) if p.exists()]
+    header = next(csv.reader([ProgressLog._HEADER]))
+    rows = _rows_by_column(sources, header)
     ts_iso_idx = header.index("ts_iso")
     folded = sorted(_latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r))
     tmp = path / "progress.csv.fold.tmp"

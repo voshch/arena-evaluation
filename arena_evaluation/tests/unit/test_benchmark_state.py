@@ -76,6 +76,7 @@ def _make_episode_record(*, episode_id: int = 1) -> types.SimpleNamespace:
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
+        integrity=[],
     )
 
 
@@ -465,6 +466,7 @@ _HEADERS = [
     "goal_dist_start",
     "goal_dist_min",
     "path_length",
+    "integrity",
 ]
 
 
@@ -613,6 +615,7 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
+        integrity=[],
     )
     log.append(
         ts_iso="t",

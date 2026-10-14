@@ -77,6 +77,7 @@ def _make_episode_record(
     goal_dist_start: float = 0.0,
     goal_dist_min: float = 0.0,
     path_length: float = 0.0,
+    integrity: list[str] | None = None,
 ) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         episode_id=episode_id,
@@ -93,6 +94,7 @@ def _make_episode_record(
         goal_dist_start=goal_dist_start,
         goal_dist_min=goal_dist_min,
         path_length=path_length,
+        integrity=integrity or [],
     )
 
 
@@ -271,6 +273,7 @@ _EXPECTED_HEADERS = [
     "goal_dist_start",
     "goal_dist_min",
     "path_length",
+    "integrity",
 ]
 
 
@@ -289,7 +292,7 @@ def test_progress_log_header_column_count(tmp_path: pathlib.Path):
     with (tmp_path / "progress.csv").open(newline="") as fh:
         reader = csv.reader(fh)
         headers = next(reader)
-    assert len(headers) == 35
+    assert len(headers) == 36
 
 
 def test_progress_log_append(tmp_path: pathlib.Path):

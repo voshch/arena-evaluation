@@ -31,6 +31,7 @@ class RunMetadata(BaseModel):
     # (QUEUED=0, RUNNING=1, SUCCESS=2, FAILED=3, SKIPPED=4, FATAL=5).
     outcome_state: int | None = None
     outcome_info: str = ""
+    integrity: list[str] = Field(default_factory=list)
     recording_started_at: str
     arena_git_sha: str | None = None
     arena_git_dirty: bool = False

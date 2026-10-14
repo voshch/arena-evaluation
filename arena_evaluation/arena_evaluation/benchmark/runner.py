@@ -128,6 +128,31 @@ def closed_fraction(goal_dist_start: float, goal_dist_min: float) -> float:
     return max(0.0, min(1.0, (goal_dist_start - goal_dist_min) / goal_dist_start))
 
 
+_STATE_LABELS = {EpisodeRecord.SUCCESS: "SUCCESS", EpisodeRecord.FAILED: "FAILED", EpisodeRecord.SKIPPED: "SKIPPED"}
+
+
+def episode_line(head: str, rec: EpisodeRecord, sim_s: float, wall_s: float) -> str:
+    """Per-episode log line, ending in the integrity reasons when the episode is compromised."""
+    label = _STATE_LABELS.get(rec.outcome_state, str(rec.outcome_state))
+    progress = f" progress={closed_fraction(rec.goal_dist_start, rec.goal_dist_min) * 100:.0f}% path={rec.path_length:.1f}m" if rec.goal_dist_start > 0.0 else ""
+    integrity = f" integrity={list(rec.integrity)!r}" if rec.integrity else ""
+    return f"{head} {label} info={rec.outcome_info!r} sim={sim_s:.1f}s wall={wall_s:.1f}s{progress}{integrity}"
+
+
+def compromised_table(results: typing.Mapping[str, StepResult], step_map: typing.Mapping[str, Step]) -> str | None:
+    """Compromised and run episode counts per contestant, None when every episode was intact."""
+    counts: dict[str, tuple[int, int]] = {}
+    for key, result in sorted(results.items()):
+        step = step_map.get(key)
+        name = step.contestant.name if step else key
+        compromised, run = counts.get(name, (0, 0))
+        counts[name] = (compromised + result.episodes_compromised, run + result.episodes_run)
+    table = [(name, str(compromised), str(run)) for name, (compromised, run) in counts.items() if compromised]
+    if not table:
+        return None
+    return format_table(("contestant", "compromised", "episodes"), table)
+
+
 def cell_verdict(result: StepResult) -> str:
     """Efficacy classification for one cell: wedged (never finished), weak (finished but drove badly), or ok."""
     if result.error_kind is not None or result.episodes_run < result.episodes_total:
@@ -1149,6 +1174,7 @@ class BenchmarkRunner(ArenaMixinNode):
         episodes_run = 0
         episodes_failed = 0
         episodes_weak = 0
+        episodes_compromised = 0
         worst_progress: float | None = None
         sim_s = 0.0
         stalled = False
@@ -1179,6 +1205,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 episodes_run=episodes_run,
                 episodes_failed=episodes_failed,
                 episodes_weak=episodes_weak,
+                episodes_compromised=episodes_compromised,
                 episodes_worst_progress=worst_progress,
                 episodes_total=step.episodes,
                 sim_s=sim_s,
@@ -1271,19 +1298,16 @@ class BenchmarkRunner(ArenaMixinNode):
                 episodes_run += 1
                 if rec.outcome_state == EpisodeRecord.FAILED:
                     episodes_failed += 1
+                if rec.integrity:
+                    episodes_compromised += 1
                 frac = closed_fraction(rec.goal_dist_start, rec.goal_dist_min)
                 if rec.goal_dist_start > 0.0:
                     worst_progress = frac if worst_progress is None else min(worst_progress, frac)
                 if self._efficacy is not None and rec.outcome_state != EpisodeRecord.SUCCESS and frac < self._efficacy:
                     episodes_weak += 1
 
-                state_label = {
-                    EpisodeRecord.SUCCESS: "SUCCESS",
-                    EpisodeRecord.FAILED: "FAILED",
-                    EpisodeRecord.SKIPPED: "SKIPPED",
-                }.get(rec.outcome_state, str(rec.outcome_state))
-                progress_note = f" progress={frac * 100:.0f}% path={rec.path_length:.1f}m" if rec.goal_dist_start > 0.0 else ""
-                _log.info(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} {state_label} info={rec.outcome_info!r} sim={ep_ended_sim - ep_started_sim:.1f}s wall={ep_ended_wall - ep_started_wall:.1f}s{progress_note}")
+                state_label = _STATE_LABELS.get(rec.outcome_state, str(rec.outcome_state))
+                _log.info(episode_line(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id}", rec, ep_ended_sim - ep_started_sim, ep_ended_wall - ep_started_wall))
 
                 if rec.outcome_state in (
                     EpisodeRecord.SUCCESS,
@@ -2093,6 +2117,9 @@ class BenchmarkRunner(ArenaMixinNode):
         if rows:
             print(f"\nbenchmark: lockstep report\n{format_report(rows)}", flush=True)
             lockstep_failed = any(summary.verdict == "fail" for _, _, summary in rows)
+        compromised = compromised_table(results, step_map)
+        if compromised is not None:
+            print(f"\nbenchmark: compromised episodes\n{compromised}", flush=True)
         strict_failed = sorted(k for k, r in results.items() if r.error_kind is not None or r.episodes_run < r.episodes_total)
         if self._strict and strict_failed:
             print(f"\nbenchmark: strict verdict: {len(strict_failed)} cell(s) did not complete cleanly: {', '.join(strict_failed)}", flush=True)

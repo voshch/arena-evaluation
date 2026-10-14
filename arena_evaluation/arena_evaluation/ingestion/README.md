@@ -47,6 +47,10 @@ An episode opens on the first `RUNNING` `EpisodeRecord` of an episode id or on a
 `QUEUED` records, which the task generator publishes during the reset, open nothing. A STOP call
 closes the episode and moves its MCAP to `episode_XXX/episode_XXX.mcap`.
 
+Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XXX.yaml`, the
+list of reasons the episode is compromised, empty when it is intact. Reasons accrue during the
+episode, so the yaml holds the latest list.
+
 A bag directory `episode_XXX/episode_XXX/` that an earlier recorder left unclosed is kept as
 `episode_XXX/episode_XXX_unclosed_N/` and the episode is recorded as usual.
 

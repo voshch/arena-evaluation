@@ -381,8 +381,10 @@ For each group the runner:
    `$ARENA_DATA_DIR/benchmarks/<run_id>/` so an interrupted run can be
    resumed with `--resume <run_id>`.
 
-`progress.csv` schema is unchanged (one row per episode; `env_id` is shared
-within a group). `.benchmark_state.json` schema is unchanged.
+`progress.csv` holds one row per episode (`env_id` is shared within a group),
+its last column `integrity` the JSON list of reasons the episode is compromised.
+`.benchmark_state.json` holds each step's status and episode counts, among them
+`episodes_compromised`.
 
 Run-id default format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}` (lex sort = chronological).
 For inline contests the contest segment is `inline`. Override with `--run-id`.

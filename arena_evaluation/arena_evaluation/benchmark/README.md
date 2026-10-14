@@ -116,6 +116,14 @@ ever erroring, which `--strict` cannot see. When set, the run ends with a
 count, worst progress) and exits 3 if any cell is `wedged` (an error kind or an incomplete
 episode count) or `weak` (at least one weak episode).
 
+An episode whose `EpisodeRecord.integrity` lists reasons (a robot moved or spawned by hand,
+task parameters changed mid-episode, a failed elevator teleport) is compromised. Its log line
+ends in `integrity=[...]`, its `progress.csv` row carries the reasons as a JSON list in the last
+column, `integrity` (`[]` when intact), and the run ends with a `benchmark: compromised episodes`
+table (contestant, compromised count, episodes run) when at least one episode was compromised.
+A `progress.csv` written under an older header is rewritten under the current columns when a
+runner opens it.
+
 Exit codes: `0` ok, `1` systemic abort, `2` config error or crash, `3` lockstep, strict or
 efficacy verdict, `4` runner hung (deadman), `130` interrupted.
 

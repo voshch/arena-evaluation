@@ -81,6 +81,7 @@ def _record(info: str = "") -> types.SimpleNamespace:
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
+        integrity=[],
     )
 
 

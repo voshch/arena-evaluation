@@ -54,6 +54,7 @@ class StepResult:
     episodes_run: int = 0
     episodes_failed: int = 0
     episodes_weak: int = 0
+    episodes_compromised: int = 0
     episodes_worst_progress: float | None = None
     episodes_total: int = 0
     sim_s: float = 0.0
