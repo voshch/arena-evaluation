@@ -5,4 +5,3 @@ contestants:
     driver: nav2
     local_planner: dwb
     inter_planner: navigate_to_pose_w_replanning_and_recovery
-    social_cost_layer: false
