@@ -195,7 +195,7 @@ def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
         pts = np.array([[float(p[0]), float(p[1])] for p in (row.get("path") or [])])
         d = np.linalg.norm(pts - center, axis=1) if len(pts) else np.array([float("nan")])
         radius = GROUP_RADIUS_M if row["case"].startswith("group") else 0.8
-        pierced.append(bool(np.nansum(d < radius) > 0))
+        pierced.append(float(np.nansum(d < radius) > 0))
         closest.append(float(np.nanmin(d)))
     return df.with_columns(
         pl.Series("pierced", pierced, dtype=pl.Float64),
