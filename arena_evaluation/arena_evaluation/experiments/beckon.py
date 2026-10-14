@@ -302,10 +302,10 @@ def planner_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
         rows.append(
             {
                 "planner": planner,
-                "wait_on": float(on_all["wait_s"].median()),
-                "wait_off": float(off_all["wait_s"].median()),
-                "served_on": float(on_all["served"].mean()),
-                "served_off": float(off_all["served"].mean()),
+                "wait_on": float(on_all["wait_s"].median()) if len(on_all) else None,
+                "wait_off": float(off_all["wait_s"].median()) if len(off_all) else None,
+                "served_on": float(on_all["served"].mean()) if len(on_all) else None,
+                "served_off": float(off_all["served"].mean()) if len(off_all) else None,
                 "diff": None if result is None else result.estimate,
                 "ci_low": None if result is None else result.ci_low,
                 "ci_high": None if result is None else result.ci_high,
