@@ -129,13 +129,15 @@ def _metrics(planners: tuple[str, ...] = ("dwb",), cases: tuple[str, ...] = ("ha
                             "stage": beckon.stage_name(case, arm),
                             "planner": planner,
                             "episode": episode,
+                            "status": "evaluated",
                             "status_reason": None if served else "timeout",
                             "success": 1 if served else 0,
                             "time_to_goal": (20.0 if arm == "on" else 40.0) + seed if served else None,
                         }
                     )
                     episode += 1
-    rows.append({"stage": "other_stage_on", "planner": "dwb", "episode": episode, "status_reason": None, "success": 1, "time_to_goal": 1.0})
+    rows.append({"stage": "other_stage_on", "planner": "dwb", "episode": episode, "status": "evaluated", "status_reason": None, "success": 1, "time_to_goal": 1.0})
+    rows.append({"stage": beckon.stage_name(cases[0], "off"), "planner": planners[0], "episode": episode + 1, "status": "no_recording", "status_reason": "no MCAP", "success": 0, "time_to_goal": None})
     return pl.DataFrame(rows, infer_schema_length=None)
 
 
@@ -143,6 +145,7 @@ def test_load_episodes_tags_case_arm_and_seed_and_drops_other_stages() -> None:
     df = beckon.load_episodes(_metrics())
     assert set(df["case"]) == {"hall_near", "ward_door"} and set(df["arm"]) == {"on", "off"}
     assert df.filter(pl.col("stage") == "other_stage_on").height == 0
+    assert df.filter(pl.col("status") != "evaluated").height == 0
     assert df.group_by(["planner", "stage"]).agg(pl.col("seed").sort())["seed"].to_list() == [[0, 1]] * 4
 
 
