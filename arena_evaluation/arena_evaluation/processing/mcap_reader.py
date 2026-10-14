@@ -982,15 +982,17 @@ class MCAPReader:
                     logging.getLogger(__name__).warning(f"Failed to offset episode_record coordinates: {e}")
                     pass
 
-            if rb.peds is not None and shifted:
-                if "peds_frame_id" in rb.peds.collect_schema().names():
-                    frames = set(rb.peds.select(pl.col("peds_frame_id").str.strip_chars("/")).unique().collect()["peds_frame_id"].to_list()) - {"", "map"}
+            for table in ("peds", "peds_physics") if shifted else ():
+                peds = getattr(rb, table)
+                if peds is None:
+                    continue
+                if "peds_frame_id" in peds.collect_schema().names():
+                    frames = set(peds.select(pl.col("peds_frame_id").str.strip_chars("/")).unique().collect()["peds_frame_id"].to_list()) - {"", "map"}
                     if frames:
-                        raise ValueError(f"{env_key}: peds stamped {sorted(frames)}, offsets {[a[1:] for a in shifts]} are only valid for frame map")
+                        raise ValueError(f"{env_key}: {table} stamped {sorted(frames)}, offsets {[a[1:] for a in shifts]} are only valid for frame map")
                 try:
-                    rb.peds = rb.peds.with_columns(
-                        [by_anchor(shifts, lambda ox, oy: pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - oy).otherwise(pl.element()))).alias("peds_positions")]
-                    )
+                    shifted_positions = by_anchor(shifts, lambda ox, oy: pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - oy).otherwise(pl.element()))).alias("peds_positions")
+                    setattr(rb, table, peds.with_columns([shifted_positions]))
                 except Exception:
                     pass
             if rb.ped_gestures is not None and shifted:
