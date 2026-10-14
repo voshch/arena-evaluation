@@ -60,7 +60,24 @@ def nearest_return(ranges: object, range_min: float, range_max: float) -> float:
 # Topic -> explicit PyArrow schema.  Only needed when RecordBatch.from_pydict
 # cannot infer column types from data (e.g. semantic_snapshot where each row
 # populates exactly one value_* column, leaving the rest None).
+_PEDS_SCHEMA = pa.schema(
+    [
+        ("time_ns", pa.int64()),
+        ("peds_frame_id", pa.string()),
+        ("num_pedestrians", pa.int64()),
+        ("peds_positions", pa.list_(pa.float64())),
+        ("peds_headings", pa.list_(pa.float64())),
+        ("peds_twists", pa.list_(pa.float64())),
+        ("peds_ids", pa.list_(pa.int64())),
+        ("peds_animation_states", pa.list_(pa.int64())),
+        ("peds_interaction_ids", pa.list_(pa.int64())),
+        ("peds_interaction_types", pa.list_(pa.int64())),
+    ]
+)
+
 _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
+    "peds": _PEDS_SCHEMA,
+    "peds_physics": _PEDS_SCHEMA,
     "semantic_snapshot": pa.schema(
         [
             ("time_ns", pa.int64()),
