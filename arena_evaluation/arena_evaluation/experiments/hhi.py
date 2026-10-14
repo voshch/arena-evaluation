@@ -71,6 +71,9 @@ class Geometry(typing.NamedTuple):
     hold_s: float
     lead_s: float  # how long before the robot's nominal arrival the pair starts holding
     wait_s: float  # the pair stands at its start points this long, then walks
+def _pair(points: typing.Sequence[np.ndarray]) -> tuple[tuple[float, float], tuple[float, float]]:
+    a, b = points
+    return (float(a[0]), float(a[1])), (float(b[0]), float(b[1]))
 
 
 def _inside(p: tuple[float, float] | np.ndarray, margin: float = 0.0) -> bool:
@@ -117,9 +120,9 @@ def sample_geometry(rng: np.random.Generator, max_tries: int = 1000) -> Geometry
             goal=(float(g[0]), float(g[1]), heading),
             meet=(float(m[0]), float(m[1])),
             axis=axis,
-            ped_start=tuple((float(p[0]), float(p[1])) for p in starts),  # type: ignore[arg-type]
-            ped_meet=tuple((float(p[0]), float(p[1])) for p in meet),  # type: ignore[arg-type]
-            ped_exit=tuple((float(p[0]), float(p[1])) for p in exits),  # type: ignore[arg-type]
+            ped_start=_pair(starts),
+            ped_meet=_pair(meet),
+            ped_exit=_pair(exits),
             hold_s=float(rng.uniform(4.0, 8.0)),
             lead_s=float(lead),
             wait_s=float(wait),
