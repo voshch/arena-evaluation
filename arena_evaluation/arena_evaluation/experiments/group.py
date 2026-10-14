@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     for directory in args.benchmark_dir:
         path = directory / "combined_metrics.parquet"
         if not path.is_file():
-            raise SystemExit(f"{path} not found; run `arena_evaluation.cli process --benchmark-dir {directory}` first")
+            raise SystemExit(f"{path} not found; run `arena evaluation process --benchmark-dir {directory}` first")
         frames.append(episode_routes(pl.read_parquet(path), tuple(args.center), radius))
     routes = pl.concat(frames)
     print(f"formation radius {radius:.2f} m about ({args.center[0]}, {args.center[1]})\n")
