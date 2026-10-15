@@ -1250,7 +1250,7 @@ def test_finalize_episode_metadata_write_failure_logged(tmp_path, monkeypatch):
 
 
 def test_update_metadata_from_episode_populates_fields(tmp_path):
-    node = _bare_node(current_metadata=_make_run_metadata(robot_model=["unknown"], map="unknown"))
+    node = _bare_node(current_metadata=_make_run_metadata(robot_model=["unknown"], map="unknown"), current_sim_episode_id=7)
     node.current_metadata_path = tmp_path / "episode.yaml"
     pv_double = ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.4)
     pv_string = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value="turtlebot3")
@@ -1286,11 +1286,28 @@ def test_update_metadata_from_episode_noop_without_metadata(monkeypatch):
 
 
 def test_update_metadata_from_episode_write_failure_logged(tmp_path, monkeypatch):
-    node = _bare_node(current_metadata=_make_run_metadata())
+    node = _bare_node(current_metadata=_make_run_metadata(), current_sim_episode_id=3)
     node.current_metadata_path = tmp_path / "episode.yaml"
     monkeypatch.setattr(MetadataWriter, "write", MagicMock(side_effect=RuntimeError("boom")))
     node._update_metadata_from_episode(_episode_message())
     assert any("Failed to update episode metadata" in e for e in node.logger.errors)
+
+
+def test_a_record_of_another_episode_leaves_the_metadata_alone(tmp_path):
+    node = _bare_node(current_metadata=_make_run_metadata(), current_sim_episode_id=4)
+    node.current_metadata_path = tmp_path / "episode.yaml"
+    node._update_metadata_from_episode(_episode_message(episode_id=4, outcome=1))
+    queued_next = _episode_message(episode_id=5, outcome=0)
+    queued_next.tm_robots = "next"
+    node._update_metadata_from_episode(queued_next)
+    late_previous = _episode_message(episode_id=3, outcome=2)
+    node._update_metadata_from_episode(late_previous)
+
+    on_disk = yaml.safe_load((tmp_path / "episode.yaml").read_text())
+    assert node.current_metadata.task_generator_episode_id == 4
+    assert on_disk["task_generator_episode_id"] == 4
+    assert node.current_metadata.tm_robots != "next"
+    assert node.current_metadata.outcome_state is None
 
 
 # ---------------------------------------------------------------------------

@@ -1082,7 +1082,7 @@ class DataRecorderNode(Node):
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""
-        if self.current_metadata is None:
+        if self.current_metadata is None or int(msg.episode_id) != self.current_sim_episode_id:
             return
         try:
             if not self.current_metadata.robot_model or self.current_metadata.robot_model == ["unknown"]:
@@ -1098,8 +1098,7 @@ class DataRecorderNode(Node):
             if int(msg.outcome_state) in _TERMINAL_OUTCOMES:
                 self.current_metadata.outcome_state = int(msg.outcome_state)
                 self.current_metadata.outcome_info = str(msg.outcome_info)
-            if int(msg.episode_id) == self.current_sim_episode_id:
-                self.current_metadata.integrity = list(msg.integrity)
+            self.current_metadata.integrity = list(msg.integrity)
 
             obstacles_params = {p.name: self._param_value_to_py(p.value) for p in msg.obstacles_params}
             robots_params = {p.name: self._param_value_to_py(p.value) for p in msg.robots_params}
