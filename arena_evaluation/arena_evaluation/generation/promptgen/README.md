@@ -15,8 +15,8 @@ prompt + world + base
 | `pipeline.py` | `generate`, `write_result`; pins the robot route to planned points |
 | `world.py` | `WorldContext`: zones with roles, the furnished grid, the planned route, placement rules |
 | `spec.py` | typed decisions per step, the record, the dedup key, the effect vocabulary |
-| `profiles.py` | profile library and tiers; a model emits tiers, never numbers |
-| `agents.py` | derived agent-type files beside the scenario |
+| `profiles.py` | profile library and tiers; a model emits tiers, never numbers. `tune_block` turns `TUNABLE` tiers into a HumanSim `tune:` (tiers as plain numbers, a speed scale as `{mul: s}`) |
+| `agents.py` | derived agent-type files beside the scenario (`derived`: parameters pinned; `walking`: a walker's route baked into a behaviour tree; `switching`: a sequence a need preempts into, holding a tune; `tuned`: a type-level `tunes:` entry held while a need is up) |
 | `prompts.py`, `prompts/` | `prompts/universal.yaml`: the 13 frozen prompts the dataset is built from; `load_sets` reads it (plus `<world>*.yaml` and `--prompts` files when given); the place and duration phrases the system prompts list |
 | `lexicon.py`, `lexicon.yaml` | Step A phrases, onsets and parameters |
 | `llm.py` | cached model calls, and `Oracle` for `--oracle` runs |
