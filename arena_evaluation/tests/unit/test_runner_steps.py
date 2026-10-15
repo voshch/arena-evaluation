@@ -30,6 +30,7 @@ from arena_evaluation.benchmark.runner import (
     group_pending,
     resolve_planner_identity,
     robot_has_depth_camera,
+    runtime_launch_args,
 )
 from arena_evaluation.benchmark.state import Manifest, RunDir, compute_config_hash
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
@@ -88,6 +89,25 @@ def test_launch_args_forward_passthrough_except_runner_owned_and_stage_keys():
     assert "viz.view:=robot" in args
     assert "world:=map1" in args
     assert not any(a.startswith(("headless:=", "env.n:=", "env_n:=", "world:=other")) for a in args)
+
+
+def test_runtime_launch_args_start_a_suite_lockstep_stepping():
+    args = runtime_launch_args({"lockstep": "True", "headless": "True"}, {"sim": "flatsim"})
+
+    assert args == {"lockstep": "True", "headless": "True", "sim": "flatsim", "lockstep.paused": "false"}
+
+
+def test_runtime_launch_args_start_a_cli_lockstep_stepping():
+    assert runtime_launch_args({}, {"lockstep": "true"})["lockstep.paused"] == "false"
+
+
+def test_runtime_launch_args_keep_an_explicit_paused_lockstep():
+    assert runtime_launch_args({"lockstep": "True", "lockstep.paused": "True"}, {})["lockstep.paused"] == "True"
+    assert runtime_launch_args({"lockstep": "True"}, {"lockstep.paused": "true"})["lockstep.paused"] == "true"
+
+
+def test_runtime_launch_args_leave_runs_without_lockstep_alone():
+    assert runtime_launch_args({"headless": "True"}, {"lockstep": "false"}) == {"headless": "True", "lockstep": "false"}
 
 
 def test_reference_grid_adds_an_unobstructed_run_per_cell_and_one_ped_run_per_stage(tmp_path: pathlib.Path):

@@ -184,6 +184,14 @@ def _launch_key(k: str) -> str:
     return f"robot.{k}" if head in _CAP_KEYS else k
 
 
+def runtime_launch_args(suite_args: dict[str, str], passthrough: dict[str, str]) -> dict[str, str]:
+    """Suite launch args under the CLI passthrough, an autostarted lockstep stepping from bringup unless `lockstep.paused` is set."""
+    merged = {**suite_args, **passthrough}
+    if merged.get("lockstep", "false").lower() in ("true", "1"):
+        merged.setdefault("lockstep.paused", "false")
+    return merged
+
+
 def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, str] | None = None) -> list[str]:
     """Return the arena launch argument list for a step, given the simulator name."""
     s = step.stage
@@ -2413,7 +2421,7 @@ def cli_main(argv: list[str] | None = None) -> int:
             scale_episodes = args.scale_episodes
             cfg_hash = compute_config_hash(suite_dict, contest_dict)
 
-        arena_passthrough = {**suite.launch_args, **arena_passthrough}
+        arena_passthrough = runtime_launch_args(suite.launch_args, arena_passthrough)
         env_n = int(arena_passthrough.get("env.n", "1"))
         headless = arena_passthrough.get("headless", "false").lower() in ("true", "1")
         simulator = arena_passthrough.get("sim", None)
