@@ -481,7 +481,7 @@ def test_noexit_shutdown_leaves_the_runtime_running(tmp_path: pathlib.Path):
     assert _drive(tmp_path, body, noexit=True) == (True, False, None)
 
 
-def test_shutdown_interrupts_the_runtime_group_and_kills_escaped_descendants(tmp_path: pathlib.Path, capfd: pytest.CaptureFixture[str]):
+def test_shutdown_interrupts_the_runtime_group_and_kills_escaped_descendants(tmp_path: pathlib.Path, runner_log: list[str]):
     proc = subprocess.Popen(["sh", "-c", "setsid sleep 30 & wait"], start_new_session=True)
     viz = subprocess.Popen(["sleep", "30"], start_new_session=True)
     deadline = time.monotonic() + 10.0
@@ -504,7 +504,7 @@ def test_shutdown_interrupts_the_runtime_group_and_kills_escaped_descendants(tmp
         assert viz.poll() is not None
         time.sleep(0.2)
         assert all(_proc_starttime(pid) != start or pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0] == "Z" for pid, start in escaped.items())
-        assert "outlived the launch, sending SIGKILL" in capfd.readouterr().err
+        assert any("outlived the launch, sending SIGKILL" in m for m in runner_log)
     finally:
         for pid in escaped:
             if _proc_starttime(pid) is not None:

@@ -68,7 +68,7 @@ def test_launch_args_carry_stage_optim_overrides():
     assert not any(a.startswith("sim:=") for a in args)
 
 
-def test_launch_args_drop_stage_owned_keys_from_cap_dicts(capfd: pytest.CaptureFixture[str]):
+def test_launch_args_drop_stage_owned_keys_from_cap_dicts(runner_log: list[str]):
     step = _step(args={"robot": {"driver": "other"}, "task": {"robots": "scenario", "speed": 2, "unset": ""}, "mobile": {"driver": "nav2", "local_planner": "dwb"}})
 
     args = build_launch_args(step, "gazebo")
@@ -79,7 +79,7 @@ def test_launch_args_drop_stage_owned_keys_from_cap_dicts(capfd: pytest.CaptureF
     assert "task.unset:=" not in args
     assert "robot.mobile:=nav2" in args
     assert "robot.mobile.local_planner:=dwb" in args
-    assert capfd.readouterr().err.count("controlled by stage") == 2
+    assert sum("controlled by stage" in m for m in runner_log) == 2
 
 
 def test_launch_args_forward_passthrough_except_runner_owned_and_stage_keys():
@@ -362,14 +362,14 @@ def _manifest(config_hash: str) -> Manifest:
     )
 
 
-def test_config_drift_warns_only_when_the_shipped_config_changed(capfd: pytest.CaptureFixture[str]):
+def test_config_drift_warns_only_when_the_shipped_config_changed(runner_log: list[str]):
     _, _, suite_dict, contest_dict, *_ = _load_suite_contest("basic", "basic")
 
     _warn_config_drift(_manifest(compute_config_hash(suite_dict, contest_dict)))
-    assert "differs from this run's stored config" not in capfd.readouterr().err
+    assert not any("differs from this run's stored config" in m for m in runner_log)
     _warn_config_drift(_manifest("0" * 40))
 
-    assert "differs from this run's stored config" in capfd.readouterr().err
+    assert any("differs from this run's stored config" in m for m in runner_log)
 
 
 def test_shared_lane_is_off_without_a_token():

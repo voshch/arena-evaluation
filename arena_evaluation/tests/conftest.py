@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+
 import pytest
+from arena_evaluation.benchmark import runner
 
 _ROS_SKIP_REASON = "ROS2 not discoverable, source install/setup.bash to enable"
 
@@ -38,3 +42,20 @@ def rclpy_context():
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+class _Messages(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+@pytest.fixture
+def runner_log() -> Iterator[list[str]]:
+    handler = _Messages()
+    runner._log.addHandler(handler)
+    yield handler.messages
+    runner._log.removeHandler(handler)
