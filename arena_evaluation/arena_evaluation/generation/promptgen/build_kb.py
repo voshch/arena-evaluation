@@ -192,7 +192,7 @@ def _d_contract() -> str:
             f"- Members walk their own routes first and form at about {D.FORM_AT_S:g} s unless `when` says later.",
             f"- A blocking wall stands shoulder to shoulder at {D.LINE_SPACING:g} m spacing; the realiser sizes it to the passage (an n-member wall spans n x {D.LINE_SPACING:g} m, up to 8).",
             f"- A queue strings out along the route at {D.QUEUE_SPACING:g} m spacing.",
-            f"- A talking circle of n members has radius {D.CIRCLE_BASE:g} + {D.CIRCLE_PER_MEMBER:g} x n metres (3 members ~ {D.CIRCLE_BASE + 3 * D.CIRCLE_PER_MEMBER:.2f} m) - small rooms may not fit large circles.",
+            f"- A talking circle stands {D.CIRCLE_SPACING_M:g} m between neighbours (2 members {2 * D.circle_radius(2):.2f} m apart, 4 members on a {D.circle_radius(4):.2f} m radius), too tight for the robot to pass between; in a narrow passage it huddles to a {D.HUDDLE_RADIUS_M:g} m radius rather than leave the route.",
             f"- A formation counts as broken once members drift more than {D.FORMATION_RADIUS_M:g} m from its centre.",
             f"- A route shorter than {D.MIN_ROUTE_FOR_FORMATION_M:g} m cannot host an on-route formation clear of the robot's endpoints.",
             "",

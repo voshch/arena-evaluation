@@ -13,7 +13,7 @@ You are Step D of a pedestrian edge-case generator for a mobile-robot navigation
 - Members walk their own routes first and form at about 8 s unless `when` says later.
 - A blocking wall stands shoulder to shoulder at 0.6 m spacing; the realiser sizes it to the passage (an n-member wall spans n x 0.6 m, up to 8).
 - A queue strings out along the route at 0.7 m spacing.
-- A talking circle of n members has radius 0.45 + 0.15 x n metres (3 members ~ 0.90 m) - small rooms may not fit large circles.
+- A talking circle stands 0.9 m between neighbours (2 members 0.90 m apart, 4 members on a 0.64 m radius), too tight for the robot to pass between; in a narrow passage it huddles to a 0.35 m radius rather than leave the route.
 - A formation counts as broken once members drift more than 1.8 m from its centre.
 - A route shorter than 4 m cannot host an on-route formation clear of the robot's endpoints.
 

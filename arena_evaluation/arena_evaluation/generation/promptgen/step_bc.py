@@ -14,9 +14,9 @@ from ..scenario.populate import for_people
 from .agents import TypeFiles, agent_type_of, mesh_for, profile_of_agent
 from .lexicon import when_in
 from .llm import AnswerError, Oracle, call
-from .profiles import BT_ONLY, ProfileError, is_behaviour_tree, profile, scaled_speed, tier_value
+from .profiles import BT_ONLY, TUNABLE, ProfileError, is_behaviour_tree, profile, scaled_speed, tier_value
 from .spec import A_CASES, BDecision, CDecision, Record, SchemaError, Selection, conflict_m, parse_b, parse_c
-from .step_a import StepError, retune_effects
+from .step_a import StepError, retune_effects, tune_trees, walk_as_tree
 from .step_d import population_summary
 from .world import WorldContext
 
@@ -141,7 +141,7 @@ def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files
         return effects, names, notes
 
     params = dict(decision.params)
-    # One retune per agent type at the onset: until then the selected agents walk as the base
+    # One change per agent type at the onset: until then the selected agents walk as the base
     # scenario wrote them. A behaviour-only parameter is dropped for plain walkers.
     by_usable: dict[tuple[tuple[str, str], ...], list[str]] = {}
     for agent in chosen:
@@ -161,6 +161,13 @@ def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files
         typed = {k: v for k, v in usable.items() if k != "speed"}
         if usable.get("speed") == "high":
             typed["max_speed"] = "high"  # the engine's cap, or a high speed is a brisk walk
+        # every agent holds the tune itself while the need is up, a walker on its own walking tree; an untunable param
+        # (radius, need decay, duration) still needs a `retune`, which HumanSim refuses
+        if set(usable) <= TUNABLE:
+            walk_as_tree(doc, files, world, members)
+            tuned = {**usable, **({"max_speed": "high"} if usable.get("speed") == "high" else {})}
+            effects.extend(tune_trees(doc, tuned, files, need=decision.case, label=label, when=decision.when.as_effect(), names=members))
+            continue
         try:
             group = retune_effects(doc, typed, files, label=label, when=decision.when.as_effect(), names=members)
         except StepError as exc:

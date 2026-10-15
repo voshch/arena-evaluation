@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import random
 import typing
 from collections.abc import Mapping, Sequence
 from functools import cached_property
@@ -385,6 +386,24 @@ class WorldContext:
             i = int(np.argmin(d))
             return (float(xs[i]), float(ys[i]))
         raise WorldError(f"zone {name!r} has no room for a formation of radius {need:.1f} m away from the robot's endpoints")
+
+    def zone_sample(self, name: str, rng: random.Random, *, need: float = 0.4) -> Point:
+        """A random point in the zone clear of walls and furniture by `need`, reachable from the robot's start where the zone allows,
+        as the runtime draws a waypoint in a room. The centroid when the world has no grid or the zone no clear cell."""
+        if name not in self.centroids:
+            raise WorldError(f"{name!r} is not a zone of {self.name}; known: {self.zone_names()}")
+        grid = self.grid
+        if grid is None:
+            return self.centroids[name]
+        import numpy as np
+
+        clear = _rasterize(self.polygons[name], grid.shape, grid.res, grid.ox, grid.oy) & (grid.dist >= need)
+        reachable = clear & (grid.labels_at(ROBOT_CLEAR) == grid.component(self.start))
+        rows, cols = np.nonzero(reachable if reachable.any() else clear)
+        if rows.size == 0:
+            return self.centroids[name]
+        i = rng.randrange(rows.size)
+        return (float((cols[i] + 0.5) * grid.res + grid.ox), float((grid.shape[0] - 1 - rows[i] + 0.5) * grid.res + grid.oy))
 
     def exit_zone(self) -> str | None:
         transit = sorted(n for n, r in self.roles.items() if r is Role.TRANSIT and n in self.polygons)

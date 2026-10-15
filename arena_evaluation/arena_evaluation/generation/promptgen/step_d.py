@@ -1,5 +1,6 @@
-"""Step 2 - Type D, pedestrian interactions. The cast is plain profiles because behaviour-tree agents ignore the route rewrites a formation that must break needs.
-Members walk their own routes until the onset, when a `rally` brings them to their spots (and a `retune` stops them yielding)."""
+"""Step 2 - Type D, pedestrian interactions. Members walk their own routes until the onset. A formation that breaks keeps plain
+walkers, whose spots and break are route rewrites (`rally`, `scatter`); an unbroken one is cast as walking trees that a
+`stimulus` switches to their spots, where they stand and stop yielding (HumanSim cannot retune a running walker)."""
 
 from __future__ import annotations
 
@@ -10,14 +11,16 @@ from pathlib import Path
 from typing import Any
 
 from ..scenario.populate import for_people
-from .agents import TypeFiles, clone, entry, mesh_for, unique_names
+from .agents import TypeFiles, agent_type_of, clone, entry, mesh_for, unique_names
 from .llm import AnswerError, Oracle, call
-from .profiles import profile, scaled_speed
+from .profiles import profile, scaled_speed, tune_block
 from .spec import DDecision, Record, SchemaError, parse_d
-from .step_a import StepError
+from .step_a import StepError, set_type, walk_as_tree
 from .world import WorldContext, WorldError
 
 Point = tuple[float, float]
+#: The need a stimulus raises on an unbroken formation's members at the onset; their types switch to their spots on it.
+FORM = "form"
 
 #: Metres between members standing in a line across a passage.
 LINE_SPACING = 0.6
@@ -30,9 +33,17 @@ MIN_ROUTE_FOR_FORMATION_M = 4.0
 FORM_AT_S = 8.0
 #: Metres a formed member may drift from the centre before the formation counts as broken.
 FORMATION_RADIUS_M = 1.8
-#: Members of a circle stand this far from its centre, plus a little per member.
-CIRCLE_BASE = 0.45
-CIRCLE_PER_MEMBER = 0.15
+#: Metres between neighbours in a talking circle: a conversation's spacing, too tight for the robot to pass between two
+#: members (the generator's old 1.5 m pairs let it drive through; the demo's nurses stand 0.9 m apart).
+CIRCLE_SPACING_M = 0.9
+#: Metres from the centre the tightest huddle keeps its members, in a passage too narrow for the full circle.
+HUDDLE_RADIUS_M = 0.35
+
+
+def circle_radius(n: int) -> float:
+    """Metres from the centre for `n` members `CIRCLE_SPACING_M` apart."""
+    return max(HUDDLE_RADIUS_M, CIRCLE_SPACING_M / (2.0 * math.sin(math.pi / max(2, n))))
+
 
 _SYSTEM = Path(__file__).with_name("system_d.md")
 
@@ -93,24 +104,23 @@ def _place(decision: DDecision, world: WorldContext) -> tuple[Point, Point, bool
     zone = str(decision.place["zone"])
     if not for_people([zone]):
         raise StepError(f"placement: {zone!r} is a room nobody is placed in (wc/storage; sealed in the inflated grid)")
-    need = CIRCLE_BASE + CIRCLE_PER_MEMBER * max(2, len(decision.members))
-    pt = world.zone_point(zone, need=need)
+    pt = world.zone_point(zone, need=circle_radius(len(decision.members)))
     _rp, heading = world.point_at(world.fraction_of(pt))
     return pt, heading, world.route_clearance(pt) < 1.5
 
 
 def _circle(centre: Point, n: int, r: float | None = None) -> list[Point]:
-    r = CIRCLE_BASE + CIRCLE_PER_MEMBER * n if r is None else r
+    r = circle_radius(n) if r is None else r
     return [(centre[0] + r * math.cos(2 * math.pi * i / n), centre[1] + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
 
 def _circle_radius(world: WorldContext, centre: Point, heading: Point, n: int) -> float:
     """A circle that fits the passage it stands in: a huddle in a narrow corridor."""
-    want = CIRCLE_BASE + CIRCLE_PER_MEMBER * n
+    want = circle_radius(n)
     if world.grid is None:
         return want
     width, _l, _r = world.passage_width(centre, heading)
-    return max(0.35, min(want, width / 2 - 0.35))
+    return max(HUDDLE_RADIUS_M, min(want, width / 2 - 0.35))
 
 
 def _take_reuse(doc: dict[str, Any], names: Sequence[str], owned: set[str]) -> list[dict[str, Any]]:
@@ -156,8 +166,10 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
     except WorldError as exc:
         raise StepError(f"placement: {exc}") from None
     if on_route and decision.variant != "blocking":
-        need = CIRCLE_BASE + CIRCLE_PER_MEMBER * len(decision.members) if decision.variant != "line" else QUEUE_SPACING * len(decision.members) / 2
-        fit = world.fit_along_route(world.fraction_of(centre), need)
+        need = circle_radius(len(decision.members)) if decision.variant != "line" else QUEUE_SPACING * len(decision.members) / 2
+        # a circle that does not fit the passage huddles in it, and a queue stands single file along it, rather than leave
+        # the robot's way
+        fit = world.fit_along_route(world.fraction_of(centre), need) or world.fit_along_route(world.fraction_of(centre), HUDDLE_RADIUS_M)
         if fit is not None:
             fitted, heading, fraction = fit
             if math.dist(fitted, centre) > 0.3:
@@ -250,12 +262,16 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
             form_when = decision.when.as_effect()
             if "robot_within" in form_when:
                 form_when["of"] = info["formation"]["centre"]
-        effects.append({"type": "rally", "label": f"{label}:form", "scope": ordered, "targets": targets, "when": form_when})
         if decision.case == "interaction_unbroken":
-            derived = {prof.base: files.derived(prof.base, {"repulsion": "low"}, prof=prof) for prof in profiles}
-            for base_ref, ref in derived.items():
-                scope = sorted(n for n, p in zip(names, profiles, strict=True) if p.base == base_ref)
-                effects.append({"type": "retune", "label": f"{label}:form", "scope": scope, "profile": ref, "when": dict(form_when)})
+            walk_as_tree(doc, files, world, ordered)
+            for member, prof in zip(members, profiles, strict=True):
+                x, y = spot[str(member["name"])]
+                face = (-heading[0], -heading[1]) if variant == "blocking" else (centre[0] - x, centre[1] - y)
+                steps = {"form": {"kind": "go_to", "target_pose": {"x": round(x, 2), "y": round(y, 2), "theta": round(math.atan2(face[1], face[0]), 3)}, "patience": {"mean": 300.0}}, "stand": {"duration": {"mean": 600.0}, "patience": {"mean": 900.0}}}
+                set_type(member, files.switching(agent_type_of(member), need=FORM, to="form", steps=steps, tune=tune_block({"repulsion": "low"}, prof=prof)))
+            effects.append({"type": "stimulus", "label": f"{label}:form", "scope": ordered, "need": FORM, "when": form_when})
+        else:
+            effects.append({"type": "rally", "label": f"{label}:form", "scope": ordered, "targets": targets, "when": form_when})
         info["formation"]["at"] = form_when
     if decision.case == "formation_break":
         when = decision.when.as_effect()

@@ -48,6 +48,8 @@ PATHS: dict[str, tuple[str, ...]] = {
 
 #: Parameters that only exist on behaviour-tree types.
 BT_ONLY = frozenset({"need_decay", "duration"})
+#: Parameters a running behaviour tree can hold from a sequence `tune:`; the rest need a respawn.
+TUNABLE = frozenset({"speed", "max_speed", "vision_range", "vision_fov", "repulsion", "repulsion_range", "reaction"})
 
 ADULT_SPEED = KINEMATICS["adult"][0]
 
@@ -174,6 +176,23 @@ def derive(raw: Mapping[str, Any], params: Mapping[str, str], *, name: str, prof
         if written == 0:
             raise ProfileError(f"{param}: nothing at {'.'.join(PATHS[param])} on {doc.get('name')!r}")
     return doc
+
+
+def tune_block(params: Mapping[str, str], *, prof: Profile | None = None, speed_scale: float = 1.0) -> dict[str, Any]:
+    """A HumanSim `tune:` holding `params` at their tiers, plain numbers at the same paths a type uses; `speed_scale` multiplies the speed."""
+    out: dict[str, Any] = {}
+    for param, tier in params.items():
+        if param not in TUNABLE:
+            raise ProfileError(f"{param} cannot be tuned on a running behaviour tree")
+        *head, leaf = PATHS[param]
+        node = out
+        for key in head:
+            node = node.setdefault(key, {})
+        node[leaf] = tier_value(param, tier, prof=prof)
+    if abs(speed_scale - 1.0) > 1e-9:
+        speed = out.get("desired_velocity")
+        out["desired_velocity"] = {"mul": round(speed_scale, 3)} if speed is None else round(speed * speed_scale, 3)
+    return out
 
 
 def derived_name(base: str, params: Mapping[str, str]) -> str:
