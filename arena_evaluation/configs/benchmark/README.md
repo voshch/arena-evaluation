@@ -205,8 +205,9 @@ scheduler's once-a-second status, so an episode's window is shifted by up to a
 second. `lockstep_beats` equal to `lockstep_beats_due` means the planner beat
 exactly once per due tick. When any step ran under lockstep the run ends with a
 report table, and `--lockstep-verdict` turns a `fail` row into exit code 3. A
-row fails when a stall reaches 5 s or no `nav/`/`planner/` beat ever
-registered for the contestant, i.e. the planner never engaged the gate.
+row fails when a stall reaches 5 s, no tick was gated, or no `nav/`/`planner/`
+beat registered for the contestant or delivered a heartbeat, i.e. the run froze
+or the planner never engaged the gate.
 
 Suite and contest are both built inline by the `arena` CLI
 (`arena_cli/features/planners.py`), so nothing here defines them: bridge planners become

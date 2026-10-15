@@ -40,7 +40,7 @@ class LockstepSummary:
     def verdict(self) -> str:
         if not self.active:
             return "inactive"
-        if self.max_stall_s >= STALL_FAIL_S or not self.beat_seen:
+        if self.max_stall_s >= STALL_FAIL_S or not self.beat_seen or self.ticks == 0 or self.beats == 0:
             return "fail"
         return "pass"
 

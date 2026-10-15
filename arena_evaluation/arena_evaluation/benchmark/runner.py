@@ -2322,7 +2322,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--lockstep-verdict",
         action="store_true",
-        help="Exit 3 when a step's lockstep report fails (a stall of 5 s or more, or no planner beat registered).",
+        help="Exit 3 when a step's lockstep report fails (a stall of 5 s or more, no gated tick, or no planner beat registered or delivered).",
     )
     p.add_argument(
         "--strict",

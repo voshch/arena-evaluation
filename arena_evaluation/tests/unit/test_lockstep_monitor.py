@@ -41,12 +41,16 @@ def _counts(n: int, *, env1_received: int | None = None) -> tuple[tuple[str, str
     )
 
 
+def _nav_counts(n: int, received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:
+    return (("nav/jackal", f"{_ENV0}/jackal/lockstep/nav", n, n if received is None else received),)
+
+
 def test_clean_window_passes() -> None:
     m = LockstepMonitor()
-    m.observe(_status(rtf=2.0), 0.0)
+    m.observe(_status(rtf=2.0, ticks=10, counts=_nav_counts(10)), 0.0)
     m.open("ep0", 1.0)
-    m.observe(_status(rtf=3.0), 2.0)
-    m.observe(_status(rtf=1.0), 3.0)
+    m.observe(_status(rtf=3.0, ticks=20, counts=_nav_counts(20)), 2.0)
+    m.observe(_status(rtf=1.0, ticks=30, counts=_nav_counts(30)), 3.0)
     s = m.close("ep0", 4.0)
     assert s.active and s.stalls == 0 and s.max_stall_s == 0.0
     assert s.rtf == pytest.approx(2.0)
@@ -92,11 +96,37 @@ def test_no_beat_fails_and_inactive_is_not_a_verdict() -> None:
     assert LockstepSummary().verdict == "inactive"
 
 
+def test_frozen_run_fails() -> None:
+    m = LockstepMonitor()
+    m.open("a", 0.0)
+    m.observe(_status(rtf=0.0, ticks=0), 1.0)
+    s = m.close("a", 2.0)
+    assert s.beat_seen and s.ticks == 0
+    assert s.verdict == "fail"
+
+
+def test_registered_beat_that_never_beats_fails() -> None:
+    m = LockstepMonitor()
+    m.observe(_status(ticks=0, counts=_nav_counts(0)), 0.0)
+    m.open("a", 0.5)
+    m.observe(_status(rtf=3.0, ticks=848, counts=_nav_counts(0)), 1.0)
+    s = m.close("a", 2.0)
+    assert (s.ticks, s.beats, s.beats_due) == (848, 0, 0)
+    assert s.verdict == "fail"
+
+
+def test_keepalive_beats_pass() -> None:
+    m = LockstepMonitor()
+    m.open("a", 0.0)
+    m.observe(_status(rtf=1.0, ticks=162, counts=_nav_counts(162, received=83)), 1.0)
+    assert m.close("a", 2.0).verdict == "pass"
+
+
 def test_stall_just_under_threshold_passes() -> None:
     m = LockstepMonitor()
     m.open("a", 0.0)
     m.observe(_status(waiting=("nav/jackal",)), 1.0)
-    m.observe(_status(rtf=1.0), 1.0 + STALL_FAIL_S - STALL_REPORT_LAG_S - 0.1)
+    m.observe(_status(rtf=1.0, ticks=5, counts=_nav_counts(5)), 1.0 + STALL_FAIL_S - STALL_REPORT_LAG_S - 0.1)
     assert m.close("a", 10.0).verdict == "pass"
 
 
