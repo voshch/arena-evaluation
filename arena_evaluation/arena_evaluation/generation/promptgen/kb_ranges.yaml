@@ -1,0 +1,24 @@
+# Observed answer ranges, mined from the installed scenario records by
+# data/promptgen/tools/kb_ranges.py - re-run after a dataset regeneration.
+scenarios: 1983
+b:
+  when_at: [0.0, 10.0, 30.0]
+  when_route_fraction: []
+  selects: [amount, names, profile, zone]
+  params: [reaction high, reaction low, speed high, speed low, vision_fov low, vision_range
+      low]
+c:
+  route_fraction: [0.1, 0.15, 0.2, 0.25, 0.3, 0.33, 0.34, 0.35, 0.38, 0.395, 0.4,
+    0.405, 0.409, 0.44, 0.448, 0.45, 0.454, 0.455, 0.463, 0.466, 0.48, 0.49, 0.5,
+    0.56, 0.6, 0.65, 0.7, 0.75, 0.8]
+  duration: [6.0, 12.0, 30.0, 60.0]
+  angle: [0.0, 90.0, 180.0, 270.0]
+  offset: [-5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 10.0, 30.0]
+  speed: [high, low, mid]
+d:
+  members: [2, 3]
+  route_fraction: [0.5, 0.6, 0.7, 0.75]
+  when_at: [0.0, 30.0]
+  robot_within: []
+  when_route_fraction: []
+  zone_places: 0

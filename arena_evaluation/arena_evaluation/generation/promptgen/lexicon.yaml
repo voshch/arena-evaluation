@@ -1,0 +1,89 @@
+# Step 1 - Type A by lexicon (new_plan_2.md 5.1).
+#
+# Each case lists weighted phrases. A phrase is matched as a substring of the lower-cased
+# prompt (so `evacuat` catches evacuate / evacuation / evacuating). The highest total wins if
+# it reaches 1.0; ties break on the phrase that appears earliest in the prompt.
+#
+# The prompt sets are generated from the taxonomy, so every prompt that targets a Type A case
+# is a round-trip test of this file: a targeted case the lexicon misses fails prompt review.
+
+evacuation:
+  phrases:
+    evacuat: 1.0
+    fire alarm: 1.0
+    fire drill: 1.0
+    alarm goes off: 1.0
+    alarm sounds: 1.0
+    everyone leaves: 1.0
+    everybody leaves: 1.0
+    clear the building: 1.0
+    get out of the building: 1.0
+    head for the exit: 1.0
+    heads for the exit: 1.0
+    make for the exit: 1.0
+    to the exits: 0.8
+    to the exit: 0.8
+    leaving the building: 0.8
+    emergency: 0.5
+    smoke: 0.5
+stampede:
+  phrases:
+    stampede: 1.0
+    surge: 1.0
+    rush back: 1.0
+    rushes back: 1.0
+    rushing back: 1.0
+    shift change: 1.0
+    all at once: 0.8
+    crowd pushes: 1.0
+    pushing through: 0.8
+    push past: 0.8
+    shove: 0.8
+    nobody yields: 0.6
+    no one gives way: 0.6
+    break is over: 0.8
+    back to work: 0.6
+    crush: 0.6
+blackout:
+  phrases:
+    blackout: 1.0
+    lights go out: 1.0
+    lights went out: 1.0
+    lights are out: 1.0
+    power cut: 1.0
+    power failure: 1.0
+    power goes out: 1.0
+    power is out: 1.0
+    in the dark: 1.0
+    pitch dark: 1.0
+    no lights: 1.0
+    can't see: 0.6
+    cannot see: 0.6
+    darkness: 0.8
+    dark corridor: 0.8
+busy:
+  phrases:
+    busy: 1.0
+    packed: 1.0
+    crowded: 1.0
+    rush hour: 1.0
+    full of people: 1.0
+    visiting hours: 1.0
+    twice as many: 1.0
+    three times as many: 1.0
+    lots of people: 0.8
+    many people: 0.8
+    heaving: 0.8
+    swarming: 0.8
+    bustling: 0.8
+    busier than usual: 1.0
+  # First match in THIS order wins: explicit quantities before vague intensifiers, so
+  # "busy today, twice as many" reads k=2 even if an intensifier appears elsewhere.
+  k:
+    three times: 3.0
+    twice: 2.0
+    slightly: 1.5
+    a bit: 1.5
+    a little: 1.5
+    very: 3.0
+    extremely: 3.0
