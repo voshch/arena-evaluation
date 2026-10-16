@@ -426,6 +426,10 @@ class RunDir:
         return self.path / ("runner.log" if self.lane is None else f"runner.{self.lane}.log")
 
     @property
+    def ros_log_dir(self) -> pathlib.Path:
+        return self.path / ("roslog" if self.lane is None else f"roslog.{self.lane}")
+
+    @property
     def pid_path(self) -> pathlib.Path:
         return self.path / f"runner.{self.lane}.pid"
 

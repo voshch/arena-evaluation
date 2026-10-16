@@ -17,6 +17,7 @@ from arena_evaluation.benchmark.runner import (
     _RetryBudget,
     _SYSTEMIC,
     _default_run_id,
+    _new_env_logs,
     _orphaned_env_ids,
     _requeue_front,
     _resolve_resume_config,
@@ -1773,3 +1774,19 @@ def test_robot_has_depth_camera_resolves_the_camera_component(robot: str, expect
     from arena_evaluation.benchmark.runner import robot_has_depth_camera
 
     assert robot_has_depth_camera(robot) is expected
+
+
+def test_new_env_logs_skips_logs_present_before_the_wait(tmp_path: pathlib.Path):
+    old = tmp_path / "arena_env_0_20261016-010000.log"
+    old.write_text("loading\n")
+    before = set(tmp_path.glob("arena_env_*.log"))
+    old.write_text("loading\nstill going\n")
+    new = tmp_path / "arena_env_1_20261016-010500.log"
+    new.write_text("Loading World hospital_1\n")
+    (tmp_path / "launch.log").write_text("x\n")
+
+    assert _new_env_logs(tmp_path, before) == [new]
+
+
+def test_new_env_logs_empty_for_a_missing_dir(tmp_path: pathlib.Path):
+    assert _new_env_logs(tmp_path / "roslog", set()) == []

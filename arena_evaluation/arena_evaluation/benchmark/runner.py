@@ -582,6 +582,11 @@ _SPAWN_CHATTER_PATTERNS = (
 )
 
 
+def _new_env_logs(log_dir: pathlib.Path, before: set[pathlib.Path]) -> list[pathlib.Path]:
+    """Env logs in the runtime's own log directory that appeared after `before` was taken."""
+    return sorted(p for p in log_dir.glob("arena_env_*.log") if p not in before)
+
+
 def _is_substantive_log_line(line: str) -> bool:
     s = line.strip()
     if not s:
@@ -908,10 +913,11 @@ class BenchmarkRunner(ArenaMixinNode):
         or if `max_total_timeout` is exceeded."""
         task = asyncio.ensure_future(awaitable)
         log_path = self._run_dir.log_path
-        last_positions: dict[pathlib.Path, int] = {}
+        last_positions: dict[pathlib.Path, int] = {log_path: log_path.stat().st_size} if log_path.exists() else {}
         last_activity = time.monotonic()
         total_waited = 0.0
-        ros_log_dir = pathlib.Path.home() / ".ros" / "log"
+        ros_log_dir = self._run_dir.ros_log_dir
+        before = set(ros_log_dir.glob("arena_env_*.log"))
 
         try:
             while True:
@@ -928,17 +934,8 @@ class BenchmarkRunner(ArenaMixinNode):
                 has_progress = False
                 sample_line = ""
 
-                target_logs: list[pathlib.Path] = []
-                if log_path.exists():
-                    target_logs.append(log_path)
-                if ros_log_dir.is_dir():
-                    try:
-                        recent_cutoff = time.time() - 3600
-                        for p in ros_log_dir.glob("arena_env_*.log"):
-                            if p.stat().st_mtime >= recent_cutoff:
-                                target_logs.append(p)
-                    except Exception:
-                        pass
+                target_logs = [log_path] if log_path.exists() else []
+                target_logs.extend(_new_env_logs(ros_log_dir, before))
 
                 for p in target_logs:
                     try:
@@ -1900,11 +1897,12 @@ class BenchmarkRunner(ArenaMixinNode):
         log_path = self._run_dir.log_path
         self._arena_log_file = log_path.open("a")
 
-        proc_env = None
+        ros_log_dir = self._run_dir.ros_log_dir
+        ros_log_dir.mkdir(parents=True, exist_ok=True)
+        proc_env = {**os.environ, "ROS_LOG_DIR": str(ros_log_dir)}
         if self._suite_bundle_dir is not None:
             worlds_dir = self._suite_bundle_dir / "worlds"
             if worlds_dir.is_dir():
-                proc_env = dict(os.environ)
                 outer = proc_env.get("ARENA_WORLD_PATH")
                 proc_env["ARENA_WORLD_PATH"] = f"{outer}:{worlds_dir}" if outer else str(worlds_dir)
 

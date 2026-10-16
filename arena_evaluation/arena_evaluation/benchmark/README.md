@@ -40,6 +40,7 @@ Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
 |-- manifest.yaml              # Config snapshot
 |-- progress.csv               # Append-only, one row per episode
 |-- runner.log                 # Python logging and launch output
+|-- roslog/                    # ROS_LOG_DIR of this run's runtime, arena_env_<id>_<ts>.log per spawned env
 |-- .benchmark_state.json      # Per-step status
 |-- episodes/                  # One MCAP per episode
 |   |-- episode_000/
@@ -106,7 +107,9 @@ requested, whatever the episode outcomes were. It is the wedge check behind
 `arena planners test --preflight`.
 
 `--spawn-budget` (default 600s) caps how long a single env spawn is allowed to run before
-the runner gives up, on top of the inactivity heuristic.
+the runner gives up, on top of the inactivity heuristic: a spawn fails after 120s without a
+substantive line in this runner's own runtime output or in the log of the env it spawned
+(a log that appears in its `roslog` directory during the wait), never another lane's.
 
 `--efficacy FRACTION` adds an outcome check: a non-SUCCESS episode is weak when the closed
 fraction of its starting goal distance, `(goal_dist_start - goal_dist_min) / goal_dist_start`
@@ -154,6 +157,7 @@ Run ID format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}`, `{YYYYMMDD-HHMMSS}-{lane}-
 |-- progress.<lane>.csv        # This lane's episodes
 |-- .benchmark_state.<lane>.json
 |-- runner.<lane>.log
+|-- roslog.<lane>/
 |-- runner.<lane>.pid          # Signalled by --lanes on Ctrl-C
 |-- claims/<token>/            # One file per (env, world) block, taken atomically
 `-- episodes/.next_episode_id  # Episode id counter, locked across lanes
