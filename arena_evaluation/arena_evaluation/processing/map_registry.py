@@ -99,10 +99,9 @@ class MapRegistry:
             except Exception:
                 pass
 
-            for ws in ("/opt/arena_ws", "/home/nelson/arena_ws"):
-                map_dir = pathlib.Path(ws) / "src" / "Arena" / "arena_simulation_setup" / "worlds" / m_name
-                if map_dir.exists():
-                    return map_dir
+            map_dir = pathlib.Path("/opt/arena_ws/src/Arena/arena_simulation_setup/worlds") / m_name
+            if map_dir.exists():
+                return map_dir
 
             arena_dir = os.environ.get("ARENA_DIR")
             if arena_dir:
