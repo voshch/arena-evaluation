@@ -37,6 +37,9 @@ setup(
             'benchmark = arena_evaluation.benchmark.runner:cli_main',
             'evaluation_cli = arena_evaluation.benchmark.cli:main',
         ],
+        'arena_mcp.domains': [
+            'evaluation = arena_evaluation.mcp:domain',
+        ],
     },
     package_data={
         'arena_evaluation.processing.acoustics': ['solver.cpp'],

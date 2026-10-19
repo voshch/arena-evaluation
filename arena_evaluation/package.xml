@@ -37,6 +37,7 @@
   <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>
   <exec_depend>tf2_msgs</exec_depend>
+  <exec_depend>arena_mcp</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

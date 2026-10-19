@@ -377,12 +377,22 @@ def _upgrade_header(path: pathlib.Path) -> None:
     os.replace(tmp, path)
 
 
-def _fold_progress(path: pathlib.Path) -> None:
+def _folded_progress(path: pathlib.Path) -> tuple[list[str], list[list[str]]]:
     sources = [p for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv"))) if p.exists()]
     header = next(csv.reader([ProgressLog._HEADER]))
     rows = _rows_by_column(sources, header)
     ts_iso_idx = header.index("ts_iso")
-    folded = sorted(_latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r))
+    return header, sorted(_latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r))
+
+
+def progress_rows(path: pathlib.Path) -> list[dict[str, str]]:
+    """Rows of progress.csv and every lane's progress file, latest per (step_key, episode_id), oldest first, without writing anything."""
+    header, folded = _folded_progress(path)
+    return [dict(zip(header, row, strict=True)) for row in folded]
+
+
+def _fold_progress(path: pathlib.Path) -> None:
+    header, folded = _folded_progress(path)
     tmp = path / "progress.csv.fold.tmp"
     with tmp.open("w", newline="") as out:
         writer = csv.writer(out)

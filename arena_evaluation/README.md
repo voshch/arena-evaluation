@@ -85,6 +85,7 @@ arena_evaluation/
 |   |   |-- debug.py           <- Process introspection
 |   |   |-- profiler.py        <- PipelineProfiler (CPU, GPU, RAM)
 |   |   `-- cli.py             <- Benchmark management CLI
+|   |-- mcp/                   <- evaluation domain of the Arena MCP server
 |   |-- cli.py                 <- Evaluation pipeline CLI
 |   `-- cli_acoustic.py        <- Acoustic analysis subcommands
 |-- config/
@@ -171,6 +172,20 @@ Commands:
 | `--list-manifests` | List available named report manifests |
 
 `process` and `run` exit 1 when a benchmark or episode directory produced no metrics.
+
+---
+
+## MCP domain
+
+The package contributes the `evaluation` domain to the Arena MCP server (`arena_evaluation/mcp/`, registered under the `arena_mcp.domains` entry point). `python3 -m arena_mcp ls evaluation` lists its tools with one line each.
+
+- Catalogs come from the live registries and resolvers: task modes and their parameter schemas from the task-mode registry, metrics and their declared directions from the metric registry, drivers from the bringup and adapter registries, nav2 planner configs from `arena_robots`, bridge planners from `arena_planners`, worlds, suites, contests and manifests through their `Identifier` resolvers (with `network=true` the buckets too).
+- Validation runs the runner's own parsers (`Suite.parse`, `Contest.parse` plus the runner's nav2 preflight, `VizManifest`, `parse_scenario`). Created suites, contests and manifests go to the write target of their resolver chain, a manifest for one run into that run directory, scenarios into the world the map name resolves to.
+- Benchmarks (`arena evaluation benchmark`), preflights and soaks (`arena planners test`), processing, extraction, reports, plots and acoustic renders run as jobs of the real CLI verbs. A benchmark always gets an explicit run id, and the start waits until the runner prepared its run directory, so a config error comes back as an error. Poll jobs with `jobs_status` and `jobs_log`, stop a benchmark with `evaluation_stop`, which interrupts its runner process group and escalates only after a grace window.
+- Run state is read from `$ARENA_DATA_DIR/benchmarks/<run_id>` with the package's readers: the manifest's steps, the union of every lane's state file and the folded progress files, so shared runs show their lanes while they run. Analysis tools group by contestant (the `planner` column) and leave reference episodes out unless asked, and they rank only over outputs whose calculator declares `OUTPUT_DIRECTIONS`.
+- Recording control calls an env's recorder (`<task generator>/start_episode`) and reads `<task generator>/state/recorded_topics`, env-scoped tools take `env_id`.
+
+Tests live in `tests/mcp/` and drive a real `python3 -m arena_mcp serve` over stdio against run directories built with the package's writers.
 
 ---
 

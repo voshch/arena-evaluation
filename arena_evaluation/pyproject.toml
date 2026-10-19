@@ -20,7 +20,7 @@ dependencies = [
     "seaborn",
     "shapely",
 ]
-dynamic = ["description", "license", "maintainers", "scripts"]
+dynamic = ["description", "license", "maintainers", "scripts", "entry-points"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
