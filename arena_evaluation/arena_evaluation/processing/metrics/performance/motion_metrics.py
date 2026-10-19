@@ -31,6 +31,8 @@ class MotionMetricsCalculator(BaseMetricCalculator):
 
     PRIMARY_OUTPUTS = ["velocity_mean", "velocity_max", "jerk_mean", "jerk_max"]
 
+    OUTPUT_DIRECTIONS = {"jerk_mean": "lower", "jerk_max": "lower"}
+
     @classmethod
     def output_keys(cls) -> list[str]:
         return [

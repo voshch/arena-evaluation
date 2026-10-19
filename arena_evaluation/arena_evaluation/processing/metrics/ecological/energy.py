@@ -27,6 +27,8 @@ class EnergyMetricCalculator(BaseMetricCalculator):
 
     PRIMARY_OUTPUTS = ["energy_total_wh", "energy_mechanical_wh", "power_peak_w"]
 
+    OUTPUT_DIRECTIONS = {"energy_total_wh": "lower", "energy_mechanical_wh": "lower", "power_peak_w": "lower"}
+
     @classmethod
     def output_keys(cls) -> list[str]:
         return [

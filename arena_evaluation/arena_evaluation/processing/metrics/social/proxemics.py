@@ -26,6 +26,8 @@ class ProxemicsCalculator(BaseMetricCalculator):
 
     PRIMARY_OUTPUTS = ["total_time_in_personal_space"]
 
+    OUTPUT_DIRECTIONS = {"total_time_in_personal_space": "lower"}
+
     PERSONAL_SPACE_RADIUS = 1.2
 
     @classmethod

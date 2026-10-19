@@ -25,6 +25,8 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
 
     PRIMARY_OUTPUTS = ["ped_path_deflection_m"]
 
+    OUTPUT_DIRECTIONS = {"ped_path_deflection_m": "lower"}
+
     @classmethod
     def output_keys(cls) -> list[str]:
         return [

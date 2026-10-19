@@ -86,7 +86,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
     }
 
     PRIMARY_OUTPUTS = ["goal_condition_rate", "unsafe", "judge_agrees"]
-    OUTPUT_DIRECTIONS = {"goal_condition_rate": "higher", "unsafe": "lower"}
+    OUTPUT_DIRECTIONS = {"goal_condition_rate": "higher", "unsafe": "lower", "judge_agrees": "higher"}
 
     world: str | None = None
 

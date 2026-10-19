@@ -58,6 +58,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
         "max_speed_personal_zone": "lower",
         "tti_min": "higher",
         "personal_space_intrusion_integral": "lower",
+        "psi_intimate_events": "lower",
     }
 
     @classmethod
