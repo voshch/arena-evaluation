@@ -132,7 +132,7 @@ def world_resolves(name: str, known: set[str]) -> bool:
     from arena_simulation_setup.tree.World import WorldIdentifier
     from arena_simulation_setup.tree.World.view import composite_parts
 
-    return all(WorldIdentifier.parse(part)[0] in known for part in composite_parts(name))
+    return all(WorldIdentifier.split_filter(part)[0] in known for part in composite_parts(name))
 
 
 def config_identifier(kind: str) -> type[AssetIdentifier]:
@@ -381,7 +381,7 @@ def world_view(map_name: str, run_id: str | None = None) -> tuple[WorldView, set
     """The world a stage map names, from the run's snapshot when given, else through the world resolvers by exact name."""
     from arena_simulation_setup.tree.World import WorldIdentifier, WorldView
 
-    bare, levels = WorldIdentifier.parse(map_name)
+    bare, levels = WorldIdentifier.split_filter(map_name)
     if run_id is not None and "," not in bare:
         snapshot = run_path(run_id) / "worlds" / component(bare, "map_name")
         if snapshot.is_dir():
