@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import pathlib
 import typing
+from collections.abc import Sequence
 
 import numpy as np
 import polars as pl
@@ -105,7 +106,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         rx_m: float,
         ry_m: float,
         source_dba: float,
-        peds: list[list[float]],
+        peds: Sequence[Sequence[float]],
         title: str,
         out_path: pathlib.Path,
         downsample: int = 1,
@@ -158,7 +159,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         ax = plt.gca()
         ax.set_facecolor("black")
         ax.grid(False)
-        extent = [ox, ox + w * eff_res, oy, oy + h * eff_res]
+        extent = (ox, ox + w * eff_res, oy, oy + h * eff_res)
 
         im = plt.imshow(render_grid, cmap="inferno", origin="upper", extent=extent, vmin=vmin, vmax=vmax)
         cy = np.linspace(extent[2], extent[3], grid_eval.shape[0])
@@ -241,6 +242,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             group_cols_raw = [group_cols_raw]
         group_cols = [c for c in (group_cols_raw or []) if c in work_df.columns]
 
+        row_values: list[object]
+        col_values: list[tuple[object, ...]]
         if diff_col:
             row_values = sorted(work_df[diff_col].unique().to_list())
         else:
@@ -268,7 +271,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             pdf = pdf.filter(pl.col(cname) == cv[ci])
         return pdf
 
-    def render_plotly(self, df: pl.DataFrame) -> str:
+    def render_plotly(self, df: pl.DataFrame) -> str | list[str]:
         """Return an HTML string embedding the acoustic-field image(s)."""
         work_df = self._prepared_df(df)
         if len(work_df) == 0:
@@ -752,7 +755,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         frames = []
         # the pose stream the metrics used, odom as the last resort
-        bundle = TopicParquetStore.read(topics_root)[robot_dir.name]
+        bundles = TopicParquetStore.read(topics_root)
+        assert bundles is not None
+        bundle = bundles[robot_dir.name]
         tf_gt, _ = resolve_pose_source(bundle, _episode_window(bundle.episode_record))
         if tf_gt is not None:
             frames.append(tf_gt.lazy().select(["time_ns", "pos_x_gt", "pos_y_gt"]))
@@ -967,7 +972,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         fig, ax = plt.subplots(figsize=(5, 4))
         ax.set_facecolor("black")
         ax.grid(False)
-        extent = [ox, ox + w * eff_res, oy, oy + h * eff_res]
+        extent = (ox, ox + w * eff_res, oy, oy + h * eff_res)
 
         render_grids = []
         open_door_masks = []

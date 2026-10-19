@@ -151,8 +151,7 @@ class MutualAccommodationCalculator(BaseMetricCalculator):
 
         # 1. Pedestrian Flow Interference (PFI) & Deflection
         pfi_val = None
-        if actual_ped_paths and ref_ped_row and ref_ped_row.get("pedestrian_path"):
-            ref_ped_paths = ref_ped_row.get("pedestrian_path")
+        if actual_ped_paths and ref_ped_row and (ref_ped_paths := ref_ped_row.get("pedestrian_path")):
             pfi_val = cls.compute_pfi_dtw(actual_ped_paths, ref_ped_paths)
             if pfi_val is not None:
                 results["pfi"] = round(float(pfi_val), 4)

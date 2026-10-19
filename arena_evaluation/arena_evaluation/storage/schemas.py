@@ -161,31 +161,31 @@ class EpisodeDescriptor:
 class TopicBundle:
     """Raw topic dataframes extracted from MCAP."""
 
-    odom: pl.DataFrame | None = None
-    scan: pl.DataFrame | None = None
-    cmd_vel: pl.DataFrame | None = None
-    joint_states: pl.DataFrame | None = None
-    peds: pl.DataFrame | None = None
-    peds_physics: pl.DataFrame | None = None
-    ped_gestures: pl.DataFrame | None = None
-    interactions: pl.DataFrame | None = None
-    interaction_events: pl.DataFrame | None = None
-    animation_states: pl.DataFrame | None = None
-    episode_record: pl.DataFrame | None = None
-    collision_events: pl.DataFrame | None = None
-    collision_monitor_state: pl.DataFrame | None = None
-    power: pl.DataFrame | None = None
-    energy: pl.DataFrame | None = None
-    acoustics: pl.DataFrame | None = None
-    plan: pl.DataFrame | None = None
-    characterization_phase: pl.DataFrame | None = None
-    characterization_schedule: pl.DataFrame | None = None
-    initialpose: pl.DataFrame | None = None
-    task_pose: pl.DataFrame | None = None
-    tf: pl.DataFrame | None = None
-    tf_static: pl.DataFrame | None = None
-    tf_gt: pl.DataFrame | None = None
-    semantic_snapshot: pl.DataFrame | None = None
+    odom: pl.DataFrame | pl.LazyFrame | None = None
+    scan: pl.DataFrame | pl.LazyFrame | None = None
+    cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
+    joint_states: pl.DataFrame | pl.LazyFrame | None = None
+    peds: pl.DataFrame | pl.LazyFrame | None = None
+    peds_physics: pl.DataFrame | pl.LazyFrame | None = None
+    ped_gestures: pl.DataFrame | pl.LazyFrame | None = None
+    interactions: pl.DataFrame | pl.LazyFrame | None = None
+    interaction_events: pl.DataFrame | pl.LazyFrame | None = None
+    animation_states: pl.DataFrame | pl.LazyFrame | None = None
+    episode_record: pl.DataFrame | pl.LazyFrame | None = None
+    collision_events: pl.DataFrame | pl.LazyFrame | None = None
+    collision_monitor_state: pl.DataFrame | pl.LazyFrame | None = None
+    power: pl.DataFrame | pl.LazyFrame | None = None
+    energy: pl.DataFrame | pl.LazyFrame | None = None
+    acoustics: pl.DataFrame | pl.LazyFrame | None = None
+    plan: pl.DataFrame | pl.LazyFrame | None = None
+    characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
+    characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
+    initialpose: pl.DataFrame | pl.LazyFrame | None = None
+    task_pose: pl.DataFrame | pl.LazyFrame | None = None
+    tf: pl.DataFrame | pl.LazyFrame | None = None
+    tf_static: pl.DataFrame | pl.LazyFrame | None = None
+    tf_gt: pl.DataFrame | pl.LazyFrame | None = None
+    semantic_snapshot: pl.DataFrame | pl.LazyFrame | None = None
 
     def available(self) -> set[str]:
         """Names of the topics this bundle carries."""
@@ -216,6 +216,7 @@ class AlignedEpisodeBundle:
     peds: pl.DataFrame | None = None
     map: str | None = None
     topics: dict[str, pl.DataFrame] | None = None
+    env_offset: tuple[float, float] | None = None
 
 
 class PlotSpec(BaseModel):

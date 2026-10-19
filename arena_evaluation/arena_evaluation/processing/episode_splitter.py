@@ -215,5 +215,5 @@ class EpisodeSplitter:
         if "num_pedestrians" in df.columns:
             peds = df["num_pedestrians"].drop_nulls()
             if len(peds) > 0:
-                return int(peds.max())
+                return int(peds.max())  # pyright: ignore[reportArgumentType]
         return 0

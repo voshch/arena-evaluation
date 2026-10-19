@@ -22,10 +22,14 @@ import pathlib
 import sys
 from collections import defaultdict
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from mcap.reader import make_reader
 from mcap_ros2.decoder import DecoderFactory
+
+if TYPE_CHECKING:
+    from geometry_msgs.msg import Quaternion
 
 TICK_S = 0.05
 LINKS = ("l_wrist", "r_wrist", "l_elbow", "r_elbow", "head")
@@ -36,12 +40,15 @@ WINDOW_AFTER_S = 0.9
 def _messages(mcap_path: pathlib.Path, suffixes: tuple[str, ...]):
     with open(mcap_path, "rb") as f:
         reader = make_reader(f, decoder_factories=[DecoderFactory()])
-        topics = [c.topic for c in reader.get_summary().channels.values() if c.topic.endswith(suffixes)]
+        summary = reader.get_summary()
+        if summary is None:
+            raise ValueError(f"{mcap_path} has no summary section")
+        topics = [c.topic for c in summary.channels.values() if c.topic.endswith(suffixes)]
         for _schema, channel, message, ros_msg in reader.iter_decoded_messages(topics=topics):
             yield channel.topic, message.log_time, ros_msg
 
 
-def _yaw(q: object) -> float:
+def _yaw(q: Quaternion) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 

@@ -34,6 +34,7 @@ from arena_runtime_msgs.srv import DespawnEnv, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
+from rclpy.action.client import ClientGoalHandle
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from task_generator.constants import Constants
 from task_generator_msgs.action import RunEpisode
@@ -110,7 +111,7 @@ def _proc_tree(root: int) -> dict[int, int]:
     return tree
 
 
-def _orphaned_env_ids(known: set[int], records: typing.Mapping[int, object], registered: typing.Sequence[int]) -> list[int]:
+def _orphaned_env_ids(known: set[int], records: typing.Mapping[int, EnvRecord], registered: typing.Sequence[int]) -> list[int]:
     """Env ids to despawn after a stalled spawn: registered first, then any env reserved during the wait that never went ready."""
     ids = list(dict.fromkeys(registered))
     for env_id, rec in records.items():
@@ -667,6 +668,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
         executor = create_executor()
         node: BenchmarkRunner | None = None
+        factory = typing.cast("typing.Callable[..., BenchmarkRunner]", cls)
 
         def _spin():
             try:
@@ -687,7 +689,7 @@ class BenchmarkRunner(ArenaMixinNode):
 
         async def _run_app():
             nonlocal node, watchdog_stop
-            node = cls(*args, **kwargs)
+            node = factory(*args, **kwargs)
             node.event_loop = loop
             watchdog_stop = start_loop_watchdog(loop, node, deadline_s=_LOOP_DEADLINE_S, on_deadline=node._deadman)
             executor.add_node(node)
@@ -818,7 +820,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self.create_subscription(HoldRegistry, "/arena/state/holders", self._on_holders, _LATCHED)
         self._state_pub = self.create_publisher(BenchmarkState, STATE_TOPIC, _LATCHED)
 
-        self._arena_proc: subprocess.Popen | None = None
+        self._arena_proc = None
         self._parent_episode_map: dict[tuple[str, str, int], int] = {}
         self._progress: BenchmarkProgressDisplay | None = None
 
@@ -1197,7 +1199,7 @@ class BenchmarkRunner(ArenaMixinNode):
             lockstep = summary if lockstep is None else lockstep.merge(summary)
             return summary
 
-        def _result(status: str, error_kind: StepErrorKind | None = None, error_detail: str | None = None) -> StepResult:
+        def _result(status: typing.Literal["ok", "failed", "skipped", "partial", "in_progress"], error_kind: StepErrorKind | None = None, error_detail: str | None = None) -> StepResult:
             _fold_window()
             return StepResult(
                 step.key,
@@ -1386,7 +1388,7 @@ class BenchmarkRunner(ArenaMixinNode):
             return _result(status, StepErrorKind.EPISODE_TIMEOUT, f"sim stalled {_SIM_STALL_S:.0f}s")
         return _result(status)
 
-    async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: object, env_id: int) -> object:
+    async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: ClientGoalHandle, env_id: int) -> RunEpisode.Impl.GetResultService.Response:
         """Await an episode result with no wall ceiling, raising _SimStalled if the sim clock freezes while no env holds the sim."""
         result_task = asyncio.ensure_future(self._await_alive(ac.await_result(goal_handle), env_id=env_id, what=f"run_episode result on env {env_id}"))
         last_sim = self.sim_time.to_seconds()
@@ -1395,7 +1397,9 @@ class BenchmarkRunner(ArenaMixinNode):
             while True:
                 done, _ = await asyncio.wait({result_task}, timeout=1.0)
                 if result_task in done:
-                    return result_task.result()
+                    response = result_task.result()
+                    assert isinstance(response, RunEpisode.Impl.GetResultService.Response)
+                    return response
                 now_sim = self.sim_time.to_seconds()
                 if now_sim > last_sim or self._env_holds:
                     last_sim = now_sim
@@ -2172,6 +2176,7 @@ def _resolve_suite_source(suite_name: str) -> tuple[pathlib.Path, pathlib.Path |
     """Resolve a suite name to (yaml path, bundle dir, provenance). Flat `<stem>.yaml`
     wins over the directory-bundle form `<stem>/suite.yaml`, whose parent is the bundle dir."""
     verdict = SuiteIdentifier(name=suite_name.removesuffix(".yaml")).resolve_source_sync()
+    assert verdict.path is not None
     bundle_dir = verdict.path.parent if verdict.path.name == "suite.yaml" else None
     return verdict.path, bundle_dir, _provenance(verdict)
 
@@ -2179,6 +2184,7 @@ def _resolve_suite_source(suite_name: str) -> tuple[pathlib.Path, pathlib.Path |
 def _resolve_contest_source(contest_name: str) -> tuple[pathlib.Path, dict | None]:
     """Resolve a contest name to (yaml path, provenance)."""
     verdict = ContestIdentifier(name=contest_name.removesuffix(".yaml")).resolve_source_sync()
+    assert verdict.path is not None
     return verdict.path, _provenance(verdict)
 
 
@@ -2378,6 +2384,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         print("benchmark: env_n:= is deprecated, use env.n:=", file=sys.stderr)
         arena_passthrough.setdefault("env.n", arena_passthrough.pop("env_n"))
 
+    run_dir: RunDir | None = None
     try:
         share = pathlib.Path(get_package_share_directory("arena_evaluation"))
 
@@ -2414,10 +2421,11 @@ def cli_main(argv: list[str] | None = None) -> int:
                 arena_passthrough["sim"] = simulator
             _warn_config_drift(man)
             run_dir.progress.write_comment(f"resumed at {datetime.datetime.now(tz=datetime.UTC).isoformat()}")
+            fresh = None
         else:
             suite, contest, suite_dict, contest_dict, suite_bundle_dir, suite_provenance, contest_provenance = _load_suite_contest(args.suite, args.contest)
             scale_episodes = args.scale_episodes
-            cfg_hash = compute_config_hash(suite_dict, contest_dict)
+            fresh = (suite_dict, contest_dict, suite_provenance, contest_provenance, compute_config_hash(suite_dict, contest_dict))
 
         arena_passthrough = runtime_launch_args(suite.launch_args, arena_passthrough)
         env_n = int(arena_passthrough.get("env.n", "1"))
@@ -2444,7 +2452,8 @@ def cli_main(argv: list[str] | None = None) -> int:
                 return 2
             seen.add(c.key)
 
-        if not args.resume:
+        if fresh is not None:
+            suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = fresh
             run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
             sha, dirty = capture_git_sha(share.parent.parent.parent)
             steps_list = [
@@ -2487,6 +2496,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"benchmark: {exc}", file=sys.stderr)
         return 2
+    assert run_dir is not None
 
     print(
         f"benchmark: prepared run_id={run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",

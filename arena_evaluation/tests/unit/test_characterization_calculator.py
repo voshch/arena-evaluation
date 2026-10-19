@@ -81,6 +81,13 @@ def test_calculate_produces_timeseries():
     assert len(out["timeseries_char_dba"]) == 4
 
 
+def test_speed_falls_back_to_path_rate_without_vel_linear():
+    df = _sample_episode().data.drop("vel_linear")
+    ep = AlignedEpisodeBundle(episode_id=0, data=df, start_pos=[], goal_pos=[], robot_name="env_0_jackal")
+    out = _calc().calculate(ep, {})
+    assert out["timeseries_char_energy_intensity"] == [None, 220.0, 120.0, 65.0]
+
+
 def test_steady_state_transient_filtering():
     # 5s dwell: first 1.5s tagged transient, remaining tagged linear
     df = pl.DataFrame(

@@ -75,6 +75,7 @@ class ParquetStore:
                 metadata_dict = json.loads(meta_bytes.decode())
 
         df = pl.from_arrow(table)
+        assert isinstance(df, pl.DataFrame)
         return df, metadata_dict
 
     @staticmethod

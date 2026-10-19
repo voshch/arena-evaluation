@@ -294,7 +294,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
 
         return out
 
-    def calculate(self, episode: AlignedEpisodeBundle, dependencies: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         df = episode.data
         if df is None or len(df) == 0:
             return {k: None for k in self.output_keys()}
@@ -308,7 +308,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         if "vel_linear" in out.columns:
             speed = out["vel_linear"].cast(pl.Float64).abs().fill_null(0.0)
         else:
-            speed = pl.when(dt > 1e-6).then(ds / dt).otherwise(0.0)
+            speed = pl.select(pl.when(dt > 1e-6).then(ds / dt).otherwise(0.0)).to_series()
 
         wz_achieved = out["vel_angular"].cast(pl.Float64).abs().fill_null(0.0) if "vel_angular" in out.columns else pl.lit(0.0)
 

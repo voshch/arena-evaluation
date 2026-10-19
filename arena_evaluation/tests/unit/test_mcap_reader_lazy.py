@@ -2,9 +2,12 @@ import pathlib
 import pytest
 import tempfile
 import polars as pl
+from types import SimpleNamespace
 from unittest import mock
 from arena_evaluation.processing.mcap_reader import MCAPReader
 from arena_evaluation.storage.schemas import TopicBundle
+
+_SCHEMA = SimpleNamespace(id=0, name="", encoding="ros2msg", data=b"")
 
 
 # Helper mock classes to simulate ROS2 decoders
@@ -96,7 +99,7 @@ def test_mcap_reader_lazy_chunking():
             channel = MockChannel("/env_0/odom")
             ros_msg = MockOdomMsg(px=float(i), py=float(i * 2), lx=1.0, az=0.5)
             message = MockMessage(i * 1000, channel_id=0, data=ros_msg)
-            mock_messages.append((None, channel, message))
+            mock_messages.append((_SCHEMA, channel, message))
 
         with mock.patch("arena_evaluation.processing.mcap_reader.NonSeekingReader") as mock_reader_cls:
             mock_reader_inst = mock_reader_cls.return_value
@@ -154,7 +157,7 @@ def test_mcap_reader_tf_gt_extraction():
 
         # Create a mock /tf message that matches world-to-base_link ground truth conditions
         transforms = [MockStampedTransform(frame_id="map", child_frame_id="env_0/map", tx=0.0, ty=0.0, qw=1.0), MockStampedTransform(frame_id="map", child_frame_id="env_0/base_link", tx=5.5, ty=10.0, qw=1.0)]
-        mock_messages = [(None, MockChannel("/tf"), MockMessage(999999, channel_id=0, data=MockTFMsg(transforms)))]
+        mock_messages = [(_SCHEMA, MockChannel("/tf"), MockMessage(999999, channel_id=0, data=MockTFMsg(transforms)))]
 
         with mock.patch("arena_evaluation.processing.mcap_reader.NonSeekingReader") as mock_reader_cls:
             mock_reader_inst = mock_reader_cls.return_value

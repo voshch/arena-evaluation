@@ -11,6 +11,9 @@ from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import shapely
     from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
@@ -19,7 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class _ZoneGeometry:
     name: str
-    polygon: object
+    polygon: shapely.Polygon
     max_speed: float | None
     quiet: bool
     restricted: bool
@@ -91,7 +94,12 @@ def _offset_doors(doors: list[_DoorGeometry], offset: tuple[float, float]) -> li
     return [dataclasses.replace(door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]) for door in doors]
 
 
-def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: list[_ZoneGeometry]) -> np.ndarray:
+class _PolygonZone(typing.Protocol):
+    @property
+    def polygon(self) -> shapely.Polygon: ...
+
+
+def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: Sequence[_PolygonZone]) -> np.ndarray:
     import shapely
 
     idx = np.full(len(pos_x), -1, dtype=np.int64)
@@ -472,7 +480,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         del prior_results
-        result = {k: None for k in self.output_keys()}
+        result: dict[str, float | None] = {k: None for k in self.output_keys()}
 
         # 1. Passing Rule Compliance (Independent of world)
         result["passing_rule_compliance"] = self._compute_passing_compliance(episode)

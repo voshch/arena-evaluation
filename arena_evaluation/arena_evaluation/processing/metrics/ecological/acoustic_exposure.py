@@ -209,7 +209,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             should_eval = False
             if i == 0 or i == total_frames - 1:
                 should_eval = True
-            elif last_eval_rx is None or last_attenuations is None:
+            elif last_eval_rx is None or last_eval_peds is None or last_attenuations is None:
                 should_eval = True
             elif tl_key != last_eval_tl_key:
                 should_eval = True
@@ -254,6 +254,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 last_attenuations = attenuations
                 solver_evals += 1
             else:
+                assert last_attenuations is not None
                 attenuations = last_attenuations
 
             # Filter out infinity (unreachable)
@@ -302,13 +303,13 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 "worst_case_acoustic_frame": None,
             }
 
-        all_exp = np.array(all_exp)
+        exp_arr = np.array(all_exp)
 
-        max_exp = float(np.max(all_exp))
+        max_exp = float(np.max(exp_arr))
 
         # Leq (Equivalent Continuous Sound Level)
         # L_eq = 10 * log10( (1/N) * sum(10^(L_i / 10)) )
-        lin_exp = 10 ** (all_exp / 10.0)
+        lin_exp = 10 ** (exp_arr / 10.0)
         leq_exp = float(10 * np.log10(np.mean(lin_exp)))
 
         # Startle Factor: Max positive rate of change (dBA/s) for any pedestrian

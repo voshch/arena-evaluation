@@ -53,14 +53,14 @@ class TimeseriesRenderer(BasePlotRenderer):
             return None
 
         fig = go.Figure()
-        planners = pdf[diff_col].unique() if diff_col in pdf.columns else ["unknown"]
+        planners = pdf[diff_col].unique() if diff_col in pdf.columns else ["unknown"]  # pyright: ignore[reportAttributeAccessIssue]
         colors = px.colors.qualitative.Plotly
 
         traces_added = 0
         for planner_idx, planner in enumerate(planners):
             planner_df = pdf[pdf[diff_col] == planner] if diff_col in pdf.columns else pdf
 
-            for _, row in planner_df.iterrows():
+            for _, row in planner_df.iterrows():  # pyright: ignore[reportAttributeAccessIssue]
                 episode_val = row.get("episode", "unknown")
                 legend_group = f"{planner} - Ep {episode_val}"
                 base_color = colors[planner_idx % len(colors)]

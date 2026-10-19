@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import typing
 from abc import ABC, abstractmethod
+from collections.abc import Sized
 
 import numpy as np
 import polars as pl
@@ -24,6 +25,7 @@ class BaseMetricCalculator(ABC):
     UNITS: dict[str, str] = {}
     PRIMARY_OUTPUTS: list[str] = []
     OUTPUT_DIRECTIONS: dict[str, str] = {}
+    world: str | None = None
 
     def __init__(self, robot_params: RobotParams):
         """Initializes the calculator with robot parameters."""
@@ -92,6 +94,7 @@ class BaseMetricCalculator(ABC):
             odom_x = np.array([], dtype=np.float64)
             odom_y = np.array([], dtype=np.float64)
             odom_yaw = np.array([], dtype=np.float64)
+            raw_odom_x0 = raw_odom_y0 = raw_odom_yaw0 = 0.0
 
         if episode.start_pos and len(episode.start_pos) >= 2 and len(odom_x) > 0:
             start_x, start_y = episode.start_pos[0], episode.start_pos[1]
@@ -292,7 +295,7 @@ class BaseMetricCalculator(ABC):
     @staticmethod
     def _parse_peds(peds_raw: object, num_peds_hint: float | None = None) -> np.ndarray:
         """Parse pedestrian positions into an (N, 2) or (N, 3) array of coordinates."""
-        if peds_raw is None or len(peds_raw) == 0:
+        if peds_raw is None or (isinstance(peds_raw, Sized) and len(peds_raw) == 0):
             return np.empty((0, 2))
         if isinstance(peds_raw, str):
             try:

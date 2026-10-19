@@ -9,7 +9,7 @@ import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import rclpy
 import rosbag2_py
@@ -24,67 +24,16 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
+from task_generator_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
 from tf2_msgs.msg import TFMessage
 
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
     from rcl_interfaces.msg import ParameterValue
+    from rclpy.context import Context
     from task_generator_msgs.msg import RecordedTopic
 
     from .topics import TopicDefinition
-
-try:
-    from arena_people_msgs.msg import Pedestrians
-
-    HAS_PEDESTRIANS = True
-except ImportError:
-
-    class Pedestrians:
-        pass
-
-    HAS_PEDESTRIANS = False
-
-try:
-    from arena_robots_msgs.msg import CollisionEvents
-
-    HAS_COLLISION = True
-except ImportError:
-
-    class CollisionEvents:
-        pass
-
-    HAS_COLLISION = False
-
-try:
-    from arena_robots_msgs.msg import Energy, Power
-
-    HAS_POWER = True
-except ImportError:
-
-    class Power:
-        pass
-
-    class Energy:
-        pass
-
-    HAS_POWER = False
-
-try:
-    from task_generator_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
-
-    HAS_TASK_GEN = True
-except ImportError:
-
-    class EpisodeRecord:
-        pass
-
-    class RecordedTopics:
-        pass
-
-    class RobotFleet:
-        pass
-
-    HAS_TASK_GEN = False
 
 
 def _state_types() -> dict[str, tuple[type, str, bool]]:
@@ -124,8 +73,26 @@ from arena_evaluation.storage.manifest import MetadataWriter
 from .metadata import IngestionMetadata
 
 
+class _NodeKwargs(TypedDict, total=False):
+    context: Context | None
+    cli_args: list[str] | None
+    namespace: str | None
+    use_global_arguments: bool
+    enable_rosout: bool
+    start_parameter_services: bool
+    parameter_overrides: list[Parameter] | None
+    allow_undeclared_parameters: bool
+    enable_logger_service: bool
+
+
+class _RecorderConfig(TypedDict, total=False):
+    record_frequencies: dict[str, float]
+    tf_frames: list[tuple[str, float]]
+    optional_topics: list[str]
+
+
 class DataRecorderNode(Node):
-    def __init__(self, **node_kwargs: object):
+    def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
         super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
 
         self.base_dir = get_package_share_directory("arena_evaluation")
@@ -549,7 +516,7 @@ class DataRecorderNode(Node):
                 callback = self._create_unthrottled_callback(topic_name)
 
             raw = key not in _DESERIALIZED_TOPIC_KEYS
-            sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)
+            sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)  # pyright: ignore[reportArgumentType]
             self.subs.append(sub)
             if key == "episode_record":
                 self.get_logger().info(f"Subscribed to EpisodeRecord on {topic_name}")
@@ -557,15 +524,14 @@ class DataRecorderNode(Node):
                 self.get_logger().info(f"Subscribed to RobotFleet on {topic_name}")
 
         self._state_types = _state_types()
-        if HAS_TASK_GEN:
-            recorded_topics_qos = QoSProfile(
-                reliability=QoSReliabilityPolicy.RELIABLE,
-                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-                depth=1,
-            )
-            topic_name = f"{env_prefix}/state/recorded_topics"
-            self.subs.append(self.create_subscription(RecordedTopics, topic_name, self.recorded_topics_callback, recorded_topics_qos))
-            self.get_logger().info(f"Subscribed to RecordedTopics on {topic_name}")
+        recorded_topics_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        topic_name = f"{env_prefix}/state/recorded_topics"
+        self.subs.append(self.create_subscription(RecordedTopics, topic_name, self.recorded_topics_callback, recorded_topics_qos))
+        self.get_logger().info(f"Subscribed to RecordedTopics on {topic_name}")
 
         self.create_timer(1.0, self.discover_topics)
 
@@ -636,7 +602,7 @@ class DataRecorderNode(Node):
                     for part in reversed(name.split("/")):
                         if part and part not in ("odom", "eval_sim", "task_generator_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
                             self.robot_model = part
-                            if self.current_metadata is not None:
+                            if self.current_metadata is not None and self.current_metadata_path is not None:
                                 self.current_metadata.robot_model = [part]
                                 MetadataWriter.write(self.current_metadata, self.current_metadata_path)
                             break
@@ -707,7 +673,7 @@ class DataRecorderNode(Node):
         if self.current_sim_episode_id != episode_id:
             self._log_info(f"stop_episode ignored for episode_id={episode_id} (current is {self.current_sim_episode_id})")
             return
-        if self.current_metadata is not None:
+        if self.current_metadata is not None and self.current_metadata_path is not None:
             try:
                 self.current_metadata.outcome_state = outcome_state
                 self.current_metadata.outcome_info = outcome_info
@@ -726,12 +692,12 @@ class DataRecorderNode(Node):
         """Authoritative episode lifecycle: START opens the writer, STOP closes it."""
         episode_id = int(request.episode_id)
         command = request.command
-        if command == request.COMMAND_START:
+        if command == request.COMMAND_START:  # pyright: ignore[reportAttributeAccessIssue]
             self._log_info(f"start_episode service called: episode_id={episode_id}")
             self._begin_episode(episode_id, source="runner")
             response.success = True
             response.message = f"recording episode {self.current_episode_id}"
-        elif command == request.COMMAND_STOP:
+        elif command == request.COMMAND_STOP:  # pyright: ignore[reportAttributeAccessIssue]
             self._log_info(f"stop_episode service called: episode_id={episode_id} outcome={request.outcome_state}")
             self._stop_episode(episode_id, outcome_state=int(request.outcome_state), outcome_info=str(request.outcome_info))
             response.success = True
@@ -756,7 +722,8 @@ class DataRecorderNode(Node):
         env_namespace = self.get_namespace().strip('/')
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
         if self.current_time is None:
-            self._pre_clock_buffer.append((topic, msg))
+            if self._pre_clock_buffer is not None:
+                self._pre_clock_buffer.append((topic, msg))
             return
         self._write_to_bag_at(topic, msg, self.current_time)
 
@@ -826,7 +793,7 @@ class DataRecorderNode(Node):
                 if self.robot_model == "unknown":
                     self.robot_model = robot.model
 
-                if self.current_metadata is not None:
+                if self.current_metadata is not None and self.current_metadata_path is not None:
                     if "unknown" in self.current_metadata.robot_model:
                         self.current_metadata.robot_model = []
 
@@ -983,7 +950,7 @@ class DataRecorderNode(Node):
                 return
             try:
                 self._ensure_topic_in_bag(topic_name)
-                self.writer.write(topic_name.strip('/'), serialized_msg, timestamp_ns)
+                self.writer.write(topic_name.strip('/'), serialized_msg, timestamp_ns)  # pyright: ignore[reportArgumentType]
                 self.recorded_topics.add(topic_name.strip('/'))
                 self._write_success_count += 1
                 if self._write_success_count <= 5 or self._write_success_count % 500 == 0:
@@ -1010,6 +977,7 @@ class DataRecorderNode(Node):
 
     def _ensure_topic_in_bag(self, topic_name: str):
         """Lazily call create_topic on first write. Must be called under writer_lock."""
+        assert self.writer is not None
         strip = topic_name.strip('/')
         if strip not in self.topics_metadata and topic_name in self._topic_registry:
             self.writer.create_topic(self._topic_registry[topic_name])
@@ -1017,6 +985,7 @@ class DataRecorderNode(Node):
 
     def _write_episode_metadata(self, episode_id: int):
         """Write initial episode_XXX.yaml for this episode."""
+        assert self.current_metadata_path is not None
         metadata = IngestionMetadata.create_episode_metadata(
             benchmark_id=self.benchmark_id,
             planner=self.planner,
@@ -1061,7 +1030,7 @@ class DataRecorderNode(Node):
         """Write the world an episode runs in to run_dir/worlds/<name>, once per world and run, off the callback thread."""
         from arena_simulation_setup.tree.World import WorldIdentifier
 
-        name, level_filter = WorldIdentifier.parse(world_name)
+        name, level_filter = WorldIdentifier.split_filter(world_name)
         if name in self._snapshot_worlds:
             return
         self._snapshot_worlds.add(name)
@@ -1082,7 +1051,7 @@ class DataRecorderNode(Node):
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""
-        if self.current_metadata is None or int(msg.episode_id) != self.current_sim_episode_id:
+        if self.current_metadata is None or self.current_metadata_path is None or int(msg.episode_id) != self.current_sim_episode_id:
             return
         try:
             if not self.current_metadata.robot_model or self.current_metadata.robot_model == ["unknown"]:
@@ -1135,7 +1104,7 @@ class DataRecorderNode(Node):
             curr[parts[-1]] = v
         return res
 
-    def read_config(self) -> dict[str, object]:
+    def read_config(self) -> _RecorderConfig:
         config_path = os.path.join(self.base_dir, "config", "data_recorder_config.yaml")
         try:
             with open(config_path) as f:

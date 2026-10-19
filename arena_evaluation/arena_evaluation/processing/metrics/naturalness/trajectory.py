@@ -200,7 +200,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
             pts_ref = np.column_stack((ref_x, ref_y))
 
             try:
-                from scipy.spatial import cKDTree
+                from scipy.spatial import cKDTree  # pyright: ignore[reportAttributeAccessIssue]
 
                 tree_robot = cKDTree(pts_robot)
                 tree_ref = cKDTree(pts_ref)
@@ -226,7 +226,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
             results["frechet_distance"] = float(frechet_val)
 
             try:
-                from dtaidistance import dtw_ndim
+                from dtaidistance import dtw_ndim  # pyright: ignore[reportMissingImports]
 
                 adtw = dtw_ndim.distance(pts_r_sub, pts_ref_sub)
                 results["adtw"] = float(adtw)
