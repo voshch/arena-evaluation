@@ -1,9 +1,8 @@
 """Process introspection and benchmark console logs.
 
 Shared by the evaluation CLI (``benchmark ps`` / ``benchmark console``) and
-the ``arena_evaluation_mcp`` server (``list_running_processes`` /
-``get_benchmark_console``). The console log is the runner's own
-``benchmarks/<run_id>/runner.log``, tailed in place.
+the evaluation MCP domain (``evaluation_ps`` / ``evaluation_kill``). The console
+log is the runner's own ``benchmarks/<run_id>/runner.log``, tailed in place.
 """
 
 from __future__ import annotations
@@ -18,8 +17,9 @@ _BENCHMARK_RUNNER_MARKERS = (
     "evaluation benchmark",
     "lib/arena_evaluation/benchmark",
 )
-_ARENA_CLI_MARKERS = ("arena_cli", "uv run")
-_SIM_MARKERS = ("gz sim", "ign gazebo", "gazebo", "gzserver")
+_ARENA_CLI_MARKERS = ("arena_cli",)
+_SIM_MARKERS = ("gz sim", "ign gazebo", "gzserver")
+_SIM_EXECUTABLES = ("gazebo",)
 _NODE_MARKERS = ("arena_node", "data_recorder", "recorder_node")
 _GEN_MARKERS = ("world_generator",)
 
@@ -36,7 +36,7 @@ def _ps_lines() -> list[tuple[int, str]]:
     """(pid, cmdline) pairs for all processes, excluding self and grep-ish."""
     try:
         out = subprocess.run(
-            ["ps", "-eo", "pid=,args="],
+            ["ps", "-ww", "-eo", "pid=,args="],
             capture_output=True,
             text=True,
             timeout=15,
@@ -82,7 +82,7 @@ def _classify(cmdline: str) -> str | None:
         return "benchmark_runner"
     if any(m in cmdline for m in _GEN_MARKERS):
         return "world_generator"
-    if any(m in cmdline for m in _SIM_MARKERS):
+    if any(m in cmdline for m in _SIM_MARKERS) or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES:
         return "simulation"
     if any(m in cmdline for m in _NODE_MARKERS):
         return "arena_node"
@@ -96,9 +96,13 @@ def is_pid_alive(pid: int | None) -> bool:
         return False
     try:
         os.kill(pid, 0)
-        return True
     except (ProcessLookupError, PermissionError):
         return False
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return True
 
 
 def running_processes() -> list[dict]:
@@ -174,7 +178,7 @@ def running_pids_by_run_id() -> dict[str, int]:
         if not match:
             # Fallback: any run-id-looking token (timestamp-suite-contest)
             for token in cmdline.split():
-                if len(token) > 10 and "-" in token and "/" not in token:
+                if len(token) > 10 and "-" in token and "/" not in token and not token.startswith("-"):
                     match = token
                     break
         if match:
@@ -245,7 +249,7 @@ def latest_running_run_id() -> str | None:
         if pid2 != pid:
             continue
         for token in cmdline.split():
-            if token.startswith("--run-id"):
+            if token.startswith("-"):
                 continue
             if len(token) > 10 and "-" in token and "/" not in token:
                 return token
@@ -256,59 +260,71 @@ def kill_processes(
     pids: list[int] | None = None,
     force: bool = False,
     kind: str | None = None,
-    timeout_s: float = 1.5,
+    everything: bool = False,
+    grace_s: float = 15.0,
 ) -> list[dict]:
-    """Terminate running arena processes."""
+    """Stop the arena processes named by pid, kind or everything: SIGINT first, SIGTERM and SIGKILL only past each grace window."""
+    if not pids and kind is None and not everything:
+        raise ValueError("name the processes to stop: pids, a kind, or all of them")
+    protected = _ancestry(os.getpid())
+    arena = {proc["pid"]: proc for proc in running_processes()}
+    targets: list[dict] = []
+    results: list[dict] = []
+    if pids:
+        for pid in pids:
+            if pid in protected:
+                results.append({"pid": pid, "kind": "caller", "command": f"pid {pid}", "status": "refused: this process or one of its parents"})
+            elif pid in arena:
+                targets.append(arena[pid])
+            elif is_pid_alive(pid):
+                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "refused: not an arena process"})
+            else:
+                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "already_dead"})
+    else:
+        targets = [proc for proc in arena.values() if proc["pid"] not in protected and (everything or proc["kind"] == kind)]
+    for proc in targets:
+        results.append({**proc, "status": _stop(proc["pid"], force=force, grace_s=grace_s)})
+    return results
+
+
+def _ancestry(pid: int) -> set[int]:
+    chain: set[int] = set()
+    while pid > 1 and pid not in chain:
+        chain.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                pid = int(fh.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return chain
+
+
+def _stop(pid: int, *, force: bool, grace_s: float) -> str:
+    """Signal the process, or its whole group when it leads one, escalating only while it survives."""
     import signal
 
-    my_pid = os.getpid()
-    all_procs = running_processes()
-    target_procs: list[dict] = []
+    try:
+        leads_group = os.getpgid(pid) == pid
+    except ProcessLookupError:
+        return "already_dead"
 
-    if pids:
-        pid_set = set(pids)
-        for p in all_procs:
-            if p["pid"] in pid_set and p["pid"] != my_pid:
-                target_procs.append(p)
-        known_pids = {p["pid"] for p in target_procs}
-        for pid in pids:
-            if pid not in known_pids and pid != my_pid and is_pid_alive(pid):
-                target_procs.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}"})
-    else:
-        for p in all_procs:
-            if p["pid"] != my_pid:
-                if kind is None or p["kind"] == kind:
-                    target_procs.append(p)
+    def send(sig: signal.Signals) -> None:
+        if leads_group:
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
 
-    results: list[dict] = []
-    for proc in target_procs:
-        pid = proc["pid"]
-        if not is_pid_alive(pid):
-            results.append({**proc, "status": "already_dead"})
-            continue
-
+    steps = ((signal.SIGKILL, 2.0, "force_killed"),) if force else ((signal.SIGINT, grace_s, "stopped"), (signal.SIGTERM, 5.0, "terminated"), (signal.SIGKILL, 2.0, "force_killed"))
+    for sig, wait, outcome in steps:
         try:
-            if force:
-                os.kill(pid, signal.SIGKILL)
-                results.append({**proc, "status": "force_killed"})
-            else:
-                os.kill(pid, signal.SIGTERM)
-                start_wait = time.time()
-                dead = False
-                while time.time() - start_wait < timeout_s:
-                    if not is_pid_alive(pid):
-                        dead = True
-                        break
-                    time.sleep(0.1)
-                if dead:
-                    results.append({**proc, "status": "killed"})
-                else:
-                    os.kill(pid, signal.SIGKILL)
-                    results.append({**proc, "status": "force_killed"})
-        except (ProcessLookupError, PermissionError) as exc:
+            send(sig)
+        except ProcessLookupError:
+            return "already_dead"
+        except PermissionError as exc:
+            return f"failed: {exc}"
+        deadline = time.time() + wait
+        while time.time() < deadline:
             if not is_pid_alive(pid):
-                results.append({**proc, "status": "killed"})
-            else:
-                results.append({**proc, "status": f"failed: {exc}"})
-
-    return results
+                return outcome
+            time.sleep(0.1)
+    return "survived SIGKILL"

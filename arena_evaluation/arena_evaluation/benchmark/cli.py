@@ -363,7 +363,18 @@ def _cmd_console(args: argparse.Namespace) -> int:
 def _cmd_kill(args: argparse.Namespace) -> int:
     from arena_evaluation.benchmark.debug import kill_processes
 
-    results = kill_processes(pids=args.pids or None, force=args.force, kind=args.kind)
+    try:
+        results = kill_processes(pids=args.pids or None, force=args.force, kind=args.kind, everything=args.all)
+    except ValueError:
+        from arena_evaluation.benchmark.debug import running_processes
+
+        running = running_processes()
+        print("kill stops nothing by default: pass PIDs, --kind KIND or --all")
+        for proc in running:
+            print(f"  pid {proc['pid']} ({proc['kind']}) - {proc['command'][:60]}")
+        if not running:
+            print("  no running arena processes")
+        return 2
     if not results:
         if args.pids:
             print("no matching processes found for specified PIDs")
@@ -399,8 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ps = sub.add_parser("ps", help="list running arena processes (benchmark runner, sim, nodes)")
     p_ps.add_argument("--data-root", default=None, metavar="PATH")
 
-    p_kill = sub.add_parser("kill", help="terminate running arena benchmark and simulation processes")
-    p_kill.add_argument("pids", nargs="*", type=int, default=None, help="specific PIDs to kill (default: all arena processes)")
+    p_kill = sub.add_parser("kill", help="stop arena benchmark and simulation processes: SIGINT first, SIGTERM and SIGKILL only if they survive")
+    p_kill.add_argument("pids", nargs="*", type=int, default=None, help="arena PIDs to stop (other processes are refused)")
+    p_kill.add_argument("--all", action="store_true", help="stop every arena process (bare kill stops nothing and lists them)")
     p_kill.add_argument("-9", "--force", action="store_true", help="send SIGKILL immediately")
     p_kill.add_argument("--kind", choices=["benchmark_runner", "simulation", "arena_node", "world_generator", "arena_cli"], default=None, help="filter by process kind")
 

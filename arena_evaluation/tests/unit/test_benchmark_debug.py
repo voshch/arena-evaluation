@@ -7,8 +7,11 @@ executed against the live system except self-directed ``/proc`` reads.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -371,3 +374,36 @@ def test_latest_running_run_id_skips_flag_token(monkeypatch):
         ],
     )
     assert debug_mod.latest_running_run_id() is None
+
+
+def test_kill_needs_named_targets():
+    with pytest.raises(ValueError, match="name the processes"):
+        debug_mod.kill_processes()
+
+
+def test_kill_refuses_processes_outside_arena_and_the_caller():
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        results = {entry["pid"]: entry["status"] for entry in debug_mod.kill_processes(pids=[bystander.pid, os.getpid()])}
+        assert results[bystander.pid] == "refused: not an arena process"
+        assert results[os.getpid()].startswith("refused: this process")
+        assert bystander.poll() is None
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+def test_kill_stops_an_arena_process_group_with_sigint_first():
+    target = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "world_generator"], start_new_session=True)
+    try:
+        deadline = time.time() + 10
+        while target.pid not in {proc["pid"] for proc in debug_mod.running_processes()} and time.time() < deadline:
+            time.sleep(0.1)
+        (result,) = debug_mod.kill_processes(pids=[target.pid], grace_s=10.0)
+        assert result["kind"] == "world_generator"
+        assert result["status"] == "stopped"
+        assert target.wait(timeout=5) != 0
+    finally:
+        if target.poll() is None:
+            target.kill()
+            target.wait()

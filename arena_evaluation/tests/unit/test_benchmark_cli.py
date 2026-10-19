@@ -660,10 +660,9 @@ def test_main_errors_go_to_stderr_return_1(monkeypatch, tmp_path: pathlib.Path, 
     assert "error:" in capsys.readouterr().err
 
 
-def test_main_kill_no_processes(capsys, monkeypatch):
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.kill_processes", lambda **kwargs: [])
-    assert cli_mod.main(["kill"]) == 0
-    assert "no running arena processes found" in capsys.readouterr().out
+def test_main_bare_kill_stops_nothing_and_asks_for_targets(capsys):
+    assert cli_mod.main(["kill"]) == 2
+    assert "pass PIDs, --kind KIND or --all" in capsys.readouterr().out
 
 
 def test_main_kill_with_processes(capsys, monkeypatch):

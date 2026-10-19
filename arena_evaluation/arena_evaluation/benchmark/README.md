@@ -19,7 +19,7 @@ arena evaluation list                          # List all benchmark runs
 arena evaluation status [<run_id>]             # Show run progress (--watch for live)
 arena evaluation tail [<run_id>]               # tail -F progress.csv and every progress.<lane>.csv
 arena evaluation ps                            # List running arena OS processes
-arena evaluation kill [<pid>...] [-9]          # Terminate running arena/sim processes (-9 for SIGKILL)
+arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
 arena evaluation console [<run_id>]            # Tail runner.log (--follow for streaming)
 arena evaluation benchmark                     # Launch a benchmark campaign
 ```

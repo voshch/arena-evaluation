@@ -412,6 +412,6 @@ arena evaluation list                          # List runs
 arena evaluation status [run_id] [--watch]     # Show progress
 arena evaluation tail [run_id]                 # Tail progress.csv
 arena evaluation ps                            # List running arena processes
-arena evaluation kill [pid...] [-9]            # Terminate running processes (-9 for SIGKILL)
+arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
 arena evaluation console [run_id] [--follow]   # Tail runner.log
 ```
