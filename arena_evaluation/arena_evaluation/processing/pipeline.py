@@ -747,13 +747,13 @@ class ProcessingPipeline:
             finally:
                 _shutdown_executor_cleanly(executor)
 
-    def process_benchmark(self, benchmark_id: str, force_extract: bool = False) -> None:
-        """Process all episodes and write combined_metrics.parquet using a 2-Phase pipeline."""
+    def process_benchmark(self, benchmark_id: str, force_extract: bool = False) -> pathlib.Path | None:
+        """Process all episodes and write combined_metrics.parquet using a 2-Phase pipeline, returning its path, None when nothing was written."""
         episodes = self.folder_manager.discover_episodes(benchmark_id)
 
         if not episodes:
             print(f"No episodes found for benchmark '{benchmark_id}'")
-            return
+            return None
 
         _ctx_extract = self.profiler.phase("extract") if self.profiler else contextlib.nullcontext()
         with _ctx_extract:
@@ -799,7 +799,7 @@ class ProcessingPipeline:
         _print_status_summary(all_metrics)
         if not all_metrics:
             print("No valid results were generated.")
-            return
+            return None
 
         ref_episodes_by_stage: dict[str, list[dict]] = {}
         for row in all_metrics:
@@ -846,3 +846,4 @@ class ProcessingPipeline:
         combined_path = self.folder_manager.combined_metrics_path(benchmark_id)
         ParquetStore.write_rows(all_metrics, combined_path, schema_overrides=_METRIC_DTYPES)
         print(f"Done. {len(all_metrics)} episode rows -> {combined_path}")
+        return combined_path

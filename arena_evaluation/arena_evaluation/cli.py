@@ -224,6 +224,7 @@ Examples:
         output_dir = args.output_dir or target_dirs[0]
         profiler = _PP(output_dir=output_dir, sample_hz=2.0)
 
+    failed: list[pathlib.Path] = []
     if args.command in ("extract", "run", "process"):
         force_extract = args.force_extract
         if args.command == "run":
@@ -244,6 +245,7 @@ Examples:
                         print(f"Metrics written to: {out}")
                     else:
                         print(f"Processing failed for {run_dir} - see errors above.")
+                        failed.append(run_dir)
 
         else:
             for benchmark_dir in args.benchmark_dir:
@@ -255,7 +257,9 @@ Examples:
                     pipeline.extract_benchmark(benchmark_dir.name)
                 else:
                     print(f"Processing benchmark: {benchmark_dir.name}")
-                    pipeline.process_benchmark(benchmark_dir.name, force_extract=force_extract)
+                    if pipeline.process_benchmark(benchmark_dir.name, force_extract=force_extract) is None:
+                        print(f"Processing failed for {benchmark_dir} - no combined metrics written.")
+                        failed.append(benchmark_dir)
 
     if args.command in ("run", "report", "plot"):
         output_dir = args.output_dir
@@ -281,11 +285,12 @@ Examples:
 
     if profiler is not None:
         profiler.write_summary()
+    return 1 if failed else 0
 
 
 def main():
     try:
-        _main_impl()
+        sys.exit(_main_impl() or 0)
     except KeyboardInterrupt:
         print("\n\nEvaluation cancelled by user (Ctrl+C). Exiting.\n", flush=True)
         sys.exit(130)

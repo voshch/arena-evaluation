@@ -170,6 +170,8 @@ Commands:
 | `--report-manifest NAME\|PATH\|{...}` | Report layout: named manifest, YAML path, or inline YAML |
 | `--list-manifests` | List available named report manifests |
 
+`process` and `run` exit 1 when a benchmark or episode directory produced no metrics.
+
 ---
 
 ## Running Tests
