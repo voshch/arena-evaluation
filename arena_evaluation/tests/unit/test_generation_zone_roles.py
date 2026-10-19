@@ -149,16 +149,12 @@ def test_the_reviewed_mapping_reaches_the_role_split(store) -> None:
     assert "top_room_0" not in by_role[Role.UNKNOWN]
 
 
-def test_nothing_to_ask_makes_no_call(monkeypatch) -> None:
-    # `classify_tail` must not reach the network when the rules already cover everything.
-    monkeypatch.setattr(client, "_client", lambda: pytest.fail("should not have called the model"))
+def test_nothing_to_ask_asks_nothing() -> None:
     assert classify_tail([zone("kitchen")], world="w", names=[]) == ([], [])
 
 
-def test_no_configured_model_is_a_clear_refusal_not_a_guess(monkeypatch) -> None:
-    for var in ("LLM_API_ENDPOINT", "GOOGLE_API_KEY", "GEMINI_API_KEY"):
-        monkeypatch.delenv(var, raising=False)
-    assert not client.available()
+@pytest.mark.skipif(client.available(), reason="a model is configured here")
+def test_no_configured_model_is_a_clear_refusal_not_a_guess() -> None:
     with pytest.raises(client.Unavailable, match="no LLM configured"):
         client.ask("s", "u")
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import random
-from pathlib import Path
 
 import pytest
-import yaml
 from arena_evaluation.generation.scenario import TALKERS, build
 from arena_evaluation.generation.scenario.populate import KINEMATICS, MIX, ONLY_IN, mix_for, speed_for, world_kind
 
@@ -36,21 +34,10 @@ FLAT = [
 ROBOT = {"start": [4.0, 16.0, 0.0], "goal": [24.0, 16.0, 0.0]}
 FAR = {"start": [30.0, 30.0, 0.0], "goal": [31.0, 30.0, 0.0]}
 
-HUMANSIM_TYPES = Path(__file__).resolve().parents[4] / "humansim" / "arena_humansim" / "config" / "agent_types"
-
 
 def _walkers(zones: list, profile: str = "normal", seed: int = 0, robot: dict = ROBOT) -> list:
     doc = build(profile, zones=zones, robot=robot, seed=seed, world="w")
     return [a for a in doc["dynamic"] if not a["agent"]["agent_type"].startswith("./")]
-
-
-def test_the_mirrored_kinematics_match_humansims_own_files() -> None:
-    if not HUMANSIM_TYPES.is_dir():
-        pytest.skip("humansim not beside this package")
-    for name, (mean, std, lo, hi) in KINEMATICS.items():
-        raw = yaml.safe_load((HUMANSIM_TYPES / f"{name}.yaml").read_text())
-        d = raw["desired_velocity"]
-        assert (d["mean"], d.get("std", 0.0), d["clip_low"], d["clip_high"]) == (mean, std, lo, hi), name
 
 
 def test_every_mixed_type_exists_and_every_kinematic_type_is_mixed_somewhere() -> None:

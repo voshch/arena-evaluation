@@ -1,19 +1,4 @@
-# Behaviour-tree agent type copied beside every generated scenario that has talkers; the builtin
-# types are all `mode: simple`, so the behaviour-tree retunes (`need_decay`, `duration`) act on this one.
-#
-#   * GROUP_CONVERSATION is symmetric: it takes no `target`, so it does not
-#     depend on world-object resolution, which does not work in subsystem mode
-#     (adapter registers objects under the env-prefixed sim_path, BT steps use
-#     the plain name).
-#
-#   * At nominal decay the conversation completes before the transition can
-#     fire (30 s duration vs 40 s to reach the threshold), so a nominal talker
-#     just chats. A raised `need_decay` is what makes it break off: at 2.16/s
-#     the threshold is reached at 18.5 s, mid-conversation.
-#
-#   * p99 duration (48.6 s) stays under the 60 s nominal patience, so a
-#     conversation runs to completion instead of being cut by the patience
-#     watchdog.
+# GROUP_CONVERSATION takes no `target`: world-object resolution does not work in subsystem mode
 
 name: talker
 mode: behavior_tree
@@ -32,8 +17,7 @@ utility_weights:
 initial_sequence: chat
 
 sequences:
-  # Hold a standing conversation. Completing it tops `social` back up, so a
-  # nominal agent loops here indefinitely and never takes the transition.
+  # nominal decay completes the 30 s conversation before `social` falls to 40; a raised `need_decay` breaks it off
   chat:
     steps:
       hold_conversation:
@@ -46,9 +30,6 @@ sequences:
       - when: {social: {below: 40.0}}
         goto: step_aside
 
-  # Need-driven preemption: break off and stand still. A pure-wait step (no
-  # interaction, duration only) compiles to ClearOutcome -> Hold, which pins the
-  # agent in place — so this is also what makes the agent an obstacle.
   step_aside:
     steps:
       pause:

@@ -1,11 +1,4 @@
-# Step 1 - Type A by lexicon (new_plan_2.md 5.1).
-#
-# Each case lists weighted phrases. A phrase is matched as a substring of the lower-cased
-# prompt (so `evacuat` catches evacuate / evacuation / evacuating). The highest total wins if
-# it reaches 1.0; ties break on the phrase that appears earliest in the prompt.
-#
-# The prompt sets are generated from the taxonomy, so every prompt that targets a Type A case
-# is a round-trip test of this file: a targeted case the lexicon misses fails prompt review.
+# Substrings of the lower-cased prompt; the highest total wins if it reaches 1.0, ties to the earliest phrase.
 
 evacuation:
   phrases:
@@ -77,8 +70,7 @@ busy:
     swarming: 0.8
     bustling: 0.8
     busier than usual: 1.0
-  # First match in THIS order wins: explicit quantities before vague intensifiers, so
-  # "busy today, twice as many" reads k=2 even if an intensifier appears elsewhere.
+  # first match in this order wins: explicit quantities before vague intensifiers
   k:
     three times: 3.0
     twice: 2.0

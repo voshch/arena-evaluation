@@ -1,10 +1,9 @@
 """What a world looks like to the generator: zones, furniture, the grid, the robot's planned route.
 
-The route is planned offline over the runtime's occupancy grid (walls from `map.png`, furniture stamped in the way `WorldManager` does), so a placement made against it holds at reset."""
+Route and placements use the map `WorldManagerROS` renders (`zone_screen.runtime_map`): the route is the one the obstacle mode designs against at reset (`edge_case.pathing.plan_route`), placements its walls with furniture stamped in the way `WorldManager` does."""
 
 from __future__ import annotations
 
-import heapq
 import math
 import random
 import typing
@@ -17,30 +16,27 @@ import attrs
 
 if typing.TYPE_CHECKING:
     import numpy as np
+    from task_generator.manager.world_manager.utils import WorldMap
 
 from ..formats import first_level
 from ..scenario.occupancy import world_statics
 from ..scenario.populate import MIN_ROUTE_CLEARANCE, _centroid, _polygon, clearance, robot_zones, route_points, work_zones, world_kind
-from ..scenario.zone_screen import _load_grid, _rasterize, _route_clearance, _stamp_statics, ref_safe_zones, screen_zones
+from ..scenario.route import MAX_ROUTE_M, MIN_EPISODE_S, ROBOT_SPEED_MPS
+from ..scenario.zone_screen import RUNTIME_SAFE_DIST, _load_grid, _rasterize, _route_clearance, _stamp_statics, ref_safe_zones, runtime_map, screen_zones
 from ..scenario.zones import Role, zones_by_role
 
 Point = tuple[float, float]
 
 #: Metres the robot needs on either side to drive a cell; also the pedestrian body clearance.
 ROBOT_CLEAR = 0.35
-#: Preferred planning clearance: routes down the middle of a corridor, the way nav2's inflation
-#: keeps the real robot, so placements around the route are not up against a wall.
-PLAN_CLEAR = 0.6
 #: Clearance the robot's start and goal get: nav2 will not plan into the inscribed radius plus inflation (mpo700: 0.48 m + 0.35 m),
 #: and a goal 0.35 m from a desk stalled the robot 0.23 m short (2026-08-29). Falls back to `ROBOT_CLEAR` when no such cell is within 3 m.
 ENDPOINT_CLEAR = 0.7
-#: Planning cell size, metres. Coarser than the grid so A* over a hospital takes a second.
-PLAN_STEP = 0.2
 #: A planned leg shorter than this is replaced by the longest leg the zones offer, so a case has time to play out:
-#: 30 s at 0.5 m/s, the base scenarios' own floor (`scenario.route.MIN_EPISODE_S`).
-MIN_LEG_M = 15.0
-#: The 60 s episode budget minus the case's reserve, at 0.5 m/s (mirrors `scenario.route.MAX_ROUTE_M`); a longer route is truncated there.
-MAX_LEG_M = 20.0
+#: the base scenarios' own floor.
+MIN_LEG_M = MIN_EPISODE_S * ROBOT_SPEED_MPS
+#: The episode budget minus the case's reserve; a longer route is truncated there.
+MAX_LEG_M = MAX_ROUTE_M
 #: Name fragments marking a zone a building empties through, best first.
 EGRESS_HINTS = ("exit", "entrance", "entry", "lobby", "reception", "hallway", "corridor", "foyer", "living")
 
@@ -51,11 +47,14 @@ def _endpoint(grid: Grid, pt: Point) -> Point:
     return grid.nearest_free(pt, ENDPOINT_CLEAR, within=3.0) or grid.nearest_free(pt, ROBOT_CLEAR, within=3.0) or pt
 
 
-def _plan(grid: Grid, start: Point, goal: Point) -> list[Point]:
+def _plan(world_map: WorldMap, start: Point, goal: Point) -> list[Point]:
+    from task_generator.tasks.obstacles._validation import make_is_traversable
+    from task_generator.tasks.obstacles.edge_case.pathing import PathError, plan_route
+
     try:
-        return grid.plan(start, goal, radius=PLAN_CLEAR)
-    except WorldError:
-        return grid.plan(start, goal)
+        return plan_route(world_map, start, goal, is_valid=make_is_traversable(world_map, RUNTIME_SAFE_DIST))
+    except PathError as exc:
+        raise WorldError(str(exc)) from None
 
 
 def _length(route: Sequence[Point]) -> float:
@@ -77,7 +76,7 @@ def _truncate(route: Sequence[Point], cap_m: float) -> list[Point]:
     return list(route)
 
 
-def _longest_leg(grid: Grid, start: Point, candidates: Sequence[Point], *, beat: float = 0.0) -> tuple[Point, list[Point]] | None:
+def _longest_leg(grid: Grid, world_map: WorldMap, start: Point, candidates: Sequence[Point], *, beat: float = 0.0) -> tuple[Point, list[Point]] | None:
     """The candidate goal (snapped into free space) with the longest drivable route from `start` up to `MAX_LEG_M`;
     None when none beats `beat` by a metre. A small world may never reach `MIN_LEG_M`; its longest leg is still the right one."""
     best: tuple[float, Point, list[Point]] | None = None
@@ -86,7 +85,7 @@ def _longest_leg(grid: Grid, start: Point, candidates: Sequence[Point], *, beat:
         if math.dist(goal, start) < 1.0:
             continue
         try:
-            route = _plan(grid, start, goal)
+            route = _plan(world_map, start, goal)
         except WorldError:
             continue
         length = _length(route)
@@ -138,7 +137,7 @@ class Grid:
 
     @property
     def shape(self) -> tuple[int, int]:
-        return tuple(self.occupied.shape)  # type: ignore[return-value]
+        return tuple(self.occupied.shape)
 
     def cell(self, pt: Point) -> tuple[int, int]:
         rows = self.shape[0]
@@ -183,92 +182,6 @@ class Grid:
             return None
         return self.xy((int(rr[i] + rs), int(cc[i] + cs)))
 
-    def line_free(self, a: Point, b: Point, radius: float = ROBOT_CLEAR, step: float = 0.1) -> bool:
-        n = max(1, int(math.dist(a, b) / step))
-        return all(self.free((a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n), radius) for i in range(n + 1))
-
-    def plan(self, start: Point, goal: Point, radius: float = ROBOT_CLEAR, *, fine: bool = False) -> list[Point]:
-        """A* on a `PLAN_STEP` lattice, string-pulled into a polyline; raises WorldError when unreachable.
-        A failed search is retried at full map resolution: the lattice straddles passages barely wider than the robot (2026-08-30)."""
-        k = 1 if fine else max(1, int(round(PLAN_STEP / self.res)))
-        s = self._snap(start, radius, k)
-        g = self._snap(goal, radius, k)
-        if s is None or g is None:
-            raise WorldError(f"no free cell near {'start' if s is None else 'goal'} {start if s is None else goal}")
-        if s == g:
-            return [start, goal]
-
-        def h(c: tuple[int, int]) -> float:
-            return math.hypot(c[0] - g[0], c[1] - g[1])
-
-        rows, cols = self.shape
-        best: dict[tuple[int, int], float] = {s: 0.0}
-        came: dict[tuple[int, int], tuple[int, int]] = {}
-        heap: list[tuple[float, tuple[int, int]]] = [(h(s), s)]
-        while heap:
-            _f, cur = heapq.heappop(heap)
-            if cur == g:
-                break
-            cg = best[cur]
-            for dr in (-k, 0, k):
-                for dc in (-k, 0, k):
-                    if dr == 0 and dc == 0:
-                        continue
-                    nxt = (cur[0] + dr, cur[1] + dc)
-                    if not (0 <= nxt[0] < rows and 0 <= nxt[1] < cols) or self.dist[nxt] < radius:
-                        continue
-                    if dr and dc and (self.dist[cur[0] + dr, cur[1]] < radius or self.dist[cur[0], cur[1] + dc] < radius):
-                        continue  # no corner cutting through a wall
-                    ng = cg + math.hypot(dr, dc)
-                    if ng < best.get(nxt, math.inf):
-                        best[nxt] = ng
-                        came[nxt] = cur
-                        heapq.heappush(heap, (ng + h(nxt), nxt))
-        if g not in came and g != s:
-            if k > 1:
-                return self.plan(start, goal, radius, fine=True)
-            raise WorldError(f"the robot cannot reach {goal} from {start}")
-        cells = [g]
-        while cells[-1] != s:
-            cells.append(came[cells[-1]])
-        pts = [self.xy(c) for c in reversed(cells)]
-        pts[0], pts[-1] = start, goal
-        return self._pull(pts, radius)
-
-    def _snap(self, pt: Point, radius: float, k: int) -> tuple[int, int] | None:
-        near = self.nearest_free(pt, radius, within=2.0)
-        if near is None:
-            return None
-        r, c = self.cell(near)
-        r0, c0 = (r // k) * k, (c // k) * k
-        rows, cols = self.shape
-        for ring in range(0, 12):
-            best: tuple[int, int] | None = None
-            best_d = math.inf
-            for dr in range(-ring, ring + 1):
-                for dc in range(-ring, ring + 1):
-                    if max(abs(dr), abs(dc)) != ring:
-                        continue
-                    cand = (r0 + dr * k, c0 + dc * k)
-                    if 0 <= cand[0] < rows and 0 <= cand[1] < cols and self.dist[cand] >= radius:
-                        d = math.hypot(cand[0] - r, cand[1] - c)
-                        if d < best_d:
-                            best, best_d = cand, d
-            if best is not None:
-                return best
-        return None
-
-    def _pull(self, pts: list[Point], radius: float) -> list[Point]:
-        out = [pts[0]]
-        i = 0
-        while i < len(pts) - 1:
-            j = len(pts) - 1
-            while j > i + 1 and not self.line_free(pts[i], pts[j], radius):
-                j -= 1
-            out.append(pts[j])
-            i = j
-        return out
-
 
 @attrs.define
 class WorldContext:
@@ -285,8 +198,9 @@ class WorldContext:
     kind: str
 
     @classmethod
-    def load(cls, worlds_root: str | Path, world: str, base_doc: Mapping[str, Any], overrides: Mapping[str, str] | None = None) -> WorldContext:
-        root = Path(worlds_root) / world
+    def load(cls, root: str | Path, base_doc: Mapping[str, Any], overrides: Mapping[str, str] | None = None) -> WorldContext:
+        root = Path(root)
+        world = root.name
         doc = first_level(root)
         if doc is None:
             raise WorldError(f"{world}: no world.yaml")
@@ -313,15 +227,16 @@ class WorldContext:
             # a zone centroid may sit in a table; snap so the route and the reachability reference are real
             start = _endpoint(grid, start)
             goal = _endpoint(grid, goal)
-            route = _plan(grid, start, goal)
+            world_map = runtime_map(root)
+            route = _plan(world_map, start, goal)
             if _length(route) > MAX_LEG_M:
                 # over the episode budget: keep the start, cut where the budget runs out
                 cut = _truncate(route, MAX_LEG_M)
                 goal = _endpoint(grid, cut[-1])
-                replanned = _plan(grid, start, goal)
+                replanned = _plan(world_map, start, goal)
                 route = replanned if _length(replanned) <= MAX_LEG_M * 1.2 else cut
             elif _length(route) < MIN_LEG_M:
-                longer = _longest_leg(grid, start, [_centroid(_polygon(z)) for z in zones if len(_polygon(z)) >= 3], beat=_length(route))
+                longer = _longest_leg(grid, world_map, start, [_centroid(_polygon(z)) for z in zones if len(_polygon(z)) >= 3], beat=_length(route))
                 if longer is not None:
                     goal, route = longer
 

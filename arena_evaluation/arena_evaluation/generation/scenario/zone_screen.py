@@ -1,7 +1,4 @@
-"""Which zones a pedestrian may start in by name: every point the runtime resolver could return there clears the robot's route.
-
-The resolver already keeps a body clear of walls and furniture; the robot's route is the one thing it cannot know.
-"""
+"""Which zones a pedestrian may start in by name: every point the runtime resolver could return there clears the robot's route."""
 
 from __future__ import annotations
 
@@ -11,17 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import attrs
-import yaml
 
 if typing.TYPE_CHECKING:
     import numpy as np
+    from task_generator.manager.world_manager.utils import WorldMap
 
-from ..formats import level_map
+from ..formats import is_world
 from .occupancy import static_polygon
 
-#: The clearance `TM_Scenario.reset` validates resolved poses at: `Obstacles.SAFE_DIST`
-#: (`task.episode.spawn.obstacle_clearance`, 0.35), mirrored from `task_generator/constants/runtime.py`.
-#: Keep it mirrored: a kinder value clears zones the resolver then fails in, a stricter one rejects good ones.
+# mirrors `Obstacles.SAFE_DIST` in task_generator/constants/runtime.py; a mismatch clears zones the resolver then fails in
 RUNTIME_SAFE_DIST = 0.35
 
 
@@ -30,43 +25,39 @@ class Verdict:
     zone: str
     ref_safe: bool
     reason: str = ""
-    #: grid cells the resolver could return: inside the polygon and past `safe_dist`
     admissible: int = 0
-    #: of those, the cells that fail the screen
     rejected: int = 0
 
     def __bool__(self) -> bool:
         return self.ref_safe
 
 
+def runtime_map(root: Path) -> WorldMap:
+    """The map the runtime plans the robot's route on: the world rendered as `WorldManagerROS` renders it."""
+    from arena_rclpy_mixins.Time import Time
+    from arena_simulation_setup.tree.World.view import WorldView
+    from task_generator.manager.world_manager.utils import WorldMap
+    from task_generator.manager.world_manager.world_manager_ros import _DEFAULT_RESOLUTION
+
+    view = WorldView(root.resolve())
+    world = view.load()
+    level_origins = view.level_origins()
+    origins = level_origins if level_origins is not None else {fid: (0.0, 0.0) for fid in world.level_ids}
+    return WorldMap.from_world_description(world.compact_world(origins=origins), resolution=_DEFAULT_RESOLUTION, time=Time(-1, 0), _level_origins=level_origins)
+
+
 def _load_grid(world_root: str | Path) -> tuple[np.ndarray, float, float, float] | None:
-    """Wall occupancy as a boolean mask, plus resolution and origin x, y. None when unreadable."""
+    """The runtime map's walls as (occupied, resolution, origin x, origin y); None for a directory that is no world."""
+    from task_generator.manager.world_manager.utils import WorldOccupancy
+
     root = Path(world_root)
-    meta_path = level_map(root)
-    if meta_path is None:
+    if not is_world(root):
         return None
-    try:
-        import numpy as np  # noqa: PLC0415 - optional, only needed to screen
-        from PIL import Image  # noqa: PLC0415
-
-        meta = yaml.safe_load(meta_path.read_text()) or {}
-        image = Image.open(meta_path.parent / meta.get("image", "map.png")).convert("L")
-    except Exception:
-        return None
-
-    res = float(meta.get("resolution", 0.05))
-    origin = meta.get("origin") or [0.0, 0.0, 0.0]
-    thresh = float(meta.get("occupied_thresh", 0.65))
-    negate = bool(meta.get("negate", 0))
-
-    pixels = np.asarray(image, dtype=float) / 255.0
-    shade = pixels if negate else 1.0 - pixels
-    return shade > thresh, res, float(origin[0]), float(origin[1])
+    world_map = runtime_map(root)
+    return WorldOccupancy.not_empty(world_map.occupancy.walls), world_map.resolution, world_map.origin.x, world_map.origin.y
 
 
 def _stamp_statics(occupied: np.ndarray, statics: Sequence[Mapping[str, Any]], res: float, ox: float, oy: float) -> None:
-    """Stamp furniture into the wall mask: a static with a `bbox` as its rotated rectangle, otherwise
-    the axis-aligned square around its radius, as `WorldManager`'s `obstacle_occupy` does."""
     height, width = occupied.shape
     for obj in statics:
         pose = obj.get("pose")
@@ -88,8 +79,8 @@ def _stamp_statics(occupied: np.ndarray, statics: Sequence[Mapping[str, Any]], r
 
 
 def _rasterize(poly: Sequence[tuple[float, float]], shape: tuple[int, int], res: float, ox: float, oy: float) -> np.ndarray:
-    import numpy as np  # noqa: PLC0415
-    from PIL import Image, ImageDraw  # noqa: PLC0415
+    import numpy as np
+    from PIL import Image, ImageDraw
 
     height, width = shape
     canvas = Image.new("1", (width, height), 0)
@@ -101,7 +92,7 @@ def _rasterize(poly: Sequence[tuple[float, float]], shape: tuple[int, int], res:
 
 
 def _cell_centres(mask: np.ndarray, res: float, ox: float, oy: float) -> tuple[np.ndarray, np.ndarray]:
-    import numpy as np  # noqa: PLC0415
+    import numpy as np
 
     rows, cols = np.nonzero(mask)
     height = mask.shape[0]
@@ -109,7 +100,7 @@ def _cell_centres(mask: np.ndarray, res: float, ox: float, oy: float) -> tuple[n
 
 
 def _route_clearance(xs: np.ndarray, ys: np.ndarray, route: Sequence[tuple[float, float]]) -> np.ndarray:
-    import numpy as np  # noqa: PLC0415
+    import numpy as np
 
     if not route:
         return np.full(xs.shape, np.inf)
@@ -138,8 +129,7 @@ def screen_zones(
     safe_dist: float = RUNTIME_SAFE_DIST,
     robot_zones: frozenset[str] = frozenset(),
 ) -> dict[str, Verdict]:
-    """A verdict per zone; an unscreenable world gets verdicts that all refuse. `robot_zones` (robot
-    endpoints given as zones) are refused whole, since the robot may resolve anywhere inside them."""
+    """A verdict per zone; an unscreenable world gets verdicts that all refuse, and `robot_zones` are refused whole."""
     verdicts: dict[str, Verdict] = {}
     names = [str(z["name"]) for z in zones if isinstance(z, Mapping) and z.get("name")]
 
@@ -148,7 +138,7 @@ def screen_zones(
         return {n: Verdict(zone=n, ref_safe=False, reason="no occupancy grid to screen against") for n in names}
     occupied, res, ox, oy = grid
 
-    import scipy.ndimage  # noqa: PLC0415
+    import scipy.ndimage
 
     _stamp_statics(occupied, statics, res, ox, oy)
     dist = scipy.ndimage.distance_transform_edt(~occupied) * res
@@ -168,7 +158,6 @@ def screen_zones(
             continue
 
         clearance = dist[mask]
-        # only a cell the resolver could return can make a zone unsafe
         admissible = clearance > safe_dist
         n_admissible = int(admissible.sum())
         if n_admissible == 0:
@@ -180,7 +169,6 @@ def screen_zones(
             continue
 
         if name in robot_zones:
-            # admissible is still reported: the zone resolves fine as a destination, just not as a start
             verdicts[name] = Verdict(
                 zone=name,
                 ref_safe=False,
@@ -193,7 +181,6 @@ def screen_zones(
         xs, ys = _cell_centres(mask, res, ox, oy)
         xs, ys, clearance = xs[admissible], ys[admissible], clearance[admissible]
 
-        # walls and furniture are already in `admissible`; the route is all that is left
         route_bad = _route_clearance(xs, ys, route) < min_route_clearance
         n_rejected = int(route_bad.sum())
 

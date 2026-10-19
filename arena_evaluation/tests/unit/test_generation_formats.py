@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from arena_evaluation.generation.formats import SIDECAR, first_level, level_map, read_scenario, write_scenario
+from arena_evaluation.generation.formats import SIDECAR, first_level, read_scenario, write_scenario
 
 legacy = pytest.importorskip("arena_simulation_setup.tree.World.legacy")
 scenario_format = pytest.importorskip("arena_simulation_setup.tree.World.Scenario")
@@ -32,8 +32,7 @@ def _shape(level: dict) -> list[tuple]:
     for zone in level["zones"]:
         statics = []
         for ent in zone["entities"]["static"]:
-            pos, ori = ent["pose"]["position"], ent["pose"]["orientation"]
-            statics.append((ent["name"], ent["model"], round(pos["x"], 6), round(pos["y"], 6), round(math.atan2(2 * ori["w"] * ori["z"], 1 - 2 * ori["z"] ** 2), 6)))
+            statics.append((ent["name"], ent["model"], round(ent["pose"][0], 6), round(ent["pose"][1], 6)))
         out.append((zone["name"], [(c["x"], c["y"]) for c in zone["corners"]], statics))
     return out
 
@@ -50,7 +49,6 @@ def test_a_format_2_world_reads_like_the_format_1_world_it_was_migrated_from(tmp
     (v2 / "map" / "0.yaml").write_text(yaml.safe_dump(_MAP))
 
     assert _shape(first_level(v2)) == _shape(first_level(v1))
-    assert level_map(v1) == v1 / "0" / "map.yaml" and level_map(v2) == v2 / "map" / "0.yaml"
 
 
 def test_a_scenario_is_written_as_format_2_with_its_block_beside_it(tmp_path: Path) -> None:

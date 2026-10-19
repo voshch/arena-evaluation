@@ -6,8 +6,8 @@ Zone roles, the furnished occupancy grid, and the four base scenarios `evaluatio
 |---|---|
 | `zones.py` | zone name -> `Role` by substring rules, then the reviewed `zone_roles.yaml` |
 | `zone_roles.yaml` | reviewed name -> role mapping (`source: human` rows are never overwritten) |
-| `occupancy.py` | static furniture from each world's `world.yaml` and asset annotations, as footprints |
-| `zone_screen.py` | walls plus furniture rasterised; which zones may be homes (every admissible cell 1.5 m off the route) |
+| `occupancy.py` | each world object's footprint, from `Obstacle.footprint()` (the asset's annotated bounds through arena_simulation_setup), else the 2 m box `WorldManager` stamps for an unannotated one |
+| `zone_screen.py` | the runtime's rendered map (`runtime_map`) with furniture stamped on; which zones may be homes (every admissible cell 1.5 m off the route) |
 | `route.py` | the robot's route copied from a shipped scenario, lengthened to a 30 s episode or capped |
 | `populate.py` | the bases `normal`, `break`, `night`, `empty`: talker pairs plus typed walkers on multi-room routes |
 | `materialize.py` | base writer, `GENERATED_MARKER`, pruning of generated bases |

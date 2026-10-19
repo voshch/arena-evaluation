@@ -16,9 +16,13 @@ from .lexicon import when_in
 from .llm import AnswerError, Oracle, call
 from .profiles import BT_ONLY, TUNABLE, ProfileError, is_behaviour_tree, profile, scaled_speed, tier_value
 from .spec import A_CASES, BDecision, CDecision, Record, SchemaError, Selection, conflict_m, parse_b, parse_c
-from .step_a import StepError, retune_effects, tune_trees, walk_as_tree
+from .step_a import StepError, bake, set_type, tune_trees, walk_as_tree
 from .step_d import population_summary
-from .world import WorldContext
+from .world import WorldContext, WorldError
+
+ERRATIC = "erratic"
+ERRATIC_STOPS = 6
+_GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))
 
 _SYSTEM = Path(__file__).with_name("system_bc.md")
 
@@ -115,6 +119,31 @@ def select(doc: Mapping[str, Any], sel: Selection, world: WorldContext, owned: s
     return pool
 
 
+def erratic_trees(doc: dict[str, Any], files: TypeFiles, world: WorldContext, names: Sequence[str], *, period: float, radius: float, label: str, when: dict[str, Any]) -> list[dict[str, Any]]:
+    """On a stimulus each agent switches to its own looped `erratic` sequence: points `radius` around where it starts, each
+    given up after `period`, as the runtime `shuffle` reroutes a walker. A reroute from outside would break a tree."""
+    walk_as_tree(doc, files, world, names)
+    agents = [a for a in doc.get("dynamic") or [] if isinstance(a, dict) and str(a["name"]) in names]
+    for i, agent in enumerate(agents):
+        rng = random.Random(f"{world.name}:{agent['name']}:{ERRATIC}")
+        pose = agent.get("pose")
+        home = world.zone_sample(pose, rng) if isinstance(pose, str) else (float(pose[0]), float(pose[1]))
+        steps: dict[str, Any] = {}
+        for k in range(ERRATIC_STOPS):
+            angle = (k + i) * _GOLDEN_ANGLE
+            try:
+                (x, y), _why = world.resolve((home[0] + radius * math.cos(angle), home[1] + radius * math.sin(angle)), radius=0.3, on_route=True, within=1.0)
+            except WorldError:
+                continue
+            steps[f"to_{len(steps) + 1}"] = {"kind": "go_to", "target_pose": {"x": round(x, 2), "y": round(y, 2), "theta": 0.0}, "patience": {"mean": period}}
+        if len(steps) < 2:
+            raise StepError(f"{label}: no room around {agent['name']}'s start for an erratic route")
+        ref = agent_type_of(agent)
+        shared = ref not in files.transient
+        set_type(agent, files.switching(ref, need=ERRATIC, to=ERRATIC, steps=steps, tag=str(agent["name"]) if shared else "", retry=True))
+    return [{"type": "stimulus", "label": label, "scope": list(names), "need": ERRATIC, "when": dict(when)}]
+
+
 def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files: TypeFiles, *, owned: set[str]) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     chosen = select(doc, decision.select, world, owned)
     names = [str(a["name"]) for a in chosen]
@@ -123,8 +152,8 @@ def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files
     label = f"B:{decision.case}"
 
     if decision.case == "erratic_route":
-        effects.append({"type": "shuffle", "label": label, "scope": names, "period": decision.period, "radius": decision.radius, "when": decision.when.as_effect()})
-        notes.append(f"erratic_route: {len(names)} agent(s) rerouted every {decision.period:g} s")
+        effects.extend(erratic_trees(doc, files, world, names, period=decision.period, radius=decision.radius, label=label, when=decision.when.as_effect()))
+        notes.append(f"erratic_route: {len(names)} agent(s) switch to a new point every {decision.period:g} s")
         return effects, names, notes
 
     if decision.case == "erratic_behaviour":
@@ -132,12 +161,12 @@ def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files
         for agent in chosen:
             (bt if is_behaviour_tree(files.base_doc(agent_type_of(agent))) else plain).append(agent)
         if bt:
-            effects.extend(retune_effects(doc, {"need_decay": "high"}, files, label=label, when=decision.when.as_effect(), names=[str(a["name"]) for a in bt]))
+            bake(doc, {"need_decay": "high"}, files, names=[str(a["name"]) for a in bt])
         if plain:
-            effects.append({"type": "shuffle", "label": label, "scope": [str(a["name"]) for a in plain], "period": decision.period, "radius": decision.radius, "when": decision.when.as_effect()})
+            effects.extend(erratic_trees(doc, files, world, [str(a["name"]) for a in plain], period=decision.period, radius=decision.radius, label=label, when=decision.when.as_effect()))
             notes.append(f"erratic_behaviour: {len(plain)} plain walker(s) fell back to erratic_route")
         if bt:
-            notes.append(f"erratic_behaviour: {len(bt)} behaviour-tree agent(s) with need_decay high")
+            notes.append(f"erratic_behaviour: {len(bt)} behaviour-tree agent(s) with need_decay high from the start")
         return effects, names, notes
 
     params = dict(decision.params)
@@ -158,28 +187,21 @@ def apply_b(doc: dict[str, Any], decision: BDecision, world: WorldContext, files
             by_usable.setdefault(tuple(sorted(usable.items())), []).append(str(agent["name"]))
     for key, members in by_usable.items():
         usable = dict(key)
-        typed = {k: v for k, v in usable.items() if k != "speed"}
-        if usable.get("speed") == "high":
-            typed["max_speed"] = "high"  # the engine's cap, or a high speed is a brisk walk
-        # every agent holds the tune itself while the need is up, a walker on its own walking tree; an untunable param
-        # (radius, need decay, duration) still needs a `retune`, which HumanSim refuses
-        if set(usable) <= TUNABLE:
+        # radius, need decay and duration have no `tune:`, so they hold from the start
+        fixed = {k: v for k, v in usable.items() if k not in TUNABLE}
+        if fixed:
+            try:
+                bake(doc, fixed, files, names=members)
+            except StepError as exc:
+                raise StepError(f"intrinsic: {exc}") from None
+            notes.append(f"intrinsic: {fixed} on {members} from the start")
+        tunable = {k: v for k, v in usable.items() if k in TUNABLE}
+        if tunable:
+            # every agent holds the tune itself while the need is up, a walker on its own walking tree
             walk_as_tree(doc, files, world, members)
-            tuned = {**usable, **({"max_speed": "high"} if usable.get("speed") == "high" else {})}
-            effects.extend(tune_trees(doc, tuned, files, need=decision.case, label=label, when=decision.when.as_effect(), names=members))
-            continue
-        try:
-            group = retune_effects(doc, typed, files, label=label, when=decision.when.as_effect(), names=members)
-        except StepError as exc:
-            raise StepError(f"intrinsic: {exc}") from None
-        if "speed" in usable:
-            # The scalar speed in the agent block wins over the type, so a speed tier is set on
-            # the effect, per agent profile.
-            for effect in group:
-                first = next(a for a in chosen if str(a["name"]) == effect["scope"][0])
-                prof = profile_of_agent(first) or profile("adult")
-                effect["speed"] = tier_value("speed", usable["speed"], prof=prof)
-        effects.extend(group)
+            if tunable.get("speed") == "high":
+                tunable["max_speed"] = "high"  # the engine's cap, or a high speed is a brisk walk
+            effects.extend(tune_trees(doc, tunable, files, need=decision.case, label=label, when=decision.when.as_effect(), names=members))
     notes.append(f"intrinsic: {params} on {len(names)} agent(s) at {decision.when.as_dict()}")
     return effects, names, notes
 

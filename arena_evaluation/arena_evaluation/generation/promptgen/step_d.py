@@ -1,6 +1,5 @@
-"""Step 2 - Type D, pedestrian interactions. Members walk their own routes until the onset. A formation that breaks keeps plain
-walkers, whose spots and break are route rewrites (`rally`, `scatter`); an unbroken one is cast as walking trees that a
-`stimulus` switches to their spots, where they stand and stop yielding (HumanSim cannot retune a running walker)."""
+"""Step 2 - Type D, pedestrian interactions. An unbroken formation is cast as walking trees a `stimulus` switches to their spots,
+since HumanSim cannot retune a running walker; a breaking one keeps plain walkers rewritten by `rally` and `scatter`."""
 
 from __future__ import annotations
 
@@ -19,29 +18,19 @@ from .step_a import StepError, set_type, walk_as_tree
 from .world import WorldContext, WorldError
 
 Point = tuple[float, float]
-#: The need a stimulus raises on an unbroken formation's members at the onset; their types switch to their spots on it.
 FORM = "form"
 
-#: Metres between members standing in a line across a passage.
 LINE_SPACING = 0.6
-#: Metres between queue members along the route.
 QUEUE_SPACING = 0.7
-#: A route shorter than this cannot hold a formation clear of both robot endpoints.
 MIN_ROUTE_FOR_FORMATION_M = 4.0
-#: Seconds into the episode a formation forms when the prompt says nothing else: long enough
-#: for the members to be seen walking first, short enough to be there when the robot arrives.
 FORM_AT_S = 8.0
-#: Metres a formed member may drift from the centre before the formation counts as broken.
 FORMATION_RADIUS_M = 1.8
-#: Metres between neighbours in a talking circle: a conversation's spacing, too tight for the robot to pass between two
-#: members (the generator's old 1.5 m pairs let it drive through; the demo's nurses stand 0.9 m apart).
+# too tight for the robot to pass between two members; 1.5 m let it drive through
 CIRCLE_SPACING_M = 0.9
-#: Metres from the centre the tightest huddle keeps its members, in a passage too narrow for the full circle.
 HUDDLE_RADIUS_M = 0.35
 
 
 def circle_radius(n: int) -> float:
-    """Metres from the centre for `n` members `CIRCLE_SPACING_M` apart."""
     return max(HUDDLE_RADIUS_M, CIRCLE_SPACING_M / (2.0 * math.sin(math.pi / max(2, n))))
 
 
@@ -67,8 +56,7 @@ def population_summary(doc: Mapping[str, Any], world: WorldContext, owned: Mappi
 
 
 def user_prompt(prompt: str, doc: Mapping[str, Any], world: WorldContext, record: Record, *, who: str = "") -> str:
-    # Stable-prefix ordering: the world context (identical per world) and the population (nearly so per base) lead so the
-    # provider's implicit prefix cache applies; the variable material (who, the prompt line, prior decisions) comes last.
+    # stable material first, so the provider's implicit prefix cache applies
     parts = [world.context_for_model(), population_summary(doc, world, record.owned)]
     if who:
         parts.append(who)
@@ -97,7 +85,6 @@ def decide(prompt: str, doc: Mapping[str, Any], world: WorldContext, record: Rec
 
 
 def _place(decision: DDecision, world: WorldContext) -> tuple[Point, Point, bool]:
-    """(point, heading, on_route) for the interaction."""
     if decision.place.get("route_fraction") is not None:
         pt, heading = world.point_at(float(decision.place["route_fraction"]))
         return pt, heading, True
@@ -115,7 +102,6 @@ def _circle(centre: Point, n: int, r: float | None = None) -> list[Point]:
 
 
 def _circle_radius(world: WorldContext, centre: Point, heading: Point, n: int) -> float:
-    """A circle that fits the passage it stands in: a huddle in a narrow corridor."""
     want = circle_radius(n)
     if world.grid is None:
         return want
@@ -124,7 +110,6 @@ def _circle_radius(world: WorldContext, centre: Point, heading: Point, n: int) -
 
 
 def _take_reuse(doc: dict[str, Any], names: Sequence[str], owned: set[str]) -> list[dict[str, Any]]:
-    """Remove reusable base agents from the population; the caller re-creates them."""
     wanted = [n for n in names if n not in owned]
     kept, taken = [], []
     for agent in doc.get("dynamic") or []:
@@ -134,8 +119,7 @@ def _take_reuse(doc: dict[str, Any], names: Sequence[str], owned: set[str]) -> l
 
 
 def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: TypeFiles, *, seed: int, owned: set[str], intercept_index: int) -> tuple[list[dict[str, Any]], list[str], list[str], dict[str, Any]]:
-    """Realise a Type D decision in place. Returns (effects, owned names, notes, info); `info`
-    carries the formation centre and radius for the success criterion."""
+    """Realise a Type D decision in place; `info` carries the formation centre and radius for the success criterion."""
     rng = random.Random(f"{world.name}:D:{seed}")
     notes: list[str] = []
     label = f"D:{decision.case}"
@@ -167,8 +151,6 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
         raise StepError(f"placement: {exc}") from None
     if on_route and decision.variant != "blocking":
         need = circle_radius(len(decision.members)) if decision.variant != "line" else QUEUE_SPACING * len(decision.members) / 2
-        # a circle that does not fit the passage huddles in it, and a queue stands single file along it, rather than leave
-        # the robot's way
         fit = world.fit_along_route(world.fraction_of(centre), need) or world.fit_along_route(world.fraction_of(centre), HUDDLE_RADIUS_M)
         if fit is not None:
             fitted, heading, fraction = fit
@@ -176,8 +158,6 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
                 notes.append(f"placed {math.dist(fitted, centre):.1f} m along the route from the requested point, where the formation fits (fraction {fraction:.2f})")
             centre = fitted
         else:
-            # A route too short or too narrow for a formation on it: stand beside it, in the
-            # room the requested point is in, and say so - the robot still passes them.
             room = world.zone_of(centre) or world.exit_zone()
             if room is None:
                 raise StepError("placement: no room to stand the formation in")
@@ -205,28 +185,33 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
         points = _circle(centre, len(profiles), _circle_radius(world, centre, heading, len(profiles)))
     elif decision.case == "formation_break" and variant == "line":
         points = [(centre[0] - heading[0] * i * QUEUE_SPACING, centre[1] - heading[1] * i * QUEUE_SPACING) for i in range(len(profiles))]
-    else:  # standing circle, formation_break circle
+    else:
         points = _circle(centre, len(profiles), _circle_radius(world, centre, heading, len(profiles)))
 
+    # a reused agent keeps its slot through the drops below; one without a slot goes back to the scenario
+    slots = [reused[i] if i < len(reused) else None for i in range(len(profiles))]
     resolved: list[Point] = []
     kept_profiles: list[Any] = []
-    for p, prof_i in zip(points, profiles, strict=True):
+    kept_slots: list[dict[str, Any] | None] = []
+    for p, prof_i, slot in zip(points, profiles, slots, strict=True):
         radius = 0.2 if variant == "blocking" else 0.3
         try:
             q, why = world.resolve(p, radius=radius, on_route=on_route or variant == "blocking", within=1.0)
         except WorldError as exc:
-            # One member with nowhere to stand does not sink the formation, as long as two remain.
             notes.append(f"dropped a member at ({p[0]:.2f}, {p[1]:.2f}): {exc}")
             continue
         if why:
             notes.append(f"member {why}")
         resolved.append(q)
         kept_profiles.append(prof_i)
+        kept_slots.append(slot)
     if len(resolved) < 2:
         raise StepError(f"placement: fewer than two members could stand at ({centre[0]:.2f}, {centre[1]:.2f})")
     profiles = kept_profiles
 
-    names = [str(a["name"]) for a in reused] + unique_names(doc, "d", len(profiles) - len(reused))
+    doc["dynamic"] = [*doc.get("dynamic", []), *(a for a in reused if all(a is not s for s in kept_slots))]
+    fresh = iter(unique_names(doc, "d", sum(s is None for s in kept_slots)))
+    names = [str(s["name"]) if s is not None else next(fresh) for s in kept_slots]
     here = world.zone_of(centre) or ""
     elsewhere = world.other_zones(exclude=[here])
     homes = [z for z in elsewhere if z in world.homes] or elsewhere or world.other_zones()
@@ -238,17 +223,14 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
         if decision.case == "interaction_unbroken" and variant == "meet":
             member = entry(names[i], prof, home, [home, pt], speed=scaled_speed(prof, "mid"), mode="once", agent_type=prof.base, rng=rng)
         else:
-            # An ordinary walker until the onset: home, one other room, back and forth.
             away = [z for z in world.other_zones(exclude=[home]) if z != here] or [home]
             member = entry(names[i], prof, home, [home, away[(i + 1) % len(away)]], speed=scaled_speed(prof, "mid"), mode="reverse", agent_type=prof.base, rng=rng)
-        if i < len(reused):
-            member["model"] = reused[i].get("model", member["model"])
+        if kept_slots[i] is not None:
+            member["model"] = kept_slots[i].get("model", member["model"])
         members.append(member)
     doc["dynamic"] = [*doc.get("dynamic", []), *members]
 
-    # The formation: at the onset every member walks to its spot (targets dealt in sorted-name
-    # order, which is how the runtime deals them) and, for a group that must not yield, is
-    # respawned there on a repulsion-low profile.
+    # sorted-name order is how the runtime deals targets
     spot = {name: pt for name, pt in zip(names, resolved, strict=True)}
     ordered = sorted(names)
     targets = [[round(spot[n][0], 2), round(spot[n][1], 2)] for n in ordered]
@@ -278,18 +260,19 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
         if "robot_within" in when:
             when["of"] = info["formation"]["centre"]
             if not on_route:
-                # A formation standing beside the route is passed at its clearance, not touched:
-                # widen the gate so the robot passing by is what fires it.
+                # the robot passes a formation beside the route at its clearance, never within the gate
                 offset = world.route_clearance(centre)
                 if offset + 1.0 > float(when["robot_within"]):
                     when["robot_within"] = round(offset + 1.0, 2)
                     notes.append(f"trigger widened to {when['robot_within']} m: the formation stands {offset:.1f} m off the route")
         elif "at" in when:
-            when["at"] = max(float(when["at"]), FORM_AT_S + 6.0)  # break after the formation has formed
+            when["at"] = max(float(when["at"]), FORM_AT_S + 6.0)
         if decision.break_kind == "scatter":
             effects.append({"type": "scatter", "label": label, "scope": ordered, "radius": decision.radius, "when": when})
         else:
-            away_zones = [z for z in world.other_zones(exclude=[world.zone_of(centre) or ""])][: len(names)] or [world.exit_zone() or names[0]]
+            away_zones = [z for z in world.other_zones(exclude=[world.zone_of(centre) or ""])][: len(names)] or [z for z in (world.exit_zone(),) if z]
+            if not away_zones:
+                raise StepError("formation_break: no zone to disperse to")
             effects.append({"type": "rally", "label": label, "scope": ordered, "targets": away_zones, "when": when})
         notes.append(f"formation_break: {len(names)} walk, form a {variant} at {form_when}, then {decision.break_kind} {when}")
     else:

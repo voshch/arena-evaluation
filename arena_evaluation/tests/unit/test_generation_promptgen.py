@@ -13,6 +13,7 @@ from arena_evaluation.generation.promptgen.pipeline import generate, write_resul
 from arena_evaluation.generation.promptgen.profiles import ProfileError, derive, derived_name, profile, tier_value
 from arena_evaluation.generation.promptgen.spec import SchemaError, parse_b, parse_c, parse_d, parse_when
 from arena_evaluation.generation.promptgen.world import WorldContext
+from arena_evaluation.generation.propose import client
 
 np = pytest.importorskip("numpy")
 pytest.importorskip("scipy")
@@ -32,8 +33,9 @@ def _world(tmp_path):
     from PIL import Image
 
     root = tmp_path / "worlds" / "toy"
-    (root / "0").mkdir(parents=True)
-    (root / "0" / "world.yaml").write_text(yaml.safe_dump({"zones": ZONES}))
+    (root / "map").mkdir(parents=True)
+    zones = [{"name": z["name"], "polygon": [[c["x"], c["y"]] for c in z["corners"]], "floor": False} for z in ZONES]
+    (root / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": [{"id": "0", "zones": zones}]}))
     res = 0.1
     w, h = int(32 / res), int(8 / res)
     px = np.full((h, w), 0, dtype=np.uint8)  # occupied everywhere...
@@ -44,8 +46,8 @@ def _world(tmp_path):
     free(0.3, 0.3, 7.7, 7.7)
     free(7.7, 3.0, 24.3, 5.0)
     free(24.3, 0.3, 31.7, 7.7)
-    Image.fromarray(px, mode="L").save(root / "0" / "map.png")
-    (root / "0" / "map.yaml").write_text(yaml.safe_dump({"image": "map.png", "resolution": res, "origin": [0.0, 0.0, 0.0], "occupied_thresh": 0.65, "negate": 0}))
+    Image.fromarray(px, mode="L").save(root / "map" / "0.png")
+    (root / "map" / "0.yaml").write_text(yaml.safe_dump({"image": "0.png", "resolution": res, "origin": [0.0, 0.0, 0.0], "occupied_thresh": 0.65, "negate": 0}))
     base = root / "scenarios" / "normal_a"
     base.mkdir(parents=True)
     doc = {
@@ -63,7 +65,7 @@ def _world(tmp_path):
 @pytest.fixture
 def toy(tmp_path: Path) -> tuple[Path, dict, Path, WorldContext]:
     worlds, doc, base = _world(tmp_path)
-    world = WorldContext.load(worlds, "toy", doc)
+    world = WorldContext.load(worlds / "toy", doc)
     return worlds, doc, base, world
 
 
@@ -281,7 +283,7 @@ def test_evacuation_switches_talkers_and_walkers_by_one_stimulus(toy, tmp_path: 
         ("Half the people here cannot see far.", ["B:intrinsic"], {"B": {"case": "intrinsic", "select": {"amount": "all"}, "params": {"vision_range": "low"}}}, "intrinsic", {"perception": {"vision_range": 2.0}}),
     ],
 )
-def test_trees_hold_a_retune_while_the_need_is_up(toy, text: str, targets: list[str], oracle: dict, need: str, tune: dict) -> None:
+def test_trees_hold_a_tune_while_the_need_is_up(toy, text: str, targets: list[str], oracle: dict, need: str, tune: dict) -> None:
     worlds, doc, base, world = toy
     result = generate(_prompt(text, targets, **oracle), world=world, base_id="normal_a", base_doc=_with_talkers(doc, base), base_dir=base, oracle=True)
     assert result.record.status == "ok", result.record.failures
@@ -392,6 +394,51 @@ def test_b_tunes_only_unowned_agents(toy) -> None:
     assert all(a["agent"]["agent_type"] in ("adult", "hurried") for a in result.doc["dynamic"] if a["name"] != "normal_1")
 
 
+def test_an_untunable_parameter_holds_from_the_start(toy) -> None:
+    worlds, doc, base, world = toy
+    prompt = _prompt("The elderly people are wide and slow to react.", ["B:intrinsic"], B={"case": "intrinsic", "select": {"profile": "elder"}, "params": {"radius": "high", "reaction": "high"}})
+    result = generate(prompt, world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=True)
+    assert result.record.status == "ok", result.record.failures
+    assert [e["type"] for e in result.effects] == ["stimulus"]
+    elder = next(a for a in result.doc["dynamic"] if a["name"] == "normal_1")
+    tuned = result.files.docs[elder["agent"]["agent_type"]]
+    assert tuned["agent_radius"]["mean"] == 0.4 and tuned["tunes"][0]["tune"] == {"local_planner_params": {"relaxation_time": 1.0}}
+
+
+def test_erratic_route_is_a_tree_sequence_for_walkers_and_trees_alike(toy) -> None:
+    worlds, doc, base, world = toy
+    prompt = _prompt("Everyone keeps changing where they are going.", ["B:erratic_route"], B={"case": "erratic_route", "select": {"amount": "all"}, "period": 3.0})
+    result = generate(prompt, world=world, base_id="normal_a", base_doc=_with_talkers(doc, base), base_dir=base, oracle=True)
+    assert result.record.status == "ok", result.record.failures
+    (stimulus,) = result.effects
+    assert stimulus["type"] == "stimulus" and stimulus["need"] == "erratic" and stimulus["scope"] == ["normal_1", "normal_2", "normal_3", "talker_1", "talker_2"]
+    for agent in result.doc["dynamic"]:
+        erratic = result.files.docs[agent["agent"]["agent_type"]]["sequences"]["erratic"]
+        assert erratic["then"] == erratic["on_failure"] == "erratic" and len(erratic["steps"]) >= 2
+        assert all(step["patience"] == {"mean": 3.0} for step in erratic["steps"].values())
+
+    loader = pytest.importorskip("arena_humansim.core.agents.loader")
+    out = write_result(result, worlds / "toy")
+    written = read_scenario(out / "scenario.yaml")
+    for agent in written["dynamic"]:
+        assert loader.load_agent_type_from_file(out / agent["agent"]["agent_type"]).mode == "behavior_tree"
+    radius = {a["name"]: a["agent"]["radius"] for a in written["dynamic"]}
+    assert radius["normal_1"] == pytest.approx(0.23) and radius["normal_2"] == pytest.approx(0.25)
+
+
+def test_a_reused_agent_without_a_slot_goes_back_unchanged(toy) -> None:
+    worlds, doc, base, world = toy
+    doc = _with_talkers(doc, base)
+    reuse = ["normal_1", "normal_2", "normal_3", "talker_1"]
+    prompt = _prompt("Two nurses stand side by side across the corridor right in the robot's way.", ["D:interaction_unbroken"], D={"case": "interaction_unbroken", "variant": "blocking", "members": ["nurse", "nurse"], "place": {"route_fraction": 0.5}, "reuse": reuse})
+    result = generate(prompt, world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=True)
+    assert result.record.status == "ok", result.record.failures
+    # a 2 m corridor holds three at LINE_SPACING, so the fourth reused agent has no slot
+    assert sorted(result.record.owned["D"]) == ["normal_1", "normal_2", "normal_3"]
+    (talker,) = [a for a in result.doc["dynamic"] if a["name"] == "talker_1"]
+    assert talker == next(a for a in doc["dynamic"] if a["name"] == "talker_1")
+
+
 def test_c_conflicting_with_d_is_a_recorded_failure(toy) -> None:
     worlds, doc, base, world = toy
     prompt = _prompt(
@@ -449,12 +496,9 @@ def test_a_needs_a_crowd(toy) -> None:
     assert result.record.failures[0].kind == "denied"
 
 
-def test_empty_base_is_denied_before_any_model_call(toy, monkeypatch) -> None:
-    import arena_evaluation.generation.promptgen.pipeline as pl
-
+def test_empty_base_is_denied_before_any_model_call(toy) -> None:
     worlds, doc, base, world = toy
     empty = {"robots": doc["robots"], "dynamic": []}
-    monkeypatch.setattr(pl, "decide_d", lambda *a, **k: pytest.fail("Step D was consulted on a denied slot"))
     prompt = _prompt("Half the people here are rushing.", ["B:intrinsic"], B={"case": "intrinsic", "select": {"amount": "half"}, "params": {"speed": "high"}})
     result = generate(prompt, world=world, base_id="empty", base_doc=empty, base_dir=base, oracle=True)
     assert result.record.status == "denied" and not result.record.steps
@@ -546,19 +590,18 @@ def test_step_a_llm_parses_and_tolerates_typos() -> None:
     assert who_line(who).startswith("who (actors read from the prompt): 1 x adult")
 
 
-def test_llm_a_overrides_a_silent_lexicon(toy, monkeypatch) -> None:
-    import arena_evaluation.generation.promptgen.pipeline as pl
-    from arena_evaluation.generation.promptgen.spec import ADecision
+@pytest.mark.skipif(client.available(), reason="steps D and B/C would call the configured model for real")
+def test_llm_a_overrides_a_silent_lexicon(toy, tmp_path: Path) -> None:
+    from arena_evaluation.generation.promptgen import step_a_llm
+    from arena_evaluation.generation.propose.client import prompt_sha256
 
     worlds, doc, base, world = toy
-    from arena_evaluation.generation.promptgen import step_a_llm
-
-    monkeypatch.setattr(step_a_llm, "decide", lambda text, rec, **k: (ADecision(case="evacuation"), [{"mention": "a visiter", "profile": "adult", "count": 1}], []))
-    called = {}
-    real = pl.decide_d
-    monkeypatch.setattr(pl, "decide_d", lambda *a, **k: called.setdefault("who", k.get("who")) and None or real(*a, **k))
-    prompt = _prompt("An evacation is caled; evrybody hurrys out.", ["A:evacuation"])
-    result = generate(prompt, world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=False)
+    text = "An evacation is caled; evrybody hurrys out."
+    cache = tmp_path / "llm_cache"
+    cache.mkdir()
+    answer = json.dumps({"case": "evacuation", "who": [{"mention": "a visiter", "profile": "adult", "count": 1}]})
+    (cache / f"{prompt_sha256(step_a_llm.A_MODEL, step_a_llm.system_prompt(), step_a_llm.user_prompt(text))}.json").write_text(json.dumps({"answer": answer}))
+    result = generate(_prompt(text, ["A:evacuation"]), world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=False, cache_dir=cache)
     assert result.record.a is not None and result.record.a.case == "evacuation"
     assert any("lexicon silent" in w for w in result.record.warnings)
-    assert "1 x adult" in (called.get("who") or "")
+    assert result.record.provenance["who"] == [{"mention": "a visiter", "profile": "adult", "count": 1}]

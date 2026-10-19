@@ -243,12 +243,12 @@ def write_result(result: Result, world_root: Path, *, keep_partial: bool = True)
     if result.record.status in ("infeasible", "denied") or (result.record.status == "partial" and not keep_partial):
         return None
     out = Path(world_root) / "scenarios" / result.scenario_id
-    write_scenario(out, {**{k: v for k, v in result.doc.items() if k != "edge_case"}, "edge_case": result.block}, _header(result))
     for agent in result.doc.get("dynamic") or []:
         ref = agent_type_of(agent)
         if ref.startswith("./") and ref not in result.files.docs:
             result.files.base_doc(ref)  # a scenario-local type no step derived from is still copied beside the scenario
     result.files.write(out)
+    write_scenario(out, {**{k: v for k, v in result.doc.items() if k != "edge_case"}, "edge_case": result.block}, _header(result))
     (out / "record.json").write_text(json.dumps(result.record.as_dict(), indent=1, sort_keys=True, default=str))
     result.written = out
     return out

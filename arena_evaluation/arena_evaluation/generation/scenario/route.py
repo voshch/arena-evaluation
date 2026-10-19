@@ -1,7 +1,4 @@
-"""The robot's route in a base scenario: the world's shipped route, cut or shuttled to fit the episode.
-
-The robot spec is copied, never invented: every world ships a scenario with a working route.
-"""
+"""The robot's route in a base scenario: the world's shipped route, cut or shuttled to fit the episode."""
 
 from __future__ import annotations
 
@@ -11,23 +8,18 @@ from typing import Any
 
 from .populate import _centroid, _polygon
 
-#: Shortest episode worth measuring: the robot's route is extended until it takes this long at `ROBOT_SPEED_MPS`.
 MIN_EPISODE_S = 30.0
 
-#: Hard episode budget: the planner queue dwells 60 sim-seconds per scenario (2026-09-01), so travel
-#: plus the case's own delays must fit inside it. It outranks `MIN_EPISODE_S`.
+# the planner queue dwells 60 sim-seconds per scenario (2026-09-01)
 MAX_EPISODE_S = 60.0
-#: Budget reserved for the case to play out: onsets and holds are capped at 30 s and partly overlap the drive.
 CASE_RESERVE_S = 20.0
 
-#: The faster of nav2's controller defaults for `max_linear_vel` (mppi/rpp/hateb 0.5, dwb 0.26), so the
-#: floor holds for the slower ones too.
+# what nav2 drives at, for the episode budget; the runtime designs encounters at `task.edge_case.robot_speed`
 ROBOT_SPEED_MPS = 0.5
 
-#: Margin for the goal tolerance (1.0 m per leg) and the corners a planner cuts.
+
 ROUTE_MARGIN = 1.2
 
-#: A world whose endpoints are 2 m apart would otherwise get a 20-leg shuttle: a robot pacing a doorway.
 MAX_LEGS = 8
 
 MAX_ROUTE_M = (MAX_EPISODE_S - CASE_RESERVE_S) * ROBOT_SPEED_MPS
@@ -52,7 +44,6 @@ def _xy(pose: str | Sequence[float], centroids: Mapping[str, tuple[float, float]
 
 
 def route_length(endpoints: Sequence[Any], zones: Sequence[Mapping[str, Any]]) -> float:
-    """Metres along a polyline of points and zone names; names resolve to their centroids."""
     centroids = {str(z["name"]): _centroid(_polygon(z)) for z in zones if isinstance(z, Mapping) and z.get("name") and len(_polygon(z)) >= 3}
     pts = [p for p in (_xy(e, centroids) for e in endpoints) if p is not None]
     return sum(math.dist(a, b) for a, b in zip(pts, pts[1:], strict=False))
@@ -65,12 +56,11 @@ def robot_for(
     min_seconds: float = MIN_EPISODE_S,
     speed: float = ROBOT_SPEED_MPS,
 ) -> dict[str, Any]:
-    """The shipped route in `phases` form (`goal:` is deprecated): its shortest prefix that takes `min_seconds`
-    at `speed`, or shuttled between its endpoints until it does, within `MAX_ROUTE_M` and `MAX_LEGS`."""
+    """The shipped route in `phases` form: its shortest prefix that takes `min_seconds` at `speed`, or shuttled until it does."""
     ends = _endpoints(robot)
 
     need = min_seconds * speed * ROUTE_MARGIN
-    # a prefix, not the whole route: the acoustics corridors ship a 200-leg shuttle, a 33-minute episode verbatim
+    # the acoustics corridors ship a 200-leg shuttle, a 33-minute episode verbatim
     seq = [ends[0]]
     for point in ends[1:]:
         seq.append(point)
@@ -78,7 +68,6 @@ def robot_for(
             break
 
     if len(ends) >= 2:
-        # the episode budget outranks the floor: never bounce past `MAX_ROUTE_M`
         back, forth = list(reversed(ends[:-1])), list(ends[1:])
         bounce = [back, forth]
         turn = 0

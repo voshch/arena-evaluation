@@ -1,6 +1,4 @@
-"""Pedestrian profiles and the parameter tiers, the only numbers a model may name (`speed: low`).
-
-A step that tunes somebody writes a derived agent type beside the scenario (`derive`) rather than editing the library."""
+"""Pedestrian profiles and the parameter tiers, the only numbers a model may name (`speed: low`)."""
 
 from __future__ import annotations
 
@@ -15,12 +13,10 @@ from ..scenario.populate import KINEMATICS, MODELS
 
 TIER_NAMES = ("low", "mid", "high")
 
-#: Adult tier values. `speed` scales by the profile's own nominal (a child's "high" is a child
-#: running, not an adult running); everything else is absolute.
+# `speed` scales by the profile's nominal (a child's "high" is a child running); the rest are absolute
 TIERS: dict[str, tuple[float, float, float]] = {
     "speed": (0.6, 1.1, 1.7),
-    #: The engine clamps to `max_velocity` (1.5 +- 0.1 by default): a high `speed` alone is a
-    #: brisk walk. Pinned alongside it so "running" runs.
+    # the engine clamps to `max_velocity`, so a high `speed` alone is a brisk walk
     "max_speed": (1.5, 1.8, 2.6),
     "vision_range": (2.0, 5.0, 8.0),
     "vision_fov": (90.0, 180.0, 270.0),
@@ -32,7 +28,6 @@ TIERS: dict[str, tuple[float, float, float]] = {
     "duration": (10.0, 30.0, 1.0e4),
 }
 
-#: Where each parameter lives on an agent type. `*` matches every key at that level.
 PATHS: dict[str, tuple[str, ...]] = {
     "speed": ("desired_velocity",),
     "max_speed": ("max_velocity",),
@@ -46,9 +41,8 @@ PATHS: dict[str, tuple[str, ...]] = {
     "duration": ("sequences", "*", "steps", "*", "duration"),
 }
 
-#: Parameters that only exist on behaviour-tree types.
 BT_ONLY = frozenset({"need_decay", "duration"})
-#: Parameters a running behaviour tree can hold from a sequence `tune:`; the rest need a respawn.
+# a running behaviour tree holds these from a sequence `tune:`; the rest need a respawn
 TUNABLE = frozenset({"speed", "max_speed", "vision_range", "vision_fov", "repulsion", "repulsion_range", "reaction"})
 
 ADULT_SPEED = KINEMATICS["adult"][0]
@@ -60,10 +54,8 @@ _CIVIL = tuple(m for m in MODELS if "medical" not in m)
 @attrs.frozen(kw_only=True)
 class Profile:
     name: str
-    #: Builtin agent type this profile is made of.
     base: str
     meshes: tuple[str, ...]
-    #: Multiplier on the adult speed tiers, so tiers read in this profile's own terms.
     speed_scale: float = 1.0
     note: str = ""
 
@@ -78,7 +70,6 @@ PROFILES: dict[str, Profile] = {
     "doctor": Profile(name="doctor", base="adult", meshes=_MEDICAL, speed_scale=1.05, note="staff between rooms"),
 }
 
-#: Words a prompt may use for a profile.
 ALIASES: dict[str, str] = {
     "kid": "child",
     "kids": "child",
@@ -144,7 +135,6 @@ def point_mass(value: float) -> dict[str, float]:
 
 
 def _set_path(doc: dict[str, Any], keys: Sequence[str], value: dict[str, float]) -> int:
-    """Write `value` at every match of `keys`; returns how many fields were written."""
     if len(keys) == 1:
         doc[keys[0]] = dict(value)
         return 1
@@ -164,8 +154,7 @@ def is_behaviour_tree(raw: Mapping[str, Any]) -> bool:
 
 
 def derive(raw: Mapping[str, Any], params: Mapping[str, str], *, name: str, prof: Profile | None = None) -> dict[str, Any]:
-    """`raw` (`{"extends": "<builtin>"}` or a full scenario-local type) with every tuned parameter pinned to its tier.
-    A behaviour-tree-only parameter on a plain type raises rather than being written into nothing."""
+    """`raw` with every tuned parameter pinned to its tier; a behaviour-tree-only parameter on a plain type raises."""
     doc = copy.deepcopy(dict(raw))
     doc["name"] = name
     for param, tier in params.items():
@@ -179,7 +168,6 @@ def derive(raw: Mapping[str, Any], params: Mapping[str, str], *, name: str, prof
 
 
 def tune_block(params: Mapping[str, str], *, prof: Profile | None = None, speed_scale: float = 1.0) -> dict[str, Any]:
-    """A HumanSim `tune:` holding `params` at their tiers, plain numbers at the same paths a type uses; `speed_scale` multiplies the speed."""
     out: dict[str, Any] = {}
     for param, tier in params.items():
         if param not in TUNABLE:

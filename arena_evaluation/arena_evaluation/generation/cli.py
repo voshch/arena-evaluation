@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import itertools
 import math
-import os
 import sys
 import traceback
 from collections.abc import Callable, Sequence
@@ -16,7 +15,7 @@ import yaml
 
 from .formats import first_level, is_world, levels, read_scenario
 from .promptgen import prompts as P
-from .promptgen.world import Grid, WorldError, _endpoint
+from .promptgen.world import Grid, WorldError, _endpoint, _plan, runtime_map
 from .propose import DEFAULT_MODEL, STORE, Unavailable, build_prompt, classify_tail, load_overrides, merge, unknown_names
 from .scenario.materialize import WouldOverwrite, prune_generated, write_base
 from .scenario.occupancy import world_statics
@@ -34,10 +33,22 @@ PROFILE_NOTES = {
 }
 
 
-def default_worlds_root() -> Path:
-    """The source tree's worlds: generated scenarios are written there, and `install/` only symlinks files that existed at build time."""
-    arena = Path(os.environ.get("ARENA_DIR") or Path(__file__).resolve().parents[4])
-    return arena / "arena_simulation_setup" / "worlds"
+def world_root(worlds: Path | None, world: str) -> Path:
+    """`worlds/<world>` under an explicit root, else wherever arena_simulation_setup resolves the name, as the runtime does
+    (`ARENA_WORLD_PATH` first, then the installed worlds)."""
+    if worlds is not None:
+        return worlds / world
+    from arena_simulation_setup.tree.World import WorldIdentifier
+
+    return Path(WorldIdentifier(world).resolve_sync().path)
+
+
+def _all_worlds(worlds: Path | None) -> list[str]:
+    from arena_simulation_setup import ASS_DIR
+
+    root = worlds if worlds is not None else ASS_DIR / "worlds"
+    # a dotted directory (`.generated`) is scratch beside the worlds, not a world
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(".") and is_world(p))
 
 
 def default_suites_dir() -> Path:
@@ -45,7 +56,7 @@ def default_suites_dir() -> Path:
 
 
 def _route_reachable(root: Path, zones: list[dict[str, Any]], robot: dict[str, Any]) -> bool:
-    """Whether walls plus furniture leave a robot-wide path along the robot's route."""
+    """Whether the runtime's planner finds a route along the robot's legs, from endpoints snapped clear of walls and furniture."""
     try:
         pts = route_points(robot, zones)
         loaded = _load_grid(root)
@@ -55,8 +66,9 @@ def _route_reachable(root: Path, zones: list[dict[str, Any]], robot: dict[str, A
         occupied = occupied.copy()
         _stamp_statics(occupied, world_statics(root), res, ox, oy)
         grid = Grid(occupied=occupied, res=res, ox=ox, oy=oy)
+        world_map = runtime_map(root)
         for a, b in itertools.pairwise(pts):
-            grid.plan(_endpoint(grid, a), _endpoint(grid, b))
+            _plan(world_map, _endpoint(grid, a), _endpoint(grid, b))
     except WorldError:
         return False
     except Exception:  # a hint only: populate and promptgen validate the route again
@@ -64,9 +76,9 @@ def _route_reachable(root: Path, zones: list[dict[str, Any]], robot: dict[str, A
     return True
 
 
-def _world_parts(worlds_root: Path, world: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _world_parts(root: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """A world's zones and a robot copied from one of its scenarios, else the two most separated reachable zones."""
-    root = worlds_root / world
+    world = root.name
     doc = first_level(root)
     if doc is None:
         raise FileNotFoundError(f"{world}: no world.yaml")
@@ -101,12 +113,12 @@ def _world_parts(worlds_root: Path, world: str) -> tuple[list[dict[str, Any]], d
     return zones, {"start": start, "goal": goal}
 
 
-def _all_zones(worlds_root: Path, world: str) -> list[dict[str, Any]]:
+def _all_zones(root: Path) -> list[dict[str, Any]]:
     """Every zone across all levels: a name only on floor 3 (`three_storied_residential`'s `3_study`) still needs a role."""
     zones: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
-        docs = levels(worlds_root / world)
+        docs = levels(root)
     except yaml.YAMLError:
         docs = []
     for doc in docs:
@@ -118,7 +130,7 @@ def _all_zones(worlds_root: Path, world: str) -> list[dict[str, Any]]:
 
 
 def _cmd_zones(args: argparse.Namespace) -> int:
-    zones, _ = _world_parts(args.worlds, args.world)
+    zones, _ = _world_parts(world_root(args.worlds, args.world))
     overrides = load_overrides()
     by_role = zones_by_role(zones, overrides)
     for role, names in by_role.items():
@@ -133,12 +145,11 @@ def _cmd_zones(args: argparse.Namespace) -> int:
 
 
 def _cmd_classify(args: argparse.Namespace) -> int:
-    # a dotted directory (`.generated`) is scratch beside the worlds, not a world
-    names = sorted(args.world) if args.world else sorted(p.name for p in args.worlds.iterdir() if p.is_dir() and not p.name.startswith(".") and is_world(p))
+    names = sorted(args.world) if args.world else _all_worlds(args.worlds)
     overrides = load_overrides()
     pending: dict[str, tuple[list[dict[str, Any]], list[str]]] = {}
     for world in dict.fromkeys(names):
-        zones = _all_zones(args.worlds, world)
+        zones = _all_zones(world_root(args.worlds, world))
         if not zones:
             print(f"  ! {world}: no zones declared on any level")
             continue
@@ -178,8 +189,8 @@ def _cmd_classify(args: argparse.Namespace) -> int:
 
 
 def _cmd_populate(args: argparse.Namespace) -> int:
-    world_root = args.worlds / args.world
-    zones, robot = _world_parts(args.worlds, args.world)
+    root = world_root(args.worlds, args.world)
+    zones, robot = _world_parts(root)
     if args.robot_start:
         robot = {"start": args.robot_start, "goal": args.robot_goal or robot.get("goal")}
         print(f"  robot endpoints overridden: start={robot['start']!r} goal={robot['goal']!r}")
@@ -194,7 +205,7 @@ def _cmd_populate(args: argparse.Namespace) -> int:
 
     # homes are screened once against the longest form of the route; every base drives the same segments
     spec = robot_for(robot, zones)
-    verdicts = screen_zones(zones, world_root=world_root, route=route_points(spec, zones), statics=world_statics(world_root), min_route_clearance=MIN_ROUTE_CLEARANCE, robot_zones=robot_zones(robot))
+    verdicts = screen_zones(zones, world_root=root, route=route_points(spec, zones), statics=world_statics(root), min_route_clearance=MIN_ROUTE_CLEARANCE, robot_zones=robot_zones(robot))
     homes = ref_safe_zones(verdicts)
     print(f"  homes: {len(homes)}/{len(verdicts)} zone(s) entirely clear of the route" + ("" if homes else " - falling back to every target zone but the robot's own"))
     for name, verdict in sorted(verdicts.items()):
@@ -213,7 +224,7 @@ def _cmd_populate(args: argparse.Namespace) -> int:
         line = f"  {profile:7s} {len(agents):3d} agent(s): {talking} talking, {len(agents) - talking} walking, from {len({str(a['pose']) for a in agents})} room(s)"
         if args.write:
             try:
-                out = write_base(doc, world_root=world_root, profile=profile, force=args.force, note=PROFILE_NOTES[profile])
+                out = write_base(doc, world_root=root, profile=profile, force=args.force, note=PROFILE_NOTES[profile])
             except WouldOverwrite as exc:
                 print(f"  {profile:7s} SKIPPED - {exc}")
                 continue
@@ -221,8 +232,8 @@ def _cmd_populate(args: argparse.Namespace) -> int:
         print(line)
 
     if args.write and args.prune:
-        keep = [*written, *(d.name for d in (world_root / "scenarios").glob("*__*"))]
-        for gone in prune_generated(world_root, keep):
+        keep = [*written, *(d.name for d in (root / "scenarios").glob("*__*"))]
+        for gone in prune_generated(root, keep):
             print(f"  - pruned stale generated base {gone}")
     if not args.write:
         print("(dry run - pass --write to materialise)")
@@ -233,7 +244,7 @@ def _cmd_promptgen(args: argparse.Namespace) -> int:
     from .promptgen import generate, write_result
     from .promptgen.world import WorldContext
 
-    root = args.worlds / args.world
+    root = world_root(args.worlds, args.world)
     prompts = P.load_sets(args.world, extra=[Path(p) for p in args.prompts or []])
     if args.ids:
         wanted = {i.strip() for i in args.ids.split(",") if i.strip()}
@@ -254,7 +265,7 @@ def _cmd_promptgen(args: argparse.Namespace) -> int:
             continue
         base_doc = read_scenario(base_path)
         try:
-            world = WorldContext.load(args.worlds, args.world, base_doc, overrides)
+            world = WorldContext.load(root, base_doc, overrides)
         except WorldError as exc:
             print(f"  ! {base_id}: {exc}")
             continue
@@ -287,15 +298,15 @@ def _cmd_promptgen(args: argparse.Namespace) -> int:
             if args.write and write_result(result, root, keep_partial=not args.strict) is not None:
                 written += 1
     print(f"{sum(counts.values())} generated: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) + (f"; wrote {written}" if args.write else " (dry run - pass --write)"))
-    if args.write:
-        print("rebuild arena_simulation_setup before launching: new scenario directories are invisible to the runtime until then")
+    if args.write and args.worlds is not None:
+        print("rebuild arena_simulation_setup before launching unless the runtime resolves worlds under --worlds (ARENA_WORLD_PATH)")
     return 0
 
 
 def _cmd_suite(args: argparse.Namespace) -> int:
     from .suite import build, scenarios
 
-    worlds = {world: scenarios(args.worlds / world, args.match) for world in args.world}
+    worlds = {world: scenarios(world_root(args.worlds, world), args.match) for world in args.world}
     for world, names in worlds.items():
         print(f"  {world:28s} {len(names):4d} scenario(s)")
     if not any(worlds.values()):
@@ -314,7 +325,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
 
     def verb(name: str, fn: Callable[[argparse.Namespace], int], text: str) -> argparse.ArgumentParser:
         p = verbs.add_parser(name, help=text)
-        p.add_argument("--worlds", type=Path, default=None, help="worlds root (default: the source tree's arena_simulation_setup/worlds)")
+        p.add_argument("--worlds", type=Path, default=None, help="worlds root (default: each world where arena_simulation_setup resolves its name)")
         p.set_defaults(generate_fn=fn)
         return p
 
@@ -360,8 +371,6 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    if args.worlds is None:
-        args.worlds = default_worlds_root()
     try:
         return int(args.generate_fn(args))
     except (FileNotFoundError, ValueError) as exc:

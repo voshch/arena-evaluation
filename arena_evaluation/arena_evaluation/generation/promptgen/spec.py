@@ -116,7 +116,7 @@ def parse_when(raw: object, *, default: When, where: str) -> When:
 
 def _num(raw: object, *, where: str) -> float:
     try:
-        return float(raw)  # type: ignore[arg-type]
+        return float(raw)
     except (TypeError, ValueError):
         raise SchemaError(f"{where}: {raw!r} is not a number") from None
 

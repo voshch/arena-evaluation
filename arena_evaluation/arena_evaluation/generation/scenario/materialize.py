@@ -1,7 +1,4 @@
-"""Writing base scenario directories and pruning generated ones.
-
-Prompt scenarios are written by `promptgen.pipeline.write_result`; both carry `GENERATED_MARKER`, which is what makes pruning safe.
-"""
+"""Writing base scenario directories and pruning generated ones; only files carrying `GENERATED_MARKER` are ever replaced."""
 
 from __future__ import annotations
 
@@ -14,7 +11,6 @@ from typing import Any
 from ..formats import write_scenario
 from .populate import bt_type_source
 
-#: In every generated scenario's header; its absence marks a hand-authored file that is never replaced.
 GENERATED_MARKER = "# Generated - do not hand-edit; regenerate instead."
 
 
@@ -38,8 +34,7 @@ def write_base(
     force: bool = False,
     note: str = "",
 ) -> Path:
-    """Write `scenarios/<profile>/scenario.yaml`, `note` being the line that says what the base is. Refuses to
-    replace a scenario this tool did not write (`hospital_1` ships a hand-authored `normal`) unless `force`."""
+    """Write `scenarios/<profile>/scenario.yaml`; refuses to replace a hand-authored scenario unless `force`."""
     out = Path(world_root) / "scenarios" / profile
     existing = out / "scenario.yaml"
     if existing.is_file() and not force and not is_generated(existing):
@@ -68,7 +63,6 @@ def write_base(
 
 
 def prune_generated(world_root: str | os.PathLike[str], keep: Sequence[str]) -> list[str]:
-    """Remove the generated scenario directories not in `keep` and return their names; hand-authored ones are never touched."""
     root = Path(world_root) / "scenarios"
     wanted = set(keep)
     gone: list[str] = []

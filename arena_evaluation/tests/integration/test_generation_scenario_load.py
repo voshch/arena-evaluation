@@ -17,6 +17,8 @@ pytestmark = pytest.mark.ros
 WorldIdentifier = pytest.importorskip("arena_simulation_setup.tree.World", reason="needs a sourced environment").WorldIdentifier
 
 WORLD = "hospital_1"
+# the tracked `normal` scenario's robot; furniture is left out, this checks the written format, not placement
+ROBOT = {"start": [10.0, 0.5, 1.5708], "phases": [{"goto": [15.0, 32.2, 0.0]}]}
 
 
 @pytest.fixture
@@ -32,8 +34,7 @@ def loaded(worlds_root: Path, generated_scenario: str) -> Scenario:
 
 @pytest.fixture
 def generated_scenario(worlds_root: Path) -> Iterator[str]:
-    from arena_evaluation.generation.cli import _world_parts
-    from arena_evaluation.generation.formats import write_scenario
+    from arena_evaluation.generation.formats import first_level, write_scenario
     from arena_evaluation.generation.scenario import (
         MIN_ROUTE_CLEARANCE,
         build,
@@ -41,19 +42,16 @@ def generated_scenario(worlds_root: Path) -> Iterator[str]:
         robot_zones,
         route_points,
         screen_zones,
-        world_statics,
     )
     from arena_evaluation.generation.scenario.populate import bt_type_source
 
     root = worlds_root / WORLD
-    zones, robot = _world_parts(worlds_root, WORLD)
-    statics = world_statics(root)
+    zones, robot = first_level(root)["zones"], dict(ROBOT)
     route = route_points(robot, zones)
     verdicts = screen_zones(
         zones,
         world_root=root,
         route=route,
-        statics=statics,
         min_route_clearance=MIN_ROUTE_CLEARANCE,
         robot_zones=robot_zones(robot),
     )

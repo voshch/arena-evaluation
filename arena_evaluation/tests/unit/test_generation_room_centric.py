@@ -41,13 +41,14 @@ def world(tmp_path: Path) -> Path:
     pixels = np.full((height, width), 255, dtype=np.uint8)
     pixels[0, :] = pixels[-1, :] = pixels[:, 0] = pixels[:, -1] = 0
 
-    root = tmp_path / "w" / "0"
-    root.mkdir(parents=True)
-    Image.fromarray(pixels).save(root / "map.png")
-    (root / "map.yaml").write_text(
+    root = tmp_path / "w"
+    (root / "map").mkdir(parents=True)
+    (root / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": [{"id": "0", "zones": [{"name": "box", "polygon": [[0.0, 0.0], [30.0, 0.0], [30.0, 20.0], [0.0, 20.0]], "floor": False}]}]}))
+    Image.fromarray(pixels).save(root / "map" / "0.png")
+    (root / "map" / "0.yaml").write_text(
         yaml.safe_dump(
             {
-                "image": "map.png",
+                "image": "0.png",
                 "resolution": res,
                 "origin": [0.0, 0.0, 0.0],
                 "occupied_thresh": 0.65,
@@ -55,7 +56,7 @@ def world(tmp_path: Path) -> Path:
             }
         )
     )
-    return tmp_path / "w"
+    return root
 
 
 ZONES = [
