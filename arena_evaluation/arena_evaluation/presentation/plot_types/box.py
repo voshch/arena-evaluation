@@ -49,7 +49,7 @@ class BoxRenderer(BasePlotRenderer):
 
         keep = [self.spec.data_key, diff_col]
         pdf = df_filtered.select(keep).to_pandas()
-        if pdf.empty or pdf[self.spec.data_key].isna().all():
+        if pdf.empty or bool(pdf[self.spec.data_key].isna().all()):
             return
 
         import matplotlib.pyplot as plt

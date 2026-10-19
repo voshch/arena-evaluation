@@ -155,7 +155,7 @@ class LineRenderer(BasePlotRenderer):
         fig = go.Figure()
         colors = _color_cycle()
 
-        keys = pdf[group_cols].drop_duplicates().head(max_traces).to_dict("records") if group_cols else [{}]
+        keys = pdf[group_cols].drop_duplicates().head(max_traces).to_dict("records") if group_cols else [{}]  # pyright: ignore[reportCallIssue]
         for t_idx, key in enumerate(keys):
             if group_cols:
                 mask = pdf[group_cols].eq(pd_series(key)).all(axis=1)
@@ -165,7 +165,7 @@ class LineRenderer(BasePlotRenderer):
             if trace_pdf.empty:
                 continue
 
-            x, y, err = self._trace_data(trace_pdf, x_col, y_col, error_col, opts, time_to_s, time_relative)
+            x, y, err = self._trace_data(trace_pdf, x_col, y_col, error_col, opts, time_to_s, time_relative)  # pyright: ignore[reportArgumentType]
             if len(x) == 0:
                 continue
 
@@ -231,7 +231,7 @@ class LineRenderer(BasePlotRenderer):
         max_traces = int(opts.get("max_traces", 40))
 
         colors = _color_cycle()
-        keys = pdf[group_cols].drop_duplicates().head(max_traces).to_dict("records") if group_cols else [{}]
+        keys = pdf[group_cols].drop_duplicates().head(max_traces).to_dict("records") if group_cols else [{}]  # pyright: ignore[reportCallIssue]
 
         plt.figure(figsize=(10, 6))
         for t_idx, key in enumerate(keys):
@@ -243,7 +243,7 @@ class LineRenderer(BasePlotRenderer):
             if trace_pdf.empty:
                 continue
 
-            x, y, err = self._trace_data(trace_pdf, x_col, y_col, error_col, opts, time_to_s, time_relative)
+            x, y, err = self._trace_data(trace_pdf, x_col, y_col, error_col, opts, time_to_s, time_relative)  # pyright: ignore[reportArgumentType]
             if len(x) == 0:
                 continue
 

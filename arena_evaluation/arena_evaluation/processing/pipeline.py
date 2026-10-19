@@ -195,7 +195,7 @@ def _peds_count(peds: pl.DataFrame | pl.LazyFrame | None, window: tuple[int | No
     if end_ns is not None:
         df = df.filter(pl.col("time_ns") <= end_ns)
     counts = df["num_pedestrians"].drop_nulls()
-    return int(counts.max()) if len(counts) > 0 else 0
+    return int(counts.max()) if len(counts) > 0 else 0  # pyright: ignore[reportArgumentType]
 
 
 def _episode_endpoints(
@@ -323,7 +323,7 @@ _METRIC_DTYPES = {
 from .metrics.registry import MetricRegistry
 
 # EpisodeRecord.outcome_state -> (result, success)
-_OUTCOME_VERDICTS = {2: ("GOAL_REACHED", True), 3: ("FAILED", False), 4: ("CANCELLED", False), 5: ("FATAL", False)}
+_OUTCOME_VERDICTS: dict[int | None, tuple[str, bool]] = {2: ("GOAL_REACHED", True), 3: ("FAILED", False), 4: ("CANCELLED", False), 5: ("FATAL", False)}
 _STATUS_EVALUATED = "evaluated"
 
 
@@ -338,6 +338,7 @@ def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMet
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
     rows = df is not None and len(df) > 0 and "outcome_state" in df.columns and "time_ns" in df.columns
     if rows:
+        assert df is not None
         df = df.sort("time_ns")
         running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
         after = df.filter(pl.col("time_ns") > running["time_ns"][0]) if len(running) else df
@@ -348,6 +349,7 @@ def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMet
     if metadata is not None and metadata.outcome_state is not None:
         return metadata.outcome_state, metadata.outcome_info
     if rows:
+        assert df is not None
         last = df.row(-1, named=True)
         return int(last["outcome_state"]), last.get("outcome_info")
     return None, None
@@ -420,7 +422,7 @@ def _print_status_summary(rows: list[dict]) -> None:
 def _metadata_robot(metadata: RunMetadata | None, bundles: dict[str, TopicBundle] | None = None) -> str:
     """Bundle-style robot key (env_0_jackal) for a row without a robot bundle."""
     model = metadata.robot_model[0].partition("[")[0] if metadata is not None and metadata.robot_model else ""
-    env = next((re.match(r"env_\d+", name).group(0) for name in (bundles or {}) if re.match(r"env_\d+", name)), None)
+    env = next((match.group(0) for name in (bundles or {}) if (match := re.match(r"env_\d+", name))), None)
     return f"{env}_{model}" if env and model else model
 
 
@@ -601,7 +603,7 @@ class ProcessingPipeline:
                 if "num_pedestrians" in aligned_df.columns:
                     peds = aligned_df["num_pedestrians"].drop_nulls()
                     if len(peds) > 0:
-                        num_pedestrians = int(peds.max())
+                        num_pedestrians = int(peds.max())  # pyright: ignore[reportArgumentType]
 
                 semantic_snapshot_df = bundle.semantic_snapshot
                 if isinstance(semantic_snapshot_df, pl.LazyFrame):
@@ -801,7 +803,7 @@ class ProcessingPipeline:
             print("No valid results were generated.")
             return
 
-        ref_episodes_by_stage: dict[str, list[dict]] = {}
+        ref_episodes_by_stage: dict[str | None, list[dict]] = {}
         for row in all_metrics:
             if row.get("is_reference") and row.get("reference_type") == "unhindered_peds":
                 stage = row.get("stage")
@@ -809,8 +811,8 @@ class ProcessingPipeline:
                     ref_episodes_by_stage[stage] = []
                 ref_episodes_by_stage[stage].append(row)
 
-        ref_ped_by_stage: dict[str, list[dict]] = {}
-        ref_robot_by_stage: dict[str, list[dict]] = {}
+        ref_ped_by_stage: dict[str | None, list[dict]] = {}
+        ref_robot_by_stage: dict[str | None, list[dict]] = {}
         for row in all_metrics:
             if not row.get("is_reference"):
                 continue

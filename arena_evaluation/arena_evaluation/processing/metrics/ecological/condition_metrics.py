@@ -20,6 +20,7 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
+    import shapely
     from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
@@ -222,7 +223,7 @@ class _EvalContext:
         return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls)
 
     @property
-    def polygons(self) -> dict[str, object]:
+    def polygons(self) -> dict[str, shapely.Polygon]:
         return {name: zone.polygon for name, zone in self.zones_by_name.items()}
 
 

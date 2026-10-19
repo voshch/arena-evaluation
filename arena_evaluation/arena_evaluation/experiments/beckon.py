@@ -260,6 +260,10 @@ def stage_timeouts(benchmark_dir: pathlib.Path) -> dict[str, float]:
     return {stage["name"]: _parse_duration(str(stage["timeout"])) for stage in stages if "timeout" in stage}
 
 
+def _float_or_none(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
 def paper_outcomes(df: pl.DataFrame, timeouts: Mapping[str, float] | None = None) -> pl.DataFrame:
     """Waiting time per episode, censored at the stage's timeout when the caller was never served, at the run's longest episode without a known timeout."""
     served = pl.col("success") == 1
@@ -287,10 +291,10 @@ def case_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -
             {
                 "planner": planner,
                 "case": case,
-                "wait_on": float(on["wait_s"].median()) if len(on) else None,
-                "wait_off": float(off["wait_s"].median()) if len(off) else None,
-                "served_on": float(on["served"].mean()) if len(on) else None,
-                "served_off": float(off["served"].mean()) if len(off) else None,
+                "wait_on": _float_or_none(on["wait_s"].median()),
+                "wait_off": _float_or_none(off["wait_s"].median()),
+                "served_on": _float_or_none(on["served"].mean()),
+                "served_off": _float_or_none(off["served"].mean()),
                 "diff": None if result is None else result.estimate,
                 "ci_low": None if result is None else result.ci_low,
                 "ci_high": None if result is None else result.ci_high,
@@ -324,10 +328,10 @@ def planner_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
         rows.append(
             {
                 "planner": planner,
-                "wait_on": float(on_all["wait_s"].median()) if len(on_all) else None,
-                "wait_off": float(off_all["wait_s"].median()) if len(off_all) else None,
-                "served_on": float(on_all["served"].mean()) if len(on_all) else None,
-                "served_off": float(off_all["served"].mean()) if len(off_all) else None,
+                "wait_on": _float_or_none(on_all["wait_s"].median()),
+                "wait_off": _float_or_none(off_all["wait_s"].median()),
+                "served_on": _float_or_none(on_all["served"].mean()),
+                "served_off": _float_or_none(off_all["served"].mean()),
                 "diff": None if result is None else result.estimate,
                 "ci_low": None if result is None else result.ci_low,
                 "ci_high": None if result is None else result.ci_high,

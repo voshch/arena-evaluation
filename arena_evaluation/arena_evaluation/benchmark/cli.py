@@ -220,9 +220,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(_status_from_disk(data_root, run_id))
         return 0
 
-    import rclpy
     from arena_evaluation_msgs.msg import BenchmarkState
     from arena_rclpy_mixins import ArenaMixinNode, run_main
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
     class _WatchNode(ArenaMixinNode):
         def __init__(self) -> None:
@@ -231,15 +231,15 @@ def _cmd_status(args: argparse.Namespace) -> int:
                 BenchmarkState,
                 "/arena/benchmark/state",
                 self._on_state,
-                rclpy.qos.QoSProfile(
+                QoSProfile(
                     depth=1,
-                    durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL,
-                    reliability=rclpy.qos.ReliabilityPolicy.RELIABLE,
+                    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                    reliability=ReliabilityPolicy.RELIABLE,
                 ),
             )
 
         def _on_state(self, msg: BenchmarkState) -> None:
-            active = [(k, None) for k in msg.active_keys]
+            active: list[tuple[str, str | None]] = [(k, None) for k in msg.active_keys]
             block = _format_status_block(
                 run_id=msg.run_id,
                 suite=msg.suite,

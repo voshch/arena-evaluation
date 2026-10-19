@@ -12,28 +12,31 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 import yaml
 
-try:
+if TYPE_CHECKING:
     from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
-except ImportError:
+else:
+    try:
+        from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
+    except ImportError:
 
-    class Tool:  # type: ignore
-        def __init__(self, name: str, description: str, inputSchema: dict):
-            self.name = name
-            self.description = description
-            self.inputSchema = inputSchema
+        class Tool:
+            def __init__(self, name: str, description: str, input_schema: dict):
+                self.name = name
+                self.description = description
+                self.input_schema = input_schema
 
-    class TextContent:  # type: ignore
-        def __init__(self, type: str, text: str):
-            self.type = type
-            self.text = text
+        class TextContent:
+            def __init__(self, type: str, text: str):
+                self.type = type
+                self.text = text
 
-    class CallToolResult:  # type: ignore
-        def __init__(self, content: list, isError: bool = False):
-            self.content = content
-            self.isError = isError
+        class CallToolResult:
+            def __init__(self, content: list, is_error: bool = False):
+                self.content = content
+                self.is_error = is_error
 
-    class CallToolRequestParams:  # type: ignore
-        pass
+        class CallToolRequestParams:
+            pass
 
 
 from .common import run_status, validate_path_component
@@ -58,37 +61,37 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             "suite configs that are NOT verified runnable worlds. Relationship: use "
             "'maps' for new suites; suite_referenced_maps entries absent from 'maps' "
             "may fail at spawn unless generated at build time.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_robots",
             description="List all robot models that can be used in suite stages.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_planners",
             description="Contest authoring reference: local planner names (nav2 controllers), global planner names, inter planner names, mobile driver names, and cap keys - everything valid inside create_contest.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_inter_planners",
             description="List all known inter-planner names found across benchmarks.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_task_modes",
             description="List TM_Robots and TM_Obstacles enum values for suite stage configuration.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_manifests",
             description="List bundled report manifest stems (standard, social, safety, ecological, characterization).",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_metrics",
             description="List all registered metric names with their categories and units.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_running_processes",
@@ -98,7 +101,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             "start), and the command line. Use this to check whether a benchmark "
             "is actually running, whether simulation processes are still up, or to "
             "spot stuck/orphaned processes before stopping them.",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="kill_processes",
@@ -107,7 +110,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             "escalation to SIGKILL (-9) if the process does not terminate within the timeout. "
             "Optionally target specific PIDs, filter by process kind, or pass force=True to "
             "send SIGKILL immediately. Use this to clean up wedged, stuck, or orphaned processes.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "pids": {
@@ -137,7 +140,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             "the log file path, the runner PID, and whether the runner is still "
             "alive. Use while a benchmark runs to watch live progress, or after "
             "completion to inspect the output.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "run_id": {
@@ -155,7 +158,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="list_benchmark_runs",
             description="List existing benchmark runs with status metadata. Optional filters: exact suite / contest name, run status, or a case-insensitive substring of the run_id.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "limit": {
@@ -186,17 +189,17 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="list_available_suites",
             description="List bundled benchmark suite config stems (e.g. basic, characterization, all_maps_random). Read one with get_config_template(kind='suite').",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="list_available_contests",
             description="List bundled contest config stems (e.g. basic, allplanners, drl_vs_nav2). Read one with get_config_template(kind='contest').",
-            inputSchema={"type": "object", "properties": {}},
+            input_schema={"type": "object", "properties": {}},
         ),
         Tool(
             name="get_config_template",
             description="Read the full content of a bundled (or custom) suite / contest / manifest YAML so the agent can see the exact schema conventions. For manifests, custom files written into a benchmark dir are found too.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "kind": {
@@ -215,7 +218,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="inspect_map",
             description="Inspect a map: world bounds, walkable zone polygons (rooms), and the available scenarios with REAL robot start/goal coordinates and pedestrian configs - so spawn points and routes can be chosen that don't intersect walls.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "map_name": {
@@ -234,7 +237,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             "construction guidance (seed-based reproducible paths, and: do NOT infer "
             "structure from previous benchmark configs). With no mode, returns the "
             "full catalog.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "mode": {
@@ -247,7 +250,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="describe_metric",
             description="Details for one metric: category, output keys, units, dependencies, required topics, pedsim requirement, and whether lower is better (for ranking).",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "metric_name": {
@@ -286,7 +289,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "Validated via Suite.parse() before writing; unverified map names "
                 "produce map_warnings."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Suite file stem."},
@@ -316,7 +319,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "See list_available_planners for valid names; get_config_template(kind='contest') "
                 "for examples. Validated via Contest.parse() before writing."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Contest file stem."},
@@ -349,7 +352,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "- summary_group_by: [local_planner] -> controls the Performance Summary "
                 "grouping (defaults to planner when omitted)."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Manifest file stem."},
@@ -370,7 +373,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="validate_suite",
             description="Validate a suite YAML string against the Suite schema.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "yaml_content": {"type": "string"},
@@ -381,7 +384,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="validate_contest",
             description="Validate a contest YAML string against the Contest schema.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "yaml_content": {"type": "string"},
@@ -392,7 +395,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="validate_manifest",
             description="Validate a manifest YAML string against the VizManifest schema.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "yaml_content": {"type": "string"},
@@ -405,7 +408,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
             description=(
                 "Create or update a scenario YAML for a map. Pass map_name (e.g. 'hospital_1'), scenario_name (e.g. 's01_head_on'), and the complete scenario yaml_content. Validates robot phases and humans of a format 2 scenario (format: arena-scenario/2) before writing. Writes directly to the arena_simulation_setup scenarios directory."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "map_name": {"type": "string", "description": "World name (e.g. 'hospital_1')."},
@@ -424,7 +427,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="validate_scenario",
             description=("Validate a scenario YAML string against the Scenario schema. Optionally pass map_name to check coordinates against world bounds."),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "yaml_content": {"type": "string", "description": "Complete scenario YAML content."},
@@ -444,7 +447,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
                 "arbitrary extra passthrough args (e.g. task.episode.fail_on_collision:=true) can be "
                 "passed via extra_passthrough. Use read_benchmark_status(run_id) to poll."
             ),
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "suite": {"type": "string", "description": "Suite name stem."},
@@ -491,7 +494,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="run_processing",
             description="Process benchmark data: extract topics from MCAPs, compute all metrics -> combined_metrics.parquet. Does NOT generate a report.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -504,7 +507,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="run_report",
             description="Render report.html + plots/*.png from existing metrics using a report manifest.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -520,7 +523,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="read_benchmark_status",
             description="Read manifest.yaml + .benchmark_state.json + progress.csv for a benchmark.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -531,7 +534,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="read_combined_metrics",
             description="Load combined_metrics.parquet and return schema, shape, and column-level statistics.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -542,7 +545,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="read_episode_data",
             description="Read a specific episode's YAML metadata.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -557,7 +560,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="read_progress_csv",
             description="Read progress.csv for a benchmark run as structured rows.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -568,7 +571,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="read_notes",
             description="Read notes.yaml from a benchmark directory.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -579,7 +582,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="query_metrics_data",
             description="Execute a declarative aggregation query against combined_metrics.parquet.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -609,7 +612,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="compare_planners",
             description="Compare planners on metrics and return ranked comparison with normalized scores.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -640,7 +643,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="compute_correlation",
             description="Compute pairwise Pearson correlation matrix for specified metrics.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -656,7 +659,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="find_top_n",
             description="Find top N planners by a weighted composite score across metrics.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -678,7 +681,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="aggregate_by_dimension",
             description="Group metrics by a dimension (planner, stage, map, robot) and aggregate.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -695,7 +698,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="summarize_benchmark",
             description="Generate a comprehensive text summary of a benchmark's results.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -707,7 +710,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="write_notes",
             description="Write or update notes.yaml in a benchmark directory. Notes feed into table-type plots.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -735,7 +738,7 @@ def build_tools_list(bridge: EvalBridge) -> list[Tool]:
         Tool(
             name="append_insight",
             description="Append a single key:value insight to notes.yaml.",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "benchmark_id": {"type": "string", "description": "The benchmark run ID."},
@@ -763,7 +766,7 @@ async def dispatch_tool_call(params: CallToolRequestParams, bridge: EvalBridge) 
 
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(result, default=str))],
-        isError=isinstance(result, dict) and "error" in result,
+        is_error=isinstance(result, dict) and "error" in result,
     )
 
 
@@ -1368,9 +1371,9 @@ def _read_combined_metrics(args: dict, bridge: EvalBridge) -> dict:
                 stats[col] = {
                     "dtype": dtype,
                     "null_count": null_count,
-                    "min": float(s.min()),
-                    "max": float(s.max()),
-                    "mean": float(s.mean()),
+                    "min": float(s.min()),  # pyright: ignore[reportArgumentType]
+                    "max": float(s.max()),  # pyright: ignore[reportArgumentType]
+                    "mean": float(s.mean()),  # pyright: ignore[reportArgumentType]
                 }
         elif dtype == "List":
             stats[col] = {"dtype": "List", "null_count": null_count}
@@ -1447,7 +1450,7 @@ def _query_metrics_data(args: dict, bridge: EvalBridge) -> dict:
     if not group_cols or not metric_cols:
         return {"error": "No valid group_by or metric columns found", "available_columns": df.columns}
 
-    needed = list(dict.fromkeys([*group_cols, *metric_cols, *([sort_by] if sort_by and sort_by in df.columns else [])]))
+    needed: list[str] = list(dict.fromkeys([*group_cols, *metric_cols, *([sort_by] if sort_by and sort_by in df.columns else [])]))
     list_cols = [c for c in needed if c in df.columns and df.schema[c] == pl.List]
     if list_cols:
         df = df.select(needed).explode(list_cols)
@@ -1587,7 +1590,7 @@ def _compare_planners_frame(
                     r[f"{m}_norm"] = round(norm, 3)
         norm_keys = [f"{m}_norm" for m in metric_cols]
         for r in rankings:
-            scores = [r.get(k) for k in norm_keys if r.get(k) is not None]
+            scores = [v for k in norm_keys if (v := r.get(k)) is not None]
             r["composite_score"] = round(sum(scores) / len(scores), 3) if scores else None
         rankings.sort(key=lambda r: r.get("composite_score", 0), reverse=True)
         for i, r in enumerate(rankings):
@@ -1758,7 +1761,7 @@ def _summarize_benchmark(args: dict, bridge: EvalBridge) -> dict:
                 {
                     "planner": p,
                     "n_episodes": n,
-                    "success_rate": round(float(succ), 3) if succ is not None else None,
+                    "success_rate": round(float(succ), 3) if isinstance(succ, (int, float)) else None,
                 }
             )
 

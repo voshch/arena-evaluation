@@ -209,6 +209,7 @@ Examples:
         args.benchmark_dir = [latest]
 
     target_dirs = args.benchmark_dir or args.run_dir
+    assert target_dirs is not None
     if isinstance(target_dirs, pathlib.Path):
         target_dirs = [target_dirs]
 
@@ -246,7 +247,7 @@ Examples:
                         print(f"Processing failed for {run_dir} - see errors above.")
 
         else:
-            for benchmark_dir in args.benchmark_dir:
+            for benchmark_dir in target_dirs:
                 fm = FolderManager(data_root=benchmark_dir.parent)
                 pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
 

@@ -48,7 +48,7 @@ class EnergyMetricCalculator(BaseMetricCalculator):
             "timeseries_time_s",
         ]
 
-    def calculate(self, episode: AlignedEpisodeBundle, dependencies: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         df = episode.data
         if df is None or df.is_empty():
             return {k: None for k in self.output_keys()}

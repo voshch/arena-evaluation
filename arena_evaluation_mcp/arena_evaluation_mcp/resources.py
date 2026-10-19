@@ -93,11 +93,11 @@ def read_resource_content(params: ReadResourceRequestParams, bridge: EvalBridge)
     except ValueError as exc:
         payload = {"error": str(exc)}
     if isinstance(payload, str):
-        return _text_result(params.uri, payload)
-    return _json_result(params.uri, payload)
+        return _text_result(str(params.uri), payload)
+    return _json_result(str(params.uri), payload)
 
 
-def _json_result(uri: object, data: object) -> ReadResourceResult:
+def _json_result(uri: str, data: object) -> ReadResourceResult:
     """Create a ReadResourceResult with JSON text content."""
     return ReadResourceResult(
         contents=[
@@ -110,7 +110,7 @@ def _json_result(uri: object, data: object) -> ReadResourceResult:
     )
 
 
-def _text_result(uri: object, text: str) -> ReadResourceResult:
+def _text_result(uri: str, text: str) -> ReadResourceResult:
     """Create a ReadResourceResult with plain text content."""
     return ReadResourceResult(
         contents=[
@@ -180,7 +180,8 @@ def _read(uri: str, bridge: EvalBridge) -> object:
             planners = df[planner_col].drop_nulls().unique().to_list() if planner_col in df.columns else []
             stages = df["stage"].drop_nulls().unique().to_list() if "stage" in df.columns else []
             maps_list = df["map"].drop_nulls().unique().to_list() if "map" in df.columns else []
-            succ = float(df["success"].drop_nulls().mean()) if "success" in df.columns else None
+            succ_mean = df["success"].drop_nulls().mean() if "success" in df.columns else None
+            succ = float(succ_mean) if isinstance(succ_mean, (int, float)) else None
             return {
                 "benchmark_id": benchmark_id,
                 "n_rows": len(df),

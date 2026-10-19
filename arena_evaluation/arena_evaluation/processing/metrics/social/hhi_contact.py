@@ -94,7 +94,7 @@ def window_bounds(t_end: float, hold_onset: float | None, release: float | None,
 
 def bucket(onsets: typing.Iterable[float], windows: dict[str, tuple[float, float]]) -> dict[str, int]:
     """Count onsets per window, [start, end) except the last non-empty window which also takes its end."""
-    counts = dict.fromkeys(WINDOWS, 0)
+    counts: dict[str, int] = dict.fromkeys(WINDOWS, 0)
     last = max((w for w in WINDOWS if windows[w][1] > windows[w][0]), key=lambda w: windows[w][1], default=None)
     for t in onsets:
         for w in WINDOWS:

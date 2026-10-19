@@ -18,6 +18,9 @@ from rclpy.parameter import Parameter
 from .lockstep import LockstepSummary
 from .step import StepErrorKind, StepResult
 
+if typing.TYPE_CHECKING:
+    from task_generator_msgs.msg import EpisodeRecord
+
 
 def compute_config_hash(suite: object, contest: object) -> str:
     blob = json.dumps([suite, contest], sort_keys=True, default=str)
@@ -190,7 +193,7 @@ class StateFile:
         self.steps = dict(steps)
 
 
-def _params_to_json(params: list) -> str:
+def _params_to_json(params: typing.Iterable) -> str:
     rows = []
     for p in params:
         try:
@@ -239,7 +242,7 @@ class ProgressLog:
         stage: str,
         env_id: int | None,
         episode_id: int,
-        episode_record: object,
+        episode_record: EpisodeRecord,
         started_at: float,
         ended_at: float,
         parent_episode_id: int | None = None,
