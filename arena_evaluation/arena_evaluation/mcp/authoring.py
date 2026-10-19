@@ -203,15 +203,15 @@ def evaluation_create_manifest(
 
     from arena_evaluation.presentation.manifest_registry import resolve_manifest
 
-    if (yaml_content is None) == (template is None):
-        raise ToolError("pass yaml_content or template")
-    if template is not None:
+    if template is not None and yaml_content is None:
         try:
             manifest = resolve_manifest(config_stem(template))
         except FileNotFoundError as exc:
             raise ToolError(str(exc), hint="evaluation_manifests lists the templates") from exc
         manifest.name = name
         yaml_content = yaml.safe_dump(manifest.model_dump(exclude_none=True), sort_keys=False)
+    elif yaml_content is None or template is not None:
+        raise ToolError("pass yaml_content or template")
     verdict = check_manifest(parse_yaml(yaml_content, "manifest"))
     if not verdict["valid"]:
         raise ToolError("manifest does not validate: " + "; ".join(verdict["problems"]))
@@ -270,7 +270,7 @@ def check_scenario(raw: object, map_name: str | None, run_id: str | None) -> dic
     if map_name is not None:
         view, levels, _ = world_view(map_name, run_id)
         zones, _ = zone_summary(view, levels)
-        if zones:
+        if zones and isinstance(raw, dict):
             corners = [(x, y) for zone in zones for x in zone["bounds"]["x"] for y in zone["bounds"]["y"]]
             bounds = {"x": [min(x for x, _ in corners), max(x for x, _ in corners)], "y": [min(y for _, y in corners), max(y for _, y in corners)]}
             out["warnings"] = _bounds_warnings(raw, bounds)

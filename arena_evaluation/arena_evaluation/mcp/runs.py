@@ -168,7 +168,7 @@ def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, lig
         "steps_total": len(planned),
         "steps": {status: counts.get(status, 0) for status in (*TERMINAL_STEPS, "in_progress")} | {"pending": len(planned) - sum(counts.values())},
         "active": [{"key": key, "env_id": steps[key].env_id, "started_at": steps[key].started_at} for key in planned if key in steps and steps[key].status == "in_progress"],
-        "failed": [{"key": key, "error_kind": None if steps[key].error_kind is None else steps[key].error_kind.value, "error_detail": steps[key].error_detail} for key in planned if key in steps and steps[key].status == "failed"],
+        "failed": [{"key": key, "error_kind": None if record.error_kind is None else record.error_kind.value, "error_detail": record.error_detail} for key in planned if key in steps and (record := steps[key]).status == "failed"],
         "episodes_logged": None if light else len(progress_rows(path)),
         "lanes": lanes,
         "runner_pids": pids,

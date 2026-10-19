@@ -6,8 +6,9 @@ import importlib.util
 import inspect
 import pathlib
 import warnings
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
+import attrs
 import pydantic
 
 from arena_mcp.core import ToolError
@@ -16,10 +17,15 @@ from arena_mcp.core.msgs import jsonable
 from .base import OptionalRunId, component, config_stem, domain, run_path
 
 if TYPE_CHECKING:
-    from arena_simulation_setup.tree import AssetIdentifier
+    import enum
+
+    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
+    from arena_simulation_setup.tree import AssetIdentifier, DomainAssetIdentifier
     from arena_simulation_setup.tree.World import WorldView
     from rcl_interfaces.msg import ParameterDescriptor
     from task_generator.tasks.registry import TaskModeRegistry
+
+    from arena_evaluation.benchmark.config import Suite
 
 Axis = Literal["tm_robots", "tm_obstacles", "tm_modules"]
 ConfigKind = Literal["suite", "contest", "manifest"]
@@ -56,13 +62,13 @@ def _constraint_tokens(text: str) -> dict[str, object]:
     return out
 
 
-def mode_params(registry: TaskModeRegistry, key: object) -> list[dict[str, Any]]:
+def mode_params(registry: TaskModeRegistry, key: enum.Enum) -> list[dict[str, Any]]:
     """The parameters a registered task mode declares, with defaults, descriptions and constraints."""
     meta = registry.meta(key)
     if meta.schema is None:
         return []
     collector = _Declarations()
-    meta.schema(collector, meta.namespace)
+    meta.schema(cast("ROSParamServer", collector), meta.namespace)
     prefix = f"{meta.namespace}."
     params = []
     for name, value, descriptor in collector.declared:
@@ -92,14 +98,14 @@ def _config_block(params: list[dict[str, Any]]) -> dict[str, Any]:
     return block
 
 
-def _mode_purpose(registry: TaskModeRegistry, key: object) -> str:
+def _mode_purpose(registry: TaskModeRegistry, key: enum.Enum) -> str:
     try:
         return inspect.getdoc(registry.get(key)) or ""
     except ImportError as exc:
         return f"the implementation does not import here: {exc}"
 
 
-def describe_mode(axis: str, registry: TaskModeRegistry, key: object) -> dict[str, Any]:
+def describe_mode(axis: str, registry: TaskModeRegistry, key: enum.Enum) -> dict[str, Any]:
     params = mode_params(registry, key)
     mode = key.value
     for param in params:
@@ -114,7 +120,7 @@ def describe_mode(axis: str, registry: TaskModeRegistry, key: object) -> dict[st
     }
 
 
-def domain_asset_names(identifier: type[AssetIdentifier], *, network: bool = False) -> list[str]:
+def domain_asset_names(identifier: type[DomainAssetIdentifier], *, network: bool = False) -> list[str]:
     """Names of a domain asset kind the way task modes reference them."""
     from arena_simulation_setup import DOMAIN_DEFAULT
 
@@ -155,11 +161,11 @@ def config_file(kind: str, name: str) -> pathlib.Path:
     return path / f"{kind}.yaml" if path.is_dir() else path
 
 
-def suites_by_name() -> dict[str, object]:
+def suites_by_name() -> dict[str, Suite]:
     """Every local suite parsed, skipping the ones that fail to parse."""
     from arena_evaluation.benchmark.tree import SuiteIdentifier
 
-    out = {}
+    out: dict[str, Suite] = {}
     for name in config_names("suite"):
         try:
             out[name] = SuiteIdentifier(name=name).resolve_sync()
@@ -363,7 +369,7 @@ def evaluation_config_schema(kind: Literal["suite", "contest"]) -> dict[str, Any
         }
     else:
         out = {
-            "contestant_fields": [field.name for field in config.Contestant.__attrs_attrs__],
+            "contestant_fields": [field.name for field in attrs.fields(config.Contestant)],
             "forms": ["list of {name, <args>}", "mapping {name, description, contestants: [...]}", "sweep mapping: list values are axes, scalars are shared, cap dicts may hold axes"],
             "caps_and_drivers": "evaluation_planners",
         }

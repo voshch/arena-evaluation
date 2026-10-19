@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pydantic
 
@@ -93,7 +93,7 @@ def means(frame: pl.DataFrame, group: list[str], metrics: list[str], *, spread: 
     if spread:
         aggregations += [pl.col(name).std().alias(f"{name}_std") for name in metrics]
     aggregations.append(pl.len().alias("n_rows"))
-    return [jsonable(row) for row in work.group_by(group).agg(aggregations).sort(group).to_dicts()]
+    return [cast("dict[str, Any]", jsonable(row)) for row in work.group_by(group).agg(aggregations).sort(group).to_dicts()]
 
 
 def normalized(rows: list[dict[str, Any]], metric: str, direction: str) -> None:
@@ -193,7 +193,7 @@ def column_stats(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
         if dtype.is_numeric():
             present = series.drop_nulls()
             if len(present):
-                entry.update(min=jsonable(float(present.min())), max=jsonable(float(present.max())), mean=jsonable(float(present.mean())))
+                entry.update(min=jsonable(float(cast("float", present.min()))), max=jsonable(float(cast("float", present.max()))), mean=jsonable(float(cast("float", present.mean()))))
         elif isinstance(dtype, pl.List):
             entry["mean_length"] = jsonable(series.list.len().mean())
         elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(dtype, pl.Enum):
@@ -216,7 +216,7 @@ def summary_of(frame: pl.DataFrame, include_references: bool = False) -> dict[st
         for name in distinct(CONTESTANT):
             rows = work.filter(pl.col(CONTESTANT) == name)
             success = rows["success"].cast(pl.Float64).drop_nulls().mean() if "success" in rows.columns else None
-            contestants.append({"planner": name, "n_episodes": len(rows), "success_rate": round(float(success), 3) if success is not None else None})
+            contestants.append({"planner": name, "n_episodes": len(rows), "success_rate": round(float(cast("float", success)), 3) if success is not None else None})
     overall = work["success"].cast(pl.Float64).drop_nulls().mean() if "success" in work.columns else None
     return {
         "n_rows": len(frame),
@@ -225,7 +225,7 @@ def summary_of(frame: pl.DataFrame, include_references: bool = False) -> dict[st
         "planners": distinct(CONTESTANT),
         "stages": distinct("stage"),
         "maps": distinct("map"),
-        "overall_success_rate": round(float(overall), 3) if overall is not None else None,
+        "overall_success_rate": round(float(cast("float", overall)), 3) if overall is not None else None,
         "per_planner": sorted(contestants, key=lambda entry: (entry["success_rate"] is None, -(entry["success_rate"] or 0.0))),
     }
 
