@@ -8,6 +8,10 @@ import shutil
 import sys
 import time
 
+import pytest
+
+sourced = pytest.mark.skipif(not os.environ.get("ARENA_WS_DIR"), reason="needs a sourced Arena workspace")
+
 RUN_ID = "20261019-120000-basic-basic"
 EMPTY_RUN_ID = "20261019-110000-empty-empty"
 STEPS = ("dwb/s1", "dwb_social/s1", "unhindered_peds/s1", "dwb/s2")

@@ -12,7 +12,7 @@ pytest.importorskip("arena_mcp")
 pytest.importorskip("polars")
 
 import yaml
-from mcp_fixtures import EMPTY_RUN_ID, RUN_ID, build_runs, build_world_root, error_text, payload, run_session, server_env
+from mcp_fixtures import EMPTY_RUN_ID, RUN_ID, build_runs, build_world_root, error_text, payload, run_session, server_env, sourced
 
 from arena_evaluation.mcp import catalog
 from arena_evaluation.mcp.base import domain
@@ -57,7 +57,6 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
             "contest_schema": ("evaluation_config_schema", {"kind": "contest"}),
             "planners": ("evaluation_planners", {}),
             "robots": ("evaluation_robots", {}),
-            "humans": ("evaluation_models", {"kind": "human"}),
             "maps": ("evaluation_maps", {}),
             "inspect": ("evaluation_inspect_map", {"map_name": "map_empty"}),
         }
@@ -93,11 +92,18 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
     assert {"nav2", "drl", "manual", "test-collision"} <= set(out["planners"]["bringups"]["mobile"])
     assert "dwb" in out["planners"]["nav2"]["local_planners"]
     assert "jackal" in out["robots"]["robots"]
-    assert "arenian" in out["humans"]["models"]
     assert "map_empty" in out["maps"]["worlds"]
     assert out["inspect"]["zones"][0]["bounds"] == {"x": [0.0, 30.0], "y": [0.0, 23.0]}
     assert "default" in {entry["name"] for entry in out["inspect"]["scenarios"]}
     assert "does not resolve" in out["fuzzy_map"]
+
+
+@sourced
+def test_models_list_the_humans_of_the_asset_store(tmp_path):
+    async def body(client):
+        return payload(await client.call_tool("evaluation_models", {"kind": "human"}))
+
+    assert "arenian" in run_session(body, server_env(tmp_path))["models"]
 
 
 SCENARIO = """
@@ -244,6 +250,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     assert out["arena://evaluation/runs"]["runs"][0]["run_id"] == RUN_ID
 
 
+@sourced
 def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_path):
     build_runs(tmp_path / "data" / "benchmarks")
     stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
@@ -295,6 +302,7 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
     assert "no runner" in out["stop_again"]
 
 
+@sourced
 def test_pipeline_verbs_run_the_evaluation_cli_as_jobs(tmp_path):
     build_runs(tmp_path / "data" / "benchmarks")
 
