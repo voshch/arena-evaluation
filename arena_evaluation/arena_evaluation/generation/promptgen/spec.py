@@ -15,6 +15,8 @@ from .profiles import PROFILES, TIER_NAMES, TIERS, ProfileError, profile
 
 A_CASES = ("blackout", "evacuation", "stampede", "busy")
 B_CASES = ("erratic_route", "erratic_behaviour", "intrinsic")
+# where erratic points lie: along the robot's route, or around each wanderer's own start
+ERRATIC_AROUND = ("route", "home")
 C_CASES = ("blocking", "approach")
 D_CASES = ("stubborn", "interaction_unbroken", "formation_break")
 
@@ -64,13 +66,17 @@ PHRASES: tuple[tuple[str, When], ...] = (
     ("as the robot approaches", When(robot_within=3.0)),
     ("when the robot comes near", When(robot_within=3.0)),
     ("as the robot gets close", When(robot_within=3.0)),
-    ("after a while", When(at=10.0)),
-    ("a little later", When(at=10.0)),
-    ("after some time", When(at=10.0)),
+    ("after a while", When(at=5.0)),
+    ("a little later", When(at=5.0)),
+    ("after some time", When(at=5.0)),
+    ("after five seconds", When(at=5.0)),
+    ("five seconds in", When(at=5.0)),
     ("after ten seconds", When(at=10.0)),
     ("ten seconds in", When(at=10.0)),
     ("after twenty seconds", When(at=20.0)),
     ("twenty seconds in", When(at=20.0)),
+    ("after fifteen seconds", When(at=15.0)),
+    ("fifteen seconds in", When(at=15.0)),
     ("after half a minute", When(at=30.0)),
     ("half a minute in", When(at=30.0)),
     ("after a minute", When(at=60.0)),
@@ -203,18 +209,19 @@ class BDecision:
     params: Mapping[str, str] = attrs.Factory(dict)
     period: float = 4.0
     radius: float = 3.0
-    when: When = When(at=10.0)
+    around: str = "route"
+    when: When = When(at=5.0)
     reason: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {"case": self.case, "select": self.select.as_dict(), "params": dict(self.params), "period": self.period, "radius": self.radius, "when": self.when.as_dict()}
+        return {"case": self.case, "select": self.select.as_dict(), "params": dict(self.params), "period": self.period, "radius": self.radius, "around": self.around, "when": self.when.as_dict()}
 
 
 def parse_b(raw: object) -> BDecision | None:
     if raw is None or raw == "none":
         return None
     raw = _mapping(raw, where="B")
-    _reject_unknown(raw, ("case", "select", "params", "period", "radius", "when", "reason"), where="B")
+    _reject_unknown(raw, ("case", "select", "params", "period", "radius", "around", "when", "reason"), where="B")
     case = _choice(raw.get("case"), B_CASES, where="B.case")
     params = {}
     for key, tier in _mapping(raw.get("params") or {}, where="B.params").items():
@@ -231,7 +238,8 @@ def parse_b(raw: object) -> BDecision | None:
         params=params,
         period=max(1.0, _num(raw.get("period", 4.0), where="B.period")),
         radius=max(0.5, _num(raw.get("radius", 3.0), where="B.radius")),
-        when=parse_when(raw.get("when"), default=When(at=10.0), where="B"),
+        around=_choice(raw.get("around", "route"), ERRATIC_AROUND, where="B.around"),
+        when=parse_when(raw.get("when"), default=When(at=5.0), where="B"),
         reason=str(raw.get("reason") or ""),
     )
 

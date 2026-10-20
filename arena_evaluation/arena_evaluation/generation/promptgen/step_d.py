@@ -23,7 +23,7 @@ FORM = "form"
 LINE_SPACING = 0.6
 QUEUE_SPACING = 0.7
 MIN_ROUTE_FOR_FORMATION_M = 4.0
-FORM_AT_S = 8.0
+FORM_AT_S = 4.0
 FORMATION_RADIUS_M = 1.8
 # too tight for the robot to pass between two members; 1.5 m let it drive through
 CIRCLE_SPACING_M = 0.9
@@ -266,7 +266,7 @@ def apply(doc: dict[str, Any], decision: DDecision, world: WorldContext, files: 
                     when["robot_within"] = round(offset + 1.0, 2)
                     notes.append(f"trigger widened to {when['robot_within']} m: the formation stands {offset:.1f} m off the route")
         elif "at" in when:
-            when["at"] = max(float(when["at"]), FORM_AT_S + 6.0)
+            when["at"] = max(float(when["at"]), FORM_AT_S + 3.0)
         if decision.break_kind == "scatter":
             effects.append({"type": "scatter", "label": label, "scope": ordered, "radius": decision.radius, "when": when})
         else:

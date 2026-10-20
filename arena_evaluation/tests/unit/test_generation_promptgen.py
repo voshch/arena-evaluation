@@ -184,7 +184,7 @@ def test_blackout_bakes_each_walkers_route_into_a_tree_tuned_at_the_onset(toy) -
     result = generate(_prompt("The lights go out and everyone slows down.", ["A:blackout"]), world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=True)
     assert result.record.status == "ok" and result.record.steps == ["A:blackout"]
     (stimulus,) = result.effects
-    assert stimulus == {"type": "stimulus", "label": "A:blackout", "scope": ["normal_1", "normal_2", "normal_3"], "need": "blackout", "when": {"at": 10.0}}
+    assert stimulus == {"type": "stimulus", "label": "A:blackout", "scope": ["normal_1", "normal_2", "normal_3"], "need": "blackout", "when": {"at": 5.0}}
     agents = {a["name"]: a for a in result.doc["dynamic"]}
     # pose, waypoints and spawn speed stay the base's; only the type changes, and only the final types are written
     assert all({k: v for k, v in agents[a["name"]].items() if k != "agent"} == {k: v for k, v in a.items() if k != "agent"} for a in doc["dynamic"])
@@ -229,7 +229,7 @@ def test_evacuation_switches_the_crowd_present_at_step_a(toy) -> None:
     result = generate(prompt, world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=True)
     assert result.record.status == "ok"
     stimulus, intercept = result.effects
-    assert stimulus == {"type": "stimulus", "label": "A:evacuation", "scope": ["normal_1", "normal_2", "normal_3"], "need": "alarm", "when": {"at": 8.0}}
+    assert stimulus == {"type": "stimulus", "label": "A:evacuation", "scope": ["normal_1", "normal_2", "normal_3"], "need": "alarm", "when": {"at": 4.0}}
     # Everyone hurries from the same moment, with the engine's speed cap lifted so the hurry is a run, to the exit.
     for agent in result.doc["dynamic"][:3]:
         evacuate = result.files.docs[agent["agent"]["agent_type"]]["sequences"]["evacuate"]
@@ -253,7 +253,7 @@ def test_evacuation_switches_talkers_and_walkers_by_one_stimulus(toy, tmp_path: 
     result = generate(_prompt("The fire alarm goes off and everyone heads for the exit.", ["A:evacuation"]), world=world, base_id="normal_a", base_doc=doc, base_dir=base, oracle=True)
     assert result.record.status == "ok"
     (stimulus,) = result.effects
-    assert stimulus == {"type": "stimulus", "label": "A:evacuation", "scope": ["normal_1", "normal_2", "normal_3", "talker_1", "talker_2"], "need": "alarm", "when": {"at": 8.0}}
+    assert stimulus == {"type": "stimulus", "label": "A:evacuation", "scope": ["normal_1", "normal_2", "normal_3", "talker_1", "talker_2"], "need": "alarm", "when": {"at": 4.0}}
     # each agent its own type and its own point in the exit zone
     refs = {a["name"]: a["agent"]["agent_type"] for a in result.doc["dynamic"]}
     ref = refs["talker_1"]
@@ -277,19 +277,20 @@ def test_evacuation_switches_talkers_and_walkers_by_one_stimulus(toy, tmp_path: 
 
 
 @pytest.mark.parametrize(
-    ("text", "targets", "oracle", "need", "tune"),
+    ("text", "targets", "oracle", "need", "tune", "scope"),
     [
-        ("The lights go out and everyone slows down.", ["A:blackout"], {}, "blackout", {"perception": {"vision_range": 2.0}, "desired_velocity": {"mul": pytest.approx(0.6 / 1.1, abs=0.01)}}),
-        ("Half the people here cannot see far.", ["B:intrinsic"], {"B": {"case": "intrinsic", "select": {"amount": "all"}, "params": {"vision_range": "low"}}}, "intrinsic", {"perception": {"vision_range": 2.0}}),
+        ("The lights go out and everyone slows down.", ["A:blackout"], {}, "blackout", {"perception": {"vision_range": 2.0}, "desired_velocity": {"mul": pytest.approx(0.6 / 1.1, abs=0.01)}}, ["normal_1", "normal_2", "normal_3", "talker_1", "talker_2"]),
+        # the talkers stand, so a tuned gaze would never show on them
+        ("Half the people here cannot see far.", ["B:intrinsic"], {"B": {"case": "intrinsic", "select": {"amount": "all"}, "params": {"vision_range": "low"}}}, "intrinsic", {"perception": {"vision_range": 2.0}}, ["normal_1", "normal_2", "normal_3"]),
     ],
 )
-def test_trees_hold_a_tune_while_the_need_is_up(toy, text: str, targets: list[str], oracle: dict, need: str, tune: dict) -> None:
+def test_trees_hold_a_tune_while_the_need_is_up(toy, text: str, targets: list[str], oracle: dict, need: str, tune: dict, scope: list[str]) -> None:
     worlds, doc, base, world = toy
     result = generate(_prompt(text, targets, **oracle), world=world, base_id="normal_a", base_doc=_with_talkers(doc, base), base_dir=base, oracle=True)
     assert result.record.status == "ok", result.record.failures
     (stimulus,) = result.effects
-    assert stimulus["scope"] == ["normal_1", "normal_2", "normal_3", "talker_1", "talker_2"] and stimulus["need"] == need
-    ref = next(a["agent"]["agent_type"] for a in result.doc["dynamic"] if a["name"] == "talker_1")
+    assert stimulus["scope"] == scope and stimulus["need"] == need
+    ref = next(a["agent"]["agent_type"] for a in result.doc["dynamic"] if a["name"] == scope[-1])
     tuned = result.files.docs[ref]
     assert tuned["needs"][need] == {"initial": 0.0, "decay_rate": 0.0}
     assert tuned["tunes"] == [{"when": {need: {"above": 50.0}}, "tune": tune}]
@@ -333,7 +334,7 @@ def test_blocking_line_spans_the_corridor(toy) -> None:
     # Until the onset they walk their own route from a room; at it a stimulus sends each to its spot, where it stands and stops yielding.
     assert all(isinstance(a["pose"], str) and a["waypoint_mode"] == "reverse" for a in members)
     (form,) = result.effects
-    assert form["type"] == "stimulus" and form["label"].endswith(":form") and form["need"] == "form" and form["when"] == {"at": 8.0}
+    assert form["type"] == "stimulus" and form["label"].endswith(":form") and form["need"] == "form" and form["when"] == {"at": 4.0}
     assert form["scope"] == sorted(a["name"] for a in members)
     types = [result.files.docs[a["agent"]["agent_type"]] for a in members]
     assert all(t["extends"] == profile("nurse").base and "walk" in t["sequences"] for t in types)
@@ -364,7 +365,7 @@ def test_formation_break_scatters_on_approach(toy) -> None:
     assert result.record.status == "ok", result.record.failures
     form, scatter = result.effects
     # They walk first, form the circle at 8 s, and break when the robot comes near the circle.
-    assert form["type"] == "rally" and form["when"] == {"at": 8.0} and len(form["targets"]) == 3
+    assert form["type"] == "rally" and form["when"] == {"at": 4.0} and len(form["targets"]) == 3
     assert scatter["type"] == "scatter" and scatter["when"]["robot_within"] >= 3.0 and len(scatter["scope"]) == 3
     centre = tuple(scatter["when"]["of"])
     assert centre == tuple(result.record.formation["centre"]) and world.zone_of(centre) == "reception"
@@ -388,10 +389,33 @@ def test_b_tunes_only_unowned_agents(toy) -> None:
     assert result.record.owned["B"] == ["normal_1"]
     elder = next(a for a in result.doc["dynamic"] if a["name"] == "normal_1")
     (stimulus,) = result.effects
-    assert stimulus == {"type": "stimulus", "label": "B:intrinsic", "scope": ["normal_1"], "need": "intrinsic", "when": {"at": 10.0}}
+    assert stimulus == {"type": "stimulus", "label": "B:intrinsic", "scope": ["normal_1"], "need": "intrinsic", "when": {"at": 5.0}}
     tuned = result.files.docs[elder["agent"]["agent_type"]]
     assert tuned["extends"] == "elder" and tuned["tunes"] == [{"when": {"intrinsic": {"above": 50.0}}, "tune": {"local_planner_params": {"relaxation_time": 1.0, "repulsion_strength": 0.5}}}]
     assert all(a["agent"]["agent_type"] in ("adult", "hurried") for a in result.doc["dynamic"] if a["name"] != "normal_1")
+
+
+def _one_stop(name: str, pose: list[float], stop: list[float]) -> dict:
+    return {"name": name, "model": "male_adult_medical_01", "pose": pose, "agent": {"agent_type": "adult", "desired_velocity": 1.1}, "waypoints": [stop]}
+
+
+def test_b_intrinsic_tunes_walkers_and_keeps_them_walking(toy) -> None:
+    worlds, doc, base, world = toy
+    crowd = {"robots": doc["robots"], "dynamic": [_one_stop("stander", [2.0, 2.0, 0.0], [2.0, 2.0, 0.0]), _one_stop("walker", [2.0, 6.0, 0.0], [6.0, 6.0, 0.0])]}
+    prompt = _prompt("Everybody here is rushing.", ["B:intrinsic"], B={"case": "intrinsic", "select": {"amount": "all"}, "params": {"speed": "high"}})
+    result = generate(prompt, world=world, base_id="normal_a", base_doc=crowd, base_dir=base, oracle=True)
+    assert result.record.owned["B"] == ["walker"]
+    walker = next(a for a in result.doc["dynamic"] if a["name"] == "walker")
+    steps = result.files.docs[walker["agent"]["agent_type"]]["sequences"]["walk"]["steps"]
+    assert [(s["target_pose"]["x"], s["target_pose"]["y"]) for s in steps.values()] == [(6.0, 6.0), (2.0, 6.0)]
+
+
+def test_b_intrinsic_on_a_crowd_that_only_stands_is_not_applicable(toy) -> None:
+    worlds, doc, base, world = toy
+    crowd = {"robots": doc["robots"], "dynamic": [_one_stop("stander", [2.0, 2.0, 0.0], [2.0, 2.0, 0.0])]}
+    prompt = _prompt("Everybody here is rushing.", ["B:intrinsic"], B={"case": "intrinsic", "select": {"amount": "all"}, "params": {"speed": "high"}})
+    result = generate(prompt, world=world, base_id="normal_a", base_doc=crowd, base_dir=base, oracle=True)
+    assert "B" not in result.record.owned and any("walking agents" in f.reason for f in result.record.failures)
 
 
 def test_an_untunable_parameter_holds_from_the_start(toy) -> None:
@@ -403,6 +427,28 @@ def test_an_untunable_parameter_holds_from_the_start(toy) -> None:
     elder = next(a for a in result.doc["dynamic"] if a["name"] == "normal_1")
     tuned = result.files.docs[elder["agent"]["agent_type"]]
     assert tuned["agent_radius"]["mean"] == 0.4 and tuned["tunes"][0]["tune"] == {"local_planner_params": {"relaxation_time": 1.0}}
+
+
+def _erratic(crowd: list[dict], world, base, **b) -> object:
+    prompt = _prompt("Some people wander about with no settled destination.", ["B:erratic_route"], B={"case": "erratic_route", "select": {"amount": "all"}, **b})
+    return generate(prompt, world=world, base_id="normal_a", base_doc={"robots": [ROBOT], "dynamic": crowd}, base_dir=base, oracle=True)
+
+
+def test_erratic_points_lie_beside_the_middle_of_the_route(toy) -> None:
+    worlds, doc, base, world = toy
+    result = _erratic(doc["dynamic"], world, base, radius=1.5)
+    for agent in result.doc["dynamic"]:
+        points = [(s["target_pose"]["x"], s["target_pose"]["y"]) for s in result.files.docs[agent["agent"]["agent_type"]]["sequences"]["erratic"]["steps"].values()]
+        assert all(world.route_clearance(p) <= 2.5 and 0.1 <= world.fraction_of(p) <= 0.9 for p in points), points
+
+
+def test_erratic_route_adds_wanderers_beside_a_route_too_few_are_near(toy) -> None:
+    worlds, doc, base, world = toy
+    result = _erratic([_one_stop("walker", [4.0, 6.0, 0.0], [6.0, 6.0, 0.0])], world, base)
+    assert result.record.owned["B"] == ["walker", "wander_1", "wander_2"]
+    wanderers = [a for a in result.doc["dynamic"] if a["name"].startswith("wander_")]
+    assert all(world.route_clearance(tuple(a["pose"][:2])) >= 1.5 for a in wanderers)
+    assert _erratic([_one_stop("walker", [4.0, 6.0, 0.0], [6.0, 6.0, 0.0])], world, base, around="home").record.owned["B"] == ["walker"]
 
 
 def test_erratic_route_is_a_tree_sequence_for_walkers_and_trees_alike(toy) -> None:

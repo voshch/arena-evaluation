@@ -18,9 +18,9 @@ _LEXICON = Path(__file__).with_name("lexicon.yaml")
 THRESHOLD = 1.0
 
 ONSETS: dict[str, When] = {
-    "blackout": When(at=10.0),
-    "evacuation": When(at=8.0),
-    "stampede": When(at=4.0),
+    "blackout": When(at=5.0),
+    "evacuation": When(at=4.0),
+    "stampede": When(at=2.0),
     "busy": When(at=0.0),
 }
 

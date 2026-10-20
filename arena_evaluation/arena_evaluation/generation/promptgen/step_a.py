@@ -3,6 +3,7 @@ HumanSim cannot change a running agent from outside, so every agent the change r
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -14,6 +15,8 @@ from .spec import ADecision
 from .world import WorldContext
 
 STAMPEDE_FLOOR = 6
+# a route that stays this close to its spawn is someone shifting on the spot
+WALK_MIN_M = 1.0
 
 _SPEED = {"low": TIERS["speed"][0] / TIERS["speed"][1], "high": TIERS["speed"][2] / TIERS["speed"][1]}
 # without the engine's speed cap lifted, 1.5x is a brisk walk
@@ -71,7 +74,30 @@ def walk_route(agent: Mapping[str, Any], world: WorldContext) -> list[tuple[floa
         stops = [stops[i] for i in order]
     elif mode == "reverse":
         stops = [*stops, *stops[-2:0:-1]]
+    elif mode == "repeat" and len(stops) == 1 and walks_from(agent):
+        # HumanSim stops a one-waypoint walker at its waypoint; walking back to the spawn keeps a tuned gait visible
+        stops = [stops[0], agent["pose"]]
     return [world.zone_sample(s, rng) if isinstance(s, str) else (float(s[0]), float(s[1])) for s in stops]
+
+
+def walks_from(agent: Mapping[str, Any]) -> bool:
+    """Whether a plain walker's waypoints take it away from its spawn; a zone counts when it is not the spawn zone."""
+    start = agent.get("pose")
+    for stop in agent.get("waypoints") or []:
+        if isinstance(stop, str) or isinstance(start, str):
+            if stop != start:
+                return True
+        elif math.dist((float(start[0]), float(start[1])), (float(stop[0]), float(stop[1]))) >= WALK_MIN_M:
+            return True
+    return False
+
+
+def walks(agent: Mapping[str, Any], files: TypeFiles) -> bool:
+    """Whether `agent` walks anywhere: a tree with a `go_to` step, or a plain walker leaving its spawn."""
+    base = files.base_doc(agent_type_of(agent))
+    if is_behaviour_tree(base):
+        return any(isinstance(step, Mapping) and step.get("kind") == "go_to" for seq in base["sequences"].values() for step in (seq.get("steps") or {}).values())
+    return walks_from(agent)
 
 
 def walk_as_tree(doc: dict[str, Any], files: TypeFiles, world: WorldContext, names: Sequence[str]) -> None:

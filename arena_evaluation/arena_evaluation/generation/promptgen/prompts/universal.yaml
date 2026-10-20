@@ -60,12 +60,12 @@
   scope: universal
   world: ''
   targets: ['B:erratic_route']
-  text: Some people wander about with no settled destination, after half a minute.
+  text: Some people wander about with no settled destination, after fifteen seconds.
   oracle:
     B:
       case: erratic_route
       select: {amount: half}
-      when: {at: 30}
+      when: {at: 15}
 - id: v_001
   scope: universal
   world: ''
@@ -102,7 +102,7 @@
   scope: universal
   world: ''
   targets: ['A:evacuation']
-  text: The fire alarm goes off and everyone heads for the exit, after half a minute.
+  text: The fire alarm goes off and everyone heads for the exit, after fifteen seconds.
   oracle:
     A: {case: evacuation}
 - id: v_014
@@ -116,9 +116,9 @@
   scope: universal
   world: ''
   targets: ['A:stampede', 'D:formation_break', 'B:erratic_route', 'C:blocking']
-  text: 'A shift change: everyone surges back to their posts, nobody yields, twenty
+  text: 'A shift change: everyone surges back to their posts, nobody yields, ten
     seconds in. A doctor and two visitors are queuing further down the robot''s route
-    and the queue breaks up after half a minute, everyone walking off. Some people
+    and the queue breaks up after fifteen seconds, everyone walking off. Some people
     wander about with no settled destination, from the start. An old man shuffles
     along slowly right in the robot''s way, right in front of the robot.'
   oracle:
@@ -129,7 +129,7 @@
       break: disperse
       members: [doctor, adult, adult]
       place: {route_fraction: 0.7}
-      when: {at: 30}
+      when: {at: 15}
     B:
       case: erratic_route
       select: {amount: half}

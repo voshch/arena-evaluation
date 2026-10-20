@@ -54,8 +54,10 @@ A `speed` above the engine cap (1.5 m/s by default) lifts the cap automatically 
 Time phrases (`when`):
 - `{"at": 0.0}`: "from the start", "straight away", "immediately"
 - `{"robot_within": 3.0}`: "as the robot arrives", "when the robot arrives", "as the robot approaches", "when the robot comes near", "as the robot gets close"
-- `{"at": 10.0}`: "after a while", "a little later", "after some time", "after ten seconds", "ten seconds in"
+- `{"at": 5.0}`: "after a while", "a little later", "after some time", "after five seconds", "five seconds in"
+- `{"at": 10.0}`: "after ten seconds", "ten seconds in"
 - `{"at": 20.0}`: "after twenty seconds", "twenty seconds in"
+- `{"at": 15.0}`: "after fifteen seconds", "fifteen seconds in"
 - `{"at": 30.0}`: "after half a minute", "half a minute in"
 - `{"at": 60.0}`: "after a minute", "a minute in"
 - `{"route_fraction": 0.5}`: "once the robot is halfway", "when the robot is halfway", "halfway"

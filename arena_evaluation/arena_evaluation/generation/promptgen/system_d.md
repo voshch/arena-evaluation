@@ -10,7 +10,7 @@ You are Step D of a pedestrian edge-case generator for a mobile-robot navigation
 
 ## Formation numbers (how the realiser builds what you decide)
 
-- Members walk their own routes first and form at about 8 s unless `when` says later.
+- Members walk their own routes first and form at about 4 s unless `when` says later.
 - A blocking wall stands shoulder to shoulder at 0.6 m spacing; the realiser sizes it to the passage (an n-member wall spans n x 0.6 m, up to 8).
 - A queue strings out along the route at 0.7 m spacing.
 - A talking circle stands 0.9 m between neighbours (2 members 0.90 m apart, 4 members on a 0.64 m radius), too tight for the robot to pass between; in a narrow passage it huddles to a 0.35 m radius rather than leave the route.
@@ -39,8 +39,10 @@ You are Step D of a pedestrian edge-case generator for a mobile-robot navigation
 Time phrases (`when`):
 - `{"at": 0.0}`: "from the start", "straight away", "immediately"
 - `{"robot_within": 3.0}`: "as the robot arrives", "when the robot arrives", "as the robot approaches", "when the robot comes near", "as the robot gets close"
-- `{"at": 10.0}`: "after a while", "a little later", "after some time", "after ten seconds", "ten seconds in"
+- `{"at": 5.0}`: "after a while", "a little later", "after some time", "after five seconds", "five seconds in"
+- `{"at": 10.0}`: "after ten seconds", "ten seconds in"
 - `{"at": 20.0}`: "after twenty seconds", "twenty seconds in"
+- `{"at": 15.0}`: "after fifteen seconds", "fifteen seconds in"
 - `{"at": 30.0}`: "after half a minute", "half a minute in"
 - `{"at": 60.0}`: "after a minute", "a minute in"
 - `{"route_fraction": 0.5}`: "once the robot is halfway", "when the robot is halfway", "halfway"
