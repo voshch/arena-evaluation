@@ -512,6 +512,34 @@ def test_shipped_landmarks_suite_and_contest_parse():
     assert {c.parts["camera"] for c in contest.contestants if c.args["mobile"].get("config.variant") == "uninavid"} == {"vln_uninavid"}
 
 
+@pytest.mark.parametrize(("contest", "planners"), [("edge_case_differential", {"cadrl", "her-drl", "sicnav"}), ("edge_case_omnidirectional", {"rlrvo", "kdma", "navistar", "cd-sarl"})])
+def test_shipped_edge_case_contests_parse(contest, planners):
+    import pathlib
+
+    import yaml
+
+    from arena_evaluation.benchmark.config import Contest
+
+    path = pathlib.Path(__file__).parents[1] / "configs" / "benchmark" / "contests" / f"{contest}.yaml"
+    parsed = Contest.parse(contest, yaml.safe_load(path.read_text()))
+    assert parsed.contestants[0].name == "nav2" and parsed.contestants[0].args["mobile"]["driver"] == "nav2"
+    assert {c.args["mobile"]["planner"] for c in parsed.contestants[1:]} == planners
+    assert all(c.args["mobile"]["driver"] == "drl" and c.args["mobile"]["rate"] == 10 for c in parsed.contestants[1:])
+
+
+def test_a_generated_edge_case_suite_parses():
+    from arena_simulation_setup.generative.scenario.suite import build
+
+    from arena_evaluation.benchmark.config import Suite
+
+    suite = Suite.parse("edge", build({"hospital_1": ["normal__u_001", "normal__u_002"]}, robot="jackal", episodes=3, seed=7, timeout="2m"))
+    assert [stage.name for stage in suite.stages] == ["hospital_1.normal__u_001", "hospital_1.normal__u_002"]
+    assert all(stage.map == "hospital_1" and stage.robot == "jackal" and stage.episodes == 3 and stage.seed == 7 for stage in suite.stages)
+    assert {(stage.tm_robots.value, stage.tm_obstacles.value) for stage in suite.stages} == {("scenario", "scenario")}
+    assert [stage.config["scenario"]["file"] for stage in suite.stages] == ["normal__u_001", "normal__u_002"]
+    assert suite.stages[0].timeout == 120.0 and suite.launch_args == {"human": "arena"}
+
+
 def test_contest_parse_list_parts_stay_out_of_args():
     from arena_evaluation.benchmark.config import Contest
 

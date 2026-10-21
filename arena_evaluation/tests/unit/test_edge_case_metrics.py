@@ -19,6 +19,7 @@ from arena_evaluation.processing.metrics.edge_case.criticality import (
     score,
     time_to_collision,
 )
+from arena_evaluation.processing.metrics.edge_case.provenance import world_view
 from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
     EdgeCaseCriticalityCalculator,
     EdgeCaseFormationCalculator,
@@ -26,7 +27,11 @@ from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
 )
 from arena_evaluation.processing.mcap_reader import MCAPReader
 from arena_evaluation.processing.metrics.registry import MetricRegistry
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams, RunMetadata
+from arena_evaluation.processing.parquet_store import TopicParquetStore
+from arena_evaluation.processing.pipeline import ProcessingPipeline
+from arena_evaluation.storage.folder_manager import FolderManager
+from arena_evaluation.storage.manifest import MetadataWriter
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, EpisodeDescriptor, RobotParams, RunMetadata, TopicBundle
 
 SEC = 1_000_000_000
 ROBOT_RADIUS = 0.3
@@ -200,7 +205,8 @@ def test_no_samples_at_all_is_empty_not_zero() -> None:
 
 def test_measured_ttc_follows_the_robot_not_a_design() -> None:
     closing = [Sample(t=float(i), robot=(float(i), 0.0), robot_vel=(1.0, 0.0), peds={"edge_0": ((10.0, 0.0), (0.0, 0.0), 0.3)}) for i in range(4)]
-    assert score(closing, only=["edge_0"]).min_ttc_s is not None
+    out = score(closing, only=["edge_0"])
+    assert (out.min_ttc_s, out.min_ttc_with, out.min_ttc_at) == (pytest.approx(6.4), "edge_0", pytest.approx(3.0))
     frozen = [Sample(t=float(i), robot=(0.0, 0.0), robot_vel=(0.0, 0.0), peds={"edge_0": ((10.0, 0.0), (0.0, 0.0), 0.3)}) for i in range(4)]
     assert score(frozen, only=["edge_0"]).min_ttc_s is None
 
@@ -292,8 +298,8 @@ def _run(world: str, *, tm_obstacles: str = "scenario", tm_robots: str = "random
     )
 
 
-def _episode(run_dir: pathlib.Path, world: str, run: RunMetadata, peds: dict[str, list[tuple[float, float]]], *, seconds: int = 10) -> AlignedEpisodeBundle:
-    """The robot drives along y = 0 at 1 m/s, each pedestrian follows its per-second track, all at 10 Hz."""
+def _episode(run_dir: pathlib.Path, world: str, run: RunMetadata, peds: dict[str, list[tuple[float, float]]], *, seconds: int = 10, twists: dict[str, tuple[float, float]] | None = None) -> AlignedEpisodeBundle:
+    """The robot drives along y = 0 at 1 m/s, each pedestrian on its per-second track at its `twists` velocity, at 10 Hz."""
     times = [i * SEC // 10 for i in range(seconds * 10 + 1)]
     xs = [t / SEC for t in times]
     tf_gt = pl.DataFrame({"time_ns": times, "pos_x_gt": xs, "pos_y_gt": [0.0] * len(times), "yaw_gt": [0.0] * len(times)})
@@ -307,7 +313,7 @@ def _episode(run_dir: pathlib.Path, world: str, run: RunMetadata, peds: dict[str
             "time_ns": times,
             "peds_names": [[f"env_0/{name}" for name in names]] * len(times),
             "peds_positions": positions,
-            "peds_twists": [[0.0] * (3 * len(names))] * len(times),
+            "peds_twists": [[v for name in names for v in (*(twists or {}).get(name, (0.0, 0.0)), 0.0)]] * len(times),
             "num_pedestrians": [len(names)] * len(times),
         }
     )
@@ -379,7 +385,7 @@ def test_a_robot_running_into_its_intercept_collides_with_it(tmp_path: pathlib.P
     assert out["edge_case_missing"] == ["d_1", "d_2"]
     assert out["edge_case_collided"] is True and out["edge_case_collision_with"] == "edge_0" and out["edge_case_collision_fault"] == "robot"
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
-    assert out["edge_case_min_ttc_s"] is not None
+    assert out["edge_case_min_ttc_s"] == pytest.approx(0.0) and out["edge_case_min_ttc_with"] == "edge_0"
     assert out["edge_case_played"] is None and out["edge_case_unplayed"] is None and out["edge_case_triggered_at"] is None
 
 
@@ -562,3 +568,93 @@ def test_the_formation_forms_from_its_recorded_form_stimulus(tmp_path: pathlib.P
     assert out["edge_case_formation_formed_at"] == pytest.approx(3.0)
     assert out["edge_case_formation_form_fired_at"] == pytest.approx(3.0)
     assert out["edge_case_formation_break_fired_at"] == pytest.approx(6.0)
+
+
+def test_the_ttc_follows_a_moving_pedestrians_twist(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    ahead = [(7.0 + 0.5 * k, 0.0) for k in range(11)]
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": ahead}, twists={"edge_0": (0.5, 0.0)}), {})
+    assert out["edge_case_collided"] is False
+    assert (out["edge_case_min_ttc_s"], out["edge_case_min_ttc_with"], out["edge_case_min_ttc_at"]) == (pytest.approx(2.0), "edge_0", pytest.approx(9.9))
+
+
+def test_a_pedestrian_walking_into_the_passing_robot_is_at_fault(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    crossing = [(5.0, 3.0 - 0.5 * k) for k in range(11)]
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": crossing}, twists={"edge_0": (0.0, -0.5)}), {})
+    assert (out["edge_case_collided"], out["edge_case_collision_fault"], out["edge_case_collision_at"]) == (True, "pedestrian", pytest.approx(5.0))
+
+
+def test_a_head_on_contact_is_mutual_and_without_twists_the_robots(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    oncoming = [(8.0 - 0.5 * k, 0.0) for k in range(11)]
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": oncoming}, twists={"edge_0": (-0.5, 0.0)})
+    out = criticality.calculate(episode, {})
+    assert (out["edge_case_collision_fault"], out["edge_case_collision_at"]) == ("mutual", pytest.approx(5.0))
+    episode.topics["peds"] = episode.topics["peds"].drop("peds_twists")
+    assert criticality.calculate(episode, {})["edge_case_collision_fault"] == "robot"
+
+
+def test_a_single_robot_pose_is_not_scored(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    episode.topics["tf_gt"] = episode.topics["tf_gt"].head(1)
+    out = criticality.calculate(episode, {})
+    assert out["edge_case_id"] == "hospital_1__u_007" and out["edge_case_scope"] == "all"
+    assert out["edge_case_min_clearance_m"] is None and out["edge_case_freeze_s"] is None
+
+
+def test_a_world_that_resolves_nowhere_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = f"edge_case_unknown_{tmp_path.name}"
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    assert world_view(world, tmp_path) is None
+    assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
+
+
+def test_an_episode_without_a_map_falls_back_to_the_calculator_world(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    episode.map = None
+    assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
+    criticality.world = world
+    assert criticality.calculate(episode, {})["edge_case_id"] == "hospital_1__u_007"
+
+
+def _registry_run(episode: AlignedEpisodeBundle, *, topics: set[str], pedsim: bool = True) -> dict:
+    return MetricRegistry(RobotParams(robot_radius=ROBOT_RADIUS), world=episode.map).run(episode, available_topics=topics, pedsim_available=pedsim)
+
+
+def test_the_registry_gates_both_calculators_on_their_topics_and_pedsim(tmp_path: pathlib.Path) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)], "d_1": _standing(5.0, 3.0), "d_2": _standing(5.5, 3.0)})
+    out = _registry_run(episode, topics={"tf_gt", "peds"})
+    assert out["edge_case_id"] == "hospital_1__u_007" and out["edge_case_collided"] is True
+    assert out["edge_case_formation_formed_at"] == pytest.approx(0.0)
+    keys = [*EdgeCaseCriticalityCalculator.output_keys(), *EdgeCaseFormationCalculator.output_keys()]
+    for gated in (_registry_run(episode, topics={"tf_gt"}), _registry_run(episode, topics={"peds"}), _registry_run(episode, topics={"tf_gt", "peds"}, pedsim=False)):
+        assert all(gated[key] is None for key in keys)
+
+
+def test_a_malformed_encounter_leaves_the_case_unscored(tmp_path: pathlib.Path) -> None:
+    world = _world(tmp_path, provenance=CASE.replace("[{agent: edge_0, point: [6.0, 0.0]}]", "[{agent: edge_0}]"))
+    out = _registry_run(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), topics={"tf_gt", "peds"})
+    assert all(out[key] is None for key in [*EdgeCaseCriticalityCalculator.output_keys(), *EdgeCaseFormationCalculator.output_keys()])
+
+
+def test_the_pipeline_scores_a_recorded_case_against_its_run_snapshot(tmp_path: pathlib.Path) -> None:
+    run_dir = tmp_path / "run"
+    world = _world(run_dir, provenance=CASE)
+    episode_dir = run_dir / "episodes" / "episode_000"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "episode_000.mcap").touch()
+    MetadataWriter.write(_run(world).model_copy(update={"pedsim_available": True}), episode_dir / "episode_000.yaml")
+    recorded = _episode(run_dir, world, _run(world), {"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]})
+    times = recorded.topics["tf_gt"]["time_ns"]
+    odom = pl.DataFrame({"time_ns": times, "stamp_ns": times, "pos_x": recorded.topics["tf_gt"]["pos_x_gt"], "pos_y": [0.0] * len(times), "yaw": [0.0] * len(times), "vel_linear": [1.0] * len(times), "vel_angular": [0.0] * len(times)})
+    record = pl.DataFrame({"time_ns": [0, 10 * SEC], "episode_id": [1, 1], "outcome_state": [1, 2], "outcome_info": ["", "finished"]})
+    TopicParquetStore.write({"env_0_jackal_0": TopicBundle(odom=odom, tf_gt=recorded.topics["tf_gt"], peds=recorded.topics["peds"], episode_record=record)}, episode_dir / "topics")
+    descriptor = EpisodeDescriptor(episode_dir=str(episode_dir), benchmark_id="run", episode_id=0, planner="nav2", stage="case", map=world)
+    rows = ProcessingPipeline(FolderManager(data_root=tmp_path), workers=1).process_episode(descriptor)
+    assert [row["edge_case_id"] for row in rows] == ["hospital_1__u_007"]
+    assert rows[0]["edge_case_collided"] is True and rows[0]["edge_case_collision_with"] == "edge_0"
+    assert rows[0]["edge_case_pet_s"] == pytest.approx(3.0)
