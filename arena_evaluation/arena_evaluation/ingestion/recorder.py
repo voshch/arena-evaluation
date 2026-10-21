@@ -499,7 +499,7 @@ class DataRecorderNode(Node):
             if key == "episode_record":
                 qos_profile = QoSProfile(
                     reliability=QoSReliabilityPolicy.RELIABLE,
-                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    durability=QoSDurabilityPolicy.VOLATILE,
                     depth=1,
                 )
                 callback = self.episode_record_callback

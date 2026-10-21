@@ -734,6 +734,12 @@ def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_no
         assert by_topic[topic].raw is True
 
 
+def test_setup_subscriptions_episode_records_arrive_live_only(full_node: DataRecorderNode) -> None:
+    by_topic = {sub.topic: sub for sub in full_node.subs}
+    assert by_topic["/state/episode"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    assert by_topic["/state/episode"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+
+
 def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) -> None:
     by_topic = {sub.topic: sub for sub in full_node.subs}
     assert by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE

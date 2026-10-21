@@ -44,7 +44,9 @@ ros2 run arena_evaluation record \
 
 An episode opens on the first `RUNNING` `EpisodeRecord` of an episode id or on a START call of the
 `start_episode` service, whichever arrives first, so a recording begins when the reset is over.
-`QUEUED` records, which the task generator publishes during the reset, open nothing. A STOP call
+`QUEUED` records, which the task generator publishes during the reset, open nothing. The recorder
+subscribes to `state/episode` volatile, so the records the task generator keeps for late joiners,
+episodes that are already over, never reach it. A STOP call
 closes the episode and moves its MCAP to `episode_XXX/episode_XXX.mcap`.
 
 Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XXX.yaml`, the
