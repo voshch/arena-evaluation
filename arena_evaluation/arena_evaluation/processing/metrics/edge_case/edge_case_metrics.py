@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import typing
+from collections.abc import Mapping
 
 import numpy as np
 import polars as pl
@@ -35,8 +36,8 @@ def episode_provenance(episode: AlignedEpisodeBundle, world: str | None) -> Prov
     return load_provenance(world, scenario)
 
 
-def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> list[Sample]:
-    """The robot on a SAMPLE_HZ grid with the pedestrians of the latest peds message at most 0.1 s old, keyed by scenario name."""
+def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle, radii: Mapping[str, float]) -> list[Sample]:
+    """The robot on a SAMPLE_HZ grid with the pedestrians of a peds message at most 0.1 s old, by scenario name and `radii`."""
     pos_x, pos_y, _yaw, time_ns = calc.resolve_native_pose(episode)
     if len(time_ns) < 2:
         return []
@@ -61,7 +62,8 @@ def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -
             for k, name in enumerate(names):
                 p = (float(positions[k * stride]), float(positions[k * stride + 1]))
                 v = (float(velocities[k * v_stride]), float(velocities[k * v_stride + 1])) if v_stride >= 2 else (0.0, 0.0)
-                rows[i][agent_name(str(name))] = (p, v, PED_RADIUS)
+                bare = agent_name(str(name))
+                rows[i][bare] = (p, v, radii.get(bare, PED_RADIUS))
     radius = calc.robot_params.robot_radius
     return [Sample(t=float(t) / 1e9, robot=(float(x), float(y)), robot_vel=(float(u), float(w)), robot_radius=radius, peds=rows[i]) for i, (t, x, y, u, w) in enumerate(zip(grid, rx, ry, vx, vy, strict=True))]
 
@@ -120,7 +122,7 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         provenance = episode_provenance(episode, self.world)
         if provenance is None:
             return results
-        samples = episode_samples(self, episode)
+        samples = episode_samples(self, episode, provenance.radii)
         recorded = {name for s in samples for name in s.peds}
         seen = [name for name in provenance.agents if name in recorded]
         results["edge_case_id"] = provenance.id
@@ -190,7 +192,7 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         if provenance is None or provenance.formation is None or not members:
             return results
         formation = provenance.formation
-        hold = formation_hold(episode_samples(self, episode), members, radius=formation.radius, center=formation.center)
+        hold = formation_hold(episode_samples(self, episode, provenance.radii), members, radius=formation.radius, center=formation.center)
         results["edge_case_formation_variant"] = formation.variant or None
         results["edge_case_formation_members"] = list(hold.members)
         results["edge_case_formation_absent"] = list(hold.absent)

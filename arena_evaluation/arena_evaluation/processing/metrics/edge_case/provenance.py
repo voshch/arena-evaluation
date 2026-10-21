@@ -45,6 +45,7 @@ class Provenance:
     formation: Formation | None
     encounters: tuple[Encounter, ...] = ()
     hold_s: float = 0.0
+    radii: dict[str, float] = attrs.Factory(dict)
 
     @property
     def agents(self) -> list[str]:
@@ -67,6 +68,16 @@ def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) 
     encounters = tuple(Encounter(agent=str(e["agent"]), point=(float(e["point"][0]) + origin[0], float(e["point"][1]) + origin[1])) for e in raw.get("encounters") or ())
     hold_s = float((raw.get("robot") or {}).get("hold_s") or 0.0)
     return Provenance(id=str(raw.get("id", "")), steps=tuple(str(s) for s in raw.get("steps") or ()), owned=owned, formation=formation, encounters=encounters, hold_s=hold_s)
+
+
+def human_radii(scenario: Mapping[str, typing.Any]) -> dict[str, float]:
+    """The radius each scenario humans entry pins in its agent block, by entry name."""
+    radii: dict[str, float] = {}
+    for human in scenario.get("humans") or ():
+        agent = human.get("agent")
+        if isinstance(agent, Mapping) and agent.get("radius") is not None and human.get("name") is not None:
+            radii[str(human["name"])] = float(agent["radius"])
+    return radii
 
 
 def scenario_name(run: RunMetadata | None) -> str | None:
@@ -121,6 +132,7 @@ def load_provenance(world: str, scenario: str) -> Provenance | None:
             path = Path(scenario_view.path) / PROVENANCE_FILE
             if path.is_file():
                 raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-                result = parse_provenance(raw, _level_origin(view, scenario_view.read()))
+                scenario_doc = scenario_view.read()
+                result = attrs.evolve(parse_provenance(raw, _level_origin(view, scenario_doc)), radii=human_radii(scenario_doc))
     _provenance_cache[key] = result
     return result

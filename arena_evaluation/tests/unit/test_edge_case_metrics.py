@@ -259,13 +259,13 @@ def test_both_calculators_are_registered() -> None:
     assert {"edge_case_criticality", "edge_case_formation"} <= set(MetricRegistry(RobotParams()).calculators)
 
 
-def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str | None = None, robot_level: str | None = None) -> str:
+def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str | None = None, robot_level: str | None = None, humans: str = "") -> str:
     """A world under `root` with one scenario `case`, registered under a name unique to the test."""
     (root / "world.yaml").write_text(world_yaml)
     scenario = root / "scenarios" / "case"
     scenario.mkdir(parents=True)
     robots = f"robots:\n- {{start: [1.0, 0.0], level: '{robot_level}'}}\n" if robot_level else "robots: []\n"
-    (scenario / "scenario.yaml").write_text("format: arena-scenario/2\n" + robots)
+    (scenario / "scenario.yaml").write_text("format: arena-scenario/2\n" + robots + humans)
     if provenance is not None:
         (scenario / "provenance.yaml").write_text(provenance)
     name = f"edge_case_{root.name}"
@@ -394,6 +394,16 @@ def test_a_robot_that_stops_short_of_the_case_freezes(tmp_path: pathlib.Path, cr
     episode.topics["tf_gt"] = tf_gt.with_columns(pl.col("pos_x_gt").clip(upper_bound=4.0))
     out = criticality.calculate(episode, {})
     assert out["edge_case_freeze_s"] == pytest.approx(6.0, abs=0.15)
+
+
+def test_each_agent_counts_with_the_radius_its_scenario_entry_pins(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    humans = "humans:\n- {name: edge_0, model: adult, agent: {agent_type: adult, radius: 0.5}}\n- {name: d_1, model: adult, agent: adult}\n"
+    world = _world(tmp_path, provenance=CASE, humans=humans)
+    out = criticality.calculate(_episode(world, _run(world), {"edge_0": _standing(6.0, 2.0), "d_1": _standing(3.0, 1.5)}), {})
+    assert out["edge_case_min_clearance_with"] == "d_1"
+    assert out["edge_case_min_clearance_m"] == pytest.approx(1.5 - ROBOT_RADIUS - 0.3)
+    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 2.0)})
+    assert criticality.calculate(episode, {})["edge_case_min_clearance_m"] == pytest.approx(2.0 - ROBOT_RADIUS - 0.5)
 
 
 def test_a_peds_stream_that_stops_early_is_not_held_past_its_last_message(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
