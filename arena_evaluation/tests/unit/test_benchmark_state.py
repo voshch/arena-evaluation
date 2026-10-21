@@ -647,7 +647,7 @@ def test_dedupe_empty_file_noop(tmp_path: pathlib.Path):
     path = tmp_path / "progress.csv"
     path.write_text("")
     log = ProgressLog(path)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
     assert path.read_text().strip() == ",".join(_HEADERS)
 
@@ -656,7 +656,7 @@ def test_dedupe_comment_only_noop(tmp_path: pathlib.Path):
     path = tmp_path / "progress.csv"
     path.write_text("# only a comment\n")
     log = ProgressLog(path)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
     assert path.read_text() == "# only a comment\n"
 
@@ -675,7 +675,7 @@ def test_dedupe_keeps_latest_ts_and_sorts(tmp_path: pathlib.Path):
         ],
     )
     log = ProgressLog(path)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
     with path.open(newline="") as fh:
         rows = list(csv.DictReader(fh))

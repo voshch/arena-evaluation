@@ -154,6 +154,15 @@ def compromised_table(results: typing.Mapping[str, StepResult], step_map: typing
     return format_table(("contestant", "compromised", "episodes"), table)
 
 
+def step_status(episodes_run: int, episodes_total: int) -> typing.Literal["ok", "partial", "failed"]:
+    """How completely a step recorded its episodes, whatever their outcomes."""
+    if episodes_run == 0:
+        return "failed"
+    if episodes_run < episodes_total:
+        return "partial"
+    return "ok"
+
+
 def cell_verdict(result: StepResult) -> str:
     """Efficacy classification for one cell: wedged (never finished), weak (finished but drove badly), or ok."""
     if result.error_kind is not None or result.episodes_run < result.episodes_total:
@@ -1249,20 +1258,17 @@ class BenchmarkRunner(ArenaMixinNode):
                         what=f"run_episode goal on env {env_id}",
                     )
                 except TimeoutError:
-                    episodes_failed += 1
                     _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} send_goal timed out after 15s; abandoning env")
                     return _result("failed", StepErrorKind.ENV_SETUP, f"send_goal timed out after 15s on env {env_id}")
                 except (_SimDied, _EnvDied, asyncio.CancelledError):
                     raise
                 except Exception as exc:
-                    episodes_failed += 1
                     _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} goal rejected ({exc}); env action server is wedged, abandoning env")
                     return _result("failed", StepErrorKind.ENV_SETUP, f"run_episode goal rejected: {exc}")
 
                 try:
                     result_obj = await self._await_episode_result(ac, goal_handle, env_id)
                 except _SimStalled:
-                    episodes_failed += 1
                     stalled = True
                     _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} SIM STALLED for {_SIM_STALL_S:.0f}s; cancelling and advancing")
                     try:
@@ -1297,8 +1303,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 recs = self._episode_records.get(env_id, {})
                 rec = recs.get(episode_id)
                 if rec is None:
-                    episodes_failed += 1
-                    _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} no EpisodeRecord for episode_id={episode_id}; counted as failed")
+                    _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} no EpisodeRecord for episode_id={episode_id}; counted as lost")
                     _fold_window()
                     continue
 
@@ -1375,14 +1380,7 @@ class BenchmarkRunner(ArenaMixinNode):
             _log.exception(f"{step.key} env={env_id} unexpected error mid-step after run={episodes_run}, failed={episodes_failed}")
             return _result("failed", StepErrorKind.INTERNAL, repr(exc))
 
-        if episodes_run == 0:
-            status = "failed"
-        elif episodes_failed == 0:
-            status = "ok"
-        elif episodes_failed < episodes_run:
-            status = "partial"
-        else:
-            status = "failed"
+        status = step_status(episodes_run, step.episodes)
 
         if stalled and status != "ok":
             return _result(status, StepErrorKind.EPISODE_TIMEOUT, f"sim stalled {_SIM_STALL_S:.0f}s")
@@ -2119,7 +2117,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 await asyncio.gather(*in_flight, return_exceptions=True)
                 raise
             finally:
-                self._run_dir.progress.dedupe_in_place()
+                self._run_dir.progress.dedupe_in_place({key: result.started_at for key, result in results.items()})
                 self._publish_state(results, steps_total)
 
         rows = [(step_map[k].contestant.name if k in step_map else k, step_map[k].stage.name if k in step_map else "", r.lockstep) for k, r in results.items() if r.lockstep is not None and r.lockstep.active]

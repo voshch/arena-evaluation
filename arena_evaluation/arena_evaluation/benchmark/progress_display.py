@@ -161,11 +161,11 @@ class BenchmarkProgressDisplay:
             if status == "ok":
                 self.ok_steps += 1
                 icon = "[bold green]✔[/bold green]"
-                status_colored = f"[green]ok ({episodes_run}/{episodes_total} eps)[/green]"
+                status_colored = f"[green]ok ({episodes_run}/{episodes_total} eps, {episodes_failed} failed)[/green]"
             elif status == "partial":
                 self.partial_steps += 1
                 icon = "[bold yellow]⚠[/bold yellow]"
-                status_colored = f"[yellow]partial ({episodes_run - episodes_failed}/{episodes_total} eps ok)[/yellow]"
+                status_colored = f"[yellow]partial ({episodes_run}/{episodes_total} eps recorded)[/yellow]"
             elif status == "skipped":
                 self.skipped_steps += 1
                 icon = "[dim]⊘[/dim]"
@@ -173,7 +173,7 @@ class BenchmarkProgressDisplay:
             else:
                 self.failed_steps += 1
                 icon = "[bold red]✘[/bold red]"
-                status_colored = f"[red]failed ({episodes_failed}/{episodes_total} eps failed)[/red]"
+                status_colored = f"[red]failed ({episodes_run}/{episodes_total} eps recorded)[/red]"
 
             timing = f"in {elapsed_sec:.1f}s wall" + (f", {sim_sec:.1f}s sim" if sim_sec is not None else "")
             line = f"{icon} [{self.completed_steps:2d}/{self.total_steps:2d}] [bold]{contestant}[/bold] • [cyan]{stage}[/cyan] [{status_colored}] {timing}"
