@@ -490,6 +490,17 @@ def test_the_encounter_point_moves_with_the_robot_level_into_the_map_frame(tmp_p
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
 
 
+def test_a_level_filtered_snapshot_shifts_by_the_level_origins_the_runtime_stored(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
+    ox, oy = 40.0, -3.0
+    (tmp_path / "worlds" / world / "level_origins.yaml").write_text(f"'0': [0.0, 0.0]\n'1': [{ox}, {oy}]\n")
+    filtered = world + "[1]"
+    episode = _episode(tmp_path, filtered, _run(filtered), {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8})
+    shifted = {"tf_gt": episode.topics["tf_gt"].with_columns(pl.col("pos_x_gt") + ox, pl.col("pos_y_gt") + oy), "peds": episode.topics["peds"]}
+    out = criticality.calculate(AlignedEpisodeBundle(episode_id=1, data=episode.data, start_pos=[], goal_pos=[], map=filtered, run=episode.run, topics=shifted, run_dir=tmp_path), {})
+    assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
+
+
 @pytest.mark.parametrize("suffix", ["[0]", "[0,1]"])
 def test_a_level_filtered_world_reads_the_snapshot_of_its_bare_name(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, suffix: str) -> None:
     world = _world(tmp_path, provenance=CASE)

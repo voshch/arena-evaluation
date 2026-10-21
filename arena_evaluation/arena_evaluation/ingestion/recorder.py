@@ -1062,8 +1062,9 @@ class DataRecorderNode(Node):
         if (directory / "world.yaml").exists():
             return
         try:
-            world = WorldIdentifier(name).resolve_sync().load(validate=False, level_filter=level_filter, derive=self.kg_derive)
-            save_snapshot(world, directory, self.world_lighting)
+            view = WorldIdentifier(name).resolve_sync()
+            world = view.load(validate=False, level_filter=level_filter, derive=self.kg_derive)
+            save_snapshot(world, directory, self.world_lighting, level_origins=view.level_origins())
             self._log_info(f"Wrote world snapshot: {directory}")
         except Exception as e:
             self._log_error(f"Failed to write the world snapshot of {name}: {e}")

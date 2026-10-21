@@ -112,19 +112,6 @@ def world_view(world: str, run_dir: Path | None = None) -> WorldView | None:
         return None
 
 
-def _frame_view(world: str, view: WorldView) -> WorldView:
-    """The world whose level origins the runtime used: the full world under a level filter, which a filtered snapshot lacks."""
-    from arena_simulation_setup.tree.World import WorldIdentifier
-
-    name, level_filter = WorldIdentifier.split_filter(world)
-    if level_filter is None:
-        return view
-    try:
-        return WorldIdentifier(name).resolve_sync()
-    except FileNotFoundError:
-        return view
-
-
 def _level_origin(view: WorldView, scenario: Mapping[str, typing.Any]) -> Point:
     origins = view.level_origins()
     if not origins:
@@ -146,11 +133,10 @@ def _read_provenance(world: str, scenario: str, run_dir: Path | None) -> tuple[l
     path = Path(scenario_view.path) / PROVENANCE
     if not path.is_file():
         return [path], None
-    frame = _frame_view(world, view)
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     scenario_doc = scenario_view.read()
-    provenance = attrs.evolve(parse_provenance(raw, _level_origin(frame, scenario_doc)), radii=human_radii(scenario_doc))
-    return [path, Path(scenario_view.scenario_path), frame.world_path], provenance
+    provenance = attrs.evolve(parse_provenance(raw, _level_origin(view, scenario_doc)), radii=human_radii(scenario_doc))
+    return [path, Path(scenario_view.scenario_path), view.world_path], provenance
 
 
 def load_provenance(world: str, scenario: str, run_dir: Path | None = None) -> Provenance | None:
