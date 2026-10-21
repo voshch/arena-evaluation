@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Sequence
-from typing import Any
 
 import attrs
 
@@ -186,38 +185,54 @@ def score(samples: Sequence[Sample], *, only: Sequence[str] | None = None, encou
     )
 
 
-def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None) -> dict[str, Any]:
-    """When the members first stood within `radius` of the center (their centroid without one), how long they held and when they broke."""
-    wanted = {str(m) for m in members}
-    out: dict[str, Any] = {"members": sorted(wanted), "seen": False, "formed_at": None, "held_s": None, "broke_at": None, "arrived": 0}
-    if not wanted or not samples:
-        return out
+@attrs.frozen
+class FormationHold:
+    """How the recorded members of a formation came together around its center, how long they held and when they broke."""
+
+    members: tuple[str, ...] = ()
+    absent: tuple[str, ...] = ()
+    seen: bool = False
+    formed_at: float | None = None
+    held_s: float | None = None
+    broke_at: float | None = None
+    arrived: int = 0
+
+
+def _centroid(points: Sequence[Point]) -> Point:
+    return (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
+
+
+def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None) -> FormationHold:
+    """When the recorded members first stood within `radius` of the center (their centroid per sample without one), how long they held and when one left."""
+    wanted = tuple(sorted({str(m) for m in members}))
+    recorded = {name for sample in samples for name in sample.peds}
+    scored = [name for name in wanted if name in recorded]
+    absent = tuple(name for name in wanted if name not in recorded)
+    if not scored:
+        return FormationHold(members=wanted, absent=absent)
     t0 = samples[0].t
-    ref: Point | None = center
+    arrived = 0
     formed_at: float | None = None
     held_until: float | None = None
+    broke_at: float | None = None
     for sample in samples:
-        present = {n: v[0] for n, v in sample.peds.items() if n in wanted}
+        present = [sample.peds[name][0] for name in scored if name in sample.peds]
+        if formed_at is not None and len(present) < len(scored):
+            broke_at = sample.t - t0
+            break
         if not present:
             continue
-        out["seen"] = True
-        if ref is not None:
-            out["arrived"] = max(out["arrived"], sum(1 for p in present.values() if math.dist(p, ref) <= radius))
-        if len(present) < len(wanted) and formed_at is None:
-            continue
-        if ref is None:
-            ref = (sum(p[0] for p in present.values()) / len(present), sum(p[1] for p in present.values()) / len(present))
-        together = all(math.dist(p, ref) <= radius for p in present.values())
+        ref = center if center is not None else _centroid(present)
+        within = sum(1 for p in present if math.dist(p, ref) <= radius)
+        arrived = max(arrived, within)
+        together = within == len(scored)
         if formed_at is None:
             if together:
-                formed_at = sample.t - t0
-                held_until = formed_at
+                formed_at = held_until = sample.t - t0
             continue
         if not together:
-            out["broke_at"] = sample.t - t0
+            broke_at = sample.t - t0
             break
         held_until = sample.t - t0
-    if formed_at is not None:
-        out["formed_at"] = formed_at
-        out["held_s"] = (held_until or formed_at) - formed_at
-    return out
+    held_s = None if formed_at is None or held_until is None else held_until - formed_at
+    return FormationHold(members=wanted, absent=absent, seen=True, formed_at=formed_at, held_s=held_s, broke_at=broke_at, arrived=arrived)

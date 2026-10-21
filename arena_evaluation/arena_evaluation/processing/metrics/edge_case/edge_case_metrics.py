@@ -165,6 +165,7 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
     UNITS = {
         "edge_case_formation_variant": "",
         "edge_case_formation_members": "",
+        "edge_case_formation_absent": "",
         "edge_case_formation_seen": "",
         "edge_case_formation_formed_at": "s",
         "edge_case_formation_held_s": "s",
@@ -191,10 +192,11 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         formation = provenance.formation
         hold = formation_hold(episode_samples(self, episode), members, radius=formation.radius, center=formation.center)
         results["edge_case_formation_variant"] = formation.variant or None
-        results["edge_case_formation_members"] = hold["members"]
-        results["edge_case_formation_seen"] = hold["seen"]
-        results["edge_case_formation_formed_at"] = hold["formed_at"]
-        results["edge_case_formation_held_s"] = hold["held_s"]
-        results["edge_case_formation_broke_at"] = hold["broke_at"]
-        results["edge_case_formation_arrived"] = hold["arrived"]
+        results["edge_case_formation_members"] = list(hold.members)
+        results["edge_case_formation_absent"] = list(hold.absent)
+        results["edge_case_formation_seen"] = hold.seen
+        results["edge_case_formation_formed_at"] = hold.formed_at
+        results["edge_case_formation_held_s"] = hold.held_s
+        results["edge_case_formation_broke_at"] = hold.broke_at
+        results["edge_case_formation_arrived"] = hold.arrived
         return results

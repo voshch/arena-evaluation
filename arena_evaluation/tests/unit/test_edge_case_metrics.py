@@ -10,6 +10,7 @@ from arena_simulation_setup.tree.World import WorldView
 
 from arena_evaluation.processing.metrics.edge_case.criticality import (
     Criticality,
+    FormationHold,
     Sample,
     formation_hold,
     post_encroachment_time,
@@ -210,19 +211,43 @@ def test_formation_hold_reports_when_the_group_broke() -> None:
     held = [_trio(t, (0.0, 0.0), (1.0, 0.0), (0.5, 0.8)) for t in (0.0, 1.0, 2.0)]
     broke = [*held, _trio(3.0, (0.0, 0.0), (1.0, 0.0), (4.0, 4.0)), _trio(4.0, (0.0, 0.0), (1.0, 0.0), (5.0, 5.0))]
     out = formation_hold(broke, ["d_1", "d_2", "d_3"])
-    assert out["seen"] and out["formed_at"] == 0.0 and out["held_s"] == 2.0 and out["broke_at"] == 3.0
+    assert isinstance(out, FormationHold)
+    assert (out.seen, out.formed_at, out.held_s, out.broke_at) == (True, 0.0, 2.0, 3.0)
     out = formation_hold(held, ["d_1", "d_2", "d_3"])
-    assert out["seen"] and out["held_s"] == 2.0 and out["broke_at"] is None
-    assert formation_hold(held, ["nobody"])["seen"] is False
-    assert formation_hold([], ["d_1"])["seen"] is False
+    assert out.seen and out.held_s == 2.0 and out.broke_at is None
+    assert formation_hold(held, ["nobody"]).seen is False
+    assert formation_hold([], ["d_1"]).seen is False
 
 
 def test_formation_hold_around_a_center_counts_the_arrivals() -> None:
     walking = [_trio(0.0, (9.0, 9.0), (1.0, 0.0), (0.5, 0.8)), _trio(1.0, (0.2, 0.1), (1.0, 0.0), (0.5, 0.8)), _trio(2.0, (0.1, 0.0), (1.0, 0.0), (0.5, 0.8)), _trio(3.0, (6.0, 6.0), (1.0, 0.0), (0.5, 0.8))]
     out = formation_hold(walking, ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3))
-    assert out["seen"] and out["formed_at"] == 1.0 and out["held_s"] == 1.0 and out["broke_at"] == 3.0 and out["arrived"] == 3
+    assert (out.seen, out.formed_at, out.held_s, out.broke_at, out.arrived) == (True, 1.0, 1.0, 3.0, 3)
     never = formation_hold(walking[:1], ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3))
-    assert never["seen"] and never["formed_at"] is None and never["held_s"] is None and never["arrived"] == 2
+    assert never.seen and never.formed_at is None and never.held_s is None and never.arrived == 2
+
+
+def _pair(t: float, a: tuple[float, float] | None, b: tuple[float, float] | None) -> Sample:
+    peds = {name: (p, (0.0, 0.0), 0.3) for name, p in (("d_1", a), ("d_2", b)) if p is not None}
+    return Sample(t=t, robot=(0.0, 0.0), peds=peds)
+
+
+def test_a_member_that_never_spawned_does_not_block_the_formation() -> None:
+    out = formation_hold([_pair(float(t), (0.0, 0.0), (1.0, 0.0)) for t in range(3)], ["d_1", "d_2", "d_3"])
+    assert out.members == ("d_1", "d_2", "d_3") and out.absent == ("d_3",)
+    assert (out.formed_at, out.held_s, out.broke_at) == (0.0, 2.0, None)
+
+
+def test_the_formation_without_a_center_forms_around_the_centroid_of_each_sample() -> None:
+    samples = [_pair(0.0, (0.0, 0.0), (10.0, 0.0)), _pair(1.0, (20.0, 20.0), (20.5, 20.0)), _pair(2.0, (20.0, 20.0), (20.5, 20.0))]
+    out = formation_hold(samples, ["d_1", "d_2"])
+    assert (out.formed_at, out.held_s, out.broke_at) == (1.0, 1.0, None)
+
+
+def test_a_member_leaving_the_recording_breaks_the_formation() -> None:
+    samples = [_pair(0.0, (0.0, 0.0), (1.0, 0.0)), _pair(1.0, (0.0, 0.0), (1.0, 0.0)), _pair(2.0, (0.0, 0.0), None), _pair(3.0, (0.0, 0.0), (1.0, 0.0))]
+    out = formation_hold(samples, ["d_1", "d_2"], center=(0.5, 0.0))
+    assert (out.formed_at, out.held_s, out.broke_at, out.absent) == (0.0, 1.0, 2.0, ())
 
 
 @pytest.mark.parametrize(("recorded", "bare"), [("/env_0/d_1", "d_1"), ("env_3/edge_0", "edge_0"), ("env_0/d_1/0", "d_1"), ("walker", "walker")])
@@ -394,11 +419,21 @@ def test_the_formation_forms_holds_and_breaks(tmp_path: pathlib.Path, formation:
     out = formation.calculate(_episode(world, _run(world), {"d_1": d_1, "d_2": d_2}), {})
     assert out["edge_case_formation_variant"] == "cluster"
     assert out["edge_case_formation_members"] == ["d_1", "d_2"]
+    assert out["edge_case_formation_absent"] == []
     assert out["edge_case_formation_seen"] is True
     assert out["edge_case_formation_formed_at"] == pytest.approx(2.0)
     assert out["edge_case_formation_held_s"] == pytest.approx(4.9)
     assert out["edge_case_formation_broke_at"] == pytest.approx(7.0)
     assert out["edge_case_formation_arrived"] == 2
+
+
+def test_the_formation_is_scored_on_the_members_that_were_recorded(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    out = formation.calculate(_episode(world, _run(world), {"d_1": [(5.0, 9.0)] * 3 + [(5.0, 3.2)] * 8}), {})
+    assert out["edge_case_formation_members"] == ["d_1", "d_2"]
+    assert out["edge_case_formation_absent"] == ["d_2"]
+    assert out["edge_case_formation_formed_at"] == pytest.approx(3.0)
+    assert out["edge_case_formation_broke_at"] is None
 
 
 def test_a_case_without_a_formation_has_no_formation_panel(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
