@@ -202,8 +202,8 @@ def _centroid(points: Sequence[Point]) -> Point:
     return (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
 
 
-def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None) -> FormationHold:
-    """When the recorded members first stood within `radius` of the center (their centroid per sample without one), how long they held and when one left."""
+def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None, form_at: float | None = None) -> FormationHold:
+    """When the recorded members stood within `radius` of the center (else their centroid) from `form_at` on, and how long."""
     wanted = tuple(sorted({str(m) for m in members}))
     recorded = {name for sample in samples for name in sample.peds}
     scored = [name for name in wanted if name in recorded]
@@ -216,6 +216,8 @@ def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius:
     held_until: float | None = None
     broke_at: float | None = None
     for sample in samples:
+        if form_at is not None and sample.t - t0 < form_at:
+            continue
         present = [sample.peds[name][0] for name in scored if name in sample.peds]
         if formed_at is not None and len(present) < len(scored):
             broke_at = sample.t - t0

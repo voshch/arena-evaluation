@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from collections import defaultdict
 
 import polars as pl
 import pytest
@@ -23,6 +24,7 @@ from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
     EdgeCaseFormationCalculator,
     agent_name,
 )
+from arena_evaluation.processing.mcap_reader import MCAPReader
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams, RunMetadata
 
@@ -378,6 +380,7 @@ def test_a_robot_running_into_its_intercept_collides_with_it(tmp_path: pathlib.P
     assert out["edge_case_collided"] is True and out["edge_case_collision_with"] == "edge_0" and out["edge_case_collision_fault"] == "robot"
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
     assert out["edge_case_min_ttc_s"] is not None
+    assert out["edge_case_played"] is None and out["edge_case_unplayed"] is None and out["edge_case_triggered_at"] is None
 
 
 def test_a_case_whose_agents_never_appeared_falls_back_to_everyone(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
@@ -510,3 +513,52 @@ def test_each_run_reads_its_own_snapshot(tmp_path: pathlib.Path, criticality: Ed
     _world(second, provenance=CASE.replace("hospital_1__u_007", "hospital_1__u_008"), name="edge_case_shared")
     assert criticality.calculate(_episode(first, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_007"
     assert criticality.calculate(_episode(second, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_008"
+
+
+def _timeline(fired: dict[str, float]) -> pl.DataFrame:
+    """A semantic snapshot whose timeline entity carries the `fired` stimulus fields, flattened by the MCAP reader."""
+    from task_generator_msgs.msg import SemanticEntityState
+
+    entity = SemanticEntityState(entity="env_0/timeline", kind="timeline", discrete_names=list(fired), discrete_values=[str(at) for at in fired.values()])
+    rows: defaultdict[str, list] = defaultdict(list)
+    MCAPReader._append_semantic_entity(rows, 0, 0, "hall", entity)
+    return pl.DataFrame(dict(rows), schema_overrides={"value_str": pl.String, "value_num": pl.Float64, "value_bool": pl.Boolean, "value_list": pl.List(pl.String)})
+
+
+def _intercept(tmp_path: pathlib.Path, fired: dict[str, float] | None) -> AlignedEpisodeBundle:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]})
+    episode.semantic_snapshot = None if fired is None else _timeline(fired)
+    return episode
+
+
+def test_an_encounter_whose_stimulus_never_fired_is_not_scored(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    out = criticality.calculate(_intercept(tmp_path, {}), {})
+    assert (out["edge_case_played"], out["edge_case_unplayed"], out["edge_case_triggered_at"]) == (False, ["edge_0"], None)
+    assert (out["edge_case_scope"], out["edge_case_agents"]) == ("unplayed", [])
+    assert out["edge_case_pet_s"] is None and out["edge_case_collided"] is None and out["edge_case_min_clearance_m"] is None
+
+
+def test_an_encounter_whose_stimulus_fired_is_played_and_scored(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    out = criticality.calculate(_intercept(tmp_path, {"stimulus.edge_0.go": 1.5}), {})
+    assert (out["edge_case_played"], out["edge_case_unplayed"], out["edge_case_triggered_at"]) == (True, [], pytest.approx(1.5))
+    assert out["edge_case_scope"] == "own" and out["edge_case_collided"] is True
+    assert out["edge_case_pet_s"] == pytest.approx(3.0)
+
+
+def test_a_stimulus_stamped_before_the_episode_is_not_this_episodes(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    out = criticality.calculate(_intercept(tmp_path, {"stimulus.edge_0.go": -4.0, "stimulus.walker.go": 2.0}), {})
+    assert (out["edge_case_played"], out["edge_case_unplayed"]) == (False, ["edge_0"])
+
+
+def test_the_formation_forms_from_its_recorded_form_stimulus(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(tmp_path, world, _run(world), {"d_1": _standing(5.0, 3.2), "d_2": _standing(5.5, 3.0)})
+    out = formation.calculate(episode, {})
+    assert out["edge_case_formation_formed_at"] == pytest.approx(0.0)
+    assert out["edge_case_formation_form_fired_at"] is None and out["edge_case_formation_break_fired_at"] is None
+    episode.semantic_snapshot = _timeline({"stimulus.d_1.form": 3.0, "stimulus.d_2.form": 3.2, "stimulus.d_2.break": 6.0})
+    out = formation.calculate(episode, {})
+    assert out["edge_case_formation_formed_at"] == pytest.approx(3.0)
+    assert out["edge_case_formation_form_fired_at"] == pytest.approx(3.0)
+    assert out["edge_case_formation_break_fired_at"] == pytest.approx(6.0)

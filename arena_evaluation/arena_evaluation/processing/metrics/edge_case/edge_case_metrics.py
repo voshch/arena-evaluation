@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 import numpy as np
 import polars as pl
@@ -18,6 +18,10 @@ if typing.TYPE_CHECKING:
 SAMPLE_HZ = 10.0
 PED_RADIUS = 0.3
 PEDS_TOLERANCE_NS = 100_000_000
+TIMELINE_KIND = "timeline"
+STIMULUS_PREFIX = "stimulus."
+FORM_NEED = "form"
+BREAK_NEED = "break"
 
 _ENV_PREFIX = re.compile(r"^/?env_\d+/")
 
@@ -34,6 +38,33 @@ def episode_provenance(episode: AlignedEpisodeBundle, world: str | None) -> Prov
     if not world or not scenario:
         return None
     return load_provenance(world, scenario, episode.run_dir)
+
+
+def fired_stimuli(snapshot: pl.DataFrame | None, start_s: float | None) -> dict[str, dict[str, float]] | None:
+    """Sim time in s each `stimulus.<agent>.<need>` of the `timeline` entity fired from `start_s` on, None without the entity."""
+    if snapshot is None or len(snapshot) == 0 or "kind" not in snapshot.columns:
+        return None
+    rows = snapshot.filter(pl.col("kind") == TIMELINE_KIND)
+    if len(rows) == 0:
+        return None
+    fired: dict[str, dict[str, float]] = {}
+    for field, value in rows.filter((pl.col("field_kind") == "discrete") & pl.col("field").str.starts_with(STIMULUS_PREFIX)).select("field", "value_str").iter_rows():
+        agent, _, need = field[len(STIMULUS_PREFIX) :].rpartition(".")
+        try:
+            at = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not agent or not need or (start_s is not None and at < start_s - PEDS_TOLERANCE_NS / 1e9):
+            continue
+        needs = fired.setdefault(agent, {})
+        needs[need] = min(at, needs.get(need, at))
+    return fired
+
+
+def _first_fired(fired: Mapping[str, Mapping[str, float]], agents: Iterable[str], need: str | None, start_s: float) -> float | None:
+    """Seconds after `start_s` the first of `agents` received `need` (any need when None), None when none did."""
+    times = [at for agent in agents for name, at in fired.get(agent, {}).items() if need is None or name == need]
+    return min(times) - start_s if times else None
 
 
 def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle, radii: Mapping[str, float]) -> list[Sample]:
@@ -82,6 +113,9 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         "edge_case_scope": "",
         "edge_case_agents": "",
         "edge_case_missing": "",
+        "edge_case_played": "",
+        "edge_case_unplayed": "",
+        "edge_case_triggered_at": "s",
         "edge_case_min_ttc_s": "s",
         "edge_case_min_ttc_with": "",
         "edge_case_min_ttc_at": "s",
@@ -125,12 +159,25 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         samples = episode_samples(self, episode, provenance.radii)
         recorded = {name for s in samples for name in s.peds}
         seen = [name for name in provenance.agents if name in recorded]
+        encountered = list(dict.fromkeys(e.agent for e in provenance.encounters))
+        start_s = samples[0].t if samples else None
+        fired = fired_stimuli(episode.semantic_snapshot, start_s)
+        unplayed = [] if fired is None else [agent for agent in encountered if agent not in fired]
+        scored = [name for name in seen if name not in unplayed]
         results["edge_case_id"] = provenance.id
         results["edge_case_steps"] = list(provenance.steps)
-        results["edge_case_scope"] = "own" if seen else "all"
-        results["edge_case_agents"] = seen
+        results["edge_case_scope"] = "own" if scored else "unplayed" if seen else "all"
+        results["edge_case_agents"] = scored
         results["edge_case_missing"] = [name for name in provenance.agents if name not in recorded]
-        result = score(samples, only=seen or None, encounters=[(e.agent, e.point) for e in provenance.encounters], settle_s=SETTLE_S + provenance.hold_s)
+        if fired is not None and encountered:
+            results["edge_case_played"] = not unplayed
+            results["edge_case_unplayed"] = unplayed
+            if start_s is not None:
+                results["edge_case_triggered_at"] = _first_fired(fired, encountered, None, start_s)
+        if seen and not scored:
+            return results
+        encounters = [(e.agent, e.point) for e in provenance.encounters if e.agent not in unplayed]
+        result = score(samples, only=scored or None, encounters=encounters, settle_s=SETTLE_S + provenance.hold_s)
         if not result.observed:
             return results
         results.update(
@@ -172,6 +219,8 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         "edge_case_formation_formed_at": "s",
         "edge_case_formation_held_s": "s",
         "edge_case_formation_broke_at": "s",
+        "edge_case_formation_form_fired_at": "s",
+        "edge_case_formation_break_fired_at": "s",
         "edge_case_formation_arrived": "",
     }
 
@@ -192,7 +241,12 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         if provenance is None or provenance.formation is None or not members:
             return results
         formation = provenance.formation
-        hold = formation_hold(episode_samples(self, episode, provenance.radii), members, radius=formation.radius, center=formation.center)
+        samples = episode_samples(self, episode, provenance.radii)
+        start_s = samples[0].t if samples else None
+        fired = fired_stimuli(episode.semantic_snapshot, start_s) or {}
+        form_at = None if start_s is None else _first_fired(fired, members, FORM_NEED, start_s)
+        break_at = None if start_s is None else _first_fired(fired, members, BREAK_NEED, start_s)
+        hold = formation_hold(samples, members, radius=formation.radius, center=formation.center, form_at=form_at)
         results["edge_case_formation_variant"] = formation.variant or None
         results["edge_case_formation_members"] = list(hold.members)
         results["edge_case_formation_absent"] = list(hold.absent)
@@ -201,4 +255,6 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         results["edge_case_formation_held_s"] = hold.held_s
         results["edge_case_formation_broke_at"] = hold.broke_at
         results["edge_case_formation_arrived"] = hold.arrived
+        results["edge_case_formation_form_fired_at"] = form_at
+        results["edge_case_formation_break_fired_at"] = break_at
         return results
