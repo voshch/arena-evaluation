@@ -540,29 +540,14 @@ def _flatten_per_mode_params(
     for mode, mode_dict in (stage_config or {}).items():
         if not isinstance(mode_dict, dict):
             continue
-        params = _walk_dict(_strip_scenario_suffix(mode, mode_dict))
+        is_scenario = mode == "scenario"
+        patched: dict = {k: (pathlib.Path(val).stem if is_scenario and k == "file" and isinstance(val, str) else val) for k, val in mode_dict.items()}
+        params = _walk_dict(patched)
         if mode == tm_obstacles:
             obs.extend(params)
         if mode == tm_robots:
             rob.extend(params)
     return obs, rob
-
-
-def _strip_scenario_suffix(mode: str, mode_dict: dict) -> dict:
-    return {k: (pathlib.Path(val).stem if mode == "scenario" and k == "file" and isinstance(val, str) else val) for k, val in mode_dict.items()}
-
-
-def _task_params(stage_config: dict, *, tm_obstacles: str, tm_robots: str) -> list[Parameter]:
-    """Stage config blocks neither queued mode owns, as absolute `task.<block>.<leaf>` params.
-
-    QueueEpisode prefixes leaves with the queued mode, so an `edge_case` stage reaches `task.scenario.file` only this way."""
-    human = {*Constants.HUMAN_PARAM_NAMESPACES.values(), Constants.HUMAN_PARAM_RESERVED}
-    out: list[Parameter] = []
-    for mode, mode_dict in (stage_config or {}).items():
-        if mode in (tm_obstacles, tm_robots) or mode in human or not isinstance(mode_dict, dict):
-            continue
-        out.extend(_walk_dict(_strip_scenario_suffix(mode, mode_dict), f"task.{mode}"))
-    return out
 
 
 def _human_params(stage_config: dict) -> list[Parameter]:
@@ -1153,16 +1138,6 @@ class BenchmarkRunner(ArenaMixinNode):
                     raise
                 except Exception as exc:
                     _log.warning(f"[env {env_id}] stationary params for {step.key} failed: {exc}")
-
-        task_params = _task_params(stage_config, tm_obstacles=req.tm_obstacles, tm_robots=req.tm_robots)
-        if task_params:
-            # set now rather than queued: the env is idle between steps and the next reset reads them
-            task_resp = await self._await_alive(self._param_clients[env_id].call_timeout(SetParameters.Request(parameters=task_params), timeout_sec=10.0), env_id=env_id, what=f"task params on env {env_id}")
-            if task_resp is None:
-                raise RuntimeError(f"set_parameters({[p.name for p in task_params]}) timed out after 10s on env {env_id} for {step.key}")
-            rejected = [f"{p.name}: {r.reason}" for p, r in zip(task_params, task_resp.results, strict=True) if not r.successful]
-            if rejected:
-                raise RuntimeError(f"stage config rejected on env {env_id} for {step.key}: {'; '.join(rejected)}")
 
         req.obstacles_params = obs_params
         req.robots_params = rob_params

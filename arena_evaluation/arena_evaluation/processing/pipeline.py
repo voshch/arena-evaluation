@@ -647,6 +647,7 @@ class ProcessingPipeline:
                     fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
+                    run=metadata,
                     peds=peds_df,
                     map=ep.map,
                     topics=topics,
