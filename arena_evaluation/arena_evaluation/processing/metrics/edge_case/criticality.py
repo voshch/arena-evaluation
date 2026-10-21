@@ -62,14 +62,14 @@ def time_to_collision(p_a: Point, v_a: Point, r_a: float, p_b: Point, v_b: Point
     dvx, dvy = v_b[0] - v_a[0], v_b[1] - v_a[1]
     r = r_a + r_b
 
+    c = dpx * dpx + dpy * dpy - r * r
+    if c <= 0.0:
+        return 0.0
+
     a = dvx * dvx + dvy * dvy
     if a < 1e-12:
         return None
     b = 2.0 * (dpx * dvx + dpy * dvy)
-    c = dpx * dpx + dpy * dpy - r * r
-
-    if c <= 0.0:
-        return 0.0
 
     disc = b * b - 4.0 * a * c
     if disc < 0.0:

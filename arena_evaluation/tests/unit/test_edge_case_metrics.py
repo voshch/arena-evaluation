@@ -66,6 +66,11 @@ def test_no_relative_motion_is_not_a_collision() -> None:
     assert time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (5.0, 0.0), (1.0, 0.0), 0.3) is None
 
 
+def test_overlapping_discs_without_relative_motion_are_already_touching() -> None:
+    assert time_to_collision((0.0, 0.0), (0.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3) == 0.0
+    assert time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (0.5, 0.0), (1.0, 0.0), 0.3) == 0.0
+
+
 def test_clearance_is_surface_to_surface() -> None:
     out = score([Sample(t=0.0, robot=(0.0, 0.0), robot_radius=0.3, peds={"p": ((0.6, 0.0), (0.0, 0.0), 0.3)})])
     assert out.min_clearance_m == pytest.approx(0.0)
