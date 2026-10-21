@@ -426,6 +426,15 @@ def test_door_opening_switches_attenuation_and_marks_worst_frame_open(tmp_path, 
     assert result["worst_case_acoustic_frame"]["door_states"] == {"world/front_door": "open"}
 
 
+def test_the_pipeline_run_dir_reads_the_doors_of_the_run_snapshot(tmp_path, calc, cached_map):
+    name = cached_map(_walled())
+    _door_run(tmp_path, name)
+    data = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
+    result = calc.calculate(_episode(data, name, run_dir=tmp_path / "bench"), {})
+    assert result["timeseries_acoustic_attenuation_db"] == [pytest.approx([_att(3.0) + 25.0], abs=1e-3)]
+    assert result["worst_case_acoustic_frame"]["door_states"] == {"world/front_door": "closed"}
+
+
 def test_doors_without_semantic_timeline_stay_closed(tmp_path, calc, cached_map):
     name = cached_map(_walled())
     folder_manager, run = _door_run(tmp_path, name)
