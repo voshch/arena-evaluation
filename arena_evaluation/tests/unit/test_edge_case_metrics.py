@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import polars as pl
@@ -22,7 +23,6 @@ from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
     EdgeCaseFormationCalculator,
     agent_name,
 )
-from arena_evaluation.processing.metrics.edge_case.provenance import _world_views
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams, RunMetadata
 
@@ -259,17 +259,17 @@ def test_both_calculators_are_registered() -> None:
     assert {"edge_case_criticality", "edge_case_formation"} <= set(MetricRegistry(RobotParams()).calculators)
 
 
-def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str | None = None, robot_level: str | None = None, humans: str = "") -> str:
-    """A world under `root` with one scenario `case`, registered under a name unique to the test."""
-    (root / "world.yaml").write_text(world_yaml)
-    scenario = root / "scenarios" / "case"
+def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str | None = None, robot_level: str | None = None, humans: str = "", name: str | None = None) -> str:
+    """A run snapshot under the run dir `root` of a world with one scenario `case`, named uniquely to the test."""
+    name = name or f"edge_case_{root.name}"
+    world = root / "worlds" / name
+    scenario = world / "scenarios" / "case"
     scenario.mkdir(parents=True)
+    (world / "world.yaml").write_text(world_yaml)
     robots = f"robots:\n- {{start: [1.0, 0.0], level: '{robot_level}'}}\n" if robot_level else "robots: []\n"
     (scenario / "scenario.yaml").write_text("format: arena-scenario/2\n" + robots + humans)
     if provenance is not None:
         (scenario / "provenance.yaml").write_text(provenance)
-    name = f"edge_case_{root.name}"
-    _world_views[name] = WorldView(root)
     return name
 
 
@@ -290,7 +290,7 @@ def _run(world: str, *, tm_obstacles: str = "scenario", tm_robots: str = "random
     )
 
 
-def _episode(world: str, run: RunMetadata, peds: dict[str, list[tuple[float, float]]], *, seconds: int = 10) -> AlignedEpisodeBundle:
+def _episode(run_dir: pathlib.Path, world: str, run: RunMetadata, peds: dict[str, list[tuple[float, float]]], *, seconds: int = 10) -> AlignedEpisodeBundle:
     """The robot drives along y = 0 at 1 m/s, each pedestrian follows its per-second track, all at 10 Hz."""
     times = [i * SEC // 10 for i in range(seconds * 10 + 1)]
     xs = [t / SEC for t in times]
@@ -310,7 +310,7 @@ def _episode(world: str, run: RunMetadata, peds: dict[str, list[tuple[float, flo
         }
     )
     data = pl.DataFrame({"time_ns": times, "pos_x": xs, "pos_y": [0.0] * len(times), "yaw": [0.0] * len(times)})
-    return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=[10.0, 0.0], map=world, run=run, topics={"tf_gt": tf_gt, "peds": frame})
+    return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=[10.0, 0.0], map=world, run=run, topics={"tf_gt": tf_gt, "peds": frame}, run_dir=run_dir)
 
 
 def _standing(x: float, y: float, seconds: int = 10) -> list[tuple[float, float]]:
@@ -338,26 +338,26 @@ def formation() -> EdgeCaseFormationCalculator:
 
 def test_a_scenario_without_provenance_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, formation: EdgeCaseFormationCalculator) -> None:
     world = _world(tmp_path)
-    episode = _episode(world, _run(world), {"edge_0": _standing(5.0, 0.0)})
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(5.0, 0.0)})
     assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
     assert formation.calculate(episode, {}) == dict.fromkeys(formation.output_keys())
 
 
 def test_an_episode_that_ran_no_scenario_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(world, _run(world, tm_obstacles="random"), {"edge_0": _standing(5.0, 0.0)})
+    episode = _episode(tmp_path, world, _run(world, tm_obstacles="random"), {"edge_0": _standing(5.0, 0.0)})
     assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
 
 
 def test_an_unknown_scenario_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(world, _run(world, file="elsewhere"), {"edge_0": _standing(5.0, 0.0)})
+    episode = _episode(tmp_path, world, _run(world, file="elsewhere"), {"edge_0": _standing(5.0, 0.0)})
     assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
 
 
 def test_the_case_is_scored_against_its_own_agents(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(world, _run(world), {"walker": _standing(3.0, 0.5), "edge_0": _standing(6.0, 2.0), "d_1": _standing(5.0, 3.0), "d_2": _standing(5.5, 3.0)})
+    episode = _episode(tmp_path, world, _run(world), {"walker": _standing(3.0, 0.5), "edge_0": _standing(6.0, 2.0), "d_1": _standing(5.0, 3.0), "d_2": _standing(5.5, 3.0)})
     out = criticality.calculate(episode, {})
     assert out["edge_case_id"] == "hospital_1__u_007"
     assert out["edge_case_steps"] == ["C:intercept", "D:formation_break"]
@@ -373,7 +373,7 @@ def test_the_case_is_scored_against_its_own_agents(tmp_path: pathlib.Path, criti
 def test_a_robot_running_into_its_intercept_collides_with_it(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
     edge = [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]
-    out = criticality.calculate(_episode(world, _run(world), {"edge_0": edge}), {})
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": edge}), {})
     assert out["edge_case_missing"] == ["d_1", "d_2"]
     assert out["edge_case_collided"] is True and out["edge_case_collision_with"] == "edge_0" and out["edge_case_collision_fault"] == "robot"
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
@@ -382,14 +382,14 @@ def test_a_robot_running_into_its_intercept_collides_with_it(tmp_path: pathlib.P
 
 def test_a_case_whose_agents_never_appeared_falls_back_to_everyone(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(_episode(world, _run(world), {"walker": _standing(3.0, 0.5)}), {})
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"walker": _standing(3.0, 0.5)}), {})
     assert (out["edge_case_scope"], out["edge_case_agents"], out["edge_case_missing"]) == ("all", [], ["d_1", "d_2", "edge_0"])
     assert out["edge_case_min_clearance_with"] == "walker"
 
 
 def test_a_robot_that_stops_short_of_the_case_freezes(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
     tf_gt = episode.topics["tf_gt"]
     episode.topics["tf_gt"] = tf_gt.with_columns(pl.col("pos_x_gt").clip(upper_bound=4.0))
     out = criticality.calculate(episode, {})
@@ -399,16 +399,16 @@ def test_a_robot_that_stops_short_of_the_case_freezes(tmp_path: pathlib.Path, cr
 def test_each_agent_counts_with_the_radius_its_scenario_entry_pins(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     humans = "humans:\n- {name: edge_0, model: adult, agent: {agent_type: adult, radius: 0.5}}\n- {name: d_1, model: adult, agent: adult}\n"
     world = _world(tmp_path, provenance=CASE, humans=humans)
-    out = criticality.calculate(_episode(world, _run(world), {"edge_0": _standing(6.0, 2.0), "d_1": _standing(3.0, 1.5)}), {})
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 2.0), "d_1": _standing(3.0, 1.5)}), {})
     assert out["edge_case_min_clearance_with"] == "d_1"
     assert out["edge_case_min_clearance_m"] == pytest.approx(1.5 - ROBOT_RADIUS - 0.3)
-    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 2.0)})
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 2.0)})
     assert criticality.calculate(episode, {})["edge_case_min_clearance_m"] == pytest.approx(2.0 - ROBOT_RADIUS - 0.5)
 
 
 def test_a_peds_stream_that_stops_early_is_not_held_past_its_last_message(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 0.0)})
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 0.0)})
     episode.topics["peds"] = episode.topics["peds"].filter(pl.col("time_ns") <= 2 * SEC)
     out = criticality.calculate(episode, {})
     assert out["edge_case_collided"] is False
@@ -422,14 +422,14 @@ HELD_CASE = CASE + "robot: {speed_mps: 1.0, hold_s: 3.0, traversals: 1, toleranc
 @pytest.mark.parametrize(("provenance", "freeze_s"), [(CASE, 1.0), (HELD_CASE, 0.0)])
 def test_the_designed_start_hold_is_not_a_freeze(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, provenance: str, freeze_s: float) -> None:
     world = _world(tmp_path, provenance=provenance)
-    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
     episode.topics["tf_gt"] = episode.topics["tf_gt"].with_columns((pl.col("pos_x_gt") - 3.0).clip(lower_bound=0.0))
     assert criticality.calculate(episode, {})["edge_case_freeze_s"] == pytest.approx(freeze_s, abs=0.15)
 
 
 def test_the_scenario_is_found_through_the_robots_axis_too(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(_episode(world, _run(world, tm_obstacles="random", tm_robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})
+    out = criticality.calculate(_episode(tmp_path, world, _run(world, tm_obstacles="random", tm_robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})
     assert out["edge_case_id"] == "hospital_1__u_007"
 
 
@@ -437,7 +437,7 @@ def test_the_formation_forms_holds_and_breaks(tmp_path: pathlib.Path, formation:
     world = _world(tmp_path, provenance=CASE)
     d_1 = [(5.0, 9.0)] * 2 + [(5.0, 3.2)] * 5 + [(9.0, 9.0)] * 4
     d_2 = [(5.5, 3.0)] * 11
-    out = formation.calculate(_episode(world, _run(world), {"d_1": d_1, "d_2": d_2}), {})
+    out = formation.calculate(_episode(tmp_path, world, _run(world), {"d_1": d_1, "d_2": d_2}), {})
     assert out["edge_case_formation_variant"] == "cluster"
     assert out["edge_case_formation_members"] == ["d_1", "d_2"]
     assert out["edge_case_formation_absent"] == []
@@ -450,7 +450,7 @@ def test_the_formation_forms_holds_and_breaks(tmp_path: pathlib.Path, formation:
 
 def test_the_formation_is_scored_on_the_members_that_were_recorded(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    out = formation.calculate(_episode(world, _run(world), {"d_1": [(5.0, 9.0)] * 3 + [(5.0, 3.2)] * 8}), {})
+    out = formation.calculate(_episode(tmp_path, world, _run(world), {"d_1": [(5.0, 9.0)] * 3 + [(5.0, 3.2)] * 8}), {})
     assert out["edge_case_formation_members"] == ["d_1", "d_2"]
     assert out["edge_case_formation_absent"] == ["d_2"]
     assert out["edge_case_formation_formed_at"] == pytest.approx(3.0)
@@ -459,23 +459,54 @@ def test_the_formation_is_scored_on_the_members_that_were_recorded(tmp_path: pat
 
 def test_a_case_without_a_formation_has_no_formation_panel(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
     world = _world(tmp_path, provenance="id: c\nowned: {C: [edge_0]}\n")
-    out = formation.calculate(_episode(world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})
+    out = formation.calculate(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})
     assert out == dict.fromkeys(formation.output_keys())
 
 
 def test_the_formation_center_moves_with_the_robot_level_into_the_map_frame(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
     world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
-    ox, oy = WorldView(tmp_path).level_origins()["1"]
+    ox, oy = WorldView(tmp_path / "worlds" / world).level_origins()["1"]
     assert (ox, oy) != (0.0, 0.0)
-    out = formation.calculate(_episode(world, _run(world), {"d_1": _standing(5.0 + ox, 3.0 + oy), "d_2": _standing(5.5 + ox, 3.0 + oy)}), {})
+    out = formation.calculate(_episode(tmp_path, world, _run(world), {"d_1": _standing(5.0 + ox, 3.0 + oy), "d_2": _standing(5.5 + ox, 3.0 + oy)}), {})
     assert out["edge_case_formation_arrived"] == 2
     assert out["edge_case_formation_formed_at"] == pytest.approx(0.0)
 
 
 def test_the_encounter_point_moves_with_the_robot_level_into_the_map_frame(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
-    ox, oy = WorldView(tmp_path).level_origins()["1"]
-    episode = _episode(world, _run(world), {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8})
+    ox, oy = WorldView(tmp_path / "worlds" / world).level_origins()["1"]
+    episode = _episode(tmp_path, world, _run(world), {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8})
     shifted = {"tf_gt": episode.topics["tf_gt"].with_columns(pl.col("pos_x_gt") + ox, pl.col("pos_y_gt") + oy), "peds": episode.topics["peds"]}
-    out = criticality.calculate(AlignedEpisodeBundle(episode_id=1, data=episode.data, start_pos=[], goal_pos=[], map=world, run=episode.run, topics=shifted), {})
+    out = criticality.calculate(AlignedEpisodeBundle(episode_id=1, data=episode.data, start_pos=[], goal_pos=[], map=world, run=episode.run, topics=shifted, run_dir=tmp_path), {})
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
+
+
+@pytest.mark.parametrize("suffix", ["[0]", "[0,1]"])
+def test_a_level_filtered_world_reads_the_snapshot_of_its_bare_name(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, suffix: str) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    out = criticality.calculate(_episode(tmp_path, world + suffix, _run(world + suffix), {"edge_0": _standing(6.0, 1.5)}), {})
+    assert out["edge_case_id"] == "hospital_1__u_007"
+
+
+def test_a_composed_world_reads_its_snapshot(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE, name=f"edge_case_{tmp_path.name},edge_case_{tmp_path.name}")
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})
+    assert out["edge_case_id"] == "hospital_1__u_007"
+
+
+def test_a_regenerated_provenance_is_read_again(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    assert criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_007"
+    path = tmp_path / "worlds" / world / "scenarios" / "case" / "provenance.yaml"
+    path.write_text(CASE.replace("hospital_1__u_007", "hospital_1__u_008"))
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_008"
+
+
+def test_each_run_reads_its_own_snapshot(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    first, second = tmp_path / "first", tmp_path / "second"
+    world = _world(first, provenance=CASE, name="edge_case_shared")
+    _world(second, provenance=CASE.replace("hospital_1__u_007", "hospital_1__u_008"), name="edge_case_shared")
+    assert criticality.calculate(_episode(first, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_007"
+    assert criticality.calculate(_episode(second, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {})["edge_case_id"] == "hospital_1__u_008"

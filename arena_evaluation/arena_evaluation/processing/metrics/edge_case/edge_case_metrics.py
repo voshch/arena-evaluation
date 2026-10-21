@@ -33,7 +33,7 @@ def episode_provenance(episode: AlignedEpisodeBundle, world: str | None) -> Prov
     scenario = scenario_name(episode.run)
     if not world or not scenario:
         return None
-    return load_provenance(world, scenario)
+    return load_provenance(world, scenario, episode.run_dir)
 
 
 def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle, radii: Mapping[str, float]) -> list[Sample]:

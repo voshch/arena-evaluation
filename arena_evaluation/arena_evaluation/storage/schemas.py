@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import pathlib
+
     import polars as pl
 
 import typing
@@ -216,6 +218,7 @@ class AlignedEpisodeBundle:
     peds: pl.DataFrame | None = None
     map: str | None = None
     topics: dict[str, pl.DataFrame] | None = None
+    run_dir: pathlib.Path | None = None
 
 
 class PlotSpec(BaseModel):

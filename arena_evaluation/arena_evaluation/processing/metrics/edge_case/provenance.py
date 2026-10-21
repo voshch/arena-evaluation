@@ -1,10 +1,10 @@
-"""The generator's provenance.yaml beside the scenario an episode ran, found through the world's scenario resolver."""
+"""The generator's provenance.yaml beside the scenario an episode ran, read from the run's world snapshot first."""
 
 from __future__ import annotations
 
 import logging
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import attrs
@@ -90,21 +90,39 @@ def scenario_name(run: RunMetadata | None) -> str | None:
     return None
 
 
-_world_views: dict[str, WorldView | None] = {}
-_provenance_cache: dict[tuple[str, str], Provenance | None] = {}
+_provenance_cache: dict[tuple[str, str, str], tuple[tuple[tuple[Path, int], ...], Provenance | None]] = {}
 
 
-def world_view(world: str) -> WorldView | None:
-    """The resolved world, None when it is not available locally."""
-    if world not in _world_views:
-        from arena_simulation_setup.tree.World import WorldIdentifier
+def _stamp(paths: Iterable[Path]) -> tuple[tuple[Path, int], ...]:
+    return tuple((path, path.stat().st_mtime_ns if path.exists() else -1) for path in paths)
 
-        try:
-            _world_views[world] = WorldIdentifier(world).resolve_sync()
-        except FileNotFoundError as e:
-            logger.warning("edge_case: world '%s' not available locally: %s", world, e)
-            _world_views[world] = None
-    return _world_views[world]
+
+def world_view(world: str, run_dir: Path | None = None) -> WorldView | None:
+    """The world an episode ran in: its snapshot under `run_dir`/worlds first, else the resolved world, None without either."""
+    from arena_simulation_setup.tree.World import WorldIdentifier, WorldView
+
+    name, _ = WorldIdentifier.parse(world)
+    snapshot = None if run_dir is None else Path(run_dir) / "worlds" / name
+    if snapshot is not None and (snapshot / "world.yaml").is_file():
+        return WorldView(snapshot)
+    try:
+        return WorldIdentifier(name).resolve_sync()
+    except FileNotFoundError as e:
+        logger.warning("edge_case: world '%s' not available locally: %s", name, e)
+        return None
+
+
+def _frame_view(world: str, view: WorldView) -> WorldView:
+    """The world whose level origins the runtime used: the full world under a level filter, which a filtered snapshot lacks."""
+    from arena_simulation_setup.tree.World import WorldIdentifier
+
+    name, level_filter = WorldIdentifier.parse(world)
+    if level_filter is None:
+        return view
+    try:
+        return WorldIdentifier(name).resolve_sync()
+    except FileNotFoundError:
+        return view
 
 
 def _level_origin(view: WorldView, scenario: Mapping[str, typing.Any]) -> Point:
@@ -116,23 +134,31 @@ def _level_origin(view: WorldView, scenario: Mapping[str, typing.Any]) -> Point:
     return origins.get(level, (0.0, 0.0))
 
 
-def load_provenance(world: str, scenario: str) -> Provenance | None:
-    """The provenance of `scenario` in `world`, None when the scenario or its provenance.yaml is not available."""
-    key = (world, scenario)
-    if key in _provenance_cache:
-        return _provenance_cache[key]
-    view = world_view(world)
-    result = None
-    if view is not None:
-        try:
-            scenario_view = view.scenario(scenario).resolve_sync()
-        except FileNotFoundError as e:
-            logger.warning("edge_case: scenario '%s' of world '%s' not available locally: %s", scenario, world, e)
-        else:
-            path = Path(scenario_view.path) / PROVENANCE_FILE
-            if path.is_file():
-                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-                scenario_doc = scenario_view.read()
-                result = attrs.evolve(parse_provenance(raw, _level_origin(view, scenario_doc)), radii=human_radii(scenario_doc))
-    _provenance_cache[key] = result
+def _read_provenance(world: str, scenario: str, run_dir: Path | None) -> tuple[list[Path], Provenance | None]:
+    view = world_view(world, run_dir)
+    if view is None:
+        return [], None
+    try:
+        scenario_view = view.scenario(scenario).resolve_sync()
+    except FileNotFoundError as e:
+        logger.warning("edge_case: scenario '%s' of world '%s' not available locally: %s", scenario, world, e)
+        return [], None
+    path = Path(scenario_view.path) / PROVENANCE_FILE
+    if not path.is_file():
+        return [path], None
+    frame = _frame_view(world, view)
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    scenario_doc = scenario_view.read()
+    provenance = attrs.evolve(parse_provenance(raw, _level_origin(frame, scenario_doc)), radii=human_radii(scenario_doc))
+    return [path, Path(scenario_view.scenario_path), frame.world_path], provenance
+
+
+def load_provenance(world: str, scenario: str, run_dir: Path | None = None) -> Provenance | None:
+    """The provenance of `scenario` in `world`, the run's snapshot first, None without the scenario or its provenance.yaml."""
+    key = (str(run_dir), world, scenario)
+    cached = _provenance_cache.get(key)
+    if cached is not None and _stamp(path for path, _ in cached[0]) == cached[0]:
+        return cached[1]
+    files, result = _read_provenance(world, scenario, run_dir)
+    _provenance_cache[key] = (_stamp(files), result)
     return result

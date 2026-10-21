@@ -651,6 +651,7 @@ class ProcessingPipeline:
                     peds=peds_df,
                     map=ep.map,
                     topics=topics,
+                    run_dir=episode_dir.parent.parent,
                 )
                 episodes = [aligned_ep]
 

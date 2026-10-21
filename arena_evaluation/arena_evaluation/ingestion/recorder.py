@@ -124,6 +124,23 @@ from arena_evaluation.storage.manifest import MetadataWriter
 from .metadata import IngestionMetadata
 
 
+def copy_scenario(source: pathlib.Path, target: pathlib.Path) -> bool:
+    """Copy the scenario directory `source` to `target` in one rename, False when `target` already exists."""
+    if target.exists():
+        return False
+    partial = target.parent / f".{target.name}.{os.getpid()}.partial"
+    shutil.rmtree(partial, ignore_errors=True)
+    shutil.copytree(source, partial)
+    try:
+        partial.rename(target)
+    except OSError:
+        shutil.rmtree(partial, ignore_errors=True)
+        if not target.exists():
+            raise
+        return False
+    return True
+
+
 class DataRecorderNode(Node):
     def __init__(self, **node_kwargs: object):
         super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
@@ -266,6 +283,7 @@ class DataRecorderNode(Node):
         self.world_lighting = str(self.get_parameter("world.lighting").value or "authored")
         self.kg_derive = str(self.get_parameter("kg.derive").value or "auto")
         self._snapshot_worlds: set[str] = set()
+        self._snapshot_scenarios: set[tuple[str, str]] = set()
 
         env_namespace = self.get_namespace().strip('/')
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
@@ -752,6 +770,7 @@ class DataRecorderNode(Node):
         self._update_metadata_from_episode(msg)
         if msg.world:
             self._snapshot_world(msg.world)
+            self._snapshot_scenario(msg)
 
         env_namespace = self.get_namespace().strip('/')
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
@@ -1079,6 +1098,31 @@ class DataRecorderNode(Node):
             self._log_info(f"Wrote world snapshot: {directory}")
         except Exception as e:
             self._log_error(f"Failed to write the world snapshot of {name}: {e}")
+
+    def _snapshot_scenario(self, msg: EpisodeRecord) -> None:
+        """Copy the scenario an episode runs to run_dir/worlds/<world>/scenarios/<file> once per run, off the callback thread."""
+        from arena_simulation_setup.tree.World import WorldIdentifier
+
+        axes = ((msg.tm_obstacles, msg.obstacles_params), (msg.tm_robots, msg.robots_params))
+        scenario = next((str(value) for mode, params in axes if mode == "scenario" for p in params if p.name == "file" and (value := self._param_value_to_py(p.value))), None)
+        if scenario is None:
+            return
+        name, _ = WorldIdentifier.parse(msg.world)
+        if (name, scenario) in self._snapshot_scenarios:
+            return
+        self._snapshot_scenarios.add((name, scenario))
+        threading.Thread(target=self._write_scenario_snapshot, args=(name, scenario), name=f"scenario_snapshot_{scenario}", daemon=True).start()
+
+    def _write_scenario_snapshot(self, name: str, scenario: str) -> None:
+        from arena_simulation_setup.tree.World import WorldIdentifier
+
+        directory = self.run_dir / "worlds" / name / "scenarios" / scenario
+        try:
+            source = WorldIdentifier(name).resolve_sync().scenario(scenario).resolve_sync().path
+            if copy_scenario(pathlib.Path(source), directory):
+                self._log_info(f"Wrote scenario snapshot: {directory}")
+        except Exception as e:
+            self._log_error(f"Failed to write the scenario snapshot of {name}/{scenario}: {e}")
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""
