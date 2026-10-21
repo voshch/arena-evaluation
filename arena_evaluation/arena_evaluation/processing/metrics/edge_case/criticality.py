@@ -186,14 +186,14 @@ def score(samples: Sequence[Sample], *, only: Sequence[str] | None = None, encou
     )
 
 
-def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, centre: Point | None = None) -> dict[str, Any]:
-    """When the members first stood within `radius` of the centre (their centroid without one), how long they held and when they broke."""
+def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None) -> dict[str, Any]:
+    """When the members first stood within `radius` of the center (their centroid without one), how long they held and when they broke."""
     wanted = {str(m) for m in members}
     out: dict[str, Any] = {"members": sorted(wanted), "seen": False, "formed_at": None, "held_s": None, "broke_at": None, "arrived": 0}
     if not wanted or not samples:
         return out
     t0 = samples[0].t
-    ref: Point | None = centre
+    ref: Point | None = center
     formed_at: float | None = None
     held_until: float | None = None
     for sample in samples:

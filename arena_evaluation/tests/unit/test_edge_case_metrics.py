@@ -109,7 +109,7 @@ def test_a_robot_driving_into_a_standing_pedestrian_is_at_fault() -> None:
 
 
 def _contact(robot_vel: tuple[float, float], ped_vel: tuple[float, float]) -> Criticality:
-    """Two samples, contact on the second (centres 0.5 m apart, radii 0.3 and 0.25)."""
+    """Two samples, contact on the second (centers 0.5 m apart, radii 0.3 and 0.25)."""
     return score(
         [
             Sample(t=0.0, robot=(0.0, 0.0), robot_vel=robot_vel, robot_radius=0.3, peds={"p": ((3.0, 0.0), ped_vel, 0.25)}),
@@ -212,11 +212,11 @@ def test_formation_hold_reports_when_the_group_broke() -> None:
     assert formation_hold([], ["d_1"])["seen"] is False
 
 
-def test_formation_hold_around_a_centre_counts_the_arrivals() -> None:
+def test_formation_hold_around_a_center_counts_the_arrivals() -> None:
     walking = [_trio(0.0, (9.0, 9.0), (1.0, 0.0), (0.5, 0.8)), _trio(1.0, (0.2, 0.1), (1.0, 0.0), (0.5, 0.8)), _trio(2.0, (0.1, 0.0), (1.0, 0.0), (0.5, 0.8)), _trio(3.0, (6.0, 6.0), (1.0, 0.0), (0.5, 0.8))]
-    out = formation_hold(walking, ["d_1", "d_2", "d_3"], radius=1.5, centre=(0.5, 0.3))
+    out = formation_hold(walking, ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3))
     assert out["seen"] and out["formed_at"] == 1.0 and out["held_s"] == 1.0 and out["broke_at"] == 3.0 and out["arrived"] == 3
-    never = formation_hold(walking[:1], ["d_1", "d_2", "d_3"], radius=1.5, centre=(0.5, 0.3))
+    never = formation_hold(walking[:1], ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3))
     assert never["seen"] and never["formed_at"] is None and never["held_s"] is None and never["arrived"] == 2
 
 
@@ -292,7 +292,7 @@ prompt_id: u_007
 steps: ['C:intercept', 'D:formation_break']
 owned: {C: [edge_0], D: [d_1, d_2], injected: []}
 encounters: [{agent: edge_0, point: [6.0, 0.0]}]
-formation: {centre: [5.0, 3.0], radius: 1.5, variant: cluster, at: {at: 4.0}}
+formation: {center: [5.0, 3.0], radius: 1.5, variant: cluster, at: {at: 4.0}}
 """
 
 
@@ -392,7 +392,7 @@ def test_a_case_without_a_formation_has_no_formation_panel(tmp_path: pathlib.Pat
     assert out == dict.fromkeys(formation.output_keys())
 
 
-def test_the_formation_centre_moves_with_the_robot_level_into_the_map_frame(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
+def test_the_formation_center_moves_with_the_robot_level_into_the_map_frame(tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator) -> None:
     world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
     ox, oy = WorldView(tmp_path).level_origins()["1"]
     assert (ox, oy) != (0.0, 0.0)

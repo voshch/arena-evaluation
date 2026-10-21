@@ -26,7 +26,7 @@ FORMATION_RADIUS_M = 1.5
 
 @attrs.frozen
 class Formation:
-    centre: Point | None
+    center: Point | None
     radius: float
     variant: str
 
@@ -52,14 +52,14 @@ class Provenance:
 
 
 def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) -> Provenance:
-    """A provenance mapping with the formation centre and encounter points moved from their level frame by `origin` into the map frame."""
+    """A provenance mapping with the formation center and encounter points moved from their level frame by `origin` into the map frame."""
     owned = {str(step): tuple(str(name) for name in names or ()) for step, names in (raw.get("owned") or {}).items()}
     spec = raw.get("formation")
     formation = None
     if spec:
-        centre = spec.get("centre")
+        center = spec.get("center")
         formation = Formation(
-            centre=None if centre is None else (float(centre[0]) + origin[0], float(centre[1]) + origin[1]),
+            center=None if center is None else (float(center[0]) + origin[0], float(center[1]) + origin[1]),
             radius=float(spec.get("radius", FORMATION_RADIUS_M)),
             variant=str(spec.get("variant", "")),
         )

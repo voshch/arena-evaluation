@@ -154,7 +154,7 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
 
 
 class EdgeCaseFormationCalculator(BaseMetricCalculator):
-    """Whether the formation a case's D step owns formed around its centre, how long it held and when it broke."""
+    """Whether the formation a case's D step owns formed around its center, how long it held and when it broke."""
 
     NAME = "edge_case_formation"
     CATEGORY = "edge_case"
@@ -188,7 +188,7 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         if provenance is None or provenance.formation is None or not members:
             return results
         formation = provenance.formation
-        hold = formation_hold(episode_samples(self, episode), members, radius=formation.radius, centre=formation.centre)
+        hold = formation_hold(episode_samples(self, episode), members, radius=formation.radius, center=formation.center)
         results["edge_case_formation_variant"] = formation.variant or None
         results["edge_case_formation_members"] = hold["members"]
         results["edge_case_formation_seen"] = hold["seen"]
