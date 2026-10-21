@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
 
 SAMPLE_HZ = 10.0
 PED_RADIUS = 0.3
+PEDS_TOLERANCE_NS = 100_000_000
 
 _ENV_PREFIX = re.compile(r"^/?env_\d+/")
 
@@ -35,7 +36,7 @@ def episode_provenance(episode: AlignedEpisodeBundle, world: str | None) -> Prov
 
 
 def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> list[Sample]:
-    """The robot on a SAMPLE_HZ grid with the pedestrians of the latest peds message, keyed by scenario name."""
+    """The robot on a SAMPLE_HZ grid with the pedestrians of the latest peds message at most 0.1 s old, keyed by scenario name."""
     pos_x, pos_y, _yaw, time_ns = calc.resolve_native_pose(episode)
     if len(time_ns) < 2:
         return []
@@ -48,7 +49,7 @@ def episode_samples(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -
     if peds is not None and "peds_names" in peds.columns and "peds_positions" in peds.columns:
         twists = "peds_twists" in peds.columns
         frame = peds.select(["time_ns", "peds_names", "peds_positions", *(["peds_twists"] if twists else [])])
-        held = pl.DataFrame({"time_ns": grid}).join_asof(frame, on="time_ns", strategy="backward")
+        held = pl.DataFrame({"time_ns": grid}).join_asof(frame, on="time_ns", strategy="backward", tolerance=PEDS_TOLERANCE_NS)
         for i, row in enumerate(held.iter_rows(named=True)):
             names = row["peds_names"] or []
             if not names:

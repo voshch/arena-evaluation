@@ -371,6 +371,16 @@ def test_a_robot_that_stops_short_of_the_case_freezes(tmp_path: pathlib.Path, cr
     assert out["edge_case_freeze_s"] == pytest.approx(6.0, abs=0.15)
 
 
+def test_a_peds_stream_that_stops_early_is_not_held_past_its_last_message(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 0.0)})
+    episode.topics["peds"] = episode.topics["peds"].filter(pl.col("time_ns") <= 2 * SEC)
+    out = criticality.calculate(episode, {})
+    assert out["edge_case_collided"] is False
+    assert out["edge_case_min_clearance_at"] == pytest.approx(2.1)
+    assert out["edge_case_min_clearance_m"] == pytest.approx(6.0 - 2.1 - 2 * ROBOT_RADIUS)
+
+
 def test_the_scenario_is_found_through_the_robots_axis_too(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
     out = criticality.calculate(_episode(world, _run(world, tm_obstacles="random", tm_robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})
