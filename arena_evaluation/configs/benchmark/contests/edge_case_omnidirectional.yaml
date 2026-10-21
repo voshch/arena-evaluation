@@ -1,4 +1,4 @@
-# Omnidirectional drive (mpo700): the nav2 control and the learned planners whose action_type is omnidirectional.
+# Omnidirectional drive (mpo700): the nav2 control and the learned planners whose action_type is omnidirectional
 - name: nav2
   mobile: {driver: nav2, rate: 10}
 - name: rlrvo

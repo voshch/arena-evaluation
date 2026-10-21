@@ -87,7 +87,11 @@ to `<run_dir>/worlds/<world name>/`: `world.yaml` (format 2, linked levels
 written out, ceilings under the `world.lighting` mode) and `kg.yaml`
 (stated and derived facts under `kg.derive`). Env offsets and other
 runtime state stay out. Evaluation reads world geometry from there before the
-package worlds.
+package worlds. On the first episode of each scenario a `scenario` task mode
+runs, the recorder also copies that scenario's directory (`scenario.yaml`,
+`provenance.yaml`, scenario-local agent types) to
+`<run_dir>/worlds/<world name>/scenarios/<file>/`, which the edge-case metrics
+read before the world's own scenario.
 
 ### Recorded Topics
 
