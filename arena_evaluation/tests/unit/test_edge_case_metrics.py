@@ -406,6 +406,17 @@ def test_a_peds_stream_that_stops_early_is_not_held_past_its_last_message(tmp_pa
     assert out["edge_case_min_clearance_m"] == pytest.approx(6.0 - 2.1 - 2 * ROBOT_RADIUS)
 
 
+HELD_CASE = CASE + "robot: {speed_mps: 1.0, hold_s: 3.0, traversals: 1, tolerance_m: null, radius_m: 0.35}\n"
+
+
+@pytest.mark.parametrize(("provenance", "freeze_s"), [(CASE, 1.0), (HELD_CASE, 0.0)])
+def test_the_designed_start_hold_is_not_a_freeze(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, provenance: str, freeze_s: float) -> None:
+    world = _world(tmp_path, provenance=provenance)
+    episode = _episode(world, _run(world), {"edge_0": _standing(6.0, 1.5)})
+    episode.topics["tf_gt"] = episode.topics["tf_gt"].with_columns((pl.col("pos_x_gt") - 3.0).clip(lower_bound=0.0))
+    assert criticality.calculate(episode, {})["edge_case_freeze_s"] == pytest.approx(freeze_s, abs=0.15)
+
+
 def test_the_scenario_is_found_through_the_robots_axis_too(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
     out = criticality.calculate(_episode(world, _run(world, tm_obstacles="random", tm_robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})

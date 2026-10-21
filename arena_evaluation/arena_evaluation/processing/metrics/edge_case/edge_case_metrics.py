@@ -8,7 +8,7 @@ import polars as pl
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 
-from .criticality import Sample, formation_hold, score
+from .criticality import SETTLE_S, Sample, formation_hold, score
 from .provenance import Provenance, load_provenance, scenario_name
 
 if typing.TYPE_CHECKING:
@@ -128,7 +128,7 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         results["edge_case_scope"] = "own" if seen else "all"
         results["edge_case_agents"] = seen
         results["edge_case_missing"] = [name for name in provenance.agents if name not in recorded]
-        result = score(samples, only=seen or None, encounters=[(e.agent, e.point) for e in provenance.encounters])
+        result = score(samples, only=seen or None, encounters=[(e.agent, e.point) for e in provenance.encounters], settle_s=SETTLE_S + provenance.hold_s)
         if not result.observed:
             return results
         results.update(

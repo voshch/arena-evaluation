@@ -44,6 +44,7 @@ class Provenance:
     owned: dict[str, tuple[str, ...]]
     formation: Formation | None
     encounters: tuple[Encounter, ...] = ()
+    hold_s: float = 0.0
 
     @property
     def agents(self) -> list[str]:
@@ -64,7 +65,8 @@ def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) 
             variant=str(spec.get("variant", "")),
         )
     encounters = tuple(Encounter(agent=str(e["agent"]), point=(float(e["point"][0]) + origin[0], float(e["point"][1]) + origin[1])) for e in raw.get("encounters") or ())
-    return Provenance(id=str(raw.get("id", "")), steps=tuple(str(s) for s in raw.get("steps") or ()), owned=owned, formation=formation, encounters=encounters)
+    hold_s = float((raw.get("robot") or {}).get("hold_s") or 0.0)
+    return Provenance(id=str(raw.get("id", "")), steps=tuple(str(s) for s in raw.get("steps") or ()), owned=owned, formation=formation, encounters=encounters, hold_s=hold_s)
 
 
 def scenario_name(run: RunMetadata | None) -> str | None:
