@@ -6,13 +6,13 @@ import math
 from collections.abc import Iterable, Sequence
 
 import attrs
-
-Point = tuple[float, float]
+from arena_simulation_setup.shared.pathing import Point
 
 FREEZE_SPEED = 0.05
 PERSONAL_SPACE = 0.5
 SETTLE_S = 2.0
 ENCOUNTER_NEAR_M = 1.5
+FORMATION_RADIUS_M = 1.5
 
 
 @attrs.frozen
@@ -202,7 +202,7 @@ def _centroid(points: Sequence[Point]) -> Point:
     return (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
 
 
-def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = 1.5, center: Point | None = None, form_at: float | None = None) -> FormationHold:
+def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = FORMATION_RADIUS_M, center: Point | None = None, form_at: float | None = None) -> FormationHold:
     """When the recorded members stood within `radius` of the center (else their centroid) from `form_at` on, and how long."""
     wanted = tuple(sorted({str(m) for m in members}))
     recorded = {name for sample in samples for name in sample.peds}

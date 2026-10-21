@@ -9,8 +9,9 @@ from pathlib import Path
 
 import attrs
 import yaml
+from arena_simulation_setup.shared.pathing import Point
 
-from .criticality import Point
+from .criticality import FORMATION_RADIUS_M
 
 if typing.TYPE_CHECKING:
     from arena_simulation_setup.tree.World import WorldView
@@ -21,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 PROVENANCE_FILE = "provenance.yaml"
 OWN_STEPS = ("C", "D", "injected")
-FORMATION_RADIUS_M = 1.5
 
 
 @attrs.frozen
