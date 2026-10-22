@@ -972,6 +972,21 @@ def test_semantic_snapshot_callback_writes_state_semantics():
     node._write_to_bag_at.assert_called_once_with("/env_0/state/semantics", "snap", 777)
 
 
+def test_copy_scenario_copies_the_scenario_directory_once(tmp_path):
+    source = tmp_path / "live" / "case"
+    (source / "types").mkdir(parents=True)
+    (source / "scenario.yaml").write_text("format: arena-scenario/2\n")
+    (source / "provenance.yaml").write_text("id: first\n")
+    (source / "types" / "walker.yaml").write_text("agent_type: adult\n")
+    target = tmp_path / "run" / "worlds" / "hall" / "scenarios" / "case"
+    assert recorder.copy_scenario(source, target) is True
+    assert sorted(str(p.relative_to(target)) for p in target.rglob("*")) == ["provenance.yaml", "scenario.yaml", "types", "types/walker.yaml"]
+    (source / "provenance.yaml").write_text("id: regenerated\n")
+    assert recorder.copy_scenario(source, target) is False
+    assert (target / "provenance.yaml").read_text() == "id: first\n"
+    assert [p.name for p in target.parent.iterdir()] == ["case"]
+
+
 def _fleet_message(robots_ns_model):
     fleet = RobotFleet()
     states = []

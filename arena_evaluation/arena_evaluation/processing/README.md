@@ -21,7 +21,7 @@ Each `episode_XXX.mcap` is aligned directly onto its odom axis.
 | `topic_aligner.py` | Aligns multi-rate topics onto the odom time axis |
 | `pipeline.py` | `ProcessingPipeline` orchestrates benchmark processing |
 | `map_registry.py` | Discovers, converts (PGM to PNG), and caches map images |
-| `metrics/` | Metric calculators (performance, social, ecological, naturalness) |
+| `metrics/` | Metric calculators (performance, social, ecological, naturalness, edge_case) |
 
 ---
 
