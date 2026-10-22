@@ -22,6 +22,7 @@ from arena_evaluation.processing.metrics.ecological.semantic_metrics import (
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
+    import shapely
     from arena_simulation_setup.tree.World import Level
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ _CMD_VEL_COLUMNS = ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y"
 @dataclasses.dataclass
 class _CapZoneGeometry:
     name: str
-    polygon: object
+    polygon: shapely.Polygon
 
 
 def _extract_occupancy_zone_geometry(flattened: Level) -> list[_CapZoneGeometry]:

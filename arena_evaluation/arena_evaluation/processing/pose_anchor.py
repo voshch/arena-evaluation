@@ -143,6 +143,7 @@ def fit_rigid(pairs: pl.DataFrame) -> RigidFit:
 def anchor_odom(odom: pl.DataFrame | pl.LazyFrame, fit: RigidFit) -> pl.DataFrame:
     """The odom track mapped through ``fit``, in the schema of an extracted tf_gt frame."""
     df = _collect(odom)
+    assert df is not None
     x = df["pos_x"].to_numpy()
     y = df["pos_y"].to_numpy()
     cos_t, sin_t = np.cos(fit.theta), np.sin(fit.theta)
@@ -166,7 +167,7 @@ def classify(tf_gt: pl.DataFrame | pl.LazyFrame | None) -> str:
     if len(df) < 2:
         return "sparse"
     gaps = np.diff(np.sort(_stamps(df, "stamp_ns_gt").to_numpy()))
-    return "dense" if float(np.median(gaps)) <= DENSE_GAP_NS else "sparse"
+    return "dense" if float(np.median(gaps)) <= DENSE_GAP_NS else "sparse"  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def resolve_pose_source(bundle: TopicBundle, window: tuple[int | None, int | None]) -> tuple[pl.DataFrame | None, PoseSource]:
@@ -174,6 +175,8 @@ def resolve_pose_source(bundle: TopicBundle, window: tuple[int | None, int | Non
     tf_gt = _collect(bundle.tf_gt)
     in_window = _windowed(tf_gt, window)
     kind = classify(in_window)
+    if in_window is None:
+        return None, PoseSource("odom", 0, None)
 
     if kind == "dense":
         return tf_gt, PoseSource("tf", len(in_window), None)

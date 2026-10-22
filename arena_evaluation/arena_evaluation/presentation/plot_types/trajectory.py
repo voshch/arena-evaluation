@@ -86,7 +86,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             pdf_eval = pdf
             pdf_ref = pdf.iloc[0:0]
 
-        planners = pdf_eval[diff_col].unique() if diff_col in pdf_eval.columns else ["unknown"]
+        planners = pdf_eval[diff_col].unique() if diff_col in pdf_eval.columns else ["unknown"]  # pyright: ignore[reportAttributeAccessIssue]
         seen_planners = set()
 
         for planner in planners:
@@ -95,27 +95,26 @@ class TrajectoryRenderer(BasePlotRenderer):
             else:
                 planner_df = pdf_eval
 
-            if "episode" in planner_df.columns:
-                planner_df = planner_df.sort_values("episode")
+            if "episode" in planner_df.columns:  # pyright: ignore[reportAttributeAccessIssue]
+                planner_df = planner_df.sort_values("episode")  # pyright: ignore[reportAttributeAccessIssue, reportCallIssue]
 
             overlay_markers = self.spec.options.get("overlay_markers", True)
 
             all_x_by_agent = []
             all_y_by_agent = []
 
-            if overlay_markers:
-                starts_x_by_agent = []
-                starts_y_by_agent = []
-                starts_idx_by_agent = []
-                goals_x_by_agent = []
-                goals_y_by_agent = []
-                goals_idx_by_agent = []
-                col_x_by_agent = []
-                col_y_by_agent = []
-                col_idx_by_agent = []
+            starts_x_by_agent = []
+            starts_y_by_agent = []
+            starts_idx_by_agent = []
+            goals_x_by_agent = []
+            goals_y_by_agent = []
+            goals_idx_by_agent = []
+            col_x_by_agent = []
+            col_y_by_agent = []
+            col_idx_by_agent = []
 
             data_key = self.spec.data_key or "path"
-            for _, row in planner_df.iterrows():
+            for _, row in planner_df.iterrows():  # pyright: ignore[reportAttributeAccessIssue]
                 path = row.get(data_key)
                 if path is None or len(path) == 0:
                     continue
@@ -328,7 +327,7 @@ class TrajectoryRenderer(BasePlotRenderer):
                 # Fallback: extract directly from episode topics/peds.parquet if available
                 if p_paths is None and run_dir is not None and "episode" in r:
                     try:
-                        ep_id = int(r["episode"])
+                        ep_id = int(r["episode"])  # pyright: ignore[reportArgumentType]
                         peds_pq = pathlib.Path(run_dir) / "episodes" / f"episode_{ep_id:03d}" / "topics" / "peds.parquet"
                         if peds_pq.exists():
                             p_df = pl.read_parquet(peds_pq)
@@ -425,7 +424,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         if title_suffix:
             title = f"{title} - {title_suffix}"
 
-        layout_args = dict(title=title, xaxis_title="X [m]", yaxis_title="Y [m]", yaxis=dict(scaleanchor="x", scaleratio=1), template="plotly_white", legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
+        layout_args: dict[str, object] = dict(title=title, xaxis_title="X [m]", yaxis_title="Y [m]", yaxis=dict(scaleanchor="x", scaleratio=1), template="plotly_white", legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
 
         if map_meta:
             png_path = map_meta["png_path"]
@@ -445,7 +444,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             except Exception as e:
                 print(f"Failed to overlay map {map_name}: {e}")
 
-        fig.update_layout(**layout_args)
+        fig.update_layout(layout_args)
         return self._inject_slider_js(fig)
 
     def _generate_gif(self, fig: Figure, lines_data: list[tuple[Line2D, np.ndarray, np.ndarray]], markers_info: dict | None, out_path: pathlib.Path):
@@ -698,7 +697,7 @@ class TrajectoryRenderer(BasePlotRenderer):
                 res = map_meta["resolution"]
                 w_m = map_meta["width"] * res
                 h_m = map_meta["height"] * res
-                plt.imshow(img, extent=[0, w_m, 0, h_m], alpha=0.5, origin='upper', zorder=0)
+                plt.imshow(img, extent=(0, w_m, 0, h_m), alpha=0.5, origin='upper', zorder=0)
                 plt.xlim(0, w_m)
                 plt.ylim(0, h_m)
             except Exception as e:
@@ -728,7 +727,7 @@ class TrajectoryRenderer(BasePlotRenderer):
                 planner_df = pdf
 
             if "episode" in planner_df.columns:
-                planner_df = planner_df.sort_values("episode")
+                planner_df = planner_df.sort_values("episode")  # pyright: ignore[reportCallIssue]
 
             if planner not in all_x_by_agent:
                 all_x_by_agent[planner] = []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 import os
 import pathlib
@@ -17,6 +18,7 @@ import arena_evaluation.benchmark.state as state_module
 from arena_evaluation.benchmark.config import Contest, Suite
 from arena_evaluation.benchmark.runner import block_claim_key, group_pending
 from arena_evaluation.benchmark.state import (
+    SUPERSEDED_PROGRESS,
     Manifest,
     ManifestMismatchError,
     ProgressLog,
@@ -220,6 +222,20 @@ def test_fold_keeps_rows_of_a_prior_progress_csv(tmp_path: pathlib.Path):
 
     rows = _rows(run / "progress.csv")
     assert [(r["episode_id"], r["outcome_info"]) for r in rows] == [("0", "legacy"), ("1", "")]
+
+
+def test_fold_moves_rows_of_a_rerun_steps_earlier_attempt_to_the_superseded_file(tmp_path: pathlib.Path):
+    (p1,) = _lanes(tmp_path, "p1")
+    run = tmp_path / "shared-run"
+    p1.state.write({"a/s": _result("a/s", "ok", datetime.datetime.fromisoformat("2026-10-03T10:00:03+00:00").timestamp())})
+    _append(p1.progress, "2026-10-03T10:00:01+00:00", "a/s", 0, "first attempt")
+    _append(p1.progress, "2026-10-03T10:00:04+00:00", "a/s", 1, "rerun")
+
+    fold_run_dir(run)
+    fold_run_dir(run)
+
+    assert [r["outcome_info"] for r in _rows(run / "progress.csv")] == ["rerun"]
+    assert [r["outcome_info"] for r in _rows(run / SUPERSEDED_PROGRESS)] == ["first attempt"]
 
 
 def test_fold_drops_partial_trailing_row(tmp_path: pathlib.Path):

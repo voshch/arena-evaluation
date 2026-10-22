@@ -126,7 +126,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
 
         poses = episode.topics.get("task_pose") if episode.topics else None
         zones = load_zone_geometry(self.world) if self.world else None
-        if poses is None or len(poses) == 0 or zones is None:
+        if poses is None or len(poses) == 0 or zones is None or not self.world:
             return results
 
         poses = poses.sort("time_ns")

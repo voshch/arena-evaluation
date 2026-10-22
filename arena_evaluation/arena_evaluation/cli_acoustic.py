@@ -159,8 +159,9 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     from arena_evaluation.presentation.plot_types.acoustic_field import AcousticFieldRenderer
     from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+    from arena_evaluation.storage.schemas import PlotSpec
 
-    renderer = AcousticFieldRenderer(None)
+    renderer = AcousticFieldRenderer(PlotSpec(id="acoustic_field", type="acoustic_field", title="", data_key=""))
     renderer.run_dir = args.benchmark_dir
 
     # Load map
@@ -258,8 +259,9 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     from arena_evaluation.presentation.plot_types.acoustic_field import AcousticFieldRenderer
     from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
+    from arena_evaluation.storage.schemas import PlotSpec
 
-    renderer = AcousticFieldRenderer(None)
+    renderer = AcousticFieldRenderer(PlotSpec(id="acoustic_field", type="acoustic_field", title="", data_key=""))
     renderer.run_dir = args.benchmark_dir
 
     map_name = None

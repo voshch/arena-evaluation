@@ -6,6 +6,11 @@ import time
 import types
 import typing
 
+if typing.TYPE_CHECKING:
+    from rich.console import Console
+    from rich.live import Live
+    from rich.table import Table
+
 try:
     from rich.console import Console
     from rich.live import Live
@@ -40,7 +45,7 @@ class PipelineProgressDisplay:
 
     def __enter__(self) -> typing.Self:
         # Only use rich Live if stdout is a real terminal
-        if _HAS_RICH and sys.stdout.isatty():
+        if self.console is not None and sys.stdout.isatty():
             self.console.print(f"[bold cyan]{self.title}[/bold cyan]")
             self.live = Live(
                 self._render(),
@@ -68,7 +73,7 @@ class PipelineProgressDisplay:
         exc_tb: types.TracebackType | None,
     ) -> None:
         self._running = False
-        if self.live is not None:
+        if self.live is not None and self.console is not None:
             self.live.__exit__(exc_type, exc_val, exc_tb)
             elapsed = time.perf_counter() - self.start_time
             mins, secs = divmod(int(elapsed), 60)
@@ -96,7 +101,7 @@ class PipelineProgressDisplay:
             if extra:
                 line += f" • {extra}"
 
-            if self.live is not None:
+            if self.live is not None and self.console is not None:
                 self.console.print(line)
                 self.live.update(self._render())
             else:
@@ -108,7 +113,7 @@ class PipelineProgressDisplay:
     def log_error(self, ep_id: int, message: str):
         with self._lock:
             err_line = f"[bold red]✘[/bold red] episode_{ep_id:03d} error: {message}"
-            if self.live is not None:
+            if self.live is not None and self.console is not None:
                 self.console.print(err_line)
                 self.live.update(self._render())
             else:

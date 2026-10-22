@@ -101,7 +101,7 @@ def world_view(world: str, run_dir: Path | None = None) -> WorldView | None:
     """The world an episode ran in: its snapshot under `run_dir`/worlds first, else the resolved world, None without either."""
     from arena_simulation_setup.tree.World import WorldIdentifier, WorldView
 
-    name, _ = WorldIdentifier.parse(world)
+    name, _ = WorldIdentifier.split_filter(world)
     snapshot = None if run_dir is None else Path(run_dir) / "worlds" / name
     if snapshot is not None and (snapshot / "world.yaml").is_file():
         return WorldView(snapshot)
@@ -116,7 +116,7 @@ def _frame_view(world: str, view: WorldView) -> WorldView:
     """The world whose level origins the runtime used: the full world under a level filter, which a filtered snapshot lacks."""
     from arena_simulation_setup.tree.World import WorldIdentifier
 
-    name, level_filter = WorldIdentifier.parse(world)
+    name, level_filter = WorldIdentifier.split_filter(world)
     if level_filter is None:
         return view
     try:

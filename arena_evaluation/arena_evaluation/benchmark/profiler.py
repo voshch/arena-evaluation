@@ -31,7 +31,7 @@ def _ensure_nvml() -> bool:
         if _nvml_initialised:
             return _nvml_available
         try:
-            import pynvml
+            import pynvml  # pyright: ignore[reportMissingImports]
 
             pynvml.nvmlInit()
             _nvml_available = True
@@ -176,7 +176,7 @@ class SystemSampler:
         """Return (total_cpu_percent, [per_core_percent, ...])."""
         totals, idles, total_all, idle_all = self._read_proc_stat()
 
-        if self._prev_cpu_total_all is None:
+        if self._prev_cpu_total_all is None or self._prev_cpu_idle_all is None:
             self._prev_cpu_total = totals
             self._prev_cpu_idle = idles
             self._prev_cpu_total_all = total_all
@@ -232,7 +232,7 @@ class SystemSampler:
         if not _ensure_nvml():
             return None
         try:
-            import pynvml
+            import pynvml  # pyright: ignore[reportMissingImports]
 
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)

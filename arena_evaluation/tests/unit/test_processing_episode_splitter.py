@@ -19,7 +19,6 @@ import pyarrow as pa
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from arena_evaluation.processing import episode_splitter as es_mod
 from arena_evaluation.processing.episode_splitter import (
     EpisodeSplitter,
     _env_offset,
@@ -27,25 +26,6 @@ from arena_evaluation.processing.episode_splitter import (
     _parse_conditions,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, TopicBundle
-
-# SOURCE-BUG WORKAROUND: the production AlignedEpisodeBundle dataclass has no
-# `env_offset` field, but episode_splitter.split() passes env_offset=... on every
-# episode construction, so the production path raises TypeError.  We keep the
-# production class untouched and, in this test file only, substitute a subclass
-# that adds the field so the split logic itself can be exercised.  The buggy
-# production behaviour is pinned by dedicated regression tests below.
-_REAL_BUNDLE_CLASS = es_mod.AlignedEpisodeBundle
-
-
-@dataclasses.dataclass
-class _BundleWithEnvOffset(AlignedEpisodeBundle):
-    env_offset: tuple[float, float] | None = None
-
-
-@pytest.fixture(autouse=True)
-def _patch_bundle_class(monkeypatch):
-    monkeypatch.setattr(es_mod, "AlignedEpisodeBundle", _BundleWithEnvOffset)
-
 
 # ---------------------------------------------------------------------------
 # Shared builders
@@ -378,28 +358,25 @@ def test_episode_snapshot_properties(times, start, end):
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# env_offset source-bug regression pins
+# env_offset on the production bundle
 # ---------------------------------------------------------------------------
 
 
-def test_production_bundle_class_lacks_env_offset_field():
-    """Documented source bug: split() passes env_offset= but the dataclass
-    has no such field (episode_splitter.py vs storage/schemas.py mismatch)."""
-    assert "env_offset" not in {f.name for f in dataclasses.fields(AlignedEpisodeBundle)}
+def test_production_bundle_class_has_env_offset_field():
+    assert "env_offset" in {f.name for f in dataclasses.fields(AlignedEpisodeBundle)}
 
 
-def test_split_real_bundle_raises_typeerror_no_records(monkeypatch):
-    """Unpatched production classes: split() raises TypeError on episode build."""
-    monkeypatch.setattr(es_mod, "AlignedEpisodeBundle", _REAL_BUNDLE_CLASS)
-    with pytest.raises(TypeError):
-        _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom()))
+def test_split_builds_production_bundles_no_records():
+    out = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom()))
+    assert len(out) >= 1
+    assert all(type(ep) is AlignedEpisodeBundle for ep in out)
 
 
-def test_split_real_bundle_raises_typeerror_with_records(monkeypatch):
-    monkeypatch.setattr(es_mod, "AlignedEpisodeBundle", _REAL_BUNDLE_CLASS)
+def test_split_builds_production_bundles_with_records():
     records = _records([(1000, 3, None, None)])
-    with pytest.raises(TypeError):
-        _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))
+    out = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))
+    assert len(out) >= 1
+    assert all(type(ep) is AlignedEpisodeBundle for ep in out)
 
 
 # ---------------------------------------------------------------------------

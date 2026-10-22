@@ -592,9 +592,10 @@ class EvalBridge:
         from arena_evaluation.processing.metrics.registry import (
             MetricRegistry,
         )
+        from arena_evaluation.storage.schemas import RobotParams
 
         MetricRegistry.discover_calculators_cls()
-        registry = MetricRegistry(None)
+        registry = MetricRegistry(RobotParams())
         return registry.list_metrics()
 
     def load_combined_metrics(self, benchmark_id: str) -> pl.DataFrame | None:

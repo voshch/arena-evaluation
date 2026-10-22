@@ -9,6 +9,7 @@ import re
 import shutil
 import typing
 from collections import defaultdict
+from collections.abc import Iterable
 
 import numpy as np
 import polars as pl
@@ -18,6 +19,12 @@ from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
 from arena_evaluation.storage.schemas import TopicBundle
+
+if typing.TYPE_CHECKING:
+    from mcap.records import Schema
+    from rcl_interfaces.msg import ParameterValue
+    from std_msgs.msg import Header
+    from task_generator_msgs.msg import SemanticEntityState
 
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
@@ -50,10 +57,11 @@ def by_anchor(anchors: list[Anchor], value: typing.Callable[[float, float], pl.E
     for t, ax, ay in reversed(later):
         cond = pl.col("time_ns") >= t
         chain = pl.when(cond).then(value(ax, ay)) if chain is None else chain.when(cond).then(value(ax, ay))
+    assert chain is not None
     return chain.otherwise(value(ox, oy))
 
 
-def nearest_return(ranges: object, range_min: float, range_max: float) -> float:
+def nearest_return(ranges: Iterable[float], range_min: float, range_max: float) -> float:
     """Nearest valid LaserScan return, range_max when nothing is in range."""
     valid = [r for r in ranges if range_min <= r < range_max]
     return min(valid) if valid else range_max
@@ -191,7 +199,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
 }
 
 
-def _ped_fields(schema: object, cache: dict[int, tuple[bool, bool, bool]]) -> tuple[bool, bool, bool]:
+def _ped_fields(schema: Schema, cache: dict[int, tuple[bool, bool, bool]]) -> tuple[bool, bool, bool]:
     """Whether a recorded pedestrian schema carries animation_state, interaction_id and gestures, by schema id."""
     if schema.id not in cache:
         text = schema.data.decode()
@@ -217,12 +225,12 @@ class MCAPReader:
         return math.atan2(siny_cosp, cosy_cosp)
 
     @staticmethod
-    def _stamp_ns(header: object) -> int:
+    def _stamp_ns(header: Header) -> int:
         """Header stamp (sim time) in ns."""
         return int(header.stamp.sec) * 1_000_000_000 + int(header.stamp.nanosec)
 
     @staticmethod
-    def _param_value_to_py(val: object) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
+    def _param_value_to_py(val: ParameterValue) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
         p_type = val.type
         if p_type == 1:
             return val.bool_value
@@ -377,6 +385,8 @@ class MCAPReader:
                     schema_fields: dict[int, tuple[bool, bool, bool]] = {}
 
                     for schema, channel, message in reader.iter_messages(log_time_order=False):
+                        if schema is None:
+                            continue
                         try:
                             decoder = decoders.get(message.channel_id)
                             if decoder is None:
@@ -916,7 +926,7 @@ class MCAPReader:
         target["value_list"].append(value_list)
 
     @staticmethod
-    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent: object) -> None:
+    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent: SemanticEntityState) -> None:
         """Flatten one SemanticEntityState into long-format rows."""
         for name, value in zip(ent.discrete_names, ent.discrete_values, strict=True):
             MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "discrete", value_str=str(value))
@@ -950,7 +960,7 @@ class MCAPReader:
         robot_dirs = [d for d in topics_dir.iterdir() if d.is_dir()]
 
         env_anchors: dict[str, list[Anchor]] = {}
-        if global_bundle.tf_static is not None:
+        if isinstance(global_bundle.tf_static, pl.LazyFrame):
             try:
                 tf_df = global_bundle.tf_static.collect()
                 for row in tf_df.iter_rows(named=True):
@@ -965,7 +975,7 @@ class MCAPReader:
             except Exception:
                 pass
 
-        if global_bundle.tf is not None:
+        if isinstance(global_bundle.tf, pl.LazyFrame):
             try:
                 tf_anchors: dict[str, list[Anchor]] = {}
                 tf_df = global_bundle.tf.collect()

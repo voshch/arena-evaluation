@@ -17,7 +17,7 @@ class MapRegistry:
             from arena_simulation_setup.tree.World import WorldIdentifier
         except ImportError:
             return None
-        bare, level_filter = WorldIdentifier.parse(map_name)
+        bare, level_filter = WorldIdentifier.split_filter(map_name)
         try:
             view = WorldIdentifier(bare).resolve_sync()
             loaded = view.load(level_filter=level_filter)

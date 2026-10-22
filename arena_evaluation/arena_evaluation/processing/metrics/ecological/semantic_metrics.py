@@ -47,7 +47,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
 
         end_time_ns = None
         if episode.data is not None and "time_ns" in episode.data.columns and len(episode.data) > 0:
-            end_time_ns = int(episode.data["time_ns"].max())
+            end_time_ns = int(typing.cast("float", episode.data["time_ns"].max()))
 
         if isinstance(episode.data, pl.LazyFrame):
             episode.data = episode.data.collect()

@@ -43,8 +43,10 @@ def cluster_bootstrap(
     clusters = [c for c in clusters if len(c) > 0]
     if statistic is None:
 
-        def statistic(drawn: list[np.ndarray]) -> float:
+        def _pooled_mean(drawn: list[np.ndarray]) -> float:
             return float(np.mean(np.concatenate(drawn)))
+
+        statistic = _pooled_mean
 
     n_pairs = int(sum(len(c) for c in clusters))
     if not clusters:

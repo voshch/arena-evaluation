@@ -46,7 +46,9 @@ def set_global_color_palette() -> None:
         import plotly.io as pio
 
         if "plotly_white" in pio.templates:
-            pio.templates["plotly_white"].layout.colorway = palette
+            layout = pio.templates["plotly_white"].layout
+            assert isinstance(layout, go.Layout)
+            layout.colorway = palette
         else:
             pio.templates["plotly_white"] = go.layout.Template(layout=dict(colorway=palette))
         pio.templates.default = "plotly_white"

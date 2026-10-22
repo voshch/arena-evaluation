@@ -52,7 +52,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         valid_ref = np.ascontiguousarray(valid_ref[:, :2], dtype=np.float64)
 
         try:
-            from scipy.spatial import cKDTree
+            from scipy.spatial import cKDTree  # pyright: ignore[reportAttributeAccessIssue]
 
             tree = cKDTree(valid_ref)
             dists, _ = tree.query(valid_act, k=1)

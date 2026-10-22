@@ -158,7 +158,7 @@ class GeometricThetaStar:
         else:
             self.dilated_grid = raw_obstacle
 
-        self.height, self.width = self.dilated_grid.shape
+        self.height, self.width = self.dilated_grid.shape  # pyright: ignore[reportAssignmentType]
 
     def obstacle_grid(self, *cells: tuple[int, int]) -> np.ndarray:
         """Dilated obstacle mask with the 5x5 window around each (gx, gy) cell cleared."""
@@ -390,7 +390,7 @@ def load_map_solver(
         try:
             from arena_evaluation.processing.map_registry import MapRegistry
 
-            map_info = MapRegistry.get_map(map_name, run_dir=run_dir)
+            map_info = MapRegistry.get_map(map_name, run_dir=Path(run_dir) if run_dir is not None else None)
             if map_info and "png_path" in map_info and Path(map_info["png_path"]).exists():
                 png_path = map_info["png_path"]
                 img = Image.open(png_path).convert("L")

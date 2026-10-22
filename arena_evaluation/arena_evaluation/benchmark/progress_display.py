@@ -7,6 +7,11 @@ import time
 import types
 import typing
 
+if typing.TYPE_CHECKING:
+    from rich.console import Console
+    from rich.live import Live
+    from rich.table import Table
+
 try:
     from rich.console import Console
     from rich.live import Live
@@ -48,7 +53,7 @@ class BenchmarkProgressDisplay:
         self.active_slots: dict[int, dict[str, typing.Any]] = {}
 
     def __enter__(self) -> typing.Self:
-        if _HAS_RICH and sys.stdout.isatty():
+        if self.console is not None and sys.stdout.isatty():
             self.console.print(f"[bold cyan]{self.title}[/bold cyan] [dim](run_id: {self.run_id}, env_n: {self.env_n})[/dim]")
             self.live = Live(
                 get_renderable=self._render,
@@ -156,11 +161,11 @@ class BenchmarkProgressDisplay:
             if status == "ok":
                 self.ok_steps += 1
                 icon = "[bold green]✔[/bold green]"
-                status_colored = f"[green]ok ({episodes_run}/{episodes_total} eps)[/green]"
+                status_colored = f"[green]ok ({episodes_run}/{episodes_total} eps, {episodes_failed} failed)[/green]"
             elif status == "partial":
                 self.partial_steps += 1
                 icon = "[bold yellow]⚠[/bold yellow]"
-                status_colored = f"[yellow]partial ({episodes_run - episodes_failed}/{episodes_total} eps ok)[/yellow]"
+                status_colored = f"[yellow]partial ({episodes_run}/{episodes_total} eps recorded)[/yellow]"
             elif status == "skipped":
                 self.skipped_steps += 1
                 icon = "[dim]⊘[/dim]"
@@ -168,17 +173,17 @@ class BenchmarkProgressDisplay:
             else:
                 self.failed_steps += 1
                 icon = "[bold red]✘[/bold red]"
-                status_colored = f"[red]failed ({episodes_failed}/{episodes_total} eps failed)[/red]"
+                status_colored = f"[red]failed ({episodes_run}/{episodes_total} eps recorded)[/red]"
 
             timing = f"in {elapsed_sec:.1f}s wall" + (f", {sim_sec:.1f}s sim" if sim_sec is not None else "")
             line = f"{icon} [{self.completed_steps:2d}/{self.total_steps:2d}] [bold]{contestant}[/bold] • [cyan]{stage}[/cyan] [{status_colored}] {timing}"
             if error_detail and status == "failed":
                 line += f" • [dim red]{error_detail}[/dim red]"
-            has_live = self.live is not None
+            live = self.live
 
-        if has_live:
-            self.live.console.print(line)
-            self.live.refresh()
+        if live is not None:
+            live.console.print(line)
+            live.refresh()
         else:
             print(
                 f"[{self.completed_steps}/{self.total_steps}] {step_key} ({status}) {timing}",

@@ -74,7 +74,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
 
         scan_min_arr = None
         scan_max_arr = None
-        if has_scan:
+        if has_scan and scan_df is not None:
             s_df = scan_df.sort("time_ns")
             joined = (
                 pl.DataFrame({"time_ns": odom_times_ns})
@@ -91,7 +91,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
 
         peds_positions_list = None
         num_peds_col = None
-        if has_peds:
+        if has_peds and peds_df is not None:
             p_df = peds_df.sort("time_ns")
             cols = ["time_ns", "peds_positions"]
             if "num_pedestrians" in p_df.columns:
