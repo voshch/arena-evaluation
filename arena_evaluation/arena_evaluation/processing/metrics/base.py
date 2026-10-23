@@ -8,7 +8,7 @@ from collections.abc import Sized
 import numpy as np
 import polars as pl
 
-from ..pose_segments import teleport_jumps
+from ..pose_segments import elevator_arrival_times, teleport_jumps
 
 if typing.TYPE_CHECKING:
     from ...storage.schemas import AlignedEpisodeBundle, RobotParams
@@ -33,7 +33,7 @@ class BaseMetricCalculator(ABC):
         self.metrics_config: dict[str, int] = {}
 
     def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Map-frame robot pose (pos_x, pos_y, yaw); the start-pose re-anchor is the odom-only fallback."""
+        """Map-frame robot pose (pos_x, pos_y, yaw), the longest teleport-free piece of the track."""
         if episode.data is not None and len(episode.data) > 0:
             if "pos_x_gt" in episode.data.columns:
                 episode.data = episode.data.filter(pl.col("pos_x_gt").is_not_null() & ~pl.col("pos_x_gt").is_nan() & pl.col("pos_y_gt").is_not_null() & ~pl.col("pos_y_gt").is_nan() & pl.col("yaw_gt").is_not_null() & ~pl.col("yaw_gt").is_nan())
@@ -59,7 +59,13 @@ class BaseMetricCalculator(ABC):
             raw_odom_yaw0 = odom_yaw[0] if len(odom_yaw) > 0 else 0.0
             if len(odom_x) > 1:
                 stamp_col = "stamp_ns_gt" if "pos_x_gt" in episode.data.columns else "stamp_ns"
-                jumps = teleport_jumps(odom_x, odom_y, episode.data[stamp_col].to_numpy() if stamp_col in episode.data.columns else None)
+                jumps = teleport_jumps(
+                    odom_x,
+                    odom_y,
+                    episode.data[stamp_col].to_numpy() if stamp_col in episode.data.columns else None,
+                    exempt_ns=self._ride_arrivals(episode),
+                    exempt_time_ns=episode.data["time_ns"].to_numpy() if "time_ns" in episode.data.columns else None,
+                )
 
                 if len(jumps) > 0:
                     split_indices = jumps + 1
@@ -129,6 +135,13 @@ class BaseMetricCalculator(ABC):
             yaw = odom_yaw_trans
 
         return pos_x, pos_y, yaw, odom_x_trans, odom_y_trans, odom_yaw_trans
+
+    @staticmethod
+    def _ride_arrivals(episode: AlignedEpisodeBundle) -> np.ndarray:
+        """Elevator arrival log times of the robot's env, the teleports that are rides."""
+        from .ecological.mechanism_common import robot_env_snapshot
+
+        return elevator_arrival_times(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
 
     def native_topics(self, episode: AlignedEpisodeBundle) -> dict:
         """Raw native-rate topic frames keyed by topic name; {} when absent."""
