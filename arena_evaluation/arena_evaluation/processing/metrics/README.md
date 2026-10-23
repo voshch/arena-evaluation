@@ -63,3 +63,66 @@ for m in reg.list_metrics():
     print(m["name"], m["outputs"])
 ```
 
+
+## Mechanism metrics (mechanisms)
+
+Robot behaviour at doors, elevators and alarms, replayed from the episode's `semantic_snapshot`
+on the odom time axis (each sample holds until the next). Code: `ecological/mechanism_metrics.py`
+(new keys), `ecological/semantic_metrics.py` and `ecological/regime_metrics.py` (robot variants),
+shared plumbing in `ecological/mechanism_common.py`.
+
+**Naming.** The recorder names a robot `<env>_<ns>` (`env_0_jackal`, `robot` column); semantic
+`members` carry sim paths (`env_0/jackal`, peds `env_0/Pedestrian_5`); entities are
+`<env>/<authored name>[/<level>]`. `RobotIdentity` matches all spellings. Ped tracks record
+`peds_names` (same sim paths) from this version on; older recordings key peds by array index.
+Multi-env snapshots are scoped to the robot's env. When a kind never lists a member in an episode
+(recordings before per-agent members), robot presence falls back to world geometry.
+
+**None rules.** A key is None when the semantic kind it needs is absent, when it needs world
+geometry and the world asset is not local, or when it needs ped tracks and none were recorded.
+Counts are 0 when the robot never comes near the mechanism; conditional durations
+(`elevator_wait_to_board_s`) are None when the conditioning event never happens.
+
+Constants: stationary robot <= 0.05 m/s, waiting ped < 0.1 m/s, doorway band = robot radius + 0.3 m,
+call area = within the elevator's `activation_distance` of its cabin door centre and outside the
+cabin, ride arrival = cabin entry within 3 s of being in another cabin or across a teleport step.
+
+| Key | Unit | Definition |
+|---|---|---|
+| `boarded_before_exit` | count | robot boardings while the cabin reports `just_arrived` and holds another agent |
+| `blocked_closing_door`, `blocked_closing_door_s` | count, s | door `blocked_close` episodes / seconds with the robot in the doorway band of the door segment (members fallback without geometry) |
+| `ped_mechanism_delay_seconds` | ped*s | ped-seconds spent waiting in a closed door's activation radius or a closed elevator's call area (stranded peds) |
+| `elevator_wait_to_board_s` | s | sum over boardings of call-area entry -> cabin entry |
+| `elevator_missed_cycles` | count | complete cabin-door open -> closed cycles while the robot waited in the call area |
+| `elevator_unnecessary_calls` | count | call-area visits without boarding during which the cabin door started opening with no ped in the call area |
+| `entered_full_cabin` | count | boardings with `live_occupants` (or non-robot members) >= `capacity` just before entry; `full` when capacity unknown |
+| `cabin_door_blocking_s` | s | robot stationary in the cabin doorway band while the cabin door is `open` or `closing` |
+| `door_yield_violations` | count | robot door crossings with a ped approaching from the far side within 2 m of the door centre in the 2 s before |
+| `elevator_queue_jumps` | count | boardings overtaking a ped who was in the call area when the robot arrived and still waited there |
+| `alarm_egress_blocking_s` | s | robot stationary inside a zone with predicate `egress` while any schedule is `active` |
+| `door_freeze_s` | s | robot stationary within a door's activation radius while the door is steady (`open`/`closed`) |
+| `door_oscillations` | count | door re-openings after the first within one robot visit of its activation radius |
+| `ran_red_signal` | count | robot entries into the signal's disc while `stop`: preset params `position`/`radius`, else the same-named door |
+| `time_waiting_at_doors_robot` | s | robot is a door member while the door is `triggered` and not `open` (everyone: `time_waiting_at_doors`) |
+| `elevator_rides_robot` | count | `just_arrived` rises with the robot in the cabin members within 3 s (everyone: `elevator_rides`) |
+| `used_elevator_during_alarm_robot` | count | alarm windows overlapped by the robot being an elevator member (everyone: `used_elevator_during_alarm`) |
+| `mechanism_states` | list | per door and elevator: `progress` (0 closed, 1 open) and `locked` at every sample of `time`, the trajectory plot's animation input (`ecological/mechanism_states.py`) |
+
+Teleports that land within 2 s of an elevator arrival are rides and no longer cut the episode
+to its longest single-floor segment (`pose_segments.elevator_arrival_times`).
+
+### `mechanism` component
+
+`ecological/mechanism_component.py` (`mechanism_component` calculator) reports `mechanism_score`
+in [0, 1] (higher is better) and `mechanism_components` (how many inputs were available). The
+score is the weighted mean over the `MECHANISM_COMPONENTS` keys that are not None for the episode;
+a "lower is better" value x maps to `1 / (1 + x / scale)` (0 -> 1, x == scale -> 0.5), a
+"higher is better" value in [0, 1] is used as is. All weights are 1.
+
+| Key | Direction | Scale |
+|---|---|---|
+| `condition_success` | higher | - |
+| `boarded_before_exit`, `elevator_missed_cycles`, `elevator_unnecessary_calls`, `entered_full_cabin`, `door_yield_violations`, `elevator_queue_jumps`, `door_oscillations`, `ran_red_signal`, `used_elevator_during_alarm_robot`, `entered_over_cap_zone` | lower | 1 |
+| `blocked_closing_door_s`, `cabin_door_blocking_s` | lower | 5 s |
+| `alarm_egress_blocking_s`, `door_freeze_s` | lower | 10 s |
+| `ped_mechanism_delay_seconds`, `elevator_wait_to_board_s`, `time_waiting_at_doors_robot` | lower | 30 s |

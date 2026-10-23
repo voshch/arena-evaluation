@@ -162,6 +162,16 @@ def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
     return aligned_df
 
 
+def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | None:
+    """World name the world-geometry metrics (zones, doors, elevators, signals) resolve their
+    asset by: the recorded metadata map, else the descriptor map, None when unknown."""
+    if metadata is not None and metadata.map:
+        return metadata.map
+    if ep.map and ep.map != "unknown":
+        return ep.map
+    return None
+
+
 _RECORD_RUNNING = 1  # task_generator_msgs/msg/EpisodeRecord.RUNNING
 
 
@@ -551,7 +561,7 @@ class ProcessingPipeline:
                 pedsim_avail = metadata.pedsim_available or False
 
             robot_params = RobotParams.load(robot_model)
-            registry = MetricRegistry(robot_params, world=ep.map, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
+            registry = MetricRegistry(robot_params, world=_metric_world(metadata, ep), metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
 
             all_results: list[dict] = []
             robots = {name: bundle for name, bundle in bundles.items() if bundle.odom is not None}
@@ -622,7 +632,7 @@ class ProcessingPipeline:
                         import json
 
                         try:
-                            cond_raw = er["conditions"][0] if "conditions" in er.columns else None
+                            cond_raw = next((c for c in reversed(er.sort("time_ns")["conditions"].to_list()) if c), None) if "conditions" in er.columns and "time_ns" in er.columns else None
                             if cond_raw:
                                 conditions = json.loads(cond_raw)
                         except Exception:

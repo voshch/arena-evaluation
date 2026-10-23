@@ -152,10 +152,10 @@ def test_speed_violations_ignore_samples_outside_every_zone():
     assert (violations, seconds) == (1, pytest.approx(1.0))
 
 
-def test_members_only_snapshot_reconstructs_no_events():
+def test_members_only_snapshot_reconstructs_the_empty_members_seed():
     snapshot = pl.DataFrame({"time_ns": [0], "entity": ["env_0/lobby"], "kind": ["zone"], "field": ["members"], "field_kind": ["members"], "value_str": [None], "value_num": [None], "value_bool": [None]})
 
-    assert len(_reconstruct_events(snapshot)) == 0
+    assert _reconstruct_events(snapshot).rows() == [(0, "env_0/lobby", "zone", "members", "", "")]
 
 
 def test_door_series_is_empty_without_door_state_events():
