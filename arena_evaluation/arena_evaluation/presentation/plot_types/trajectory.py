@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import math
 import pathlib
+import types
 import typing
 
 import numpy as np
@@ -11,20 +13,131 @@ import polars as pl
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 from arena_evaluation.processing.map_registry import MapRegistry
+from arena_evaluation.processing.metrics.ecological.mechanism_common import DoorGeom, ElevatorGeom, MechanismWorld, load_mechanism_world
+from arena_evaluation.processing.pose_segments import teleport_jumps
 
 if typing.TYPE_CHECKING:
     import pandas as pd
     from matplotlib.artist import Artist
+    from matplotlib.axes import Axes
+    from matplotlib.collections import PathCollection
     from matplotlib.figure import Figure
     from matplotlib.lines import Line2D
 
+LEGACY_JUMP_M = 3.0
+GIF_FRAMES = 100
+GIF_FPS = 20
+PED_TAIL_S = 5.0
+SUCCESS_RESULTS = frozenset({"SUCCESS", "success", "reached", "goal_reached", "GOAL_REACHED"})
+COLLISION_RESULTS = frozenset({"COLLISION", "collision", "CRASH"})
+DOOR_COLORS = {"locked": "#d946ef", "closed": "#d3273e", "moving": "#f59e0b"}
+CABIN_COLOR = "#06b6d4"
+
+
+def _sub_paths(path: object) -> list[np.ndarray]:
+    """Path cell as a list of (N, >=2) arrays: one per agent for multi-agent cells, else one."""
+    if not isinstance(path, (list, tuple, np.ndarray, pl.Series)) or len(path) == 0:
+        return []
+    first = path[0]
+    nested = isinstance(first, (list, tuple, np.ndarray)) and len(first) > 0 and isinstance(first[0], (list, tuple, np.ndarray))
+    groups = [p for p in path if p is not None and len(p) > 0] if nested else [path]
+    out = []
+    for group in groups:
+        try:
+            arr = np.array([list(p) for p in group], dtype=float)
+        except (TypeError, ValueError):
+            continue
+        if arr.ndim == 2 and arr.shape[1] >= 2:
+            out.append(arr)
+    return out
+
+
+def _row_time_ns(row: typing.Mapping | pd.Series, n: int) -> np.ndarray | None:
+    """The row's `time` samples when they line up with its path, else None."""
+    time_ns = row.get("time")
+    if time_ns is None or len(time_ns) != n:
+        return None
+    return np.asarray(time_ns, dtype=np.int64)
+
+
+def _jump_indices(x: np.ndarray, y: np.ndarray, time_ns: np.ndarray | None) -> np.ndarray:
+    """Steps that are teleports (resets, elevator rides)."""
+    if time_ns is not None:
+        return teleport_jumps(x, y, time_ns)
+    dists = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
+    return np.where(dists > LEGACY_JUMP_M)[0]
+
+
+def _break_at_teleports(x: np.ndarray, y: np.ndarray, time_ns: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+    """Copies of x, y with NaN at every sample that lands a teleport, so lines stop there."""
+    bx, by = x.astype(float).copy(), y.astype(float).copy()
+    jumps = _jump_indices(x, y, time_ns)
+    if len(jumps):
+        bx[jumps + 1] = np.nan
+        by[jumps + 1] = np.nan
+    return bx, by
+
+
+def _first_moving_index(x: np.ndarray, y: np.ndarray, time_ns: np.ndarray | None) -> int:
+    """Index where the first segment longer than 0.1 m starts (spawn jumps skipped)."""
+    dists = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
+    jumps = _jump_indices(x, y, time_ns)
+    starts = np.concatenate([[0], jumps + 1]).astype(int)
+    ends = np.concatenate([jumps, [len(dists)]]).astype(int)
+    for s_idx, e_idx in zip(starts, ends, strict=True):
+        if e_idx > s_idx and np.sum(dists[s_idx:e_idx]) > 0.1:
+            return int(s_idx)
+    return int(starts[-1])
+
+
+def _is_success(row: typing.Mapping) -> bool:
+    return row.get("result") in SUCCESS_RESULTS or bool(row.get("success"))
+
+
+def _is_collision(row: typing.Mapping | pd.Series) -> bool:
+    return row.get("result") in COLLISION_RESULTS or (row.get("collision_amount") or 0) > 0
+
+
+def _door_leaf(geom: DoorGeom | ElevatorGeom, progress: float) -> tuple[list[float], list[float]]:
+    if isinstance(geom, DoorGeom):
+        (ax, ay), (bx, by) = geom.leaf(progress)
+    else:
+        (ax, ay), (ex, ey) = geom.door_start, geom.door_end
+        bx, by = ax + (ex - ax) * (1.0 - progress), ay + (ey - ay) * (1.0 - progress)
+    return [ax, bx], [ay, by]
+
+
+def _door_color(progress: float, locked: bool) -> str:
+    if locked:
+        return DOOR_COLORS["locked"]
+    return DOOR_COLORS["closed"] if progress < 0.02 else DOOR_COLORS["moving"]
+
+
+def _state_geometry(world: MechanismWorld, state: typing.Mapping) -> DoorGeom | ElevatorGeom | None:
+    entity = f"{state['entity']}/{state['level']}" if state.get("level") else state["entity"]
+    return world.door(entity) if state.get("kind") == "door" else world.elevator(entity)
+
 
 class TrajectoryRenderer(BasePlotRenderer):
+    """Robot paths over the world map."""
+
     PLOT_TYPE = "trajectory"
     generate_gifs: bool = False
+    _worlds: typing.ClassVar[dict[str, MechanismWorld | None]] = {}
 
     def _load_map_image(self, map_name: str, run_dir: pathlib.Path | None = None) -> dict | None:
         return MapRegistry.get_map(map_name, run_dir=run_dir)
+
+    def _mechanism_world(self, map_name: str | None) -> MechanismWorld | None:
+        if not map_name or not self.spec.options.get("overlay_mechanisms", True):
+            return None
+        if map_name not in self._worlds:
+            try:
+                self._worlds[map_name] = load_mechanism_world(map_name)
+            except Exception as e:
+                print(f"No mechanism geometry for {map_name}: {e}")
+                self._worlds[map_name] = None
+        return self._worlds[map_name]
 
     @staticmethod
     def _extract_start_goal(r: dict) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
@@ -119,23 +232,10 @@ class TrajectoryRenderer(BasePlotRenderer):
                 if path is None or len(path) == 0:
                     continue
 
-                is_collision = row.get("result") == "COLLISION"
-
-                paths_to_process = []
-                try:
-                    first_elem = path[0]
-                    if isinstance(first_elem, (list, tuple, np.ndarray)) and len(first_elem) > 0 and isinstance(first_elem[0], (list, tuple, np.ndarray)):
-                        for sub_path in path:
-                            if sub_path is not None and len(sub_path) > 0:
-                                paths_to_process.append(np.array([list(p) for p in sub_path]))
-                    else:
-                        paths_to_process.append(np.array([list(p) for p in path]))
-                except Exception:
-                    continue
+                paths_to_process = _sub_paths(path)
 
                 for k, path_arr in enumerate(paths_to_process):
-                    if path_arr.ndim != 2 or path_arr.shape[1] < 2:
-                        continue
+                    time_ns = _row_time_ns(row, len(path_arr))
 
                     while len(all_x_by_agent) <= k:
                         all_x_by_agent.append([])
@@ -156,31 +256,15 @@ class TrajectoryRenderer(BasePlotRenderer):
                         valid_mask = ~np.isnan(path_arr[:, 0])
                         if np.any(valid_mask):
                             clean_indices = np.where(valid_mask)[0]
-
-                            dists = np.sqrt(np.diff(path_arr[clean_indices, 0]) ** 2 + np.diff(path_arr[clean_indices, 1]) ** 2)
-                            jumps = np.where(dists > 3.0)[0]
-                            segment_starts = np.concatenate([[0], jumps + 1])
-                            segment_ends = np.concatenate([jumps, [len(dists)]])
-
-                            first_clean_idx = segment_starts[-1]
-                            for s_idx, e_idx in zip(segment_starts, segment_ends, strict=True):
-                                if e_idx > s_idx:
-                                    segment_length = np.sum(dists[s_idx:e_idx])
-                                    if segment_length > 0.1:
-                                        first_clean_idx = s_idx
-                                        break
-
-                            first_idx = int(clean_indices[first_clean_idx])
+                            clean_t = time_ns[clean_indices] if time_ns is not None else None
+                            first_idx = int(clean_indices[_first_moving_index(path_arr[clean_indices, 0], path_arr[clean_indices, 1], clean_t)])
                             last_idx = int(clean_indices[-1])
 
                             starts_x_by_agent[k].append(path_arr[first_idx, 0])
                             starts_y_by_agent[k].append(path_arr[first_idx, 1])
                             starts_idx_by_agent[k].append(current_len + first_idx)
 
-                            is_success = (row.get("result") in ("SUCCESS", "success", "reached", "goal_reached")) or bool(row.get("success"))
-                            is_coll = (row.get("result") in ("COLLISION", "collision", "CRASH")) or ((row.get("collision_amount") or 0) > 0)
-
-                            if is_coll:
+                            if _is_collision(row):
                                 col_x_by_agent[k].append(path_arr[last_idx, 0])
                                 col_y_by_agent[k].append(path_arr[last_idx, 1])
                                 col_idx_by_agent[k].append(current_len + last_idx)
@@ -192,8 +276,9 @@ class TrajectoryRenderer(BasePlotRenderer):
                     if len(all_x_by_agent[k]) > 0:
                         all_x_by_agent[k].append(None)
                         all_y_by_agent[k].append(None)
-                    all_x_by_agent[k].extend(path_arr[:, 0].tolist())
-                    all_y_by_agent[k].extend(path_arr[:, 1].tolist())
+                    bx, by = _break_at_teleports(path_arr[:, 0], path_arr[:, 1], time_ns)
+                    all_x_by_agent[k].extend([None if np.isnan(v) else float(v) for v in bx])
+                    all_y_by_agent[k].extend([None if np.isnan(v) else float(v) for v in by])
 
             palette = get_color_palette()
             planner_idx = list(planners).index(planner) if planner in planners else 0
@@ -420,6 +505,16 @@ class TrajectoryRenderer(BasePlotRenderer):
                                 )
                                 ref_rendered = True
 
+        world = self._mechanism_world(map_name or (pdf["map"].iloc[0] if "map" in pdf.columns and not pdf.empty else None))
+        if world is not None:
+            for i, door in enumerate(world.doors):
+                fig.add_trace(go.Scatter(x=[door.start[0], door.end[0]], y=[door.start[1], door.end[1]], mode="lines", name="Doors", legendgroup="mechanisms", showlegend=i == 0, line=dict(color=DOOR_COLORS["closed"], width=4), opacity=0.6, hovertemplate=f"<b>door {door.name}</b> ({door.kind})<extra></extra>"))
+            for i, elevator in enumerate(world.elevators):
+                xs = [c[0] for c in elevator.polygon] + [elevator.polygon[0][0]]
+                ys = [c[1] for c in elevator.polygon] + [elevator.polygon[0][1]]
+                fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name="Elevator cabins", legendgroup="mechanisms", showlegend=i == 0, line=dict(color=CABIN_COLOR, width=1.5, dash="dot"), hovertemplate=f"<b>elevator {elevator.name}</b> level {elevator.level}<extra></extra>"))
+                fig.add_trace(go.Scatter(x=[elevator.door_start[0], elevator.door_end[0]], y=[elevator.door_start[1], elevator.door_end[1]], mode="lines", legendgroup="mechanisms", showlegend=False, line=dict(color=CABIN_COLOR, width=4), opacity=0.6, hoverinfo="skip"))
+
         title = self.spec.title
         if title_suffix:
             title = f"{title} - {title_suffix}"
@@ -446,61 +541,6 @@ class TrajectoryRenderer(BasePlotRenderer):
 
         fig.update_layout(layout_args)
         return self._inject_slider_js(fig)
-
-    def _generate_gif(self, fig: Figure, lines_data: list[tuple[Line2D, np.ndarray, np.ndarray]], markers_info: dict | None, out_path: pathlib.Path):
-        import matplotlib.animation as animation
-
-        max_len = max([len(data[1]) for data in lines_data]) if lines_data else 0
-        if max_len == 0:
-            return
-
-        step = max(1, max_len // 100)
-        frames = list(range(0, max_len, step))
-        if frames[-1] != max_len:
-            frames.append(max_len)
-
-        def update(frame: int) -> list[Artist]:
-            artists = []
-            for line, x, y in lines_data:
-                line.set_data(x[:frame], y[:frame])
-                artists.append(line)
-
-            if markers_info:
-                data = markers_info["data"]
-
-                s_pts = [[m["x"], m["y"]] for m in data if m["type"] == "start" and frame >= m["frame"]]
-                if markers_info.get("starts"):
-                    markers_info["starts"].set_offsets(s_pts if s_pts else np.empty((0, 2)))
-                    artists.append(markers_info["starts"])
-
-                g_pts = [[m["x"], m["y"]] for m in data if m["type"] == "goal" and frame >= m["frame"]]
-                if markers_info.get("goals"):
-                    markers_info["goals"].set_offsets(g_pts if g_pts else np.empty((0, 2)))
-                    artists.append(markers_info["goals"])
-
-                c_pts = [[m["x"], m["y"]] for m in data if m["type"] == "collision" and frame >= m["frame"]]
-                if markers_info.get("cols"):
-                    markers_info["cols"].set_offsets(c_pts if c_pts else np.empty((0, 2)))
-                    artists.append(markers_info["cols"])
-
-            return artists
-
-        for line, _, _ in lines_data:
-            line.set_data([], [])
-
-        if markers_info:
-            if markers_info.get("starts"):
-                markers_info["starts"].set_offsets(np.empty((0, 2)))
-            if markers_info.get("goals"):
-                markers_info["goals"].set_offsets(np.empty((0, 2)))
-            if markers_info.get("cols"):
-                markers_info["cols"].set_offsets(np.empty((0, 2)))
-
-        ani = animation.FuncAnimation(fig, update, frames=frames, interval=50, blit=True)
-        try:
-            ani.save(out_path, writer='pillow', fps=20)
-        except Exception as e:
-            print(f"Failed to save GIF {out_path}: {e}")
 
     def _inject_slider_js(self, fig: go.Figure) -> str:
         import uuid
@@ -682,253 +722,336 @@ class TrajectoryRenderer(BasePlotRenderer):
                 self.render_seaborn_single(pdf, out_path, "", map_name, run_dir)
 
     def render_seaborn_single(self, pdf: pd.DataFrame, out_path: pathlib.Path, title_suffix: str, map_name: str | None, run_dir: pathlib.Path | None) -> None:
-        import matplotlib.image as mpimg
         import matplotlib.pyplot as plt
 
-        plt.figure(figsize=(10, 10))
-
-        map_meta = None
-        if self.spec.options.get("show_map", True) and map_name:
-            map_meta = self._load_map_image(map_name, run_dir=run_dir)
-
-        if map_meta:
-            try:
-                img = mpimg.imread(map_meta["png_path"])
-                res = map_meta["resolution"]
-                w_m = map_meta["width"] * res
-                h_m = map_meta["height"] * res
-                plt.imshow(img, extent=(0, w_m, 0, h_m), alpha=0.5, origin='upper', zorder=0)
-                plt.xlim(0, w_m)
-                plt.ylim(0, h_m)
-            except Exception as e:
-                print(f"Failed to overlay map {map_name} in seaborn: {e}")
-
         diff_col = self.spec.differentiate or "planner"
-
-        overlay_markers = self.spec.options.get("overlay_markers", True)
-
-        lines_data = []
-        markers_data = []
-
-        all_x_by_agent = {}
-        starts_x, starts_y = [], []
-        goals_x, goals_y = [], []
-        col_x, col_y = [], []
-
+        facet_col = self.spec.options.get("facet")
+        if facet_col not in pdf.columns:
+            facet_col = None
+        crop = bool(self.spec.options.get("crop", facet_col is not None))
         data_key = self.spec.data_key or "path"
+        if map_name is None and "map" in pdf.columns and not pdf.empty:
+            map_name = pdf["map"].iloc[0]
 
-        planners = pdf[diff_col].unique() if diff_col in pdf.columns else ["unknown"]
-        seen_planners = set()
-
-        for planner in planners:
-            if diff_col in pdf.columns:
-                planner_df = pdf[pdf[diff_col] == planner]
-            else:
-                planner_df = pdf
-
-            if "episode" in planner_df.columns:
-                planner_df = planner_df.sort_values("episode")  # pyright: ignore[reportCallIssue]
-
-            if planner not in all_x_by_agent:
-                all_x_by_agent[planner] = []
-
-            for _, row in planner_df.iterrows():
-                path = row.get(data_key)
-                if path is None or len(path) == 0:
-                    continue
-
-                is_collision = row.get("result") == "COLLISION"
-
-                paths_to_process = []
-                try:
-                    first_elem = path[0]
-                    if isinstance(first_elem, (list, tuple, np.ndarray)) and len(first_elem) > 0 and isinstance(first_elem[0], (list, tuple, np.ndarray)):
-                        for sub_path in path:
-                            if sub_path is not None and len(sub_path) > 0:
-                                paths_to_process.append(np.array([list(p) for p in sub_path]))
-                    else:
-                        paths_to_process.append(np.array([list(p) for p in path]))
-                except Exception:
-                    continue
-
-                for k, path_arr in enumerate(paths_to_process):
-                    if path_arr.ndim != 2 or path_arr.shape[1] < 2:
-                        continue
-
-                    while len(all_x_by_agent[planner]) <= k:
-                        all_x_by_agent[planner].append({"x": [], "y": []})
-
-                    current_len = len(all_x_by_agent[planner][k]["x"])
-
-                    if overlay_markers:
-                        valid_mask = ~np.isnan(path_arr[:, 0])
-                        if np.any(valid_mask):
-                            clean_indices = np.where(valid_mask)[0]
-
-                            # Find actual start avoiding initial spawn jumps
-                            dists = np.sqrt(np.diff(path_arr[clean_indices, 0]) ** 2 + np.diff(path_arr[clean_indices, 1]) ** 2)
-                            jumps = np.where(dists > 3.0)[0]
-                            segment_starts = np.concatenate([[0], jumps + 1])
-                            segment_ends = np.concatenate([jumps, [len(dists)]])
-
-                            first_clean_idx = segment_starts[-1]
-                            for s_idx, e_idx in zip(segment_starts, segment_ends, strict=True):
-                                if e_idx > s_idx:
-                                    segment_length = np.sum(dists[s_idx:e_idx])
-                                    if segment_length > 0.1:
-                                        first_clean_idx = s_idx
-                                        break
-
-                            first_idx = int(clean_indices[first_clean_idx])
-                            last_idx = int(clean_indices[-1])
-
-                            # True start/goal from dataframe
-                            true_start = row.get("start")
-                            true_goal = row.get("goal")
-
-                            if isinstance(true_start, (list, tuple, np.ndarray)) and len(true_start) >= 2:
-                                starts_x.append(true_start[0])
-                                starts_y.append(true_start[1])
-                                markers_data.append({"frame": current_len + first_idx, "x": true_start[0], "y": true_start[1], "type": "start"})
-                            else:
-                                starts_x.append(path_arr[first_idx, 0])
-                                starts_y.append(path_arr[first_idx, 1])
-                                markers_data.append({"frame": current_len + first_idx, "x": path_arr[first_idx, 0], "y": path_arr[first_idx, 1], "type": "start"})
-
-                            if is_collision:
-                                col_x.append(path_arr[last_idx, 0])
-                                col_y.append(path_arr[last_idx, 1])
-                                markers_data.append({"frame": current_len + last_idx, "x": path_arr[last_idx, 0], "y": path_arr[last_idx, 1], "type": "collision"})
-                            else:
-                                if isinstance(true_goal, (list, tuple, np.ndarray)) and len(true_goal) >= 2:
-                                    goals_x.append(true_goal[0])
-                                    goals_y.append(true_goal[1])
-                                    markers_data.append({"frame": current_len + last_idx, "x": true_goal[0], "y": true_goal[1], "type": "goal"})
-                                else:
-                                    goals_x.append(path_arr[last_idx, 0])
-                                    goals_y.append(path_arr[last_idx, 1])
-                                    markers_data.append({"frame": current_len + last_idx, "x": path_arr[last_idx, 0], "y": path_arr[last_idx, 1], "type": "goal"})
-
-                    all_x_by_agent[planner][k]["x"].extend(path_arr[:, 0])
-                    all_x_by_agent[planner][k]["x"].append(np.nan)  # Separator for seaborn
-                    all_x_by_agent[planner][k]["y"].extend(path_arr[:, 1])
-                    all_x_by_agent[planner][k]["y"].append(np.nan)
-
+        map_meta = self._load_map_image(map_name, run_dir=run_dir) if self.spec.options.get("show_map", True) and map_name else None
+        world = self._mechanism_world(map_name)
+        values = list(pdf[diff_col].unique()) if diff_col in pdf.columns else ["unknown"]
         palette = get_color_palette()
-        planners_list = list(planners)
+        colors = {v: palette[i % len(palette)] for i, v in enumerate(values)}
 
-        for planner, agents in all_x_by_agent.items():
-            planner_idx = planners_list.index(planner) if planner in planners_list else 0
-            planner_color = palette[planner_idx % len(palette)]
+        groups = [(str(v), pdf.loc[pdf[facet_col] == v]) for v in sorted(pdf[facet_col].unique(), key=str)] if facet_col else [(None, pdf)]
+        panels = [_Panel(name, frame, _tracks(frame, data_key, diff_col, colors, facet_col is not None)) for name, frame in groups]
+        panels = [panel for panel in panels if panel.tracks] or panels[:1]
 
-            for k, agent_data in enumerate(agents):
-                if not agent_data["x"]:
-                    continue
-
-                x_arr = np.array(agent_data["x"], dtype=float)
-                y_arr = np.array(agent_data["y"], dtype=float)
-
-                dists = np.sqrt(np.diff(x_arr) ** 2 + np.diff(y_arr) ** 2)
-                jumps = np.where((dists > 3.0) & ~np.isnan(dists))[0]
-                split_indices = jumps + 1
-
-                final_x = x_arr.copy()
-                final_y = y_arr.copy()
-                if len(split_indices) > 0:
-                    final_x[split_indices] = np.nan
-                    final_y[split_indices] = np.nan
-
-                if len(agents) > 1:
-                    opacity = 0.5
-                    label = planner if k == 0 else None
-                else:
-                    opacity = 0.8
-                    label = planner if k == 0 else None
-
-                (line,) = plt.plot(final_x, final_y, label=label, alpha=opacity, color=planner_color)
-                lines_data.append((line, final_x, final_y))
-
-        scat_starts = None
-        scat_goals = None
-        scat_cols = None
-
-        if overlay_markers:
-            if starts_x:
-                scat_starts = plt.scatter(starts_x, starts_y, marker='o', color='#00bfb2', s=30, zorder=5, label='Start')
-            if goals_x:
-                scat_goals = plt.scatter(goals_x, goals_y, marker='*', color='#ffc845', s=60, zorder=5, label='Goal')
-            if col_x:
-                scat_cols = plt.scatter(col_x, col_y, marker='x', color='#d3273e', s=50, linewidths=2, zorder=5, label='Collision')
-
-        # 1. Overlay Theta* Synthetic Demonstration Baseline
-        if self.spec.options.get("overlay_theta_star", False) or self.spec.options.get("show_theta_star", False) or (self.spec.data_key and "theta" in self.spec.data_key):
-            try:
-                from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
-
-                for _, r in pdf.iterrows():
-                    m_name = map_name or r.get("map")
-                    s_pt = r.get("start")
-                    g_pt = r.get("goal")
-                    if m_name and s_pt is not None and g_pt is not None:
-                        try:
-                            s_coords = (float(s_pt[0]), float(s_pt[1]))
-                            g_coords = (float(g_pt[0]), float(g_pt[1]))
-                            res = compute_theta_star_for_episode(str(m_name), s_coords, g_coords, run_dir=str(run_dir) if run_dir else None)
-                            if res and res.success and len(res.path_x) > 0:
-                                plt.plot(res.path_x, res.path_y, color='#d97706', linestyle='--', linewidth=2.5, marker='d', markersize=5, label='Theta* Reference', zorder=4)
-                                break
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        # 2. Overlay Pedestrian Paths
-        if self.spec.options.get("overlay_pedestrians", False) or self.spec.options.get("show_peds", False) or (self.spec.data_key and "ped" in self.spec.data_key):
-            peds_rendered = False
-            for _, r in pdf.iterrows():
-                p_paths = r.get("pedestrian_path")
-                if p_paths is not None and isinstance(p_paths, (list, tuple)):
-                    for single_ped_path in p_paths:
-                        if single_ped_path is not None and len(single_ped_path) > 1:
-                            arr = np.array(single_ped_path)
-                            if arr.ndim == 2 and arr.shape[1] >= 2:
-                                plt.plot(arr[:, 0], arr[:, 1], color='#8b5cf6', linestyle=':', linewidth=1.5, alpha=0.6, label='Pedestrians' if not peds_rendered else None, zorder=3)
-                                peds_rendered = True
-
-        # 3. Overlay Unobstructed Robot Reference Baseline
-        if self.spec.options.get("overlay_reference", False) or (self.spec.data_key and "mar" in self.spec.data_key):
-            ref_rendered = False
-            for _, r in pdf.iterrows():
-                if r.get("is_reference") and r.get("reference_type") == "unobstructed_robot":
-                    r_path = r.get("path")
-                    if r_path is not None:
-                        r_arr = np.array(r_path)
-                        if r_arr.ndim == 2 and r_arr.shape[1] >= 2:
-                            plt.plot(r_arr[:, 0], r_arr[:, 1], color='#06b6d4', linestyle='-.', linewidth=2.5, alpha=0.85, label='Unobstructed Reference' if not ref_rendered else None, zorder=4)
-                            ref_rendered = True
+        fig, axes = self._figure(plt, panels, map_meta, crop)
+        for panel, ax in zip(panels, axes, strict=True):
+            panel.ax = ax
+            self._draw_map(ax, map_meta)
+            self._draw_static(ax, panel, world, map_name, run_dir)
+            if panel.name is not None:
+                ax.set_title(panel.title(), fontsize=10)
+            ax.set_xlabel("X [m]")
+            ax.set_ylabel("Y [m]")
+            ax.set_aspect("equal")
 
         title = self.spec.title
         if title_suffix:
             title = f"{title} - {title_suffix}"
-        plt.title(title)
+        if len(panels) > 1:
+            fig.suptitle(title)
+        else:
+            axes[0].set_title(title)
 
-        plt.xlabel("X [m]")
-        plt.ylabel("Y [m]")
-        plt.axis('equal')
-
-        handles, labels = plt.gca().get_legend_handles_labels()
+        handles, labels = [], []
+        for ax in axes:
+            h, lab = ax.get_legend_handles_labels()
+            handles += h
+            labels += lab
         by_label = dict(zip(labels, handles, strict=True))
-        plt.legend(by_label.values(), by_label.keys())
-
-        plt.tight_layout()
-        plt.savefig(out_path, dpi=300)
+        if len(panels) > 1:
+            fig.legend(by_label.values(), by_label.keys(), loc="lower center", ncol=min(len(by_label), 6), fontsize=9)
+            fig.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
+        else:
+            axes[0].legend(by_label.values(), by_label.keys())
+            fig.tight_layout()
+        fig.savefig(out_path, dpi=300)
 
         if self.generate_gifs:
-            markers_info = None
-            if overlay_markers:
-                markers_info = {"data": markers_data, "starts": scat_starts, "goals": scat_goals, "cols": scat_cols}
+            self._generate_gif(fig, panels, out_path.with_suffix(".gif"))
 
-            gif_path = out_path.with_suffix(".gif")
-            self._generate_gif(plt.gcf(), lines_data, markers_info, gif_path)
+        plt.close(fig)
 
-        plt.close()
+    @staticmethod
+    def _figure(plt: types.ModuleType, panels: list[_Panel], map_meta: dict | None, crop: bool) -> tuple[Figure, list[Axes]]:
+        """One axes per panel, sized from the viewed area, and the shared view limits stored on each panel."""
+        if map_meta and not crop:
+            origin = map_meta.get("origin", [0.0, 0.0, 0.0])
+            ox, oy = float(origin[0]), float(origin[1])
+            x0, x1 = ox, ox + map_meta["width"] * map_meta["resolution"]
+            y0, y1 = oy, oy + map_meta["height"] * map_meta["resolution"]
+        else:
+            points = np.vstack([pt for panel in panels for pt in panel.points()] or [np.zeros((1, 2))])
+            x0, x1 = float(np.nanmin(points[:, 0])) - 2.0, float(np.nanmax(points[:, 0])) + 2.0
+            y0, y1 = float(np.nanmin(points[:, 1])) - 2.0, float(np.nanmax(points[:, 1])) + 2.0
+        for panel in panels:
+            panel.limits = (x0, x1, y0, y1)
+        n = len(panels)
+        if n == 1:
+            fig, ax = plt.subplots(figsize=(10, 10))
+            return fig, [ax]
+        w, h = max(x1 - x0, 1e-3), max(y1 - y0, 1e-3)
+        ncols = n if h > 1.5 * w else (2 if w > 1.5 * h else 3)
+        ncols = min(ncols, n)
+        nrows = math.ceil(n / ncols)
+        scale = min(16.0 / (ncols * w), 9.0 / (nrows * h))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * w * scale + 1.0, nrows * h * scale + 1.5), squeeze=False)
+        for ax in axes.flat[n:]:
+            ax.axis("off")
+        return fig, list(axes.flat[:n])
+
+    @staticmethod
+    def _draw_map(ax: Axes, map_meta: dict | None) -> None:
+        if not map_meta:
+            return
+        import matplotlib.image as mpimg
+
+        try:
+            img = mpimg.imread(map_meta["png_path"])
+            res = map_meta["resolution"]
+            origin = map_meta.get("origin", [0.0, 0.0, 0.0])
+            ox, oy = float(origin[0]), float(origin[1])
+            ax.imshow(img, extent=(ox, ox + map_meta["width"] * res, oy, oy + map_meta["height"] * res), alpha=0.5, origin="upper", zorder=0)
+        except Exception as e:
+            print(f"Failed to overlay map in seaborn: {e}")
+
+    def _draw_static(self, ax: Axes, panel: _Panel, world: MechanismWorld | None, map_name: str | None, run_dir: pathlib.Path | None) -> None:
+        x0, x1, y0, y1 = panel.limits
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y0, y1)
+        overlay_markers = self.spec.options.get("overlay_markers", True)
+
+        if world is not None:
+            self._draw_mechanisms(ax, panel, world)
+
+        for track in panel.tracks:
+            (track.line,) = ax.plot(track.x, track.y, label=track.label, alpha=track.alpha, color=track.color, zorder=4)
+
+        if overlay_markers:
+            starts = [t.start for t in panel.tracks if t.start is not None]
+            goals = [t.end for t in panel.tracks if t.end is not None and not t.collision]
+            cols = [t.end for t in panel.tracks if t.end is not None and t.collision]
+            if starts:
+                ax.scatter([p[0] for p in starts], [p[1] for p in starts], marker="o", color="#00bfb2", s=30, zorder=5, label="Start")
+            if goals:
+                panel.goal_scatter = ax.scatter([p[0] for p in goals], [p[1] for p in goals], marker="*", color="#ffc845", s=60, zorder=5, label="Goal")
+            if cols:
+                panel.collision_scatter = ax.scatter([p[0] for p in cols], [p[1] for p in cols], marker="x", color="#d3273e", s=50, linewidths=2, zorder=5, label="Collision")
+
+        if self.spec.options.get("overlay_theta_star", False) or self.spec.options.get("show_theta_star", False) or (self.spec.data_key and "theta" in self.spec.data_key):
+            self._draw_theta_star(ax, panel.frame, map_name, run_dir)
+
+        if self.spec.options.get("overlay_pedestrians", False) or self.spec.options.get("show_peds", False) or (self.spec.data_key and "ped" in self.spec.data_key):
+            first = True
+            for track in panel.tracks:
+                for ped in track.peds:
+                    (ped.line,) = ax.plot(ped.xy[:, 0], ped.xy[:, 1], color="#8b5cf6", linestyle=":", linewidth=1.5, alpha=0.6, label="Pedestrians" if first else None, zorder=3)
+                    (ped.dot,) = ax.plot([], [], "o", color="#8b5cf6", markersize=5, zorder=3)
+                    first = False
+
+        if self.spec.options.get("overlay_reference", False) or (self.spec.data_key and "mar" in self.spec.data_key):
+            ref_rendered = False
+            for _, r in panel.frame.iterrows():
+                if r.get("is_reference") and r.get("reference_type") == "unobstructed_robot":
+                    for r_arr in _sub_paths(r.get("path")):
+                        ax.plot(r_arr[:, 0], r_arr[:, 1], color="#06b6d4", linestyle="-.", linewidth=2.5, alpha=0.85, label="Unobstructed Reference" if not ref_rendered else None, zorder=4)
+                        ref_rendered = True
+
+    @staticmethod
+    def _draw_theta_star(ax: Axes, frame: pd.DataFrame, map_name: str | None, run_dir: pathlib.Path | None) -> None:
+        try:
+            from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
+        except ImportError:
+            return
+        for _, r in frame.iterrows():
+            m_name = map_name or r.get("map")
+            s_pt, g_pt = r.get("start"), r.get("goal")
+            if not m_name or s_pt is None or g_pt is None:
+                continue
+            try:
+                res = compute_theta_star_for_episode(str(m_name), (float(s_pt[0]), float(s_pt[1])), (float(g_pt[0]), float(g_pt[1])), run_dir=str(run_dir) if run_dir else None)
+            except Exception:
+                continue
+            if res and res.success and len(res.path_x) > 0:
+                ax.plot(res.path_x, res.path_y, color="#d97706", linestyle="--", linewidth=2.5, marker="d", markersize=5, label="Theta* Reference", zorder=4)
+                return
+
+    @staticmethod
+    def _draw_mechanisms(ax: Axes, panel: _Panel, world: MechanismWorld) -> None:
+        """Doors as their closed slab and cabins as dotted boxes."""
+        states = {(st["entity"], st.get("level")): st for st in panel.states()}
+        for i, door in enumerate(world.doors):
+            xs, ys = _door_leaf(door, 0.0)
+            (line,) = ax.plot(xs, ys, color=DOOR_COLORS["closed"], linewidth=4, alpha=0.7, solid_capstyle="butt", label="Doors" if i == 0 else None, zorder=2)
+            panel.leaves.append(_Leaf(door, line, states.get((door.name, door.level)) or states.get((door.name, None))))
+        for i, elevator in enumerate(world.elevators):
+            xs = [c[0] for c in elevator.polygon] + [elevator.polygon[0][0]]
+            ys = [c[1] for c in elevator.polygon] + [elevator.polygon[0][1]]
+            ax.plot(xs, ys, color=CABIN_COLOR, linewidth=1.2, linestyle=":", label="Elevator cabins" if i == 0 else None, zorder=2)
+            lx, ly = _door_leaf(elevator, 0.0)
+            (line,) = ax.plot(lx, ly, color=CABIN_COLOR, linewidth=4, alpha=0.7, solid_capstyle="butt", zorder=2)
+            panel.leaves.append(_Leaf(elevator, line, states.get((elevator.name, elevator.level)) or states.get((elevator.name, None))))
+
+    @staticmethod
+    def _generate_gif(fig: Figure, panels: list[_Panel], out_path: pathlib.Path) -> None:
+        """Replay every panel on one sim clock."""
+        import matplotlib.animation as animation
+
+        t_end = max((t.t[-1] for panel in panels for t in panel.tracks if len(t.t)), default=0.0)
+        if t_end <= 0.0:
+            return
+        times = np.linspace(0.0, t_end, GIF_FRAMES + 1)
+        clock = fig.text(0.01, 0.01, "", fontsize=11, family="monospace")
+
+        def update(now: float) -> list:
+            artists: list[Artist] = [clock]
+            for panel in panels:
+                goals, cols = [], []
+                for track in panel.tracks:
+                    k = int(np.searchsorted(track.t, now, side="right"))
+                    if track.line is not None:
+                        track.line.set_data(track.x[:k], track.y[:k])
+                        artists.append(track.line)
+                    if track.end is not None and now >= track.t[-1]:
+                        (cols if track.collision else goals).append(track.end)
+                    for ped in track.peds:
+                        if ped.line is None or ped.dot is None:
+                            continue
+                        j = int(np.searchsorted(track.t, now - PED_TAIL_S, side="left"))
+                        ped.line.set_data(ped.xy[j:k, 0], ped.xy[j:k, 1])
+                        here = ped.xy[k - 1] if k > 0 else None
+                        ped.dot.set_data(([here[0]], [here[1]]) if here is not None and np.isfinite(here[0]) else ([], []))
+                        artists += [ped.line, ped.dot]
+                for leaf in panel.leaves:
+                    if leaf.state is None:
+                        continue
+                    k = min(int(np.searchsorted(leaf.t, now, side="right")), len(leaf.progress)) - 1
+                    progress = float(leaf.progress[k]) if k >= 0 and np.isfinite(leaf.progress[k]) else 0.0
+                    xs, ys = _door_leaf(leaf.geom, min(max(progress, 0.0), 1.0))
+                    leaf.line.set_data(xs, ys)
+                    leaf.line.set_color(_door_color(progress, bool(leaf.locked[k]) if k >= 0 else False))
+                    artists.append(leaf.line)
+                if panel.goal_scatter is not None:
+                    panel.goal_scatter.set_offsets(np.array(goals) if goals else np.empty((0, 2)))
+                    artists.append(panel.goal_scatter)
+                if panel.collision_scatter is not None:
+                    panel.collision_scatter.set_offsets(np.array(cols) if cols else np.empty((0, 2)))
+                    artists.append(panel.collision_scatter)
+            clock.set_text(f"t = {now:6.1f} s")
+            return artists
+
+        ani = animation.FuncAnimation(fig, update, frames=times, interval=1000 // GIF_FPS, blit=True)
+        try:
+            ani.save(out_path, writer="pillow", fps=GIF_FPS)
+        except Exception as e:
+            print(f"Failed to save GIF {out_path}: {e}")
+        finally:
+            clock.remove()
+
+
+class _Ped:
+    def __init__(self, xy: np.ndarray) -> None:
+        self.xy = xy
+        self.line: Line2D | None = None
+        self.dot: Line2D | None = None
+
+
+class _Leaf:
+    """A door slab artist bound to the recorded state series that moves it."""
+
+    def __init__(self, geom: DoorGeom | ElevatorGeom, line: Line2D, state: typing.Mapping | None) -> None:
+        self.geom = geom
+        self.line = line
+        self.state = state
+        if state is not None:
+            self.t = np.asarray(state["t"], dtype=float)
+            self.progress = np.asarray(state["progress"], dtype=float)
+            self.locked = np.asarray(state["locked"], dtype=bool)
+
+
+class _Track:
+    """One episode path on a panel: broken at teleports, on its own relative sim clock."""
+
+    def __init__(self, row: typing.Mapping | pd.Series, arr: np.ndarray, label: str | None, color: str, alpha: float) -> None:
+        time_ns = _row_time_ns(row, len(arr))
+        self.x, self.y = _break_at_teleports(arr[:, 0], arr[:, 1], time_ns)
+        self.t = (time_ns - time_ns[0]) / 1e9 if time_ns is not None else np.arange(len(arr), dtype=float)
+        self.label = label
+        self.color = color
+        self.alpha = alpha
+        self.collision = _is_collision(row)
+        valid = np.where(~np.isnan(arr[:, 0]))[0]
+        self.start: tuple[float, float] | None = None
+        self.end: tuple[float, float] | None = None
+        if len(valid):
+            start = row.get("start")
+            goal = row.get("goal")
+            first = int(valid[_first_moving_index(arr[valid, 0], arr[valid, 1], time_ns[valid] if time_ns is not None else None)])
+            last = int(valid[-1])
+            self.start = (float(start[0]), float(start[1])) if isinstance(start, (list, tuple, np.ndarray)) and len(start) >= 2 else (float(arr[first, 0]), float(arr[first, 1]))
+            if not self.collision and isinstance(goal, (list, tuple, np.ndarray)) and len(goal) >= 2:
+                self.end = (float(goal[0]), float(goal[1]))
+            else:
+                self.end = (float(arr[last, 0]), float(arr[last, 1]))
+        self.peds: list[_Ped] = []
+        peds = row.get("pedestrian_path")
+        for ped in peds if peds is not None else []:
+            if ped is not None and len(ped) == len(arr):
+                xy = np.array([list(p[:2]) for p in ped], dtype=float)
+                if np.isfinite(xy[:, 0]).any():
+                    self.peds.append(_Ped(xy))
+        self.states: list[dict] = []
+        states = row.get("mechanism_states")
+        for state in states if states is not None else []:
+            if len(state["progress"]) == len(arr):
+                self.states.append({**state, "t": self.t})
+        self.line: Line2D | None = None
+
+
+class _Panel:
+    def __init__(self, name: str | None, frame: pd.DataFrame, tracks: list[_Track]) -> None:
+        self.name = name
+        self.frame = frame
+        self.tracks = tracks
+        self.ax: Axes | None = None
+        self.limits = (0.0, 1.0, 0.0, 1.0)
+        self.leaves: list[_Leaf] = []
+        self.goal_scatter: PathCollection | None = None
+        self.collision_scatter: PathCollection | None = None
+
+    def points(self) -> list[np.ndarray]:
+        pts = [np.column_stack([t.x, t.y]) for t in self.tracks]
+        pts += [p.xy for t in self.tracks for p in t.peds]
+        return [p[np.isfinite(p[:, 0])] for p in pts if np.isfinite(p[:, 0]).any()]
+
+    def states(self) -> list[dict]:
+        """Mechanism states to animate for the single episode on this panel, none when it overlays several."""
+        with_states = [t for t in self.tracks if t.states]
+        return with_states[0].states if len(with_states) == 1 else []
+
+    def title(self) -> str:
+        results = sorted({str(r) for r in (self.frame["result"] if "result" in self.frame.columns else []) if r is not None and r == r})
+        return f"{self.name}: {', '.join(results)}" if results else str(self.name)
+
+
+def _tracks(frame: pd.DataFrame, data_key: str, diff_col: str, colors: dict, faceted: bool) -> list[_Track]:
+    tracks: list[_Track] = []
+    seen: set[object] = set()
+    ordered = frame.sort_values("episode") if "episode" in frame.columns else frame
+    for _, row in ordered.iterrows():
+        value = row[diff_col] if diff_col in frame.columns else "unknown"
+        arrays = _sub_paths(row.get(data_key))
+        for arr in arrays:
+            label = None if value in seen else str(value)
+            seen.add(value)
+            tracks.append(_Track(row, arr, label, colors.get(value, "#41b6e6"), 0.5 if len(arrays) > 1 else 0.8))
+    return tracks

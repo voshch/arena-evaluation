@@ -824,16 +824,14 @@ def test_trajectory_seaborn_no_lines_skips_gif(tmp_path):
     assert not out.with_suffix(".gif").exists()
 
 
-def test_trajectory_seaborn_null_path_crashes_currently(tmp_path):
-    """Same documented source bug as the plotly variant: NaN path from a
-    polars null reaches ``len()`` and raises TypeError."""
+def test_trajectory_seaborn_skips_a_null_path(tmp_path):
     df = pl.DataFrame(
-        {"planner": ["dwb"], "path": [None]},
+        {"planner": ["dwb", "teb"], "path": [None, [[0.0, 0.0], [1.0, 1.0]]]},
         schema={"planner": pl.Utf8, "path": pl.List(pl.List(pl.Float64))},
     )
     out = tmp_path / "traj.png"
-    with pytest.raises(TypeError):
-        TrajectoryRenderer(_traj_spec()).render_seaborn(df, out)
+    TrajectoryRenderer(_traj_spec()).render_seaborn(df, out)
+    assert out.exists() and out.stat().st_size > 0
 
 
 def test_trajectory_seaborn_empty_pdf_writes_nothing(tmp_path):
