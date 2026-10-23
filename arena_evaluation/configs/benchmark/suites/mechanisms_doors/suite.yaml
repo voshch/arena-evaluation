@@ -1,0 +1,180 @@
+name: mechanisms_doors
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__A01_sliding__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A01_sliding__a-to-b
+- name: mb__A01_sliding__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A01_sliding__b-to-a
+- name: mb__A02_slidingtop__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A02_slidingtop__a-to-b
+- name: mb__A02_slidingtop__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A02_slidingtop__b-to-a
+- name: mb__A03_hinged__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A03_hinged__a-to-b
+- name: mb__A03_hinged__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A03_hinged__b-to-a
+- name: mb__A04_teleport__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A04_teleport__a-to-b
+- name: mb__A04_teleport__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A04_teleport__b-to-a
+- name: mb__A05_shorthold__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A05_shorthold__a-to-b
+- name: mb__A05_shorthold__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A05_shorthold__b-to-a
+- name: mb__A06_deadend_dz__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: A06_deadend_dz__a-to-b
+- name: mb__A06_deadend_dz__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: A06_deadend_dz__b-to-a
+- name: mb__A07_deadend_dl__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: A07_deadend_dl__a-to-b
+- name: mb__A07_deadend_dl__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: A07_deadend_dl__b-to-a
+- name: mb__A08_gate_authorized__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A08_gate_authorized__a-to-b
+- name: mb__A08_gate_authorized__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 60s
+  config:
+    scenario:
+      file: A08_gate_authorized__b-to-a
+- name: mb__A09_airlock__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: A09_airlock__a-to-b

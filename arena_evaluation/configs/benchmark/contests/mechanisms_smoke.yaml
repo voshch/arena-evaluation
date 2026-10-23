@@ -1,0 +1,8 @@
+- name: dwb
+  mobile: nav2
+  mobile.local_planner: dwb
+  task.params: /opt/arena_ws/data/rank26_q/task_generator_rank26.yaml
+- name: attngraph
+  mobile: drl
+  mobile.planner: attngraph
+  task.params: /opt/arena_ws/data/rank26_q/task_generator_rank26.yaml

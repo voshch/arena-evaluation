@@ -1,0 +1,340 @@
+name: mechanisms_regimes
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__D01_crosswalk__d1__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d1__a-to-b
+- name: mb__D01_crosswalk__d2__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d2__a-to-b
+- name: mb__D01_crosswalk__d3__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d3__a-to-b
+- name: mb__D01_crosswalk__d1__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d1__b-to-a
+- name: mb__D01_crosswalk__d2__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d2__b-to-a
+- name: mb__D01_crosswalk__d3__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: D01_crosswalk__d3__b-to-a
+- name: mb__D02_rush_hour__d1__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d1__a-to-b
+- name: mb__D02_rush_hour__d2__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d2__a-to-b
+- name: mb__D02_rush_hour__d3__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d3__a-to-b
+- name: mb__D02_rush_hour__d1__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d1__b-to-a
+- name: mb__D02_rush_hour__d2__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d2__b-to-a
+- name: mb__D02_rush_hour__d3__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D02_rush_hour__d3__b-to-a
+- name: mb__D03_fire_alarm__d1__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D03_fire_alarm__d1__a-to-b
+- name: mb__D03_fire_alarm__d2__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D03_fire_alarm__d2__a-to-b
+- name: mb__D03_fire_alarm__d3__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: D03_fire_alarm__d3__a-to-b
+- name: mb__D04_restricted_zone__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D04_restricted_zone__a-to-b
+- name: mb__D04_restricted_zone__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D04_restricted_zone__b-to-a
+- name: mb__D05_quiet_zone__d1__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d1__a-to-b
+- name: mb__D05_quiet_zone__d2__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d2__a-to-b
+- name: mb__D05_quiet_zone__d3__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d3__a-to-b
+- name: mb__D05_quiet_zone__d1__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d1__b-to-a
+- name: mb__D05_quiet_zone__d2__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d2__b-to-a
+- name: mb__D05_quiet_zone__d3__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D05_quiet_zone__d3__b-to-a
+- name: mb__D06_speed_zone__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D06_speed_zone__a-to-b
+- name: mb__D06_speed_zone__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D06_speed_zone__b-to-a
+- name: mb__D07_occupancy_cap__d1__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d1__a-to-b
+- name: mb__D07_occupancy_cap__d2__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d2__a-to-b
+- name: mb__D07_occupancy_cap__d3__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d3__a-to-b
+- name: mb__D07_occupancy_cap__d1__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d1__b-to-a
+- name: mb__D07_occupancy_cap__d2__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d2__b-to-a
+- name: mb__D07_occupancy_cap__d3__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D07_occupancy_cap__d3__b-to-a
+- name: mb__D08_timeline_changes__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D08_timeline_changes__a-to-b
+- name: mb__D08_timeline_changes__b-to-a
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: D08_timeline_changes__b-to-a

@@ -1,0 +1,60 @@
+name: mechanisms_smoke
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__A01_sliding__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  timeout: 60s
+  config:
+    scenario:
+      file: A01_sliding__a-to-b
+- name: mb__B01_counterflow__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  timeout: 60s
+  config:
+    scenario:
+      file: B01_counterflow__d1__a-to-b
+- name: mb__C02_ride_two_level__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  timeout: 150s
+  config:
+    scenario:
+      file: C02_ride_two_level__up
+- name: mb__D04_restricted_zone__a-to-b
+  map: mechanisms_regimes
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  timeout: 60s
+  config:
+    scenario:
+      file: D04_restricted_zone__a-to-b
+- name: mb__E02_door_stuck_closed__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 1
+  timeout: 60s
+  config:
+    scenario:
+      file: E02_door_stuck_closed__a-to-b

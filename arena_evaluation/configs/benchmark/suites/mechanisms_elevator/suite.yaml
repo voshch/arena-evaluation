@@ -1,0 +1,360 @@
+name: mechanisms_elevator
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__C01_ride_same_level__a-to-b
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: C01_ride_same_level__a-to-b
+- name: mb__C01_ride_same_level__b-to-a
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: C01_ride_same_level__b-to-a
+- name: mb__C02_ride_two_level__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: C02_ride_two_level__up
+- name: mb__C03_lobby_queue__d1__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d1__up
+- name: mb__C04_let_off_first__d1__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d1__up
+- name: mb__C08_crowd_at_destination__d1__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d1__up
+- name: mb__C03_lobby_queue__d2__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d2__up
+- name: mb__C04_let_off_first__d2__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d2__up
+- name: mb__C08_crowd_at_destination__d2__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d2__up
+- name: mb__C03_lobby_queue__d3__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d3__up
+- name: mb__C04_let_off_first__d3__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d3__up
+- name: mb__C08_crowd_at_destination__d3__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d3__up
+- name: mb__C05_full_cabin__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C05_full_cabin__up
+- name: mb__C06_ride_with_others__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C06_ride_with_others__up
+- name: mb__C07_cabin_door_held__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C07_cabin_door_held__up
+- name: mb__C09_missed_cycle__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C09_missed_cycle__up
+- name: mb__C10_out_of_service__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: C10_out_of_service__up
+- name: mb__C02_ride_two_level__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: C02_ride_two_level__down
+- name: mb__C03_lobby_queue__d1__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d1__down
+- name: mb__C04_let_off_first__d1__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d1__down
+- name: mb__C08_crowd_at_destination__d1__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d1__down
+- name: mb__C03_lobby_queue__d2__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d2__down
+- name: mb__C04_let_off_first__d2__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d2__down
+- name: mb__C08_crowd_at_destination__d2__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d2__down
+- name: mb__C03_lobby_queue__d3__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C03_lobby_queue__d3__down
+- name: mb__C04_let_off_first__d3__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C04_let_off_first__d3__down
+- name: mb__C08_crowd_at_destination__d3__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C08_crowd_at_destination__d3__down
+- name: mb__C05_full_cabin__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C05_full_cabin__down
+- name: mb__C06_ride_with_others__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C06_ride_with_others__down
+- name: mb__C07_cabin_door_held__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 200s
+  config:
+    scenario:
+      file: C07_cabin_door_held__down
+- name: mb__C09_missed_cycle__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 240s
+  config:
+    scenario:
+      file: C09_missed_cycle__down
+- name: mb__C10_out_of_service__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: C10_out_of_service__down
+- name: mb__C12_multi_destination__to-elev_m2
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 180s
+  config:
+    scenario:
+      file: C12_multi_destination__to-elev_m2
+- name: mb__C12_multi_destination__to-elev_m1
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 180s
+  config:
+    scenario:
+      file: C12_multi_destination__to-elev_m1
+- name: mb__C11_no_hall_calls__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: C11_no_hall_calls__up
