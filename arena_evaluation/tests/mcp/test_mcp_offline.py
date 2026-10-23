@@ -14,7 +14,7 @@ pl = pytest.importorskip("polars")
 from arena_mcp.core import ToolError
 from mcp_fixtures import EMPTY_RUN_ID, build_runs, metric_rows
 
-from arena_evaluation.mcp import analysis, catalog, runs
+from arena_evaluation.mcp import analysis, authoring, runs
 
 
 def _frame() -> pl.DataFrame:
@@ -149,22 +149,19 @@ def test_notes_replace_append_and_merge(tmp_path):
 
 
 def test_mode_params_come_from_the_registered_schemas():
-    registries = catalog.mode_registries()
+    registries = authoring.mode_registries()
     for axis, registry in registries.items():
         for key in registry.keys():
-            params = catalog.mode_params(registry, key)
+            params = authoring.mode_params(registry, key)
             assert bool(params) == (registry.meta(key).schema is not None), (axis, key)
-    random = catalog.describe_mode("tm_obstacles", registries["tm_obstacles"], next(key for key in registries["tm_obstacles"].keys() if key.value == "random"))
-    names = {param["name"] for param in random["params"]}
-    assert {"dynamic.n", "dynamic.models", "static.n"} <= names
-    block = random["stage_example"]["config"]["random"]
-    assert set(block["dynamic"]) == {"min", "max", "models"}
-    stationary = catalog.describe_mode("tm_robots", registries["tm_robots"], next(key for key in registries["tm_robots"].keys() if key.value == "stationary"))
-    assert {"pos_x", "pos_y", "pos_theta"} <= {param["name"] for param in stationary["params"]}
-    scenario = catalog.describe_mode("tm_obstacles", registries["tm_obstacles"], next(key for key in registries["tm_obstacles"].keys() if key.value == "scenario"))
-    contact = next(param for param in scenario["params"] if param["name"] == "contact_mode")
-    assert contact["config_key"] == "config.scenario.contact_mode"
-    assert isinstance(contact["enum"], list) and contact["default"] in contact["enum"]
+
+    def names(axis: str, mode: str) -> dict[str, dict]:
+        key = next(key for key in registries[axis].keys() if key.value == mode)
+        return {param["name"]: param for param in authoring.mode_params(registries[axis], key)}
+
+    assert {"dynamic.n", "dynamic.models", "static.n"} <= set(names("tm_obstacles", "random"))
+    assert {"pos_x", "pos_y", "pos_theta"} <= set(names("tm_robots", "stationary"))
+    assert isinstance(names("tm_obstacles", "scenario")["contact_mode"]["enum"], list)
 
 
 def test_progress_rows_fold_lane_files_without_writing(tmp_path):

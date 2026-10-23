@@ -26,7 +26,7 @@ async def _record(env_id: int | None, stop: bool, episode_id: int, outcome_state
 
 @domain.tool(destructive=True)
 async def evaluation_record_start(episode_id: Annotated[int, pydantic.Field(ge=0)], env_id: EnvId = None) -> dict[str, Any]:
-    """Open a new episode recording on an env's recorder (closing the open one), the way the benchmark runner does per episode."""
+    """Open a new episode recording on an env's recorder, closing the open one."""
     return await _record(env_id, False, episode_id)
 
 

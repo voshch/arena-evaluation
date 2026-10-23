@@ -1,8 +1,10 @@
-"""Process introspection and benchmark console logs.
+"""Process introspection, process stopping and benchmark console logs.
 
-Shared by the evaluation CLI (``benchmark ps`` / ``benchmark console``) and
-the evaluation MCP domain (``evaluation_ps`` / ``evaluation_kill``). The console
-log is the runner's own ``benchmarks/<run_id>/runner.log``, tailed in place.
+Shared by the evaluation CLI (``ps`` / ``kill`` / ``console``) and the
+evaluation MCP domain (``evaluation_ps`` / ``evaluation_kill`` /
+``evaluation_console``). The console log is the runner's own
+``benchmarks/<run_id>/runner.log``, ``runner.<lane>.log`` for a lane of a
+shared run, tailed in place.
 """
 
 from __future__ import annotations
@@ -186,19 +188,19 @@ def running_pids_by_run_id() -> dict[str, int]:
     return result
 
 
-def console_log_path(run_id: str) -> pathlib.Path:
-    """Path of the console log for a benchmark run."""
+def console_log_path(run_id: str, lane: str | None = None) -> pathlib.Path:
+    """Path of the console log for a benchmark run, or for one lane of a shared run."""
     from arena_evaluation.storage.data_root import benchmarks_root
 
-    return benchmarks_root() / run_id / "runner.log"
+    return benchmarks_root() / run_id / ("runner.log" if lane is None else f"runner.{lane}.log")
 
 
-def tail_console(run_id: str, lines: int = 200) -> dict:
+def tail_console(run_id: str, lines: int = 200, lane: str | None = None) -> dict:
     """Tail the console log of a benchmark run.
 
     Returns: run_id, path, exists, pid, alive, truncated, lines (list).
     """
-    path = console_log_path(run_id)
+    path = console_log_path(run_id, lane)
     pid = find_runner_pid(run_id)
     alive = is_pid_alive(pid)
     if not path.exists():

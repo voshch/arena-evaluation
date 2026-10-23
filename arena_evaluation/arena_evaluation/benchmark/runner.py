@@ -42,6 +42,7 @@ from task_generator_msgs.msg import EpisodeRecord
 from task_generator_msgs.srv import QueueEpisode
 
 STATE_TOPIC = "/arena/benchmark/state"
+PREPARED = "benchmark: prepared run_id="
 SIM_STATE_TOPIC = "/arena/state/sim"
 ARENA_NODE_FQN = "/arena"
 
@@ -2498,7 +2499,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     assert run_dir is not None
 
     print(
-        f"benchmark: prepared run_id={run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
+        f"{PREPARED}{run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
         file=sys.stderr,
     )
 

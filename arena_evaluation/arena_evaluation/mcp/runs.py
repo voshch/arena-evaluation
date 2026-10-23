@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
 import contextlib
 import datetime
 import json
@@ -12,18 +11,17 @@ from typing import Annotated, Any, Literal
 import pydantic
 
 from arena_mcp.core import JOBS, ROS, Job, ToolError, cli, msgs, proc
+from arena_mcp.core.jobs import RUNNING, SUCCEEDED
 
 from .base import OptionalRunId, RunId, component, config_stem, data_root, domain, is_inline, run_path
 
 TERMINAL_STEPS = ("ok", "failed", "partial", "skipped")
 BENCHMARK_JOBS = ("benchmark", "preflight")
-PREPARED = "benchmark: prepared run_id="
-STATE_TOPIC = "/arena/benchmark/state"
 
 LaunchValue = str | int | float | bool
 LaunchArgs = Annotated[dict[str, LaunchValue] | None, pydantic.Field(description="launch args passed as key:=value, e.g. {'task.episode.fail_on_collision': true}, booleans written as true/false")]
 ConfigArg = Annotated[str | dict[str, object] | list[object] | None, pydantic.Field(description="a config name, an inline YAML or JSON literal, or the config itself as an object")]
-Confirm = Annotated[float, pydantic.Field(description="seconds to wait for the runner to prepare the run dir, so config errors come back as an error instead of a failed job", ge=0, le=300)]
+Confirm = Annotated[float, pydantic.Field(description="seconds to wait for the runner to prepare the run dir, a runner exiting first raises its error", ge=0, le=300)]
 
 
 class Note(pydantic.BaseModel):
@@ -49,10 +47,6 @@ def config_value(value: str | dict[str, object] | list[object]) -> str:
     if isinstance(value, dict | list):
         return json.dumps(value)
     return value if is_inline(value) else config_stem(value)
-
-
-def stem_of(value: str | dict[str, object] | list[object]) -> str:
-    return "inline" if isinstance(value, dict | list) or is_inline(value) else config_stem(value)
 
 
 def utc_stamp() -> str:
@@ -102,21 +96,6 @@ def benchmark_argv(
     return argv + launch_tokens(launch_args, sim=sim, headless=headless, env__n=env_n, optim__obstacles=optim_obstacles)
 
 
-def simulators() -> list[str]:
-    """Simulator names registered with the runtime's simulator registry."""
-    from arena_runtime.sim import SimulatorRegistry
-
-    return sorted(key.value for key in SimulatorRegistry.keys())
-
-
-async def check_sim(sim: str | None) -> None:
-    if sim is None:
-        return
-    known = await asyncio.to_thread(simulators)
-    if sim not in known:
-        raise ToolError(f"unknown sim {sim!r}", hint=f"sims: {', '.join(known)}")
-
-
 def runner_pids(path: pathlib.Path, run_id: str, running: dict[str, int] | None = None) -> list[int]:
     """Live runner processes of a run: lane pid files and runners started with its --run-id."""
     from arena_evaluation.benchmark.debug import running_pids_by_run_id
@@ -141,15 +120,16 @@ def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, lig
     """A run's progress from its manifest, the union of its lane states and, unless light, its progress rows."""
     import yaml
 
+    from arena_evaluation.benchmark.cli import _count_by_status
     from arena_evaluation.benchmark.state import Manifest, StateFile, progress_rows
 
     try:
-        manifest = Manifest(**yaml.load((path / "manifest.yaml").read_text(), Loader=yaml.CSafeLoader if yaml.__with_libyaml__ else yaml.SafeLoader))
+        manifest = Manifest.from_yaml((path / "manifest.yaml").read_text())
     except (OSError, TypeError, yaml.YAMLError) as exc:
         raise ToolError(f"run {path.name!r} has no readable manifest.yaml: {exc}", hint="the runner writes it once the configs load, see evaluation_console") from exc
     steps = StateFile.open(path).steps
     planned = [step["key"] for step in manifest.steps]
-    counts = collections.Counter(steps[key].status for key in planned if key in steps)
+    counts = _count_by_status(steps)
     pids = runner_pids(path, manifest.run_id, running)
     done = all(key in steps and steps[key].status in TERMINAL_STEPS for key in planned)
     lanes = sorted({name.split(".")[1] for pattern in ("progress.*.csv", ".benchmark_state.*.json", "runner.*.log") for name in (entry.name.lstrip(".") for entry in path.glob(pattern))})
@@ -166,9 +146,9 @@ def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, lig
         "launch_args": manifest.launch_args,
         "state": "completed" if done else "running" if pids else "incomplete",
         "steps_total": len(planned),
-        "steps": {status: counts.get(status, 0) for status in (*TERMINAL_STEPS, "in_progress")} | {"pending": len(planned) - sum(counts.values())},
-        "active": [{"key": key, "env_id": steps[key].env_id, "started_at": steps[key].started_at} for key in planned if key in steps and steps[key].status == "in_progress"],
-        "failed": [{"key": key, "error_kind": None if record.error_kind is None else record.error_kind.value, "error_detail": record.error_detail} for key in planned if key in steps and (record := steps[key]).status == "failed"],
+        "steps": counts | {"pending": len(planned) - sum(counts.values())},
+        "active": [{"key": step.key, "env_id": step.env_id, "started_at": step.started_at} for step in steps.values() if step.status == "in_progress"],
+        "failed": [{"key": step.key, "error_kind": None if step.error_kind is None else step.error_kind.value, "error_detail": step.error_detail} for step in steps.values() if step.status == "failed"],
         "episodes_logged": None if light else len(progress_rows(path)),
         "lanes": lanes,
         "runner_pids": pids,
@@ -190,12 +170,14 @@ def run_summary_after(path: pathlib.Path) -> dict[str, Any]:
 
 async def confirm_start(job: Job, confirm_s: float) -> dict[str, Any]:
     """Wait until the runner prepared its run or exited, raising with the log tail when it exited with an error first."""
+    from arena_evaluation.benchmark.runner import PREPARED
+
     loop = asyncio.get_running_loop()
     deadline = loop.time() + confirm_s
     while True:
         job = JOBS.get(job.id)
-        if job.state != "running":
-            if job.state != "succeeded":
+        if job.state != RUNNING:
+            if job.state != SUCCEEDED:
                 raise ToolError(f"{job.title} exited ({job.error or job.state}) before it prepared the run:\n{JOBS.tail(job.id, 25)}", hint=f"jobs_log {job.id} has the whole output")
             return {"prepared": PREPARED in JOBS.tail(job.id, 400)}
         if PREPARED in JOBS.tail(job.id, 400):
@@ -232,9 +214,9 @@ async def evaluation_benchmark(
     confirm_s: Confirm = 60.0,
 ) -> dict[str, Any]:
     """Start `arena evaluation benchmark` as a job, always with an explicit run id. Exit codes 0 ok, 1 systemic abort, 2 config error, 3 lockstep, strict or efficacy verdict, 4 runner hung, 130 interrupted."""
+    from arena_evaluation.benchmark.runner import _default_run_id
     from arena_evaluation.benchmark.state import find_most_recent_resumable
 
-    await check_sim(sim)
     root = pathlib.Path(data_root_dir) if data_root_dir else data_root()
     if resume:
         if run_id is None:
@@ -246,9 +228,7 @@ async def evaluation_benchmark(
     else:
         if suite is None or contest is None:
             raise ToolError("a fresh benchmark needs suite and contest", hint="evaluation_suites and evaluation_contests list them")
-        run_id = run_id or f"{utc_stamp()}-{stem_of(suite)}-{stem_of(contest)}"
-        if (root / component(run_id, "run_id")).exists():
-            raise ToolError(f"run {run_id!r} already exists in {root}", hint="pick another run_id or pass resume=true")
+        run_id = run_id or _default_run_id(config_value(suite), config_value(contest), os.environ.get("ARENA_LANE"))
     argv = benchmark_argv(
         suite=suite,
         contest=contest,
@@ -293,10 +273,7 @@ async def evaluation_preflight(
     """Start `arena planners test [--preflight]` as a job: per planner a wedged, weak or ok verdict (preflight) or a stall, rtf and beat table (soak), exit 3 on a failing planner."""
     if all_planners == bool(planners):
         raise ToolError("pass planner names or all_planners=true, not both or neither", hint="planners_list or arena planners ls names them")
-    await check_sim(sim)
     run_id = component(run_id or f"{utc_stamp()}-{'soak' if soak else 'preflight'}", "run_id")
-    if (data_root() / run_id).exists():
-        raise ToolError(f"run {run_id!r} already exists", hint="pick another run_id")
     argv = [*([] if soak else ["--preflight"]), *(["--all"] if all_planners else list(planners or ())), *launch_tokens(launch_args, sim=sim), "--run-id", run_id, *(["--lanes", str(lanes)] if lanes else [])]
     path = data_root() / run_id
     job = await cli.job("preflight", f"planners test {run_id}", "planners", "test", *argv, result=lambda _job: run_summary_after(path))
@@ -312,7 +289,7 @@ async def evaluation_stop(run_id: RunId, grace_s: Annotated[float, pydantic.Fiel
     path = run_path(run_id)
     groups: dict[int, str] = {}
     for job in run_jobs(run_id):
-        if job.state == "running" and job.pid is not None and proc.alive(job.pid):
+        if job.state == RUNNING and job.pid is not None and job.alive:
             groups[job.pid] = f"job {job.id}"
     for pid in await asyncio.to_thread(runner_pids, path, run_id):
         with contextlib.suppress(ProcessLookupError):
@@ -375,6 +352,8 @@ def evaluation_status(run_id: OptionalRunId = None) -> dict[str, Any]:
 async def evaluation_watch(timeout_s: Annotated[float, pydantic.Field(gt=0, le=30)] = 3.0) -> dict[str, Any]:
     """The live state a running benchmark latches on /arena/benchmark/state (what `status --watch` shows)."""
     from arena_evaluation_msgs.msg import BenchmarkState
+
+    from arena_evaluation.benchmark.runner import STATE_TOPIC
 
     msg = await ROS.latest(BenchmarkState, STATE_TOPIC, timeout=timeout_s, hint="no benchmark runner publishes on this ROS domain")
     return msgs.to_dict(msg)
@@ -624,7 +603,7 @@ def run_report_resource(run_id: str) -> dict[str, str | None]:
 @domain.prompt(description="Author, run, process and analyze a benchmark end to end")
 def evaluation_benchmark_workflow(goal: str) -> str:
     return f"""Goal: {goal}
-1. Pick or author configs: evaluation_suites, evaluation_contests, evaluation_config_schema, evaluation_describe_task_mode, evaluation_planners, evaluation_maps; validate with evaluation_validate_suite and evaluation_validate_contest before evaluation_create_suite or evaluation_create_contest.
+1. Pick or author configs: evaluation_suites, evaluation_contests, evaluation_config_schema, episode_task_modes, planners_list, assets_ls kind=world; validate with evaluation_validate_suite and evaluation_validate_contest before evaluation_create_suite or evaluation_create_contest.
 2. Start it with evaluation_benchmark, then follow evaluation_status, evaluation_progress and evaluation_console; stop it with evaluation_stop.
 3. When the job ended, run evaluation_process and wait for its job, then evaluation_report.
 4. Analyze with evaluation_summarize, evaluation_compare_planners and evaluation_top_n, record findings with evaluation_append_insight."""

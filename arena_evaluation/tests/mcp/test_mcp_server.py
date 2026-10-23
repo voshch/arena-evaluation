@@ -12,9 +12,8 @@ pytest.importorskip("arena_mcp")
 pytest.importorskip("polars")
 
 import yaml
-from mcp_fixtures import EMPTY_RUN_ID, RUN_ID, build_runs, build_world_root, error_text, payload, run_session, server_env, sourced
+from mcp_fixtures import EMPTY_RUN_ID, RUN_ID, build_runs, error_text, payload, run_session, server_env, sourced
 
-from arena_evaluation.mcp import catalog
 from arena_evaluation.mcp.base import domain
 
 CONFIGS = pathlib.Path(__file__).resolve().parents[2] / "configs" / "benchmark"
@@ -33,18 +32,14 @@ def test_server_lists_every_tool_resource_and_template(tmp_path):
     assert all(tool.name.startswith("evaluation_") and tool.description for tool in tools)
     destructive = {tool.name for tool in tools if tool.annotations.destructive_hint}
     assert {"evaluation_benchmark", "evaluation_preflight", "evaluation_stop", "evaluation_kill", "evaluation_record_start", "evaluation_record_stop"} <= destructive
-    assert {str(resource.uri) for resource in resources} >= {"arena://evaluation/runs", "arena://evaluation/suites", "arena://evaluation/contests", "arena://evaluation/manifests", "arena://evaluation/maps", "arena://evaluation/robots"}
+    assert {str(resource.uri) for resource in resources} >= {"arena://evaluation/runs", "arena://evaluation/suites", "arena://evaluation/contests", "arena://evaluation/manifests"}
     assert {template.uri_template for template in templates} >= {"arena://evaluation/runs/{run_id}/state", "arena://evaluation/runs/{run_id}/notes", "arena://evaluation/runs/{run_id}/report", "arena://evaluation/runs/{run_id}/metrics/schema", "arena://evaluation/runs/{run_id}/metrics/summary"}
     assert [prompt.name for prompt in prompts] == ["evaluation_benchmark_workflow"]
 
 
 def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
-    registries = catalog.mode_registries()
-
     async def body(client):
         calls = {
-            "modes": ("evaluation_task_modes", {}),
-            "random": ("evaluation_describe_task_mode", {"mode": "random", "axis": "tm_obstacles"}),
             "metric": ("evaluation_describe_metric", {"metric_name": "collision_metrics"}),
             "replay": ("evaluation_describe_metric", {"metric_name": "task_replay"}),
             "metrics": ("evaluation_metrics", {}),
@@ -55,25 +50,14 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
             "manifest_template": ("evaluation_config_template", {"kind": "manifest", "name": "standard.yaml"}),
             "schema": ("evaluation_config_schema", {"kind": "suite"}),
             "contest_schema": ("evaluation_config_schema", {"kind": "contest"}),
-            "planners": ("evaluation_planners", {}),
-            "robots": ("evaluation_robots", {}),
-            "maps": ("evaluation_maps", {}),
-            "inspect": ("evaluation_inspect_map", {"map_name": "map_empty"}),
         }
         out = {key: payload(await client.call_tool(name, args)) for key, (name, args) in calls.items()}
-        out["bad_mode"] = error_text(await client.call_tool("evaluation_describe_task_mode", {"mode": "no_such_mode"}))
         out["bad_metric"] = error_text(await client.call_tool("evaluation_describe_metric", {"metric_name": "zz"}))
-        out["fuzzy_map"] = error_text(await client.call_tool("evaluation_inspect_map", {"map_name": "map_empty_x"}))
         out["traversal"] = error_text(await client.call_tool("evaluation_config_template", {"kind": "suite", "name": "../secrets"}))
         out["suites_resource"] = json.loads((await client.read_resource("arena://evaluation/suites")).contents[0].text)
         return out
 
     out = run_session(body, server_env(tmp_path), ("evaluation",))
-    for axis, registry in registries.items():
-        assert sorted(entry["mode"] for entry in out["modes"][axis]) == sorted(key.value for key in registry.keys())
-    assert [entry["mode"] for entry in out["random"]["modes"]] == ["random"]
-    assert "config.random.dynamic.n" in {param["config_key"] for param in out["random"]["modes"][0]["params"]}
-    assert "no task mode 'no_such_mode'" in out["bad_mode"]
     assert out["metric"]["outputs"]["success"]["direction"] == "higher"
     assert out["metric"]["outputs"]["collision_amount"]["lower_is_better"] is True
     assert out["replay"]["outputs"]["judge_agrees"]["direction"] == "higher"
@@ -89,42 +73,11 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
     assert {"name", "map", "robot", "tm_robots", "tm_obstacles", "config", "seed", "timeout", "optim", "timeout_peds"} <= set(out["schema"]["stage_fields"])
     assert "## Suite Files" in out["schema"]["readme"]
     assert out["contest_schema"]["contestant_fields"] == ["name", "args", "parts"]
-    assert {"nav2", "drl", "manual", "test-collision"} <= set(out["planners"]["bringups"]["mobile"])
-    assert "dwb" in out["planners"]["nav2"]["local_planners"]
-    assert "jackal" in out["robots"]["robots"]
-    assert "map_empty" in out["maps"]["worlds"]
-    assert out["inspect"]["zones"][0]["bounds"] == {"x": [0.0, 30.0], "y": [0.0, 23.0]}
-    assert "default" in {entry["name"] for entry in out["inspect"]["scenarios"]}
-    assert "does not resolve" in out["fuzzy_map"]
 
 
-@sourced
-def test_models_list_the_humans_of_the_asset_store(tmp_path):
-    async def body(client):
-        return payload(await client.call_tool("evaluation_models", {"kind": "human"}))
-
-    assert "arenian" in run_session(body, server_env(tmp_path))["models"]
-
-
-SCENARIO = """
-format: arena-scenario/2
-robots:
-  - start: [10.0, 2.0, 1.57]
-    phases:
-      - goto: [10.0, 20.0, 1.57]
-humans:
-  - name: ped_1
-    model: arenian
-    pose: [10.0, 18.0, -1.57]
-    waypoints: [[10.0, 4.0]]
-"""
-
-
-def test_authoring_tools_validate_with_the_runner_parsers_and_write_scenarios(tmp_path):
-    worlds = build_world_root(tmp_path / "worlds")
+def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
     suite_with_typos = yaml.safe_dump({"stages": [{"name": "s1", "map": "map_empty", "robot": "jackal", "episodes": 1, "tm_robots": "random", "tm_obstacles": "random", "config": {"random": {"dynamic": {"min": 1, "max": 2, "models": ["arenien"]}, "statik": {"min": 0, "max": 0}}}}]})
     bad_contest = "[{name: bad, mobile: {driver: nav2, local_planner: nope_planner}}, {name: warp, mobile: {driver: warp_drive}}]"
-    out_of_bounds = SCENARIO.replace("[10.0, 2.0, 1.57]", "[1000.0, 2000.0, 1.57]")
 
     async def body(client):
         out = {}
@@ -137,16 +90,9 @@ def test_authoring_tools_validate_with_the_runner_parsers_and_write_scenarios(tm
         out["bad_manifest"] = payload(await client.call_tool("evaluation_validate_manifest", {"yaml_content": "plots:\n  - id: bad\n    type: violin\n    title: no data key\n"}))
         out["clobber"] = error_text(await client.call_tool("evaluation_create_suite", {"name": "basic", "yaml_content": (CONFIGS / "suites" / "basic.yaml").read_text()}))
         out["empty"] = error_text(await client.call_tool("evaluation_validate_suite", {"yaml_content": "  "}))
-        out["scenario"] = payload(await client.call_tool("evaluation_validate_scenario", {"yaml_content": SCENARIO, "map_name": "map_empty"}))
-        out["no_phases"] = payload(await client.call_tool("evaluation_validate_scenario", {"yaml_content": "format: arena-scenario/2\nrobots:\n  - start: [1.0, 1.0, 0.0]\n"}))
-        out["no_start"] = payload(await client.call_tool("evaluation_validate_scenario", {"yaml_content": "format: arena-scenario/2\nrobots:\n  - phases: [{goto: [1.0, 1.0, 0.0]}]\n"}))
-        out["format1"] = payload(await client.call_tool("evaluation_validate_scenario", {"yaml_content": "robots:\n  - start: [1.0, 1.0, 0.0]\ndynamic: []\n"}))
-        out["oob"] = payload(await client.call_tool("evaluation_validate_scenario", {"yaml_content": out_of_bounds, "map_name": "map_empty"}))
-        out["created"] = payload(await client.call_tool("evaluation_create_scenario", {"map_name": "map_empty", "scenario_name": "s_test", "yaml_content": SCENARIO}))
-        out["again"] = error_text(await client.call_tool("evaluation_create_scenario", {"map_name": "map_empty", "scenario_name": "s_test", "yaml_content": SCENARIO}))
         return out
 
-    out = run_session(body, server_env(tmp_path, ARENA_WORLD_PATH=str(worlds)), ("evaluation",))
+    out = run_session(body, server_env(tmp_path), ("evaluation",))
     assert out["basic_suite"]["valid"], out["basic_suite"]
     assert out["typos"]["valid"]
     assert any("arenien" in warning for warning in out["typos"]["warnings"])
@@ -160,15 +106,6 @@ def test_authoring_tools_validate_with_the_runner_parsers_and_write_scenarios(tm
     assert not out["bad_manifest"]["valid"]
     assert "already exists" in out["clobber"]
     assert "empty suite" in out["empty"]
-    assert out["scenario"]["valid"] and out["scenario"]["robots"] == 1 and out["scenario"]["humans"] == 1 and out["scenario"]["warnings"] == []
-    assert out["no_phases"]["valid"]
-    assert not out["no_start"]["valid"] and "start" in out["no_start"]["problems"][0]
-    assert not out["format1"]["valid"] and "arena-scenario/2" in out["format1"]["problems"][0]
-    assert any("outside the zones" in warning for warning in out["oob"]["warnings"])
-    written = pathlib.Path(out["created"]["path"])
-    assert written == worlds / "map_empty" / "scenarios" / "s_test" / "scenario.yaml"
-    assert yaml.safe_load(written.read_text())["robots"][0]["start"] == [10.0, 2.0, 1.57]
-    assert "exists" in out["again"]
 
 
 def test_run_and_analysis_tools_read_shared_runs(tmp_path):
@@ -184,6 +121,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             ("progress", "evaluation_progress", {"run_id": RUN_ID, "last": 2}),
             ("lane_progress", "evaluation_progress", {"run_id": RUN_ID, "contestant": "dwb_social"}),
             ("console", "evaluation_console", {"run_id": RUN_ID, "lines": 5}),
+            ("lane_console", "evaluation_console", {"run_id": RUN_ID, "lane": "p2"}),
             ("episode", "evaluation_read_episode", {"run_id": RUN_ID, "episode_id": 0}),
             ("written", "evaluation_write_notes", {"run_id": RUN_ID, "notes": [{"label": "a", "value": "1"}]}),
             ("insight", "evaluation_append_insight", {"run_id": RUN_ID, "label": "b", "value": "2"}),
@@ -224,6 +162,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     assert out["console"]["logs"]["runner.log"] == [f"runner line {index}" for index in range(295, 300)]
     assert out["console"]["logs"]["runner.p2.log"] == ["lane p2 started", "lane p2 sim died"]
     assert out["console"]["alive"] is False
+    assert out["lane_console"]["logs"] == {"runner.p2.log": ["lane p2 started", "lane p2 sim died"]}
     assert out["episode"]["metadata"]["planner"] == "dwb"
     assert out["notes"]["notes"] == [{"label": "a", "value": "1"}, {"label": "b", "value": "2"}]
     assert out["combined"]["column_stats"]["path_speeds"]["dtype"].startswith("List")
@@ -266,9 +205,8 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
         started = time.monotonic()
         out["config_error"] = error_text(await client.call_tool("evaluation_benchmark", {"suite": inline_suite, "contest": bad_contest, "run_id": "bad-config", "confirm_s": 200}))
         out["config_error_s"] = time.monotonic() - started
-        out["exists"] = error_text(await client.call_tool("evaluation_benchmark", {"suite": "basic", "contest": "basic", "run_id": RUN_ID}))
+        out["exists"] = error_text(await client.call_tool("evaluation_benchmark", {"suite": "basic", "contest": "basic", "run_id": RUN_ID, "confirm_s": 200}))
         out["no_resume"] = error_text(await client.call_tool("evaluation_benchmark", {"resume": True, "run_id": "nope"}))
-        out["bad_sim"] = error_text(await client.call_tool("evaluation_benchmark", {"suite": "basic", "contest": "basic", "sim": "warp"}))
         out["preflight_args"] = error_text(await client.call_tool("evaluation_preflight", {}))
         out["kill_nothing"] = error_text(await client.call_tool("evaluation_kill", {}))
         out["ps"] = payload(await client.call_tool("evaluation_ps", {}))
@@ -289,14 +227,14 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
     assert out["process_done"]["exit_code"] == 1
     assert "nope_planner" in out["config_error"]
     assert "before it prepared the run" in out["config_error"]
-    assert "already exists" in out["exists"]
+    assert "File exists" in out["exists"] and "before it prepared the run" in out["exists"]
     assert "no run 'nope' to resume" in out["no_resume"]
-    assert "unknown sim 'warp'" in out["bad_sim"]
     assert "not both or neither" in out["preflight_args"]
     assert "nothing is stopped by default" in out["kill_nothing"]
     assert {worker.pid, runner.pid} <= {row["pid"] for row in out["ps"]["processes"]}
-    assert out["kill"]["refused"] == [{"pid": stranger.pid, "reason": "not a running arena process"}]
-    assert out["kill"]["stopped"][0]["pids"] == [worker.pid] and out["kill"]["stopped"][0]["outcome"].startswith("stopped")
+    killed = {row["pid"]: row for row in out["kill"]["results"]}
+    assert killed[stranger.pid]["status"] == "refused: not an arena process"
+    assert killed[worker.pid]["kind"] == "world_generator" and killed[worker.pid]["status"] == "stopped"
     assert out["stranger_alive"]
     assert out["stop"]["stopped"][0]["outcome"].startswith("stopped")
     assert "no runner" in out["stop_again"]

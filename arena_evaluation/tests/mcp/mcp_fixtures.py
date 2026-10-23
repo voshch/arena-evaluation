@@ -5,7 +5,6 @@ import datetime
 import json
 import os
 import pathlib
-import shutil
 import sys
 import time
 
@@ -105,17 +104,6 @@ def build_runs(root: pathlib.Path) -> pathlib.Path:
     empty = RunDir.create(root, EMPTY_RUN_ID, _manifest(EMPTY_RUN_ID, ("dwb/s1",)))
     empty.progress.close()
     return run.path
-
-
-def build_world_root(root: pathlib.Path) -> pathlib.Path:
-    """A writable world root holding a copy of the installed map_empty world, for ARENA_WORLD_PATH."""
-    from arena_simulation_setup.tree.World import WorldIdentifier
-
-    source = WorldIdentifier("map_empty").resolve_sync().path
-    target = root / "map_empty"
-    shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns("scenarios"), ignore_dangling_symlinks=True)
-    (target / "scenarios").mkdir()
-    return root
 
 
 def server_env(tmp_path: pathlib.Path, **extra: str) -> dict[str, str]:

@@ -1,17 +1,96 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import pathlib
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pydantic
 
 from arena_mcp.core import ToolError
 
-from .base import OptionalRunId, YamlText, component, config_stem, domain, parse_yaml, run_path
-from .catalog import config_identifier, config_names, domain_asset_names, drivers, mode_params, mode_registries, planner_catalog, world_names, world_resolves, world_view, zone_summary
+from .base import YamlText, config_stem, domain, parse_yaml, run_path
+from .catalog import config_identifier, config_names
+
+if TYPE_CHECKING:
+    import enum
+
+    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
+    from arena_simulation_setup.tree import DomainAssetIdentifier
+    from rcl_interfaces.msg import ParameterDescriptor
+    from task_generator.tasks.registry import TaskModeRegistry
 
 Overwrite = Annotated[bool, pydantic.Field(description="replace an existing config of that name")]
+
+
+def mode_registries() -> dict[str, TaskModeRegistry]:
+    """The three task-mode registries, keyed by their suite stage field."""
+    for package in ("robots", "obstacles", "modules"):
+        importlib.import_module(f"task_generator.tasks.{package}")
+    from task_generator.tasks.registry import MODULE_MODES, OBSTACLES_MODES, ROBOTS_MODES
+
+    return {"tm_robots": ROBOTS_MODES, "tm_obstacles": OBSTACLES_MODES, "tm_modules": MODULE_MODES}
+
+
+class _Declarations:
+    """Collects what a task-mode schema declares, standing in for the node it normally declares on."""
+
+    def __init__(self) -> None:
+        self.rosparam = self
+        self.declared: list[tuple[str, ParameterDescriptor]] = []
+
+    def declare_forward(self, name: str, value: object, *, descriptor: ParameterDescriptor) -> None:
+        self.declared.append((name, descriptor))
+
+
+def _constraint_tokens(text: str) -> dict[str, object]:
+    out: dict[str, object] = {}
+    for token in filter(None, text.split(";")):
+        key, sep, value = token.partition(":")
+        out[key] = (value.split(",") if key == "enum" else value) if sep else True
+    return out
+
+
+def mode_params(registry: TaskModeRegistry, key: enum.Enum) -> list[dict[str, Any]]:
+    """The parameter names a registered task mode declares, below its namespace, with their constraint tokens."""
+    meta = registry.meta(key)
+    if meta.schema is None:
+        return []
+    collector = _Declarations()
+    meta.schema(cast("ROSParamServer", collector), meta.namespace)
+    prefix = f"{meta.namespace}."
+    return [{"name": name.removeprefix(prefix), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in collector.declared]
+
+
+def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
+    """Names of a domain asset kind the way task modes reference them."""
+    from arena_simulation_setup import DOMAIN_DEFAULT
+
+    return sorted({item.name if item.domain == DOMAIN_DEFAULT else item.shortname for item in identifier.listall()})
+
+
+def world_names() -> list[str]:
+    from arena_simulation_setup.tree.World import WorldIdentifier
+
+    return sorted({item.shortname for item in WorldIdentifier.listall() if not item.shortname.startswith(".")})
+
+
+def world_resolves(name: str, known: set[str]) -> bool:
+    """True when every world of a possibly composite, level-filtered world name is known."""
+    from arena_simulation_setup.tree.World import WorldIdentifier
+    from arena_simulation_setup.tree.World.view import composite_parts
+
+    return all(WorldIdentifier.split_filter(part)[0] in known for part in composite_parts(name))
+
+
+def registered_drivers() -> dict[str, set[str]]:
+    """Drivers per cap from the bringup and adapter registries."""
+    from arena_robots.bringup import BRINGUPS
+    from task_generator.tasks.robots.adapters import ADAPTERS
+
+    for cap in ADAPTERS:
+        importlib.import_module(f"task_generator.tasks.robots.adapters.{cap}")
+    return {cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys()) for cap in sorted(set(BRINGUPS) | set(ADAPTERS))}
 
 
 def _leaves(block: dict[str, Any], prefix: str = "") -> list[str]:
@@ -65,7 +144,7 @@ def check_suite(data: object) -> dict[str, Any]:
         selected = {"tm_robots": stage.tm_robots, "tm_obstacles": stage.tm_obstacles}
         for axis, key in selected.items():
             if key not in registries[axis]:
-                problems.append(f"{where}: {axis} {key.value!r} is not registered, see evaluation_task_modes")
+                problems.append(f"{where}: {axis} {key.value!r} is not registered, see episode_task_modes")
         if Constants.HUMAN_PARAM_RESERVED in stage.config:
             problems.append(f"{where}: config block {Constants.HUMAN_PARAM_RESERVED!r} is reserved and fails the stage")
         modes = {key.value: (axis, key) for axis, key in selected.items()}
@@ -92,10 +171,10 @@ def check_suite(data: object) -> dict[str, Any]:
                     if name not in catalog:
                         warnings.append(f"{where}: config.{block_name}.{param['name']} model {name!r} is not in the {param['catalog']} catalog, fetch it with arena asset pull or fix the name")
         if not world_resolves(stage.map, worlds):
-            warnings.append(f"{where}: map {stage.map!r} does not resolve locally, it may be bucket-only (evaluation_maps network=true) or misspelled")
+            warnings.append(f"{where}: map {stage.map!r} does not resolve locally, it may be bucket-only (assets_ls kind=world network=true) or misspelled")
         unknown = [entry for entry in split_robot_arg(stage.robot) if entry.partition("[")[0].strip() not in robots]
         if raw.get("robot") != "auto" and unknown:
-            warnings.append(f"{where}: robot {', '.join(unknown)} not in the robot catalog (evaluation_robots)")
+            warnings.append(f"{where}: robot {', '.join(unknown)} not in the robot catalog (robots_catalog)")
     return {"valid": not problems, "n_stages": len(suite.stages), "stages": [stage.name for stage in suite.stages], "references": suite.references, "launch": suite.launch_args, "problems": problems, "warnings": warnings}
 
 
@@ -120,13 +199,13 @@ def check_contest(data: object) -> dict[str, Any]:
         contest = Contest.parse("_validate", data)
     except (KeyError, ValueError, TypeError) as exc:
         return {"valid": False, "problems": [f"{type(exc).__name__}: {exc}"]}
-    catalog = planner_catalog()
+    drivers = registered_drivers()
     problems = list(_preflight_contest(contest))
     for contestant in contest.contestants:
-        for cap in catalog["caps"]:
+        for cap, known in drivers.items():
             driver = _contest_drivers(contestant.args, cap)
-            if driver is not None and driver not in drivers(catalog, cap):
-                problems.append(f"{contestant.name}: {cap} driver {driver!r} is not registered, known: {sorted(drivers(catalog, cap))}")
+            if driver is not None and driver not in known:
+                problems.append(f"{contestant.name}: {cap} driver {driver!r} is not registered, known: {sorted(known)}")
     return {"valid": not problems, "n_contestants": len(contest.contestants), "contestants": [{"name": entry.name, "args": entry.args, "parts": entry.parts} for entry in contest.contestants], "problems": problems}
 
 
@@ -174,7 +253,7 @@ def evaluation_validate_manifest(yaml_content: YamlText) -> dict[str, Any]:
 
 @domain.tool()
 def evaluation_create_suite(name: str, yaml_content: YamlText, overwrite: Overwrite = False) -> dict[str, Any]:
-    """Validate a suite (evaluation_config_schema and evaluation_describe_task_mode give its keys) and write it where the runner resolves it by name."""
+    """Validate a suite (evaluation_config_schema and episode_task_modes give its keys) and write it where the runner resolves it by name."""
     verdict = check_suite(parse_yaml(yaml_content, "suite"))
     if not verdict["valid"]:
         raise ToolError("suite does not validate: " + "; ".join(verdict["problems"]), hint="evaluation_config_schema kind=suite shows the schema")
@@ -183,10 +262,10 @@ def evaluation_create_suite(name: str, yaml_content: YamlText, overwrite: Overwr
 
 @domain.tool()
 def evaluation_create_contest(name: str, yaml_content: YamlText, overwrite: Overwrite = False) -> dict[str, Any]:
-    """Validate a contest (evaluation_planners gives drivers and planner names) and write it where the runner resolves it by name."""
+    """Validate a contest (planners_list gives the planner names) and write it where the runner resolves it by name."""
     verdict = check_contest(parse_yaml(yaml_content, "contest"))
     if not verdict["valid"]:
-        raise ToolError("contest does not validate: " + "; ".join(verdict["problems"]), hint="evaluation_planners lists drivers and planners")
+        raise ToolError("contest does not validate: " + "; ".join(verdict["problems"]), hint="planners_list lists the planners")
     return {"path": str(write_config("contest", name, yaml_content, overwrite)), **verdict}
 
 
@@ -222,77 +301,3 @@ def evaluation_create_manifest(
         raise ToolError(f"{path} exists", hint="pick another name or pass overwrite=true")
     path.write_text(yaml_content)
     return {"path": str(path), **verdict}
-
-
-def _bounds_warnings(raw: dict[str, Any], bounds: dict[str, list[float]]) -> list[str]:
-    (low_x, high_x), (low_y, high_y) = bounds["x"], bounds["y"]
-    warnings = []
-
-    def check(point: object, label: str) -> None:
-        if isinstance(point, list | tuple) and len(point) >= 2 and all(isinstance(value, int | float) for value in point[:2]):
-            x, y = float(point[0]), float(point[1])
-            if not (low_x - 1.0 <= x <= high_x + 1.0 and low_y - 1.0 <= y <= high_y + 1.0):
-                warnings.append(f"{label} ({x}, {y}) lies outside the zones X:[{low_x}, {high_x}] Y:[{low_y}, {high_y}]")
-
-    for index, robot in enumerate(raw.get("robots") or []):
-        check(robot.get("start"), f"robots[{index}].start")
-        for phase_index, phase in enumerate(robot.get("phases") or []):
-            if isinstance(phase, dict):
-                check(phase.get("goto"), f"robots[{index}].phases[{phase_index}].goto")
-    for index, human in enumerate(raw.get("humans") or []):
-        check(human.get("pose"), f"humans[{index}].pose")
-        for point_index, point in enumerate(human.get("waypoints") or []):
-            check(point, f"humans[{index}].waypoints[{point_index}]")
-    return warnings
-
-
-def check_scenario(raw: object, map_name: str | None, run_id: str | None) -> dict[str, Any]:
-    """parse_scenario verdict, counts, and with a map the coordinates that fall outside its zones."""
-    from arena_simulation_setup.tree.World.Scenario import parse_scenario
-
-    try:
-        scenario = parse_scenario(raw)
-    except (ValueError, TypeError, KeyError) as exc:
-        return {"valid": False, "problems": [str(exc)]}
-    out: dict[str, Any] = {
-        "valid": True,
-        "problems": [],
-        "robots": len(scenario.robots),
-        "humans": len(scenario.humans),
-        "objects": len(scenario.objects),
-        "sounds": len(scenario.sounds),
-        "lights": len(scenario.lights),
-        "regions": sorted(scenario.regions),
-        "timeline": len(scenario.timeline),
-        "conditions": len(scenario.conditions),
-        "warnings": [],
-    }
-    if map_name is not None:
-        view, levels, _ = world_view(map_name, run_id)
-        zones, _ = zone_summary(view, levels)
-        if zones and isinstance(raw, dict):
-            corners = [(x, y) for zone in zones for x in zone["bounds"]["x"] for y in zone["bounds"]["y"]]
-            bounds = {"x": [min(x for x, _ in corners), max(x for x, _ in corners)], "y": [min(y for _, y in corners), max(y for _, y in corners)]}
-            out["warnings"] = _bounds_warnings(raw, bounds)
-    return out
-
-
-@domain.tool(read_only=True)
-def evaluation_validate_scenario(yaml_content: YamlText, map_name: Annotated[str | None, pydantic.Field(description="world to check coordinates against")] = None, run_id: OptionalRunId = None) -> dict[str, Any]:
-    """Check a format 2 scenario with the world loader's parse_scenario, and with map_name the coordinates outside its zones."""
-    return check_scenario(parse_yaml(yaml_content, "scenario"), map_name, run_id)
-
-
-@domain.tool()
-def evaluation_create_scenario(map_name: str, scenario_name: str, yaml_content: YamlText, overwrite: Overwrite = False) -> dict[str, Any]:
-    """Validate a format 2 scenario and write it as scenarios/<scenario_name>/scenario.yaml of the world map_name resolves to."""
-    verdict = check_scenario(parse_yaml(yaml_content, "scenario"), map_name, None)
-    if not verdict["valid"]:
-        raise ToolError("scenario does not validate: " + "; ".join(verdict["problems"]))
-    view, _, source = world_view(map_name)
-    target = asyncio.run(view.scenario(component(scenario_name, "scenario_name")).resolve_write_path()) / "scenario.yaml"
-    if target.exists() and not overwrite:
-        raise ToolError(f"{target} exists", hint="pick another scenario_name or pass overwrite=true")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(yaml_content)
-    return {"path": str(target), "world_resolved_by": source, **verdict}
