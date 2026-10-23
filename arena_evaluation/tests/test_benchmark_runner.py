@@ -925,6 +925,19 @@ def test_build_pending_partial_always_retried(tmp_path: pathlib.Path):
     assert len(steps_with_flag) == 1
 
 
+def test_build_pending_step_that_recorded_no_episode_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, None, None, episodes_total=3),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, StepErrorKind.INTERNAL, "error", episodes_total=3),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "ok", None, 0.0, 1.0, None, None),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
+
+
 def test_build_pending_skipped_always_retried(tmp_path: pathlib.Path):
     suite = _make_suite("s1")
     contest = _make_contest("pa")

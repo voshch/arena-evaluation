@@ -350,7 +350,8 @@ def build_pending(
             continue
         if existing.status == "ok":
             continue
-        if existing.status == "failed" and not retry_failed and existing.error_kind not in _RETRY_ON_RESUME:
+        lost = existing.error_kind is None and existing.episodes_run == 0
+        if existing.status == "failed" and not retry_failed and not lost and existing.error_kind not in _RETRY_ON_RESUME:
             continue
         pending.append(step)
     return pending
