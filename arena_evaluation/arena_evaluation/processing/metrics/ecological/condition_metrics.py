@@ -62,6 +62,12 @@ def _entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
     return roster | {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
 
 
+def _ped_aliases(name: str) -> list[str]:
+    """Names an atom may use for a recorded ped: env-stripped, plus without a level suffix on multi-level worlds."""
+    bare = _strip_env(name)
+    return [bare, bare.rsplit("/", 1)[0]] if "/" in bare else [bare]
+
+
 def _ped_roster(data: pl.DataFrame) -> dict[str, str]:
     """Bare ped name -> recorded name, only for names that resolve uniquely on the axis."""
     if "peds_names" not in data.columns:
@@ -71,7 +77,8 @@ def _ped_roster(data: pl.DataFrame) -> dict[str, str]:
         if not names:
             continue
         for name in names:
-            grouped[_strip_env(name)].add(name)
+            for alias in _ped_aliases(name):
+                grouped[alias].add(name)
     return {bare: next(iter(full)) for bare, full in grouped.items() if len(full) == 1}
 
 
@@ -208,7 +215,9 @@ class _EvalContext:
         for j, name in enumerate(names):
             if 3 * j + 1 >= len(positions):
                 break
-            peds[_strip_env(name)] = (positions[3 * j], positions[3 * j + 1])
+            for alias in _ped_aliases(name):
+                if self.ped_roster.get(alias, name) == name:
+                    peds[alias] = (positions[3 * j], positions[3 * j + 1])
         return peds
 
     def sample(self, i: int) -> Sample:
