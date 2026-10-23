@@ -166,7 +166,7 @@ _RECORD_RUNNING = 1  # task_generator_msgs/msg/EpisodeRecord.RUNNING
 
 
 def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | None, int | None]:
-    """[RUNNING stamp, terminal stamp] of the episode record, the recording can start early and outlive the episode."""
+    """[RUNNING stamp, terminal stamp] of the episode record, a bound is None when its row is missing."""
     if record is None:
         return None, None
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
@@ -175,10 +175,11 @@ def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | N
     df = df.sort("time_ns")
     if "outcome_state" not in df.columns:
         return int(df["time_ns"][0]), int(df["time_ns"][-1])
-    running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
-    start = int(running["time_ns"][0]) if len(running) else int(df["time_ns"][0])
-    terminal = df.filter((pl.col("time_ns") > start) & (pl.col("outcome_state") != _RECORD_RUNNING))
-    return start, (int(terminal["time_ns"][-1]) if len(terminal) else None)
+    states = df["outcome_state"].to_list()
+    stamps = df["time_ns"].to_list()
+    start = next((int(t) for t, s in zip(stamps, states, strict=True) if s == _RECORD_RUNNING), None)
+    end = None if states[-1] == _RECORD_RUNNING else int(stamps[-1])
+    return start, end
 
 
 _ALIGN_TOLERANCE_NS = 100_000_000
