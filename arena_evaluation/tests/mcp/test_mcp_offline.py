@@ -121,6 +121,15 @@ def test_correlation_is_bounded_and_refuses_list_columns():
         analysis.correlation_frame(_frame(), ["success", "path_speeds"])
 
 
+def test_means_run_over_list_elements_per_column_and_count_episodes():
+    frame = _frame().with_columns(pl.Series("speed_samples", [[1.0] * (index + 1) for index in range(10)]))
+    rows = {row["stage"]: row for row in analysis.means(frame.filter(pl.col("planner") == "dwb"), ["stage"], ["path_speeds", "speed_samples", "time_to_goal"])}
+    assert rows["s1"]["n_rows"] == 2
+    assert rows["s1"]["path_speeds"] == pytest.approx((0.5 + 0.6 + 0.5 + 0.7) / 4)
+    assert rows["s1"]["speed_samples"] == pytest.approx(1.0)
+    assert rows["s2"]["time_to_goal"] == pytest.approx(67.0)
+
+
 def test_column_stats_recognize_list_columns():
     stats = analysis.column_stats(_frame())
     assert stats["path_speeds"]["dtype"].startswith("List")

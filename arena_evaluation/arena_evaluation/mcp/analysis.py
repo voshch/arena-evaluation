@@ -70,15 +70,6 @@ def columns(frame: pl.DataFrame, names: list[str], what: str) -> list[str]:
     return names
 
 
-def scalar_frame(frame: pl.DataFrame, keep: list[str]) -> pl.DataFrame:
-    """The kept columns, list columns exploded so means run over their elements."""
-    import polars as pl
-
-    selected = frame.select(list(dict.fromkeys(keep)))
-    lists = [name for name, dtype in selected.schema.items() if isinstance(dtype, pl.List)]
-    return selected.explode(lists) if lists else selected
-
-
 def numeric_columns(frame: pl.DataFrame) -> list[str]:
     import polars as pl
 
@@ -88,10 +79,15 @@ def numeric_columns(frame: pl.DataFrame) -> list[str]:
 def means(frame: pl.DataFrame, group: list[str], metrics: list[str], *, spread: bool = False) -> list[dict[str, Any]]:
     import polars as pl
 
-    work = scalar_frame(frame, [*group, *metrics]).with_columns([pl.col(name).cast(pl.Float64) for name in metrics])
-    aggregations = [pl.col(name).mean().alias(name) for name in metrics]
+    work = frame.select(list(dict.fromkeys([*group, *metrics])))
+    lists = {name for name, dtype in work.schema.items() if isinstance(dtype, pl.List)}
+
+    def values(name: str) -> pl.Expr:
+        return (pl.col(name).explode() if name in lists else pl.col(name)).cast(pl.Float64)
+
+    aggregations = [values(name).mean().alias(name) for name in metrics]
     if spread:
-        aggregations += [pl.col(name).std().alias(f"{name}_std") for name in metrics]
+        aggregations += [values(name).std().alias(f"{name}_std") for name in metrics]
     aggregations.append(pl.len().alias("n_rows"))
     return [cast("dict[str, Any]", jsonable(row)) for row in work.group_by(group).agg(aggregations).sort(group).to_dicts()]
 
