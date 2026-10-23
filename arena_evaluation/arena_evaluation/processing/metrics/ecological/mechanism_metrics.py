@@ -322,7 +322,7 @@ def _cabin_door_blocking_s(ctx: _Ctx) -> float | None:
     return float(np.sum(ctx.track.dt[blocking]))
 
 
-def _elevator_queue_jumps(ctx: _Ctx, masks: dict[str, np.ndarray], boardings: dict[str, list[int]]) -> int | None:
+def _elevator_queue_jumps(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | None:
     """Boardings that overtake a pedestrian who was already waiting in the call area."""
     if ctx.peds is None:
         return None
@@ -573,7 +573,7 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
                     if view.has_field("elevator", "cabin_door"):
                         results["elevator_missed_cycles"] = _elevator_missed_cycles(ctx, masks)
                         results["elevator_unnecessary_calls"] = _elevator_unnecessary_calls(ctx, masks, boardings)
-                    results["elevator_queue_jumps"] = _elevator_queue_jumps(ctx, masks, boardings)
+                    results["elevator_queue_jumps"] = _elevator_queue_jumps(ctx, boardings)
             results["cabin_door_blocking_s"] = _cabin_door_blocking_s(ctx)
 
         if view.has_kind("schedule"):

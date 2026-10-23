@@ -740,7 +740,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         colors = {v: palette[i % len(palette)] for i, v in enumerate(values)}
 
         groups = [(str(v), pdf.loc[pdf[facet_col] == v]) for v in sorted(pdf[facet_col].unique(), key=str)] if facet_col else [(None, pdf)]
-        panels = [_Panel(name, frame, _tracks(frame, data_key, diff_col, colors, facet_col is not None)) for name, frame in groups]
+        panels = [_Panel(name, frame, _tracks(frame, data_key, diff_col, colors)) for name, frame in groups]
         panels = [panel for panel in panels if panel.tracks] or panels[:1]
 
         fig, axes = self._figure(plt, panels, map_meta, crop)
@@ -1043,7 +1043,7 @@ class _Panel:
         return f"{self.name}: {', '.join(results)}" if results else str(self.name)
 
 
-def _tracks(frame: pd.DataFrame, data_key: str, diff_col: str, colors: dict, faceted: bool) -> list[_Track]:
+def _tracks(frame: pd.DataFrame, data_key: str, diff_col: str, colors: dict) -> list[_Track]:
     tracks: list[_Track] = []
     seen: set[object] = set()
     ordered = frame.sort_values("episode") if "episode" in frame.columns else frame

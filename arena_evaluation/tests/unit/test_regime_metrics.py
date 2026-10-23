@@ -427,7 +427,7 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
     calc = _calc()
     calc.world = "synthetic_world_cap"
     zone = _CapZoneGeometry(name="lobby", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]))
-    calc._world_cache["synthetic_world_cap"] = ([zone], [])
+    calc._world_cache["synthetic_world_cap"] = ([zone], [], [])
 
     data = pl.DataFrame(
         {
@@ -453,7 +453,7 @@ def test_calculate_ran_red_signal_with_cached_world():
     calc = _calc()
     calc.world = "synthetic_world_signal"
     door = _DoorGeometry(name="crossing_1", center_x=0.0, center_y=0.0, radius=1.0)
-    calc._world_cache["synthetic_world_signal"] = ([], [door])
+    calc._world_cache["synthetic_world_signal"] = ([], [door], [])
 
     data = pl.DataFrame(
         {

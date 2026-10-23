@@ -365,8 +365,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         if self.world is not None and episode.start_pos and n > 0 and len(time_ns) == n:
             loaded = self._load_world(self.world)
             if loaded is not None:
-                zones, doors, *rest = loaded
-                signals = rest[0] if rest else []
+                zones, doors, signals = loaded
 
                 if has_events and "occupancy_cap" in kinds and zones:
                     zone_idx = _zone_membership(pos_x, pos_y, zones)
