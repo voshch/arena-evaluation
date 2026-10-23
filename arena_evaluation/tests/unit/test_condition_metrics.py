@@ -386,6 +386,25 @@ def test_ped_zone_zero_order_hold_and_before_first_sample_false():
     assert list(series) == [False, True, False]
 
 
+def test_ped_zone_resolves_level_suffixed_names_by_authored_name():
+    data = _ped_data(
+        [0, 1_000_000_000],
+        [["env_1/queuer_1/0", "env_1/queuer_2/0"], ["env_1/queuer_1/0", "env_1/queuer_2/0"]],
+        [[10.0, 10.0, 0.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 10.0, 10.0, 0.0]],
+    )
+    ctx = _ctx([0, 1_000_000_000], data=data, zones=[_square("lobby")])
+
+    assert _ped_roster(data) == {"queuer_1/0": "env_1/queuer_1/0", "queuer_1": "env_1/queuer_1/0", "queuer_2/0": "env_1/queuer_2/0", "queuer_2": "env_1/queuer_2/0"}
+    series, ok = _ped_zone_series(parse_atom("queuer_1 in lobby"), ctx)
+    assert ok is True
+    assert list(series) == [False, True]
+
+
+def test_ped_roster_drops_authored_names_shared_across_levels():
+    data = _ped_data([0], [["env_0/rider/0", "env_0/rider/1"]], [[1.0, 1.0, 0.0, 2.0, 2.0, 0.0]])
+    assert _ped_roster(data) == {"rider/0": "env_0/rider/0", "rider/1": "env_0/rider/1"}
+
+
 def test_ped_zone_unresolvable_when_ped_not_recorded():
     data = _ped_data(
         [0, 1_000_000_000],

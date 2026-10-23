@@ -119,10 +119,9 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             logger.warning("No map name available for episode %s - skipping acoustics", episode.episode_id)
             return nulls
 
-        run_dir = None
-        if episode.folder_manager:
-            if episode.run is not None and episode.run.benchmark_id:
-                run_dir = episode.folder_manager.data_root / episode.run.benchmark_id
+        run_dir = episode.run_dir
+        if run_dir is None and episode.folder_manager and episode.run is not None and episode.run.benchmark_id:
+            run_dir = episode.folder_manager.data_root / episode.run.benchmark_id
 
         map_data = self._get_map_occupancy(map_name, run_dir=run_dir)
         if not map_data:

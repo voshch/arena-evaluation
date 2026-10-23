@@ -1,0 +1,390 @@
+name: mechanisms_doors_crowd
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__B01_counterflow__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d1__a-to-b
+- name: mb__B03_class_change__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d1__a-to-b
+- name: mb__B05_loiter__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d1__a-to-b
+- name: mb__B06_locked_main__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d1__a-to-b
+- name: mb__B07_wait_for_door__d1__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d1__a-to-b
+- name: mb__B01_counterflow__d2__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d2__a-to-b
+- name: mb__B03_class_change__d2__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d2__a-to-b
+- name: mb__B05_loiter__d2__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d2__a-to-b
+- name: mb__B06_locked_main__d2__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d2__a-to-b
+- name: mb__B07_wait_for_door__d2__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d2__a-to-b
+- name: mb__B01_counterflow__d3__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d3__a-to-b
+- name: mb__B03_class_change__d3__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d3__a-to-b
+- name: mb__B05_loiter__d3__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d3__a-to-b
+- name: mb__B06_locked_main__d3__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d3__a-to-b
+- name: mb__B07_wait_for_door__d3__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d3__a-to-b
+- name: mb__B02_ped_holds_door__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B02_ped_holds_door__a-to-b
+- name: mb__B01_counterflow__d1__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d1__b-to-a
+- name: mb__B03_class_change__d1__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d1__b-to-a
+- name: mb__B05_loiter__d1__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d1__b-to-a
+- name: mb__B06_locked_main__d1__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d1__b-to-a
+- name: mb__B07_wait_for_door__d1__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d1__b-to-a
+- name: mb__B01_counterflow__d2__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d2__b-to-a
+- name: mb__B03_class_change__d2__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d2__b-to-a
+- name: mb__B05_loiter__d2__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d2__b-to-a
+- name: mb__B06_locked_main__d2__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d2__b-to-a
+- name: mb__B07_wait_for_door__d2__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d2__b-to-a
+- name: mb__B01_counterflow__d3__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B01_counterflow__d3__b-to-a
+- name: mb__B03_class_change__d3__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B03_class_change__d3__b-to-a
+- name: mb__B05_loiter__d3__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B05_loiter__d3__b-to-a
+- name: mb__B06_locked_main__d3__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B06_locked_main__d3__b-to-a
+- name: mb__B07_wait_for_door__d3__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: B07_wait_for_door__d3__b-to-a
+- name: mb__B02_ped_holds_door__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B02_ped_holds_door__b-to-a
+- name: mb__B04_queue_counter__d1__north-to-south
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d1__north-to-south
+- name: mb__B04_queue_counter__d2__north-to-south
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d2__north-to-south
+- name: mb__B04_queue_counter__d3__north-to-south
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d3__north-to-south
+- name: mb__B04_queue_counter__d1__south-to-north
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d1__south-to-north
+- name: mb__B04_queue_counter__d2__south-to-north
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d2__south-to-north
+- name: mb__B04_queue_counter__d3__south-to-north
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: B04_queue_counter__d3__south-to-north

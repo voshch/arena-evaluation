@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.ecological.mechanism_common import entity_name, robot_env_snapshot
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
@@ -163,11 +164,14 @@ _RECONSTRUCTED_EVENTS_SCHEMA = {
 
 
 def _stringify_snapshot_value(row: dict) -> str:
-    """Native snapshot value to the historic event wire convention: lowercase bool, str(float), raw string."""
+    """Native snapshot value to the event wire convention: lowercase bool, str(float), raw string, members as sorted comma-joined names."""
     if row["field_kind"] == "predicate":
         return "true" if row["value_bool"] else "false"
     if row["field_kind"] == "continuous":
         return str(row["value_num"])
+    if row["field_kind"] == "members":
+        members = row.get("value_list")
+        return ",".join(sorted(str(m) for m in members)) if members else ""
     return row["value_str"] if row["value_str"] is not None else ""
 
 
@@ -175,12 +179,14 @@ def _reconstruct_events(snapshot: pl.DataFrame | None) -> pl.DataFrame:
     """Event-equivalent (time_ns, entity, kind, field, previous, current) rows, derived by
     keeping only the change points of each entity+field's stepwise snapshot series. The first
     kept row per series is the seed value (from the episode's seed snapshot), `previous` empty.
+    Members rows are kept as field `members` (see `_stringify_snapshot_value`), so membership
+    changes are change points like any other field.
     """
     empty = pl.DataFrame(schema=_RECONSTRUCTED_EVENTS_SCHEMA)
     if snapshot is None or len(snapshot) == 0:
         return empty
 
-    rows = snapshot.filter(pl.col("field_kind") != "members").sort("time_ns")
+    rows = snapshot.sort("time_ns")
     if len(rows) == 0:
         return empty
 
@@ -220,7 +226,7 @@ def _reconstruct_events(snapshot: pl.DataFrame | None) -> pl.DataFrame:
 
 
 def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Per-door sorted (time_ns, is_open) event series, name keyed by entity suffix."""
+    """Per-door sorted (time_ns, is_open) event series keyed by authored door name."""
     door_events = events.filter((pl.col("kind") == "door") & (pl.col("field") == "state")).sort("time_ns")
     result: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if len(door_events) == 0:
@@ -228,7 +234,7 @@ def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.nd
 
     for _, group in door_events.group_by("entity"):
         g = group.sort("time_ns")
-        name = str(g["entity"][0]).rsplit("/", 1)[-1]
+        name = entity_name(str(g["entity"][0]))
         times = g["time_ns"].to_numpy()
         is_open = np.array([v == "open" for v in g["current"].to_list()])
         result[name] = (times, is_open)
@@ -261,9 +267,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     Single-robot attribution assumption per SPEC_M1 M1.3. Returns schema-consistent
     `None` for every output key when the recorded world is not locally present.
 
-    Elevator etiquette metrics (`blocked_closing_door`, `boarded_before_exit`,
-    `stranded_ped_seconds`) are deferred to M2: v1 `occupants` is a scalar with no
-    per-occupant identity or position (SPEC_M1 M1.2).
+    `doorway_blocking_time` is robot-attributed (ego pose only). Elevator etiquette metrics
+    (`blocked_closing_door`, `boarded_before_exit`, stranded peds) live in
+    `mechanism_metrics`, which uses the per-occupant semantic `members`.
     """
 
     NAME = "compliance_metrics"
@@ -336,7 +342,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         if not doors:
             return 0.0
 
-        events = _reconstruct_events(episode.semantic_snapshot)
+        events = _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         if len(events) == 0:
             return 0.0
 

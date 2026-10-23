@@ -118,7 +118,7 @@ plots: [ ... ]
 - `timeseries`: Wide-format per-episode list columns vs time axis.
 - `line`: Long-format line charts with optional confidence bands (`error_y`).
 - `table`: Declarative HTML summary table.
-- `trajectory`: Spatial paths with map overlay, time slider, and optional GIF export.
+- `trajectory`: paths over the world map, broken at teleports (resets, elevator rides), with doors and elevator cabins drawn from the world. Options: `show_map`, `overlay_markers`, `overlay_pedestrians`, `overlay_theta_star`, `overlay_reference`, `overlay_mechanisms` (default on), `facet` (a column, one panel per value), `crop` (view limited to the tracks, default on with `facet`). With `--generate-gifs` the static plot is replayed on sim time: paths grow, pedestrians walk, doors and cabin doors follow the recorded `mechanism_states`, goal and collision marks appear when their episode ends. Doors animate only on a panel that holds one episode, so `facet: local_planner` compares planners.
 - `radar`: Normalized multi-metric profile.
 - `heatmap`: Correlation matrix or pivot grid.
 

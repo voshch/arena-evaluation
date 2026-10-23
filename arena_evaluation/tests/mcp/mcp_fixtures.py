@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import os
 import pathlib
@@ -71,6 +72,10 @@ def metric_rows() -> list[dict]:
     return rows
 
 
+def _iso(timestamp: float) -> str:
+    return datetime.datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
+
+
 def build_runs(root: pathlib.Path) -> pathlib.Path:
     """A benchmark run written by the package's own writers: manifest, state and progress plus a second lane, an episode, logs and combined metrics."""
     from arena_evaluation.benchmark.state import RunDir
@@ -85,11 +90,11 @@ def build_runs(root: pathlib.Path) -> pathlib.Path:
     run = RunDir.create(root, RUN_ID, manifest)
     run.state.write({"dwb/s1": StepResult("dwb/s1", "ok", 0, now - 60, now - 30, None, None, episodes_run=2), "unhindered_peds/s1": StepResult("unhindered_peds/s1", "in_progress", 0, now - 10, None, None, None)})
     for episode in range(2):
-        run.progress.append(ts_iso=f"2026-10-19T12:0{episode}:00", run_id=RUN_ID, step_key="dwb/s1", contestant="dwb", stage="s1", env_id=0, episode_id=episode, episode_record=_record("map_empty", 2), started_at=now - 60, ended_at=now - 45)
+        run.progress.append(ts_iso=_iso(now - 55 + episode), run_id=RUN_ID, step_key="dwb/s1", contestant="dwb", stage="s1", env_id=0, episode_id=episode, episode_record=_record("map_empty", 2), started_at=now - 60, ended_at=now - 45)
     run.progress.close()
     lane = RunDir.create(root, RUN_ID, manifest, lane="p2")
     lane.state.write({"dwb_social/s1": StepResult("dwb_social/s1", "failed", 1, now - 50, now - 20, StepErrorKind.SIM_DEAD, "gz died")})
-    lane.progress.append(ts_iso="2026-10-19T12:05:00", run_id=RUN_ID, step_key="dwb_social/s1", contestant="dwb_social", stage="s1", env_id=1, episode_id=2, episode_record=_record("map_empty", 3), started_at=now - 50, ended_at=now - 20)
+    lane.progress.append(ts_iso=_iso(now - 40), run_id=RUN_ID, step_key="dwb_social/s1", contestant="dwb_social", stage="s1", env_id=1, episode_id=2, episode_record=_record("map_empty", 3), started_at=now - 50, ended_at=now - 20)
     lane.progress.close()
     (run.path / "runner.log").write_text("".join(f"runner line {index}\n" for index in range(300)))
     (run.path / "runner.p2.log").write_text("lane p2 started\nlane p2 sim died\n")

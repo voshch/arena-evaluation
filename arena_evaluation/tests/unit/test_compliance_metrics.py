@@ -432,34 +432,72 @@ def test_reconstruct_events_stringifies_predicate_and_continuous():
     assert by_field[("env_0/elevator_1", "arriving_eta", 1_000_000_000)] == "4.5"
 
 
-def test_reconstruct_events_excludes_members_rows():
+def test_reconstruct_events_keeps_members_as_sorted_joined_names():
     snapshot = _snap(
         [
             (0, "env_0/lobby", "occupancy_cap", "cap", "continuous", 2.0),
         ]
     )
-    snapshot = pl.concat(
-        [
-            snapshot,
-            pl.DataFrame(
-                {
-                    "time_ns": [0],
-                    "entity": ["env_0/lobby"],
-                    "kind": ["occupancy_cap"],
-                    "field": ["__members__"],
-                    "field_kind": ["members"],
-                    "value_str": [None],
-                    "value_num": [None],
-                    "value_bool": [None],
-                }
-            ),
-        ]
+    members = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
+            "entity": ["env_0/lobby"] * 4,
+            "kind": ["occupancy_cap"] * 4,
+            "field": ["members"] * 4,
+            "field_kind": ["members"] * 4,
+            "value_str": [None] * 4,
+            "value_num": [None] * 4,
+            "value_bool": [None] * 4,
+            "value_list": [[], ["env_0/robot_0", "env_0/human_1"], ["env_0/human_1", "env_0/robot_0"], []],
+        },
+        schema_overrides={"value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean, "value_list": pl.List(pl.Utf8)},
+    )
+    snapshot = pl.concat([snapshot.with_columns(pl.lit(None, dtype=pl.List(pl.Utf8)).alias("value_list")), members], how="vertical_relaxed")
+
+    events = _reconstruct_events(snapshot)
+    member_rows = events.filter(pl.col("field") == "members").sort("time_ns")
+
+    assert member_rows["current"].to_list() == ["", "env_0/human_1,env_0/robot_0", ""]
+    assert member_rows["time_ns"].to_list() == [0, 1_000_000_000, 3_000_000_000]
+    assert len(events.filter(pl.col("field") == "cap")) == 1
+
+
+def test_reconstruct_events_members_without_value_list_column():
+    snapshot = pl.DataFrame(
+        {
+            "time_ns": [0],
+            "entity": ["env_0/lobby"],
+            "kind": ["occupancy_cap"],
+            "field": ["members"],
+            "field_kind": ["members"],
+            "value_str": [None],
+            "value_num": [None],
+            "value_bool": [None],
+        },
+        schema_overrides={"value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean},
     )
 
     events = _reconstruct_events(snapshot)
 
-    assert "__members__" not in events["field"].to_list()
-    assert len(events) == 1
+    assert events["current"].to_list() == [""]
+
+
+def test_door_open_series_keys_by_authored_name_with_level_suffix():
+    events = pl.DataFrame(
+        {
+            "time_ns": [0, 1_000_000_000],
+            "entity": ["env_3/main_door/0", "env_3/main_door/0"],
+            "kind": ["door", "door"],
+            "field": ["state", "state"],
+            "previous": ["", "closed"],
+            "current": ["closed", "open"],
+        }
+    )
+
+    series = _door_open_series(events)
+
+    assert list(series) == ["main_door"]
+    assert _is_open_at(series, "main_door", 1_000_000_000)
 
 
 def test_reconstruct_events_independent_per_entity_and_field():

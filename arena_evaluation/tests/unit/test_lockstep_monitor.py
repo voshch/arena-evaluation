@@ -162,6 +162,18 @@ def test_beat_counts_are_window_deltas_scoped_to_the_env() -> None:
     assert (s.ticks, s.beats, s.beats_due) == (30, 25, 30)
 
 
+def test_rosnav_inference_beats_count_like_planner_beats() -> None:
+    channels = ("nav/jackal", "rosnav/jackal")
+    topic = f"{_ENV0}/jackal/lockstep/rosnav"
+    m = LockstepMonitor()
+    m.observe(_status(channels=channels, ticks=100, counts=(("rosnav/jackal", topic, 100, 100),)), 0.0)
+    m.open("ep0", 0.5, env=_ENV0)
+    m.observe(_status(channels=channels, ticks=130, counts=(("rosnav/jackal", topic, 130, 125),)), 1.0)
+    s = m.close("ep0", 1.5)
+    assert s.beat_channels == channels
+    assert (s.ticks, s.beats, s.beats_due) == (30, 25, 30)
+
+
 def test_unscoped_window_counts_every_env() -> None:
     m = LockstepMonitor()
     m.open("ep0", 0.0)

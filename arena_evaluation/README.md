@@ -66,7 +66,7 @@ arena_evaluation/
 |   |   |-- parquet_store.py   <- Reads/writes topic cache and metrics
 |   |   |-- pipeline.py        <- ProcessingPipeline orchestrator
 |   |   |-- map_registry.py    <- Discovers and caches map images (PGM to PNG)
-|   |   `-- metrics/           <- Metric calculators (performance, social, ecological, naturalness)
+|   |   `-- metrics/           <- Metric calculators (performance, social, ecological, naturalness, edge_case)
 |   |-- presentation/          <- Layer 5: Report and plot generation
 |   |   |-- report_builder.py  <- Generates report.html and plots
 |   |   |-- manifest_registry.py <- Resolves report manifests
@@ -122,6 +122,12 @@ Open-loop characterization:
 
 ```bash
 arena evaluation benchmark --suite characterization --contest characterization
+```
+
+Edge cases: generated scenarios run as `scenario` stages against the `edge_case_differential` (jackal) or `edge_case_omnidirectional` (mpo700) contest, and the `edge_case` metric family scores them from the recording.
+
+```bash
+arena evaluation benchmark --suite <edge-case suite> --contest edge_case_differential
 ```
 
 ### 2. Process and report (offline)

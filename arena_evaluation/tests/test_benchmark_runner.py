@@ -26,8 +26,10 @@ from arena_evaluation.benchmark.runner import (
     cell_verdict,
     closed_fraction,
     pick_block,
+    step_status,
 )
 from arena_evaluation.benchmark.state import (
+    SUPERSEDED_PROGRESS,
     Manifest,
     ProgressLog,
     StateFile,
@@ -923,6 +925,19 @@ def test_build_pending_partial_always_retried(tmp_path: pathlib.Path):
     assert len(steps_with_flag) == 1
 
 
+def test_build_pending_step_that_recorded_no_episode_retried_without_flag(tmp_path: pathlib.Path):
+    suite = _make_suite("s1")
+    contest = _make_contest("pa")
+    state_steps = {
+        "pa/s1": StepResult("pa/s1", "failed", None, 0.0, 1.0, None, None, episodes_total=3),
+        "pa_unobstructed_robot/s1": StepResult("pa_unobstructed_robot/s1", "failed", None, 0.0, 1.0, StepErrorKind.INTERNAL, "error", episodes_total=3),
+        "unhindered_peds/s1": StepResult("unhindered_peds/s1", "ok", None, 0.0, 1.0, None, None),
+    }
+    run_dir = _fake_run_dir(state_steps)
+    steps = build_pending(suite, contest, 1.0, run_dir, retry_failed=False, record_root=tmp_path)
+    assert [s.key for s in steps] == ["pa/s1"]
+
+
 def test_build_pending_skipped_always_retried(tmp_path: pathlib.Path):
     suite = _make_suite("s1")
     contest = _make_contest("pa")
@@ -1021,7 +1036,7 @@ def test_dedupe_in_place_no_duplicates(tmp_path: pathlib.Path):
     log.append(ts_iso=ts1, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
     rec2 = _make_episode_record(episode_id=2)
     log.append(ts_iso=ts2, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=2, episode_record=rec2, started_at=t0 + 1.0, ended_at=t0 + 2.0)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     with (tmp_path / "progress.csv").open(newline="") as fh:
@@ -1039,7 +1054,7 @@ def test_dedupe_in_place_keeps_latest_ts(tmp_path: pathlib.Path):
     rec_new = _make_episode_record(episode_id=1, outcome_info="new")
     log.append(ts_iso=ts_old, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
     log.append(ts_iso=ts_new, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec_new, started_at=t0 + 1.0, ended_at=t0 + 2.0)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     with path.open(newline="") as fh:
@@ -1059,7 +1074,7 @@ def test_dedupe_in_place_result_sorted_by_ts(tmp_path: pathlib.Path):
     for ts, eid in [(ts_a, 3), (ts_b, 1), (ts_c, 2)]:
         r = _make_episode_record(episode_id=eid)
         log.append(ts_iso=ts, run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=eid, episode_record=r, started_at=t0, ended_at=t0 + 1.0)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     with path.open(newline="") as fh:
@@ -1074,7 +1089,7 @@ def test_dedupe_in_place_discards_comment_lines(tmp_path: pathlib.Path):
     t0 = time.time()
     rec = _make_episode_record(episode_id=1)
     log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     raw = path.read_text()
@@ -1084,13 +1099,32 @@ def test_dedupe_in_place_discards_comment_lines(tmp_path: pathlib.Path):
     assert len(rows) == 1
 
 
+def test_dedupe_in_place_moves_rows_of_an_earlier_attempt_to_the_superseded_file(tmp_path: pathlib.Path):
+    log = ProgressLog(tmp_path / "progress.csv")
+    t0 = time.time()
+    log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=_make_episode_record(episode_id=1), started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso="2024-01-01T00:00:05+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=2, episode_record=_make_episode_record(episode_id=2), started_at=t0, ended_at=t0 + 1.0)
+    log.append(ts_iso="2024-01-01T00:00:02+00:00", run_id="r", step_key="q/s", contestant="q", stage="s", env_id=0, episode_id=3, episode_record=_make_episode_record(episode_id=3), started_at=t0, ended_at=t0 + 1.0)
+    log.dedupe_in_place({"p/s": datetime.datetime.fromisoformat("2024-01-01T00:00:03+00:00").timestamp(), "q/s": 0.0})
+    log.close()
+
+    with (tmp_path / "progress.csv").open(newline="") as fh:
+        assert [(r["step_key"], r["episode_id"]) for r in csv.DictReader(fh)] == [("q/s", "3"), ("p/s", "2")]
+    with (tmp_path / SUPERSEDED_PROGRESS).open(newline="") as fh:
+        assert [(r["step_key"], r["episode_id"]) for r in csv.DictReader(fh)] == [("p/s", "1")]
+
+
+def test_step_status_follows_recorded_episodes_not_their_outcomes():
+    assert [step_status(run, 5) for run in (5, 3, 0)] == ["ok", "partial", "failed"]
+
+
 def test_dedupe_in_place_preserves_header(tmp_path: pathlib.Path):
     path = tmp_path / "progress.csv"
     log = ProgressLog(path)
     t0 = time.time()
     rec = _make_episode_record(episode_id=1)
     log.append(ts_iso="2024-01-01T00:00:01+00:00", run_id="r", step_key="p/s", contestant="p", stage="s", env_id=0, episode_id=1, episode_record=rec, started_at=t0, ended_at=t0 + 1.0)
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     with path.open(newline="") as fh:

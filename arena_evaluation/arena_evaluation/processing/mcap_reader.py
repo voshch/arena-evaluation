@@ -124,6 +124,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("integrity", pa.list_(pa.string())),
             ("phases", pa.string()),
             ("robots_params", pa.string()),
+            ("conditions", pa.string()),
         ]
     ),
     "interactions": pa.schema(
@@ -686,6 +687,7 @@ class MCAPReader:
                             except Exception:
                                 pass
                             target["robots_params"].append(robots_yaml)
+                            target["conditions"].append(str(ros_msg.conditions or "") if "conditions" in ros_msg.__slots__ else "")
                             appended = True
 
                         # Semantic snapshot (latched, one row per annotated entity)

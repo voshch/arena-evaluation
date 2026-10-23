@@ -82,7 +82,7 @@ def test_progress_csv_with_an_older_header_is_upgraded_on_open(tmp_path: pathlib
     log = ProgressLog(path)
     log.write_comment("resumed at 2026-10-14T10:00:00+00:00")
     _append(log, "2026-10-14T10:00:01+00:00", 1, _record(MOVED))
-    log.dedupe_in_place()
+    log.dedupe_in_place({})
     log.close()
 
     assert path.read_text().splitlines()[0] == ProgressLog._HEADER

@@ -24,6 +24,8 @@ configs/benchmark/
     |-- allplanners.yaml
     |-- inter.yaml
     |-- planners.yaml
+    |-- edge_case_differential.yaml     - nav2 control + differential learned planners (jackal)
+    |-- edge_case_omnidirectional.yaml  - nav2 control + omnidirectional learned planners (mpo700)
     `-- characterization.yaml
 ```
 

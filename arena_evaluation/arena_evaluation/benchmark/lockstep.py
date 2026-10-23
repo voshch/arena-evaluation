@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
 STALL_FAIL_S = 5.0
 # the scheduler publishes a stall only after this long at the gate, so observed stalls start late by it
 STALL_REPORT_LAG_S = 1.0
-BEAT_PREFIXES = ("nav/", "planner/")
+BEAT_PREFIXES = ("nav/", "planner/", "rosnav/")
 
 
 @dataclasses.dataclass(frozen=True)

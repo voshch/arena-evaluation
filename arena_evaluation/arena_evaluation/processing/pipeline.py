@@ -14,6 +14,9 @@ import typing
 
 import polars as pl
 
+if typing.TYPE_CHECKING:
+    import numpy as np
+
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.schemas import (
     AlignedEpisodeBundle,
@@ -117,8 +120,8 @@ def _process_worker(
     return ep.episode_id, result
 
 
-def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
-    """Filter null poses and slice to longest consistent segment."""
+def _resolve_odom_frame(aligned_df: pl.DataFrame | None, ride_arrivals_ns: np.ndarray | None = None) -> pl.DataFrame | None:
+    """Filter null poses and slice to longest consistent segment, elevator ride jumps excepted."""
     import numpy as np
     import polars as pl
 
@@ -139,7 +142,13 @@ def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
     odom_y = aligned_df["pos_y_gt" if use_gt else "pos_y"].to_numpy()
     if len(odom_x) > 1:
         stamp_col = "stamp_ns_gt" if use_gt else "stamp_ns"
-        jumps = teleport_jumps(odom_x, odom_y, aligned_df[stamp_col].to_numpy() if stamp_col in aligned_df.columns else None)
+        jumps = teleport_jumps(
+            odom_x,
+            odom_y,
+            aligned_df[stamp_col].to_numpy() if stamp_col in aligned_df.columns else None,
+            exempt_ns=ride_arrivals_ns,
+            exempt_time_ns=aligned_df["time_ns"].to_numpy() if "time_ns" in aligned_df.columns else None,
+        )
         if len(jumps) > 0:
             split_indices = jumps + 1
             segments_x = np.split(odom_x, split_indices)
@@ -162,11 +171,20 @@ def _resolve_odom_frame(aligned_df: pl.DataFrame | None) -> pl.DataFrame | None:
     return aligned_df
 
 
+def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | None:
+    """World name the world-geometry metrics resolve their asset by, None when unknown."""
+    if metadata is not None and metadata.map:
+        return metadata.map
+    if ep.map and ep.map != "unknown":
+        return ep.map
+    return None
+
+
 _RECORD_RUNNING = 1  # task_generator_msgs/msg/EpisodeRecord.RUNNING
 
 
 def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | None, int | None]:
-    """[RUNNING stamp, terminal stamp] of the episode record, the recording can start early and outlive the episode."""
+    """[RUNNING stamp, terminal stamp] of the episode record, a bound is None when its row is missing."""
     if record is None:
         return None, None
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
@@ -175,10 +193,11 @@ def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | N
     df = df.sort("time_ns")
     if "outcome_state" not in df.columns:
         return int(df["time_ns"][0]), int(df["time_ns"][-1])
-    running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
-    start = int(running["time_ns"][0]) if len(running) else int(df["time_ns"][0])
-    terminal = df.filter((pl.col("time_ns") > start) & (pl.col("outcome_state") != _RECORD_RUNNING))
-    return start, (int(terminal["time_ns"][-1]) if len(terminal) else None)
+    states = df["outcome_state"].to_list()
+    stamps = df["time_ns"].to_list()
+    start = next((int(t) for t, s in zip(stamps, states, strict=True) if s == _RECORD_RUNNING), None)
+    end = None if states[-1] == _RECORD_RUNNING else int(stamps[-1])
+    return start, end
 
 
 _ALIGN_TOLERANCE_NS = 100_000_000
@@ -287,8 +306,10 @@ def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
 
 from arena_evaluation.benchmark.profiler import PipelineProfiler
 from arena_evaluation.processing.mcap_reader import KEPT_EMPTY_TABLES, MCAPReader
+from arena_evaluation.processing.metrics.ecological.mechanism_common import robot_env_snapshot
 from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
 from arena_evaluation.processing.pose_anchor import resolve_pose_source
+from arena_evaluation.processing.pose_segments import elevator_arrival_times
 from arena_evaluation.processing.topic_aligner import TopicAligner
 from arena_evaluation.storage.manifest import MetadataWriter
 
@@ -550,7 +571,7 @@ class ProcessingPipeline:
                 pedsim_avail = metadata.pedsim_available or False
 
             robot_params = RobotParams.load(robot_model)
-            registry = MetricRegistry(robot_params, world=ep.map, metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
+            registry = MetricRegistry(robot_params, world=_metric_world(metadata, ep), metrics_config=_suite_metrics(episode_dir, self.folder_manager.data_root))
 
             all_results: list[dict] = []
             robots = {name: bundle for name, bundle in bundles.items() if bundle.odom is not None}
@@ -585,7 +606,7 @@ class ProcessingPipeline:
                     continue
 
                 # Resolve the pose frame once so all calculators share it
-                aligned_df = _resolve_odom_frame(aligned_df)
+                aligned_df = _resolve_odom_frame(aligned_df, elevator_arrival_times(robot_env_snapshot(bundle.semantic_snapshot, robot_name)))
                 if aligned_df is None or len(aligned_df) < 5:
                     reason = f"{0 if aligned_df is None else len(aligned_df)} pose rows after resolution"
                     _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
@@ -621,7 +642,7 @@ class ProcessingPipeline:
                         import json
 
                         try:
-                            cond_raw = er["conditions"][0] if "conditions" in er.columns else None
+                            cond_raw = next((c for c in reversed(er.sort("time_ns")["conditions"].to_list()) if c), None) if "conditions" in er.columns and "time_ns" in er.columns else None
                             if cond_raw:
                                 conditions = json.loads(cond_raw)
                         except Exception:
@@ -649,9 +670,11 @@ class ProcessingPipeline:
                     fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
+                    run=metadata,
                     peds=peds_df,
                     map=ep.map,
                     topics=topics,
+                    run_dir=episode_dir.parent.parent,
                 )
                 episodes = [aligned_ep]
 

@@ -44,7 +44,9 @@ ros2 run arena_evaluation record \
 
 An episode opens on the first `RUNNING` `EpisodeRecord` of an episode id or on a START call of the
 `start_episode` service, whichever arrives first, so a recording begins when the reset is over.
-`QUEUED` records, which the task generator publishes during the reset, open nothing. A STOP call
+`QUEUED` records, which the task generator publishes during the reset, open nothing. The recorder
+subscribes to `state/episode` volatile, so the records the task generator keeps for late joiners,
+episodes that are already over, never reach it. A STOP call
 closes the episode and moves its MCAP to `episode_XXX/episode_XXX.mcap`.
 
 Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XXX.yaml`, the
@@ -85,9 +87,15 @@ data/recordings/<YYYYMMDD-HHMMSS>/
 On the first episode of each world, the recorder writes that world as it runs
 to `<run_dir>/worlds/<world name>/`: `world.yaml` (format 2, linked levels
 written out, ceilings under the `world.lighting` mode) and `kg.yaml`
-(stated and derived facts under `kg.derive`). Env offsets and other
-runtime state stay out. Evaluation reads world geometry from there before the
-package worlds.
+(stated and derived facts under `kg.derive`), and for a multi-level world
+`level_origins.yaml`, the per-level shifts the runtime flattened the full
+world with, which a level-filtered snapshot cannot derive from its own levels.
+Env offsets and other runtime state stay out. Evaluation reads world geometry from there before the
+package worlds. On the first episode of each scenario a `scenario` task mode
+runs, the recorder also copies that scenario's directory (`scenario.yaml`,
+`provenance.yaml`, scenario-local agent types) to
+`<run_dir>/worlds/<world name>/scenarios/<file>/`, which the edge-case metrics
+read before the world's own scenario.
 
 ### Recorded Topics
 

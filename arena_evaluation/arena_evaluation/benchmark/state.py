@@ -3,6 +3,7 @@ from __future__ import annotations
 import array
 import csv
 import dataclasses
+import datetime
 import fcntl
 import hashlib
 import json
@@ -20,6 +21,8 @@ from .step import StepErrorKind, StepResult
 
 if typing.TYPE_CHECKING:
     from task_generator_msgs.msg import EpisodeRecord
+
+SUPERSEDED_PROGRESS = "superseded_progress.csv"
 
 
 def compute_config_hash(suite: object, contest: object) -> str:
@@ -303,8 +306,8 @@ class ProgressLog:
     def close(self) -> None:
         self._fh.close()
 
-    def dedupe_in_place(self) -> None:
-        """Remove duplicate (step_key, episode_id) rows, keeping the latest by ts_iso; drops old comment lines."""
+    def dedupe_in_place(self, started: typing.Mapping[str, float]) -> None:
+        """Remove duplicate (step_key, episode_id) rows, keeping the latest by ts_iso, and move rows of a step's earlier attempts to the superseded file; drops old comment lines."""
         self._fh.flush()
         path = self._path
 
@@ -317,7 +320,9 @@ class ProgressLog:
         header = next(csv.reader([header_line]))
         best = _latest_rows(header, (next(csv.reader([line])) for line in raw_rows[1:]))
         ts_iso_idx = header.index("ts_iso")
-        deduped = sorted(best.values(), key=lambda r: r[ts_iso_idx])
+        current, superseded = _split_attempts(header, best.values(), started)
+        _keep_superseded(path.parent, header, superseded)
+        deduped = sorted(current, key=lambda r: r[ts_iso_idx])
 
         tmp = path.with_suffix(".csv.tmp")
         with tmp.open("w", newline="") as out:
@@ -345,6 +350,34 @@ def _latest_rows(header: list[str], rows: typing.Iterable[list[str]]) -> dict[tu
         if existing is None or row[ts_iso_idx] > existing[ts_iso_idx]:
             best[key] = row
     return best
+
+
+def _split_attempts(header: list[str], rows: typing.Iterable[list[str]], started: typing.Mapping[str, float]) -> tuple[list[list[str]], list[list[str]]]:
+    """Rows of each step's latest attempt, from its started_at on, and rows of its earlier attempts."""
+    step_key_idx = header.index("step_key")
+    ts_iso_idx = header.index("ts_iso")
+    current: list[list[str]] = []
+    superseded: list[list[str]] = []
+    for row in rows:
+        start = started.get(row[step_key_idx])
+        earlier = start is not None and datetime.datetime.fromisoformat(row[ts_iso_idx]).timestamp() < start
+        (superseded if earlier else current).append(row)
+    return current, superseded
+
+
+def _keep_superseded(directory: pathlib.Path, header: list[str], rows: list[list[str]]) -> None:
+    """Add rows of superseded step attempts to the run's superseded progress file."""
+    if not rows:
+        return
+    path = directory / SUPERSEDED_PROGRESS
+    ts_iso_idx = header.index("ts_iso")
+    kept = sorted(_latest_rows(header, [*(_rows_by_column([path], header) if path.exists() else []), *rows]).values(), key=lambda r: (r[ts_iso_idx], r))
+    tmp = path.with_suffix(".csv.tmp")
+    with tmp.open("w", newline="") as out:
+        writer = csv.writer(out)
+        out.write(",".join(header) + "\n")
+        writer.writerows(kept)
+    os.replace(tmp, path)
 
 
 def _rows_by_column(sources: typing.Iterable[pathlib.Path], header: list[str]) -> list[list[str]]:
@@ -394,8 +427,12 @@ def progress_rows(path: pathlib.Path) -> list[dict[str, str]]:
     return [dict(zip(header, row, strict=True)) for row in folded]
 
 
-def _fold_progress(path: pathlib.Path) -> None:
-    header, folded = _folded_progress(path)
+def _fold_progress(path: pathlib.Path, started: typing.Mapping[str, float]) -> None:
+    header, latest = _folded_progress(path)
+    ts_iso_idx = header.index("ts_iso")
+    current, superseded = _split_attempts(header, latest, started)
+    _keep_superseded(path, header, superseded)
+    folded = sorted(current, key=lambda r: (r[ts_iso_idx], r))
     tmp = path / "progress.csv.fold.tmp"
     with tmp.open("w", newline="") as out:
         writer = csv.writer(out)
@@ -412,7 +449,7 @@ def fold_run_dir(path: pathlib.Path) -> None:
         tmp = path / ".benchmark_state.json.fold.tmp"
         tmp.write_text(_dump_steps(dict(sorted(steps.items()))))
         os.replace(tmp, path / StateFile._STATE_FILENAME)
-        _fold_progress(path)
+        _fold_progress(path, {key: result.started_at for key, result in steps.items()})
 
 
 class ManifestMismatchError(ValueError):

@@ -123,3 +123,108 @@ def test_empty_semantic_snapshot_returns_zero_defaults():
 
     assert results["time_waiting_at_doors"] == 0.0
     assert results["elevator_rides"] == 0
+    assert results["time_waiting_at_doors_robot"] is None
+    assert results["elevator_rides_robot"] is None
+
+
+# -- robot-attributed variants ----------------------------------------------------
+
+
+def _members(rows):
+    """Members rows: (time_ns, entity, kind, [names])."""
+    return pl.DataFrame(
+        {
+            "time_ns": [r[0] for r in rows],
+            "entity": [r[1] for r in rows],
+            "kind": [r[2] for r in rows],
+            "field": ["members"] * len(rows),
+            "field_kind": ["members"] * len(rows),
+            "value_str": [None] * len(rows),
+            "value_num": [None] * len(rows),
+            "value_bool": [None] * len(rows),
+            "value_list": [r[3] for r in rows],
+        },
+        schema_overrides={"value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean, "value_list": pl.List(pl.Utf8)},
+    )
+
+
+def _with_members(snapshot, members):
+    return pl.concat([snapshot.with_columns(pl.lit(None, dtype=pl.List(pl.Utf8)).alias("value_list")), members], how="vertical_relaxed")
+
+
+def _robot_episode(snapshot, robot_name="env_0_jackal"):
+    episode = _episode(snapshot)
+    episode.robot_name = robot_name
+    return episode
+
+
+def _door_snapshot():
+    return _snap(
+        [
+            (1_000_000_000, "env_0/door_1/0", "door", "triggered", "predicate", True),
+            (1_000_000_000, "env_0/door_1/0", "door", "state", "discrete", "closed"),
+            (4_000_000_000, "env_0/door_1/0", "door", "state", "discrete", "open"),
+        ]
+    )
+
+
+def test_time_waiting_at_doors_robot_only_while_robot_is_member():
+    members = _members(
+        [
+            (0, "env_0/door_1/0", "door", []),
+            (1_000_000_000, "env_0/door_1/0", "door", ["env_0/Pedestrian_1"]),
+            (2_000_000_000, "env_0/door_1/0", "door", ["env_0/Pedestrian_1", "env_0/jackal"]),
+        ]
+    )
+    results = _calc().calculate(_robot_episode(_with_members(_door_snapshot(), members)), {})
+
+    assert results["time_waiting_at_doors"] == pytest.approx(3.0)
+    assert results["time_waiting_at_doors_robot"] == pytest.approx(2.0)
+
+
+def test_time_waiting_at_doors_robot_none_when_members_never_recorded():
+    members = _members([(0, "env_0/door_1/0", "door", [])])
+    results = _calc().calculate(_robot_episode(_with_members(_door_snapshot(), members)), {})
+
+    assert results["time_waiting_at_doors"] == pytest.approx(3.0)
+    assert results["time_waiting_at_doors_robot"] is None
+
+
+def test_time_waiting_at_doors_robot_none_without_robot_name():
+    members = _members([(2_000_000_000, "env_0/door_1/0", "door", ["env_0/jackal"])])
+    results = _calc().calculate(_episode(_with_members(_door_snapshot(), members)), {})
+
+    assert results["time_waiting_at_doors_robot"] is None
+
+
+def test_elevator_rides_robot_counts_arrivals_with_robot_aboard():
+    snapshot = _snap(
+        [
+            (0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False),
+            (1_500_000_000, "env_0/elev/1", "elevator", "occupants", "continuous", 1.0),
+            (2_000_000_000, "env_0/elev/1", "elevator", "just_arrived", "predicate", True),
+            (3_000_000_000, "env_0/elev/1", "elevator", "just_arrived", "predicate", False),
+            (4_000_000_000, "env_0/elev/1", "elevator", "just_arrived", "predicate", True),
+        ]
+    )
+    members = _members(
+        [
+            (0, "env_0/elev/1", "elevator", []),
+            (3_000_000_000, "env_0/elev/1", "elevator", ["env_0/jackal"]),
+            (3_500_000_000, "env_0/elev/1", "elevator", []),
+            (4_000_000_000, "env_0/elev/1", "elevator", ["env_0/Pedestrian_2"]),
+        ]
+    )
+    results = _calc().calculate(_robot_episode(_with_members(snapshot, members)), {})
+
+    assert results["elevator_rides"] == 2
+    assert results["elevator_rides_robot"] == 1
+
+
+def test_elevator_rides_robot_zero_when_no_rides():
+    snapshot = _snap([(0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False)])
+    members = _members([(0, "env_0/elev/1", "elevator", [])])
+    results = _calc().calculate(_robot_episode(_with_members(snapshot, members)), {})
+
+    assert results["elevator_rides_robot"] == 0
+    assert results["time_waiting_at_doors_robot"] is None

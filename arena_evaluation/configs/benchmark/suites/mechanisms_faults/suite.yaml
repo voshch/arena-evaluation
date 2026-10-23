@@ -1,0 +1,110 @@
+name: mechanisms_faults
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 2
+  lockstep: true
+  lockstep.paused: false
+metrics:
+  max_collisions: 1
+stages:
+- name: mb__E01_door_stuck_open__a-to-b
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: E01_door_stuck_open__a-to-b
+- name: mb__E01_door_stuck_open__b-to-a
+  map: mechanisms_doorway
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 120s
+  config:
+    scenario:
+      file: E01_door_stuck_open__b-to-a
+- name: mb__E02_door_stuck_closed__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E02_door_stuck_closed__a-to-b
+- name: mb__E02_door_stuck_closed__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E02_door_stuck_closed__b-to-a
+- name: mb__E05_door_flapping__a-to-b
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E05_door_flapping__a-to-b
+- name: mb__E05_door_flapping__b-to-a
+  map: mechanisms_doors
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E05_door_flapping__b-to-a
+- name: mb__E03_elevator_outage__up
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E03_elevator_outage__up
+- name: mb__E03_elevator_outage__down
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 90s
+  config:
+    scenario:
+      file: E03_elevator_outage__down
+- name: mb__E04_simultaneous_arrivals__peds
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: E04_simultaneous_arrivals__peds
+- name: mb__E04_simultaneous_arrivals__robot
+  map: mechanisms_elevator
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 3
+  timeout: 150s
+  config:
+    scenario:
+      file: E04_simultaneous_arrivals__robot

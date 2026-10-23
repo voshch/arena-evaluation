@@ -39,6 +39,7 @@ Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
 <run_id>/
 |-- manifest.yaml              # Config snapshot
 |-- progress.csv               # Append-only, one row per episode
+|-- superseded_progress.csv    # Rows of a step's earlier attempts, kept out of progress.csv
 |-- runner.log                 # Python logging and launch output
 |-- roslog/                    # ROS_LOG_DIR of this run's runtime, arena_env_<id>_<ts>.log per spawned env
 |-- .benchmark_state.json      # Per-step status
@@ -144,7 +145,7 @@ runner.run()
 
 ## Run State
 
-`StateFile` manages `.benchmark_state.json` atomically. Each step has status: `ok | partial | failed | skipped | in_progress`. Interrupted runs resume with `--resume <run_id>`.
+`StateFile` manages `.benchmark_state.json` atomically. Each step has status: `ok | partial | failed | skipped | in_progress`. The status tells how completely a step recorded its episodes, not how its planner did: `ok` recorded every episode whatever the outcomes, `partial` lost some (no `EpisodeRecord`, a sim stall), `failed` recorded none or hit an error. Interrupted runs resume with `--resume <run_id>`, which reruns `partial`, `skipped` and `in_progress` steps, and `failed` ones that recorded no episode without an error, or whose error is systemic or a sim stall, or all with `--retry-failed`. A rerun replaces the step's episodes: when progress is deduped or folded, rows written before the step's latest `started_at` move to `superseded_progress.csv`.
 
 Run ID format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}`, `{YYYYMMDD-HHMMSS}-{lane}-{suite}-{contest}` inside a lane, `{YYYYMMDD-HHMMSS}-{suite}-x{N}` for `--lanes N`.
 

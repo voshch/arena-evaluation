@@ -15,6 +15,14 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _reconstruct_events,
     _zone_membership,
 )
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    RobotIdentity,
+    SignalGeom,
+    entity_name,
+    mechanism_world_from_description,
+    parse_members,
+    robot_env_snapshot,
+)
 from arena_evaluation.processing.metrics.ecological.semantic_metrics import (
     _parse_bool,
     _parse_float,
@@ -62,7 +70,7 @@ def _windows(
     end_time_ns: int | None,
 ) -> dict[str, list[tuple[int, int]]]:
     """Per-entity true intervals for one field, seeded false before the first recorded row,
-    held to `end_time_ns` when still true, keyed by the name suffix after the last `/`."""
+    held to `end_time_ns` when still true, keyed by authored entity name (`entity_name`)."""
     rows = events.filter((pl.col("kind") == kind) & (pl.col("field") == field)).sort("time_ns")
     windows: dict[str, list[tuple[int, int]]] = {}
     if len(rows) == 0:
@@ -70,7 +78,7 @@ def _windows(
 
     for _entity, group in rows.group_by("entity"):
         g = group.sort("time_ns")
-        name = str(g["entity"][0]).rsplit("/", 1)[-1]
+        name = entity_name(str(g["entity"][0]))
         state = False
         start: int | None = None
         entity_windows: list[tuple[int, int]] = []
@@ -89,7 +97,8 @@ def _windows(
             entity_windows.append((start, end_time_ns))
 
         if entity_windows:
-            windows[name] = entity_windows
+            windows.setdefault(name, []).extend(entity_windows)
+            windows[name].sort()
 
     return windows
 
@@ -112,6 +121,19 @@ def _used_elevator_during_alarm(events: pl.DataFrame, end_time_ns: int | None) -
     all_occupancy = [w for entity_windows in occupancy_windows.values() for w in entity_windows]
 
     return sum(1 for a_start, a_end in all_alarm if any(_overlaps(a_start, a_end, o_start, o_end) for o_start, o_end in all_occupancy))
+
+
+def _used_elevator_during_alarm_robot(events: pl.DataFrame, end_time_ns: int | None, identity: RobotIdentity) -> int | None:
+    """Count of alarm windows overlapped by the robot being an elevator member, None when no elevator reports `members`."""
+    if len(events.filter((pl.col("kind") == "elevator") & (pl.col("field") == "members"))) == 0:
+        return None
+    alarm_windows = _windows(events, "schedule", "active", _parse_bool, end_time_ns)
+    robot_windows = _windows(events, "elevator", "members", lambda v: identity.any_of(parse_members(v)), end_time_ns)
+
+    all_alarm = [w for entity_windows in alarm_windows.values() for w in entity_windows]
+    all_robot = [w for entity_windows in robot_windows.values() for w in entity_windows]
+
+    return sum(1 for a_start, a_end in all_alarm if any(_overlaps(a_start, a_end, o_start, o_end) for o_start, o_end in all_robot))
 
 
 def _entered_over_cap_zone(
@@ -137,6 +159,21 @@ def _entered_over_cap_zone(
     return count
 
 
+DEFAULT_SIGNAL_RADIUS = 1.0
+
+
+def _signal_area(name: str, signals: dict[str, SignalGeom], doors: dict[str, _DoorGeometry]) -> tuple[float, float, float] | None:
+    """(x, y, radius) a signal guards, from its own params, else the same-named door."""
+    signal = signals.get(name)
+    door = doors.get(name)
+    if signal is not None:
+        radius = signal.radius if signal.radius is not None else (door.radius if door is not None else DEFAULT_SIGNAL_RADIUS)
+        return signal.x, signal.y, radius
+    if door is not None:
+        return door.center_x, door.center_y, door.radius
+    return None
+
+
 def _ran_red_signal(
     events: pl.DataFrame,
     pos_x: np.ndarray,
@@ -144,23 +181,25 @@ def _ran_red_signal(
     time_ns: np.ndarray,
     end_time_ns: int | None,
     doors: list[_DoorGeometry],
+    signals: list[SignalGeom] | None = None,
 ) -> int:
-    """Count of entries into the same-named door's activation radius while the signal is
-    `stop`. Signals carry no geometry, the paired door's radius stands in for the segment."""
+    """Count of robot entries into a signal's guarded disc while that signal is `stop`."""
     stop_windows = _windows(events, "signal", "stop", _parse_bool, end_time_ns)
     door_by_name = {door.name: door for door in doors}
+    signal_by_name = {signal.name: signal for signal in signals or []}
 
     count = 0
     for signal_name, windows in stop_windows.items():
-        door = door_by_name.get(signal_name)
-        if door is None:
+        area = _signal_area(signal_name, signal_by_name, door_by_name)
+        if area is None:
             continue
+        cx, cy, radius = area
 
         prev_inside = False
         for i in range(len(pos_x)):
-            dx = pos_x[i] - door.center_x
-            dy = pos_y[i] - door.center_y
-            inside = dx * dx + dy * dy <= door.radius**2
+            dx = pos_x[i] - cx
+            dy = pos_y[i] - cy
+            inside = dx * dx + dy * dy <= radius**2
             if inside and not prev_inside and _active_at(windows, int(time_ns[i])):
                 count += 1
             prev_inside = inside
@@ -219,11 +258,13 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     Regime-change metrics replayed from the semantic snapshot, reconstructed into a
     per-field change-point series (see `_reconstruct_events`).
 
-    used_elevator_during_alarm: alarm windows overlapped by nonzero elevator occupancy
-    (single-robot proxy, `members` is snapshot-only and not carried per episode).
+    used_elevator_during_alarm: alarm windows overlapped by nonzero elevator occupancy by
+    anyone (robot or ped). used_elevator_during_alarm_robot: alarm windows overlapped by the
+    robot itself being in an elevator's `members` (None when no elevator reports members).
     entered_over_cap_zone: trajectory entries into an over-cap zone via the M1 zone
-    geometry path. ran_red_signal: entries into the same-named door's activation radius
-    while the signal is `stop`. replan_latency_after_state_change: seconds from each
+    geometry path. ran_red_signal: robot entries into the signal's guarded disc while the
+    signal is `stop`, the disc being the signal preset's `position`/`radius` params when
+    authored, else the same-named door's activation radius. replan_latency_after_state_change: seconds from each
     state-change trigger to the next `cmd_vel` change (median, p95), `cmd_vel` only
     since `plan` is never joined into the aligned episode.
     Every key is `None` when its kind never appears or the world asset is not local.
@@ -235,6 +276,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
 
     UNITS = {
         "used_elevator_during_alarm": "",
+        "used_elevator_during_alarm_robot": "",
         "ran_red_signal": "",
         "entered_over_cap_zone": "",
         "replan_latency_after_state_change_median": "s",
@@ -247,19 +289,20 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        self._world_cache: dict[str, tuple[list[_CapZoneGeometry], list[_DoorGeometry]] | None] = {}
+        self._world_cache: dict[str, tuple[list[_CapZoneGeometry], list[_DoorGeometry], list[SignalGeom]] | None] = {}
 
     @classmethod
     def output_keys(cls) -> list[str]:
         return [
             "used_elevator_during_alarm",
+            "used_elevator_during_alarm_robot",
             "ran_red_signal",
             "entered_over_cap_zone",
             "replan_latency_after_state_change_median",
             "replan_latency_after_state_change_p95",
         ]
 
-    def _load_world(self, world_name: str) -> tuple[list[_CapZoneGeometry], list[_DoorGeometry]] | None:
+    def _load_world(self, world_name: str) -> tuple[list[_CapZoneGeometry], list[_DoorGeometry], list[SignalGeom]] | None:
         if world_name in self._world_cache:
             return self._world_cache[world_name]
 
@@ -278,7 +321,8 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
             origins = {level_id: (0.0, 0.0) for level_id in world.levels}
         flattened = world.compact_world(origins)
 
-        result = (_extract_occupancy_zone_geometry(flattened), _extract_door_geometry(flattened))
+        signals = mechanism_world_from_description(world, origins).signals
+        result = (_extract_occupancy_zone_geometry(flattened), _extract_door_geometry(flattened), signals)
         self._world_cache[world_name] = result
         return result
 
@@ -290,7 +334,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         del prior_results
         results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
 
-        events = _reconstruct_events(episode.semantic_snapshot)
+        events = _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         has_events = len(events) > 0
         kinds = set(events["kind"].unique().to_list()) if has_events else set()
 
@@ -306,6 +350,8 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
 
         if has_events and {"schedule", "elevator"}.issubset(kinds):
             results["used_elevator_during_alarm"] = _used_elevator_during_alarm(events, end_time_ns)
+            if episode.robot_name:
+                results["used_elevator_during_alarm_robot"] = _used_elevator_during_alarm_robot(events, end_time_ns, RobotIdentity(episode.robot_name))
 
         if has_events and (kinds & {"door", "gate", "signal", "schedule"}):
             cmd_changes = _cmd_vel_change_times(episode.data, self.CMD_CHANGE_EPSILON)
@@ -319,7 +365,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         if self.world is not None and episode.start_pos and n > 0 and len(time_ns) == n:
             loaded = self._load_world(self.world)
             if loaded is not None:
-                zones, doors = loaded
+                zones, doors, signals = loaded
 
                 if has_events and "occupancy_cap" in kinds and zones:
                     zone_idx = _zone_membership(pos_x, pos_y, zones)
@@ -327,6 +373,6 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
                     results["entered_over_cap_zone"] = _entered_over_cap_zone(events, zone_idx, time_ns, end_time_ns, zone_names)
 
                 if has_events and "signal" in kinds:
-                    results["ran_red_signal"] = _ran_red_signal(events, pos_x, pos_y, time_ns, end_time_ns, doors)
+                    results["ran_red_signal"] = _ran_red_signal(events, pos_x, pos_y, time_ns, end_time_ns, doors, signals)
 
         return results
