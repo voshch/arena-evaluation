@@ -394,8 +394,9 @@ def test_kill_refuses_processes_outside_arena_and_the_caller():
 
 
 def test_kill_stops_an_arena_process_group_with_sigint_first():
-    target = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "world_generator"], start_new_session=True)
+    target = subprocess.Popen([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(60)", "world_generator"], start_new_session=True, stdout=subprocess.PIPE, text=True)
     try:
+        assert target.stdout is not None and target.stdout.readline() == "ready\n"
         deadline = time.time() + 10
         while target.pid not in {proc["pid"] for proc in debug_mod.running_processes()} and time.time() < deadline:
             time.sleep(0.1)
