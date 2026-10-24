@@ -7,6 +7,7 @@ import json
 import logging
 import pathlib
 import re
+import threading
 import time
 import types
 
@@ -1842,3 +1843,35 @@ def test_bundle_worlds_of_the_stages_land_where_evaluation_reads_maps(tmp_path: 
     assert MapRegistry._find_ros_map_dir("used", run_dir=run) == run / "worlds" / "used"
     assert _snapshot_bundle_worlds(bundle, ["used"], run) == []
     assert _snapshot_bundle_worlds(None, ["used"], run) == []
+
+
+def test_lanes_snapshotting_one_bundle_world_at_once_copy_it_once_and_whole(tmp_path: pathlib.Path):
+    bundle = tmp_path / "suites" / "acme"
+    files = {f"{level}/{part}.yaml": f"{level}-{part}\n" * 64 for level in range(8) for part in range(32)}
+    for relpath, text in files.items():
+        (bundle / "worlds" / "used" / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (bundle / "worlds" / "used" / relpath).write_text(text)
+    run = tmp_path / "run"
+    run.mkdir()
+    lanes = 8
+    barrier = threading.Barrier(lanes)
+    results: list[list[str]] = []
+    errors: list[BaseException] = []
+
+    def lane() -> None:
+        barrier.wait()
+        try:
+            results.append(_snapshot_bundle_worlds(bundle, ["used"], run))
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=lane) for _ in range(lanes)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert sorted(results) == [[]] * (lanes - 1) + [["used"]]
+    assert [p.name for p in (run / "worlds").iterdir()] == ["used"]
+    target = run / "worlds" / "used"
+    assert {p.relative_to(target).as_posix(): p.read_text() for p in target.rglob("*") if p.is_file()} == files

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -24,6 +25,7 @@ POINTS = "/velodyne_points"
 PATH = "/zed2/zed_node/path_odom"
 LOG = "/rosout"
 CAMERA = "/zed2/zed_node/left/camera_info"
+MARKERS = "/zed2/zed_node/markers"
 DISTORTION = (0.1, -0.2, 0.0, 0.0, 0.05)
 FOCAL = 525.0
 CLOUD_POINTS = 4
@@ -55,7 +57,7 @@ def cloud_data(i: int) -> bytes:
     return np.arange(CLOUD_POINTS * 3, dtype=np.float32).tobytes() + bytes([i % 256])
 
 
-def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (), cmd: bool = False, stray: int = 0, twist_in_odom: bool = False, sensors: bool = False) -> Path:
+def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (), cmd: bool = False, stray: int = 0, twist_in_odom: bool = False, sensors: bool = False, markers: bool = False) -> Path:
     """A rosbag1 file in the measured MuSoHu layout: odom with pose only, the velocity on /action under the same header stamp."""
     from rosbags.rosbag1 import Writer
     from rosbags.typesys import Stores, get_types_from_msg, get_typestore
@@ -72,6 +74,10 @@ def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (),
     Quaternion = ts.types["geometry_msgs/msg/Quaternion"]
     PoseWithCovariance = ts.types["geometry_msgs/msg/PoseWithCovariance"]
     TwistWithCovariance = ts.types["geometry_msgs/msg/TwistWithCovariance"]
+    Marker = ts.types["visualization_msgs/msg/Marker"]
+    MarkerArray = ts.types["visualization_msgs/msg/MarkerArray"]
+    ColorRGBA = ts.types["std_msgs/msg/ColorRGBA"]
+    Duration = ts.types["builtin_interfaces/msg/Duration"]
 
     def header(i: int, t: int, frame: str) -> object:
         stamp = t - STAMP_LAG_NS
@@ -93,6 +99,7 @@ def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (),
         odom_conn = writer.add_connection(ODOM, Odometry.__msgtype__, typestore=ts)
         velocity_conn = None if twist_in_odom else writer.add_connection(VELOCITY, Odometry.__msgtype__, typestore=ts)
         cmd_conn = writer.add_connection(CMD_VEL, Twist.__msgtype__, typestore=ts) if cmd or stray else None
+        marker_conn = writer.add_connection(MARKERS, MarkerArray.__msgtype__, typestore=ts) if markers else None
         if sensors:
             for name, text in ROS1_DEFINITIONS.items():
                 if name not in ts.types:
@@ -148,6 +155,26 @@ def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (),
             if cmd_conn is not None:
                 vx, wz = cmd_vel(i)
                 writer.write(cmd_conn, t + CMD_OFFSET_NS, ts.serialize_ros1(twist(vx, 0.0, wz), Twist.__msgtype__))
+            if marker_conn is not None:
+                x, y, _ = pose(i)
+                marker = Marker(
+                    header=header(i, t, "odom"),
+                    ns="trail",
+                    id=i,
+                    type=2,
+                    action=0,
+                    pose=Pose(position=Point(x=x, y=y, z=0.0), orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)),
+                    scale=Vector3(x=0.1, y=0.1, z=0.1),
+                    color=ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0),
+                    lifetime=Duration(sec=0, nanosec=0),
+                    frame_locked=False,
+                    points=[],
+                    colors=[],
+                    text="",
+                    mesh_resource="",
+                    mesh_use_embedded_materials=False,
+                )
+                writer.write(marker_conn, t + 7, ts.serialize_ros1(MarkerArray(markers=[marker]), MarkerArray.__msgtype__))
             if sensors:
                 imu = Imu(
                     header=header(i, t, "zed2_imu_link"),
@@ -189,9 +216,19 @@ def write_bag(path: Path, count: int = COUNT, *, unpaired: tuple[int, ...] = (),
     return path
 
 
+def listed(cache: Path, *items: str) -> Path:
+    """A fresh Dataverse dataset record in cache naming one bag per item."""
+    files = [{"dataFile": {"id": index, "filename": f"{item}.bag", "filesize": 0}} for index, item in enumerate(items)]
+    cache.mkdir(parents=True, exist_ok=True)
+    path = cache / "dataset.json"
+    path.write_text(json.dumps({"data": {"latestVersion": {"files": files}}}))
+    return path
+
+
 def convert(bag: Path, out: Path, **topics: str | None) -> Path:
     pytest.importorskip("rosbag2_py")
     from arena_evaluation.adapters.musohu import MuSoHu, Topics
 
+    listed(out.parent / "cache", bag.stem)
     importer = MuSoHu(cache=out.parent / "cache", topics=Topics(**topics))
     return out / importer.convert(bag.stem, bag, out)

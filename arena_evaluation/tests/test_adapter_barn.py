@@ -14,6 +14,7 @@ import pytest
 import yaml
 from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, read_attribution
 from arena_assets.importers.providers import Http
+from arena_simulation_setup.generative.world import barn as world_barn
 
 from arena_evaluation.adapters import barn
 from arena_evaluation.adapters.barn import BARN
@@ -165,6 +166,7 @@ def test_import_fetches_into_the_cache_and_writes_the_bucket_bundle_layout(asset
     assert _files(out / "manifests" / "barn") == [ATTRIBUTION_FILE, "manifest.yaml"]
     for bundle in ("suites", "contests", "manifests"):
         attribution = read_attribution(out / bundle / "barn" / ATTRIBUTION_FILE)
+        assert attribution == world_barn.attribution()
         assert attribution.license == "MIT"
         assert "2008.13315" in attribution.citation
 

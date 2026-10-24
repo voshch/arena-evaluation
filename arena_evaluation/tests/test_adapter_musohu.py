@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import os
 import re
 import shutil
 import threading
@@ -15,8 +16,8 @@ from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, read_attribution
 
 from arena_assets.importers.providers import Http
 
-from arena_evaluation.adapters.musohu import ACCESS_URL, DATASET_URL, PROBE_HEAD, MuSoHu, Topics
-from musohu_bag import BEAMS, CAMERA, CLOUD_POINTS, CMD_OFFSET_NS, CMD_VEL, COUNT, DISTORTION, FOCAL, HEIGHT, IMU, ODOM, PATH, POINTS, RANGE_MAX, SCAN, STAMP_LAG_NS, STEP_NS, VELOCITY, cloud_data, cmd_vel, convert, pose, scan_ranges, velocity, write_bag
+from arena_evaluation.adapters.musohu import ACCESS_URL, DATASET_URL, PROBE_HEAD, MuSoHu, Topics, passthrough_types, wanted_topics
+from musohu_bag import BEAMS, CAMERA, CLOUD_POINTS, CMD_OFFSET_NS, CMD_VEL, COUNT, DISTORTION, FOCAL, HEIGHT, IMU, MARKERS, ODOM, PATH, POINTS, RANGE_MAX, SCAN, STAMP_LAG_NS, STEP_NS, VELOCITY, cloud_data, cmd_vel, convert, listed, pose, scan_ranges, velocity, write_bag
 
 EPISODE = "episodes/episode_000"
 MCAP = f"{EPISODE}/episode_000.mcap"
@@ -245,6 +246,7 @@ def test_default_topics_name_the_live_bag_layout():
 def test_missing_topic_lists_available(tmp_path: Path):
     pytest.importorskip("rosbags")
     bag = write_bag(tmp_path / "bare.bag", twist_in_odom=True)
+    listed(tmp_path / "cache", "bare")
     with pytest.raises(ValueError, match=r"lacks topics \['/action'\], has \['/scan', '/zed2/zed_node/odom'\]"):
         MuSoHu(cache=tmp_path / "cache").convert("bare", bag, tmp_path / "musohu")
 
@@ -252,7 +254,7 @@ def test_missing_topic_lists_available(tmp_path: Path):
 def test_import_item_from_cache_writes_attribution(tmp_path: Path, bag: Path):
     pytest.importorskip("rosbag2_py")
     cache = tmp_path / "cache"
-    cache.mkdir()
+    listed(cache, "run")
     shutil.copy(bag, cache / "run.bag")
     importer = MuSoHu(cache=cache, topics=Topics(cmd_vel=CMD_VEL))
     target = importer.import_item("run", tmp_path / "musohu")
@@ -264,6 +266,43 @@ def test_import_item_from_cache_writes_attribution(tmp_path: Path, bag: Path):
     assert (target / MCAP).is_file()
     assert importer.import_item("run", tmp_path / "musohu") == target
     assert len(extract(target)["odom"]) == COUNT
+
+
+def test_topic_whose_ros2_type_has_fields_the_ros1_message_lacks_is_left_out_whole(tmp_path: Path):
+    pytest.importorskip("rosbags")
+    pytest.importorskip("rosbag2_py")
+    from visualization_msgs.msg import Marker
+
+    lacking = [name for name in Marker.get_fields_and_field_types() if name in ("texture_resource", "texture", "uv_coordinates", "mesh_file")]
+    if not lacking:
+        pytest.skip("this ROS 2 Marker has no field the ROS 1 Marker lacks")
+    bag = write_bag(tmp_path / "run.bag", cmd=True, markers=True)
+    types, skipped, _ = passthrough_types(bag, wanted_topics(Topics(cmd_vel=CMD_VEL)))
+    assert types == {}
+    assert skipped == [(MARKERS, f"the ROS 1 visualization_msgs/msg/MarkerArray has no {', '.join(f'Marker.{name}' for name in lacking)}")]
+    run = convert(bag, tmp_path / "musohu", cmd_vel=CMD_VEL)
+    assert sorted(decoded(run)) == [f"{ROBOT_NS}/cmd_vel", f"{ROBOT_NS}/odom", f"{ROBOT_NS}/scan"]
+    with open(run / META) as f:
+        assert yaml.safe_load(f)["rosbag2_message_count"] == 3 * COUNT
+
+
+def test_unknown_item_is_refused_before_any_path_is_built(tmp_path: Path, bag: Path):
+    cache = tmp_path / "cache"
+    listed(cache, "run")
+    victim = tmp_path / "bags" / "run1"
+    victim.mkdir(parents=True)
+    (victim / "keep.txt").write_text("keep")
+    shutil.copy(bag, victim.with_suffix(".bag"))
+    importer = MuSoHu(cache=cache)
+    out = tmp_path / "musohu"
+    for item in (str(victim), "../bags/run1"):
+        with pytest.raises(KeyError, match=r"no bag '.*run1' in the MuSoHu dataset, list the items with: import episode musohu"):
+            importer.import_item(item, out)
+        with pytest.raises(KeyError, match="list the items with: import episode musohu"):
+            importer.convert(item, victim.with_suffix(".bag"), out)
+    assert (victim / "keep.txt").read_text() == "keep"
+    assert victim.with_suffix(".bag").read_bytes() == bag.read_bytes()
+    assert not out.exists()
 
 
 @pytest.mark.network
@@ -384,3 +423,53 @@ def test_fetch_resumes_a_body_the_host_ends_early(tmp_path: Path, host):
     body = [(ranged, n) for _, ranged, n in host.served[2:]]
     assert body == [(None, host.cap), (f"bytes={host.cap}-{size - 1}", host.cap), (f"bytes={2 * host.cap}-{size - 1}", size - 2 * host.cap)]
     assert sorted(p.name for p in cache.iterdir()) == ["cut.bag", "cut.topics.json", "dataset.json"]
+
+
+def _record(*items: str) -> dict:
+    return {"data": {"latestVersion": {"files": [{"dataFile": {"id": 41 + i, "filename": f"{item}.bag", "filesize": 1}} for i, item in enumerate(items)]}}}
+
+
+def _served_listing(host: RangeServer, cache: Path) -> MuSoHu:
+    base = f"http://127.0.0.1:{host.server_address[1]}"
+    return MuSoHu(cache=cache, provider=Http(base), dataset_api=f"{base}/dataset.json")
+
+
+def test_listing_fetches_again_over_a_truncated_cache_and_replaces_it_whole(tmp_path: Path, host):
+    record = json.dumps(_record("run"))
+    (host.root / "dataset.json").write_text(record)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "dataset.json").write_text(record[:40])
+    assert list(_served_listing(host, cache).items()) == ["run"]
+    assert (cache / "dataset.json").read_text() == record
+    assert sorted(p.name for p in cache.iterdir()) == ["dataset.json"]
+    assert [path for path, *_ in host.served] == ["/dataset.json"]
+    assert list(_served_listing(host, cache).items()) == ["run"]
+    assert len(host.served) == 1
+
+
+def test_listing_error_page_never_replaces_the_cached_record(tmp_path: Path, host):
+    (host.root / "dataset.json").write_text("<html>down for maintenance</html>")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    stale = json.dumps(_record("old"))
+    (cache / "dataset.json").write_text(stale)
+    os.utime(cache / "dataset.json", (0, 0))
+    assert list(_served_listing(host, cache).items()) == ["old"]
+    assert (cache / "dataset.json").read_text() == stale
+    empty = tmp_path / "empty"
+    with pytest.raises(ValueError):
+        _served_listing(host, empty).items()
+    assert not (empty / "dataset.json").exists()
+    assert len(host.served) == 2
+
+
+def test_probe_runs_again_over_a_truncated_topics_cache(tmp_path: Path, host):
+    cache = tmp_path / "cache"
+    importer, _ = hosted(host, cache, "gaps", twist_in_odom=True)
+    (cache / "gaps.topics.json").write_text('{"topics": ["/sc')
+    with pytest.raises(ValueError, match="lacks topics"):
+        importer.fetch("gaps")
+    assert json.loads((cache / "gaps.topics.json").read_text())["topics"] == ["/scan", "/zed2/zed_node/odom"]
+    assert sorted(p.name for p in cache.iterdir()) == ["dataset.json", "gaps.topics.json"]
+    assert len(host.served) == 2

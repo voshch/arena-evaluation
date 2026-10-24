@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -2198,9 +2199,19 @@ def _snapshot_bundle_worlds(bundle_dir: pathlib.Path | None, maps: typing.Iterab
     for name in sorted(set(maps)):
         source = bundle_dir / "worlds" / name
         target = run_path / "worlds" / name
-        if source.is_dir() and not target.exists():
-            shutil.copytree(source, target)
+        if not source.is_dir() or target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        part = pathlib.Path(tempfile.mkdtemp(prefix=f".{name}.", suffix=".part", dir=target.parent))
+        try:
+            shutil.copytree(source, part, dirs_exist_ok=True)
+            part.rename(target)
             copied.append(name)
+        except OSError:
+            if not target.is_dir():
+                raise
+        finally:
+            shutil.rmtree(part, ignore_errors=True)
     return copied
 
 

@@ -7,12 +7,13 @@ import datetime
 import heapq
 import json
 import logging
+import os
 import shutil
 import struct
 import time
 import typing
 from array import array
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 import attrs
@@ -84,9 +85,10 @@ class MuSoHu(Importer):
 
     meta = IMPORTERS.meta("episode", "musohu")
 
-    def __init__(self, cache: Path | None = None, provider: Provider | None = None, *, topics: Topics = DEFAULT_TOPICS):
+    def __init__(self, cache: Path | None = None, provider: Provider | None = None, *, topics: Topics = DEFAULT_TOPICS, dataset_api: str = DATASET_API):
         super().__init__(cache, provider)
         self.topics = topics
+        self.dataset_api = dataset_api
         self._listing: dict | None = None
 
     @classmethod
@@ -98,15 +100,17 @@ class MuSoHu(Importer):
         if self._listing is not None:
             return self._listing
         path = self.cache / "dataset.json"
-        if not path.is_file() or time.time() - path.stat().st_mtime >= LISTING_TTL_S:
-            path.parent.mkdir(parents=True, exist_ok=True)
+        listing = read_json(path, dataset_version)
+        if listing is None or time.time() - path.stat().st_mtime >= LISTING_TTL_S:
             try:
-                path.write_bytes(self.provider.read(DATASET_API)[0])
-            except TRANSPORT_ERRORS:
-                if not path.is_file():
+                body = self.provider.read(self.dataset_api)[0]
+                fetched = dataset_version(json.loads(body))
+            except (*TRANSPORT_ERRORS, ValueError, KeyError, TypeError):
+                if listing is None:
                     raise
-        with open(path) as f:
-            listing: dict = json.load(f)["data"]["latestVersion"]
+            else:
+                write_atomic(path, body)
+                listing = fetched
         self._listing = listing
         return listing
 
@@ -116,11 +120,18 @@ class MuSoHu(Importer):
     def items(self) -> Iterable[str]:
         return sorted(self.files())
 
+    def entry(self, item: str) -> dict:
+        """Dataverse file record of the bag item."""
+        try:
+            return self.files()[item]
+        except KeyError:
+            raise KeyError(f"no bag '{item}' in the MuSoHu dataset, list the items with: import episode {self.meta.name}") from None
+
     def fetch(self, item: str) -> Path:
+        entry = self.entry(item)
         dest = self.cache / f"{item}.bag"
         if dest.is_file():
             return dest
-        entry = self.files()[item]
         available = self.probe(item, entry)
         missing = wanted_topics(self.topics) - available
         if missing:
@@ -133,18 +144,21 @@ class MuSoHu(Importer):
     def probe(self, item: str, entry: dict) -> set[str]:
         """Topics of the bag's connection records, read once by range request and cached beside the download."""
         path = self.cache / f"{item}.topics.json"
-        if not path.is_file():
-            topics, fetched = probe_topics(self.provider, str(entry["id"]), int(entry["filesize"]), self.cache / f"{item}.probe")
-            path.write_text(json.dumps({"topics": sorted(topics), "bytes": fetched}))
-        return set(json.loads(path.read_text())["topics"])
+        cached = read_json(path, lambda probe: {str(topic) for topic in probe["topics"]})
+        if cached is not None:
+            return cached
+        topics, fetched = probe_topics(self.provider, str(entry["id"]), int(entry["filesize"]), self.cache / f"{item}.probe")
+        write_atomic(path, json.dumps({"topics": sorted(topics), "bytes": fetched}).encode())
+        return topics
 
     def convert(self, item: str, src: Path, out: Path) -> str:
+        self.entry(item)
         run = out / item
         if run.exists():
             shutil.rmtree(run)
         types, skipped, start_ns = passthrough_types(src, wanted_topics(self.topics))
-        if skipped:
-            logger.warning("%s: no ROS 2 message type for %s, not recorded", src.name, ", ".join(f"{topic} ({kind})" for topic, kind in skipped))
+        for topic, reason in skipped:
+            logger.warning("%s: %s not recorded, %s", src.name, topic, reason)
         record_episode(run, read_bag(src, self.topics), passthrough_messages(src, types), start_ns)
         return item
 
@@ -156,6 +170,26 @@ class MuSoHu(Importer):
             authors="Duc M. Nguyen, Mohammad Nazeri, Amirreza Payandeh, Aniket Datar, Xuesu Xiao",
             citation="Nguyen et al., Toward Human-Like Social Robot Navigation: A Large-Scale, Multi-Modal, Social Human Navigation Dataset, IROS 2023, doi:10.13021/orc2020/HZI4LJ",
         )
+
+
+def dataset_version(record: dict) -> dict:
+    """Latest version of a Dataverse dataset record."""
+    return record["data"]["latestVersion"]
+
+
+def read_json[T](path: Path, parse: typing.Callable[[typing.Any], T]) -> T | None:
+    """Parsed JSON of path, None when it is missing, truncated or of another shape."""
+    try:
+        return parse(json.loads(path.read_bytes()))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(f"{path.name}.{os.getpid()}.part")
+    part.write_bytes(data)
+    part.replace(path)
 
 
 def stamp_ns(header: Header) -> int:
@@ -330,6 +364,29 @@ def recorded_topic(topic: str) -> str:
     return topic if topic in TF_TOPICS else f"/{ROBOT_NAMESPACE}{topic}"
 
 
+def lacking_fields(fielddefs: Mapping[str, typing.Any], msgtype: str, cls: type) -> list[str]:
+    """Type.field names of the ROS 2 fields of cls, nested ones included, that the ROS 1 type msgtype lacks."""
+    from rosbags.interfaces import Nodetype
+
+    ros1 = {name.lower(): desc for name, desc in fielddefs[msgtype][1]}
+    lacking: list[str] = []
+    for name, kind in cls.get_fields_and_field_types().items():
+        nested = element_type(kind) or kind
+        if name not in ros1:
+            lacking.append(f"{cls.__name__}.{name}")
+        elif "/" in nested:
+            nodetype, details = ros1[name]
+            if nodetype in (Nodetype.ARRAY, Nodetype.SEQUENCE):
+                nodetype, details = details[0]
+            package, _, message = nested.partition("/")
+            child = ros2_message_type(f"{package}/msg/{message}")
+            if nodetype != Nodetype.NAME or child is None or details not in fielddefs:
+                lacking.append(f"{cls.__name__}.{name}")
+            else:
+                lacking.extend(lacking_fields(fielddefs, details, child))
+    return lacking
+
+
 def ros2_message_type(msgtype: str) -> type | None:
     """ROS 2 message class of a pkg/msg/Name type, None when no installed package defines it."""
     from rosidl_runtime_py.utilities import get_message
@@ -340,19 +397,22 @@ def ros2_message_type(msgtype: str) -> type | None:
         return None
 
 
-def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], list[tuple[str, str | None]], int]:
-    """ROS 2 type of every bag topic outside mapped and off the mapped episode topics, the topics without one as (topic, type), and the bag's first receive time."""
+def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], list[tuple[str, str]], int]:
+    """ROS 2 type of every passthrough topic, the skipped topics as (topic, reason), and the bag's first receive time."""
     from rosbags.highlevel import AnyReader
 
     types: dict[str, type] = {}
-    skipped: list[tuple[str, str | None]] = []
+    skipped: list[tuple[str, str]] = []
     with AnyReader([bag]) as reader:
         for topic, info in sorted(reader.topics.items()):
             if topic in mapped or recorded_topic(topic) in MAPPED_TOPICS:
                 continue
-            cls = None if info.msgtype is None else ros2_message_type(info.msgtype)
-            if cls is None:
-                skipped.append((topic, info.msgtype))
+            msgtype = info.msgtype
+            cls = None if msgtype is None else ros2_message_type(msgtype)
+            if msgtype is None or cls is None:
+                skipped.append((topic, f"no ROS 2 message type for {msgtype}"))
+            elif lacking := lacking_fields(reader.typestore.fielddefs, msgtype, cls):
+                skipped.append((topic, f"the ROS 1 {msgtype} has no {', '.join(lacking)}"))
             else:
                 types[topic] = cls
         return types, skipped, reader.start_time

@@ -10,14 +10,14 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from arena_simulation_setup.generative.world.barn import BASE_URL, CELL_M, GOAL, START, WORLD_DIR, X_SHIFT_M, world_file, world_name
+from arena_simulation_setup.generative.world.barn import BASE_URL, CELL_M, GOAL, START, WORLD_DIR, WORLDS, X_SHIFT_M, world_file, world_name
+from arena_simulation_setup.generative.world.barn import attribution as barn_attribution
 
 from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, Attribution, Importer, write_attribution
 from arena_assets.importers.providers import Http, Provider
 from arena_evaluation.processing.metrics.performance.barn_metrics import GOAL_RADIUS_M, TIMEOUT_S
 
 ITEM = "barn"
-WORLDS = 300
 ROBOT = "jackal"
 START_SLACK_S = 10
 PATH_DIR = f"{WORLD_DIR}/path_files"
@@ -197,10 +197,4 @@ class BARN(Importer):
 
     def attribution(self, item: str) -> Attribution:
         self._check(item)
-        return Attribution(
-            source="BARN Challenge (the-barn-challenge)",
-            url="https://github.com/Daffan/the-barn-challenge",
-            license="MIT",
-            authors="Zifan Xu, Daniel Perille, Abigail Truong, Xuesu Xiao, Peter Stone",
-            citation="D. Perille, A. Truong, X. Xiao, P. Stone. Benchmarking Metric Ground Navigation. IEEE SSRR 2020. arXiv:2008.13315",
-        )
+        return barn_attribution()
