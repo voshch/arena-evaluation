@@ -31,7 +31,7 @@ def test_distance_rule_without_time():
 def test_teleport_jumps_exempt_elevator_arrivals():
     import polars as pl
 
-    from arena_evaluation.processing.pose_segments import elevator_arrival_times
+    from arena_evaluation.processing.pose_segments import ride_arrival_times
 
     x = np.array([0.0, 0.5, 1.0, 101.0, 101.5])
     y = np.zeros(5)
@@ -51,6 +51,36 @@ def test_teleport_jumps_exempt_elevator_arrivals():
             "value_bool": [False, True, True, False, True],
         }
     )
-    assert list(elevator_arrival_times(snap)) == [0, 2]
-    assert list(elevator_arrival_times(None)) == []
-    assert list(elevator_arrival_times(pl.DataFrame({"time_ns": [1]}))) == []
+    assert list(ride_arrival_times(snap)) == [0, 2]
+    assert list(ride_arrival_times(None)) == []
+    assert list(ride_arrival_times(pl.DataFrame({"time_ns": [1]}))) == []
+
+
+def test_stair_crossings_are_ride_arrivals():
+    import polars as pl
+
+    from arena_evaluation.processing.pose_segments import ride_arrival_times
+
+    snap = pl.DataFrame(
+        {
+            "time_ns": [0, 4, 6, 1, 3, 2, 7, 5],
+            "entity": ["env_0/0/stairs_low"] * 3 + ["env_0/0/esc_up_low"] * 2 + ["env_0/1/lift"] + ["env_0/0/stairs_low", "env_0/0/door"],
+            "kind": ["stairs"] * 3 + ["escalator"] * 2 + ["elevator", "stairs", "door"],
+            "field": ["just_crossed"] * 5 + ["just_arrived", "running", "just_crossed"],
+            "value_bool": [False, True, False, True, True, True, True, True],
+        }
+    )
+    assert list(ride_arrival_times(snap)) == [1, 2, 4]
+
+
+def test_stair_crossing_keeps_the_track_whole():
+    import polars as pl
+
+    from arena_evaluation.processing.pose_segments import ride_arrival_times
+
+    x = np.array([9.0, 10.0, 11.0, 32.9, 33.9, 34.9])
+    y = np.full(6, 2.0)
+    log_t = (np.arange(6) * 1e9).astype(np.int64)
+    crossing = pl.DataFrame({"time_ns": [0, 3_100_000_000], "entity": ["env_0/0/stairs_low"] * 2, "kind": ["stairs"] * 2, "field": ["just_crossed"] * 2, "value_bool": [False, True]})
+    assert list(teleport_jumps(x, y, log_t)) == [2]
+    assert list(teleport_jumps(x, y, log_t, exempt_ns=ride_arrival_times(crossing), exempt_time_ns=log_t)) == []

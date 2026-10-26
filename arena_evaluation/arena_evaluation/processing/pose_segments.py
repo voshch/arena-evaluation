@@ -18,9 +18,10 @@ log time: under lockstep the wall clock runs at an arbitrary real-time
 factor, and a reset happens with the sim paused, so in wall time it is a
 slow drift rather than a jump. Without sim stamps the distance rule stands.
 
-An elevator ride is a teleport too, but one that belongs to the episode. A jump landing within
-``ELEVATOR_ARRIVAL_TOLERANCE_NS`` of an elevator arrival (`just_arrived` rising in the semantic
-snapshot, recorder log time) is exempt, so a ride does not cut the episode to one floor.
+An elevator ride or a stair crossing is a teleport too, but one that belongs to the episode. A
+jump landing within ``RIDE_ARRIVAL_TOLERANCE_NS`` of a ride arrival (`just_arrived` rising on an
+`elevator`, `just_crossed` rising on a `stairs` or `escalator` entity in the semantic snapshot,
+recorder log time) is exempt, so neither cuts the episode to one floor.
 """
 
 from __future__ import annotations
@@ -36,7 +37,8 @@ MIN_JUMP_M = 0.5
 MAX_SPEED_MPS = 5.0  # above any ground robot in the fleet; a reset moves the robot within one sample
 
 
-ELEVATOR_ARRIVAL_TOLERANCE_NS = 2_000_000_000
+RIDE_ARRIVAL_TOLERANCE_NS = 2_000_000_000
+RIDE_ARRIVALS = {"elevator": "just_arrived", "stairs": "just_crossed", "escalator": "just_crossed"}
 
 
 def _drop_exempt(jumps: np.ndarray, exempt_ns: np.ndarray | None, exempt_time_ns: np.ndarray | None, n: int) -> np.ndarray:
@@ -52,7 +54,7 @@ def _drop_exempt(jumps: np.ndarray, exempt_ns: np.ndarray | None, exempt_time_ns
         t = log_t[i + 1]
         k = int(np.searchsorted(exempt, t))
         near = min((abs(int(exempt[j]) - int(t)) for j in (k - 1, k) if 0 <= j < len(exempt)), default=None)
-        if near is None or near > ELEVATOR_ARRIVAL_TOLERANCE_NS:
+        if near is None or near > RIDE_ARRIVAL_TOLERANCE_NS:
             keep.append(i)
     return np.asarray(keep, dtype=np.int64)
 
@@ -84,8 +86,8 @@ def teleport_jumps(
     return _drop_exempt(np.where(big & (speed > MAX_SPEED_MPS))[0], exempt_ns, exempt_time_ns, len(x))
 
 
-def elevator_arrival_times(snapshot: pl.DataFrame | pl.LazyFrame | None) -> np.ndarray:
-    """Log times (ns) where an elevator's `just_arrived` predicate rises."""
+def ride_arrival_times(snapshot: pl.DataFrame | pl.LazyFrame | None) -> np.ndarray:
+    """Log times (ns) where an elevator's `just_arrived` or a stair's `just_crossed` predicate rises."""
     import polars as pl
 
     if snapshot is None:
@@ -94,7 +96,8 @@ def elevator_arrival_times(snapshot: pl.DataFrame | pl.LazyFrame | None) -> np.n
     names = lazy.collect_schema().names()
     if not {"kind", "field", "value_bool", "entity", "time_ns"}.issubset(names):
         return np.array([], dtype=np.int64)
-    rows = lazy.filter((pl.col("kind") == "elevator") & (pl.col("field") == "just_arrived")).select("time_ns", "entity", "value_bool").collect()
+    arrival = pl.any_horizontal([(pl.col("kind") == kind) & (pl.col("field") == field) for kind, field in RIDE_ARRIVALS.items()])
+    rows = lazy.filter(arrival).select("time_ns", "entity", "value_bool").collect()
     times: list[int] = []
     for _entity, group in rows.group_by("entity"):
         prev = False

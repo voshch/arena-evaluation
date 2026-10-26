@@ -108,8 +108,9 @@ cabin, ride arrival = cabin entry within 3 s of being in another cabin or across
 | `used_elevator_during_alarm_robot` | count | alarm windows overlapped by the robot being an elevator member (everyone: `used_elevator_during_alarm`) |
 | `mechanism_states` | list | per door and elevator: `progress` (0 closed, 1 open) and `locked` at every sample of `time`, the trajectory plot's animation input (`ecological/mechanism_states.py`) |
 
-Teleports that land within 2 s of an elevator arrival are rides and no longer cut the episode
-to its longest single-floor segment (`pose_segments.elevator_arrival_times`).
+Teleports that land within 2 s of an elevator arrival (`just_arrived` rising) or a stair crossing
+(`just_crossed` rising on a `stairs` or `escalator` entity) are rides and no longer cut the
+episode to its longest single-floor segment (`pose_segments.ride_arrival_times`).
 
 ### `mechanism` component
 

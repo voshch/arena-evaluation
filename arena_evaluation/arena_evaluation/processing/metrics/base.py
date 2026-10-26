@@ -8,7 +8,7 @@ from collections.abc import Sized
 import numpy as np
 import polars as pl
 
-from ..pose_segments import elevator_arrival_times, teleport_jumps
+from ..pose_segments import ride_arrival_times, teleport_jumps
 
 if typing.TYPE_CHECKING:
     from ...storage.schemas import AlignedEpisodeBundle, RobotParams
@@ -138,10 +138,10 @@ class BaseMetricCalculator(ABC):
 
     @staticmethod
     def _ride_arrivals(episode: AlignedEpisodeBundle) -> np.ndarray:
-        """Elevator arrival log times of the robot's env, the teleports that are rides."""
+        """Elevator arrival and stair crossing log times of the robot's env, the teleports that are rides."""
         from .ecological.mechanism_common import robot_env_snapshot
 
-        return elevator_arrival_times(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
+        return ride_arrival_times(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
 
     def native_topics(self, episode: AlignedEpisodeBundle) -> dict:
         """Raw native-rate topic frames keyed by topic name; {} when absent."""

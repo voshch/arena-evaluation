@@ -121,7 +121,7 @@ def _process_worker(
 
 
 def _resolve_odom_frame(aligned_df: pl.DataFrame | None, ride_arrivals_ns: np.ndarray | None = None) -> pl.DataFrame | None:
-    """Filter null poses and slice to longest consistent segment, elevator ride jumps excepted."""
+    """Filter null poses and slice to longest consistent segment, elevator ride and stair crossing jumps excepted."""
     import numpy as np
     import polars as pl
 
@@ -309,7 +309,7 @@ from arena_evaluation.processing.mcap_reader import KEPT_EMPTY_TABLES, MCAPReade
 from arena_evaluation.processing.metrics.ecological.mechanism_common import robot_env_snapshot
 from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
 from arena_evaluation.processing.pose_anchor import resolve_pose_source
-from arena_evaluation.processing.pose_segments import elevator_arrival_times
+from arena_evaluation.processing.pose_segments import ride_arrival_times
 from arena_evaluation.processing.topic_aligner import TopicAligner
 from arena_evaluation.storage.manifest import MetadataWriter
 
@@ -614,7 +614,7 @@ class ProcessingPipeline:
                     continue
 
                 # Resolve the pose frame once so all calculators share it
-                aligned_df = _resolve_odom_frame(aligned_df, elevator_arrival_times(robot_env_snapshot(bundle.semantic_snapshot, robot_name)))
+                aligned_df = _resolve_odom_frame(aligned_df, ride_arrival_times(robot_env_snapshot(bundle.semantic_snapshot, robot_name)))
                 if aligned_df is None or len(aligned_df) < 5:
                     reason = f"{0 if aligned_df is None else len(aligned_df)} pose rows after resolution"
                     _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
