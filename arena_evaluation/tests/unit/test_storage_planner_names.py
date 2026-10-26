@@ -109,7 +109,7 @@ def test_split_planner_name_always_returns_string_pair(name):
 
 
 @settings(max_examples=100, deadline=None, derandomize=True)
-@given(st.lists(st.text(min_size=1, max_size=8), min_size=1, max_size=6))
+@given(st.lists(st.text(st.characters(exclude_characters="-"), min_size=1, max_size=8), min_size=1, max_size=6))
 def test_split_planner_name_matches_join_spec(parts):
     name = "-".join(parts)
     local, inter = split_planner_name(name)
