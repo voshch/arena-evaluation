@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class _ZoneGeometry:
     name: str
-    polygon: shapely.Polygon
+    polygon: shapely.Polygon | shapely.MultiPolygon
     max_speed: float | None
     quiet: bool
     restricted: bool
@@ -97,7 +97,7 @@ def _offset_doors(doors: list[_DoorGeometry], offset: tuple[float, float]) -> li
 
 class _PolygonZone(typing.Protocol):
     @property
-    def polygon(self) -> shapely.Polygon: ...
+    def polygon(self) -> shapely.Polygon | shapely.MultiPolygon: ...
 
 
 def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: Sequence[_PolygonZone]) -> np.ndarray:

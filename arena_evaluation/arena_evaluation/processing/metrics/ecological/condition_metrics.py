@@ -232,7 +232,7 @@ class _EvalContext:
         return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls)
 
     @property
-    def polygons(self) -> dict[str, shapely.Polygon]:
+    def polygons(self) -> dict[str, shapely.Polygon | shapely.MultiPolygon]:
         return {name: zone.polygon for name, zone in self.zones_by_name.items()}
 
 
