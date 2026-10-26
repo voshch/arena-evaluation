@@ -4,22 +4,19 @@ import pytest
 pl = pytest.importorskip("polars")
 pytest.importorskip("arena_simulation_setup.shared.conditions")
 
-from arena_simulation_setup.shared.conditions import parse_atom
+from arena_simulation_setup.shared.conditions import parse_atom, parse_node
 
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry, _reconstruct_events
 from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     ConditionComplianceCalculator,
     _EvalContext,
-    _atom_series,
     _clause_verdict,
-    _entity_atom_series,
     _entity_roster,
     _first_true,
     _level_cache,
+    _node_series,
     _operator_verdict,
     _ped_roster,
-    _ped_zone_series,
-    _robot_zone_series,
     _strip_env,
     _value_at,
     _values_equal,
@@ -224,7 +221,7 @@ def test_entity_atom_true_after_recorded_change():
         ]
     )
     ctx = _ctx([0, 1_000_000_000, 3_000_000_000], snapshot=snapshot)
-    series, ok = _entity_atom_series(parse_atom("door_1.open == true"), ctx)
+    series, ok = _node_series(parse_atom("door_1.open == true"), ctx)
 
     assert ok is True
     assert list(series) == [False, False, True]
@@ -237,7 +234,7 @@ def test_entity_atom_holds_seed_value_when_never_changed():
         ]
     )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
-    series, ok = _entity_atom_series(parse_atom("door_1.open == false"), ctx)
+    series, ok = _node_series(parse_atom("door_1.open == false"), ctx)
 
     assert ok is True
     assert list(series) == [True, True]
@@ -250,7 +247,7 @@ def test_entity_atom_unresolvable_unknown_entity():
         ]
     )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
-    series, ok = _entity_atom_series(parse_atom("ghost.open == true"), ctx)
+    series, ok = _node_series(parse_atom("ghost.open == true"), ctx)
 
     assert series is None
     assert ok is False
@@ -263,7 +260,7 @@ def test_entity_atom_unresolvable_field_not_registered():
         ]
     )
     ctx = _ctx([0, 2_000_000_000], snapshot=snapshot)
-    series, ok = _entity_atom_series(parse_atom("door_1.nonsense == x"), ctx)
+    series, ok = _node_series(parse_atom("door_1.nonsense == x"), ctx)
 
     assert series is None
     assert ok is False
@@ -294,9 +291,9 @@ def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
     )
     ctx = _ctx([0, 3_000_000_000], snapshot=snapshot)
 
-    open_series, open_ok = _entity_atom_series(parse_atom("main_door/0.open == true"), ctx)
-    locked_series, locked_ok = _entity_atom_series(parse_atom("main_door/0.locked == false"), ctx)
-    dup_series, dup_ok = _entity_atom_series(parse_atom("x/0.open == true"), ctx)
+    open_series, open_ok = _node_series(parse_atom("main_door/0.open == true"), ctx)
+    locked_series, locked_ok = _node_series(parse_atom("main_door/0.locked == false"), ctx)
+    dup_series, dup_ok = _node_series(parse_atom("x/0.open == true"), ctx)
 
     assert open_ok is True and list(open_series) == [False, True]
     assert locked_ok is True and list(locked_series) == [False, True]
@@ -316,12 +313,27 @@ def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
     )
     ctx = _ctx([0, 3_000_000_000], snapshot=snapshot)
 
-    quiet_series, quiet_ok = _entity_atom_series(parse_atom("ward.quiet == false"), ctx)
-    lift_series, lift_ok = _entity_atom_series(parse_atom("lift.open == true"), ctx)
+    quiet_series, quiet_ok = _node_series(parse_atom("ward.quiet == false"), ctx)
+    lift_series, lift_ok = _node_series(parse_atom("lift.open == true"), ctx)
 
     assert quiet_ok is True and list(quiet_series) == [False, True]
     assert lift_series is None and lift_ok is False
     assert _entity_roster(snapshot)["jackal"] == "env_0/jackal"
+
+
+def test_entity_roster_names_a_world_object_without_its_world_prefix_unless_taken():
+    snapshot = _snap(
+        [
+            (0, "env_0/world_wardrobe", "articulated", "openness.door", "continuous", 0.0),
+            (0, "env_0/world_table", "articulated", "openness.leaf", "continuous", 0.0),
+            (0, "env_0/table", "articulated", "openness.leaf", "continuous", 1.0),
+        ]
+    )
+    roster = _entity_roster(snapshot)
+
+    assert roster["wardrobe"] == "env_0/world_wardrobe"
+    assert roster["world_wardrobe"] == "env_0/world_wardrobe"
+    assert roster["table"] == "env_0/table"
 
 
 # -- robot zone atoms -----------------------------------------------------
@@ -329,7 +341,7 @@ def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
 
 def test_robot_zone_membership_inside_and_outside():
     ctx = _ctx([0, 1_000_000_000], pos_x=[1.0, 10.0], pos_y=[1.0, 10.0], zones=[_square("lobby")])
-    series, ok = _robot_zone_series(parse_atom("robot in lobby"), ctx)
+    series, ok = _node_series(parse_atom("robot in lobby"), ctx)
 
     assert ok is True
     assert list(series) == [True, False]
@@ -337,7 +349,7 @@ def test_robot_zone_membership_inside_and_outside():
 
 def test_robot_zone_unresolvable_when_zone_not_annotated():
     ctx = _ctx([0, 1_000_000_000], pos_x=[1.0, 1.0], pos_y=[1.0, 1.0], zones=[_square("lobby")])
-    series, ok = _robot_zone_series(parse_atom("robot in pharmacy"), ctx)
+    series, ok = _node_series(parse_atom("robot in pharmacy"), ctx)
 
     assert series is None
     assert ok is False
@@ -346,7 +358,7 @@ def test_robot_zone_unresolvable_when_zone_not_annotated():
 def test_robot_zone_unresolvable_without_pose_anchor():
     ctx = _ctx([0, 1_000_000_000], pos_x=[1.0, 1.0], pos_y=[1.0, 1.0], zones=[_square("lobby")])
     ctx.pose_valid = False
-    series, ok = _robot_zone_series(parse_atom("robot in lobby"), ctx)
+    series, ok = _node_series(parse_atom("robot in lobby"), ctx)
 
     assert series is None
     assert ok is False
@@ -354,7 +366,7 @@ def test_robot_zone_unresolvable_without_pose_anchor():
     ped_data = _ped_data([0, 1_000_000_000], [["walker"], ["walker"]], [[1.0, 1.0, 0.0], [1.0, 1.0, 0.0]])
     ctx = _ctx([0, 1_000_000_000], data=ped_data, zones=[_square("lobby")])
     ctx.pose_valid = False
-    series, ok = _ped_zone_series(parse_atom("walker in lobby"), ctx)
+    series, ok = _node_series(parse_atom("walker in lobby"), ctx)
 
     assert ok is True
     assert list(series) == [True, True]
@@ -380,7 +392,7 @@ def test_ped_zone_zero_order_hold_and_before_first_sample_false():
         [[], [1.0, 1.0, 0.0], [10.0, 10.0, 0.0]],
     )
     ctx = _ctx([0, 1_000_000_000, 2_000_000_000], data=data, zones=[_square("lobby")])
-    series, ok = _ped_zone_series(parse_atom("blocker_1 in lobby"), ctx)
+    series, ok = _node_series(parse_atom("blocker_1 in lobby"), ctx)
 
     assert ok is True
     assert list(series) == [False, True, False]
@@ -395,7 +407,7 @@ def test_ped_zone_resolves_level_suffixed_names_by_authored_name():
     ctx = _ctx([0, 1_000_000_000], data=data, zones=[_square("lobby")])
 
     assert _ped_roster(data) == {"queuer_1/0": "env_1/queuer_1/0", "queuer_1": "env_1/queuer_1/0", "queuer_2/0": "env_1/queuer_2/0", "queuer_2": "env_1/queuer_2/0"}
-    series, ok = _ped_zone_series(parse_atom("queuer_1 in lobby"), ctx)
+    series, ok = _node_series(parse_atom("queuer_1 in lobby"), ctx)
     assert ok is True
     assert list(series) == [False, True]
 
@@ -412,7 +424,7 @@ def test_ped_zone_unresolvable_when_ped_not_recorded():
         [[1.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
     )
     ctx = _ctx([0, 1_000_000_000], data=data, zones=[_square("lobby")])
-    series, ok = _ped_zone_series(parse_atom("intruder in lobby"), ctx)
+    series, ok = _node_series(parse_atom("intruder in lobby"), ctx)
 
     assert series is None
     assert ok is False
@@ -423,13 +435,13 @@ def test_ped_zone_unresolvable_without_peds_names_column():
     ctx = _ctx([0, 1_000_000_000], data=data, zones=[_square("lobby")])
 
     assert _ped_roster(data) == {}
-    series, ok = _ped_zone_series(parse_atom("blocker_1 in lobby"), ctx)
+    series, ok = _node_series(parse_atom("blocker_1 in lobby"), ctx)
 
     assert series is None
     assert ok is False
 
 
-def test_atom_series_dispatches_membership_and_entity():
+def test_node_series_dispatches_membership_and_entity():
     snapshot = _snap(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
@@ -438,8 +450,8 @@ def test_atom_series_dispatches_membership_and_entity():
     )
     ctx = _ctx([0, 3_000_000_000], pos_x=[1.0, 1.0], pos_y=[1.0, 1.0], snapshot=snapshot, zones=[_square("lobby")])
 
-    robot_series, robot_ok = _atom_series(parse_atom("robot in lobby"), ctx)
-    entity_series, entity_ok = _atom_series(parse_atom("door_1.open == true"), ctx)
+    robot_series, robot_ok = _node_series(parse_atom("robot in lobby"), ctx)
+    entity_series, entity_ok = _node_series(parse_atom("door_1.open == true"), ctx)
 
     assert robot_ok is True and list(robot_series) == [True, True]
     assert entity_ok is True and list(entity_series) == [False, True]
@@ -652,3 +664,68 @@ def test_zone_and_wall_loaders_answer_from_their_caches():
     assert load_wall_grid("synthetic_missing") is None
     assert load_zone_geometry("synthetic_missing") is None
     assert _wall_cache["synthetic_missing"] is None and _world_cache["synthetic_missing"] is None
+
+
+# -- articulated families and structured conditions -----------------------
+
+
+def _wardrobe_snapshot():
+    return _snap(
+        [
+            (0, "env_0/wardrobe", "articulated", "openness.door_left", "continuous", 0.1),
+            (0, "env_0/wardrobe", "articulated", "openness.door_right", "continuous", 0.0),
+            (0, "env_0/wardrobe", "articulated", "q.door_left", "continuous", 0.2),
+            (0, "env_0/wardrobe", "articulated", "state", "discrete", "closed"),
+            (2_000_000_000, "env_0/wardrobe", "articulated", "openness.door_left", "continuous", 0.9),
+            (2_000_000_000, "env_0/wardrobe", "articulated", "state", "discrete", ""),
+        ]
+    )
+
+
+def test_family_at_reads_the_members_held_at_an_instant():
+    ctx = _ctx([0, 1_000_000_000, 3_000_000_000], snapshot=_wardrobe_snapshot())
+
+    assert ctx.family_at("wardrobe", "openness", 1_000_000_000) == {"door_left": "0.1", "door_right": "0.0"}
+    assert ctx.family_at("wardrobe", "openness", 3_000_000_000) == {"door_left": "0.9", "door_right": "0.0"}
+    assert ctx.family_at("wardrobe", "q", 3_000_000_000) == {"door_left": "0.2"}
+    assert ctx.family_at("wardrobe", "setting", 3_000_000_000) == {}
+    assert ctx.family_at("ghost", "openness", 3_000_000_000) is None
+    assert ctx.sample(2).family("wardrobe", "openness") == {"door_left": "0.9", "door_right": "0.0"}
+
+
+def test_node_series_judges_field_and_family_tests():
+    ctx = _ctx([0, 1_000_000_000, 3_000_000_000], snapshot=_wardrobe_snapshot())
+
+    field_series, field_ok = _node_series(parse_node({"field": "wardrobe.openness.door_left", "ge": 0.8}), ctx)
+    some_series, some_ok = _node_series(parse_node({"some": "wardrobe.openness", "ge": 0.5}), ctx)
+    each_series, each_ok = _node_series(parse_node({"each": "wardrobe.openness", "ge": 0.5}), ctx)
+    empty_series, empty_ok = _node_series(parse_node({"some": "wardrobe.setting", "eq": "off"}), ctx)
+    ghost_series, ghost_ok = _node_series(parse_node({"some": "ghost.openness", "ge": 0.5}), ctx)
+    text_series, text_ok = _node_series(parse_node("wardrobe.openness.door_left == 0.9"), ctx)
+
+    assert field_ok and list(field_series) == [False, False, True]
+    assert some_ok and list(some_series) == [False, False, True]
+    assert each_ok and list(each_series) == [False, False, False]
+    assert empty_ok and list(empty_series) == [False, False, False]
+    assert ghost_series is None and not ghost_ok
+    assert text_ok and list(text_series) == [False, False, True]
+
+
+def test_node_series_times_holds_across_the_samples():
+    ctx = _ctx([0, 2_000_000_000, 3_000_000_000, 4_000_000_000], snapshot=_wardrobe_snapshot())
+
+    series, ok = _node_series(parse_node({"field": "wardrobe.openness.door_left", "ge": 0.8, "for": 2}), ctx)
+
+    assert ok and list(series) == [False, False, False, True]
+
+
+def test_clause_verdict_scores_structured_p_and_q():
+    ctx = _ctx([0, 1_000_000_000, 3_000_000_000, 4_000_000_000], pos_x=[10.0, 1.0, 1.0, 1.0], pos_y=[10.0, 1.0, 1.0, 1.0], snapshot=_wardrobe_snapshot(), zones=[_square("lobby")])
+
+    assert _clause_verdict({"op": "eventually", "p": {"some": "wardrobe.openness", "ge": 0.5, "for": 1}}, ctx) is True
+    assert _clause_verdict({"op": "eventually", "p": {"some": "wardrobe.openness", "ge": 0.5, "for": 5}}, ctx) is False
+    assert _clause_verdict({"op": "before", "p": {"subject": "robot", "in": "lobby"}, "q": {"field": "wardrobe.openness.door_left", "ge": 0.8}}, ctx) is True
+    assert _clause_verdict({"op": "never_during", "p": {"subject": "robot", "in": "lobby"}, "q": {"each": "wardrobe.openness", "lt": 0.5}}, ctx) is False
+    assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.openness.door_left", "within": [0.0, 1.0]}}, ctx) is True
+    assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": 0.5}}, ctx) is None
+    assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": "half"}}, ctx) is None

@@ -8,8 +8,8 @@ from collections import defaultdict
 
 import numpy as np
 import polars as pl
-from arena_simulation_setup.shared.conditions import Atom, EpisodeCondition, parse_atom
-from arena_simulation_setup.shared.judge import Sample, WallGrid, atom_holds, operator_verdict, values_equal, zone_polygons
+from arena_simulation_setup.shared.conditions import EpisodeCondition, Node
+from arena_simulation_setup.shared.judge import NodeMonitor, Sample, WallGrid, operator_verdict, values_equal, zone_polygons
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _ENV_PREFIX = re.compile(r"^env_\d+/")
 _ROBOT_DIR_PREFIX = re.compile(r"^env_\d+_")
+_WORLD_OBJECT_PREFIX = "world_"
 
 _level_cache: dict[str, Level | None] = {}
 _world_cache: dict[str, list[_ZoneGeometry] | None] = {}
@@ -48,7 +49,7 @@ def _values_equal(recorded: str, expected: str) -> bool:
 
 
 def _entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
-    """Bare entity name -> recorded sim_path, for names resolving to a single sim_path, a world entity also by its name without the level suffix."""
+    """Bare entity name -> recorded sim_path, for names resolving to a single sim_path, a world entity also by its name without the level suffix or the world object prefix."""
     if snapshot is None or len(snapshot) == 0 or "entity" not in snapshot.columns:
         return {}
     paths: dict[str, set[str]] = defaultdict(set)
@@ -58,6 +59,8 @@ def _entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
     for bare, recorded in paths.items():
         if "/" in bare:
             unsuffixed[bare.rsplit("/", 1)[0]] |= recorded
+        if bare.startswith(_WORLD_OBJECT_PREFIX):
+            unsuffixed[bare.removeprefix(_WORLD_OBJECT_PREFIX)] |= recorded
     roster = {name: next(iter(p)) for name, p in unsuffixed.items() if name not in paths and len(p) == 1}
     return roster | {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
 
@@ -86,6 +89,17 @@ def _entity_field_series(events: pl.DataFrame, entity: str, field: str) -> tuple
     """Sorted (event times, values) for one recorded entity and field."""
     rows = events.filter((pl.col("entity") == entity) & (pl.col("field") == field)).sort("time_ns")
     return rows["time_ns"].to_numpy(), rows["current"].to_list()
+
+
+def _entity_family_series(events: pl.DataFrame, entity: str, family: str) -> dict[str, tuple[np.ndarray, list[str]]]:
+    """Sorted (event times, values) of every `<family>.<member>` field of one recorded entity, keyed by member."""
+    prefix = f"{family}."
+    rows = events.filter((pl.col("entity") == entity) & pl.col("field").str.starts_with(prefix)).sort("time_ns")
+    series: dict[str, tuple[np.ndarray, list[str]]] = {}
+    for (field,), group in rows.group_by(["field"], maintain_order=True):
+        ordered = group.sort("time_ns")
+        series[str(field).removeprefix(prefix)] = (ordered["time_ns"].to_numpy(), ordered["current"].to_list())
+    return series
 
 
 def _value_at(times: np.ndarray, values: list[str], t_ns: int) -> str:
@@ -187,6 +201,7 @@ class _EvalContext:
     walls: WallGrid | None = None
     clips: list[dict[str, frozenset[str]]] | None = None
     _fields: dict[tuple[str, str], tuple[np.ndarray, list[str]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
+    _families: dict[tuple[str, str], dict[str, tuple[np.ndarray, list[str]]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     _ped_rows: tuple[list, list] | None = dataclasses.field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -203,6 +218,16 @@ class _EvalContext:
         if series is None:
             return None
         return _value_at(series[0], series[1], t_ns)
+
+    def family_at(self, entity: str, family: str, t_ns: int) -> dict[str, str] | None:
+        key = (entity, family)
+        if key not in self._families:
+            recorded = self.entity_roster.get(entity)
+            self._families[key] = None if recorded is None else _entity_family_series(self.events, recorded, family)
+        members = self._families[key]
+        if members is None:
+            return None
+        return {member: _value_at(times, values, t_ns) for member, (times, values) in members.items()}
 
     def peds_at(self, i: int) -> dict[str, tuple[float, float]]:
         if self._ped_rows is None:
@@ -229,35 +254,24 @@ class _EvalContext:
         t_ns = int(self.time_ns[i])
         known = frozenset(self.ped_roster) | frozenset(self.fleet)
         clips = self.clips[i] if self.clips is not None else {}
-        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls)
+        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls, family=lambda entity, family: self.family_at(entity, family, t_ns))
 
     @property
     def polygons(self) -> dict[str, shapely.Polygon]:
         return {name: zone.polygon for name, zone in self.zones_by_name.items()}
 
 
-def _atom_series(atom: Atom, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
-    """Boolean series of one atom over the context axis, (None, False) when any sample cannot resolve it."""
+def _node_series(node: Node, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
+    """Boolean series of one condition node stepped over the context axis in time order, (None, False) when any sample cannot resolve it."""
     polygons = ctx.polygons
+    monitor = NodeMonitor(node, "robot")
     series = np.zeros(len(ctx.time_ns), dtype=bool)
     for i in range(len(ctx.time_ns)):
-        value = atom_holds(atom, ctx.sample(i), polygons, "robot")
+        value = monitor.step(ctx.sample(i), polygons)
         if value is None:
             return None, False
         series[i] = value
     return series, True
-
-
-def _entity_atom_series(atom: Atom, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
-    return _atom_series(atom, ctx)
-
-
-def _robot_zone_series(atom: Atom, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
-    return _atom_series(atom, ctx)
-
-
-def _ped_zone_series(atom: Atom, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
-    return _atom_series(atom, ctx)
 
 
 def _operator_verdict(
@@ -274,15 +288,13 @@ def _clause_verdict(clause: dict, ctx: _EvalContext) -> bool | None:
     """Score one clause dict, returning UNKNOWN (None) on any malformed or unresolvable input."""
     try:
         cond = EpisodeCondition.parse(clause)
-        p_atom = parse_atom(cond.p)
-        q_atom = parse_atom(cond.q) if cond.q is not None else None
     except Exception:
         return None
 
-    p_series, p_ok = _atom_series(p_atom, ctx)
-    if q_atom is None:
+    p_series, p_ok = _node_series(cond.p_node, ctx)
+    if cond.q_node is None:
         return _operator_verdict(cond.op, p_series, p_ok, None, False)
-    q_series, q_ok = _atom_series(q_atom, ctx)
+    q_series, q_ok = _node_series(cond.q_node, ctx)
     return _operator_verdict(cond.op, p_series, p_ok, q_series, q_ok)
 
 
@@ -306,9 +318,9 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
     Offline verdicts for the episode's `conditions` clause list (SPEC_M3 M3.3).
 
     Each clause is one of five operators (`always`, `never`, `eventually`, `before`,
-    `never_during`) over atoms judged per odom sample by the shared judge
+    `never_during`) over conditions, text atoms or structured nodes with holds, stepped in order over the odom samples by the shared judge
     (`arena_simulation_setup.shared.judge`), the same code the task generator runs
-    online: `entity.field == value` from the stepwise `semantic_snapshot` series (seeded
+    online: entity fields and field families from the stepwise `semantic_snapshot` series (seeded
     by the latest snapshot at-or-before the episode start), `<subject> in <zone>`,
     `<subject> within <r> of <subject>` and `robot sees <ped> within <r>` on the ego
     pose, other robots' recorded judge poses and recorded pedestrians, against zone

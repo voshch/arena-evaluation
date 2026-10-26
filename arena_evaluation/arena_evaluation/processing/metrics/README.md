@@ -73,7 +73,9 @@ shared plumbing in `ecological/mechanism_common.py`.
 
 **Naming.** The recorder names a robot `<env>_<ns>` (`env_0_jackal`, `robot` column); semantic
 `members` carry sim paths (`env_0/jackal`, peds `env_0/Pedestrian_5`); entities are
-`<env>/<authored name>[/<level>]`. `RobotIdentity` matches all spellings. Ped tracks record
+`<env>/<authored name>[/<level>]`, a level object's `<env>/world_<authored name>`. `RobotIdentity`
+matches all spellings, and a replayed condition names an entity as authored, without env, level
+suffix or `world_` while the name stays unique. Ped tracks record
 `peds_names` (same sim paths) from this version on; older recordings key peds by array index.
 Multi-env snapshots are scoped to the robot's env. When a kind never lists a member in an episode
 (recordings before per-agent members), robot presence falls back to world geometry.

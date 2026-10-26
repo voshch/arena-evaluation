@@ -181,6 +181,7 @@ def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | 
 
 
 _RECORD_RUNNING = 1  # task_generator_msgs/msg/EpisodeRecord.RUNNING
+_RECORD_SUCCESS = 2  # task_generator_msgs/msg/EpisodeRecord.SUCCESS
 
 
 def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | None, int | None]:
@@ -354,13 +355,42 @@ def _outcome_verdict(outcome_state: int | None, outcome_info: str | None) -> tup
     return _OUTCOME_VERDICTS.get(outcome_state, ("UNRESOLVED", False))
 
 
+def _episode_rows(record: pl.DataFrame) -> pl.DataFrame:
+    """The episode's own records in publish order, up to its first terminal record after it ran, without the next episode's queued records that share its last timestamp."""
+    df = record.sort("time_ns", maintain_order=True)
+    if "outcome_state" not in df.columns:
+        return df
+    states = df["outcome_state"].to_list()
+    started = next((i for i, state in enumerate(states) if state == _RECORD_RUNNING), None)
+    if started is None:
+        return df
+    end = next((i for i in range(started, len(states)) if states[i] is not None and states[i] >= _RECORD_SUCCESS), None)
+    return df if end is None else df.head(end + 1)
+
+
+def _record_conditions(record: pl.DataFrame) -> list[dict] | None:
+    """The episode's conditions: the last of its own records whose `conditions` JSON is a non-empty list."""
+    import json
+
+    if "conditions" not in record.columns or "time_ns" not in record.columns:
+        return None
+    for raw in reversed(_episode_rows(record)["conditions"].to_list()):
+        try:
+            parsed = json.loads(raw) if raw else None
+        except ValueError:
+            continue
+        if parsed:
+            return parsed
+    return None
+
+
 def _record_outcome(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunMetadata | None) -> tuple[int | None, str | None]:
     """(outcome_state, outcome_info): the episode's own terminal record, else the runner's yaml outcome, else the last record."""
     df = record.collect() if isinstance(record, pl.LazyFrame) else record
     rows = df is not None and len(df) > 0 and "outcome_state" in df.columns and "time_ns" in df.columns
     if rows:
         assert df is not None
-        df = df.sort("time_ns")
+        df = _episode_rows(df)
         running = df.filter(pl.col("outcome_state") == _RECORD_RUNNING)
         after = df.filter(pl.col("time_ns") > running["time_ns"][0]) if len(running) else df
         terminal = after.filter(pl.col("outcome_state") != _RECORD_RUNNING)
@@ -647,16 +677,9 @@ class ProcessingPipeline:
                     if isinstance(er, pl.LazyFrame):
                         er = er.collect()
                     if len(er) > 0:
-                        import json
-
-                        try:
-                            cond_raw = next((c for c in reversed(er.sort("time_ns")["conditions"].to_list()) if c), None) if "conditions" in er.columns and "time_ns" in er.columns else None
-                            if cond_raw:
-                                conditions = json.loads(cond_raw)
-                        except Exception:
-                            conditions = None
+                        conditions = _record_conditions(er)
                         if "outcome_state" in er.columns and "time_ns" in er.columns:
-                            phases = _robot_phases(er.sort("time_ns"), robot_name)
+                            phases = _robot_phases(_episode_rows(er), robot_name)
                         outcome_state, outcome_info = _record_outcome(er, metadata)
 
                 integrity = _record_integrity(bundle.episode_record, metadata)

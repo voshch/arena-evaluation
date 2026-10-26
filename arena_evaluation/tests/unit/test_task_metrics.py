@@ -304,3 +304,15 @@ def test_replay_of_a_recorded_loop_expansion_skips_the_dropped_iteration():
     assert results["phase_outcomes"] == ["met", "met", "met", "dropped", "met"]
     assert results["goal_condition_rate"] == 0.8
     assert results["judge_agrees"] is True
+
+
+def test_replay_judges_a_structured_family_until_with_its_hold():
+    phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0, "until": {"some": "drawer.openness", "ge": 0.5, "for": 1}}], "conditions": []}
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0), (3.0, 1.0, 1.0)])
+    drawer = [(0, "env_0/drawer", "articulated", "openness.left", "0.1"), (0, "env_0/drawer", "articulated", "openness.right", "0.0"), (int(1.5 * S), "env_0/drawer", "articulated", "openness.left", "0.9")]
+    held = _snapshot(_robot_rows(0, "0") + drawer + _robot_rows(int(3.5 * S), "", met="0"))
+    assert _calc().calculate(_episode(phases, poses, held), {})["judge_agrees"] is True
+    early = _snapshot(_robot_rows(0, "0") + drawer + _robot_rows(int(2.1 * S), "", met="0"))
+    results = _calc().calculate(_episode(phases, poses, early), {})
+    assert results["judge_agrees"] is False
+    assert results["judge_disagreements"] == ["phase 0 recorded as met but not met in replay"]
