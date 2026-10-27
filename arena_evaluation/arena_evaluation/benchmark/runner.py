@@ -825,6 +825,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._sim_recover_lock = asyncio.Lock()
         self._retry_budget = _RetryBudget(retries=self._retries, max_sim_deaths=self._max_sim_deaths)
         self._runtime_started_at = 0.0
+        self._runtime_up = asyncio.Event()
         self._arena_watch: asyncio.Task | None = None
 
         self.create_subscription(EnvRegistry, "/arena/state/envs", self._on_envs, _LATCHED)
@@ -868,11 +869,13 @@ class BenchmarkRunner(ArenaMixinNode):
         self._env_records = {e.env_id: e for e in msg.envs}
 
     def _on_sim_state(self, msg: SimState) -> None:
-        if msg.alive:
-            return
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if stamp < self._runtime_started_at:
-            _log.debug(f"ignoring stale sim death stamped {stamp:.3f}, this runtime started at {self._runtime_started_at:.3f}")
+            if not msg.alive:
+                _log.debug(f"ignoring stale sim death stamped {stamp:.3f}, this runtime started at {self._runtime_started_at:.3f}")
+            return
+        if msg.alive:
+            self._set_event(self._runtime_up)
             return
         self._mark_sim_dead(msg.reason or "sim reported dead")
 
@@ -1432,9 +1435,8 @@ class BenchmarkRunner(ArenaMixinNode):
             _log.error(f"spawn_env stalled for {launch_step.key} (no progress/output for {inactivity_timeout:.0f}s); despawning orphaned env(s) {orphans}")
             for env_id in orphans:
                 await self._despawn_env(env_id)
-            if self._sim_dead.is_set():
-                raise _SimDied(self._sim_dead_reason) from None
-            return None
+            self._mark_sim_dead(f"spawn_env stalled for {launch_step.key}")
+            raise _SimDied(self._sim_dead_reason) from None
 
     async def _spawn_and_setup_env_impl(self, launch_step: Step, registered: list[int]) -> tuple[int, str] | None:
         """Inner impl without timeout, called by _spawn_and_setup_env. Appends the spawned env_id to registered."""
@@ -1912,6 +1914,7 @@ class BenchmarkRunner(ArenaMixinNode):
                 outer = proc_env.get("ARENA_WORLD_PATH")
                 proc_env["ARENA_WORLD_PATH"] = f"{outer}:{worlds_dir}" if outer else str(worlds_dir)
 
+        self._runtime_up.clear()
         self._runtime_started_at = time.time()
         self._arena_proc = subprocess.Popen(
             cmd,
@@ -1922,6 +1925,7 @@ class BenchmarkRunner(ArenaMixinNode):
         )
         self._arena_watch = asyncio.create_task(self._watch_arena_proc(self._arena_proc), name="arena_proc_watch")
 
+        await self._await_alive(self._await_hb(self._runtime_up.wait(), "the new arena_node to report the sim alive"), what="arena_node startup")
         await self._await_alive(self._spawn.ensure(timeout_sec=300.0), what="spawn_env service")
         await self._await_alive(self._despawn.ensure(timeout_sec=300.0), what="despawn_env service")
 

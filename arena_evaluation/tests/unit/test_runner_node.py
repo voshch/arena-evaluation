@@ -158,6 +158,34 @@ def test_sim_state_latches_death_and_ignores_alive_and_stale_reports(tmp_path: p
     assert _drive(tmp_path, body) == [(False, ""), (False, ""), (True, "sim reported dead"), (True, "gz segfault")]
 
 
+def test_only_an_alive_report_from_the_current_runtime_marks_it_up(tmp_path: pathlib.Path):
+    async def body(runner: BenchmarkRunner) -> list[bool]:
+        alive = SimState(alive=True)
+        seen = []
+        runner._runtime_started_at = 100.0
+        alive.header.stamp.sec = 50
+        runner._on_sim_state(alive)
+        await _settle()
+        seen.append(runner._runtime_up.is_set())
+        alive.header.stamp.sec = 150
+        runner._on_sim_state(alive)
+        await _settle()
+        seen.append(runner._runtime_up.is_set())
+        seen.append(runner._sim_dead.is_set())
+        return seen
+
+    assert _drive(tmp_path, body) == [False, True, False]
+
+
+def test_a_stalled_spawn_marks_the_sim_dead(tmp_path: pathlib.Path):
+    async def body(runner: BenchmarkRunner) -> tuple[str, bool]:
+        with pytest.raises(_SimDied) as raised:
+            await runner._spawn_and_setup_env(_step(), inactivity_timeout=0.0)
+        return str(raised.value), runner._sim_dead.is_set()
+
+    assert _drive(tmp_path, body) == ("spawn_env stalled for dwb/s1", True)
+
+
 def test_only_foreign_holders_count_as_env_holds(tmp_path: pathlib.Path):
     async def body(runner: BenchmarkRunner) -> list[bool]:
         seen = []
