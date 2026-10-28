@@ -27,6 +27,7 @@ import attrs
 import rclpy
 import yaml
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
+from arena_bringup.defaults import default_sim
 from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_rclpy_mixins import ActionClientWrapper, ArenaMixinNode, ClientWrapper
@@ -2461,7 +2462,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         arena_passthrough = runtime_launch_args(suite.launch_args, arena_passthrough)
         env_n = int(arena_passthrough.get("env.n", "1"))
         headless = arena_passthrough.get("headless", "false").lower() in ("true", "1")
-        simulator = arena_passthrough.get("sim", None)
+        simulator = arena_passthrough.setdefault("sim", default_sim())
 
         steps = _all_steps(contest, suite, scale_episodes)
         if not args.resume:
