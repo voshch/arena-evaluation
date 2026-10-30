@@ -3,7 +3,7 @@ import pathlib
 import polars as pl
 import pytest
 from arena_evaluation.processing.parquet_store import ParquetStore
-from arena_evaluation.processing.pipeline import _METRIC_DTYPES, _metadata_robot, _outcome_verdict, _record_outcome, _status_row
+from arena_evaluation.processing.pipeline import _METRIC_DTYPES, _metadata_robot, _outcome_verdict, _record_conditions, _record_outcome, _status_row
 from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata, TopicBundle
 
 
@@ -48,6 +48,21 @@ def test_record_outcome_prefers_last_record_over_metadata() -> None:
     assert _record_outcome(record, _meta(2)) == (3, "collision")
     assert _record_outcome(None, _meta(2, "finished")) == (2, "finished")
     assert _record_outcome(None, None) == (None, None)
+
+
+def test_record_conditions_skip_the_next_episodes_empty_reset_records() -> None:
+    kept = '[{"op": "always", "p": {"each": "chest.openness", "le": 0.05}}]'
+    record = pl.DataFrame({"time_ns": [0, 2, 9, 9], "conditions": ["[]", kept, "[]", "not json"]})
+    assert _record_conditions(record) == [{"op": "always", "p": {"each": "chest.openness", "le": 0.05}}]
+    ended = pl.DataFrame({"time_ns": [0, 2, 9, 9], "outcome_state": [0, 1, 2, 0], "outcome_info": ["", "", "", ""], "conditions": ["[]", kept, kept, '[{"op": "never", "p": "robot in x"}]']})
+    assert _record_conditions(ended) == [{"op": "always", "p": {"each": "chest.openness", "le": 0.05}}]
+    assert _record_conditions(pl.DataFrame({"time_ns": [0], "conditions": ["[]"]})) is None
+    assert _record_conditions(pl.DataFrame({"time_ns": [0]})) is None
+
+
+def test_record_outcome_ignores_the_next_episodes_queued_record_at_the_same_time() -> None:
+    record = pl.DataFrame({"time_ns": [0, 1, 9, 9, 9], "outcome_state": [0, 1, 2, 0, 0], "outcome_info": ["", "", "finished", "", ""]})
+    assert _record_outcome(record, None) == (2, "finished")
 
 
 def test_status_row_carries_identity_and_verdict() -> None:

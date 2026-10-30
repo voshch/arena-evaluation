@@ -64,7 +64,10 @@ Log-growth watching stays only as the fallback around spawn, for "nothing is dea
 
 `SimState` carries a wall-time `header.stamp`. The runner remembers when it started the current
 `arena_runtime` and ignores any dead message stamped before that, so the latched death of the
-previous runtime cannot kill the new one. `_restart_arena` clears the latch as well.
+previous runtime cannot kill the new one. `_restart_arena` clears the latch as well. The
+same stamp gates startup: `_start_arena` waits for an `alive: true` report stamped after the
+launch before it touches the spawn service, since a killed `arena_node` keeps its services in
+the DDS graph until its lease expires and a request sent there is never answered.
 
 A step interrupted by a sim death is recorded `failed` with `error_kind=sim_dead`, which is
 part of the systemic set. Exactly one worker restarts the runtime per death (an asyncio lock
@@ -87,7 +90,10 @@ A despawn whose service call or registry wait times out marks the sim dead with 
 A spawn that stalls past `--spawn-budget` despawns not just the env it registered a response
 for, but every env that showed up on `/arena/state/envs` during the wait and never went
 `ready`: `arena_node` reserves an env before it activates, so a spawn that stalls before
-`SpawnEnv` returns can still leave a live, unregistered env behind.
+`SpawnEnv` returns can still leave a live, unregistered env behind. The stall then marks the
+sim dead with reason `spawn_env stalled for <key>`, so the block recovers the runtime and spawns
+again under `--max-sim-deaths` instead of failing its queued cells. `<key>` is the block's
+representative cell, which the spawn launches, not necessarily the cell that runs next.
 
 Episode budgets are sim time, enforced by the task generator through its `task.episode.timeout` parameter
 (a timed-out episode arrives as a normal FAILED `EpisodeRecord` with `outcome_info='timeout'`).
