@@ -256,8 +256,10 @@ def test_suite_lists_the_seventeen_episodes_with_their_time_budgets(suite: dict)
 
 
 def test_bundled_scenario_holds_the_episode_start_and_goal(out: Path):
+    import numpy as np
     from arena_simulation_setup.shared.task import GoToPhase
     from arena_simulation_setup.tree.World.Scenario import RobotGoal
+    from task_generator.adapters.eth_ucy import SEQUENCES, in_meters
 
     scenario = yaml.safe_load((out / "suites" / "socnavbench" / "worlds" / "socnavbench_eth" / "scenarios" / "t_eth_dense_against" / "scenario.yaml").read_text())
     assert scenario.keys() == {"format", "humans", "robots"}
@@ -268,8 +270,9 @@ def test_bundled_scenario_holds_the_episode_start_and_goal(out: Path):
     assert isinstance(phase, GoToPhase)
     assert (goal.start.position.x, phase.pose.position.y) == pytest.approx((13.4, 11.1))
     zara = yaml.safe_load((out / "suites" / "socnavbench" / "worlds" / "socnavbench_zara" / "scenarios" / "t_zara2_wrap" / "scenario.yaml").read_text())
-    assert zara["robots"][0]["start"][:2] == [-10.5, -10.0]
-    assert zara["robots"][0]["phases"][0]["goto"][:2] == [8.0, -5.0]
+    x, y = in_meters(SEQUENCES["zara02"].to_meters, np.array([-10.5, 8.0]), np.array([-10.0, -5.0]))
+    assert zara["robots"][0]["start"][:2] == pytest.approx([x[0], y[0]], abs=1e-3)
+    assert zara["robots"][0]["phases"][0]["goto"][:2] == pytest.approx([x[1], y[1]], abs=1e-3)
 
 
 def test_contest_pins_the_goal_margin_and_keeps_the_episode_running(out: Path):
