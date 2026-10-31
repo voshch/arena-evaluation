@@ -140,3 +140,23 @@ def test_main_writes_the_summary_and_skips_unreadable_episodes(tmp_path: pathlib
     assert (summary["source"], summary["episodes"], summary["transitions"]) == ("recorded", 1, 1)
     assert summary["transition_ticks"]["ticks"] == 2
     assert "skip episode_001" in capsys.readouterr().err
+
+
+def test_ped_angles_read_the_body_pose_and_fall_back_to_the_recorded_joint_state():
+    from types import SimpleNamespace
+
+    from arena_people_msgs.msg import Pedestrian
+    from arena_simulation_setup.shared.body import semantic_to_body
+    from geometry_msgs.msg import Quaternion
+
+    from arena_evaluation.experiments.blend_quality import ped_angles
+
+    ped = Pedestrian(name="walker", id=1)
+    ped.joint_state.name, ped.joint_state.position = ["l_elbow"], [0.4]
+    assert ped_angles(ped) == {"l_elbow": 0.4}
+    rotations = semantic_to_body({"l_knee": -0.7})
+    ped.body.joints = list(rotations)
+    ped.body.rotations = [Quaternion(x=float(q[0]), y=float(q[1]), z=float(q[2]), w=float(q[3])) for q in rotations.values()]
+    assert ped_angles(ped)["l_knee"] == pytest.approx(-0.7)
+    recorded = SimpleNamespace(joint_state=ped.joint_state)
+    assert ped_angles(recorded) == {"l_elbow": 0.4}
