@@ -10,7 +10,6 @@ no plotting backend or ROS graph is required; parquet files are still real.
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 import types
@@ -291,13 +290,10 @@ def test_resolve_episode_worst_without_metric_column(capsys):
     assert "ped_max_exposure_dba not found" in capsys.readouterr().out
 
 
-def test_resolve_episode_worst_all_null_crashes(capsys):
-    """Suspected bug: 'worst' on a frame with all-null ped_max crashes with
-    polars OutOfBoundsError (empty filter, .row(0)) instead of a graceful
-    message. Pins current behavior."""
+def test_resolve_episode_worst_all_null_reports_no_values(capsys):
     df = pl.DataFrame({"episode": [1, 2], "ped_max_exposure_dba": [None, None]})
-    with pytest.raises(pl.exceptions.OutOfBoundsError):
-        _resolve_episode(df, "worst")
+    assert _resolve_episode(df, "worst") is None
+    assert "ped_max_exposure_dba has no values" in capsys.readouterr().out
 
 
 def test_resolve_episode_loudest_source(capsys):

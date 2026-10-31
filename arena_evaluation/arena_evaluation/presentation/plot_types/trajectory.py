@@ -229,7 +229,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             data_key = self.spec.data_key or "path"
             for _, row in planner_df.iterrows():  # pyright: ignore[reportAttributeAccessIssue]
                 path = row.get(data_key)
-                if path is None or len(path) == 0:
+                if path is None or isinstance(path, float) or len(path) == 0:
                     continue
 
                 paths_to_process = _sub_paths(path)

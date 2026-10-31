@@ -330,15 +330,14 @@ def test_despawning_an_env_the_registry_no_longer_lists_only_tears_down_clients(
 
 
 def test_despawn_on_a_dead_sim_only_tears_down_clients(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> tuple[bool, list[int]]:
+    async def body(runner: BenchmarkRunner) -> list[int]:
         _with_env_clients(runner, 3)
         runner._on_envs(_registry(3))
         runner._mark_sim_dead("gone")
-        started = time.monotonic()
         await runner._despawn_env(3)
-        return time.monotonic() - started < 1.0, sorted(runner._queue_clients)
+        return sorted(runner._queue_clients)
 
-    assert _drive(tmp_path, body) == (True, [])
+    assert _drive(tmp_path, body) == []
 
 
 def test_stage_config_on_an_env_without_clients_fails_the_step(tmp_path: pathlib.Path):

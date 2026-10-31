@@ -4,10 +4,7 @@ Tests for the arena evaluation profiler module.
 
 from __future__ import annotations
 
-import os
 import pathlib
-import signal
-import threading
 import time
 
 import pytest
@@ -20,6 +17,12 @@ def tmp_output(tmp_path: pathlib.Path) -> pathlib.Path:
     out = tmp_path / "profiling_output"
     out.mkdir()
     return out
+
+
+def _wait_for_samples(profiler, count: int = 3) -> None:
+    deadline = time.monotonic() + 30.0
+    while profiler._sample_count < count and time.monotonic() < deadline:
+        time.sleep(0.01)
 
 
 class TestSystemSampler:
@@ -89,7 +92,7 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=10.0)
         profiler.start()
-        time.sleep(0.5)
+        _wait_for_samples(profiler)
         profiler.stop()
 
         assert profiler._stopped is True
@@ -99,7 +102,7 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=10.0)
         profiler.start()
-        time.sleep(0.5)
+        _wait_for_samples(profiler)
         profiler.stop()
 
         yaml_path = tmp_output / "simulation_profile.yaml"
@@ -119,7 +122,7 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=10.0)
         profiler.start()
-        time.sleep(0.5)
+        _wait_for_samples(profiler)
         profiler.stop()
 
         data = yaml.safe_load((tmp_output / "simulation_profile.yaml").read_text())
@@ -137,7 +140,7 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=10.0)
         profiler.start()
-        time.sleep(0.5)
+        _wait_for_samples(profiler)
         profiler.stop()
 
         data = yaml.safe_load((tmp_output / "simulation_profile.yaml").read_text())
@@ -155,18 +158,22 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=5.0)
         profiler.start()
-        time.sleep(0.3)
+        _wait_for_samples(profiler)
+        profiler.stop()
+        written = (tmp_output / "simulation_profile.yaml").read_text()
         profiler.stop()
         profiler.stop()
-        profiler.stop()
+        assert (tmp_output / "simulation_profile.yaml").read_text() == written
 
     def test_start_is_idempotent(self, tmp_output: pathlib.Path):
         from arena_evaluation.benchmark.profiler import SimulationProfiler
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=5.0)
         profiler.start()
+        thread = profiler._thread
         profiler.start()
-        time.sleep(0.2)
+        assert profiler._thread is thread
+        _wait_for_samples(profiler)
         profiler.stop()
 
     def test_disk_io_in_yaml(self, tmp_output: pathlib.Path):
@@ -174,7 +181,7 @@ class TestSimulationProfiler:
 
         profiler = SimulationProfiler(output_dir=tmp_output, sample_hz=10.0)
         profiler.start()
-        time.sleep(0.5)
+        _wait_for_samples(profiler)
         profiler.stop()
 
         data = yaml.safe_load((tmp_output / "simulation_profile.yaml").read_text())

@@ -19,6 +19,7 @@ from arena_evaluation.processing.metrics.ecological.regime_metrics import (
     _windows,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from snapshot_rows import snapshot_frame
 
 
 def _calc():
@@ -38,33 +39,6 @@ def _episode(data, semantic_snapshot=None):
         start_pos=_start_pos(data),
         goal_pos=[],
         semantic_snapshot=semantic_snapshot,
-    )
-
-
-def _snap(rows):
-    """Synthetic long-format snapshot rows: (time_ns, entity, kind, field, field_kind, value)."""
-    time_ns, entity, kind, field, field_kind = [], [], [], [], []
-    value_str, value_num, value_bool = [], [], []
-    for t, e, k, f, fk, v in rows:
-        time_ns.append(t)
-        entity.append(e)
-        kind.append(k)
-        field.append(f)
-        field_kind.append(fk)
-        value_str.append(v if fk == "discrete" else None)
-        value_num.append(float(v) if fk == "continuous" else None)
-        value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame(
-        {
-            "time_ns": time_ns,
-            "entity": entity,
-            "kind": kind,
-            "field": field,
-            "field_kind": field_kind,
-            "value_str": value_str,
-            "value_num": value_num,
-            "value_bool": value_bool,
-        }
     )
 
 
@@ -379,7 +353,7 @@ def test_calculate_used_elevator_during_alarm_end_to_end_without_world():
             "yaw": [0.0, 0.0, 0.0],
         }
     )
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
             (5_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", False),
@@ -408,7 +382,7 @@ def test_calculate_replan_latency_end_to_end():
             "angular_z": [0.0, 0.0, 0.0, 0.0, 0.0],
         }
     )
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
             (1_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
@@ -437,7 +411,7 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
             "yaw": [0.0, 0.0, 0.0, 0.0],
         }
     )
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/lobby", "occupancy_cap", "over_cap", "predicate", True),
             (4_000_000_000, "env_0/lobby", "occupancy_cap", "over_cap", "predicate", False),
@@ -463,7 +437,7 @@ def test_calculate_ran_red_signal_with_cached_world():
             "yaw": [0.0, 0.0, 0.0],
         }
     )
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/crossing_1", "signal", "stop", "predicate", True),
             (3_000_000_000, "env_0/crossing_1", "signal", "stop", "predicate", False),
@@ -499,7 +473,7 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none():
                 "yaw": [0.0, 0.0, 0.0],
             }
         )
-        snapshot = _snap(
+        snapshot = snapshot_frame(
             [
                 (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
                 (5_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", False),
@@ -581,7 +555,7 @@ def test_calculate_ran_red_signal_with_cached_signal_geometry():
     calc.world = "synthetic_world_signal_pos"
     calc._world_cache["synthetic_world_signal_pos"] = ([], [], [SignalGeom("crossing_1", "0", 20.0, 20.0, 1.0)])
     data = pl.DataFrame({"time_ns": [0, 1_000_000_000, 2_000_000_000], "pos_x": [25.0, 20.0, 25.0], "pos_y": [20.0, 20.0, 20.0], "yaw": [0.0] * 3})
-    snapshot = _snap([(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)])
+    snapshot = snapshot_frame([(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)])
 
     assert calc.calculate(_episode(data, semantic_snapshot=snapshot), {})["ran_red_signal"] == 1
 
@@ -618,7 +592,7 @@ def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
 
 def test_calculate_used_elevator_during_alarm_robot_needs_robot_name():
     data = pl.DataFrame({"time_ns": [0, 1_000_000_000, 6_000_000_000], "pos_x": [0.0] * 3, "pos_y": [0.0] * 3, "yaw": [0.0] * 3})
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
             (2_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 1.0),

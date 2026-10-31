@@ -1,58 +1,30 @@
 import pytest
-import pathlib
-import polars as pl
-from unittest.mock import patch, MagicMock
+
+pytest.importorskip("mcap_ros2.writer")
+
 from arena_evaluation.processing.mcap_reader import MCAPReader
+from test_mcap_reader_topics import ODOMETRY, _header, _write_bag
+
+
+def _odom(x: float) -> dict:
+    return {"header": _header(frame_id="odom"), "pose": {"pose": {"position": {"x": x, "y": 0.0}, "orientation": {"w": 1.0}}}, "twist": {"twist": {}}}
 
 
 def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
-    reader = MCAPReader(tmp_path)
-    # create dummy dir so it passes existence check
-    dummy_mcap = tmp_path / "test.mcap"
-    dummy_mcap.touch()
+    bag = _write_bag(
+        tmp_path / "episode.mcap",
+        [
+            ("/env_0/odom", ODOMETRY, _odom(5.0), 5000),
+            ("/env_0/odom", ODOMETRY, _odom(1.0), 1000),
+            ("/env_0/odom", ODOMETRY, _odom(1.1), 1000),
+            ("/env_0/odom", ODOMETRY, _odom(3.0), 3000),
+        ],
+    )
 
-    with patch("arena_evaluation.processing.mcap_reader.NonSeekingReader") as mock_reader_cls, patch("builtins.open", new_callable=MagicMock):
-        mock_instance = mock_reader_cls.return_value
-        mock_instance.__enter__.return_value = mock_instance
+    odom = MCAPReader(bag).read(tmp_path / "raw")["env_0"].odom.collect()
 
-        # Mocking iter_messages to return unsorted and duplicate messages
-        Schema = MagicMock()
-
-        Channel = MagicMock()
-        Channel.topic = "/env_0_robot/odom"
-
-        def make_msg(ts_ns, x):
-            msg = MagicMock()
-            msg.log_time = ts_ns
-            msg.data = b""
-            ros_msg = MagicMock()
-            ros_msg.header.stamp.sec = 0
-            ros_msg.header.stamp.nanosec = ts_ns
-            ros_msg.pose.pose.position.x = x
-            ros_msg.pose.pose.position.y = 0
-            ros_msg.pose.pose.orientation.w = 1.0
-            ros_msg.pose.pose.orientation.x = 0
-            ros_msg.pose.pose.orientation.y = 0
-            ros_msg.pose.pose.orientation.z = 0
-            ros_msg.twist.twist.linear.x = 0
-            ros_msg.twist.twist.angular.z = 0
-            return (Schema, Channel, msg, ros_msg)
-
-        msgs = [
-            make_msg(5000, 5.0),
-            make_msg(1000, 1.0),
-            make_msg(1000, 1.1),  # Duplicate timestamp
-            make_msg(3000, 3.0),
-        ]
-
-        mock_instance.iter_messages.return_value = [(s, c, m) for s, c, m, _ in msgs]
-
-        def mock_decoder(data):
-            pass
-
-        with patch("arena_evaluation.processing.mcap_reader.DecoderFactory"):
-            # It's tricky to mock the local decoder function.
-            pass
+    assert odom["time_ns"].to_list() == [1000, 1000, 3000, 5000]
+    assert odom["pos_x"].to_list() == [1.0, 1.1, 3.0, 5.0]
 
 
 def test_unflatten_dict_adversarial():

@@ -99,7 +99,11 @@ def _resolve_episode(df: pl.DataFrame, episode_spec: str) -> str | None:
         return None
 
     if episode_spec == "worst":
-        best = df.filter(pl.col("ped_max_exposure_dba").is_not_null()).sort("ped_max_exposure_dba", descending=True).row(0, named=True)
+        measured = df.filter(pl.col("ped_max_exposure_dba").is_not_null())
+        if measured.is_empty():
+            print("Error: ped_max_exposure_dba has no values. Cannot resolve the worst episode.")
+            return None
+        best = measured.sort("ped_max_exposure_dba", descending=True).row(0, named=True)
         ep = int(best.get("episode", 0))
         print(f"Using worst episode: episode_{ep:03d} (max={best['ped_max_exposure_dba']:.1f} dBA)")
         return f"episode_{ep:03d}"

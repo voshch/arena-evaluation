@@ -18,6 +18,7 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _speed_zone_metrics,
     _zone_membership,
 )
+from snapshot_rows import snapshot_frame
 
 
 def _calc():
@@ -37,33 +38,6 @@ def _episode(data, semantic_snapshot=None):
         start_pos=_start_pos(data),
         goal_pos=[],
         semantic_snapshot=semantic_snapshot,
-    )
-
-
-def _snap(rows):
-    """Synthetic long-format snapshot rows: (time_ns, entity, kind, field, field_kind, value)."""
-    time_ns, entity, kind, field, field_kind = [], [], [], [], []
-    value_str, value_num, value_bool = [], [], []
-    for t, e, k, f, fk, v in rows:
-        time_ns.append(t)
-        entity.append(e)
-        kind.append(k)
-        field.append(f)
-        field_kind.append(fk)
-        value_str.append(v if fk == "discrete" else None)
-        value_num.append(float(v) if fk == "continuous" else None)
-        value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame(
-        {
-            "time_ns": time_ns,
-            "entity": entity,
-            "kind": kind,
-            "field": field,
-            "field_kind": field_kind,
-            "value_str": value_str,
-            "value_num": value_num,
-            "value_bool": value_bool,
-        }
     )
 
 
@@ -193,7 +167,7 @@ def test_door_open_series_and_query():
 
 def test_doorway_blocking_time_requires_stationary_and_open():
     doors = [_DoorGeometry(name="door_1", center_x=0.0, center_y=0.0, radius=1.0)]
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "state", "discrete", "open"),
             (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
@@ -396,7 +370,7 @@ def test_reconstruct_events_empty_without_snapshot():
 
 
 def test_reconstruct_events_seeds_first_row_and_collapses_duplicates():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "state", "discrete", "closed"),
             (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "closed"),  # unchanged, dropped
@@ -414,7 +388,7 @@ def test_reconstruct_events_seeds_first_row_and_collapses_duplicates():
 
 
 def test_reconstruct_events_stringifies_predicate_and_continuous():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
             (1_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
@@ -433,7 +407,7 @@ def test_reconstruct_events_stringifies_predicate_and_continuous():
 
 
 def test_reconstruct_events_keeps_members_as_sorted_joined_names():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/lobby", "occupancy_cap", "cap", "continuous", 2.0),
         ]
@@ -501,7 +475,7 @@ def test_door_open_series_keys_by_authored_name_with_level_suffix():
 
 
 def test_reconstruct_events_independent_per_entity_and_field():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "state", "discrete", "closed"),
             (0, "env_0/door_2", "door", "state", "discrete", "open"),
