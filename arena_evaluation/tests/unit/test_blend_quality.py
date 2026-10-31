@@ -106,8 +106,8 @@ def _fk(angles: dict, _body: object) -> tuple[dict, dict]:
 
 
 def test_analyze_episode_flags_a_snap_inside_a_transition_window(tmp_path: pathlib.Path) -> None:
-    pytest.importorskip("task_generator.simulators.human.gestures.qa")
-    pytest.importorskip("task_generator.simulators.human.pointing.contract")
+    pytest.importorskip("arena_runtime.humans.gestures.qa")
+    pytest.importorskip("arena_runtime.humans.pointing.contract")
     result = B.analyze_episode(_bag(tmp_path / "bag"), _fk, None, source="recorded")
     assert (result["episode"], result["peds"], result["events"], result["events_over_gate"]) == ("bag", 1, 1, 1)
     assert result["trans"].tolist() == pytest.approx([0.3, 0.0])
@@ -120,7 +120,7 @@ def test_analyze_episode_flags_a_snap_inside_a_transition_window(tmp_path: pathl
 
 def test_replay_runs_the_recorded_inputs_through_the_current_layer() -> None:
     pytest.importorskip("arena_people_msgs.msg")
-    pytest.importorskip("task_generator.simulators.human.animation_manager")
+    pytest.importorskip("arena_runtime.humans.animation_manager")
     inputs = {1: [(1.0, 0, 0.0, (1.0, 2.0, 0.0), ()), (1.05, 0, 0.0, (1.0, 2.0, 0.0), ())]}
     out = B.replay(inputs)
     assert [t for t, _ in out[1]] == [1.0, 1.05]
@@ -128,8 +128,8 @@ def test_replay_runs_the_recorded_inputs_through_the_current_layer() -> None:
 
 
 def test_main_writes_the_summary_and_skips_unreadable_episodes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
-    pytest.importorskip("task_generator.simulators.human.pointing.skeleton")
-    pytest.importorskip("task_generator.simulators.human.gestures")
+    pytest.importorskip("arena_runtime.humans.pointing.skeleton")
+    pytest.importorskip("arena_runtime.humans.gestures")
     bench = tmp_path / "bench"
     (bench / "episodes").mkdir(parents=True)
     _bag(bench / "episodes" / "episode_000")

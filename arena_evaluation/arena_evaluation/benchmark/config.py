@@ -7,7 +7,7 @@ import re
 import typing
 
 import attrs
-from task_generator.constants import Constants
+from task_generator.modes import Modes
 
 _DUR_RE = re.compile(r'(\d+(?:\.\d+)?)\s*(ms|s|m|h)?')
 
@@ -87,8 +87,8 @@ class Suite(typing.NamedTuple):
         episodes: int
         robot: str
         map: str
-        tm_robots: Constants.TaskMode.TM_Robots
-        tm_obstacles: Constants.TaskMode.TM_Obstacles
+        tm_robots: Modes.TM_Robots
+        tm_obstacles: Modes.TM_Obstacles
         config: dict
         seed: int
         timeout: float
@@ -101,7 +101,7 @@ class Suite(typing.NamedTuple):
                 return {k: cls._make_serializable(v) for k, v in item.items()}
             if isinstance(item, (list, tuple)):
                 return [cls._make_serializable(i) for i in item]
-            if isinstance(item, (Constants.TaskMode.TM_Robots, Constants.TaskMode.TM_Obstacles)):
+            if isinstance(item, (Modes.TM_Robots, Modes.TM_Obstacles)):
                 return item.value
             return item
 
@@ -123,16 +123,16 @@ class Suite(typing.NamedTuple):
             if "tm_robots" in obj:
                 v = obj["tm_robots"]
                 if isinstance(v, str):
-                    obj["tm_robots"] = Constants.TaskMode.TM_Robots[v.upper()]
-                elif isinstance(v, Constants.TaskMode.TM_Robots):
+                    obj["tm_robots"] = Modes.TM_Robots[v.upper()]
+                elif isinstance(v, Modes.TM_Robots):
                     pass
                 else:
                     raise ValueError(f"invalid tm_robots type: {type(v)}")
             if "tm_obstacles" in obj:
                 v = obj["tm_obstacles"]
                 if isinstance(v, str):
-                    obj["tm_obstacles"] = Constants.TaskMode.TM_Obstacles[v.upper()]
-                elif isinstance(v, Constants.TaskMode.TM_Obstacles):
+                    obj["tm_obstacles"] = Modes.TM_Obstacles[v.upper()]
+                elif isinstance(v, Modes.TM_Obstacles):
                     pass
                 else:
                     raise ValueError(f"invalid tm_obstacles type: {type(v)}")
@@ -167,7 +167,7 @@ def robot_with_parts(robot: str, parts: typing.Mapping[str, str]) -> str:
     """`robot:=` value whose every entry carries `parts` as bracket items, in place of its own items of the same key."""
     if not parts:
         return robot
-    from task_generator.manager.robot_manager.robots_manager import split_robot_arg  # noqa: PLC0415
+    from arena_runtime.env.robot_manager.robots_manager import split_robot_arg  # noqa: PLC0415
 
     entries = []
     for entry in split_robot_arg(robot):

@@ -38,7 +38,7 @@ from arena_evaluation.benchmark.state import (
     compute_config_hash,
 )
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
-from task_generator.constants import Constants
+from task_generator.modes import Modes
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -51,8 +51,8 @@ def _make_stage(name: str = "s1") -> Suite.Stage:
         episodes=10,
         robot="turtlebot3_burger",
         map="map1",
-        tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-        tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+        tm_robots=Modes.TM_Robots.RANDOM,
+        tm_obstacles=Modes.TM_Obstacles.RANDOM,
         config={},
         seed=0,
         timeout=120.0,
@@ -528,8 +528,8 @@ def _make_cell(
         episodes=episodes,
         robot="turtlebot3_burger",
         map="map1",
-        tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-        tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+        tm_robots=Modes.TM_Robots.RANDOM,
+        tm_obstacles=Modes.TM_Obstacles.RANDOM,
         config=stage_config or {},
         seed=42,
         timeout=120.0,
@@ -545,8 +545,8 @@ def test_build_launch_args_required_fields():
     assert "sim:=gazebo" in args
     assert "robot:=turtlebot3_burger" in args
     assert "world:=map1" in args
-    assert f"task.robots:={Constants.TaskMode.TM_Robots.RANDOM.value}" in args
-    assert f"task.obstacles:={Constants.TaskMode.TM_Obstacles.RANDOM.value}" in args
+    assert f"task.robots:={Modes.TM_Robots.RANDOM.value}" in args
+    assert f"task.obstacles:={Modes.TM_Obstacles.RANDOM.value}" in args
     assert not any(a.startswith("task.episode.count:=") for a in args)
     assert "run_seed:=42" in args
     assert "task.episode.auto_reset:=false" in args
@@ -725,8 +725,8 @@ def _make_suite(*stage_names: str) -> Suite:
             episodes=5,
             robot="turtlebot3_burger",
             map="map1",
-            tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-            tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+            tm_robots=Modes.TM_Robots.RANDOM,
+            tm_obstacles=Modes.TM_Obstacles.RANDOM,
             config={},
             seed=0,
             timeout=120.0,
@@ -1114,8 +1114,8 @@ def _make_step_for(contestant_name: str, stage_name: str, robot: str = "jackal",
         episodes=5,
         robot=robot,
         map=map,
-        tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-        tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+        tm_robots=Modes.TM_Robots.RANDOM,
+        tm_obstacles=Modes.TM_Obstacles.RANDOM,
         config={},
         seed=0,
         timeout=120.0,

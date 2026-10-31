@@ -86,10 +86,10 @@ def world_resolves(name: str, known: set[str]) -> bool:
 def registered_drivers() -> dict[str, set[str]]:
     """Drivers per cap from the bringup and adapter registries."""
     from arena_robots.bringup import BRINGUPS
-    from task_generator.tasks.robots.adapters import ADAPTERS
+    from arena_runtime.env.adapters import ADAPTERS
 
     for cap in ADAPTERS:
-        importlib.import_module(f"task_generator.tasks.robots.adapters.{cap}")
+        importlib.import_module(f"arena_runtime.env.adapters.{cap}")
     return {cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys()) for cap in sorted(set(BRINGUPS) | set(ADAPTERS))}
 
 
@@ -119,10 +119,10 @@ def _at(block: dict[str, Any], dotted: str) -> object:
 def check_suite(data: object) -> dict[str, Any]:
     """Suite.parse verdict plus warnings for task modes, config keys, worlds, robots and models the registries and resolvers do not know."""
     from arena_robots.Robot import RobotIdentifier
+    from arena_runtime.env.constants import Constants
+    from arena_runtime.env.robot_manager.robots_manager import split_robot_arg
     from arena_simulation_setup.tree.assets.Human import HumanIdentifier
     from arena_simulation_setup.tree.assets.Object import ObjectIdentifier
-    from task_generator.constants import Constants
-    from task_generator.manager.robot_manager.robots_manager import split_robot_arg
 
     from arena_evaluation.benchmark.config import Suite
 

@@ -94,8 +94,8 @@ def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, 
 def replay(inputs: dict[int, list]) -> dict[int, list]:
     """Joint angles the current layer produces from the recorded inputs, the way publish_arena_peds computes them."""
     from arena_people_msgs.msg import Pedestrian
-    from task_generator.simulators.human import animation_manager as am
-    from task_generator.simulators.human.gestures import Channel, GestureLayer, GestureRequest
+    from arena_runtime.humans import animation_manager as am
+    from arena_runtime.humans.gestures import Channel, GestureLayer, GestureRequest
 
     log = _Log()
     mgr = am.AnimationManager(logger=log, fps=20.0)
@@ -175,7 +175,7 @@ def analyze_episode(mcap_path: pathlib.Path, fk: Callable[..., tuple[dict, objec
 
 
 def gate_link_step_m() -> float:
-    from task_generator.simulators.human.gestures.qa import MAX_LINK_STEP_M
+    from arena_runtime.humans.gestures.qa import MAX_LINK_STEP_M
 
     return MAX_LINK_STEP_M
 
@@ -185,7 +185,7 @@ _NAMES: list[str] = []
 
 def _joint_names() -> list[str]:
     if not _NAMES:
-        from task_generator.simulators.human.pointing.contract import ROS_JOINT_ORDER
+        from arena_runtime.humans.pointing.contract import ROS_JOINT_ORDER
 
         _NAMES.extend(ROS_JOINT_ORDER)
     return _NAMES
@@ -219,8 +219,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=None, help="only the first N episodes")
     ap.add_argument("--source", choices=("replay", "recorded"), default="replay")
     args = ap.parse_args(argv)
-    from task_generator.simulators.human.gestures import BODY_HEIGHT
-    from task_generator.simulators.human.pointing import skeleton as S
+    from arena_runtime.humans.gestures import BODY_HEIGHT
+    from arena_runtime.humans.pointing import skeleton as S
 
     body = S.Body(BODY_HEIGHT)
     mcaps = sorted(args.benchmark_dir.glob("episodes/*/*.mcap"))[: args.limit]

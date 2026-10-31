@@ -85,7 +85,7 @@ def test_suite_parse_launch_args_from_launch_mapping():
 
 def test_stage_parse_happy_path():
     from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
+    from task_generator.modes import Modes
 
     obj = _make_stage_dict(seed=42, timeout="60")
     result = Suite.Stage.parse(obj)
@@ -95,8 +95,8 @@ def test_stage_parse_happy_path():
     assert result.episodes == 5
     assert result.robot == "turtlebot3_burger"
     assert result.map == "map1"
-    assert result.tm_robots is Constants.TaskMode.TM_Robots.RANDOM
-    assert result.tm_obstacles is Constants.TaskMode.TM_Obstacles.RANDOM
+    assert result.tm_robots is Modes.TM_Robots.RANDOM
+    assert result.tm_obstacles is Modes.TM_Obstacles.RANDOM
     assert result.seed == 42
     assert result.timeout == 60.0
 
@@ -123,9 +123,9 @@ def test_stage_parse_seed_defaults_to_hash():
 
 def test_stage_parse_tm_robots_enum_conversion():
     from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
+    from task_generator.modes import Modes
 
-    for name, member in Constants.TaskMode.TM_Robots.__members__.items():
+    for name, member in Modes.TM_Robots.__members__.items():
         obj = _make_stage_dict(tm_robots=name)
         result = Suite.Stage.parse(obj)
         assert result.tm_robots is member
@@ -133,9 +133,9 @@ def test_stage_parse_tm_robots_enum_conversion():
 
 def test_stage_parse_tm_obstacles_enum_conversion():
     from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
+    from task_generator.modes import Modes
 
-    for name, member in Constants.TaskMode.TM_Obstacles.__members__.items():
+    for name, member in Modes.TM_Obstacles.__members__.items():
         obj = _make_stage_dict(tm_obstacles=name)
         result = Suite.Stage.parse(obj)
         assert result.tm_obstacles is member

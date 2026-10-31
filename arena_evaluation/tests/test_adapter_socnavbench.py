@@ -259,7 +259,7 @@ def test_bundled_scenario_holds_the_episode_start_and_goal(out: Path):
     import numpy as np
     from arena_simulation_setup.shared.task import GoToPhase
     from arena_simulation_setup.tree.World.Scenario import RobotGoal
-    from task_generator.adapters.eth_ucy import SEQUENCES, in_meters
+    from arena_runtime.datasets.eth_ucy import SEQUENCES, in_meters
 
     scenario = yaml.safe_load((out / "suites" / "socnavbench" / "worlds" / "socnavbench_eth" / "scenarios" / "t_eth_dense_against" / "scenario.yaml").read_text())
     assert scenario.keys() == {"format", "humans", "robots"}
@@ -276,7 +276,7 @@ def test_bundled_scenario_holds_the_episode_start_and_goal(out: Path):
 
 
 def test_contest_pins_the_goal_margin_and_keeps_the_episode_running(out: Path):
-    from task_generator.constants.runtime import EPISODE_PARAMS
+    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
     contest = yaml.safe_load((out / "contests" / "socnavbench" / "contest.yaml").read_text())
     assert contest == [
@@ -291,15 +291,15 @@ def test_contest_pins_the_goal_margin_and_keeps_the_episode_running(out: Path):
 
 
 def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
-    from task_generator.constants import Constants
+    from task_generator.modes import Modes
 
     from arena_evaluation.benchmark.tree import ContestIdentifier, ManifestIdentifier, SuiteIdentifier
 
     suite = SuiteIdentifier(name="socnavbench").load(out / "suites" / "socnavbench")
     assert [(stage.name, stage.map, stage.timeout) for stage in suite.stages] == [(name, world, float(max_time)) for name, world, max_time in STAGES]
     assert len(suite.stages) == 17
-    assert {stage.tm_robots for stage in suite.stages} == {Constants.TaskMode.TM_Robots.SCENARIO}
-    assert {stage.tm_obstacles for stage in suite.stages} == {Constants.TaskMode.TM_Obstacles.SCENARIO}
+    assert {stage.tm_robots for stage in suite.stages} == {Modes.TM_Robots.SCENARIO}
+    assert {stage.tm_obstacles for stage in suite.stages} == {Modes.TM_Obstacles.SCENARIO}
     assert {stage.robot for stage in suite.stages} == {"jackal"}
     assert {stage.episodes for stage in suite.stages} == {1}
     assert suite.launch_args == {"human": "replay"}
@@ -326,7 +326,7 @@ def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
 
 
 def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, out: Path, tmp_path: Path):
-    from task_generator.constants.runtime import EPISODE_PARAMS
+    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
     from arena_evaluation.processing.pipeline import _suite_metrics
 

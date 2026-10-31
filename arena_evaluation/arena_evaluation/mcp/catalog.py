@@ -105,7 +105,7 @@ def _readme_section(word: str) -> str:
 @domain.tool(read_only=True)
 def evaluation_config_schema(kind: Literal["suite", "contest"]) -> dict[str, Any]:
     """The suite or contest schema from the runner's config models, with the configs README section that documents it."""
-    from task_generator.constants import Constants
+    from arena_runtime.env.constants import Constants
 
     from arena_evaluation.benchmark import config
 

@@ -200,7 +200,7 @@ def test_bundled_scenario_holds_challenge_start_and_goal(out: Path):
 
 
 def test_contest_pins_the_challenge_episode_rules(out: Path):
-    from task_generator.constants.runtime import EPISODE_PARAMS
+    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
     contest = yaml.safe_load((out / "contests" / "barn" / "contest.yaml").read_text())
     assert contest == [
@@ -267,7 +267,7 @@ def test_convert_rejects_empty_source(tmp_path: Path):
 
 
 def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, out: Path, tmp_path: Path):
-    from task_generator.constants.runtime import EPISODE_PARAMS
+    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
     from arena_evaluation.processing.pipeline import _suite_metrics
 
@@ -391,7 +391,7 @@ def test_push_preflight_finds_no_dangling_world(assets: Path, out: Path):
 
 
 def test_written_suite_and_contest_parse(out: Path):
-    from task_generator.constants import Constants
+    from task_generator.modes import Modes
 
     from arena_evaluation.benchmark.config import Contest, Suite
 
@@ -399,8 +399,8 @@ def test_written_suite_and_contest_parse(out: Path):
     assert len(suite.stages) == 1
     stage = suite.stages[0]
     assert stage.map == "barn_0"
-    assert stage.tm_robots is Constants.TaskMode.TM_Robots.SCENARIO
-    assert stage.tm_obstacles is Constants.TaskMode.TM_Obstacles.SCENARIO
+    assert stage.tm_robots is Modes.TM_Robots.SCENARIO
+    assert stage.tm_obstacles is Modes.TM_Obstacles.SCENARIO
     assert stage.timeout == 110.0
     assert suite.metrics["max_collisions"] == 1
     assert suite.metrics["barn"]["goal"] == [2.25, 13.0]

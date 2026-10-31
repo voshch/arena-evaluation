@@ -27,7 +27,7 @@ from arena_evaluation.benchmark.state import (
     fold_run_dir,
 )
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
-from task_generator.constants import Constants
+from task_generator.modes import Modes
 
 _PACKAGE_ROOT = pathlib.Path(state_module.__file__).resolve().parents[2]
 
@@ -119,8 +119,8 @@ def _make_step(contestant: str, stage: str, world: str) -> Step:
             episodes=2,
             robot="jackal",
             map=world,
-            tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-            tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+            tm_robots=Modes.TM_Robots.RANDOM,
+            tm_obstacles=Modes.TM_Obstacles.RANDOM,
             config={},
             seed=0,
             timeout=60.0,

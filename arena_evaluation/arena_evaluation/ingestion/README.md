@@ -29,7 +29,7 @@ ROS 2 node that records live simulation runs into structured MCAP files.
 
 ### Launch
 
-Registered as the `record` entry point in `setup.py`. Spawned automatically by `task_generator` when `record.dir` is provided.
+Registered as the `record` entry point in `setup.py`. Spawned automatically by the env launch file when `record.dir` is provided.
 
 ```bash
 # Manual launch

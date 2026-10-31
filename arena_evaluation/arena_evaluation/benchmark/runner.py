@@ -32,6 +32,7 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_rclpy_mixins import ActionClientWrapper, ArenaMixinNode, ClientWrapper
 from arena_rclpy_mixins.spin import start_loop_watchdog
+from arena_runtime.env.constants import Constants
 from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldRegistry, LockstepStatus, SimState
 from arena_runtime_msgs.srv import DespawnEnv, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
@@ -39,7 +40,7 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action.client import ClientGoalHandle
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-from task_generator.constants import Constants
+from task_generator.modes import Modes
 from task_generator_msgs.action import RunEpisode
 from task_generator_msgs.msg import EpisodeRecord
 from task_generator_msgs.srv import QueueEpisode
@@ -432,7 +433,7 @@ def robot_has_depth_camera(robot: str) -> bool:
     from arena_robots.Robot import RobotIdentifier  # noqa: PLC0415
     from arena_robots.Sensor import SensorType  # noqa: PLC0415
     from arena_robots.SetupFile import Config  # noqa: PLC0415
-    from task_generator.manager.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
+    from arena_runtime.env.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
 
     for entry in split_robot_arg(robot):
         try:
@@ -2492,7 +2493,7 @@ def cli_main(argv: list[str] | None = None) -> int:
                 {
                     "key": c.key,
                     "contestant": attrs.asdict(c.contestant),
-                    "stage": {k: v.value if isinstance(v, (Constants.TaskMode.TM_Robots, Constants.TaskMode.TM_Obstacles)) else v for k, v in c.stage._asdict().items()},
+                    "stage": {k: v.value if isinstance(v, (Modes.TM_Robots, Modes.TM_Obstacles)) else v for k, v in c.stage._asdict().items()},
                     "episodes_planned": c.episodes,
                     "is_reference": c.is_reference,
                     "reference_type": c.reference_type,

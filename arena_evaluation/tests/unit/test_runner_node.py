@@ -28,7 +28,7 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldEntry, HoldRegistry, LockstepStatus, SimState
 from rcl_interfaces.srv import GetParameters, SetParameters
-from task_generator.constants import Constants
+from task_generator.modes import Modes
 from task_generator_msgs.action import RunEpisode
 from task_generator_msgs.msg import EpisodeRecord
 from task_generator_msgs.srv import QueueEpisode
@@ -42,8 +42,8 @@ def _stage(name: str = "s1", *, timeout_peds: float | None = None, config: dict 
         episodes=1,
         robot="jackal",
         map="map_empty",
-        tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-        tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+        tm_robots=Modes.TM_Robots.RANDOM,
+        tm_obstacles=Modes.TM_Obstacles.RANDOM,
         config={"random": {"dynamic": {"min": 2, "max": 3}}} if config is None else config,
         seed=3,
         timeout=45.0,
