@@ -73,24 +73,17 @@ def test_init_units_preserved():
 # ── format_label ───────────────────────────────────────────────────────────
 
 
-def test_format_label_with_unit_appends_bracket():
-    renderer = _ConcreteRenderer(_spec(), units={"time_to_goal": "s"})
-    assert renderer.format_label("Time To Goal", "time_to_goal") == "Time To Goal [s]"
-
-
-def test_format_label_without_unit_unchanged():
-    renderer = _ConcreteRenderer(_spec(), units={"other": "m"})
-    assert renderer.format_label("Success", "success") == "Success"
-
-
-def test_format_label_unknown_key_unchanged():
-    renderer = _ConcreteRenderer(_spec())
-    assert renderer.format_label("Success", "success") == "Success"
-
-
-def test_format_label_empty_unit_unchanged():
-    renderer = _ConcreteRenderer(_spec(), units={"success": ""})
-    assert renderer.format_label("Success", "success") == "Success"
+@pytest.mark.parametrize(
+    ("units", "label", "key", "expected"),
+    [
+        ({"time_to_goal": "s"}, "Time To Goal", "time_to_goal", "Time To Goal [s]"),
+        ({"other": "m"}, "Success", "success", "Success"),
+        (None, "Success", "success", "Success"),
+        ({"success": ""}, "Success", "success", "Success"),
+    ],
+)
+def test_format_label_appends_only_a_known_unit(units, label, key, expected):
+    assert _ConcreteRenderer(_spec(), units=units).format_label(label, key) == expected
 
 
 # ── resolve_diff_col delegation ────────────────────────────────────────────

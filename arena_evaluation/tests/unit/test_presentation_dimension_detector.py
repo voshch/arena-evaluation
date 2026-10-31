@@ -5,8 +5,6 @@ identity column varies in the metrics frame, the renderers differentiate on a
 compound ``__label__`` column instead of a single planner column.
 """
 
-import types
-
 import polars as pl
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -178,34 +176,24 @@ def test_resolve_auto_false_empty_requested_falls_back():
 # ── resolve_differentiate: auto=True ───────────────────────────────────────
 
 
-def test_resolve_auto_no_varying_requested_present():
-    df = _identity_frame(n_varying=0)
-    col, _ = resolve_differentiate(_spec(differentiate="robot"), df)
-    assert col == "robot"
-
-
-def test_resolve_auto_no_varying_requested_missing_falls_back_to_planner():
-    df = _identity_frame(n_varying=0)
-    col, _ = resolve_differentiate(_spec(differentiate="bogus"), df)
-    assert col == "planner"
+@pytest.mark.parametrize(
+    ("n_varying", "requested", "expected"),
+    [
+        pytest.param(0, "robot", "robot", id="no_varying_requested_present"),
+        pytest.param(0, "bogus", "planner", id="no_varying_requested_missing"),
+        pytest.param(1, "inter_planner", "inter_planner", id="single_varying_prefers_requested"),
+        pytest.param(1, "bogus", "local_planner", id="single_varying_when_requested_missing"),
+    ],
+)
+def test_resolve_auto_picks_the_column(n_varying, requested, expected):
+    col, _ = resolve_differentiate(_spec(differentiate=requested), _identity_frame(n_varying=n_varying))
+    assert col == expected
 
 
 def test_resolve_auto_no_varying_no_requested_falls_back_to_planner():
     df = pl.DataFrame({"success": [1.0, 0.5]})
     col, _ = resolve_differentiate(_spec(differentiate=None), df)
     assert col == "planner"
-
-
-def test_resolve_auto_single_varying_prefers_requested():
-    df = _identity_frame(n_varying=1)
-    col, _ = resolve_differentiate(_spec(differentiate="inter_planner"), df)
-    assert col == "inter_planner"
-
-
-def test_resolve_auto_single_varying_uses_varying_when_requested_missing():
-    df = _identity_frame(n_varying=1)
-    col, _ = resolve_differentiate(_spec(differentiate="bogus"), df)
-    assert col == "local_planner"
 
 
 def test_resolve_auto_two_varying_builds_compound_label():

@@ -579,60 +579,22 @@ def test_robot_with_parts_replaces_items_of_the_same_key():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_duration_plain_int():
+@pytest.mark.parametrize(
+    ("text", "seconds"),
+    [("60", 60.0), ("60.0", 60.0), ("500ms", 0.5), ("5s", 5.0), ("5m", 300.0), ("1h", 3600.0), ("1h30m", 5400.0)],
+)
+def test_parse_duration_reads_plain_numbers_and_units(text, seconds):
     from arena_evaluation.benchmark.config import _parse_duration
 
-    assert _parse_duration("60") == 60.0
+    assert _parse_duration(text) == pytest.approx(seconds)
 
 
-def test_parse_duration_plain_float():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("60.0") == 60.0
-
-
-def test_parse_duration_ms():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("500ms") == pytest.approx(0.5)
-
-
-def test_parse_duration_seconds_suffix():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("5s") == pytest.approx(5.0)
-
-
-def test_parse_duration_minutes():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("5m") == pytest.approx(300.0)
-
-
-def test_parse_duration_hours():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("1h") == pytest.approx(3600.0)
-
-
-def test_parse_duration_compound():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    assert _parse_duration("1h30m") == pytest.approx(5400.0)
-
-
-def test_parse_duration_garbage_raises():
+@pytest.mark.parametrize("text", ["not_a_duration", "abc", ""])
+def test_parse_duration_rejects_text_without_a_duration(text):
     from arena_evaluation.benchmark.config import _parse_duration
 
     with pytest.raises(ValueError):
-        _parse_duration("not_a_duration")
-
-
-def test_parse_duration_empty_raises():
-    from arena_evaluation.benchmark.config import _parse_duration
-
-    with pytest.raises(ValueError):
-        _parse_duration("abc")
+        _parse_duration(text)
 
 
 def test_suite_parse_metrics_defaults_empty():

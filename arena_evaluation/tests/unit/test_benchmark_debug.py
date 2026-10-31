@@ -1,8 +1,8 @@
 """Tests for benchmark debug utilities: process introspection and console logs.
 
-Covers :mod:`arena_evaluation.benchmark.debug`. All process tables are
-injected (monkeypatched ``_ps_lines`` / ``subprocess.run``); nothing is
-executed against the live system except self-directed ``/proc`` reads.
+Covers :mod:`arena_evaluation.benchmark.debug`. Process tables are served
+through ``subprocess.run``, the ``ps`` boundary, and name real child processes
+wherever the code reads ``/proc``.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import time
 import pytest
 
 from arena_evaluation.benchmark import debug as debug_mod
+
+GONE = 2**30
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +62,24 @@ def _fake_run_stdout(stdout: str):
         return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     return _run
+
+
+def _ps(monkeypatch, *rows: tuple[int, str]) -> None:
+    monkeypatch.setattr(debug_mod.subprocess, "run", _fake_run_stdout("".join(f"{pid} {cmdline}\n" for pid, cmdline in rows)))
+
+
+@pytest.fixture
+def sleeper():
+    procs: list[subprocess.Popen] = []
+
+    def spawn() -> int:
+        procs.append(subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"]))
+        return procs[-1].pid
+
+    yield spawn
+    for proc in procs:
+        proc.kill()
+        proc.wait()
 
 
 def test_ps_lines_parses_and_filters(monkeypatch):
@@ -152,31 +172,22 @@ def test_is_pid_alive_permission_error(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_running_processes_sort_and_filter(monkeypatch):
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (3, "gz sim -s"),
-            (1, "evaluation benchmark --run-id r1"),
-            (2, "arena_node"),
-            (9, "completely unrelated process"),
-        ],
-    )
-    monkeypatch.setattr(debug_mod, "_elapsed_s", lambda pid: {1: 10.0, 2: 5.0, 3: 1.0}[pid])
+def test_running_processes_sort_and_filter(monkeypatch, sleeper):
+    runner = sleeper()
+    _ps(monkeypatch, (GONE, "gz sim -s"), (runner, "evaluation benchmark --run-id r1"), (GONE + 1, "arena_node"), (GONE + 2, "completely unrelated process"))
 
     rows = debug_mod.running_processes()
     # _KIND_ORDER: benchmark_runner(0) < simulation(2) < arena_node(3); tie-break by pid
-    assert [r["pid"] for r in rows] == [1, 3, 2]
+    assert [r["pid"] for r in rows] == [runner, GONE, GONE + 1]
     assert [r["kind"] for r in rows] == ["benchmark_runner", "simulation", "arena_node"]
-    assert rows[0]["elapsed_s"] == 10.0
+    assert rows[0]["elapsed_s"] >= 0.0
+    assert rows[1]["elapsed_s"] is None
     assert all("unrelated" not in r["command"] for r in rows)
 
 
 def test_running_processes_truncates_command(monkeypatch):
     long_cmd = "evaluation benchmark --run-id " + "x" * 500
-    monkeypatch.setattr(debug_mod, "_ps_lines", lambda: [(1, long_cmd)])
-    monkeypatch.setattr(debug_mod, "_elapsed_s", lambda pid: None)
+    _ps(monkeypatch, (GONE, long_cmd))
     rows = debug_mod.running_processes()
     assert len(rows[0]["command"]) == 200
     assert rows[0]["command"].startswith("evaluation benchmark")
@@ -189,23 +200,16 @@ def test_running_processes_truncates_command(monkeypatch):
 
 
 def test_find_runner_pid_none(monkeypatch):
-    monkeypatch.setattr(debug_mod, "_ps_lines", lambda: [])
+    _ps(monkeypatch)
     assert debug_mod.find_runner_pid() is None
 
 
-def test_find_runner_pid_most_recent(monkeypatch):
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (101, "python evaluation benchmark --run-id r1"),
-            (202, "python evaluation benchmark --run-id r2"),
-            (303, "gz sim"),
-        ],
-    )
-    monkeypatch.setattr(debug_mod, "_runner_starttime", lambda pid: {101: 1.0, 202: 2.0}[pid])
-    assert debug_mod.find_runner_pid() == 202
-    assert debug_mod.find_runner_pid("r1") == 101
+def test_find_runner_pid_most_recent(monkeypatch, sleeper):
+    older = sleeper()
+    newer = sleeper()
+    _ps(monkeypatch, (older, "python evaluation benchmark --run-id r1"), (newer, "python evaluation benchmark --run-id r2"), (GONE, "gz sim"))
+    assert debug_mod.find_runner_pid() == newer
+    assert debug_mod.find_runner_pid("r1") == older
     assert debug_mod.find_runner_pid("nope") is None
 
 
@@ -215,14 +219,11 @@ def test_find_runner_pid_most_recent(monkeypatch):
 
 
 def test_running_pids_by_run_id_parses_flag(monkeypatch):
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (11, "python evaluation benchmark --run-id abc-123"),
-            (22, "python evaluation benchmark --run-id 'quoted-id'"),
-            (33, "python evaluation benchmark --run-id"),  # no value
-        ],
+    _ps(
+        monkeypatch,
+        (11, "python evaluation benchmark --run-id abc-123"),
+        (22, "python evaluation benchmark --run-id 'quoted-id'"),
+        (33, "python evaluation benchmark --run-id"),  # no value
     )
     result = debug_mod.running_pids_by_run_id()
     assert result["abc-123"] == 11
@@ -231,15 +232,12 @@ def test_running_pids_by_run_id_parses_flag(monkeypatch):
 
 
 def test_running_pids_by_run_id_fallback_token(monkeypatch):
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (11, "python evaluation benchmark 20260623-120000-suite-contest"),
-            (22, "python evaluation benchmark short"),  # token too short
-            (33, "python evaluation benchmark a/b-with-slash"),  # path-like token
-            (44, "python evaluation benchmark --run-id real-id"),
-        ],
+    _ps(
+        monkeypatch,
+        (11, "python evaluation benchmark 20260623-120000-suite-contest"),
+        (22, "python evaluation benchmark short"),  # token too short
+        (33, "python evaluation benchmark a/b-with-slash"),  # path-like token
+        (44, "python evaluation benchmark --run-id real-id"),
     )
     result = debug_mod.running_pids_by_run_id()
     assert result.get("20260623-120000-suite-contest") == 11
@@ -249,7 +247,7 @@ def test_running_pids_by_run_id_fallback_token(monkeypatch):
 
 
 def test_running_pids_by_run_id_no_match(monkeypatch):
-    monkeypatch.setattr(debug_mod, "_ps_lines", lambda: [(1, "gz sim")])
+    _ps(monkeypatch, (1, "gz sim"))
     assert debug_mod.running_pids_by_run_id() == {}
 
 
@@ -270,8 +268,7 @@ def _make_console_dir(monkeypatch, tmp_path: pathlib.Path, run_id: str) -> pathl
 
 
 def test_tail_console_missing_log(monkeypatch, tmp_path: pathlib.Path):
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: None)
-    monkeypatch.setattr(debug_mod, "is_pid_alive", lambda pid: False)
+    _ps(monkeypatch)
     log_path = _make_console_dir(monkeypatch, tmp_path, "r1")
     res = debug_mod.tail_console("r1")
     assert res["exists"] is False
@@ -282,27 +279,26 @@ def test_tail_console_missing_log(monkeypatch, tmp_path: pathlib.Path):
     assert res["truncated"] is False
 
 
-def test_tail_console_reads_and_truncates(monkeypatch, tmp_path: pathlib.Path):
+def test_tail_console_reads_and_truncates(monkeypatch, tmp_path: pathlib.Path, sleeper):
     log_path = _make_console_dir(monkeypatch, tmp_path, "r1")
     log_path.parent.mkdir(parents=True)
     log_path.write_text("line1\nline2\nline3\n")
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: 42)
-    monkeypatch.setattr(debug_mod, "is_pid_alive", lambda pid: True)
+    runner = sleeper()
+    _ps(monkeypatch, (runner, "python evaluation benchmark --run-id r1"))
 
     res = debug_mod.tail_console("r1", lines=2)
     assert res["exists"] is True
     assert res["lines"] == ["line2", "line3"]
     assert res["truncated"] is True
     assert res["alive"] is True
-    assert res["pid"] == 42
+    assert res["pid"] == runner
 
 
 def test_tail_console_lines_zero_returns_all(monkeypatch, tmp_path: pathlib.Path):
     log_path = _make_console_dir(monkeypatch, tmp_path, "r1")
     log_path.parent.mkdir(parents=True)
     log_path.write_text("a\nb\n")
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: None)
-    monkeypatch.setattr(debug_mod, "is_pid_alive", lambda pid: False)
+    _ps(monkeypatch)
     res = debug_mod.tail_console("r1", lines=0)
     assert res["lines"] == ["a", "b"]
     # truncated flags "more content than requested lines", so 0 => True even
@@ -312,30 +308,22 @@ def test_tail_console_lines_zero_returns_all(monkeypatch, tmp_path: pathlib.Path
 
 def test_tail_console_read_error_reported(monkeypatch, tmp_path: pathlib.Path):
     log_path = _make_console_dir(monkeypatch, tmp_path, "r1")
-    log_path.parent.mkdir(parents=True)
-    log_path.write_text("x\n")
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: None)
-    monkeypatch.setattr(debug_mod, "is_pid_alive", lambda pid: False)
+    log_path.mkdir(parents=True)
+    _ps(monkeypatch)
 
-    def _read_bytes_boom(self):  # noqa: ARG001
-        raise OSError("disk gone")
-
-    monkeypatch.setattr(pathlib.Path, "read_bytes", _read_bytes_boom)
     res = debug_mod.tail_console("r1")
     assert res["exists"] is True
     assert res["lines"] == []
-    assert "error" in res
-    assert "disk gone" in res["error"]
+    assert "runner.log" in res["error"]
 
 
 def test_tail_console_decodes_utf8_with_replacement(monkeypatch, tmp_path: pathlib.Path):
     log_path = _make_console_dir(monkeypatch, tmp_path, "r1")
     log_path.parent.mkdir(parents=True)
     log_path.write_bytes(b"ok\n\xff\xfe\n")
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: None)
-    monkeypatch.setattr(debug_mod, "is_pid_alive", lambda pid: False)
+    _ps(monkeypatch)
     res = debug_mod.tail_console("r1")
-    assert res["lines"][1] == "��"  # replacement chars, no crash
+    assert res["lines"][1] == "\ufffd\ufffd"  # replacement chars, no crash
 
 
 # ---------------------------------------------------------------------------
@@ -344,34 +332,27 @@ def test_tail_console_decodes_utf8_with_replacement(monkeypatch, tmp_path: pathl
 
 
 def test_latest_running_run_id_none_when_no_runner(monkeypatch):
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: None)
+    _ps(monkeypatch)
     assert debug_mod.latest_running_run_id() is None
 
 
-def test_latest_running_run_id_scans_cmdline(monkeypatch):
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: 77)
-    monkeypatch.setattr(debug_mod, "running_pids_by_run_id", lambda: {"some-id": 77})
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (55, "python evaluation benchmark --run-id other-run"),  # wrong pid: skipped
-            (77, "python evaluation benchmark --run-id 20260623-120000-suite-contest"),
-        ],
+def test_latest_running_run_id_scans_cmdline(monkeypatch, sleeper):
+    older = sleeper()
+    newer = sleeper()
+    _ps(
+        monkeypatch,
+        (older, "python evaluation benchmark --run-id other-run-from-before"),
+        (newer, "python evaluation benchmark --run-id 20260623-120000-suite-contest"),
     )
     assert debug_mod.latest_running_run_id() == "20260623-120000-suite-contest"
 
 
-def test_latest_running_run_id_skips_flag_token(monkeypatch):
-    monkeypatch.setattr(debug_mod, "find_runner_pid", lambda run_id: 77)
-    monkeypatch.setattr(debug_mod, "running_pids_by_run_id", lambda: {})
-    monkeypatch.setattr(
-        debug_mod,
-        "_ps_lines",
-        lambda: [
-            (77, "python evaluation benchmark --run-id only-flag"),  # token starts with --run-id
-            (88, "unrelated process"),
-        ],
+def test_latest_running_run_id_skips_flag_token(monkeypatch, sleeper):
+    runner = sleeper()
+    _ps(
+        monkeypatch,
+        (runner, "python evaluation benchmark --run-id only-flag"),  # token starts with --run-id
+        (GONE, "unrelated process"),
     )
     assert debug_mod.latest_running_run_id() is None
 

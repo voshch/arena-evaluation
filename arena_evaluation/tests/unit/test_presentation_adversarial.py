@@ -1,14 +1,14 @@
-import pytest
-import polars as pl
 import pathlib
 import tempfile
-import os
-from unittest.mock import patch, MagicMock
 
-from arena_evaluation.presentation.report_builder import ReportBuilder
+import polars as pl
+import pytest
+
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
+from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.presentation.seaborn_renderer import SeabornRenderer
 from arena_evaluation.presentation.viz_manifest import VizManifest
+from arena_evaluation.processing.parquet_store import ParquetStore
 from arena_evaluation.storage.schemas import PlotSpec
 
 
@@ -18,18 +18,20 @@ def temp_benchmark_dir():
         yield pathlib.Path(td)
 
 
-def test_report_builder_empty_dataframe(temp_benchmark_dir):
+def _build(benchmark_dir: pathlib.Path, df: pl.DataFrame, plots: list[PlotSpec]) -> None:
+    ParquetStore.write(df, benchmark_dir / "combined_metrics.parquet")
+    ReportBuilder(benchmark_dir, manifest=VizManifest(plots=plots)).build()
+
+
+def test_report_builder_empty_dataframe(temp_benchmark_dir, capsys):
     """Fuzzer: Completely empty DataFrame should not crash."""
-    df = pl.DataFrame()
-    builder = ReportBuilder(temp_benchmark_dir)
+    _build(temp_benchmark_dir, pl.DataFrame(), [PlotSpec(id="test_bar", type="bar", title="Empty", data_key="non_existent")])
 
-    with patch("arena_evaluation.processing.parquet_store.ParquetStore.read", return_value=(df, {})):
-        manifest = VizManifest(plots=[PlotSpec(id="test_bar", type="bar", title="Empty", data_key="non_existent")])
-        with patch("arena_evaluation.presentation.viz_manifest.VizManifest.load", return_value=manifest):
-            builder.build()
+    assert "Skipping plot 'test_bar'" in capsys.readouterr().out
+    assert (temp_benchmark_dir / "report.html").exists()
 
 
-def test_report_builder_missing_columns_and_nans(temp_benchmark_dir):
+def test_report_builder_missing_columns_and_nans(temp_benchmark_dir, capsys):
     """Fuzzer: Dataframe missing critical columns or full of nulls."""
     df = pl.DataFrame(
         {
@@ -37,16 +39,19 @@ def test_report_builder_missing_columns_and_nans(temp_benchmark_dir):
             "some_data": [None, float('nan'), 1],  # Mixing None and NaN
         }
     )
-    builder = ReportBuilder(temp_benchmark_dir)
-    with patch("arena_evaluation.processing.parquet_store.ParquetStore.read", return_value=(df, {})):
-        manifest = VizManifest(
-            plots=[
-                PlotSpec(id="test1", type="bar", title="T", data_key="some_data", differentiate="planner"),
-                PlotSpec(id="test2", type="violin", title="T", data_key="missing_col", differentiate="planner"),
-            ]
-        )
-        with patch("arena_evaluation.presentation.viz_manifest.VizManifest.load", return_value=manifest):
-            builder.build()
+    _build(
+        temp_benchmark_dir,
+        df,
+        [
+            PlotSpec(id="test1", type="bar", title="T", data_key="some_data", differentiate="planner"),
+            PlotSpec(id="test2", type="violin", title="T", data_key="missing_col", differentiate="planner"),
+        ],
+    )
+
+    out = capsys.readouterr().out
+    assert "Skipping plot 'test2'" in out
+    assert "Skipping plot 'test1'" not in out
+    assert (temp_benchmark_dir / "report.html").exists()
 
 
 def test_renderers_empty_df():
@@ -75,42 +80,34 @@ def test_renderers_empty_df():
 def test_huge_dataframe(temp_benchmark_dir):
     """Fuzzer: 100k rows DataFrame simulation."""
     df = pl.DataFrame({"planner": ["A"] * 50000 + ["B"] * 50000, "val": list(range(100000)), "success": [True, False] * 50000, "time_to_goal": [1.0] * 100000})
-    builder = ReportBuilder(temp_benchmark_dir)
-    with patch("arena_evaluation.processing.parquet_store.ParquetStore.read", return_value=(df, {})):
-        manifest = VizManifest(plots=[PlotSpec(id="huge_box", type="box", title="Huge", data_key="val", differentiate="planner")])
-        with patch("arena_evaluation.presentation.viz_manifest.VizManifest.load", return_value=manifest):
-            builder.build()
+    _build(temp_benchmark_dir, df, [PlotSpec(id="huge_box", type="box", title="Huge", data_key="val", differentiate="planner")])
+
+    assert (temp_benchmark_dir / "plots" / "huge_box.png").exists()
+    assert (temp_benchmark_dir / "report.html").exists()
 
 
 def test_conflicting_dimensions(temp_benchmark_dir):
     """Fuzzer: Differentiate column exists but contains conflicting types or doesn't exist."""
     df = pl.DataFrame({"planner": ["A", "B", "C"], "val": [1.0, 2.0, 3.0]})
-    builder = ReportBuilder(temp_benchmark_dir)
-    with patch("arena_evaluation.processing.parquet_store.ParquetStore.read", return_value=(df, {})):
-        manifest = VizManifest(
-            plots=[
-                # differentiate column doesn't exist
-                PlotSpec(id="test_missing_diff", type="bar", title="T", data_key="val", differentiate="non_existent_diff"),
-                # group_by column doesn't exist
-                PlotSpec(id="test_missing_group", type="bar", title="T", data_key="val", group_by=["missing_group"]),
-            ]
-        )
-        with patch("arena_evaluation.presentation.viz_manifest.VizManifest.load", return_value=manifest):
-            builder.build()
+    _build(
+        temp_benchmark_dir,
+        df,
+        [
+            PlotSpec(id="test_missing_diff", type="bar", title="T", data_key="val", differentiate="non_existent_diff"),
+            PlotSpec(id="test_missing_group", type="bar", title="T", data_key="val", group_by=["missing_group"]),
+        ],
+    )
+
+    assert (temp_benchmark_dir / "report.html").exists()
 
 
-def test_seaborn_corrupt_palette(temp_benchmark_dir):
-    """Fuzzer: Corrupt palette provided by color_utils."""
+def test_seaborn_box_renders_each_planner(temp_benchmark_dir):
     df = pl.DataFrame({"planner": ["A", "B"], "val": [1, 2]})
-    seaborn_renderer = SeabornRenderer()
-    spec = PlotSpec(id="test", type="box", title="T", data_key="val", differentiate="planner")
+    png_path = temp_benchmark_dir / "test.png"
 
-    with patch("arena_evaluation.presentation.color_utils.get_color_palette", return_value={"A": "invalid_color_code_xyz", "B": None}):
-        png_path = temp_benchmark_dir / "test.png"
-        try:
-            seaborn_renderer.render(spec, df, png_path)
-        except Exception as e:
-            pytest.fail(f"Seaborn renderer crashed with corrupt palette: {e}")
+    SeabornRenderer().render(PlotSpec(id="test", type="box", title="T", data_key="val", differentiate="planner"), df, png_path)
+
+    assert png_path.stat().st_size > 0
 
 
 def test_malformed_combined_metrics_types(temp_benchmark_dir):

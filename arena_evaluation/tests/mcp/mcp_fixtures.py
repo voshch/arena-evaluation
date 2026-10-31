@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-sourced = pytest.mark.skipif(not os.environ.get("ARENA_WS_DIR"), reason="needs a sourced Arena workspace")
+sourced = pytest.mark.skipif("BASH_FUNC__arena_cli%%" not in os.environ, reason="needs a shell that sourced arena")
 
 RUN_ID = "20261019-120000-basic-basic"
 EMPTY_RUN_ID = "20261019-110000-empty-empty"

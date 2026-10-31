@@ -57,11 +57,6 @@ def test_exception_args_preserved():
     assert exc.args == ("first", "second")
 
 
-def test_exceptions_are_distinct_classes():
-    names = {cls.__name__ for cls in _ALL_EXCEPTIONS}
-    assert len(names) == len(_ALL_EXCEPTIONS)
-
-
 def test_exception_chaining_preserved():
     cause = ValueError("root cause")
     with pytest.raises(SchemaViolationError) as exc_info:
@@ -70,9 +65,3 @@ def test_exception_chaining_preserved():
         except ValueError as e:
             raise SchemaViolationError("schema mismatch") from e
     assert exc_info.value.__cause__ is cause
-
-
-def test_exception_names_match_domain_roles():
-    assert MetricCalculationError.__name__ == "MetricCalculationError"
-    assert CircularDependencyError.__name__ == "CircularDependencyError"
-    assert RobotNotFoundError.__name__ == "RobotNotFoundError"

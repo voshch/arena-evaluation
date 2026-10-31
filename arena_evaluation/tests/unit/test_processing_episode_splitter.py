@@ -613,36 +613,15 @@ def _init_at(time_ns: int, x: float, y: float, yaw: float) -> pl.DataFrame:
     )
 
 
-def test_split_plan_yaw_correction_applied():
+@pytest.mark.parametrize(("plan_yaw", "start_yaw"), [(2.0, 2.0), (0.5, 0.0), (0.0, 0.0)])
+def test_split_plan_yaw_replaces_initialpose_only_when_far_from_it(plan_yaw, start_yaw):
     records = _records([(1000, 3, None, None)])
     plan = pl.DataFrame(
-        {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[2.0]]},
+        {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[plan_yaw]]},
         schema=_PLAN_SCHEMA,
     )
     ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
-    # initialpose yaw 0.0, plan yaw 2.0 -> |0 - 2| > 1 -> replaced
-    assert ep.start_pos == [1.0, 2.0, 2.0]
-
-
-def test_split_plan_yaw_correction_not_applied_when_close():
-    records = _records([(1000, 3, None, None)])
-    plan = pl.DataFrame(
-        {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[0.5]]},
-        schema=_PLAN_SCHEMA,
-    )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
-    # |0 - 0.5| <= 1.0 -> yaw kept from initialpose
-    assert ep.start_pos == [1.0, 2.0, 0.0]
-
-
-def test_split_plan_yaw_zero_not_applied():
-    records = _records([(1000, 3, None, None)])
-    plan = pl.DataFrame(
-        {"time_ns": [1000], "poses_x": [[1.0]], "poses_y": [[1.0]], "poses_yaw": [[0.0]]},
-        schema=_PLAN_SCHEMA,
-    )
-    ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records, initialpose=_init_at(1000, 1.0, 2.0, 0.0), plan=plan))[0]
-    assert ep.start_pos == [1.0, 2.0, 0.0]
+    assert ep.start_pos == [1.0, 2.0, start_yaw]
 
 
 def test_split_goal_from_plan_within_window():

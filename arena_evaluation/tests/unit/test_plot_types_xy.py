@@ -7,7 +7,6 @@ import re
 import matplotlib.animation
 import pandas as pd
 import polars as pl
-import pytest
 
 from arena_evaluation.presentation.plot_types.scatter import ScatterRenderer
 from arena_evaluation.presentation.plot_types.timeseries import TimeseriesRenderer
@@ -636,11 +635,7 @@ def test_trajectory_plotly_skips_empty_paths():
     assert "mppi" in html  # only the non-empty path is drawn
 
 
-def test_trajectory_plotly_null_path_crashes_currently():
-    """Suspected source bug (documented): a polars-null path becomes NaN in
-    pandas, so the ``path is None`` guard misses it and ``len(NaN)`` raises
-    TypeError. Pins current behaviour; should be removed once the renderer
-    guards against NaN paths."""
+def test_trajectory_plotly_skips_a_null_path():
     df = pl.DataFrame(
         {
             "planner": ["dwb", "teb"],
@@ -654,8 +649,8 @@ def test_trajectory_plotly_null_path_crashes_currently():
             "path": pl.List(pl.List(pl.Float64)),
         },
     )
-    with pytest.raises(TypeError):
-        TrajectoryRenderer(_traj_spec()).render_plotly(df)
+    html = TrajectoryRenderer(_traj_spec()).render_plotly(df)
+    assert html is not None and "teb" in html
 
 
 def test_trajectory_plotly_skips_malformed_paths():

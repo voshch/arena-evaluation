@@ -27,6 +27,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     load_zone_geometry,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from snapshot_rows import snapshot_frame
 
 
 def _calc():
@@ -59,33 +60,6 @@ def _square(name):
         max_speed=None,
         quiet=False,
         restricted=False,
-    )
-
-
-def _snap(rows):
-    """Synthetic long-format snapshot rows: (time_ns, entity, kind, field, field_kind, value)."""
-    time_ns, entity, kind, field, field_kind = [], [], [], [], []
-    value_str, value_num, value_bool = [], [], []
-    for t, e, k, f, fk, v in rows:
-        time_ns.append(t)
-        entity.append(e)
-        kind.append(k)
-        field.append(f)
-        field_kind.append(fk)
-        value_str.append(v if fk == "discrete" else None)
-        value_num.append(float(v) if fk == "continuous" else None)
-        value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame(
-        {
-            "time_ns": time_ns,
-            "entity": entity,
-            "kind": kind,
-            "field": field,
-            "field_kind": field_kind,
-            "value_str": value_str,
-            "value_num": value_num,
-            "value_bool": value_bool,
-        }
     )
 
 
@@ -142,19 +116,19 @@ def test_first_true_returns_earliest_index_or_none():
 # -- operator verdicts ----------------------------------------------------
 
 
-def test_always_true_and_false():
-    assert _operator_verdict("always", np.array([True, True]), True, None, False) is True
-    assert _operator_verdict("always", np.array([True, False]), True, None, False) is False
-
-
-def test_never_true_and_false():
-    assert _operator_verdict("never", np.array([False, False]), True, None, False) is True
-    assert _operator_verdict("never", np.array([False, True]), True, None, False) is False
-
-
-def test_eventually_true_and_false():
-    assert _operator_verdict("eventually", np.array([False, True]), True, None, False) is True
-    assert _operator_verdict("eventually", np.array([False, False]), True, None, False) is False
+@pytest.mark.parametrize(
+    ("operator", "samples", "verdict"),
+    [
+        ("always", [True, True], True),
+        ("always", [True, False], False),
+        ("never", [False, False], True),
+        ("never", [False, True], False),
+        ("eventually", [False, True], True),
+        ("eventually", [False, False], False),
+    ],
+)
+def test_unary_operator_verdicts(operator, samples, verdict):
+    assert _operator_verdict(operator, np.array(samples), True, None, False) is verdict
 
 
 def test_unary_operator_unknown_when_atom_unresolvable():
@@ -163,46 +137,25 @@ def test_unary_operator_unknown_when_atom_unresolvable():
     assert _operator_verdict("eventually", None, False, None, False) is None
 
 
-def test_before_true_when_p_first():
-    p = np.array([False, True, False])
-    q = np.array([False, False, True])
-    assert _operator_verdict("before", p, True, q, True) is True
-
-
-def test_before_true_when_q_never_occurs():
-    p = np.array([False, True])
-    q = np.array([False, False])
-    assert _operator_verdict("before", p, True, q, True) is True
-
-
-def test_before_false_when_p_never_occurs():
-    p = np.array([False, False])
-    q = np.array([True, True])
-    assert _operator_verdict("before", p, True, q, True) is False
-
-
-def test_before_false_on_simultaneous_first_sample():
-    p = np.array([False, True, False])
-    q = np.array([False, True, False])
-    assert _operator_verdict("before", p, True, q, True) is False
+@pytest.mark.parametrize(
+    ("operator", "p", "q", "verdict"),
+    [
+        pytest.param("before", [False, True, False], [False, False, True], True, id="before_p_first"),
+        pytest.param("before", [False, True], [False, False], True, id="before_q_never_occurs"),
+        pytest.param("before", [False, False], [True, True], False, id="before_p_never_occurs"),
+        pytest.param("before", [False, True, False], [False, True, False], False, id="before_simultaneous_first_sample"),
+        pytest.param("never_during", [True, False, False], [False, False, True], True, id="never_during_no_cooccurrence"),
+        pytest.param("never_during", [False, True, False], [False, True, False], False, id="never_during_cooccurrence"),
+    ],
+)
+def test_binary_operator_verdicts(operator, p, q, verdict):
+    assert _operator_verdict(operator, np.array(p), True, np.array(q), True) is verdict
 
 
 def test_before_unknown_when_either_atom_unresolvable():
     p = np.array([True, False])
     assert _operator_verdict("before", p, True, None, False) is None
     assert _operator_verdict("before", None, False, p, True) is None
-
-
-def test_never_during_true_without_cooccurrence():
-    p = np.array([True, False, False])
-    q = np.array([False, False, True])
-    assert _operator_verdict("never_during", p, True, q, True) is True
-
-
-def test_never_during_false_on_cooccurrence():
-    p = np.array([False, True, False])
-    q = np.array([False, True, False])
-    assert _operator_verdict("never_during", p, True, q, True) is False
 
 
 def test_never_during_unknown_when_atom_unresolvable():
@@ -214,7 +167,7 @@ def test_never_during_unknown_when_atom_unresolvable():
 
 
 def test_entity_atom_true_after_recorded_change():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
             (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
@@ -228,7 +181,7 @@ def test_entity_atom_true_after_recorded_change():
 
 
 def test_entity_atom_holds_seed_value_when_never_changed():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
         ]
@@ -241,7 +194,7 @@ def test_entity_atom_holds_seed_value_when_never_changed():
 
 
 def test_entity_atom_unresolvable_unknown_entity():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
         ]
@@ -254,7 +207,7 @@ def test_entity_atom_unresolvable_unknown_entity():
 
 
 def test_entity_atom_unresolvable_field_not_registered():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
         ]
@@ -267,7 +220,7 @@ def test_entity_atom_unresolvable_field_not_registered():
 
 
 def test_entity_roster_drops_ambiguous_bare_names():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "state", "discrete", "open"),
             (0, "env_1/door_1", "door", "state", "discrete", "open"),
@@ -279,7 +232,7 @@ def test_entity_roster_drops_ambiguous_bare_names():
 
 
 def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/main_door/0", "door", "open", "predicate", False),
             (2_000_000_000, "env_0/main_door/0", "door", "open", "predicate", True),
@@ -301,7 +254,7 @@ def test_entity_atom_resolves_multi_kind_entity_and_drops_env_duplicate():
 
 
 def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/ward/0", "zone", "quiet", "predicate", True),
             (2_000_000_000, "env_0/ward/0", "zone", "quiet", "predicate", False),
@@ -322,7 +275,7 @@ def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
 
 
 def test_entity_roster_names_a_world_object_without_its_world_prefix_unless_taken():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/world_wardrobe", "articulated", "openness.door", "continuous", 0.0),
             (0, "env_0/world_table", "articulated", "openness.leaf", "continuous", 0.0),
@@ -442,7 +395,7 @@ def test_ped_zone_unresolvable_without_peds_names_column():
 
 
 def test_node_series_dispatches_membership_and_entity():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "open", "predicate", False),
             (2_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
@@ -670,7 +623,7 @@ def test_zone_and_wall_loaders_answer_from_their_caches():
 
 
 def _wardrobe_snapshot():
-    return _snap(
+    return snapshot_frame(
         [
             (0, "env_0/wardrobe", "articulated", "openness.door_left", "continuous", 0.1),
             (0, "env_0/wardrobe", "articulated", "openness.door_right", "continuous", 0.0),

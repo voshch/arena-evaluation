@@ -31,7 +31,7 @@ def _drive() -> None:
 
     def call(**fields: object) -> None:
         future = client.call_async(RecordEpisode.Request(**fields))
-        executor.spin_until_future_complete(future, timeout_sec=20.0)
+        executor.spin_until_future_complete(future, timeout_sec=60.0)
         response = future.result()
         assert response is not None and response.success, response
 

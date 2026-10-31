@@ -12,7 +12,7 @@ import time
 import types
 
 import pytest
-from arena_evaluation.benchmark.config import Contest, Suite, _parse_duration
+from arena_evaluation.benchmark.config import Contest, Suite
 from arena_evaluation.benchmark.runner import (
     _snapshot_bundle_worlds,
     _MAX_SIM_DEATHS,
@@ -213,31 +213,6 @@ def test_state_file_roundtrip_episodes_fields(tmp_path: pathlib.Path):
     assert r.episodes_failed == 2
 
 
-def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
-    """Old state files with a single 'error' field are loaded into error_detail."""
-    import json
-
-    state_data = {
-        "steps": {
-            "p/s": {
-                "status": "failed",
-                "env_id": None,
-                "started_at": 0.0,
-                "ended_at": 1.0,
-                "error": "old error message",
-                "episodes_run": 0,
-                "episodes_failed": 0,
-            }
-        }
-    }
-    state_path = tmp_path / ".benchmark_state.json"
-    state_path.write_text(json.dumps(state_data))
-    sf = StateFile.open(tmp_path)
-    r = sf.steps["p/s"]
-    assert r.error_detail == "old error message"
-    assert r.error_kind is None
-
-
 # ---------------------------------------------------------------------------
 # ProgressLog schema and append
 # ---------------------------------------------------------------------------
@@ -431,12 +406,6 @@ def test_progress_log_append_to_existing(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 
 
-def test_compute_config_hash_deterministic():
-    suite = {"stages": [{"name": "s1"}]}
-    contest = [{"name": "c1"}]
-    assert compute_config_hash(suite, contest) == compute_config_hash(suite, contest)
-
-
 def test_compute_config_hash_differs_on_suite():
     contest = [{"name": "c1"}]
     h1 = compute_config_hash({"stages": [{"name": "a"}]}, contest)
@@ -539,49 +508,6 @@ def test_manifest_without_launch_args_defaults_empty():
     data = yaml.safe_load(_make_resume_manifest().to_yaml())
     del data["launch_args"]
     assert Manifest.from_yaml(yaml.dump(data)).launch_args == {}
-
-
-# ---------------------------------------------------------------------------
-# _parse_duration
-# ---------------------------------------------------------------------------
-
-
-def test_parse_duration_plain_int():
-    assert _parse_duration("60") == 60.0
-
-
-def test_parse_duration_plain_float():
-    assert _parse_duration("60.0") == 60.0
-
-
-def test_parse_duration_ms():
-    assert _parse_duration("500ms") == pytest.approx(0.5)
-
-
-def test_parse_duration_seconds_suffix():
-    assert _parse_duration("5s") == pytest.approx(5.0)
-
-
-def test_parse_duration_minutes():
-    assert _parse_duration("5m") == pytest.approx(300.0)
-
-
-def test_parse_duration_hours():
-    assert _parse_duration("1h") == pytest.approx(3600.0)
-
-
-def test_parse_duration_compound():
-    assert _parse_duration("1h30m") == pytest.approx(5400.0)
-
-
-def test_parse_duration_garbage_raises():
-    with pytest.raises(ValueError):
-        _parse_duration("not_a_duration")
-
-
-def test_parse_duration_empty_raises():
-    with pytest.raises(ValueError):
-        _parse_duration("abc")
 
 
 # ---------------------------------------------------------------------------

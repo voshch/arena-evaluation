@@ -4,6 +4,7 @@ pl = pytest.importorskip("polars")
 
 from arena_evaluation.storage.schemas import RobotParams, AlignedEpisodeBundle
 from arena_evaluation.processing.metrics.ecological.semantic_metrics import SemanticInteractionMetricsCalculator
+from snapshot_rows import snapshot_frame
 
 
 def _calc():
@@ -20,35 +21,8 @@ def _episode(snapshot, end_time_ns=6_000_000_000):
     )
 
 
-def _snap(rows):
-    """Synthetic long-format snapshot rows: (time_ns, entity, kind, field, field_kind, value)."""
-    time_ns, entity, kind, field, field_kind = [], [], [], [], []
-    value_str, value_num, value_bool = [], [], []
-    for t, e, k, f, fk, v in rows:
-        time_ns.append(t)
-        entity.append(e)
-        kind.append(k)
-        field.append(f)
-        field_kind.append(fk)
-        value_str.append(v if fk == "discrete" else None)
-        value_num.append(float(v) if fk == "continuous" else None)
-        value_bool.append(bool(v) if fk == "predicate" else None)
-    return pl.DataFrame(
-        {
-            "time_ns": time_ns,
-            "entity": entity,
-            "kind": kind,
-            "field": field,
-            "field_kind": field_kind,
-            "value_str": value_str,
-            "value_num": value_num,
-            "value_bool": value_bool,
-        }
-    )
-
-
 def test_time_waiting_at_doors_counts_triggered_not_open():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
             (3_000_000_000, "env_0/door_1", "door", "state", "discrete", "opening"),
@@ -65,7 +39,7 @@ def test_time_waiting_at_doors_counts_triggered_not_open():
 
 
 def test_time_waiting_at_doors_sums_across_doors():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
             (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
@@ -81,7 +55,7 @@ def test_time_waiting_at_doors_sums_across_doors():
 
 
 def test_elevator_rides_requires_nonzero_occupants():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (1_000_000_000, "env_0/1_elevator", "elevator", "occupants", "continuous", 1.0),
             (2_000_000_000, "env_0/1_elevator", "elevator", "just_arrived", "predicate", True),
@@ -159,7 +133,7 @@ def _robot_episode(snapshot, robot_name="env_0_jackal"):
 
 
 def _door_snapshot():
-    return _snap(
+    return snapshot_frame(
         [
             (1_000_000_000, "env_0/door_1/0", "door", "triggered", "predicate", True),
             (1_000_000_000, "env_0/door_1/0", "door", "state", "discrete", "closed"),
@@ -198,7 +172,7 @@ def test_time_waiting_at_doors_robot_none_without_robot_name():
 
 
 def test_elevator_rides_robot_counts_arrivals_with_robot_aboard():
-    snapshot = _snap(
+    snapshot = snapshot_frame(
         [
             (0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False),
             (1_500_000_000, "env_0/elev/1", "elevator", "occupants", "continuous", 1.0),
@@ -222,7 +196,7 @@ def test_elevator_rides_robot_counts_arrivals_with_robot_aboard():
 
 
 def test_elevator_rides_robot_zero_when_no_rides():
-    snapshot = _snap([(0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False)])
+    snapshot = snapshot_frame([(0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False)])
     members = _members([(0, "env_0/elev/1", "elevator", [])])
     results = _calc().calculate(_robot_episode(_with_members(snapshot, members)), {})
 

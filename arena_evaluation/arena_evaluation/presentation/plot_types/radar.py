@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import typing
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,6 +10,52 @@ import polars as pl
 
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
+
+if typing.TYPE_CHECKING:
+    import pandas as pd
+
+
+_POSITIVE_METRICS = frozenset(
+    {
+        "success",
+        "success_rate",
+        "spl",
+        "spl_geodesic",
+        "success_geodesic",
+        "osr",
+        "ndtw",
+        "sdtw",
+        "path_efficiency",
+        "relative_throughput",
+        "passing_rule_compliance",
+        "velocity_mean",
+        "velocity_max",
+    }
+)
+
+
+def _normalize(grouped: pd.DataFrame, metrics: list[str], *, use_log_scale: bool) -> pd.DataFrame:
+    """Scale each metric so 1 is the best group, inverting the metrics where lower is better."""
+    normalized = grouped.copy()
+    if use_log_scale:
+        for m in metrics:
+            normalized[m] = np.log1p(normalized[m])
+
+    for m in metrics:
+        max_val = normalized[m].max()
+        min_val = normalized[m].min()
+
+        if max_val == 0 and min_val == 0:
+            normalized[m] = 1.0
+        elif m in _POSITIVE_METRICS:
+            normalized[m] = normalized[m] / max_val if max_val > 0 else 1.0
+        elif min_val > 0:
+            normalized[m] = min_val / normalized[m]
+        elif max_val == 0:
+            normalized[m] = normalized[m] / min_val
+        else:
+            normalized[m] = 1.0 - (normalized[m] / max_val)
+    return normalized
 
 
 class RadarRenderer(BasePlotRenderer):
@@ -37,43 +84,7 @@ class RadarRenderer(BasePlotRenderer):
         if grouped.empty:
             return None
 
-        normalized = grouped.copy()
-
-        use_log_scale = self.spec.options.get("use_log_scale", False)
-        if use_log_scale:
-            for m in valid_metrics:
-                normalized[m] = np.log1p(normalized[m])
-
-        positive_metrics = {
-            "success",
-            "success_rate",
-            "spl",
-            "spl_geodesic",
-            "success_geodesic",
-            "osr",
-            "ndtw",
-            "sdtw",
-            "path_efficiency",
-            "relative_throughput",
-            "passing_rule_compliance",
-            "velocity_mean",
-            "velocity_max",
-        }
-
-        for m in valid_metrics:
-            max_val = normalized[m].max()
-            min_val = normalized[m].min()
-
-            if max_val == 0 and min_val == 0:
-                normalized[m] = 1.0
-            else:
-                if m in positive_metrics:
-                    normalized[m] = normalized[m] / max_val if max_val > 0 else 1.0
-                else:
-                    if min_val > 0:
-                        normalized[m] = min_val / normalized[m]
-                    else:
-                        normalized[m] = 1.0 - (normalized[m] / max_val)
+        normalized = _normalize(grouped, valid_metrics, use_log_scale=self.spec.options.get("use_log_scale", False))
 
         fig = go.Figure()
 
@@ -118,40 +129,7 @@ class RadarRenderer(BasePlotRenderer):
         if grouped.empty:
             return
 
-        normalized = grouped.copy()
-        use_log_scale = self.spec.options.get("use_log_scale", False)
-        if use_log_scale:
-            for m in valid_metrics:
-                normalized[m] = np.log1p(normalized[m])
-
-        positive_metrics = {
-            "success",
-            "success_rate",
-            "spl",
-            "spl_geodesic",
-            "success_geodesic",
-            "osr",
-            "ndtw",
-            "sdtw",
-            "path_efficiency",
-            "relative_throughput",
-            "passing_rule_compliance",
-            "velocity_mean",
-            "velocity_max",
-        }
-        for m in valid_metrics:
-            max_val = normalized[m].max()
-            min_val = normalized[m].min()
-            if max_val == 0 and min_val == 0:
-                normalized[m] = 1.0
-            else:
-                if m in positive_metrics:
-                    normalized[m] = normalized[m] / max_val if max_val > 0 else 1.0
-                else:
-                    if min_val > 0:
-                        normalized[m] = min_val / normalized[m]
-                    else:
-                        normalized[m] = 1.0 - (normalized[m] / max_val)
+        normalized = _normalize(grouped, valid_metrics, use_log_scale=self.spec.options.get("use_log_scale", False))
 
         num_vars = len(valid_metrics)
         angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()

@@ -3,21 +3,13 @@ import pathlib
 import yaml
 
 _PALETTE_CACHE = None
+_DEFAULT_PALETTE = ["#41b6e6", "#d3273e", "#00bfb2", "#ffc845", "#be84a3", "#dc582a", "#1d4289", "#94a596"]
 
 
-def get_color_palette() -> list[str]:
-    """Hex colors from config/color_palette.yaml, in file order, minus pure white and black."""
-    global _PALETTE_CACHE
-    if _PALETTE_CACHE is not None:
-        return _PALETTE_CACHE
-
-    config_path = pathlib.Path(__file__).resolve().parents[2] / "config" / "color_palette.yaml"
-
-    default_palette = ["#41b6e6", "#d3273e", "#00bfb2", "#ffc845", "#be84a3", "#dc582a", "#1d4289", "#94a596"]
-
+def load_color_palette(config_path: pathlib.Path) -> list[str]:
+    """Hex colors of a palette yaml, in file order, minus pure white and black, the default palette when it has none."""
     if not config_path.exists():
-        _PALETTE_CACHE = default_palette
-        return _PALETTE_CACHE
+        return list(_DEFAULT_PALETTE)
 
     try:
         with open(config_path) as f:
@@ -29,17 +21,24 @@ def get_color_palette() -> list[str]:
             if name.lower() not in ["white", "black"]:
                 colors.append(hex_code)
 
-        _PALETTE_CACHE = colors if colors else default_palette
+        return colors if colors else list(_DEFAULT_PALETTE)
     except Exception as e:
         print(f"Warning: Failed to load color palette from {config_path}: {e}")
-        _PALETTE_CACHE = default_palette
+        return list(_DEFAULT_PALETTE)
 
+
+def get_color_palette() -> list[str]:
+    """Colors of config/color_palette.yaml, cached."""
+    global _PALETTE_CACHE
+    if _PALETTE_CACHE is None:
+        _PALETTE_CACHE = load_color_palette(pathlib.Path(__file__).resolve().parents[2] / "config" / "color_palette.yaml")
     return _PALETTE_CACHE
 
 
-def set_global_color_palette() -> None:
-    """Apply the accessibility color palette to Plotly and Seaborn globally."""
-    palette = get_color_palette()
+def set_global_color_palette(palette: list[str] | None = None) -> None:
+    """Apply a palette, the configured one by default, to Plotly and Seaborn globally."""
+    if palette is None:
+        palette = get_color_palette()
 
     try:
         import plotly.graph_objects as go

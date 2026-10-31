@@ -322,55 +322,23 @@ def test_discover_episodes_sorted_and_filtered(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 
 
-def test_mcap_canonical_preferred(tmp_path: pathlib.Path):
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        pytest.param({"episode_001.mcap": "payload", "other.mcap": "payload"}, "episode_001.mcap", id="canonical_preferred"),
+        pytest.param({"episode_001.mcap": ""}, "episode_001.mcap", id="canonical_zero_size_still_used"),
+        pytest.param({"recording.mcap": "payload"}, "recording.mcap", id="fallback_other_name"),
+        pytest.param({"b.mcap": "bb", "a.mcap": "aa"}, "a.mcap", id="fallback_first_lexically"),
+        pytest.param({"zzz.mcap": "", "a.mcap": "aa"}, "a.mcap", id="fallback_skips_zero_size"),
+        pytest.param({"recording.mcap": ""}, "episode_001.mcap", id="only_zero_size_returns_canonical"),
+        pytest.param({}, "episode_001.mcap", id="missing_returns_canonical"),
+    ],
+)
+def test_mcap_path_for_episode(tmp_path: pathlib.Path, files, expected):
     ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "episode_001.mcap").write_text("payload")
-    (ep_dir / "other.mcap").write_text("payload")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "episode_001.mcap").resolve()
-
-
-def test_mcap_canonical_zero_size_still_used(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "episode_001.mcap").write_text("")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "episode_001.mcap").resolve()
-
-
-def test_mcap_fallback_other_name(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "recording.mcap").write_text("payload")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "recording.mcap").resolve()
-
-
-def test_mcap_fallback_first_lexically(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "b.mcap").write_text("bb")
-    (ep_dir / "a.mcap").write_text("aa")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "a.mcap").resolve()
-
-
-def test_mcap_fallback_skips_zero_size(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "zzz.mcap").write_text("")  # zero size: filtered out
-    (ep_dir / "a.mcap").write_text("aa")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "a.mcap").resolve()
-
-
-def test_mcap_only_zero_size_fallback_returns_canonical(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    (ep_dir / "recording.mcap").write_text("")
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "episode_001.mcap").resolve()
-
-
-def test_mcap_missing_returns_expected_canonical(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    fm = FolderManager(tmp_path)
-    assert fm.mcap_path_for_episode(ep_dir) == (ep_dir / "episode_001.mcap").resolve()
+    for name, content in files.items():
+        (ep_dir / name).write_text(content)
+    assert FolderManager(tmp_path).mcap_path_for_episode(ep_dir) == (ep_dir / expected).resolve()
 
 
 def test_mcap_canonical_symlink_escape_raises(tmp_path: pathlib.Path):
