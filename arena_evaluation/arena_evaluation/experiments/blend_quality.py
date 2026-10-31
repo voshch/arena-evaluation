@@ -16,6 +16,7 @@ reads the joint states as published.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import math
 import pathlib
@@ -25,10 +26,12 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
+from arena_simulation_setup.shared.body import body_to_semantic, load_stance
 from mcap.reader import make_reader
 from mcap_ros2.decoder import DecoderFactory
 
 if TYPE_CHECKING:
+    from arena_people_msgs.msg import Pedestrian
     from geometry_msgs.msg import Quaternion
 
 TICK_S = 0.05
@@ -48,8 +51,22 @@ def _messages(mcap_path: pathlib.Path, suffixes: tuple[str, ...]):
             yield channel.topic, message.log_time, ros_msg
 
 
+_stance = functools.cache(load_stance)
+
+
 def _yaw(q: Quaternion) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+
+def ped_angles(ped: Pedestrian) -> dict[str, float]:
+    """A recorded ped's semantic joint angles, its joint_state on recordings from before the body pose."""
+    try:
+        body = ped.body
+    except AttributeError:
+        return dict(zip(ped.joint_state.name, ped.joint_state.position, strict=False))
+    if not body.joints:
+        return dict(zip(ped.joint_state.name, ped.joint_state.position, strict=False))
+    return body_to_semantic({joint: (q.x, q.y, q.z, q.w) for joint, q in zip(body.joints, body.rotations, strict=True)}, _stance(ped.model_uri))
 
 
 def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, list], dict[int, list]]:
@@ -61,9 +78,9 @@ def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, 
         t = t_ns / 1e9
         if topic.endswith("/arena_peds"):
             for p in msg.pedestrians:
-                js = p.joint_state
-                if js.name:
-                    joints[int(p.id)].append((t, dict(zip(js.name, js.position, strict=False))))
+                angles = ped_angles(p)
+                if angles:
+                    joints[int(p.id)].append((t, angles))
                 yaw = _yaw(p.pose.orientation)
                 channels = tuple((g.slot, (g.at.x, g.at.y, g.at.z), g.clip, g.hand, bool(g.render_pose_override)) for g in p.gestures)
                 inputs[int(p.id)].append((t, int(p.animation_state), p.twist.linear.x * math.cos(yaw) + p.twist.linear.y * math.sin(yaw), (p.pose.position.x, p.pose.position.y, yaw), channels))
