@@ -1,0 +1,22 @@
+name: ham_crowd_smoke_socialgail
+
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 1
+  optim.obstacles: bbox
+
+stages:
+  - name: map_empty_highly_social_socialgail_smoke
+    map: map_empty
+    robot: jackal
+    episodes: 1
+    timeout: 180
+    seed: 4201
+    tm_robots: scenario
+    tm_obstacles: scenario
+    config:
+      scenario:
+        file: highly_social
+      humansim:
+        local_planner: socialgail
