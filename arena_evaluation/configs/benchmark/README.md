@@ -124,19 +124,19 @@ arena evaluation benchmark \
 
 Suites, contests and manifests are `Identifier`s, resolved through the same chain as every
 other arena asset: the package share dir, then the source tree, then one `NetResolver` per
-`BENCHMARK_BUCKETS` provider (default `arena-benchmarks-prod-public`), then a write-only
+`BENCHMARK_BUCKETS` provider (default `public/benchmarks` on the asset store), then a write-only
 fallback. A local copy always shadows a bucket copy, so hosting a config never overrides one
 you are editing.
 
 In a bucket a config is always a directory bundle, keyed by kind:
 `suites/<name>/suite.yaml`, `contests/<name>/contest.yaml`, `manifests/<name>/manifest.yaml`.
 A flat local `<name>.yaml` is wrapped into that shape on publish, so nothing has to be
-restructured by hand. Fetched bundles cache under `$ARENA_ASSETS_DIR/<bucket>/` with a one
+restructured by hand. Fetched bundles cache under `$ARENA_ASSETS_DIR/<provider>/` with a one
 year TTL, since a published config is expected to be pinned rather than revised in place.
 
 Move them with `arena asset find|ls|pull|push suite|contest|manifest <name>`. `find` prints
 every resolver's verdict without downloading. Reading is anonymous. Pushing requires
-`GCS_ACCESS_TOKEN` in the environment, and for a suite first checks that every world
+`ARENA_ASSETS_TOKEN` in the environment or a gcloud login, and for a suite first checks that every world
 its stages name would resolve for someone else, counting worlds bundled under the suite.
 Task modes are not checked, since they are code rather than data shipped with the suite.
 Contests and manifests carry no such closure and publish as-is.
