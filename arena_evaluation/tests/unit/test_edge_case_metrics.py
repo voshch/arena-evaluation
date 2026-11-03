@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import polars as pl
 import pytest
+from arena_runtime.env.task_layer import task_layer
 from arena_simulation_setup.tree.World import WorldView
 
 from arena_evaluation.processing.metrics.edge_case.criticality import (
@@ -19,7 +20,7 @@ from arena_evaluation.processing.metrics.edge_case.criticality import (
     score,
     time_to_collision,
 )
-from arena_evaluation.processing.metrics.edge_case.provenance import world_view
+from arena_evaluation.processing.metrics.edge_case.provenance import scenario_file, scenario_name, world_view
 from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
     EdgeCaseCriticalityCalculator,
     EdgeCaseFormationCalculator,
@@ -263,6 +264,36 @@ def test_recorded_names_map_to_scenario_names(recorded: str, bare: str) -> None:
     assert agent_name(recorded) == bare
 
 
+def test_scenario_file_reads_the_namespace_of_the_runtime_the_run_recorded(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from arena_runtime.testing.task_layer import register_task_layer
+
+    register_task_layer(
+        tmp_path,
+        "scenario_runtime",
+        "def mode_namespaces():\n    return {'stages': {'scenario': 'custom.scn'}}\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    modes = {"stages": ["scenario"]}
+    params = {"custom.scn.file": "case"}
+
+    assert scenario_file(modes, params, "scenario_runtime") == "case"
+    assert scenario_file(modes, params) is None
+
+
+def test_scenario_name_loads_the_runtime_of_the_run_metadata(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from arena_runtime.testing.task_layer import register_task_layer
+
+    register_task_layer(
+        tmp_path,
+        "scenario_runtime",
+        "def mode_namespaces():\n    return {'stages': {'scenario': 'custom.scn'}}\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    run = _run("w").model_copy(update={"task_layer": "scenario_runtime", "modes": {"stages": ["scenario"]}, "params": {"custom.scn.file": "case"}})
+
+    assert scenario_name(run) == "case"
+
+
 def test_both_calculators_are_registered() -> None:
     assert {"edge_case_criticality", "edge_case_formation"} <= set(MetricRegistry(RobotParams()).calculators)
 
@@ -281,8 +312,8 @@ def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str |
     return name
 
 
-def _run(world: str, *, tm_obstacles: str = "scenario", tm_robots: str = "random", file: str = "case") -> RunMetadata:
-    params = {"file": file}
+def _run(world: str, *, obstacles: str = "scenario", robots: str = "random", file: str = "case") -> RunMetadata:
+    namespace = task_layer().mode_namespaces()["obstacles"]["scenario"]
     return RunMetadata(
         benchmark_id="edge",
         planner="nav2",
@@ -291,10 +322,8 @@ def _run(world: str, *, tm_obstacles: str = "scenario", tm_robots: str = "random
         recording_started_at="2026-10-21T00:00:00Z",
         python_version="3.12",
         ros_distro="jazzy",
-        tm_obstacles=tm_obstacles,
-        tm_robots=tm_robots,
-        obstacles_params=params if tm_obstacles == "scenario" else {},
-        robots_params=params if tm_robots == "scenario" else {},
+        modes={"robots": [robots], "obstacles": [obstacles]},
+        params={f"{namespace}.file": file} if "scenario" in (robots, obstacles) else {},
     )
 
 
@@ -353,7 +382,7 @@ def test_a_scenario_without_provenance_yields_nothing(tmp_path: pathlib.Path, cr
 
 def test_an_episode_that_ran_no_scenario_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    episode = _episode(tmp_path, world, _run(world, tm_obstacles="random"), {"edge_0": _standing(5.0, 0.0)})
+    episode = _episode(tmp_path, world, _run(world, obstacles="random"), {"edge_0": _standing(5.0, 0.0)})
     assert criticality.calculate(episode, {}) == dict.fromkeys(criticality.output_keys())
 
 
@@ -438,7 +467,7 @@ def test_the_designed_start_hold_is_not_a_freeze(tmp_path: pathlib.Path, critica
 
 def test_the_scenario_is_found_through_the_robots_axis_too(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(_episode(tmp_path, world, _run(world, tm_obstacles="random", tm_robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})
+    out = criticality.calculate(_episode(tmp_path, world, _run(world, obstacles="random", robots="scenario"), {"edge_0": _standing(6.0, 1.5)}), {})
     assert out["edge_case_id"] == "hospital_1__u_007"
 
 
@@ -534,7 +563,7 @@ def test_each_run_reads_its_own_snapshot(tmp_path: pathlib.Path, criticality: Ed
 
 def _timeline(fired: dict[str, float]) -> pl.DataFrame:
     """A semantic snapshot whose timeline entity carries the `fired` stimulus fields, flattened by the MCAP reader."""
-    from task_generator_msgs.msg import SemanticEntityState
+    from arena_runtime_msgs.msg import SemanticEntityState
 
     entity = SemanticEntityState(entity="env_0/timeline", kind="timeline", discrete_names=list(fired), discrete_values=[str(at) for at in fired.values()])
     rows: defaultdict[str, list] = defaultdict(list)

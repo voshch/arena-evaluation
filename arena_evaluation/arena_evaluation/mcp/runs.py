@@ -303,7 +303,7 @@ async def evaluation_stop(run_id: RunId, grace_s: Annotated[float, pydantic.Fiel
         except proc.ProtectedProcess as exc:
             outcome = f"refused: {exc}"
         stopped.append({"pgid": pgid, "owner": owner, "outcome": outcome})
-    leftovers = [row for row in await asyncio.to_thread(running_processes) if row["kind"] in ("simulation", "arena_node")]
+    leftovers = [row for row in await asyncio.to_thread(running_processes) if row["kind"] in ("simulation", "arena_runtime_node")]
     return {"run_id": run_id, "stopped": stopped, "arena_processes_left": leftovers}
 
 

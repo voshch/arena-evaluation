@@ -13,10 +13,12 @@ import pathlib
 import polars as pl
 import pyarrow.parquet as pq
 import pytest
+import yaml
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from arena_evaluation.processing.parquet_store import ParquetStore, TopicParquetStore
 from arena_evaluation.storage.exceptions import SchemaViolationError
+from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 
 # ---------------------------------------------------------------------------
@@ -59,6 +61,37 @@ def _meta(**overrides) -> RunMetadata:
     return RunMetadata(**kw)
 
 
+def test_metadata_of_a_recording_without_modes_reads_them_as_empty():
+    assert "modes" not in _META_BASE
+    assert _meta().modes == {}
+    assert _meta(modes={"robots": ["explore"]}).modes == {"robots": ["explore"]}
+
+
+def test_metadata_written_before_modes_reads_into_modes_and_params(tmp_path):
+    old = {
+        **_META_BASE,
+        "tm_robots": "scenario",
+        "tm_obstacles": "random",
+        "tm_modules": ["benchmark"],
+        "robots_params": {"file": "case_1", "start": {"x": 1.0}},
+        "obstacles_params": {"static": {"n": [1, 2]}},
+    }
+    path = tmp_path / "episode.yaml"
+    path.write_text(yaml.safe_dump(old))
+
+    meta = MetadataWriter.read(path)
+
+    assert meta.modes == {"robots": ["scenario"], "obstacles": ["random"], "modules": ["benchmark"]}
+    assert meta.params == {"task.scenario.file": "case_1", "task.scenario.start.x": 1.0, "task.random.static.n": [1, 2]}
+    dumped = meta.model_dump(exclude_none=True)
+    assert not {"tm_robots", "tm_obstacles", "tm_modules", "robots_params", "obstacles_params"} & dumped.keys()
+
+
+def test_metadata_with_modes_and_tm_aliases_keeps_its_modes():
+    meta = RunMetadata.model_validate({**_META_BASE, "modes": {"robots": ["patrol"]}, "tm_robots": "explore"})
+    assert meta.modes == {"robots": ["patrol"]}
+
+
 def _write_src(tmp_path: pathlib.Path, name: str, df: pl.DataFrame) -> pathlib.Path:
     src = tmp_path / name
     ParquetStore.write(df, src)
@@ -99,7 +132,7 @@ def test_read_missing_file_raises(tmp_path):
 def test_metadata_roundtrip_through_footer(tmp_path):
     """Pydantic metadata must round-trip through the parquet schema footer."""
     df = _df(4)
-    meta = _meta(episode_id=7, outcome_state=2, obstacles_params={"wall": True}, agent_name="ada")
+    meta = _meta(episode_id=7, outcome_state=2, params={"task.random.wall": True}, agent_name="ada")
     dest = tmp_path / "metrics.parquet"
     ParquetStore.write(df, dest, metadata=meta)
 
@@ -108,7 +141,7 @@ def test_metadata_roundtrip_through_footer(tmp_path):
     assert back.schema == _DF_SCHEMA
     assert metadata == meta.model_dump(exclude_none=True)
     assert metadata["episode_id"] == 7
-    assert metadata["obstacles_params"] == {"wall": True}
+    assert metadata["params"] == {"task.random.wall": True}
 
     # raw footer check: the JSON lives under the METADATA_KEY in the footer
     footer = pq.read_schema(dest)
@@ -118,10 +151,10 @@ def test_metadata_roundtrip_through_footer(tmp_path):
 
 
 def test_metadata_exclude_none():
-    meta = _meta(episode_id=None, tm_obstacles=None, outcome_info="", is_reference=False)
+    meta = _meta(episode_id=None, arena_git_sha=None, outcome_info="", is_reference=False)
     dumped = meta.model_dump(exclude_none=True)
     assert "episode_id" not in dumped
-    assert "tm_obstacles" not in dumped
+    assert "arena_git_sha" not in dumped
     # empty-string and False fields survive exclude_none
     assert dumped["outcome_info"] == ""
     assert dumped["is_reference"] is False
@@ -367,6 +400,41 @@ def test_topic_dataframe_always_writes_regardless_of_overwrite_flag(tmp_path):
     TopicParquetStore.write({"r1": TopicBundle(odom=_df(2, 9_000))}, dest, overwrite=False)
     r1 = TopicParquetStore.read(dest)["r1"]
     assert r1.odom.collect().equals(_df(2, 9_000).sort("time_ns"))
+
+
+def test_topic_cache_skipped_by_overwrite_false_is_not_stamped(tmp_path):
+    bundles, dest = _topics(tmp_path)
+    TopicParquetStore.write(bundles, dest)
+    (dest / TopicParquetStore.VERSION_FILE).unlink()
+
+    lazy = {name: TopicBundle(odom=bundle.odom.lazy()) for name, bundle in bundles.items()}
+    TopicParquetStore.write(lazy, dest, overwrite=False)
+
+    assert not (dest / TopicParquetStore.VERSION_FILE).exists()
+
+
+def test_topic_cache_of_this_layout_is_current(tmp_path):
+    bundles, dest = _topics(tmp_path)
+    TopicParquetStore.write(bundles, dest)
+
+    assert (dest / TopicParquetStore.VERSION_FILE).read_text().strip() == str(TopicParquetStore.VERSION)
+    assert TopicParquetStore.is_current(dest)
+
+
+def test_topic_cache_without_a_version_stamp_is_not_current(tmp_path):
+    bundles, dest = _topics(tmp_path)
+    TopicParquetStore.write(bundles, dest)
+    (dest / TopicParquetStore.VERSION_FILE).unlink()
+
+    assert not TopicParquetStore.is_current(dest)
+
+
+def test_topic_cache_stamped_by_another_layout_is_not_current(tmp_path):
+    bundles, dest = _topics(tmp_path)
+    TopicParquetStore.write(bundles, dest)
+    (dest / TopicParquetStore.VERSION_FILE).write_text(f"{TopicParquetStore.VERSION + 1}\n")
+
+    assert not TopicParquetStore.is_current(dest)
 
 
 def test_topic_read_missing_or_file_dir(tmp_path):

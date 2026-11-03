@@ -14,13 +14,15 @@ import subprocess
 import typing
 
 import yaml
+from arena_runtime.env.task_layer import TM_AXES, decode_modes
 from rclpy.parameter import Parameter
 
+from ..storage.legacy import legacy_modes, legacy_params
 from .lockstep import LockstepSummary
 from .step import StepErrorKind, StepResult
 
 if typing.TYPE_CHECKING:
-    from task_generator_msgs.msg import EpisodeRecord
+    from arena_runtime_msgs.msg import EpisodeRecord
 
 SUPERSEDED_PROGRESS = "superseded_progress.csv"
 
@@ -215,9 +217,9 @@ class ProgressLog:
     _HEADER = (
         "ts_iso,run_id,step_key,contestant,stage,env_id,episode_id,parent_episode_id,"
         "is_reference,reference_type,"
-        "world,seed,tm_robots,tm_obstacles,tm_modules,robots,"
+        "world,seed,modes,robots,"
         "outcome_state,outcome_info,started_at,ended_at,runtime_s,"
-        "robots_params_json,obstacles_params_json,"
+        "params_json,"
         "error_kind,error_detail,"
         "lockstep_stalls,lockstep_max_stall_s,lockstep_rtf,lockstep_beat_channels,lockstep_ticks,lockstep_beats,lockstep_beats_due,"
         "goal_dist_start,goal_dist_min,path_length,"
@@ -271,17 +273,14 @@ class ProgressLog:
                 reference_type or "",
                 rec.world,
                 rec.seed,
-                rec.tm_robots,
-                rec.tm_obstacles,
-                ",".join(rec.tm_modules),
+                json.dumps(decode_modes(rec.modes), sort_keys=True),
                 ",".join(rec.robots),
                 rec.outcome_state,
                 rec.outcome_info,
                 started_at,
                 ended_at,
                 runtime,
-                _params_to_json(rec.robots_params),
-                _params_to_json(rec.obstacles_params),
+                _params_to_json(rec.params),
                 error_kind.value if error_kind is not None else "",
                 error_detail or "",
                 lockstep.stalls if lockstep is not None else "",
@@ -394,9 +393,24 @@ def _rows_by_column(sources: typing.Iterable[pathlib.Path], header: list[str]) -
         for row in records[1:]:
             if len(row) != len(src_header):
                 continue
-            by_name = dict(zip(src_header, row, strict=True))
+            by_name = _map_legacy_columns(dict(zip(src_header, row, strict=True)))
             rows.append([by_name.get(col, "") for col in header])
     return rows
+
+
+def _json_leaves(cell: str) -> dict[str, typing.Any]:
+    return {entry["name"]: entry["value"] for entry in json.loads(cell or "[]")}
+
+
+def _map_legacy_columns(row: dict[str, str]) -> dict[str, str]:
+    """A progress row written before modes with its tm_* and per-axis params columns mapped to `modes` and `params_json`."""
+    if not any(f"tm_{axis}" in row for axis in TM_AXES):
+        return row
+    row = dict(row)
+    robots, obstacles, modules = (row.pop(f"tm_{axis}", None) for axis in TM_AXES)
+    modes = legacy_modes(robots=robots, obstacles=obstacles, modules=None if modules is None else modules.split(","))
+    params = legacy_params(modes, _json_leaves(row.pop("robots_params_json", "")), _json_leaves(row.pop("obstacles_params_json", "")))
+    return {**row, "modes": json.dumps(modes, sort_keys=True), "params_json": json.dumps([{"name": name, "value": value} for name, value in params.items()])}
 
 
 def _upgrade_header(path: pathlib.Path) -> None:

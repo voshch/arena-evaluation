@@ -38,7 +38,7 @@ async def evaluation_record_stop(
     env_id: EnvId = None,
 ) -> dict[str, Any]:
     """Close an env's open episode recording with its outcome, flushing the MCAP and the episode metadata."""
-    from task_generator_msgs.msg import EpisodeRecord
+    from arena_runtime_msgs.msg import EpisodeRecord
 
     states = {name: value for value, name in msgs.constants(EpisodeRecord).items()}
     return await _record(env_id, True, episode_id, outcome_state=states[outcome], outcome_info=info)
@@ -47,8 +47,8 @@ async def evaluation_record_stop(
 @domain.tool(read_only=True)
 async def evaluation_recorded_topics(env_id: EnvId = None) -> dict[str, Any]:
     """The recordable topics an env's backend declares on <task generator>/state/recorded_topics, with QoS and whether each is recorded."""
-    from task_generator_msgs.msg import RecordedTopics
+    from arena_runtime_msgs.msg import RecordedTopics
 
     node = await tg(env_id)
     msg = await ROS.latest(RecordedTopics, f"{node}/state/recorded_topics", qos=LATCHED, hint="the task generator latches it once its backend is up")
-    return {"task_generator": node, "topics": [msgs.to_dict(row) for row in msg.topics]}
+    return {"env": node, "topics": [msgs.to_dict(row) for row in msg.topics]}

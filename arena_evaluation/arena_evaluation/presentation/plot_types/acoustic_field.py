@@ -753,6 +753,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
         from ...processing.pipeline import _episode_window
         from ...processing.pose_anchor import resolve_pose_source
 
+        if not TopicParquetStore.is_current(topics_root):
+            logger.warning("Stale topics cache at %s, run 'evaluation extract' with --force-extract first.", topics_root)
+            return None
+
         frames = []
         # the pose stream the metrics used, odom as the last resort
         bundles = TopicParquetStore.read(topics_root)

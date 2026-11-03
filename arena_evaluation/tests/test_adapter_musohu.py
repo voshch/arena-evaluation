@@ -22,7 +22,7 @@ from musohu_bag import BEAMS, CAMERA, CLOUD_POINTS, CMD_OFFSET_NS, CMD_VEL, COUN
 EPISODE = "episodes/episode_000"
 MCAP = f"{EPISODE}/episode_000.mcap"
 META = f"{EPISODE}/episode_000.yaml"
-ROBOT_NS = "arena/env_0/task_generator_node/human"
+ROBOT_NS = "arena/env_0/arena_env_node/human"
 LIVE_ITEM = "02182023_frontal_approach_13"
 LIVE_REFUSED = "02152023_front_avoid_passenger_1"
 LIVE_FILE_ID = 564
@@ -160,7 +160,7 @@ def test_metadata_agrees_with_recording(converted: Path):
         "episodes_requested": 1,
         "is_reference": True,
         "reference_type": "human_demonstration",
-        "env_ns_root": "/arena/env_0/task_generator_node",
+        "env_ns_root": "/arena/env_0/arena_env_node",
         "pedsim_available": False,
         "recording_started_at": "2023-11-14T22:13:19.980000+00:00",
         "recording_ended_at": "2023-11-14T22:13:23.905000+00:00",

@@ -7,7 +7,9 @@ import re
 import typing
 
 import attrs
-from task_generator.modes import Modes
+
+if typing.TYPE_CHECKING:
+    from arena_runtime.env.task_layer import TaskLayer, TaskModes
 
 _DUR_RE = re.compile(r'(\d+(?:\.\d+)?)\s*(ms|s|m|h)?')
 
@@ -34,21 +36,69 @@ def _yamlable(v: object) -> object:
     return repr(v)
 
 
-_STAGE_OWNED_KEYS = frozenset({"world", "robot", "run_seed"})
+_STAGE_OWNED_KEYS = frozenset({"world", "robot", "run_seed", "task_layer"})
 _STAGE_OWNED_PREFIXES = ("task.", "record.")
 
 _SUITE_METRIC_KEYS = frozenset({"max_collisions", "barn"})
+
+_LEGACY_MODE_PREFIX = "tm_"
+
+_IMPLICIT_SEED_EXCLUDES = ("timeout", "timeout_peds", "optim")
+
+
+def _layer(task_layer_key: str = "") -> TaskLayer:
+    from arena_runtime.env.task_layer import task_layer
+
+    return task_layer(task_layer_key)
+
+
+def _expand_modes(obj: dict, layer: TaskLayer) -> tuple[dict, dict]:
+    """obj with its validated `modes` selection, and the same selection under legacy `tm_<axis>` keys in the input's key order."""
+    out: dict = {}
+    legacy: dict = {}
+    modes: dict[str, str] = {}
+    for key, value in obj.items():
+        if key == "modes":
+            if not isinstance(value, dict):
+                raise ValueError(f"invalid modes type: {type(value)}")
+            pairs = [(str(axis), name) for axis, name in value.items()]
+        elif key.startswith(_LEGACY_MODE_PREFIX):
+            pairs = [(key.removeprefix(_LEGACY_MODE_PREFIX), value)]
+        else:
+            out[key] = value
+            legacy[key] = value
+            continue
+        for axis, name in pairs:
+            if not isinstance(name, str):
+                raise ValueError(f"invalid {axis} type: {type(name)}")
+            if axis in modes:
+                raise ValueError(f"stage sets the {axis!r} mode twice")
+            given = [part.strip() for part in name.split(",") if part.strip()]
+            canonical = ",".join(layer.validate_modes({axis: given})[axis])
+            modes[axis] = canonical
+            legacy[f"{_LEGACY_MODE_PREFIX}{axis}"] = canonical
+    if modes:
+        out["modes"] = modes
+    return out, legacy
+
+
+def stage_modes(stage: Suite.Stage, vocabulary: TaskModes) -> TaskModes:
+    """The mode names the stage selects on every axis of the vocabulary, empty for an axis it leaves out."""
+    return {axis: [name for name in stage.modes.get(axis, "").split(",") if name] for axis in vocabulary}
 
 
 class Suite(typing.NamedTuple):
     @classmethod
     def parse(cls, name: str, obj: dict) -> Suite:
+        task_layer_key = str(obj.get("task_layer") or "")
+        layer = _layer(task_layer_key)
         return cls(
             name=name,
-            stages=[cls.Stage.parse(stage) for stage in obj["stages"]],
+            stages=[cls.Stage.parse(stage, layer) for stage in obj["stages"]],
             launch_args=cls._parse_launch(obj.get("launch") or {}),
             references=bool(obj.get("references", False)),
             metrics=cls._parse_metrics(obj.get("metrics") or {}),
+            task_layer=task_layer_key,
         )
 
     @staticmethod
@@ -87,8 +137,7 @@ class Suite(typing.NamedTuple):
         episodes: int
         robot: str
         map: str
-        tm_robots: Modes.TM_Robots
-        tm_obstacles: Modes.TM_Obstacles
+        modes: dict[str, str]
         config: dict
         seed: int
         timeout: float
@@ -101,8 +150,6 @@ class Suite(typing.NamedTuple):
                 return {k: cls._make_serializable(v) for k, v in item.items()}
             if isinstance(item, (list, tuple)):
                 return [cls._make_serializable(i) for i in item]
-            if isinstance(item, (Modes.TM_Robots, Modes.TM_Obstacles)):
-                return item.value
             return item
 
         @classmethod
@@ -118,38 +165,23 @@ class Suite(typing.NamedTuple):
                 return 0
 
         @classmethod
-        def parse(cls, obj: dict) -> Suite.Stage:
-            obj = dict(obj)
-            if "tm_robots" in obj:
-                v = obj["tm_robots"]
-                if isinstance(v, str):
-                    obj["tm_robots"] = Modes.TM_Robots[v.upper()]
-                elif isinstance(v, Modes.TM_Robots):
-                    pass
-                else:
-                    raise ValueError(f"invalid tm_robots type: {type(v)}")
-            if "tm_obstacles" in obj:
-                v = obj["tm_obstacles"]
-                if isinstance(v, str):
-                    obj["tm_obstacles"] = Modes.TM_Obstacles[v.upper()]
-                elif isinstance(v, Modes.TM_Obstacles):
-                    pass
-                else:
-                    raise ValueError(f"invalid tm_obstacles type: {type(v)}")
+        def parse(cls, obj: dict, layer: TaskLayer | None = None) -> Suite.Stage:
+            obj, legacy = _expand_modes(obj, _layer() if layer is None else layer)
             obj.setdefault("config", {})
-            raw_timeout = obj.pop("timeout", None)
+            raw_timeout, raw_timeout_peds, optim = (obj.pop(key, None) for key in _IMPLICIT_SEED_EXCLUDES)
             timeout_f = _DEFAULT_TIMEOUT_S if raw_timeout is None else _parse_duration(str(raw_timeout))
-            raw_timeout_peds = obj.pop("timeout_peds", None)
             timeout_peds_f = _parse_duration(str(raw_timeout_peds)) if raw_timeout_peds is not None else None
-            optim = obj.pop("optim", None)
-            obj.setdefault("seed", cls.hash(obj))
-            return cls(timeout=timeout_f, optim=optim, timeout_peds=timeout_peds_f, **obj)
+            modes = obj.pop("modes", {})
+            if "seed" not in obj:
+                obj["seed"] = cls.hash({key: value for key, value in legacy.items() if key not in _IMPLICIT_SEED_EXCLUDES})
+            return cls(timeout=timeout_f, optim=optim, timeout_peds=timeout_peds_f, modes=modes, **obj)
 
     name: str
     stages: list[Suite.Stage]
     launch_args: dict[str, str] = {}
     references: bool = False
     metrics: dict[str, typing.Any] = {}
+    task_layer: str = ""
 
     @property
     def min_index(self) -> Suite.Index:

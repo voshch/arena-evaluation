@@ -180,8 +180,8 @@ def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | 
     return None
 
 
-_RECORD_RUNNING = 1  # task_generator_msgs/msg/EpisodeRecord.RUNNING
-_RECORD_SUCCESS = 2  # task_generator_msgs/msg/EpisodeRecord.SUCCESS
+_RECORD_RUNNING = 1  # arena_runtime_msgs/msg/EpisodeRecord.RUNNING
+_RECORD_SUCCESS = 2  # arena_runtime_msgs/msg/EpisodeRecord.SUCCESS
 
 
 def _episode_window(record: pl.DataFrame | pl.LazyFrame | None) -> tuple[int | None, int | None]:
@@ -533,7 +533,7 @@ class ProcessingPipeline:
             print(f"  [skip] No MCAP found for episode_{ep.episode_id:03d} ({ep.planner}/{ep.stage})")
             return None
 
-        if not force_extract:
+        if not force_extract and TopicParquetStore.is_current(topics_dir):
             bundles = TopicParquetStore.read(topics_dir)
             if bundles:
                 return bundles

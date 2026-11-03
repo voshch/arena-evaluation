@@ -25,10 +25,11 @@ ARENA_CLI = Path(__file__).parents[3] / "_meta"
 NATIVE_STAGE_KEYS = {"name", "map", "robot", "tm_robots", "tm_obstacles", "episodes", "timeout", "config"}
 
 _RUNNER = """
-import enum
 import json
 import attrs
+from arena_runtime.env.task_layer import registered_modes, task_layer
 from arena_evaluation.benchmark import runner
+from arena_evaluation.benchmark.config import stage_modes
 from arena_evaluation.benchmark.state import Manifest, compute_config_hash
 from arena_evaluation.benchmark.tree import ContestIdentifier, SuiteIdentifier
 
@@ -36,8 +37,9 @@ verdicts = [identifier.resolve_source_sync() for identifier in (SuiteIdentifier(
 suite, contest, suite_dict, contest_dict, bundle_dir, suite_provenance, contest_provenance = runner._load_suite_contest("barn", "barn")
 steps = runner._all_steps(contest, suite, 1.0)
 stage = steps[0].stage
-obstacles, robots = runner._flatten_per_mode_params(stage.config, tm_obstacles=stage.tm_obstacles.value, tm_robots=stage.tm_robots.value)
-records = [{"key": step.key, "contestant": attrs.asdict(step.contestant), "stage": {k: v.value if isinstance(v, enum.Enum) else v for k, v in step.stage._asdict().items()}} for step in steps]
+layer = task_layer()
+params = runner.stage_params(stage.config, stage_modes(stage, registered_modes(layer)), layer.mode_namespaces())
+records = [{"key": step.key, "contestant": attrs.asdict(step.contestant), "stage": step.stage._asdict()} for step in steps]
 manifest = Manifest(run_id="barn", created_at="", arena_git_sha=None, arena_git_dirty=False, cli_args=[], env_n=1, headless=True, config_hash=compute_config_hash(suite_dict, contest_dict), simulator="gazebo", scale_episodes=1.0, suite_name=suite.name, contest_name=contest.name, suite=suite_dict, contest=contest_dict, steps=records, suite_provenance=suite_provenance, contest_provenance=contest_provenance)
 assert Manifest.from_yaml(manifest.to_yaml()) == manifest
 print(json.dumps({
@@ -48,8 +50,8 @@ print(json.dumps({
     "launch": runner.build_launch_args(steps[0], "gazebo"),
     "preflight": runner._preflight_contest(contest),
     "budget": runner.BenchmarkRunner._episode_budget(steps[0]),
-    "obstacles": [[p.name, p.value.string_value] for p in obstacles],
-    "robots": [[p.name, p.value.string_value] for p in robots],
+    "params": [[p.name, p.value.string_value] for p in params],
+    "namespace": layer.mode_namespaces()["obstacles"]["scenario"],
     "manifest": manifest.to_yaml(),
 }))
 """
@@ -278,8 +280,7 @@ def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, 
     assert seen["keys"] == ["dwb/barn_0"]
     assert seen["preflight"] == []
     assert seen["budget"] == 110.0
-    assert seen["obstacles"] == [["file", "barn"]]
-    assert seen["robots"] == [["file", "barn"]]
+    assert seen["params"] == [[f"{seen['namespace']}.file", "barn"]]
     launch = dict(arg.split(":=", 1) for arg in seen["launch"])
     assert launch["world"] == "barn_0"
     assert launch["robot"] == "jackal"
@@ -391,7 +392,6 @@ def test_push_preflight_finds_no_dangling_world(assets: Path, out: Path):
 
 
 def test_written_suite_and_contest_parse(out: Path):
-    from task_generator.modes import Modes
 
     from arena_evaluation.benchmark.config import Contest, Suite
 
@@ -399,8 +399,7 @@ def test_written_suite_and_contest_parse(out: Path):
     assert len(suite.stages) == 1
     stage = suite.stages[0]
     assert stage.map == "barn_0"
-    assert stage.tm_robots is Modes.TM_Robots.SCENARIO
-    assert stage.tm_obstacles is Modes.TM_Obstacles.SCENARIO
+    assert stage.modes == {"robots": "scenario", "obstacles": "scenario"}
     assert stage.timeout == 110.0
     assert suite.metrics["max_collisions"] == 1
     assert suite.metrics["barn"]["goal"] == [2.25, 13.0]

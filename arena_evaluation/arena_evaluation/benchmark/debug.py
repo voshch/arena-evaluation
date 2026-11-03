@@ -22,14 +22,14 @@ _BENCHMARK_RUNNER_MARKERS = (
 _ARENA_CLI_MARKERS = ("arena_cli",)
 _SIM_MARKERS = ("gz sim", "ign gazebo", "gzserver")
 _SIM_EXECUTABLES = ("gazebo",)
-_NODE_MARKERS = ("arena_node", "data_recorder", "recorder_node")
+_NODE_MARKERS = ("arena_runtime_node", "data_recorder", "recorder_node")
 _GEN_MARKERS = ("world_generator",)
 
 _KIND_ORDER = {
     "benchmark_runner": 0,
     "arena_cli": 1,
     "simulation": 2,
-    "arena_node": 3,
+    "arena_runtime_node": 3,
     "world_generator": 4,
 }
 
@@ -87,7 +87,7 @@ def _classify(cmdline: str) -> str | None:
     if any(m in cmdline for m in _SIM_MARKERS) or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES:
         return "simulation"
     if any(m in cmdline for m in _NODE_MARKERS):
-        return "arena_node"
+        return "arena_runtime_node"
     if any(m in cmdline for m in _ARENA_CLI_MARKERS):
         return "arena_cli"
     return None

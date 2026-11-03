@@ -35,14 +35,13 @@ from arena_evaluation.benchmark.runner import (
 from arena_evaluation.benchmark.state import Manifest, RunDir, compute_config_hash
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
 from rcl_interfaces.msg import ParameterType
-from task_generator.modes import Modes
 
-RANDOM_ROBOTS = Modes.TM_Robots.RANDOM
-RANDOM_OBSTACLES = Modes.TM_Obstacles.RANDOM
+RANDOM_ROBOTS = "random"
+RANDOM_OBSTACLES = "random"
 
 
 def _stage(name: str = "s1", *, episodes: int = 4, robot: str = "jackal", world: str = "map1", optim: dict | None = None) -> Suite.Stage:
-    return Suite.Stage(name=name, episodes=episodes, robot=robot, map=world, tm_robots=RANDOM_ROBOTS, tm_obstacles=RANDOM_OBSTACLES, config={}, seed=7, timeout=60.0, optim=optim)
+    return Suite.Stage(name=name, episodes=episodes, robot=robot, map=world, modes={"robots": RANDOM_ROBOTS, "obstacles": RANDOM_OBSTACLES}, config={}, seed=7, timeout=60.0, optim=optim)
 
 
 def _suite(*stages: Suite.Stage, references: bool = False) -> Suite:

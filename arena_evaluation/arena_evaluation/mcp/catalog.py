@@ -112,7 +112,13 @@ def evaluation_config_schema(kind: Literal["suite", "contest"]) -> dict[str, Any
     if kind == "suite":
         stage = config.Suite.Stage
         out: dict[str, Any] = {
-            "suite_keys": {"stages": "list of stages (required)", "launch": "launch args for the whole run", "references": f"bool, default {config.Suite._field_defaults['references']}", "metrics": f"metric overrides, keys {sorted(config._SUITE_METRIC_KEYS)}"},
+            "suite_keys": {
+                "stages": "list of stages (required)",
+                "launch": "launch args for the whole run",
+                "task_layer": "task runtime name, default $ARENA_TASK_LAYER or task_generator",
+                "references": f"bool, default {config.Suite._field_defaults['references']}",
+                "metrics": f"metric overrides, keys {sorted(config._SUITE_METRIC_KEYS)}",
+            },
             "stage_fields": {field: {"type": str(stage.__annotations__.get(field)), **({"default": jsonable(stage._field_defaults[field])} if field in stage._field_defaults else {})} for field in stage._fields},
             "stage_defaults": {"timeout": f"{config._DEFAULT_TIMEOUT_S}s sim time", "seed": "hash of the stage fields except config, so stages with different names differ, set it explicitly to share starts and goals; episode i runs with seed + i"},
             "launch_rejects": {"keys": sorted(config._STAGE_OWNED_KEYS), "prefixes": list(config._STAGE_OWNED_PREFIXES)},

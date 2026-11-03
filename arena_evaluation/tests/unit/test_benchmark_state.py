@@ -16,6 +16,7 @@ import subprocess
 import types
 
 import pytest
+from arena_runtime.env.task_layer import encode_modes
 from rcl_interfaces.msg import Parameter as MsgParameter
 from rcl_interfaces.msg import ParameterType, ParameterValue
 
@@ -28,6 +29,7 @@ from arena_evaluation.benchmark.state import (
     capture_git_sha,
     compute_config_hash,
     find_most_recent_resumable,
+    progress_rows,
 )
 from arena_evaluation.benchmark.lockstep import LockstepSummary
 from arena_evaluation.benchmark.step import StepErrorKind, StepResult
@@ -65,14 +67,11 @@ def _make_episode_record(*, episode_id: int = 1) -> types.SimpleNamespace:
         episode_id=episode_id,
         world="map1",
         seed=42,
-        tm_robots="random",
-        tm_obstacles="random",
-        tm_modules=["benchmark"],
+        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}),
         robots=["turtlebot3_burger"],
         outcome_state=1,
         outcome_info="",
-        robots_params=[],
-        obstacles_params=[],
+        params=[],
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
@@ -443,17 +442,14 @@ _HEADERS = [
     "reference_type",
     "world",
     "seed",
-    "tm_robots",
-    "tm_obstacles",
-    "tm_modules",
+    "modes",
     "robots",
     "outcome_state",
     "outcome_info",
     "started_at",
     "ended_at",
     "runtime_s",
-    "robots_params_json",
-    "obstacles_params_json",
+    "params_json",
     "error_kind",
     "error_detail",
     "lockstep_stalls",
@@ -604,14 +600,11 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
         episode_id=1,
         world="w",
         seed=1,
-        tm_robots="r",
-        tm_obstacles="o",
-        tm_modules=["m"],
+        modes=encode_modes({"robots": ["r"], "obstacles": ["o"], "modules": ["m"]}),
         robots=["bot"],
         outcome_state=1,
         outcome_info="",
-        robots_params=[_msg_param("speed", ParameterType.PARAMETER_INTEGER, 3)],
-        obstacles_params=[],
+        params=[_msg_param("task.r.speed", ParameterType.PARAMETER_INTEGER, 3)],
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
@@ -632,7 +625,48 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
     log.close()
     with (tmp_path / "progress.csv").open(newline="") as fh:
         row = next(csv.DictReader(fh))
-    assert json.loads(row["robots_params_json"]) == [{"name": "speed", "value": 3}]
+    assert json.loads(row["params_json"]) == [{"name": "task.r.speed", "value": 3}]
+    assert json.loads(row["modes"]) == {"modules": ["m"], "obstacles": ["o"], "robots": ["r"]}
+
+
+_OLD_COLUMNS = [
+    "ts_iso", "run_id", "step_key", "contestant", "stage", "env_id", "episode_id", "world", "seed",
+    "tm_robots", "tm_obstacles", "tm_modules", "robots", "robots_params_json", "obstacles_params_json",
+]  # fmt: skip
+
+
+def test_a_progress_file_from_before_modes_reads_into_modes_and_params(tmp_path: pathlib.Path):
+    with (tmp_path / "progress.csv").open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=_OLD_COLUMNS)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "ts_iso": "2026-01-01T00:00:00+00:00",
+                "step_key": "c/s",
+                "episode_id": "1",
+                "world": "map1",
+                "tm_robots": "scenario",
+                "tm_obstacles": "random",
+                "tm_modules": "benchmark,sounds",
+                "robots_params_json": json.dumps([{"name": "file", "value": "case_1"}]),
+                "obstacles_params_json": json.dumps([{"name": "static.n", "value": [1, 2]}]),
+            }
+        )
+    (row,) = progress_rows(tmp_path)
+    assert json.loads(row["modes"]) == {"modules": ["benchmark", "sounds"], "obstacles": ["random"], "robots": ["scenario"]}
+    assert json.loads(row["params_json"]) == [{"name": "task.scenario.file", "value": "case_1"}, {"name": "task.random.static.n", "value": [1, 2]}]
+    assert "tm_robots" not in row
+    assert row["world"] == "map1"
+
+
+def test_opening_a_progress_file_from_before_modes_rewrites_it_under_the_current_header(tmp_path: pathlib.Path):
+    path = tmp_path / "progress.csv"
+    path.write_text(",".join(_OLD_COLUMNS) + "\n" + "t,r,c/s,c,s,0,1,map1,3,random,random,,bot,[],[]\n")
+    ProgressLog(path).close()
+    with path.open(newline="") as fh:
+        (row,) = csv.DictReader(fh)
+    assert json.loads(row["modes"]) == {"modules": [], "obstacles": ["random"], "robots": ["random"]}
+    assert json.loads(row["params_json"]) == []
 
 
 # -- dedupe_in_place --

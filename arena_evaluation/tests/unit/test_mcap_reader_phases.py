@@ -32,7 +32,7 @@ string outcome_info
 string goal_uuid
 float32 goal_dist_start
 float32 goal_dist_min
-{extra}rcl_interfaces/Parameter[] robots_params
+{extra}rcl_interfaces/Parameter[] params
 """
 
 _PHASES = {
@@ -50,7 +50,7 @@ def _records(tmp_path: pathlib.Path, payloads: list[str | None]) -> pl.DataFrame
     with bag.open("wb") as f:
         writer = Writer(f)
         fields = _RECORD_FIELDS.format(extra="string phases\n" if with_phases else "")
-        schema = writer.register_msgdef("task_generator_msgs/msg/EpisodeRecord", fields + _PARAMETER_DEFS)
+        schema = writer.register_msgdef("arena_runtime_msgs/msg/EpisodeRecord", fields + _PARAMETER_DEFS)
         for i, payload in enumerate(payloads):
             msg = {
                 "episode_id": 7,
@@ -59,11 +59,11 @@ def _records(tmp_path: pathlib.Path, payloads: list[str | None]) -> pl.DataFrame
                 "goal_uuid": "",
                 "goal_dist_start": 5.0,
                 "goal_dist_min": 1.0,
-                "robots_params": [],
+                "params": [],
             }
             if with_phases:
                 msg["phases"] = payload
-            writer.write_message("/env_0/task_generator_node/state/episode", schema, msg, log_time=i + 1, publish_time=i + 1)
+            writer.write_message("/env_0/arena_env_node/state/episode", schema, msg, log_time=i + 1, publish_time=i + 1)
         writer.finish()
     out = tmp_path / "topics"
     out.mkdir()

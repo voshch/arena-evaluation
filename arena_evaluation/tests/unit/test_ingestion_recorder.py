@@ -22,6 +22,7 @@ rosbag2_py = pytest.importorskip("rosbag2_py")
 pytest.importorskip("rclpy")
 
 import yaml
+from arena_runtime.env.task_layer import encode_modes
 from arena_evaluation_msgs.srv import RecordEpisode
 from mcap.reader import make_reader
 from nav_msgs.msg import Odometry
@@ -33,7 +34,7 @@ from rclpy.serialization import deserialize_message, serialize_message
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-from task_generator_msgs.msg import EpisodeRecord, RecordedTopic, RecordedTopics, RobotFleet, RobotState
+from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopic, RecordedTopics, RobotFleet, RobotState
 from geometry_msgs.msg import TransformStamped, Twist
 from tf2_msgs.msg import TFMessage
 
@@ -779,7 +780,7 @@ def env_node(tmp_path):
 
 @pytest.fixture
 def state_node(tmp_path):
-    yield from _node_fixture(tmp_path, "arena/env_1/task_generator_node", robot="jackal")
+    yield from _node_fixture(tmp_path, "arena/env_1/arena_env_node", robot="jackal")
 
 
 def _recorded_rows() -> RecordedTopics:
@@ -1266,22 +1267,18 @@ def test_update_metadata_from_episode_populates_fields(tmp_path):
     msg.episode_id = 7
     msg.world = "hospital_1"
     msg.robots = ["jackal"]
-    msg.tm_robots = "tm_robots"
-    msg.tm_obstacles = "tm_obstacles"
-    msg.tm_modules = ["spawn", "nav"]
-    msg.obstacles_params = [RclParameter(name="robot.radius", value=pv_double)]
-    msg.robots_params = [RclParameter(name="model", value=pv_string)]
+    msg.task_layer = "generated_runtime"
+    msg.modes = encode_modes({"robots": ["explore"], "fleet": ["convoy", "wedge"], "modules": []})
+    msg.params = [RclParameter(name="task.random.robot.radius", value=pv_double), RclParameter(name="task.explore.model", value=pv_string)]
 
     node._update_metadata_from_episode(msg)
 
     md = node.current_metadata
     assert md.robot_model == ["jackal"]
     assert md.map == "hospital_1"
-    assert md.tm_obstacles == "tm_obstacles"
-    assert md.tm_robots == "tm_robots"
-    assert md.tm_modules == ["spawn", "nav"]
-    assert md.obstacles_params == {"robot": {"radius": 0.4}}
-    assert md.robots_params == {"model": "turtlebot3"}
+    assert md.task_layer == "generated_runtime"
+    assert md.modes == {"robots": ["explore"], "fleet": ["convoy", "wedge"], "modules": []}
+    assert md.params == {"task.random.robot.radius": 0.4, "task.explore.model": "turtlebot3"}
     assert yaml.safe_load((tmp_path / "episode.yaml").read_text())["map"] == "hospital_1"
 
 
@@ -1303,7 +1300,7 @@ def test_a_record_of_another_episode_leaves_the_metadata_alone(tmp_path):
     node.current_metadata_path = tmp_path / "episode.yaml"
     node._update_metadata_from_episode(_episode_message(episode_id=4, outcome=1))
     queued_next = _episode_message(episode_id=5, outcome=0)
-    queued_next.tm_robots = "next"
+    queued_next.modes = encode_modes({"robots": ["next"]})
     node._update_metadata_from_episode(queued_next)
     late_previous = _episode_message(episode_id=3, outcome=2)
     node._update_metadata_from_episode(late_previous)
@@ -1311,12 +1308,12 @@ def test_a_record_of_another_episode_leaves_the_metadata_alone(tmp_path):
     on_disk = yaml.safe_load((tmp_path / "episode.yaml").read_text())
     assert node.current_metadata.task_generator_episode_id == 4
     assert on_disk["task_generator_episode_id"] == 4
-    assert node.current_metadata.tm_robots != "next"
+    assert node.current_metadata.modes != {"robots": ["next"]}
     assert node.current_metadata.outcome_state is None
 
 
 # ---------------------------------------------------------------------------
-# _param_value_to_py / _unflatten_dict
+# _param_value_to_py
 # ---------------------------------------------------------------------------
 
 
@@ -1344,19 +1341,6 @@ def test_param_value_to_py_unknown_type_falls_back_to_str():
     node = _bare_node()
     pv = ParameterValue(type=99)
     assert node._param_value_to_py(pv) == str(pv)
-
-
-def test_unflatten_dict_nested_and_scalar():
-    node = _bare_node()
-    assert node._unflatten_dict({"a.b.c": 1, "a.b.d": 2, "e": 3}) == {
-        "a": {"b": {"c": 1, "d": 2}},
-        "e": 3,
-    }
-
-
-def test_unflatten_dict_empty():
-    node = _bare_node()
-    assert node._unflatten_dict({}) == {}
 
 
 # ---------------------------------------------------------------------------

@@ -29,8 +29,8 @@ def _status(
     )
 
 
-_ENV0 = "/task_generator_node/env_0"
-_ENV1 = "/task_generator_node/env_1"
+_ENV0 = "/arena_env_node/env_0"
+_ENV1 = "/arena_env_node/env_1"
 
 
 def _counts(n: int, *, env1_received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:

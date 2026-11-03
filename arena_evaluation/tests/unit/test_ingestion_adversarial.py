@@ -4,7 +4,7 @@ import pytest
 import rclpy
 from mcap.reader import make_reader
 from rosgraph_msgs.msg import Clock
-from task_generator_msgs.msg import EpisodeRecord
+from arena_runtime_msgs.msg import EpisodeRecord
 
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 

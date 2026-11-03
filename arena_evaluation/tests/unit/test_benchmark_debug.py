@@ -35,9 +35,9 @@ GONE = 2**30
         ("ign gazebo --verbose", "simulation"),
         ("gazebo --server", "simulation"),
         ("gzserver --world w", "simulation"),
-        ("python -m arena_node", "arena_node"),
-        ("ros2 run arena_evaluation data_recorder", "arena_node"),
-        ("ros2 run arena_evaluation recorder_node", "arena_node"),
+        ("python -m arena_runtime_node", "arena_runtime_node"),
+        ("ros2 run arena_evaluation data_recorder", "arena_runtime_node"),
+        ("ros2 run arena_evaluation recorder_node", "arena_runtime_node"),
         ("arena_cli extract --run-dir x", "arena_cli"),
         ("uv run arena_cli process", "arena_cli"),
         ("sleep 100", None),
@@ -83,7 +83,7 @@ def sleeper():
 
 
 def test_ps_lines_parses_and_filters(monkeypatch):
-    fake = _fake_run_stdout(f"  1234 /usr/bin/python evaluation benchmark --run-id r1\n  5678 gz sim -s\n  9999 garbage no split here\n  0xBAD not-a-pid\n  3333 pkill -f arena\n  4444 ps -ef\n  5555 grep arena\n 99999 arena_node --self --pid\n")
+    fake = _fake_run_stdout(f"  1234 /usr/bin/python evaluation benchmark --run-id r1\n  5678 gz sim -s\n  9999 garbage no split here\n  0xBAD not-a-pid\n  3333 pkill -f arena\n  4444 ps -ef\n  5555 grep arena\n 99999 arena_runtime_node --self --pid\n")
     monkeypatch.setattr(debug_mod.subprocess, "run", fake)
     monkeypatch.setattr(debug_mod.os, "getpid", lambda: 99999)
 
@@ -174,12 +174,12 @@ def test_is_pid_alive_permission_error(monkeypatch):
 
 def test_running_processes_sort_and_filter(monkeypatch, sleeper):
     runner = sleeper()
-    _ps(monkeypatch, (GONE, "gz sim -s"), (runner, "evaluation benchmark --run-id r1"), (GONE + 1, "arena_node"), (GONE + 2, "completely unrelated process"))
+    _ps(monkeypatch, (GONE, "gz sim -s"), (runner, "evaluation benchmark --run-id r1"), (GONE + 1, "arena_runtime_node"), (GONE + 2, "completely unrelated process"))
 
     rows = debug_mod.running_processes()
-    # _KIND_ORDER: benchmark_runner(0) < simulation(2) < arena_node(3); tie-break by pid
+    # _KIND_ORDER: benchmark_runner(0) < simulation(2) < arena_runtime_node(3); tie-break by pid
     assert [r["pid"] for r in rows] == [runner, GONE, GONE + 1]
-    assert [r["kind"] for r in rows] == ["benchmark_runner", "simulation", "arena_node"]
+    assert [r["kind"] for r in rows] == ["benchmark_runner", "simulation", "arena_runtime_node"]
     assert rows[0]["elapsed_s"] >= 0.0
     assert rows[1]["elapsed_s"] is None
     assert all("unrelated" not in r["command"] for r in rows)

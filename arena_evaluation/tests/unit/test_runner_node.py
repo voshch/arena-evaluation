@@ -28,10 +28,9 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldEntry, HoldRegistry, LockstepStatus, SimState
 from rcl_interfaces.srv import GetParameters, SetParameters
-from task_generator.modes import Modes
-from task_generator_msgs.action import RunEpisode
-from task_generator_msgs.msg import EpisodeRecord
-from task_generator_msgs.srv import QueueEpisode
+from arena_runtime_msgs.action import RunEpisode
+from arena_runtime_msgs.msg import EpisodeRecord
+from arena_runtime_msgs.srv import QueueEpisode
 
 T = typing.TypeVar("T")
 
@@ -42,8 +41,7 @@ def _stage(name: str = "s1", *, timeout_peds: float | None = None, config: dict 
         episodes=1,
         robot="jackal",
         map="map_empty",
-        tm_robots=Modes.TM_Robots.RANDOM,
-        tm_obstacles=Modes.TM_Obstacles.RANDOM,
+        modes={"robots": "random", "obstacles": "random"},
         config={"random": {"dynamic": {"min": 2, "max": 3}}} if config is None else config,
         seed=3,
         timeout=45.0,
@@ -191,7 +189,7 @@ def test_only_foreign_holders_count_as_env_holds(tmp_path: pathlib.Path):
         seen = []
         runner._on_holders(HoldRegistry(holds=[HoldEntry(caller_id=ARENA_NODE_FQN, reason="reset", count=1)]))
         seen.append(runner._env_holds)
-        runner._on_holders(HoldRegistry(holds=[HoldEntry(caller_id=ARENA_NODE_FQN), HoldEntry(caller_id="/arena/env_0/task_generator_node")]))
+        runner._on_holders(HoldRegistry(holds=[HoldEntry(caller_id=ARENA_NODE_FQN), HoldEntry(caller_id="/arena/env_0/arena_env_node")]))
         seen.append(runner._env_holds)
         return seen
 

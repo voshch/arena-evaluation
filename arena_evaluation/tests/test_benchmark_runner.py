@@ -38,7 +38,7 @@ from arena_evaluation.benchmark.state import (
     compute_config_hash,
 )
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
-from task_generator.modes import Modes
+from arena_runtime.env.task_layer import encode_modes
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -51,8 +51,7 @@ def _make_stage(name: str = "s1") -> Suite.Stage:
         episodes=10,
         robot="turtlebot3_burger",
         map="map1",
-        tm_robots=Modes.TM_Robots.RANDOM,
-        tm_obstacles=Modes.TM_Obstacles.RANDOM,
+        modes={"robots": "random", "obstacles": "random"},
         config={},
         seed=0,
         timeout=120.0,
@@ -71,14 +70,11 @@ def _make_episode_record(
     episode_id: int = 1,
     world: str = "map1",
     seed: int = 42,
-    tm_robots: str = "random",
-    tm_obstacles: str = "random",
-    tm_modules: list[str] | None = None,
+    modes: dict[str, list[str]] | None = None,
     robots: list[str] | None = None,
     outcome_state: int = 1,
     outcome_info: str = "",
-    robots_params: list | None = None,
-    obstacles_params: list | None = None,
+    params: list | None = None,
     goal_dist_start: float = 0.0,
     goal_dist_min: float = 0.0,
     path_length: float = 0.0,
@@ -88,14 +84,11 @@ def _make_episode_record(
         episode_id=episode_id,
         world=world,
         seed=seed,
-        tm_robots=tm_robots,
-        tm_obstacles=tm_obstacles,
-        tm_modules=tm_modules or [],
+        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": []} if modes is None else modes),
         robots=robots or ["turtlebot3_burger"],
         outcome_state=outcome_state,
         outcome_info=outcome_info,
-        robots_params=robots_params or [],
-        obstacles_params=obstacles_params or [],
+        params=params or [],
         goal_dist_start=goal_dist_start,
         goal_dist_min=goal_dist_min,
         path_length=path_length,
@@ -230,17 +223,14 @@ _EXPECTED_HEADERS = [
     "reference_type",
     "world",
     "seed",
-    "tm_robots",
-    "tm_obstacles",
-    "tm_modules",
+    "modes",
     "robots",
     "outcome_state",
     "outcome_info",
     "started_at",
     "ended_at",
     "runtime_s",
-    "robots_params_json",
-    "obstacles_params_json",
+    "params_json",
     "error_kind",
     "error_detail",
     "lockstep_stalls",
@@ -272,7 +262,7 @@ def test_progress_log_header_column_count(tmp_path: pathlib.Path):
     with (tmp_path / "progress.csv").open(newline="") as fh:
         reader = csv.reader(fh)
         headers = next(reader)
-    assert len(headers) == 36
+    assert len(headers) == 33
 
 
 def test_progress_log_append(tmp_path: pathlib.Path):
@@ -283,9 +273,7 @@ def test_progress_log_append(tmp_path: pathlib.Path):
         episode_id=1,
         world="map1",
         seed=42,
-        tm_robots="random",
-        tm_obstacles="random",
-        tm_modules=["benchmark"],
+        modes={"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]},
         robots=["burger"],
         outcome_state=1,
         outcome_info="",
@@ -341,14 +329,11 @@ def test_progress_log_append(tmp_path: pathlib.Path):
     assert r0["episode_id"] == "1"
     assert r0["world"] == "map1"
     assert r0["seed"] == "42"
-    assert r0["tm_robots"] == "random"
-    assert r0["tm_obstacles"] == "random"
-    assert r0["tm_modules"] == "benchmark"
+    assert json.loads(r0["modes"]) == {"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}
     assert r0["robots"] == "burger"
     assert r0["outcome_state"] == "1"
     assert r0["outcome_info"] == ""
-    assert json.loads(r0["robots_params_json"]) == []
-    assert json.loads(r0["obstacles_params_json"]) == []
+    assert json.loads(r0["params_json"]) == []
     assert r0["error_kind"] == ""
     assert r0["error_detail"] == ""
 
@@ -528,8 +513,7 @@ def _make_cell(
         episodes=episodes,
         robot="turtlebot3_burger",
         map="map1",
-        tm_robots=Modes.TM_Robots.RANDOM,
-        tm_obstacles=Modes.TM_Obstacles.RANDOM,
+        modes={"robots": "random", "obstacles": "random"},
         config=stage_config or {},
         seed=42,
         timeout=120.0,
@@ -545,12 +529,119 @@ def test_build_launch_args_required_fields():
     assert "sim:=gazebo" in args
     assert "robot:=turtlebot3_burger" in args
     assert "world:=map1" in args
-    assert f"task.robots:={Modes.TM_Robots.RANDOM.value}" in args
-    assert f"task.obstacles:={Modes.TM_Obstacles.RANDOM.value}" in args
+    assert "task.robots:=random" in args
+    assert "task.obstacles:=random" in args
     assert not any(a.startswith("task.episode.count:=") for a in args)
     assert "run_seed:=42" in args
     assert "task.episode.auto_reset:=false" in args
-    assert "task.modules:=" in args
+    assert not any(a.startswith("task.modules:=") for a in args)
+
+
+def test_build_launch_args_name_the_default_task_layer(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("ARENA_TASK_LAYER", raising=False)
+    assert "task_layer:=task_generator" in build_launch_args(_make_cell(), "gazebo")
+
+
+def test_build_launch_args_name_the_environment_task_layer(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ARENA_TASK_LAYER", "task_generator")
+    assert "task_layer:=task_generator" in build_launch_args(_make_cell(), "gazebo")
+
+
+def test_build_launch_args_name_the_suite_task_layer():
+    cell = _make_cell()
+    named = Step(contestant=cell.contestant, stage=cell.stage, episodes=cell.episodes, task_layer="task_generator")
+    assert "task_layer:=task_generator" in build_launch_args(named, "gazebo")
+
+
+def test_build_launch_args_keep_the_task_layer_against_a_contestant_arg(caplog: pytest.LogCaptureFixture):
+    cell = _make_cell(contestant_args={"task_layer": "other_runtime"})
+    with caplog.at_level(logging.WARNING, logger="arena_evaluation.benchmark.runner"):
+        args = build_launch_args(cell, "gazebo")
+    assert [a for a in args if a.startswith("task_layer:=")] == ["task_layer:=task_generator"]
+    assert any("'task_layer'" in r.getMessage() and "ignored" in r.getMessage() for r in caplog.records)
+
+
+def test_build_launch_args_omit_an_unset_axis():
+    cell = _make_cell()
+    stage = cell.stage._replace(modes={"obstacles": "random"})
+    args = build_launch_args(Step(contestant=cell.contestant, stage=stage), "gazebo")
+    assert "task.obstacles:=random" in args
+    assert not any(a.startswith("task.robots") for a in args)
+    assert not any(a.endswith(":=") for a in args)
+
+
+def _request_params(req, layer, axis: str, mode: str) -> dict:
+    namespace = layer.mode_namespaces()[axis][mode]
+    return {p.name.removeprefix(f"{namespace}."): p for p in req.params if p.name.startswith(f"{namespace}.")}
+
+
+def test_stage_request_carries_every_set_axis_and_full_name_params():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import decode_modes, task_layer
+
+    layer = task_layer()
+    req = stage_request(_make_cell(stage_config={"random": {"dynamic": {"min": 2, "max": 3}}}))
+    assert decode_modes(req.modes) == {"robots": ["random"], "obstacles": ["random"], "modules": []}
+    assert list(_request_params(req, layer, "obstacles", "random")["dynamic.n"].value.integer_array_value) == [2, 3]
+
+
+def test_stage_request_queues_no_single_mode_axis_the_stage_leaves_out():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import decode_modes, registered_modes, task_layer
+
+    layer = task_layer()
+    module = registered_modes(layer)["modules"][0]
+    cell = _make_cell()
+    req = stage_request(Step(contestant=cell.contestant, stage=cell.stage._replace(modes={"modules": module})))
+
+    assert decode_modes(req.modes) == {"modules": [module]}
+
+
+def test_stage_request_sends_an_empty_multi_mode_axis_next_to_an_explicit_one():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import decode_modes, registered_modes, task_layer
+
+    robot = registered_modes(task_layer())["robots"][0]
+    cell = _make_cell()
+    req = stage_request(Step(contestant=cell.contestant, stage=cell.stage._replace(modes={"robots": robot})))
+
+    assert decode_modes(req.modes) == {"robots": [robot], "modules": []}
+
+
+def test_stage_request_of_the_ped_reference_pins_the_stationary_robot():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import decode_modes, task_layer
+
+    layer = task_layer()
+    cell = _make_cell(stage_config={"random": {"static": {"min": 1, "max": 2}}})
+    req = stage_request(Step(contestant=cell.contestant, stage=cell.stage, is_reference=True, reference_type="unhindered_peds"))
+    assert decode_modes(req.modes)["robots"] == ["stationary"]
+    pins = _request_params(req, layer, "robots", "stationary")
+    assert {name: p.value.double_value for name, p in pins.items()} == {"pos_x": 1000.0, "pos_y": 1000.0}
+    assert "static.n" in _request_params(req, layer, "obstacles", "random")
+
+
+def test_stage_request_of_the_robot_reference_removes_the_dynamic_obstacles():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import task_layer
+
+    layer = task_layer()
+    cell = _make_cell(stage_config={"random": {"dynamic": {"min": 4, "max": 6}}})
+    req = stage_request(Step(contestant=cell.contestant, stage=cell.stage, is_reference=True, reference_type="unobstructed_robot"))
+    assert list(_request_params(req, layer, "obstacles", "random")["dynamic.n"].value.integer_array_value) == [0, 0]
+
+
+def test_stage_request_of_the_robot_reference_pins_the_dynamic_obstacles_without_an_obstacles_axis():
+    from arena_evaluation.benchmark.runner import stage_request
+    from arena_runtime.env.task_layer import decode_modes, task_layer
+
+    layer = task_layer()
+    cell = _make_cell()
+    stage = cell.stage._replace(modes={"robots": "random"})
+    req = stage_request(Step(contestant=cell.contestant, stage=stage, is_reference=True, reference_type="unobstructed_robot"))
+
+    assert "obstacles" not in decode_modes(req.modes)
+    assert list(_request_params(req, layer, "obstacles", "random")["dynamic.n"].value.integer_array_value) == [0, 0]
 
 
 def test_build_launch_args_no_record_dir_by_default():
@@ -725,8 +816,7 @@ def _make_suite(*stage_names: str) -> Suite:
             episodes=5,
             robot="turtlebot3_burger",
             map="map1",
-            tm_robots=Modes.TM_Robots.RANDOM,
-            tm_obstacles=Modes.TM_Obstacles.RANDOM,
+            modes={"robots": "random", "obstacles": "random"},
             config={},
             seed=0,
             timeout=120.0,
@@ -1114,8 +1204,7 @@ def _make_step_for(contestant_name: str, stage_name: str, robot: str = "jackal",
         episodes=5,
         robot=robot,
         map=map,
-        tm_robots=Modes.TM_Robots.RANDOM,
-        tm_obstacles=Modes.TM_Obstacles.RANDOM,
+        modes={"robots": "random", "obstacles": "random"},
         config={},
         seed=0,
         timeout=120.0,
@@ -1243,71 +1332,78 @@ def test_env_key_simulator_none():
 
 
 # ---------------------------------------------------------------------------
-# _flatten_per_mode_params
+# stage_params
 # ---------------------------------------------------------------------------
 
+NAMESPACES = {
+    "robots": {"scenario": "runtime.scenario", "random": "runtime.random"},
+    "obstacles": {"scenario": "runtime.scenario", "random": "runtime.random"},
+}
 
-def test_flatten_scenario_file_strips_suffix():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+
+def _selected(robots: str = "random", obstacles: str = "random") -> dict[str, list[str]]:
+    return {"robots": [robots], "obstacles": [obstacles]}
+
+
+def test_stage_params_scenario_file_strips_suffix_under_the_mode_namespace():
+    from arena_evaluation.benchmark.runner import stage_params
     from rcl_interfaces.msg import ParameterType
 
-    obs, rob = _flatten_per_mode_params({"scenario": {"file": "4.json"}}, tm_obstacles="scenario", tm_robots="scenario")
-    by_name = {p.name: p for p in obs}
-    assert "file" in by_name
-    p = by_name["file"]
-    assert p.value.type == ParameterType.PARAMETER_STRING
-    assert p.value.string_value == "4"
-    assert {p.name for p in rob} == {"file"}
+    params = stage_params({"scenario": {"file": "4.json"}}, _selected("scenario", "scenario"), NAMESPACES)
+    assert [p.name for p in params] == ["runtime.scenario.file"]
+    assert params[0].value.type == ParameterType.PARAMETER_STRING
+    assert params[0].value.string_value == "4"
 
 
-def test_flatten_random_nested_counts():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+def test_stage_params_random_nested_counts():
+    from arena_evaluation.benchmark.runner import stage_params
     from rcl_interfaces.msg import ParameterType
 
-    obs, _rob = _flatten_per_mode_params(
-        {"random": {"dynamic": {"min": 2, "max": 5}}},
-        tm_obstacles="random",
-        tm_robots="random",
-    )
-    by_name = {p.name: p for p in obs}
-    assert "dynamic.n" in by_name
-    assert by_name["dynamic.n"].value.type == ParameterType.PARAMETER_INTEGER_ARRAY
-    assert list(by_name["dynamic.n"].value.integer_array_value) == [2, 5]
+    by_name = {p.name: p for p in stage_params({"random": {"dynamic": {"min": 2, "max": 5}}}, _selected(), NAMESPACES)}
+    assert by_name["runtime.random.dynamic.n"].value.type == ParameterType.PARAMETER_INTEGER_ARRAY
+    assert list(by_name["runtime.random.dynamic.n"].value.integer_array_value) == [2, 5]
 
 
-def test_flatten_empty_config_yields_empty():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+def test_stage_params_empty_config_yields_empty():
+    from arena_evaluation.benchmark.runner import stage_params
 
-    assert _flatten_per_mode_params({}, tm_obstacles="random", tm_robots="random") == ([], [])
-
-
-def test_flatten_routes_per_active_mode():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
-
-    obs, rob = _flatten_per_mode_params(
-        {"scenario": {"file": "x"}, "random": {"n": 3}},
-        tm_obstacles="random",
-        tm_robots="scenario",
-    )
-    assert {p.name for p in obs} == {"n"}
-    assert {p.name for p in rob} == {"file"}
+    assert stage_params({}, _selected(), NAMESPACES) == []
 
 
-def test_flatten_drops_inactive_modes():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+def test_stage_params_follow_the_selected_modes_of_every_axis():
+    from arena_evaluation.benchmark.runner import stage_params
 
-    obs, rob = _flatten_per_mode_params({"unrelated": {"key": "value"}}, tm_obstacles="random", tm_robots="random")
-    assert obs == [] and rob == []
+    params = stage_params({"scenario": {"file": "x"}, "random": {"n": 3}}, _selected("scenario", "random"), NAMESPACES)
+    assert {p.name for p in params} == {"runtime.scenario.file", "runtime.random.n"}
+
+
+def test_stage_params_drop_unselected_and_unregistered_modes():
+    from arena_evaluation.benchmark.runner import stage_params
+
+    assert stage_params({"unrelated": {"key": "value"}, "scenario": {"file": "x"}}, _selected(), NAMESPACES) == []
+
+
+def test_stage_params_use_the_namespace_of_a_runtime_with_its_own_axes():
+    from arena_evaluation.benchmark.runner import stage_params
+
+    params = stage_params({"convoy": {"gap": 2.0}}, {"fleet": ["convoy"]}, {"fleet": {"convoy": "runtime.fleet.convoy"}})
+    assert [(p.name, p.value.double_value) for p in params] == [("runtime.fleet.convoy.gap", 2.0)]
+
+
+def test_stage_params_share_one_entry_between_axes_on_one_namespace():
+    from arena_evaluation.benchmark.runner import stage_params
+
+    params = stage_params({"scenario": {"file": "x"}}, _selected("scenario", "scenario"), NAMESPACES)
+    assert [p.name for p in params] == ["runtime.scenario.file"]
 
 
 def test_human_params_keep_their_namespace():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params, _human_params
+    from arena_evaluation.benchmark.runner import _human_params, stage_params
 
     config = {"humansim": {"global_planner": {"resolution": 0.1}}, "random": {"static": {"n": 3}}}
     human = _human_params(config)
     assert [(p.name, p.value.double_value) for p in human] == [("humansim.global_planner.resolution", 0.1)]
-    obs, rob = _flatten_per_mode_params(config, tm_obstacles="random", tm_robots="random")
-    assert [p.name for p in obs] == ["static.n"] and [p.name for p in rob] == ["static.n"]
+    assert [p.name for p in stage_params(config, _selected(), NAMESPACES)] == ["runtime.random.static.n"]
     assert _human_params({}) == []
 
 
@@ -1317,35 +1413,17 @@ def test_reserved_human_block_is_forwarded_for_rejection():
     assert [p.name for p in _human_params({"human": {"speed": 1.2}})] == ["human.speed"]
 
 
-def test_flatten_skips_non_dict_top_level():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+def test_stage_params_skip_non_dict_top_level():
+    from arena_evaluation.benchmark.runner import stage_params
 
-    obs, _rob = _flatten_per_mode_params(
-        {"scenario": "not_a_dict", "random": {"n": 3}},
-        tm_obstacles="random",
-        tm_robots="random",
-    )
-    names = [p.name for p in obs]
-    assert names == ["n"]
+    assert [p.name for p in stage_params({"scenario": "not_a_dict", "random": {"n": 3}}, _selected("scenario", "random"), NAMESPACES)] == ["runtime.random.n"]
 
 
-def test_flatten_typed_values():
-    from arena_evaluation.benchmark.runner import _flatten_per_mode_params
+def test_stage_params_typed_values():
+    from arena_evaluation.benchmark.runner import stage_params
     from rcl_interfaces.msg import ParameterType
 
-    obs, _rob = _flatten_per_mode_params(
-        {
-            "random": {
-                "a_int": 7,
-                "a_str": "hello",
-                "a_bool": True,
-                "a_float": 3.14,
-            }
-        },
-        tm_obstacles="random",
-        tm_robots="random",
-    )
-    by_name = {p.name: p for p in obs}
+    by_name = {p.name.rpartition(".")[2]: p for p in stage_params({"random": {"a_int": 7, "a_str": "hello", "a_bool": True, "a_float": 3.14}}, _selected(), NAMESPACES)}
     assert by_name["a_int"].value.type == ParameterType.PARAMETER_INTEGER
     assert by_name["a_int"].value.integer_value == 7
     assert by_name["a_str"].value.type == ParameterType.PARAMETER_STRING

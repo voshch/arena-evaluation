@@ -5,13 +5,12 @@ import json
 import pathlib
 
 import pytest
-from task_generator_msgs.msg import EpisodeRecord
+from arena_runtime_msgs.msg import EpisodeRecord
 
 from arena_evaluation.benchmark.config import Contest, Suite
 from arena_evaluation.benchmark.runner import compromised_table, episode_line
 from arena_evaluation.benchmark.state import Manifest, ProgressLog, RunDir, StateFile, fold_run_dir
 from arena_evaluation.benchmark.step import Step, StepResult
-from task_generator.modes import Modes
 
 MOVED = "env_0/jackal moved by hand"
 SPAWNED = "robot jackal spawned by hand"
@@ -50,8 +49,7 @@ def _step(contestant: str, stage: str) -> Step:
             episodes=2,
             robot="jackal",
             map="map_empty",
-            tm_robots=Modes.TM_Robots.RANDOM,
-            tm_obstacles=Modes.TM_Obstacles.RANDOM,
+            modes={"robots": "random", "obstacles": "random"},
             config={},
             seed=0,
             timeout=60.0,

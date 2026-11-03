@@ -34,7 +34,8 @@ configs/benchmark/
 A suite defines an ordered list of stages executed sequentially across all contestants.
 
 ```yaml
-launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task.*, record.*) are rejected
+task_layer: task_generator    # optional. task runtime name for parsing, checking and running this suite, default $ARENA_TASK_LAYER, else task_generator
+launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task_layer, task.*, record.*) are rejected
   lockstep: true              # steps from bringup, lockstep.paused defaults to false in a benchmark
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
   max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
@@ -46,8 +47,7 @@ stages:
   - name: scenario
     map: arena_hospital_small
     robot: jackal
-    tm_robots: scenario
-    tm_obstacles: random
+    modes: {robots: scenario, obstacles: random}
     episodes: 1
     config:
       scenario:
@@ -73,14 +73,16 @@ extension has the extension stripped before it is sent (`4.json` and `4` are equ
 | `name` | string | Stage label |
 | `map` | string | World name |
 | `robot` | string | Robot model |
-| `tm_robots` | string | `Modes.TM_Robots` enum key (case-insensitive) |
-| `tm_obstacles` | string | `Modes.TM_Obstacles` enum key (case-insensitive) |
+| `modes` | mapping | Axis to mode name, one entry per axis of the suite's task runtime (task_generator: `robots`, `obstacles`, `modules`). Names are strings, checked by the runtime's `validate_modes` (case-insensitive, stored in the runtime's spelling). `modules` takes a comma-separated list, a single-mode axis (`robots`, `obstacles`) exactly one name. An axis left out is sent empty. The parse and `evaluation_validate_suite` fail with the validator's message for an unknown axis or name and for a single-mode axis without exactly one name |
+| `tm_<axis>` | string | Legacy spelling of one `modes` entry (`tm_robots`, `tm_obstacles`), accepted unchanged. Setting an axis in both forms fails the parse |
 | `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
-| `config` | dict | Per-mode params. Top-level keys must match `tm_robots`/`tm_obstacles` (e.g. `scenario`, `random`). Inner leaves map to `task.<mode>.<leaf>` via QueueEpisode (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
-| `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`); can be set explicitly |
+| `config` | dict | Per-mode params. Top-level keys must name a mode the stage selects (e.g. `scenario`, `random`). Inner leaves map to `<mode namespace>.<leaf>` via QueueEpisode, the namespace being the mode's entry in the runtime's `mode_namespaces()` (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
+| `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`), the modes hashed under their `tm_<axis>` keys; can be set explicitly |
 | `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `task.episode.timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
 | `timeout_peds` | string | Same budget for the `unhindered_peds` reference step of this stage (see `references` below). Defaults to `timeout` if absent |
 | `optim` | dict | Extra `optim.<key>:=<value>` launch args for this stage's env |
+
+Stage modes are strings only: `Modes.TM_*` enum instances are not accepted.
 
 ### Directory bundles
 
@@ -114,7 +116,7 @@ inline both:
 
 ```bash
 arena evaluation benchmark \
-  --suite '{stages: [{name: jackal, map: arena_hospital_small, robot: jackal, tm_robots: random, tm_obstacles: random, episodes: 5}]}' \
+  --suite '{stages: [{name: jackal, map: arena_hospital_small, robot: jackal, modes: {robots: random, obstacles: random}, episodes: 5}]}' \
   --contest '[{name: default}]'
 ```
 
@@ -161,8 +163,7 @@ stages:
     map: map_empty
     robot: jackal
     episodes: 3            # repetitions -> cross-episode confidence bands
-    tm_robots: characterization   # TM_Robots mode that drives the open-loop sweep
-    tm_obstacles: random
+    modes: {robots: characterization, obstacles: random}   # characterization drives the open-loop sweep
     config:
       random:
         dynamic: {min: 0, max: 0}
@@ -327,8 +328,8 @@ start). See
 for the recommended key shapes.
 
 The runner drops keys that collide with stage-owned launch args (`sim`,
-`robot`, `world`, `task.robots`, `task.obstacles`, `run_seed`, `task.episode.auto_reset`,
-`task.modules`, `record.dir`, `record.auto`) and logs a warning, since those are
+`robot`, `world`, `task_layer`, `task.<axis>` for every axis the stage sets, `run_seed`, `task.episode.auto_reset`,
+`record.dir`, `record.auto`) and logs a warning, since those are
 controlled by the suite stage. Anything else is passed through to the launch
 layer, which binds it if declared or raises an error if not.
 
@@ -358,8 +359,10 @@ num_steps`, since steps within a group reuse one env.
 For each group the runner:
 
 1. Calls `/arena/spawn_env` once with the first step's launch args: `sim`,
-   `robot`, `world`, `task.robots`, `task.obstacles`, `run_seed`,
-   `task.episode.auto_reset:=false`, `task.modules:=` (empty), any `optim.<key>:=<value>`
+   `robot`, `world`, `task_layer` (the resolved runtime name: the suite's, else
+   `$ARENA_TASK_LAYER`, else `task_generator`), `task.<axis>` for every axis the stage
+   sets (an axis it leaves out falls back to the runtime's own default at launch), `run_seed`,
+   `task.episode.auto_reset:=false`, any `optim.<key>:=<value>`
    from the stage's `optim` dict, and any contestant args of
    shape `mobile`, `arm`, `mobile.<key>`, or `arm.<key>` (emitted as
    `robot.mobile...` / `robot.arm...`). `record.dir` and `record.auto:=false`
@@ -371,9 +374,9 @@ For each group the runner:
    `QueueEpisode` service client at `<env_ns>/config/queue_episode`.
 3. For each step in the group:
    - Calls `<env_ns>/config/queue_episode` with the stage's `world`,
-     `tm_robots`, `tm_obstacles`, and the per-mode `config` blocks routed to
-     `obstacles_params` / `robots_params` as leaf-keyed `Parameter[]` (e.g.
-     `file`, `dynamic.min`). MERGE semantics: empty fields leave the prior
+     `modes` (every axis, an unset axis empty so the runtime keeps or clears it), and the per-mode
+     `config` blocks of the selected modes as `params` under the full names of the
+     mode's namespace (e.g. `task.scenario.file`, `task.random.dynamic.n`). MERGE semantics: empty fields leave the prior
      queued value untouched. Called for every step including the first; the
      env owns no stage-specific config until the runner pushes it.
    - Sets the env's `task.episode.timeout` parameter to the stage's `timeout` (or

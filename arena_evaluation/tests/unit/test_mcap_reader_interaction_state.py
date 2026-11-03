@@ -92,11 +92,11 @@ def bundle(tmp_path: pathlib.Path):
         tmp_path / "bag",
         [
             (f"{NS}/arena_peds", _peds(8.0), 1 * SEC),
-            (f"{NS}/task_generator_node/agent_states", _agents(), 1 * SEC),
-            (f"{NS}/task_generator_node/interactions", _interactions(1, [0, 1]), 1 * SEC),
+            (f"{NS}/arena_env_node/agent_states", _agents(), 1 * SEC),
+            (f"{NS}/arena_env_node/interactions", _interactions(1, [0, 1]), 1 * SEC),
             (f"{NS}/animation_states", _animation(), 1 * SEC),
             (f"{NS}/arena_peds", _peds(8.5), 2 * SEC),
-            (f"{NS}/task_generator_node/interactions", _interactions(2, [2]), 2 * SEC),
+            (f"{NS}/arena_env_node/interactions", _interactions(2, [2]), 2 * SEC),
         ],
     )
     out = tmp_path / "topics"
@@ -150,7 +150,7 @@ def test_interaction_events_and_snapshots(bundle) -> None:
 
 
 def test_members_split_into_participants_and_queue_with_the_anchor_object(tmp_path: pathlib.Path) -> None:
-    mcap = _write(tmp_path / "bag", [(f"{NS}/task_generator_node/interactions", _frame(1, [HUG, QUEUE_USE]), 1 * SEC)])
+    mcap = _write(tmp_path / "bag", [(f"{NS}/arena_env_node/interactions", _frame(1, [HUG, QUEUE_USE]), 1 * SEC)])
     MCAPReader(mcap).read(tmp_path / "topics")
     rows = _table(tmp_path / "topics" / "env_0", "interactions").sort("interaction_id")
     assert rows["interaction_id"].to_list() == [4, 7]
@@ -163,7 +163,7 @@ def test_members_split_into_participants_and_queue_with_the_anchor_object(tmp_pa
 
 
 def test_empty_frames_add_no_interaction_rows(tmp_path: pathlib.Path) -> None:
-    topic = f"{NS}/task_generator_node/interactions"
+    topic = f"{NS}/arena_env_node/interactions"
     mcap = _write(tmp_path / "bag", [(topic, _frame(1, []), 1 * SEC), (topic, _frame(2, [HUG], [0]), 2 * SEC), (topic, _frame(3, []), 3 * SEC)])
     MCAPReader(mcap).read(tmp_path / "topics")
     rows = _table(tmp_path / "topics" / "env_0", "interactions")
@@ -192,7 +192,7 @@ def test_gesture_capable_peds_without_a_gesture_keep_an_empty_table(tmp_path: pa
 
 
 def test_agent_states_without_gesture_support_write_no_gesture_table(tmp_path: pathlib.Path) -> None:
-    mcap = _write(tmp_path / "bag", [(f"{NS}/task_generator_node/agent_states", _agents(), 1 * SEC)])
+    mcap = _write(tmp_path / "bag", [(f"{NS}/arena_env_node/agent_states", _agents(), 1 * SEC)])
     MCAPReader(mcap).read(tmp_path / "topics")
     assert not (tmp_path / "topics" / "env_0" / "ped_gestures.parquet").exists()
 
@@ -201,7 +201,7 @@ def test_load_bundles_exposes_the_state_tables(tmp_path: pathlib.Path) -> None:
     mcap = _write(
         tmp_path / "bag",
         [
-            (f"{NS}/task_generator_node/interactions", _interactions(1, [1]), 1 * SEC),
+            (f"{NS}/arena_env_node/interactions", _interactions(1, [1]), 1 * SEC),
             (f"{NS}/animation_states", _animation(), 1 * SEC),
             (f"{NS}/arena_peds", _peds(8.0), 1 * SEC),
         ],

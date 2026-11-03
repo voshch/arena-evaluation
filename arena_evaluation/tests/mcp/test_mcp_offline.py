@@ -149,19 +149,22 @@ def test_notes_replace_append_and_merge(tmp_path):
 
 
 def test_mode_params_come_from_the_registered_schemas():
-    registries = authoring.mode_registries()
-    for axis, registry in registries.items():
+    from arena_runtime.env.task_layer import registered_modes, task_layer
+    from task_generator.tasks.registry import MODULE_MODES, OBSTACLES_MODES, ROBOTS_MODES
+
+    layer = task_layer()
+    registered = authoring.mode_params(layer, registered_modes(layer))
+    for axis, registry in (("robots", ROBOTS_MODES), ("obstacles", OBSTACLES_MODES), ("modules", MODULE_MODES)):
+        assert set(registered[axis]) == {key.value for key in registry.keys()}
         for key in registry.keys():
-            params = authoring.mode_params(registry, key)
-            assert bool(params) == (registry.meta(key).schema is not None), (axis, key)
+            assert bool(registered[axis][key.value]) == (registry.meta(key).schema is not None), (axis, key)
 
     def names(axis: str, mode: str) -> dict[str, dict]:
-        key = next(key for key in registries[axis].keys() if key.value == mode)
-        return {param["name"]: param for param in authoring.mode_params(registries[axis], key)}
+        return {param["name"]: param for param in registered[axis][mode]}
 
-    assert {"dynamic.n", "dynamic.models", "static.n"} <= set(names("tm_obstacles", "random"))
-    assert {"pos_x", "pos_y", "pos_theta"} <= set(names("tm_robots", "stationary"))
-    assert isinstance(names("tm_obstacles", "scenario")["contact_mode"]["enum"], list)
+    assert {"dynamic.n", "dynamic.models", "static.n"} <= set(names("obstacles", "random"))
+    assert {"pos_x", "pos_y", "pos_theta"} <= set(names("robots", "stationary"))
+    assert isinstance(names("obstacles", "scenario")["contact_mode"]["enum"], list)
 
 
 def test_progress_rows_fold_lane_files_without_writing(tmp_path):
@@ -199,3 +202,12 @@ def test_runner_lookup_skips_flags_and_reads_the_run_id():
         for child in (sleeper, named):
             child.kill()
             child.wait()
+
+
+def test_mode_params_declare_only_the_selected_modes():
+    from arena_runtime.env.task_layer import task_layer
+
+    layer = task_layer()
+    assert authoring.mode_params(layer, {"obstacles": ["random"]}).keys() == {"obstacles"}
+    assert list(authoring.mode_params(layer, {"obstacles": ["random"]})["obstacles"]) == ["random"]
+    assert authoring.mode_params(layer, {}) == {}

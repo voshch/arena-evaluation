@@ -120,11 +120,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
 
     def _rebuilt_schedule(self) -> pl.DataFrame:
         """The default schedule for this robot's envelope, for recordings that carry no schedule table."""
-        try:
-            from task_generator.tasks.robots.characterization.schedule import build_schedule, resolve_envelope
-        except ImportError:
-            logger.warning("task_generator is not importable, characterization phases fall back to cmd_vel classification")
-            return pl.DataFrame(schema=self._SCHEDULE_SCHEMA)
+        from arena_robots.characterization import build_schedule, resolve_envelope
 
         envelope = resolve_envelope(self.robot_params.model)
         schedule = build_schedule(

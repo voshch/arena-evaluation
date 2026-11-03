@@ -14,7 +14,7 @@ for _pkg in (
     "tf2_msgs.msg",
     "arena_people_msgs.msg",
     "arena_humansim_msgs.msg",
-    "task_generator_msgs.msg",
+    "arena_runtime_msgs.msg",
     "arena_robots_msgs.msg",
     "nav2_msgs.msg",
     "rosidl_runtime_py.utilities",
@@ -25,7 +25,7 @@ from geometry_msgs.msg import Twist
 from nav2_msgs.msg import CollisionMonitorState
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
-from task_generator_msgs.msg import RecordedTopic
+from arena_runtime_msgs.msg import RecordedTopic
 
 from arena_evaluation.ingestion.topics import TopicDefinition, get_topics, recorded_topic_definition
 
@@ -88,19 +88,19 @@ def test_get_topics_topic_definition_properties(key, name, msg_name, throttled, 
 def test_get_topics_namespace_and_parent_namespace():
     # parent_namespace is the recorder's own namespace, the task generator node's
     # fully qualified name. Pedestrians are published one level up, by the env.
-    topics = get_topics("env_0", "arena_0/task_generator_node")
+    topics = get_topics("env_0", "arena_0/arena_env_node")
     assert topics["cmd_vel"].name_template == "/env_0/cmd_vel"
     assert topics["joint_states"].name_template == "/env_0/joint_states"
     assert topics["plan"].name_template == "/env_0/plan"
     assert topics["goal_pose"].name_template == "/env_0/goal_pose"
-    assert topics["initialpose"].name_template == "/arena_0/task_generator_node/initialpose"
+    assert topics["initialpose"].name_template == "/arena_0/arena_env_node/initialpose"
     assert topics["peds"].name_template == "/arena_0/arena_peds"
-    assert topics["agent_states"].name_template == "/arena_0/task_generator_node/agent_states"
-    assert topics["agent_meta"].name_template == "/arena_0/task_generator_node/agent_meta"
-    assert topics["interactions"].name_template == "/arena_0/task_generator_node/interactions"
-    assert topics["episode_record"].name_template == "/arena_0/task_generator_node/state/episode"
-    assert topics["robots_fleet"].name_template == "/arena_0/task_generator_node/state/robots"
-    assert topics["semantic_snapshot"].name_template == "/arena_0/task_generator_node/state/semantics"
+    assert topics["agent_states"].name_template == "/arena_0/arena_env_node/agent_states"
+    assert topics["agent_meta"].name_template == "/arena_0/arena_env_node/agent_meta"
+    assert topics["interactions"].name_template == "/arena_0/arena_env_node/interactions"
+    assert topics["episode_record"].name_template == "/arena_0/arena_env_node/state/episode"
+    assert topics["robots_fleet"].name_template == "/arena_0/arena_env_node/state/robots"
+    assert topics["semantic_snapshot"].name_template == "/arena_0/arena_env_node/state/semantics"
     assert topics["power"].name_template == "/env_0/power_publisher/power"
     assert topics["energy"].name_template == "/env_0/power_publisher/energy"
     assert topics["collision_events"].name_template == "/env_0/collision_events"
@@ -163,21 +163,21 @@ def _row(topic: str, msg_type: str = "std_msgs/msg/String", **flags) -> Recorded
 
 
 def test_recorded_topic_definition_resolves_the_type_by_name():
-    td = recorded_topic_definition(_row("{ns}/audio/raw_array"), "arena_0/task_generator_node", "robot_0")
+    td = recorded_topic_definition(_row("{ns}/audio/raw_array"), "arena_0/arena_env_node", "robot_0")
     assert td is not None
     assert td.msg_type is String
 
 
 def test_recorded_topic_definition_robot_row_substitutes_the_robot_namespace():
-    td = recorded_topic_definition(_row("{ns}/audio/raw_array", robot_scoped=True), "arena_0/task_generator_node", "robot_0")
+    td = recorded_topic_definition(_row("{ns}/audio/raw_array", robot_scoped=True), "arena_0/arena_env_node", "robot_0")
     assert td is not None
     assert td.name_template == "/robot_0/audio/raw_array"
 
 
 def test_recorded_topic_definition_env_row_resolves_the_task_generator_namespace():
-    td = recorded_topic_definition(_row("{tg}/heard_sound_events"), "arena_0/task_generator_node")
+    td = recorded_topic_definition(_row("{tg}/heard_sound_events"), "arena_0/arena_env_node")
     assert td is not None
-    assert td.name_template == "/arena_0/task_generator_node/heard_sound_events"
+    assert td.name_template == "/arena_0/arena_env_node/heard_sound_events"
 
 
 def test_recorded_topic_definition_empty_namespaces_leave_absolute_names():
