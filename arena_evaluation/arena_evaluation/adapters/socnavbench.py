@@ -13,7 +13,7 @@ from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, Attribution, Imp
 from arena_assets.importers.providers import Provider
 
 if typing.TYPE_CHECKING:
-    from task_generator.adapters.socnavbench import SocNavBench
+    from arena_runtime.datasets.socnavbench import SocNavBench
 
 ITEM = "socnavbench"
 ROBOT = "jackal"

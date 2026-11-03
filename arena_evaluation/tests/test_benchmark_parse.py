@@ -85,7 +85,6 @@ def test_suite_parse_launch_args_from_launch_mapping():
 
 def test_stage_parse_happy_path():
     from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
 
     obj = _make_stage_dict(seed=42, timeout="60")
     result = Suite.Stage.parse(obj)
@@ -95,8 +94,7 @@ def test_stage_parse_happy_path():
     assert result.episodes == 5
     assert result.robot == "turtlebot3_burger"
     assert result.map == "map1"
-    assert result.tm_robots is Constants.TaskMode.TM_Robots.RANDOM
-    assert result.tm_obstacles is Constants.TaskMode.TM_Obstacles.RANDOM
+    assert result.modes == {"robots": "random", "obstacles": "random"}
     assert result.seed == 42
     assert result.timeout == 60.0
 
@@ -121,40 +119,127 @@ def test_stage_parse_seed_defaults_to_hash():
     assert isinstance(result.seed, int)
 
 
-def test_stage_parse_tm_robots_enum_conversion():
-    from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
+def test_stage_parse_takes_any_case_of_a_vocabulary_name_on_every_axis():
+    from arena_runtime.env.task_layer import registered_modes, task_layer
 
-    for name, member in Constants.TaskMode.TM_Robots.__members__.items():
-        obj = _make_stage_dict(tm_robots=name)
-        result = Suite.Stage.parse(obj)
-        assert result.tm_robots is member
-
-
-def test_stage_parse_tm_obstacles_enum_conversion():
-    from arena_evaluation.benchmark.config import Suite
-    from task_generator.constants import Constants
-
-    for name, member in Constants.TaskMode.TM_Obstacles.__members__.items():
-        obj = _make_stage_dict(tm_obstacles=name)
-        result = Suite.Stage.parse(obj)
-        assert result.tm_obstacles is member
-
-
-def test_stage_parse_invalid_tm_robots_raises():
     from arena_evaluation.benchmark.config import Suite
 
-    obj = _make_stage_dict(tm_robots="NOT_A_VALID_MODE")
-    with pytest.raises(KeyError):
-        Suite.Stage.parse(obj)
+    for axis, names in registered_modes(task_layer()).items():
+        for name in names:
+            result = Suite.Stage.parse(_make_stage_dict(**{f"tm_{axis}": name.upper()}))
+            assert result.modes[axis] == name
 
 
-def test_stage_parse_invalid_tm_obstacles_raises():
+def test_stage_parse_modes_mapping_and_legacy_keys_parse_the_same():
     from arena_evaluation.benchmark.config import Suite
 
-    obj = _make_stage_dict(tm_obstacles="NOT_A_VALID_MODE")
-    with pytest.raises(KeyError):
-        Suite.Stage.parse(obj)
+    legacy = _make_stage_dict(tm_robots="RANDOM", tm_obstacles="Scenario")
+    mapping = {key: value for key, value in legacy.items() if not key.startswith("tm_")}
+    mapping["modes"] = {"robots": "RANDOM", "obstacles": "Scenario"}
+    assert Suite.Stage.parse(mapping) == Suite.Stage.parse(legacy)
+
+
+def test_stage_parse_emits_modes_and_no_legacy_keys():
+    from arena_evaluation.benchmark.config import Suite
+
+    legacy = _make_stage_dict(tm_robots="RANDOM", tm_obstacles="Scenario")
+    mapping = {key: value for key, value in legacy.items() if not key.startswith("tm_")}
+    mapping["modes"] = {"robots": "RANDOM", "obstacles": "Scenario"}
+    from_legacy = Suite.Stage.parse(legacy)
+    from_mapping = Suite.Stage.parse(mapping)
+
+    assert from_legacy.modes == from_mapping.modes == {"robots": "random", "obstacles": "scenario"}
+    assert "modes" in from_legacy._asdict()
+    assert not [key for key in from_legacy._asdict() if key.startswith("tm_")]
+
+
+def test_stage_parse_names_an_unknown_axis():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="no_such_axis"):
+        Suite.Stage.parse(_make_stage_dict(modes={"no_such_axis": "random"}))
+
+
+def test_stage_parse_rejects_an_axis_set_twice():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="twice"):
+        Suite.Stage.parse(_make_stage_dict(modes={"robots": "random"}))
+
+
+def test_stage_parse_modules_axis_takes_a_comma_list():
+    from arena_runtime.env.task_layer import registered_modes, task_layer
+
+    from arena_evaluation.benchmark.config import Suite
+
+    names = registered_modes(task_layer())["modules"][:2]
+    result = Suite.Stage.parse(_make_stage_dict(modes={"modules": ",".join(name.upper() for name in names)}))
+    assert result.modes["modules"] == ",".join(names)
+
+
+def test_stage_seed_hashes_the_legacy_keys_of_the_raw_stage():
+    import hashlib
+    import json
+
+    from arena_evaluation.benchmark.config import Suite
+
+    raw = {"name": "s", "episodes": 2, "robot": "jackal", "map": "map1", "tm_obstacles": "random", "tm_robots": "scenario", "config": {"scenario": {"file": "x"}}}
+    expected = 0x7FFFFFFF & int.from_bytes(hashlib.sha1(json.dumps({k: v for k, v in raw.items() if k != "config"}).encode()).digest()[-4:], byteorder="big")
+    assert Suite.Stage.parse(raw).seed == expected
+
+
+def test_every_shipped_suite_keeps_its_stage_seeds():
+    import hashlib
+    import json
+    import pathlib
+
+    import yaml
+
+    from arena_evaluation.benchmark.config import Suite
+
+    def old_seed(raw: dict) -> int:
+        legacy = {key: value for key, value in raw.items() if key not in ("timeout", "timeout_peds", "optim")}
+        for key in ("tm_robots", "tm_obstacles"):
+            if key in legacy:
+                legacy[key] = legacy[key].lower()
+        return 0x7FFFFFFF & int.from_bytes(hashlib.sha1(json.dumps({k: v for k, v in legacy.items() if k != "config"}).encode()).digest()[-4:], byteorder="big")
+
+    suites = sorted((pathlib.Path(__file__).parents[1] / "configs" / "benchmark" / "suites").rglob("*.yaml"))
+    checked = 0
+    for path in suites:
+        data = yaml.safe_load(path.read_text())
+        if not isinstance(data, dict) or "stages" not in data or "task_layer" in data:
+            continue
+        for raw, stage in zip(data["stages"], Suite.parse(path.stem, data).stages, strict=True):
+            if "seed" not in raw and "modes" not in raw:
+                assert stage.seed == old_seed(raw), (path.name, raw["name"])
+                checked += 1
+    assert checked
+
+
+def test_stage_parse_invalid_mode_name_raises():
+    from arena_evaluation.benchmark.config import Suite
+
+    for key in ("tm_robots", "tm_obstacles"):
+        with pytest.raises(ValueError, match="(?i)NOT_A_VALID_MODE"):
+            Suite.Stage.parse(_make_stage_dict(**{key: "NOT_A_VALID_MODE"}))
+
+
+def test_stage_parse_passes_on_the_message_of_the_runtime_validator():
+    from arena_runtime.env.task_layer import task_layer
+
+    from arena_evaluation.benchmark.config import Suite
+
+    for modes in ({"robots": ""}, {"obstacles": ""}, {"robots": "random,random"}, {"robots": "NOT_A_VALID_MODE"}):
+        stage = _make_stage_dict(modes=modes)
+        stage.pop("tm_robots")
+        stage.pop("tm_obstacles")
+        with pytest.raises(ValueError) as parsed:
+            Suite.Stage.parse(stage)
+        axis, value = next(iter(modes.items()))
+        with pytest.raises(ValueError) as validated:
+            task_layer().validate_modes({axis: [name for name in value.split(",") if name]})
+        assert str(parsed.value) == str(validated.value)
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +582,7 @@ def test_shipped_landmarks_suite_and_contest_parse():
     contest = Contest.parse("landmarks", yaml.safe_load((configs / "contests" / "landmarks.yaml").read_text()))
 
     assert {stage.map for stage in suite.stages} == {"hospital_1"}
-    assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.tm_robots.value == "scenario" for stage in suite.stages)
+    assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.modes["robots"] == "scenario" for stage in suite.stages)
     assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
     assert {stage.robot for stage in suite.stages} == {"jackal"}
     assert suite.launch_args["lockstep"] == "True" and suite.launch_args["lockstep.paused"] == "False"
@@ -535,7 +620,7 @@ def test_a_generated_edge_case_suite_parses():
     suite = Suite.parse("edge", build({"hospital_1": ["normal__u_001", "normal__u_002"]}, robot="jackal", episodes=3, seed=7, timeout="2m"))
     assert [stage.name for stage in suite.stages] == ["hospital_1.normal__u_001", "hospital_1.normal__u_002"]
     assert all(stage.map == "hospital_1" and stage.robot == "jackal" and stage.episodes == 3 and stage.seed == 7 for stage in suite.stages)
-    assert {(stage.tm_robots.value, stage.tm_obstacles.value) for stage in suite.stages} == {("scenario", "scenario")}
+    assert {(stage.modes["robots"], stage.modes["obstacles"]) for stage in suite.stages} == {("scenario", "scenario")}
     assert [stage.config["scenario"]["file"] for stage in suite.stages] == ["normal__u_001", "normal__u_002"]
     assert suite.stages[0].timeout == 120.0 and suite.launch_args == {"human": "arena"}
 
@@ -646,7 +731,7 @@ def test_stage_fields_are_plain_yaml_once_task_modes_are_values():
     from arena_evaluation.benchmark.config import Suite
 
     stage = Suite.Stage.parse(_make_stage_dict(timeout="90s"))
-    record = {**stage._asdict(), "tm_robots": stage.tm_robots.value, "tm_obstacles": stage.tm_obstacles.value}
+    record = stage._asdict()
     assert set(record) == set(Suite.Stage._fields)
     assert yaml.safe_load(yaml.dump({"stage": record}, sort_keys=False))["stage"] == record
     assert record["timeout"] == 90.0

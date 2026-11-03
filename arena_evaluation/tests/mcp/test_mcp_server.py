@@ -70,7 +70,7 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
     assert yaml.safe_load(out["template"]["content"]) == yaml.safe_load((CONFIGS / "suites" / "basic.yaml").read_text())
     assert out["manifest_template"]["name"] == "standard"
     assert "one path component" in out["traversal"]
-    assert {"name", "map", "robot", "tm_robots", "tm_obstacles", "config", "seed", "timeout", "optim", "timeout_peds"} <= set(out["schema"]["stage_fields"])
+    assert {"name", "map", "robot", "modes", "config", "seed", "timeout", "optim", "timeout_peds"} <= set(out["schema"]["stage_fields"])
     assert "## Suite Files" in out["schema"]["readme"]
     assert out["contest_schema"]["contestant_fields"] == ["name", "args", "parts"]
 
@@ -84,6 +84,7 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
         out["basic_suite"] = payload(await client.call_tool("evaluation_validate_suite", {"yaml_content": (CONFIGS / "suites" / "basic.yaml").read_text()}))
         out["typos"] = payload(await client.call_tool("evaluation_validate_suite", {"yaml_content": suite_with_typos}))
         out["bad_mode"] = payload(await client.call_tool("evaluation_validate_suite", {"yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: warp, tm_obstacles: random}]"}))
+        out["empty_mode"] = payload(await client.call_tool("evaluation_validate_suite", {"yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: '', tm_obstacles: random}]"}))
         out["basic_contest"] = payload(await client.call_tool("evaluation_validate_contest", {"yaml_content": (CONFIGS / "contests" / "basic.yaml").read_text()}))
         out["bad_contest"] = payload(await client.call_tool("evaluation_validate_contest", {"yaml_content": bad_contest}))
         out["manifests"] = [payload(await client.call_tool("evaluation_validate_manifest", {"yaml_content": path.read_text()})) for path in sorted((CONFIGS / "manifests").glob("*.yaml"))]
@@ -98,6 +99,9 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
     assert any("arenien" in warning for warning in out["typos"]["warnings"])
     assert any("statik" in warning for warning in out["typos"]["warnings"])
     assert not out["bad_mode"]["valid"]
+    assert any("warp" in problem for problem in out["bad_mode"]["problems"])
+    assert not out["empty_mode"]["valid"]
+    assert any("robots" in problem for problem in out["empty_mode"]["problems"])
     assert out["basic_contest"]["valid"], out["basic_contest"]
     assert not out["bad_contest"]["valid"]
     assert any("nope_planner" in problem for problem in out["bad_contest"]["problems"])

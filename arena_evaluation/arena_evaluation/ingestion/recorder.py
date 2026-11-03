@@ -16,6 +16,8 @@ import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from arena_rclpy_mixins.spin import create_executor, spin_node
+from arena_runtime.env.task_layer import decode_modes
+from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -24,14 +26,13 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
-from task_generator_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
 from tf2_msgs.msg import TFMessage
 
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
+    from arena_runtime_msgs.msg import RecordedTopic
     from rcl_interfaces.msg import ParameterValue
     from rclpy.context import Context
-    from task_generator_msgs.msg import RecordedTopic
 
     from .topics import TopicDefinition
 
@@ -510,7 +511,7 @@ class DataRecorderNode(Node, EpisodeWriter):
                 self._subscribe_discovered(name, Odometry)
                 if self.robot_model in ("unknown", ""):
                     for part in reversed(name.split("/")):
-                        if part and part not in ("odom", "eval_sim", "task_generator_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
+                        if part and part not in ("odom", "eval_sim", "arena_env_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
                             self.robot_model = part
                             if self.current_metadata is not None and self.current_metadata_path is not None:
                                 self.current_metadata.robot_model = [part]
@@ -907,8 +908,9 @@ class DataRecorderNode(Node, EpisodeWriter):
         """Copy the scenario an episode runs to run_dir/worlds/<world>/scenarios/<file> once per run, off the callback thread."""
         from arena_simulation_setup.tree.World import WorldIdentifier
 
-        axes = ((msg.tm_obstacles, msg.obstacles_params), (msg.tm_robots, msg.robots_params))
-        scenario = next((str(value) for mode, params in axes if mode == "scenario" for p in params if p.name == "file" and (value := self._param_value_to_py(p.value))), None)
+        from arena_evaluation.processing.metrics.edge_case.provenance import scenario_file
+
+        scenario = scenario_file(decode_modes(msg.modes), self._record_params(msg), msg.task_layer)
         if scenario is None:
             return
         name, _ = WorldIdentifier.split_filter(msg.world)
@@ -938,9 +940,9 @@ class DataRecorderNode(Node, EpisodeWriter):
             if not self.current_metadata.map or self.current_metadata.map == "unknown":
                 self.current_metadata.map = msg.world
 
-            self.current_metadata.tm_obstacles = msg.tm_obstacles
-            self.current_metadata.tm_robots = msg.tm_robots
-            self.current_metadata.tm_modules = list(msg.tm_modules)
+            self.current_metadata.task_layer = msg.task_layer
+            self.current_metadata.modes = decode_modes(msg.modes)
+            self.current_metadata.params = self._record_params(msg)
 
             self.current_metadata.task_generator_episode_id = int(msg.episode_id)
             if int(msg.outcome_state) in _TERMINAL_OUTCOMES:
@@ -948,14 +950,12 @@ class DataRecorderNode(Node, EpisodeWriter):
                 self.current_metadata.outcome_info = str(msg.outcome_info)
             self.current_metadata.integrity = list(msg.integrity)
 
-            obstacles_params = {p.name: self._param_value_to_py(p.value) for p in msg.obstacles_params}
-            robots_params = {p.name: self._param_value_to_py(p.value) for p in msg.robots_params}
-            self.current_metadata.obstacles_params = self._unflatten_dict(obstacles_params)
-            self.current_metadata.robots_params = self._unflatten_dict(robots_params)
-
             MetadataWriter.write(self.current_metadata, self.current_metadata_path)
         except Exception as e:
             self._log_error(f"Failed to update episode metadata: {e}")
+
+    def _record_params(self, msg: EpisodeRecord) -> dict[str, Any]:
+        return {p.name: self._param_value_to_py(p.value) for p in msg.params}
 
     def _param_value_to_py(self, val: ParameterValue) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
         from rcl_interfaces.msg import ParameterType
@@ -972,16 +972,6 @@ class DataRecorderNode(Node, EpisodeWriter):
             ParameterType.PARAMETER_STRING_ARRAY: lambda v: list(v.string_array_value),
         }
         return mapping.get(val.type, lambda v: str(v))(val)
-
-    def _unflatten_dict(self, d: dict) -> dict:
-        res: dict = {}
-        for k, v in d.items():
-            parts = k.split('.')
-            curr = res
-            for part in parts[:-1]:
-                curr = curr.setdefault(part, {})
-            curr[parts[-1]] = v
-        return res
 
     def read_config(self) -> _RecorderConfig:
         config_path = os.path.join(self.base_dir, "config", "data_recorder_config.yaml")

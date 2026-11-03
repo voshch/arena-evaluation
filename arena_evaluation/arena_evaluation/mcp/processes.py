@@ -10,7 +10,7 @@ from arena_mcp.core import ToolError
 
 from .base import OptionalRunId, domain, run_path
 
-Kind = Literal["benchmark_runner", "simulation", "arena_node", "world_generator", "arena_cli"]
+Kind = Literal["benchmark_runner", "simulation", "arena_runtime_node", "world_generator", "arena_cli"]
 
 
 @domain.tool(read_only=True)

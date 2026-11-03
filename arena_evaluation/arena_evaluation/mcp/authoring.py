@@ -13,23 +13,12 @@ from .base import YamlText, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
 if TYPE_CHECKING:
-    import enum
-
     from arena_rclpy_mixins.ROSParamServer import ROSParamServer
+    from arena_runtime.env.task_layer import TaskLayer, TaskModes
     from arena_simulation_setup.tree import DomainAssetIdentifier
     from rcl_interfaces.msg import ParameterDescriptor
-    from task_generator.tasks.registry import TaskModeRegistry
 
 Overwrite = Annotated[bool, pydantic.Field(description="replace an existing config of that name")]
-
-
-def mode_registries() -> dict[str, TaskModeRegistry]:
-    """The three task-mode registries, keyed by their suite stage field."""
-    for package in ("robots", "obstacles", "modules"):
-        importlib.import_module(f"task_generator.tasks.{package}")
-    from task_generator.tasks.registry import MODULE_MODES, OBSTACLES_MODES, ROBOTS_MODES
-
-    return {"tm_robots": ROBOTS_MODES, "tm_obstacles": OBSTACLES_MODES, "tm_modules": MODULE_MODES}
 
 
 class _Declarations:
@@ -51,15 +40,17 @@ def _constraint_tokens(text: str) -> dict[str, object]:
     return out
 
 
-def mode_params(registry: TaskModeRegistry, key: enum.Enum) -> list[dict[str, Any]]:
-    """The parameter names a registered task mode declares, below its namespace, with their constraint tokens."""
-    meta = registry.meta(key)
-    if meta.schema is None:
-        return []
-    collector = _Declarations()
-    meta.schema(cast("ROSParamServer", collector), meta.namespace)
-    prefix = f"{meta.namespace}."
-    return [{"name": name.removeprefix(prefix), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in collector.declared]
+def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
+    namespaces = layer.mode_namespaces()
+
+    def declared(axis: str, mode: str) -> list[dict[str, Any]]:
+        collector = _Declarations()
+        layer.declare_mode_schema(cast("ROSParamServer", collector), axis, mode)
+        prefix = f"{namespaces[axis][mode]}."
+        return [{"name": name.removeprefix(prefix), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in collector.declared]
+
+    return {axis: {mode: declared(axis, mode) for mode in modes} for axis, modes in selected.items()}
 
 
 def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
@@ -86,10 +77,10 @@ def world_resolves(name: str, known: set[str]) -> bool:
 def registered_drivers() -> dict[str, set[str]]:
     """Drivers per cap from the bringup and adapter registries."""
     from arena_robots.bringup import BRINGUPS
-    from task_generator.tasks.robots.adapters import ADAPTERS
+    from arena_runtime.env.adapters import ADAPTERS
 
     for cap in ADAPTERS:
-        importlib.import_module(f"task_generator.tasks.robots.adapters.{cap}")
+        importlib.import_module(f"arena_runtime.env.adapters.{cap}")
     return {cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys()) for cap in sorted(set(BRINGUPS) | set(ADAPTERS))}
 
 
@@ -119,45 +110,48 @@ def _at(block: dict[str, Any], dotted: str) -> object:
 def check_suite(data: object) -> dict[str, Any]:
     """Suite.parse verdict plus warnings for task modes, config keys, worlds, robots and models the registries and resolvers do not know."""
     from arena_robots.Robot import RobotIdentifier
+    from arena_runtime.env.constants import Constants
+    from arena_runtime.env.robot_manager.robots_manager import split_robot_arg
+    from arena_runtime.env.task_layer import registered_modes, task_layer
     from arena_simulation_setup.tree.assets.Human import HumanIdentifier
     from arena_simulation_setup.tree.assets.Object import ObjectIdentifier
-    from task_generator.constants import Constants
-    from task_generator.manager.robot_manager.robots_manager import split_robot_arg
 
-    from arena_evaluation.benchmark.config import Suite
+    from arena_evaluation.benchmark.config import Suite, stage_modes
 
     if not isinstance(data, dict):
         return {"valid": False, "problems": [f"a suite is a mapping with stages, got {type(data).__name__}"]}
     try:
         suite = Suite.parse("_validate", data)
-    except (KeyError, ValueError, TypeError) as exc:
+    except (LookupError, ValueError, TypeError) as exc:
         return {"valid": False, "problems": [f"{type(exc).__name__}: {exc}"]}
-    registries = mode_registries()
+    layer = task_layer(suite.task_layer)
+    vocabulary = registered_modes(layer)
+    chosen = [stage_modes(stage, vocabulary) for stage in suite.stages]
+    selected: TaskModes = {axis: sorted({mode for modes in chosen for mode in modes[axis] if mode in vocabulary.get(axis, [])}) for axis in vocabulary}
+    declared_params = mode_params(layer, selected)
     worlds = set(world_names())
     robots = {item.shortname for item in RobotIdentifier.listall()}
     catalogs = {"pedestrians": set(domain_asset_names(HumanIdentifier)), "objects": set(domain_asset_names(ObjectIdentifier))}
     human_blocks = {*Constants.HUMAN_PARAM_NAMESPACES.values(), Constants.HUMAN_PARAM_RESERVED}
     problems: list[str] = []
     warnings: list[str] = []
-    for raw, stage in zip(data["stages"], suite.stages, strict=True):
+    for raw, stage, stage_chosen in zip(data["stages"], suite.stages, chosen, strict=True):
         where = f"stage {stage.name!r}"
-        selected = {"tm_robots": stage.tm_robots, "tm_obstacles": stage.tm_obstacles}
-        for axis, key in selected.items():
-            if key not in registries[axis]:
-                problems.append(f"{where}: {axis} {key.value!r} is not registered, see episode_task_modes")
+        for axis, names in stage_chosen.items():
+            problems.extend(f"{where}: {axis} mode {mode!r} is not registered, see episode_task_modes" for mode in names if mode not in vocabulary.get(axis, []))
         if Constants.HUMAN_PARAM_RESERVED in stage.config:
             problems.append(f"{where}: config block {Constants.HUMAN_PARAM_RESERVED!r} is reserved and fails the stage")
-        modes = {key.value: (axis, key) for axis, key in selected.items()}
+        axis_of = {mode: axis for axis, names in stage_chosen.items() for mode in names}
         for block_name, block in stage.config.items():
             if block_name in human_blocks:
                 continue
-            if block_name not in modes:
-                warnings.append(f"{where}: config block {block_name!r} matches neither tm_robots nor tm_obstacles and is not sent")
+            if block_name not in axis_of:
+                warnings.append(f"{where}: config block {block_name!r} matches none of the stage's modes and is not sent")
                 continue
-            axis, key = modes[block_name]
-            if key not in registries[axis] or not isinstance(block, dict):
+            axis = axis_of[block_name]
+            if block_name not in declared_params.get(axis, {}) or not isinstance(block, dict):
                 continue
-            params = mode_params(registries[axis], key)
+            params = declared_params[axis][block_name]
             declared = {param["name"] for param in params}
             for leaf in _leaves(block):
                 if leaf not in declared:

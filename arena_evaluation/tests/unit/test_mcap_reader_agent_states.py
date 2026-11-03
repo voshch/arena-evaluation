@@ -13,7 +13,7 @@ from rclpy.serialization import serialize_message
 
 from arena_evaluation.processing.mcap_reader import _PEDS_SCHEMA, MCAPReader
 
-_TOPIC = "/arena/env_0/task_generator_node/agent_states"
+_TOPIC = "/arena/env_0/arena_env_node/agent_states"
 
 # (agent_id, kind, x, y, theta, vx, vy)
 _AGENTS = [

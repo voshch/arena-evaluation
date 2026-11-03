@@ -116,14 +116,15 @@ def load_paths(src: Path) -> dict[int, np.ndarray]:
 
 
 def stage(name: str, binding: dict) -> dict:
+    robots = binding["modes"]["robots"]
     return {
         "name": name,
         "map": name,
         "robot": ROBOT,
         "episodes": 1,
-        "tm_robots": binding["tm_robots"],
+        "tm_robots": robots,
         "tm_obstacles": "scenario",
-        "config": {binding["tm_robots"]: dict(binding["robots_params"])},
+        "config": {robots: dict(binding["params"]["robots"])},
         "timeout": f"{round(TIMEOUT_S) + START_SLACK_S}s",
     }
 

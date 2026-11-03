@@ -9,11 +9,11 @@ pytest.importorskip("mcap_ros2.writer")
 from arena_evaluation.processing.mcap_reader import MCAPReader
 from test_mcap_reader_topics import PARAM, PARAM_VALUE, _msgdef, _write_bag
 
-EPISODE_RECORD = ("task_generator_msgs/msg/EpisodeRecord", _msgdef("uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nrcl_interfaces/Parameter[] robots_params\nstring conditions", PARAM, PARAM_VALUE))
+EPISODE_RECORD = ("arena_runtime_msgs/msg/EpisodeRecord", _msgdef("uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nrcl_interfaces/Parameter[] params\nstring conditions", PARAM, PARAM_VALUE))
 
 
 def _record(outcome_state: int, conditions: str) -> dict:
-    return {"episode_id": 1, "outcome_state": outcome_state, "outcome_info": "", "goal_uuid": "", "robots_params": [], "conditions": conditions}
+    return {"episode_id": 1, "outcome_state": outcome_state, "outcome_info": "", "goal_uuid": "", "params": [], "conditions": conditions}
 
 
 def test_reader_keeps_episode_conditions(tmp_path: pathlib.Path):

@@ -414,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     p_kill.add_argument("pids", nargs="*", type=int, default=None, help="arena PIDs to stop (other processes are refused)")
     p_kill.add_argument("--all", action="store_true", help="stop every arena process (bare kill stops nothing and lists them)")
     p_kill.add_argument("-9", "--force", action="store_true", help="send SIGKILL immediately")
-    p_kill.add_argument("--kind", choices=["benchmark_runner", "simulation", "arena_node", "world_generator", "arena_cli"], default=None, help="filter by process kind")
+    p_kill.add_argument("--kind", choices=["benchmark_runner", "simulation", "arena_runtime_node", "world_generator", "arena_cli"], default=None, help="filter by process kind")
 
     p_console = sub.add_parser("console", help="tail a benchmark run's console log")
     p_console.add_argument("--data-root", default=None, metavar="PATH")

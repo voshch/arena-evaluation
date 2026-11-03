@@ -15,6 +15,7 @@ from mcap.writer import Writer as McapWriter
 from mcap_ros2.writer import Writer
 
 from arena_evaluation.processing.mcap_reader import MCAPReader, anchor_at
+from arena_evaluation.storage.manifest import MetadataWriter
 
 SEC = 1_000_000_000
 SEP = "\n" + "=" * 80 + "\n"
@@ -30,10 +31,11 @@ POSE_COV = "MSG: geometry_msgs/PoseWithCovariance\nPose pose"
 TWIST_COV = "MSG: geometry_msgs/TwistWithCovariance\nTwist twist"
 POSE_STAMPED = "MSG: geometry_msgs/PoseStamped\nstd_msgs/Header header\nPose pose"
 PARAM_VALUE = "MSG: rcl_interfaces/ParameterValue\nuint8 type\nbool bool_value\nint64 integer_value\nfloat64 double_value\nstring string_value\nbyte[] byte_array_value\nbool[] bool_array_value\nint64[] integer_array_value\nfloat64[] double_array_value\nstring[] string_array_value"
+KEY_VALUE = "MSG: diagnostic_msgs/KeyValue\nstring key\nstring value"
 PARAM = "MSG: rcl_interfaces/Parameter\nstring name\nParameterValue value"
 TRANSFORM_STAMPED = "MSG: geometry_msgs/TransformStamped\nstd_msgs/Header header\nstring child_frame_id\nTransform transform"
 TRANSFORM = "MSG: geometry_msgs/Transform\nVector3 translation\nQuaternion rotation"
-ENTITY = "MSG: task_generator_msgs/SemanticEntityState\nstring entity\nstring kind\nstring[] discrete_names\nstring[] discrete_values\nstring[] continuous_names\nfloat64[] continuous_values\nstring[] predicate_names\nbool[] predicate_values\nstring[] members"
+ENTITY = "MSG: arena_runtime_msgs/SemanticEntityState\nstring entity\nstring kind\nstring[] discrete_names\nstring[] discrete_values\nstring[] continuous_names\nfloat64[] continuous_values\nstring[] predicate_names\nbool[] predicate_values\nstring[] members"
 PEDESTRIAN = "MSG: arena_people_msgs/Pedestrian\nstring name\nuint32 id\ngeometry_msgs/Pose pose\ngeometry_msgs/Twist twist"
 
 
@@ -54,11 +56,15 @@ AGENT_STATES = (
 ACOUSTICS = ("arena_robots_msgs/msg/Acoustics", _msgdef("uint32 FLAG_NO_EFFORT=2\nstd_msgs/Header header\nfloat32 total_level_af_dba\nfloat32 total_level_zf_db\nfloat32 baseline_level_dba\nfloat32 drivetrain_level_dba\nfloat32 uncertainty_1sigma_dba\nuint32 validity_flags", HEADER, TIME))
 STRING = ("std_msgs/msg/String", "string data")
 EPISODE_RECORD = (
+    "arena_runtime_msgs/msg/EpisodeRecord",
+    _msgdef("uint32 episode_id\nuint8 RUNNING = 1\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\ndiagnostic_msgs/KeyValue[] modes\nrcl_interfaces/Parameter[] params\nstring phases", KEY_VALUE, PARAM, PARAM_VALUE),
+)
+EPISODE_RECORD_BEFORE_MODES = (
     "task_generator_msgs/msg/EpisodeRecord",
-    _msgdef("uint32 episode_id\nuint8 RUNNING = 1\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nrcl_interfaces/Parameter[] robots_params\nstring phases", PARAM, PARAM_VALUE),
+    _msgdef("uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nstring tm_robots\nstring tm_obstacles\nstring[] tm_modules\nrcl_interfaces/Parameter[] robots_params\nrcl_interfaces/Parameter[] obstacles_params", PARAM, PARAM_VALUE),
 )
 EPISODE_RECORD_V1 = ("task_generator_msgs/msg/EpisodeRecord", "uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid")
-SEMANTIC_SNAPSHOT = ("task_generator_msgs/msg/SemanticSnapshot", _msgdef("builtin_interfaces/Time stamp\nuint32 env_id\nstring world\nSemanticEntityState[] entities", TIME, ENTITY))
+SEMANTIC_SNAPSHOT = ("arena_runtime_msgs/msg/SemanticSnapshot", _msgdef("builtin_interfaces/Time stamp\nuint32 env_id\nstring world\nSemanticEntityState[] entities", TIME, ENTITY))
 COLLISION_EVENTS = (
     "arena_robots_msgs/msg/CollisionEvents",
     _msgdef("std_msgs/Header header\narena_robots_msgs/CollisionEvent[] events", HEADER, TIME, 'MSG: arena_robots_msgs/CollisionEvent\nstring KIND_WALL="wall"\nstring kind\nstring obstacle_id\nfloat32 distance'),
@@ -141,9 +147,15 @@ def _every_topic_bag(path: pathlib.Path) -> pathlib.Path:
         ("/env_0/jackal/characterization_schedule", STRING, _schedule(("a", 0.2), ("b", 0.4)), 2 * SEC),
         ("/env_0/jackal/characterization_schedule", STRING, {"data": "not json"}, 3 * SEC),
         ("/env_0/jackal/characterization_schedule", STRING, _schedule(("c", 0.6)), 4 * SEC),
-        ("/env_0/state/episode", EPISODE_RECORD, {"episode_id": 7, "outcome_state": 2, "outcome_info": "done", "goal_uuid": "g", "robots_params": params, "phases": '{"jackal": {"map_poses": []}}'}, 5 * SEC),
-        ("/env_0/state/episode", EPISODE_RECORD, {"episode_id": 7, "outcome_state": 3, "robots_params": [], "phases": ""}, 6 * SEC),
+        ("/env_0/state/episode", EPISODE_RECORD, {"episode_id": 7, "outcome_state": 2, "outcome_info": "done", "goal_uuid": "g", "modes": [], "params": params, "phases": '{"jackal": {"map_poses": []}}'}, 5 * SEC),
+        ("/env_0/state/episode", EPISODE_RECORD, {"episode_id": 7, "outcome_state": 3, "modes": [], "params": [], "phases": ""}, 6 * SEC),
         ("/env_1/agent_states", AGENT_STATES, {"header": _header(frame_id="map"), "agents": [{"agent_id": 5, "kind": 0, "pose": {"x": 1.0, "y": 2.0, "theta": 0.5}, "velocity": {"x": 0.1}}]}, 2 * SEC),
+        (
+            "/env_2/state/episode",
+            EPISODE_RECORD_BEFORE_MODES,
+            {"episode_id": 9, "outcome_state": 2, "tm_robots": "scenario", "tm_obstacles": "random", "tm_modules": ["benchmark"], "robots_params": [_param("file", 4, string_value="case_1")], "obstacles_params": [_param("static.n", 7, integer_array_value=[1, 2])]},
+            5 * SEC,
+        ),
         ("/env_1/state/episode", EPISODE_RECORD_V1, {"episode_id": 8, "outcome_state": 3, "outcome_info": "old", "goal_uuid": "h"}, 5 * SEC),
         (
             "/arena/state/semantics",
@@ -251,16 +263,16 @@ def test_acoustics_and_characterization_topics(every_topic: tuple[pathlib.Path, 
     assert jackal.characterization_schedule.collect().to_dicts() == [{"phase_label": "c", "phase_kind": "ramp", "vx_target": 0.6, "vy_target": 0.0, "wz_target": 0.0, "duration_s": 2.0, "ramp_s": 0.5, "turn_radius_m": 0.0}]
 
 
-def test_episode_record_flattens_robot_params_into_nested_yaml(every_topic: tuple[pathlib.Path, dict]):
+def test_episode_record_stores_the_full_name_params_as_yaml(every_topic: tuple[pathlib.Path, dict]):
     _, bundles = every_topic
 
     records = bundles["env_0_jackal"].episode_record.collect()
     record = records.row(0, named=True)
     assert records["outcome_state"].to_list() == [2, 3]
-    params = yaml.safe_load(record["robots_params"])
+    params = yaml.safe_load(record["params"])
     assert (record["episode_id"], record["outcome_state"], record["outcome_info"], record["goal_uuid"]) == (7, 2, "done", "g")
     assert record["phases"] == '{"jackal": {"map_poses": []}}'
-    assert params["jackal"] == {"enabled": True, "count": 3, "radius": 0.25, "name": "j"}
+    assert {name: value for name, value in params.items() if name.startswith("jackal.")} == {"jackal.enabled": True, "jackal.count": 3, "jackal.radius": 0.25, "jackal.name": "j"}
     assert params["raw"] == [1, 2]
     assert params["flags"] == [True, False]
     assert params["ints"] == [4, 5]
@@ -274,9 +286,98 @@ def test_episode_record_of_an_older_schema_has_no_phases_or_params(every_topic: 
 
     record = pq.read_table(out / "env_1" / "episode_record.parquet").to_pylist()[0]
     assert record["phases"] == ""
-    assert record["robots_params"] == ""
+    assert record["params"] == ""
     assert record["outcome_info"] == "old"
     assert pq.read_table(out / "env_1" / "peds.parquet").to_pylist()[0]["peds_positions"] == [1.0, 2.0, 0.0]
+
+
+def test_episode_record_of_a_schema_before_modes_maps_its_leaf_params_to_full_names(every_topic: tuple[pathlib.Path, dict]):
+    out, _ = every_topic
+
+    record = pq.read_table(out / "env_2" / "episode_record.parquet").to_pylist()[0]
+    assert yaml.safe_load(record["params"]) == {"task.scenario.file": "case_1", "task.random.static.n": [1, 2]}
+
+
+def test_a_recording_naming_the_old_task_generator_runtime_reads_like_the_new_one(tmp_path: pathlib.Path):
+    from arena_evaluation.storage.legacy import legacy_modes
+    from arena_runtime.env.task_layer import decode_modes
+    from mcap.reader import make_reader
+    from mcap_ros2.decoder import DecoderFactory
+
+    old_ns = "arena/env_0/task_generator_node"
+    new_ns = "arena/env_0/arena_env_node"
+    odom = {"header": _header(1, 5, "odom"), "pose": {"pose": {"position": {"x": 1.0, "y": 2.0}, "orientation": YAW_HALF_PI}}, "twist": {"twist": {"linear": {"x": 0.5}, "angular": {"z": 0.1}}}}
+    old_record = {
+        "episode_id": 4,
+        "outcome_state": 2,
+        "outcome_info": "done",
+        "goal_uuid": "g",
+        "tm_robots": "scenario",
+        "tm_obstacles": "random",
+        "tm_modules": [],
+        "robots_params": [_param("file", 4, string_value="case_1"), _param("linger_after_completion", 1, bool_value=False)],
+        "obstacles_params": [_param("static.n", 7, integer_array_value=[1, 2])],
+    }
+    new_record = {
+        "episode_id": 4,
+        "outcome_state": 2,
+        "outcome_info": "done",
+        "goal_uuid": "g",
+        "modes": [{"key": "robots", "value": "scenario"}, {"key": "obstacles", "value": "random"}, {"key": "modules", "value": ""}],
+        "phases": "",
+        "params": [
+            _param("task.random.static.n", 7, integer_array_value=[1, 2]),
+            _param("task.scenario.file", 4, string_value="case_1"),
+            _param("task.scenario.linger_after_completion", 1, bool_value=False),
+        ],
+    }
+    old_bag = _write_bag(
+        tmp_path / "old.mcap",
+        [(f"/{old_ns}/jackal/odom", ODOMETRY, odom, 1 * SEC), (f"/{old_ns}/state/episode", EPISODE_RECORD_BEFORE_MODES, old_record, 2 * SEC)],
+    )
+    new_bag = _write_bag(
+        tmp_path / "new.mcap",
+        [(f"/{new_ns}/jackal/odom", ODOMETRY, odom, 1 * SEC), (f"/{new_ns}/state/episode", EPISODE_RECORD, new_record, 2 * SEC)],
+    )
+    metadata_path = tmp_path / "episode_000.yaml"
+    metadata_path.write_text(
+        yaml.safe_dump(
+            {
+                "benchmark_id": "b",
+                "planner": "dwb",
+                "map": "barn_0",
+                "stage": "barn_0",
+                "recording_started_at": "2026-10-07T05:04:37Z",
+                "python_version": "3.12.3",
+                "ros_distro": "jazzy",
+                "tm_robots": "scenario",
+                "tm_obstacles": "random",
+                "tm_modules": [],
+                "robots_params": {"file": "case_1", "linger_after_completion": False},
+                "obstacles_params": {"static": {"n": [1, 2]}},
+                "env_ns_root": f"/{old_ns}",
+            }
+        )
+    )
+
+    with old_bag.open("rb") as fh:
+        summary = make_reader(fh).get_summary()
+    assert "task_generator_msgs/msg/EpisodeRecord" in {schema.name for schema in summary.schemas.values()}
+    assert {channel.topic for channel in summary.channels.values()} == {f"/{old_ns}/jackal/odom", f"/{old_ns}/state/episode"}
+
+    old = MCAPReader(old_bag).read(tmp_path / "old_topics")
+    new = MCAPReader(new_bag).read(tmp_path / "new_topics")
+    metadata = MetadataWriter.read(metadata_path)
+
+    assert set(old) == set(new) == {"env_0_jackal"}
+    assert old["env_0_jackal"].odom.collect().equals(new["env_0_jackal"].odom.collect())
+    old_record_row = old["env_0_jackal"].episode_record.collect().row(0, named=True)
+    new_record_row = new["env_0_jackal"].episode_record.collect().row(0, named=True)
+    assert (old_record_row["episode_id"], old_record_row["outcome_state"], old_record_row["outcome_info"], old_record_row["goal_uuid"]) == (4, 2, "done", "g")
+    assert yaml.safe_load(old_record_row["params"]) == yaml.safe_load(new_record_row["params"]) == metadata.params
+    with new_bag.open("rb") as fh:
+        new_episode = next(msg for _, channel, _, msg in make_reader(fh, decoder_factories=[DecoderFactory()]).iter_decoded_messages() if channel.topic == f"/{new_ns}/state/episode")
+    assert decode_modes(new_episode.modes) == legacy_modes(robots=old_record["tm_robots"], obstacles=old_record["tm_obstacles"], modules=old_record["tm_modules"]) == metadata.modes == {"robots": ["scenario"], "obstacles": ["random"], "modules": []}
 
 
 def test_semantic_snapshot_flattens_each_entity_field_into_a_row(every_topic: tuple[pathlib.Path, dict]):
@@ -345,6 +446,16 @@ def test_un_namespaced_topic_is_filed_under_the_unknown_robot(tmp_path: pathlib.
     bundles = MCAPReader(bag).read(tmp_path / "out")
 
     assert set(bundles) == {"env_0_unknown"}
+
+
+@pytest.mark.parametrize("node", ["task_generator_node", "arena_env_node"])
+def test_a_robot_under_the_old_or_new_env_node_namespace_reads_the_same(tmp_path: pathlib.Path, node: str):
+    odom = {"header": _header(), "pose": {"pose": {"position": {"x": 2.0}, "orientation": {"w": 1.0}}}, "twist": {"twist": {}}}
+    bag = _write_bag(tmp_path / "imported.mcap", [(f"/arena/env_0/{node}/human/odom", ODOMETRY, odom, SEC)])
+
+    bundles = MCAPReader(bag).read(tmp_path / "out")
+
+    assert set(bundles) == {"env_0_human"}
 
 
 def test_reader_rejects_a_directory_without_bags(tmp_path: pathlib.Path):

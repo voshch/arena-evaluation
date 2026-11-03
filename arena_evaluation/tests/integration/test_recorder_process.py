@@ -68,7 +68,7 @@ def _drive_reset(clock: str) -> None:
     from arena_people_msgs.msg import Pedestrian, Pedestrians
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from rosgraph_msgs.msg import Clock
-    from task_generator_msgs.msg import EpisodeRecord
+    from arena_runtime_msgs.msg import EpisodeRecord
 
     rclpy.init()
     node = rclpy.create_node("recorder_reset_test_driver")
@@ -184,7 +184,7 @@ def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(tmp_path: 
 @pytest.mark.parametrize("clock", ["frozen", "silent"])
 def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Path, clock: str) -> None:
     from arena_people_msgs.msg import Pedestrians
-    from task_generator_msgs.msg import EpisodeRecord
+    from arena_runtime_msgs.msg import EpisodeRecord
 
     driver = subprocess.Popen([sys.executable, __file__, "reset", clock], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     assert driver.stdout is not None

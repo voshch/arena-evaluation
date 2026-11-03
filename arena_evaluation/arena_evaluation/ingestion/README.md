@@ -29,7 +29,7 @@ ROS 2 node that records live simulation runs into structured MCAP files.
 
 ### Launch
 
-Registered as the `record` entry point in `setup.py`. Spawned automatically by `task_generator` when `record.dir` is provided.
+Registered as the `record` entry point in `setup.py`. Spawned automatically by the env launch file when `record.dir` is provided.
 
 ```bash
 # Manual launch
@@ -53,6 +53,8 @@ closes the episode and moves its MCAP to `episode_XXX/episode_XXX.mcap`.
 Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XXX.yaml`, the
 list of reasons the episode is compromised, empty when it is intact. Reasons accrue during the
 episode, so the yaml holds the latest list.
+
+The same rewrite stores `task_layer`, the name of the task runtime from `EpisodeRecord.task_layer` (empty in recordings made before it, which mean the default runtime and which scenario provenance looks up namespaces in), `modes`, the selection per axis decoded from `EpisodeRecord.modes` (axis to list of mode names), and `params`, the effective params of the selected modes under their full names. `episode_XXX.yaml` files written before `modes` (with `tm_robots`, `tm_obstacles`, `tm_modules`, `robots_params` and `obstacles_params`) read into the same two fields: the tm_* fields become the `robots`, `obstacles` and `modules` axes and a leaf param of the robots or obstacles mode `m` becomes `task.<m>.<leaf>`.
 
 A bag directory `episode_XXX/episode_XXX/` that an earlier recorder left unclosed is kept as
 `episode_XXX/episode_XXX_unclosed_N/` and the episode is recorded as usual.
@@ -116,8 +118,8 @@ the held messages of non-latched topics predate it and are dropped.
 | `/{parent_ns}/initialpose` | `geometry_msgs/PoseWithCovarianceStamped` | unthrottled |
 | `/{parent_ns}/arena_peds` | `arena_people_msgs/Pedestrians` | 20 ms |
 | `/{parent_ns}/interactions` | `arena_humansim_msgs/InteractionFrame` | latched |
-| `/{parent_ns}/state/episode` | `task_generator_msgs/EpisodeRecord` | unthrottled |
-| `/{parent_ns}/state/robots` | `task_generator_msgs/RobotFleet` | latched |
+| `/{parent_ns}/state/episode` | `arena_runtime_msgs/EpisodeRecord` | unthrottled |
+| `/{parent_ns}/state/robots` | `arena_runtime_msgs/RobotFleet` | latched |
 | `/tf` | `tf2_msgs/TFMessage` | 20 ms, merged |
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
@@ -138,7 +140,7 @@ The reader turns them into `interactions`, `interaction_events`, `animation_stat
 and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as
 `peds` and `peds_physics`.
 
-Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`task_generator_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
+Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`arena_runtime_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
 
 `/tf` is merged rather than throttled: the newest transform per `(frame_id, child_frame_id)` is kept and written as one `TFMessage` per 20 ms window, so no publisher can starve the others. `tf_frames` in `config/data_recorder_config.yaml` is an ordered `[regex, ms]` list matched against the child frame that caps frame families; by default skeleton bones go out at 5 Hz.
 
@@ -177,7 +179,7 @@ Provides topic names and expected ROS message types for rosbag2 registration.
 ```python
 from arena_evaluation.ingestion.topics import get_topics
 
-topics = get_topics(namespace="arena/env_0/task_generator_node/jackal")
+topics = get_topics(namespace="arena/env_0/arena_env_node/jackal")
 ```
 
 `recorded_topic_definition(row, tg_namespace, robot_namespace)` turns one `RecordedTopic` row into a `TopicDefinition`, or `None` when its message type does not import.

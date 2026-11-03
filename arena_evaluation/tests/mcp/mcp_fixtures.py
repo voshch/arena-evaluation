@@ -18,9 +18,10 @@ STEPS = ("dwb/s1", "dwb_social/s1", "unhindered_peds/s1", "dwb/s2")
 
 
 def _record(world: str, outcome: int) -> object:
-    from task_generator_msgs.msg import EpisodeRecord
+    from arena_runtime.env.task_layer import encode_modes
+    from arena_runtime_msgs.msg import EpisodeRecord
 
-    return EpisodeRecord(world=world, seed=7, tm_robots="random", tm_obstacles="random", robots=["jackal"], outcome_state=outcome, outcome_info="")
+    return EpisodeRecord(world=world, seed=7, modes=encode_modes({"robots": ["random"], "obstacles": ["random"]}), robots=["jackal"], outcome_state=outcome, outcome_info="")
 
 
 def _manifest(run_id: str, steps: tuple[str, ...]) -> object:

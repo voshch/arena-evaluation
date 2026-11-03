@@ -3,7 +3,7 @@
 Covers processing/episode_splitter.py:
   - _parse_conditions / _env_offset / _episode_snapshot helpers
   - EpisodeSplitter.split with and without episode_record rows
-  - start/goal recovery (robots_params YAML, initialpose, plan, aligned fallback)
+  - start/goal recovery (params YAML, initialpose, plan, aligned fallback)
   - LazyFrame inputs and chunked (multi-record-batch) pyarrow input
 Property tests (hypothesis) over arbitrary timestamps / snapshots.
 """
@@ -45,7 +45,7 @@ _REC_SCHEMA = pl.Schema(
     {
         "time_ns": pl.Int64,
         "episode_id": pl.Int64,
-        "robots_params": pl.String,
+        "params": pl.String,
         "conditions": pl.String,
     }
 )
@@ -78,12 +78,12 @@ def _odom(n: int = 6, start: int = 1_000, step: int = 100) -> pl.DataFrame:
 
 
 def _records(rows: list[tuple[int, int, str | None, str | None]]) -> pl.DataFrame:
-    """rows: (time_ns, episode_id, robots_params_yaml, conditions_json)."""
+    """rows: (time_ns, episode_id, params_yaml, conditions_json)."""
     return pl.DataFrame(
         {
             "time_ns": [r[0] for r in rows],
             "episode_id": [r[1] for r in rows],
-            "robots_params": [r[2] for r in rows],
+            "params": [r[2] for r in rows],
             "conditions": [r[3] for r in rows],
         },
         schema=_REC_SCHEMA,
@@ -549,10 +549,10 @@ def test_split_three_records_pair_then_single():
 # start/goal recovery
 # ---------------------------------------------------------------------------
 
-ROBOT_PARAMS_YAML = "robot_a:\n  start: [1.0, 2.0, 0.1]\n  goal: [9.0, 8.0, 3.1]\n  other: 1\nrobot_b:\n  start: [99.0, 99.0, 0.0]\n"
+ROBOT_PARAMS_YAML = "task.scenario.robot_a.start: [1.0, 2.0, 0.1]\ntask.scenario.robot_a.goal: [9.0, 8.0, 3.1]\ntask.scenario.robot_a.other: 1\ntask.scenario.robot_b.start: [99.0, 99.0, 0.0]\n"
 
 
-def test_split_start_goal_from_robots_params():
+def test_split_start_goal_from_params():
     records = _records([(1000, 3, ROBOT_PARAMS_YAML, None)])
     ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     # only the first robot's params are honored (loop breaks after first entry)
@@ -560,8 +560,8 @@ def test_split_start_goal_from_robots_params():
     assert ep.goal_pos == [9.0, 8.0, 3.1]
 
 
-def test_split_robots_params_no_start_key_falls_back_to_initialpose():
-    yaml_str = "robot_a:\n  goal: [5.0, 5.0, 0.0]\n"
+def test_split_params_no_start_key_falls_back_to_initialpose():
+    yaml_str = "task.scenario.robot_a.goal: [5.0, 5.0, 0.0]\n"
     records = _records([(1000, 3, yaml_str, None)])
     init = pl.DataFrame(
         {"time_ns": [1100], "pos_x": [7.0], "pos_y": [8.0], "yaw": [1.5]},
@@ -572,7 +572,7 @@ def test_split_robots_params_no_start_key_falls_back_to_initialpose():
     assert ep.goal_pos == [5.0, 5.0, 0.0]
 
 
-def test_split_robots_params_invalid_yaml_ignored():
+def test_split_params_invalid_yaml_ignored():
     records = _records([(1000, 3, "{{{{ not yaml", None)])
     ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     # falls through: no initialpose, no plan -> aligned fallback
@@ -580,10 +580,16 @@ def test_split_robots_params_invalid_yaml_ignored():
     assert ep.goal_pos == [5.0, 10.0, 0.0]
 
 
-def test_split_robots_params_non_dict_yaml_ignored():
+def test_split_params_non_dict_yaml_ignored():
     records = _records([(1000, 3, "- 1\n- 2\n", None)])
     ep = _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))[0]
     assert ep.start_pos == [0.0, 0.0, 0.0]
+
+
+def test_split_record_without_a_params_column_raises():
+    records = _records([(1000, 3, None, None)]).drop("params")
+    with pytest.raises(KeyError, match="params"):
+        _splitter(_FakeAligner(_aligned(6))).split(TopicBundle(odom=_odom(), episode_record=records))
 
 
 def test_split_initialpose_first_row_after_start():
@@ -713,7 +719,7 @@ def _rec_batch(times, ids):
             pa.array([None] * len(times), type=pa.string()),
             pa.array([None] * len(times), type=pa.string()),
         ],
-        names=["time_ns", "episode_id", "robots_params", "conditions"],
+        names=["time_ns", "episode_id", "params", "conditions"],
     )
 
 

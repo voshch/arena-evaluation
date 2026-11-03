@@ -80,14 +80,21 @@ def human_radii(scenario: Mapping[str, typing.Any]) -> dict[str, float]:
     return radii
 
 
+def scenario_file(modes: Mapping[str, list[str]], params: Mapping[str, typing.Any], layer: str = "") -> str | None:
+    """The scenario file the `scenario` task mode ran under the task runtime `layer`, None when no axis selects it."""
+    from arena_runtime.env.task_layer import task_layer
+
+    namespaces = task_layer(layer).mode_namespaces()
+    for axis, names in modes.items():
+        namespace = namespaces.get(axis, {}).get("scenario")
+        if "scenario" in names and namespace and params.get(f"{namespace}.file"):
+            return str(params[f"{namespace}.file"])
+    return None
+
+
 def scenario_name(run: RunMetadata | None) -> str | None:
     """The scenario file the episode's `scenario` task mode ran, None when neither axis ran one."""
-    if run is None:
-        return None
-    for mode, params in ((run.tm_obstacles, run.obstacles_params), (run.tm_robots, run.robots_params)):
-        if mode == "scenario" and params and params.get("file"):
-            return str(params["file"])
-    return None
+    return None if run is None else scenario_file(run.modes, run.params, run.task_layer)
 
 
 _provenance_cache: dict[tuple[str, str, str], tuple[tuple[tuple[Path, int], ...], Provenance | None]] = {}

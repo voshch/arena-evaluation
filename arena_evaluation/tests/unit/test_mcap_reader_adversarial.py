@@ -27,13 +27,6 @@ def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
     assert odom["pos_x"].to_list() == [1.0, 1.1, 3.0, 5.0]
 
 
-def test_unflatten_dict_adversarial():
-    # What if dict has overlapping paths?
-    d = {"a.b": 1, "a.b.c": 2}
-    res = MCAPReader._unflatten_dict(d)
-    assert res == {"a": {"b": {"c": 2}}}
-
-
 def test_quaternion_to_yaw_adversarial():
     # Invalid quaternion (0,0,0,0)
     yaw = MCAPReader._quaternion_to_yaw(0, 0, 0, 0)

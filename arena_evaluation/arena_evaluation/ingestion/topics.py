@@ -4,7 +4,7 @@ import dataclasses
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from task_generator_msgs.msg import RecordedTopic
+    from arena_runtime_msgs.msg import RecordedTopic
 
 
 @dataclasses.dataclass
@@ -26,12 +26,12 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
     from arena_humansim_msgs.msg import AgentFrame, AgentMeta, InteractionFrame
     from arena_people_msgs.msg import Pedestrians
     from arena_robots_msgs.msg import Acoustics, CollisionEvents, Energy, Power
+    from arena_runtime_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
     from nav2_msgs.msg import CollisionMonitorState
     from nav_msgs.msg import OccupancyGrid, Path
     from sensor_msgs.msg import JointState, LaserScan
     from std_msgs.msg import String
-    from task_generator_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
     from tf2_msgs.msg import TFMessage
 
     ns = f"/{namespace}" if namespace else ""

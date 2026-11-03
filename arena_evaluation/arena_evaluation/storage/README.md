@@ -11,6 +11,7 @@ Shared data types and path management utilities used across the evaluation pipel
 | `schemas.py` | Pydantic and dataclass type definitions |
 | `folder_manager.py` | Path resolution and run discovery (`FolderManager`) |
 | `manifest.py` | YAML reading and writing (`MetadataWriter`) |
+| `legacy.py` | Maps the `tm_*` fields and leaf params of records made before `modes` to `modes` and full-name `params` |
 | `exceptions.py` | Pipeline domain exceptions |
 
 ---

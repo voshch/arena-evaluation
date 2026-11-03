@@ -8,7 +8,7 @@ import polars as pl
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-# task_generator_msgs/msg/EpisodeRecord outcome_state values.
+# arena_runtime_msgs/msg/EpisodeRecord outcome_state values.
 _OUTCOME_SUCCESS = 2
 _OUTCOME_RESULTS = {3: "FAILED", 4: "CANCELLED", 5: "FATAL"}
 # QUEUED / RUNNING: never resolved by the runtime.

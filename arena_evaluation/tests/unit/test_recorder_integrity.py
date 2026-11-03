@@ -9,7 +9,7 @@ pytest.importorskip("rclpy")
 
 import yaml
 from rclpy.parameter import Parameter
-from task_generator_msgs.msg import EpisodeRecord
+from arena_runtime_msgs.msg import EpisodeRecord
 
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.storage.manifest import MetadataWriter

@@ -13,6 +13,7 @@ import threading
 import types
 
 import pytest
+from arena_runtime.env.task_layer import encode_modes
 
 import arena_evaluation.benchmark.state as state_module
 from arena_evaluation.benchmark.config import Contest, Suite
@@ -27,7 +28,6 @@ from arena_evaluation.benchmark.state import (
     fold_run_dir,
 )
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
-from task_generator.constants import Constants
 
 _PACKAGE_ROOT = pathlib.Path(state_module.__file__).resolve().parents[2]
 
@@ -72,14 +72,11 @@ def _record(info: str = "") -> types.SimpleNamespace:
     return types.SimpleNamespace(
         world="map1",
         seed=1,
-        tm_robots="random",
-        tm_obstacles="random",
-        tm_modules=[],
+        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": []}),
         robots=["jackal"],
         outcome_state=2,
         outcome_info=info,
-        robots_params=[],
-        obstacles_params=[],
+        params=[],
         goal_dist_start=0.0,
         goal_dist_min=0.0,
         path_length=0.0,
@@ -119,8 +116,7 @@ def _make_step(contestant: str, stage: str, world: str) -> Step:
             episodes=2,
             robot="jackal",
             map=world,
-            tm_robots=Constants.TaskMode.TM_Robots.RANDOM,
-            tm_obstacles=Constants.TaskMode.TM_Obstacles.RANDOM,
+            modes={"robots": "random", "obstacles": "random"},
             config={},
             seed=0,
             timeout=60.0,

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import collections
 import contextlib
+import copy
 import datetime
 import hashlib
 import json
@@ -32,17 +33,16 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_rclpy_mixins import ActionClientWrapper, ArenaMixinNode, ClientWrapper
 from arena_rclpy_mixins.spin import start_loop_watchdog
-from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldRegistry, LockstepStatus, SimState
-from arena_runtime_msgs.srv import DespawnEnv, SpawnEnv
+from arena_runtime.env.constants import Constants
+from arena_runtime.env.task_layer import TM_AXES, TaskLayer, TaskModes, decode_modes, encode_modes, registered_modes, selection_args, task_layer, task_layer_name
+from arena_runtime_msgs.action import RunEpisode
+from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, EpisodeRecord, HoldRegistry, LockstepStatus, SimState
+from arena_runtime_msgs.srv import DespawnEnv, QueueEpisode, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action.client import ClientGoalHandle
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-from task_generator.constants import Constants
-from task_generator_msgs.action import RunEpisode
-from task_generator_msgs.msg import EpisodeRecord
-from task_generator_msgs.srv import QueueEpisode
 
 STATE_TOPIC = "/arena/benchmark/state"
 PREPARED = "benchmark: prepared run_id="
@@ -59,12 +59,12 @@ _MAX_SIM_DEATHS = 3
 _LOOP_DEADLINE_S = 120.0
 _HUNG_EXIT_CODE = 4
 
-# EpisodeRecord.outcome_state labels (task_generator_msgs/msg/EpisodeRecord.msg)
+# EpisodeRecord.outcome_state labels (arena_runtime_msgs/msg/EpisodeRecord.msg)
 _EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
 
 
 from ..storage.planner_names import split_planner_name
-from .config import Contest, Suite
+from .config import Contest, Suite, stage_modes
 from .lockstep import LockstepMonitor, LockstepSummary, format_report, format_table
 from .progress_display import BenchmarkProgressDisplay
 from .state import (
@@ -192,6 +192,9 @@ _log = logging.getLogger(__name__)
 _CAP_KEYS = ("mobile", "arm", "planner")
 
 
+_ROBOTS, _OBSTACLES, _ = TM_AXES
+
+
 def _launch_key(k: str) -> str:
     """Contest cap keys stay bare (`mobile`, `arm.<x>`, `planner`), launch args live under `robot.`."""
     head = k.split(".", 1)[0]
@@ -211,13 +214,12 @@ def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, 
     s = step.stage
     args = [
         *([f"sim:={simulator}"] if simulator is not None else []),
+        f"task_layer:={task_layer_name(step.task_layer)}",
         f"robot:={step.robot}",
         f"world:={s.map}",
-        f"task.robots:={s.tm_robots.value}",
-        f"task.obstacles:={s.tm_obstacles.value}",
+        *selection_args(stage_modes(s, registered_modes(task_layer(step.task_layer)))),
         f"run_seed:={s.seed}",
         "task.episode.auto_reset:=false",
-        "task.modules:=",
     ]
     if s.optim:
         for k, v in s.optim.items():
@@ -294,6 +296,7 @@ def _all_steps_grid(
                 stage=stage,
                 episodes=int(round(stage.episodes * scale_episodes)),
                 record_dir=episodes_dir,
+                task_layer=suite.task_layer,
             )
             if not suite.references:
                 if main_step.key in seen:
@@ -308,6 +311,7 @@ def _all_steps_grid(
                 record_dir=episodes_dir,
                 is_reference=True,
                 reference_type="unobstructed_robot",
+                task_layer=suite.task_layer,
             )
             for step in (main_step, ref_robot_step):
                 if step.key in seen:
@@ -327,6 +331,7 @@ def _all_steps_grid(
             record_dir=episodes_dir,
             is_reference=True,
             reference_type="unhindered_peds",
+            task_layer=suite.task_layer,
         )
         if ref_peds_step.key in seen:
             raise ValueError(f"duplicate step key: {ref_peds_step.key!r}")
@@ -432,7 +437,7 @@ def robot_has_depth_camera(robot: str) -> bool:
     from arena_robots.Robot import RobotIdentifier  # noqa: PLC0415
     from arena_robots.Sensor import SensorType  # noqa: PLC0415
     from arena_robots.SetupFile import Config  # noqa: PLC0415
-    from task_generator.manager.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
+    from arena_runtime.env.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
 
     for entry in split_robot_arg(robot):
         try:
@@ -543,26 +548,19 @@ def _walk_dict(d: dict, prefix: str = "") -> list[Parameter]:
     return out
 
 
-def _flatten_per_mode_params(
-    stage_config: dict,
-    *,
-    tm_obstacles: str,
-    tm_robots: str,
-) -> tuple[list[Parameter], list[Parameter]]:
-    """Route stage.config blocks to (obstacles_params, robots_params) as leaf-keyed Parameter[]."""
-    obs: list[Parameter] = []
-    rob: list[Parameter] = []
-    for mode, mode_dict in (stage_config or {}).items():
-        if not isinstance(mode_dict, dict):
-            continue
-        is_scenario = mode == "scenario"
-        patched: dict = {k: (pathlib.Path(val).stem if is_scenario and k == "file" and isinstance(val, str) else val) for k, val in mode_dict.items()}
-        params = _walk_dict(patched)
-        if mode == tm_obstacles:
-            obs.extend(params)
-        if mode == tm_robots:
-            rob.extend(params)
-    return obs, rob
+def stage_params(stage_config: dict, modes: TaskModes, namespaces: dict[str, dict[str, str]]) -> list[Parameter]:
+    """Route stage.config blocks of the selected modes to Parameter[] under the full names of the mode's namespace."""
+    out: dict[str, Parameter] = {}
+    for axis, names in modes.items():
+        for mode in names:
+            block = (stage_config or {}).get(mode)
+            namespace = namespaces.get(axis, {}).get(mode)
+            if namespace is None or not isinstance(block, dict):
+                continue
+            is_scenario = mode == "scenario"
+            patched = {k: (pathlib.Path(val).stem if is_scenario and k == "file" and isinstance(val, str) else val) for k, val in block.items()}
+            out.update((p.name, p) for p in _walk_dict(patched, namespace))
+    return list(out.values())
 
 
 def _human_params(stage_config: dict) -> list[Parameter]:
@@ -573,6 +571,48 @@ def _human_params(stage_config: dict) -> list[Parameter]:
         if isinstance(block, dict):
             out.extend(_walk_dict(block, namespace))
     return out
+
+
+def _stationary_pins(namespaces: dict[str, dict[str, str]]) -> list[Parameter]:
+    return [Parameter(name=f"{namespaces[_ROBOTS]['stationary']}.{leaf}", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0)) for leaf in ("pos_x", "pos_y")]
+
+
+def _accepts_empty_selection(layer: TaskLayer, axis: str) -> bool:
+    """Whether the layer accepts the axis with no mode selected."""
+    try:
+        layer.validate_modes({axis: []})
+    except ValueError:
+        return False
+    return True
+
+
+def stage_request(step: Step) -> QueueEpisode.Request:
+    """The QueueEpisode request that sets a step's stage: its set modes and its config blocks under the namespaces of the selected modes."""
+    layer = task_layer(step.task_layer)
+    modes = {axis: names for axis, names in stage_modes(step.stage, registered_modes(layer)).items() if names or _accepts_empty_selection(layer, axis)}
+    namespaces = layer.mode_namespaces()
+    stage_config = step.stage.config or {}
+    pinned: list[Parameter] = []
+    if step.is_reference and step.reference_type == "unobstructed_robot":
+        stage_config = copy.deepcopy(stage_config)
+        obstacle_modes = modes.get(_OBSTACLES)
+        if obstacle_modes:
+            for mode in obstacle_modes:
+                mode_block = stage_config.setdefault(mode, {})
+                if isinstance(mode_block, dict):
+                    mode_block["dynamic"] = {"min": 0, "max": 0}
+        else:
+            pinned = [p for namespace in namespaces.get(_OBSTACLES, {}).values() for p in _walk_dict({"dynamic": {"min": 0, "max": 0}}, namespace)]
+    elif step.is_reference and step.reference_type == "unhindered_peds":
+        modes[_ROBOTS] = ["stationary"]
+        pinned = _stationary_pins(namespaces)
+    req = QueueEpisode.Request()
+    req.action = QueueEpisode.Request.MERGE
+    req.world = step.stage.map
+    req.modes = encode_modes(modes)
+    req.params = list({p.name: p for p in [*stage_params(stage_config, modes, namespaces), *pinned]}.values())
+    req.human_params = _human_params(stage_config)
+    return req
 
 
 _LATCHED = QoSProfile(
@@ -1121,47 +1161,18 @@ class BenchmarkRunner(ArenaMixinNode):
 
     async def _push_stage_config(self, env_id: int, step: Step) -> None:
         queue = self._queue_clients[env_id]
-        req = QueueEpisode.Request()
-        req.action = QueueEpisode.Request.MERGE
-        req.world = step.stage.map
-        req.tm_robots = step.stage.tm_robots.value
-        req.tm_obstacles = step.stage.tm_obstacles.value
-        req.tm_modules = []
-        req.keep_modules = False
-        stage_config = step.stage.config or {}
-        if step.is_reference and step.reference_type == "unobstructed_robot":
-            import copy
+        req = stage_request(step)
+        if step.is_reference and step.reference_type == "unhindered_peds":
+            set_req = SetParameters.Request()
+            set_req.parameters = _stationary_pins(task_layer(step.task_layer).mode_namespaces())
+            try:
+                await self._await_alive(self._param_clients[env_id].call_timeout(set_req, timeout_sec=5.0), env_id=env_id, what=f"stationary params on env {env_id}")
+            except (_SimDied, _EnvDied, asyncio.CancelledError):
+                raise
+            except Exception as exc:
+                _log.warning(f"[env {env_id}] stationary params for {step.key} failed: {exc}")
 
-            stage_config = copy.deepcopy(stage_config)
-            mode_block = stage_config.setdefault(step.stage.tm_obstacles.value, {})
-            if isinstance(mode_block, dict):
-                mode_block["dynamic"] = {"min": 0, "max": 0}
-
-        obs_params, rob_params = _flatten_per_mode_params(
-            stage_config,
-            tm_obstacles=step.stage.tm_obstacles.value,
-            tm_robots=step.stage.tm_robots.value,
-        )
-        if step.is_reference:
-            if step.reference_type == "unobstructed_robot":
-                pass
-            elif step.reference_type == "unhindered_peds":
-                req.tm_robots = "stationary"
-                rob_params = [Parameter(name="pos_x", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0)), Parameter(name="pos_y", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0))]
-                param_client = self._param_clients[env_id]
-                set_req = SetParameters.Request()
-                set_req.parameters = [Parameter(name="task.stationary.pos_x", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0)), Parameter(name="task.stationary.pos_y", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0))]
-                try:
-                    await self._await_alive(param_client.call_timeout(set_req, timeout_sec=5.0), env_id=env_id, what=f"stationary params on env {env_id}")
-                except (_SimDied, _EnvDied, asyncio.CancelledError):
-                    raise
-                except Exception as exc:
-                    _log.warning(f"[env {env_id}] stationary params for {step.key} failed: {exc}")
-
-        req.obstacles_params = obs_params
-        req.robots_params = rob_params
-        req.human_params = _human_params(stage_config)
-        _log.info(f"[env {env_id}] pushing stage config for {step.key} (map={step.stage.map}, tm_robots={req.tm_robots}, tm_obstacles={req.tm_obstacles})")
+        _log.info(f"[env {env_id}] pushing stage config for {step.key} (map={step.stage.map}, modes={decode_modes(req.modes)})")
         resp = await self._await_alive(queue.call_timeout(req, timeout_sec=10.0), env_id=env_id, what=f"queue_episode on env {env_id}")
         if resp is None:
             raise RuntimeError(f"queue_episode service call timed out after 10s on env {env_id} for {step.key}")
@@ -1926,7 +1937,7 @@ class BenchmarkRunner(ArenaMixinNode):
         )
         self._arena_watch = asyncio.create_task(self._watch_arena_proc(self._arena_proc), name="arena_proc_watch")
 
-        await self._await_alive(self._await_hb(self._runtime_up.wait(), "the new arena_node to report the sim alive"), what="arena_node startup")
+        await self._await_alive(self._await_hb(self._runtime_up.wait(), "the new arena_runtime_node to report the sim alive"), what="arena_runtime_node startup")
         await self._await_alive(self._spawn.ensure(timeout_sec=300.0), what="spawn_env service")
         await self._await_alive(self._despawn.ensure(timeout_sec=300.0), what="despawn_env service")
 
@@ -2492,7 +2503,7 @@ def cli_main(argv: list[str] | None = None) -> int:
                 {
                     "key": c.key,
                     "contestant": attrs.asdict(c.contestant),
-                    "stage": {k: v.value if isinstance(v, (Constants.TaskMode.TM_Robots, Constants.TaskMode.TM_Obstacles)) else v for k, v in c.stage._asdict().items()},
+                    "stage": c.stage._asdict(),
                     "episodes_planned": c.episodes,
                     "is_reference": c.is_reference,
                     "reference_type": c.reference_type,

@@ -1,8 +1,8 @@
 """Unit tests for the open-loop characterization maneuver schedule.
 
 Pure Python, no ROS, no Gazebo required. The schedule lives in
-task_generator (owned by the TM_Characterization robot task mode); the offline
-calculator imports the same module so labels never drift.
+arena_robots, shared by the TM_Characterization robot task mode and the offline
+calculator so labels never drift.
 """
 
 import dataclasses
@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("controller_manager_msgs")
 
-from task_generator.tasks.robots.characterization.schedule import (
+from arena_robots.characterization import (
     ANGULAR_DWELL_S,
     ARC_RADIUS_FACTORS,
     DURATION_DEFAULTS,

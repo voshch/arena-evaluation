@@ -12,6 +12,7 @@ from arena_evaluation.presentation.plot_types.acoustic_field import (
     AcousticFieldAnimationRenderer,
     AcousticFieldRenderer,
 )
+from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.storage.schemas import PlotSpec
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -264,6 +265,7 @@ def _make_episode(tmp_path: pathlib.Path, odom=True, tf_gt=False, acoustics=True
     topics = bench / "episodes" / "episode_001" / "topics"
     robot = topics / "robot_ns"
     robot.mkdir(parents=True, exist_ok=True)
+    (topics / TopicParquetStore.VERSION_FILE).write_text(f"{TopicParquetStore.VERSION}\n")
     if odom:
         pl.DataFrame({"time_ns": [0, 1, 2], "pos_x": [1.0, 1.5, 2.0], "pos_y": [1.0, 1.0, 1.0]}, schema={"time_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64}).write_parquet(robot / "odom.parquet")
     if tf_gt:
@@ -287,6 +289,12 @@ def test_load_episode_data_missing_topics_returns_none(tmp_path):
 
 def test_load_episode_data_no_robot_dirs_returns_none(tmp_path):
     bench = _make_episode(tmp_path, odom=False)
+    assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
+
+
+def test_load_episode_data_stale_cache_returns_none(tmp_path):
+    bench = _make_episode(tmp_path)
+    (bench / "episodes" / "episode_001" / "topics" / TopicParquetStore.VERSION_FILE).unlink()
     assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
 
 

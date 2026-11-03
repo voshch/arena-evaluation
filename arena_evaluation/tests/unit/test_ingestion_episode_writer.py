@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 EPISODE = "episode_000"
-TOPIC = "/arena/env_0/task_generator_node/jackal/cmd_vel"
+TOPIC = "/arena/env_0/arena_env_node/jackal/cmd_vel"
 MOVED = ("_enter_episode_dir", "_open_writer", "_close_current_writer", "_write_serialized", "_register_topic", "_ensure_topic_in_bag", "_finalize_episode_metadata")
 
 

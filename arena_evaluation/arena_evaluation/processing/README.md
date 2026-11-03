@@ -58,7 +58,7 @@ Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, epi
 | interactions | one row per interaction per `InteractionFrame`: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `outcome`, `object_id`, `participants`, `queue`, `arrived`, `holding`, `duration`; an empty frame adds no row. Kept as its own frame, not aligned onto odom |
 | interaction_events | one row per lifecycle edge: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `event`, `event_name`, `participants` |
 | animation_states | one row per (ped, overlay slot), `slot` empty for a base-only ped: `time_ns`, `ped_id`, `ped_name`, `base`, `base_phase`, `slot`, `kind`, `channel`, `phase`, `clip`, `animation`, `playhead`, `duration`, `weight`, `loop` |
-| episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `integrity` (list of reasons the episode is compromised, empty when intact or recorded before the field existed), `phases`, `robots_params` |
+| episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `integrity` (list of reasons the episode is compromised, empty when intact or recorded before the field existed), `phases`, `params` (YAML mapping of the full param names of the selected modes to their values; a bag recorded before `modes` maps its `tm_*` fields and leaf params to the same form, one without params leaves it empty) |
 | collision_events | `time_ns`, `collision_event` |
 | collision_monitor_state | `time_ns`, `action_type`, `polygon_name` |
 | tf / tf_static | `time_ns`, frame/child/trans/rot columns |

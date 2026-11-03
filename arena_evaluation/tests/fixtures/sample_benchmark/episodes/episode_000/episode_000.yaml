@@ -32,86 +32,86 @@ recording_ended_at: '2026-10-07T05:05:07.277876+00:00'
 pedsim_available: true
 recorded_topics:
 - arena/env_0/arena_peds
-- arena/env_0/task_generator_node/agent_meta
-- arena/env_0/task_generator_node/agent_states
-- arena/env_0/task_generator_node/jackal/acoustics
-- arena/env_0/task_generator_node/jackal/cmd_vel
-- arena/env_0/task_generator_node/jackal/collision_events
-- arena/env_0/task_generator_node/jackal/collision_monitor_state
-- arena/env_0/task_generator_node/jackal/jackal_velocity_controller/cmd_vel
-- arena/env_0/task_generator_node/jackal/jackal_velocity_controller/odom
-- arena/env_0/task_generator_node/jackal/joint_states
-- arena/env_0/task_generator_node/jackal/lidar
-- arena/env_0/task_generator_node/jackal/odom
-- arena/env_0/task_generator_node/jackal/plan
-- arena/env_0/task_generator_node/jackal/power_publisher/energy
-- arena/env_0/task_generator_node/jackal/power_publisher/power
-- arena/env_0/task_generator_node/map
-- arena/env_0/task_generator_node/state/episode
-- arena/env_0/task_generator_node/state/robots
-- arena/env_0/task_generator_node/state/semantics
+- arena/env_0/arena_env_node/agent_meta
+- arena/env_0/arena_env_node/agent_states
+- arena/env_0/arena_env_node/jackal/acoustics
+- arena/env_0/arena_env_node/jackal/cmd_vel
+- arena/env_0/arena_env_node/jackal/collision_events
+- arena/env_0/arena_env_node/jackal/collision_monitor_state
+- arena/env_0/arena_env_node/jackal/jackal_velocity_controller/cmd_vel
+- arena/env_0/arena_env_node/jackal/jackal_velocity_controller/odom
+- arena/env_0/arena_env_node/jackal/joint_states
+- arena/env_0/arena_env_node/jackal/lidar
+- arena/env_0/arena_env_node/jackal/odom
+- arena/env_0/arena_env_node/jackal/plan
+- arena/env_0/arena_env_node/jackal/power_publisher/energy
+- arena/env_0/arena_env_node/jackal/power_publisher/power
+- arena/env_0/arena_env_node/map
+- arena/env_0/arena_env_node/state/episode
+- arena/env_0/arena_env_node/state/robots
+- arena/env_0/arena_env_node/state/semantics
 - tf
 - tf_static
 rosbag2_message_count: 6561
 rosbag2_topics:
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/collision_events
+    name: arena/env_0/arena_env_node/jackal/collision_events
     type: arena_robots_msgs/msg/CollisionEvents
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 200
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/collision_monitor_state
+    name: arena/env_0/arena_env_node/jackal/collision_monitor_state
     type: nav2_msgs/msg/CollisionMonitorState
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 200
 - topic_metadata:
-    name: arena/env_0/task_generator_node/agent_states
+    name: arena/env_0/arena_env_node/agent_states
     type: arena_humansim_msgs/msg/AgentFrame
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 400
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/power_publisher/energy
+    name: arena/env_0/arena_env_node/jackal/power_publisher/energy
     type: arena_robots_msgs/msg/Energy
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 593
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/power_publisher/power
+    name: arena/env_0/arena_env_node/jackal/power_publisher/power
     type: arena_robots_msgs/msg/Power
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 596
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/jackal_velocity_controller/odom
+    name: arena/env_0/arena_env_node/jackal/jackal_velocity_controller/odom
     type: nav_msgs/msg/Odometry
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 599
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/cmd_vel
+    name: arena/env_0/arena_env_node/jackal/cmd_vel
     type: geometry_msgs/msg/Twist
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 406
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/odom
+    name: arena/env_0/arena_env_node/jackal/odom
     type: nav_msgs/msg/Odometry
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 584
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/jackal_velocity_controller/cmd_vel
+    name: arena/env_0/arena_env_node/jackal/jackal_velocity_controller/cmd_vel
     type: geometry_msgs/msg/TwistStamped
     serialization_format: cdr
     offered_qos_profiles: []
@@ -125,49 +125,49 @@ rosbag2_topics:
     type_description_hash: ''
   message_count: 5
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/plan
+    name: arena/env_0/arena_env_node/jackal/plan
     type: nav_msgs/msg/Path
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 74
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/acoustics
+    name: arena/env_0/arena_env_node/jackal/acoustics
     type: arena_robots_msgs/msg/Acoustics
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 595
 - topic_metadata:
-    name: arena/env_0/task_generator_node/agent_meta
+    name: arena/env_0/arena_env_node/agent_meta
     type: arena_humansim_msgs/msg/AgentMeta
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 2
 - topic_metadata:
-    name: arena/env_0/task_generator_node/map
+    name: arena/env_0/arena_env_node/map
     type: nav_msgs/msg/OccupancyGrid
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 1
 - topic_metadata:
-    name: arena/env_0/task_generator_node/state/episode
-    type: task_generator_msgs/msg/EpisodeRecord
+    name: arena/env_0/arena_env_node/state/episode
+    type: arena_runtime_msgs/msg/EpisodeRecord
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 2
 - topic_metadata:
-    name: arena/env_0/task_generator_node/state/robots
-    type: task_generator_msgs/msg/RobotFleet
+    name: arena/env_0/arena_env_node/state/robots
+    type: arena_runtime_msgs/msg/RobotFleet
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 2
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/lidar
+    name: arena/env_0/arena_env_node/jackal/lidar
     type: sensor_msgs/msg/LaserScan
     serialization_format: cdr
     offered_qos_profiles: []
@@ -188,18 +188,18 @@ rosbag2_topics:
     type_description_hash: ''
   message_count: 601
 - topic_metadata:
-    name: arena/env_0/task_generator_node/state/semantics
-    type: task_generator_msgs/msg/SemanticSnapshot
+    name: arena/env_0/arena_env_node/state/semantics
+    type: arena_runtime_msgs/msg/SemanticSnapshot
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 2
 - topic_metadata:
-    name: arena/env_0/task_generator_node/jackal/joint_states
+    name: arena/env_0/arena_env_node/jackal/joint_states
     type: sensor_msgs/msg/JointState
     serialization_format: cdr
     offered_qos_profiles: []
     type_description_hash: ''
   message_count: 600
-env_ns_root: /arena/env_0/task_generator_node
+env_ns_root: /arena/env_0/arena_env_node
 is_reference: false

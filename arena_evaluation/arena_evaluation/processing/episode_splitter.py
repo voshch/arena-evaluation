@@ -55,6 +55,20 @@ def _episode_snapshot(snapshot: pl.DataFrame | None, start_time: int, end_time: 
     return pl.concat([seed, window]).unique().sort("time_ns")
 
 
+def _params_start_goal(raw: str | None) -> tuple[list, list]:
+    """Start and goal of the first robot keyed in the episode params YAML, empty when it carries none."""
+    try:
+        params = yaml.safe_load(raw) if raw else {}
+    except yaml.YAMLError:
+        return [], []
+    if not isinstance(params, dict):
+        return [], []
+    robot = next((name.rpartition(".")[0] for name in params if name.rpartition(".")[2] in ("start", "goal")), None)
+    if robot is None:
+        return [], []
+    return params.get(f"{robot}.start", []), params.get(f"{robot}.goal", [])
+
+
 class EpisodeSplitter:
     """
     Splits continuous topic data into discrete episodes using EpisodeRecord messages.
@@ -145,21 +159,7 @@ class EpisodeSplitter:
             if aligned_df is None or len(aligned_df) < self.min_episode_frames:
                 continue
 
-            start_pos = []
-            goal_pos = []
-
-            try:
-                params_str = row["robots_params"]
-                if params_str:
-                    params_dict = yaml.safe_load(params_str)
-                    for robot_params in params_dict.values():
-                        if "start" in robot_params:
-                            start_pos = robot_params["start"]
-                        if "goal" in robot_params:
-                            goal_pos = robot_params["goal"]
-                        break
-            except Exception:
-                pass
+            start_pos, goal_pos = _params_start_goal(row["params"])
 
             if not start_pos and initialpose_df is not None and len(initialpose_df) > 0:
                 df_init = initialpose_df.filter(pl.col("time_ns") >= start_time)

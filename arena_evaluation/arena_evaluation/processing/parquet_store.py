@@ -108,6 +108,18 @@ class ParquetStore:
 class TopicParquetStore:
     """Reads and writes TopicBundle DataFrames to per-topic Parquet files."""
 
+    VERSION = 2
+    VERSION_FILE = ".cache_version"
+
+    @staticmethod
+    def is_current(source_dir: pathlib.Path) -> bool:
+        """True when source_dir holds an extraction cache written by this layout."""
+        try:
+            stamp = (source_dir / TopicParquetStore.VERSION_FILE).read_text().strip()
+        except OSError:
+            return False
+        return stamp == str(TopicParquetStore.VERSION)
+
     @staticmethod
     def write(bundles: dict[str, TopicBundle], dest_dir: pathlib.Path, overwrite: bool = False) -> None:
         """Write TopicBundle DataFrames to Parquet files using zstd compression."""
@@ -117,6 +129,7 @@ class TopicParquetStore:
         # Determine global fields that are shared among all robots to save space
         global_fields = {"peds", "episode_record", "tf", "tf_static", "semantic_snapshot", *ENV_STATE_TABLES}
         global_written = set()
+        complete = True
 
         for robot_name, bundle in bundles.items():
             robot_dir = dest_dir / robot_name
@@ -136,6 +149,7 @@ class TopicParquetStore:
 
                     if isinstance(df, pl.LazyFrame):
                         if not overwrite and final_path.exists():
+                            complete = False
                             continue
                         df = df.collect()
 
@@ -143,6 +157,9 @@ class TopicParquetStore:
                         temp_path = final_path.with_suffix(".parquet.tmp")
                         df.write_parquet(temp_path, compression="zstd")
                         temp_path.rename(final_path)
+
+        if complete:
+            (dest_dir / TopicParquetStore.VERSION_FILE).write_text(f"{TopicParquetStore.VERSION}\n")
 
     @staticmethod
     def read(source_dir: pathlib.Path) -> dict[str, TopicBundle] | None:

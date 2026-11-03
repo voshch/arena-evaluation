@@ -14,7 +14,7 @@ domain = Domain(
     A run lives in $ARENA_DATA_DIR/benchmarks/<run_id>, run tools take that run_id (evaluation_runs lists them, evaluation_status reads one, shared runs included).
     Benchmarks, preflights, processing, reports, extraction, plots and acoustic renders run as jobs: poll jobs_status, read jobs_log, stop a benchmark with evaluation_stop.
     Catalog tools list suites, contests, report manifests and metrics, validate tools run the runner's own parsers. Task modes, worlds, scenarios, robots and planners come from the episode, worlds, robots and planners domains.""",
-    requires=("polars", "yaml", "arena_simulation_setup", "task_generator"),
+    requires=("polars", "yaml", "arena_simulation_setup", "arena_runtime"),
 )
 
 RunId = Annotated[str, pydantic.Field(description="benchmark run id, a directory under $ARENA_DATA_DIR/benchmarks, evaluation_runs lists them")]

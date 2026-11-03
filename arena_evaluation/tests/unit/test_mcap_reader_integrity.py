@@ -14,7 +14,7 @@ from mcap_ros2.writer import Writer
 from arena_evaluation.processing.mcap_reader import MCAPReader
 
 SEC = 1_000_000_000
-NAME = "task_generator_msgs/msg/EpisodeRecord"
+NAME = "arena_runtime_msgs/msg/EpisodeRecord"
 CURRENT = "uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nstring[] integrity"
 BOOL_FIELD = "uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nbool integrity"
 NO_FIELD = "uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid"

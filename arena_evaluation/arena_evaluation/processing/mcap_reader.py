@@ -18,13 +18,14 @@ import pyarrow.parquet as pq
 from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
+from arena_evaluation.storage.legacy import legacy_modes, legacy_params
 from arena_evaluation.storage.schemas import TopicBundle
 
 if typing.TYPE_CHECKING:
+    from arena_runtime_msgs.msg import SemanticEntityState
     from mcap.records import Schema
     from rcl_interfaces.msg import ParameterValue
     from std_msgs.msg import Header
-    from task_generator_msgs.msg import SemanticEntityState
 
 _log = logging.getLogger(__name__)
 _BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
@@ -123,7 +124,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("goal_uuid", pa.string()),
             ("integrity", pa.list_(pa.string())),
             ("phases", pa.string()),
-            ("robots_params", pa.string()),
+            ("params", pa.string()),
             ("conditions", pa.string()),
         ]
     ),
@@ -212,6 +213,23 @@ def _ped_fields(schema: Schema, cache: dict[int, tuple[bool, bool, bool]]) -> tu
     return cache[schema.id]
 
 
+class _RecordedParam(typing.Protocol):
+    name: str
+    value: ParameterValue
+
+
+class _DecodedRecord(typing.Protocol):
+    """An EpisodeRecord decoded from the bag's own schema, whose fields differ across versions."""
+
+    __slots__: typing.ClassVar[tuple[str, ...]]
+    params: list[_RecordedParam]
+    robots_params: list[_RecordedParam]
+    obstacles_params: list[_RecordedParam]
+    tm_robots: str
+    tm_obstacles: str
+    tm_modules: list[str]
+
+
 class MCAPReader:
     """Reads an MCAP file and produces a TopicBundle of raw DataFrames."""
 
@@ -229,6 +247,16 @@ class MCAPReader:
     def _stamp_ns(header: Header) -> int:
         """Header stamp (sim time) in ns."""
         return int(header.stamp.sec) * 1_000_000_000 + int(header.stamp.nanosec)
+
+    @classmethod
+    def _record_params(cls, ros_msg: _DecodedRecord) -> dict[str, typing.Any]:
+        """Full-name params of a decoded EpisodeRecord, an old schema's tm_* fields and leaf params mapped to them."""
+        if "params" in ros_msg.__slots__:
+            return {p.name: cls._param_value_to_py(p.value) for p in ros_msg.params}
+        modes = legacy_modes(robots=ros_msg.tm_robots, obstacles=ros_msg.tm_obstacles, modules=ros_msg.tm_modules)
+        robots_params = {p.name: cls._param_value_to_py(p.value) for p in ros_msg.robots_params}
+        obstacles_params = {p.name: cls._param_value_to_py(p.value) for p in ros_msg.obstacles_params}
+        return legacy_params(modes, robots_params, obstacles_params)
 
     @staticmethod
     def _param_value_to_py(val: ParameterValue) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
@@ -252,20 +280,6 @@ class MCAPReader:
         elif p_type == 9:
             return list(val.string_array_value)
         return str(val)
-
-    @staticmethod
-    def _unflatten_dict(d: dict) -> dict:
-        res: dict = {}
-        for k, v in d.items():
-            parts = k.split('.')
-            curr = res
-            for part in parts[:-1]:
-                if part not in curr or not isinstance(curr[part], dict):
-                    curr[part] = {}
-                curr = curr[part]
-            if isinstance(curr, dict):
-                curr[parts[-1]] = v
-        return res
 
     def read(self, out_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
         """Stream the MCAP into per-topic parquet under out_dir and return lazy TopicBundles over it."""
@@ -675,18 +689,14 @@ class MCAPReader:
                                 phases_schema_cache[schema.id] = has_phases
                             target["phases"].append(ros_msg.phases if has_phases else "")
 
-                            robots_yaml = ""
+                            params_yaml = ""
                             try:
                                 import yaml
 
-                                robots_dict = {}
-                                for p in ros_msg.robots_params:
-                                    robots_dict[p.name] = self._param_value_to_py(p.value)
-                                robots_dict = self._unflatten_dict(robots_dict)
-                                robots_yaml = yaml.dump(robots_dict)
+                                params_yaml = yaml.dump(self._record_params(ros_msg))
                             except Exception:
                                 pass
-                            target["robots_params"].append(robots_yaml)
+                            target["params"].append(params_yaml)
                             target["conditions"].append(str(ros_msg.conditions or "") if "conditions" in ros_msg.__slots__ else "")
                             appended = True
 

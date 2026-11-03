@@ -462,7 +462,7 @@ def test_cmd_ps_prints_rows_and_elapsed_formats(capsys, monkeypatch):
         lambda: [
             {"pid": 7, "kind": "benchmark_runner", "elapsed_s": None, "command": "eval benchmark r1"},
             {"pid": 12, "kind": "simulation", "elapsed_s": 12.0, "command": "gz sim"},
-            {"pid": 305, "kind": "arena_node", "elapsed_s": 305.0, "command": "arena_node"},
+            {"pid": 305, "kind": "arena_runtime_node", "elapsed_s": 305.0, "command": "arena_runtime_node"},
             {"pid": 3900, "kind": "arena_cli", "elapsed_s": 3900.0, "command": "arena_cli x"},
         ],
     )

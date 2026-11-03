@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 import typing
 from dataclasses import dataclass, field, fields
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from .legacy import read_metadata
 
 
 class RunMetadata(BaseModel):
@@ -40,11 +42,9 @@ class RunMetadata(BaseModel):
     python_version: str
     ros_distro: str
 
-    tm_obstacles: str | None = None
-    tm_robots: str | None = None
-    tm_modules: list[str] | None = None
-    obstacles_params: dict[str, typing.Any] | None = None
-    robots_params: dict[str, typing.Any] | None = None
+    task_layer: str = ""
+    modes: dict[str, list[str]] = Field(default_factory=dict)
+    params: dict[str, typing.Any] = Field(default_factory=dict)
 
     recording_ended_at: str | None = None
     episodes_recorded: int | None = None
@@ -62,6 +62,11 @@ class RunMetadata(BaseModel):
     is_reference: bool = False
     reference_type: str | None = None
     parent_episode_id: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_legacy_fields(cls, data: object) -> object:
+        return read_metadata(data) if isinstance(data, dict) else data
 
 
 @dataclass(frozen=True)

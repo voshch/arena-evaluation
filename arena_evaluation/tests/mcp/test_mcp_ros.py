@@ -22,10 +22,10 @@ from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from task_generator_msgs.msg import RecordedTopic, RecordedTopics
+from arena_runtime_msgs.msg import RecordedTopic, RecordedTopics
 
 rclpy.init()
-node = rclpy.create_node("task_generator_node", namespace="/arena/env_0")
+node = rclpy.create_node("arena_env_node", namespace="/arena/env_0")
 latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
@@ -36,8 +36,8 @@ def serve(request, response):
     return response
 
 
-node.create_service(RecordEpisode, "/arena/env_0/task_generator_node/start_episode", serve)
-topics = node.create_publisher(RecordedTopics, "/arena/env_0/task_generator_node/state/recorded_topics", latched)
+node.create_service(RecordEpisode, "/arena/env_0/arena_env_node/start_episode", serve)
+topics = node.create_publisher(RecordedTopics, "/arena/env_0/arena_env_node/state/recorded_topics", latched)
 topics.publish(RecordedTopics(topics=[RecordedTopic(key="odom", topic="{ns}/odom", msg_type="nav_msgs/msg/Odometry", robot_scoped=True, recorded=True)]))
 state = node.create_publisher(BenchmarkState, "/arena/benchmark/state", latched)
 state.publish(BenchmarkState(run_id="r1", suite="basic", contest="basic", steps_total=4, steps_done=1, active_keys=["dwb/s1"]))
@@ -72,7 +72,7 @@ def test_recording_and_benchmark_state_reach_the_env_nodes(tmp_path):
     finally:
         calls, _ = peer.communicate("", timeout=30)
     assert out["watch"]["run_id"] == "r1" and out["watch"]["steps_total"] == 4 and out["watch"]["active_keys"] == ["dwb/s1"]
-    assert out["topics"]["task_generator"] == "/arena/env_0/task_generator_node"
+    assert out["topics"]["env"] == "/arena/env_0/arena_env_node"
     assert out["topics"]["topics"][0]["key"] == "odom" and out["topics"]["topics"][0]["robot_scoped"] is True
     assert out["start"]["message"] == "recording episode 3"
     assert "cannot pick an env" in out["other_env"]

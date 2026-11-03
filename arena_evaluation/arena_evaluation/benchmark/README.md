@@ -7,7 +7,7 @@ Runs multi-planner benchmark campaigns: spawns simulation environments, drives e
 | File | Purpose |
 |---|---|
 | `runner.py` | `BenchmarkRunner`: spawns environments, executes episodes via `RunEpisode`, writes `progress.csv` and `.benchmark_state.json` |
-| `config.py` | `Suite` and `Contest` parsers: YAML schema, sweep expansion, inline contest resolution |
+| `config.py` | `Suite` and `Contest` parsers: YAML schema, the suite's `task_layer`, stage `modes` per axis, sweep expansion, inline contest resolution |
 | `state.py` | `Manifest`, `RunDir`, `StateFile`: run manifest, config hash, resume discovery, git SHA capture |
 | `step.py` | `Step`, `StepResult`, `StepErrorKind`: grid model for contestant x stage combinations |
 | `debug.py` | Process introspection: `running_processes()`, `tail_console()`, `console_log_path()` |
@@ -31,7 +31,7 @@ The runner takes a suite (ordered stages) and a contest (planner lineup). It cre
 For each group:
 1. Calls `/arena/spawn_env` with launch arguments derived from the first step.
 2. Waits for environment registration on `/arena/state/envs`.
-3. For each step: calls `QueueEpisode` to set stage config, then executes `RunEpisode` action.
+3. For each step: calls `QueueEpisode` with the stage's `modes` and full-name `params` to set stage config, then executes `RunEpisode` action.
 4. Despawns the environment and proceeds to the next group.
 
 Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
@@ -66,7 +66,7 @@ Log-growth watching stays only as the fallback around spawn, for "nothing is dea
 `arena_runtime` and ignores any dead message stamped before that, so the latched death of the
 previous runtime cannot kill the new one. `_restart_arena` clears the latch as well. The
 same stamp gates startup: `_start_arena` waits for an `alive: true` report stamped after the
-launch before it touches the spawn service, since a killed `arena_node` keeps its services in
+launch before it touches the spawn service, since a killed `arena_runtime_node` keeps its services in
 the DDS graph until its lease expires and a request sent there is never answered.
 
 A step interrupted by a sim death is recorded `failed` with `error_kind=sim_dead`, which is
@@ -89,7 +89,7 @@ A despawn whose service call or registry wait times out marks the sim dead with 
 
 A spawn that stalls past `--spawn-budget` despawns not just the env it registered a response
 for, but every env that showed up on `/arena/state/envs` during the wait and never went
-`ready`: `arena_node` reserves an env before it activates, so a spawn that stalls before
+`ready`: `arena_runtime_node` reserves an env before it activates, so a spawn that stalls before
 `SpawnEnv` returns can still leave a live, unregistered env behind. The stall then marks the
 sim dead with reason `spawn_env stalled for <key>`, so the block recovers the runtime and spawns
 again under `--max-sim-deaths` instead of failing its queued cells. `<key>` is the block's
@@ -132,7 +132,11 @@ ends in `integrity=[...]`, its `progress.csv` row carries the reasons as a JSON 
 column, `integrity` (`[]` when intact), and the run ends with a `benchmark: compromised episodes`
 table (contestant, compromised count, episodes run) when at least one episode was compromised.
 A `progress.csv` written under an older header is rewritten under the current columns when a
-runner opens it.
+runner opens it. The `modes` column holds the selection as a JSON mapping of axis to mode names and
+`params_json` the effective params of the selected modes as a JSON list of `{name, value}` under
+their full names. A file with the older `tm_robots`, `tm_obstacles`, `tm_modules`,
+`robots_params_json` and `obstacles_params_json` columns reads into the two, a leaf param of the
+robots or obstacles mode `m` becoming `task.<m>.<leaf>`.
 
 Exit codes: `0` ok, `1` systemic abort, `2` config error or crash, `3` lockstep, strict or
 efficacy verdict, `4` runner hung (deadman), `130` interrupted.

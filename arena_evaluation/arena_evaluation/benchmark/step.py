@@ -18,6 +18,7 @@ class Step:
     record_dir: pathlib.Path | None = None
     is_reference: bool = False
     reference_type: str | None = None
+    task_layer: str = ""
 
     @property
     def robot(self) -> str:
