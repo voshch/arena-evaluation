@@ -553,8 +553,9 @@ def test_build_launch_args_name_the_suite_task_layer():
     assert "task_layer:=task_generator" in build_launch_args(named, "gazebo")
 
 
-def test_build_launch_args_keep_the_task_layer_against_a_contestant_arg(caplog: pytest.LogCaptureFixture):
+def test_build_launch_args_keep_the_task_layer_against_a_contestant_arg(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
     cell = _make_cell(contestant_args={"task_layer": "other_runtime"})
+    monkeypatch.setattr(logging.getLogger("arena_evaluation.benchmark.runner"), "propagate", True)
     with caplog.at_level(logging.WARNING, logger="arena_evaluation.benchmark.runner"):
         args = build_launch_args(cell, "gazebo")
     assert [a for a in args if a.startswith("task_layer:=")] == ["task_layer:=task_generator"]
