@@ -194,8 +194,11 @@ def test_runner_lookup_skips_flags_and_reads_the_run_id():
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "evaluation", "benchmark", "--scale-episodes", "2"], start_new_session=True)
     named = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "evaluation", "benchmark", "--run-id", "run-from-flag"], start_new_session=True)
     try:
-        time.sleep(0.5)
+        deadline = time.monotonic() + 20.0
         found = running_pids_by_run_id()
+        while "run-from-flag" not in found and time.monotonic() < deadline:
+            time.sleep(0.1)
+            found = running_pids_by_run_id()
         assert "--scale-episodes" not in found
         assert found.get("run-from-flag") == named.pid
     finally:

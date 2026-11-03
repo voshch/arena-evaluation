@@ -18,11 +18,13 @@ def restored_logging():
     root = logging.getLogger()
     handlers, level = root.handlers[:], root.level
     runner_level, runner_propagate = runner._log.level, runner._log.propagate
-    yield
-    root.handlers = handlers
-    root.setLevel(level)
-    runner._log.setLevel(runner_level)
-    runner._log.propagate = runner_propagate
+    try:
+        yield
+    finally:
+        root.handlers = handlers
+        root.setLevel(level)
+        runner._log.setLevel(runner_level)
+        runner._log.propagate = runner_propagate
 
 
 def _manifest(run_id: str, contest: list, simulator: str | None = "gazebo") -> Manifest:

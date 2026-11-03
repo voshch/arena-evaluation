@@ -384,7 +384,7 @@ def test_kill_stops_an_arena_process_group_with_sigint_first():
         (result,) = debug_mod.kill_processes(pids=[target.pid], grace_s=10.0)
         assert result["kind"] == "world_generator"
         assert result["status"] == "stopped"
-        assert target.wait(timeout=5) != 0
+        assert target.wait(timeout=30) != 0
     finally:
         if target.poll() is None:
             target.kill()

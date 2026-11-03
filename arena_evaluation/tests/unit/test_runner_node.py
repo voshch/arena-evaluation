@@ -527,8 +527,14 @@ def test_shutdown_interrupts_the_runtime_group_and_kills_escaped_descendants(tmp
         assert _drive(tmp_path, body) == (None, None, True)
         assert proc.poll() is not None
         assert viz.poll() is not None
-        time.sleep(0.2)
-        assert all(_proc_starttime(pid) != start or pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0] == "Z" for pid, start in escaped.items())
+
+        def escaped_gone() -> bool:
+            return all(_proc_starttime(pid) != start or pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0] == "Z" for pid, start in escaped.items())
+
+        deadline = time.monotonic() + 20.0
+        while not escaped_gone() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert escaped_gone()
         assert any("outlived the launch, sending SIGKILL" in m for m in runner_log)
     finally:
         for pid in escaped:

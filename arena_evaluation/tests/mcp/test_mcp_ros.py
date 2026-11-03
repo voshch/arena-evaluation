@@ -54,7 +54,7 @@ rclpy.shutdown()
 
 
 def test_recording_and_benchmark_state_reach_the_env_nodes(tmp_path):
-    ros = {"ROS_DOMAIN_ID": str(90 + os.getpid() % 10), "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
+    ros = {"ROS_DOMAIN_ID": str(int(os.environ["ROS_DOMAIN_ID"]) + 100 if os.environ.get("ROS_DOMAIN_ID") else 90 + os.getpid() % 10), "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
     peer = subprocess.Popen([sys.executable, "-c", PEER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env={**os.environ, **ros})
     assert peer.stdout.readline().strip() == "ready"
 

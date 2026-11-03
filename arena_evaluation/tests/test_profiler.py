@@ -23,6 +23,7 @@ def _wait_for_samples(profiler, count: int = 3) -> None:
     deadline = time.monotonic() + 30.0
     while profiler._sample_count < count and time.monotonic() < deadline:
         time.sleep(0.01)
+    assert profiler._sample_count >= count
 
 
 class TestSystemSampler:
