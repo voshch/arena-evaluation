@@ -304,9 +304,11 @@ class DashboardServer(http.server.ThreadingHTTPServer):
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    server: DashboardServer
+    @property
+    def dashboard(self) -> DashboardServer:
+        return typing.cast(DashboardServer, self.server)
 
-    def log_message(self, *args: typing.Any) -> None:
+    def log_message(self, format: str, *args: typing.Any) -> None:
         pass
 
     def do_GET(self) -> None:
@@ -317,11 +319,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if not parts or parts[0] == "runs":
                 self._send(200, "text/html; charset=utf-8", _PAGE.read_bytes())
             elif parts == ["api", "identity"]:
-                self._json(self.server.identity())
+                self._json(self.dashboard.identity())
             elif parts == ["api", "runs"]:
-                self._json({"data_root": str(self.server.data_root), "runs": list_runs(self.server.data_root)})
+                self._json({"data_root": str(self.dashboard.data_root), "runs": list_runs(self.dashboard.data_root)})
             elif len(parts) >= 3 and parts[:2] == ["api", "runs"]:
-                self._run(self.server.run_dir(parts[2]), parts[3:], query)
+                self._run(self.dashboard.run_dir(parts[2]), parts[3:], query)
             else:
                 self._json({"error": f"no endpoint {target.path}"}, 404)
         except RunNotFoundError as exc:
@@ -356,7 +358,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         last_live, last_run = _signature(path)
         sent = time.monotonic()
-        while not self.server.stopping.wait(EVENT_POLL_S):
+        while not self.dashboard.stopping.wait(EVENT_POLL_S):
             live, run = _signature(path)
             events = [name for name, changed in (("run", run != last_run), ("live", live != last_live)) if changed]
             last_live, last_run = live, run
