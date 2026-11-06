@@ -1,0 +1,14 @@
+- name: AGENT_5
+  mobile:
+    driver: rosnav_rl
+    agent: AGENT_5
+
+- name: AGENT_5_HAM
+  mobile:
+    driver: rosnav_rl
+    agent: AGENT_5_HAM
+
+- name: AGENT_5_PLAIN
+  mobile:
+    driver: rosnav_rl
+    agent: AGENT_5_PLAIN
