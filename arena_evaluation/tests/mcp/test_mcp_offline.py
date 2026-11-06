@@ -47,9 +47,12 @@ def test_benchmark_argv_renders_runner_options_and_launch_args():
         env_n=4,
         optim_obstacles="bbox",
         launch_args={"task.episode.fail_on_collision": True, "complexity": 2},
+        viz=True,
+        viz_port=9000,
     )
     assert argv[:6] == ["--suite", json.dumps({"stages": []}), "--contest", "[{name: a}]", "--run-id", "r2"]
-    assert {"--strict", "--world-swap"} <= set(argv)
+    assert {"--strict", "--world-swap", "--viz"} <= set(argv)
+    assert argv[argv.index("--viz-port") + 1] == "9000"
     assert argv[argv.index("--retries") + 1] == "0"
     assert argv[argv.index("--efficacy") + 1] == "0.5"
     assert argv[argv.index("--lanes") + 1] == "3"

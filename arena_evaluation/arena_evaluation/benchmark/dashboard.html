@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena Benchmarks</title>
+<style>
+:root {
+  --page: #f4f5f7; --surface: #ffffff; --sunk: #eef0f3; --ink: #1f2328; --muted: #5f6368; --faint: #80868b; --line: #e1e4e8;
+  --accent: #1a73e8; --ok: #1e8e3e; --failed: #d93025; --partial: #e37400; --skipped: #9aa0a6;
+  --term-bg: #202124; --term-ink: #e8eaed; --term-dim: #9aa0a6;
+  --sans: Roboto, Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Roboto Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light; --radius: 12px; --shadow: 0 1px 2px rgba(60, 64, 67, .08), 0 1px 3px 1px rgba(60, 64, 67, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #111214; --surface: #1c1d20; --sunk: #26282c; --ink: #e8eaed; --muted: #9aa0a6; --faint: #7b8086; --line: #303236;
+    --accent: #8ab4f8; --ok: #81c995; --failed: #f28b82; --partial: #fbbc04; --skipped: #9aa0a6;
+    --term-bg: #0d0e10; --shadow: none; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #111214; --surface: #1c1d20; --sunk: #26282c; --ink: #e8eaed; --muted: #9aa0a6; --faint: #7b8086; --line: #303236;
+  --accent: #8ab4f8; --ok: #81c995; --failed: #f28b82; --partial: #fbbc04; --skipped: #9aa0a6;
+  --term-bg: #0d0e10; --shadow: none; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--page); }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14.5px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--accent); }
+.tone-ok { --tone: var(--ok); } .tone-failed { --tone: var(--failed); } .tone-partial { --tone: var(--partial); }
+.tone-skipped { --tone: var(--skipped); } .tone-in_progress, .tone-running, .tone-live { --tone: var(--accent); }
+.tone-pending, .tone-incomplete, .tone-finished { --tone: var(--faint); } .tone-completed { --tone: var(--ok); }
+.tone-stale { --tone: var(--failed); } .tone-warn { --tone: var(--partial); }
+
+header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 14px 32px; background: color-mix(in oklab, var(--page) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font: 500 16px/1 var(--sans); letter-spacing: -.01em; }
+.mark { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.crumb { color: var(--muted); font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb:empty { display: none; }
+.crumb::before { content: "/"; margin-right: 10px; color: var(--faint); }
+.conn { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.conn.on i { background: var(--accent); box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 50%, transparent); animation: pulse 2s infinite; }
+.conn.bad { color: var(--failed); } .conn.bad i { background: var(--failed); }
+@keyframes pulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+main { max-width: 1240px; margin: 0 auto; padding: 36px 32px 72px; display: grid; gap: 22px; }
+.hero h1 { font: 500 34px/1.15 var(--sans); letter-spacing: -.01em; margin: 0 0 8px; overflow-wrap: anywhere; }
+.hero .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted); }
+.hero .meta .path { font: 12px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 24px; min-width: 0; box-shadow: var(--shadow); }
+section > h2 { display: flex; align-items: baseline; gap: 10px; font: 500 19px/1.3 var(--sans); letter-spacing: -.01em; margin: 0 0 16px; }
+section > h2 small { font: 400 13px var(--sans); color: var(--muted); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat { padding: 2px 22px; border-left: 1px solid var(--line); }
+.stat:first-child { padding-left: 0; border-left: 0; }
+.stat .v { font: 400 34px/1.1 var(--sans); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: 18px; color: var(--faint); }
+.stat .k { margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+.bar { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--sunk); margin: 0 0 12px; }
+.bar span { display: block; height: 100%; background: var(--tone); border-radius: 3px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12.5px; }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: var(--tone); }
+.legend b { color: var(--ink); font-weight: 500; margin-left: 3px; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; line-height: 1.6; color: color-mix(in oklab, var(--tone) 82%, var(--ink)); background: color-mix(in oklab, var(--tone) 14%, var(--surface)); white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--tone); }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 10px 12px; white-space: nowrap; }
+thead th { color: var(--faint); font-weight: 500; font-size: 12px; padding-top: 0; border-bottom: 1px solid var(--line); }
+tbody tr + tr td, tbody tr + tr th { border-top: 1px solid color-mix(in oklab, var(--line) 70%, transparent); }
+tbody tr:hover td { background: color-mix(in oklab, var(--sunk) 55%, transparent); }
+th:first-child, td:first-child { padding-left: 0; } th:last-child, td:last-child { padding-right: 0; }
+.num { text-align: right; }
+td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 220px; }
+.muted { color: var(--muted); } .faint { color: var(--faint); } .bad { color: var(--failed); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.runlink { font: 500 15px var(--sans); }
+.mini { width: 120px; height: 4px; border-radius: 2px; background: var(--sunk); overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 10px; }
+.mini span { display: block; height: 100%; background: var(--tone); }
+
+.tiles { border-collapse: separate; border-spacing: 6px; }
+.tiles thead th { border: 0; text-align: center; padding: 0 4px 4px; }
+.tiles thead th:first-child { text-align: left; }
+.tiles .w { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; }
+.tiles tbody th { font: 500 14.5px var(--sans); padding: 0 10px 0 0; border: 0; }
+.tiles tbody tr + tr td, .tiles tbody tr + tr th { border-top: 0; }
+.tiles tbody tr:hover td { background: none; }
+.tile { position: relative; min-width: 76px; height: 48px; padding: 0; text-align: center; border-radius: 9px; color: color-mix(in oklab, var(--tone) 80%, var(--ink)); background: color-mix(in oklab, var(--tone) 13%, var(--surface)); border: 1px solid color-mix(in oklab, var(--tone) 22%, transparent); font-size: 13px; font-weight: 500; overflow: hidden; }
+.tile.tone-pending { color: var(--faint); background: var(--sunk); border-color: transparent; }
+.tile small { display: block; font-weight: 400; font-size: 10.5px; opacity: .8; margin-top: 1px; }
+.tile .fill { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--tone); }
+.tile.tone-in_progress { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 50% { background: color-mix(in oklab, var(--tone) 22%, var(--surface)); } }
+
+.heat { display: grid; grid-template-columns: minmax(90px, max-content) repeat(var(--cols), minmax(11px, 1fr)) max-content; gap: 2px; align-items: center; }
+.heat .hn { position: sticky; left: 0; z-index: 1; align-self: stretch; display: flex; align-items: center; background: var(--surface); padding-right: 10px; font-size: 12.5px; font-weight: 500; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.heat .hh { position: sticky; top: 0; z-index: 1; align-self: stretch; background: var(--surface); padding: 0 0 4px; font-size: 10px; line-height: 14px; color: var(--faint); text-align: center; white-space: nowrap; overflow: visible; }
+.heat .hn.corner { top: 0; z-index: 2; }
+.heat .hs { padding-left: 10px; font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.heat .hs.corner { position: sticky; top: 0; z-index: 1; align-self: stretch; background: var(--surface); }
+.hc { aspect-ratio: 1; border-radius: 3px; background: var(--sunk); }
+.hc.tone-ok, .hc.tone-failed, .hc.tone-partial, .hc.tone-skipped { background: color-mix(in oklab, var(--tone) 72%, var(--surface)); }
+.hc.tone-in_progress { background: var(--tone); animation: blink 1.6s ease-in-out infinite; }
+.hc:hover { outline: 2px solid var(--ink); outline-offset: 1px; position: relative; z-index: 2; }
+@keyframes blink { 50% { opacity: .45; } }
+.heat-note { margin-top: 10px; color: var(--faint); font-size: 12px; }
+
+.lane { position: relative; border: 1px solid var(--line); border-radius: 11px; padding: 14px 18px 8px 22px; background: var(--surface); }
+.lane + .lane { margin-top: 12px; }
+.lane::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--tone); }
+.lane .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+.lane .head b { font: 500 16px var(--sans); }
+.lane .facts { color: var(--muted); font-size: 12.5px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--sunk); font: 12px var(--mono); }
+
+.empty { color: var(--faint); padding: 6px 0; }
+.tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.tabs button { font: 12px var(--mono); color: var(--muted); background: none; border: 1px solid transparent; border-radius: 7px; padding: 2px 9px; cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { color: var(--ink); background: var(--sunk); border-color: var(--line); }
+pre { font: 12px/1.6 var(--mono); color: var(--term-ink); background: var(--term-bg); border-radius: 10px; padding: 14px 16px; margin: 0; max-height: 380px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre .e { color: #f28b82; } pre .w { color: #fdd663; } pre .d { color: var(--term-dim); }
+
+.summary { display: grid; gap: 22px; }
+.sum-top { display: grid; gap: 22px; }
+.hero h1 { margin-bottom: 8px; }
+.cols, .col { display: grid; gap: 22px; min-width: 0; }
+.pinhead thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+
+@media (min-width: 1200px) {
+  body.run main { width: 100%; max-width: none; padding: 20px 28px 28px; gap: 20px; }
+  body.run .summary { padding: 18px 24px; gap: 14px; }
+  body.run .sum-top { grid-template-columns: minmax(300px, 1fr) minmax(0, 2.4fr); align-items: center; gap: 28px; }
+  body.run .hero h1 { font-size: 28px; }
+  body.run .stat .v { font-size: 30px; }
+  .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .col { gap: 20px; }
+  .col > section { padding: 18px 22px; }
+  .col > section > h2 { margin-bottom: 12px; }
+  .col td.wrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 300px; }
+}
+
+@media (max-width: 1599px) {
+  .xl { display: none; }
+}
+
+@media (min-width: 1200px) and (min-height: 860px) {
+  body.run { height: 100vh; display: flex; flex-direction: column; }
+  body.run main { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr); padding-bottom: 20px; }
+  .cols { min-height: 0; align-items: stretch; }
+  .col { display: flex; flex-direction: column; min-height: 0; }
+  .col > section { display: flex; flex-direction: column; min-height: 0; }
+  .col > section > h2 { flex: none; }
+  .col > section > .body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .col > section.grow { flex: 1 1 0; }
+  .col > section.cap { flex: 0 4 auto; max-height: 30%; min-height: 165px; }
+  .col > section.fit { flex: 0 1 auto; min-height: 220px; }
+  .col > section.keep { flex: 0 0 auto; max-height: 35%; }
+  .col > section.log pre { flex: 1 1 0; min-height: 0; max-height: none; }
+}
+
+@media (max-width: 720px) {
+  header { padding: 12px 16px; }
+  main { padding: 22px 16px 48px; gap: 16px; }
+  section { padding: 18px 16px; border-radius: 12px; }
+  .hero h1 { font-size: 26px; }
+  .stats { grid-template-columns: 1fr 1fr; row-gap: 18px; }
+  .stat { padding: 0 0 0 14px; } .stat:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .stat .v { font-size: 28px; }
+  .crumb { display: none; }
+  .opt, .mini { display: none; }
+  th, td { padding: 8px 7px; }
+  .tiles { border-spacing: 4px; }
+  .tiles tbody th { font-size: 13.5px; padding-right: 4px; }
+  .tile { min-width: 54px; font-size: 12px; }
+  .lane { padding: 12px 12px 6px 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/"><i class="mark"></i>Arena benchmarks</a>
+  <span class="crumb" id="title"></span>
+  <span class="conn" id="conn"><i></i><span></span></span>
+</header>
+<main id="main"><div class="empty">Loading</div></main>
+<script>
+"use strict";
+const STATUSES = ["ok", "partial", "failed", "skipped", "in_progress", "pending"];
+const SIM_FROZEN_S = 30;
+const HEAT_STAGES = 12;
+const HEAT_CELLS = 150;
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const pct = (n, d) => (d > 0 ? (100 * n / d) : 0);
+const label = (s) => s.replace("_", " ");
+const pill = (tone, text) => `<span class="pill tone-${esc(tone)}">${esc(text)}</span>`;
+const dur = (s) => {
+  if (s == null || !isFinite(s)) return "-";
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : m ? `${m}m ${String(r).padStart(2, "0")}s` : `${r}s`;
+};
+const when = (iso) => (iso ? iso.slice(0, 16).replace("T", " ") : "");
+const ago = (iso) => {
+  const t = Date.parse(iso);
+  return isNaN(t) ? "" : `${dur((Date.now() - t) / 1000)} ago`;
+};
+async function api(path) {
+  const r = await fetch(path, {cache: "no-store"});
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || r.statusText);
+  return body;
+}
+function conn(text, mode) {
+  const el = $("conn");
+  el.className = `conn ${mode || ""}`;
+  el.lastElementChild.textContent = text;
+}
+
+function stepBar(steps, total) {
+  const spans = STATUSES.filter((s) => s !== "pending" && steps[s]).map((s) => `<span class="tone-${s}" style="width:${pct(steps[s], total)}%" title="${label(s)}: ${steps[s]}"></span>`).join("");
+  const legend = STATUSES.map((s) => `<span class="tone-${s}"><i></i>${label(s)}<b>${steps[s] || 0}</b></span>`).join("");
+  return `<div class="bar">${spans}</div><div class="legend">${legend}</div>`;
+}
+
+async function listPage() {
+  document.title = "Arena Benchmarks";
+  $("main").innerHTML = `<div class="hero"><h1>Benchmark runs</h1><div class="meta"><span class="path" id="root"></span></div></div><section id="runs"><div class="empty">Loading runs</div></section>`;
+  const render = async () => {
+    try {
+      const data = await api("/api/runs");
+      $("root").textContent = data.data_root;
+      conn(`updated ${new Date().toLocaleTimeString()}`, "on");
+      if (!data.runs.length) { $("runs").innerHTML = `<div class="empty">No runs under ${esc(data.data_root)} yet.</div>`; return; }
+      const rows = data.runs.map((r) => {
+        const done = ["ok", "partial", "failed", "skipped"].reduce((a, s) => a + (r.steps[s] || 0), 0);
+        const stale = r.live.some((l) => l.stale);
+        return `<tr><td><a class="runlink" href="/runs/${encodeURIComponent(r.run_id)}">${esc(r.run_id)}</a><div class="faint">${esc(r.suite)} / ${esc(r.contest)} on ${esc(r.simulator)}${r.lanes.length ? `, lanes ${esc(r.lanes.join(", "))}` : ""}</div></td>
+          <td>${pill(r.state, r.state)}${stale ? " " + pill("stale", "stale") : ""}</td>
+          <td class="tone-${r.steps.failed ? "failed" : "ok"}"><span class="mini"><span style="width:${pct(done, r.steps_total)}%"></span></span>${done}<span class="faint"> / ${r.steps_total}</span></td>
+          <td class="num ${r.steps.failed ? "bad" : "faint"}">${r.steps.failed || 0}</td><td class="muted" title="${esc(r.created_at)}">${esc(ago(r.created_at))}</td></tr>`;
+      }).join("");
+      $("runs").innerHTML = `<div class="scroll"><table><thead><tr><th>Run</th><th>State</th><th>Steps</th><th class="num">Failed</th><th>Started</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } catch (e) { conn(e.message, "bad"); }
+  };
+  await render();
+  setInterval(render, 5000);
+}
+
+function runPage(runId) {
+  const base = `/api/runs/${encodeURIComponent(runId)}`;
+  const state = {detail: null, live: [], offset: 0, sims: {}, logs: {}, logTab: null};
+  document.title = `${runId} - Arena`;
+  $("title").textContent = runId;
+  document.body.classList.add("run");
+  $("main").innerHTML = `
+    <section class="summary"><div class="sum-top"><div class="hero" id="hero"><h1>${esc(runId)}</h1><div class="meta"></div></div><div id="stats" class="stats"></div></div><div id="bars"></div></section>
+    <div class="cols">
+      <div class="col">
+        <section class="keep"><h2>Environments <small id="lanes-note"></small></h2><div id="lanes" class="body"></div></section>
+        <section class="fit"><h2>Steps</h2><div id="grid" class="body scroll"></div></section>
+        <section id="failed-box" class="cap" hidden><h2>Failed steps</h2><div id="failed" class="body scroll"></div></section>
+      </div>
+      <div class="col">
+        <section class="grow"><h2>Recent episodes</h2><div id="recent" class="body scroll"></div></section>
+        <section class="grow log"><h2>Runner log <span class="tabs" id="log-tabs"></span></h2><pre id="log"></pre></section>
+      </div>
+    </div>`;
+
+  const now = () => Date.now() / 1000 + state.offset;
+
+  function trackSim(lanes) {
+    const wall = now();
+    for (const l of lanes) {
+      const prev = state.sims[l.file];
+      if (!prev || prev.sim !== l.sim_time) state.sims[l.file] = {sim: l.sim_time, since: wall};
+    }
+  }
+
+  function renderSummary() {
+    const d = state.detail; if (!d) return;
+    const ep = d.episodes;
+    const done = d.steps_total - (d.steps.pending || 0) - (d.steps.in_progress || 0);
+    const outcomes = Object.entries(ep.outcomes).sort().map(([k, v]) => `${esc(k)} ${v}`).join(", ") || "no episodes yet";
+    document.querySelector("#hero .meta").innerHTML = `${pill(d.state, d.state)}<span>${esc(d.suite)} / ${esc(d.contest)} on ${esc(d.simulator)}</span><span>${d.env_n} env${d.env_n === 1 ? "" : "s"}${d.headless ? ", headless" : ""}</span><span title="${esc(d.created_at)} UTC">started ${esc(ago(d.created_at))}</span><span class="path">${esc(d.run_dir)}</span>`;
+    $("stats").innerHTML = `
+        <div class="stat"><div class="v">${done}<small> / ${d.steps_total}</small></div><div class="k">steps done</div></div>
+        <div class="stat"><div class="v">${ep.logged}<small> / ${ep.planned}</small></div><div class="k">episodes logged</div></div>
+        <div class="stat"><div class="v">${ep.per_min}</div><div class="k">episodes per minute, last ${dur(ep.rate_window_s)}</div></div>
+        <div class="stat"><div class="v">${ep.eta_s == null ? "-" : dur(ep.eta_s)}</div><div class="k">${d.state === "running" ? "estimated time left" : "ETA"}</div></div>`;
+    $("bars").innerHTML = `${stepBar(d.steps, d.steps_total)}
+      <div class="legend" style="margin-top:10px"><span>outcomes: ${outcomes}</span>${d.runner_pids.length ? `<span>runner pid ${d.runner_pids.map(esc).join(", ")}</span>` : ""}</div>`;
+  }
+
+  function renderLanes() {
+    const lanes = state.live;
+    if (!lanes.length) { $("lanes").innerHTML = `<div class="empty">No live state yet. Runners write it once their first env block starts.</div>`; return; }
+    const t = now();
+    const busy = lanes.reduce((a, l) => a + (l.finished ? 0 : l.slots.length), 0);
+    $("lanes-note").textContent = `${busy} busy across ${lanes.length} lane${lanes.length === 1 ? "" : "s"}`;
+    $("lanes").innerHTML = lanes.map((l) => {
+      const age = Math.max(0, t - l.updated_at);
+      const stale = !l.finished && age > 10;
+      const sim = state.sims[l.file];
+      const frozen = !l.finished && !stale && sim && l.sim_time != null && t - sim.since > SIM_FROZEN_S;
+      const tone = l.finished ? "finished" : stale ? "stale" : frozen ? "warn" : "live";
+      const badges = [
+        l.finished ? pill("finished", "finished") : stale ? pill("stale", `stale ${dur(age)}`) : pill("live", "live"),
+        frozen ? pill("warn", `sim not advancing ${dur(t - sim.since)}`) : "",
+      ].join(" ");
+      const slots = l.slots.length ? `<table class="pinhead"><thead><tr><th>Env</th><th>Contestant</th><th>Stage</th><th class="opt">State</th><th>Episode</th><th class="num">Wall</th><th class="num opt">Sim</th></tr></thead><tbody>${l.slots.map((s) => `
+        <tr><td><span class="chip">${s.env_id == null ? "-" : "env_" + s.env_id}</span></td><td>${esc(s.contestant)}</td><td>${esc(s.stage)}</td><td class="muted opt">${esc(String(s.state).toLowerCase())}</td>
+        <td class="tone-in_progress">${s.ep_total ? `<span class="mini" style="width:70px"><span style="width:${pct(s.ep_idx + 1, s.ep_total)}%"></span></span>${s.ep_idx + 1}<span class="faint"> / ${s.ep_total}</span>` : "-"}</td>
+        <td class="num">${dur(t - s.started_at)}</td><td class="num muted opt">${l.sim_time != null && s.sim_start != null ? dur(l.sim_time - s.sim_start) : "-"}</td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">${l.finished ? "Runner exited." : "No env busy."}</div>`;
+      return `<div class="lane tone-${tone}"><div class="head"><b>${esc(l.lane || "main")}</b>${badges}
+        <span class="facts">pid ${l.pid}, ${l.steps.completed} of ${l.total_steps} steps, updated ${dur(age)} ago${l.sim_time != null ? `, sim ${l.sim_time.toFixed(1)} s` : ""}</span></div>
+        <div class="scroll">${slots}</div></div>`;
+    }).join("");
+  }
+
+  function renderGrid() {
+    const d = state.detail; if (!d) return;
+    const stages = [], contestants = [], cells = {};
+    for (const c of d.grid) {
+      if (!stages.some((s) => s.name === c.stage)) stages.push({name: c.stage, world: c.world});
+      if (!contestants.includes(c.contestant)) contestants.push(c.contestant);
+      cells[c.contestant + "\u0000" + c.stage] = c;
+    }
+    const live = {};
+    for (const l of state.live) if (!l.finished) for (const s of l.slots) live[s.step_key] = s;
+    if (stages.length > HEAT_STAGES || stages.length * contestants.length > HEAT_CELLS) { renderHeat(stages, contestants, cells, live); return; }
+    const head = stages.map((s) => `<th>${esc(s.name)}<span class="w">${esc(s.world)}</span></th>`).join("");
+    const body = contestants.map((name) => `<tr><th>${esc(name)}</th>${stages.map((s) => {
+      const c = cells[name + "\u0000" + s.name];
+      if (!c) return "<td></td>";
+      const tip = `${c.key}: ${label(c.status)}${c.env_id != null ? ", env_" + c.env_id : ""}${c.error_kind ? ", " + c.error_kind : ""}, ${c.episodes_run}/${c.episodes_planned} episodes, ${c.episodes_failed} failed`;
+      const slot = c.status === "in_progress" ? live[c.key] : undefined;
+      if (slot && slot.ep_total) {
+        return `<td class="tile tone-in_progress" title="${esc(tip)}"><span class="opt">episode </span>${slot.ep_idx + 1}/${slot.ep_total}<small>${slot.env_id == null ? "spawning" : "env_" + esc(slot.env_id)}</small><span class="fill" style="width:${pct(slot.ep_idx, slot.ep_total)}%"></span></td>`;
+      }
+      return `<td class="tile tone-${esc(c.status)}" title="${esc(tip)}">${c.episodes_run}/${c.episodes_planned}<span class="fill" style="width:${pct(c.episodes_run, c.episodes_planned)}%"></span></td>`;
+    }).join("")}</tr>`).join("");
+    $("grid").innerHTML = `<table class="tiles"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  function renderHeat(stages, contestants, cells, live) {
+    const heads = stages.map((s, j) => `<div class="hh" title="${esc(s.name)}, ${esc(s.world)}">${j === 0 || (j + 1) % 5 === 0 ? j + 1 : ""}</div>`).join("");
+    const rows = contestants.map((name) => {
+      let done = 0, failed = 0;
+      const row = stages.map((s) => {
+        const c = cells[name + "\u0000" + s.name];
+        if (!c) return `<div></div>`;
+        if (["ok", "partial", "failed", "skipped"].includes(c.status)) done++;
+        if (c.status === "failed") failed++;
+        const slot = c.status === "in_progress" ? live[c.key] : undefined;
+        const where = slot ? `, episode ${slot.ep_idx + 1}/${slot.ep_total} on ${slot.env_id == null ? "a spawning env" : "env_" + slot.env_id}` : c.env_id != null ? `, env_${c.env_id}` : "";
+        const tip = `${c.key} (${s.world}): ${label(c.status)}${where}${c.error_kind ? ", " + c.error_kind : ""}, ${c.episodes_run}/${c.episodes_planned} episodes, ${c.episodes_failed} failed`;
+        return `<div class="hc tone-${esc(c.status)}" title="${esc(tip)}"></div>`;
+      }).join("");
+      return `<div class="hn" title="${esc(name)}">${esc(name)}</div>${row}<div class="hs">${done}/${stages.length}${failed ? ` <span class="bad">${failed} failed</span>` : ""}</div>`;
+    }).join("");
+    $("grid").innerHTML = `<div class="heat" style="--cols:${stages.length}"><div class="hn corner"></div>${heads}<div class="hs corner"></div>${rows}</div>
+      <div class="heat-note">${contestants.length} contestants by ${stages.length} stages, hover a cell for its step</div>`;
+  }
+
+  function renderFailed() {
+    const d = state.detail; if (!d) return;
+    $("failed-box").hidden = !d.failed.length;
+    $("failed").innerHTML = `<table><thead><tr><th>Step</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${d.failed.map((f) =>
+      `<tr><td>${esc(f.key)}</td><td>${pill("failed", f.error_kind || "failed")}</td><td class="wrap muted">${esc(f.error_detail || "")}</td></tr>`).join("")}</tbody></table>`;
+  }
+
+  function renderRecent() {
+    const d = state.detail; if (!d) return;
+    if (!d.recent.length) { $("recent").innerHTML = `<div class="empty">No episodes logged yet.</div>`; return; }
+    const tone = (o) => (o === "success" ? "ok" : o === "skipped" ? "skipped" : "failed");
+    $("recent").innerHTML = `<table class="pinhead"><thead><tr><th class="opt">Time (UTC)</th><th>Step</th><th class="num opt">Env</th><th class="num">Episode</th><th class="opt xl">World</th><th>Outcome</th><th class="num">Runtime</th><th class="opt">Info</th></tr></thead><tbody>${d.recent.map((r) => `
+      <tr><td class="muted opt">${esc(when(r.ts_iso))}</td><td>${esc(r.step_key)}</td><td class="num opt">${esc(r.env_id)}</td><td class="num">${esc(r.episode_id)}</td><td class="muted opt xl">${esc(r.world)}</td>
+      <td>${pill(tone(r.outcome), r.outcome + (r.error_kind ? `, ${r.error_kind}` : ""))}</td>
+      <td class="num">${r.runtime_s === "" ? "-" : dur(Number(r.runtime_s))}</td><td class="wrap faint opt" title="${esc(r.outcome_info)}">${esc(r.outcome_info)}</td></tr>`).join("")}</tbody></table>`;
+  }
+
+  function logLine(line) {
+    const text = esc(line);
+    if (/\b(ERROR|CRITICAL|Traceback)\b/.test(line)) return `<span class="e">${text}</span>`;
+    if (/\bWARN(ING)?\b/.test(line)) return `<span class="w">${text}</span>`;
+    if (/^\[(bash|flatsim|gz|isaac)/.test(line)) return `<span class="d">${text}</span>`;
+    return text;
+  }
+
+  function renderLogs() {
+    const names = Object.keys(state.logs);
+    const pre = $("log");
+    if (!names.length) { $("log-tabs").innerHTML = ""; pre.textContent = "No runner log yet."; return; }
+    if (!names.includes(state.logTab)) state.logTab = names[0];
+    $("log-tabs").innerHTML = names.length > 1 ? names.map((n) => `<button type="button" data-name="${esc(n)}"${n === state.logTab ? ' class="on"' : ""}>${esc(n)}</button>`).join("") : `<span class="faint mono">${esc(names[0])}</span>`;
+    const pinned = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.innerHTML = state.logs[state.logTab].map(logLine).join("\n");
+    if (pinned) pre.scrollTop = pre.scrollHeight;
+  }
+
+  $("log-tabs").addEventListener("click", (ev) => {
+    const name = ev.target.closest("button")?.dataset.name;
+    if (!name) return;
+    state.logTab = name;
+    $("log").scrollTop = 0;
+    renderLogs();
+    $("log").scrollTop = $("log").scrollHeight;
+  });
+
+  async function loadDetail() {
+    const d = await api(base);
+    state.detail = d; state.offset = d.now - Date.now() / 1000; state.live = d.live; trackSim(d.live);
+    renderSummary(); renderLanes(); renderGrid(); renderFailed(); renderRecent();
+  }
+  async function loadLive() {
+    const d = await api(`${base}/live`);
+    state.offset = d.now - Date.now() / 1000; state.live = d.live; trackSim(d.live); renderLanes(); renderGrid();
+  }
+  async function loadLogs() { state.logs = (await api(`${base}/log?tail=200`)).logs; renderLogs(); }
+
+  const pending = {run: false, live: false};
+  let busy = false;
+  async function flush() {
+    if (busy) return;
+    busy = true;
+    try {
+      while (pending.run || pending.live) {
+        if (pending.run) { pending.run = false; pending.live = false; await Promise.all([loadDetail(), loadLogs()]); }
+        else { pending.live = false; await loadLive(); }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      conn(`live, updated ${new Date().toLocaleTimeString()}`, "on");
+    } catch (e) { conn(e.message, "bad"); }
+    finally { busy = false; }
+  }
+
+  pending.run = true; flush();
+  const events = new EventSource(`${base}/events`);
+  events.addEventListener("run", () => { pending.run = true; flush(); });
+  events.addEventListener("live", () => { pending.live = true; flush(); });
+  events.onopen = () => conn("live", "on");
+  events.onerror = () => conn("disconnected, retrying", "bad");
+  setInterval(renderLanes, 1000);
+}
+
+const match = location.pathname.match(/^\/runs\/([^/]+)/);
+if (match) runPage(decodeURIComponent(match[1])); else listPage();
+</script>
+</body>
+</html>

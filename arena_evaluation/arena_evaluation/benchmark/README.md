@@ -11,6 +11,7 @@ Runs multi-planner benchmark campaigns: spawns simulation environments, drives e
 | `state.py` | `Manifest`, `RunDir`, `StateFile`: run manifest, config hash, resume discovery, git SHA capture |
 | `step.py` | `Step`, `StepResult`, `StepErrorKind`: grid model for contestant x stage combinations |
 | `debug.py` | Process introspection: `running_processes()`, `tail_console()`, `console_log_path()` |
+| `dashboard.py`, `dashboard.html` | Live web dashboard (`arena evaluation serve`, `--viz`): `run_status`, `run_detail`, the HTTP server and its page |
 | `profiler.py` | `PipelineProfiler`: CPU, GPU, RAM, duration metrics |
 ## CLI (`arena evaluation`)
 
@@ -21,6 +22,7 @@ arena evaluation tail [<run_id>]               # tail -F progress.csv and every 
 arena evaluation ps                            # List running arena OS processes
 arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
 arena evaluation console [<run_id>]            # Tail runner.log (--follow for streaming)
+arena evaluation serve [--port N] [--host H]   # Live web dashboard of every run, http://127.0.0.1:8765 by default
 arena evaluation benchmark                     # Launch a benchmark campaign
 ```
 
@@ -153,6 +155,38 @@ runner = BenchmarkRunner(suite, contest, headless=True, env_n=4)
 runner.run()
 ```
 
+## Dashboard
+
+`arena evaluation serve` serves a live web page of every run under the data root, read from the
+run dirs alone, so it shows shared runs, runs on other ROS domains and dead runs alike. The run
+page has the step grid (contestant by stage, colored by status), each lane's busy envs with their
+episode and wall and sim time, failed steps, episodes per minute over the last 10 minutes (the run's
+age while it is younger, at least 1 minute) with an ETA, the newest episodes and the runner log tail. It updates through a server-sent event stream
+that watches the run dir's file mtimes once a second.
+
+`benchmark --viz` starts it as a child of the runner before the first step, prints
+`viz: http://127.0.0.1:8765/runs/<run_id>` to the console and `runner.log`, and stops it when the
+runner exits. `--viz-port N` picks another port. A dashboard of the same data root already on the
+port is reused, any other program there makes the runner exit 2 before it creates the run dir.
+With `--lanes N --viz` the `--lanes` driver strips both flags from the lane commands and runs one
+dashboard in the dev container for the whole run. The MCP tools are `evaluation_benchmark(viz=true)`,
+which returns `viz_url`, and `evaluation_dashboard`.
+
+Every runner writes `live.json` (`live.<lane>.json` in a lane): its slot table, sim time and
+step counts, replaced atomically on every slot change and every 2 s. A lane whose file is older
+than 10 s while not `finished` shows as stale, a sim time that stops for 30 s as not advancing.
+
+| Endpoint | Returns |
+|---|---|
+| `/`, `/runs/<run_id>` | The page |
+| `/api/identity` | `app`, `data_root`, `pid`, how `--viz` recognizes a dashboard to reuse |
+| `/api/runs` | Light status of the 100 newest runs |
+| `/api/runs/<run_id>` | `run_status` plus `grid`, `live`, `episodes`, `recent` |
+| `/api/runs/<run_id>/live` | The live lanes alone |
+| `/api/runs/<run_id>/progress?last=N` | The last N folded progress rows |
+| `/api/runs/<run_id>/log?tail=N` | The last N lines of every runner log |
+| `/api/runs/<run_id>/events` | Server-sent `live` and `run` events on file changes |
+
 ## Run State
 
 `StateFile` manages `.benchmark_state.json` atomically. Each step has status: `ok | partial | failed | skipped | in_progress`. The status tells how completely a step recorded its episodes, not how its planner did: `ok` recorded every episode whatever the outcomes, `partial` lost some (no `EpisodeRecord`, a sim stall), `failed` recorded none or hit an error. Interrupted runs resume with `--resume <run_id>`, which reruns `partial`, `skipped` and `in_progress` steps, and `failed` ones that recorded no episode without an error, or whose error is systemic or a sim stall, or all with `--retry-failed`. A rerun replaces the step's episodes: when progress is deduped or folded, rows written before the step's latest `started_at` move to `superseded_progress.csv`.
@@ -170,6 +204,7 @@ Run ID format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}`, `{YYYYMMDD-HHMMSS}-{lane}-
 |-- runner.<lane>.log
 |-- roslog.<lane>/
 |-- runner.<lane>.pid          # Signalled by --lanes on Ctrl-C
+|-- live.<lane>.json           # This lane's slot table for the dashboard
 |-- claims/<token>/            # One file per (env, world) block, taken atomically
 `-- episodes/.next_episode_id  # Episode id counter, locked across lanes
 ```

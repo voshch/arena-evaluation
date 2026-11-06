@@ -64,6 +64,7 @@ _EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED",
 
 
 from ..storage.planner_names import split_planner_name
+from . import dashboard
 from .config import Contest, Suite, stage_modes
 from .lockstep import LockstepMonitor, LockstepSummary, format_report, format_table
 from .progress_display import BenchmarkProgressDisplay
@@ -1993,6 +1994,8 @@ class BenchmarkRunner(ArenaMixinNode):
             env_n=self._env_n,
             run_id=self._run_id,
             sim_now=lambda: self.sim_time.to_seconds(),
+            live_path=self._run_dir.live_path,
+            lane=self._run_dir.lane,
         )
 
         owned: set[str] = set()
@@ -2415,6 +2418,17 @@ def cli_main(argv: list[str] | None = None) -> int:
         metavar="TOKEN",
         help="Run as one lane (named by ARENA_LANE) of a run several lanes share. Every lane gets the same TOKEN, a fresh one per launch, and the same --run-id or --resume <run_id>. Lanes claim env blocks under claims/<TOKEN>/ and fold their lane files into progress.csv and .benchmark_state.json on exit.",
     )
+    p.add_argument(
+        "--viz",
+        action="store_true",
+        help="Serve the live dashboard of this run (arena evaluation serve) while it runs and print its URL. A dashboard of the same data root already on the port is reused, any other program there exits 2 before the sim starts.",
+    )
+    p.add_argument(
+        "--viz-port",
+        type=int,
+        default=dashboard.DEFAULT_PORT,
+        help=f"Port of the --viz dashboard on {dashboard.DEFAULT_HOST} (default {dashboard.DEFAULT_PORT}).",
+    )
     args, extras = p.parse_known_args(argv)
 
     lane, shared_error = _shared_lane(args.shared, args.run_id, args.resume)
@@ -2448,6 +2462,12 @@ def cli_main(argv: list[str] | None = None) -> int:
         else:
             data_root = share / "data"
             print(f"benchmark: data_root from default: {data_root}", file=sys.stderr)
+
+        if args.viz:
+            problem = dashboard.port_problem(dashboard.DEFAULT_HOST, args.viz_port, data_root)
+            if problem is not None:
+                print(f"benchmark: --viz: {problem}", file=sys.stderr)
+                return 2
 
         if args.resume:
             resume_id = args.resume
@@ -2549,6 +2569,17 @@ def cli_main(argv: list[str] | None = None) -> int:
         return 2
     assert run_dir is not None
 
+    viz = None
+    if args.viz:
+        try:
+            viz_url, viz = dashboard.start_child(dashboard.DEFAULT_HOST, args.viz_port, data_root, run_dir.manifest.run_id)
+        except dashboard.DashboardError as exc:
+            print(f"benchmark: --viz: {exc}", file=sys.stderr)
+            return 2
+        print(f"{dashboard.VIZ_PREFIX}{viz_url}", file=sys.stderr, flush=True)
+        with run_dir.log_path.open("a") as fh:
+            fh.write(f"{datetime.datetime.now(tz=datetime.UTC).isoformat()} INFO benchmark: {dashboard.VIZ_PREFIX}{viz_url}\n")
+
     print(
         f"{PREPARED}{run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
         file=sys.stderr,
@@ -2592,6 +2623,8 @@ def cli_main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 130
     finally:
+        if viz is not None:
+            dashboard.stop_child(viz)
         if profiler is not None:
             profiler.stop()
         if lane is not None:

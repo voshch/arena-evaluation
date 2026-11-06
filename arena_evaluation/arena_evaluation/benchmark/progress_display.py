@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
+import pathlib
 import sys
 import threading
 import time
@@ -21,6 +25,10 @@ try:
 except ImportError:
     _HAS_RICH = False
 
+_log = logging.getLogger(__name__)
+
+LIVE_HEARTBEAT_S = 2.0
+
 
 class BenchmarkProgressDisplay:
     """Live interactive terminal progress display for Arena Benchmark Runner."""
@@ -32,8 +40,12 @@ class BenchmarkProgressDisplay:
         env_n: int,
         run_id: str,
         sim_now: typing.Callable[[], float] | None = None,
+        live_path: pathlib.Path | None = None,
+        lane: str | None = None,
     ):
         self.title = title
+        self.live_path = live_path
+        self.lane = lane
         self.sim_now = sim_now
         self.total_steps = total_steps
         self.env_n = env_n
@@ -49,10 +61,63 @@ class BenchmarkProgressDisplay:
         self._running = False
         self._lock = threading.RLock()
         self.start_time = time.perf_counter()
+        self.wall_start = time.time()
 
         self.active_slots: dict[int, dict[str, typing.Any]] = {}
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat: threading.Thread | None = None
+
+    def live_snapshot(self, finished: bool = False) -> dict[str, typing.Any]:
+        with self._lock:
+            slots = [
+                {
+                    "slot": index,
+                    "env_id": info["env_id"],
+                    "contestant": info["contestant"],
+                    "stage": info["stage"],
+                    "step_key": info["step_key"],
+                    "ep_idx": info["ep_idx"],
+                    "ep_total": info["ep_total"],
+                    "state": info["state"],
+                    "started_at": info["started_at"],
+                    "sim_start": info["sim_start"],
+                }
+                for index, info in sorted(self.active_slots.items())
+            ]
+            counts = {"completed": self.completed_steps, "ok": self.ok_steps, "failed": self.failed_steps, "partial": self.partial_steps, "skipped": self.skipped_steps}
+        return {
+            "run_id": self.run_id,
+            "lane": self.lane,
+            "pid": os.getpid(),
+            "updated_at": time.time(),
+            "started_at": self.wall_start,
+            "finished": finished,
+            "sim_time": self.sim_now() if self.sim_now is not None else None,
+            "env_n": self.env_n,
+            "total_steps": self.total_steps,
+            "steps": counts,
+            "slots": [] if finished else slots,
+        }
+
+    def write_live(self, finished: bool = False) -> None:
+        if self.live_path is None:
+            return
+        tmp = self.live_path.with_name(f".{self.live_path.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text(json.dumps(self.live_snapshot(finished)))
+            os.replace(tmp, self.live_path)
+        except OSError as exc:
+            _log.debug(f"benchmark: live state not written to {self.live_path}: {exc}")
+
+    def _beat(self) -> None:
+        while not self._heartbeat_stop.wait(LIVE_HEARTBEAT_S):
+            self.write_live()
 
     def __enter__(self) -> typing.Self:
+        if self.live_path is not None:
+            self.write_live()
+            self._heartbeat = threading.Thread(target=self._beat, name="benchmark-live", daemon=True)
+            self._heartbeat.start()
         if self.console is not None and sys.stdout.isatty():
             self.console.print(f"[bold cyan]{self.title}[/bold cyan] [dim](run_id: {self.run_id}, env_n: {self.env_n})[/dim]")
             self.live = Live(
@@ -71,6 +136,11 @@ class BenchmarkProgressDisplay:
         return self
 
     def stop(self):
+        self._heartbeat_stop.set()
+        if self._heartbeat is not None:
+            self._heartbeat.join()
+            self._heartbeat = None
+            self.write_live(finished=True)
         with self._lock:
             self._running = False
             if self.live is not None:
@@ -128,8 +198,10 @@ class BenchmarkProgressDisplay:
                 "ep_total": ep_total,
                 "state": state,
                 "start_time": time.perf_counter(),
+                "started_at": time.time(),
                 "sim_start": sim_start,
             }
+        self.write_live()
 
     def update_slot_state(self, slot_index: int, state: str, ep_idx: int | None = None):
         with self._lock:
@@ -138,10 +210,12 @@ class BenchmarkProgressDisplay:
                 slot["state"] = state
                 if ep_idx is not None:
                     slot["ep_idx"] = ep_idx
+        self.write_live()
 
     def clear_slot(self, slot_index: int):
         with self._lock:
             self.active_slots.pop(slot_index, None)
+        self.write_live()
 
     def log_step_completed(
         self,
@@ -181,6 +255,7 @@ class BenchmarkProgressDisplay:
                 line += f" • [dim red]{error_detail}[/dim red]"
             live = self.live
 
+        self.write_live()
         if live is not None:
             live.console.print(line)
             live.refresh()

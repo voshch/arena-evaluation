@@ -422,6 +422,11 @@ def main(argv: list[str] | None = None) -> int:
     p_console.add_argument("--follow", action="store_true", help="follow new output until the runner exits")
     p_console.add_argument("run_id", nargs="?", default=None)
 
+    from . import dashboard
+
+    p_serve = sub.add_parser("serve", help="serve the live web dashboard of every run under the data root until Ctrl-C, printing `viz: <url>` once listening")
+    dashboard.add_arguments(p_serve)
+
     args = parser.parse_args(argv)
 
     try:
@@ -437,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_kill(args)
         if args.command == "console":
             return _cmd_console(args)
+        if args.command == "serve":
+            return dashboard.serve_args(args)
     except SystemExit:
         raise
     except KeyboardInterrupt:
