@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import subprocess
+import threading
 import time
 import typing
 
@@ -30,7 +32,9 @@ from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldEntry, HoldRegist
 from rcl_interfaces.srv import GetParameters, SetParameters
 from arena_runtime_msgs.action import RunEpisode
 from arena_runtime_msgs.msg import EpisodeRecord
-from arena_runtime_msgs.srv import QueueEpisode
+from arena_runtime_msgs.srv import DespawnEnv, QueueEpisode, SpawnEnv
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
 
 T = typing.TypeVar("T")
 
@@ -560,3 +564,86 @@ def test_shutdown_without_a_live_viewer_or_log_file(tmp_path: pathlib.Path, viz_
 
     assert returncode is not None
     assert viz is None
+
+
+class _FailingSpawnRuntime:
+    def __init__(self, launches: pathlib.Path) -> None:
+        self.requests = 0
+        self._launches = launches
+        self._node = Node("failing_spawn_runtime")
+        self._node.create_service(SpawnEnv, "/arena/spawn_env", self._spawn)
+        self._node.create_service(DespawnEnv, "/arena/despawn_env", self._despawn)
+        self._sim = self._node.create_publisher(SimState, "/arena/state/sim", _LATCHED)
+        self._node.create_timer(0.1, self._beat)
+        self._executor = SingleThreadedExecutor()
+        self._executor.add_node(self._node)
+        self._thread = threading.Thread(target=self._executor.spin, daemon=True)
+        self._thread.start()
+
+    def spin(self, node: Node) -> None:
+        self._executor.add_node(node)
+
+    def unspin(self, node: Node) -> None:
+        self._executor.remove_node(node)
+
+    def launches(self) -> int:
+        return len(self._launches.read_text().split()) if self._launches.exists() else 0
+
+    def _spawn(self, _request: SpawnEnv.Request, response: SpawnEnv.Response) -> SpawnEnv.Response:
+        self.requests += 1
+        response.success = False
+        response.error_msg = "no free port"
+        return response
+
+    def _despawn(self, _request: DespawnEnv.Request, response: DespawnEnv.Response) -> DespawnEnv.Response:
+        response.success = True
+        return response
+
+    def _beat(self) -> None:
+        msg = SimState(alive=True)
+        now = time.time()
+        msg.header.stamp.sec = int(now)
+        msg.header.stamp.nanosec = int((now % 1) * 1e9)
+        self._sim.publish(msg)
+
+    def close(self) -> None:
+        self._executor.shutdown()
+        self._thread.join()
+        self._node.destroy_node()
+
+
+@pytest.mark.parametrize(
+    ("envs_spawned", "restarts", "spawn_requests"),
+    [(0, 0, 1), (2, 1, 2)],
+    ids=["fresh_runtime_fails_at_once", "used_runtime_restarts_once_then_fails"],
+)
+def test_failed_spawn_restarts_only_a_used_runtime_once(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, envs_spawned: int, restarts: int, spawn_requests: int):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    launches = tmp_path / "launches"
+    fake = bin_dir / "ros2"
+    fake.write_text(f"#!/bin/sh\necho launch >> {launches}\nexec sleep 300\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    runtime = _FailingSpawnRuntime(launches)
+    flushed: list[StepResult] = []
+
+    async def body(runner: BenchmarkRunner) -> tuple[bool, int]:
+        runner._envs_spawned = envs_spawned
+        runtime.spin(runner)
+        await runner._spawn.ensure(timeout_sec=60.0)
+        q: asyncio.Queue[Step] = asyncio.Queue()
+        q.put_nowait(_step())
+        try:
+            aborted = await asyncio.wait_for(runner._run_group_queue(_step(), q, 0, lambda res: flushed.append(res) or False), 60.0)
+        finally:
+            await runner._shutdown_arena()
+            runtime.unspin(runner)
+        return aborted, q.qsize()
+
+    try:
+        assert _drive(tmp_path, body) == (False, 0)
+        assert (runtime.launches(), runtime.requests) == (restarts, spawn_requests)
+    finally:
+        runtime.close()
+    assert [(r.key, r.status, r.error_kind, r.error_detail) for r in flushed] == [("dwb/s1", "failed", StepErrorKind.ENV_SETUP, "spawn_env failed")]

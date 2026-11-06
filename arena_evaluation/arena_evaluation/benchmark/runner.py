@@ -863,6 +863,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._sim_dead = asyncio.Event()
         self._sim_dead_reason = ""
         self._sim_generation = 0
+        self._envs_spawned = 0
         self._sim_recover_lock = asyncio.Lock()
         self._retry_budget = _RetryBudget(retries=self._retries, max_sim_deaths=self._max_sim_deaths)
         self._runtime_started_at = 0.0
@@ -1467,6 +1468,7 @@ class BenchmarkRunner(ArenaMixinNode):
             return None
         env_id = resp.env_id
         registered.append(env_id)
+        self._envs_spawned += 1
         await self._await_alive(self._await_env_visible(env_id), what=f"env {env_id} to appear on /arena/state/envs")
         env_ns_root = self._env_records[env_id].fqn
         await self._setup_env_clients(env_id, env_ns_root, launch_step.robot)
@@ -1575,6 +1577,7 @@ class BenchmarkRunner(ArenaMixinNode):
         env_id: int | None = None
         env_ns_root = ""
         spawned_once = False
+        restarted = False
         try:
             while not q.empty():
                 if env_id is None:
@@ -1595,6 +1598,10 @@ class BenchmarkRunner(ArenaMixinNode):
                         _, run_abort = await self._spend_sim_death(str(exc), None)
                         if run_abort:
                             return True
+                        continue
+                    if spawned is None and self._envs_spawned and not restarted:
+                        restarted = True
+                        await self._recover_sim(f"spawn_env failed for {rep_step.key} on a used runtime", self._sim_generation)
                         continue
                     if spawned is None:
                         return self._fail_remaining(q, None, "env respawn failed after a wedged env" if spawned_once else "spawn_env failed", flush_cb)
@@ -1948,6 +1955,7 @@ class BenchmarkRunner(ArenaMixinNode):
         self._env_records.clear()
         self._env_visible_events.clear()
         self._env_gone_events.clear()
+        self._envs_spawned = 0
         await asyncio.sleep(1.0)
         self._sim_dead_reason = ""
         self._sim_dead.clear()
