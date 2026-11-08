@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import pathlib
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any
 
 import pydantic
 
@@ -13,23 +14,10 @@ from .base import YamlText, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
 if TYPE_CHECKING:
-    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
     from arena_runtime.env.task_layer import TaskLayer, TaskModes
     from arena_simulation_setup.tree import DomainAssetIdentifier
-    from rcl_interfaces.msg import ParameterDescriptor
 
 Overwrite = Annotated[bool, pydantic.Field(description="replace an existing config of that name")]
-
-
-class _Declarations:
-    """Collects what a task-mode schema declares, standing in for the node it normally declares on."""
-
-    def __init__(self) -> None:
-        self.rosparam = self
-        self.declared: list[tuple[str, ParameterDescriptor]] = []
-
-    def declare_forward(self, name: str, value: object, *, descriptor: ParameterDescriptor) -> None:
-        self.declared.append((name, descriptor))
 
 
 def _constraint_tokens(text: str) -> dict[str, object]:
@@ -42,15 +30,28 @@ def _constraint_tokens(text: str) -> dict[str, object]:
 
 def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
+    import rclpy
+    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
+    from rcl_interfaces.srv import ListParameters
+
+    owned_context = not rclpy.ok()
+    if owned_context:
+        rclpy.init()
     namespaces = layer.mode_namespaces()
+    node = ROSParamServer(f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False)
+    try:
 
-    def declared(axis: str, mode: str) -> list[dict[str, Any]]:
-        collector = _Declarations()
-        layer.declare_mode_schema(cast("ROSParamServer", collector), axis, mode)
-        prefix = f"{namespaces[axis][mode]}."
-        return [{"name": name.removeprefix(prefix), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in collector.declared]
+        def declared(axis: str, mode: str) -> list[dict[str, Any]]:
+            layer.declare_mode_schema(node, axis, mode)
+            namespace = namespaces[axis][mode]
+            names = sorted(node.list_parameters([namespace], ListParameters.Request.DEPTH_RECURSIVE).names)
+            return [{"name": name.removeprefix(f"{namespace}."), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in zip(names, node.describe_parameters(names), strict=True)]
 
-    return {axis: {mode: declared(axis, mode) for mode in modes} for axis, modes in selected.items()}
+        return {axis: {mode: declared(axis, mode) for mode in modes} for axis, modes in selected.items()}
+    finally:
+        node.destroy_node()
+        if owned_context:
+            rclpy.shutdown()
 
 
 def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
