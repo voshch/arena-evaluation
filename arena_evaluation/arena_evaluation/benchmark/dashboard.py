@@ -592,7 +592,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", default=None, help="run whose page the printed URL opens (default the run list)")
     parser.add_argument("--runtime", action="store_true", help="also serve the runtime page (/runtime): the envs of the runtime on this ROS domain, their episodes and camera, spawn, despawn, reset, pause, step and lockstep controls")
     parser.add_argument("--exit-with", type=int, default=None, metavar="PID", help="stop serving once process PID is gone (benchmark --viz passes its own pid)")
-    parser.add_argument("--exit-on-eof", action="store_true", help="stop serving once stdin closes (arena-web runs each target's dashboard this way, so it ends with the hub's exec session)")
+    parser.add_argument("--exit-on-eof", action="store_true", help="stop serving once stdin closes (arena web runs each target's dashboard this way, so it ends with the hub's exec session)")
 
 
 def serve_args(args: argparse.Namespace) -> int:

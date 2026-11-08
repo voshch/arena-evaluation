@@ -25,7 +25,7 @@ arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGI
 arena evaluation console [<run_id>]            # Tail runner.log (--follow for streaming)
 arena evaluation serve [--port N] [--host H]   # Live web dashboard of every run, http://127.0.0.1:8765 by default
 arena evaluation serve --runtime                # Plus the runtime page: envs, episodes, spawn, pause, step, lockstep
-_meta/tools/arena-web [--prefix PATH]           # On the host: one hub over the dev container and every fork
+arena web [--prefix PATH]                       # One hub over the dev container and every fork of this machine
 arena evaluation benchmark                     # Launch a benchmark campaign
 ```
 
@@ -195,7 +195,7 @@ server's ROS domain, refused while a runtime or another runner is up there, its 
 `<data_root>/.web/<run_id>.log`.
 `--port 0` binds a free port and prints it, `--exit-on-eof` stops the server when stdin closes.
 
-`_meta/tools/arena-web` is the hub over all of them, run on the host: it finds this machine's arena
+`arena web` is the hub over all of them: it finds this machine's arena
 containers (the dev container and every fork, by the `ARENA_FORK` in their environment), starts
 `serve --runtime --port 0 --exit-on-eof` inside a container on first use through `docker exec -i`,
 and proxies its pages under `/t/<container>/`. Every machine runs its own hub over its own
@@ -233,7 +233,7 @@ that path.
 | POST `/api/runtime/envs/<env_id>/<action>` | `view` and `view_stop` (the env's live rerun view, present when `rerun_utils` provides the `viz_rerun_*` tools), `reset` (optional `world`, `seed`, and `modes` and `params`, queued with `episode_queue` first), `despawn`, `cleanup` |
 | POST `/api/runs/<run_id>/stop` | Stops the run's runners with `evaluation_stop`, 409 with its hint when none runs |
 
-| arena-web endpoint | Returns |
+| arena web endpoint | Returns |
 |---|---|
 | `/` | The Targets page |
 | `/t/<container>/...` | The target's dashboard (`/t/dev/`, `/t/myfork/runtime`) |
