@@ -114,6 +114,8 @@ cell reports its wall time and the sim time its episodes consumed.
 A watchdog beats the runner's own event loop. After 120 s of no beat it writes one line to
 `runner.log`, SIGTERMs the arena launch process group and exits 4.
 
+A shutdown that hangs exits at 81 s with a stack dump on stderr.
+
 `--strict` exits 3 when any cell ended with an error kind or ran fewer episodes than
 requested, whatever the episode outcomes were. It is the wedge check behind
 `arena planners test --preflight`.
