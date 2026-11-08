@@ -416,6 +416,7 @@ Override with `--data-root`. Inside Docker: `/opt/arena_ws/data/benchmarks/<run_
 |-- progress.csv               # Episode results
 |-- runner.log                 # Execution logs
 |-- .benchmark_state.json      # Step state (atomic)
+|-- live.json                  # Slot table the dashboard reads
 |-- episodes/                  # Per-episode MCAP files
 |-- combined_metrics.parquet   # Computed metrics
 `-- report_manifest.yaml       # Used report manifest
@@ -431,4 +432,5 @@ arena evaluation tail [run_id]                 # Tail progress.csv
 arena evaluation ps                            # List running arena processes
 arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
 arena evaluation console [run_id] [--follow]   # Tail runner.log
+arena evaluation serve [--port N]              # Live web dashboard, see the benchmark README
 ```

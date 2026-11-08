@@ -15,7 +15,6 @@ from arena_mcp.core.jobs import RUNNING, SUCCEEDED
 
 from .base import OptionalRunId, RunId, component, config_stem, data_root, domain, is_inline, run_path
 
-TERMINAL_STEPS = ("ok", "failed", "partial", "skipped")
 BENCHMARK_JOBS = ("benchmark", "preflight")
 
 LaunchValue = str | int | float | bool
@@ -77,6 +76,8 @@ def benchmark_argv(
     env_n: int | None = None,
     optim_obstacles: str | None = None,
     launch_args: dict[str, LaunchValue] | None = None,
+    viz: bool = False,
+    viz_port: int | None = None,
 ) -> list[str]:
     """The `arena evaluation benchmark` arguments for these options, always naming the run id."""
     if resume:
@@ -87,29 +88,13 @@ def benchmark_argv(
         if suite is None or contest is None:
             raise ToolError("a fresh benchmark needs suite and contest", hint="evaluation_suites and evaluation_contests list them")
         argv = ["--suite", config_value(suite), "--contest", config_value(contest), "--run-id", component(run_id, "run_id")]
-    for flag, on in (("--retry-failed", retry_failed), ("--lockstep-verdict", lockstep_verdict), ("--strict", strict), ("--world-swap", world_swap), ("--noexit", noexit), ("--profile", profile)):
+    for flag, on in (("--retry-failed", retry_failed), ("--lockstep-verdict", lockstep_verdict), ("--strict", strict), ("--world-swap", world_swap), ("--noexit", noexit), ("--profile", profile), ("--viz", viz)):
         if on:
             argv.append(flag)
-    for flag, value in (("--retries", retries), ("--max-sim-deaths", max_sim_deaths), ("--efficacy", efficacy), ("--spawn-budget", spawn_budget), ("--scale-episodes", scale_episodes), ("--data-root", data_root), ("--lanes", lanes)):
+    for flag, value in (("--retries", retries), ("--max-sim-deaths", max_sim_deaths), ("--efficacy", efficacy), ("--spawn-budget", spawn_budget), ("--scale-episodes", scale_episodes), ("--data-root", data_root), ("--lanes", lanes), ("--viz-port", viz_port)):
         if value is not None:
             argv += [flag, str(value)]
     return argv + launch_tokens(launch_args, sim=sim, headless=headless, env__n=env_n, optim__obstacles=optim_obstacles)
-
-
-def runner_pids(path: pathlib.Path, run_id: str, running: dict[str, int] | None = None) -> list[int]:
-    """Live runner processes of a run: lane pid files and runners started with its --run-id."""
-    from arena_evaluation.benchmark.debug import running_pids_by_run_id
-
-    pids = set()
-    for pid_file in path.glob("runner.*.pid"):
-        with contextlib.suppress(OSError, ValueError):
-            pid = int(pid_file.read_text().strip())
-            if proc.alive(pid):
-                pids.add(pid)
-    found = (running_pids_by_run_id() if running is None else running).get(run_id)
-    if found is not None:
-        pids.add(found)
-    return sorted(pids)
 
 
 def run_jobs(run_id: str) -> list[Job]:
@@ -117,45 +102,15 @@ def run_jobs(run_id: str) -> list[Job]:
 
 
 def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, light: bool = False) -> dict[str, Any]:
-    """A run's progress from its manifest, the union of its lane states and, unless light, its progress rows."""
-    import yaml
-
-    from arena_evaluation.benchmark.cli import _count_by_status
-    from arena_evaluation.benchmark.state import Manifest, StateFile, progress_rows
+    """A run's progress from its manifest, the union of its lane states, its jobs and, unless light, its progress rows."""
+    from arena_evaluation.benchmark.dashboard import RunStatusError
+    from arena_evaluation.benchmark.dashboard import run_status as benchmark_status
 
     try:
-        manifest = Manifest.from_yaml((path / "manifest.yaml").read_text())
-    except (OSError, TypeError, yaml.YAMLError) as exc:
-        raise ToolError(f"run {path.name!r} has no readable manifest.yaml: {exc}", hint="the runner writes it once the configs load, see evaluation_console") from exc
-    steps = StateFile.open(path).steps
-    planned = [step["key"] for step in manifest.steps]
-    counts = _count_by_status(steps)
-    pids = runner_pids(path, manifest.run_id, running)
-    done = all(key in steps and steps[key].status in TERMINAL_STEPS for key in planned)
-    lanes = sorted({name.split(".")[1] for pattern in ("progress.*.csv", ".benchmark_state.*.json", "runner.*.log") for name in (entry.name.lstrip(".") for entry in path.glob(pattern))})
-    return {
-        "run_id": manifest.run_id,
-        "run_dir": str(path),
-        "suite": manifest.suite_name,
-        "contest": manifest.contest_name,
-        "simulator": manifest.simulator,
-        "env_n": manifest.env_n,
-        "headless": manifest.headless,
-        "created_at": manifest.created_at,
-        "scale_episodes": manifest.scale_episodes,
-        "launch_args": manifest.launch_args,
-        "state": "completed" if done else "running" if pids else "incomplete",
-        "steps_total": len(planned),
-        "steps": counts | {"pending": len(planned) - sum(counts.values())},
-        "active": [{"key": step.key, "env_id": step.env_id, "started_at": step.started_at} for step in steps.values() if step.status == "in_progress"],
-        "failed": [{"key": step.key, "error_kind": None if step.error_kind is None else step.error_kind.value, "error_detail": step.error_detail} for step in steps.values() if step.status == "failed"],
-        "episodes_logged": None if light else len(progress_rows(path)),
-        "lanes": lanes,
-        "runner_pids": pids,
-        "jobs": [job.id for job in run_jobs(manifest.run_id)],
-        "has_combined_metrics": (path / "combined_metrics.parquet").is_file(),
-        "has_report": (path / "report.html").is_file(),
-    }
+        status = benchmark_status(path, running=running, light=light)
+    except RunStatusError as exc:
+        raise ToolError(str(exc), hint="the runner writes it once the configs load, see evaluation_console") from exc
+    return status | {"jobs": [job.id for job in run_jobs(status["run_id"])]}
 
 
 def run_summary_after(path: pathlib.Path) -> dict[str, Any]:
@@ -187,6 +142,41 @@ async def confirm_start(job: Job, confirm_s: float) -> dict[str, Any]:
         await asyncio.sleep(0.5)
 
 
+def viz_url(job: Job) -> str | None:
+    """The dashboard URL a job printed as `viz: <url>`, None before it did."""
+    from arena_evaluation.benchmark.dashboard import VIZ_PREFIX
+
+    for line in reversed(JOBS.tail(job.id, 400).splitlines()):
+        _, found, rest = line.partition(VIZ_PREFIX)
+        if found:
+            return rest.strip()
+    return None
+
+
+@domain.tool()
+async def evaluation_dashboard(
+    port: Annotated[int | None, pydantic.Field(description="port to listen on (default 8765), a dashboard of the same data root already there is reused", ge=1, le=65535)] = None,
+    host: Annotated[str | None, pydantic.Field(description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)")] = None,
+    run_id: Annotated[str | None, pydantic.Field(description="run whose page the returned URL opens, the run list when omitted")] = None,
+    data_root_dir: Annotated[str | None, pydantic.Field(description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted")] = None,
+    runtime: Annotated[bool, pydantic.Field(description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls")] = False,
+    confirm_s: Annotated[float, pydantic.Field(description="seconds to wait for the server to listen", gt=0, le=60)] = 20.0,
+) -> dict[str, Any]:
+    """Start `arena evaluation serve`, the live web dashboard of benchmark runs and optionally of the runtime's envs, as a job and return its URL. jobs_cancel stops it."""
+    argv = [*(["--port", str(port)] if port else []), *(["--host", host] if host else []), *(["--run-id", component(run_id, "run_id")] if run_id else []), *(["--data-root", data_root_dir] if data_root_dir else []), *(["--runtime"] if runtime else [])]
+    job = await cli.job("dashboard", f"dashboard {port or 'default port'}", "evaluation", "serve", *argv)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + confirm_s
+    while (found := viz_url(job)) is None:
+        current = JOBS.get(job.id)
+        if current.state != RUNNING:
+            raise ToolError(f"the dashboard exited ({current.error or current.state}) before it listened:\n{JOBS.tail(job.id, 25)}", hint="pass another port")
+        if loop.time() >= deadline:
+            raise ToolError(f"the dashboard did not listen within {confirm_s:.0f}s", hint=f"jobs_log {job.id} has its output")
+        await asyncio.sleep(0.3)
+    return {"url": found, "reused": JOBS.get(job.id).state != RUNNING, "command": "arena evaluation serve " + " ".join(argv), "job": JOBS.get(job.id).as_dict()}
+
+
 @domain.tool(destructive=True)
 async def evaluation_benchmark(
     suite: ConfigArg = None,
@@ -211,6 +201,8 @@ async def evaluation_benchmark(
     optim_obstacles: Annotated[str | None, pydantic.Field(description="optim.obstacles:= launch arg, only passed when set")] = None,
     launch_args: LaunchArgs = None,
     data_root_dir: Annotated[str | None, pydantic.Field(description="--data-root, the run tools only read the default $ARENA_DATA_DIR/benchmarks")] = None,
+    viz: Annotated[bool, pydantic.Field(description="serve the run's live web dashboard while it runs, its URL comes back as viz_url")] = False,
+    viz_port: Annotated[int | None, pydantic.Field(description="port of the viz dashboard (runner default 8765)", ge=1, le=65535)] = None,
     confirm_s: Confirm = 60.0,
 ) -> dict[str, Any]:
     """Start `arena evaluation benchmark` as a job, always with an explicit run id. Exit codes 0 ok, 1 systemic abort, 2 config error, 3 lockstep, strict or efficacy verdict, 4 runner hung, 130 interrupted."""
@@ -252,11 +244,13 @@ async def evaluation_benchmark(
         env_n=env_n,
         optim_obstacles=optim_obstacles,
         launch_args=launch_args,
+        viz=viz,
+        viz_port=viz_port,
     )
     path = root / run_id
     job = await cli.job("benchmark", f"benchmark {run_id}", "evaluation", "benchmark", *argv, result=lambda _job: run_summary_after(path))
     started = await confirm_start(job, confirm_s)
-    return {"run_id": run_id, "run_dir": str(path), "command": "arena evaluation benchmark " + " ".join(argv), **started, "job": JOBS.get(job.id).as_dict()}
+    return {"run_id": run_id, "run_dir": str(path), "command": "arena evaluation benchmark " + " ".join(argv), **started, **({"viz_url": viz_url(job)} if viz else {}), "job": JOBS.get(job.id).as_dict()}
 
 
 @domain.tool(destructive=True)
@@ -291,6 +285,8 @@ async def evaluation_stop(run_id: RunId, grace_s: Annotated[float, pydantic.Fiel
     for job in run_jobs(run_id):
         if job.state == RUNNING and job.pid is not None and job.alive:
             groups[job.pid] = f"job {job.id}"
+    from arena_evaluation.benchmark.dashboard import runner_pids
+
     for pid in await asyncio.to_thread(runner_pids, path, run_id):
         with contextlib.suppress(ProcessLookupError):
             groups.setdefault(os.getpgid(pid), f"runner {pid}")

@@ -44,5 +44,6 @@ setup(
     package_data={
         'arena_evaluation.processing.acoustics': ['solver.cpp'],
         'arena_evaluation.presentation': ['*.j2', '*.html.j2'],
+        'arena_evaluation.benchmark': ['dashboard.html'],
     },
 )
