@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import importlib
 import os
 import pathlib
@@ -14,6 +15,7 @@ from .base import YamlText, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
 if TYPE_CHECKING:
+    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
     from arena_runtime.env.task_layer import TaskLayer, TaskModes
     from arena_simulation_setup.tree import DomainAssetIdentifier
 
@@ -28,30 +30,30 @@ def _constraint_tokens(text: str) -> dict[str, object]:
     return out
 
 
-def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
+@functools.cache
+def _authoring_node() -> ROSParamServer:
+    """The node schemas are declared on, one per process: a long-lived server must never tear down its own rclpy context."""
     import rclpy
     from arena_rclpy_mixins.ROSParamServer import ROSParamServer
-    from rcl_interfaces.srv import ListParameters
 
-    owned_context = not rclpy.ok()
-    if owned_context:
+    if not rclpy.ok():
         rclpy.init()
+    return ROSParamServer(f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False)
+
+
+def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
+    from arena_rclpy_mixins.params import declared
+
     namespaces = layer.mode_namespaces()
-    node = ROSParamServer(f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False)
-    try:
+    node = _authoring_node()
 
-        def declared(axis: str, mode: str) -> list[dict[str, Any]]:
-            layer.declare_mode_schema(node, axis, mode)
-            namespace = namespaces[axis][mode]
-            names = sorted(node.list_parameters([namespace], ListParameters.Request.DEPTH_RECURSIVE).names)
-            return [{"name": name.removeprefix(f"{namespace}."), **_constraint_tokens(descriptor.additional_constraints)} for name, descriptor in zip(names, node.describe_parameters(names), strict=True)]
+    def entries(axis: str, mode: str) -> list[dict[str, Any]]:
+        layer.declare_mode_schema(node, axis, mode)
+        prefix = f"{namespaces[axis][mode]}."
+        return [{"name": name.removeprefix(prefix), **_constraint_tokens(param.descriptor().additional_constraints)} for name, param in sorted(declared(node).items()) if name.startswith(prefix)]
 
-        return {axis: {mode: declared(axis, mode) for mode in modes} for axis, modes in selected.items()}
-    finally:
-        node.destroy_node()
-        if owned_context:
-            rclpy.shutdown()
+    return {axis: {mode: entries(axis, mode) for mode in modes} for axis, modes in selected.items()}
 
 
 def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
