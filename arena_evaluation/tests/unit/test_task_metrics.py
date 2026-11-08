@@ -162,6 +162,16 @@ def test_replay_takes_gesture_outcome_from_the_record():
     assert results["judge_agrees"] is True
 
 
+def test_replay_agrees_with_a_reach_ended_by_its_stop_condition():
+    phases = {"phases": [{"reach": [0.3, -0.2, 0.55], "frame": "chest", "motion": "linear", "speed": 0.1, "stop": {"field": "chest.openness.drawer", "le": 0.02}}], "conditions": []}
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0)])
+    chest = [(0, "env_0/chest", "articulated", "openness.drawer", "0.5"), (int(1.5 * S), "env_0/chest", "articulated", "openness.drawer", "0.01")]
+    snapshot = _snapshot(_robot_rows(0, "0") + chest + _robot_rows(int(1.6 * S), "", met="0"))
+    results = _calc().calculate(_episode(phases, poses, snapshot), {})
+    assert results["phase_outcomes"] == ["met"]
+    assert results["judge_agrees"] is True
+
+
 def test_replay_skips_dropped_phases_and_counts_them_as_not_met():
     phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}, {"goto": [9.0, 9.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
     poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0)])
