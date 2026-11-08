@@ -69,8 +69,26 @@ def test_door_leaf_hinged_swings_to_the_configured_side(swing, open_end):
     assert half == pytest.approx((8.0 - swing * 2.0 * math.sin(math.pi / 4), 2.0 * math.cos(math.pi / 4)))
 
 
-def test_elevator_leaf_uses_the_cabin_door_segment():
+def test_door_leaf_split_parts_from_the_middle():
+    door = DoorGeom("d", "0", (8.0, 0.0), (8.0, 2.0), 1.0, kind="sliding_split")
+    xs, ys = _door_leaf(door, 0.0)
+    assert ys == pytest.approx([0.0, 1.0, math.nan, 1.0, 2.0], nan_ok=True)
+    xs, ys = _door_leaf(door, 0.5)
+    assert ys == pytest.approx([0.0, 0.5, math.nan, 1.5, 2.0], nan_ok=True)
+    xs, ys = _door_leaf(door, 1.0)
+    assert ys == pytest.approx([0.0, 0.0, math.nan, 2.0, 2.0], nan_ok=True)
+    assert xs == pytest.approx([8.0, 8.0, math.nan, 8.0, 8.0], nan_ok=True)
+
+
+def test_elevator_leaf_splits_the_cabin_door_segment():
     cabin = ElevatorGeom("e", "0", [(2, 10), (4, 10), (4, 12), (2, 12)], (2.0, 10.0), (4.0, 10.0), 3.0)
+    xs, ys = _door_leaf(cabin, 0.5)
+    assert xs == pytest.approx([2.0, 2.5, math.nan, 3.5, 4.0], nan_ok=True)
+    assert ys == pytest.approx([10.0, 10.0, math.nan, 10.0, 10.0], nan_ok=True)
+
+
+def test_elevator_leaf_follows_the_elevator_door_kind():
+    cabin = ElevatorGeom("e", "0", [(2, 10), (4, 10), (4, 12), (2, 12)], (2.0, 10.0), (4.0, 10.0), 3.0, door_kind="sliding")
     xs, ys = _door_leaf(cabin, 0.5)
     assert xs == pytest.approx([2.0, 3.0]) and ys == [10.0, 10.0]
 
@@ -81,16 +99,19 @@ def test_door_color_states():
 
 
 def test_world_description_carries_kind_and_swing():
-    from arena_simulation_setup.shared.world import Door
+    from arena_simulation_setup.shared.world import Door, Elevator
     from arena_simulation_setup.tree.World import Level, World, Zone
     from arena_simulation_setup.utils.geometry import Position
 
     zone = Zone(name="hall", polygon=[Position(0, 0, 0), Position(4, 0, 0), Position(4, 4, 0)])
-    level = Level(id="0", zones=[zone], doors=[Door(name="h", start=Position(0, 0, 0), end=Position(0, 2, 0), kind="hinged", swing_direction=-1)])
+    door = Door(name="h", start=Position(0, 0, 0), end=Position(0, 2, 0), kind="hinged", swing_direction=-1)
+    lift = Elevator(name="lift", position=Position(2, 2, 0), size=[2.0, 2.0, 2.5], door_side="+x", door_kind="teleport")
+    level = Level(id="0", zones=[zone], doors=[door], elevators=[lift])
     mech = mechanism_world_from_description(World(levels={"0": level}), {"0": (0.0, 0.0)})
     door = mech.door("env_0/h/0")
     assert (door.kind, door.swing) == ("hinged", -1)
     assert door.leaf(1.0)[1] == pytest.approx((2.0, 0.0))
+    assert mech.elevator("env_0/lift/0").door_kind == "teleport"
 
 
 def test_mechanism_states_sampled_on_the_time_grid():

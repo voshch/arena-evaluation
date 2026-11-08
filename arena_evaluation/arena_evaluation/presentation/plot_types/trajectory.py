@@ -99,12 +99,14 @@ def _is_collision(row: typing.Mapping | pd.Series) -> bool:
 
 
 def _door_leaf(geom: DoorGeom | ElevatorGeom, progress: float) -> tuple[list[float], list[float]]:
-    if isinstance(geom, DoorGeom):
+    if isinstance(geom, ElevatorGeom):
+        geom = DoorGeom(geom.name, geom.level, geom.door_start, geom.door_end, geom.activation_distance, geom.door_kind)
+    if geom.kind != "sliding_split":
         (ax, ay), (bx, by) = geom.leaf(progress)
-    else:
-        (ax, ay), (ex, ey) = geom.door_start, geom.door_end
-        bx, by = ax + (ex - ax) * (1.0 - progress), ay + (ey - ay) * (1.0 - progress)
-    return [ax, bx], [ay, by]
+        return [ax, bx], [ay, by]
+    (ax, ay), (ex, ey) = geom.start, geom.end
+    f = (1.0 - progress) / 2.0
+    return [ax, ax + (ex - ax) * f, math.nan, ex - (ex - ax) * f, ex], [ay, ay + (ey - ay) * f, math.nan, ey - (ey - ay) * f, ey]
 
 
 def _door_color(progress: float, locked: bool) -> str:
