@@ -14,6 +14,7 @@ import threading
 import time
 import types
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 
@@ -209,6 +210,13 @@ def test_finished_lane_is_never_stale(run_dir: RunDir):
     assert [lane["stale"] for lane in dashboard.live_lanes(run_dir.path)] == [False]
 
 
+def test_progress_filters_to_one_step(server: dashboard.DashboardServer, run_dir: RunDir):
+    rows = json.loads(_get(server, f"/api/runs/{RUN_ID}/progress?step=dwb/s1")[1])
+    none = json.loads(_get(server, f"/api/runs/{RUN_ID}/progress?step=mppi/s1")[1])
+    assert rows["n_rows"] == 2 and {row["step_key"] for row in rows["rows"]} == {"dwb/s1"}
+    assert none == {"n_rows": 0, "rows": []}
+
+
 def test_api_serves_identity_runs_detail_live_progress_log_and_page(server: dashboard.DashboardServer, run_dir: RunDir):
     _live(run_dir, time.time())
     base = f"/api/runs/{RUN_ID}"
@@ -230,6 +238,39 @@ def test_api_serves_identity_runs_detail_live_progress_log_and_page(server: dash
     assert status == 200 and b"<title>Arena Benchmarks</title>" in page
 
 
+def test_runtime_endpoints_need_the_runtime_flag_and_the_control_header(server: dashboard.DashboardServer):
+    url = f"http://127.0.0.1:{server.server_address[1]}/api/runtime/hold"
+    forged = urllib.request.Request(url, data=b"{}", method="POST")
+    allowed = urllib.request.Request(url, data=b"{}", headers={"X-Arena-Dashboard": "1"}, method="POST")
+    answers = []
+    for request in (forged, allowed):
+        try:
+            urllib.request.urlopen(request, timeout=5)
+        except urllib.error.HTTPError as exc:
+            answers.append((exc.code, json.loads(exc.read())))
+    status, body = _get(server, "/api/runtime")
+
+    assert answers[0][0] == 403 and "X-Arena-Dashboard: 1" in answers[0][1]["error"]
+    assert answers[1][0] == 404 and answers[1][1]["hint"] == "start it with arena evaluation serve --runtime"
+    assert status == 404 and json.loads(body)["error"] == "this dashboard serves no runtime page"
+    assert json.loads(_get(server, "/api/identity")[1])["runtime"] is False
+
+
+def test_stopping_a_run_needs_the_control_header_and_the_runtime_flag(server: dashboard.DashboardServer, run_dir: RunDir):
+    url = f"http://127.0.0.1:{server.server_address[1]}/api/runs/{RUN_ID}/stop"
+    forged = urllib.request.Request(url, data=b"{}", method="POST")
+    allowed = urllib.request.Request(url, data=b"{}", headers={"X-Arena-Dashboard": "1"}, method="POST")
+    answers = []
+    for request in (forged, allowed):
+        try:
+            urllib.request.urlopen(request, timeout=5)
+        except urllib.error.HTTPError as exc:
+            answers.append((exc.code, json.loads(exc.read())))
+
+    assert answers[0][0] == 403 and "X-Arena-Dashboard: 1" in answers[0][1]["error"]
+    assert answers[1][0] == 404 and answers[1][1]["hint"] == "start it with arena evaluation serve --runtime"
+
+
 @pytest.mark.parametrize("path", ["/api/runs/nope", "/api/runs/..", "/api/runs/%2E%2E", f"/api/runs/{RUN_ID}/nope", "/api/nope"])
 def test_api_answers_unknown_runs_and_endpoints_with_404(server: dashboard.DashboardServer, path: str):
     status, body = _get(server, path)
@@ -239,12 +280,10 @@ def test_api_answers_unknown_runs_and_endpoints_with_404(server: dashboard.Dashb
 def test_events_name_live_and_run_changes(server: dashboard.DashboardServer, run_dir: RunDir, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(dashboard, "EVENT_POLL_S", 0.05)
     with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/api/runs/{RUN_ID}/events", timeout=5) as stream:
-        time.sleep(0.2)
         _live(run_dir, time.time())
         assert stream.readline() == b"event: live\n"
         assert stream.readline() == b"data: {}\n"
         assert stream.readline() == b"\n"
-        time.sleep(0.1)
         with run_dir.log_path.open("a") as fh:
             fh.write("line four\n")
         assert stream.readline() == b"event: run\n"
@@ -286,7 +325,7 @@ def test_child_serves_until_stopped_and_until_its_watched_process_exits(run_dir:
 
     watched = subprocess.Popen(["sleep", "30"])
     port = _free_port()
-    orphan = subprocess.Popen([sys.executable, "-m", "arena_evaluation.benchmark.dashboard", "--port", str(port), "--data-root", str(run_dir.path.parent), "--exit-with", str(watched.pid)], stdout=subprocess.PIPE, text=True)
+    orphan = subprocess.Popen([sys.executable, "-m", "arena_evaluation.benchmark.cli", "serve", "--port", str(port), "--data-root", str(run_dir.path.parent), "--exit-with", str(watched.pid)], stdout=subprocess.PIPE, text=True)
     try:
         assert orphan.stdout is not None and orphan.stdout.readline() == f"viz: http://127.0.0.1:{port}/\n"
         watched.kill()
@@ -294,6 +333,21 @@ def test_child_serves_until_stopped_and_until_its_watched_process_exits(run_dir:
         assert orphan.wait(10) == 0
     finally:
         dashboard.stop_child(orphan)
+
+
+def test_port_zero_prints_the_bound_port_and_stdin_eof_stops_the_dashboard(tmp_path: pathlib.Path):
+    proc = subprocess.Popen([sys.executable, "-m", "arena_evaluation.benchmark.cli", "serve", "--port", "0", "--exit-on-eof", "--data-root", str(tmp_path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout is not None and proc.stdin is not None
+        line = proc.stdout.readline()
+        port = urllib.parse.urlsplit(line.removeprefix(dashboard.VIZ_PREFIX).strip()).port
+        assert line.startswith(dashboard.VIZ_PREFIX) and port
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/identity", timeout=5) as response:
+            assert json.loads(response.read())["pid"] == proc.pid
+        proc.stdin.close()
+        assert proc.wait(10) == 0
+    finally:
+        dashboard.stop_child(proc)
 
 
 def test_child_on_a_foreign_port_raises(run_dir: RunDir):

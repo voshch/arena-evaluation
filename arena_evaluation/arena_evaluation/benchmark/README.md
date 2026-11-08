@@ -12,6 +12,7 @@ Runs multi-planner benchmark campaigns: spawns simulation environments, drives e
 | `step.py` | `Step`, `StepResult`, `StepErrorKind`: grid model for contestant x stage combinations |
 | `debug.py` | Process introspection: `running_processes()`, `tail_console()`, `console_log_path()` |
 | `dashboard.py`, `dashboard.html` | Live web dashboard (`arena evaluation serve`, `--viz`): `run_status`, `run_detail`, the HTTP server and its page |
+| `dashboard_runtime.py` | The dashboard's runtime page (`serve --runtime`): MCP tool functions on an event loop thread |
 | `profiler.py` | `PipelineProfiler`: CPU, GPU, RAM, duration metrics |
 ## CLI (`arena evaluation`)
 
@@ -23,6 +24,8 @@ arena evaluation ps                            # List running arena OS processes
 arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
 arena evaluation console [<run_id>]            # Tail runner.log (--follow for streaming)
 arena evaluation serve [--port N] [--host H]   # Live web dashboard of every run, http://127.0.0.1:8765 by default
+arena evaluation serve --runtime                # Plus the runtime page: envs, episodes, spawn, pause, step, lockstep
+_meta/tools/arena-web [--prefix PATH]           # On the host: one hub over the dev container and every fork
 arena evaluation benchmark                     # Launch a benchmark campaign
 ```
 
@@ -161,7 +164,8 @@ runner.run()
 run dirs alone, so it shows shared runs, runs on other ROS domains and dead runs alike. The run
 page has the step grid (contestant by stage, colored by status), each lane's busy envs with their
 episode and wall and sim time, failed steps, episodes per minute over the last 10 minutes (the run's
-age while it is younger, at least 1 minute) with an ETA, the newest episodes and the runner log tail. It updates through a server-sent event stream
+age while it is younger, at least 1 minute) with an ETA, the newest episodes and the runner log tail. Clicking a grid cell
+limits the newest episodes to that step. It updates through a server-sent event stream
 that watches the run dir's file mtimes once a second.
 
 `benchmark --viz` starts it as a child of the runner before the first step, prints
@@ -176,6 +180,37 @@ Every runner writes `live.json` (`live.<lane>.json` in a lane): its slot table, 
 step counts, replaced atomically on every slot change and every 2 s. A lane whose file is older
 than 10 s while not `finished` shows as stale, a sim time that stops for 30 s as not advancing.
 
+`serve --runtime` adds the runtime page (`/runtime`) for the runtime on the server's ROS domain,
+built on the `runtime_*`, `episode_*` and `view_*` MCP tool functions it runs on the `arena_mcp`
+ROS node: sim health, pause holds, lockstep, each env's robot, world and episode, spawn
+(robot, world, planner, task mode per axis, count, more launch args, each a free text field with
+suggestions), reset, reset into another world or with a seed, despawn,
+despawn all, hold, release, step, lockstep start, pause, resume and stop, and a camera still per
+env when a viewport captures (`dashboard_runtime.py`). Control requests are POSTs that must carry
+`X-Arena-Dashboard: 1`, which a page of another origin cannot send. While a benchmark runner
+publishes `/arena/benchmark/state` the page only watches, every control answers 409. The page
+keeps its Activity list in the browser's local storage across reloads. With `--runtime` the runs
+page also starts a benchmark (suite, contest, run id, launch args): `benchmark` detached on the
+server's ROS domain, refused while a runtime or another runner is up there, its console in
+`<data_root>/.web/<run_id>.log`.
+`--port 0` binds a free port and prints it, `--exit-on-eof` stops the server when stdin closes.
+
+`_meta/tools/arena-web` is the hub over all of them, run on the host: it finds this machine's arena
+containers (the dev container and every fork, by the `ARENA_FORK` in their environment), starts
+`serve --runtime --port 0 --exit-on-eof` inside a container on first use through `docker exec -i`,
+and proxies its pages under `/t/<container>/`. Every machine runs its own hub over its own
+containers; the hub reaches nothing over the network, so the ports a viewer names are the ones on
+that machine. The hub's root is the Targets
+page: every container with its runtime state, start runtime (with an installed sim and launch
+args), stop runtime, connect, new fork and delete fork (typed name),
+all run in the containers with the arena CLI and
+listed under Activity with their output as it arrives. A row opens its target's runtime page,
+connecting first. Closing the hub closes each exec's stdin, which ends the dashboards. It
+opens its page with `xdg-open` once it listens when a display is set, `--no-open` leaves that out.
+`--only REGEX` limits the forks shown, dev containers always show. `--prefix PATH` serves the hub
+under that path for a reverse proxy in front of it: the page then roots every request it makes at
+that path.
+
 | Endpoint | Returns |
 |---|---|
 | `/`, `/runs/<run_id>` | The page |
@@ -183,9 +218,29 @@ than 10 s while not `finished` shows as stale, a sim time that stops for 30 s as
 | `/api/runs` | Light status of the 100 newest runs |
 | `/api/runs/<run_id>` | `run_status` plus `grid`, `live`, `episodes`, `recent` |
 | `/api/runs/<run_id>/live` | The live lanes alone |
-| `/api/runs/<run_id>/progress?last=N` | The last N folded progress rows |
+| POST `/api/runs` | Starts a benchmark (`--runtime`): `suite`, `contest`, optional `run_id` and `args` |
+| `/api/runs/<run_id>/progress?last=N&step=K` | The last N folded progress rows, of step K alone when given |
 | `/api/runs/<run_id>/log?tail=N` | The last N lines of every runner log |
 | `/api/runs/<run_id>/events` | Server-sent `live` and `run` events on file changes |
+| `/runtime` | The runtime page (`--runtime`) |
+| `/api/runtime` | Runtime state, sim time, envs with their episode, benchmark owner, viewport, each env's `view` (`web_port`, `grpc_port`, `url`, or null), `age_s` and `now`. Served from a cache a loop on the bridge refreshes every second while a client asked within 30 s, every action refreshes at once. A failed refresh replaces the cache, the endpoint then answers that error until a refresh succeeds |
+| `/api/runtime/options` | `robots`, `worlds`, `planners`, `launch_args`, `sims`, `suites`, `contests` for the forms, `task_modes` as `{axis: {multi, modes: {mode: {namespace, params}}}}` with each param's `name`, `leaf`, `type`, `default`, `label`, `description`, `choices`, `catalog`, `range`, `read_only` and, when declared, `pair` and `widget`, read from the mode schemas, `docs` (the first docstring line of the tool behind each action) and `catalogs` (the kinds below) |
+| `/api/runtime/catalog?kind=K&world=W` | `{kind, world, items}` from an env's resolvers when one is up, else offline for `worlds`, `scenarios` (needs `world`) and `robots`, other kinds answer 409. Cached 60 s |
+| `/api/runtime/envs/<env_id>/task` | The env's active `modes` per axis and the current `params` (full name to value) of those modes |
+| `/api/runtime/envs/<env_id>/camera.png` | One frame of the sim viewport following the env's robot |
+| POST `/api/runtime/spawn` | `count`, `launch_args`, optional `modes` (`{axis: [names]}`, validated by the task layer) and `params` (full name to value, each declared by a selected mode) merged over the launch args |
+| POST `/api/runtime/<action>` | `despawn_all`, `hold`, `release`, `step`, `lockstep_start`, `lockstep_pause`, `lockstep_resume`, `lockstep_stop` |
+| POST `/api/runtime/envs/<env_id>/<action>` | `view` and `view_stop` (the env's live rerun view, present when `rerun_utils` provides the `viz_rerun_*` tools), `reset` (optional `world`, `seed`, and `modes` and `params`, queued with `episode_queue` first), `despawn`, `cleanup` |
+| POST `/api/runs/<run_id>/stop` | Stops the run's runners with `evaluation_stop`, 409 with its hint when none runs |
+
+| arena-web endpoint | Returns |
+|---|---|
+| `/` | The Targets page |
+| `/t/<container>/...` | The target's dashboard (`/t/dev/`, `/t/myfork/runtime`) |
+| `/hub/targets` | Containers with dashboard state and runtime snapshot, docker errors, busy targets |
+| `/hub/activity` | The last 50 hub actions with their output |
+| POST `/hub/targets/<container>/<action>` | `connect`, `runtime_up` (`sim`, `args`), `runtime_down`, `fork_down` (`confirm` = fork name) |
+| POST `/hub/fork_new` | `name` |
 
 ## Run State
 

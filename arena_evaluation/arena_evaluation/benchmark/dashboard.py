@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 
 if typing.TYPE_CHECKING:
+    from .dashboard_runtime import RuntimeBridge
     from .state import Manifest
 
 APP = "arena-evaluation-dashboard"
@@ -36,6 +37,8 @@ RATE_WINDOW_S = 600.0
 MIN_RATE_WINDOW_S = 60.0
 RECENT_ROWS = 30
 LOG_TAIL_BYTES = 262144
+MAX_BODY_BYTES = 65536
+CONTROL_HEADER = "X-Arena-Dashboard"
 OUTCOMES = {"0": "queued", "1": "running", "2": "success", "3": "failed", "4": "skipped", "5": "fatal"}
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
 _WILDCARD_HOSTS = ("", "0.0.0.0", "::")
@@ -54,6 +57,16 @@ class RunNotFoundError(LookupError):
 
 class DashboardError(RuntimeError):
     """The dashboard server could not start."""
+
+
+class ControlError(Exception):
+    """A runtime page request answered with an HTTP error status, a message and an optional next step."""
+
+    def __init__(self, status: int, message: str, hint: str | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.hint = hint
 
 
 def _alive(pid: int) -> bool:
@@ -242,7 +255,8 @@ def list_runs(data_root: pathlib.Path, limit: int = 100) -> list[dict[str, typin
         return []
     running = running_pids_by_run_id()
     runs = []
-    for path in sorted((p for p in data_root.iterdir() if (p / "manifest.yaml").is_file()), reverse=True)[:limit]:
+    manifests = [p / "manifest.yaml" for p in data_root.iterdir() if (p / "manifest.yaml").is_file()]
+    for path in [m.parent for m in sorted(manifests, key=lambda m: m.stat().st_mtime, reverse=True)[:limit]]:
         try:
             status = run_status(path, running=running, light=True)
         except RunStatusError:
@@ -284,8 +298,9 @@ def url(host: str, port: int, run_id: str | None = None) -> str:
 class DashboardServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], data_root: pathlib.Path) -> None:
+    def __init__(self, address: tuple[str, int], data_root: pathlib.Path, runtime: RuntimeBridge | None = None) -> None:
         self.data_root = data_root.resolve()
+        self.runtime = runtime
         self.stopping = threading.Event()
         super().__init__(address, _Handler)
 
@@ -296,7 +311,7 @@ class DashboardServer(http.server.ThreadingHTTPServer):
         return path
 
     def identity(self) -> dict[str, typing.Any]:
-        return {"app": APP, "data_root": str(self.data_root), "pid": os.getpid()}
+        return {"app": APP, "data_root": str(self.data_root), "pid": os.getpid(), "runtime": self.runtime is not None}
 
     def shutdown(self) -> None:
         self.stopping.set()
@@ -316,7 +331,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         parts = [urllib.parse.unquote(part) for part in target.path.split("/") if part]
         query = urllib.parse.parse_qs(target.query)
         try:
-            if not parts or parts[0] == "runs":
+            if not parts or parts[0] in ("runs", "runtime"):
                 self._send(200, "text/html; charset=utf-8", _PAGE.read_bytes())
             elif parts == ["api", "identity"]:
                 self._json(self.dashboard.identity())
@@ -324,14 +339,71 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._json({"data_root": str(self.dashboard.data_root), "runs": list_runs(self.dashboard.data_root)})
             elif len(parts) >= 3 and parts[:2] == ["api", "runs"]:
                 self._run(self.dashboard.run_dir(parts[2]), parts[3:], query)
+            elif parts[:2] == ["api", "runtime"]:
+                self._runtime_get(parts[2:], query)
             else:
                 self._json({"error": f"no endpoint {target.path}"}, 404)
+        except ControlError as exc:
+            self._json({"error": exc.message, "hint": exc.hint}, exc.status)
         except RunNotFoundError as exc:
             self._json({"error": str(exc)}, 404)
         except RunStatusError as exc:
             self._json({"error": str(exc)}, 409)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def do_POST(self) -> None:
+        parts = [urllib.parse.unquote(part) for part in urllib.parse.urlsplit(self.path).path.split("/") if part]
+        try:
+            if self.headers.get(CONTROL_HEADER) != "1":
+                raise ControlError(403, f"control requests need the {CONTROL_HEADER}: 1 header", "the dashboard page sends it, other origins cannot")
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_BODY_BYTES:
+                raise ControlError(413, f"request body over {MAX_BODY_BYTES} bytes")
+            body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            if not isinstance(body, dict):
+                raise ControlError(400, "the request body must be a JSON object")
+            bridge = self._bridge()
+            if parts == ["api", "runs"]:
+                self._json(bridge.start_benchmark(self.dashboard.data_root, body))
+            elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "stop":
+                self._json(bridge.stop_run(self.dashboard.run_dir(parts[2]).name))
+            elif parts == ["api", "runtime", "shutdown"]:
+                self._json(shutdown_runtime())
+            elif len(parts) == 3 and parts[:2] == ["api", "runtime"]:
+                self._json(bridge.act(parts[2], None, body))
+            elif len(parts) == 5 and parts[:3] == ["api", "runtime", "envs"]:
+                self._json(bridge.act(parts[4], _env_id(parts[3]), body))
+            else:
+                raise ControlError(404, f"no control endpoint /{'/'.join(parts)}")
+        except ControlError as exc:
+            self._json({"error": exc.message, "hint": exc.hint}, exc.status)
+        except RunNotFoundError as exc:
+            self._json({"error": str(exc)}, 404)
+        except ValueError as exc:
+            self._json({"error": f"the request body is not JSON: {exc}"}, 400)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _bridge(self) -> RuntimeBridge:
+        if self.dashboard.runtime is None:
+            raise ControlError(404, "this dashboard serves no runtime page", "start it with arena evaluation serve --runtime")
+        return self.dashboard.runtime
+
+    def _runtime_get(self, rest: list[str], query: dict[str, list[str]]) -> None:
+        bridge = self._bridge()
+        if not rest:
+            self._json(bridge.snapshot())
+        elif rest == ["options"]:
+            self._json(bridge.options())
+        elif rest == ["catalog"]:
+            self._json(bridge.catalog(query.get("kind", [""])[0], query.get("world", [""])[0]))
+        elif len(rest) == 3 and rest[0] == "envs" and rest[2] == "camera.png":
+            self._send(200, "image/png", bridge.camera(_env_id(rest[1])))
+        elif len(rest) == 3 and rest[0] == "envs" and rest[2] == "task":
+            self._json(bridge.env_task(_env_id(rest[1])))
+        else:
+            raise ControlError(404, f"no runtime endpoint {'/'.join(rest)}")
 
     def _run(self, path: pathlib.Path, rest: list[str], query: dict[str, list[str]]) -> None:
         if not rest:
@@ -342,6 +414,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             from .state import progress_rows
 
             rows = progress_rows(path)
+            if "step" in query:
+                rows = [row for row in rows if row["step_key"] == query["step"][0]]
             last = _int(query, "last", 200)
             self._json({"n_rows": len(rows), "rows": rows[-last:]})
         elif rest == ["log"]:
@@ -352,11 +426,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._json({"error": f"no endpoint {'/'.join(rest)} on a run"}, 404)
 
     def _events(self, path: pathlib.Path) -> None:
+        last_live, last_run = _signature(path)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        last_live, last_run = _signature(path)
         sent = time.monotonic()
         while not self.dashboard.stopping.wait(EVENT_POLL_S):
             live, run = _signature(path)
@@ -383,6 +457,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def _env_id(text: str) -> int:
+    if not text.isdigit():
+        raise ControlError(404, f"env id {text!r} is not a number")
+    return int(text)
+
+
 def _int(query: dict[str, list[str]], name: str, default: int) -> int:
     try:
         return max(int(query[name][0]), 1)
@@ -399,6 +479,17 @@ def probe(host: str, port: int) -> dict[str, typing.Any] | None:
     except (OSError, ValueError):
         return None
     return identity if isinstance(identity, dict) and identity.get("app") == APP else None
+
+
+def shutdown_runtime() -> dict[str, typing.Any]:
+    """Stop this container's runtime with the arena CLI, which owns it; this dashboard is not part of that process tree."""
+    try:
+        done = subprocess.run(["arena", "runtime", "down"], capture_output=True, text=True, timeout=180, check=False)
+    except OSError as exc:
+        raise ControlError(502, f"cannot run arena runtime down: {exc}", "run the dashboard inside an arena container") from exc
+    if done.returncode != 0:
+        raise ControlError(409, f"arena runtime down failed: {(done.stderr or done.stdout).strip()[:200]}", "the runtime may already be down")
+    return {"shutdown": True}
 
 
 def _held_problem(host: str, port: int, data_root: pathlib.Path) -> str | None:
@@ -430,8 +521,14 @@ def _exit_with(server: DashboardServer, pid: int) -> None:
     server.shutdown()
 
 
-def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None, exit_with: int | None = None) -> int:
-    """Serve until interrupted or exit_with is gone, printing `viz: <url>` once listening; reuse a dashboard of the same data root already on the port."""
+def _exit_on_eof(server: DashboardServer) -> None:
+    for _ in sys.stdin:
+        pass
+    server.shutdown()
+
+
+def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None, exit_with: int | None = None, *, runtime: bool = False, exit_on_eof: bool = False) -> int:
+    """Serve until interrupted, exit_with is gone or stdin closes (exit_on_eof), printing `viz: <url>` with the bound port once listening; reuse a dashboard of the same data root already on the port."""
     data_root = data_root.resolve()
     try:
         server = DashboardServer((host, port), data_root)
@@ -443,9 +540,16 @@ def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = No
         print(f"dashboard: reusing the dashboard already serving {data_root} on port {port}", file=sys.stderr)
         print(VIZ_PREFIX + url(host, port, run_id), flush=True)
         return 0
-    print(VIZ_PREFIX + url(host, port, run_id), flush=True)
+    if runtime:
+        from .dashboard_runtime import RuntimeBridge
+
+        server.runtime = RuntimeBridge()
+    bound = server.server_address[1]
+    print(VIZ_PREFIX + (url(host, bound, run_id) if run_id or not runtime else f"{url(host, bound)}runtime"), flush=True)
     if exit_with is not None:
         threading.Thread(target=_exit_with, args=(server, exit_with), name="dashboard-exit-with", daemon=True).start()
+    if exit_on_eof:
+        threading.Thread(target=_exit_on_eof, args=(server,), name="dashboard-exit-on-eof", daemon=True).start()
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
@@ -453,12 +557,14 @@ def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = No
     finally:
         server.stopping.set()
         server.server_close()
+        if server.runtime is not None:
+            server.runtime.close()
     return 0
 
 
 def start_child(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None) -> tuple[str, subprocess.Popen[str]]:
     """Start the dashboard as a child process and return its URL once it listens or reuses a running one."""
-    argv = [sys.executable, "-m", "arena_evaluation.benchmark.dashboard", "--host", host, "--port", str(port), "--data-root", str(data_root), "--exit-with", str(os.getpid()), *(["--run-id", run_id] if run_id else [])]
+    argv = [sys.executable, "-m", "arena_evaluation.benchmark.cli", "serve", "--host", host, "--port", str(port), "--data-root", str(data_root), "--exit-with", str(os.getpid()), *(["--run-id", run_id] if run_id else [])]
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
     assert proc.stdout is not None
     line = proc.stdout.readline()
@@ -481,23 +587,15 @@ def stop_child(proc: subprocess.Popen[str], grace_s: float = 5.0) -> None:
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host", default=DEFAULT_HOST, help=f"address to listen on (default {DEFAULT_HOST}, 0.0.0.0 for every interface)")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port to listen on (default {DEFAULT_PORT}); a dashboard of the same data root already there is reused, anything else exits 2")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port to listen on (default {DEFAULT_PORT}, 0 picks a free one and prints it); a dashboard of the same data root already there is reused, anything else exits 2")
     parser.add_argument("--data-root", default=None, metavar="PATH", help="benchmarks root to serve (default $ARENA_DATA_DIR/benchmarks)")
     parser.add_argument("--run-id", default=None, help="run whose page the printed URL opens (default the run list)")
+    parser.add_argument("--runtime", action="store_true", help="also serve the runtime page (/runtime): the envs of the runtime on this ROS domain, their episodes and camera, spawn, despawn, reset, pause, step and lockstep controls")
     parser.add_argument("--exit-with", type=int, default=None, metavar="PID", help="stop serving once process PID is gone (benchmark --viz passes its own pid)")
+    parser.add_argument("--exit-on-eof", action="store_true", help="stop serving once stdin closes (arena-web runs each target's dashboard this way, so it ends with the hub's exec session)")
 
 
 def serve_args(args: argparse.Namespace) -> int:
     from arena_evaluation.storage.data_root import benchmarks_root
 
-    return serve(args.host, args.port, pathlib.Path(args.data_root) if args.data_root else benchmarks_root(), args.run_id, args.exit_with)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="dashboard", description="Serve the live benchmark dashboard until Ctrl-C. Prints `viz: <url>` once listening, exits 2 when the port is taken by something else.")
-    add_arguments(parser)
-    return serve_args(parser.parse_args(argv))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return serve(args.host, args.port, pathlib.Path(args.data_root) if args.data_root else benchmarks_root(), args.run_id, args.exit_with, runtime=args.runtime, exit_on_eof=args.exit_on_eof)

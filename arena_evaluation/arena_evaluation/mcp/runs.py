@@ -159,10 +159,11 @@ async def evaluation_dashboard(
     host: Annotated[str | None, pydantic.Field(description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)")] = None,
     run_id: Annotated[str | None, pydantic.Field(description="run whose page the returned URL opens, the run list when omitted")] = None,
     data_root_dir: Annotated[str | None, pydantic.Field(description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted")] = None,
+    runtime: Annotated[bool, pydantic.Field(description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls")] = False,
     confirm_s: Annotated[float, pydantic.Field(description="seconds to wait for the server to listen", gt=0, le=60)] = 20.0,
 ) -> dict[str, Any]:
-    """Start `arena evaluation serve`, the live web dashboard of benchmark runs, as a job and return its URL. jobs_cancel stops it."""
-    argv = [*(["--port", str(port)] if port else []), *(["--host", host] if host else []), *(["--run-id", component(run_id, "run_id")] if run_id else []), *(["--data-root", data_root_dir] if data_root_dir else [])]
+    """Start `arena evaluation serve`, the live web dashboard of benchmark runs and optionally of the runtime's envs, as a job and return its URL. jobs_cancel stops it."""
+    argv = [*(["--port", str(port)] if port else []), *(["--host", host] if host else []), *(["--run-id", component(run_id, "run_id")] if run_id else []), *(["--data-root", data_root_dir] if data_root_dir else []), *(["--runtime"] if runtime else [])]
     job = await cli.job("dashboard", f"dashboard {port or 'default port'}", "evaluation", "serve", *argv)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + confirm_s
