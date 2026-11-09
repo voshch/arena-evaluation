@@ -6,6 +6,7 @@ import collections
 import contextlib
 import copy
 import datetime
+import faulthandler
 import hashlib
 import json
 import logging
@@ -58,6 +59,7 @@ _SIM_STALL_S = 60.0
 _MAX_SIM_DEATHS = 3
 _LOOP_DEADLINE_S = 120.0
 _HUNG_EXIT_CODE = 4
+_SHUTDOWN_DEADLINE_S = _ARENA_SIGINT_GRACE_S + _ARENA_SIGTERM_GRACE_S + _ARENA_ORPHAN_GRACE_S + 60.0
 
 # EpisodeRecord.outcome_state labels (arena_runtime_msgs/msg/EpisodeRecord.msg)
 _EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
@@ -708,6 +710,7 @@ class _RetryBudget:
 
 class BenchmarkRunner(ArenaMixinNode):
     exit_code: typing.ClassVar[int] = 0
+    shutdown_deadline_s: typing.ClassVar[float] = _SHUTDOWN_DEADLINE_S
 
     @classmethod
     def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
@@ -762,6 +765,7 @@ class BenchmarkRunner(ArenaMixinNode):
         except (KeyboardInterrupt, asyncio.CancelledError):
             cls.exit_code = 130
         finally:
+            faulthandler.dump_traceback_later(cls.shutdown_deadline_s, exit=True)
             if watchdog_stop is not None:
                 watchdog_stop.set()
             # Ensure arena runtime subprocess is terminated cleanly
@@ -788,6 +792,7 @@ class BenchmarkRunner(ArenaMixinNode):
             loop.close()
             signal.signal(signal.SIGINT, prev_sigint)
             signal.signal(signal.SIGTERM, prev_sigterm)
+            faulthandler.cancel_dump_traceback_later()
 
     def __init__(
         self,
