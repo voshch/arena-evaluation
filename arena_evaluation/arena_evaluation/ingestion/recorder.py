@@ -112,7 +112,7 @@ def copy_scenario(source: pathlib.Path, target: pathlib.Path) -> bool:
 
 
 _RECORDER_PARAMS = (
-    Param[str]("record_data_dir", "", "Directory the run is recorded into (empty or auto:/ = a timestamped run under data/runs)."),
+    Param[str]("record_data_dir", "", "Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
     Param[str]("benchmark_id", "unknown", "Benchmark run id the recording belongs to."),
     Param[str]("contestant", "unknown", "Contestant name of the recorded planner."),
     Param[str]("stage", "unknown", "Benchmark stage the recording belongs to."),
@@ -128,8 +128,8 @@ _RECORDER_PARAMS = (
     Param[str]("reference_type", "", "Kind of reference the recording is (empty = none)."),
     Param[int]("episode_id_offset", 0, "Offset added to the recorded episode ids."),
     Param[str]("workspace_dir", "", "Workspace directory the run was started from."),
-    Param[str]("world.lighting", "authored", "authored = the lights the world declares, auto = also a calibrated ceiling rig in every zone with a ceiling and no lights."),
-    Param[str]("kg.derive", "auto", "Zone and door facts derived from geometry for the snapshot: auto, all or off.", constraint=Choices("auto", "all", "off")),
+    Param[str]("world.lighting", "authored", "Lighting mode of the world."),
+    Param[str]("kg.derive", "auto", "Which knowledge graph facts the snapshot derives from geometry.", constraint=Choices("auto", "all", "off")),
     Param[str]("data_recorder_autoprefix", "", "Run id chosen for an automatic run directory (empty = generated at start)."),
 )
 

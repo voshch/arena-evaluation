@@ -37,8 +37,6 @@ HOLD_REASON = "dashboard"
 MAX_SPAWN = 16
 _CONFIG_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 _LAUNCH_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:=")
-_SHOW_ARG_RE = re.compile(r"^\s+'([^']+)':\*?\s*$")
-_SHOW_DEFAULT_RE = re.compile(r"^\s+\(default: '(.*)'\)\s*$")
 
 
 def _int(body: dict[str, typing.Any], name: str, default: int, low: int, high: int) -> int:
@@ -662,38 +660,20 @@ def _spawn_fields(launch_args: list[dict[str, str]], planners: list[str]) -> lis
 
 
 def _launch_args_of_env() -> list[dict[str, str]]:
-    """The arguments env.launch.py declares, read from `--show-args`, with the episode parameters and the task mode selectors."""
+    """The arguments env.launch.py declares, with the episode parameters and the task mode selectors."""
+    from arena_bringup.launch_arguments import UnreadableLaunchFile, declared_arguments
     from arena_runtime.env.constants.runtime import EPISODE_PARAMS
     from arena_runtime.env.task_layer import TM_AXES, mode_param
 
     found: dict[str, str] = {mode_param(axis): f"task modes of the {axis} axis" for axis in TM_AXES}
     found.update(EPISODE_PARAMS)
-    for name, description in _show_args("arena_runtime", "env.launch.py").items():
-        found.setdefault(name, description)
-    return [{"name": name, "description": description} for name, description in sorted(found.items())]
-
-
-def _show_args(package: str, file: str) -> dict[str, str]:
-    """Argument name to description of a launch file, empty when `ros2 launch --show-args` fails."""
     try:
-        proc = subprocess.run(["ros2", "launch", package, file, "--show-args"], capture_output=True, text=True, check=False, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
-        return {}
-    if proc.returncode:
-        return {}
-    args: dict[str, str] = {}
-    name = None
-    for line in proc.stdout.splitlines():
-        match = _SHOW_ARG_RE.match(line)
-        if match:
-            name = match.group(1)
-            args[name] = ""
-            continue
-        if name is None or not line.strip() or _SHOW_DEFAULT_RE.match(line):
-            continue
-        if not args[name]:
-            args[name] = line.strip()
-    return args
+        declared = declared_arguments("arena_runtime", "env.launch.py")
+    except UnreadableLaunchFile:
+        declared = []
+    for argument in declared:
+        found.setdefault(argument.name, argument.description)
+    return [{"name": name, "description": description} for name, description in sorted(found.items())]
 
 
 def _sims() -> list[str]:
