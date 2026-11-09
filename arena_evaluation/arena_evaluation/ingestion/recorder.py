@@ -15,9 +15,11 @@ import rclpy
 import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
+from arena_rclpy_mixins.params import Param, Range, declare
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
+from arena_simulation_setup import params as world_params
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -110,39 +112,38 @@ def copy_scenario(source: pathlib.Path, target: pathlib.Path) -> bool:
     return True
 
 
+_RECORDER_PARAMS = (
+    Param[str]("record_data_dir", "", "Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
+    Param[str]("benchmark_id", "unknown", "Benchmark run id the recording belongs to."),
+    Param[str]("contestant", "unknown", "Contestant name of the recorded planner."),
+    Param[str]("stage", "unknown", "Benchmark stage the recording belongs to."),
+    Param[str]("map", "unknown", "Map the episodes run on."),
+    Param[str]("world", "unknown", "World the episodes run in."),
+    Param[str]("suite_name", "", "Benchmark suite the run belongs to."),
+    Param[str]("contest_name", "", "Contest the run belongs to."),
+    Param[str]("local_planner", "", "Local planner under test."),
+    Param[str]("inter_planner", "", "Intermediate planner under test."),
+    Param[str]("robot", "", "Robot model of the run."),
+    Param[int]("episodes_requested", 0, "Number of episodes the run asked for (0 = unspecified).", constraint=Range(lo=0)),
+    Param[bool]("is_reference", False, "Mark the recording as a reference run."),
+    Param[str]("reference_type", "", "Kind of reference the recording is (empty = none)."),
+    Param[int]("episode_id_offset", 0, "Offset added to the recorded episode ids."),
+    Param[str]("workspace_dir", "", "Workspace directory the run was started from."),
+    world_params.WORLD_LIGHTING,
+    world_params.KG_DERIVE,
+    Param[str]("data_recorder_autoprefix", "", "Run id chosen for an automatic run directory (empty = generated at start)."),
+)
+
+
 class DataRecorderNode(Node, EpisodeWriter):
     def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
         super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
-        for name, default in [
-            ("record_data_dir", ""),
-            ("benchmark_id", "unknown"),
-            ("contestant", "unknown"),
-            ("stage", "unknown"),
-            ("map", "unknown"),
-            ("world", "unknown"),
-            ("suite_name", ""),
-            ("contest_name", ""),
-            ("local_planner", ""),
-            ("inter_planner", ""),
-            ("robot", ""),
-            ("episodes_requested", 0),
-            ("is_reference", False),
-            ("reference_type", ""),
-            ("episode_id_offset", 0),
-            ("workspace_dir", ""),
-            ("world.lighting", "authored"),
-            ("kg.derive", "auto"),
-        ]:
-            if not self.has_parameter(name):
-                try:
-                    self.declare_parameter(name, default)
-                except Exception:
-                    pass
+        handles = {param.name: declare(self, param) for param in _RECORDER_PARAMS}
 
-        record_data_dir = str(self.get_parameter("record_data_dir").value or "")
+        record_data_dir = str(handles["record_data_dir"].value or "")
 
         if not record_data_dir:
             for idx, arg in enumerate(sys.argv):
@@ -160,10 +161,10 @@ class DataRecorderNode(Node, EpisodeWriter):
         ws_data = (workspace_root / "data").resolve()
         ws_runs = (workspace_root / "data" / "runs").resolve()
 
-        map_val = str(self.get_parameter("map").value or self.get_parameter("world").value or "")
-        robot_val = str(self.get_parameter("robot").value or "")
-        planner_val = str(self.get_parameter("local_planner").value or self.get_parameter("contestant").value or "")
-        bench_id_val = str(self.get_parameter("benchmark_id").value or "")
+        map_val = str(handles["map"].value or handles["world"].value or "")
+        robot_val = str(handles["robot"].value or "")
+        planner_val = str(handles["local_planner"].value or handles["contestant"].value or "")
+        bench_id_val = str(handles["benchmark_id"].value or "")
 
         def _generate_run_id() -> str:
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -181,12 +182,7 @@ class DataRecorderNode(Node, EpisodeWriter):
             return f"{ts}-run"
 
         if record_data_dir.startswith("auto:/"):
-            if not self.has_parameter("data_recorder_autoprefix"):
-                try:
-                    self.declare_parameter("data_recorder_autoprefix", "")
-                except Exception:
-                    pass
-            param_value = self.get_parameter("data_recorder_autoprefix").value
+            param_value = handles["data_recorder_autoprefix"].value
             if not param_value:
                 run_id = _generate_run_id()
                 self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
@@ -202,12 +198,7 @@ class DataRecorderNode(Node, EpisodeWriter):
 
             # If pointing to base "data", "data/runs", or "runs", generate data/runs/<run_id>/episodes
             if p_resolved == ws_data or p_resolved == ws_runs or (p.name in ("data", "runs") and (p_resolved.parent in (workspace_root.resolve(), ws_data))):
-                if not self.has_parameter("data_recorder_autoprefix"):
-                    try:
-                        self.declare_parameter("data_recorder_autoprefix", "")
-                    except Exception:
-                        pass
-                param_value = self.get_parameter("data_recorder_autoprefix").value
+                param_value = handles["data_recorder_autoprefix"].value
                 if not param_value:
                     run_id = _generate_run_id()
                     self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
@@ -234,30 +225,30 @@ class DataRecorderNode(Node, EpisodeWriter):
         except Exception:
             pass
 
-        self.benchmark_id = str(self.get_parameter("benchmark_id").value or "unknown")
-        self.planner = str(self.get_parameter("contestant").value or "unknown")
-        self.stage = str(self.get_parameter("stage").value or "unknown")
-        self.map_name = str(self.get_parameter("map").value or "unknown")
-        self.world = str(self.get_parameter("world").value or "unknown")
-        self.suite_name = str(self.get_parameter("suite_name").value or "")
-        self.contest_name = str(self.get_parameter("contest_name").value or "")
-        self.local_planner = str(self.get_parameter("local_planner").value or "")
-        self.inter_planner = str(self.get_parameter("inter_planner").value or "")
-        self.episodes_requested = int(self.get_parameter("episodes_requested").value or 0)
-        self.is_reference = bool(self.get_parameter("is_reference").value)
-        ref_type = self.get_parameter("reference_type").value
+        self.benchmark_id = str(handles["benchmark_id"].value or "unknown")
+        self.planner = str(handles["contestant"].value or "unknown")
+        self.stage = str(handles["stage"].value or "unknown")
+        self.map_name = str(handles["map"].value or "unknown")
+        self.world = str(handles["world"].value or "unknown")
+        self.suite_name = str(handles["suite_name"].value or "")
+        self.contest_name = str(handles["contest_name"].value or "")
+        self.local_planner = str(handles["local_planner"].value or "")
+        self.inter_planner = str(handles["inter_planner"].value or "")
+        self.episodes_requested = int(handles["episodes_requested"].value or 0)
+        self.is_reference = bool(handles["is_reference"].value)
+        ref_type = handles["reference_type"].value
         self.reference_type = ref_type if ref_type else None
-        self._episode_id_offset = int(self.get_parameter("episode_id_offset").value or 0)
-        self.workspace_dir = str(self.get_parameter("workspace_dir").value or "")
-        self.world_lighting = str(self.get_parameter("world.lighting").value or "authored")
-        self.kg_derive = str(self.get_parameter("kg.derive").value or "auto")
+        self._episode_id_offset = int(handles["episode_id_offset"].value or 0)
+        self.workspace_dir = str(handles["workspace_dir"].value or "")
+        self.world_lighting = str(handles["world.lighting"].value)
+        self.kg_derive = str(handles["kg.derive"].value)
         self._snapshot_worlds: set[str] = set()
         self._snapshot_scenarios: set[tuple[str, str]] = set()
 
         env_namespace = self.get_namespace().strip('/')
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
 
-        self.robot_model = str(self.get_parameter("robot").value or "unknown")
+        self.robot_model = str(handles["robot"].value or "unknown")
         self.current_sim_episode_id: int | None = None
         self.known_robots = set()
 
