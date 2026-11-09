@@ -660,13 +660,11 @@ def _spawn_fields(launch_args: list[dict[str, str]], planners: list[str]) -> lis
 
 
 def _launch_args_of_env() -> list[dict[str, str]]:
-    """The arguments env.launch.py declares, with the episode parameters and the task mode selectors."""
-    from arena_bringup.launch_arguments import UnreadableLaunchFile, declared_arguments
-    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
-    from arena_runtime.env.task_layer import TM_AXES, mode_param
+    """The arguments env.launch.py declares, with the task mode selectors."""
+    from arena_rclpy_mixins.launch_argument import UnreadableLaunchFile, declared_arguments
+    from arena_runtime.env.task_layer import TM_AXES, mode_param, mode_param_description
 
-    found: dict[str, str] = {mode_param(axis): f"task modes of the {axis} axis" for axis in TM_AXES}
-    found.update(EPISODE_PARAMS)
+    found: dict[str, str] = {mode_param(axis): mode_param_description(axis) for axis in TM_AXES}
     try:
         declared = declared_arguments("arena_runtime", "env.launch.py")
     except UnreadableLaunchFile:

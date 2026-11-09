@@ -15,10 +15,11 @@ import rclpy
 import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from arena_rclpy_mixins.params import Choices, Param, Range, declare
+from arena_rclpy_mixins.params import Param, Range, declare
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
+from arena_simulation_setup import params as world_params
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -128,8 +129,8 @@ _RECORDER_PARAMS = (
     Param[str]("reference_type", "", "Kind of reference the recording is (empty = none)."),
     Param[int]("episode_id_offset", 0, "Offset added to the recorded episode ids."),
     Param[str]("workspace_dir", "", "Workspace directory the run was started from."),
-    Param[str]("world.lighting", "authored", "Lighting mode of the world."),
-    Param[str]("kg.derive", "auto", "Which knowledge graph facts the snapshot derives from geometry.", constraint=Choices("auto", "all", "off")),
+    world_params.WORLD_LIGHTING,
+    world_params.KG_DERIVE,
     Param[str]("data_recorder_autoprefix", "", "Run id chosen for an automatic run directory (empty = generated at start)."),
 )
 
@@ -239,8 +240,8 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.reference_type = ref_type if ref_type else None
         self._episode_id_offset = int(handles["episode_id_offset"].value or 0)
         self.workspace_dir = str(handles["workspace_dir"].value or "")
-        self.world_lighting = str(handles["world.lighting"].value or "authored")
-        self.kg_derive = str(handles["kg.derive"].value or "auto")
+        self.world_lighting = str(handles["world.lighting"].value)
+        self.kg_derive = str(handles["kg.derive"].value)
         self._snapshot_worlds: set[str] = set()
         self._snapshot_scenarios: set[tuple[str, str]] = set()
 
