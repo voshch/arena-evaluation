@@ -43,13 +43,13 @@ def validate_modes(modes):
 
 
 def declare_mode_schema(node, axis, mode):
-    from rcl_interfaces.msg import ParameterDescriptor
+    from arena_rclpy_mixins.params import Param, declare
 
     CALLS.append([axis, mode])
     if mode == "patrol":
-        node.rosparam.declare_forward("runtime.patrol.speed", 1.0, descriptor=ParameterDescriptor())
+        declare(node, Param[float]("runtime.patrol.speed", 1.0, "Patrol speed in m/s."))
     if mode == "convoy":
-        node.rosparam.declare_forward("runtime.convoy.gap", 1.0, descriptor=ParameterDescriptor())
+        declare(node, Param[float]("runtime.convoy.gap", 1.0, "Convoy gap in m."))
 """
 
 DRIVER = """

@@ -179,6 +179,11 @@ def cell_verdict(result: StepResult) -> str:
     return "ok"
 
 
+def _yaml_str(value: object) -> str:
+    """value as a quoted YAML string, so a ros-args parameter stays a string whatever it looks like."""
+    return json.dumps(str(value))
+
+
 class _WithSteps(typing.Protocol):
     steps: dict[str, StepResult]
 
@@ -1636,32 +1641,32 @@ class BenchmarkRunner(ArenaMixinNode):
                         "-p",
                         "use_sim_time:=true",
                         "-p",
-                        f"record_data_dir:={step.record_dir}",
+                        f"record_data_dir:={_yaml_str(step.record_dir)}",
                         "-p",
-                        f"benchmark_id:={self._run_id}",
+                        f"benchmark_id:={_yaml_str(self._run_id)}",
                         "-p",
-                        f"contestant:={step.contestant.name}",
+                        f"contestant:={_yaml_str(step.contestant.name)}",
                         "-p",
-                        f"stage:={step.stage.name}",
+                        f"stage:={_yaml_str(step.stage.name)}",
                         "-p",
-                        f"map:={step.stage.map}",
+                        f"map:={_yaml_str(step.stage.map)}",
                         "-p",
-                        f"suite_name:={self._suite.name}",
+                        f"suite_name:={_yaml_str(self._suite.name)}",
                         "-p",
-                        f"contest_name:={self._contest.name}",
+                        f"contest_name:={_yaml_str(self._contest.name)}",
                         "-p",
-                        f"local_planner:={lp}",
+                        f"local_planner:={_yaml_str(lp)}",
                         "-p",
-                        f"inter_planner:={ip}",
+                        f"inter_planner:={_yaml_str(ip)}",
                         "-p",
-                        f"robot:={step.robot}",
+                        f"robot:={_yaml_str(step.robot)}",
                         "-p",
                         f"episodes_requested:={step.episodes}",
                         "-p",
                         f"is_reference:={str(step.is_reference).lower()}",
                     ]
                     if step.reference_type:
-                        recorder_args.extend(["-p", f"reference_type:={step.reference_type}"])
+                        recorder_args.extend(["-p", f"reference_type:={_yaml_str(step.reference_type)}"])
 
                     recorder_args.extend(
                         [
