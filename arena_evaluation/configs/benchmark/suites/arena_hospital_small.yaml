@@ -55,12 +55,12 @@ stages:
         max: 0
         min: 0
         models:
-        - shelf
+        - SquareShelf
       static:
         max: 10
         min: 5
         models:
-        - shelf
+        - SquareShelf
     scenario:
       file: "1.json"
   episodes: 5
@@ -125,12 +125,12 @@ stages:
         max: 0
         min: 0
         models:
-        - shelf
+        - SquareShelf
       static:
         max: 10
         min: 5
         models:
-        - shelf
+        - SquareShelf
     scenario:
       file: "1.json"
   episodes: 5
@@ -195,12 +195,12 @@ stages:
         max: 0
         min: 0
         models:
-        - shelf
+        - SquareShelf
       static:
         max: 10
         min: 5
         models:
-        - shelf
+        - SquareShelf
     scenario:
       file: "1.json"
   episodes: 5

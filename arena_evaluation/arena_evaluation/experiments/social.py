@@ -34,7 +34,7 @@ WORLD = "hospital_1_bare"
 ROBOT = "jackal"
 EPISODES = 3
 SEED_BASE = 76000
-MODELS = ("female_adult_business_02", "male_adult_construction_01", "female_adult_business_02")
+MODELS = ("Office/office_female_caucasian_young", "worker_male_caucasian_young", "Office/office_female_caucasian_young")
 
 _ROOT = pathlib.Path(__file__).resolve().parent
 

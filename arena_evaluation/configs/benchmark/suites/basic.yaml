@@ -113,8 +113,8 @@ stages:
       interactive:
         min: 0
         max: 0
-        models: [shelf]
+        models: [SquareShelf]
       static:
         min: 5
         max: 10
-        models: [shelf]
+        models: [SquareShelf]

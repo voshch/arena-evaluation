@@ -38,7 +38,7 @@ SERVICE_DWELL_S = 0.0
 TIMEOUT_S = 90
 EPISODES = 2
 SEED_BASE = 72000
-MODEL = "female_adult_business_02"
+MODEL = "Office/office_female_caucasian_young"
 
 SCENARIO_TO_MAP = (0.0, 0.0)
 

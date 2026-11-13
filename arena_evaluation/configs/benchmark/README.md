@@ -54,7 +54,7 @@ stages:
         file: 4.json
       random:
         dynamic:  {min: 3, max: 5, models: [arenian]}  # -> task.random.dynamic.n=[3,5], task.random.dynamic.models
-        static:   {min: 5, max: 10, models: [shelf]}
+        static:   {min: 5, max: 10, models: [SquareShelf]}
       humansim:
         global_planner: {resolution: 0.1}              # -> human_params humansim.global_planner.resolution
 ```

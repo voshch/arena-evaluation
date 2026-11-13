@@ -157,7 +157,7 @@ def agent_yaml(name: str, interaction: str, meet: tuple[float, float], exit_: tu
 
 
 def scenario_yaml(geo: Geometry) -> dict:
-    models = ("female_adult_business_02", "male_adult_construction_01")
+    models = ("Office/office_female_caucasian_young", "worker_male_caucasian_young")
     return {
         "robots": [{"start": [_r(v) for v in geo.start], "goal": [_r(v) for v in geo.goal]}],
         "dynamic": [
