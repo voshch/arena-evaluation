@@ -1,0 +1,164 @@
+launch:
+  sim: gazebo
+  headless: true
+  env.n: 1
+  optim.obstacles: bbox
+metrics:
+  max_collisions: 1
+stages:
+- name: hs_p15_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730000
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_highly_social_p15
+    humansim:
+      local_planner: socialgail
+- name: hs_p15_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730000
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_highly_social_p15
+    humansim:
+      local_planner: nsp
+- name: hs_p20_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730010
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_highly_social_p20
+    humansim:
+      local_planner: socialgail
+- name: hs_p20_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730010
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_highly_social_p20
+    humansim:
+      local_planner: nsp
+- name: bc_p15_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730100
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_blocked_corridors_p15
+    humansim:
+      local_planner: socialgail
+- name: bc_p15_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730100
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_blocked_corridors_p15
+    humansim:
+      local_planner: nsp
+- name: bc_p20_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730110
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_blocked_corridors_p20
+    humansim:
+      local_planner: socialgail
+- name: bc_p20_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730110
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_blocked_corridors_p20
+    humansim:
+      local_planner: nsp
+- name: ev_p15_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730200
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_evacuation_p15
+    humansim:
+      local_planner: socialgail
+- name: ev_p15_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730200
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_evacuation_p15
+    humansim:
+      local_planner: nsp
+- name: ev_p20_socialgail
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730210
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_evacuation_p20
+    humansim:
+      local_planner: socialgail
+- name: ev_p20_nsp
+  map: map_empty
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 5
+  seed: 730210
+  timeout: 180s
+  config:
+    scenario:
+      file: rss27_evacuation_p20
+    humansim:
+      local_planner: nsp
