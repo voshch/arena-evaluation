@@ -23,6 +23,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     clips_on_axis,
     load_wall_grid,
     load_zone_geometry,
+    robot_holding_series,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -145,6 +146,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
             fleet=_resample_fleet(episode.fleet, time_ns, robot),
             walls=load_wall_grid(self.world),
             clips=clips_on_axis(episode.peds, gestures, time_ns),
+            holding=robot_holding_series(events, robot),
         )
         ctx.ped_roster = _ped_roster(ctx.data)
         polygons = ctx.polygons

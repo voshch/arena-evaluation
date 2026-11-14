@@ -326,3 +326,33 @@ def test_replay_judges_a_structured_family_until_with_its_hold():
     results = _calc().calculate(_episode(phases, poses, early), {})
     assert results["judge_agrees"] is False
     assert results["judge_disagreements"] == ["phase 0 recorded as met but not met in replay"]
+
+
+def _holding_rows(t, held):
+    return [(t, "env_0/jackal_0", "robot", "holding", held)]
+
+
+_CLOSE_ON_CUP = {"phases": [{"grasp": "close", "object": "cup_1"}], "conditions": []}
+
+
+def test_replay_meets_a_close_on_an_object_the_record_shows_held():
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _holding_rows(0, "") + _holding_rows(S, "cup_1") + _robot_rows(2 * S, "", met="0"))
+    results = _calc().calculate(_episode(_CLOSE_ON_CUP, poses, snapshot), {})
+    assert results["phase_outcomes"] == ["met"]
+    assert results["judge_agrees"] is True
+
+
+def test_replay_rejects_a_close_on_an_object_the_record_never_shows_held():
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _holding_rows(0, "") + _robot_rows(2 * S, "", met="0"))
+    results = _calc().calculate(_episode(_CLOSE_ON_CUP, poses, snapshot), {})
+    assert results["judge_agrees"] is False
+    assert results["judge_disagreements"] == ["phase 0 recorded as met but not met in replay"]
+
+
+def test_replay_accepts_a_close_on_an_object_when_the_record_never_measured_holding():
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _robot_rows(2 * S, "", met="0"))
+    results = _calc().calculate(_episode(_CLOSE_ON_CUP, poses, snapshot), {})
+    assert results["judge_agrees"] is True

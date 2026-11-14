@@ -25,6 +25,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     clips_on_axis,
     load_wall_grid,
     load_zone_geometry,
+    robot_holding_series,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from snapshot_rows import snapshot_frame
@@ -682,3 +683,69 @@ def test_clause_verdict_scores_structured_p_and_q():
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.openness.door_left", "within": [0.0, 1.0]}}, ctx) is True
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": 0.5}}, ctx) is None
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": "half"}}, ctx) is None
+
+
+def _holding_rows(*changes):
+    return snapshot_frame([(t, "env_0/jackal_0", "robot", "holding", "discrete", held) for t, held in changes])
+
+
+def test_robot_holding_series_reads_the_robot_entity_field_by_bare_name():
+    snapshot = snapshot_frame(
+        [
+            (0, "env_0/jackal_0", "robot", "holding", "discrete", ""),
+            (2_000_000_000, "env_0/jackal_0", "robot", "holding", "discrete", "cup_1"),
+            (0, "env_0/jackal_0", "robot", "phase", "discrete", "0"),
+            (0, "env_0/jackal_1", "robot", "holding", "discrete", "crate"),
+        ]
+    )
+    times, values = robot_holding_series(_reconstruct_events(snapshot), "jackal_0")
+    assert times.tolist() == [0, 2_000_000_000]
+    assert values == ["", "cup_1"]
+    assert robot_holding_series(_reconstruct_events(snapshot), "ghost") is None
+    assert robot_holding_series(_reconstruct_events(None), "jackal_0") is None
+
+
+def test_sample_holding_follows_the_recorded_series_and_splits_several_objects():
+    snapshot = _holding_rows((0, ""), (1_000_000_000, "cup_1,tray"), (3_000_000_000, ""))
+    events = _reconstruct_events(snapshot)
+    ctx = _ctx([0, 1_000_000_000, 2_000_000_000, 3_000_000_000])
+    ctx.holding = robot_holding_series(events, "jackal_0")
+    assert [ctx.sample(i).holding for i in range(4)] == [
+        {"robot": frozenset()},
+        {"robot": frozenset({"cup_1", "tray"})},
+        {"robot": frozenset({"cup_1", "tray"})},
+        {"robot": frozenset()},
+    ]
+
+
+def test_sample_holding_is_unmeasured_without_a_recorded_series():
+    assert _ctx([0, 1_000_000_000]).sample(0).holding is None
+
+
+def test_calculate_holds_atom_from_the_recorded_holding():
+    calc = _calc()
+    calc.world = "synthetic_conditions5"
+    calc._world_cache["synthetic_conditions5"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions5"] = None
+    times = [0, 1_000_000_000, 2_000_000_000]
+    data = pl.DataFrame({"time_ns": times, "pos_x": [1.0] * 3, "pos_y": [1.0] * 3, "yaw": [0.0] * 3})
+    conditions = [{"op": "eventually", "p": "robot holds cup_1"}, {"op": "never", "p": "robot holds crate"}, {"op": "eventually", "p": "robot holds crate"}]
+    episode = _episode(data, semantic_snapshot=_holding_rows((0, ""), (1_000_000_000, "cup_1"), (2_000_000_000, "")), conditions=conditions)
+    episode.robot_name = "env_0_jackal_0"
+    results = calc.calculate(episode, {})
+    assert (results["clauses_passed"], results["clauses_failed"], results["clauses_unknown"]) == (2, 1, 0)
+    assert results["condition_success"] == 0.0
+
+
+def test_calculate_holds_atom_is_unknown_when_the_recording_never_measured_holding():
+    calc = _calc()
+    calc.world = "synthetic_conditions6"
+    calc._world_cache["synthetic_conditions6"] = [_square("pharmacy")]
+    _wall_cache["synthetic_conditions6"] = None
+    times = [0, 1_000_000_000]
+    data = pl.DataFrame({"time_ns": times, "pos_x": [1.0] * 2, "pos_y": [1.0] * 2, "yaw": [0.0] * 2})
+    episode = _episode(data, conditions=[{"op": "eventually", "p": "robot holds cup_1"}])
+    episode.robot_name = "env_0_jackal_0"
+    results = calc.calculate(episode, {})
+    assert (results["clauses_passed"], results["clauses_failed"], results["clauses_unknown"]) == (0, 0, 1)
+    assert results["condition_success"] is None

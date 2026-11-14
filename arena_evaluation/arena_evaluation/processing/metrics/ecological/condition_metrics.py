@@ -102,6 +102,14 @@ def _entity_family_series(events: pl.DataFrame, entity: str, family: str) -> dic
     return series
 
 
+def robot_holding_series(events: pl.DataFrame, robot: str) -> tuple[np.ndarray, list[str]] | None:
+    """Sorted (event times, comma-joined held objects) of the robot entity's `holding` field, None when the recording never measured holding."""
+    rows = events.filter((pl.col("kind") == "robot") & (pl.col("field") == "holding") & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot)).sort("time_ns")
+    if len(rows) == 0:
+        return None
+    return rows["time_ns"].to_numpy(), rows["current"].to_list()
+
+
 def _value_at(times: np.ndarray, values: list[str], t_ns: int) -> str:
     """Stepwise value at `t_ns`, holding the earliest known (seed) value before it."""
     idx = int(np.searchsorted(times, t_ns, side="right")) - 1
@@ -200,6 +208,7 @@ class _EvalContext:
     fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(default_factory=dict)
     walls: WallGrid | None = None
     clips: list[dict[str, frozenset[str]]] | None = None
+    holding: tuple[np.ndarray, list[str]] | None = None
     _fields: dict[tuple[str, str], tuple[np.ndarray, list[str]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     _families: dict[tuple[str, str], dict[str, tuple[np.ndarray, list[str]]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     _ped_rows: tuple[list, list] | None = dataclasses.field(default=None, init=False, repr=False)
@@ -254,7 +263,8 @@ class _EvalContext:
         t_ns = int(self.time_ns[i])
         known = frozenset(self.ped_roster) | frozenset(self.fleet)
         clips = self.clips[i] if self.clips is not None else {}
-        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls, family=lambda entity, family: self.family_at(entity, family, t_ns))
+        holding = None if self.holding is None else {"robot": frozenset(item for item in _value_at(self.holding[0], self.holding[1], t_ns).split(",") if item)}
+        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls, family=lambda entity, family: self.family_at(entity, family, t_ns), holding=holding)
 
     @property
     def polygons(self) -> dict[str, shapely.Polygon | shapely.MultiPolygon]:
@@ -390,8 +400,9 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
         if len(time_ns) == 0 or len(pos_x) != len(time_ns):
             return empty
 
+        events = _reconstruct_events(episode.semantic_snapshot)
         ctx = _EvalContext(
-            events=_reconstruct_events(episode.semantic_snapshot),
+            events=events,
             time_ns=time_ns,
             pos_x=pos_x,
             pos_y=pos_y,
@@ -404,6 +415,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             fleet=_resample_fleet(episode.fleet, time_ns, bare_robot_name(episode.robot_name or "")),
             walls=load_wall_grid(self.world),
             clips=clips_on_axis(episode.peds, episode.topics.get("ped_gestures") if episode.topics else None, time_ns),
+            holding=robot_holding_series(events, bare_robot_name(episode.robot_name or "")),
         )
 
         verdicts = [_clause_verdict(clause, ctx) for clause in conditions]
