@@ -124,6 +124,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("goal_uuid", pa.string()),
             ("integrity", pa.list_(pa.string())),
             ("phases", pa.string()),
+            ("tasks", pa.string()),
             ("params", pa.string()),
             ("conditions", pa.string()),
         ]
@@ -395,6 +396,7 @@ class MCAPReader:
                     decoders = {}
                     collision_kind_schema_cache: dict[int, bool] = {}
                     phases_schema_cache: dict[int, bool] = {}
+                    tasks_schema_cache: dict[int, bool] = {}
                     integrity_schema_cache: dict[int, bool] = {}
 
                     schema_fields: dict[int, tuple[bool, bool, bool]] = {}
@@ -688,6 +690,12 @@ class MCAPReader:
                                 has_phases = re.search(r"^\s*string\s+phases\b", schema.data.decode(), re.M) is not None
                                 phases_schema_cache[schema.id] = has_phases
                             target["phases"].append(ros_msg.phases if has_phases else "")
+
+                            has_tasks = tasks_schema_cache.get(schema.id)
+                            if has_tasks is None:
+                                has_tasks = re.search(r"^\s*string\s+tasks\b", schema.data.decode(), re.M) is not None
+                                tasks_schema_cache[schema.id] = has_tasks
+                            target["tasks"].append(ros_msg.tasks if has_tasks else "")
 
                             params_yaml = ""
                             try:

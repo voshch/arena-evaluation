@@ -272,6 +272,22 @@ def _robot_phases(record: pl.DataFrame, robot_dir: str) -> dict | None:
     return None
 
 
+def _record_tasks(record: pl.DataFrame) -> list[dict]:
+    """The task events of the last of the episode's own records whose `tasks` JSON is a non-empty list, [] without."""
+    import json
+
+    if "tasks" not in record.columns:
+        return []
+    for raw in reversed(record["tasks"].to_list()):
+        try:
+            parsed = json.loads(raw) if raw else None
+        except ValueError:
+            continue
+        if isinstance(parsed, list) and parsed:
+            return [event for event in parsed if isinstance(event, dict)]
+    return []
+
+
 def _fleet_poses(robots: dict[str, TopicBundle], window: tuple[int | None, int | None]) -> dict[str, pl.DataFrame]:
     """Recorded judge poses of every robot in the episode by bare name, cut to the window."""
     from arena_evaluation.processing.metrics.ecological.condition_metrics import bare_robot_name
@@ -340,6 +356,17 @@ _METRIC_DTYPES = {
     "stuck": pl.Boolean,
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
+    "tasks_total": pl.Int64,
+    "tasks_met": pl.Int64,
+    "tasks_failed": pl.Int64,
+    "task_reassignments": pl.Int64,
+    "task_success_rate": pl.Float64,
+    "makespan_s": pl.Float64,
+    "busy_s": pl.Float64,
+    "idle_s": pl.Float64,
+    "task_ids": pl.List(pl.String),
+    "task_outcomes": pl.List(pl.String),
+    "task_durations_s": pl.List(pl.Float64),
 }
 
 from .metrics.registry import MetricRegistry
@@ -670,6 +697,7 @@ class ProcessingPipeline:
 
                 conditions = None
                 phases = None
+                tasks: list[dict] = []
                 outcome_state = None
                 outcome_info = None
                 if bundle.episode_record is not None:
@@ -678,6 +706,8 @@ class ProcessingPipeline:
                         er = er.collect()
                     if len(er) > 0:
                         conditions = _record_conditions(er)
+                        if "time_ns" in er.columns:
+                            tasks = _record_tasks(_episode_rows(er))
                         if "outcome_state" in er.columns and "time_ns" in er.columns:
                             phases = _robot_phases(_episode_rows(er), robot_name)
                         outcome_state, outcome_info = _record_outcome(er, metadata)
@@ -698,6 +728,7 @@ class ProcessingPipeline:
                     semantic_snapshot=semantic_snapshot_df,
                     conditions=conditions,
                     phases=phases,
+                    tasks=tasks,
                     fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
