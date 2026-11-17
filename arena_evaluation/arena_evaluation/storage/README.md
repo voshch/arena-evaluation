@@ -1,6 +1,6 @@
-# storage (Layer 2: Shared Schemas and Path Management)
+# storage (Layer 1: recording and storage)
 
-Shared data types and path management utilities used across the evaluation pipeline.
+The stored layout of one benchmark: the registry that declares every stored table once, the metadata and bundle types, the dimension tables written at the benchmark root, and the paths, atomic writes and contract checks around them.
 
 ---
 
@@ -8,145 +8,45 @@ Shared data types and path management utilities used across the evaluation pipel
 
 | File | Purpose |
 |---|---|
-| `schemas.py` | Pydantic and dataclass type definitions |
-| `folder_manager.py` | Path resolution and run discovery (`FolderManager`) |
-| `manifest.py` | YAML reading and writing (`MetadataWriter`) |
-| `legacy.py` | Maps the `tm_*` fields and leaf params of records made before `modes` to `modes` and full-name `params` |
-| `exceptions.py` | Pipeline domain exceptions |
+| `registry/` | One `Table` class per stored table: columns, units, row keys, null reasons, the Polars and Arrow schemas and the file path. `table.py` the `Table` base class and the metric declarations, `telemetry.py` the recorded tables, `dimensions.py` the six dimension tables, the six dimension tables and the metric dictionary among them, `facts.py` the identity and recorded columns of the fact tables (the metric layer declares the metric columns), `scopes.py` the scopes and `null_reasons.py` the reasons of a NULL |
+| `star_schema.py` | Dimension tables: `conform` a frame to its registry schema, `stack` the episodes, `write_benchmark_dimensions` once at the benchmark root |
+| `contracts.py` | The dimension contract: registry schema, unique non-NULL keys, and a reason for every NULL. A violation raises `ContractViolationError` |
+| `schemas.py` | `RunMetadata` (the metadata of one episode), `EpisodeDescriptor`, `RobotParams`, and `TopicBundle` (the recorded tables of one robot) |
+| `manifest.py` | `MetadataWriter`: reads and writes the episode YAML |
+| `folder_manager.py` | Paths of benchmarks, episodes and MCAP files under the data root; discovers the episodes of a benchmark |
+| `data_root.py` | The data root (`ARENA_DATA_DIR`, or the installed package data) and the latest benchmark |
+| `atomic.py` | Atomic replacement of files and the advisory lock of a read-modify-write |
+| `planner_names.py` | Splits a planner name into its local and inter planner |
+| `exceptions.py` | The package's exception types |
 
----
+## Layout of a benchmark
 
-## schemas.py - Data Models
-
-### `RunMetadata`
-
-Pydantic model matching `metadata.yaml`.
-
-```python
-from arena_evaluation.storage.schemas import RunMetadata
-
-meta = RunMetadata(
-    benchmark_id="my_benchmark",
-    planner="dwa",
-    robot_model=["jackal"],
-    map="map_empty",
-    stage="stage_1",
-    episodes_requested=10,
-    suite_name="default",
-    contest_name="dwa_vs_teb",
-    inter_planner="",
-    agent_name="",
-    recording_started_at="2026-05-28T21:03:48+00:00",
-    python_version="3.12.3",
-    ros_distro="jazzy",
-)
+```
+<data root>/<benchmark_id>/
+|-- manifest.yaml                 the runner's run manifest
+|-- benchmark_layout.yaml         the layout version and registry schema hash of the tables
+|-- contract_report.yaml          the last benchmark-contract verdict
+|-- migration_report.yaml         written by `evaluation migrate` (see docs/migrate.md)
+|-- dim_episodes.parquet          one row per episode and robot
+|-- dim_robots.parquet
+|-- dim_pedestrians.parquet
+|-- dim_world_entities.parquet
+|-- dim_world_geometry.parquet    one row per vertex of a world's geometry
+|-- dim_metrics.parquet           one row per metric and scope: the metric dictionary
+|-- episodes/episode_NNN/
+|   |-- episode_NNN.mcap          the recording
+|   |-- episode_NNN.yaml          RunMetadata of the episode
+|   |-- topics/                   the native tables, one Parquet file each
+|   `-- metrics/                  the fact tables and the series tables, one Parquet file each
+|-- analysis/                     run-local reports/, plots/, queries/ and evidence/ (Layer 3)
+|-- reports/<name>/               rendered report.html and its plots/*.png (Layer 4)
+`-- legacy/                       pre-overhaul outputs quarantined by the migration, never read
 ```
 
-### `RunDescriptor`
+## Rules
 
-Dataclass identifying a discovered run. Returned by `FolderManager.discover_runs()`.
-
-```python
-@dataclass(frozen=True)
-class RunDescriptor:
-    run_dir: str
-    benchmark_id: str
-    planner: str
-    stage: str
-```
-
-### `TopicBundle`
-
-Dataclass holding one Polars DataFrame per recorded topic.
-
-```python
-@dataclass
-class TopicBundle:
-    odom: pl.DataFrame | None
-    scan: pl.DataFrame | None
-    cmd_vel: pl.DataFrame | None
-    joint_states: pl.DataFrame | None
-    peds: pl.DataFrame | None
-    peds_physics: pl.DataFrame | None
-    ped_gestures: pl.DataFrame | None
-    interactions: pl.DataFrame | None
-    interaction_events: pl.DataFrame | None
-    animation_states: pl.DataFrame | None
-    episode_record: pl.DataFrame | None
-    collision_events: pl.DataFrame | None
-```
-
-### `AlignedEpisodeBundle`
-
-Dataclass produced after aligning topics onto the odom time axis.
-
-```python
-@dataclass
-class AlignedEpisodeBundle:
-    episode_id: int
-    data: pl.DataFrame
-    start_pos: list[float]
-    goal_pos: list[float]
-    num_pedestrians: int
-```
-
-### `RobotParams`
-
-Dataclass loaded from `arena_robots` capabilities YAML.
-
-```python
-params = RobotParams.load("jackal")
-```
-
-### `PlotSpec`
-
-Pydantic model for entries in report manifests.
-
----
-
-## folder_manager.py - FolderManager
-
-Resolves output paths relative to `data_root` with path traversal validation.
-
-```python
-from arena_evaluation.storage.folder_manager import FolderManager
-from pathlib import Path
-
-fm = FolderManager(data_root=Path("/opt/arena_ws/data"))
-
-run_dir   = fm.run_dir("my_benchmark", "dwa", "stage_1")
-mcap_path = fm.mcap_path(run_dir)
-metrics   = fm.metrics_path(run_dir)
-combined  = fm.combined_metrics_path("my_benchmark")
-runs      = fm.discover_runs("my_benchmark")
-```
-
----
-
-## manifest.py - MetadataWriter
-
-Helper for reading and writing `metadata.yaml` files.
-
-```python
-from arena_evaluation.storage.manifest import MetadataWriter
-from pathlib import Path
-
-dest = Path("/opt/arena_ws/data/recordings/20260528-210000/metadata.yaml")
-
-MetadataWriter.write(metadata, dest)
-metadata = MetadataWriter.read(dest)
-MetadataWriter.update(dest, episodes_recorded=10, recording_ended_at="2026-05-28T22:00:00+00:00")
-```
-
----
-
-## exceptions.py
-
-| Exception | Raised When |
-|---|---|
-| `MetricCalculationError` | Metric calculator fails |
-| `CircularDependencyError` | Circular `DEPENDS_ON` chain detected |
-| `SchemaViolationError` | Data violates schema requirements |
-| `RobotNotFoundError` | Robot capability file is missing |
-| `ManifestGenerationError` | Manifest read/write fails |
-
+- A stored table is declared once, in `registry/`, and imported wherever it is used. No other module spells its column names. The series tables (`registry/series.py`) are the per-sample rows one robot's episode publishes, one `metrics/series_<stem>.parquet` each, keyed by run, episode, robot and native time; the writer conforms each frame to its declaration and refuses a frame that drifts from it.
+- A missing value is NULL with a reason from `NullReason`. It is never a zero and never an invented default.
+- The dimension tables are written once per benchmark: the episode tables from each episode's metadata and recorded telemetry, `dim_world_geometry` from the compacted level of each named world, and the metric dictionary from the metric declarations. No metric value feeds them.
+- A missing required input is an error, never a zero or a silent default.
+- Storage imports nothing from `processing`, `presentation`, `analytics`, `metrics`, `benchmark` or `mcp`.

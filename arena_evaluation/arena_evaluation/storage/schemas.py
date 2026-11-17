@@ -1,18 +1,18 @@
 from __future__ import annotations
 
+import typing
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+import polars as pl
+from pydantic import BaseModel, Field
+
+from arena_evaluation.storage.exceptions import ContractViolationError, MetricInputError
+from arena_evaluation.storage.registry.table import Table
+from arena_evaluation.storage.registry.telemetry import RobotDescriptor, RobotParamRows
 
 if TYPE_CHECKING:
     import pathlib
-
-    import polars as pl
-
-import typing
-from dataclasses import dataclass, field, fields
-
-from pydantic import BaseModel, Field, model_validator
-
-from .legacy import read_metadata
 
 
 class RunMetadata(BaseModel):
@@ -43,8 +43,9 @@ class RunMetadata(BaseModel):
     ros_distro: str
 
     task_layer: str = ""
-    modes: dict[str, list[str]] = Field(default_factory=dict)
-    params: dict[str, typing.Any] = Field(default_factory=dict)
+
+    modes: dict[str, list[str]]
+    params: dict[str, typing.Any]
 
     recording_ended_at: str | None = None
     episodes_recorded: int | None = None
@@ -63,91 +64,122 @@ class RunMetadata(BaseModel):
     reference_type: str | None = None
     parent_episode_id: int | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _map_legacy_fields(cls, data: object) -> object:
-        return read_metadata(data) if isinstance(data, dict) else data
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RobotParams:
-    """Robot physical parameters loaded at runtime."""
+    """Robot physical parameters recorded with the episode; no value is assumed."""
 
-    model: str = "unknown"
-    robot_radius: float = 0.25
-    laser_min_range: float = 0.0
-    laser_max_range: float = 30.0
-    base_mass: float = 0.0
-    component_masses: dict[str, float] = field(default_factory=dict)
-    max_linear_velocity: float = 0.0
+    model: str
+    robot_radius: float
+    laser_min_range: float | None
+    laser_max_range: float | None
+    base_mass: float
+    component_masses: dict[str, float]
 
     @property
     def mass(self) -> float:
-        """Total mass in kg, or 0.0 if undeclared."""
+        """Total mass in kg: the base plus every recorded component."""
         return self.base_mass + sum(self.component_masses.values())
 
-    @classmethod
-    def load(cls, model: str) -> RobotParams:
-        """Load parameters from arena_robots share directory, returning defaults on failure."""
-        import os
 
-        import yaml
-        from ament_index_python.packages import get_package_share_directory
+#: The recorded parameter keys that fill a :class:`RobotParams` field.
+_RECORDED_PARAMETER_FIELDS: typing.Final[dict[str, str]] = {
+    "robot_radius": "robot_radius",
+    "robot_mass_kg": "base_mass",
+    "base_mass": "base_mass",
+    "laser_min_range": "laser_min_range",
+    "laser_max_range": "laser_max_range",
+}
 
-        defaults = cls()
-        radius = defaults.robot_radius
-        base_mass = defaults.base_mass
-        component_masses: dict[str, float] = {}
+#: The RobotParams fields a recorded robot must declare, with the recorded key each one needs.
+_REQUIRED_RECORDED_FIELDS: typing.Final[dict[str, str]] = {
+    "robot_radius": "robot_radius",
+    "base_mass": "robot_mass_kg",
+}
 
-        try:
-            robot_dir = os.path.join(get_package_share_directory("arena_robots"), "robots", model.partition("[")[0])
-        except Exception:
-            return cls(model=model)
 
-        def _read(path: str) -> dict:
-            try:
-                with open(path) as file:
-                    return yaml.safe_load(file) or {}
-            except Exception:
-                return {}
-
-        radius = float(_read(os.path.join(robot_dir, "caps", "mobile.yaml")).get("radius", radius))
-        base_mass = float(_read(os.path.join(robot_dir, "model_params.yaml")).get("mass", {}).get("base_kg", base_mass))
-        max_linear_velocity = 0.0
-        for block in _read(os.path.join(robot_dir, "control.yaml")).values():
-            params = block.get("ros__parameters", {}) if isinstance(block, dict) else {}
-            if "linear.x.max_velocity" in params:
-                max_linear_velocity = float(params["linear.x.max_velocity"])
-
-        components_root = os.path.join(os.path.dirname(os.path.dirname(robot_dir)), "components")
-        for kind, entries in _read(os.path.join(robot_dir, "assembly.yaml")).get("defaults", {}).items():
-            for entry in entries or []:
-                variant = (entry or {}).get("variant")
-                if not variant:
-                    continue
-                kg = _read(os.path.join(components_root, kind, variant, "component.yaml")).get("mass", {}).get("kg")
-                if kg:
-                    component_masses[f"{kind}/{variant}"] = float(kg)
-
-        return cls(
-            model=model,
-            robot_radius=radius,
-            laser_min_range=defaults.laser_min_range,
-            laser_max_range=defaults.laser_max_range,
-            base_mass=base_mass,
-            component_masses=component_masses,
-            max_linear_velocity=max_linear_velocity,
+def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams:
+    """The recorded parameters of one robot from its descriptor and parameter rows, never a default."""
+    descriptor_rows = _declared_rows(rows, RobotDescriptor, robot_id)
+    parameter_rows = _declared_rows(rows, RobotParamRows, robot_id)
+    model = _descriptor_model(descriptor_rows, robot_id)
+    recorded = _recorded_parameters(parameter_rows, robot_id)
+    missing = [
+        key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded
+    ]
+    if missing:
+        raise MetricInputError(
+            f"robot {robot_id!r} has no recorded parameter(s) {missing}"
         )
+    return RobotParams(
+        model=model,
+        robot_radius=recorded["robot_radius"],
+        laser_min_range=recorded.get("laser_min_range"),
+        laser_max_range=recorded.get("laser_max_range"),
+        base_mass=recorded["base_mass"],
+        component_masses={},
+    )
 
 
-@dataclass(frozen=True)
-class RunDescriptor:
-    """Descriptor for a single run directory."""
+def _declared_rows(
+    rows: pl.DataFrame, table: type[Table], robot_id: str
+) -> pl.DataFrame:
+    """The robot's rows projected to one declared registry table; a frame without its columns names no such rows."""
+    try:
+        declared = rows.select(table.polars_schema().names())
+    except pl.exceptions.ColumnNotFoundError as error:
+        raise MetricInputError(
+            f"robot {robot_id!r} has no recorded {table.table_name} rows: {error}"
+        ) from error
+    return declared.filter(pl.col("robot_id") == robot_id)
 
-    run_dir: str
-    benchmark_id: str
-    planner: str
-    stage: str
+
+def _descriptor_model(rows: pl.DataFrame, robot_id: str) -> str:
+    """The model of the robot's declared descriptor row; a row that carries none is not a descriptor."""
+    models = rows.get_column("model").drop_nulls().unique()
+    if models.len() == 0:
+        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
+    if models.len() > 1:
+        raise ContractViolationError(
+            f"robot {robot_id!r} has conflicting recorded models"
+        )
+    return str(models.item())
+
+
+def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
+    """The recorded values of the RobotParams fields, from the declared long parameter rows only."""
+    values: dict[str, float] = {}
+    for parameter_field in dict.fromkeys(_RECORDED_PARAMETER_FIELDS.values()):
+        keys = [
+            key
+            for key, recorded_field in _RECORDED_PARAMETER_FIELDS.items()
+            if recorded_field == parameter_field
+        ]
+        recorded = (
+            rows.filter(pl.col("param_key").is_in(keys))
+            .get_column("param_value")
+            .drop_nulls()
+            .unique()
+        )
+        if recorded.len() > 1:
+            raise ContractViolationError(
+                f"robot {robot_id!r} has conflicting recorded values of {parameter_field!r}"
+            )
+        if recorded.len() == 1:
+            values[parameter_field] = _parameter_number(
+                robot_id, keys[0], recorded.item()
+            )
+    return values
+
+
+def _parameter_number(robot_id: str, key: str, value: str) -> float:
+    """The numeric value of one recorded parameter; a value that is not a number is refused, never defaulted."""
+    try:
+        return float(value)
+    except (TypeError, ValueError) as error:
+        raise ContractViolationError(
+            f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -159,44 +191,53 @@ class EpisodeDescriptor:
     episode_id: int
     planner: str
     stage: str
-    map: str = "unknown"
+    map: str
     is_reference: bool = False
     reference_type: str | None = None
 
 
 @dataclass
 class TopicBundle:
-    """Raw topic dataframes extracted from MCAP."""
+    """Flat telemetry tables of one robot: the episode's ingested tables filtered to its robot and environment."""
 
-    odom: pl.DataFrame | pl.LazyFrame | None = None
-    scan: pl.DataFrame | pl.LazyFrame | None = None
-    cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
-    joint_states: pl.DataFrame | pl.LazyFrame | None = None
-    peds: pl.DataFrame | pl.LazyFrame | None = None
-    peds_physics: pl.DataFrame | pl.LazyFrame | None = None
-    ped_gestures: pl.DataFrame | pl.LazyFrame | None = None
-    interactions: pl.DataFrame | pl.LazyFrame | None = None
-    interaction_events: pl.DataFrame | pl.LazyFrame | None = None
-    animation_states: pl.DataFrame | pl.LazyFrame | None = None
-    episode_record: pl.DataFrame | pl.LazyFrame | None = None
-    collision_events: pl.DataFrame | pl.LazyFrame | None = None
-    collision_monitor_state: pl.DataFrame | pl.LazyFrame | None = None
-    power: pl.DataFrame | pl.LazyFrame | None = None
-    energy: pl.DataFrame | pl.LazyFrame | None = None
-    acoustics: pl.DataFrame | pl.LazyFrame | None = None
-    plan: pl.DataFrame | pl.LazyFrame | None = None
-    characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
-    characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
-    initialpose: pl.DataFrame | pl.LazyFrame | None = None
-    task_pose: pl.DataFrame | pl.LazyFrame | None = None
     tf: pl.DataFrame | pl.LazyFrame | None = None
     tf_static: pl.DataFrame | pl.LazyFrame | None = None
-    tf_gt: pl.DataFrame | pl.LazyFrame | None = None
-    semantic_snapshot: pl.DataFrame | pl.LazyFrame | None = None
+    world_semantics: pl.DataFrame | pl.LazyFrame | None = None
+    robot_tracks: pl.DataFrame | pl.LazyFrame | None = None
+    robot_odom: pl.DataFrame | pl.LazyFrame | None = None
+    robot_cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
+    robot_scan_summary: pl.DataFrame | pl.LazyFrame | None = None
+    robot_joint_states: pl.DataFrame | pl.LazyFrame | None = None
+    robot_power: pl.DataFrame | pl.LazyFrame | None = None
+    robot_joint_power: pl.DataFrame | pl.LazyFrame | None = None
+    robot_energy: pl.DataFrame | pl.LazyFrame | None = None
+    robot_acoustics: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_events: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_contacts: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_monitor: pl.DataFrame | pl.LazyFrame | None = None
+    robot_plans: pl.DataFrame | pl.LazyFrame | None = None
+    robot_characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
+    robot_characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
+    robot_initialpose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_task_pose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_goal_pose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_descriptor: pl.DataFrame | pl.LazyFrame | None = None
+    robot_params: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_arena_peds: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_agent_states: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_gestures: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_animations: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interactions: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interaction_members: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interaction_events: pl.DataFrame | pl.LazyFrame | None = None
+    episode_lifecycle: pl.DataFrame | pl.LazyFrame | None = None
+    episode_integrity: pl.DataFrame | pl.LazyFrame | None = None
+    environment_map: pl.DataFrame | pl.LazyFrame | None = None
+    environment_map_cells: pl.DataFrame | pl.LazyFrame | None = None
 
     def available(self) -> set[str]:
         """Names of the topics this bundle carries."""
-        return {f.name for f in fields(self) if getattr(self, f.name) is not None}
+        return {name for name, table in vars(self).items() if table is not None}
 
 
 @dataclass
@@ -223,21 +264,8 @@ class AlignedEpisodeBundle:
     peds: pl.DataFrame | None = None
     map: str | None = None
     topics: dict[str, pl.DataFrame] | None = None
+    # 1NF series frames of this robot episode by table stem, populated before scope evaluation so
+    # calculators with SERIES_DEPENDS_ON read the published tables instead of retired list outputs.
+    series: dict[str, pl.DataFrame] = field(default_factory=dict)
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
-
-
-class PlotSpec(BaseModel):
-    """Specification for a single plot in a report manifest."""
-
-    id: str
-    type: str
-    title: str
-    data_key: str
-    group_by: list[str] | str | None = None
-    differentiate: str | None = "planner"
-    auto_differentiate: bool = True
-    filter: dict[str, typing.Any] | None = None
-    options: dict[str, typing.Any] = Field(default_factory=dict)
-    layout_group: str | None = None
-    data_source: str | None = None
