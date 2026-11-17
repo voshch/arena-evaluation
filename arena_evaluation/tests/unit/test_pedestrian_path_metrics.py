@@ -1,96 +1,73 @@
-import math
+"""Pedestrian trajectories: one row per (t_ns, ped_id) in the 1NF pedestrian path series table."""
+
+from __future__ import annotations
 
 import polars as pl
+import pytest
+from flat_peds import flat_peds
 
-from arena_evaluation.processing.metrics.performance.pedestrian_path_metrics import PedestrianPathMetricsCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.processing.metrics.performance.pedestrian_path_metrics import (
+    PedestrianPathMetricsCalculator,
+)
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from robot_params_factory import make_robot_params
 
-
-def _episode(rows: list) -> AlignedEpisodeBundle:
-    """Episode whose aligned frame carries one flat x,y,z peds_positions list per row."""
-    df = pl.DataFrame({"peds_positions": rows}, schema={"peds_positions": pl.List(pl.Float64)})
-    return AlignedEpisodeBundle(episode_id=1, data=df, start_pos=[], goal_pos=[])
-
-
-def _paths(rows: list) -> list:
-    return PedestrianPathMetricsCalculator(RobotParams()).calculate(_episode(rows), {})["pedestrian_path"]
+SEC = 1_000_000_000
 
 
-def _is_nan_point(point: list) -> bool:
-    return len(point) == 3 and all(math.isnan(v) for v in point)
+def _episode(
+    times: list[int], frames: list[tuple[int, list[dict]]] | None = None
+) -> AlignedEpisodeBundle:
+    """Robot samples at the given times, with the pedestrian table of the given frames."""
+    data = pl.DataFrame({"t_ns": times}, schema={"t_ns": pl.Int64})
+    if frames is None:
+        return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[])
+    peds = flat_peds(frames)
+    return AlignedEpisodeBundle(
+        episode_id=1,
+        data=data,
+        start_pos=[],
+        goal_pos=[],
+        peds=peds,
+        topics={"pedestrian_arena_peds": peds},
+    )
 
 
-def test_output_keys_and_unit():
-    assert PedestrianPathMetricsCalculator.output_keys() == ["pedestrian_path"]
-    assert PedestrianPathMetricsCalculator.UNITS == {"pedestrian_path": "m"}
+def _series(times: list[int], frames: list[tuple[int, list[dict]]]) -> pl.DataFrame:
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
+    return calculator.series_table(
+        _episode(times, frames), run_id="run", robot_id="jackal_0"
+    )
 
 
-def test_missing_frame_yields_no_paths():
-    episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
-    assert PedestrianPathMetricsCalculator(RobotParams()).calculate(episode, {}) == {"pedestrian_path": []}
+def _at(x: float, y: float) -> dict:
+    return {"x": x, "y": y}
 
 
-def test_frame_without_peds_column_yields_no_paths():
-    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame({"time_ns": [0, 1]}), start_pos=[], goal_pos=[])
-    assert PedestrianPathMetricsCalculator(RobotParams()).calculate(episode, {}) == {"pedestrian_path": []}
+def test_the_legacy_list_key_has_no_metric_row_output():
+    assert PedestrianPathMetricsCalculator.output_keys() == []
+    assert PedestrianPathMetricsCalculator.OUTPUTS == ()
+    assert (
+        PedestrianPathMetricsCalculator(make_robot_params()).calculate(
+            AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[]), {}
+        )
+        == {}
+    )
 
 
-def test_empty_frame_yields_no_paths():
-    assert _paths([]) == []
+def test_a_pedestrian_table_without_a_position_column_is_rejected():
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
+    tracks = pl.DataFrame(
+        {"t_ns": [0], "ped_id": ["a"], "x": [0.0]},
+        schema={"t_ns": pl.Int64, "ped_id": pl.String, "x": pl.Float64},
+    )
+    episode = AlignedEpisodeBundle(
+        episode_id=1,
+        data=pl.DataFrame({"t_ns": [0]}, schema={"t_ns": pl.Int64}),
+        start_pos=[],
+        goal_pos=[],
+        topics={"pedestrian_arena_peds": tracks},
+    )
 
-
-def test_all_null_rows_yield_no_paths():
-    assert _paths([None, None, None]) == []
-
-
-def test_rows_shorter_than_one_triple_yield_no_paths():
-    assert _paths([[1.0, 2.0], []]) == []
-
-
-def test_two_pedestrians_are_split_into_time_aligned_xyz_paths():
-    assert _paths([[0.0, 0.0, 0.0, 5.0, 5.0, 0.5], [1.0, 0.0, 0.0, 5.0, 6.0, 0.5]]) == [
-        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
-        [[5.0, 5.0, 0.5], [5.0, 6.0, 0.5]],
-    ]
-
-
-def test_null_row_repeats_previous_position_of_every_pedestrian():
-    assert _paths([[0.0, 0.0, 0.0, 3.0, 3.0, 0.0], None, [2.0, 0.0, 0.0, 3.0, 4.0, 0.0]]) == [
-        [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
-        [[3.0, 3.0, 0.0], [3.0, 3.0, 0.0], [3.0, 4.0, 0.0]],
-    ]
-
-
-def test_leading_null_row_stays_nan():
-    (path,) = _paths([None, [1.0, 2.0, 0.0]])
-    assert len(path) == 2
-    assert _is_nan_point(path[0])
-    assert path[1] == [1.0, 2.0, 0.0]
-
-
-def test_pedestrian_dropping_out_holds_its_last_position():
-    assert _paths([[0.0, 0.0, 0.0, 5.0, 5.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]) == [
-        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
-        [[5.0, 5.0, 0.0], [5.0, 5.0, 0.0], [5.0, 5.0, 0.0]],
-    ]
-
-
-def test_pedestrian_appearing_late_is_nan_before_first_sample():
-    first, second = _paths([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 7.0, 7.0, 0.0]])
-    assert first == [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
-    assert _is_nan_point(second[0])
-    assert second[1] == [7.0, 7.0, 0.0]
-
-
-def test_trailing_partial_triple_is_ignored():
-    assert _paths([[0.0, 1.0, 2.0, 9.0], [3.0, 4.0, 5.0]]) == [[[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]]
-
-
-def test_pedestrian_with_nan_x_throughout_is_dropped():
-    assert _paths([[0.0, 0.0, 0.0, float("nan"), 1.0, 0.0], [1.0, 0.0, 0.0, float("nan"), 2.0, 0.0]]) == [
-        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
-    ]
-
-
-def test_single_sample_episode_yields_one_point_paths():
-    assert _paths([[4.0, 5.0, 6.0, 7.0, 8.0, 9.0]]) == [[[4.0, 5.0, 6.0]], [[7.0, 8.0, 9.0]]]
+    with pytest.raises(ValueError, match=r"pedestrian_arena_peds lacks \['y'\]"):
+        calculator.series_table(episode)

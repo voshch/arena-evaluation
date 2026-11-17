@@ -1,64 +1,73 @@
-"""Unit tests for VizManifest YAML parsing/round-trip with the declarative fields."""
+"""Unit tests for the single VizManifest and PlotSpec declaration grammar."""
+
+from __future__ import annotations
 
 import pathlib
+
 import pytest
-import yaml
+from pydantic import ValidationError
 
-from arena_evaluation.presentation.manifest_registry import find_manifest_file, available_manifests
-from arena_evaluation.presentation.viz_manifest import VizManifest
-
-
-@pytest.mark.parametrize("manifest_name", ["standard", "safety", "social", "ecological", "characterization", "everything", "failure_modes"])
-def test_all_bundled_manifests_load_and_roundtrip(manifest_name: str):
-    """Test that all bundled manifests exist, validate schema, have unique IDs, and roundtrip cleanly."""
-    p = find_manifest_file(manifest_name)
-    assert p is not None, f"Manifest {manifest_name}.yaml must be bundled"
-
-    manifest = VizManifest.load(p)
-    assert manifest.name == manifest_name
-    assert manifest.data_source in ("metrics", "characterization_samples")
-    assert manifest.units, f"Manifest {manifest_name} must declare units"
-    assert manifest.groups, f"Manifest {manifest_name} must declare layout groups"
-    assert len(manifest.plots) > 0, f"Manifest {manifest_name} must have plots"
-
-    # All plot specs must have unique IDs
-    ids = [spec.id for spec in manifest.plots]
-    assert len(ids) == len(set(ids)), f"Duplicate plot IDs found in {manifest_name}: {[x for x in ids if ids.count(x) > 1]}"
-
-    # YAML round-trip: dump -> re-validate
-    dumped = yaml.safe_dump(manifest.model_dump(exclude_none=True), sort_keys=False)
-    again = VizManifest.model_validate(yaml.safe_load(dumped))
-    assert again.name == manifest.name
-    assert len(again.plots) == len(manifest.plots)
+from arena_evaluation.presentation.data_sources import (
+    declared_data_sources,
+    declared_view_names,
+    validate_data_source,
+)
+from arena_evaluation.presentation.viz_manifest import (
+    PlotDataSpec,
+    PlotSpec,
+    VizManifest,
+)
 
 
-def test_available_manifests_contains_all_manifests():
-    """Verify registry discovers all bundled manifests including everything and failure_modes."""
-    manifests = available_manifests()
-    for expected in ["standard", "safety", "social", "ecological", "characterization", "everything", "failure_modes"]:
-        assert expected in manifests, f"Expected manifest '{expected}' in available_manifests()"
+@pytest.mark.parametrize(
+    "legacy_source",
+    ["metrics", "episode_summary", "v_unknown_view", "no_such_table", ""],
+)
+def test_manifest_rejects_legacy_and_unknown_data_sources(legacy_source: str) -> None:
+    with pytest.raises((ValidationError, ValueError), match="data_source"):
+        VizManifest.model_validate({"data_source": legacy_source, "plots": []})
+    with pytest.raises(ValueError, match="data_source"):
+        validate_data_source(legacy_source)
 
 
-def test_old_style_manifest_still_validates():
-    manifest = VizManifest.model_validate({"plots": []})
-    assert manifest.data_source == "metrics"
-    assert manifest.groups == []
-    assert manifest.summary == []
-    assert manifest.units == {}
+def test_manifest_rejects_legacy_sections_field() -> None:
+    with pytest.raises(ValidationError, match="sections"):
+        VizManifest.model_validate({"sections": [{"id": "s1", "plots": []}]})
 
 
-def test_characterization_manifest_loads():
-    p = find_manifest_file("characterization")
-    assert p is not None
+def test_plotspec_rejects_bare_string_data() -> None:
+    with pytest.raises(ValidationError, match="data"):
+        PlotSpec.model_validate({"id": "p", "type": "bar", "data": "v_episode_summary"})
 
-    manifest = VizManifest.load(p)
-    assert manifest.name == "characterization"
-    assert manifest.data_source == "metrics"
-    assert manifest.summary_group_by == ["timeseries_char_phase_kind", "timeseries_char_speed_target"]
-    assert manifest.summary  # declarative summary table
-    line_specs = [s for s in manifest.plots if s.type == "line"]
-    assert line_specs, "characterization manifest must use line charts"
-    # Curves aggregate per working point from the long per-sample frame.
-    assert any(s.options.get("aggregate") for s in manifest.plots)
-    assert manifest.units.get("timeseries_char_power_total_w") == "W"
-    assert manifest.units.get("timeseries_char_dba") == "dBA"
+
+@pytest.mark.parametrize("filename", ["viz_manifest.yaml", "manifest.yaml"])
+def test_manifest_load_rejects_legacy_filenames(
+    tmp_path: pathlib.Path, filename: str
+) -> None:
+    legacy_path = tmp_path / filename
+    legacy_path.write_text("plots: []\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=filename):
+        VizManifest.load(legacy_path)
+
+
+def test_plot_data_spec_rejects_multiple_bindings_and_orphan_params() -> None:
+    with pytest.raises(ValidationError, match="at most one data binding"):
+        PlotDataSpec(source="v_episode_summary", query="SELECT 1")
+    with pytest.raises(ValidationError, match="params"):
+        PlotDataSpec(source="v_episode_summary", params={"k": 1})
+
+
+def test_declared_data_sources_include_views_and_tables() -> None:
+    assert "v_episode_summary" in declared_view_names()
+    assert "v_series_characterization" in declared_view_names()
+    assert "fact_robots" in declared_data_sources()
+    assert "dim_world_geometry" in declared_data_sources()
+
+
+def test_plot_spec_requires_type_or_uses() -> None:
+    with pytest.raises(ValidationError, match="type.*uses|uses.*type"):
+        PlotSpec(id="missing_type")
+    spec = PlotSpec(id="from_recipe", uses="scorecard_table")
+    assert spec.uses == "scorecard_table"
+
+

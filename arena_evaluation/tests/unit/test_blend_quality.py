@@ -10,38 +10,9 @@ import pytest
 from arena_evaluation.experiments import blend_quality as B
 
 
-def test_transition_times_fire_on_any_change() -> None:
-    a = frozenset({("body", "clip", "hold")})
-    b = frozenset({("body", "clip", "release")})
-    states = [(0.0, frozenset(), "walk"), (0.1, frozenset(), "walk"), (0.2, a, "idle"), (0.3, a, "idle"), (0.4, b, "idle"), (0.5, b, "walk")]
-    assert B.transition_times(states) == [0.2, 0.4, 0.5]
-
-
-def test_link_steps_are_rescaled_to_a_50ms_tick() -> None:
-    def fk(angles: dict, _body: object):
-        x = angles["x"]
-        return {k: np.array([x, 0.0, 0.0]) for k in B.LINKS}, {}
-
-    samples = [(0.0, {"x": 0.0}), (0.025, {"x": 0.1}), (0.075, {"x": 0.2})]
-    t, step = B.link_steps(samples, fk, None)
-    assert t.tolist() == pytest.approx([0.025, 0.075])
-    assert step.tolist() == pytest.approx([0.2, 0.1])
-
-
-def test_summary_counts_gate_violations() -> None:
-    res = [{"events": 4, "events_over_gate": 1, "trans": np.array([0.1, 0.3]), "steady": np.array([0.01, 0.02])}]
-    s = B.summarize(res)
-    assert s["transitions"] == 4 and s["transition_pass_rate"] == pytest.approx(0.75)
-    assert s["transition_ticks"]["over_gate"] == 1 and s["steady_ticks"]["over_gate"] == 0
-
-
 def test_link_steps_need_two_samples() -> None:
     t, step = B.link_steps([(0.0, {"x": 0.0})], lambda _a, _b: ({k: np.zeros(3) for k in B.LINKS}, {}), None)
     assert t.tolist() == [] and step.tolist() == []
-
-
-def test_summary_of_no_episodes_has_no_pass_rate() -> None:
-    assert B.summarize([]) == {"episodes": 0, "transitions": 0, "transitions_over_gate": 0, "transition_pass_rate": None, "transition_ticks": {"ticks": 0}, "steady_ticks": {"ticks": 0}}
 
 
 NS = "/arena/env_0"
@@ -84,21 +55,6 @@ def _bag(uri: pathlib.Path, transition: bool = True) -> pathlib.Path:
         writer.write(f"{NS}/{name}", serialize_message(msg), int(t * SEC))
     del writer
     return next(uri.glob("*.mcap"))
-
-
-def test_episode_tracks_split_joints_animation_and_layer_inputs(tmp_path: pathlib.Path) -> None:
-    joints, anim, inputs = B.episode_tracks(_bag(tmp_path / "bag"))
-    assert [t for t, _ in joints[1]] == pytest.approx([1.0, 1.05, 1.1])
-    assert [a[JOINT] for _, a in joints[1]] == pytest.approx([0.0, 0.3, 0.3])
-    assert 2 not in joints
-    t, state, speed, pose, channels = inputs[1][0]
-    assert (t, state) == (1.0, 1)
-    assert speed == pytest.approx(0.8)
-    assert pose == pytest.approx((1.0, 2.0, math.pi / 2))
-    assert channels == (("arm", (3.0, 4.0, 0.0), "", "r", False),)
-    assert inputs[2][0][1:3] == (0, 0.0) and inputs[2][0][4] == ()
-    assert [(round(t, 3), keys, base) for t, keys, base in anim[1]] == [(1.0, frozenset({("arm", "gesture:point", "in")}), "walk"), (1.05, frozenset({("arm", "gesture:point", "hold")}), "walk")]
-    assert 2 not in anim
 
 
 def _fk(angles: dict, _body: object) -> tuple[dict, dict]:

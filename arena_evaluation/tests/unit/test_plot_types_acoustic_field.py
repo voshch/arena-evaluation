@@ -1,85 +1,70 @@
 """Unit tests for the acoustic-field renderers."""
 
-import json
+from __future__ import annotations
+
 import pathlib
 
 import numpy as np
 import polars as pl
 import pytest
+from matplotlib.animation import FFMpegWriter
+from star_benchmark import write_benchmark
 
-import arena_evaluation.presentation.plot_types.acoustic_field as af_mod
+from arena_evaluation.presentation.checks import PlotDiagnostics
 from arena_evaluation.presentation.plot_types.acoustic_field import (
     AcousticFieldAnimationRenderer,
     AcousticFieldRenderer,
 )
-from arena_evaluation.processing.parquet_store import TopicParquetStore
-from arena_evaluation.storage.schemas import PlotSpec
+from arena_evaluation.presentation.report_builder import ReportBuilder
+from arena_evaluation.presentation.viz_manifest import (
+    PlotChannels,
+    PlotSpec,
+    VizManifest,
+)
+from arena_evaluation.storage.exceptions import MetricInputError
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
+_TEST_WORLD_YAML = """format: arena-world/2
+levels:
+  - id: L1
+    zones:
+      - name: floor
+        polygon:
+          - [0.0, 0.0]
+          - [4.0, 0.0]
+          - [4.0, 4.0]
+          - [0.0, 4.0]
+    walls:
+      - path: [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0], [0.0, 0.0]]
+      - path: [[2.0, 0.0], [2.0, 4.0]]
+    doors:
+      - name: d1
+        kind: sliding
+        span: [[2.0, 1.5], [2.0, 2.5]]
+        width: 0.2
+"""
 
-def _grid(n: int = 20) -> np.ndarray:
-    grid = np.zeros((n, n), dtype=np.uint8)
-    grid[0, :] = 1
-    grid[-1, :] = 1
-    grid[:, 0] = 1
-    grid[:, -1] = 1
-    grid[:, n // 2] = 1
-    return grid
+
+def _write_test_world(run_dir: pathlib.Path, world_name: str = "af_test_map") -> None:
+    world_dir = run_dir / "worlds" / world_name
+    world_dir.mkdir(parents=True, exist_ok=True)
+    (world_dir / "world.yaml").write_text(_TEST_WORLD_YAML, encoding="utf-8")
 
 
-def _meta(n: int = 20) -> dict:
-    return {"png_path": "synthetic", "resolution": 0.1, "origin": [0.0, 0.0, 0.0], "width": n, "height": n}
-
-
-def _door_mask(n: int = 20) -> np.ndarray:
-    mask = np.zeros((n, n), dtype=bool)
-    mask[5:7, n // 2] = True
-    return mask
-
-
-def _patch_grid(monkeypatch, n: int = 20) -> np.ndarray:
-    grid = _grid(n)
-    monkeypatch.setattr(
-        af_mod.AcousticFieldRenderer,
-        "_load_grid_and_meta",
-        staticmethod(lambda map_name, run_dir=None: (grid, _meta(n))),
+def _af_spec(
+    spec_id: str = "af_test",
+    facet_row: str | None = "planner",
+    facet_col: str | None = "stage",
+    **options: object,
+) -> PlotSpec:
+    return PlotSpec(
+        id=spec_id,
+        type="acoustic_field",
+        title="Acoustic Field",
+        channels=PlotChannels(facet_row=facet_row, facet_col=facet_col),
+        options=dict(options),
     )
-    return grid
-
-
-def _patch_doors(monkeypatch, doors=None):
-    monkeypatch.setattr(af_mod, "door_segments", lambda *a, **k: doors or {})
-
-
-def _af_df(**overrides) -> pl.DataFrame:
-    rows = {
-        "planner": ["dwb", "teb"],
-        "stage": ["hall", "hall"],
-        "episode": [2, 1],  # worst-exposure row (teb) is episode 1 -> episode_001
-        "map": ["af_test_map", "af_test_map"],
-        "ped_max_exposure_dba": [82.0, 105.0],
-        "worst_case_acoustic_frame": [
-            {"robot_x": 1.0, "robot_y": 1.0, "source_dba": 60.0, "pedestrians": [[0.5, 0.5]], "door_states": {"world/d1": "closed"}},
-            {"robot_x": 2.0, "robot_y": 2.0, "source_dba": 60.0, "pedestrians": [], "door_states": {"world/d1": "open"}},
-        ],
-    }
-    rows.update(overrides)
-    schema = {
-        "planner": pl.Utf8,
-        "stage": pl.Utf8,
-        "episode": pl.Int64,
-        "map": pl.Utf8,
-        "ped_max_exposure_dba": pl.Float64,
-        "worst_case_acoustic_frame": pl.Object,
-    }
-    return pl.DataFrame(rows, schema=schema)
-
-
-def _af_spec(spec_id: str = "af_test", differentiate="planner", group_by=None, **options) -> PlotSpec:
-    if group_by is None:
-        group_by = ["stage"]
-    return PlotSpec(id=spec_id, type="acoustic_field", title="Acoustic Field", data_key="ped_max_exposure_dba", differentiate=differentiate, group_by=group_by, options=options)
 
 
 def _new_renderer(spec: PlotSpec, run_dir: pathlib.Path) -> AcousticFieldRenderer:
@@ -88,806 +73,433 @@ def _new_renderer(spec: PlotSpec, run_dir: pathlib.Path) -> AcousticFieldRendere
     return renderer
 
 
-def _worst_frame_df(**overrides) -> pl.DataFrame:
-    rows = {
+def _af_df(**overrides: object) -> pl.DataFrame:
+    rows: dict[str, object] = {
         "planner": ["dwb", "teb"],
         "stage": ["hall", "hall"],
+        "episode_id": [2, 1],
+        "world": ["af_test_map", "af_test_map"],
         "ped_max_exposure_dba": [82.0, 105.0],
-        "worst_case_acoustic_frame": [None, {"robot_x": 1.0, "robot_y": 1.0}],
+        "worst_case_acoustic_t_ns": [1_000_000_000, 1_000_000_000],
+        "robot_x": [1.0, 1.0],
+        "robot_y": [2.0, 2.0],
+        "source_dba": [60.0, 68.0],
     }
     rows.update(overrides)
-    return pl.DataFrame(
-        rows,
-        schema={
-            "planner": pl.Utf8,
-            "stage": pl.Utf8,
-            "ped_max_exposure_dba": pl.Float64,
-            "worst_case_acoustic_frame": pl.Object,
-        },
-    )
+    return pl.DataFrame(rows)
 
 
-def test_pick_worst_row_happy():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    worst = renderer._pick_worst_row(_worst_frame_df())
-    assert worst is not None
-    assert worst["robot_x"] == 1.0 and worst["robot_y"] == 1.0
-    assert worst["source_dba"] == 60.0
-    assert worst["pedestrians"] == []
-    assert worst["ped_max_exposure_dba"] == 105.0
-    assert worst["planner"] == "teb"
-    assert worst["stage"] == "hall"
-
-
-def test_pick_worst_row_missing_column_returns_none():
-    df = _worst_frame_df().drop("ped_max_exposure_dba")
-    assert _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df) is None
-
-
-def test_pick_worst_row_empty_df_returns_none():
-    df = _worst_frame_df().slice(0, 0)
-    assert _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df) is None
-
-
-def test_pick_worst_row_null_frame_returns_none():
-    df = _worst_frame_df()
-    df = df.with_columns(pl.lit(None).alias("worst_case_acoustic_frame"))
-    assert _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df) is None
-
-
-def test_pick_worst_row_frame_without_robot_x_returns_none():
-    df = _worst_frame_df()
-    df = df.with_columns(pl.lit({"robot_y": 5.0}).alias("worst_case_acoustic_frame"))
-    assert _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df) is None
-
-
-def test_pick_worst_row_json_string_frame():
-    df = _worst_frame_df()
-    df = df.with_columns(
-        pl.Series(
-            "worst_case_acoustic_frame",
-            [
-                None,
-                json.dumps({"robot_x": 3.0, "robot_y": 4.0, "source_dba": 70.0}),
-            ],
-        )
-    )
-    worst = _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df)
-    assert worst is not None
-    assert worst["robot_x"] == 3.0
-    assert worst["source_dba"] == 70.0
-
-
-def test_pick_worst_row_bad_json_returns_none():
-    df = _worst_frame_df()
-    df = df.with_columns(pl.Series("worst_case_acoustic_frame", ["not json", None]))
-    assert _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df) is None
-
-
-def test_pick_worst_row_planner_fallback_to_local_planner():
-    df = _worst_frame_df()
-    df = df.drop("planner").with_columns(pl.Series("local_planner", ["dwb", "teb"]))
-    worst = _new_renderer(_af_spec(), pathlib.Path("."))._pick_worst_row(df)
-    assert worst["planner"] == "teb"
-
-
-def test_prepared_df_no_reference_column_unchanged():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    out = renderer._prepared_df(_af_df())
-    assert out.height == 2
-
-
-def test_prepared_df_excludes_reference_runs_by_default():
-    df = _af_df().with_columns(pl.Series("is_reference", [True, False]))
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    out = renderer._prepared_df(df)
-    assert out["planner"].to_list() == ["teb"]
-
-
-def test_prepared_df_keeps_reference_when_requested():
-    df = _af_df().with_columns(pl.Series("is_reference", [True, False]))
-    renderer = _new_renderer(_af_spec(include_reference=True), pathlib.Path("."))
-    out = renderer._prepared_df(df)
-    assert out.height == 2
-
-
-def test_prepared_df_all_reference_rows_removed():
-    df = _af_df().with_columns(pl.Series("is_reference", [True, True]))
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer._prepared_df(df).height == 0
-
-
-def test_group_values_with_diff_and_group():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    diff_col, group_cols, row_values, col_values = renderer._group_values(_af_df())
-    assert diff_col == "planner"
-    assert group_cols == ["stage"]
-    assert row_values == ["dwb", "teb"]
-    assert col_values == [("hall",)]
-
-
-def test_group_values_no_diff_uses_single_row():
-    spec = _af_spec(differentiate=None)
-    renderer = _new_renderer(spec, pathlib.Path("."))
-    diff_col, group_cols, row_values, col_values = renderer._group_values(_af_df())
-    assert diff_col is None
-    assert row_values == [""]
-    assert col_values == [("hall",)]
-
-
-def test_group_values_no_group_cols_uses_single_col():
-    spec = _af_spec(group_by=[])
-    renderer = _new_renderer(spec, pathlib.Path("."))
-    _, _, row_values, col_values = renderer._group_values(_af_df())
-    assert col_values == [()]
-
-
-def test_group_values_missing_group_col_dropped():
-    spec = _af_spec(group_by=["bogus", "stage"])
-    renderer = _new_renderer(spec, pathlib.Path("."))
-    _, group_cols, _, col_values = renderer._group_values(_af_df())
-    assert group_cols == ["stage"]
-
-
-def test_filter_group_single_and_multi_columns():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    out = renderer._filter_group(_af_df(), "planner", ["stage"], "dwb", ("hall",))
-    assert out["planner"].to_list() == ["dwb"]
-    out = renderer._filter_group(_af_df(), None, ["stage"], "", ("hall",))
-    assert out.height == 2
-    out = renderer._filter_group(_af_df(), "planner", [], "teb", ())
-    assert out["planner"].to_list() == ["teb"]
-
-
-def test_parse_pedestrian_positions_nested_and_flat():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer._parse_pedestrian_positions([[0.0, 1.0], [2.0, 3.0]]) == [(0.0, 1.0), (2.0, 3.0)]
-    assert renderer._parse_pedestrian_positions([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]) == [(0.0, 1.0), (3.0, 4.0)]
-
-
-def test_parse_pedestrian_positions_skips_nan_and_short_entries():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer._parse_pedestrian_positions([[float("nan"), 1.0], [2.0, 3.0]]) == [(2.0, 3.0)]
-    assert renderer._parse_pedestrian_positions([[1.0]]) == []
-    assert renderer._parse_pedestrian_positions([float("nan"), 1.0, 2.0, 3.0]) == []
-
-
-def test_parse_pedestrian_positions_json_string_and_empty():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer._parse_pedestrian_positions(json.dumps([[1.0, 2.0]])) == [(1.0, 2.0)]
-    assert renderer._parse_pedestrian_positions("not json") == []
-    assert renderer._parse_pedestrian_positions([]) == []
-    assert renderer._parse_pedestrian_positions(None) == []
-
-
-def _make_episode(tmp_path: pathlib.Path, odom=True, tf_gt=False, acoustics=True, acoustic_alt=False, peds=True, collision=True) -> pathlib.Path:
+def _make_episode(
+    tmp_path: pathlib.Path,
+    *,
+    odom: bool = True,
+    tracks: bool = False,
+    acoustics: bool = True,
+    acoustics_times_ns: list[int] | None = None,
+    acoustics_levels: list[float] | None = None,
+    peds: bool = True,
+    collision: bool = True,
+) -> pathlib.Path:
     bench = tmp_path / "bench"
     topics = bench / "episodes" / "episode_001" / "topics"
-    robot = topics / "robot_ns"
-    robot.mkdir(parents=True, exist_ok=True)
-    (topics / TopicParquetStore.VERSION_FILE).write_text(f"{TopicParquetStore.VERSION}\n")
+    topics.mkdir(parents=True, exist_ok=True)
+    if tracks:
+        pl.DataFrame(
+            {
+                "t_ns": [0, 1_000_000_000, 2_000_000_000],
+                "env_id": ["env_0"] * 3,
+                "robot_id": ["robot_ns"] * 3,
+                "x": [1.0, 1.5, 2.0],
+                "y": [2.0, 2.0, 2.0],
+                "z": [0.0] * 3,
+                "yaw": [0.0] * 3,
+                "vx": [0.5] * 3,
+                "vy": [0.0] * 3,
+                "vz": [0.0] * 3,
+                "omega_z": [0.0] * 3,
+                "speed_mps": [0.5] * 3,
+                "pose_source": ["gt"] * 3,
+            }
+        ).write_parquet(topics / "robot_tracks.parquet")
     if odom:
-        pl.DataFrame({"time_ns": [0, 1, 2], "pos_x": [1.0, 1.5, 2.0], "pos_y": [1.0, 1.0, 1.0]}, schema={"time_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64}).write_parquet(robot / "odom.parquet")
-    if tf_gt:
-        pl.DataFrame({"time_ns": [0, 1, 2], "pos_x_gt": [1.0, 1.5, 2.0], "pos_y_gt": [1.0, 1.0, 1.0]}, schema={"time_ns": pl.Int64, "pos_x_gt": pl.Float64, "pos_y_gt": pl.Float64}).write_parquet(robot / "tf_gt.parquet")
+        pl.DataFrame(
+            {
+                "t_ns": [0, 1_000_000_000, 2_000_000_000],
+                "env_id": ["env_0"] * 3,
+                "robot_id": ["robot_ns"] * 3,
+                "odom_x": [1.0, 1.5, 2.0],
+                "odom_y": [2.0, 2.0, 2.0],
+                "odom_yaw": [0.0] * 3,
+                "odom_vx": [0.5] * 3,
+                "odom_wz": [0.0] * 3,
+                "drift_error_m": [0.0] * 3,
+            }
+        ).write_parquet(topics / "robot_odom.parquet")
     if acoustics:
-        pl.DataFrame({"time_ns": [0, 2], "total_level_af_dba": [60.0, 62.0]}, schema={"time_ns": pl.Int64, "total_level_af_dba": pl.Float64}).write_parquet(robot / "acoustics.parquet")
-    if acoustic_alt:
-        pl.DataFrame({"time_ns": [0, 1, 2], "total_level_af_dba": [60.0, 61.0, 62.0]}, schema={"time_ns": pl.Int64, "total_level_af_dba": pl.Float64}).write_parquet(robot / "acoustic.parquet")
+        times = acoustics_times_ns or [0, 1_000_000_000, 2_000_000_000]
+        levels = acoustics_levels or [60.0, 75.0, 62.0]
+        pl.DataFrame(
+            {
+                "t_ns": times,
+                "env_id": ["env_0"] * len(times),
+                "robot_id": ["robot_ns"] * len(times),
+                "total_level_af_dba": levels,
+                "total_level_zf_db": levels,
+                "baseline_level_dba": [50.0] * len(times),
+                "drivetrain_level_dba": [55.0] * len(times),
+                "operating_state": ["moving"] * len(times),
+                "calibration_status": ["ok"] * len(times),
+                "uncertainty_1sigma_dba": [1.0] * len(times),
+                "validity_flags": [0] * len(times),
+            }
+        ).write_parquet(topics / "robot_acoustics.parquet")
     if peds:
-        pl.DataFrame({"time_ns": [0, 1, 2], "peds_positions": [[[0.0, 0.0]], [[1.0, 1.0]], []]}, schema={"time_ns": pl.Int64, "peds_positions": pl.List(pl.List(pl.Float64))}).write_parquet(topics / "peds.parquet")
+        pl.DataFrame(
+            {
+                "t_ns": [0, 1_000_000_000, 2_000_000_000],
+                "env_id": ["env_0"] * 3,
+                "ped_id": ["ped_1"] * 3,
+                "ped_name": ["ped_1"] * 3,
+                "x": [3.0, 3.1, 3.2],
+                "y": [2.0, 2.0, 2.0],
+                "z": [0.0] * 3,
+                "yaw": [0.0] * 3,
+                "vx": [0.1] * 3,
+                "vy": [0.0] * 3,
+                "vz": [0.0] * 3,
+                "speed_mps": [0.1] * 3,
+                "radius_m": [0.3] * 3,
+                "desired_speed": [0.1] * 3,
+                "policy": ["sfm"] * 3,
+                "agent_type": ["adult"] * 3,
+                "animation_state": [0] * 3,
+                "interaction_id": [-1] * 3,
+                "interaction_type": [0] * 3,
+                "gait_phase": [0.0] * 3,
+                "gait_cadence": [0.0] * 3,
+            }
+        ).write_parquet(topics / "pedestrian_arena_peds.parquet")
     if collision:
-        pl.DataFrame({"time_ns": [0, 1, 2], "collision_event": [False, True, False]}, schema={"time_ns": pl.Int64, "collision_event": pl.Boolean}).write_parquet(robot / "collision_events.parquet")
+        pl.DataFrame(
+            {
+                "t_ns": [0, 1_000_000_000, 2_000_000_000],
+                "env_id": ["env_0"] * 3,
+                "robot_id": ["robot_ns"] * 3,
+                "event_count": [0, 1, 0],
+                "wall_count": [0, 0, 0],
+                "static_count": [0, 0, 0],
+                "ped_count": [0, 1, 0],
+            }
+        ).write_parquet(topics / "robot_collision_events.parquet")
     return bench
 
 
-def test_load_episode_data_missing_topics_returns_none(tmp_path):
-    bench = tmp_path / "bench"
-    bench.mkdir()
-    assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
+def test_pick_worst_row_missing_column_or_empty_returns_none(
+    tmp_path: pathlib.Path,
+) -> None:
+    renderer = _new_renderer(_af_spec(), tmp_path)
+    assert renderer.pick_worst_row(_af_df().drop("ped_max_exposure_dba")) is None
+    assert renderer.pick_worst_row(_af_df().slice(0, 0)) is None
 
 
-def test_load_episode_data_no_robot_dirs_returns_none(tmp_path):
-    bench = _make_episode(tmp_path, odom=False)
-    assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
+def test_parse_pedestrian_positions_keeps_the_pair_list_encoding(
+    tmp_path: pathlib.Path,
+) -> None:
+    renderer = _new_renderer(_af_spec(), tmp_path)
+    assert renderer.parse_pedestrian_positions([(0.0, 1.0), (2.0, 3.0)]) == [
+        (0.0, 1.0),
+        (2.0, 3.0),
+    ]
+    assert renderer.parse_pedestrian_positions([(1.0, 2.0), (float("nan"), 3.0)]) == [
+        (1.0, 2.0)
+    ]
+    assert renderer.parse_pedestrian_positions([0.0, 1.0, 2.0, 3.0]) == []
+    assert renderer.parse_pedestrian_positions([{"x": 1.0, "y": 2.0}]) == []
+    assert renderer.parse_pedestrian_positions(None) == []
 
 
-def test_load_episode_data_stale_cache_returns_none(tmp_path):
-    bench = _make_episode(tmp_path)
-    (bench / "episodes" / "episode_001" / "topics" / TopicParquetStore.VERSION_FILE).unlink()
-    assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
+def test_load_episode_data_never_substitutes_odometry(tmp_path: pathlib.Path) -> None:
+    bench = _make_episode(tmp_path, odom=True, tracks=False)
+    assert AcousticFieldRenderer.load_episode_data(bench, "episode_001") is None
 
 
-def test_load_episode_data_full_bundle(tmp_path):
-    bench = _make_episode(tmp_path, tf_gt=True)
-    df = AcousticFieldRenderer._load_episode_data(bench, "episode_001")
-    assert df is not None
-    columns = set(df.columns)
-    assert {"time_ns", "pos_x_gt", "pos_y_gt", "source_dba", "peds_positions", "has_collision"} <= columns
-    assert df["source_dba"].to_list() == [60.0, 62.0, 62.0]
+def test_render_plotly_single_and_grid_write_pngs(tmp_path: pathlib.Path) -> None:
+    _write_test_world(tmp_path)
+    single_html = _new_renderer(
+        _af_spec(spec_id="af_single", mode="single"), tmp_path
+    ).render_plotly(_af_df())
+    assert isinstance(single_html, str)
+    assert "plots/af_single.png" in single_html
+    single_png = tmp_path / "plots" / "af_single.png"
+    assert single_png.read_bytes().startswith(_PNG_MAGIC)
 
-
-def test_load_episode_data_odom_fallback_and_acoustic_alt(tmp_path):
-    bench = _make_episode(tmp_path, acoustics=False, acoustic_alt=True, peds=False, collision=False)
-    df = AcousticFieldRenderer._load_episode_data(bench, "episode_001")
-    assert df is not None
-    assert "pos_x_gt" in df.columns and "source_dba" in df.columns
-    assert "peds_positions" not in df.columns
-    assert "has_collision" not in df.columns
-
-
-def test_load_episode_data_no_robot_position_frames_returns_none(tmp_path):
-    bench = _make_episode(tmp_path, odom=False, tf_gt=False)
-    assert AcousticFieldRenderer._load_episode_data(bench, "episode_001") is None
-
-
-def _anim_df(n: int = 4, **overrides) -> pl.DataFrame:
-    rows = {
-        "time_ns": list(range(n)),
-        "pos_x_gt": [1.0] * n,
-        "pos_y_gt": [1.0] * n,
-        "source_dba": [60.0] * n,
-        "peds_positions": [[[0.0, 0.0]], [], [[1.0, 1.0]], []][:n],
-        "has_collision": [False, True, False, False][:n],
-    }
-    rows.update(overrides)
-    schema = {
-        "time_ns": pl.Int64,
-        "pos_x_gt": pl.Float64,
-        "pos_y_gt": pl.Float64,
-        "source_dba": pl.Float64,
-        "peds_positions": pl.List(pl.List(pl.Float64)),
-        "has_collision": pl.Boolean,
-    }
-    return pl.DataFrame(rows, schema=schema)
-
-
-@pytest.mark.slow
-def test_compute_field_timeseries_happy_path():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    df = _anim_df()
-    fields = renderer.compute_field_timeseries(df, _grid(12), 0.1, 0.0, 0.0, {}, downsample=2, stride=1, max_frames=3)
-    assert len(fields) == 3
-    field, res, (h, w), open_set, src = fields[0]
-    assert field.shape == (6, 6)  # 12x12 downsampled by 2
-    assert res == 0.2
-    assert src == 60.0
-
-
-@pytest.mark.slow
-def test_compute_field_timeseries_stride_and_nan_position():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    df = _anim_df().with_columns(pl.Series("pos_y_gt", [1.0, 1.0, float("nan"), 1.0]))
-    fields = renderer.compute_field_timeseries(df, _grid(12), 0.1, 0.0, 0.0, {}, downsample=1, stride=2, max_frames=10)
-    assert len(fields) == 2
-    assert fields[0] is not None  # index 0 is a valid frame
-    assert fields[1] is None  # index 2 has a NaN position -> skipped
-
-
-@pytest.mark.slow
-def test_compute_field_timeseries_collision_boost_and_null_source():
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    df = _anim_df().with_columns(
-        pl.Series("source_dba", [60.0, 100.0, 60.0, None]),
+    grid_html = _new_renderer(
+        _af_spec(spec_id="af_grid", mode="grid"), tmp_path
+    ).render_plotly(_af_df())
+    assert isinstance(grid_html, str)
+    assert "plots/af_grid_dwb_hall.png" in grid_html
+    assert "plots/af_grid_teb_hall.png" in grid_html
+    assert (
+        (tmp_path / "plots" / "af_grid_dwb_hall.png")
+        .read_bytes()
+        .startswith(_PNG_MAGIC)
     )
-    fields = renderer.compute_field_timeseries(df, _grid(12), 0.1, 0.0, 0.0, {}, stride=1, max_frames=4)
-    assert fields[0][4] == 60.0  # normal driving
-    assert fields[1][4] == 100.0  # collision impact from telemetry
-    assert fields[2][4] == 60.0  # subsequent driving
-    assert fields[3][4] == af_mod._FIELD_VMIN_DBA  # null source falls back to floor
 
 
-@pytest.mark.slow
-def test_compute_field_timeseries_with_door_timeline_caches_pixel_tl(monkeypatch):
-    built = []
-
-    def _fake_build_tl(grid, doors, open_doors=None, wall_tl_db=47.0):
-        built.append(frozenset(open_doors or set()))
-        return np.zeros(grid.shape, dtype=np.float32)
-
-    monkeypatch.setattr(af_mod, "build_pixel_tl", _fake_build_tl)
-
-    class _Timeline:
-        def __init__(self):
-            self._state = 0
-
-        def open_doors_at(self, time_ns):
-            return frozenset(["d1"]) if time_ns < 2 else frozenset()
-
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    fields = renderer.compute_field_timeseries(_anim_df(), _grid(12), 0.1, 0.0, 0.0, {}, state_timeline=_Timeline(), stride=1, max_frames=4)
-    assert len(fields) == 4
-    assert fields[0][3] == frozenset(["d1"])
-    assert built == [frozenset(["d1"]), frozenset()]  # per-unique-open-set only
+def test_render_static_writes_png_with_trajectory_overlay(
+    tmp_path: pathlib.Path,
+) -> None:
+    bench = _make_episode(tmp_path, tracks=True)
+    _write_test_world(bench)
+    out_png = tmp_path / "static.png"
+    renderer = _new_renderer(_af_spec(overlay_trajectories=True), bench)
+    renderer.render_static(_af_df().drop(["robot_x", "robot_y", "source_dba"]), out_png)
+    assert out_png.read_bytes().startswith(_PNG_MAGIC)
 
 
-_UNUSABLE_ROWS = [
-    pytest.param(lambda df: df.with_columns(pl.Series("is_reference", [True, True])), id="only_references"),
-    pytest.param(lambda df: df.drop("map"), id="no_map_column"),
-]
+def test_missing_world_raises_metric_input_error_and_records_notice(
+    tmp_path: pathlib.Path,
+) -> None:
+    with pytest.raises(MetricInputError, match="missing world map"):
+        AcousticFieldRenderer.load_grid_and_meta("nonexistent_world", run_dir=tmp_path)
+
+    renderer = _new_renderer(_af_spec(), tmp_path)
+    diag = PlotDiagnostics()
+    renderer.diagnostics = diag
+    assert renderer.render_plotly(_af_df()) == ""
+    assert any("missing world map" in issue for issue in diag.issues)
 
 
-@pytest.mark.parametrize(
-    "change",
-    [*_UNUSABLE_ROWS, pytest.param(lambda df: df.drop("worst_case_acoustic_frame").with_columns(pl.lit(None).alias("worst_case_acoustic_frame")), id="no_worst_frames")],
+def test_animation_renderer_renders_gif_and_frames(tmp_path: pathlib.Path) -> None:
+    bench = _make_episode(tmp_path, tracks=True)
+    _write_test_world(bench)
+    spec_gif = PlotSpec(
+        id="anim_gif",
+        type="acoustic_field_animation",
+        title="Anim",
+        options={"format": "gif", "fps": 4, "max_frames": 2, "downsample": 2},
+    )
+    renderer = AcousticFieldAnimationRenderer(spec_gif)
+    renderer.run_dir = bench
+    out_gif = tmp_path / "out.gif"
+    renderer.render_static(_af_df(), out_gif)
+    assert out_gif.is_file()
+    assert out_gif.stat().st_size > 0
+    html = renderer.render_plotly(_af_df())
+    assert isinstance(html, str) and '<img src="plots/anim_gif.gif"' in html
+
+    spec_frames = PlotSpec(
+        id="anim_frames",
+        type="acoustic_field_animation",
+        title="Frames",
+        options={"format": "frames", "fps": 4, "max_frames": 2, "downsample": 2},
+    )
+    renderer_frames = AcousticFieldAnimationRenderer(spec_frames)
+    renderer_frames.run_dir = bench
+    frames_out = tmp_path / "frames_out"
+    renderer_frames.render_static(_af_df(), frames_out)
+    assert (frames_out / "frame_0000.png").is_file()
+
+
+def test_facet_grid_renders_every_cell_and_static_renders_the_worst_frame(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Grid mode writes one PNG per (planner, stage) facet; static mode renders the worst row."""
+    _write_test_world(tmp_path)
+    bench = _make_episode(tmp_path, tracks=True)
+    _write_test_world(bench)
+    faceted = pl.DataFrame(
+        {
+            "planner": ["dwb", "dwb", "teb", "teb"],
+            "stage": ["hall", "door", "hall", "door"],
+            "episode_id": [1, 2, 3, 4],
+            "world": ["af_test_map"] * 4,
+            "ped_max_exposure_dba": [70.0, 74.0, 90.0, 88.0],
+            "worst_case_acoustic_t_ns": [1_000_000_000] * 4,
+            "robot_x": [1.0] * 4,
+            "robot_y": [2.0] * 4,
+            "source_dba": [60.0] * 4,
+        }
+    )
+
+    grid_html = _new_renderer(
+        _af_spec(spec_id="af_facets", mode="grid"), tmp_path
+    ).render_plotly(faceted)
+    assert isinstance(grid_html, str)
+    for planner in ("dwb", "teb"):
+        for stage in ("hall", "door"):
+            png = tmp_path / "plots" / f"af_facets_{planner}_{stage}.png"
+            assert png.is_file(), png
+            assert png.read_bytes().startswith(_PNG_MAGIC), png
+
+    static_out = tmp_path / "facets_static.png"
+    _new_renderer(_af_spec(spec_id="af_facets_static"), bench).render_static(
+        faceted, static_out
+    )
+    assert static_out.read_bytes().startswith(_PNG_MAGIC)
+
+
+@pytest.mark.skipif(not FFMpegWriter.isAvailable(), reason="ffmpeg is not on PATH")
+def test_animation_renderer_writes_an_mp4_when_ffmpeg_is_available(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`format: mp4` produces the movie beside the static PNG and the HTML embeds it."""
+    bench = _make_episode(tmp_path, tracks=True)
+    _write_test_world(bench)
+    spec = PlotSpec(
+        id="anim_mp4",
+        type="acoustic_field_animation",
+        title="Mp4",
+        options={"format": "mp4", "fps": 4, "max_frames": 2, "downsample": 2},
+    )
+    renderer = AcousticFieldAnimationRenderer(spec)
+    renderer.run_dir = bench
+    static_out = tmp_path / "anim_mp4.png"
+    renderer.render_static(_af_df(), static_out)
+    assert static_out.read_bytes().startswith(_PNG_MAGIC)
+    movie = tmp_path / "anim_mp4.mp4"
+    assert movie.is_file() and movie.stat().st_size > 0
+    assert movie.read_bytes()[4:8] == b"ftyp"  # ISO base media file signature
+    assert '<video src="plots/anim_mp4.mp4"' in renderer.render_plotly(_af_df())
+
+
+@pytest.mark.skipif(
+    FFMpegWriter.isAvailable(),
+    reason="ffmpeg is installed, the refusal cannot be observed here",
 )
-def test_af_plotly_renders_nothing_without_usable_rows(monkeypatch, change):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer.render_plotly(change(_af_df())) == ""
-
-
-def test_af_plotly_map_meta_missing(monkeypatch):
-    monkeypatch.setattr(af_mod.AcousticFieldRenderer, "_load_grid_and_meta", staticmethod(lambda map_name, run_dir=None: None))
-    _patch_doors(monkeypatch)
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    assert renderer.render_plotly(_af_df()) == ""
-
-
-@pytest.mark.slow
-def test_af_plotly_grid_mode_renders_cells(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert 'grid-template-columns:repeat(1,1fr)' in html
-    assert html.count('<img src="plots/') == 2
-    assert (tmp_path / "plots" / "af_test_dwb_hall.png").exists()
-    assert (tmp_path / "plots" / "af_test_teb_hall.png").exists()
-    assert "82 dBA" in html and "105 dBA" in html
-
-
-@pytest.mark.slow
-def test_af_plotly_grid_mode_with_doors(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch, n=16)
-    _patch_doors(monkeypatch, {"world/d1": (_door_mask(16), 25.0)})
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert html.count('<img src="plots/') == 2
-    assert (tmp_path / "plots" / "af_test_dwb_hall.png").exists()
-
-
-def test_af_plotly_doors_with_downsample_succeeds(monkeypatch, tmp_path):
-    """With downsample > 1 and doors present, grid and doors are downsampled
-    together and rendering succeeds."""
-    _patch_grid(monkeypatch, n=16)
-    _patch_doors(monkeypatch, {"world/d1": (_door_mask(16), 25.0)})
-    renderer = _new_renderer(_af_spec(downsample=2), tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert '<img src="plots/' in html
-
-
-@pytest.mark.slow
-def test_af_plotly_grid_mode_no_differentiate(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    spec = _af_spec(differentiate=None)
-    renderer = _new_renderer(spec, tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert html.count('<img src="plots/') == 1  # single row group
-
-
-@pytest.mark.slow
-def test_af_plotly_grid_mode_group_by_two_cols(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    spec = _af_spec(group_by=["stage", "episode"])
-    renderer = _new_renderer(spec, tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert html.count('<img src="plots/') == 2
-    assert (tmp_path / "plots" / "af_test_dwb_hall_2.png").exists()
-    assert (tmp_path / "plots" / "af_test_teb_hall_1.png").exists()
-
-
-@pytest.mark.slow
-def test_af_plotly_single_mode(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch, {"world/d1": (_door_mask(20), 25.0)})
-    renderer = _new_renderer(_af_spec(mode="single"), tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert '<img src="plots/af_test.png"' in html
-    assert (tmp_path / "plots" / "af_test.png").exists()
-    assert "105 dBA" in html
-
-
-@pytest.mark.slow
-def test_af_plotly_downsample_with_doors(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch, {"world/d1": (_door_mask(20), 25.0)})
-    renderer = _new_renderer(_af_spec(mode="single", downsample=2), tmp_path)
-    html = renderer.render_plotly(_af_df())
-    assert '<img src="plots/af_test.png"' in html
-    assert (tmp_path / "plots" / "af_test.png").exists()
-
-
-def test_af_plotly_single_mode_no_worst_frame(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    df = _af_df().drop("ped_max_exposure_dba")
-    renderer = _new_renderer(_af_spec(mode="single"), tmp_path)
-    assert renderer.render_plotly(df) == ""
-
-
-@pytest.mark.slow
-def test_af_plotly_single_mode_json_string_frames(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    df = _af_df().with_columns(
-        pl.Series(
-            "worst_case_acoustic_frame",
-            [
-                json.dumps({"robot_x": 1.0, "robot_y": 1.0, "source_dba": 60.0}),
-                json.dumps({"robot_x": 2.0, "robot_y": 2.0, "source_dba": 60.0}),
-            ],
-        )
+def test_animation_renderer_refuses_mp4_without_ffmpeg(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Requesting mp4 without ffmpeg raises the typed error instead of a backend traceback."""
+    bench = _make_episode(tmp_path, tracks=True)
+    _write_test_world(bench)
+    spec = PlotSpec(
+        id="anim_nomp4",
+        type="acoustic_field_animation",
+        title="No mp4",
+        options={"format": "mp4", "fps": 4, "max_frames": 2, "downsample": 2},
     )
-    renderer = _new_renderer(_af_spec(mode="single"), tmp_path)
-    html = renderer.render_plotly(df)
-    assert '<img src="plots/af_test.png"' in html
-
-
-def test_af_plotly_cell_render_failure_returns_empty(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    monkeypatch.setattr(af_mod.AcousticFieldRenderer, "_render_cell_png", staticmethod(lambda *a, **k: False))
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    assert renderer.render_plotly(_af_df()) == ""
-
-
-@pytest.mark.parametrize("change", [*_UNUSABLE_ROWS, pytest.param(lambda df: df.drop("ped_max_exposure_dba"), id="no_exposure_column")])
-def test_af_seaborn_writes_nothing_without_usable_rows(monkeypatch, tmp_path, change):
-    _patch_grid(monkeypatch)
-    out = tmp_path / "af.png"
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    renderer.render_seaborn(change(_af_df()), out)
-    assert not out.exists()
-
-
-def test_af_seaborn_meta_missing_writes_nothing(monkeypatch, tmp_path):
-    monkeypatch.setattr(af_mod.AcousticFieldRenderer, "_load_grid_and_meta", staticmethod(lambda map_name, run_dir=None: None))
-    out = tmp_path / "af.png"
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    renderer.render_seaborn(_af_df(), out)
-    assert not out.exists()
-
-
-@pytest.mark.slow
-def test_af_seaborn_happy_path_with_doors(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch, {"world/d1": (_door_mask(20), 25.0)})
-    out = tmp_path / "af.png"
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    renderer.render_seaborn(_af_df(), out)
-    assert out.exists() and out.read_bytes()[:8] == _PNG_MAGIC
-
-
-@pytest.mark.slow
-def test_render_animation_gif(tmp_path):
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    out = tmp_path / "anim.gif"
-    result = renderer.render_animation(
-        _anim_df(),
-        _grid(12),
-        0.1,
-        0.0,
-        0.0,
-        {},
-        out_path=out,
-        downsample=2,
-        stride=1,
-        max_frames=4,
-        fps=10,
-        robot_trail=3,
-    )
-    assert result == out
-    assert out.exists() and out.stat().st_size > 0
-    assert out.read_bytes()[:6] == b"GIF89a"
-
-
-@pytest.mark.slow
-def test_render_animation_frames_format_exports_pngs(tmp_path):
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    out = tmp_path / "anim.png"
-    result = renderer.render_animation(
-        _anim_df(2),
-        _grid(12),
-        0.1,
-        0.0,
-        0.0,
-        {},
-        out_path=out,
-        downsample=2,
-        max_frames=2,
-        fmt="frames",
-    )
-    frames_dir = out.with_suffix("")
-    assert result == frames_dir
-    frames = sorted(frames_dir.glob("frame_*.png"))
-    assert len(frames) == 2
-
-
-@pytest.mark.slow
-def test_render_animation_unknown_format_falls_back_but_cannot_save(tmp_path, capsys):
-    """Suspected source bug (documented): the unknown-format fallback warns
-    and retries as GIF, but the pillow writer rejects the unknown file
-    extension, so the animation is never written (returns None)."""
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    out = tmp_path / "anim.webm"
-    result = renderer.render_animation(
-        _anim_df(2),
-        _grid(12),
-        0.1,
-        0.0,
-        0.0,
-        {},
-        out_path=out,
-        downsample=2,
-        max_frames=2,
-        fmt="webm",
-    )
-    assert result is None
-    err = capsys.readouterr().err
-    assert "Unknown format" in err
-    assert "Failed to save animation" in err
-
-
-def test_render_animation_no_valid_frames_returns_none(tmp_path):
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    df = _anim_df(3).with_columns(pl.Series("pos_x_gt", [float("nan")] * 3))
-    out = tmp_path / "anim.gif"
-    assert renderer.render_animation(df, _grid(12), 0.1, 0.0, 0.0, {}, out_path=out) is None
-    assert not out.exists()
-
-
-def _anim_spec(spec_id: str = "af_anim", **options) -> PlotSpec:
-    return PlotSpec(id=spec_id, type="acoustic_field_animation", title="Acoustic Animation", data_key="ped_max_exposure_dba", options=options)
-
-
-def _patch_animation(monkeypatch, seen: dict):
-    def _fake_render_animation(self, df, grid, resolution, ox, oy, doors, state_timeline=None, out_path=None, downsample=1, stride=1, max_frames=120, fps=10, dpi=150, vmin=None, vmax=None, robot_trail=0, show_doors=True, fmt="gif", overlay_trajectories=False):
-        seen.update({"out_path": out_path, "fmt": fmt, "fps": fps, "vmin": vmin, "downsample": downsample, "stride": stride, "max_frames": max_frames, "state_timeline": state_timeline, "vmax": vmax})
-        return out_path
-
-    monkeypatch.setattr(af_mod.AcousticFieldRenderer, "render_animation", _fake_render_animation)
-
-
-def test_animation_renderer_seaborn_orchestrates(monkeypatch, tmp_path):
-    bench = _make_episode(tmp_path, tf_gt=True)
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    seen = {}
-    _patch_animation(monkeypatch, seen)
-    out = tmp_path / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
+    renderer = AcousticFieldAnimationRenderer(spec)
     renderer.run_dir = bench
-    renderer.render_seaborn(_af_df(), out)
-    assert seen["out_path"] == tmp_path / "anim.gif"
-    assert seen["fmt"] == "gif"
-    assert seen["fps"] == 10
-    assert seen["downsample"] == 2  # animation default
-    assert seen["vmax"] is None  # auto-computed from field data
-    assert seen["state_timeline"] is None
+    with pytest.raises(MetricInputError, match="ffmpeg"):
+        renderer.render_static(_af_df(), tmp_path / "anim_nomp4.png")
 
 
-def test_animation_renderer_seaborn_finds_episode_in_parent_dir(monkeypatch, tmp_path):
-    import shutil
-
-    bench = _make_episode(tmp_path, tf_gt=True)  # tmp_path/bench/episodes/...
-    shutil.move(bench / "episodes", tmp_path / "episodes")
-    run_dir = tmp_path / "out_dir"
-    run_dir.mkdir()
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    seen = {}
-    _patch_animation(monkeypatch, seen)
-    out = run_dir / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    renderer.run_dir = run_dir
-    renderer.render_seaborn(_af_df(), out)
-    assert seen["out_path"] == run_dir / "anim.gif"
+def test_pick_worst_row_refuses_to_invent_a_source_level(
+    tmp_path: pathlib.Path,
+) -> None:
+    bench = _make_episode(tmp_path, tracks=True, acoustics=False)
+    renderer = _new_renderer(_af_spec(), bench)
+    df = _af_df().drop(["robot_x", "robot_y", "source_dba"])
+    with pytest.raises(MetricInputError, match="refusing to invent a source level"):
+        renderer.pick_worst_row(df)
 
 
-def test_animation_renderer_seaborn_empty_df(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    df = _af_df().with_columns(pl.Series("is_reference", [True, True]))
-    out = tmp_path / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    renderer.run_dir = tmp_path
-    renderer.render_seaborn(df, out)
-    assert not out.exists()
+def test_report_builder_writes_the_static_png_for_an_animation_plot(
+    tmp_path: pathlib.Path,
+) -> None:
+    bench = tmp_path / "bench"
+    write_benchmark(
+        bench,
+        [
+            {
+                "episode_id": 1,
+                "planner": "dwb",
+                "stage": "hall",
+                "world": "af_test_map",
+                "success": True,
+                "l_aeq_t": 70.0,
+                "ped_id": "ped_1",
+                "ped_name": "ped_1",
+                "ped_max_exposure_dba": 88.0,
+                "ped_leq_exposure_dba": 80.0,
+                "worst_case_acoustic_t_ns": 1_000_000_000,
+            }
+        ],
+    )
+    _make_episode(tmp_path, tracks=True)
+    query = (
+        "SELECT s.world, s.planner, s.stage, s.episode_id, "
+        "max(p.ped_max_exposure_dba) AS ped_max_exposure_dba, "
+        "max(p.worst_case_acoustic_t_ns) AS worst_case_acoustic_t_ns "
+        "FROM v_episode_summary s JOIN fact_pedestrians p "
+        "ON s.run_id = p.run_id AND s.episode_id = p.episode_id "
+        "AND s.env_id = p.env_id "
+        "GROUP BY s.world, s.planner, s.stage, s.episode_id"
+    )
+    manifest = VizManifest(
+        name="af_report",
+        title="Acoustic Field Report",
+        plots=[
+            PlotSpec(
+                id="acoustic_anim",
+                type="acoustic_field_animation",
+                title="Acoustic animation",
+                data={"query": query},
+                options={
+                    "format": "gif",
+                    "fps": 4,
+                    "max_frames": 2,
+                    "downsample": 2,
+                },
+            )
+        ],
+    )
+    builder = ReportBuilder(bench, manifest=manifest)
+    _write_test_world(bench, "af_test_map")
+    builder.build()
+
+    static_png = builder.plots_dir / "acoustic_anim.png"
+    assert static_png.read_bytes().startswith(_PNG_MAGIC)
+    assert (builder.plots_dir / "acoustic_anim.gif").is_file()
+    assert builder.build_checks.failed_count == 0
 
 
-def test_animation_renderer_seaborn_no_episode_column(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    out = tmp_path / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    renderer.run_dir = tmp_path
-    renderer.render_seaborn(_af_df().drop("episode"), out)
-    assert not out.exists()
-
-
-def test_animation_renderer_seaborn_no_episode_data(monkeypatch, tmp_path):
-    _patch_grid(monkeypatch)
-    monkeypatch.setattr(af_mod.AcousticFieldRenderer, "_load_episode_data", staticmethod(lambda *a, **k: None))
-    out = tmp_path / "anim.png"
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    renderer.run_dir = tmp_path
-    renderer.render_seaborn(_af_df(), out)
-    assert not out.exists()
-
-
-def test_animation_renderer_plotly_empty_df_returns_empty_string():
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    assert renderer.render_plotly(pl.DataFrame()) == ""
-
-
-def test_animation_renderer_plotly_frames_format_returns_empty():
-    renderer = AcousticFieldAnimationRenderer(_anim_spec(format="frames"))
-    assert renderer.render_plotly(_af_df()) == ""
-
-
-def test_animation_renderer_plotly_embeds_gif():
-    renderer = AcousticFieldAnimationRenderer(_anim_spec())
-    html = renderer.render_plotly(_af_df())
-    assert '<img src="plots/af_anim.gif"' in html
-    assert "Acoustic Animation" in html
-
-
-def test_animation_renderer_plotly_mp4_embeds_video():
-    renderer = AcousticFieldAnimationRenderer(_anim_spec(format="mp4"))
-    html = renderer.render_plotly(_af_df())
-    assert '<video src="plots/af_anim.mp4"' in html
-
-
-def test_animation_renderer_seaborn_characterization_null_peds(monkeypatch, tmp_path):
-    bench = _make_episode(tmp_path, tf_gt=True)
-    _patch_grid(monkeypatch)
-    _patch_doors(monkeypatch)
-    seen = {}
-    _patch_animation(monkeypatch, seen)
-    out = tmp_path / "anim.png"
-    df = _af_df().with_columns(pl.lit(None, dtype=pl.Float64).alias("ped_max_exposure_dba"))
-    renderer = AcousticFieldAnimationRenderer(_anim_spec(data_key="timeseries_char_dba"))
-    renderer.run_dir = bench
-    renderer.render_seaborn(df, out)
-    assert seen.get("out_path") == tmp_path / "anim.gif"
-
-
-def test_extract_trajectory_data_robot_and_peds():
-    """Verify _extract_trajectory_data extracts robot path, start, goal, and ped tracks with 2 waypoints."""
-    import polars as pl
-
+def test_field_timeseries_skips_frames_without_a_recorded_source(
+    tmp_path: pathlib.Path,
+) -> None:
+    grid = np.zeros((4, 4), dtype=np.uint8)
     df = pl.DataFrame(
         {
-            "time_ns": [0, 100000000, 200000000],
-            "pos_x_gt": [1.0, 2.0, 3.0],
-            "pos_y_gt": [0.5, 0.5, 0.5],
-            "start": [[1.0, 0.5]] * 3,
-            "goal": [[3.0, 0.5]] * 3,
-            "peds_positions": [
-                [{"id": 10, "x": 5.0, "y": 2.0}, {"id": 20, "x": 8.0, "y": 4.0}],
-                [{"id": 10, "x": 5.5, "y": 2.0}, {"id": 20, "x": 7.5, "y": 4.0}],
-                [{"id": 10, "x": 6.0, "y": 2.0}, {"id": 20, "x": 7.0, "y": 4.0}],
-            ],
+            "t_ns": [0, 1],
+            "x": [1.0, 1.0],
+            "y": [1.0, 1.0],
+            "source_dba": [70.0, None],
         }
     )
-    traj_data = AcousticFieldRenderer._extract_trajectory_data(df)
-    assert traj_data["robot_path"] is not None
-    rx, ry = traj_data["robot_path"]
-    assert len(rx) == 3 and rx[0] == 1.0 and rx[-1] == 3.0
-    assert traj_data["robot_start"] == (1.0, 0.5)
-    assert traj_data["robot_goal"] == (3.0, 0.5)
-
-    ped_trajs = traj_data["ped_trajectories"]
-    assert 0 in ped_trajs and len(ped_trajs[0]) == 3
-    assert 1 in ped_trajs and len(ped_trajs[1]) == 3
-
-    ped_wps = traj_data["ped_waypoints"]
-    assert ped_wps[0] == ((5.0, 2.0), (6.0, 2.0))
-    assert ped_wps[1] == ((8.0, 4.0), (7.0, 4.0))
-
-
-def test_draw_trajectories_overlay_artists():
-    """Verify _draw_trajectories_overlay draws lines and scatter artists on matplotlib axis."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    traj_data = {
-        "robot_path": (np.array([0.0, 1.0, 2.0]), np.array([0.0, 0.5, 1.0])),
-        "robot_start": (0.0, 0.0),
-        "robot_goal": (2.0, 1.0),
-        "ped_trajectories": {1: [(5.0, 5.0), (5.0, 6.0), (5.0, 7.0)]},
-        "ped_waypoints": {1: ((5.0, 5.0), (5.0, 7.0))},
-    }
-
-    fig, ax = plt.subplots()
-    AcousticFieldRenderer._draw_trajectories_overlay(ax, traj_data)
-    assert len(ax.lines) >= 2
-    assert len(ax.collections) >= 3
-    plt.close(fig)
-
-
-@pytest.mark.slow
-def test_render_cell_png_with_overlay_trajectories(tmp_path):
-    """Verify _render_cell_png successfully overlays trajectories when requested."""
-    renderer = _new_renderer(_af_spec(), pathlib.Path("."))
-    grid = _grid(10)
-    out_path = tmp_path / "cell_with_trajectories.png"
-    traj_data = {
-        "robot_path": (np.array([1.0, 1.5, 2.0]), np.array([1.0, 1.0, 1.0])),
-        "robot_start": (1.0, 1.0),
-        "robot_goal": (2.0, 1.0),
-        "collision_pos": (1.5, 1.0),
-        "ped_trajectories": {0: [(3.0, 3.0), (3.0, 3.5)]},
-        "ped_waypoints": {0: ((3.0, 3.0), (3.0, 3.5))},
-    }
-    ok = renderer._render_cell_png(
-        grid=grid,
-        resolution=0.1,
-        ox=0.0,
-        oy=0.0,
-        rx_m=1.0,
-        ry_m=1.0,
-        source_dba=60.0,
-        peds=[(3.0, 3.0)],
-        title="Test Trajectory Overlay",
-        out_path=out_path,
-        overlay_trajectories=True,
-        trajectory_data=traj_data,
+    frames = _new_renderer(_af_spec(), tmp_path).compute_field_timeseries(
+        df, grid, 0.1, 0.0, 0.0, {}
     )
-    assert ok is True
-    assert out_path.exists() and out_path.stat().st_size > 0
+    assert frames[0] is not None
+    assert frames[1] is None
 
 
-def test_extract_trajectory_data_flat_float_list():
-    """Verify _extract_trajectory_data handles flat [x0,y0,z0,x1,y1,z1,...] list format."""
-    import polars as pl
-
-    df = pl.DataFrame(
+def test_animation_collision_flags_come_from_recorded_collision_events(
+    tmp_path: pathlib.Path,
+) -> None:
+    field = (np.zeros((2, 2)), 0.1, (2, 2), frozenset(), 70.0)
+    renderer = _new_renderer(_af_spec(), tmp_path)
+    collided = pl.DataFrame(
         {
-            "time_ns": [0, 100000000],
-            "pos_x_gt": [0.0, 1.0],
-            "pos_y_gt": [0.0, 1.0],
-            "has_collision": [False, True],
-            "peds_positions": [
-                [1.0, 2.0, 0.0, 4.0, 5.0, 0.0],
-                [1.5, 2.5, 0.0, 4.2, 5.2, 0.0],
-            ],
+            "t_ns": [0],
+            "x": [1.0],
+            "y": [1.0],
+            "source_dba": [70.0],
+            "has_collision": [True],
         }
     )
-    traj_data = AcousticFieldRenderer._extract_trajectory_data(df)
-    assert 0 in traj_data["ped_trajectories"]
-    assert 1 in traj_data["ped_trajectories"]
-    assert traj_data["ped_trajectories"][0][0] == (1.0, 2.0)
-    assert traj_data["ped_trajectories"][1][0] == (4.0, 5.0)
-    assert traj_data["collision_pos"] == (1.0, 1.0)
-
-
-def test_extract_trajectory_data_disk_fallback(tmp_path):
-    """Verify _extract_trajectory_data falls back to disk topics/peds.parquet when df has no peds."""
-    import polars as pl
-
-    ep_dir = tmp_path / "episodes" / "episode_005" / "topics"
-    ep_dir.mkdir(parents=True)
-    peds_df = pl.DataFrame(
+    quiet = pl.DataFrame(
         {
-            "time_ns": [0, 100000000, 200000000],
-            "peds_positions": [
-                [2.0, 3.0, 0.0],
-                [2.5, 3.5, 0.0],
-                [3.0, 4.0, 0.0],
-            ],
+            "t_ns": [0],
+            "x": [1.0],
+            "y": [1.0],
+            "source_dba": [120.0],
+            "has_collision": [False],
         }
     )
-    peds_df.write_parquet(ep_dir / "peds.parquet")
-
-    df_empty = pl.DataFrame({"pos_x_gt": [0.0], "pos_y_gt": [0.0]})
-    traj_data = AcousticFieldRenderer._extract_trajectory_data(df_empty, run_dir=tmp_path, episode_id=5)
-    assert 0 in traj_data["ped_trajectories"]
-    assert len(traj_data["ped_trajectories"][0]) == 3
-    assert traj_data["ped_trajectories"][0][0] == (2.0, 3.0)
-    assert traj_data["ped_trajectories"][0][-1] == (3.0, 4.0)
+    assert renderer._animation_metadata(
+        collided, [(0, field)], 1, 120
+    ).collision_per_frame == [True]
+    assert renderer._animation_metadata(
+        quiet, [(0, field)], 1, 120
+    ).collision_per_frame == [False]

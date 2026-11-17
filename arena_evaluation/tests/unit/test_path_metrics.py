@@ -1,52 +1,67 @@
-import numpy as np
+"""Path geometry: scalar aggregates in the metric row, per-sample path in the 1NF series table."""
+
+from __future__ import annotations
+
+
 import polars as pl
-from arena_evaluation.storage.schemas import RobotParams, AlignedEpisodeBundle
-from arena_evaluation.processing.metrics.performance.path_metrics import PathMetricsCalculator
+from polars.testing import assert_frame_equal
+
+from arena_evaluation.processing.metrics.base import Direction
+from arena_evaluation.processing.metrics.performance.path_metrics import (
+    SERIES_SCHEMA,
+    PathMetricsCalculator,
+)
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from robot_params_factory import make_robot_params
+
+SEC = 1_000_000_000
 
 
-def test_path_length_straight():
-    # Straight line along X axis
-    odom_df = pl.DataFrame({"time_ns": [1, 2, 3, 4], "pos_x": [0.0, 1.0, 2.0, 3.0], "pos_y": [0.0, 0.0, 0.0, 0.0], "yaw": [0.0, 0.0, 0.0, 0.0]})
-
-    episode = AlignedEpisodeBundle(episode_id=1, data=odom_df, start_pos=[], goal_pos=[])
-    params = RobotParams(0.2, 0.0, 10.0)
-    calc = PathMetricsCalculator(params)
-
-    results = calc.calculate(episode, {})
-
-    assert np.isclose(results["path_length"], 3.0)
-    assert np.isclose(results["curvature_mean"], 0.0)
-    assert np.isclose(results["roughness_mean"], 0.0)
-    assert np.isclose(results["angle_over_length"], 0.0)
-
-
-def test_path_length_stationary():
-    # Stationary robot
-    odom_df = pl.DataFrame({"time_ns": [1, 2, 3, 4], "pos_x": [0.0, 0.0, 0.0, 0.0], "pos_y": [0.0, 0.0, 0.0, 0.0], "yaw": [0.0, 0.0, 0.0, 0.0]})
-
-    episode = AlignedEpisodeBundle(episode_id=1, data=odom_df, start_pos=[], goal_pos=[])
-    params = RobotParams(0.2, 0.0, 10.0)
-    calc = PathMetricsCalculator(params)
-
-    results = calc.calculate(episode, {})
-
-    assert np.isclose(results["path_length"], 0.0)
-    assert np.isclose(results["angle_over_length"], 0.0)
+def _episode(
+    poses: list[tuple[float, float, float]], *, episode_id: int = 1
+) -> AlignedEpisodeBundle:
+    """Episode frame with the native /tf ground-truth poses."""
+    xs = [pose[0] for pose in poses]
+    ys = [pose[1] for pose in poses]
+    yaws = [pose[2] for pose in poses]
+    data = pl.DataFrame(
+        {
+            "t_ns": pl.Series(
+                "t_ns", [index * SEC for index in range(len(poses))], dtype=pl.Int64
+            ),
+            "x": pl.Series("x", xs, dtype=pl.Float64),
+            "y": pl.Series("y", ys, dtype=pl.Float64),
+            "yaw": pl.Series("yaw", yaws, dtype=pl.Float64),
+        }
+    )
+    return AlignedEpisodeBundle(
+        episode_id=episode_id, data=data, start_pos=[], goal_pos=[]
+    )
 
 
-def test_path_length_with_nans():
-    # Straight line along X axis with some nulls/NaNs
-    odom_df = pl.DataFrame({"time_ns": [1, 2, 3, 4], "pos_x": [0.0, None, 2.0, 3.0], "pos_y": [0.0, 0.0, 0.0, 0.0], "yaw": [0.0, 0.0, 0.0, 0.0]})
+def _series(poses: list[tuple[float, float, float]]) -> pl.DataFrame:
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
+    return calculator.series_table(_episode(poses), run_id="run", robot_id="jackal_0")
 
-    episode = AlignedEpisodeBundle(episode_id=1, data=odom_df, start_pos=[], goal_pos=[])
-    params = RobotParams(0.2, 0.0, 10.0)
-    calc = PathMetricsCalculator(params)
 
-    results = calc.calculate(episode, {})
+def test_path_length_orders_results_lower():
+    assert PathMetricsCalculator.DIRECTIONS["path_length_m"] is Direction.LOWER
+    assert set(PathMetricsCalculator.PRIMARY_OUTPUTS) <= set(
+        PathMetricsCalculator.DIRECTIONS
+    )
 
-    # The second row (index 1) has a None/null pos_x, so it is filtered out.
-    # The remaining points are at X = 0.0, 2.0, 3.0.
-    # The total path length should be 2.0 + 1.0 = 3.0 (no NaNs should propagate).
-    assert results["path_length"] is not None
-    assert not np.isnan(results["path_length"])
-    assert np.isclose(results["path_length"], 3.0)
+
+def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
+    episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
+
+    assert calculator.calculate(episode, {}) == dict.fromkeys(
+        PathMetricsCalculator.output_keys()
+    )
+    assert_frame_equal(
+        calculator.series_table(episode),
+        pl.DataFrame(schema=SERIES_SCHEMA),
+        check_dtypes=True,
+    )
+
+

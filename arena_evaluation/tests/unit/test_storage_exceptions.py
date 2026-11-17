@@ -13,17 +13,13 @@ from arena_evaluation.storage.exceptions import (
     ArenaEvaluationError,
     CircularDependencyError,
     ManifestGenerationError,
-    MetricCalculationError,
-    RobotNotFoundError,
     SchemaViolationError,
 )
 
 _ALL_EXCEPTIONS = [
     ArenaEvaluationError,
-    MetricCalculationError,
     CircularDependencyError,
     SchemaViolationError,
-    RobotNotFoundError,
     ManifestGenerationError,
 ]
 

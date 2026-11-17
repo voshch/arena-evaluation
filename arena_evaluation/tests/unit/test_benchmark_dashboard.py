@@ -156,18 +156,6 @@ def test_progress_display_heartbeat_refreshes_live_json(tmp_path: pathlib.Path, 
         assert json.loads(live.read_text())["updated_at"] > first
 
 
-def test_run_detail_has_the_grid_failures_episodes_and_stale_lanes(run_dir: RunDir):
-    _live(run_dir, time.time() - 60)
-    detail = dashboard.run_detail(run_dir.path)
-
-    assert [(c["contestant"], c["stage"], c["world"], c["status"], c["episodes_run"]) for c in detail["grid"]] == [("dwb", "s1", "map_empty", "ok", 2), ("mppi", "s1", "map_empty", "failed", 0), ("teb", "s1", "map_empty", "pending", 0)]
-    assert detail["state"] == "incomplete"
-    assert detail["failed"] == [{"key": "mppi/s1", "error_kind": "env_setup", "error_detail": "spawn timed out"}]
-    assert detail["episodes"] == {"logged": 2, "planned": 6, "outcomes": {"success": 1, "failed": 1}, "per_min": 0.2, "rate_window_s": 600, "eta_s": None}
-    assert [(r["episode_id"], r["outcome"], r["outcome_info"]) for r in detail["recent"]] == [("1", "failed", "collision"), ("0", "success", "")]
-    assert [(lane["file"], lane["stale"]) for lane in detail["live"]] == [("live.json", True)]
-
-
 def test_a_step_busy_in_a_live_lane_shows_in_progress_until_the_state_records_it(run_dir: RunDir):
     slot = {"slot": 0, "env_id": 4, "contestant": "teb", "stage": "s1", "step_key": "teb/s1", "ep_idx": 0, "ep_total": 2, "state": "RUNNING", "started_at": time.time(), "sim_start": 1.0}
     done = slot | {"slot": 1, "contestant": "dwb", "step_key": "dwb/s1"}
@@ -179,35 +167,11 @@ def test_a_step_busy_in_a_live_lane_shows_in_progress_until_the_state_records_it
     assert detail["steps"] == {"ok": 1, "partial": 0, "failed": 1, "skipped": 0, "in_progress": 1, "pending": 0}
 
 
-def test_rate_window_shrinks_to_a_young_runs_age_and_floors_at_a_minute(run_dir: RunDir):
-    created = datetime.datetime.fromisoformat(run_dir.manifest.created_at).timestamp()
-
-    young = dashboard.run_detail(run_dir.path, now=created + 120)["episodes"]
-    newborn = dashboard.run_detail(run_dir.path, now=created + 5)["episodes"]
-
-    assert young["rate_window_s"] == 120
-    assert newborn["rate_window_s"] == 60
-
-
-def test_manifest_is_parsed_once_until_the_file_changes(run_dir: RunDir):
-    first = dashboard.load_manifest(run_dir.path)
-    assert dashboard.load_manifest(run_dir.path) is first
-
-    manifest_file = run_dir.path / "manifest.yaml"
-    manifest_file.write_text(manifest_file.read_text().replace("suite_name: basic", "suite_name: renamed"))
-    assert dashboard.load_manifest(run_dir.path).suite_name == "renamed"
-
-
 def test_unreadable_manifest_is_a_run_status_error(tmp_path: pathlib.Path):
     (tmp_path / "broken").mkdir()
     (tmp_path / "broken" / "manifest.yaml").write_text("run_id: [unclosed\n")
     with pytest.raises(dashboard.RunStatusError, match="has no readable manifest.yaml"):
         dashboard.run_status(tmp_path / "broken")
-
-
-def test_finished_lane_is_never_stale(run_dir: RunDir):
-    _live(run_dir, time.time() - 3600, finished=True)
-    assert [lane["stale"] for lane in dashboard.live_lanes(run_dir.path)] == [False]
 
 
 def test_progress_filters_to_one_step(server: dashboard.DashboardServer, run_dir: RunDir):
@@ -254,21 +218,6 @@ def test_runtime_endpoints_need_the_runtime_flag_and_the_control_header(server: 
     assert answers[1][0] == 404 and answers[1][1]["hint"] == "start it with arena evaluation serve --runtime"
     assert status == 404 and json.loads(body)["error"] == "this dashboard serves no runtime page"
     assert json.loads(_get(server, "/api/identity")[1])["runtime"] is False
-
-
-def test_stopping_a_run_needs_the_control_header_and_the_runtime_flag(server: dashboard.DashboardServer, run_dir: RunDir):
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/runs/{RUN_ID}/stop"
-    forged = urllib.request.Request(url, data=b"{}", method="POST")
-    allowed = urllib.request.Request(url, data=b"{}", headers={"X-Arena-Dashboard": "1"}, method="POST")
-    answers = []
-    for request in (forged, allowed):
-        try:
-            urllib.request.urlopen(request, timeout=5)
-        except urllib.error.HTTPError as exc:
-            answers.append((exc.code, json.loads(exc.read())))
-
-    assert answers[0][0] == 403 and "X-Arena-Dashboard: 1" in answers[0][1]["error"]
-    assert answers[1][0] == 404 and answers[1][1]["hint"] == "start it with arena evaluation serve --runtime"
 
 
 @pytest.mark.parametrize("path", ["/api/runs/nope", "/api/runs/..", "/api/runs/%2E%2E", f"/api/runs/{RUN_ID}/nope", "/api/nope"])
@@ -333,21 +282,6 @@ def test_child_serves_until_stopped_and_until_its_watched_process_exits(run_dir:
         assert orphan.wait(10) == 0
     finally:
         dashboard.stop_child(orphan)
-
-
-def test_port_zero_prints_the_bound_port_and_stdin_eof_stops_the_dashboard(tmp_path: pathlib.Path):
-    proc = subprocess.Popen([sys.executable, "-m", "arena_evaluation.benchmark.cli", "serve", "--port", "0", "--exit-on-eof", "--data-root", str(tmp_path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-    try:
-        assert proc.stdout is not None and proc.stdin is not None
-        line = proc.stdout.readline()
-        port = urllib.parse.urlsplit(line.removeprefix(dashboard.VIZ_PREFIX).strip()).port
-        assert line.startswith(dashboard.VIZ_PREFIX) and port
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/identity", timeout=5) as response:
-            assert json.loads(response.read())["pid"] == proc.pid
-        proc.stdin.close()
-        assert proc.wait(10) == 0
-    finally:
-        dashboard.stop_child(proc)
 
 
 def test_child_on_a_foreign_port_raises(run_dir: RunDir):

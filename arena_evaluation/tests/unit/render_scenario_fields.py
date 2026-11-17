@@ -15,17 +15,18 @@ Usage:
 
 import argparse
 import pathlib
+import sys
 
 import numpy as np
 
-import sys
-
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST  # noqa: E402
+try:
+    from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST
+    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
+except ImportError as exc:  # a standalone render script without the test tree
+    raise SystemExit(f"missing acoustic rendering dependency: {exc}") from exc
 
 DOOR_TL = 25.0
-
-from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations  # noqa: E402
 
 
 def _door_mask(grid, spec) -> np.ndarray:

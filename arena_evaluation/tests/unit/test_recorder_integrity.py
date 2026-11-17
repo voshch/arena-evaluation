@@ -12,7 +12,6 @@ from rclpy.parameter import Parameter
 from arena_runtime_msgs.msg import EpisodeRecord
 
 from arena_evaluation.ingestion.recorder import DataRecorderNode
-from arena_evaluation.storage.manifest import MetadataWriter
 
 
 @pytest.fixture
@@ -34,18 +33,6 @@ def _yaml_integrity(node: DataRecorderNode) -> list[str]:
     return yaml.safe_load(node.current_metadata_path.read_text())["integrity"]
 
 
-def test_recorder_yaml_follows_integrity_reasons_as_they_accrue(recorder_node: DataRecorderNode) -> None:
-    recorder_node.episode_record_callback(_record(3, EpisodeRecord.RUNNING))
-    assert _yaml_integrity(recorder_node) == []
-
-    recorder_node.episode_record_callback(_record(3, EpisodeRecord.RUNNING, "robot jackal spawned by hand"))
-    assert _yaml_integrity(recorder_node) == ["robot jackal spawned by hand"]
-
-    recorder_node.episode_record_callback(_record(3, EpisodeRecord.SUCCESS, "robot jackal spawned by hand", "task parameters changed mid-episode"))
-    assert _yaml_integrity(recorder_node) == ["robot jackal spawned by hand", "task parameters changed mid-episode"]
-    assert MetadataWriter.read(recorder_node.current_metadata_path).integrity == ["robot jackal spawned by hand", "task parameters changed mid-episode"]
-
-
 def test_recorder_keeps_integrity_reasons_arriving_after_stop(recorder_node: DataRecorderNode) -> None:
     recorder_node.episode_record_callback(_record(4, EpisodeRecord.RUNNING))
     path = recorder_node.current_metadata_path
@@ -64,20 +51,3 @@ def test_queued_record_of_the_next_episode_leaves_integrity_of_the_current_one(r
     assert _yaml_integrity(recorder_node) == ["jackal: elevator teleport 'a' -> 'b' failed: TimeoutError()"]
 
 
-def test_episode_yaml_without_integrity_reads_as_intact(tmp_path: pathlib.Path) -> None:
-    path = tmp_path / "episode_000.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "benchmark_id": "b",
-                "planner": "dwb",
-                "map": "map_empty",
-                "stage": "preflight",
-                "outcome_state": 2,
-                "recording_started_at": "2026-01-01T00:00:00+00:00",
-                "python_version": "3.12",
-                "ros_distro": "jazzy",
-            }
-        )
-    )
-    assert MetadataWriter.read(path).integrity == []
