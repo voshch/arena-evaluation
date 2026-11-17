@@ -10,12 +10,31 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-from arena_simulation_setup.generative.world.barn import BASE_URL, CELL_M, GOAL, START, WORLD_DIR, WORLDS, X_SHIFT_M, world_file, world_name
+from arena_simulation_setup.generative.world.barn import (
+    BASE_URL,
+    CELL_M,
+    GOAL,
+    START,
+    WORLD_DIR,
+    WORLDS,
+    X_SHIFT_M,
+    world_file,
+    world_name,
+)
 from arena_simulation_setup.generative.world.barn import attribution as barn_attribution
 
-from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, Attribution, Importer, write_attribution
+from arena_assets.importers import (
+    ATTRIBUTION_FILE,
+    IMPORTERS,
+    Attribution,
+    Importer,
+    write_attribution,
+)
 from arena_assets.importers.providers import Http, Provider
-from arena_evaluation.processing.metrics.performance.barn_metrics import GOAL_RADIUS_M, TIMEOUT_S
+from arena_evaluation.processing.metrics.performance.barn_metrics import (
+    GOAL_RADIUS_M,
+    TIMEOUT_S,
+)
 
 ITEM = "barn"
 ROBOT = "jackal"
@@ -25,7 +44,11 @@ PATHS = "path_files"
 SOURCES = "worlds"
 CONTESTANT = {
     "name": "dwb",
-    "mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "navigate_w_replanning_time"},
+    "mobile": {
+        "driver": "nav2",
+        "local_planner": "dwb",
+        "inter_planner": "navigate_w_replanning_time",
+    },
     "task.episode.fail_on_collision": True,
     "task.episode.goto_pose.tolerance.radius": GOAL_RADIUS_M,
     "task.episode.goto_pose.tolerance.angle": "0.0",
@@ -36,8 +59,11 @@ MANIFEST = {
     "name": ITEM,
     "title": "BARN Challenge Report",
     "description": "Navigation metric of the BARN challenge per contestant and per world, beside the native success, collision and time metrics.",
-    "data_source": "metrics",
-    "groups": [{"id": "contestants", "title": "Contestants"}, {"id": "worlds", "title": "Worlds"}],
+    "data_source": "v_episode_summary",
+    "groups": [
+        {"id": "contestants", "title": "Contestants"},
+        {"id": "worlds", "title": "Worlds"},
+    ],
     "summary": [
         {"metric": "barn_score", "label": "Avg Metric", "format": "{:.4f}"},
         {"metric": "barn_success", "label": "Avg Success", "format": "{:.4f}"},
@@ -50,43 +76,54 @@ MANIFEST = {
             "id": "barn_time_of_successful_runs",
             "type": "table",
             "title": "Time of successful runs",
-            "data_key": "*",
+            "data": {
+                "computation": "group_summary",
+                "params": {
+                    "metrics": ["barn_time"],
+                    "group_cols": ["planner"],
+                    "filter": "barn_success == true",
+                },
+            },
+            "channels": {},
             "layout_group": "contestants",
-            "filter": {"barn_success": True},
-            "options": {"group_by": ["planner"], "columns": [{"metric": "barn_time", "label": "Avg Time (s)", "format": "{:.4f}"}]},
+            "options": {"columns": ["planner", "metric", "n", "mean", "std"]},
         },
         {
             "id": "barn_native_metrics",
             "type": "table",
             "title": "Native metrics of the same runs",
-            "data_key": "*",
-            "layout_group": "contestants",
-            "options": {
-                "group_by": ["planner"],
-                "columns": [
-                    {"metric": "success", "label": "Success", "format": "{:.0%}"},
-                    {"metric": "collision_amount", "label": "Collisions", "format": "{:.2f}"},
-                    {"metric": "time_to_goal", "label": "Time to Goal (s)", "format": "{:.2f}"},
-                ],
+            "data": {
+                "computation": "group_summary",
+                "params": {
+                    "metrics": ["success", "collision_amount", "time_to_goal"],
+                    "group_cols": ["planner"],
+                },
             },
+            "channels": {},
+            "layout_group": "contestants",
+            "options": {"columns": ["planner", "metric", "n", "mean", "std"]},
         },
         {
             "id": "barn_score_per_world",
             "type": "table",
             "title": "Navigation metric per world",
-            "data_key": "*",
-            "layout_group": "worlds",
-            "options": {
-                "group_by": ["planner", "map"],
-                "columns": [
-                    {"metric": "barn_score", "label": "Metric", "format": "{:.4f}"},
-                    {"metric": "barn_time", "label": "Time (s)", "format": "{:.2f}"},
-                    {"metric": "barn_optimal_time", "label": "Optimal Time (s)", "format": "{:.2f}"},
-                    {"metric": "barn_success", "label": "Success", "format": "{:.2f}"},
-                    {"metric": "barn_collided", "label": "Collision", "format": "{:.2f}"},
-                    {"metric": "barn_timeout", "label": "Timeout", "format": "{:.2f}"},
-                ],
+            "data": {
+                "computation": "group_summary",
+                "params": {
+                    "metrics": [
+                        "barn_score",
+                        "barn_time",
+                        "barn_optimal_time",
+                        "barn_success",
+                        "barn_collided",
+                        "barn_timeout",
+                    ],
+                    "group_cols": ["planner", "world"],
+                },
             },
+            "channels": {},
+            "layout_group": "worlds",
+            "options": {"columns": ["planner", "world", "metric", "n", "mean", "std"]},
         },
     ],
 }
@@ -99,8 +136,14 @@ def challenge_xy(row: float, col: float) -> tuple[float, float]:
 
 
 def reference_path_length(path: np.ndarray) -> float:
-    points = [START[:2], *(challenge_xy(r, c) for r, c in np.asarray(path, dtype=float).tolist()), GOAL]
-    return float(sum(math.dist(a, b) for a, b in zip(points[:-1], points[1:], strict=True)))
+    points = [
+        START[:2],
+        *(challenge_xy(r, c) for r, c in np.asarray(path, dtype=float).tolist()),
+        GOAL,
+    ]
+    return float(
+        sum(math.dist(a, b) for a, b in zip(points[:-1], points[1:], strict=True))
+    )
 
 
 def load_paths(src: Path) -> dict[int, np.ndarray]:
@@ -137,7 +180,12 @@ def _dump(path: Path, obj: object) -> None:
 class BARN(Importer):
     meta = IMPORTERS.meta("suite", ITEM)
 
-    def __init__(self, cache: Path | None = None, provider: Provider | None = None, worlds: int = WORLDS):
+    def __init__(
+        self,
+        cache: Path | None = None,
+        provider: Provider | None = None,
+        worlds: int = WORLDS,
+    ):
         super().__init__(cache, provider)
         self.worlds = worlds
 
@@ -156,8 +204,13 @@ class BARN(Importer):
     def fetch(self, item: str) -> Path:
         self._check(item)
         for index in range(self.worlds):
-            self.provider.get(f"{PATH_DIR}/path_{index}.npy", self.cache / PATHS / f"path_{index}.npy")
-            self.provider.get(f"{WORLD_DIR}/{world_file(index)}", self.cache / SOURCES / world_file(index))
+            self.provider.get(
+                f"{PATH_DIR}/path_{index}.npy", self.cache / PATHS / f"path_{index}.npy"
+            )
+            self.provider.get(
+                f"{WORLD_DIR}/{world_file(index)}",
+                self.cache / SOURCES / world_file(index),
+            )
         return self.cache
 
     def convert(self, item: str, src: Path, out: Path) -> str:
@@ -166,7 +219,13 @@ class BARN(Importer):
 
         from arena_simulation_setup.adapters.barn import write_world
 
-        from arena_evaluation.benchmark.tree import ContestIdentifier, ManifestIdentifier, SuiteIdentifier
+        from arena_evaluation.benchmark.tree import (
+            ContestIdentifier,
+            SuiteIdentifier,
+        )
+        from arena_evaluation.presentation.manifest_identifier import (
+            ManifestIdentifier,
+        )
 
         suite_dir = out / SuiteIdentifier(name=item).relpath()
         contest_dir = out / ContestIdentifier(name=item).relpath()
@@ -184,10 +243,17 @@ class BARN(Importer):
             stages.append(stage(name, generator.params()))
             lengths[name] = reference_path_length(paths[index])
 
-        reference = {"start": list(START[:2]), "goal": list(GOAL), "path_length": lengths}
-        _dump(suite_dir / "suite.yaml", {"metrics": {"max_collisions": 1, "barn": reference}, "stages": stages})
+        reference = {
+            "start": list(START[:2]),
+            "goal": list(GOAL),
+            "path_length": lengths,
+        }
+        _dump(
+            suite_dir / "suite.yaml",
+            {"metrics": {"max_collisions": 1, "barn": reference}, "stages": stages},
+        )
         _dump(contest_dir / "contest.yaml", [CONTESTANT])
-        _dump(manifest_dir / "manifest.yaml", MANIFEST)
+        _dump(manifest_dir / "report.yaml", MANIFEST)
         SuiteIdentifier(name=item).load(suite_dir)
         ContestIdentifier(name=item).load(contest_dir)
         ManifestIdentifier(name=item).load(manifest_dir)

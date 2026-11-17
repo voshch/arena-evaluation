@@ -1,147 +1,185 @@
+"""Ecological acoustic metrics on the native robot_acoustics time base."""
+
 from __future__ import annotations
 
 import typing
+from typing import Final
 
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.acoustics.constants import (
+    ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2,
+    ROBOT_ACOUSTICS_TOPIC,
+)
+from arena_evaluation.processing.acoustics.statistics import (
+    MIN_DBA,
+    energy_equivalent_level_dba,
+    frame_durations_s,
+    linear_energy,
+    max_positive_rise_dba_per_s,
+    rise_rates_dba_per_s,
+)
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
+from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+
+STARTLE_GATE_DBA: Final[float] = 65.0
+SURGE_WINDOW_S: Final[float] = 1.0
+MIN_PATH_LENGTH_M: Final[float] = 0.1
+
+_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
+
+L_AEQ_T = define_metric(
+    "l_aeq_t",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dBA",
+    description="Equivalent continuous A-weighted sound level over the scope.",
+    null_reason=True,
+)
+L_A10 = define_metric(
+    "l_a10",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dBA",
+    description="A-weighted sound level exceeded 10 percent of the scope.",
+    null_reason=True,
+)
+L_A50 = define_metric(
+    "l_a50",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dBA",
+    description="Median A-weighted sound level over the scope.",
+    null_reason=True,
+)
+L_A90 = define_metric(
+    "l_a90",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dBA",
+    description="A-weighted sound level exceeded 90 percent of the scope.",
+    null_reason=True,
+)
+ACOUSTIC_STARTLE_FACTOR = define_metric(
+    "acoustic_startle_factor",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dBA/s",
+    description="Maximum positive rise rate of 3-sample median-filtered level gated at 65 dBA, 0 dBA/s when the level never rose above the gate.",
+    null_reason=True,
+)
+ACOUSTIC_SURGE_INDEX = define_metric(
+    "acoustic_surge_index",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="dB²",
+    description="Variance of 1 s energy-equivalent A-weighted levels over the scope, in squared decibels.",
+    null_reason=True,
+)
+ACOUSTIC_COST = define_metric(
+    "acoustic_cost",
+    pl.Float64,
+    scopes=_SCOPES,
+    unit="Pa²·s/m",
+    description="Emitted sound pressure-squared exposure per metre of robot path over the scope.",
+    null_reason=True,
+)
+
+_METRICS: Final[tuple[Metric, ...]] = (
+    L_AEQ_T,
+    L_A10,
+    L_A50,
+    L_A90,
+    ACOUSTIC_STARTLE_FACTOR,
+    ACOUSTIC_SURGE_INDEX,
+    ACOUSTIC_COST,
+)
 
 
 class AcousticsCalculator(BaseMetricCalculator):
-    """Ecological acoustic metrics on the native /acoustics time base.
-
-    Metrics:
-    - L_Aeq,T (ISO 1996-1:2016): equivalent continuous A-weighted level.
-    - L_A10 / L_A50 / L_A90: levels exceeded 10/50/90 % of the time.
-    - ASF / LTR: max positive rise rate of the 3-sample median filtered
-      A-weighted Fast level, gated on L_AF >= 65 dBA. A proxy for transients
-      from jerky torque bursts, not the biological startle reflex (which
-      needs >80 dBA and millisecond rise times).
-    - ASI: variance of 1 s Leq windows.
-    - acoustic_cost: linearized acoustic energy per meter.
-    """
+    """Ecological acoustic metrics on the native robot_acoustics time base."""
 
     NAME = "acoustics"
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = ["path_metrics"]
-    REQUIRED_TOPICS = ["acoustics"]
+    REQUIRED_TOPICS = [ROBOT_ACOUSTICS_TOPIC]
+    PARAMS = ()
 
-    UNITS = {
-        "l_aeq_t": "dBA",
-        "l_a10": "dBA",
-        "l_a50": "dBA",
-        "l_a90": "dBA",
-        "acoustic_startle_factor": "dBA/s",
-        "acoustic_surge_index": "dBA²",
-        "acoustic_cost": "s/m",
-    }
-
+    OUTPUTS = _METRICS
+    DIRECTIONS = {metric.name: Direction.LOWER for metric in _METRICS}
     PRIMARY_OUTPUTS = ["l_aeq_t", "acoustic_startle_factor"]
-    OUTPUT_DIRECTIONS = {
-        "l_aeq_t": "lower",
-        "acoustic_startle_factor": "lower",
-        "acoustic_cost": "lower",
-        "acoustic_surge_index": "lower",
-        "l_a10": "lower",
-        "l_a50": "lower",
-        "l_a90": "lower",
-    }
 
-    _DEFAULT_DBA = 42.0  # dBA, idle noise floor
-    _MIN_DBA = 1.0  # dBA, clamp before log
-    _L_GATE_DBA = 65.0  # dBA, ASF level gate
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "l_aeq_t",
-            "l_a10",
-            "l_a50",
-            "l_a90",
-            "acoustic_startle_factor",
-            "acoustic_surge_index",
-            "acoustic_cost",
-        ]
+    def calculate_for_scope(
+        self,
+        episode: AlignedEpisodeBundle,
+        prior_results: dict[str, typing.Any],
+        scope_slice: ScopeSlice | None = None,
+    ) -> dict[str, typing.Any]:
+        if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
+            return self.calculate(episode, prior_results)
+        if scope_slice.scope == MetricScope.ENCOUNTER:
+            return self.calculate(
+                episode, {"path_length_m": self._window_path_length_m(episode)}
+            )
+        raise ValueError(
+            f"acoustics does not serve the {scope_slice.scope.value} scope"
+        )
 
     def calculate(
         self,
         episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
-        topics = self.native_topics(episode)
-        acous = topics.get("acoustics")
-        if acous is None or "total_level_af_dba" not in acous.columns or "time_ns" not in acous.columns:
-            return {k: None for k in self.output_keys()}
+        acous = self.native_topics(episode).get(ROBOT_ACOUSTICS_TOPIC)
+        if acous is None or len(acous) < 2:
+            return dict.fromkeys(self.output_keys())
 
-        acous = acous.sort("time_ns")
-        try:
-            dba = acous["total_level_af_dba"].cast(pl.Float64).fill_null(strategy="forward").fill_null(self._DEFAULT_DBA).to_numpy()
-        except Exception:
-            return {k: None for k in self.output_keys()}
+        frame = (
+            acous.select(
+                pl.col("t_ns").cast(pl.Int64),
+                pl.col("total_level_af_dba")
+                .cast(pl.Float64)
+                .forward_fill()
+                .alias("dba"),
+            )
+            .drop_nulls("dba")
+            .sort("t_ns")
+        )
+        if len(frame) < 2:
+            return dict.fromkeys(self.output_keys())
 
-        if len(dba) == 0 or np.all(np.isnan(dba)):
-            return {k: None for k in self.output_keys()}
+        dba = np.maximum(frame["dba"].to_numpy(), MIN_DBA)
+        t_ns = frame["t_ns"].to_numpy()
+        if np.all(np.isnan(dba)):
+            return dict.fromkeys(self.output_keys())
 
-        dba = np.maximum(dba, self._MIN_DBA)
-        time_ns = acous["time_ns"].to_numpy()
-        if len(time_ns) < 2:
-            return {k: None for k in self.output_keys()}
+        dt = frame_durations_s(t_ns)
+        energy = linear_energy(dba)
+        total_duration_s = float(np.sum(dt))
+        l_aeq_t = energy_equivalent_level_dba(dba, dt)
 
-        dt = np.diff(time_ns) / 1e9
-        dt = np.append(dt, dt[-1] if len(dt) > 0 else 0.01)
-        dt = np.where(dt <= 0.0, 1e-6, dt)
-
-        linear_energy = 10.0 ** (dba / 10.0)
-        T = float(np.sum(dt))
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            l_aeq_t = 10.0 * np.log10(np.sum(linear_energy * dt) / T)
-        if np.isnan(l_aeq_t) or np.isinf(l_aeq_t):
-            l_aeq_t = None
-        else:
-            l_aeq_t = float(l_aeq_t)
-
-        # L_AN convention: L_A10 is the level exceeded 10 % of the time
         l_a10 = float(np.percentile(dba, 90))
         l_a50 = float(np.percentile(dba, 50))
         l_a90 = float(np.percentile(dba, 10))
 
         dba_filt = self._median_filter_3(dba)
-        dL = np.diff(dba_filt)
-        dt_diff = np.diff(time_ns) / 1e9
-        dt_diff = np.where(dt_diff <= 0.0, 1e-6, dt_diff)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rates = dL / dt_diff
+        acoustic_startle_factor = max_positive_rise_dba_per_s(
+            rise_rates_dba_per_s(dba_filt, t_ns, gate_dba=STARTLE_GATE_DBA)
+        )
 
-        # Only rises ending at or above the gate count as transients
-        gated = np.where(dba_filt[1:] >= self._L_GATE_DBA, rates, 0.0)
-        positive_rates = gated[gated > 0]
-        acoustic_startle_factor = float(np.max(positive_rates)) if len(positive_rates) > 0 else 0.0
+        acoustic_surge_index = self._surge_index(dt, energy, total_duration_s)
 
-        window_s = 1.0
-        if T >= window_s and len(dba) >= 2:
-            cumsum_t = np.cumsum(dt)
-            window_lecs = []
-            t_start = 0.0
-            while t_start + window_s <= T:
-                t_end = t_start + window_s
-                mask = (cumsum_t >= t_start) & (cumsum_t < t_end)
-                if np.sum(mask) > 0:
-                    window_le = np.mean(linear_energy[mask])
-                    if window_le > 0:
-                        window_lecs.append(10.0 * np.log10(window_le))
-                t_start += window_s
-            acoustic_surge_index = float(np.var(window_lecs)) if len(window_lecs) >= 2 else 0.0
-        else:
-            acoustic_surge_index = 0.0
-
-        path_length = prior_results.get("path_length")
-        if path_length is not None and path_length >= 0.1:
-            tee_acoustic = float(np.sum(linear_energy * dt))
-            acoustic_cost = float(tee_acoustic / path_length)
+        path_length_m = prior_results.get("path_length_m")
+        if path_length_m is not None and path_length_m >= MIN_PATH_LENGTH_M:
+            dose_pa2s = ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2 * float(np.sum(energy * dt))
+            acoustic_cost = float(dose_pa2s / path_length_m)
         else:
             acoustic_cost = None
 
@@ -156,16 +194,52 @@ class AcousticsCalculator(BaseMetricCalculator):
         }
 
     @staticmethod
+    def _surge_index(
+        dt: np.ndarray, linear_energy: np.ndarray, total_duration_s: float
+    ) -> float:
+        """Variance of 1 s Leq windows over the scope."""
+        if total_duration_s < SURGE_WINDOW_S or len(linear_energy) < 2:
+            return 0.0
+        cumsum_t = np.cumsum(dt)
+        window_lecs: list[float] = []
+        t_start = 0.0
+        while t_start + SURGE_WINDOW_S <= total_duration_s:
+            mask = (cumsum_t >= t_start) & (cumsum_t < t_start + SURGE_WINDOW_S)
+            if np.sum(mask) > 0:
+                window_le = float(np.mean(linear_energy[mask]))
+                if window_le > 0:
+                    window_lecs.append(10.0 * np.log10(window_le))
+            t_start += SURGE_WINDOW_S
+        return float(np.var(window_lecs)) if len(window_lecs) >= 2 else 0.0
+
+    def _window_path_length_m(self, episode: AlignedEpisodeBundle) -> float | None:
+        """Sum of the window's native /tf robot steps in metres, None without a usable track."""
+        tracks = self.native_topics(episode).get("robot_tracks")
+        if tracks is None or len(tracks) < 2:
+            return None
+        frame = (
+            tracks.select(
+                pl.col("t_ns").cast(pl.Int64),
+                pl.col("x").cast(pl.Float64),
+                pl.col("y").cast(pl.Float64),
+            )
+            .drop_nulls(["x", "y"])
+            .sort("t_ns")
+        )
+        if len(frame) < 2:
+            return None
+        steps = (
+            (pl.col("x").diff().pow(2) + pl.col("y").diff().pow(2))
+            .sqrt()
+            .alias("step_m")
+        )
+        return float(frame.select(steps).get_column("step_m").drop_nulls().sum())
+
+    @staticmethod
     def _median_filter_3(signal: np.ndarray) -> np.ndarray:
-        """3-sample median filter, edges mirrored."""
+        """3-sample median filter with mirrored edges."""
         if len(signal) < 3:
             return signal.copy()
-        result = np.zeros_like(signal)
-        for i in range(len(signal)):
-            if i == 0:
-                result[i] = np.median([signal[0], signal[0], signal[1]])
-            elif i == len(signal) - 1:
-                result[i] = np.median([signal[i - 1], signal[i], signal[i]])
-            else:
-                result[i] = np.median([signal[i - 1], signal[i], signal[i + 1]])
-        return result
+        padded = np.pad(signal, 1, mode="edge")
+        windows = np.stack([padded[:-2], padded[1:-1], padded[2:]], axis=1)
+        return np.median(windows, axis=1)

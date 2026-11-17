@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from arena_runtime_msgs.msg import RecordedTopic
+
+DEFAULT_THROTTLE_RATE_HZ: Final[float] = 20.0
+SENSOR_THROTTLE_RATE_HZ: Final[float] = 10.0
 
 
 @dataclasses.dataclass
@@ -14,14 +17,16 @@ class TopicDefinition:
     name_template: str
     msg_type: type
     throttled: bool = True
-    throttle_rate_hz: float = 10.0
+    throttle_rate_hz: float = DEFAULT_THROTTLE_RATE_HZ
     qos_transient_local: bool = False
     recorded: bool = True
     reliable: bool = False
     depth: int = 0
 
 
-def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDefinition]:
+def get_topics(
+    namespace: str, parent_namespace: str = ""
+) -> dict[str, TopicDefinition]:
     """Return the dictionary of topics to subscribe to."""
     from arena_humansim_msgs.msg import AgentFrame, AgentMeta, InteractionFrame
     from arena_people_msgs.msg import Pedestrians
@@ -45,38 +50,113 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
 
     topics = {
         "cmd_vel": TopicDefinition(f"{ns}/cmd_vel", Twist, throttled=True),
-        "scan": TopicDefinition(f"{ns}/scan", LaserScan, throttled=True),
-        "lidar": TopicDefinition(f"{ns}/lidar", LaserScan, throttled=True),
-        "joint_states": TopicDefinition(f"{ns}/joint_states", JointState, throttled=True),
+        "scan": TopicDefinition(
+            f"{ns}/scan",
+            LaserScan,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "lidar": TopicDefinition(
+            f"{ns}/lidar",
+            LaserScan,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "joint_states": TopicDefinition(
+            f"{ns}/joint_states", JointState, throttled=True
+        ),
         "plan": TopicDefinition(f"{ns}/plan", Path, throttled=False),
         "goal_pose": TopicDefinition(f"{ns}/goal_pose", PoseStamped, throttled=False),
         "task_pose": TopicDefinition(f"{ns}/task_pose", PoseStamped, throttled=False),
-        "initialpose": TopicDefinition(f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False),
+        "initialpose": TopicDefinition(
+            f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False
+        ),
         "tf": TopicDefinition("/tf", TFMessage, throttled=True),
-        "tf_static": TopicDefinition("/tf_static", TFMessage, throttled=False, qos_transient_local=True),
+        "tf_static": TopicDefinition(
+            "/tf_static", TFMessage, throttled=False, qos_transient_local=True
+        ),
         "tf_humans": TopicDefinition(f"{env_ns}/humans/tf", TFMessage, throttled=True),
         "peds": TopicDefinition(f"{env_ns}/arena_peds", Pedestrians, throttled=True),
-        "agent_states": TopicDefinition(f"{p_ns}/agent_states", AgentFrame, throttled=True),
-        "agent_meta": TopicDefinition(f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True),
-        "interactions": TopicDefinition(f"{p_ns}/interactions", InteractionFrame, throttled=False, qos_transient_local=True),
-        "episode_record": TopicDefinition(f"{p_ns}/state/episode", EpisodeRecord, throttled=False, qos_transient_local=True),
-        "robots_fleet": TopicDefinition(f"{p_ns}/state/robots", RobotFleet, throttled=False, qos_transient_local=True),
-        "semantic_snapshot": TopicDefinition(f"{p_ns}/state/semantics", SemanticSnapshot, throttled=False, qos_transient_local=True),
-        "collision_events": TopicDefinition(f"{ns}/collision_events", CollisionEvents, throttled=False),
-        "power": TopicDefinition(f"{ns}/power_publisher/power", Power, throttled=True),
-        "energy": TopicDefinition(f"{ns}/power_publisher/energy", Energy, throttled=True),
-        "acoustics": TopicDefinition(f"{ns}/acoustics", Acoustics, throttled=True),
-        "characterization_phase": TopicDefinition(f"{ns}/characterization_phase", String, throttled=False),
-        "characterization_schedule": TopicDefinition(f"{ns}/characterization_schedule", String, throttled=False, qos_transient_local=True),
-        "collision_monitor_state": TopicDefinition(f"{ns}/collision_monitor_state", CollisionMonitorState, throttled=False),
-        "map": TopicDefinition(f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True),
-        "door_mask": TopicDefinition(f"{p_ns}/door_mask", OccupancyGrid, throttled=False, qos_transient_local=True),
+        "agent_states": TopicDefinition(
+            f"{p_ns}/agent_states", AgentFrame, throttled=True
+        ),
+        "agent_meta": TopicDefinition(
+            f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True
+        ),
+        "interactions": TopicDefinition(
+            f"{p_ns}/interactions",
+            InteractionFrame,
+            throttled=False,
+            qos_transient_local=True,
+        ),
+        "episode_record": TopicDefinition(
+            f"{p_ns}/state/episode",
+            EpisodeRecord,
+            throttled=False,
+            qos_transient_local=True,
+        ),
+        "robots_fleet": TopicDefinition(
+            f"{p_ns}/state/robots",
+            RobotFleet,
+            throttled=False,
+            qos_transient_local=True,
+        ),
+        "semantic_snapshot": TopicDefinition(
+            f"{p_ns}/state/semantics",
+            SemanticSnapshot,
+            throttled=False,
+            qos_transient_local=True,
+        ),
+        "collision_events": TopicDefinition(
+            f"{ns}/collision_events", CollisionEvents, throttled=False
+        ),
+        "power": TopicDefinition(
+            f"{ns}/power_publisher/power",
+            Power,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "energy": TopicDefinition(
+            f"{ns}/power_publisher/energy",
+            Energy,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "acoustics": TopicDefinition(
+            f"{ns}/acoustics",
+            Acoustics,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "characterization_phase": TopicDefinition(
+            f"{ns}/characterization_phase", String, throttled=False
+        ),
+        "characterization_schedule": TopicDefinition(
+            f"{ns}/characterization_schedule",
+            String,
+            throttled=False,
+            qos_transient_local=True,
+        ),
+        "collision_monitor_state": TopicDefinition(
+            f"{ns}/collision_monitor_state", CollisionMonitorState, throttled=False
+        ),
+        "map": TopicDefinition(
+            f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True
+        ),
+        "door_mask": TopicDefinition(
+            f"{p_ns}/door_mask",
+            OccupancyGrid,
+            throttled=False,
+            qos_transient_local=True,
+        ),
     }
 
     return topics
 
 
-def recorded_topic_definition(row: RecordedTopic, tg_namespace: str, robot_namespace: str = "") -> TopicDefinition | None:
+def recorded_topic_definition(
+    row: RecordedTopic, tg_namespace: str, robot_namespace: str = ""
+) -> TopicDefinition | None:
     """The TopicDefinition of one recorded-topics row, None when its message type does not import."""
     from rosidl_runtime_py.utilities import get_message
 

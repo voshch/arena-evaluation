@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Door geometry extraction: world doors -> pixel segments.
+"""Acoustic barrier grid and door transmission loss for a world.
 
-The acoustic solver works on the occupancy grid derived from the map PNG; doors
-are not distinguishable there. This module overlays the *declarative* door
-geometry (the world, read through the same loader the sim uses) onto the grid so
-each door owns a pixel segment that the calculator can carve (open) or give a
-distinct transmission loss (closed).
+The solver works on a barrier grid derived from the world's walls and doors by
+``barrier_map.derive_barrier_map``. The grid is not read from the rendered map PNG, so walls and doors sit where the
+world puts them. This module loads a world, derives its grid, and gives each door its own cells with a closed
+transmission loss (TL) for the solver.
 
-Door pixels are represented as a boolean mask per door, aligned with the
-occupancy grid (row 0 = bottom of the map, matching MapRegistry output).
+The closed-door and wall transmission losses are declared model parameters
+(``constants.DOOR_TRANSMISSION_LOSS_DB`` and ``constants.WALL_TRANSMISSION_LOSS_DB``); ``barrier_door_tl`` and
+``build_pixel_tl`` accept a keyword to vary them for a what-if run without changing code.
 """
 
 from __future__ import annotations
@@ -17,185 +17,232 @@ import functools
 import logging
 import os
 import pathlib
+import re
 import typing
+from collections.abc import Set as AbstractSet
 
 import numpy as np
 
+from arena_evaluation.processing.acoustics.barrier_map import (
+    BarrierMap,
+    DoorOpening,
+    WallSegment,
+    derive_barrier_map,
+)
+from arena_evaluation.processing.acoustics.constants import (
+    DOOR_TRANSMISSION_LOSS_DB,
+    WALL_TRANSMISSION_LOSS_DB,
+)
+from arena_evaluation.processing.world_lookup import installed_world_dir
+from arena_evaluation.storage.exceptions import MetricInputError
+
 if typing.TYPE_CHECKING:
-    from arena_simulation_setup.shared import Door
+    from arena_simulation_setup.shared import Level
 
 logger = logging.getLogger(__name__)
 
-# Default transmission loss (dB) for a CLOSED door. Doors are lighter than the
-# 47 dB brick wall: 25 dB is a typical sealed interior door.
-DEFAULT_DOOR_TL_DB = 25.0
+# Default transmission loss (dB) of a CLOSED door, re-exported under its historical name.
+DEFAULT_DOOR_TL_DB = DOOR_TRANSMISSION_LOSS_DB
+DEFAULT_RESOLUTION_M = 0.05
 
 
 @functools.lru_cache(maxsize=32)
-def _load_doors(world_dir: str) -> tuple[Door, ...]:
-    """The doors of a world in the map frame its levels are flattened into."""
+def _load_level(world_dir: str) -> Level:
+    """The world's levels flattened into one map frame, which is the frame agent positions are recorded in."""
     from arena_simulation_setup.tree.World import WorldView
 
     world = WorldView(pathlib.Path(world_dir)).load(validate=False)
-    origins = world.level_origins() if len(world.levels) > 1 else dict.fromkeys(world.level_ids, (0.0, 0.0))
-    return tuple(world.compact_world(origins).doors)
+    origins = (
+        world.level_origins()
+        if len(world.levels) > 1
+        else dict.fromkeys(world.level_ids, (0.0, 0.0))
+    )
+    return world.compact_world(origins)
 
 
-def _world_dirs(map_name: str, run_dir: pathlib.Path | str | None = None) -> list[pathlib.Path]:
-    """Candidate world directories for a map: run_dir/worlds/<map>, the arena_simulation_setup package, then ARENA_DIR."""
-    candidates: list[pathlib.Path] = []
+def _world_candidates(
+    map_name: str, run_dir: pathlib.Path | str | None = None
+) -> list[tuple[str, pathlib.Path | None]]:
+    """Where a map's world may live, in declared lookup order, labelled for errors and provenance.
+
+    Order: the episode run snapshot (``run_dir/worlds/<map>``), then the installed
+    ``arena_simulation_setup`` share, then the ``ARENA_DIR`` source tree. A path of None marks a
+    location that cannot be used; its label says why.
+    """
+    candidates: list[tuple[str, pathlib.Path | None]] = []
     if run_dir is not None:
-        candidates.append(pathlib.Path(run_dir) / "worlds" / map_name)
+        candidates.append(
+            ("run directory", pathlib.Path(run_dir) / "worlds" / map_name)
+        )
 
     try:
-        from ament_index_python.packages import get_package_share_directory
-
-        candidates.append(pathlib.Path(get_package_share_directory("arena_simulation_setup")) / "worlds" / map_name)
-    except Exception:
-        pass
+        installed = installed_world_dir(map_name)
+        candidates.append(("installed package", installed))
+    except FileNotFoundError:
+        candidates.append(
+            (
+                "installed package unavailable (AMENT_PREFIX_PATH unset or package missing)",
+                None,
+            )
+        )
 
     if arena_dir := os.environ.get("ARENA_DIR"):
-        candidates.append(pathlib.Path(arena_dir) / "arena_simulation_setup" / "worlds" / map_name)
+        candidates.append(
+            (
+                "ARENA_DIR source tree",
+                pathlib.Path(arena_dir)
+                / "arena_simulation_setup"
+                / "worlds"
+                / map_name,
+            )
+        )
+    return candidates
 
-    return [cand for cand in candidates if cand.is_dir()]
 
+def resolve_world_dir(
+    map_name: str, run_dir: pathlib.Path | str | None = None
+) -> tuple[pathlib.Path, str] | None:
+    """The world directory used for a map and the label of the copy it came from.
 
-def _find_world_doors(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, tuple[Door, ...]] | None:
-    """The first candidate directory holding a world, and that world's doors."""
-    for cand in _world_dirs(map_name, run_dir=run_dir):
+    Lookup order is the declared legacy path: run snapshot, installed package, then ARENA_DIR
+    source tree. A directory is used only when its world loads; a format 1 world is accepted as
+    migration input (the loader emits a DeprecationWarning pointing at `touch_world --migrate`).
+    """
+    for label, path in _world_candidates(map_name, run_dir=run_dir):
+        if path is None or not path.is_dir():
+            continue
         try:
-            return cand, _load_doors(str(cand))
+            _load_level(str(path))
         except FileNotFoundError:
             continue
+        return path, label
     return None
 
 
-def _bresenham_line(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
-    """Pixel line from (x0,y0) to (x1,y1) (Bresenham, 8-connected)."""
-    pts: list[tuple[int, int]] = []
-    dx = abs(x1 - x0)
-    dy = -abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx + dy
-    x, y = x0, y0
-    while True:
-        pts.append((x, y))
-        if x == x1 and y == y1:
-            break
-        e2 = 2 * err
-        if e2 >= dy:
-            err += dy
-            x += sx
-        if e2 <= dx:
-            err += dx
-            y += sy
-    return pts
+def _find_world_level(
+    map_name: str, run_dir: pathlib.Path | str | None = None
+) -> tuple[pathlib.Path, Level] | None:
+    """The first candidate directory holding a world, and that world's level."""
+    resolved = resolve_world_dir(map_name, run_dir=run_dir)
+    if resolved is None:
+        return None
+    world_dir, _source = resolved
+    return world_dir, _load_level(str(world_dir))
 
 
-def door_segments(
+@functools.lru_cache(maxsize=8)
+def _barrier_map_for_world(world_dir: str, resolution: float) -> BarrierMap:
+    level = _load_level(world_dir)
+    walls = [
+        WallSegment(start=(wall.start.x, wall.start.y), end=(wall.end.x, wall.end.y))
+        for wall in level.all_walls
+    ]
+    doors = [
+        DoorOpening(
+            name=door.name,
+            start=(door.start.x, door.start.y),
+            end=(door.end.x, door.end.y),
+            width=door.width,
+        )
+        for door in level.doors
+    ]
+    # Zones give the walkable extent, so that agents standing in open space are on the grid. They are not barriers.
+    extent = [(point.x, point.y) for zone in level.zones for point in zone.polygon]
+    return derive_barrier_map(
+        walls=walls, doors=doors, extent=extent, resolution=resolution
+    )
+
+
+def load_barrier_map(
     map_name: str,
-    grid: np.ndarray,
-    resolution: float,
-    origin: tuple[float, float, float],
     run_dir: pathlib.Path | str | None = None,
-) -> dict[str, tuple[np.ndarray, float]]:
-    """Build per-door pixel masks + TL for a map's occupancy grid.
+    resolution: float = DEFAULT_RESOLUTION_M,
+) -> BarrierMap:
+    """The barrier grid of a world, derived from its zones, walls and doors.
 
-    Returns {world/<door name>: (mask, closed_tl_db)} where mask is a bool array
-    the same shape as *grid* (True on the door's pixels). Empty dict when no
-    world is found or it declares no doors.
+    The copy actually read is logged at INFO; `resolve_world_dir` reports it before loading.
     """
-    try:
-        found = _find_world_doors(map_name, run_dir=run_dir)
-    except Exception as e:
-        logger.warning("Failed to load world %r: %s", map_name, e)
-        return {}
-    if found is None:
-        logger.debug("No world found for map %r, no door geometry", map_name)
-        return {}
-    world_dir, doors = found
+    resolved = resolve_world_dir(map_name, run_dir=run_dir)
+    if resolved is None:
+        searched = "; ".join(
+            label if path is None else f"{label} at {path}"
+            for label, path in _world_candidates(map_name, run_dir=run_dir)
+        )
+        raise MetricInputError(
+            f"AcousticExposureCalculator: missing world map {map_name!r}; searched {searched}"
+        )
+    world_dir, source = resolved
+    logger.info(
+        "AcousticExposureCalculator: world %r read from %s at %s",
+        map_name,
+        source,
+        world_dir,
+    )
+    return _barrier_map_for_world(str(world_dir), float(resolution))
 
-    ox, oy, _ = origin
-    h, w = grid.shape
-    result: dict[str, tuple[np.ndarray, float]] = {}
 
-    for door in doors:
-        x0, y0 = int(round((door.start.x - ox) / resolution)), int(round((door.start.y - oy) / resolution))
-        x1, y1 = int(round((door.end.x - ox) / resolution)), int(round((door.end.y - oy) / resolution))
+def barrier_door_tl(
+    barrier: BarrierMap, *, door_tl_db: float = DEFAULT_DOOR_TL_DB
+) -> dict[str, tuple[np.ndarray, float]]:
+    """Door masks keyed as the door-state timeline names them (``world/<name>``), with the closed-door TL per cell.
 
-        line = _bresenham_line(x0, y0, x1, y1)
-        if not line:
-            continue
+    ``door_tl_db`` is a declared model parameter, defaulting to ``DEFAULT_DOOR_TL_DB`` (from
+    ``constants.DOOR_TRANSMISSION_LOSS_DB``) so a what-if run can vary it without changing code.
+    The solver charges every barrier cell a path enters, so a door's TL is shared by the cells it
+    crosses: each cell holds ``door_tl_db / door_cells_across``, a path through the whole door
+    pays the full TL once, and a grazing path that clips fewer of those cells pays only the
+    corresponding fraction, as an approximation of the closed-door transmission loss.
+    """
+    return {
+        f"world/{name}": (mask, door_tl_db / barrier.door_cells_across[name])
+        for name, mask in barrier.door_masks.items()
+    }
 
-        # thickness: offset the line perpendicular by +/- width/2
-        dx, dy = x1 - x0, y1 - y0
-        length = max(np.hypot(dx, dy), 1e-9)
-        ux, uy = dx / length, dy / length
-        half = max(1, int(round((door.width / 2.0) / resolution)))
 
-        mask = np.zeros((h, w), dtype=bool)
-        for px, py in line:
-            for off in range(-half, half + 1):
-                oxx = px - uy * off
-                oyy = py + ux * off
-                ix, iy = int(round(oxx)), int(round(oyy))
-                if 0 <= ix < w and 0 <= iy < h:
-                    mask[iy, ix] = True
+_ENV_PREFIX = re.compile(r"^env_\d+/")
+_TRAILING_INSTANCE = re.compile(r"/\d+$")
+_FLATTENED_WORLD_NAMESPACE = "world/"
 
-        near = mask.copy()
-        near[1:, :] |= mask[:-1, :]
-        near[:-1, :] |= mask[1:, :]
-        near[:, 1:] |= mask[:, :-1]
-        near[:, :-1] |= mask[:, 1:]
-        if not (near & (grid == 1)).any():
-            logger.warning(
-                "Door %r (%s) lands on no wall pixels - skipping (map/world mismatch?)",
-                door.name,
-                world_dir,
-            )
-            continue
 
-        result[f"world/{door.name}"] = (mask, DEFAULT_DOOR_TL_DB)
+def _normalise_door_identity(name: str) -> str:
+    """Full door-id path of a geometry key or semantic entity, with the encoding decorations removed.
 
-    if result:
-        logger.info("Door geometry: %d doors from %s", len(result), world_dir)
-    return result
+    Accepted encodings, because the scene graph and the barrier map name a door differently:
+
+    - geometry keys: ``world/<door id>`` (the flattened world namespace of `barrier_door_tl`),
+      or ``<level>/<door id>``;
+    - semantic entities: ``env_<n>/<door id>``, ``env_<n>/<door id>/<level id>`` and
+      ``env_<n>/world/<door id>/<level id>``.
+
+    A leading ``env_<n>/`` and a trailing all-digit segment (the level id or a Gazebo model
+    instance) are metadata. The literal ``world/`` namespace is dropped so a flattened key
+    compares with the door's authored scene-graph name. The full remaining path is compared,
+    never the leaf.
+    """
+    normalized = "/".join(part for part in name.split("/") if part)
+    normalized = _ENV_PREFIX.sub("", normalized, count=1)
+    normalized = _TRAILING_INSTANCE.sub("", normalized, count=1)
+    if normalized.startswith(_FLATTENED_WORLD_NAMESPACE):
+        normalized = normalized[len(_FLATTENED_WORLD_NAMESPACE) :]
+    return normalized
 
 
 def _entity_matches_door(door_key: str, entity: str) -> bool:
-    """Check whether a semantic entity name refers to a world door.
-
-    Semantic entities arrive with an ``env_N/`` prefix and a trailing
-    ``/N`` Gazebo model-instance suffix (e.g. ``env_0/main_hallway/0``)
-    while world doors are keyed as ``world/{name}`` (e.g.
-    ``world/main_hallway``).  This helper strips both decorations so the
-    door-state timeline can be wired to the geometry.
-    """
-    import re
-
-    # Strip env_N/ prefix and trailing /N (Gazebo model instance id)
-    normalized = re.sub(r"^env_\d+/", "", entity)
-    normalized = re.sub(r"/\d+$", "", normalized)
-    if normalized == door_key:
-        return True
-    # Fallback: match the leaf name (last meaningful path segment)
-    door_leaf = door_key.rsplit("/", 1)[-1]
-    entity_leaf = normalized.rsplit("/", 1)[-1]
-    return door_leaf == entity_leaf
+    """Whether a semantic entity names the same door as a geometry key, by full normalised path."""
+    return _normalise_door_identity(door_key) == _normalise_door_identity(entity)
 
 
 def build_pixel_tl(
     grid: np.ndarray,
     doors: dict[str, tuple[np.ndarray, float]],
-    open_doors: set[str] | None = None,
-    wall_tl_db: float = 47.0,
+    open_doors: AbstractSet[str] | None = None,
+    wall_tl_db: float = WALL_TRANSMISSION_LOSS_DB,
 ) -> np.ndarray:
     """Assemble the per-pixel TL map for the solver.
 
     - free space: 0 dB
-    - walls: wall_tl_db
-    - closed doors: their door TL (25 dB default)
+    - walls: ``wall_tl_db`` (default ``WALL_TRANSMISSION_LOSS_DB``)
+    - closed doors: their per-cell door TL, already shared over ``door_cells_across``
     - open doors (in *open_doors*): 0 dB (carved, sound passes)
 
     Open doors take precedence: a door pixel that is open behaves as free.

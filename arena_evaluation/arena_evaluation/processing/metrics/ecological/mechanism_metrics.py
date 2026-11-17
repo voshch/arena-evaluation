@@ -4,8 +4,10 @@ import dataclasses
 import typing
 
 import numpy as np
+import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.common.alignment import asof_position
 from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     DoorGeom,
     ElevatorGeom,
@@ -25,6 +27,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     true_runs,
 )
 from arena_evaluation.processing.pose_segments import MAX_SPEED_MPS, MIN_JUMP_M
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 STATIONARY_SPEED = 0.05
@@ -33,6 +36,34 @@ DOORWAY_MARGIN_M = 0.3
 ARRIVAL_WINDOW_S = 3.0
 YIELD_WINDOW_S = 2.0
 YIELD_RADIUS_M = 2.0
+
+
+def _metric(
+    name: str,
+    dtype: pl.DataType,
+    unit: str,
+    description: str,
+    scope: MetricScope = MetricScope.ROBOT,
+) -> typing.Any:
+    return define_metric(
+        name, dtype, scopes=(scope,), unit=unit, description=description, null_reason=True
+    )
+
+
+BLOCKED_CLOSING_DOOR = _metric("blocked_closing_door", pl.Int64, "", "Door blocked-close episodes the robot stood in the doorway band for.")
+BLOCKED_CLOSING_DOOR_S = _metric("blocked_closing_door_s", pl.Float64, "s", "Seconds the robot stood in a door's doorway band while the door reported blocked-close.")
+PED_MECHANISM_DELAY_SECONDS = _metric("ped_mechanism_delay_seconds", pl.Float64, "s", "Pedestrian-seconds spent waiting at a closed door or elevator.", MetricScope.EPISODE)
+ELEVATOR_WAIT_TO_BOARD_S = _metric("elevator_wait_to_board_s", pl.Float64, "s", "Seconds the robot spent in an elevator's call area before boarding.")
+ELEVATOR_MISSED_CYCLES = _metric("elevator_missed_cycles", pl.Int64, "", "Complete cabin-door open-close cycles the robot let pass while waiting in the call area.")
+ELEVATOR_UNNECESSARY_CALLS = _metric("elevator_unnecessary_calls", pl.Int64, "", "Call-area visits that ended without boarding although the cabin door opened with no pedestrian waiting.")
+ENTERED_FULL_CABIN = _metric("entered_full_cabin", pl.Int64, "", "Boardings into a cabin that was already at capacity.")
+CABIN_DOOR_BLOCKING_S = _metric("cabin_door_blocking_s", pl.Float64, "s", "Seconds the robot stood still in a cabin doorway while the cabin door was open or closing.")
+DOOR_YIELD_VIOLATIONS = _metric("door_yield_violations", pl.Int64, "", "Door crossings with a pedestrian approaching from the far side within 2 m in the 2 s before.")
+ELEVATOR_QUEUE_JUMPS = _metric("elevator_queue_jumps", pl.Int64, "", "Boardings that overtook a pedestrian already waiting in the call area.")
+ALARM_EGRESS_BLOCKING_S = _metric("alarm_egress_blocking_s", pl.Float64, "s", "Seconds the robot stood still inside an egress zone while a schedule was active.")
+DOOR_FREEZE_S = _metric("door_freeze_s", pl.Float64, "s", "Seconds the robot stood still inside a steady door's activation radius.")
+DOOR_OSCILLATIONS = _metric("door_oscillations", pl.Int64, "", "Extra re-openings of a door during each robot visit.")
+BOARDED_BEFORE_EXIT = _metric("boarded_before_exit", pl.Int64, "", "Boardings into an elevator cabin while it still reported an arrival and held another agent.")
 
 
 @dataclasses.dataclass
@@ -49,14 +80,18 @@ class _Ctx:
         key = ("values", entity, field)
         if key not in self._memo:
             series = self.view.get(entity, field)
-            self._memo[key] = series.sample(self.track.time_ns) if series is not None else None
+            self._memo[key] = (
+                series.sample(self.track.t_ns) if series is not None else None
+            )
         return self._memo[key]
 
     def members(self, entity: str) -> list[list[str]] | None:
         key = ("members", entity)
         if key not in self._memo:
             values = self.values(entity, "members")
-            self._memo[key] = [parse_members(v) for v in values] if values is not None else None
+            self._memo[key] = (
+                [parse_members(v) for v in values] if values is not None else None
+            )
         return self._memo[key]
 
     def others(self, entity: str, i: int) -> list[str]:
@@ -120,14 +155,16 @@ class _Ctx:
 def _is_jump(track: RobotTrack, i: int) -> bool:
     """Step i-1 -> i is a teleport (`pose_segments` rule: above MIN_JUMP_M and MAX_SPEED_MPS)."""
     dist = float(np.hypot(track.x[i] - track.x[i - 1], track.y[i] - track.y[i - 1]))
-    dt = (int(track.time_ns[i]) - int(track.time_ns[i - 1])) / 1e9
+    dt = (int(track.t_ns[i]) - int(track.t_ns[i - 1])) / 1e9
     return dist > MIN_JUMP_M and (dt <= 0.0 or dist / dt > MAX_SPEED_MPS)
 
 
 def in_call_area(x: np.ndarray, y: np.ndarray, geom: ElevatorGeom) -> np.ndarray:
     """Within the elevator's activation distance of its cabin door centre and outside the cabin."""
     cx, cy = geom.door_center
-    return (np.hypot(np.asarray(x) - cx, np.asarray(y) - cy) <= geom.activation_distance) & ~in_polygon(x, y, geom.polygon)
+    return (
+        np.hypot(np.asarray(x) - cx, np.asarray(y) - cy) <= geom.activation_distance
+    ) & ~in_polygon(x, y, geom.polygon)
 
 
 def _cabin_masks(ctx: _Ctx) -> dict[str, np.ndarray]:
@@ -141,7 +178,7 @@ def _cabin_masks(ctx: _Ctx) -> dict[str, np.ndarray]:
 
 def _boardings(ctx: _Ctx, masks: dict[str, np.ndarray]) -> dict[str, list[int]]:
     """Per element, sample indices where the robot enters the cabin on foot, ride arrivals excluded."""
-    t = ctx.track.time_ns
+    t = ctx.track.t_ns
     window_ns = int(ARRIVAL_WINDOW_S * 1e9)
     out: dict[str, list[int]] = {}
     for entity, mask in masks.items():
@@ -152,7 +189,9 @@ def _boardings(ctx: _Ctx, masks: dict[str, np.ndarray]) -> dict[str, list[int]]:
             if _is_jump(ctx.track, i):
                 continue
             lo = int(np.searchsorted(t, t[i] - window_ns, side="left"))
-            if any(other is not mask and np.any(other[lo:i]) for other in masks.values()):
+            if any(
+                other is not mask and np.any(other[lo:i]) for other in masks.values()
+            ):
                 continue
             indices.append(i)
         out[entity] = indices
@@ -192,11 +231,15 @@ def _boarded_before_exit(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | No
     return count
 
 
-def _elevator_wait_to_board_s(ctx: _Ctx, boardings: dict[str, list[int]]) -> float | None:
-    """Sum over boardings of the time from entering the call area to entering the cabin."""
+def _elevator_boarding_stats(
+    ctx: _Ctx, boardings: dict[str, list[int]]
+) -> tuple[float | None, int | None]:
+    """(wait-to-board seconds, queue jumps) over the robot's boardings, both from the same call-area runs."""
     total = 0.0
     boarded = False
-    t = ctx.track.time_ns
+    jumps = 0
+    t = ctx.track.t_ns
+    has_peds = ctx.peds is not None
     for entity, indices in boardings.items():
         geom = ctx.elevator(entity)
         if geom is None:
@@ -205,9 +248,19 @@ def _elevator_wait_to_board_s(ctx: _Ctx, boardings: dict[str, list[int]]) -> flo
         for b in indices:
             boarded = True
             s = _visit_start(call, b)
-            if s is not None:
-                total += (t[b] - t[s]) / 1e9
-    return total if boarded else None
+            if s is None:
+                continue
+            total += (t[b] - t[s]) / 1e9
+            if not has_peds:
+                continue
+            waiting = _peds_in_call_area(ctx, geom, s)
+            for i in range(s + 1, b + 1):
+                if not waiting:
+                    break
+                waiting &= _peds_in_call_area(ctx, geom, i)
+            if waiting:
+                jumps += 1
+    return (total if boarded else None), (jumps if has_peds else None)
 
 
 def _call_visits(ctx: _Ctx, entity: str, cabin: np.ndarray) -> list[tuple[int, int]]:
@@ -220,26 +273,41 @@ def _call_visits(ctx: _Ctx, entity: str, cabin: np.ndarray) -> list[tuple[int, i
 
 
 def _run_end_time(track: RobotTrack, e: int) -> int:
-    return int(track.time_ns[e]) if e < len(track) else int(track.time_ns[-1]) + 1
+    return int(track.t_ns[e]) if e < len(track) else int(track.t_ns[-1]) + 1
 
 
-def _elevator_missed_cycles(ctx: _Ctx, masks: dict[str, np.ndarray]) -> int:
-    """Complete cabin door open -> closed cycles while the robot waits in the call area."""
+def _elevator_call_cycles(
+    ctx: _Ctx, masks: dict[str, np.ndarray], boardings: dict[str, list[int]]
+) -> tuple[int, int]:
+    """(missed open-close cycles, unnecessary calls) over the robot's call-area visits."""
     missed = 0
+    calls = 0
+    t = ctx.track.t_ns
     for entity, cabin in masks.items():
         series = ctx.view.get(entity, "cabin_door")
-        if series is None:
+        geom = ctx.elevator(entity)
+        if series is None or geom is None:
             continue
+        boarded_at = set(boardings.get(entity, []))
         for s, e in _call_visits(ctx, entity, cabin):
-            t0 = int(ctx.track.time_ns[s])
+            t0 = int(t[s])
+            end = _run_end_time(ctx.track, e)
             seen_open = series.at(t0) == "open"
-            for _t, value in series.changes_in(t0 + 1, _run_end_time(ctx.track, e)):
+            for _t, value in series.changes_in(t0 + 1, end):
                 if value == "open":
                     seen_open = True
                 elif value == "closed" and seen_open:
                     missed += 1
                     seen_open = False
-    return missed
+            if e in boarded_at:
+                continue
+            for t_change, value in series.changes_in(t0, end):
+                if value in ("opening", "open"):
+                    i = min(asof_position(t, t_change), len(t) - 1)
+                    if not _peds_in_call_area(ctx, geom, max(i, 0)):
+                        calls += 1
+                        break
+    return missed, calls
 
 
 def _peds_in_call_area(ctx: _Ctx, geom: ElevatorGeom, i: int) -> set[str]:
@@ -250,32 +318,16 @@ def _peds_in_call_area(ctx: _Ctx, geom: ElevatorGeom, i: int) -> set[str]:
     return {ctx.peds.keys[i][j] for j in np.flatnonzero(inside)}
 
 
-def _elevator_unnecessary_calls(ctx: _Ctx, masks: dict[str, np.ndarray], boardings: dict[str, list[int]]) -> int:
-    """Robot call-area visits that ended without boarding although the cabin door opened with no pedestrian waiting."""
-    calls = 0
-    t = ctx.track.time_ns
-    for entity, cabin in masks.items():
-        series = ctx.view.get(entity, "cabin_door")
-        geom = ctx.elevator(entity)
-        if series is None or geom is None:
-            continue
-        boarded_at = set(boardings.get(entity, []))
-        for s, e in _call_visits(ctx, entity, cabin):
-            if e in boarded_at:
-                continue
-            for t_change, value in series.changes_in(int(t[s]), _run_end_time(ctx.track, e)):
-                if value not in ("opening", "open"):
-                    continue
-                i = min(int(np.searchsorted(t, t_change, side="right")) - 1, len(t) - 1)
-                if not _peds_in_call_area(ctx, geom, max(i, 0)):
-                    calls += 1
-                    break
-    return calls
-
-
 def _entered_full_cabin(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | None:
     """Boardings into a cabin that was already at capacity just before the robot entered."""
-    has_info = ctx.view.has_field("elevator", "capacity") or ctx.view.has_field("elevator", "full") or (ctx.world is not None and any(g.capacity is not None for g in ctx.world.elevators))
+    has_info = (
+        ctx.view.has_field("elevator", "capacity")
+        or ctx.view.has_field("elevator", "full")
+        or (
+            ctx.world is not None
+            and any(g.capacity is not None for g in ctx.world.elevators)
+        )
+    )
     if not has_info:
         return None
     count = 0
@@ -292,7 +344,11 @@ def _entered_full_cabin(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | Non
             elif geom is not None and geom.capacity is not None:
                 cap = float(geom.capacity)
             if cap is not None and cap > 0:
-                occupancy = float(live[k]) if live is not None else float(len(ctx.others(entity, k)))
+                occupancy = (
+                    float(live[k])
+                    if live is not None
+                    else float(len(ctx.others(entity, k)))
+                )
                 is_full = occupancy >= cap
             elif cap is not None:
                 is_full = False
@@ -316,124 +372,116 @@ def _cabin_door_blocking_s(ctx: _Ctx) -> float | None:
         door = ctx.values(entity, "cabin_door")
         if geom is None or door is None:
             continue
-        band = segment_distance(ctx.track.x, ctx.track.y, geom.door_start, geom.door_end) <= ctx.doorway_band()
+        band = (
+            segment_distance(ctx.track.x, ctx.track.y, geom.door_start, geom.door_end)
+            <= ctx.doorway_band()
+        )
         held = np.array([v in ("open", "closing") for v in door], dtype=bool)
         blocking |= band & held & stationary
     return float(np.sum(ctx.track.dt[blocking]))
 
 
-def _elevator_queue_jumps(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | None:
-    """Boardings that overtake a pedestrian who was already waiting in the call area."""
-    if ctx.peds is None:
-        return None
-    jumps = 0
-    for entity, indices in boardings.items():
-        geom = ctx.elevator(entity)
-        if geom is None:
-            continue
-        call = in_call_area(ctx.track.x, ctx.track.y, geom)
-        for b in indices:
-            s = _visit_start(call, b)
-            if s is None:
-                continue
-            waiting = _peds_in_call_area(ctx, geom, s)
-            for i in range(s + 1, b + 1):
-                if not waiting:
-                    break
-                waiting &= _peds_in_call_area(ctx, geom, i)
-            if waiting:
-                jumps += 1
-    return jumps
-
-
-def _blocked_closing_door(ctx: _Ctx) -> tuple[int | None, float | None]:
-    """(count, seconds) of door `blocked_close` episodes the robot is responsible for."""
-    if not ctx.view.has_field("door", "blocked_close"):
-        return None, None
-    count = 0
-    seconds = 0.0
-    attributable = False
-    for entity in ctx.view.entities("door"):
-        blocked = ctx.values(entity, "blocked_close")
-        if blocked is None:
-            continue
-        geom = ctx.door(entity)
-        if geom is not None:
-            robot = segment_distance(ctx.track.x, ctx.track.y, geom.start, geom.end) <= ctx.doorway_band()
-        else:
-            robot = ctx.robot_near_door(entity)
-            if robot is None:
-                continue
-        attributable = True
-        mask = np.array([v == "true" for v in blocked], dtype=bool)
-        for s, e in true_runs(mask):
-            if np.any(robot[s:e]):
-                count += 1
-        seconds += float(np.sum(ctx.track.dt[mask & robot]))
-    if not attributable:
-        return None, None
-    return count, seconds
-
-
-def _door_freeze_and_oscillations(ctx: _Ctx) -> tuple[float | None, int | None]:
-    """door_freeze_s: seconds standing still in a steady door's activation radius. door_oscillations: re-openings per visit."""
+def _door_stats(
+    ctx: _Ctx,
+) -> tuple[int | None, float | None, float | None, int | None]:
+    """(blocked count, blocked seconds, freeze seconds, oscillations) over the robot's doors."""
     stationary = ctx.track.speed <= STATIONARY_SPEED
+    blocked_attributable = False
+    blocked_count = 0
+    blocked_seconds = 0.0
+    freeze_resolvable = False
     frozen = np.zeros(len(ctx.track), dtype=bool)
     oscillations = 0
-    resolvable = False
     for entity in ctx.view.entities("door"):
+        blocked = ctx.values(entity, "blocked_close")
+        if blocked is not None:
+            geom = ctx.door(entity)
+            band = (
+                segment_distance(ctx.track.x, ctx.track.y, geom.start, geom.end)
+                <= ctx.doorway_band()
+                if geom is not None
+                else ctx.robot_near_door(entity)
+            )
+            if band is not None:
+                blocked_attributable = True
+                mask = np.array([v == "true" for v in blocked], dtype=bool)
+                blocked_count += sum(
+                    1 for s, e in true_runs(mask) if np.any(band[s:e])
+                )
+                blocked_seconds += float(np.sum(ctx.track.dt[mask & band]))
         near = ctx.robot_near_door(entity)
         state = ctx.door_state(entity)
         if near is None or state is None:
             continue
-        resolvable = True
+        freeze_resolvable = True
         steady = np.array([v in ("open", "closed") for v in state], dtype=bool)
         frozen |= near & steady & stationary
         series = ctx.view.get(entity, "state")
         if series is None:
             continue
         for s, e in true_runs(near):
-            openings = sum(1 for _t, v in series.changes_in(int(ctx.track.time_ns[s]), _run_end_time(ctx.track, e)) if v == "opening")
+            openings = sum(
+                1
+                for _t, v in series.changes_in(
+                    int(ctx.track.t_ns[s]), _run_end_time(ctx.track, e)
+                )
+                if v == "opening"
+            )
             oscillations += max(openings - 1, 0)
-    if not resolvable:
-        return None, None
-    return float(np.sum(ctx.track.dt[frozen])), oscillations
+    return (
+        blocked_count if blocked_attributable else None,
+        blocked_seconds if blocked_attributable else None,
+        float(np.sum(ctx.track.dt[frozen])) if freeze_resolvable else None,
+        oscillations if freeze_resolvable else None,
+    )
+
+
+def _has_approaching_ped_in_window(
+    ctx: _Ctx,
+    geom: DoorGeom,
+    t: np.ndarray,
+    cross_idx: int,
+    side_after: int,
+    window_ns: int,
+) -> bool:
+    cx, cy = geom.center
+    lo = int(np.searchsorted(t, t[cross_idx] - window_ns, side="left"))
+    for k in range(lo, cross_idx + 1):
+        if k >= len(ctx.peds.xy) or len(ctx.peds.xy[k]) == 0:
+            continue
+        xy = ctx.peds.xy[k]
+        vel = ctx.peds.vel[k]
+        far = side_of(xy[:, 0], xy[:, 1], geom.start, geom.end) == side_after
+        close = np.hypot(xy[:, 0] - cx, xy[:, 1] - cy) <= YIELD_RADIUS_M
+        moving = np.hypot(vel[:, 0], vel[:, 1]) > PED_WAIT_SPEED
+        approaching = (vel[:, 0] * (cx - xy[:, 0]) + vel[:, 1] * (cy - xy[:, 1])) > 0.0
+        if np.any(far & close & moving & approaching):
+            return True
+    return False
 
 
 def _door_yield_violations(ctx: _Ctx) -> int | None:
     """Robot door crossings with a pedestrian approaching from the far side within `YIELD_RADIUS_M` in the `YIELD_WINDOW_S` before."""
     if ctx.world is None or ctx.peds is None:
         return None
-    doors = [g for g in (ctx.door(e) for e in ctx.view.entities("door")) if g is not None]
+    doors = [
+        g for g in (ctx.door(e) for e in ctx.view.entities("door")) if g is not None
+    ]
     if not doors:
         return None
-    t = ctx.track.time_ns
+    t = ctx.track.t_ns
     window_ns = int(YIELD_WINDOW_S * 1e9)
     violations = 0
     for geom in doors:
         side = side_of(ctx.track.x, ctx.track.y, geom.start, geom.end)
         dist = segment_distance(ctx.track.x, ctx.track.y, geom.start, geom.end)
-        cx, cy = geom.center
         for i in range(1, len(side)):
             if side[i] == 0 or side[i - 1] == 0 or side[i] == side[i - 1]:
                 continue
-            if min(dist[i], dist[i - 1]) > ctx.doorway_band():
+            if min(dist[i], dist[i - 1]) > ctx.doorway_band() or _is_jump(ctx.track, i):
                 continue
-            if _is_jump(ctx.track, i):
-                continue
-            lo = int(np.searchsorted(t, t[i] - window_ns, side="left"))
-            for k in range(lo, i + 1):
-                if k >= len(ctx.peds.xy) or len(ctx.peds.xy[k]) == 0:
-                    continue
-                xy = ctx.peds.xy[k]
-                vel = ctx.peds.vel[k]
-                far = side_of(xy[:, 0], xy[:, 1], geom.start, geom.end) == side[i]
-                close = np.hypot(xy[:, 0] - cx, xy[:, 1] - cy) <= YIELD_RADIUS_M
-                moving = np.hypot(vel[:, 0], vel[:, 1]) > PED_WAIT_SPEED
-                approaching = (vel[:, 0] * (cx - xy[:, 0]) + vel[:, 1] * (cy - xy[:, 1])) > 0.0
-                if np.any(far & close & moving & approaching):
-                    violations += 1
-                    break
+            if _has_approaching_ped_in_window(ctx, geom, t, i, int(side[i]), window_ns):
+                violations += 1
     return violations
 
 
@@ -477,7 +525,11 @@ def _ped_mechanism_delay_seconds(ctx: _Ctx) -> float | None:
 
 def _alarm_egress_blocking_s(ctx: _Ctx) -> float | None:
     """Seconds the robot stands still inside an `egress` zone while any schedule is `active`."""
-    if ctx.world is None or not ctx.world.egress_zones or not ctx.view.has_field("schedule", "active"):
+    if (
+        ctx.world is None
+        or not ctx.world.egress_zones
+        or not ctx.view.has_field("schedule", "active")
+    ):
         return None
     alarm = np.zeros(len(ctx.track), dtype=bool)
     for entity in ctx.view.entities("schedule"):
@@ -496,36 +548,22 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
 
     NAME = "mechanism_metrics"
     CATEGORY = "ecological"
-    REQUIRED_TOPICS = [("tf_gt", "odom")]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
 
-    UNITS = {
-        "boarded_before_exit": "",
-        "blocked_closing_door": "",
-        "blocked_closing_door_s": "s",
-        "ped_mechanism_delay_seconds": "s",
-        "elevator_wait_to_board_s": "s",
-        "elevator_missed_cycles": "",
-        "elevator_unnecessary_calls": "",
-        "entered_full_cabin": "",
-        "cabin_door_blocking_s": "s",
-        "door_yield_violations": "",
-        "elevator_queue_jumps": "",
-        "alarm_egress_blocking_s": "s",
-        "door_freeze_s": "s",
-        "door_oscillations": "",
-    }
-
-    OUTPUT_DIRECTIONS = dict.fromkeys(UNITS, "lower")
+    OUTPUTS = (
+        BLOCKED_CLOSING_DOOR, BLOCKED_CLOSING_DOOR_S, PED_MECHANISM_DELAY_SECONDS,
+        ELEVATOR_WAIT_TO_BOARD_S, ELEVATOR_MISSED_CYCLES, ELEVATOR_UNNECESSARY_CALLS,
+        ENTERED_FULL_CABIN, CABIN_DOOR_BLOCKING_S, DOOR_YIELD_VIOLATIONS,
+        ELEVATOR_QUEUE_JUMPS, ALARM_EGRESS_BLOCKING_S, DOOR_FREEZE_S,
+        DOOR_OSCILLATIONS, BOARDED_BEFORE_EXIT,
+    )
+    DIRECTIONS = {metric.name: Direction.LOWER for metric in OUTPUTS}
 
     world: str | None = None
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
         self._world_cache: dict[str, MechanismWorld | None] = {}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return list(cls.UNITS)
 
     def _mechanism_world(self) -> MechanismWorld | None:
         if self.world is None:
@@ -534,7 +572,9 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
             self._world_cache[self.world] = load_mechanism_world(self.world)
         return self._world_cache[self.world]
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del prior_results
         results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
 
@@ -550,13 +590,17 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
             view=view,
             world=self._mechanism_world(),
             identity=robot_identity(episode),
-            peds=ped_tracks(episode.data, track.time_ns),
+            peds=ped_tracks(episode.peds, track.t_ns),
             robot_radius=float(self.robot_params.robot_radius),
         )
 
         if view.has_kind("door"):
-            results["blocked_closing_door"], results["blocked_closing_door_s"] = _blocked_closing_door(ctx)
-            results["door_freeze_s"], results["door_oscillations"] = _door_freeze_and_oscillations(ctx)
+            (
+                results["blocked_closing_door"],
+                results["blocked_closing_door_s"],
+                results["door_freeze_s"],
+                results["door_oscillations"],
+            ) = _door_stats(ctx)
             results["door_yield_violations"] = _door_yield_violations(ctx)
 
         if view.has_kind("door") or view.has_kind("elevator"):
@@ -568,12 +612,15 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
                 boardings = _boardings(ctx, masks)
                 results["boarded_before_exit"] = _boarded_before_exit(ctx, boardings)
                 results["entered_full_cabin"] = _entered_full_cabin(ctx, boardings)
-                if ctx.world is not None:
-                    results["elevator_wait_to_board_s"] = _elevator_wait_to_board_s(ctx, boardings)
-                    if view.has_field("elevator", "cabin_door"):
-                        results["elevator_missed_cycles"] = _elevator_missed_cycles(ctx, masks)
-                        results["elevator_unnecessary_calls"] = _elevator_unnecessary_calls(ctx, masks, boardings)
-                    results["elevator_queue_jumps"] = _elevator_queue_jumps(ctx, boardings)
+                (
+                    results["elevator_wait_to_board_s"],
+                    results["elevator_queue_jumps"],
+                ) = _elevator_boarding_stats(ctx, boardings)
+                if ctx.world is not None and view.has_field("elevator", "cabin_door"):
+                    (
+                        results["elevator_missed_cycles"],
+                        results["elevator_unnecessary_calls"],
+                    ) = _elevator_call_cycles(ctx, masks, boardings)
             results["cabin_door_blocking_s"] = _cabin_door_blocking_s(ctx)
 
         if view.has_kind("schedule"):

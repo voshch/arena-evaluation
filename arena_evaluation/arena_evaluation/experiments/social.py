@@ -28,24 +28,54 @@ import polars as pl
 import yaml
 
 from arena_evaluation.experiments.group import formation_radius
+from arena_evaluation.experiments.source import episode_summary, robot_tracks
 from arena_evaluation.experiments.stats import DEFAULT_BOOT, cluster_bootstrap, holm
 
 WORLD = "hospital_1_bare"
 ROBOT = "jackal"
 EPISODES = 3
 SEED_BASE = 76000
-MODELS = ("Office/office_female_caucasian_young", "worker_male_caucasian_young", "Office/office_female_caucasian_young")
+MODELS = (
+    "Office/office_female_caucasian_young",
+    "worker_male_caucasian_young",
+    "Office/office_female_caucasian_young",
+)
 
 _ROOT = pathlib.Path(__file__).resolve().parent
 
 LAYOUTS = {
-    "ward": {"center": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
-    "corridor": {"center": (9.2, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
+    "ward": {
+        "center": (4.0, 17.5),
+        "start": (4.0, 12.0, 1.5708),
+        "goal": (4.0, 23.0, 1.5708),
+        "space": "open room, 7.8 m wide",
+    },
+    "corridor": {
+        "center": (9.2, 23.5),
+        "start": (10.0, 20.0, 1.5708),
+        "goal": (10.0, 27.0, 1.5708),
+        "space": "corridor, 3.7 m wide",
+    },
 }
 GROUP_LAYOUTS = {
-    "ward": {"center": (4.0, 17.5), "start": (4.0, 12.0, 1.5708), "goal": (4.0, 23.0, 1.5708), "space": "open room, 7.8 m wide"},
-    "corridor": {"center": (10.4, 23.5), "start": (10.0, 20.0, 1.5708), "goal": (10.0, 27.0, 1.5708), "space": "corridor, 3.7 m wide"},
-    "junction": {"center": (10.0, 26.0), "start": (10.0, 22.0, 1.5708), "goal": (10.0, 30.0, 1.5708), "space": "corridor into a 9.75 m crossing"},
+    "ward": {
+        "center": (4.0, 17.5),
+        "start": (4.0, 12.0, 1.5708),
+        "goal": (4.0, 23.0, 1.5708),
+        "space": "open room, 7.8 m wide",
+    },
+    "corridor": {
+        "center": (10.4, 23.5),
+        "start": (10.0, 20.0, 1.5708),
+        "goal": (10.0, 27.0, 1.5708),
+        "space": "corridor, 3.7 m wide",
+    },
+    "junction": {
+        "center": (10.0, 26.0),
+        "start": (10.0, 22.0, 1.5708),
+        "goal": (10.0, 30.0, 1.5708),
+        "space": "corridor into a 9.75 m crossing",
+    },
 }
 
 # interaction -> (participants, separation between partners)
@@ -59,7 +89,9 @@ def _world_dir() -> pathlib.Path:
         candidate = parent / "arena_simulation_setup" / "worlds" / WORLD
         if candidate.is_dir():
             return candidate
-    raise FileNotFoundError(f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}")
+    raise FileNotFoundError(
+        f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}"
+    )
 
 
 def _agent(name: str, interaction: str) -> dict:
@@ -72,40 +104,70 @@ def _agent(name: str, interaction: str) -> dict:
             "seq": {
                 "steps": {
                     "settle": {"duration": {"mean": 2.0, "std": 0.0}},
-                    "interact": {"interaction": interaction, "attention": {"gaze": "partner"}, "duration": {"mean": 10000.0, "std": 0.0}},
+                    "interact": {
+                        "interaction": interaction,
+                        "attention": {"gaze": "partner"},
+                        "duration": {"mean": 10000.0, "std": 0.0},
+                    },
                 },
             },
         },
     }
 
 
-def contact_positions(center: tuple[float, float], separation: float) -> list[tuple[float, float, float]]:
+def contact_positions(
+    center: tuple[float, float], separation: float
+) -> list[tuple[float, float, float]]:
     half = separation / 2.0
     return [(center[0] - half, center[1], 0.0), (center[0] + half, center[1], 3.14159)]
 
 
-def group_positions(center: tuple[float, float], members: int = 3) -> list[tuple[float, float, float]]:
+def group_positions(
+    center: tuple[float, float], members: int = 3
+) -> list[tuple[float, float, float]]:
     out = []
     for i in range(members):
         angle = 2.0 * np.pi * i / members
-        out.append((float(center[0] + GROUP_RADIUS_M * np.cos(angle)), float(center[1] + GROUP_RADIUS_M * np.sin(angle)), float(angle + np.pi)))
+        out.append(
+            (
+                float(center[0] + GROUP_RADIUS_M * np.cos(angle)),
+                float(center[1] + GROUP_RADIUS_M * np.sin(angle)),
+                float(angle + np.pi),
+            )
+        )
     return out
 
 
-def write_scenario(directory: pathlib.Path, interaction: str, layout: dict, poses: list[tuple[float, float, float]]) -> None:
+def write_scenario(
+    directory: pathlib.Path,
+    interaction: str,
+    layout: dict,
+    poses: list[tuple[float, float, float]],
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     names = [f"person_{i}" for i in range(len(poses))]
     for name in names:
-        (directory / f"{name}.yaml").write_text(yaml.safe_dump(_agent(name, interaction), sort_keys=False))
+        (directory / f"{name}.yaml").write_text(
+            yaml.safe_dump(_agent(name, interaction), sort_keys=False)
+        )
     (directory / "scenario.yaml").write_text(
         yaml.safe_dump(
             {
-                "robots": [{"start": list(layout["start"]), "phases": [{"goto": list(layout["goal"])}]}],
+                "robots": [
+                    {
+                        "start": list(layout["start"]),
+                        "phases": [{"goto": list(layout["goal"])}],
+                    }
+                ],
                 "dynamic": [
                     {
                         "name": name,
                         "model": MODELS[i % len(MODELS)],
-                        "pose": [round(float(p[0]), 3), round(float(p[1]), 3), round(float(p[2]), 3)],
+                        "pose": [
+                            round(float(p[0]), 3),
+                            round(float(p[1]), 3),
+                            round(float(p[2]), 3),
+                        ],
                         "agent": {"agent_type": f"./{name}.yaml"},
                         "waypoints": [[round(float(p[0]), 3), round(float(p[1]), 3)]],
                     }
@@ -127,8 +189,15 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
         for layout_name, layout in LAYOUTS.items():
             case = f"contact_{interaction}_{layout_name}"
             poses = contact_positions(layout["center"], separation)
-            write_scenario(scenarios_dir / case, INTERACTION_TYPES[interaction], layout, poses)
-            catalog.append((case, f"{members} people {separation:.2f} m apart in a {layout['space']}"))
+            write_scenario(
+                scenarios_dir / case, INTERACTION_TYPES[interaction], layout, poses
+            )
+            catalog.append(
+                (
+                    case,
+                    f"{members} people {separation:.2f} m apart in a {layout['space']}",
+                )
+            )
             index += 1
             for arm, mode in (("on", "enabled"), ("off", "disabled")):
                 stages[arm].append(_stage(case, arm, mode, SEED_BASE + index, episodes))
@@ -149,8 +218,11 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
         "#   off  suite social_off + contest paper_planners_blind  (none of the three)\n"
     )
     for arm in ("on", "off"):
-        path = _ROOT.parents[1] / "configs" / "benchmark" / "suites" / f"social_{arm}.yaml"
-        path.write_text(header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False))
+        path = _ROOT.parents[1] / "configs" / "suites" / f"social_{arm}" / "suite.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False)
+        )
     for case, description in catalog:
         print(f"  {case:28s} {description}")
     print(f"\n{len(stages['on'])} stages per arm x {episodes} episodes per contestant")
@@ -167,47 +239,93 @@ def _stage(case: str, arm: str, mode: str, seed: int, episodes: int) -> dict:
         "episodes": episodes,
         "seed": seed,
         "timeout": "90s",
-        "config": {"scenario": {"file": case, "gesture_mode": mode, "contact_mode": "enabled"}},
+        "config": {
+            "scenario": {"file": case, "gesture_mode": mode, "contact_mode": "enabled"}
+        },
     }
 
 
-# -- analysis -----------------------------------------------------------------------------------
 
-CENTERS = {f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()} | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
-METRICS = ("min_pedestrian_clearance", "time_in_intimate_zone", "time_in_personal_zone", "path_length", "time_to_goal", "pierced", "success")
+CENTERS = {
+    f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()
+} | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
+METRICS = (
+    "min_ped_clearance_m",
+    "path_length_m",
+    "time_to_goal",
+    "time_in_intimate_zone",
+    "time_in_personal_zone",
+    "pierced",
+    "success",
+)
 
 
 def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
     """Episodes of one arm with the two route metrics, minus the ``UNRESOLVED`` ones whose environment disappeared mid-run."""
-    path = run / "combined_metrics.parquet"
-    if not path.is_file():
-        raise FileNotFoundError(f"{path} not found; process the run first")
-    df = pl.read_parquet(path)
-    if "result" in df.columns:
-        df = df.filter(pl.col("result") != "UNRESOLVED")
-    df = df.with_columns(
+    df = episode_summary(run).filter(pl.col("result") != "UNRESOLVED")
+    tracks = robot_tracks(run)
+    cases = df.with_columns(
         pl.col("stage").str.replace(r"_(on|off)$", "").alias("case"),
         pl.lit(arm).alias("arm"),
     )
-    pierced, closest = [], []
-    for row in df.iter_rows(named=True):
-        center = np.array(CENTERS.get(row["case"], (0.0, 0.0)))
-        pts = np.array([[float(p[0]), float(p[1])] for p in (row.get("path") or [])])
-        d = np.linalg.norm(pts - center, axis=1) if len(pts) else np.array([float("nan")])
-        radius = GROUP_RADIUS_M if row["case"].startswith("group") else 0.8
-        pierced.append(float(np.nansum(d < radius) > 0))
-        closest.append(float(np.nanmin(d)))
-    return df.with_columns(
-        pl.Series("pierced", pierced, dtype=pl.Float64),
-        pl.Series("closest_to_group_m", closest),
-        pl.col("success").cast(pl.Float64),
+    center_x = (
+        pl.col("case")
+        .replace_strict(
+            {case: value[0] for case, value in CENTERS.items()},
+            default=0.0,
+            return_dtype=pl.Float64,
+        )
+        .alias("center_x")
+    )
+    center_y = (
+        pl.col("case")
+        .replace_strict(
+            {case: value[1] for case, value in CENTERS.items()},
+            default=0.0,
+            return_dtype=pl.Float64,
+        )
+        .alias("center_y")
+    )
+    radius = (
+        pl.when(pl.col("case").str.starts_with("group"))
+        .then(GROUP_RADIUS_M)
+        .otherwise(0.8)
+        .alias("radius")
+    )
+    points = (
+        cases.select("episode_id", "case")
+        .lazy()
+        .join(tracks.select("episode_id", "x", "y"), on="episode_id", how="inner")
+        .with_columns(center_x, center_y, radius)
+    )
+    distance = (
+        (pl.col("x") - pl.col("center_x")) ** 2
+        + (pl.col("y") - pl.col("center_y")) ** 2
+    ).sqrt()
+    per_episode = (
+        points.group_by("episode_id")
+        .agg(
+            pierced=(distance < pl.col("radius")).sum().cast(pl.Float64) > 0,
+            closest_to_group_m=distance.min(),
+        )
+        .collect()
+    )
+    return cases.join(per_episode, on="episode_id", how="left").with_columns(
+        pierced=pl.col("pierced").fill_null(False).cast(pl.Float64),
+        success=pl.col("success").cast(pl.Float64),
     )
 
 
 def matched(df: pl.DataFrame) -> pl.DataFrame:
     """Per planner and arm, pooled over the cases that produced episodes in both arms."""
-    have = df.group_by(["planner", "case", "arm"]).agg(pl.len()).pivot(on="arm", index=["planner", "case"], values="len")
-    both = have.filter(pl.col("on").is_not_null() & pl.col("off").is_not_null()).select(["planner", "case"])
+    have = (
+        df.group_by(["planner", "case", "arm"])
+        .agg(pl.len())
+        .pivot(on="arm", index=["planner", "case"], values="len")
+    )
+    both = have.filter(pl.col("on").is_not_null() & pl.col("off").is_not_null()).select(
+        ["planner", "case"]
+    )
     return (
         df.join(both, on=["planner", "case"], how="inner")
         .group_by(["planner", "arm"], maintain_order=True)
@@ -215,16 +333,28 @@ def matched(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("case").n_unique().alias("cases"),
             pl.len().alias("n"),
             pl.col("pierced").mean().alias("pierce_rate"),
-            pl.col("min_pedestrian_clearance").median().alias("clearance_m"),
+            pl.col("min_ped_clearance_m").median().alias("clearance_m"),
+            pl.col("time_in_intimate_zone").median().alias("intimate_s"),
+            pl.col("time_in_personal_zone").median().alias("personal_s"),
             pl.col("success").mean().alias("success"),
         )
         .sort(["planner", "arm"])
     )
 
 
-def analyze(on: pathlib.Path, off: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, out_dir: pathlib.Path | None = None) -> dict[str, pl.DataFrame]:
+def analyze(
+    on: pathlib.Path,
+    off: pathlib.Path,
+    *,
+    n_boot: int = DEFAULT_BOOT,
+    out_dir: pathlib.Path | None = None,
+) -> dict[str, pl.DataFrame]:
     df = pl.concat([load(on, "on"), load(off, "off")], how="diagonal")
-    df = df.with_columns((pl.col("episode").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
+    df = df.with_columns(
+        (pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1)
+        .cast(pl.Int64)
+        .alias("seed")
+    )
 
     descriptive = (
         df.group_by(["case", "planner", "arm"], maintain_order=True)
@@ -232,10 +362,10 @@ def analyze(on: pathlib.Path, off: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, 
             pl.len().alias("n"),
             pl.col("success").mean().alias("success"),
             pl.col("pierced").mean().alias("pierce_rate"),
-            pl.col("min_pedestrian_clearance").median().alias("clearance_m"),
+            pl.col("min_ped_clearance_m").median().alias("clearance_m"),
             pl.col("time_in_intimate_zone").median().alias("intimate_s"),
             pl.col("time_in_personal_zone").median().alias("personal_s"),
-            pl.col("path_length").median().alias("path_m"),
+            pl.col("path_length_m").median().alias("path_m"),
             pl.col("time_to_goal").median().alias("ttg_s"),
         )
         .sort(["case", "planner", "arm"])
@@ -247,18 +377,34 @@ def analyze(on: pathlib.Path, off: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, 
         for (planner,), group in df.group_by(["planner"], maintain_order=True):
             clusters = []
             for (_case,), case_group in group.group_by(["case"], maintain_order=True):
-                wide = case_group.filter(pl.col(metric).is_not_null()).pivot(on="arm", index="seed", values=metric, aggregate_function="first")
-                if "off" in wide.columns and "on" in wide.columns:
-                    diff = (wide["off"] - wide["on"]).drop_nulls().to_numpy()
-                    if len(diff):
-                        clusters.append(diff)
+                valid = case_group.filter(pl.col(metric).is_not_null())
+                off_df = valid.filter(pl.col("arm") == "off").select(
+                    "seed", pl.col(metric).cast(pl.Float64).alias("off_val")
+                )
+                on_df = valid.filter(pl.col("arm") == "on").select(
+                    "seed", pl.col(metric).cast(pl.Float64).alias("on_val")
+                )
+                pairs = off_df.join(on_df, on="seed", how="inner")
+                if pairs.height:
+                    clusters.append((pairs["off_val"] - pairs["on_val"]).to_numpy())
             if not clusters:
                 continue
             r = cluster_bootstrap(clusters, n_boot=n_boot, rng=rng)
-            rows.append({"metric": metric, "planner": planner, "off_minus_on": r.estimate, "ci_low": r.ci_low, "ci_high": r.ci_high, "p": r.p, "n_cases": len(clusters), "n_pairs": r.n_pairs})
+            rows.append(
+                {
+                    "metric": metric,
+                    "planner": planner,
+                    "off_minus_on": r.estimate,
+                    "ci_low": r.ci_low,
+                    "ci_high": r.ci_high,
+                    "p": r.p,
+                    "n_cases": len(clusters),
+                    "n_pairs": r.n_pairs,
+                }
+            )
     paired = pl.DataFrame(rows)
     if len(paired):
-        paired = paired.with_columns(pl.Series("p_holm", holm(paired["p"].to_list())))
+        paired = paired.with_columns(pl.Series("p_holm", holm(paired["p"].to_numpy())))
 
     tables = {"descriptive": descriptive, "matched": matched(df), "paired": paired}
     if out_dir is not None:
@@ -273,7 +419,9 @@ def analyze(on: pathlib.Path, off: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     gen = sub.add_parser("generate")
     gen.add_argument("--episodes", type=int, default=EPISODES)

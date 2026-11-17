@@ -1,4 +1,11 @@
-"""Door state timeline constructed from SemanticSnapshot messages."""
+"""Door state timeline constructed from SemanticSnapshot messages.
+
+A door is open while its continuous ``progress`` field (0 closed, 1 open) is strictly above
+``OPEN_PROGRESS_THRESHOLD``, so a door exactly at the threshold counts as closed. The threshold is
+a declared model parameter (``constants.DOOR_OPEN_PROGRESS_THRESHOLD``) and
+``DoorStateTimeline.from_semantic_frame`` accepts an ``open_progress_threshold`` keyword for
+what-if runs; the default keeps every published number identical.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,10 @@ import bisect
 import numpy as np
 import polars as pl
 
-OPEN_PROGRESS_THRESHOLD = 0.5
+from arena_evaluation.processing.acoustics.constants import (
+    DOOR_OPEN_PROGRESS_THRESHOLD as OPEN_PROGRESS_THRESHOLD,
+)
+from arena_evaluation.storage.exceptions import MetricInputError
 
 
 class DoorStateTimeline:
@@ -18,51 +28,72 @@ class DoorStateTimeline:
         self.open_sets = open_sets
 
     @classmethod
-    def from_semantic_frame(cls, semantic: pl.DataFrame | None) -> DoorStateTimeline | None:
-        """Build the timeline from the flattened semantic snapshot table."""
+    def from_semantic_frame(
+        cls,
+        semantic: pl.DataFrame | None,
+        *,
+        open_progress_threshold: float = OPEN_PROGRESS_THRESHOLD,
+    ) -> DoorStateTimeline | None:
+        """Build the timeline from the flattened semantic snapshot table.
+
+        A door is open while its progress (0 closed, 1 open) is strictly above
+        ``open_progress_threshold`` (default ``OPEN_PROGRESS_THRESHOLD``, declared in
+        ``constants.DOOR_OPEN_PROGRESS_THRESHOLD``), whether it is opening or closing. State
+        labels are not used. A door reading without a progress row is an error.
+        """
         if semantic is None:
             return None
         if isinstance(semantic, pl.LazyFrame):
-            semantic = semantic.collect()  # lazy -> eager
+            semantic = semantic.collect()
         if len(semantic) == 0:
             return None
 
         df = semantic
-        if "kind" not in df.columns:
-            return None
+        missing = {"t_ns", "entity_name", "kind", "field_name", "value_num"} - set(
+            df.columns
+        )
+        if missing:
+            raise MetricInputError(
+                f"AcousticExposureCalculator: semantic table lacks columns {sorted(missing)}; re-extract world_semantics for the episode (has {df.columns})"
+            )
         df = df.filter(pl.col("kind") == "door")
         if len(df) == 0:
             return None
 
-        # per timestamp: build {entity: field -> value}
-        timestamps = sorted(df["time_ns"].unique().to_list())
-        open_sets: list[frozenset[str]] = []
-        for ts in timestamps:
-            frame = df.filter(pl.col("time_ns") == ts)
-            open_doors: set[str] = set()
-            entities = frame["entity"].unique().to_list()
-            for ent in entities:
-                erows = frame.filter(pl.col("entity") == ent)
-                is_open = False
-                for row in erows.iter_rows(named=True):
-                    field = row.get("field", "")
-                    if field == "open" and row.get("value_bool") is True:
-                        is_open = True
-                    elif field == "state" and str(row.get("value_str", "")) == "open":
-                        is_open = True
-                    elif field == "progress":
-                        v = row.get("value_num")
-                        if v is not None and not np.isnan(float(v)) and float(v) > OPEN_PROGRESS_THRESHOLD:
-                            is_open = True
-                if is_open:
-                    open_doors.add(ent)
-            open_sets.append(frozenset(open_doors))
+        progress = df.filter(pl.col("field_name") == "progress")
+        readings = df.select("t_ns", "entity_name").unique()
+        unmeasured = readings.join(
+            progress.select("t_ns", "entity_name").unique(),
+            on=["t_ns", "entity_name"],
+            how="anti",
+        )
+        if len(unmeasured) > 0:
+            raise MetricInputError(
+                f"AcousticExposureCalculator: {len(unmeasured)} door readings have no 'progress' row (first {unmeasured.row(0)}); re-extract world_semantics for the episode"
+            )
 
-        return cls(np.asarray(timestamps, dtype=np.int64), open_sets)
+        is_open_expr = pl.col("value_num").is_not_nan() & (
+            pl.col("value_num") > open_progress_threshold
+        )
+        all_timestamps = df.select("t_ns").unique().sort("t_ns")
+        open_by_ts = (
+            progress.filter(is_open_expr)
+            .group_by("t_ns")
+            .agg(pl.col("entity_name").unique().alias("open_doors"))
+        )
+        timeline_df = all_timestamps.join(open_by_ts, on="t_ns", how="left").sort(
+            "t_ns"
+        )
+        timestamps = timeline_df["t_ns"].to_numpy()
+        open_sets = [
+            frozenset(doors) if doors is not None else frozenset()
+            for doors in timeline_df["open_doors"]
+        ]
+        return cls(timestamps, open_sets)
 
-    def open_doors_at(self, time_ns: int) -> frozenset[str]:
-        """Backward-asof: door state at or before *time_ns* (empty before first)."""
-        idx = bisect.bisect_right(self.times_ns, time_ns) - 1
+    def open_doors_at(self, t_ns: int) -> frozenset[str]:
+        """Backward-asof: door state at or before *t_ns* (empty before first)."""
+        idx = bisect.bisect_right(self.times_ns, t_ns) - 1
         if idx < 0:
             return frozenset()
         return self.open_sets[idx]

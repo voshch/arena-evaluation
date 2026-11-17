@@ -10,9 +10,17 @@ from pathlib import Path
 
 import yaml
 
-from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, Attribution, Importer, write_attribution
+from arena_assets.importers import (
+    ATTRIBUTION_FILE,
+    IMPORTERS,
+    Attribution,
+    Importer,
+    write_attribution,
+)
 from arena_assets.importers.providers import Provider
-from arena_evaluation.processing.metrics.performance.sidewalk_metrics import GOAL_RADIUS_M
+from arena_evaluation.processing.metrics.performance.sidewalk_metrics import (
+    GOAL_RADIUS_M,
+)
 
 ITEM = "sidewalkbench"
 ROBOT = "jackal"
@@ -28,22 +36,50 @@ REACTIVE_LENGTH_M = 30.0
 BLOCK_BLOCKS = 2
 BLOCK_PEDESTRIANS = 10
 UNIT_LAYOUTS = ("straight", "corner", "crosswalk")
-BEHAVIORS = ("obstructing", "conversing", "queueing", "frontal", "lateral", "overtaking", "crossing", "gesturing")
-REACTIVE_LAYOUT = {behavior: "crosswalk" if behavior == "crossing" else "straight" for behavior in BEHAVIORS}
+BEHAVIORS = (
+    "obstructing",
+    "conversing",
+    "queueing",
+    "frontal",
+    "lateral",
+    "overtaking",
+    "crossing",
+    "gesturing",
+)
+REACTIVE_LAYOUT = {
+    behavior: "crosswalk" if behavior == "crossing" else "straight"
+    for behavior in BEHAVIORS
+}
 SCENE_KINDS = ("straight", "curve", "crosswalk", "long")
 WORLD_PREFIX = "sidewalkbench_"
 GENERATED_PREFIX = "sidewalk_"
 
 CONTESTANT = {
     "name": "dwb",
-    "mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "navigate_w_replanning_time"},
+    "mobile": {
+        "driver": "nav2",
+        "local_planner": "dwb",
+        "inter_planner": "navigate_w_replanning_time",
+    },
     "task.episode.fail_on_collision": True,
     "task.episode.goto_pose.tolerance.radius": GOAL_RADIUS_M,
     "task.episode.goto_pose.tolerance.angle": "0.0",
 }
 
-GROUP_TITLES = {"straight": "Straight", "corner": "Corner and curve", "crosswalk": "Crosswalk", "long": "Long horizon"}
-GROUP_OF_KIND = {"straight": "straight", "corner": "corner", "curve": "corner", "crosswalk": "crosswalk", "block": "long", "long": "long"}
+GROUP_TITLES = {
+    "straight": "Straight",
+    "corner": "Corner and curve",
+    "crosswalk": "Crosswalk",
+    "long": "Long horizon",
+}
+GROUP_OF_KIND = {
+    "straight": "straight",
+    "corner": "corner",
+    "curve": "corner",
+    "crosswalk": "crosswalk",
+    "block": "long",
+    "long": "long",
+}
 
 
 def world_name(layout: str, seed: int, scenario: str = "empty") -> str:
@@ -71,9 +107,13 @@ def route_length(scenario: dict) -> float:
     robot = scenario["robots"][0]
     points = [pose_xy(robot["start"])]
     for phase in robot.get("phases", []):
-        points.append(pose_xy(phase.get("goto")) if isinstance(phase, Mapping) else None)
+        points.append(
+            pose_xy(phase.get("goto")) if isinstance(phase, Mapping) else None
+        )
     route = [point for point in points if point is not None]
-    return float(sum(math.dist(a, b) for a, b in zip(route[:-1], route[1:], strict=True)))
+    return float(
+        sum(math.dist(a, b) for a, b in zip(route[:-1], route[1:], strict=True))
+    )
 
 
 def scenario_kind(name: str) -> str:
@@ -124,7 +164,9 @@ def scene_stages(scene: str, scenarios: Sequence[tuple[str, float]]) -> list[dic
     for name, length in scenarios:
         timeout = route_budget_s(length)
         binding = {"modes": {}, "params": {"robots": {"file": name}}}
-        stages.append(stage(f"{scene}_{name}", f"{WORLD_PREFIX}{scene}", binding, timeout))
+        stages.append(
+            stage(f"{scene}_{name}", f"{WORLD_PREFIX}{scene}", binding, timeout)
+        )
     return stages
 
 
@@ -136,53 +178,123 @@ def classify(stage_name: str) -> tuple[str, str | None]:
     return GROUP_OF_KIND[stage_name.rsplit("_", 2)[-2]], None
 
 
-def _table(plot_id: str, title: str, group: str, members: Sequence[str], columns: list[dict]) -> dict:
+def _table(
+    plot_id: str, title: str, group: str, members: Sequence[str], columns: list[dict]
+) -> dict:
+    stage_list = ", ".join(repr(str(m)) for m in members)
     return {
         "id": plot_id,
         "type": "table",
         "title": title,
-        "data_key": "*",
+        "data": {
+            "computation": "group_summary",
+            "params": {
+                "metrics": [str(col["metric"]) for col in columns],
+                "group_cols": ["planner"],
+                "filter": f"stage in [{stage_list}]",
+            },
+        },
+        "channels": {},
         "layout_group": group,
-        "filter": {"stage": list(members)},
-        "options": {"group_by": ["planner"], "columns": columns},
+        "options": {"columns": ["planner", "metric", "n", "mean", "std"]},
     }
 
 
 def manifest(stage_names: Sequence[str]) -> dict:
     """Report manifest with the route completion per layout, the success per behavior, failures per 100 m and mean speed per planner."""
     labels = {name: classify(name) for name in stage_names}
-    completion = [{"metric": "sidewalk_route_completion", "label": "Route completion", "format": "{:.0%}"}]
+    completion = [
+        {
+            "metric": "sidewalk_route_completion",
+            "label": "Route completion",
+            "format": "{:.0%}",
+        }
+    ]
     plots: list[dict] = []
     for group, title in GROUP_TITLES.items():
-        members = [n for n, (g, behavior) in labels.items() if g == group and behavior is None]
+        members = [
+            n for n, (g, behavior) in labels.items() if g == group and behavior is None
+        ]
         if members:
-            plots.append(_table(f"sidewalkbench_layout_{group}", f"Route completion, {title}", "layouts", members, completion))
+            plots.append(
+                _table(
+                    f"sidewalkbench_layout_{group}",
+                    f"Route completion, {title}",
+                    "layouts",
+                    members,
+                    completion,
+                )
+            )
     for behavior in BEHAVIORS:
         members = [n for n, (_, b) in labels.items() if b == behavior]
         if members:
-            plots.append(_table(f"sidewalkbench_behavior_{behavior}", f"Success, {behavior}", "behaviors", members, [{"metric": "sidewalk_route_completion", "label": "Success", "format": "{:.0%}"}]))
-    long_members = [n for n, (g, behavior) in labels.items() if g == "long" and behavior is None]
+            plots.append(
+                _table(
+                    f"sidewalkbench_behavior_{behavior}",
+                    f"Success, {behavior}",
+                    "behaviors",
+                    members,
+                    [
+                        {
+                            "metric": "sidewalk_route_completion",
+                            "label": "Success",
+                            "format": "{:.0%}",
+                        }
+                    ],
+                )
+            )
+    long_members = [
+        n for n, (g, behavior) in labels.items() if g == "long" and behavior is None
+    ]
     if long_members:
         columns = [
-            {"metric": "sidewalk_failures_per_100m", "label": "Failures per 100 m", "format": "{:.2f}"},
-            {"metric": "sidewalk_mean_speed", "label": "Mean speed (m/s)", "format": "{:.2f}"},
+            {
+                "metric": "sidewalk_failures_per_100m",
+                "label": "Failures per 100 m",
+                "format": "{:.2f}",
+            },
+            {
+                "metric": "sidewalk_mean_speed",
+                "label": "Mean speed (m/s)",
+                "format": "{:.2f}",
+            },
         ]
-        plots.append(_table("sidewalkbench_long_horizon", "Long horizon", "long", long_members, columns))
+        plots.append(
+            _table(
+                "sidewalkbench_long_horizon",
+                "Long horizon",
+                "long",
+                long_members,
+                columns,
+            )
+        )
     return {
         "manifest_version": "1.0",
         "name": ITEM,
         "title": "SidewalkBench Report",
         "description": "Route completion per layout, success per pedestrian behavior, failures per 100 m and mean speed per contestant on the SidewalkBench stages.",
-        "data_source": "metrics",
+        "data_source": "v_episode_summary",
         "groups": [
             {"id": "layouts", "title": "Unit tests per layout"},
             {"id": "behaviors", "title": "Pedestrian-reactive behaviors"},
             {"id": "long", "title": "Long horizon"},
         ],
         "summary": [
-            {"metric": "sidewalk_route_completion", "label": "Route completion", "format": "{:.0%}"},
-            {"metric": "sidewalk_failures_per_100m", "label": "Failures per 100 m", "format": "{:.2f}"},
-            {"metric": "sidewalk_mean_speed", "label": "Mean speed (m/s)", "format": "{:.2f}"},
+            {
+                "metric": "sidewalk_route_completion",
+                "label": "Route completion",
+                "format": "{:.0%}",
+            },
+            {
+                "metric": "sidewalk_failures_per_100m",
+                "label": "Failures per 100 m",
+                "format": "{:.2f}",
+            },
+            {
+                "metric": "sidewalk_mean_speed",
+                "label": "Mean speed (m/s)",
+                "format": "{:.2f}",
+            },
         ],
         "summary_group_by": ["planner"],
         "plots": plots,
@@ -197,7 +309,12 @@ def _dump(path: Path, obj: object) -> None:
 class SidewalkBench(Importer):
     meta = IMPORTERS.meta("suite", ITEM)
 
-    def __init__(self, cache: Path | None = None, provider: Provider | None = None, scenes: Sequence[str] | None = None):
+    def __init__(
+        self,
+        cache: Path | None = None,
+        provider: Provider | None = None,
+        scenes: Sequence[str] | None = None,
+    ):
         super().__init__(cache, provider)
         self.scenes = None if scenes is None else list(scenes)
 
@@ -231,16 +348,33 @@ class SidewalkBench(Importer):
                 continue
             with open(scenario_dir / "scenario.yaml") as f:
                 found.append((scenario_dir.name, route_length(yaml.safe_load(f))))
-        return sorted(found, key=lambda n: (SCENE_KINDS.index(scenario_kind(n[0])), int(n[0].rpartition("_")[2])))
+        return sorted(
+            found,
+            key=lambda n: (
+                SCENE_KINDS.index(scenario_kind(n[0])),
+                int(n[0].rpartition("_")[2]),
+            ),
+        )
 
     def convert(self, item: str, src: Path, out: Path) -> str:
         self._check(item)
 
-        from arena_simulation_setup.generative.world import WorldGenerator, WorldGeneratorType
-        from arena_simulation_setup.generative.world.world_generator import save_generated
+        from arena_simulation_setup.generative.world import (
+            WorldGenerator,
+            WorldGeneratorType,
+        )
+        from arena_simulation_setup.generative.world.world_generator import (
+            save_generated,
+        )
         from arena_simulation_setup.tree.World import WorldView, derive
 
-        from arena_evaluation.benchmark.tree import ContestIdentifier, ManifestIdentifier, SuiteIdentifier
+        from arena_evaluation.benchmark.tree import (
+            ContestIdentifier,
+            SuiteIdentifier,
+        )
+        from arena_evaluation.presentation.manifest_identifier import (
+            ManifestIdentifier,
+        )
 
         suite_dir = out / SuiteIdentifier(name=item).relpath()
         contest_dir = out / ContestIdentifier(name=item).relpath()
@@ -252,26 +386,41 @@ class SidewalkBench(Importer):
 
         stages: list[dict] = []
         for name, layout, scenario, seed in generated_specs():
-            generator = WorldGenerator(WorldGeneratorType.SIDEWALK, generated_config(layout, scenario), seed=seed)
+            generator = WorldGenerator(
+                WorldGeneratorType.SIDEWALK,
+                generated_config(layout, scenario),
+                seed=seed,
+            )
             built = generator.compute()
             built.kg = derive(built)
             files = generator.files()
             save_generated(WorldView(suite_dir / "worlds" / name), built, files)
             binding = generator.params()
             file = binding["params"]["robots"]["file"]
-            timeout = route_budget_s(route_length(yaml.safe_load(files[f"scenarios/{file}/scenario.yaml"])))
+            timeout = route_budget_s(
+                route_length(yaml.safe_load(files[f"scenarios/{file}/scenario.yaml"]))
+            )
             stages.append(stage(name, name, binding, timeout))
 
-        scenes = self.scenes if self.scenes is not None else list(self._worlds(src).items())
+        scenes = (
+            self.scenes if self.scenes is not None else list(self._worlds(src).items())
+        )
         if scenes:
             worlds = self._worlds(src)
             for scene in scenes:
                 imported = worlds.import_item(scene, out / "worlds")
                 stages.extend(scene_stages(scene, self._scene_scenarios(imported)))
 
-        _dump(suite_dir / "suite.yaml", {"launch": {"human": HUMAN}, "metrics": {"max_collisions": 1}, "stages": stages})
+        _dump(
+            suite_dir / "suite.yaml",
+            {
+                "launch": {"human": HUMAN},
+                "metrics": {"max_collisions": 1},
+                "stages": stages,
+            },
+        )
         _dump(contest_dir / "contest.yaml", [CONTESTANT])
-        _dump(manifest_dir / "manifest.yaml", manifest([s['name'] for s in stages]))
+        _dump(manifest_dir / "report.yaml", manifest([s["name"] for s in stages]))
         SuiteIdentifier(name=item).load(suite_dir)
         ContestIdentifier(name=item).load(contest_dir)
         ManifestIdentifier(name=item).load(manifest_dir)

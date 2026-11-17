@@ -16,7 +16,13 @@ class IngestionMetadata:
     @staticmethod
     def get_git_sha(workspace_dir: str) -> str | None:
         try:
-            result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workspace_dir, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             return result.stdout.strip()
         except Exception:
             return None
@@ -24,7 +30,13 @@ class IngestionMetadata:
     @staticmethod
     def is_git_dirty(workspace_dir: str) -> bool:
         try:
-            result = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_dir, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             return len(result.stdout.strip()) > 0
         except Exception:
             return False
@@ -40,7 +52,11 @@ class IngestionMetadata:
         """
         start = Path(workspace_dir).expanduser().resolve()
         ancestry = [start, *start.parents]
-        candidates = [candidate for parent in ancestry for candidate in (parent, parent / "src" / "Arena")]
+        candidates = [
+            candidate
+            for parent in ancestry
+            for candidate in (parent, parent / "src" / "Arena")
+        ]
         for candidate in candidates:
             if (candidate / ".git").exists():
                 return str(candidate)
@@ -92,4 +108,7 @@ class IngestionMetadata:
             env_ns_root=env_ns_root,
             is_reference=is_reference,
             reference_type=reference_type,
+            # The recorder fills modes and params from the episode record; empty until then.
+            modes={},
+            params={},
         )

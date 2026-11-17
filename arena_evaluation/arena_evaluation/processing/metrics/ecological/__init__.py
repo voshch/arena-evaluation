@@ -1,7 +1,5 @@
+from .acoustic_exposure import AcousticExposureCalculator
 from .acoustics import AcousticsCalculator
-from .energy_extended import EnergyExtendedCalculator
+from .energy import EnergyCalculator
 
-__all__ = [
-    "AcousticsCalculator",
-    "EnergyExtendedCalculator",
-]
+__all__ = ["AcousticExposureCalculator", "AcousticsCalculator", "EnergyCalculator"]
