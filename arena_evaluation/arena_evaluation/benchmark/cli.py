@@ -176,39 +176,29 @@ def _ago(ts: float | None) -> str | None:
 
 
 def _status_from_disk(data_root: pathlib.Path, run_id: str | None) -> str:
-    from .state import Manifest, StateFile
+    from .dashboard import run_status
 
-    run_path = _resolve_run(data_root, run_id)
-    manifest_path = run_path / "manifest.yaml"
-    manifest = Manifest.from_yaml(manifest_path.read_text())
-    state = StateFile.open(run_path)
-    counts = _count_by_status(state.steps)
-
-    active: list[tuple[str, str | None]] = []
-    failed_steps: list[tuple[str, str | None, str | None]] = []
-    for step in state.steps.values():
-        if step.status == "in_progress":
-            active.append((step.key, _ago(step.started_at)))
-        elif step.status == "failed":
-            kind = step.error_kind.value if step.error_kind is not None else None
-            failed_steps.append((step.key, kind, step.error_detail))
-
+    status = run_status(_resolve_run(data_root, run_id), light=True)
+    counts = status["steps"]
     return _format_status_block(
-        run_id=manifest.run_id,
-        suite=manifest.suite_name,
-        contest=manifest.contest_name,
-        simulator=manifest.simulator or "",
-        env_n=manifest.env_n,
-        headless=manifest.headless,
-        created_at=manifest.created_at,
-        steps_total=len(manifest.steps),
+        run_id=status["run_id"],
+        suite=status["suite"],
+        contest=status["contest"],
+        simulator=status["simulator"] or "",
+        env_n=status["env_n"],
+        headless=status["headless"],
+        created_at=status["created_at"],
+        steps_total=status["steps_total"],
         ok=counts["ok"],
         partial=counts["partial"],
         failed=counts["failed"],
         skipped=counts["skipped"],
         in_flight=counts["in_progress"],
-        active=active,
-        failed_steps=failed_steps,
+        active=[(entry["key"], _ago(entry["started_at"])) for entry in status["active"]],
+        failed_steps=[
+            (entry["key"], entry["error_kind"], entry["error_detail"])
+            for entry in status["failed"]
+        ],
     )
 
 

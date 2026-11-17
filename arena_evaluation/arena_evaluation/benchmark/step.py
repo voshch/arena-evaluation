@@ -6,13 +6,13 @@ import typing
 
 import attrs
 
-from .config import Contest, Suite, robot_with_parts
+from .config import Contestant, Suite, robot_with_parts
 from .lockstep import LockstepSummary
 
 
 @attrs.frozen
 class Step:
-    contestant: Contest.Contestant
+    contestant: Contestant
     stage: Suite.Stage
     episodes: int = 1
     record_dir: pathlib.Path | None = None
