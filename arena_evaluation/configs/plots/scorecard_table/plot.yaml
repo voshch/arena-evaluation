@@ -1,0 +1,16 @@
+id: scorecard_table
+type: table
+title: Planner Scorecard
+layout_group: overview
+data:
+  source: v_planner_scorecard
+channels:
+  x: planner
+  color: crowd_condition
+  y:
+    - episodes_count
+    - success_rate
+    - success_without_pedestrian_contact_rate
+    - mean_time_to_goal
+    - mean_path_efficiency
+    - mean_energy_total_wh

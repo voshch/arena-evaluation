@@ -1,0 +1,16 @@
+id: multi_planner_radar
+type: radar
+title: Multi-Planner Capability Profile
+layout_group: overview
+data:
+  computation: radar_profile
+  params:
+    group_col: planner
+    metrics:
+      - success
+      - path_efficiency
+      - roughness_mean
+channels:
+  x: metric
+  y: normalized_score
+  color: planner

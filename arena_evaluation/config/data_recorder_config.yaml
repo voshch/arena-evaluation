@@ -1,23 +1,12 @@
 max_episodes: 1000 # terminates simulation upon reaching xth episode
 max_time: 12000 # terminates simulation after x seconds
 
-# Throttle intervals in milliseconds. Keys are matched as substrings of the
-record_frequencies:
-  lidar: 100.0   # large LaserScan messages, keep data volume low
-  scan:  100.0   # alias for scan-named topics
-  odom:   20.0   # odometry, moderate frequency
-  peds:   20.0   # pedestrian positions
-  animation_states: 50.0 # animation layer state per ped
-  interactions: 0.0 # latched interaction frame (recorded unthrottled)
-  goal_pose: 0.0 # event-driven (recorded unthrottled)
-  task_pose: 0.0 # one per judge tick (recorded unthrottled)
-  initialpose: 0.0 # event-driven (recorded unthrottled)
-  robots: 0.0    # latched fleet state (recorded unthrottled)
-  semantics: 0.0 # latched semantic snapshot (recorded unthrottled)
-  reset_start: 0.0 # event-driven (recorded unthrottled)
-  reset_end: 0.0 # event-driven (recorded unthrottled)
-  tf: 20.0       # standard transform topic
-  default: 20.0  # cmd_vel, joint_states, etc.
+# Per-topic throttle rates in Hz, keyed by the exact topic name subscribed
+# (for example "/env_0/jackal/scan"). A topic absent here keeps the rate of its
+# TopicDefinition; 0 means unthrottled. The former record_frequencies key
+# (milliseconds, substring keys) is refused by the loader: use record_rates_hz.
+record_rates_hz:
+  /tf: 20.0 # default minimum interval per (parent, child) frame pair, tf_frames overrides it per family
 
 # Per-frame minimum /tf interval in milliseconds, matched against the child frame in order.
 tf_frames:

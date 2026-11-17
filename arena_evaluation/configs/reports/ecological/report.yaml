@@ -1,0 +1,307 @@
+title: Ecological & Energetic Impact Report
+description: Comprehensive energy consumption, power dissipation, transport costs
+  (S-CoT/E-CoT), friction losses, and acoustic emissions across navigation planners.
+units:
+  battery_soc_drop_pct: '%'
+  e_cot: ''
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  friction_dissipation_j: 'J'
+  kinetic_energy_demand_j: 'J'
+  mean_velocity_mps: 'm/s'
+  power_peak_w: 'W'
+  power_total_w: 'W'
+  specific_cost_of_transport: ''
+  standstill_energy_penalty_wh: 'Wh'
+  time_s: 's'
+  time_to_goal: 's'
+  velocity_linear_mps: 'm/s'
+summary_group_by:
+- local_planner
+summary:
+- metric: energy_total_wh
+  label: Total Energy
+  format: '{:.2f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
+- metric: e_cot
+  label: E-CoT
+  format: '{:.2f}'
+- metric: kinetic_energy_demand_j
+  label: Kinetic Demand
+  format: '{:.1f}'
+- metric: friction_dissipation_j
+  label: Friction Work
+  format: '{:.1f}'
+groups:
+- id: overview
+  title: Ecological Performance Overview
+- id: energy_consumption
+  title: Electrical Energy & Power Consumption
+- id: transport_efficiency
+  title: Cost of Transport & Compliance Overheads
+- id: dynamic_dissipation
+  title: Kinetic Energy Variations & Friction Losses
+- id: acoustic_impact
+  title: Environmental Acoustic Emissions & Footprint
+- id: power_dynamics
+  title: Power Draw & Velocity Time Profiles
+- id: eco_tradeoffs
+  title: Ecological & Transport Trade-Off Frontiers
+plots:
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: specific_cost_of_transport
+  layout_group: transport_efficiency
+- id: violin_scot_inter
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: specific_cost_of_transport
+  layout_group: transport_efficiency
+- id: eco_summary_table
+  type: table
+  title: Ecological & Transport Executive Summary
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_total_wh
+      - specific_cost_of_transport
+      - e_cot
+      - kinetic_energy_demand_j
+      - friction_dissipation_j
+      group_cols:
+      - local_planner
+      - crowd_condition
+  channels:
+    x: local_planner
+    color: crowd_condition
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: overview
+  options:
+    labels:
+      energy_total_wh: Total Energy (Wh)
+      specific_cost_of_transport: S-CoT
+      e_cot: E-CoT
+      kinetic_energy_demand_j: Kinetic Demand (J)
+      friction_dissipation_j: Friction Work (J)
+    format:
+      energy_total_wh: '{:.2f}'
+      specific_cost_of_transport: '{:.2f}'
+      e_cot: '{:.2f}'
+      kinetic_energy_demand_j: '{:.1f}'
+      friction_dissipation_j: '{:.1f}'
+- id: radar_ecological
+  type: radar
+  title: Multi-Axis Ecological & Energetic Profile
+  data:
+    computation: radar_profile
+    params:
+      group_col: local_planner
+      metrics:
+      - energy_total_wh
+      - specific_cost_of_transport
+      - e_cot
+      - energy_mechanical_wh
+      - kinetic_energy_demand_j
+      - spl_geodesic
+  channels:
+    x: metric
+    y: normalized_score
+    color: local_planner
+  layout_group: overview
+- id: bar_energy_breakdown
+  type: bar
+  title: Energy Breakdown by Subsystem (%)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_static_wh
+      - energy_mechanical_wh
+      - energy_thermal_wh
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+    color: metric
+  layout_group: energy_consumption
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: violin_energy_local
+  type: violin
+  title: Total Energy Consumption (Wh) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: energy_total_wh
+  layout_group: energy_consumption
+- id: violin_energy_inter
+  type: violin
+  title: Total Energy Consumption (Wh) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: inter_planner
+    y: energy_total_wh
+  layout_group: energy_consumption
+- id: box_battery_drop_local
+  type: box
+  title: Battery State-of-Charge Drop (%) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: battery_soc_drop_pct
+  layout_group: energy_consumption
+- id: box_power_peak_local
+  type: box
+  title: Peak Electrical Power Draw (W) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: power_peak_w
+  layout_group: energy_consumption
+- id: box_ecot_local
+  type: box
+  title: Effective Cost of Transport (E-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: e_cot
+  layout_group: transport_efficiency
+- id: box_kcsc_local
+  type: box
+  title: Kinematic Cost of Social Compliance (KCSC in Wh) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: standstill_energy_penalty_wh
+  layout_group: transport_efficiency
+- id: box_relative_throughput_local
+  type: box
+  title: Relative Throughput (vs Unobstructed) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: relative_throughput
+  layout_group: transport_efficiency
+- id: box_kinetic_energy_demand_local
+  type: box
+  title: Kinetic Energy Demand Variation (J) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: kinetic_energy_demand_j
+  layout_group: dynamic_dissipation
+- id: box_kinetic_energy_demand_inter
+  type: box
+  title: Kinetic Energy Demand Variation (J) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: inter_planner
+    y: kinetic_energy_demand_j
+  layout_group: dynamic_dissipation
+- id: box_friction_dissipation_local
+  type: box
+  title: Rolling Friction Dissipation Work (J) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: friction_dissipation_j
+  layout_group: dynamic_dissipation
+- id: box_friction_dissipation_inter
+  type: box
+  title: Rolling Friction Dissipation Work (J) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: inter_planner
+    y: friction_dissipation_j
+  layout_group: dynamic_dissipation
+- id: timeseries_power
+  type: timeseries
+  title: Power Breakdown & Battery Over Time
+  data:
+    source: v_series_energy
+  channels:
+    x: time_s
+    y: power_total_w
+    color: robot_id
+  layout_group: power_dynamics
+- id: timeseries_velocity
+  type: timeseries
+  title: Velocity Profile Over Time
+  data:
+    source: v_series_energy
+  channels:
+    x: time_s
+    y: velocity_linear_mps
+    color: robot_id
+  layout_group: power_dynamics
+- id: scatter_energy_vs_time
+  type: scatter
+  title: Energy vs. Time Trade-Off (Total Energy vs. Time to Goal)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: energy_total_wh
+    x: time_to_goal
+  layout_group: eco_tradeoffs
+- id: scatter_scot_vs_spl
+  type: scatter
+  title: Transport Cost vs. Navigation Performance (S-CoT vs. SPL)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: specific_cost_of_transport
+    x: spl_geodesic
+  layout_group: eco_tradeoffs
+- id: scatter_ke_vs_velocity
+  type: scatter
+  title: Dynamic Agility vs. Steady Speed (Kinetic Demand vs. Mean Velocity)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: kinetic_energy_demand_j
+    x: mean_velocity_mps
+  layout_group: eco_tradeoffs
+- id: scatter_ecot_vs_kcsc
+  type: scatter
+  title: Effective Transport Cost vs. Social Compliance Overhead (E-CoT vs. KCSC)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: e_cot
+    x: standstill_energy_penalty_wh
+  layout_group: eco_tradeoffs

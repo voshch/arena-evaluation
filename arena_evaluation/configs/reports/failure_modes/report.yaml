@@ -1,0 +1,827 @@
+title: Failure Modes & Metric Diagnostic Analysis Report
+description: In-depth diagnostic report decomposing every metric into its foundational
+  mathematical definitions, source signals, baseline comparisons (Theta* and unobstructed
+  references), trajectory overlays, and synchronized timeseries.
+units:
+  acceleration_mean: 'm/s²'
+  ade: 'm'
+  adtw: 'm'
+  aeps_linear_s: 's'
+  angle_over_length: 'rad/m'
+  avg_velocity_in_personal_space: 'm/s'
+  battery_soc_drop_pct: '%'
+  collision_amount: ''
+  curvature_mean: '1/m'
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  esfm_ped_mean_force: 'N'
+  esfm_ped_peak_force: 'N'
+  fde: 'm'
+  frechet_distance: 'm'
+  friction_dissipation_j: 'J'
+  idling_time: 's'
+  jerk_max_mps3: 'm/s³'
+  jerk_mean: 'm/s³'
+  kinetic_energy_demand_j: 'J'
+  max_acceleration_mps2: 'm/s²'
+  max_speed_intimate_zone: 'm/s'
+  max_speed_personal_zone: 'm/s'
+  mean_velocity_mps: 'm/s'
+  mhd: 'm'
+  path_length_m: 'm'
+  ped_path_deflection_m: 'm'
+  personal_space_intrusion_integral: 'm·s'
+  power_peak_w: 'W'
+  roughness_max: 'rad/m'
+  roughness_mean: 'rad/m'
+  specific_cost_of_transport: ''
+  spl_geodesic: ''
+  standstill_energy_penalty_wh: 'Wh'
+  success: '%'
+  theta_star_length: 'm'
+  time_in_intimate_zone: 's'
+  time_to_goal: 's'
+  total_time_in_personal_space: 's'
+  tti_mean: 's'
+  tti_min: 's'
+  velocity_max: 'm/s'
+summary_group_by:
+- local_planner
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: tti_min
+  label: Min TTI
+  format: '{:.2f}'
+- metric: time_to_goal
+  label: Avg Time to Goal
+  format: '{:.1f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
+groups:
+- id: executive_failure_triage
+  title: 1. Executive Failure Triage & Collision Summary
+- id: theta_star_geometric_baseline
+  title: 2. Synthetic Human Demonstration Baseline (Theta*) & Trajectory Verification
+- id: multi_agent_relative_throughput
+  title: 3. Multi-Agent Relative Throughput (MAR) & Unobstructed Reference Comparison
+- id: proxemics_and_psii_penetration
+  title: 4. Proxemics Zone Violations & Intrusion Severity (PSII Depth Verification)
+- id: passing_etiquette_and_directional_forces
+  title: 5. Social Passing Etiquette, Anisotropic CI & Directional Disturbances
+- id: kinematic_stress_and_jerk_spikes
+  title: 6. Kinematic Stress, Jerk Spikes & Dynamic Inflexions
+- id: energy_surges_and_dynamic_dissipation
+  title: 7. Energy Surges, Kinetic Demand & Dynamic Dissipation
+- id: acoustic_startle_and_personal_exposure
+  title: 8. Environmental Acoustic Footprint & Pedestrian Startle Events
+- id: synchronized_failure_timeseries
+  title: 9. Synchronized Multi-Domain Timeseries Profiles
+- id: diagnostic_tradeoff_frontiers
+  title: 10. Diagnostic Multi-Objective Trade-Off Frontiers
+- id: spatial_failure_traces
+  title: 11. Spatial Trajectories & Hazard Overlays
+plots:
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT dimensionless)
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: specific_cost_of_transport
+  layout_group: energy_surges_and_dynamic_dissipation
+- id: table_executive_failure_triage
+  type: table
+  title: Executive Run Verification & Anomaly Matrix
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      - spl_geodesic
+      - collision_amount
+      - collision_amount_wall
+      - collision_amount_static
+      - collision_amount_pedestrian
+      - tti_min
+      - time_to_goal
+      - personal_space_intrusion_integral
+      - specific_cost_of_transport
+      - e_cot
+      group_cols:
+      - local_planner
+      - crowd_condition
+  channels:
+    x: local_planner
+    color: crowd_condition
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: executive_failure_triage
+  options:
+    labels:
+      success: Success Rate (%)
+      spl_geodesic: SPL Score
+      collision_amount: Total Collisions
+      collision_amount_wall: Wall Collisions
+      collision_amount_static: Static Collisions
+      collision_amount_pedestrian: Pedestrian Collisions
+      tti_min: Min TTI (s)
+      time_to_goal: Mean Time to Goal (s)
+      personal_space_intrusion_integral: PSII (m*s)
+      specific_cost_of_transport: S-CoT
+      e_cot: Penalized E-CoT
+    format:
+      success: '{:.1%}'
+      spl_geodesic: '{:.3f}'
+      collision_amount: '{:.2f}'
+      collision_amount_wall: '{:.2f}'
+      collision_amount_static: '{:.2f}'
+      collision_amount_pedestrian: '{:.2f}'
+      tti_min: '{:.2f}'
+      time_to_goal: '{:.2f}'
+      personal_space_intrusion_integral: '{:.3f}'
+      specific_cost_of_transport: '{:.3f}'
+      e_cot: '{:.3f}'
+- id: radar_failure_profile
+  type: radar
+  title: Multi-Axis Performance & Failure Risk Radar
+  data:
+    computation: radar_profile
+    params:
+      group_col: planner
+      metrics:
+      - success
+      - spl_geodesic
+      - collision_amount
+      - tti_min
+      - jerk_mean
+      - personal_space_intrusion_integral
+      - e_cot
+  channels:
+    x: metric
+    y: normalized_score
+    color: planner
+  layout_group: executive_failure_triage
+- id: bar_collision_breakdown
+  type: bar
+  title: Collision Breakdown by Obstacle Type
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - collision_amount_wall
+      - collision_amount_static
+      - collision_amount_pedestrian
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+    color: metric
+  layout_group: executive_failure_triage
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: box_tti_min_local
+  type: box
+  title: Minimum Time to Collision (TTI min) - Critical Reaction Margin
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: tti_min
+  layout_group: executive_failure_triage
+- id: violin_tti_mean_local
+  type: violin
+  title: Mean Time to Collision (TTI mean in seconds)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: tti_mean
+  layout_group: executive_failure_triage
+- id: box_movement_towards_peds_local
+  type: box
+  title: Movement Towards Pedestrians Ratio (Collision Heading Risk)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: movement_towards_peds_ratio
+  layout_group: executive_failure_triage
+- id: table_theta_star_verification
+  type: table
+  title: Foundational Geometric Baseline Inspection Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - theta_star_length
+      - path_length_m
+      - path_efficiency
+      - ade
+      - fde
+      - frechet_distance
+      - mhd
+      - adtw
+      - topological_complexity
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: theta_star_geometric_baseline
+  options:
+    labels:
+      theta_star_length: Optimal Theta* Length (m)
+      path_length_m: Actual Path Length (m)
+      path_efficiency: Geodesic Efficiency (eta_p)
+      ade: ADE (m)
+      fde: FDE (m)
+      frechet_distance: Frechet Distance (m)
+      mhd: MHD Distance (m)
+      adtw: ADTW Cost
+      topological_complexity: Winding Loops (W)
+    format:
+      theta_star_length: '{:.2f}'
+      path_length_m: '{:.2f}'
+      path_efficiency: '{:.3f}'
+      ade: '{:.3f}'
+      fde: '{:.3f}'
+      frechet_distance: '{:.3f}'
+      mhd: '{:.3f}'
+      adtw: '{:.3f}'
+      topological_complexity: '{:.2f}'
+- id: violin_efficiency_local
+  type: violin
+  title: Geodesic Path Efficiency (eta_p = L_theta / L_actual) vs. Theta* Baseline
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: path_efficiency
+  layout_group: theta_star_geometric_baseline
+- id: box_ade_local
+  type: box
+  title: Average Displacement Error (ADE vs. Theta* Demonstration in metres)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: ade
+  layout_group: theta_star_geometric_baseline
+- id: box_frechet_local
+  type: box
+  title: "Discrete Fr\xE9chet Distance (Curve Alignment vs. Theta* Baseline)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: frechet_distance
+  layout_group: theta_star_geometric_baseline
+- id: violin_mhd_local
+  type: violin
+  title: Modified Hausdorff Distance (MHD vs. Theta* Baseline in metres)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: mhd
+  layout_group: theta_star_geometric_baseline
+- id: box_topological_complexity_local
+  type: box
+  title: Topological Complexity (Net Signed Winding Loops W around Obstacles)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: topological_complexity
+  layout_group: theta_star_geometric_baseline
+- id: table_mar_verification
+  type: table
+  title: Multi-Agent Reference Baseline Inspection Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - relative_throughput
+      - time_to_goal
+      - idling_time
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: multi_agent_relative_throughput
+  options:
+    labels:
+      relative_throughput: Relative Throughput
+      time_to_goal: Dynamic Travel Time (s)
+      idling_time: Robot Freezing Time (s)
+    format:
+      relative_throughput: '{:.3f}'
+      time_to_goal: '{:.2f}'
+      idling_time: '{:.2f}'
+- id: box_relative_throughput_local
+  type: box
+  title: Multi-Agent Relative Throughput (T_unobstructed / T_dynamic) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: relative_throughput
+  layout_group: multi_agent_relative_throughput
+- id: box_kcsc_local
+  type: box
+  title: Kinematic Cost of Social Compliance (KCSC = E_dynamic - E_unobstructed in
+    Wh)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: standstill_energy_penalty_wh
+  layout_group: multi_agent_relative_throughput
+- id: box_idling_local
+  type: box
+  title: Robot Freezing & Idling Time (s) Under Congestion
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: idling_time
+  layout_group: multi_agent_relative_throughput
+- id: table_proxemics_verification
+  type: table
+  title: Proxemics & Intrusions Verification Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - personal_space_intrusion_integral
+      - time_in_intimate_zone
+      - total_time_in_personal_space
+      - psi_intimate_events
+      - psi_personal_events
+      - max_speed_intimate_zone
+      - max_speed_personal_zone
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: proxemics_and_psii_penetration
+  options:
+    labels:
+      personal_space_intrusion_integral: PSII (m*s)
+      time_in_intimate_zone: Intimate Zone Time (<0.45m) (s)
+      total_time_in_personal_space: Personal Zone Time (<1.2m) (s)
+      psi_intimate_events: Intimate Invasions Count
+      psi_personal_events: Personal Invasions Count
+      max_speed_intimate_zone: Peak Speed in Intimate Zone (m/s)
+      max_speed_personal_zone: Peak Speed in Personal Zone (m/s)
+    format:
+      personal_space_intrusion_integral: '{:.3f}'
+      time_in_intimate_zone: '{:.2f}'
+      total_time_in_personal_space: '{:.2f}'
+      psi_intimate_events: '{:.2f}'
+      psi_personal_events: '{:.2f}'
+      max_speed_intimate_zone: '{:.2f}'
+      max_speed_personal_zone: '{:.2f}'
+- id: violin_psii_local
+  type: violin
+  title: "Personal Space Intrusion Integral (PSII = integral (R_p - d_eff) dt in m\xB7\
+    s)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: personal_space_intrusion_integral
+  layout_group: proxemics_and_psii_penetration
+- id: violin_intimate_zone_local
+  type: violin
+  title: Time in Intimate Zone (< 0.45m Critical Violation Zone)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: time_in_intimate_zone
+  layout_group: proxemics_and_psii_penetration
+- id: box_speed_intimate_zone_local
+  type: box
+  title: Peak Velocity While Violating Intimate Space (m/s)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: max_speed_intimate_zone
+  layout_group: proxemics_and_psii_penetration
+- id: table_etiquette_verification
+  type: table
+  title: Social Etiquette & Force Verification Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - passing_rule_compliance
+      - ci_mean
+      - ci_max
+      - esfm_ped_mean_force
+      - esfm_ped_peak_force
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: passing_etiquette_and_directional_forces
+  options:
+    labels:
+      passing_rule_compliance: Passing Rule Compliance
+      ci_mean: Mean Directional CI
+      ci_max: Peak Directional CI
+      esfm_ped_mean_force: Mean Ped ESFM (N)
+      esfm_ped_peak_force: Peak Ped ESFM (N)
+    format:
+      passing_rule_compliance: '{:.2f}'
+      ci_mean: '{:.3f}'
+      ci_max: '{:.3f}'
+      esfm_ped_mean_force: '{:.3f}'
+      esfm_ped_peak_force: '{:.3f}'
+- id: bar_passing_compliance_local
+  type: bar
+  title: Passing Rule Compliance Ratio (Right-Hand Corridor Passing Rule)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - passing_rule_compliance
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+  layout_group: passing_etiquette_and_directional_forces
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: violin_ci_max_local
+  type: violin
+  title: Peak Anisotropic Collision Index (CI max)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: ci_max
+  layout_group: passing_etiquette_and_directional_forces
+- id: violin_ped_deflection_local
+  type: violin
+  title: Induced Pedestrian Path Deflection (m deviation vs unhindered peds)
+  data:
+    source: fact_pedestrians
+  channels:
+    x: ped_policy
+    y: ped_path_deflection_m
+  layout_group: passing_etiquette_and_directional_forces
+- id: table_kinematics_verification
+  type: table
+  title: Kinematic Motion & Smoothness Verification Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - mean_velocity_mps
+      - velocity_max
+      - acceleration_mean
+      - max_acceleration_mps2
+      - jerk_mean
+      - jerk_max_mps3
+      - curvature_mean
+      - roughness_mean
+      - angle_over_length
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: kinematic_stress_and_jerk_spikes
+  options:
+    labels:
+      mean_velocity_mps: Mean Velocity (m/s)
+      velocity_max: Peak Velocity (m/s)
+      acceleration_mean: Mean Acceleration (m/s^2)
+      max_acceleration_mps2: Peak Acceleration (m/s^2)
+      jerk_mean: Mean Jerk (m/s^3)
+      jerk_max_mps3: Peak Jerk Spike (m/s^3)
+      curvature_mean: Mean Curvature (1/m)
+      roughness_mean: Mean Roughness (rad/m)
+      angle_over_length: Angle / Length (rad/m)
+    format:
+      mean_velocity_mps: '{:.2f}'
+      velocity_max: '{:.2f}'
+      acceleration_mean: '{:.2f}'
+      max_acceleration_mps2: '{:.2f}'
+      jerk_mean: '{:.2f}'
+      jerk_max_mps3: '{:.2f}'
+      curvature_mean: '{:.3f}'
+      roughness_mean: '{:.3f}'
+      angle_over_length: '{:.3f}'
+- id: timeseries_motion_velocity_tracking
+  type: timeseries
+  title: 'Visual Confirmation: Linear Velocity Profile v(t) Timeseries'
+  data:
+    source: v_series_energy
+  channels:
+    color: local_planner
+    y: velocity_linear_mps
+    x: time_s
+  layout_group: kinematic_stress_and_jerk_spikes
+- id: box_jerk_max_local
+  type: box
+  title: Peak Jerk Spikes (jerk max in m/s3) - Actuator Chattering Severity
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: jerk_max_mps3
+  layout_group: kinematic_stress_and_jerk_spikes
+- id: violin_jerk_mean_local
+  type: violin
+  title: Mean Jerk (jerk mean in m/s3)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: jerk_mean
+  layout_group: kinematic_stress_and_jerk_spikes
+- id: box_acceleration_max_local
+  type: box
+  title: Maximum Acceleration (m/s2)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: max_acceleration_mps2
+  layout_group: kinematic_stress_and_jerk_spikes
+- id: box_roughness_max_local
+  type: box
+  title: Maximum Path Angular Roughness (rad/m)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: roughness_max
+  layout_group: kinematic_stress_and_jerk_spikes
+- id: table_energy_verification
+  type: table
+  title: Energy, Power & Battery Dissipation Inspection Table
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_total_wh
+      - energy_static_wh
+      - energy_mechanical_wh
+      - energy_thermal_wh
+      - power_peak_w
+      - battery_soc_drop_pct
+      - kinetic_energy_demand_j
+      - friction_dissipation_j
+      - specific_cost_of_transport
+      - e_cot
+      group_cols:
+      - local_planner
+  channels:
+    x: local_planner
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: energy_surges_and_dynamic_dissipation
+  options:
+    labels:
+      energy_total_wh: Total Energy (Wh)
+      energy_static_wh: Static Base Energy (Wh)
+      energy_mechanical_wh: Mechanical Work (Wh)
+      energy_thermal_wh: Thermal Motor Loss (Wh)
+      power_peak_w: Peak Power Draw (W)
+      battery_soc_drop_pct: Battery Drop (%)
+      kinetic_energy_demand_j: Kinetic Demand (J)
+      friction_dissipation_j: Friction Loss (J)
+      specific_cost_of_transport: S-CoT
+      e_cot: Penalized E-CoT
+    format:
+      energy_total_wh: '{:.3f}'
+      energy_static_wh: '{:.3f}'
+      energy_mechanical_wh: '{:.3f}'
+      energy_thermal_wh: '{:.3f}'
+      power_peak_w: '{:.1f}'
+      battery_soc_drop_pct: '{:.2f}'
+      kinetic_energy_demand_j: '{:.1f}'
+      friction_dissipation_j: '{:.1f}'
+      specific_cost_of_transport: '{:.3f}'
+      e_cot: '{:.3f}'
+- id: timeseries_power_breakdown
+  type: timeseries
+  title: 'Visual Confirmation: Total vs Mechanical Power Profile P(t) Timeseries'
+  data:
+    source: v_series_energy
+  channels:
+    color: local_planner
+    y: power_total_w
+    x: time_s
+  layout_group: energy_surges_and_dynamic_dissipation
+- id: bar_energy_subsystems
+  type: bar
+  title: Subsystem Energy Breakdown (Static Base vs. Mechanical vs. Thermal Motor
+    Loss)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_static_wh
+      - energy_mechanical_wh
+      - energy_thermal_wh
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+    color: metric
+  layout_group: energy_surges_and_dynamic_dissipation
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: violin_e_cot_local
+  type: violin
+  title: Penalized Effective Cost of Transport (E-CoT incorporating collisions and
+    PSII)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: e_cot
+  layout_group: energy_surges_and_dynamic_dissipation
+- id: box_power_peak_local
+  type: box
+  title: Peak Electrical Power Draw (W)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: power_peak_w
+  layout_group: energy_surges_and_dynamic_dissipation
+- id: box_battery_drop_local
+  type: box
+  title: Total Battery State of Charge (SoC) Drop (%)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: battery_soc_drop_pct
+  layout_group: energy_surges_and_dynamic_dissipation
+- id: box_aeps_local
+  type: box
+  title: "Acoustic Exposure in Personal Space (AEPS in linear sound power\xB7s)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: aeps_linear_s
+  layout_group: acoustic_startle_and_personal_exposure
+- id: timeseries_power_mech_w
+  type: timeseries
+  title: Subsystem Mechanical Power Demand P_mech(t) Timeseries
+  data:
+    source: v_series_energy
+  channels:
+    color: local_planner
+    y: power_mechanical_w
+    x: time_s
+  layout_group: synchronized_failure_timeseries
+- id: power_thermal_w
+  type: timeseries
+  title: Subsystem Thermal Power Dissipation P_therm(t) Timeseries
+  data:
+    source: v_series_energy
+  channels:
+    color: local_planner
+    y: power_thermal_w
+    x: time_s
+  layout_group: synchronized_failure_timeseries
+- id: battery_soc_pct
+  type: timeseries
+  title: Battery State of Charge (SoC %) Depletion Timeseries
+  data:
+    source: v_series_energy
+  channels:
+    color: local_planner
+    y: battery_soc_pct
+    x: time_s
+  layout_group: synchronized_failure_timeseries
+- id: timeseries_min_clearance
+  type: timeseries
+  title: Minimum Edge-to-Edge Pedestrian Clearance d_eff(t) Timeseries
+  data:
+    source: v_series_clearance
+  channels:
+    color: local_planner
+    y: pedestrian_clearance_m
+    x: t_ns
+  layout_group: synchronized_failure_timeseries
+- id: scatter_spl_vs_energy
+  type: scatter
+  title: 'Frontier 1: Success Weighted by Path Length (SPL) vs. Total Energy (Wh)'
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: spl_geodesic
+    x: energy_total_wh
+  layout_group: diagnostic_tradeoff_frontiers
+- id: scatter_time_vs_ecot
+  type: scatter
+  title: 'Frontier 2: Travel Duration (s) vs. Penalized Effective Cost of Transport
+    (E-CoT)'
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: time_to_goal
+    x: e_cot
+  layout_group: diagnostic_tradeoff_frontiers
+- id: scatter_velocity_vs_psii
+  type: scatter
+  title: "Frontier 3: Velocity in Personal Space (m/s) vs. PSII Intrusion Depth (m\xB7\
+    s)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: avg_velocity_in_personal_space
+    x: personal_space_intrusion_integral
+  layout_group: diagnostic_tradeoff_frontiers
+- id: scatter_scot_vs_efficiency
+  type: scatter
+  title: 'Frontier 4: Specific Cost of Transport (S-CoT) vs. Geodesic Path Efficiency
+    (eta_p)'
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: specific_cost_of_transport
+    x: path_efficiency
+  layout_group: diagnostic_tradeoff_frontiers
+- id: scatter_passing_vs_psii
+  type: scatter
+  title: "Frontier 5: Passing Rule Compliance vs. PSII Intrusion Depth (m\xB7s)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: passing_rule_compliance
+    x: personal_space_intrusion_integral
+  layout_group: diagnostic_tradeoff_frontiers
+- id: scatter_ked_vs_jerk
+  type: scatter
+  title: "Frontier 6: Kinetic Energy Demand (J) vs. Maximum Jerk Spikes (m/s\xB3)"
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: kinetic_energy_demand_j
+    x: jerk_max_mps3
+  layout_group: diagnostic_tradeoff_frontiers

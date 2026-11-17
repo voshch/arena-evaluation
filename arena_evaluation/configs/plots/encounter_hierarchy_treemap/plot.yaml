@@ -1,0 +1,14 @@
+id: encounter_hierarchy_treemap
+type: hierarchy
+title: Encounter Breakdown by Crowd Condition and Approach
+layout_group: social
+data:
+  source: v_encounter_summary
+channels:
+  hierarchy:
+    - crowd_condition
+    - planner
+    - approach_type
+  y: encounter_count
+options:
+  mode: treemap

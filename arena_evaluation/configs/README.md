@@ -1,0 +1,478 @@
+# Benchmark Configurations
+
+The `arena evaluation benchmark` runner reads benchmark configurations from `arena_evaluation/configs/` at startup.
+
+Invocation:
+```bash
+arena evaluation benchmark --suite <name> --contest <name> [--scale-episodes N]
+```
+
+## Directory Layout
+
+```
+configs/
+|-- color_palette.yaml - Color palette (flat config asset, resolved through the config roots)
+|-- suites/           - Stage sequences (`<name>/suite.yaml`)
+|   |-- basic/suite.yaml
+|   |-- meta_suite/suite.yaml
+|   |-- map_empty/suite.yaml
+|   `-- characterization/suite.yaml
+|-- contests/         - Planner lineups (`<name>/contest.yaml`)
+|   |-- basic/contest.yaml
+|   |-- allplanners/contest.yaml
+|   |-- inter/contest.yaml
+|   |-- planners/contest.yaml
+|   |-- edge_case_differential/contest.yaml
+|   |-- edge_case_omnidirectional/contest.yaml
+|   `-- characterization/contest.yaml
+|-- reports/          - Report manifests (`<name>/report.yaml`)
+|-- plots/            - Standalone plot declarations (`<name>/plot.yaml`)
+`-- queries/          - Stored SQL queries (`<name>/query.yaml`)
+```
+
+## Suite Files
+
+A suite defines an ordered list of stages executed sequentially across all contestants.
+
+```yaml
+task_layer: task_generator    # optional. task runtime name for parsing, checking and running this suite, default $ARENA_TASK_LAYER, else task_generator
+launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task_layer, task.*, record.*) are rejected
+  lockstep: true              # steps from bringup, lockstep.paused defaults to false in a benchmark
+metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
+  max_collisions: 1           # a robot succeeds only with fewer collisions than this (default 1: any collision fails)
+  barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
+    start: [2.25, 3.0]
+    goal: [2.25, 13.0]
+    path_length: {barn_0: 13.5923}   # published reference path length in m per stage map
+stages:
+  - name: scenario
+    map: arena_hospital_small
+    robot: jackal
+    modes: {robots: scenario, obstacles: random}
+    episodes: 1
+    config:
+      scenario:
+        file: 4.json
+      random:
+        dynamic:  {min: 3, max: 5, models: [arenian]}  # -> task.random.dynamic.n=[3,5], task.random.dynamic.models
+        static:   {min: 5, max: 10, models: [SquareShelf]}
+      humansim:
+        global_planner: {resolution: 0.1}              # -> human_params humansim.global_planner.resolution
+```
+
+A `{min, max}` pair anywhere in `config` is a runner-side convenience: it collapses to a
+single `<leaf>.n` param holding `[min, max]` (the actual ROS param the mode declares, e.g.
+`random`'s `static.n`/`dynamic.n`/`interactive.n` - see
+[task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)).
+Writing `static: {n: [5, 10]}` directly also works. For `scenario`, a `file` value with an
+extension has the extension stripped before it is sent (`4.json` and `4` are equivalent).
+
+### Stage fields
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Stage label |
+| `map` | string | World name |
+| `robot` | string | Robot model |
+| `modes` | mapping | Axis to mode name, one entry per axis of the suite's task runtime (task_generator: `robots`, `obstacles`, `modules`). Names are strings, checked by the runtime's `validate_modes` (case-insensitive, stored in the runtime's spelling). `modules` takes a comma-separated list, a single-mode axis (`robots`, `obstacles`) exactly one name. An axis left out is sent empty. The parse and `evaluation_validate_suite` fail with the validator's message for an unknown axis or name and for a single-mode axis without exactly one name |
+| `tm_<axis>` | string | Legacy spelling of one `modes` entry (`tm_robots`, `tm_obstacles`), accepted unchanged for runner compatibility and **deprecated** (to be removed with the old manifests). Setting an axis in both forms fails the parse |
+| `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
+| `config` | dict | Per-mode params. Top-level keys must name a mode the stage selects (e.g. `scenario`, `random`). Inner leaves map to `<mode namespace>.<leaf>` via QueueEpisode, the namespace being the mode's entry in the runtime's `mode_namespaces()` (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
+| `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`), the modes hashed under their `tm_<axis>` keys; can be set explicitly |
+| `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `task.episode.timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
+| `timeout_peds` | string | Same budget for the `unhindered_peds` reference step of this stage (see `references` below). Defaults to `timeout` if absent |
+| `optim` | dict | Extra `optim.<key>:=<value>` launch args for this stage's env |
+
+Stage modes are strings only: `Modes.TM_*` enum instances are not accepted.
+
+### Directory bundles
+
+Every shipped config is a directory bundle: `<kind>s/<name>/<kind>.yaml`. If a suite bundle
+contains a `worlds/` subdirectory, the runner exports it via `ARENA_WORLD_PATH` to the
+launched runtime, so the bundled world directories resolve ahead of the canonical worlds
+tree in every sim process (an `ARENA_WORLD_PATH` already set in the outer environment
+keeps priority).
+
+### Inline configs
+
+`--suite` and `--contest` also accept a YAML literal instead of a name. A value whose first
+non-space character is `[` or `{` is parsed with `yaml.safe_load` and used directly, with the
+same schema as the corresponding file. The run is recorded under the stem `inline`, so it is
+not resumable by name. Quote the literal so the shell passes it as one argument:
+
+```bash
+# simplest: name only, robot comes up with the sim's default mobile adapter and planners
+arena evaluation benchmark --suite basic --contest '[{name: default}]'
+arena evaluation benchmark --suite basic \
+  --contest '[{name: dwb, mobile: {driver: nav2, local_planner: dwb, inter_planner: navigate_w_replanning_time}}]'
+# sweep form works too
+arena evaluation benchmark --suite basic --contest '{mobile: {driver: nav2, local_planner: [teb, dwa]}}'
+```
+
+The robot model is a stage field, not a contestant field. `robot` (like `world`, `sim` and
+the `task.*` keys) is set by the stage and any contestant key that collides with it is dropped
+with a warning. To run a single planner on a single robot without touching the config tree,
+inline both:
+
+```bash
+arena evaluation benchmark \
+  --suite '{stages: [{name: jackal, map: arena_hospital_small, robot: jackal, modes: {robots: random, obstacles: random}, episodes: 5}]}' \
+  --contest '[{name: default}]'
+```
+
+### Bucket-hosted configs
+
+Suites, contests and manifests are `Identifier`s, resolved through the same chain as every
+other arena asset: the package share dir, then the source tree, then one `NetResolver` per
+`BENCHMARK_BUCKETS` provider (default `public/benchmarks` on the asset store), then a write-only
+fallback. A local copy always shadows a bucket copy, so hosting a config never overrides one
+you are editing.
+
+In a bucket and locally a config is always a directory bundle, keyed by kind:
+`suites/<name>/suite.yaml`, `contests/<name>/contest.yaml`, `reports/<name>/report.yaml`.
+Fetched bundles cache under `$ARENA_ASSETS_DIR/<provider>/` with a one
+year TTL, since a published config is expected to be pinned rather than revised in place.
+
+Move them with `arena asset find|ls|pull|push suite|contest|manifest <name>`. `find` prints
+every resolver's verdict without downloading. Reading is anonymous. Pushing requires
+`ARENA_ASSETS_TOKEN` in the environment or a gcloud login, and for a suite first checks that every world
+its stages name would resolve for someone else, counting worlds bundled under the suite.
+Task modes are not checked, since they are code rather than data shipped with the suite.
+Contests and manifests carry no such closure and publish as-is.
+
+### BARN
+
+`arena asset import suite barn barn` writes the BARN challenge into the imported assets root (`$ARENA_ASSETS_DIR_IMPORTED`), where suites, contests and manifests resolve ahead of the shipped ones: the bundle `suites/barn` with 300 stages, one per challenge world, each world bundled under `worlds/barn_<i>` and built by the `barn` world generator from the upstream world file, the bundle `contests/barn` whose contestant pins the challenge episode rules (a collision ends the episode, goal reached within 1 m, no heading check), and the report manifest `reports/barn/report.yaml`, selected with `arena evaluation run --benchmark-dir <run_id> --report-manifest barn`, which tabulates the challenge's summary line per contestant and the score per contestant and world. The suite's `metrics.barn` block carries the challenge start, the goal and the published reference path length of every world. The `barn_score` calculator replays the loop of the challenge's `run.py` on each recorded episode: the clock starts once the robot is 0.1 m from the start, the run is polled every 0.1 s, it succeeds within 1 m of the goal before any collision and before 100 s, and scores `success * optimal_time / clip(time, 2 * optimal_time, 8 * optimal_time)` with `optimal_time = path_length / 2 m/s`. It writes `barn_score`, `barn_time`, `barn_success`, `barn_collided`, `barn_timeout` and `barn_optimal_time`, all null for an episode whose map has no entry in the block. Stages time out after 110 s so that a robot that starts moving late still gets its 100 s, and a recording that ends before the loop decides scores 0 with no outcome flag set. A single challenge world without the benchmark is `arena asset import world barn <i>`, which writes `barn_<i>` into the imported worlds root where it launches by name.
+
+### SocNavBench
+
+`arena asset import suite socnavbench socnavbench` writes the 17 SocNavBench curated episodes that play on the eth, zara01 and zara02 sequences into the imported assets root: the bundle `suites/socnavbench` with one jackal stage per episode (`tm_robots` and `tm_obstacles` both `scenario`, `config.scenario.file` the episode name, `timeout` the episode's time budget of 20, 50 or 60 s), the worlds `socnavbench_eth` and `socnavbench_zara` bundled under `worlds/` with a replay scenario per episode that holds the robot start and goal, the bundle `contests/socnavbench` whose contestant pins SocNavBench's goal margin of 0.3 m with no heading check, and the report manifest `reports/socnavbench/report.yaml` (`--report-manifest socnavbench`), which tabulates `success`, `collision_amount` and `time_to_goal` per contestant and per episode. The suite's `launch` block sets `human: replay`, so the recorded pedestrians are played and never react to the robot, as in SocNavBench. A pedestrian contact does not end an episode there, so the contestant leaves `task.episode.fail_on_collision` off, and `metrics.max_collisions: 1` counts an episode as a success only when the goal is reached without any collision. SocNavBench's own cost functions (path length ratio, path irregularity, goal traversal ratio, robot speed, acceleration, jerk and motion energy, time to collision, closest pedestrian distance) are not computed, and its obstacle maps are not used: a world's floor is built from the recorded paths. The stages keep SocNavBench's time budgets although its robot drives 1.2 m/s and the jackal 0.5 m/s, which puts `t_ETH1` (10.8 m in 20 s) out of reach. The 16 episodes on hotel, univ and the double hotel are left out, see the [replay adapter](../../../../arena_runtime/arena_runtime/arena_runtime/humans/README.md#replay-adapter-humanreplay). Run it with `arena evaluation benchmark --suite socnavbench --contest socnavbench`. A single episode without the benchmark is `arena asset import scenario socnavbench <episode>`.
+
+### SidewalkBench
+
+`arena asset import suite sidewalkbench sidewalkbench` writes the SidewalkBench protocol into the imported assets root: the bundle `suites/sidewalkbench` with jackal stages in three groups, the bundle `contests/sidewalkbench` and the report manifest `reports/sidewalkbench/report.yaml` (`--report-manifest sidewalkbench`). Every stage selects `robots: scenario` and `obstacles: scenario`, and the suite's `launch` block sets `human: arena`, the humansim backend that runs the `sidewalk_<behavior>` agent types. The unit-test stages are `straight`, `corner` and `crosswalk` on 25 m worlds built by the `sidewalk` world generator with seeds 42 to 46 and no pedestrians, and the `straight_<i>`, `curve_<i>` and `crosswalk_<i>` routes of every scanned scene. The pedestrian-reactive stages (60 s) are one per behavior (`obstructing`, `conversing`, `queueing`, `frontal`, `lateral`, `overtaking`, `gesturing` on `straight`, `crossing` on `crosswalk`, 30 m, same seeds). The long-horizon stages are the generated `block` world (two city blocks, 10 background pedestrians, same seeds) and the scanned `long_<i>` routes. Every stage's timeout is `1.25 * route length / 0.5 m/s + 10 s` rounded up to 10 s, at least 60 s. The generated worlds are bundled under `worlds/sidewalk_*`, the scanned scenes are imported by the `sidewalkbench` world source (`sidewalkbench_<scene>`, 12 GB for all eleven) into the imported worlds root. The contestant is nav2 with `dwb`, `task.episode.fail_on_collision: true` and a goal tolerance of 1 m with no heading check, and `metrics.max_collisions: 1`. The `sidewalk_metrics` calculator reads the `sidewalk` and `crosswalk` zones of the stage's world, the walkable area being their union, and the robot's ground-truth pose resampled at 10 Hz up to the first moment within 1 m of the goal (the whole recording when it never gets there). It writes `sidewalk_route_completion` (goal reached, no collision, never outside the walkable area), `sidewalk_off_sidewalk` (any pose outside it), `sidewalk_freezes` (runs of more than 5 s under 0.05 m/s, counted after the first 2 s and before the goal), `sidewalk_failures_per_100m` (collisions as rising edges of `collision_event`, plus entries into the outside, runs less than 1 s apart counting once, plus freezes, per 100 m of driven path, null under 1 m) and `sidewalk_mean_speed` (driven path over elapsed time), all null for a world without such zones. The manifest tabulates route completion per layout (generated and scanned routes of a layout together), success per behavior, and failures per 100 m and mean speed on the long-horizon stages, each per contestant. Run it with `arena evaluation benchmark --suite sidewalkbench --contest sidewalkbench`.
+
+Suite-level `references: true` enables automatically generated reference steps
+(`unobstructed_robot` / `unhindered_peds`) per stage. The default is `false`. Enable it for
+suites whose report manifest consumes reference-episode data (e.g. pedestrian disturbance).
+Characterization suites leave it off because the sweep itself is the reference.
+
+### Characterization suite
+
+```yaml
+references: false
+stages:
+  - name: characterization
+    map: map_empty
+    robot: jackal
+    episodes: 3            # repetitions -> cross-episode confidence bands
+    modes: {robots: characterization, obstacles: random}   # characterization drives the open-loop sweep
+    config:
+      random:
+        dynamic: {min: 0, max: 0}
+        static: {min: 0, max: 0}
+        interactive: {min: 0, max: 0}
+    timeout: 300s
+```
+
+The `characterization` robot task mode (in `task_generator`) drives `cmd_vel` directly through the
+robot's rated envelope - idle blocks, 0.25->vx_max linear steps with 5 s out-and-back dwells,
+transient ramps, pivot rates - tagging every maneuver with `characterization_phase` markers. It also
+latches the full schedule as a `characterization_schedule` table, which the report's
+`CharacterizationCalculator` joins against so phase labels match exactly, with `char_phase_coverage`
+reporting the fraction that did. Run it like any benchmark and analyse with the characterization
+report manifest:
+
+```bash
+arena evaluation benchmark --suite characterization --contest characterization
+arena evaluation run --benchmark-dir <run_id> --report-manifest characterization
+```
+
+### Landmark suite
+
+`landmarks` sends a jackal to named rooms of `hospital_1` (scenarios
+`landmark_*`, one or two `{goto: <zone>}` phases, each judged by zone membership). The
+`landmarks` contest runs every language planner under both values of `robot.mobile.wording`
+(`goal`: "Go to the pharmacy.", `route`: walking directions through the doors), next to `nav2`
+and pose-revealed runs, which receive a pose inside the room. `vln_metrics.goal_inputs` labels
+each episode (`pose:oracle`, `instruction`, `instruction:route`), so rows that were handed the
+grounding stay apart from rows that had to find the room.
+
+```bash
+arena evaluation benchmark --suite landmarks --contest landmarks
+```
+
+The stages carry a bare `robot: jackal`, and every contestant mounts the camera its model was
+trained with through `parts` (see [Contestant parts](#contestant-parts)). The suite runs under
+lockstep, so the sim waits for each planner's action and slow models are not penalized for
+their inference time.
+
+### Lockstep soak
+
+`arena planners test <planner...|--all>` runs one short crowded stage per
+contestant with `lockstep: true` (`lockstep.paused: false`, headless). The
+runner always watches `/arena/state/lockstep` and records, per episode and per
+step, the stall count, the longest stall, the mean measured rtf, the
+`nav/`/`planner/` beat channels registered, the gated ticks, and the beat
+heartbeats received against the ticks those beats were due on
+(`lockstep_stalls`, `lockstep_max_stall_s`, `lockstep_rtf`,
+`lockstep_beat_channels`, `lockstep_ticks`, `lockstep_beats`,
+`lockstep_beats_due` in `progress.csv`, `lockstep` in `.benchmark_state.json`).
+Beat counts cover only the episode's env, and all counts come from the
+scheduler's once-a-second status, so an episode's window is shifted by up to a
+second. `lockstep_beats` equal to `lockstep_beats_due` means the planner beat
+exactly once per due tick. When any step ran under lockstep the run ends with a
+report table, and `--lockstep-verdict` turns a `fail` row into exit code 3. A
+row fails when a stall reaches 5 s, no tick was gated, or no `nav/`/`planner/`
+beat registered for the contestant or delivered a heartbeat, i.e. the run froze
+or the planner never engaged the gate.
+
+Suite and contest are both built inline by the `arena` CLI
+(`arena_cli/features/planners.py`), so nothing here defines them: bridge planners become
+`{mobile: {driver: drl, planner: <name>}}` contestants, anything else a nav2
+`local_planner`, and the benchmark runs with `--lockstep-verdict`. Extra
+`key:=value` tokens pass through (`sim:=isaac`, `lockstep.rtf:=5`).
+
+## Contest files
+
+A contest defines the set of planner configurations (contestants) to evaluate.
+The runner iterates over all contestants at each suite stage.
+
+Contestant args use **cap-scoped dicts** - each capability (`mobile`, `arm`,
+`planner`) is a dict with a `driver` key identifying the driver and any extra
+kwargs forwarded as launch args under the `robot.` prefix. `planner` also
+accepts a bare scalar value as shorthand for `robot.planner:=<value>`:
+
+```yaml
+mobile:
+  driver: nav2
+  local_planner: teb
+  inter_planner: polite
+```
+
+This produces launch args: `robot.mobile:=nav2 robot.mobile.local_planner:=teb robot.mobile.inter_planner:=polite`
+
+There are two forms: **list** and **sweep**.
+
+### List form
+
+Top-level YAML is a sequence. Each entry must have `name`; all other keys
+become `args` forwarded to `Robot.parse` via the `SpawnRobot` service.
+
+```yaml
+- name: teb-polite
+  mobile:
+    driver: nav2
+    local_planner: teb
+    inter_planner: polite
+- name: dwa-rl
+  mobile:
+    driver: rosnav_rl
+    agent: my_agent
+```
+
+### Sweep Form
+
+Cartesian product generated across list-valued parameters:
+
+```yaml
+name: basic
+mobile:
+  driver: nav2
+  inter_planner: bypass
+  local_planner: [teb, dwa, rosnav]
+```
+
+Produces: `basic-teb`, `basic-dwa`, `basic-rosnav`.
+
+### Inline Contest (CLI)
+
+```bash
+arena evaluation benchmark --suite basic --contest '[{name: teb, mobile: {driver: nav2, local_planner: teb}}]'
+arena evaluation benchmark --suite basic --contest '{mobile: {driver: nav2, local_planner: [teb, dwa]}}'
+```
+
+The old flat dot-notation format is still accepted in both list and sweep forms:
+
+```yaml
+# Old flat list form - still works
+- name: teb
+  mobile.local_planner: teb
+  mobile.inter_planner: bypass
+
+# Old flat sweep form - still works
+mobile.local_planner: [teb, dwa]
+mobile.inter_planner: bypass
+```
+
+### Contestant parts
+
+`parts` gives a contestant its own robot parts on every stage: each key replaces the stage
+robot's bracket item of the same name, so `robot: jackal[camera=d435_color]` with the entry
+below spawns `jackal[camera=vln_rgbd]`. It is not forwarded as a launch arg. In sweep form
+`parts` is shared by all generated contestants.
+
+```yaml
+- name: cma-route
+  parts:
+    camera: vln_rgbd
+  mobile:
+    driver: vla
+    planner: cma
+    wording: route
+```
+
+### Contestant args
+
+Contestant `args` keys are forwarded verbatim as launch args to the env on
+spawn (so nav2, the controller, the agent, etc. come up correctly from the
+start). See
+[BRINGUP.md -> Cap-scoped overrides](../../../../arena_bringup/BRINGUP.md#cap-scoped-overrides)
+for the recommended key shapes.
+
+The runner drops keys that collide with stage-owned launch args (`sim`,
+`robot`, `world`, `task_layer`, `task.<axis>` for every axis the stage sets, `run_seed`, `task.episode.auto_reset`,
+`record.dir`, `record.auto`) and logs a warning, since those are
+controlled by the suite stage. Anything else is passed through to the launch
+layer, which binds it if declared or raises an error if not.
+
+A useful passthrough example: `task.episode.fail_on_collision: true` makes the env abort
+an episode as FAILED (`outcome_info='collision'`) the moment the robot
+footprint contacts a wall, static obstacle, or pedestrian, instead of the
+default run-to-goal-or-timeout. See
+[BRINGUP.md -> Common options](../../../../arena_bringup/BRINGUP.md#common-options).
+
+## Where the configs moved
+
+Before the overhaul the runner read `configs/benchmark/{suites,contests,manifests}/<name>.yaml`. The
+files now live in named bundles: `configs/suites/<name>/suite.yaml`,
+`configs/contests/<name>/contest.yaml`, `configs/reports/<name>/report.yaml`,
+`configs/plots/<name>/plot.yaml` and `configs/queries/<name>/query.yaml`. A named argument resolves
+the bundle directory, a path to the YAML file, or (for reports) inline `{...}` YAML; the old
+`configs/benchmark/**` tree is not read any more. Recording migration is documented in
+`arena_evaluation/docs/migrate.md`; the declaration converter is
+`arena_evaluation/scripts/migrate_legacy_manifests.py`.
+
+Metric renames introduced by the overhaul are listed in `arena_evaluation/docs/migrate.md` §2.3
+(the converter's checked-in `legacy_metric_map`, the `*_vs_planned_route` renames and the retired
+social-force/acoustic scalars). Ask the converter (`--dry-run`) rather than renaming by hand.
+
+## Report Files
+
+Declarative report manifests live under `configs/reports/<name>/report.yaml`.
+Each report defines `manifest_version`, `name`, optional `title`, `data_source`, `groups`, `summary`, `summary_group_by`, `units`, and `plots`.
+
+## Plot Files
+
+Reusable single-grammar plot declarations live under `configs/plots/<name>/plot.yaml` and are referenced in reports with `uses: <name>`:
+
+- `acoustic_field` — spatial acoustic field, bound in `everything`
+- `contact_closing_share` — contact closing share bar bound to `v_contact_summary`
+- `encounter_hierarchy_treemap` — hierarchical treemap bound to `v_encounter_summary`
+- `multi_planner_radar` — radar profile bound to `radar_profile`
+- `scorecard_table` — planner scorecard table bound to `v_planner_scorecard`
+- `success_without_contact_interval` — interval plot of the visible-minus-blind difference
+- `success_without_contact_panel` — bar panel of success without pedestrian contact
+
+The seven shipped reports declare 313 plots in total (`standard` 69, `everything` 84,
+`failure_modes` 48, `social` 36, `safety` 29, `characterization` 25, `ecological` 22).
+
+## Query Files
+
+Stored SQL query declarations live under `configs/queries/<name>/query.yaml` and are referenced in plots with `stored_query: <name>`.
+
+## How the runner consumes these files
+
+The runner is the `benchmark` console script: `arena evaluation benchmark`,
+no launch file. In the Arena meta-repo, install the feature first with
+`arena feature evaluation install`.
+
+Steps are grouped by `(contestant.name, stage.robot, simulator)`. Consecutive
+steps with the same key share one env; suite order is preserved within and
+across groups. Robot is fixed within a group. If a contestant's stages mix
+robots, the runner splits into multiple groups per contestant. Authoring
+suggestion: keep one robot per contestant for fastest runs.
+
+`env.n` caps how many groups (parallel contestants) run at once, with the rest
+queued. Run time scales as `bringup_time x num_groups + episode_time x
+total_episodes` spread across the `env.n` workers, not `bringup_time x
+num_steps`, since steps within a group reuse one env.
+
+For each group the runner:
+
+1. Calls `/arena/spawn_env` once with the first step's launch args: `sim`,
+   `robot`, `world`, `task_layer` (the resolved runtime name: the suite's, else
+   `$ARENA_TASK_LAYER`, else `task_generator`), `task.<axis>` for every axis the stage
+   sets (an axis it leaves out falls back to the runtime's own default at launch), `run_seed`,
+   `task.episode.auto_reset:=false`, any `optim.<key>:=<value>`
+   from the stage's `optim` dict, and any contestant args of
+   shape `mobile`, `arm`, `mobile.<key>`, or `arm.<key>` (emitted as
+   `robot.mobile...` / `robot.arm...`). `record.dir` and `record.auto:=false`
+   are added when recording is enabled.
+   Per-mode params (`task.scenario.file`, `task.random.*`, ...) are not passed
+   as launch args; the runner sets them via QueueEpisode in step 3.
+2. Waits for the env to publish on `/arena/state/envs` and resolves the env
+   namespace from `EnvRecord.fqn`. Sets up a `RunEpisode` action client and a
+   `QueueEpisode` service client at `<env_ns>/config/queue_episode`.
+3. For each step in the group:
+   - Calls `<env_ns>/config/queue_episode` with the stage's `world`,
+     `modes` (every axis, an unset axis empty so the runtime keeps or clears it), and the per-mode
+     `config` blocks of the selected modes as `params` under the full names of the
+     mode's namespace (e.g. `task.scenario.file`, `task.random.dynamic.n`). MERGE semantics: empty fields leave the prior
+     queued value untouched. Called for every step including the first; the
+     env owns no stage-specific config until the runner pushes it.
+   - Sets the env's `task.episode.timeout` parameter to the stage's `timeout` (or
+     `timeout_peds` for the `unhindered_peds` reference step) via
+     `<env_ns>/set_parameters`, so the episode budget is spent in sim time.
+     The runner keeps no wall-clock episode ceiling, only a 60 s sim-stall
+     guard (see [benchmark/README.md](../../arena_evaluation/benchmark/README.md#liveness)).
+   - Drives `step.episodes` goals via the `RunEpisode` action at
+     `<env_ns>/lifecycle/run_episode`, with `goal.world = stage.map` and
+     `goal.seed = stage.seed` overriding the queued world/seed if needed.
+     Per-episode `EpisodeRecord` rows are pulled from `<env_ns>/state/episode`
+     and appended to `progress.csv`.
+   - Per-step failures (timeout, missing EpisodeRecord, mid-run robot stuck)
+     advance to the next step; only systemic setup failures
+     (`error_kind in {env_setup, robot_setup}`) **before any episode in the
+     run has completed** trigger a run-level abort.
+4. Despawns the env via `/arena/despawn_env` at the end of the group, then
+   advances to the next group.
+5. Writes `progress.csv` and `.benchmark_state.json` to
+   `$ARENA_DATA_DIR/benchmarks/<run_id>/` so an interrupted run can be
+   resumed with `--resume <run_id>`.
+
+`progress.csv` holds one row per episode (`env_id` is shared within a group),
+its last column `integrity` the JSON list of reasons the episode is compromised.
+`.benchmark_state.json` holds each step's status and episode counts, among them
+`episodes_compromised`.
+
+Run-id default format: `{YYYYMMDD-HHMMSS}-{suite}-{contest}` (lex sort = chronological).
+For inline contests the contest segment is `inline`. Override with `--run-id`.
+
+Output dir: `$ARENA_DATA_DIR/benchmarks/<run_id>/` (default `$ARENA_WS_DIR/data/benchmarks/<run_id>/`).
+Override with `--data-root`. Inside Docker: `/opt/arena_ws/data/benchmarks/<run_id>/`.
+
+```
+<run_id>/
+|-- manifest.yaml              # Config snapshot
+|-- progress.csv               # Episode results
+|-- runner.log                 # Execution logs
+|-- .benchmark_state.json      # Step state (atomic)
+|-- live.json                  # Slot table the dashboard reads
+|-- episodes/                  # Per-episode MCAP and Parquet files
+|-- analysis/                  # Evidence store & run-local reports/plots/queries
+`-- reports/                   # Rendered HTML reports (<name>/report.html)
+```
+
+Runs shared across lanes add per-lane files, see [Shared Runs](../../arena_evaluation/benchmark/README.md#shared-runs).
+
+## Inspection & Management Commands
+```bash
+arena evaluation list                          # List runs
+arena evaluation status [run_id] [--watch]     # Show progress
+arena evaluation tail [run_id]                 # Tail progress.csv
+arena evaluation ps                            # List running arena processes
+arena evaluation kill <pid>...|--kind K|--all [-9]  # Stop arena processes, SIGINT first (bare kill lists them, -9 for SIGKILL)
+arena evaluation console [run_id] [--follow]   # Tail runner.log
+arena evaluation serve [--port N]              # Live web dashboard, see the benchmark README
+```
