@@ -36,7 +36,7 @@ A suite defines an ordered list of stages executed sequentially across all conte
 ```yaml
 task_layer: task_generator    # optional. task runtime name for parsing, checking and running this suite, default $ARENA_TASK_LAYER, else task_generator
 launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task_layer, task.*, record.*) are rejected
-  lockstep: true              # steps from bringup, lockstep.paused defaults to false in a benchmark
+  lockstep: true              # steps unpaced from bringup (lockstep.paused false, lockstep.rtf 0), without it the launch default runs lockstep at rtf 1
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
   max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
   barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
