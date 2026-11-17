@@ -6,7 +6,21 @@ import pathlib
 
 import yaml
 
+from arena_evaluation.storage.config_layout import (
+    bundle_path,
+    run_analysis_root,
+)
+
+from .manifest_identifier import ManifestIdentifier
 from .viz_manifest import VizManifest
+
+__all__ = [
+    "ManifestNotFoundError",
+    "available_manifests",
+    "find_manifest_file",
+    "is_inline",
+    "resolve_manifest",
+]
 
 
 def is_inline(ref: str) -> bool:
@@ -14,30 +28,25 @@ def is_inline(ref: str) -> bool:
     return stripped.startswith("{") or stripped.startswith("[")
 
 
-def share_dir() -> pathlib.Path | None:
-    """Return share directory of the arena_evaluation package, or None."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
-
-        return pathlib.Path(get_package_share_directory("arena_evaluation"))
-    except Exception:
-        return None
-
-
-def source_tree_dir() -> pathlib.Path | None:
-    """Return package root in the source checkout."""
-    here = pathlib.Path(__file__).resolve()
-    for parent in here.parents:
-        cand = parent / "configs" / "benchmark" / "manifests"
-        if cand.is_dir():
-            return parent
-    return None
+def _ensure_registered() -> None:
+    """Register the manifest resolvers; benchmark.tree owns the config asset chain."""
+    if not ManifestIdentifier._resolvers:
+        # The registration lives in benchmark/tree.py with the other config identifiers. Importing it
+        # here keeps a direct `import arena_evaluation.benchmark.tree` unnecessary (and the cycle gone)
+        # while a standalone presentation consumer can still resolve a bundled manifest.
+        import arena_evaluation.benchmark.tree  # noqa: F401
 
 
-def find_manifest_file(stem: str) -> pathlib.Path | None:
-    """Resolve a manifest name to its YAML file, stopping at the first resolver that has it."""
-    from arena_evaluation.benchmark.tree import ManifestIdentifier
+def find_manifest_file(
+    stem: str, benchmark_dir: pathlib.Path | None = None
+) -> pathlib.Path | None:
+    """Resolve a report name: run-local analysis/reports/<name>/report.yaml first, then asset chain."""
+    if benchmark_dir is not None:
+        local = bundle_path(run_analysis_root(benchmark_dir), "report", stem)
+        if local.is_file():
+            return local
 
+    _ensure_registered()
     try:
         return ManifestIdentifier(name=stem).resolve_source_sync().path
     except FileNotFoundError:
@@ -46,8 +55,7 @@ def find_manifest_file(stem: str) -> pathlib.Path | None:
 
 def available_manifests() -> list[str]:
     """Sorted stems of all bundled manifests."""
-    from arena_evaluation.benchmark.tree import ManifestIdentifier
-
+    _ensure_registered()
     return sorted({m.shortname for m in ManifestIdentifier.listall()})
 
 
@@ -57,54 +65,38 @@ class ManifestNotFoundError(FileNotFoundError):
     def __init__(self, name: str, message: str | None = None) -> None:
         self.name = name
         available = ", ".join(available_manifests()) or "(none bundled)"
-        super().__init__(message or f"Report manifest '{name}' not found. Available: {available}. Pass a name, a path to a YAML file, or inline {{...}} YAML.")
-
-
-def _load_note_manifest(benchmark_dir: pathlib.Path) -> VizManifest | None:
-    """Read the report_manifest.yaml note file written after a prior report."""
-    note = benchmark_dir / "report_manifest.yaml"
-    if not note.is_file():
-        return None
-    try:
-        data = yaml.safe_load(note.read_text())
-        name = (data or {}).get("name")
-        if not name:
-            return None
-        return resolve_manifest(str(name), benchmark_dir, _allow_note=False)
-    except Exception:
-        return None
+        super().__init__(
+            message
+            or f"Report manifest '{name}' not found. Available: {available}. Pass a name, a path to a YAML file, or inline {{...}} YAML."
+        )
 
 
 def resolve_manifest(
     ref: str | None,
     benchmark_dir: pathlib.Path | None = None,
-    *,
-    _allow_note: bool = True,
 ) -> VizManifest:
     """Resolve a manifest reference to a VizManifest instance."""
     if ref is None:
-        if benchmark_dir is not None:
-            legacy = benchmark_dir / "viz_manifest.yaml"
-            if legacy.is_file():
-                return VizManifest.load(legacy)
-            if _allow_note:
-                noted = _load_note_manifest(benchmark_dir)
-                if noted is not None:
-                    return noted
-        return VizManifest.load_default()
+        return resolve_manifest("standard", benchmark_dir)
 
     ref = ref.strip()
     if is_inline(ref):
         data = yaml.safe_load(ref)
         if not isinstance(data, dict):
-            raise ValueError(f"Inline manifest must be a YAML mapping, got {type(data).__name__}")
+            raise ValueError(
+                f"Inline manifest must be a YAML mapping, got {type(data).__name__}"
+            )
         return VizManifest.model_validate(data)
 
     p = pathlib.Path(ref)
     if p.exists():
         return VizManifest.load(p)
 
-    p = find_manifest_file(ref.removesuffix(".yaml"))
+    stem = ref.removesuffix(".yaml")
+    p = find_manifest_file(stem, benchmark_dir)
     if p is None:
         raise ManifestNotFoundError(ref)
-    return VizManifest.load(p)
+    obj = VizManifest.load(p)
+    if obj.name is None:
+        obj = obj.model_copy(update={"name": stem})
+    return obj

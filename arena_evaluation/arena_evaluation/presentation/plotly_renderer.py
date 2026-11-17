@@ -1,60 +1,41 @@
+"""Interactive Plotly plot dispatcher."""
+
 from __future__ import annotations
 
 import pathlib
+from typing import TYPE_CHECKING
 
 import polars as pl
 
-from arena_evaluation.storage.schemas import PlotSpec
+from arena_evaluation.presentation.viz_manifest import PlotSpec
+
+from .plot_types import prepare_renderer
+
+if TYPE_CHECKING:
+    from .checks import PlotDiagnostics
 
 
 class PlotlyRenderer:
     """Dispatches plot rendering to the correct Plotly class."""
 
-    def __init__(self, units: dict[str, str] | None = None):
+    def __init__(self, units: dict[str, str] | None = None) -> None:
         self.units = units or {}
-        from .color_utils import set_global_color_palette
 
-        set_global_color_palette()
-
-        from .plot_types import (
-            AcousticFieldAnimationRenderer,
-            AcousticFieldRenderer,
-            BarRenderer,
-            BoxRenderer,
-            HeatmapRenderer,
-            HistogramRenderer,
-            LineRenderer,
-            RadarRenderer,
-            ScatterRenderer,
-            TableRenderer,
-            TimeseriesRenderer,
-            TrajectoryRenderer,
-            ViolinRenderer,
+    def render(
+        self,
+        spec: PlotSpec,
+        df: pl.DataFrame,
+        run_dir: pathlib.Path | None = None,
+        *,
+        world_geometry: pl.DataFrame | None = None,
+        diagnostics: PlotDiagnostics | None = None,
+    ) -> str | list[str] | None:
+        renderer = prepare_renderer(
+            spec,
+            df,
+            units=self.units,
+            run_dir=run_dir,
+            world_geometry=world_geometry,
+            diagnostics=diagnostics,
         )
-
-        self.renderers = {
-            "violin": ViolinRenderer,
-            "box": BoxRenderer,
-            "bar": BarRenderer,
-            "trajectory": TrajectoryRenderer,
-            "radar": RadarRenderer,
-            "scatter": ScatterRenderer,
-            "histogram": HistogramRenderer,
-            "heatmap": HeatmapRenderer,
-            "timeseries": TimeseriesRenderer,
-            "line": LineRenderer,
-            "table": TableRenderer,
-            "acoustic_field": AcousticFieldRenderer,
-            "acoustic_field_animation": AcousticFieldAnimationRenderer,
-        }
-
-    def render(self, spec: PlotSpec, df: pl.DataFrame, run_dir: pathlib.Path | None = None) -> str | list[str] | None:
-        renderer_cls = self.renderers.get(spec.type)
-        if not renderer_cls:
-            return None
-
-        renderer = renderer_cls(spec, units=self.units)
-        renderer.run_dir = run_dir
-        if renderer_cls.__name__ == "TrajectoryRenderer":
-            renderer.generate_gifs = False  # GIFs are seaborn-only
         return renderer.render_plotly(df)
