@@ -24,6 +24,7 @@ if typing.TYPE_CHECKING:
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
 from arena_evaluation.processing.scoped_evaluator import write_fact_tables, write_series_tables
+from arena_evaluation.processing.world_geometry import benchmark_world_geometry
 from arena_evaluation.processing.mcap_reader import MCAPReader, load_bundles
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
@@ -37,7 +38,7 @@ from arena_evaluation.storage.exceptions import ContractViolationError, MetricIn
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.registry import FactTable
-from arena_evaluation.storage.registry.dimensions import DimMetrics
+from arena_evaluation.storage.registry.dimensions import DimMetrics, DimWorldGeometry
 from arena_evaluation.storage.schemas import (
     AlignedEpisodeBundle,
     EpisodeDescriptor,
@@ -313,6 +314,12 @@ def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | 
     if ep.map and ep.map != "unknown":
         return ep.map
     return None
+
+
+def _benchmark_worlds(episodes: list[EpisodeDescriptor]) -> list[str]:
+    """The distinct named worlds of a benchmark's episodes, sorted."""
+    named = (_metric_world(None, ep) for ep in episodes)
+    return sorted({world for world in named if world})
 
 
 _RECORD_RUNNING = 1  # arena_runtime_msgs/msg/EpisodeRecord.RUNNING
@@ -1062,7 +1069,7 @@ class ProcessingPipeline:
         self._write_benchmark_dimensions(benchmark_id, episodes)
 
     def _write_benchmark_dimensions(self, benchmark_id: str, episodes: list[EpisodeDescriptor]) -> None:
-        """Stack the dimension rows of every extracted episode, add the metric dictionary, and write each dimension once at the benchmark root."""
+        """Stack the dimension rows of every extracted episode, add the metric dictionary and the geometry of every named world, and write each dimension once at the benchmark root."""
         contributions = []
         for ep in episodes:
             episode_dir = pathlib.Path(ep.episode_dir)
@@ -1073,10 +1080,12 @@ class ProcessingPipeline:
             metadata = MetadataWriter.read(episode_dir / f"{episode_dir.name}.yaml")
             bundles = load_bundles(topics, {})
             contributions.append(episode_dimensions(run_id=benchmark_id, episode_id=ep.episode_id, metadata=metadata, bundles=bundles))
+        benchmark_dir = self.folder_manager.benchmark_dir(benchmark_id)
         dimensions = stack(contributions)
         dimensions[DimMetrics.table_name] = metric_dictionary()
+        dimensions[DimWorldGeometry.table_name] = benchmark_world_geometry(_benchmark_worlds(episodes), benchmark_dir)
         enforce_dimension_contract(dimensions)
-        write_benchmark_dimensions(dimensions, self.folder_manager.benchmark_dir(benchmark_id))
+        write_benchmark_dimensions(dimensions, benchmark_dir)
 
     def _extract_episodes(self, benchmark_id: str, episodes: list[EpisodeDescriptor], force_extract: bool) -> None:
         _run_phase(

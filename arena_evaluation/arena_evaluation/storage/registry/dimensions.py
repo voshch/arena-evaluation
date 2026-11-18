@@ -172,6 +172,45 @@ class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIM
     initial_state = _optional(pl.String, "State the entity starts in.")
 
 
+class DimWorldGeometry(
+    _Dimension, name="dim_world_geometry", kind=TableKind.DIMENSION
+):
+    """One row per vertex of the world geometry of a benchmark, written once per world."""
+
+    key = ("world", "element_kind", "element_name", "part_idx", "vertex_idx")
+
+    world = _key(
+        pl.String, "World the geometry belongs to, as dim_episodes.world holds it."
+    )
+    element_kind = _key(
+        pl.String, "Kind of element: wall, door, elevator, zone or object."
+    )
+    element_name = _key(
+        pl.String,
+        "Name of the element: wall_<index> for a wall, else the entity name.",
+    )
+    part_idx = _key(
+        pl.Int64,
+        "Zero-based polygon index within the element; 0 for a wall or a zone.",
+    )
+    vertex_idx = _key(
+        pl.Int64,
+        "Zero-based vertex order along the segment or ring; rings are not closed.",
+    )
+    x = Column(
+        pl.Float64,
+        required=True,
+        unit="m",
+        description="Vertex x in the compacted map frame.",
+    )
+    y = Column(
+        pl.Float64,
+        required=True,
+        unit="m",
+        description="Vertex y in the compacted map frame.",
+    )
+
+
 class DimMetrics(_Dimension, name="dim_metrics", kind=TableKind.DIMENSION):
     """The metric dictionary: one row per metric and scope, written by the metric layer and never from an episode."""
 

@@ -11,18 +11,18 @@ from arena_evaluation.processing.dimension_rows import episode_dimensions
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.storage.contracts import enforce_dimension_contract
 from arena_evaluation.storage.exceptions import ContractViolationError
-from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES, DimMetrics
+from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES, DimMetrics, DimWorldGeometry
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 from arena_evaluation.storage.star_schema import stack, write_benchmark_dimensions
 
 SEC = 1_000_000_000
 
 
-def _metadata() -> RunMetadata:
+def _metadata(world: str = "barn") -> RunMetadata:
     return RunMetadata(
         benchmark_id="bench",
         planner="dwb",
-        map="barn",
+        map=world,
         stage="s1",
         recording_started_at="2026-01-01T00:00:00",
         python_version="3.12",
@@ -192,6 +192,38 @@ def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimen
     stored = DimMetrics.scan(tmp_path / "bench").collect()
     assert stored.schema == DimMetrics.polars_schema()
     assert_frame_equal(stored, metric_dictionary())
+
+
+def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(tmp_path: pathlib.Path):
+    pytest.importorskip("mcap_ros2.writer")
+    pytest.importorskip("arena_simulation_setup")
+    from test_pipeline_extract_cache import _episode
+
+    from arena_evaluation.processing.world_geometry import world_geometry_rows
+    from arena_evaluation.storage.manifest import MetadataWriter
+
+    pipeline, episode, _ = _episode(tmp_path)
+    MetadataWriter.write(_metadata("map_empty"), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    pipeline.extract_benchmark("bench")
+
+    stored = DimWorldGeometry.scan(tmp_path / "bench").collect()
+    assert_frame_equal(stored, world_geometry_rows("map_empty", tmp_path / "bench"))
+
+
+def test_extracting_a_benchmark_skips_a_world_that_does_not_resolve_with_a_warning(tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture):
+    pytest.importorskip("mcap_ros2.writer")
+    from test_pipeline_extract_cache import _episode
+
+    from arena_evaluation.storage.manifest import MetadataWriter
+
+    pipeline, episode, _ = _episode(tmp_path)
+    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+
+    with caplog.at_level(logging.WARNING):
+        pipeline.extract_benchmark("bench")
+
+    assert "world 'barn' has no published geometry" in caplog.text
+    assert DimWorldGeometry.scan(tmp_path / "bench").collect().height == 0
 
 
 def test_an_episode_without_a_recording_warns_and_the_benchmark_still_writes_its_dimensions(

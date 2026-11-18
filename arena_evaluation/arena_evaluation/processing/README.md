@@ -23,6 +23,7 @@ Runs recorded before the native layout are converted once by `arena evaluation m
 | `parquet_store.py` | `TopicParquetStore`: the extraction cache of an episode's `topics/` folder |
 | `pipeline.py` | `ProcessingPipeline`: extracts an episode, a run directory or a benchmark, and writes the benchmark's dimensions |
 | `dimension_rows.py` | `episode_dimensions`: the dimension rows one episode contributes |
+| `world_geometry.py` | `benchmark_world_geometry`, `world_geometry_rows`: the walls, doors, elevator polygons, zones and object footprints of the benchmark's worlds, one row per vertex |
 | `pose_anchor.py` | Classifies the ground-truth pose stream as dense, sparse or absent |
 | `map_registry.py` | `MapRegistry`: the map image of a world, resolved the way the runtime does, and cached |
 | `metrics/` | Layer 2: metric calculators, see [metrics/README.md](metrics/README.md) |
@@ -39,7 +40,7 @@ Runs recorded before the native layout are converted once by `arena evaluation m
 
 ## Dimensions
 
-The benchmark step reads each episode's metadata YAML and its `topics/` bundles, builds the dimension rows, stacks them, checks the result against the registry contract (`storage/contracts.py`) and writes each table once (`storage/star_schema.py`). An episode without a `topics/` folder is skipped with a warning, so the dimensions have no rows for it.
+The benchmark step reads each episode's metadata YAML and its `topics/` bundles, builds the episode dimension rows, stacks them, adds the metric dictionary and the geometry of every named world, checks the result against the registry contract (`storage/contracts.py`) and writes each table once (`storage/star_schema.py`). An episode without a `topics/` folder is skipped with a warning, so the episode dimensions have no rows for it; its world still counts for the geometry.
 
 | Table | One row per | Key |
 |---|---|---|
@@ -47,9 +48,12 @@ The benchmark step reads each episode's metadata YAML and its `topics/` bundles,
 | `dim_robots` | robot of an environment | `run_id`, `episode_id`, `env_id`, `robot_id` |
 | `dim_pedestrians` | pedestrian of an environment | `run_id`, `episode_id`, `env_id`, `ped_id` |
 | `dim_world_entities` | world entity of an environment | `run_id`, `episode_id`, `env_id`, `entity_name` |
+| `dim_world_geometry` | vertex of a world's walls, doors, elevator polygons, zones or object footprints | `world`, `element_kind`, `element_name`, `part_idx`, `vertex_idx` |
 | `dim_metrics` | metric and scope | `metric`, `scope` |
 
 Pedestrians and world entities are read once per environment, not once per robot. Every NULL carries its reason in `null_reason`.
+
+`dim_world_geometry` is the world model flattened to one row per vertex: `element_kind` is `wall`, `door`, `elevator`, `zone` or `object`; `element_name` is `wall_<index>` for a wall and the entity name otherwise; `part_idx` is the polygon index within the element (0 for a wall or a zone); `vertex_idx` is the vertex order along the segment or open ring; `x` and `y` are metres in the compacted map frame that `path/static_environment.py` rasterises. The pipeline writes it once per named world of the benchmark; a world that does not resolve is skipped with a warning and has no rows, and a plot then draws without it.
 
 `dim_metrics` is the metric dictionary: the fact table, dtype, unit, description, direction and producing calculator of every metric at every scope it is stored at. The pipeline adds it from the metric declarations (`metrics/dictionary.py`), not from the episodes, and it holds no metric value.
 

@@ -126,6 +126,9 @@ def _dimension_frames() -> dict[str, pl.DataFrame]:
         "dim_world_entities": pl.DataFrame(
             schema=DIMENSION_TABLES["dim_world_entities"].polars_schema()
         ),
+        "dim_world_geometry": pl.DataFrame(
+            schema=DIMENSION_TABLES["dim_world_geometry"].polars_schema()
+        ),
         "dim_metrics": pl.DataFrame(
             schema=DIMENSION_TABLES["dim_metrics"].polars_schema()
         ),
