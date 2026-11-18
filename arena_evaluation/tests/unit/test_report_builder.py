@@ -231,7 +231,12 @@ def test_report_builder_summary_uses_manifest_source_and_fails_on_missing_metric
         bench_dir, output_dir=out_missing, manifest=missing_manifest
     )
     b_missing.build()
-    assert b_missing.build_checks.failed_count == 1
+    # The summary is a page-level feature, not a declared plot: it never inflates
+    # failed_count past plots_total, but it is still a reported, non-passing check.
+    assert b_missing.build_checks.plots_total == 0
+    assert b_missing.build_checks.failed_count == 0
+    assert b_missing.build_checks.has_failures is True
+    assert b_missing.build_checks.failures[0].plot_id == "summary"
     assert "nonexistent_metric" in b_missing.build_checks.failures[0].detail
 
     empty_manifest = VizManifest(

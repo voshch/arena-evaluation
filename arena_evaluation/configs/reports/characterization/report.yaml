@@ -2,23 +2,20 @@ title: Open-Loop Characterization Report
 description: Comprehensive energy, acoustic, dynamic surge, and actuator fidelity
   characterization across multi-mode operating working points.
 units:
-  power_total_w: W
-  power_mech_w: W
-  dba: dBA
-  vx_achieved_mps: m/s
-  vy_achieved_mps: m/s
-  wz_achieved_radps: rad/s
-  speed_achieved_mps: m/s
-  accel_achieved_mps2: m/s^2
-  accel_target_mps2: m/s^2
-  efficiency: ''
-  vx_target_mps: m/s
-  vy_target_mps: m/s
-  wz_target_radps: rad/s
-  turn_radius_m: m
-  energy_intensity_j_m: J/m
-  energy_per_rad_j_rad: J/rad
-  time_s: s
+  accel_achieved_mps2: 'm/s^2'
+  accel_target_mps2: 'm/s^2'
+  dba: 'dBA'
+  energy_intensity_j_m: 'J/m'
+  power_mech_w: 'W'
+  power_total_w: 'W'
+  speed_achieved_mps: 'm/s'
+  time_s: 's'
+  turn_radius_m: 'm'
+  vx_achieved_mps: 'm/s'
+  vx_target_mps: 'm/s'
+  vy_achieved_mps: 'm/s'
+  wz_achieved_radps: 'rad/s'
+  wz_target_radps: 'rad/s'
 groups:
 - id: overview
   title: Overview & Multi-Phase Summary

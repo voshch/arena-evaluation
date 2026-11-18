@@ -118,21 +118,29 @@ class TableRenderer(BasePlotRenderer):
         labels = _label_map(self.spec.options.get("labels"))
         return [labels.get(c, c.replace("_", " ").title()) for c in cols]
 
-    def render_plotly(self, df: pl.DataFrame) -> str | None:
-        """Render an interactive Plotly table."""
-        if df.is_empty():
-            return None
+    def tableau(self, df: pl.DataFrame) -> tuple[list[str], list[list[str]]]:
+        """Headers and formatted cell rows of this table, the same cells the report draws."""
         cols = self._resolve_columns(df)
         if not cols:
-            return None
-
-        headers = self._headers(cols)
-        cells = _formatted_cells(
+            raise ValueError(
+                f"Plot {self.spec.id!r}: table plot resolved no drawable column."
+            )
+        cells_by_col = _formatted_cells(
             df,
             cols,
             self.spec.options.get("format"),
             self.spec.options.get("labels"),
         )
+        return self._headers(cols), [
+            list(row) for row in zip(*cells_by_col, strict=True)
+        ]
+
+    def render_plotly(self, df: pl.DataFrame) -> str | None:
+        """Render an interactive Plotly table."""
+        if df.is_empty():
+            return None
+        headers, rows = self.tableau(df)
+        cells = [list(column) for column in zip(*rows, strict=True)]
 
         fig = go.Figure(
             data=[
@@ -163,21 +171,10 @@ class TableRenderer(BasePlotRenderer):
         """Render a static Matplotlib table image."""
         if df.is_empty():
             return
-        cols = self._resolve_columns(df)
-        if not cols:
-            return
-
-        headers = self._headers(cols)
-        cells_by_col = _formatted_cells(
-            df,
-            cols,
-            self.spec.options.get("format"),
-            self.spec.options.get("labels"),
-        )
-        rows = [list(row) for row in zip(*cells_by_col, strict=True)]
+        headers, rows = self.tableau(df)
 
         fig, ax = plt.subplots(
-            figsize=(max(8.0, len(cols) * 1.6), max(2.5, 0.8 + len(rows) * 0.4))
+            figsize=(max(8.0, len(headers) * 1.6), max(2.5, 0.8 + len(rows) * 0.4))
         )
         ax.axis("off")
         tbl = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="left")

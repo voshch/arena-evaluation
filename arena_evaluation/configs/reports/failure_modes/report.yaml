@@ -3,80 +3,71 @@ description: In-depth diagnostic report decomposing every metric into its founda
   mathematical definitions, source signals, baseline comparisons (Theta* and unobstructed
   references), trajectory overlays, and synchronized timeseries.
 units:
-  success: '%'
-  spl_geodesic: ''
-  time_to_goal: s
-  path_length: m
-  path_efficiency: ''
-  idling_time: s
-  relative_throughput: ''
-  mar: ''
-  pfi: m
-  collision_amount: ''
-  collision_amount_wall: ''
-  collision_amount_static: ''
-  collision_amount_pedestrian: ''
-  tti_min: s
-  tti_mean: s
-  movement_towards_peds_ratio: ''
-  ade: m
-  fde: m
-  adtw: ''
-  mhd: m
-  frechet_distance: m
-  topological_complexity: ''
-  theta_star_length: m
-  mean_velocity_mps: m/s
-  velocity_max: m/s
-  acceleration_mean: m/s2
-  max_acceleration_mps2: m/s2
-  jerk_mean: m/s3
-  jerk_max_mps3: m/s3
-  curvature_mean: 1/m
-  curvature_max: 1/m
-  roughness_mean: rad/m
-  roughness_max: rad/m
-  angle_over_length: rad/m
-  personal_space_intrusion_integral: "m\xB7s"
-  passing_rule_compliance: ''
-  total_time_in_personal_space: s
-  avg_velocity_in_personal_space: m/s
-  time_in_intimate_zone: s
-  time_in_personal_zone: s
-  time_in_social_zone: s
-  time_in_public_zone: s
-  psi_intimate_events: ''
-  psi_personal_events: ''
-  psi_social_events: ''
-  max_speed_intimate_zone: m/s
-  max_speed_personal_zone: m/s
-  max_speed_social_zone: m/s
-  ci_mean: ''
-  ci_max: ''
-  social_force_mean: N
-  social_force_max: N
-  social_force_ped_mean: N
-  social_force_ped_max: N
-  ped_path_deflection_m: m
-  total_time_looking_at_pedestrians: s
-  total_time_looked_at_by_pedestrians: s
-  total_energy_wh: Wh
-  energy_static_wh: Wh
-  energy_mechanical_wh: Wh
-  energy_thermal_wh: Wh
-  specific_cost_of_transport: ''
-  e_cot: ''
-  kcsc_wh: Wh
-  kinetic_energy_demand_j: J
-  friction_dissipation_j: J
-  power_peak_w: W
+  acceleration_mean: 'm/s²'
+  ade: 'm'
+  adtw: 'm'
+  aeps_linear_s: 's'
+  angle_over_length: 'rad/m'
+  avg_velocity_in_personal_space: 'm/s'
   battery_soc_drop_pct: '%'
-  aeps_linear_s: s
-  ped_max_exposure_dba: dBA
-  ped_leq_exposure_dba: dBA
-  ped_max_startle_factor: dBA/s
-  total_sound_energy_joules: J
-  total_acoustic_work_joules: J
+  collision_amount: ''
+  curvature_mean: '1/m'
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  esfm_ped_mean_force: 'N'
+  esfm_ped_peak_force: 'N'
+  fde: 'm'
+  frechet_distance: 'm'
+  friction_dissipation_j: 'J'
+  idling_time: 's'
+  jerk_max_mps3: 'm/s³'
+  jerk_mean: 'm/s³'
+  kinetic_energy_demand_j: 'J'
+  max_acceleration_mps2: 'm/s²'
+  max_speed_intimate_zone: 'm/s'
+  max_speed_personal_zone: 'm/s'
+  mean_velocity_mps: 'm/s'
+  mhd: 'm'
+  path_length_m: 'm'
+  ped_path_deflection_m: 'm'
+  personal_space_intrusion_integral: 'm·s'
+  power_peak_w: 'W'
+  roughness_max: 'rad/m'
+  roughness_mean: 'rad/m'
+  specific_cost_of_transport: ''
+  spl_geodesic: ''
+  standstill_energy_penalty_wh: 'Wh'
+  success: '%'
+  theta_star_length: 'm'
+  time_in_intimate_zone: 's'
+  time_to_goal: 's'
+  total_time_in_personal_space: 's'
+  tti_mean: 's'
+  tti_min: 's'
+  velocity_max: 'm/s'
+summary_group_by:
+- local_planner
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: tti_min
+  label: Min TTI
+  format: '{:.2f}'
+- metric: time_to_goal
+  label: Avg Time to Goal
+  format: '{:.1f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
 groups:
 - id: executive_failure_triage
   title: 1. Executive Failure Triage & Collision Summary
@@ -101,6 +92,15 @@ groups:
 - id: spatial_failure_traces
   title: 11. Spatial Trajectories & Hazard Overlays
 plots:
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT dimensionless)
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: specific_cost_of_transport
+  layout_group: energy_surges_and_dynamic_dissipation
 - id: table_executive_failure_triage
   type: table
   title: Executive Run Verification & Anomaly Matrix
@@ -121,8 +121,10 @@ plots:
       - e_cot
       group_cols:
       - local_planner
+      - crowd_condition
   channels:
     x: local_planner
+    color: crowd_condition
     y:
     - metric
     - n

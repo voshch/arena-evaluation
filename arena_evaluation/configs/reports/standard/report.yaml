@@ -3,77 +3,57 @@ description: Standard balanced arena_evaluation report covering performance, saf
   efficiency, naturalness, motion, smoothness, social interaction, ecology, and trade-off
   frontiers.
 units:
-  success: '%'
-  spl_geodesic: ''
-  time_to_goal: s
-  path_length: m
-  path_efficiency: ''
-  idling_time: s
-  relative_throughput: ''
-  total_collisions_ped: ''
-  total_collisions_static: ''
-  tti_min: s
-  tti_mean: s
-  ade: m
-  fde: m
-  adtw: ''
-  mhd: m
-  frechet_distance: m
-  topological_complexity: ''
-  theta_star_length: m
-  mean_velocity_mps: m/s
-  velocity_max: m/s
-  acceleration_mean: m/s2
-  max_acceleration_mps2: m/s2
-  jerk_max_mps3: m/s3
-  curvature_mean: 1/m
-  curvature_max: 1/m
-  roughness_mean: rad/m
-  roughness_max: rad/m
-  angle_over_length: rad/m
-  personal_space_intrusion_integral: "m\xB7s"
-  passing_rule_compliance: ''
-  total_time_in_personal_space: s
-  avg_velocity_in_personal_space: m/s
-  time_in_intimate_zone: s
-  time_in_personal_zone: s
-  time_in_social_zone: s
-  time_in_public_zone: s
-  psi_intimate_events: ''
-  psi_personal_events: ''
-  ci_mean: ''
-  ci_max: ''
-  social_force_mean: N
-  social_force_max: N
-  social_force_ped_mean: N
-  social_force_ped_max: N
-  ped_path_deflection_m: m
-  total_time_looking_at_pedestrians: s
-  total_time_looked_at_by_pedestrians: s
-  total_energy_wh: Wh
-  energy_static_wh: Wh
-  energy_mechanical_wh: Wh
-  energy_thermal_wh: Wh
+  acceleration_mean: 'm/s²'
+  ade: 'm'
+  aeps_linear_s: 's'
+  angle_over_length: 'rad/m'
+  curvature_mean: '1/m'
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  fde: 'm'
+  frechet_distance: 'm'
+  friction_dissipation_j: 'J'
+  idling_time: 's'
+  kinetic_energy_demand_j: 'J'
+  mean_velocity_mps: 'm/s'
+  mhd: 'm'
+  path_length_m: 'm'
+  personal_space_intrusion_integral: 'm·s'
+  power_total_w: 'W'
+  roughness_mean: 'rad/m'
   specific_cost_of_transport: ''
-  e_cot: ''
-  kcsc_wh: Wh
-  kinetic_energy_demand_j: J
-  friction_dissipation_j: J
-  power_peak_w: W
-  battery_soc_drop_pct: '%'
-  aeps_linear_s: s
-  ped_max_exposure_dba: dBA
-  ped_leq_exposure_dba: dBA
-  ped_max_startle_factor: dBA/s
-  total_sound_energy_joules: J
-  total_acoustic_work_joules: J
-  power_total_w: W
-  power_static_w: W
-  power_mechanical_w: W
-  power_thermal_w: W
-  battery_soc_pct: '%'
-  time_s: s
-  velocity_linear_mps: m/s
+  spl_geodesic: ''
+  success: '%'
+  time_s: 's'
+  time_to_goal: 's'
+  total_time_in_personal_space: 's'
+  total_time_looked_at_by_pedestrians: 's'
+  total_time_looking_at_pedestrians: 's'
+  tti_min: 's'
+  velocity_linear_mps: 'm/s'
+summary_group_by:
+- planner
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: time_to_goal
+  label: Avg Time to Goal
+  format: '{:.1f}'
+- metric: path_length_m
+  label: Avg Path Length
+  format: '{:.1f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
 groups:
 - id: overview
   title: Performance Overview
@@ -96,6 +76,60 @@ groups:
 - id: details
   title: Detailed Run Traces & Analysis
 plots:
+- id: box_collisions_local
+  type: box
+  title: Collision Amount by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: collision_amount
+  layout_group: safety
+- id: box_collisions_inter
+  type: box
+  title: Collision Amount by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: collision_amount
+  layout_group: safety
+- id: box_jerk_local
+  type: box
+  title: Mean Jerk by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: jerk_mean
+  layout_group: motion
+- id: box_jerk_inter
+  type: box
+  title: Mean Jerk by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: jerk_mean
+  layout_group: motion
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: specific_cost_of_transport
+  layout_group: ecological
+- id: violin_scot_inter
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: specific_cost_of_transport
+  layout_group: ecological
 - id: overview_table
   title: Benchmark Executive Overview
   layout_group: overview
@@ -105,6 +139,7 @@ plots:
     params:
       group_cols:
       - planner
+      - crowd_condition
       metrics:
       - success
       - spl_geodesic
@@ -115,6 +150,7 @@ plots:
       - specific_cost_of_transport
   channels:
     x: planner
+    color: crowd_condition
     y:
     - metric
     - n
@@ -137,6 +173,14 @@ plots:
       path_efficiency: '{:.2f}'
       collision_amount: '{:.1f}'
       specific_cost_of_transport: '{:.2f}'
+- id: e8_success_contact_panel
+  uses: success_without_contact_panel
+  title: Success without Pedestrian Contact by Planner and Crowd Condition
+  layout_group: overview
+- id: e8_success_contact_interval
+  uses: success_without_contact_interval
+  title: Visible minus Blind Difference in Success without Pedestrian Contact (cluster bootstrap 95% CI)
+  layout_group: overview
 - id: radar_local_planner
   uses: multi_planner_radar
   title: Performance Overview by Local Planner
@@ -520,17 +564,9 @@ plots:
     x: planner
     y: angle_over_length
   layout_group: smoothness
-- id: acoustic_exposure_sunburst
-  type: hierarchy
-  title: Acoustic Exposure Sunburst
-  data:
-    source: v_encounter_summary
-  channels:
-    hierarchy:
-    - crowd_condition
-    - planner
-    - approach_type
-    y: encounter_count
+- id: encounter_hierarchy_sunburst
+  uses: encounter_hierarchy_treemap
+  title: Encounter Counts by Crowd Condition, Planner and Approach (Sunburst)
   layout_group: social
   options:
     mode: sunburst
@@ -718,9 +754,9 @@ plots:
     x: planner
     y: aeps_linear_s
   layout_group: ecological
-- id: planner_ranking_stability
+- id: planner_scorecard_table
   type: table
-  title: Planner Ranking Stability
+  title: Planner Scorecard Table
   data:
     source: v_planner_scorecard
   channels:
@@ -731,9 +767,9 @@ plots:
     - mean_time_to_goal
     - mean_path_efficiency
   layout_group: tradeoffs
-- id: planner_behavioral_dendrogram
+- id: planner_metric_correlation_heatmap
   type: heatmap
-  title: Planner Behavioral Dendrogram
+  title: Planner Metric Correlation Heatmap
   data:
     computation: correlation_matrix
     params:

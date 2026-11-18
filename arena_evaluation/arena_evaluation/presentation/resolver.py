@@ -256,13 +256,16 @@ class DataResolver:
 
         res_df = df
         schema = res_df.schema
-        for field_name in ("episode_id", "encounter_id", "contact_id"):
-            val = getattr(spec.slice, field_name)
-            if val is None:
+        for field_name, value in (
+            ("episode_id", spec.slice.episode_id),
+            ("encounter_id", spec.slice.encounter_id),
+            ("contact_id", spec.slice.contact_id),
+        ):
+            if value is None:
                 continue
             if field_name not in schema:
                 raise ValueError(
                     f"Plot '{spec.id}': slice '{field_name}' requires missing column '{field_name}'."
                 )
-            res_df = res_df.filter(pl.col(field_name) == val)
+            res_df = res_df.filter(pl.col(field_name) == value)
         return res_df

@@ -31,6 +31,16 @@ def plotly_bundle_script() -> str:
     return f"<script>{plotly.offline.get_plotlyjs()}</script>"
 
 
+def plotly_bundle_text() -> str:
+    """Return the Plotly bundle source, for a sibling ``plotly.min.js`` asset."""
+    return str(plotly.offline.get_plotlyjs())
+
+
+def plotly_bundle_reference(src: str = "plotly.min.js") -> str:
+    """Return a script element that loads the bundle from a sibling file."""
+    return f"<script src='{html.escape(src)}'></script>"
+
+
 def plot_block_styles() -> str:
     """Return the CSS that shows the static PNG in print and without scripts."""
     return _PLOT_BLOCK_STYLES
@@ -48,13 +58,19 @@ def plot_block(
     title: str,
     interactive_html: str,
     png_path: pathlib.Path,
+    png_src: str | None = None,
 ) -> str:
-    """Build one plot block: interactive Plotly figure plus its static PNG."""
+    """Build one plot block: interactive Plotly figure plus its static PNG.
+
+    ``png_src`` overrides the inline data URI with a relative asset reference, the
+    external-asset mode of the report writer.
+    """
     label = html.escape(title or plot_id)
+    source = html.escape(png_src) if png_src else png_data_uri(png_path)
     return (
         f"<figure class='plot-block' data-plot-id='{html.escape(plot_id)}'>"
         f"<div class='plot-interactive'>{interactive_html}</div>"
         f"<div class='plot-static'>"
-        f"<img src='{png_data_uri(png_path)}' alt='{label} static render'/>"
+        f"<img src='{source}' alt='{label} static render'/>"
         "</div></figure>"
     )

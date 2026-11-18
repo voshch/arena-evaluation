@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import polars as pl
 import seaborn as sns
 
+from arena_evaluation.presentation.checks import PlotRenderError
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import (
     BasePlotRenderer,
@@ -18,6 +19,7 @@ from arena_evaluation.presentation.plot_types.base import (
     label_values,
     new_figure,
     palette_color,
+    require_drawable,
     series_values,
 )
 
@@ -97,11 +99,12 @@ class BoxRenderer(BasePlotRenderer):
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Render a static Seaborn box plot."""
-        if df.is_empty():
-            return
         x_col, y_col, color_col = self._resolve_columns(df)
         if not y_col:
-            return
+            raise PlotRenderError(
+                f"Plot {self.spec.id!r}: box plot requires channel 'y'."
+            )
+        require_drawable(df, y_col, plot_id=self.spec.id, plot_type=self.PLOT_TYPE)
 
         axis_col = x_col or color_col
         cols = [c for c in dict.fromkeys([axis_col, color_col, y_col]) if c]

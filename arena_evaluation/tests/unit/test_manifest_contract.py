@@ -27,6 +27,25 @@ from arena_evaluation.storage.registry.telemetry import (
 
 _PKG_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _MANIFESTS_DIR = _PKG_ROOT / "configs" / "reports"
+_TEST_WORLD_YAML = """format: arena-world/2
+levels:
+  - id: L1
+    zones:
+      - name: floor
+        polygon:
+          - [0.0, 0.0]
+          - [4.0, 0.0]
+          - [4.0, 4.0]
+          - [0.0, 4.0]
+    walls:
+      - path: [[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0], [0.0, 0.0]]
+      - path: [[2.0, 0.0], [2.0, 4.0]]
+    doors:
+      - name: d1
+        kind: sliding
+        span: [[2.0, 1.5], [2.0, 2.5]]
+        width: 0.2
+"""
 _DECLARATIONS_DIR = _PKG_ROOT / "configs" / "plots"
 
 
@@ -45,7 +64,7 @@ def _declaration_paths() -> list[pathlib.Path]:
 def _assert_valid_plot_binding(spec: PlotSpec) -> None:
     if spec.uses:
         spec = DataResolver().resolve_spec(spec)
-    assert spec.type not in ("acoustic_field", "acoustic_field_animation", "dendrogram")
+    assert spec.type not in ("acoustic_field_animation", "dendrogram")
     if spec.data.source is not None:
         assert spec.data.source in declared_data_sources(), (
             f"{spec.id}: unknown source {spec.data.source!r}"
@@ -127,6 +146,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 # token, so the synthetic benchmark's episodes are valid for ranking (L3-002/L3-030).
                 "invalid_reason": "",
                 "success": episode_id % 4 != 0,
+                "invalid_reason": "",
             }
         )
         rows.append(row)
@@ -190,6 +210,34 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
     )
     geom_df.write_parquet(bench / f"{DimWorldGeometry.table_name}.parquet")
     metric_dictionary().write_parquet(bench / "dim_metrics.parquet")
+
+    # A-028: the shipped acoustic-field plot needs the world's walls/doors in the run.
+    world_dir = bench / "worlds" / "map_a"
+    world_dir.mkdir(parents=True, exist_ok=True)
+    (world_dir / "world.yaml").write_text(_TEST_WORLD_YAML, encoding="utf-8")
+
+    # One pedestrian per episode makes crowd_condition real (blind for the first half,
+    # visible for the second), so the E8/E9 crowd-condition declarations bind and render.
+    ped_schema = dimensions.DimPedestrians.polars_schema()
+    ped_rows: list[dict[str, object]] = []
+    for episode_id in range(12):
+        ped_row = {
+            name: _dummy_val(name, dtype, rng, episode_id)
+            for name, dtype in ped_schema.items()
+        }
+        ped_row.update(
+            {
+                "run_id": "run",
+                "episode_id": episode_id,
+                "env_id": "env_0",
+                "ped_id": f"ped_{episode_id}",
+                "robot_awareness": 0.0 if episode_id < 6 else 1.0,
+            }
+        )
+        ped_rows.append(ped_row)
+    pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(
+        bench / f"{dimensions.DimPedestrians.table_name}.parquet"
+    )
 
     for episode_id in range(12):
         ep_dir = bench / "episodes" / f"episode_{episode_id:03d}"

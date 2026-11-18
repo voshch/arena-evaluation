@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from arena_evaluation.presentation.checks import PlotRenderError
 from arena_evaluation.presentation.viz_manifest import PlotSpec
 
 from .plot_types import prepare_renderer
@@ -40,3 +41,13 @@ class StaticRenderer:
             diagnostics=diagnostics,
         )
         renderer.render_static(df, out_path)
+        if not pathlib.Path(out_path).is_file():
+            detail = (
+                f": {'; '.join(diagnostics.issues)}"
+                if diagnostics is not None and diagnostics.issues
+                else ""
+            )
+            raise PlotRenderError(
+                f"Plot {spec.id!r}: {spec.type} renderer produced no file at "
+                f"{out_path}{detail}; the frame holds nothing the renderer can draw."
+            )

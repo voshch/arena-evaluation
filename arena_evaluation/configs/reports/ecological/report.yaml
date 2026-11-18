@@ -2,36 +2,40 @@ title: Ecological & Energetic Impact Report
 description: Comprehensive energy consumption, power dissipation, transport costs
   (S-CoT/E-CoT), friction losses, and acoustic emissions across navigation planners.
 units:
-  total_energy_wh: Wh
-  energy_static_wh: Wh
-  energy_mechanical_wh: Wh
-  energy_thermal_wh: Wh
-  specific_cost_of_transport: ''
-  e_cot: ''
-  kcsc_wh: Wh
-  kinetic_energy_demand_j: J
-  friction_dissipation_j: J
-  power_peak_w: W
   battery_soc_drop_pct: '%'
-  relative_throughput: ''
-  time_to_goal: s
-  path_length: m
-  path_efficiency: ''
-  success: '%'
-  spl_geodesic: ''
-  aeps_linear_s: s
-  ped_max_exposure_dba: dBA
-  ped_leq_exposure_dba: dBA
-  ped_max_startle_factor: dBA/s
-  total_sound_energy_joules: J
-  total_acoustic_work_joules: J
-  power_total_w: W
-  power_static_w: W
-  power_mechanical_w: W
-  power_thermal_w: W
-  battery_soc_pct: '%'
-  time_s: s
-  velocity_linear_mps: m/s
+  e_cot: ''
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  friction_dissipation_j: 'J'
+  kinetic_energy_demand_j: 'J'
+  mean_velocity_mps: 'm/s'
+  power_peak_w: 'W'
+  power_total_w: 'W'
+  specific_cost_of_transport: ''
+  standstill_energy_penalty_wh: 'Wh'
+  time_s: 's'
+  time_to_goal: 's'
+  velocity_linear_mps: 'm/s'
+summary_group_by:
+- local_planner
+summary:
+- metric: energy_total_wh
+  label: Total Energy
+  format: '{:.2f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
+- metric: e_cot
+  label: E-CoT
+  format: '{:.2f}'
+- metric: kinetic_energy_demand_j
+  label: Kinetic Demand
+  format: '{:.1f}'
+- metric: friction_dissipation_j
+  label: Friction Work
+  format: '{:.1f}'
 groups:
 - id: overview
   title: Ecological Performance Overview
@@ -48,6 +52,24 @@ groups:
 - id: eco_tradeoffs
   title: Ecological & Transport Trade-Off Frontiers
 plots:
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: planner
+    y: specific_cost_of_transport
+  layout_group: transport_efficiency
+- id: violin_scot_inter
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: specific_cost_of_transport
+  layout_group: transport_efficiency
 - id: eco_summary_table
   type: table
   title: Ecological & Transport Executive Summary
@@ -62,8 +84,10 @@ plots:
       - friction_dissipation_j
       group_cols:
       - local_planner
+      - crowd_condition
   channels:
     x: local_planner
+    color: crowd_condition
     y:
     - metric
     - n

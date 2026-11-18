@@ -10,6 +10,7 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
+from arena_evaluation.presentation.checks import PlotRenderError
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import (
     BasePlotRenderer,
@@ -25,13 +26,15 @@ _GEOM_STYLES: dict[str, tuple[str, float, bool]] = {
     "door": ("#f59e0b", 1.8, False),
     "wall": ("#1e293b", 2.0, False),
 }
+_GIF_FRAMES: int = 40
+_GIF_FPS: int = 6
 
 
-def _extract_xy_tracks(
+def _extract_tracks(
     df: pl.DataFrame, *, x_col: str | None, y_col: str | None, color_col: str | None
-) -> list[tuple[str, np.ndarray, np.ndarray]]:
-    """Split trajectory samples by structural identity keys (episode_id, robot_id/ped_id, color)."""
-    tracks: list[tuple[str, np.ndarray, np.ndarray]] = []
+) -> list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]:
+    """Split trajectory samples by structural keys, with each track's time in seconds."""
+    tracks: list[tuple[str, np.ndarray, np.ndarray, np.ndarray]] = []
     if not x_col or not y_col:
         return tracks
 
@@ -41,6 +44,15 @@ def _extract_xy_tracks(
         if c and c in df.columns
     ]
     split_cols = list(dict.fromkeys(split_cols))
+
+    def one(
+        label: str, sub: pl.DataFrame
+    ) -> tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+        xs = series_values(sub, x_col)
+        ys = series_values(sub, y_col)
+        times = _track_times(sub, xs)
+        order = np.argsort(times, kind="stable")
+        return label, xs[order], ys[order], times[order]
 
     if split_cols:
         for key, sub in df.partition_by(
@@ -52,12 +64,32 @@ def _extract_xy_tracks(
                 label = "NULL" if c_val is None else str(c_val)
             else:
                 label = "/".join("NULL" if k is None else str(k) for k in key_tuple)
-            tracks.append((label, series_values(sub, x_col), series_values(sub, y_col)))
+            tracks.append(one(label, sub))
     else:
-        tracks.append(
-            ("trajectory", series_values(df, x_col), series_values(df, y_col))
-        )
+        tracks.append(one("trajectory", df))
     return tracks
+
+
+def _track_times(sub: pl.DataFrame, xs: np.ndarray) -> np.ndarray:
+    """Sample times in seconds relative to the track start (sample index when unrecorded)."""
+    if sub.schema.get("t_ns") is not None:
+        raw = sub["t_ns"].cast(pl.Float64).to_numpy()
+        finite = np.isfinite(raw)
+        if finite.any() and (np.nanmax(raw[finite]) - np.nanmin(raw[finite])) > 0.0:
+            return (raw - np.nanmin(raw[finite])) / 1e9
+    return np.arange(len(xs), dtype=np.float64)
+
+
+def _extract_xy_tracks(
+    df: pl.DataFrame, *, x_col: str | None, y_col: str | None, color_col: str | None
+) -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """Split trajectory samples by structural identity keys (episode_id, robot_id/ped_id, color)."""
+    return [
+        (label, xs, ys)
+        for label, xs, ys, _ in _extract_tracks(
+            df, x_col=x_col, y_col=y_col, color_col=color_col
+        )
+    ]
 
 
 class TrajectoryRenderer(BasePlotRenderer):
@@ -68,6 +100,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         "world",
         "x_col",
         "y_col",
+        "generate_gifs",
     }
     COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset({"x_col", "y_col"})
 
@@ -119,11 +152,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             return parts
         return [(None, df)]
 
-    def render_plotly(self, df: pl.DataFrame) -> str | list[str] | None:
-        """Render an interactive Plotly trajectory plot with dim_world_geometry."""
-        # differs from overhaul/source:plot_types/trajectory.py:16-18: uses dim_world_geometry; no processing/ imports, no theta*, no raster map
-        if df.is_empty():
-            return None
+    def _columns(self) -> tuple[str, str, str | None]:
         x_col = self.resolve_channel("x") or (
             str(self.spec.options["x_col"]) if self.spec.options.get("x_col") else None
         )
@@ -135,6 +164,14 @@ class TrajectoryRenderer(BasePlotRenderer):
             raise ValueError(
                 f"Plot {self.spec.id!r}: trajectory plot requires channels 'x' and 'y'."
             )
+        return x_col, y_col, color_col
+
+    def render_plotly(self, df: pl.DataFrame) -> str | list[str] | None:
+        """Render an interactive Plotly trajectory plot with dim_world_geometry."""
+        # differs from overhaul/source:plot_types/trajectory.py:16-18: uses dim_world_geometry; no processing/ imports, no theta*, no raster map
+        if df.is_empty():
+            return None
+        x_col, y_col, color_col = self._columns()
 
         html_parts: list[str] = []
         palette = get_color_palette()
@@ -191,18 +228,10 @@ class TrajectoryRenderer(BasePlotRenderer):
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Render a static Matplotlib trajectory plot with dim_world_geometry."""
         if df.is_empty():
-            return
-        x_col = self.resolve_channel("x") or (
-            str(self.spec.options["x_col"]) if self.spec.options.get("x_col") else None
-        )
-        y_col = self.resolve_channel("y") or (
-            str(self.spec.options["y_col"]) if self.spec.options.get("y_col") else None
-        )
-        color_col = self.resolve_channel("color")
-        if not x_col or not y_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: trajectory plot requires channels 'x' and 'y'."
+            raise PlotRenderError(
+                f"Plot {self.spec.id!r}: trajectory plot cannot draw an empty frame."
             )
+        x_col, y_col, color_col = self._columns()
 
         world_parts = self._world_partitions(df)
         n_worlds = len(world_parts)
@@ -264,7 +293,105 @@ class TrajectoryRenderer(BasePlotRenderer):
 
         if not rendered_any:
             plt.close(fig)
-            return
+            raise PlotRenderError(
+                f"Plot {self.spec.id!r}: trajectory frame holds no drawable track."
+            )
         fig.tight_layout()
         self.save_figure(fig, out_path)
         plt.close(fig)
+
+        if self.spec.options.get("generate_gifs"):
+            self._write_gif(df, color_col, out_path.with_suffix(".gif"))
+
+    def _write_gif(
+        self, df: pl.DataFrame, color_col: str | None, out_path: pathlib.Path
+    ) -> None:
+        """Replay every trajectory track over its recorded time as an animated GIF."""
+        import matplotlib.animation as animation
+
+        x_col, y_col, _ = self._columns()
+        world_parts = self._world_partitions(df)
+        fig, axes = plt.subplots(
+            1, len(world_parts), figsize=(9.0 * len(world_parts), 8.0), squeeze=False
+        )
+        palette = get_color_palette()
+        lines: list[list[plt.Line2D]] = []
+        heads: list[list[plt.Line2D]] = []
+        tracks_by_world: list[list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]] = []
+        end_time = 0.0
+        for w_idx, (world_name, w_df) in enumerate(world_parts):
+            ax = axes[0, w_idx]
+            for kind, _name, xs, ys in self._world_elements(world_name):
+                color, width, closed = _GEOM_STYLES.get(kind, ("#64748b", 1.2, False))
+                if closed:
+                    ax.fill(
+                        xs,
+                        ys,
+                        facecolor=color,
+                        edgecolor="#94a3b8",
+                        alpha=0.25 if kind == "zone" else 0.6,
+                    )
+                else:
+                    ax.plot(xs, ys, color=color, linewidth=width)
+            tracks = _extract_tracks(
+                w_df, x_col=x_col, y_col=y_col, color_col=color_col
+            )
+            tracks_by_world.append(tracks)
+            world_lines: list[plt.Line2D] = []
+            world_heads: list[plt.Line2D] = []
+            for idx, (_label, xs, ys, times) in enumerate(tracks):
+                colour = palette_color(palette, idx)
+                (line,) = ax.plot([], [], color=colour, linewidth=2.0)
+                (head,) = ax.plot([], [], "o", color=colour, markersize=7)
+                world_lines.append(line)
+                world_heads.append(head)
+                if len(times):
+                    end_time = max(end_time, float(np.nanmax(times)))
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.set_xlabel("X [m]")
+            ax.set_ylabel("Y [m]")
+            ax.set_title(
+                self.spec.title
+                or (f"Trajectories ({world_name})" if world_name else "Trajectories")
+            )
+        lines.append(world_lines)
+        heads.append(world_heads)
+
+        if end_time <= 0.0:
+            end_time = float(
+                max(
+                    (len(t[1]) for tracks in tracks_by_world for t in tracks), default=0
+                )
+            )
+        if end_time <= 0.0:
+            plt.close(fig)
+            return
+        frames = np.linspace(0.0, end_time, _GIF_FRAMES + 1)
+        clock = fig.text(0.02, 0.02, "", fontsize=11, family="monospace")
+
+        def draw(now: float) -> list[object]:
+            for w_idx, tracks in enumerate(tracks_by_world):
+                for track_idx, (_label, xs, ys, times) in enumerate(tracks):
+                    count = int(np.searchsorted(times, now, side="right"))
+                    lines[w_idx][track_idx].set_data(xs[:count], ys[:count])
+                    if count:
+                        heads[w_idx][track_idx].set_data(
+                            [xs[count - 1]], [ys[count - 1]]
+                        )
+                    else:
+                        heads[w_idx][track_idx].set_data([], [])
+            clock.set_text(f"t = {now:6.1f} s")
+            return [
+                artist
+                for world_lines, world_heads in zip(lines, heads, strict=True)
+                for artist in (*world_lines, *world_heads)
+            ] + [clock]
+
+        animation_writer = animation.PillowWriter(fps=_GIF_FPS)
+        gif = animation.FuncAnimation(
+            fig, draw, frames=frames, interval=1000 // _GIF_FPS
+        )
+        try:
+            gif.save(out_path, writer=animation_writer)
+        finally:
+            plt.close(fig)

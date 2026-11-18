@@ -1,11 +1,16 @@
-"""Reviewed report loop: draft, plot, view (image+checks), review, and assemble with exports."""
+"""Reviewed report loop: draft, plot, view (image+checks), review, and assemble with exports.
+
+The assembled reviewed report is built by the one L4 renderer
+(:class:`arena_evaluation.presentation.report_builder.ReportBuilder`), the same code path as
+``arena evaluation report``: one HTML page writer, one failure model (``BuildChecks`` +
+appendix), one LaTeX export. The MCP layer keeps the draft/review store and the exports.
+"""
 
 from __future__ import annotations
 
 import base64
 import dataclasses
 import datetime
-import html
 import json
 import pathlib
 import uuid
@@ -31,12 +36,8 @@ from .base import (
     run_path,
 )
 from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
-from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
-from arena_evaluation.presentation.report_plot_block import (
-    plot_block,
-    plot_block_styles,
-    plotly_bundle_script,
-)
+
+_EXPORT_FORMATS = ("svg", "pdf")
 
 
 def _drafts_root(run_dir: pathlib.Path) -> pathlib.Path:
@@ -69,6 +70,31 @@ def _save_draft(
     path = draft_dir / "draft.yaml"
     assert_safe_analysis_write(run_dir, path)
     atomic_write_text(path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+
+
+def _derived_table_provenance(
+    run_dir: pathlib.Path, source: str | None
+) -> dict[str, str]:
+    """The snapshot recorded by a ``derived_*`` table's sidecar, for the report card (H-022)."""
+    if not source or not source.startswith("derived_"):
+        return {}
+    stem = component(source.removeprefix("derived_"), "derived table name")
+    sidecar = run_dir / "analysis" / "derived" / f"{stem}.yaml"
+    if not sidecar.is_file():
+        return {}
+    raw = yaml.safe_load(sidecar.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        "snapshot_id": str(raw.get("snapshot_id") or ""),
+        "table_name": str(raw.get("table_name") or source),
+    }
+
+
+def _write_sidecar(path: pathlib.Path, payload: dict[str, Any]) -> None:
+    atomic_write_text(
+        path, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    )
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
@@ -164,8 +190,10 @@ def evaluation_report_plot(
     from arena_evaluation.analytics.evidence import EvidenceStore
     from arena_evaluation.analytics.queries import QueryCatalog
     from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
-    from arena_evaluation.presentation.static_renderer import StaticRenderer
+    from arena_evaluation.presentation.checks import image_is_blank
+    from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
     from arena_evaluation.presentation.resolver import DataResolver
+    from arena_evaluation.presentation.static_renderer import StaticRenderer
     from arena_evaluation.presentation.viz_manifest import PlotSpec
 
     run_dir = run_path(run_id)
@@ -199,14 +227,20 @@ def evaluation_report_plot(
     checks_dict: dict[str, Any] = {}
     evidence_id = ""
     snapshot_id = catalog.snapshot_id
+    diagnostics: Any = None
 
     try:
         df, diagnostics = resolver.resolve(spec)
+        derived = _derived_table_provenance(
+            run_dir, spec.data.source if spec.data is not None else None
+        )
+        if derived.get("snapshot_id") and not diagnostics.snapshot_id:
+            diagnostics.snapshot_id = derived["snapshot_id"]
         evidence_id = diagnostics.evidence_id
         snapshot_id = diagnostics.snapshot_id or snapshot_id
-        if df.is_empty():
+        if diagnostics.status == "FAILED":
             status = "failed"
-            error_message = f"query for plot {spec.id!r} returned 0 rows"
+            error_message = "; ".join(diagnostics.issues) or "quality gate rejected"
         else:
             StaticRenderer(units={}).render(
                 spec, df, out_png, run_dir=run_dir, diagnostics=diagnostics
@@ -216,7 +250,6 @@ def evaluation_report_plot(
             )
             if isinstance(plotly_body, list):
                 plotly_body = "\n".join(plotly_body)
-            checks_dict = dataclasses.asdict(diagnostics)
             if not plotly_body:
                 status = "failed"
                 error_message = (
@@ -229,6 +262,9 @@ def evaluation_report_plot(
                     "; ".join(diagnostics.issues)
                     or f"static renderer produced no output for plot {spec.id!r}"
                 )
+            elif image_is_blank(out_png):
+                status = "failed"
+                error_message = f"static render of plot {spec.id!r} is blank"
             else:
                 atomic_write_text(out_html, plotly_body)
     except (
@@ -241,6 +277,11 @@ def evaluation_report_plot(
     ) as exc:
         status = "failed"
         error_message = str(exc)
+
+    if diagnostics is not None:
+        checks_dict = dataclasses.asdict(diagnostics)
+        if status == "failed" and diagnostics.issues:
+            error_message = "; ".join(diagnostics.issues)
 
     with file_lock(ddir / "draft.yaml"):
         data = _load_draft(ddir)
@@ -385,6 +426,117 @@ def evaluation_report_review(
     }
 
 
+def _verified_findings(
+    run_dir: pathlib.Path, snapshot_id: str
+) -> tuple[list[Finding], list[dict[str, str]], list[dict[str, str]]]:
+    """Split findings into used / left out (mechanical, stale) / not used (status)."""
+    verified: list[Finding] = []
+    left_out: list[dict[str, str]] = []
+    not_used: list[dict[str, str]] = []
+    for finding in load_findings(run_dir):
+        if finding.status is not FindingStatus.VERIFIED:
+            not_used.append(
+                {
+                    "finding_id": finding.finding_id,
+                    "status": finding.status.value,
+                    "reason": "not verified",
+                }
+            )
+            continue
+        if finding.mechanical_passed is not True:
+            left_out.append(
+                {
+                    "finding_id": finding.finding_id,
+                    "reason": "latest mechanical verification did not pass",
+                }
+            )
+            not_used.append(
+                {
+                    "finding_id": finding.finding_id,
+                    "status": finding.status.value,
+                    "reason": "latest mechanical verification did not pass",
+                }
+            )
+            continue
+        if finding.snapshot_id != snapshot_id:
+            reason = f"verified at snapshot {finding.snapshot_id!r}, the run is at {snapshot_id!r}"
+            left_out.append({"finding_id": finding.finding_id, "reason": reason})
+            not_used.append(
+                {
+                    "finding_id": finding.finding_id,
+                    "status": finding.status.value,
+                    "reason": reason,
+                }
+            )
+            continue
+        verified.append(finding)
+    return verified, left_out, not_used
+
+
+def _export_vector_plots(
+    *,
+    run_dir: pathlib.Path,
+    catalog: Any,
+    plots_used: list[str],
+    plots_by_id: dict[str, dict[str, Any]],
+    snapshot_id: str,
+    exports_dir: pathlib.Path,
+    wanted: set[str],
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Render the SVG/PDF exports of the approved plots, verifying every file exists."""
+    from arena_evaluation.analytics.evidence import EvidenceStore
+    from arena_evaluation.analytics.queries import QueryCatalog
+    from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
+    from arena_evaluation.presentation.resolver import DataResolver
+    from arena_evaluation.presentation.static_renderer import StaticRenderer
+    from arena_evaluation.presentation.viz_manifest import PlotSpec
+
+    paths: dict[str, list[str]] = {fmt: [] for fmt in _EXPORT_FORMATS}
+    warnings: list[str] = []
+    resolver = DataResolver(
+        catalog=catalog,
+        sql_engine=PolarsSQLEngine(catalog),
+        evidence_store=EvidenceStore(run_dir),
+        query_catalog=QueryCatalog(run_dir=run_dir),
+        benchmark_dir=run_dir,
+    )
+    for pid in plots_used:
+        spec = PlotSpec.model_validate(plots_by_id[pid])
+        try:
+            df, diagnostics = resolver.resolve(spec)
+        except Exception as exc:  # noqa: BLE001 - every resolver failure is an export warning
+            warnings.append(f"{pid}: cannot resolve for export ({exc})")
+            continue
+        if diagnostics.status == "FAILED":
+            warnings.append(
+                f"{pid}: quality gate rejected the export frame "
+                f"({'; '.join(diagnostics.issues)})"
+            )
+            continue
+        for fmt in sorted(wanted & set(_EXPORT_FORMATS)):
+            target = exports_dir / f"{pid}.{fmt}"
+            try:
+                StaticRenderer(units={}).render(spec, df, target)
+            except Exception as exc:  # noqa: BLE001 - a failed export is reported, not fatal
+                warnings.append(f"{pid}: {fmt} export failed ({exc})")
+                continue
+            if not target.is_file() or target.stat().st_size == 0:
+                warnings.append(f"{pid}: {fmt} export produced no file")
+                continue
+            _write_sidecar(
+                pathlib.Path(f"{target}.meta.yaml"),
+                {
+                    "plot_id": pid,
+                    "format": fmt,
+                    "snapshot_id": snapshot_id,
+                    "evidence_id": diagnostics.evidence_id,
+                    "row_count": diagnostics.row_count,
+                },
+            )
+            paths[fmt].append(str(target))
+    return paths, warnings
+
+
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_report_assemble(
     run_id: RunId,
@@ -392,207 +544,167 @@ def evaluation_report_assemble(
     name: str = "reviewed_report",
     exports: list[Literal["svg", "pdf", "latex"]] | None = None,
 ) -> dict[str, Any]:
-    """Assemble self-contained HTML from approved plots and verified findings, with appendix and exports."""
+    """Build the reviewed report through ReportBuilder: approved plots, findings, appendix, exports."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
-    from arena_evaluation.analytics.derived import list_derived_tables
-    from arena_evaluation.analytics.evidence import EvidenceStore
-    from arena_evaluation.analytics.queries import QueryCatalog
-    from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
-    from arena_evaluation.presentation.static_renderer import StaticRenderer
-    from arena_evaluation.presentation.resolver import DataResolver
-    from arena_evaluation.presentation.viz_manifest import PlotSpec
+    from arena_evaluation.presentation.report_builder import ReportBuilder
+    from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 
     run_dir = run_path(run_id)
     ddir = _draft_dir(run_dir, draft_id)
     data = _load_draft(ddir)
-    out_dir = run_dir / "reports" / component(name, "name")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    assert_safe_analysis_write(run_dir, out_dir / "report.html")
+    report_name = component(name, "name")
+    reports_root = run_dir / "reports" / report_name
+    reports_root.mkdir(parents=True, exist_ok=True)
+    assert_safe_analysis_write(run_dir, reports_root / "report.html")
 
     catalog = BenchmarkCatalog.open(run_dir)
     snapshot_id = catalog.snapshot_id
     reviews = data.get("reviews", {})
     plots_by_id = {p["id"]: p for p in data.get("plots", []) if "id" in p}
 
-    plots_used: list[str] = []
-    plots_failed: list[str] = []
+    approved_ids: list[str] = []
     plots_dropped: list[str] = []
+    draft_failed: list[str] = []
+    excluded_plots: list[dict[str, str]] = []
     for pid, rev in reviews.items():
-        if rev.get("status") == "failed":
-            plots_failed.append(pid)
-        elif rev.get("verdict") == "approved":
-            plots_used.append(pid)
-        elif rev.get("verdict") == "dropped":
+        if rev.get("verdict") == "dropped":
             plots_dropped.append(pid)
-
-    all_findings = load_findings(run_dir)
-    verified_findings: list[Finding] = []
-    findings_left_out: list[dict[str, str]] = []
-    for finding in all_findings:
-        if finding.status is not FindingStatus.VERIFIED:
-            continue
-        if finding.mechanical_passed is not True:
-            findings_left_out.append(
+            excluded_plots.append(
                 {
-                    "finding_id": finding.finding_id,
-                    "reason": "latest mechanical verification did not pass",
+                    "plot_id": pid,
+                    "status": "dropped",
+                    "reason": str(rev.get("reason") or "dropped in review"),
                 }
             )
-        elif finding.snapshot_id != snapshot_id:
-            findings_left_out.append(
+        elif rev.get("status") == "failed":
+            draft_failed.append(pid)
+            excluded_plots.append(
                 {
-                    "finding_id": finding.finding_id,
-                    "reason": (
-                        f"verified at snapshot {finding.snapshot_id!r}, "
-                        f"the run is at {snapshot_id!r}"
+                    "plot_id": pid,
+                    "status": "failed",
+                    "reason": str(
+                        rev.get("error") or rev.get("reason") or "render failed"
                     ),
                 }
             )
-        else:
-            verified_findings.append(finding)
+        elif rev.get("verdict") == "approved":
+            approved_ids.append(pid)
 
-    export_paths: dict[str, list[str]] = {"svg": [], "pdf": [], "latex": []}
-    wanted_exports = set(exports or [])
-    if wanted_exports & {"svg", "pdf"}:
-        resolver = DataResolver(
-            catalog=catalog,
-            sql_engine=PolarsSQLEngine(catalog),
-            evidence_store=EvidenceStore(run_dir),
-            query_catalog=QueryCatalog(run_dir=run_dir),
-            benchmark_dir=run_dir,
-        )
-        exports_dir = out_dir / "exports"
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        for pid in plots_used:
-            spec = PlotSpec.model_validate(plots_by_id[pid])
-            df, diag = resolver.resolve(spec)
-            for fmt in sorted(wanted_exports & {"svg", "pdf"}):
-                epath = exports_dir / f"{pid}.{fmt}"
-                StaticRenderer(units={}).render(spec, df, epath)
-                meta_path = pathlib.Path(f"{epath}.meta.yaml")
-                atomic_write_text(
-                    meta_path,
-                    yaml.safe_dump(
-                        {
-                            "plot_id": pid,
-                            "format": fmt,
-                            "snapshot_id": snapshot_id,
-                            "evidence_id": diag.evidence_id,
-                        },
-                        sort_keys=False,
-                    ),
-                )
-                export_paths[fmt].append(str(epath))
-
-    if "latex" in wanted_exports:
-        exports_dir = out_dir / "exports"
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        derived = list_derived_tables(run_dir, current_snapshot_id=snapshot_id)
-        for tbl in derived[:5]:
-            tname = tbl["table_name"]
-            df = catalog.get_table(tname).collect().head(20)
-            tex_path = exports_dir / f"{tname}.tex"
-            header = " & ".join(df.columns) + r" \\"
-            body_lines = [
-                " & ".join(str(v) for v in row.values()) + r" \\"
-                for row in df.to_dicts()
-            ]
-            tex = "\n".join(
-                [
-                    r"\begin{tabular}{" + "l" * len(df.columns) + "}",
-                    r"\hline",
-                    header,
-                    r"\hline",
-                    *body_lines,
-                    r"\hline",
-                    r"\end{tabular}",
-                ]
-            )
-            atomic_write_text(tex_path, tex)
-            atomic_write_text(
-                pathlib.Path(f"{tex_path}.meta.yaml"),
-                yaml.safe_dump(
-                    {
-                        "table_name": tname,
-                        "snapshot_id": snapshot_id,
-                        "evidence_ids": [
-                            f.evidence_id for f in verified_findings if f.evidence_id
-                        ],
-                    },
-                    sort_keys=False,
-                ),
-            )
-            export_paths["latex"].append(str(tex_path))
-
-    # Build self-contained HTML
-    sections: list[str] = [
-        f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>{html.escape(str(data.get('title', 'Report')))}</title>",
-        "<style>body{font-family:sans-serif;max-width:960px;margin:2rem auto;line-height:1.5} img{max-width:100%} .card{border:1px solid #ddd;padding:1rem;margin:1rem 0}</style>",
-        plot_block_styles(),
-        plotly_bundle_script(),
-        f"</head><body><h1>{html.escape(str(data.get('title', 'Report')))}</h1>",
-        f"<p>Run: <code>{html.escape(run_dir.name)}</code> | Snapshot: <code>{html.escape(snapshot_id)}</code></p>",
-        "<h2>Verified Findings</h2><ul>",
+    findings_used, findings_left_out, findings_not_used = _verified_findings(
+        run_dir, snapshot_id
+    )
+    findings_payload = [
+        {
+            "finding_id": finding.finding_id,
+            "status": finding.status.value,
+            "claim": finding.claim,
+            "evidence": ", ".join(
+                finding.evidence_ids
+                or ([finding.evidence_id] if finding.evidence_id else [])
+            ),
+        }
+        for finding in findings_used
     ]
-    for f in verified_findings:
-        evs = ", ".join(f.evidence_ids or ([f.evidence_id] if f.evidence_id else []))
-        sections.append(
-            f"<li><strong>{html.escape(f.finding_id)}</strong> [{html.escape(f.status.value)}]: "
-            f"{html.escape(f.claim)} (evidence: <code>{html.escape(evs)}</code>)</li>"
-        )
-    sections.append("</ul><h2>Approved Plots</h2>")
-    rendered_plots: list[str] = []
-    for pid in plots_used:
-        rev = reviews[pid]
-        img_path = rev.get("image_path")
-        html_path = rev.get("html_path")
-        if not isinstance(img_path, str) or not isinstance(html_path, str):
-            plots_failed.append(pid)
-            continue
-        image_file = pathlib.Path(img_path)
-        fragment_file = pathlib.Path(html_path)
-        if not image_file.is_file() or not fragment_file.is_file():
-            plots_failed.append(pid)
-            continue
-        rendered_plots.append(pid)
-        block = plot_block(
-            plot_id=pid,
-            title=str(plots_by_id.get(pid, {}).get("title") or pid),
-            interactive_html=fragment_file.read_text(encoding="utf-8"),
-            png_path=image_file,
-        )
-        sections.append(
-            f"<div class='card'><h3>{html.escape(pid)}</h3>"
-            f"<p>Reviewer: {html.escape(str(rev.get('by') or ''))} | Evidence: <code>{html.escape(str(rev.get('evidence_id') or ''))}</code></p>"
-            f"{block}</div>"
-        )
-    sections.append("<h2>Appendix: Dropped &amp; Failed Plots</h2><ul>")
-    for pid in [*plots_dropped, *plots_failed]:
-        rev = reviews[pid]
-        sections.append(
-            f"<li><strong>{html.escape(pid)}</strong> ({html.escape(str(rev.get('verdict') or rev.get('status')))}): "
-            f"{html.escape(str(rev.get('reason') or rev.get('error') or ''))}</li>"
-        )
-    sections.append("</ul></body></html>")
 
-    report_path = out_dir / "report.html"
-    atomic_write_text(report_path, "\n".join(sections))
+    approved_specs = [
+        PlotSpec.model_validate(plots_by_id[pid])
+        for pid in approved_ids
+        if pid in plots_by_id
+    ]
+    manifest = VizManifest(
+        name=report_name,
+        title=str(data.get("title") or report_name),
+        description="Reviewed report assembled from an approved draft.",
+        plots=approved_specs,
+    )
+    builder = ReportBuilder(
+        run_dir,
+        output_dir=run_dir,
+        manifest=manifest,
+        findings=findings_payload,
+        findings_not_used=findings_not_used,
+        excluded_plots=excluded_plots,
+    )
+    report_path = builder.build()
+    build = builder.build_result
+    assert build is not None and report_path is not None
+
+    build_failed = {
+        failure.plot_id
+        for failure in builder.build_checks.failures
+        if failure.plot_id != "summary"
+    }
+    plots_used = [record.plot_id for record in build.plots if record.passed]
+    plots_failed = [
+        *draft_failed,
+        *[
+            pid
+            for pid in approved_ids
+            if pid in build_failed and pid not in draft_failed
+        ],
+    ]
+
+    wanted = set(exports or [])
+    export_paths: dict[str, list[str]] = {"svg": [], "pdf": [], "latex": []}
+    export_warnings: list[str] = []
+    if wanted & set(_EXPORT_FORMATS):
+        exports_dir = reports_root / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        vector_paths, vector_warnings = _export_vector_plots(
+            run_dir=run_dir,
+            catalog=catalog,
+            plots_used=plots_used,
+            plots_by_id=plots_by_id,
+            snapshot_id=snapshot_id,
+            exports_dir=exports_dir,
+            wanted=wanted,
+        )
+        export_paths.update(vector_paths)
+        export_warnings.extend(vector_warnings)
+    if "latex" in wanted:
+        exports_dir = reports_root / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            latex = builder.export_latex(exports_dir / f"{report_name}.tex")
+        except RuntimeError as exc:
+            export_warnings.append(f"latex export produced no document ({exc})")
+        else:
+            _write_sidecar(
+                pathlib.Path(f"{latex.path}.meta.yaml"),
+                {
+                    "report": report_name,
+                    "snapshot_id": snapshot_id,
+                    "tables": list(latex.tables),
+                    "figures": list(latex.figures),
+                    "findings": [f.finding_id for f in findings_used],
+                },
+            )
+            export_paths["latex"].append(str(latex.path))
+    for fmt in sorted(wanted):
+        if not export_paths.get(fmt):
+            export_warnings.append(f"requested {fmt!r} export produced no artifact")
+
+    complete = bool(plots_used)
     append_audit_event(
         run_dir,
         role="reporter",
         tool="evaluation_report_assemble",
-        args={"run_id": run_id, "draft_id": draft_id, "name": name},
-        produced_ids=[name],
+        args={"run_id": run_id, "draft_id": draft_id, "name": report_name},
+        produced_ids=[report_name],
     )
     return {
         "run_id": run_dir.name,
         "draft_id": draft_id,
         "snapshot_id": snapshot_id,
         "report_path": str(report_path),
-        "plots_used": rendered_plots,
+        "complete": complete,
+        "plots_used": plots_used,
         "plots_failed": plots_failed,
+        "plots_failed_count": len(plots_failed),
         "plots_dropped": plots_dropped,
-        "findings_used": [f.finding_id for f in verified_findings],
+        "findings_used": [f.finding_id for f in findings_used],
         "findings_left_out": findings_left_out,
+        "findings_not_used": findings_not_used,
         "export_paths": export_paths,
+        "export_warnings": export_warnings,
     }

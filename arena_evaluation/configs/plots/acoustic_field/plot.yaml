@@ -1,0 +1,30 @@
+id: acoustic_field
+type: acoustic_field
+title: Spatial Acoustic Field (Worst-Case Pedestrian Exposure)
+layout_group: environmental_acoustics
+data:
+  query: >-
+    SELECT e.world AS world,
+           p.ped_max_exposure_dba AS ped_max_exposure_dba,
+           p.worst_case_acoustic_t_ns AS worst_case_acoustic_t_ns,
+           e.planner AS planner,
+           e.stage AS stage,
+           e.episode_id AS episode_id,
+           e.robot_id AS robot_id,
+           e.is_reference AS is_reference
+    FROM fact_pedestrians AS p
+    JOIN v_episode_summary AS e
+      ON p.run_id = e.run_id
+     AND p.episode_id = e.episode_id
+     AND p.env_id = e.env_id
+channels:
+  x: world
+  y: ped_max_exposure_dba
+checks:
+  require_columns:
+  - world
+  - ped_max_exposure_dba
+  - worst_case_acoustic_t_ns
+options:
+  downsample: 2
+  overlay_trajectories: false

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
+from arena_evaluation.presentation.checks import PlotRenderError, null_reason_of
 from arena_evaluation.presentation.viz_manifest import (
     PlotSpec,  # differs from overhaul/source:plot_types/base.py:13: PlotSpec lives in viz_manifest
 )
@@ -26,6 +27,7 @@ __all__ = [
     "label_values",
     "new_figure",
     "palette_color",
+    "require_drawable",
     "series_values",
 ]
 
@@ -79,6 +81,26 @@ def finish_axes(
 def palette_color(palette: Sequence[str], index: int) -> str:
     """The palette color at ``index``, cycling through the palette."""
     return palette[index % len(palette)]
+
+
+def require_drawable(
+    df: pl.DataFrame, column: str, *, plot_id: str, plot_type: str
+) -> None:
+    """Raise ``PlotRenderError`` unless ``column`` holds at least one value to draw."""
+    if df.is_empty():
+        raise PlotRenderError(
+            f"Plot {plot_id!r}: {plot_type} plot cannot draw an empty frame."
+        )
+    if column not in df.columns:
+        raise PlotRenderError(
+            f"Plot {plot_id!r}: {plot_type} plot requires column {column!r}."
+        )
+    if df[column].null_count() == df.height:
+        reason = null_reason_of(df, column)
+        suffix = f" (reason: {reason})" if reason else ""
+        raise PlotRenderError(
+            f"Plot {plot_id!r}: column {column!r} is 100% NULL, nothing to draw{suffix}."
+        )
 
 
 class BasePlotRenderer(ABC):
@@ -150,7 +172,11 @@ class BasePlotRenderer(ABC):
         if not dups.is_empty():
             sample = {k: dups[k][0] for k in keys}
             raise ValueError(
-                f"Plot {self.spec.id!r}: duplicate rows for cell key {tuple(keys)!r} ({sample!r}); bind an aggregation instead of raw rows."
+                f"Plot {self.spec.id!r}: duplicate rows for cell key {tuple(keys)!r} "
+                f"({sample!r}); bind an aggregation instead of raw rows: declare "
+                "data.computation: group_summary (or correlation_matrix / radar_profile / "
+                "distribution_bins) with params.metrics + params.group_cols, or source a "
+                "pre-aggregated view such as v_planner_scorecard."
             )
 
     def add_notice(self, message: str) -> None:

@@ -5,11 +5,10 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import html as html_escape
-import json
 import logging
 import pathlib
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import jinja2
@@ -29,14 +28,18 @@ from arena_evaluation.presentation.checks import (
     DiagnosticInspector,
     PlotCheck,
     PlotDiagnostics,
+    image_is_blank,
 )
 from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
+from arena_evaluation.presentation.exports import LatexExport, export_report_latex
 from arena_evaluation.presentation.manifest_registry import is_inline, resolve_manifest
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
 from arena_evaluation.presentation.report_plot_block import (
     plot_block,
     plot_block_styles,
+    plotly_bundle_reference,
     plotly_bundle_script,
+    plotly_bundle_text,
 )
 from arena_evaluation.presentation.resolver import DataResolver
 from arena_evaluation.presentation.static_renderer import StaticRenderer
@@ -156,6 +159,15 @@ def _status_table_data(df: pl.DataFrame) -> dict[str, Any] | None:
     }
 
 
+def _plot_provenance(diagnostics: PlotDiagnostics) -> dict[str, str | int]:
+    """The evidence and snapshot ids and the row count a figure was drawn from."""
+    return {
+        "evidence_id": diagnostics.evidence_id,
+        "snapshot_id": diagnostics.snapshot_id,
+        "row_count": diagnostics.row_count,
+    }
+
+
 def _format_metric(value: float | None, template: str | None) -> str:
     if value is None or value != value:
         return "NULL"
@@ -246,8 +258,18 @@ class ReportBuilder:
         *,
         output_dir: pathlib.Path | None = None,
         manifest: VizManifest | str | pathlib.Path | None = None,
+        generate_gifs: bool = False,
+        external_assets: bool = False,
+        findings: Sequence[Mapping[str, str]] = (),
+        findings_not_used: Sequence[Mapping[str, str]] = (),
+        excluded_plots: Sequence[Mapping[str, str]] = (),
     ) -> None:
         self.benchmark_dir = pathlib.Path(benchmark_dir)
+        self.generate_gifs = generate_gifs
+        self.external_assets = external_assets
+        self.findings = tuple(findings)
+        self.findings_not_used = tuple(findings_not_used)
+        self.excluded_plots = tuple(excluded_plots)
         self.output_root = (
             pathlib.Path(output_dir) if output_dir else self.benchmark_dir
         )
@@ -264,7 +286,12 @@ class ReportBuilder:
             dirs=(self.benchmark_dir,),
             catalogs=(BenchmarkCatalog.open(self.benchmark_dir),),
         )
-        self._agent_notes: dict[str, str] | None = None
+        self._resolvers = tuple(
+            DataResolver(catalog=catalog, benchmark_dir=src_dir)
+            for src_dir, catalog in zip(
+                self._sources.dirs, self._sources.catalogs, strict=True
+            )
+        )
         self._build_checks = BuildChecks(plots_total=0, failures=())
         self._build_result: BuildResult | None = None
 
@@ -275,9 +302,19 @@ class ReportBuilder:
         output_dir: pathlib.Path,
         *,
         manifest: VizManifest | str | pathlib.Path | None = None,
+        generate_gifs: bool = False,
+        external_assets: bool = False,
+        findings: Sequence[Mapping[str, str]] = (),
+        findings_not_used: Sequence[Mapping[str, str]] = (),
+        excluded_plots: Sequence[Mapping[str, str]] = (),
     ) -> ReportBuilder:
         """Build a ReportBuilder that resolves across multiple benchmark source directories."""
         instance = cls.__new__(cls)
+        instance.generate_gifs = generate_gifs
+        instance.external_assets = external_assets
+        instance.findings = tuple(findings)
+        instance.findings_not_used = tuple(findings_not_used)
+        instance.excluded_plots = tuple(excluded_plots)
         paths = tuple(pathlib.Path(src) for src in source_dirs) or (
             pathlib.Path(output_dir),
         )
@@ -291,13 +328,18 @@ class ReportBuilder:
         instance.output_dir = run_report_output_dir(instance.output_root, report_name)
         instance.plots_dir = instance.output_dir / "plots"
         instance.report_path = instance.output_dir / "report.html"
-        instance._agent_notes = None
         instance._build_checks = BuildChecks(plots_total=0, failures=())
         instance._build_result = None
 
         instance._sources = _CatalogSources(
             dirs=paths,
             catalogs=tuple(BenchmarkCatalog.open(p) for p in paths),
+        )
+        instance._resolvers = tuple(
+            DataResolver(catalog=catalog, benchmark_dir=src_dir)
+            for src_dir, catalog in zip(
+                instance._sources.dirs, instance._sources.catalogs, strict=True
+            )
         )
         return instance
 
@@ -311,6 +353,27 @@ class ReportBuilder:
         """Structured build provenance and check result from the last build."""
         return self._build_result
 
+    @property
+    def manifest(self) -> VizManifest:
+        """The manifest this builder was created from."""
+        return self._manifest_obj
+
+    def resolved_spec(self, spec: PlotSpec) -> PlotSpec:
+        """Resolve a ``uses:`` recipe reference to the plot specification it draws."""
+        if not spec.uses:
+            return spec
+        return DataResolver(benchmark_dir=self.benchmark_dir).resolve_spec(spec)
+
+    def resolve_plot(self, spec: PlotSpec) -> tuple[pl.DataFrame, PlotDiagnostics]:
+        """Resolve one plot's frame and diagnostics exactly as build() does."""
+        return self._resolve_for_spec(
+            self.resolved_spec(spec), default_source=self._manifest_obj.data_source
+        )
+
+    def export_latex(self, output_path: pathlib.Path) -> LatexExport:
+        """Export the approved tables and rendered figures of the last build as LaTeX."""
+        return export_report_latex(self, output_path)
+
     def _resolve_for_spec(
         self, spec: PlotSpec, *, default_source: str = EPISODE_SUMMARY_VIEW
     ) -> tuple[pl.DataFrame, PlotDiagnostics]:
@@ -319,16 +382,9 @@ class ReportBuilder:
         evidence_ids: list[str] = []
         snapshot_ids: list[str] = []
         multi = len(self._sources.dirs) > 1
-        for label, src_dir, catalog in zip(
-            self._sources.run_labels,
-            self._sources.dirs,
-            self._sources.catalogs,
-            strict=True,
+        for label, resolver in zip(
+            self._sources.run_labels, self._resolvers, strict=True
         ):
-            resolver = DataResolver(
-                catalog=catalog,
-                benchmark_dir=src_dir,
-            )
             resolved_spec = resolver.resolve_spec(spec)
             frame, diag = resolver.resolve(resolved_spec, default_source=default_source)
             if multi:
@@ -363,12 +419,12 @@ class ReportBuilder:
                 elif isinstance(col, list):
                     metric_names.extend(col)
         units: dict[str, str] = {}
-        if metric_names:
-            units.update(
-                resolve_metric_units(
-                    self._sources.catalogs[0], list(dict.fromkeys(metric_names))
-                )
-            )
+        unique_names = list(dict.fromkeys(metric_names))
+        if unique_names:
+            for catalog in self._sources.catalogs:
+                for metric, unit in resolve_metric_units(catalog, unique_names).items():
+                    if unit:
+                        units.setdefault(metric, unit)
         units.update(manifest.units or {})
         return units
 
@@ -401,6 +457,10 @@ class ReportBuilder:
             try:
                 if raw_spec.uses:
                     spec = spec_resolver.resolve_spec(raw_spec)
+                if self.generate_gifs and not spec.options.get("generate_gifs"):
+                    spec = spec.model_copy(
+                        update={"options": {**spec.options, "generate_gifs": True}}
+                    )
                 plot_df, diag = self._resolve_for_spec(
                     spec, default_source=manifest.data_source
                 )
@@ -409,7 +469,7 @@ class ReportBuilder:
                 records.append(PlotBuildRecord(plot_id=spec.id, passed=False))
                 continue
 
-            note_html, agent_note_html = self._plot_note_markup(spec)
+            note_html = self._plot_note_markup(spec)
 
             if diag.status == "FAILED":
                 detail = (
@@ -423,7 +483,7 @@ class ReportBuilder:
                         "gate_error": detail,
                         "html": None,
                         "note_html": note_html,
-                        "agent_note_html": agent_note_html,
+                        "provenance": _plot_provenance(diag),
                     }
                 )
                 records.append(
@@ -445,7 +505,7 @@ class ReportBuilder:
                     spec,
                     plot_df,
                     png_path,
-                    run_dir=self.output_dir,
+                    run_dir=self.benchmark_dir,
                     world_geometry=world_geometry,
                     diagnostics=diag,
                 )
@@ -454,6 +514,13 @@ class ReportBuilder:
                         spec,
                         CheckStage.STATIC,
                         "Static renderer produced no output file",
+                    )
+                    plot_failed = True
+                elif image_is_blank(png_path):
+                    record_failure(
+                        spec,
+                        CheckStage.STATIC,
+                        "Static renderer produced a blank image",
                     )
                     plot_failed = True
             except Exception as exc:
@@ -467,7 +534,7 @@ class ReportBuilder:
                         spec,
                         plot_df,
                         svg_path,
-                        run_dir=self.output_dir,
+                        run_dir=self.benchmark_dir,
                         world_geometry=world_geometry,
                         diagnostics=diag,
                     )
@@ -480,7 +547,7 @@ class ReportBuilder:
                 html_chunk = plotly_renderer.render(
                     spec,
                     plot_df,
-                    run_dir=self.output_dir,
+                    run_dir=self.benchmark_dir,
                     world_geometry=world_geometry,
                     diagnostics=diag,
                 )
@@ -511,10 +578,15 @@ class ReportBuilder:
                                 title=spec.title,
                                 interactive_html="\n".join(html_chunks),
                                 png_path=png_path,
+                                png_src=(
+                                    f"plots/{spec.id}.png"
+                                    if self.external_assets
+                                    else None
+                                ),
                             )
                         ),
                         "note_html": note_html,
-                        "agent_note_html": agent_note_html,
+                        "provenance": _plot_provenance(diag),
                     }
                 )
 
@@ -541,15 +613,23 @@ class ReportBuilder:
         )
 
         report_title = manifest.title or self.output_root.name
+        page_snapshot_id = next(
+            (record.snapshot_id for record in records if record.snapshot_id), ""
+        )
         html_content = self._assemble_html(
             status_table=status_table,
             summary_table=summary_table,
             plot_entries=plot_entries,
             report_title=report_title,
             failed_checks=self._build_checks.failures,
+            snapshot_id=page_snapshot_id,
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(html_content, encoding="utf-8")
+        if self.external_assets:
+            (self.output_dir / "plotly.min.js").write_text(
+                plotly_bundle_text(), encoding="utf-8"
+            )
         return self.report_path
 
     def _build_summary_tables(
@@ -671,54 +751,7 @@ class ReportBuilder:
             summary_df, group_cols, manifest.summary
         )
 
-    def _load_agent_notes(self) -> dict[str, str]:
-        if self._agent_notes is not None:
-            return self._agent_notes
-        notes: dict[str, str] = {}
-        search_dirs = [self.benchmark_dir]
-        if self.output_dir != self.benchmark_dir:
-            search_dirs.append(self.output_dir)
-        for sdir in search_dirs:
-            for filename in ("notes.json", "insights.json"):
-                path = sdir / filename
-                if not path.is_file():
-                    continue
-                try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        for k, v in data.items():
-                            if isinstance(v, str):
-                                notes[str(k)] = v
-                            elif isinstance(v, dict):
-                                text = (
-                                    v.get("insight") or v.get("note") or v.get("text")
-                                )
-                                if text:
-                                    notes[str(k)] = str(text)
-                    elif isinstance(data, list):
-                        for item in data:
-                            if isinstance(item, dict):
-                                plot_id = (
-                                    item.get("plot_id")
-                                    or item.get("id")
-                                    or item.get("label")
-                                )
-                                text = (
-                                    item.get("insight")
-                                    or item.get("note")
-                                    or item.get("value")
-                                    or item.get("text")
-                                )
-                                if plot_id and text:
-                                    notes[str(plot_id)] = str(text)
-                except Exception:
-                    continue
-        self._agent_notes = notes
-        return notes
-
-    def _plot_note_markup(
-        self, spec: PlotSpec
-    ) -> tuple[markupsafe.Markup | None, markupsafe.Markup | None]:
+    def _plot_note_markup(self, spec: PlotSpec) -> markupsafe.Markup | None:
         opts = spec.options or {}
         note = opts.get("note")
         if note is None and opts.get("notes_key"):
@@ -743,14 +776,7 @@ class ReportBuilder:
                 except Exception:
                     note = None
 
-        note_html = _render_markdown_light(str(note)) if note else None
-        agent_notes = self._load_agent_notes()
-        agent_html = (
-            _render_markdown_light(agent_notes[spec.id])
-            if spec.id and spec.id in agent_notes
-            else None
-        )
-        return note_html, agent_html
+        return _render_markdown_light(str(note)) if note else None
 
     def _assemble_html(
         self,
@@ -760,6 +786,7 @@ class ReportBuilder:
         plot_entries: list[dict[str, Any]],
         report_title: str,
         failed_checks: tuple[PlotCheck, ...],
+        snapshot_id: str = "",
     ) -> str:
         overview_plots: list[dict[str, Any]] = []
         grouped: dict[str, list[dict[str, Any]]] = {}
@@ -789,6 +816,14 @@ class ReportBuilder:
             overview_plots=overview_plots,
             plot_groups=plot_groups,
             failed_checks=failed_checks,
-            plotly_bundle=markupsafe.Markup(plotly_bundle_script()),
+            snapshot_id=snapshot_id,
+            findings=self.findings,
+            findings_not_used=self.findings_not_used,
+            excluded_plots=self.excluded_plots,
+            plotly_bundle=markupsafe.Markup(
+                plotly_bundle_reference()
+                if self.external_assets
+                else plotly_bundle_script()
+            ),
             plot_block_styles=markupsafe.Markup(plot_block_styles()),
         )

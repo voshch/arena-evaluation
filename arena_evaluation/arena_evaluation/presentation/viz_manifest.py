@@ -14,6 +14,7 @@ from .data_sources import EPISODE_SUMMARY_VIEW, validate_data_source
 __all__ = [
     "ManifestGroup",
     "PlotChannels",
+    "PlotChecks",
     "PlotDataSpec",
     "PlotSliceSpec",
     "PlotSpec",
@@ -94,7 +95,6 @@ class PlotChannels(BaseModel):
     facet_row: str | None = None
     size: str | None = None
     symbol: str | None = None
-    split: bool = False
     hierarchy: str | list[str] | None = None
 
     @model_validator(mode="before")
@@ -114,10 +114,21 @@ class PlotSliceSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scope: str | None = None
     episode_id: int | None = None
     encounter_id: str | None = None
     contact_id: str | None = None
+
+
+class PlotChecks(BaseModel):
+    """Declared per-plot build checks; an unknown key is rejected instead of ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    require_columns: list[str] = Field(default_factory=list)
+    min_rows: int | None = None
+    # Columns whose 100% NULL value is expected for this plot (e.g. an optional telemetry
+    # channel); every other declared numeric channel must carry at least one value.
+    allow_all_null: list[str] = Field(default_factory=list)
 
 
 class PlotSpec(BaseModel):
@@ -133,7 +144,7 @@ class PlotSpec(BaseModel):
     channels: PlotChannels = Field(default_factory=PlotChannels)
     slice: PlotSliceSpec | None = None
     options: dict[str, object] = Field(default_factory=dict)
-    checks: dict[str, object] = Field(default_factory=dict)
+    checks: PlotChecks = Field(default_factory=PlotChecks)
     layout_group: str | None = None
 
     @model_validator(mode="before")
@@ -220,7 +231,9 @@ class VizManifest(BaseModel):
         if resolved.name in _REJECTED_MANIFEST_FILENAMES:
             raise ValueError(f"legacy manifest filename {resolved.name!r} is rejected.")
         if not resolved.exists():
-            return cls.load_default()
+            raise FileNotFoundError(
+                f"Report manifest {resolved} does not exist; pass None for the default manifest."
+            )
 
         with resolved.open(encoding="utf-8") as handle:
             data = yaml.safe_load(handle)

@@ -1,0 +1,19 @@
+id: success_without_contact_panel
+type: bar
+title: Success without Pedestrian Contact by Planner and Crowd Condition
+layout_group: overview
+data:
+  computation: group_summary
+  params:
+    metrics:
+    - success_without_pedestrian_contact
+    group_cols:
+    - planner
+    - crowd_condition
+channels:
+  x: planner
+  y: mean
+  facet_col: crowd_condition
+options:
+  err_plus: err_plus
+  err_minus: err_minus

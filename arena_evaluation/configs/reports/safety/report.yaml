@@ -2,31 +2,42 @@ title: Safety & Collision Analysis Report
 description: Comprehensive safety report evaluating collision rates, SPL, temporal
   reaction margins, interaction hazard indices, and kinematic limits.
 units:
-  success: '%'
-  spl_geodesic: ''
-  collision_amount: ''
-  collision_amount_wall: ''
-  collision_amount_static: ''
-  collision_amount_pedestrian: ''
-  tti_min: s
-  tti_mean: s
-  movement_towards_peds_ratio: ''
   ci_max: ''
-  ci_mean: ''
-  max_speed_intimate_zone: m/s
-  max_speed_personal_zone: m/s
-  personal_space_intrusion_integral: "m\xB7s"
-  time_in_intimate_zone: s
-  psi_intimate_events: ''
-  time_to_goal: s
-  path_length: m
-  mean_velocity_mps: m/s
-  velocity_max: m/s
-  acceleration_mean: m/s2
-  max_acceleration_mps2: m/s2
-  jerk_mean: m/s3
-  jerk_max_mps3: m/s3
-  roughness_mean: rad/m
+  collision_amount: ''
+  collision_amount_pedestrian: ''
+  jerk_max_mps3: 'm/s³'
+  jerk_mean: 'm/s³'
+  max_acceleration_mps2: 'm/s²'
+  max_speed_intimate_zone: 'm/s'
+  mean_velocity_mps: 'm/s'
+  path_length_m: 'm'
+  personal_space_intrusion_integral: 'm·s'
+  roughness_mean: 'rad/m'
+  spl_geodesic: ''
+  success: '%'
+  tti_mean: 's'
+  tti_min: 's'
+summary_group_by:
+- local_planner
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: collision_amount_pedestrian
+  label: Pedestrian Collisions
+  format: '{:.1f}'
+- metric: tti_min
+  label: Min TTI
+  format: '{:.2f}'
+- metric: ci_max
+  label: Max CI
+  format: '{:.2f}'
 groups:
 - id: overview
   title: Safety Performance Overview
@@ -60,8 +71,10 @@ plots:
       - ci_max
       group_cols:
       - local_planner
+      - crowd_condition
   channels:
     x: local_planner
+    color: crowd_condition
     y:
     - metric
     - n

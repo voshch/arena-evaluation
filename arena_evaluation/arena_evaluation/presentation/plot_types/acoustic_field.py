@@ -625,6 +625,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
         return html
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
+        """Dispatch the static frame to the seaborn renderer (D-06)."""
+        self.render_seaborn(df, out_path)
+
+    def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Render the worst-case acoustic field snapshot as a static image."""
         self.validate_frame(df)
         work_df = self._prepared_df(df)
@@ -1763,6 +1767,10 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
     PLOT_TYPE = "acoustic_field_animation"
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
+        """Dispatch the static artifact to the seaborn renderer (D-06)."""
+        self.render_seaborn(df, out_path)
+
+    def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Write the first animation frame to the static path and the animation beside it."""
         self.validate_frame(df)
         work_df = self._prepared_df(df)

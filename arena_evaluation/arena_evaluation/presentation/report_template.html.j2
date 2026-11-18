@@ -249,6 +249,14 @@
             letter-spacing: 0.05em;
         }
 
+        /* Per-figure provenance footer */
+        .plot-provenance {
+            margin-top: 6px;
+            color: #64748b;
+            font-size: 0.72rem;
+            font-family: ui-monospace, Menlo, monospace;
+        }
+
         /* Footer styling */
         footer {
             margin-top: 60px;
@@ -269,6 +277,7 @@
             <li><strong>Benchmark ID:</strong> {{ benchmark_id }}</li>
             <li><strong>Report Location:</strong> {{ report_dir }}</li>
             <li><strong>Generated On:</strong> {{ generated_on }}</li>
+            {% if snapshot_id %}<li><strong>Dataset Snapshot:</strong> <code>{{ snapshot_id }}</code></li>{% endif %}
         </ul>
     </header>
 
@@ -317,7 +326,7 @@
                     {% endif %}
                     {% if plot.html %}{{ plot.html }}{% endif %}
                     {% if plot.note_html %}<div class="plot-note">{{ plot.note_html }}</div>{% endif %}
-                    {% if plot.agent_note_html %}<div class="agent-annotation"><span class="badge">Agent Insight</span> {{ plot.agent_note_html }}</div>{% endif %}
+                    {% if plot.provenance and (plot.provenance.evidence_id or plot.provenance.snapshot_id) %}<div class="plot-provenance">{% if plot.provenance.evidence_id %}evidence <code>{{ plot.provenance.evidence_id }}</code>{% endif %}{% if plot.provenance.snapshot_id %} &middot; snapshot <code>{{ plot.provenance.snapshot_id }}</code>{% endif %} &middot; n={{ plot.provenance.row_count }}</div>{% endif %}
                 </div>
             </div>
             {% endfor %}
@@ -339,13 +348,55 @@
                     {% endif %}
                     {% if plot.html %}{{ plot.html }}{% endif %}
                     {% if plot.note_html %}<div class="plot-note">{{ plot.note_html }}</div>{% endif %}
-                    {% if plot.agent_note_html %}<div class="agent-annotation"><span class="badge">Agent Insight</span> {{ plot.agent_note_html }}</div>{% endif %}
+                    {% if plot.provenance and (plot.provenance.evidence_id or plot.provenance.snapshot_id) %}<div class="plot-provenance">{% if plot.provenance.evidence_id %}evidence <code>{{ plot.provenance.evidence_id }}</code>{% endif %}{% if plot.provenance.snapshot_id %} &middot; snapshot <code>{{ plot.provenance.snapshot_id }}</code>{% endif %} &middot; n={{ plot.provenance.row_count }}</div>{% endif %}
                 </div>
             </div>
             {% endfor %}
         </div>
     </section>
     {% endfor %}
+
+    {% if findings %}
+    <section class="findings-section">
+        <h2>Verified Findings</h2>
+        <ul>
+            {% for finding in findings %}
+            <li><strong>{{ finding.finding_id }}</strong> [{{ finding.status }}]: {{ finding.claim }}{% if finding.evidence %} (evidence: <code>{{ finding.evidence }}</code>){% endif %}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if excluded_plots or findings_not_used %}
+    <section class="appendix-section">
+        <h2>Appendix — Excluded Plots and Findings</h2>
+        <p>Everything the draft held but the reviewed report does not show is listed here with its reason.</p>
+        {% if excluded_plots %}
+        <div class="table-responsive">
+            <table class="dataframe">
+                <thead><tr><th>Plot</th><th>Status</th><th>Reason</th></tr></thead>
+                <tbody>
+                    {% for plot in excluded_plots %}
+                    <tr><td>{{ plot.plot_id }}</td><td>{{ plot.status }}</td><td>{{ plot.reason }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+        {% if findings_not_used %}
+        <div class="table-responsive">
+            <table class="dataframe">
+                <thead><tr><th>Finding</th><th>Status</th><th>Reason</th></tr></thead>
+                <tbody>
+                    {% for finding in findings_not_used %}
+                    <tr><td>{{ finding.finding_id }}</td><td>{{ finding.status }}</td><td>{{ finding.reason }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
 
     {% if failed_checks %}
     <section class="appendix-section">
