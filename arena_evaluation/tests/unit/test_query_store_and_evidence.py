@@ -115,7 +115,7 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "min_clearance_m": 0.8,
                 "duration_s": 1.0,
                 "detour_time_s": 0.5,
-                "robot_path_deviation_m": 0.3,
+                "robot_path_deviation_vs_planned_m": 0.3,
                 "energy_total_wh": 0.6,
                 "energy_surge_ratio": 1.8,
                 "probst_R_robot": 0.6,
@@ -370,6 +370,16 @@ def test_non_reference_trajectory_queries_do_not_fan_out_per_robot(
 
     deflection_rows = qcat.execute("pedestrian_deflection_by_inter_planner", engine)
     assert deflection_rows.height == 1
+
+    # The local-planner variant groups the same deflection by the episode's local planner (R2-10).
+    local_planner_rows = qcat.execute(
+        "pedestrian_deflection_by_local_planner", engine
+    )
+    assert local_planner_rows.height == 1
+    assert set(local_planner_rows.columns) == {
+        "local_planner",
+        "ped_path_deflection_m",
+    }
 
     # The pedestrian-scope exposure query is keyed on the episode, not on the robot (R2-10, L3-010).
     exposure_rows = qcat.execute("pedestrian_exposure_by_planner", engine)
