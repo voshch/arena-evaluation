@@ -69,8 +69,6 @@ def test_a_step_pairs_the_same_sample_x_and_y() -> None:
 
 def test_a_null_position_never_contributes_a_step() -> None:
     """A step needs both of its endpoints, so the samples around a null position are skipped."""
-    peds = _track(
-        [0.0, 3.0, None, 6.0, 9.0, 9.0], [0.0, 0.0, 4.0, 8.0, 8.0, None]
-    )
+    peds = _track([0.0, 3.0, None, 6.0, 9.0, 9.0], [0.0, 0.0, 4.0, 8.0, 8.0, None])
 
     assert _total_distance_m(peds) == pytest.approx(6.0)
