@@ -24,7 +24,7 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
     resolve_robot_trajectory,
 )
 from arena_evaluation.processing.windows import empty_encounter_windows
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 NS_PER_S = 1_000_000_000

@@ -4,7 +4,7 @@ import pytest
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, MetricScope, ScopeSlice
 from arena_evaluation.processing.metrics.performance.collision_metrics import CollisionMetricsCalculator
 from arena_evaluation.processing.outcome import outcome_verdict
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 SEC_NS = 1_000_000_000

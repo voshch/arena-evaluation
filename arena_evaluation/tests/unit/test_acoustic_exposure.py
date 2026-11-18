@@ -24,7 +24,6 @@ from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.schemas import (
     AlignedEpisodeBundle,
     EpisodeDescriptor,
-    RobotParams,
 )
 from robot_params_factory import make_robot_params
 

@@ -35,7 +35,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_metrics import (
     _Ctx,
     in_call_area,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 T = 1_000_000_000
 ROBOT = "env_0_jackal"

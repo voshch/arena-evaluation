@@ -2,7 +2,7 @@ import polars as pl
 import pytest
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 

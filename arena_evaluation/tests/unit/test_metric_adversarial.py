@@ -8,7 +8,7 @@ from arena_evaluation.processing.metrics.performance.efficiency_metrics import P
 from arena_evaluation.processing.metrics.social.gaze import GazeMetricsCalculator
 from arena_evaluation.processing.metrics.social.pedestrian_disturbance import PedestrianDisturbanceCalculator
 from arena_evaluation.processing.metrics.social.proxemics import ProxemicsCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
 

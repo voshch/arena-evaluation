@@ -34,7 +34,7 @@ from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.manifest import MetadataWriter
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, EpisodeDescriptor, RobotParams, RunMetadata
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, EpisodeDescriptor, RunMetadata
 from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000

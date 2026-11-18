@@ -9,7 +9,7 @@ from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
 from arena_evaluation.processing.metrics.performance.motion_metrics import SERIES_SCHEMA as MOTION_SERIES_SCHEMA
 from arena_evaluation.processing.metrics.performance.path_metrics import SERIES_SCHEMA as PATH_SERIES_SCHEMA
 from arena_evaluation.processing.metrics.performance.time_metrics import TimeMetricsCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000

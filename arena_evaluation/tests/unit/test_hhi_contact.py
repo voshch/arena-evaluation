@@ -17,7 +17,7 @@ from arena_evaluation.processing.metrics.social.hhi_contact import (
     window_bounds,
 )
 from arena_evaluation.storage.registry import MetricScope
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
 

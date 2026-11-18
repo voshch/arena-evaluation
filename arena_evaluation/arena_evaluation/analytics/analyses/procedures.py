@@ -365,9 +365,8 @@ def _planner_intervals(
         random_seed=seed,
     )
     intervals: dict[str, tuple[float, float]] = {}
-    for row in estimates.iter_rows(
-        named=True
-    ):  # agent-contracts: ignore metadata dict boundary
+    # agent-contracts: ignore AC004 - one dict per planner at the string-interval boundary
+    for row in estimates.iter_rows(named=True):
         low, high = row["ci_low"], row["ci_high"]
         if low is None or high is None:
             continue

@@ -23,7 +23,7 @@ from arena_evaluation.processing.metrics.ecological.regime_metrics import (
     _windows,
 )
 from arena_evaluation.storage.registry import MetricScope
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from snapshot_rows import snapshot_frame
 
 

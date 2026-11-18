@@ -20,7 +20,7 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     _speed_zone_metrics,
 )
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from snapshot_rows import snapshot_frame
 

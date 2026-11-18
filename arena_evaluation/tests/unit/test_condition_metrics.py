@@ -28,7 +28,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     load_zone_geometry,
 )
 from arena_evaluation.processing.pedestrian_frames import frames_of
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from arena_evaluation.processing.metrics.common.rosters import strip_env
 from arena_evaluation.processing.metrics.common.context import value_at
 from snapshot_rows import snapshot_frame

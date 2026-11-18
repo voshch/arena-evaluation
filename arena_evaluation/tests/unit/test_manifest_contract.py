@@ -147,7 +147,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 # token, so the synthetic benchmark's episodes are valid for ranking (L3-002/L3-030).
                 "invalid_reason": "",
                 "success": episode_id % 4 != 0,
-                "invalid_reason": "",
             }
         )
         rows.append(row)

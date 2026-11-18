@@ -26,7 +26,7 @@ from arena_evaluation.processing.metrics.social.probst_responsibility import (
 )
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 # One pedestrian trajectory: canonical id, name, (N, 2) positions, (N, 2) velocities, collision radius in metres.

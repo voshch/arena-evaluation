@@ -7,7 +7,7 @@ pytest.importorskip("polars")
 import polars as pl
 
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, Direction
-from arena_evaluation.storage.schemas import RobotParams, AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from arena_evaluation.processing.metrics.common.events import (
     reconstruct_events as _reconstruct_events,
 )

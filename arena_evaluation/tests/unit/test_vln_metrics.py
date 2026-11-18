@@ -21,7 +21,7 @@ from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.processing.path.static_environment import build_static_grid_from_parts
 from arena_evaluation.processing.path.theta_star import StaticGrid
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
 RES = 0.1

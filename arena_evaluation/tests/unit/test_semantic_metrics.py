@@ -6,7 +6,7 @@ pl = pytest.importorskip("polars")
 from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.ecological.semantic_metrics import SemanticInteractionMetricsCalculator
 from arena_evaluation.storage.registry import MetricScope
-from arena_evaluation.storage.schemas import RobotParams, AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from snapshot_rows import snapshot_frame
 
 

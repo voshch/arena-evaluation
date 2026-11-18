@@ -10,7 +10,7 @@ from arena_evaluation.processing.metrics.performance.collision_metrics import Co
 from arena_evaluation.processing.metrics.performance.efficiency_metrics import PathEfficiencyCalculator
 from arena_evaluation.processing.metrics.social.proxemics_extended import ProxemicsExtendedCalculator
 from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
 

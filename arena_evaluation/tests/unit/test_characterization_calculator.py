@@ -1,4 +1,3 @@
-from robot_params_factory import make_robot_params
 """Unit tests for the CharacterizationCalculator (ecological metric).
 
 Pure Python + Polars, no ROS, no Gazebo required.
@@ -15,7 +14,8 @@ from arena_evaluation.processing.metrics.ecological.characterization import (
     CharacterizationCalculator,
     _leq_power,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
