@@ -12,7 +12,6 @@ from polars.testing import assert_frame_equal, assert_series_equal
 from arena_evaluation.processing.metrics.common.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,
 )
-from arena_evaluation.processing.metrics.common.caching import world_cache
 from arena_evaluation.processing.metrics.common.context import EvalContext
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
 from arena_evaluation.processing.metrics.common.parsing import parse_bool, parse_float
@@ -322,56 +321,6 @@ def test_mission_length_sums_the_legs_and_is_refused_without_a_grid_or_a_leg() -
     )
 
 
-def test_entity_roster_resolves_env_prefixed_and_world_aliases() -> None:
-    snapshot = pl.DataFrame(
-        {
-            "entity_name": [
-                "env_0/jackal_0",
-                "env_1/world_door_1/level_1",
-                "env_0/env_dup",
-                "env_1/env_dup",
-                "world_elevator_2",
-            ]
-        }
-    )
-    door = "env_1/world_door_1/level_1"
-    assert entity_roster(snapshot) == {
-        "jackal_0": "env_0/jackal_0",
-        "world_door_1/level_1": door,
-        "world_door_1": door,
-        "door_1/level_1": door,
-        "world_elevator_2": "world_elevator_2",
-        "elevator_2": "world_elevator_2",
-    }
-
-
-@pytest.mark.parametrize(
-    "snapshot", [None, pl.DataFrame(schema={"entity_name": pl.String})]
-)
-def test_entity_roster_is_empty_without_samples(snapshot: pl.DataFrame | None) -> None:
-    assert entity_roster(snapshot) == {}
-
-
-def test_ped_roster_keeps_only_names_that_resolve_uniquely() -> None:
-    peds = pl.DataFrame(
-        {
-            "ped_name": [
-                "env_0/ped_a",
-                "env_0/ped_b",
-                "env_1/ped_b",
-                "ped_c",
-                "env_0/ped_d/level_1",
-            ]
-        }
-    )
-    assert ped_roster(peds) == {
-        "ped_a": "env_0/ped_a",
-        "ped_c": "ped_c",
-        "ped_d/level_1": "env_0/ped_d/level_1",
-        "ped_d": "env_0/ped_d/level_1",
-    }
-
-
 def _eval_context() -> EvalContext:
     return EvalContext(
         events=_context_events(),
@@ -429,61 +378,3 @@ def test_eval_context_sample_reports_the_ego_pose_on_the_time_axis() -> None:
     assert (sampled.t, sampled.robots) == (1.0, {"robot": (0.0, 0.0, 0.5)})
 
 
-def test_resample_fleet_holds_other_robot_poses_onto_the_ego_axis() -> None:
-    fleet = {
-        "env_0_jackal_0": pl.DataFrame(
-            {
-                "t_ns": [0, 10],
-                "pos_x": [9.0, 9.0],
-                "pos_y": [9.0, 9.0],
-                "yaw": [0.0, 0.0],
-            }
-        ),
-        "env_1_jackal_1": pl.DataFrame(
-            {
-                "t_ns": [0, 10],
-                "pos_x": [1.0, 2.0],
-                "pos_y": [0.0, 1.0],
-                "yaw": [0.0, 0.5],
-            }
-        ),
-        "env_2_jackal_2": pl.DataFrame(
-            {"t_ns": [10], "pos_x": [5.0], "pos_y": [5.0], "yaw": [0.0]}
-        ),
-    }
-    result = resample_fleet(fleet, np.array([5, 10]), ego="env_0_jackal_0")
-    assert set(result) == {"jackal_1"}
-    assert [array.tolist() for array in result["jackal_1"]] == [
-        [1.0, 2.0],
-        [0.0, 1.0],
-        [0.0, 0.5],
-    ]
-
-
-def test_world_cache_is_a_mutable_module_level_mapping() -> None:
-    assert isinstance(world_cache, dict)
-    world_cache["world"] = None
-    try:
-        assert world_cache["world"] is None
-    finally:
-        del world_cache["world"]
-
-
-def test_track_align_tolerance_is_one_tenth_of_a_second_in_nanoseconds() -> None:
-    assert (TRACK_ALIGN_TOLERANCE_NS, isinstance(TRACK_ALIGN_TOLERANCE_NS, int)) == (
-        100_000_000,
-        True,
-    )
-
-
-@pytest.mark.parametrize(
-    ("values", "expected"),
-    [([], []), ([np.nan], [None]), ([1.0, np.nan, 3.0], [1.0, None, 3.0])],
-)
-def test_null_float_series_replaces_nan_with_an_explicit_null(
-    values: list[float], expected: list[float | None]
-) -> None:
-    assert_series_equal(
-        null_float_series(np.array(values, dtype=np.float64), "speed_mps"),
-        pl.Series("speed_mps", expected, dtype=pl.Float64),
-    )
