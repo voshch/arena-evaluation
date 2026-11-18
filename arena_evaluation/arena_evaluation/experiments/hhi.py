@@ -7,9 +7,9 @@ generate: L scenarios per contact kind on map_empty, each run in two arms that s
 
 analyze: paired contact - locomotion differences per (planner, interaction, metric), cluster bootstrap over
   scenarios, Holm within the family. The family covers the two episode outcomes (success, time to goal) and the
-  two HHI contact metrics (stalls, passes between) summed over each episode's contacts; the window and
-  manipulation checks read the same fact_contacts rows, plus the release-time window check that the contact
-  metrics record.
+  two HHI metrics (stalls, passes between) carried by the episode rows. The study has one interaction per
+  episode, so the HHI metrics are EPISODE-scope; the window and manipulation checks read the same episode rows,
+  plus the release-time window check the episode metrics record.
 
     python -m arena_evaluation.experiments.hhi generate --scenarios 15
     python -m arena_evaluation.experiments.hhi analyze --benchmark-dir <data_root>/<run_id>
@@ -28,7 +28,7 @@ import numpy as np
 import polars as pl
 import yaml
 
-from arena_evaluation.experiments.source import contacts, episode_summary
+from arena_evaluation.experiments.source import episode_summary
 from arena_evaluation.experiments.stats import (
     DEFAULT_BOOT,
     cluster_bootstrap,
@@ -307,8 +307,8 @@ FAMILY_METRICS = {
     "success": "success",
     "ttg": "time_to_goal",
 }
-#: The HHI contact metrics summed over one episode's contacts, published by the contact scope.
-CONTACT_FAMILY_METRICS = {
+#: The episode-scope HHI metrics the HHI calculator publishes on the episode row.
+HHI_FAMILY_METRICS = {
     "stalls": "hhi_stall_count",
     "passes_between": "hhi_passes_between",
 }
@@ -356,17 +356,8 @@ def paper_outcomes(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def load_contacts(episodes: pl.DataFrame, contacts_df: pl.DataFrame) -> pl.DataFrame:
-    """Attach episode planner, interaction, scenario, arm, and seed tags to ``fact_contacts`` rows."""
-    key_cols = ["run_id", "episode_id", "robot_id"]
-    ep_tags = episodes.select(
-        [*key_cols, "planner", "interaction", "scenario", "arm", "seed"]
-    ).unique(subset=key_cols)
-    return contacts_df.join(ep_tags, on=key_cols, how="inner")
-
-
 def window_table(
-    contact_df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
+    episodes: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
 ) -> pl.DataFrame:
     """Contact arm, per planner: pooled post-release share of stall onsets minus pooled post-release share of time, resampled by scenario."""
     need = {
@@ -376,12 +367,12 @@ def window_table(
         "hhi_episode_s",
         "hhi_release_s",
     }
-    missing = sorted(need - set(contact_df.columns))
+    missing = sorted(need - set(episodes.columns))
     if missing:
         raise ValueError(f"window_table missing required columns: {missing}")
-    if contact_df.is_empty():
+    if episodes.is_empty():
         return pl.DataFrame()
-    contact = contact_df.filter(
+    contact = episodes.filter(
         (pl.col("arm") == "contact") & pl.col("hhi_release_s").is_not_null()
     )
     if contact.is_empty():
@@ -440,16 +431,16 @@ def window_table(
     )
 
 
-def manipulation_check(contact_df: pl.DataFrame) -> pl.DataFrame:
+def manipulation_check(episodes: pl.DataFrame) -> pl.DataFrame:
     """Median rendered pair gap during the hold per arm and interaction: contact must sit near contact distance."""
     need = {"hhi_pair_gap_hold", "hhi_hold_onset_s", "hhi_release_s"}
-    missing = sorted(need - set(contact_df.columns))
+    missing = sorted(need - set(episodes.columns))
     if missing:
         raise ValueError(f"manipulation_check missing required columns: {missing}")
-    if contact_df.is_empty():
+    if episodes.is_empty():
         return pl.DataFrame()
     return (
-        contact_df.group_by(["interaction", "arm"])
+        episodes.group_by(["interaction", "arm"])
         .agg(
             pl.col("hhi_pair_gap_hold").median().alias("pair_gap_median"),
             pl.col("hhi_hold_onset_s").is_not_null().mean().alias("held_share"),
@@ -460,43 +451,21 @@ def manipulation_check(contact_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def episode_contact_metrics(
-    episodes: pl.DataFrame, contact_df: pl.DataFrame
-) -> pl.DataFrame:
-    """Attach the per-episode sums of the HHI contact metrics to the episode rows.
-
-    ``fact_contacts`` holds one row per contact, so an episode's stall count is the sum over its contacts;
-    an episode without contacts keeps NULL rather than a zero the study would read as a real measurement.
-    """
-    columns = list(CONTACT_FAMILY_METRICS.values())
-    if contact_df.is_empty():
-        return episodes.with_columns(
-            [pl.lit(None, dtype=pl.Float64).alias(column) for column in columns]
-        )
-    sums = contact_df.group_by(["run_id", "episode_id", "robot_id"]).agg(
-        [pl.col(column).cast(pl.Float64).sum().alias(column) for column in columns]
-    )
-    return episodes.join(sums, on=["run_id", "episode_id", "robot_id"], how="left")
-
-
 def family_table(
     df: pl.DataFrame,
     *,
-    contact_df: pl.DataFrame | None = None,
     n_boot: int = DEFAULT_BOOT,
     seed: int = 0,
 ) -> pl.DataFrame:
-    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them.
-
-    ``contact_df`` supplies the contact-scope family metrics (stalls, passes between); without it the family
-    keeps only the episode outcomes, which is what a benchmark without a contact stream can answer.
-    """
-    frame = df if contact_df is None else episode_contact_metrics(df, contact_df)
-    metrics = {**FAMILY_METRICS, **CONTACT_FAMILY_METRICS}
+    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them."""
+    missing = sorted(set(HHI_FAMILY_METRICS.values()) - set(df.columns))
+    if missing:
+        raise ValueError(f"family_table missing required columns: {missing}")
+    metrics = {**FAMILY_METRICS, **HHI_FAMILY_METRICS}
     parts = []
     for label, column in metrics.items():
         diffs = paired_differences(
-            frame.with_columns(pl.col(column).cast(pl.Float64)),
+            df.with_columns(pl.col(column).cast(pl.Float64)),
             cell=["planner", "interaction"],
             metric=column,
             arm="arm",
@@ -523,11 +492,10 @@ def analyze(
 ) -> dict[str, pl.DataFrame]:
     """Study A family, window, and manipulation-check analysis over the Star Schema."""
     df = paper_outcomes(load_episodes(episode_summary(benchmark_dir)))
-    contact_df = load_contacts(df, contacts(benchmark_dir))
     tables = {
-        "family_a": family_table(df, contact_df=contact_df, n_boot=n_boot),
-        "windows": window_table(contact_df, n_boot=n_boot),
-        "manipulation_check": manipulation_check(contact_df),
+        "family_a": family_table(df, n_boot=n_boot),
+        "windows": window_table(df, n_boot=n_boot),
+        "manipulation_check": manipulation_check(df),
     }
     out_dir = out_dir or benchmark_dir / "hhi"
     out_dir.mkdir(parents=True, exist_ok=True)

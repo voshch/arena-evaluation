@@ -4,9 +4,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.social.hhi_contact import (
-    WINDOWS,
     ContactInteractionCalculator,
     bucket,
     pair_track,
@@ -22,6 +20,24 @@ from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
+
+
+def test_every_hhi_metric_is_episode_scoped() -> None:
+    """The study has one interaction per episode, so the episode row carries every HHI output."""
+    assert len(ContactInteractionCalculator.OUTPUTS) == 17
+    assert ContactInteractionCalculator.effective_scopes() == frozenset(
+        {MetricScope.EPISODE}
+    )
+    assert {
+        scope
+        for metric in ContactInteractionCalculator.OUTPUTS
+        for scope in metric.scopes
+    } == {MetricScope.EPISODE}
+    assert ContactInteractionCalculator.REQUIRED_TOPICS == [
+        "robot_tracks",
+        "pedestrian_arena_peds",
+        "pedestrian_interaction_events",
+    ]
 
 
 def test_stall_needs_the_minimum_duration_and_prior_motion() -> None:
@@ -286,90 +302,3 @@ def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
     assert (
         ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty
     )
-
-
-def _window_bundle(
-    episode: AlignedEpisodeBundle, *, end_ns: int | None = None
-) -> AlignedEpisodeBundle:
-    """The episode as a CONTACT window slice: its flat topics are the window telemetry, the aligned data is empty."""
-    data = episode.data
-    t_ns = data.get_column("t_ns").to_numpy().astype(np.int64)
-    tracks = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": data.get_column("x").to_numpy().astype(np.float64),
-            "y": data.get_column("y").to_numpy().astype(np.float64),
-            "yaw": data.get_column("yaw").to_numpy().astype(np.float64),
-            "vx": np.zeros(len(t_ns), dtype=np.float64),
-            "vy": np.zeros(len(t_ns), dtype=np.float64),
-        },
-        schema={
-            "t_ns": pl.Int64,
-            "x": pl.Float64,
-            "y": pl.Float64,
-            "yaw": pl.Float64,
-            "vx": pl.Float64,
-            "vy": pl.Float64,
-        },
-    )
-    topics: dict[str, pl.DataFrame] = {}
-    if end_ns is not None:
-        tracks = tracks.filter(pl.col("t_ns") <= end_ns)
-    topics["robot_tracks"] = tracks
-    for name, frame in (episode.topics or {}).items():
-        topics[name] = (
-            frame.filter(pl.col("t_ns") <= end_ns) if end_ns is not None else frame
-        )
-    return AlignedEpisodeBundle(
-        episode_id=episode.episode_id,
-        data=pl.DataFrame(),
-        start_pos=episode.start_pos,
-        goal_pos=episode.goal_pos,
-        num_pedestrians=episode.num_pedestrians,
-        topics=topics,
-    )
-
-
-def _contact_slice(window: AlignedEpisodeBundle, t_end_ns: int) -> ScopeSlice:
-    """CONTACT scope slice over one window bundle."""
-    return ScopeSlice(
-        scope=MetricScope.CONTACT,
-        slice_id="con-000-jackal-000",
-        t_start_ns=0,
-        t_end_ns=t_end_ns,
-        identity={},
-        window_bundle=window,
-        full_episode=window,
-    )
-
-
-def test_contact_scope_measures_the_window_telemetry() -> None:
-    """A CONTACT slice recomputes from its own window bundle; spanning the episode reproduces the episode metrics."""
-    episode = _episode()
-    window = _window_bundle(episode)
-    contact = ContactInteractionCalculator(make_robot_params())
-    t_ns = episode.data.get_column("t_ns").to_numpy().astype(np.int64)
-    window_metrics = contact.calculate_for_scope(
-        episode, {}, _contact_slice(window, int(t_ns[-1]))
-    )
-    assert window_metrics == contact.calculate(episode, {})
-    assert window_metrics["hhi_stall_count"] == 1
-    assert window_metrics["hhi_passes_between"] == 1
-
-
-def test_contact_scope_splits_the_windows_inside_its_own_slice() -> None:
-    """The window split, stall bucket and shares follow the slice's own telemetry, not the episode's."""
-    episode = _episode()
-    window = _window_bundle(episode, end_ns=18 * SEC)
-    contact = ContactInteractionCalculator(make_robot_params())
-    window_metrics = contact.calculate_for_scope(
-        episode, {}, _contact_slice(window, 18 * SEC)
-    )
-    episode_metrics = contact.calculate(episode, {})
-    assert window_metrics["hhi_episode_s"] == pytest.approx(18.0)
-    assert window_metrics["hhi_episode_s"] < episode_metrics["hhi_episode_s"]
-    assert window_metrics["hhi_stall_count"] == 1
-    assert window_metrics["hhi_stalls_post"] == 1
-    assert window_metrics["hhi_stalls_rest"] == 0
-    shares = [window_metrics[f"hhi_share_{name}"] for name in WINDOWS]
-    assert sum(shares) == pytest.approx(1.0)

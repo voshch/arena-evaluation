@@ -4,6 +4,8 @@ The episode is split at the pair's lifecycle edges (humansim `interaction_events
 approach = start -> HOLD_ONSET, hold = -> RELEASED, post = the POST_S after release, rest = after that.
 Every stall is bucketed by the window its onset falls in, next to that window's share of episode time.
 The stall onsets are a 1NF series table, never a list column inside the metrics row.
+The study has one two-person interaction per episode, so every output is declared at EPISODE scope:
+the episode row carries the interaction's windows and shares over the whole episode.
 """
 
 from __future__ import annotations
@@ -18,11 +20,6 @@ from arena_evaluation.storage.registry.series import SeriesHhiContact
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
-    ScopeSlice,
-)
-from arena_evaluation.processing.metrics.social.interaction_common import (
-    ROBOT_TRACKS_TOPIC,
-    native_robot_frame,
 )
 from arena_evaluation.processing.pedestrian_frames import pedestrians_at
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -47,39 +44,39 @@ STALL_SERIES_SCHEMA: Final[pl.Schema] = SeriesHhiContact.polars_schema()
 HHI_INTERACTION = define_metric(
     "hhi_interaction",
     pl.String,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
-    description="First two-person contact type of the contact window: hug or shake_hand.",
+    description="First two-person contact type of the interaction episode: hug or shake_hand.",
     null_reason=True,
 )
 HHI_HOLD_ONSET_S = define_metric(
     "hhi_hold_onset_s",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="s",
-    description="Seconds from the contact window's start to the pair's hold onset.",
+    description="Seconds from the episode's start to the pair's hold onset.",
     null_reason=True,
 )
 HHI_RELEASE_S = define_metric(
     "hhi_release_s",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="s",
-    description="Seconds from the contact window's start to the pair's release.",
+    description="Seconds from the episode's start to the pair's release.",
     null_reason=True,
 )
 HHI_EPISODE_S = define_metric(
     "hhi_episode_s",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="s",
-    description="Seconds of the contact window's robot time axis the interaction windows are measured over.",
+    description="Seconds of the episode's robot time axis the interaction windows are measured over.",
     null_reason=True,
 )
 HHI_STALL_COUNT = define_metric(
     "hhi_stall_count",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Number of robot stalls of at least 3 s after first motion and away from the goal.",
     null_reason=True,
@@ -87,7 +84,7 @@ HHI_STALL_COUNT = define_metric(
 HHI_STALL_TIME_S = define_metric(
     "hhi_stall_time_s",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="s",
     description="Total seconds the robot spent in those stalls.",
     null_reason=True,
@@ -95,7 +92,7 @@ HHI_STALL_TIME_S = define_metric(
 HHI_STALLS_APPROACH = define_metric(
     "hhi_stalls_approach",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Stalls whose onset fell in the approach window.",
     null_reason=True,
@@ -103,7 +100,7 @@ HHI_STALLS_APPROACH = define_metric(
 HHI_STALLS_HOLD = define_metric(
     "hhi_stalls_hold",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Stalls whose onset fell in the hold window.",
     null_reason=True,
@@ -111,7 +108,7 @@ HHI_STALLS_HOLD = define_metric(
 HHI_STALLS_POST = define_metric(
     "hhi_stalls_post",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Stalls whose onset fell in the post-release window.",
     null_reason=True,
@@ -119,7 +116,7 @@ HHI_STALLS_POST = define_metric(
 HHI_STALLS_REST = define_metric(
     "hhi_stalls_rest",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Stalls whose onset fell in the rest window.",
     null_reason=True,
@@ -127,39 +124,39 @@ HHI_STALLS_REST = define_metric(
 HHI_SHARE_APPROACH = define_metric(
     "hhi_share_approach",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="1",
-    description="Share of the contact window's time covered by the approach window.",
+    description="Share of the episode's time covered by the approach window.",
     null_reason=True,
 )
 HHI_SHARE_HOLD = define_metric(
     "hhi_share_hold",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="1",
-    description="Share of the contact window's time covered by the hold window.",
+    description="Share of the episode's time covered by the hold window.",
     null_reason=True,
 )
 HHI_SHARE_POST = define_metric(
     "hhi_share_post",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="1",
-    description="Share of the contact window's time covered by the post-release window.",
+    description="Share of the episode's time covered by the post-release window.",
     null_reason=True,
 )
 HHI_SHARE_REST = define_metric(
     "hhi_share_rest",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="1",
-    description="Share of the contact window's time covered by the rest window.",
+    description="Share of the episode's time covered by the rest window.",
     null_reason=True,
 )
 HHI_PASSES_BETWEEN = define_metric(
     "hhi_passes_between",
     pl.Int64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="",
     description="Number of robot steps that passed between the two interacting pedestrians during the hold.",
     null_reason=True,
@@ -167,7 +164,7 @@ HHI_PASSES_BETWEEN = define_metric(
 HHI_MIN_PAIR_CLEARANCE = define_metric(
     "hhi_min_pair_clearance",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="m",
     description="Minimum distance of the robot to the segment between the two interacting pedestrians during the hold.",
     null_reason=True,
@@ -175,7 +172,7 @@ HHI_MIN_PAIR_CLEARANCE = define_metric(
 HHI_PAIR_GAP_HOLD = define_metric(
     "hhi_pair_gap_hold",
     pl.Float64,
-    scopes=(MetricScope.CONTACT,),
+    scopes=(MetricScope.EPISODE,),
     unit="m",
     description="Median distance between the two interacting pedestrians during the hold.",
     null_reason=True,
@@ -519,21 +516,6 @@ class ContactInteractionCalculator(BaseMetricCalculator):
                     )
         return out
 
-    def _native_axis(
-        self, window: AlignedEpisodeBundle
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float] | None:
-        """The window's own robot time axis and planar positions, none when it has fewer than two samples."""
-        frame = native_robot_frame(window)
-        if frame is None or frame.height < 2:
-            return None
-        t_ns = frame.get_column("t_ns").to_numpy().astype(np.int64)
-        return (
-            t_ns,
-            frame.get_column("x").to_numpy().astype(np.float64),
-            frame.get_column("y").to_numpy().astype(np.float64),
-            float(t_ns[0]),
-        )
-
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Stall windows need the interaction stream; without it their counters are unknown, not zero."""
         events = (episode.topics or {}).get("pedestrian_interaction_events")
@@ -552,34 +534,6 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         if axis is None:
             return dict.fromkeys(self.output_keys())
         return self._metrics_for_axis(episode, axis)
-
-    @classmethod
-    def required_topics_for_scope(
-        cls, scope: MetricScope
-    ) -> tuple[str | tuple[str, ...], ...]:
-        """A contact window only requires the robot axis; its interaction stream and pair may be absent."""
-        if scope == MetricScope.CONTACT:
-            return (ROBOT_TRACKS_TOPIC,)
-        return super().required_topics_for_scope(scope)
-
-    def calculate_for_scope(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: dict[str, typing.Any],
-        scope_slice: ScopeSlice | None = None,
-    ) -> dict[str, typing.Any]:
-        """EPISODE measures the aligned ground truth; a CONTACT slice measures its own window telemetry."""
-        scope = MetricScope.EPISODE if scope_slice is None else scope_slice.scope
-        match scope:
-            case MetricScope.EPISODE:
-                return self.calculate(episode, prior_results)
-            case MetricScope.CONTACT:
-                axis = self._native_axis(scope_slice.window_bundle)
-                if axis is None:
-                    return dict.fromkeys(self.output_keys())
-                return self._metrics_for_axis(scope_slice.window_bundle, axis)
-            case _:
-                return dict.fromkeys(self.output_keys())
 
     SERIES_TABLE_STEM = "hhi_contact"
     SERIES_KEY = ("t_ns",)

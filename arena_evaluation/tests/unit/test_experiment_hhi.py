@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from arena_evaluation.experiments import hhi
+from arena_evaluation.experiments.source import contacts
 from star_benchmark import read_summary, write_benchmark
 
 
@@ -105,6 +106,25 @@ def _rows() -> list[dict[str, object]]:
                                 "collision_amount_pedestrian": 0,
                                 "collision_amount_wall": 0,
                                 "collision_amount_static": 0,
+                                "hhi_interaction": "hug"
+                                if kind == "hug"
+                                else "shake_hand",
+                                "hhi_hold_onset_s": 2.0,
+                                "hhi_release_s": 6.0 if arm == "contact" else None,
+                                "hhi_episode_s": 10.0,
+                                "hhi_stall_count": 4 if arm == "contact" else 1,
+                                "hhi_stall_time_s": 8.0 if arm == "contact" else 1.0,
+                                "hhi_stalls_approach": 0,
+                                "hhi_stalls_hold": 0,
+                                "hhi_stalls_post": 3 if arm == "contact" else 1,
+                                "hhi_stalls_rest": 1 if arm == "contact" else 0,
+                                "hhi_share_approach": 0.2,
+                                "hhi_share_hold": 0.4,
+                                "hhi_share_post": 0.25,
+                                "hhi_share_rest": 0.15,
+                                "hhi_passes_between": 2 if arm == "contact" else 0,
+                                "hhi_min_pair_clearance": 0.5,
+                                "hhi_pair_gap_hold": 0.6 if arm == "contact" else 1.8,
                             }
                         )
                         episode += 1
@@ -143,9 +163,9 @@ def test_load_episodes_tags_arm_scenario_and_seed(tmp_path: pathlib.Path) -> Non
 def test_family_table_compares_the_contact_arm_against_locomotion(
     tmp_path: pathlib.Path,
 ) -> None:
-    tables = hhi.analyze(_run(tmp_path), n_boot=200)
+    tables = hhi.analyze(_run(tmp_path), n_boot=1000)
     fam = tables["family_a"]
-    assert fam.height == 2 * 2 * 2
+    assert fam.height == 2 * 2 * 4
     dwb_ttg = fam.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "ttg"))
     assert dwb_ttg["estimate"].to_list() == pytest.approx([10.0, 10.0])
     assert dwb_ttg["excludes_zero"].to_list() == [True, True]
@@ -154,29 +174,9 @@ def test_family_table_compares_the_contact_arm_against_locomotion(
     assert (tmp_path / "run" / "hhi" / "family_a.csv").exists()
 
 
-def test_family_table_carries_the_two_hhi_contact_metrics(
-    tmp_path: pathlib.Path,
-) -> None:
+def test_family_table_carries_the_two_hhi_metrics(tmp_path: pathlib.Path) -> None:
     """The published study keeps all four family metrics, not only the two episode outcomes (L3-070)."""
-    rows = _rows()
-    contacts = [
-        {
-            "episode_id": row["episode_id"],
-            "contact_id": "c0",
-            "hhi_pair_gap_hold": 0.6,
-            "hhi_hold_onset_s": 2.0,
-            "hhi_release_s": 6.0,
-            "hhi_episode_s": 10.0,
-            "hhi_stall_count": 4 if "_contact" in str(row["stage"]) else 1,
-            "hhi_stalls_post": 3,
-            "hhi_share_post": 0.25,
-            "hhi_passes_between": 2 if "_contact" in str(row["stage"]) else 0,
-        }
-        for row in rows
-        if str(row["stage"]).startswith("hhi_")
-    ]
-    run = write_benchmark(tmp_path / "run", rows, contacts=contacts)
-    family = hhi.analyze(run, n_boot=50)["family_a"]
+    family = hhi.analyze(_run(tmp_path), n_boot=50)["family_a"]
 
     assert set(family["metric"].to_list()) == {
         "success",
@@ -194,32 +194,6 @@ def test_family_table_carries_the_two_hhi_contact_metrics(
         (pl.col("planner") == "dwb") & (pl.col("metric") == "passes_between")
     )
     assert dwb_passes["estimate"].to_list() == pytest.approx([2.0, 2.0])
-
-
-def test_episode_contact_metrics_keep_a_contactless_episode_null() -> None:
-    episodes = pl.DataFrame(
-        {
-            "run_id": ["run", "run"],
-            "episode_id": [0, 1],
-            "robot_id": ["robot_0", "robot_0"],
-        }
-    )
-    contacts = pl.DataFrame(
-        {
-            "run_id": ["run"],
-            "episode_id": [0],
-            "robot_id": ["robot_0"],
-            "hhi_stall_count": [3],
-            "hhi_passes_between": [1],
-        }
-    )
-    out = hhi.episode_contact_metrics(episodes, contacts)
-    by_episode = {
-        int(row["episode_id"]): (row["hhi_stall_count"], row["hhi_passes_between"])
-        for row in out.to_dicts()
-    }
-    # An episode the contact stream never covered is NULL, not a zero the study would average in.
-    assert by_episode == {0: (3.0, 1.0), 1: (None, None)}
 
 
 def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
@@ -246,29 +220,30 @@ def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
     assert out["time_to_goal"].to_list() == [30.0, None, None]
 
 
-def test_window_table_and_manipulation_check_use_fact_contacts(
+def test_window_table_and_manipulation_check_use_the_episode_rows_without_contacts(
     tmp_path: pathlib.Path,
 ) -> None:
-    rows = _rows()
-    contacts = [
-        {
-            "episode_id": row["episode_id"],
-            "contact_id": "c0",
-            "hhi_pair_gap_hold": 0.6 if "_contact" in str(row["stage"]) else 1.8,
-            "hhi_hold_onset_s": 2.0,
-            "hhi_release_s": 6.0,
-            "hhi_episode_s": 10.0,
-            "hhi_stall_count": 4,
-            "hhi_stalls_post": 3 if row["planner"] == "dwb" else 1,
-            "hhi_share_post": 0.25,
-        }
-        for row in rows
-        if str(row["stage"]).startswith("hhi_")
-    ]
-    run = write_benchmark(tmp_path / "run", rows, contacts=contacts)
+    """A real HHI run has no robot collision: the tables must come from the episode rows alone."""
+    run = _run(tmp_path)
+    summary = read_summary(run)
+    assert {
+        "hhi_stalls_post",
+        "hhi_stall_count",
+        "hhi_share_post",
+        "hhi_episode_s",
+        "hhi_release_s",
+    } <= set(summary.columns)
+    assert contacts(run).is_empty()
+
     tables = hhi.analyze(run, n_boot=50)
     assert not tables["windows"].is_empty()
     assert not tables["manipulation_check"].is_empty()
+    assert set(tables["family_a"]["metric"].to_list()) == {
+        "success",
+        "ttg",
+        "stalls",
+        "passes_between",
+    }
     dwb_win = tables["windows"].filter(pl.col("planner") == "dwb").row(0, named=True)
     assert dwb_win["stall_share_post"] == pytest.approx(0.75)
     assert dwb_win["time_share_post"] == pytest.approx(0.25)
