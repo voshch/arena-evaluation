@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Final
 
 
 class MetricScope(StrEnum):
@@ -30,21 +29,3 @@ class FactTable(StrEnum):
     JUDGE_DISAGREEMENTS = "judge_disagreements"
     MECHANISM_STATES = "mechanism_states"
     COLLISIONS = "collisions"
-
-
-SCOPED_FACT_TABLES: Final[tuple[FactTable, ...]] = (
-    FactTable.EPISODES,
-    FactTable.ENCOUNTERS,
-    FactTable.CONTACTS,
-    FactTable.PEDESTRIANS,
-    FactTable.ROBOTS,
-)
-
-CHILD_FACT_TABLES: Final[tuple[FactTable, ...]] = (
-    FactTable.EDGE_CASES,
-    FactTable.FORMATIONS,
-    FactTable.PHASE_OUTCOMES,
-    FactTable.JUDGE_DISAGREEMENTS,
-    FactTable.MECHANISM_STATES,
-    FactTable.COLLISIONS,
-)

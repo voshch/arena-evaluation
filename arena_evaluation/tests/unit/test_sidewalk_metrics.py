@@ -4,10 +4,12 @@ import numpy as np
 import polars as pl
 import pytest
 import shapely
+from arena_evaluation.processing.metrics.common.caching import world_cache
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry
-from arena_evaluation.processing.metrics.ecological.condition_metrics import _world_cache
 from arena_evaluation.processing.metrics.performance.sidewalk_metrics import SidewalkMetricsCalculator, excursions, freezes, walkable_area
 from arena_evaluation.processing.metrics.registry import MetricRegistry
+from arena_evaluation.processing.metrics.base import ScopeSlice
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 WORLD = "sidewalk_synthetic"
@@ -24,17 +26,17 @@ def _zone(name: str, x0: float, y0: float, x1: float, y1: float) -> _ZoneGeometr
 
 @pytest.fixture(autouse=True)
 def zones():
-    _world_cache[WORLD] = [
+    world_cache[WORLD] = [
         _zone("sidewalk_0", 0, -2, 10, 2),
         _zone("crosswalk", 10, -2, 14, 2),
         _zone("sidewalk_1", 14, -2, 30, 2),
         _zone("road", 0, 2, 30, 10),
         _zone("curb", 0, -3, 30, -2),
     ]
-    _world_cache[BARE] = [_zone("road", 0, 2, 30, 10)]
+    world_cache[BARE] = [_zone("road", 0, 2, 30, 10)]
     yield
-    _world_cache.pop(WORLD, None)
-    _world_cache.pop(BARE, None)
+    world_cache.pop(WORLD, None)
+    world_cache.pop(BARE, None)
 
 
 def _calc(world: str = WORLD) -> SidewalkMetricsCalculator:
@@ -47,10 +49,10 @@ def _episode(position, duration: float, collision_at: float | None = None, goal:
     stamps = T0 + np.arange(0.0, duration + 1e-9, 1.0 / RATE_HZ)
     xy = np.array([position(t - T0) for t in stamps])
     time_ns = np.round(stamps * 1e9).astype(np.int64)
-    tf_gt = pl.DataFrame({"time_ns": time_ns, "pos_x_gt": xy[:, 0], "pos_y_gt": xy[:, 1], "yaw_gt": np.zeros(len(stamps))})
+    tracks = pl.DataFrame({"t_ns": time_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.zeros(len(stamps))})
     hits = np.zeros(len(stamps), dtype=np.int64) if collision_at is None else (stamps - T0 >= collision_at).astype(np.int64)
-    collisions = pl.DataFrame({"time_ns": time_ns, "collision_event": hits})
-    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0, 0.0], goal_pos=GOAL if goal is None else goal, map=WORLD, topics={"tf_gt": tf_gt, "collision_events": collisions})
+    collisions = pl.DataFrame({"t_ns": time_ns, "event_count": hits})
+    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0, 0.0], goal_pos=GOAL if goal is None else goal, map=WORLD, topics={"robot_tracks": tracks, "collision_events": collisions})
 
 
 def _lane(t: float) -> tuple[float, float]:
@@ -199,8 +201,8 @@ def test_missing_pose_yields_nulls():
 
 
 def test_walkable_area_unions_sidewalk_and_crosswalk_pieces_only():
-    assert walkable_area(_world_cache[WORLD]).area == pytest.approx(30 * 4)
-    assert walkable_area(_world_cache[BARE]) is None
+    assert walkable_area(world_cache[WORLD]).area == pytest.approx(30 * 4)
+    assert walkable_area(world_cache[BARE]) is None
 
 
 def test_walkable_area_unions_a_self_touching_zone_ring():
@@ -219,18 +221,25 @@ def test_excursions_merge_gaps_shorter_than_the_merge_window():
     assert excursions(np.zeros(5, dtype=bool), 2) == 0
 
 
+def _robot_slice(episode):
+    """Robot slice of the whole episode, the shape scoped_evaluator hands the ROBOT pass."""
+    return ScopeSlice(scope=MetricScope.ROBOT, slice_id="robot", t_start_ns=0, t_end_ns=0, identity={}, window_bundle=episode, full_episode=episode)
+
+
 def test_registry_runs_the_calculator_beside_the_native_metrics():
-    topics = {"tf_gt", "odom", "collision_events"}
+    topics = {"robot_tracks", "robot_odom", "collision_events"}
     registry = MetricRegistry(RobotParams(model="jackal"), world=WORLD)
-    results = registry.run(_episode(_lane, 22.0), available_topics=topics, pedsim_available=False)
+    episode = _episode(_lane, 22.0)
+    results = registry.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode)).results
     assert results["sidewalk_route_completion"] is True
     assert {"success", "collision_amount", "time_to_goal"} <= set(results)
-    skipped = registry.run(_episode(_lane, 22.0), available_topics={"tf_gt", "odom"}, pedsim_available=False)
+    skipped_episode = _episode(_lane, 22.0)
+    skipped = registry.run_scope(MetricScope.ROBOT, skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False, scope_slice=_robot_slice(skipped_episode)).results
     assert {key: skipped[key] for key in NULLS} == NULLS
 
 
-def test_output_keys_cover_units_primary_and_directions():
+def test_output_keys_cover_outputs_primary_and_directions():
     keys = set(SidewalkMetricsCalculator.output_keys())
-    assert set(SidewalkMetricsCalculator.UNITS) == keys
+    assert {metric.name for metric in SidewalkMetricsCalculator.OUTPUTS} == keys
     assert set(SidewalkMetricsCalculator.PRIMARY_OUTPUTS) <= keys
-    assert set(SidewalkMetricsCalculator.OUTPUT_DIRECTIONS) <= keys
+    assert set(SidewalkMetricsCalculator.DIRECTIONS) <= keys

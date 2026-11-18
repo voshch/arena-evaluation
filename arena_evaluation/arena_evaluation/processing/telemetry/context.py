@@ -13,7 +13,7 @@ from arena_evaluation.processing.telemetry.messages import Envelope, RobotRef, e
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
-    from arena_runtime_msgs.msg import EpisodeRecord, SemanticSnapshot
+    from arena_runtime_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
     from nav_msgs.msg import Path
     from rcl_interfaces.msg import ParameterValue
@@ -52,6 +52,40 @@ def record_episode(sink: TableSink, envelope: Envelope[EpisodeRecord]) -> None:
     )
     for flag_idx, flag in enumerate(record.integrity):
         sink.append("episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=str(flag)))
+
+
+class FleetRecorder:
+    """Each robot's identity and resolved parameters from the latched fleet snapshot, once per robot and environment."""
+
+    def __init__(self, sink: TableSink) -> None:
+        self._sink = sink
+        self._recorded: set[tuple[str, str]] = set()
+
+    def record(self, t_ns: int, env_id: str, fleet: RobotFleet) -> None:
+        for state in fleet.robots:
+            name = str(state.descriptor.name)
+            if (env_id, name) in self._recorded:
+                continue
+            self._recorded.add((env_id, name))
+            robot_id = f"{env_id}_{name}"  # the name robot_id_of gives this robot's own topics
+            self._sink.append(
+                "robot_descriptor",
+                {
+                    "t_ns": t_ns,
+                    "env_id": env_id,
+                    "robot_id": robot_id,
+                    "name": name,
+                    "model": str(state.descriptor.model),
+                    "ns": str(state.descriptor.ns),
+                    "frame": str(state.descriptor.frame),
+                    "base_frame": str(state.descriptor.base_frame),
+                },
+            )
+            for param in state.params:
+                self._sink.append(
+                    "robot_params",
+                    {"t_ns": t_ns, "env_id": env_id, "robot_id": robot_id, "param_key": str(param.key), "param_value": str(param.value)},
+                )
 
 
 def record_semantics(sink: TableSink, envelope: Envelope[SemanticSnapshot]) -> None:

@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-from arena_evaluation.storage.registry.facts import FACT_TABLES
-from arena_evaluation.storage.registry.fact_io import FACT_KEY_COLUMNS
+from arena_evaluation.storage.registry.facts import FACT_KEY_COLUMNS, FACT_TABLES
 from arena_evaluation.storage.registry.null_reasons import (
     INVALID_EPISODE_REASONS,
     NULL_REASON_MEANINGS,
     NULL_REASON_PARAMETERISED,
     NullReason,
 )
-from arena_evaluation.storage.registry.scopes import (
-    CHILD_FACT_TABLES,
-    SCOPED_FACT_TABLES,
-    FactTable,
-    MetricScope,
-)
+from arena_evaluation.storage.registry.scopes import FactTable, MetricScope
 from arena_evaluation.storage.registry.table import (
     METRICS,
     Column,
@@ -30,14 +24,12 @@ from arena_evaluation.storage.registry.table import (
 from arena_evaluation.storage.registry import dimensions, telemetry
 
 __all__ = [
-    "CHILD_FACT_TABLES",
     "FACT_KEY_COLUMNS",
     "FACT_TABLES",
     "INVALID_EPISODE_REASONS",
     "METRICS",
     "NULL_REASON_MEANINGS",
     "NULL_REASON_PARAMETERISED",
-    "SCOPED_FACT_TABLES",
     "Column",
     "FactTable",
     "Metric",

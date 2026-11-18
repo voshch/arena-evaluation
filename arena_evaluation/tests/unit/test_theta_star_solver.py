@@ -4,12 +4,11 @@ import numpy as np
 import pytest
 
 from arena_evaluation.processing.path import theta_star
-from arena_evaluation.processing.path.theta_star import (
-    GeometricThetaStar,
-    _line_of_sight,
-    compute_theta_star_for_episode,
-    load_map_solver,
-)
+from arena_evaluation.processing.path.theta_star import StaticGrid, _line_of_sight, plan_route
+
+
+def _open(size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)) -> StaticGrid:
+    return StaticGrid(origin_xy=origin, resolution_m=resolution, lethal=np.zeros((size, size), dtype=bool))
 
 
 def test_line_of_sight_leaving_the_grid_is_blocked():
@@ -40,120 +39,105 @@ def test_line_of_sight_stops_at_an_obstacle_on_the_line():
     assert _line_of_sight(grid, 0, 0, 4, 0) is False
 
 
-def test_integer_grid_treats_occupied_and_unknown_cells_as_obstacles():
-    grid = np.array([[0, 100, -1], [50, 51, 0]], dtype=np.int16)
+def test_cell_of_floors_each_point_into_its_cell_and_rejects_points_outside():
+    grid = _open(size=10, resolution=0.5, origin=(-1.0, 2.0))
 
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    assert solver.dilated_grid.tolist() == [[False, True, True], [False, True, False]]
-    assert (solver.width, solver.height) == (3, 2)
-
-
-def test_float_grid_thresholds_at_one_half():
-    grid = np.array([[0.2, 0.5, 0.9]])
-
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    assert solver.dilated_grid.tolist() == [[False, False, True]]
+    assert grid.cell_of(-1.0, 2.0) == (0, 0)
+    assert grid.cell_of(0.2, 3.3) == (2, 2)
+    assert grid.cell_of(4.0, 2.0) is None
+    assert grid.cell_of(float("inf"), 2.0) is None
 
 
-def test_non_positive_resolution_falls_back_to_five_centimeters():
-    solver = GeometricThetaStar(np.zeros((2, 2), dtype=bool), resolution=0.0, robot_radius=0.0)
+def test_cell_centre_lies_half_a_cell_into_its_cell():
+    grid = _open(size=10, resolution=0.5, origin=(-1.0, 2.0))
 
-    assert solver.resolution == pytest.approx(0.05)
-
-
-def test_robot_radius_inflates_obstacles_by_a_disk():
-    grid = np.zeros((7, 7), dtype=bool)
-    grid[3, 3] = True
-
-    solver = GeometricThetaStar(grid, resolution=0.05, robot_radius=0.1)
-
-    assert int(solver.dilated_grid.sum()) == 13
-    assert solver.dilated_grid[3, 1] and solver.dilated_grid[1, 3]
-    assert not solver.dilated_grid[1, 1]
+    assert grid.cell_centre(2, 2) == pytest.approx((0.25, 3.25))
 
 
-def test_obstacle_grid_clears_the_window_around_each_cell_clipped_to_the_map():
-    solver = GeometricThetaStar(np.ones((6, 6), dtype=bool), resolution=0.1, robot_radius=0.0)
+def test_open_grid_route_is_the_exact_straight_segment_with_its_hypot_length():
+    grid = _open()
+    start = (0.27502482987015087, 0.46768277259018687)
+    goal = (3.3, 3.1)
 
-    cleared = solver.obstacle_grid((0, 0), (5, 5))
+    res = plan_route(grid, start, goal)
 
-    assert int((~cleared).sum()) == 18
-    assert not cleared[2, 2] and not cleared[3, 3]
-    assert cleared[0, 5] and cleared[5, 0]
-    assert solver.dilated_grid.all()
-
-
-def test_world_and_grid_coordinates_round_trip_through_origin_and_resolution():
-    solver = GeometricThetaStar(np.zeros((10, 10), dtype=bool), resolution=0.5, origin=(-1.0, 2.0), robot_radius=0.0)
-
-    assert solver.world_to_grid(0.0, 3.0) == (2, 2)
-    assert solver.world_to_grid(0.2, 3.3) == (2, 3)
-    assert solver.grid_to_world(2, 2) == (0.0, 3.0)
+    assert res.null_reason is None
+    assert res.points.tolist() == [list(start), list(goal)]
+    assert res.length_m == math.hypot(goal[0] - start[0], goal[1] - start[1])
 
 
-def test_out_of_map_endpoints_return_the_straight_segment_and_cache_it():
-    solver = GeometricThetaStar(np.zeros((10, 10), dtype=bool), resolution=0.1, robot_radius=0.0)
+def test_route_around_a_wall_is_longer_than_the_line_and_keeps_exact_endpoints():
+    grid = _open()
+    grid.lethal[0:30, 20] = True
 
-    pts, length = solver.solve((-3.0, 0.0), (0.0, 4.0), map_id="theta_test_out_of_map")
-    again = solver.solve((-3.0, 0.0), (0.0, 4.0), map_id="theta_test_out_of_map")
+    res = plan_route(grid, (1.03, 1.0), (3.07, 1.0))
 
-    assert pts.tolist() == [[-3.0, 0.0], [0.0, 4.0]]
-    assert length == pytest.approx(5.0)
-    assert again[0] is pts
-
-
-def test_unreachable_goal_falls_back_to_the_euclidean_segment():
-    grid = np.zeros((30, 30), dtype=bool)
-    grid[16:25, 16] = True
-    grid[16:25, 24] = True
-    grid[16, 16:25] = True
-    grid[24, 16:25] = True
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    pts, length = solver.solve((0.5, 0.5), (2.0, 2.0), map_id="theta_test_walled_goal")
-
-    assert pts.tolist() == [[0.5, 0.5], [2.0, 2.0]]
-    assert length == pytest.approx(math.hypot(1.5, 1.5))
+    assert res.null_reason is None
+    assert res.points[0].tolist() == [1.03, 1.0]
+    assert res.points[-1].tolist() == [3.07, 1.0]
+    assert len(res.points) >= 3
+    assert res.points[:, 1].max() >= 3.0
+    assert res.length_m > 2 * math.hypot(1.0, 2.0) - 0.2
 
 
-def test_detour_around_a_wall_is_longer_than_the_line_and_keeps_exact_endpoints():
-    grid = np.zeros((40, 40), dtype=bool)
-    grid[0:30, 20] = True
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
+def test_goal_walled_in_has_no_route_and_no_straight_line():
+    grid = _open(size=30)
+    grid.lethal[16:25, 16] = True
+    grid.lethal[16:25, 24] = True
+    grid.lethal[16, 16:25] = True
+    grid.lethal[24, 16:25] = True
 
-    pts, length = solver.solve((1.03, 1.0), (3.07, 1.0), map_id="theta_test_wall_detour")
+    res = plan_route(grid, (0.5, 0.5), (2.0, 2.0))
 
-    assert pts[0].tolist() == [1.03, 1.0]
-    assert pts[-1].tolist() == [3.07, 1.0]
-    assert len(pts) >= 3
-    assert pts[:, 1].max() >= 3.0
-    assert length > 2 * math.hypot(1.0, 2.0) - 0.2
-
-
-@pytest.mark.parametrize("name", ["", "unknown"])
-def test_unnamed_maps_have_no_solver(name: str):
-    assert load_map_solver(name) is None
+    assert res.points is None
+    assert res.length_m is None
+    assert res.null_reason == "no_path"
 
 
-def test_episode_path_without_a_map_is_the_euclidean_segment():
-    res = compute_theta_star_for_episode("unknown", (1.0, 1.0), (4.0, 5.0))
+@pytest.mark.parametrize(
+    ("start", "goal", "reason"),
+    [
+        ((-0.5, 1.0), (3.0, 3.0), "start_outside_grid"),
+        ((1.0, 1.0), (9.0, 1.0), "goal_outside_grid"),
+        ((float("nan"), 1.0), (3.0, 3.0), "endpoint_not_finite"),
+    ],
+)
+def test_endpoint_that_cannot_be_planned_from_gives_its_reason(start: tuple[float, float], goal: tuple[float, float], reason: str):
+    res = plan_route(_open(), start, goal)
 
-    assert res.success is True
-    assert res.geodesic_length == pytest.approx(5.0)
-    assert res.path_x.tolist() == [1.0, 4.0]
-    assert res.path_y.tolist() == [1.0, 5.0]
+    assert res.null_reason == reason
+    assert res.points is None
 
 
-def test_episode_path_reuses_the_cached_map_solver():
-    grid = np.zeros((40, 40), dtype=bool)
-    grid[0:30, 20] = True
-    theta_star._solver_instances["theta_test_cached_map_0.0"] = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
+def test_endpoint_inside_a_lethal_cell_is_refused_not_routed_around():
+    grid = _open()
+    grid.lethal[10:14, 10:14] = True
 
-    res = compute_theta_star_for_episode("theta_test_cached_map", (1.0, 1.0), (3.0, 1.0), robot_radius=0.0)
+    assert plan_route(grid, (1.05, 1.05), (3.0, 3.0)).null_reason == "start_in_lethal_cell"
+    assert plan_route(grid, (3.0, 3.0), (1.05, 1.05)).null_reason == "goal_in_lethal_cell"
 
-    assert load_map_solver("theta_test_cached_map", robot_radius=0.0) is theta_star._solver_instances["theta_test_cached_map_0.0"]
-    assert res.success is True
-    assert len(res.path_points) >= 3
-    assert res.geodesic_length > 2.0
+
+def test_missing_search_library_raises_instead_of_routing_a_fallback(monkeypatch, tmp_path):
+    monkeypatch.setattr(theta_star, "_SOLVER_LIBRARY", tmp_path / "solver.so")
+    monkeypatch.setattr(theta_star, "_SOLVER_SOURCE", tmp_path / "solver.cpp")
+    grid = _open()
+    grid.lethal[0:30, 20] = True
+    theta_star._solver_library.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="search library"):
+            plan_route(grid, (1.0, 1.0), (3.0, 1.0))
+    finally:
+        theta_star._solver_library.cache_clear()
+
+
+def test_search_that_exhausts_its_iteration_budget_reports_the_cap_not_no_path():
+    lethal = np.zeros((40, 40), dtype=bool)
+    lethal[:-1, 20] = True
+    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=1) == "iteration_cap"
+    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000) != "iteration_cap"
+
+
+def test_search_reports_no_path_when_a_full_wall_separates_the_endpoints():
+    lethal = np.zeros((40, 40), dtype=bool)
+    lethal[:, 20] = True
+    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000) == "no_path"

@@ -7,14 +7,7 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.registry.scopes import FactTable, MetricScope
-from arena_evaluation.storage.registry.table import Column, Table, TableKind
-
-_NULL_REASON: Final[Column] = Column(
-    pl.String,
-    required=False,
-    description="Semicolon-separated <column>:<code> reasons of the NULL metric cells of this row, empty when there are none.",
-)
-
+from arena_evaluation.storage.registry.table import Column, Table, TableKind, registered_tables
 
 class _FactRow(Table, abstract=True):
     """The base of every fact table: its columns are non-null unless a column says otherwise."""
@@ -53,7 +46,15 @@ class FactEpisodes(
         null_reason=True,
         description="Terminal result of the episode as the runner recorded it.",
     )
-    null_reason = _NULL_REASON
+    invalid_reason = Column(
+        pl.String,
+        description="Defects that make the episode unrankable, joined by semicolons; empty when it is valid.",
+    )
+    pose_frame = Column(
+        pl.String,
+        null_reason=True,
+        description="TF parent frame the robot pose was taken from inside the episode window.",
+    )
 
 
 class FactEncounters(
@@ -84,7 +85,26 @@ class FactEncounters(
     contact_id = Column(
         pl.String, description="Contact of the encounter, empty when there is none."
     )
-    null_reason = _NULL_REASON
+    approach_type = Column(
+        pl.String,
+        null_reason=True,
+        description="Approach of the actor to the robot: stationary, head_on, overtaking or crossing.",
+    )
+    min_clearance_m = Column(
+        pl.Float64,
+        unit="m",
+        description="Smallest edge-to-edge clearance of the robot and the actor inside the window.",
+    )
+    duration_s = Column(
+        pl.Float64, unit="s", description="Length of the window from its start to its end."
+    )
+    detector_version = Column(
+        pl.String, description="Version of the encounter detector that found the window."
+    )
+    detector_params_hash = Column(
+        pl.String,
+        description="Fingerprint of the detector parameters that found the window.",
+    )
 
 
 class FactContacts(
@@ -106,7 +126,11 @@ class FactContacts(
     )
     t_onset_ns = Column(pl.Int64, description="Onset of the contact in nanoseconds.")
     t_end_ns = Column(pl.Int64, description="End of the contact in nanoseconds.")
-    null_reason = _NULL_REASON
+    duration_s = Column(
+        pl.Float64,
+        unit="s",
+        description="Length of the contact window from its onset to its end.",
+    )
 
 
 class FactPedestrians(
@@ -156,7 +180,6 @@ class FactPedestrians(
         unit="rad",
         description="Spawn heading of the pedestrian.",
     )
-    null_reason = _NULL_REASON
 
 
 class FactRobots(
@@ -170,7 +193,6 @@ class FactRobots(
         pl.String, description="Identity of the robot within the environment."
     )
     robot_name = Column(pl.String, description="Name of the robot as launched.")
-    null_reason = _NULL_REASON
 
 
 class FactEdgeCases(_RunEpisodeRobot, name="edge_cases", kind=TableKind.FACT):
@@ -181,9 +203,9 @@ class FactEdgeCases(_RunEpisodeRobot, name="edge_cases", kind=TableKind.FACT):
     case_idx = Column(
         pl.Int64, description="Index of the edge case within the episode."
     )
-    kind = Column(pl.String, description="Kind of the edge case.")
+    kind = Column(pl.String, description="Edge-case list the row came from: step, agent, missing or unplayed.")
     ordinal = Column(pl.Int64, description="Position of the row within its edge case.")
-    null_reason = _NULL_REASON
+    element = Column(pl.String, description="The step, agent or actor the row names.")
 
 
 class FactFormations(_RunEpisodeRobot, name="formations", kind=TableKind.FACT):
@@ -195,8 +217,8 @@ class FactFormations(_RunEpisodeRobot, name="formations", kind=TableKind.FACT):
     formation_idx = Column(
         pl.Int64, description="Index of the formation within the episode."
     )
-    role = Column(pl.String, description="Role of the member in the formation.")
-    null_reason = _NULL_REASON
+    role = Column(pl.String, description="Role of the row in the formation: member or absent.")
+    element = Column(pl.String, description="The formation agent the row names.")
 
 
 class FactPhaseOutcomes(_RunEpisodeRobot, name="phase_outcomes", kind=TableKind.FACT):
@@ -205,7 +227,8 @@ class FactPhaseOutcomes(_RunEpisodeRobot, name="phase_outcomes", kind=TableKind.
     key = ("run_id", "episode_id", "robot_id", "phase_idx")
 
     phase_idx = Column(pl.Int64, description="Index of the replayed phase.")
-    null_reason = _NULL_REASON
+    outcome = Column(pl.String, description="Outcome token of the phase: met, failed, dropped or pending.")
+    met = Column(pl.Boolean, description="Whether the replay marks the phase met.")
 
 
 class FactJudgeDisagreements(
@@ -218,7 +241,9 @@ class FactJudgeDisagreements(
     disagreement_idx = Column(
         pl.Int64, description="Index of the disagreement within the episode."
     )
-    null_reason = _NULL_REASON
+    disagreement = Column(
+        pl.String, description="Text of the disagreement between the replay judge and the record."
+    )
 
 
 class FactMechanismStates(
@@ -245,7 +270,6 @@ class FactMechanismStates(
         unit="per field",
         description="Value of the state field, in the unit the field declares.",
     )
-    null_reason = _NULL_REASON
 
 
 class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
@@ -255,6 +279,11 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
 
     collision_idx = Column(
         pl.Int64, description="Index of the collision within the episode."
+    )
+    obstacle_id = Column(
+        pl.String,
+        null_reason=True,
+        description="Identifier of the obstacle the robot collided with.",
     )
     obstacle_kind = Column(
         pl.String,
@@ -276,19 +305,9 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
         unit="m",
         description="Position of the collision, y.",
     )
-    null_reason = _NULL_REASON
 
 
 FACT_TABLES: Final[dict[FactTable, type[Table]]] = {
-    FactTable.EPISODES: FactEpisodes,
-    FactTable.ENCOUNTERS: FactEncounters,
-    FactTable.CONTACTS: FactContacts,
-    FactTable.PEDESTRIANS: FactPedestrians,
-    FactTable.ROBOTS: FactRobots,
-    FactTable.EDGE_CASES: FactEdgeCases,
-    FactTable.FORMATIONS: FactFormations,
-    FactTable.PHASE_OUTCOMES: FactPhaseOutcomes,
-    FactTable.JUDGE_DISAGREEMENTS: FactJudgeDisagreements,
-    FactTable.MECHANISM_STATES: FactMechanismStates,
-    FactTable.COLLISIONS: FactCollisions,
+    FactTable(table.table_name): table for table in registered_tables() if table.table_kind is TableKind.FACT
 }
+FACT_KEY_COLUMNS: Final[dict[str, tuple[str, ...]]] = {table.table_name: table.key for table in FACT_TABLES.values()}

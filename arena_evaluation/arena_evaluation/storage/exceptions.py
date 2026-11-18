@@ -26,3 +26,9 @@ class ContractViolationError(ArenaEvaluationError):
     """Raised when the stored benchmark breaks the publish-time contract; nothing partial is published."""
 
     pass
+
+
+class MetricInputError(ArenaEvaluationError):
+    """Raised when a metric calculator's required input is missing; the registry re-raises it instead of recording a null."""
+
+    pass

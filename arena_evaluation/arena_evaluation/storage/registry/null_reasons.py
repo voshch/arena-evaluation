@@ -36,7 +36,7 @@ NULL_REASON_MEANINGS: Final[Mapping[str, str]] = {
     f"{NullReason.TOPIC_MISSING.value}:<topic>": "the recording carries no <topic> stream, so the value was never measured",
     NullReason.PEDSIM_UNAVAILABLE.value: "the scenario spawned no dynamic pedestrians",
     NullReason.NO_SAMPLES.value: "the stream was recorded but holds no sample inside the window",
-    NullReason.REFERENCE_MISSING.value: "no robot-free twin episode matched this stage and seed",
+    NullReason.REFERENCE_MISSING.value: "no robot-free recorded reference matched this stage and seed",
     NullReason.NO_CONFLICT.value: "clearance stayed above the encounter distance, so nothing happened",
     NullReason.ZERO_DENOMINATOR.value: "the ratio's denominator is zero inside this window",
     NullReason.NOT_RECORDED.value: "the recording does not carry this parameter or value",

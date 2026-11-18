@@ -80,6 +80,13 @@ class Column:
             )
 
 
+NULL_REASON: Final[Column] = Column(
+    pl.String,
+    required=False,
+    description="Semicolon-separated <column>:<code> reasons of the NULL cells of this row, empty when there are none.",
+)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class Metric(Column):
     """A metric, defined once in the metric store, stored at each scope it lists and nowhere else."""
@@ -212,6 +219,8 @@ class Table:
         cls.table_kind = kind
         cls.table_scope = scope
         cls._columns = _collect_columns(cls)
+        if cls.table_kind is not TableKind.TELEMETRY and NULL_REASON_COLUMN not in cls._columns:
+            cls._columns[NULL_REASON_COLUMN] = NULL_REASON
         _validate(cls)
         _REGISTERED.append(cls)
 

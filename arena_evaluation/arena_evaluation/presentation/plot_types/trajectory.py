@@ -32,6 +32,8 @@ SUCCESS_RESULTS = frozenset({"SUCCESS", "success", "reached", "goal_reached", "G
 COLLISION_RESULTS = frozenset({"COLLISION", "collision", "CRASH"})
 DOOR_COLORS = {"locked": "#d946ef", "closed": "#d3273e", "moving": "#f59e0b"}
 CABIN_COLOR = "#06b6d4"
+# The Theta* overlay is illustrative and not a metric input, so one display radius serves every robot.
+THETA_OVERLAY_ROBOT_RADIUS_M = 0.3
 
 
 def _sub_paths(path: object) -> list[np.ndarray]:
@@ -367,44 +369,42 @@ class TrajectoryRenderer(BasePlotRenderer):
 
         # 1. Overlay Theta* Synthetic Demonstration Baseline Path
         if self.spec.options.get("overlay_theta_star", False) or self.spec.options.get("show_theta_star", False) or (self.spec.data_key and "theta" in self.spec.data_key):
-            try:
-                from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
+            from arena_evaluation.processing.path.static_environment import grid_for_map
+            from arena_evaluation.processing.path.theta_star import plan_route
 
-                theta_rendered = False
-                seen_theta_endpoints = set()
-                # Iterate through evaluated dynamic episodes to render matching Theta* baseline for each stage
-                for _, r in pdf_eval.iterrows():
-                    m_name = map_name or r.get("map")
-                    s_pt, g_pt = self._extract_start_goal(r.to_dict())
+            theta_rendered = False
+            seen_theta_endpoints = set()
+            # Iterate through evaluated dynamic episodes to render matching Theta* baseline for each stage
+            for _, r in pdf_eval.iterrows():
+                m_name = map_name or r.get("map")
+                s_pt, g_pt = self._extract_start_goal(r.to_dict())
 
-                    if m_name and s_pt is not None and g_pt is not None:
-                        ep_key = (str(m_name), round(s_pt[0], 2), round(s_pt[1], 2), round(g_pt[0], 2), round(g_pt[1], 2))
-                        if ep_key in seen_theta_endpoints:
-                            continue
-                        seen_theta_endpoints.add(ep_key)
+                if m_name and s_pt is not None and g_pt is not None:
+                    ep_key = (str(m_name), round(s_pt[0], 2), round(s_pt[1], 2), round(g_pt[0], 2), round(g_pt[1], 2))
+                    if ep_key in seen_theta_endpoints:
+                        continue
+                    seen_theta_endpoints.add(ep_key)
 
-                        try:
-                            res = compute_theta_star_for_episode(str(m_name), s_pt, g_pt, run_dir=str(run_dir) if run_dir else None)
-                            if res and res.success and len(res.path_x) > 0:
-                                fig.add_trace(
-                                    go.Scatter(
-                                        x=res.path_x.tolist(),
-                                        y=res.path_y.tolist(),
-                                        mode='lines+markers',
-                                        name='Theta* Optimal Demonstration',
-                                        legendgroup='theta_star',
-                                        line=dict(color='#d97706', width=3, dash='dash'),
-                                        marker=dict(size=7, symbol='diamond', color='#d97706'),
-                                        opacity=0.95,
-                                        hovertemplate="<b>Theta* Optimal Path</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<extra></extra>",
-                                        showlegend=not theta_rendered,
-                                    )
-                                )
-                                theta_rendered = True
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                    grid = grid_for_map(str(m_name), run_dir, THETA_OVERLAY_ROBOT_RADIUS_M)
+                    if grid is None:
+                        continue
+                    res = plan_route(grid, s_pt, g_pt)
+                    if res.points is not None:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=res.points[:, 0].tolist(),
+                                y=res.points[:, 1].tolist(),
+                                mode='lines+markers',
+                                name='Theta* Optimal Demonstration',
+                                legendgroup='theta_star',
+                                line=dict(color='#d97706', width=3, dash='dash'),
+                                marker=dict(size=7, symbol='diamond', color='#d97706'),
+                                opacity=0.95,
+                                hovertemplate="<b>Theta* Optimal Path</b><br>X: %{x:.2f}<br>Y: %{y:.2f}<extra></extra>",
+                                showlegend=not theta_rendered,
+                            )
+                        )
+                        theta_rendered = True
 
         # 2. Overlay Pedestrian Paths (Human Interaction Flows)
         if self.spec.options.get("overlay_pedestrians", False) or self.spec.options.get("show_peds", False) or (self.spec.data_key and "ped" in self.spec.data_key):
@@ -870,21 +870,20 @@ class TrajectoryRenderer(BasePlotRenderer):
 
     @staticmethod
     def _draw_theta_star(ax: Axes, frame: pd.DataFrame, map_name: str | None, run_dir: pathlib.Path | None) -> None:
-        try:
-            from arena_evaluation.processing.path.theta_star import compute_theta_star_for_episode
-        except ImportError:
-            return
+        from arena_evaluation.processing.path.static_environment import grid_for_map
+        from arena_evaluation.processing.path.theta_star import plan_route
+
         for _, r in frame.iterrows():
             m_name = map_name or r.get("map")
             s_pt, g_pt = r.get("start"), r.get("goal")
             if not m_name or s_pt is None or g_pt is None:
                 continue
-            try:
-                res = compute_theta_star_for_episode(str(m_name), (float(s_pt[0]), float(s_pt[1])), (float(g_pt[0]), float(g_pt[1])), run_dir=str(run_dir) if run_dir else None)
-            except Exception:
+            grid = grid_for_map(str(m_name), run_dir, THETA_OVERLAY_ROBOT_RADIUS_M)
+            if grid is None:
                 continue
-            if res and res.success and len(res.path_x) > 0:
-                ax.plot(res.path_x, res.path_y, color="#d97706", linestyle="--", linewidth=2.5, marker="d", markersize=5, label="Theta* Reference", zorder=4)
+            res = plan_route(grid, (float(s_pt[0]), float(s_pt[1])), (float(g_pt[0]), float(g_pt[1])))
+            if res.points is not None:
+                ax.plot(res.points[:, 0], res.points[:, 1], color="#d97706", linestyle="--", linewidth=2.5, marker="d", markersize=5, label="Theta* Reference", zorder=4)
                 return
 
     @staticmethod

@@ -132,8 +132,6 @@ def test_recorded_parameters_are_parsed_and_a_missing_one_carries_its_reason():
     robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "0.25"})})["dim_robots"]
 
     assert robots["robot_radius"].to_list() == [0.25]
-    assert robots["max_linear_vel"].to_list() == [None]
-    assert "max_linear_vel:not_recorded" in robots["null_reason"][0]
 
 
 def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(tmp_path: pathlib.Path):

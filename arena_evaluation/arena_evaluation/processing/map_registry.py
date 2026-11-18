@@ -1,28 +1,50 @@
+from __future__ import annotations
+
+import contextlib
 import logging
 import os
 import pathlib
 import subprocess
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import yaml
 from PIL import Image
+
+if TYPE_CHECKING:
+    from arena_simulation_setup.tree.World import Level
 
 _log = logging.getLogger(__name__)
 
 
 class MapRegistry:
     @staticmethod
-    def _render_world_map(map_name: str, cache_dir: pathlib.Path) -> dict | None:
-        """Resolve the world the way the runtime does and rasterize its compacted levels into the cache."""
-        try:
-            from arena_simulation_setup.tree.World import WorldIdentifier
-        except ImportError:
-            return None
+    def compacted_world(map_name: str, run_dir: pathlib.Path | None = None) -> tuple[Level | None, dict[str, tuple[float, float]] | None]:
+        """The world's levels compacted onto one grid the way the runtime renders them, with its level origins. A world copied into the run's worlds folder wins over the workspace's. Raises when the world does not resolve."""
+        with MapRegistry.compacted_world_scope(map_name, run_dir=run_dir) as compacted_and_origins:
+            return compacted_and_origins
+
+    @staticmethod
+    @contextlib.contextmanager
+    def compacted_world_scope(map_name: str, run_dir: pathlib.Path | None = None) -> Iterator[tuple[Level | None, dict[str, tuple[float, float]] | None]]:
+        """Like compacted_world, with the world's assets resolvable inside the block. A run's copy of a world carries its layout but not its assets, so those come from the workspace world of the same name."""
+        from arena_simulation_setup.tree.World import WorldIdentifier, WorldView, world_assets
+
         bare, level_filter = WorldIdentifier.split_filter(map_name)
-        try:
-            view = WorldIdentifier(bare).resolve_sync()
+        run_world = pathlib.Path(run_dir) / "worlds" / bare if run_dir is not None else None
+        view = WorldView(run_world) if run_world is not None and run_world.is_dir() else WorldIdentifier(bare).resolve_sync()
+        asset_view = view if (view.path / "assets").is_dir() else WorldIdentifier(bare).resolve_sync()
+        with world_assets(asset_view):
             loaded = view.load(level_filter=level_filter)
             origins = view.level_origins()
             compacted = loaded.compact_world(origins=origins if origins is not None else {fid: (0.0, 0.0) for fid in loaded.level_ids})
+            yield compacted, origins
+
+    @staticmethod
+    def _render_world_map(map_name: str, cache_dir: pathlib.Path) -> dict | None:
+        """Resolve the world the way the runtime does and rasterize its compacted levels into the cache."""
+        try:
+            compacted, origins = MapRegistry.compacted_world(map_name)
         except Exception as e:
             _log.warning(f"world {map_name!r} did not resolve: {e!r}")
             return None

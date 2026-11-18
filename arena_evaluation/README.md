@@ -80,7 +80,6 @@ arena_evaluation/
 |   |   |-- dimension_rows.py  <- The dimension rows of one episode
 |   |   |-- map_registry.py    <- The map image of a world, resolved and cached
 |   |   |-- pipeline.py        <- ProcessingPipeline: extracts, then writes the benchmark's dimensions
-|   |   |-- progress_display.py <- Live progress table of the extraction
 |   |   |-- metrics/           <- Metric calculators (layer 2, returns with PR2)
 |   |   |-- acoustics/         <- Acoustic propagation solver and door geometry (layer 2)
 |   |   |-- path/              <- Reference path solver (layer 2)

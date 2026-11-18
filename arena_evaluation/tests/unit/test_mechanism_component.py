@@ -9,6 +9,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_component import (
     mechanism_score,
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 
@@ -40,7 +41,7 @@ def test_component_keys_are_registered_metric_outputs():
     assert {c.key for c in MECHANISM_COMPONENTS} <= outputs
     directions = {}
     for calc in registry.calculators.values():
-        directions.update(calc.OUTPUT_DIRECTIONS)
+        directions.update(calc.DIRECTIONS)
     for component in MECHANISM_COMPONENTS:
         if component.key in directions:
             assert directions[component.key] == component.direction, component.key
@@ -78,6 +79,6 @@ def test_calculator_reads_prior_results():
 
 def test_calculator_runs_after_its_inputs():
     registry = MetricRegistry(RobotParams())
-    stage_of = {name: i for i, stage in enumerate(registry.execution_order()) for name in stage}
+    stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
     for dep in MechanismComponentCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of["mechanism_component"]

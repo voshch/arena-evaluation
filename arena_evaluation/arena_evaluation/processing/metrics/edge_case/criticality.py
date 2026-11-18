@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Sequence
+from typing import Final
 
 import attrs
 from arena_simulation_setup.shared.pathing import Point
 
-FREEZE_SPEED = 0.05
-PERSONAL_SPACE = 0.5
-SETTLE_S = 2.0
-ENCOUNTER_NEAR_M = 1.5
-FORMATION_RADIUS_M = 1.5
+FREEZE_SPEED: Final[float] = 0.05
+#: Personal-space edge clearance, metres (centre distance minus both body radii), the proxemic boundary.
+PERSONAL_SPACE: Final[float] = 0.5
+SETTLE_S: Final[float] = 2.0
+#: How near a body must pass a designed encounter point to count as passing it, centre-to-centre metres.
+ENCOUNTER_NEAR_CENTRE_M: Final[float] = 1.5
+FORMATION_RADIUS_M: Final[float] = 1.5
 
 
 @attrs.frozen
@@ -85,7 +88,7 @@ def _speed(v: Point) -> float:
 
 
 def post_encroachment_time(samples: Sequence[Sample], encounter: Point, agent: str) -> float | None:
-    """Time gap between the robot and `agent` passing `encounter`, None when either never comes within ENCOUNTER_NEAR_M of it."""
+    """Time gap between the robot and `agent` passing `encounter`, None when either never comes within ENCOUNTER_NEAR_CENTRE_M of it."""
 
     def crossing_time(track: Iterable[tuple[float, Point]]) -> float | None:
         best_t, best_d = None, math.inf
@@ -93,7 +96,7 @@ def post_encroachment_time(samples: Sequence[Sample], encounter: Point, agent: s
             d = math.dist(p, encounter)
             if d < best_d:
                 best_t, best_d = t, d
-        return best_t if best_d <= ENCOUNTER_NEAR_M else None
+        return best_t if best_d <= ENCOUNTER_NEAR_CENTRE_M else None
 
     t_robot = crossing_time((s.t, s.robot) for s in samples)
     t_agent = crossing_time((s.t, s.peds[agent][0]) for s in samples if agent in s.peds)

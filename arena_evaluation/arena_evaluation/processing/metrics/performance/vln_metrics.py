@@ -1,20 +1,33 @@
 from __future__ import annotations
 
-import itertools
 import math
 import typing
 
 import numpy as np
+import polars as pl
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 from scipy.spatial.distance import cdist
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.path.theta_star import GeometricThetaStar, load_map_solver
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.common.alignment import interpolate_values
+from arena_evaluation.processing.metrics.common.routes import plan_mission
+from arena_evaluation.processing.path.static_environment import grid_for_map
+from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _STEPS = ((0, 1, 1.0), (1, 0, 1.0), (1, 1, math.sqrt(2.0)), (1, -1, math.sqrt(2.0)))
 _OCTILE_MAX_RATIO = math.sqrt(4.0 - 2.0 * math.sqrt(2.0))
+
+NE = define_metric("ne", pl.Float64, scopes=(MetricScope.ROBOT,), unit="m", description="Navigation error: geodesic distance from the final pose to the final goto goal, m.", null_reason=True)
+OSR = define_metric("osr", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Oracle success: whether any recorded pose within the goal tolerance reaches the goal geodesically.", null_reason=True)
+SUCCESS_GEODESIC = define_metric("success_geodesic", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Recorded success conjoined with a navigation error inside the final goto tolerance.", null_reason=True)
+SPL_GEODESIC = define_metric("spl_geodesic", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Success weighted by the chained per-goto geodesic reference length over the travelled length, 0 to 1.", null_reason=True)
+NDTW = define_metric("ndtw", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Normalised dynamic-time-warping score of the travelled path against the chained geodesic reference, 0 to 1.", null_reason=True)
+SDTW = define_metric("sdtw", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Success weighted by the normalised dynamic-time-warping score, 0 to 1.", null_reason=True)
+STUCK = define_metric("stuck", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Whether a failed episode dwelled within 0.2 m and 15 degrees for ten seconds or more.", null_reason=True)
+GOAL_INPUTS = define_metric("goal_inputs", pl.String, scopes=(MetricScope.EPISODE,), unit="", description="Goal inputs the planner was given, joined by `+`: pose, pose:oracle, instruction, instruction:route or instruction:coordinates.", null_reason=True)
 
 
 def geodesic_field(blocked: np.ndarray, goal_cell: tuple[int, int], resolution: float) -> np.ndarray:
@@ -43,11 +56,14 @@ def geodesic_field(blocked: np.ndarray, goal_cell: tuple[int, int], resolution: 
 
 
 def geodesic_distances(field: np.ndarray, xs: np.ndarray, ys: np.ndarray, resolution: float, origin: tuple[float, float]) -> np.ndarray:
-    """Field value at the cell of each world point, inf outside the grid."""
-    gx = np.rint((np.asarray(xs, dtype=np.float64) - origin[0]) / resolution).astype(np.int64)
-    gy = np.rint((np.asarray(ys, dtype=np.float64) - origin[1]) / resolution).astype(np.int64)
+    """Field value at the cell containing each world point, inf outside the grid and for a non-finite point."""
+    xs = np.asarray(xs, dtype=np.float64)
+    ys = np.asarray(ys, dtype=np.float64)
+    finite = np.isfinite(xs) & np.isfinite(ys)
+    gx = np.floor((np.where(finite, xs, origin[0]) - origin[0]) / resolution).astype(np.int64)
+    gy = np.floor((np.where(finite, ys, origin[1]) - origin[1]) / resolution).astype(np.int64)
     h, w = field.shape
-    inside = (gx >= 0) & (gx < w) & (gy >= 0) & (gy < h)
+    inside = finite & (gx >= 0) & (gx < w) & (gy >= 0) & (gy < h)
     out = np.full(len(gx), np.inf)
     out[inside] = field[gy[inside], gx[inside]]
     return out
@@ -63,7 +79,7 @@ def resample_path(points: np.ndarray, spacing: float) -> np.ndarray:
     if s[-1] <= 0:
         return points[:1]
     stations = np.append(np.arange(0.0, s[-1], spacing), s[-1])
-    return np.column_stack((np.interp(stations, s, points[:, 0]), np.interp(stations, s, points[:, 1])))
+    return np.column_stack((interpolate_values(s, points[:, 0], stations), interpolate_values(s, points[:, 1], stations)))
 
 
 def ndtw(reference: np.ndarray, query: np.ndarray, threshold: float, spacing: float) -> float:
@@ -81,9 +97,9 @@ def ndtw(reference: np.ndarray, query: np.ndarray, threshold: float, spacing: fl
     return float(np.exp(-cost[n, m] / (n * threshold)))
 
 
-def stuck_window(xs: np.ndarray, ys: np.ndarray, yaw: np.ndarray, time_ns: np.ndarray, window_s: float, max_shift_m: float, max_turn_rad: float) -> bool:
+def stuck_window(xs: np.ndarray, ys: np.ndarray, yaw: np.ndarray, t_ns: np.ndarray, window_s: float, max_shift_m: float, max_turn_rad: float) -> bool:
     """True if some pose and the first pose `window_s` or more later differ by under both thresholds."""
-    t = np.asarray(time_ns, dtype=np.float64) / 1e9
+    t = np.asarray(t_ns, dtype=np.float64) / 1e9
     later = np.searchsorted(t, t + window_s, side="left")
     first = np.nonzero(later < len(t))[0]
     later = later[first]
@@ -116,60 +132,43 @@ def goal_inputs(phases: dict | None) -> str | None:
     return "+".join(labels)
 
 
+def _within(grid: StaticGrid, start_xy: tuple[float, float], goal_xy: tuple[float, float], threshold: float) -> bool:
+    length_m = plan_route(grid, start_xy, goal_xy).length_m
+    return length_m is not None and length_m <= threshold
+
+
 class VlnMetricsCalculator(BaseMetricCalculator):
-    """VLN metrics (NE, OSR, SR, SPL, nDTW, SDTW, stuck) on the Theta* occupancy grid and reference path."""
+    """VLN metrics (NE, OSR, SR, SPL, nDTW, SDTW, stuck) on the static lethal grid and the chained geodesic reference."""
 
     NAME = "vln_metrics"
     CATEGORY = "performance"
     DEPENDS_ON = ["collision_metrics", "path_metrics"]
-    REQUIRED_TOPICS = [("tf_gt", "odom")]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
+    PARAMS = ()
 
-    UNITS = {
-        "ne": "m",
-        "osr": "",
-        "success_geodesic": "",
-        "spl_geodesic": "",
-        "ndtw": "",
-        "sdtw": "",
-        "stuck": "",
-        "goal_inputs": "",
+    OUTPUTS = (NE, OSR, SUCCESS_GEODESIC, SPL_GEODESIC, NDTW, SDTW, STUCK, GOAL_INPUTS)
+    DIRECTIONS = {
+        "ne": Direction.LOWER,
+        "osr": Direction.HIGHER,
+        "success_geodesic": Direction.HIGHER,
+        "spl_geodesic": Direction.HIGHER,
+        "ndtw": Direction.HIGHER,
+        "sdtw": Direction.HIGHER,
+        "stuck": Direction.LOWER,
     }
-
     PRIMARY_OUTPUTS = ["ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"]
-    OUTPUT_DIRECTIONS = {
-        "ne": "lower",
-        "osr": "higher",
-        "success_geodesic": "higher",
-        "spl_geodesic": "higher",
-        "ndtw": "higher",
-        "sdtw": "higher",
-        "stuck": "lower",
-    }
 
     NDTW_SPACING_M = 0.25
     STUCK_WINDOW_S = 10.0
     STUCK_SHIFT_M = 0.2
     STUCK_TURN_DEG = 15.0
 
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "ne",
-            "osr",
-            "success_geodesic",
-            "spl_geodesic",
-            "ndtw",
-            "sdtw",
-            "stuck",
-            "goal_inputs",
-        ]
-
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        solver = load_map_solver(episode.map or "", robot_radius=self.robot_params.robot_radius)
-        return self.calculate_on_grid(episode, prior_results, solver)
+        grid = grid_for_map(episode.map, episode.run_dir, self.robot_params.robot_radius)
+        return self.calculate_on_grid(episode, prior_results, grid)
 
-    def calculate_on_grid(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any], solver: GeometricThetaStar | None) -> dict[str, typing.Any]:
-        """Metrics over the solver's grid against the final goto's tolerance, geodesic outputs None without a grid or goto, threshold outputs None without a tolerance."""
+    def calculate_on_grid(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any], grid: StaticGrid | None) -> dict[str, typing.Any]:
+        """Metrics over the static grid against the final goto's tolerance, geodesic outputs None without a grid or goto, threshold outputs None without a tolerance."""
         results: dict[str, typing.Any] = {k: None for k in self.output_keys()}
         pos_x, pos_y, yaw, _, _, _ = self.resolve_robot_pose(episode)
         if len(pos_x) == 0:
@@ -179,52 +178,53 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         goals, threshold = route(episode.phases)
         results["goal_inputs"] = goal_inputs(episode.phases)
 
-        if success is not None and "time_ns" in episode.data.columns:
+        if success is not None and "t_ns" in episode.data.columns:
             results["stuck"] = not bool(success) and stuck_window(
                 pos_x,
                 pos_y,
                 yaw,
-                episode.data["time_ns"].to_numpy(),
+                episode.data["t_ns"].to_numpy(),
                 self.STUCK_WINDOW_S,
                 self.STUCK_SHIFT_M,
                 math.radians(self.STUCK_TURN_DEG),
             )
 
-        if solver is None or not goals:
+        if grid is None or not goals:
             return results
 
         start_xy = (float(pos_x[0]), float(pos_y[0]))
         goal_xy = goals[-1]
-        goal_cell = solver.world_to_grid(*goal_xy)
-        blocked = solver.obstacle_grid(solver.world_to_grid(*start_xy), goal_cell)
-        field = geodesic_field(blocked, goal_cell, solver.resolution)
-        dists = geodesic_distances(field, pos_x, pos_y, solver.resolution, solver.origin)
+        goal_cell = grid.cell_of(*goal_xy)
+        if goal_cell is None:
+            return results
+        field = geodesic_field(grid.lethal, goal_cell, grid.resolution_m)
+        dists = geodesic_distances(field, pos_x, pos_y, grid.resolution_m, grid.origin_xy)
 
         finite = np.isfinite(dists)
         if finite[-1]:
-            results["ne"] = float(solver.solve((float(pos_x[-1]), float(pos_y[-1])), goal_xy, map_id=episode.map or "")[1])
+            results["ne"] = plan_route(grid, (float(pos_x[-1]), float(pos_y[-1])), goal_xy).length_m
         if threshold is None:
             return results
 
-        near = np.flatnonzero(finite & (dists <= threshold * _OCTILE_MAX_RATIO + solver.resolution * math.sqrt(2.0)))
+        near = np.flatnonzero(finite & (dists <= threshold * _OCTILE_MAX_RATIO + grid.resolution_m * math.sqrt(2.0)))
         euclid = np.hypot(pos_x[near] - goal_xy[0], pos_y[near] - goal_xy[1])
         near = near[euclid <= threshold][np.argsort(euclid[euclid <= threshold])]
-        results["osr"] = any(solver.solve((float(pos_x[i]), float(pos_y[i])), goal_xy, map_id=episode.map or "")[1] <= threshold for i in near)
+        results["osr"] = any(_within(grid, (float(pos_x[i]), float(pos_y[i])), goal_xy, threshold) for i in near)
         if results["ne"] is not None and success is not None:
             results["success_geodesic"] = bool(success) and results["ne"] <= threshold
 
         if not finite[0]:
             return results
 
-        solved = [solver.solve(a, b, map_id=episode.map or "") for a, b in itertools.pairwise([start_xy, *goals])]
-        reference = np.vstack([solved[0][0], *(pts[1:] for pts, _ in solved[1:])])
-        path_length = prior_results.get("path_length")
-        l0 = sum(length for _, length in solved)
-        if results["success_geodesic"] is not None and path_length is not None and l0 is not None:
-            denom = max(float(path_length), float(l0))
-            results["spl_geodesic"] = float(results["success_geodesic"]) * (float(l0) / denom if denom > 0 else 1.0)
+        mission = plan_mission(grid=grid, waypoints=(start_xy, *goals))
+        if mission.points is None or mission.length_m is None:
+            return results
+        path_length = prior_results.get("path_length_m")
+        if results["success_geodesic"] is not None and path_length is not None:
+            denom = max(float(path_length), float(mission.length_m))
+            results["spl_geodesic"] = float(results["success_geodesic"]) * (float(mission.length_m) / denom if denom > 0 else 1.0)
 
-        results["ndtw"] = ndtw(reference, np.column_stack((pos_x, pos_y)), threshold, self.NDTW_SPACING_M)
+        results["ndtw"] = ndtw(mission.points, np.column_stack((pos_x, pos_y)), threshold, self.NDTW_SPACING_M)
         if results["success_geodesic"] is not None:
             results["sdtw"] = float(results["success_geodesic"]) * results["ndtw"]
 

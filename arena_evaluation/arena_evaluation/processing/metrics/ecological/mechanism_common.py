@@ -11,6 +11,9 @@ import typing
 import numpy as np
 import polars as pl
 
+from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_index, asof_position
+from arena_evaluation.processing.metrics.common.events import reconstruct_events
+
 if typing.TYPE_CHECKING:
     from arena_simulation_setup.shared import Signal
     from arena_simulation_setup.tree.World import Level, World, Zone
@@ -51,7 +54,7 @@ def entity_level(entity: str) -> str | None:
 
 
 def parse_members(token: str | None) -> list[str]:
-    """Member names from the `_reconstruct_events` members string (comma joined, sorted)."""
+    """Member names from the `reconstruct_events` members string (comma joined, sorted)."""
     if not token:
         return []
     return [m for m in token.split(MEMBERS_SEPARATOR) if m]
@@ -94,21 +97,28 @@ def robot_identity(episode: AlignedEpisodeBundle) -> RobotIdentity | None:
     return RobotIdentity(episode.robot_name) if episode.robot_name else None
 
 
+def episode_end_t_ns(episode: AlignedEpisodeBundle) -> int | None:
+    """Last aligned stamp of the episode, None when it has no samples."""
+    if episode.data is None or "t_ns" not in episode.data.columns or len(episode.data) == 0:
+        return None
+    return int(episode.data["t_ns"].to_numpy().max())
+
+
 def robot_env_snapshot(snapshot: pl.DataFrame | pl.LazyFrame | None, robot_name: str | None) -> pl.DataFrame | None:
     """The snapshot restricted to the robot's env when it carries several envs, unchanged otherwise."""
     if snapshot is None:
         return None
     if isinstance(snapshot, pl.LazyFrame):
         snapshot = snapshot.collect()
-    if len(snapshot) == 0 or "entity" not in snapshot.columns or not robot_name:
+    if len(snapshot) == 0 or "entity_name" not in snapshot.columns or not robot_name:
         return snapshot
     env = RobotIdentity(robot_name).env
     if env is None:
         return snapshot
-    envs = snapshot.select(pl.col("entity").str.extract(r"^/*(env_\d+)/", 1).unique())["entity"].to_list()
+    envs = snapshot.select(pl.col("entity_name").str.extract(r"^/*(env_\d+)/", 1).unique())["entity_name"].to_list()
     if env not in envs or len(envs) < 2:
         return snapshot
-    return snapshot.filter(pl.col("entity").str.contains(rf"^/*{env}/"))
+    return snapshot.filter(pl.col("entity_name").str.contains(rf"^/*{env}/"))
 
 
 @dataclasses.dataclass
@@ -119,12 +129,10 @@ class FieldSeries:
     values: list[str]
 
     def at(self, t_ns: int) -> str:
-        idx = int(np.searchsorted(self.times, t_ns, side="right")) - 1
-        return self.values[max(idx, 0)]
+        return self.values[max(asof_position(self.times, t_ns), 0)]
 
     def sample(self, query_ns: np.ndarray) -> list[str]:
-        idx = np.searchsorted(self.times, query_ns, side="right") - 1
-        idx = np.clip(idx, 0, len(self.values) - 1)
+        idx = np.clip(asof_index(self.times, query_ns), 0, len(self.values) - 1)
         return [self.values[i] for i in idx]
 
     def changes_in(self, t0: int, t1: int) -> list[tuple[int, str]]:
@@ -143,15 +151,13 @@ class SemanticView:
         if len(events) == 0:
             return
         for (entity, kind, field), group in events.group_by(["entity", "kind", "field"]):
-            g = group.sort("time_ns")
+            g = group.sort("t_ns")
             self.kinds.setdefault(entity, kind)
-            self.series[(entity, field)] = FieldSeries(g["time_ns"].to_numpy().astype(np.int64), g["current"].to_list())
+            self.series[(entity, field)] = FieldSeries(g["t_ns"].to_numpy().astype(np.int64), g["current"].to_list())
 
     @classmethod
     def from_episode(cls, episode: AlignedEpisodeBundle) -> SemanticView:
-        from arena_evaluation.processing.metrics.ecological.compliance_metrics import _reconstruct_events
-
-        return cls(_reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)))
+        return cls(reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)))
 
     def entities(self, kind: str) -> list[str]:
         return sorted(e for e, k in self.kinds.items() if k == kind)
@@ -208,6 +214,8 @@ class ElevatorGeom:
     activation_distance: float
     capacity: int | None = None
     destinations: list[str] = dataclasses.field(default_factory=list)
+    # Retained for the trajectory plot; the recorded elevator no longer carries a door kind,
+    # so it always keeps this default and is never populated from the world description.
     door_kind: str = "sliding_split"
 
     @property
@@ -307,7 +315,6 @@ def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
                 activation_distance=float(elevator.activation_distance),
                 capacity=elevator.capacity,
                 destinations=list(elevator.destinations),
-                door_kind=elevator.door_kind,
             )
         )
     for zone in level.zones:
@@ -388,20 +395,20 @@ def in_polygon(px: np.ndarray, py: np.ndarray, polygon: list[tuple[float, float]
 class RobotTrack:
     """Map-frame robot samples on the episode odom axis; dt[i] is the hold until sample i+1 (s)."""
 
-    time_ns: np.ndarray
+    t_ns: np.ndarray
     x: np.ndarray
     y: np.ndarray
     speed: np.ndarray
     dt: np.ndarray
 
     def __len__(self) -> int:
-        return len(self.time_ns)
+        return len(self.t_ns)
 
 
-def hold_dt(time_ns: np.ndarray) -> np.ndarray:
-    dt = np.zeros(len(time_ns))
-    if len(time_ns) > 1:
-        dt[:-1] = np.clip(np.diff(time_ns) / 1e9, 0.0, None)
+def hold_dt(t_ns: np.ndarray) -> np.ndarray:
+    dt = np.zeros(len(t_ns))
+    if len(t_ns) > 1:
+        dt[:-1] = np.clip(np.diff(t_ns) / 1e9, 0.0, None)
     return dt
 
 
@@ -409,16 +416,17 @@ def robot_track(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Ro
     """Resolved map-frame robot track, None when the episode has no usable pose or start pose."""
     if episode.data is None or len(episode.data) == 0 or not episode.start_pos:
         return None
-    pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
-    data = episode.data
-    if data is None or "time_ns" not in data.columns or len(pos_x) == 0 or len(data) != len(pos_x):
+    frame = calc.resolve_robot_frame(episode)
+    if frame is None or len(frame) == 0:
         return None
-    time_ns = data["time_ns"].to_numpy().astype(np.int64)
-    if "vel_linear" in data.columns:
-        speed = np.abs(np.nan_to_num(data["vel_linear"].to_numpy().astype(np.float64), nan=0.0))
+    pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
+    t_ns = frame["t_ns"].to_numpy().astype(np.int64)
+    if "vel_linear" in frame.columns:
+        # A missing speed stays unknown: it is never promoted to 0 m/s (a measured standstill).
+        speed = np.abs(frame["vel_linear"].to_numpy().astype(np.float64))
     else:
-        speed = calc.speed_from_pose(pos_x, pos_y, time_ns)
-    return RobotTrack(time_ns, np.asarray(pos_x, dtype=np.float64), np.asarray(pos_y, dtype=np.float64), speed, hold_dt(time_ns))
+        speed = calc.speed_from_pose(pos_x, pos_y, t_ns)
+    return RobotTrack(t_ns, np.asarray(pos_x, dtype=np.float64), np.asarray(pos_y, dtype=np.float64), speed, hold_dt(t_ns))
 
 
 @dataclasses.dataclass
@@ -430,66 +438,37 @@ class PedTracks:
     vel: list[np.ndarray]
     named: bool
 
-    def position_of(self, i: int, key: str) -> tuple[float, float] | None:
-        try:
-            j = self.keys[i].index(key)
-        except ValueError:
-            return None
-        return float(self.xy[i][j, 0]), float(self.xy[i][j, 1])
+
+def _ped_frames(peds: pl.DataFrame) -> list[pl.DataFrame]:
+    """The pedestrians of each recorded frame, frames in time order; [] without a time column."""
+    if "t_ns" not in peds.columns:
+        return []
+    return [frame for (_t_ns,), frame in peds.sort("t_ns").group_by("t_ns", maintain_order=True)]
 
 
-def _flat_triples(raw: typing.Iterable[float] | None) -> np.ndarray:
-    if raw is None:
-        return np.empty((0, 3))
-    arr = np.asarray(list(raw), dtype=np.float64)
-    if arr.size == 0 or arr.size % 3 != 0:
-        return np.empty((0, 3))
-    return arr.reshape(-1, 3)
-
-
-def ped_tracks(data: pl.DataFrame | None, time_ns: np.ndarray | None = None) -> PedTracks | None:
-    """Pedestrian tracks from the aligned `peds_*` columns, None when no positions were recorded."""
-    if data is None or "peds_positions" not in data.columns or len(data) == 0:
+def ped_tracks(peds: pl.DataFrame | None, t_ns: np.ndarray) -> PedTracks | None:
+    """Pedestrian tracks held at each robot time, from the flat pedestrian table; None when no pedestrians were recorded."""
+    if peds is None or len(peds) == 0:
         return None
-    from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-
-    positions = data["peds_positions"].to_list()
-    hints = data["num_pedestrians"].to_list() if "num_pedestrians" in data.columns else None
-    names = data["peds_names"].to_list() if "peds_names" in data.columns else None
-    twists = data["peds_twists"].to_list() if "peds_twists" in data.columns else None
-    if time_ns is None:
-        time_ns = data["time_ns"].to_numpy()
-
+    frames = _ped_frames(peds)
+    if not frames:
+        return None
+    frame_times = np.array([int(frame["t_ns"][0]) for frame in frames], dtype=np.int64)
     keys: list[list[str]] = []
     xy: list[np.ndarray] = []
     vel: list[np.ndarray] = []
-    named = names is not None
-    prev: dict[str, tuple[float, float]] = {}
-    prev_t: int | None = None
-    for i in range(len(positions)):
-        parsed = BaseMetricCalculator._parse_peds(positions[i], hints[i] if hints is not None else None)
-        pos = parsed[:, :2] if parsed.ndim == 2 and parsed.shape[1] >= 2 else np.empty((0, 2))
-        row_names = list(names[i]) if names is not None and names[i] is not None else None
-        if row_names is not None and len(row_names) == len(pos):
-            row_keys = [_norm_path(n) for n in row_names]
-        else:
-            row_keys = [f"#{j}" for j in range(len(pos))]
-            if row_names is not None and len(pos):
-                named = False
-        tw = _flat_triples(twists[i])[:, :2] if twists is not None else np.empty((0, 2))
-        if len(tw) != len(pos):
-            tw = np.zeros((len(pos), 2))
-            if prev_t is not None:
-                step = max((int(time_ns[i]) - prev_t) / 1e9, 1e-3)
-                for j, key in enumerate(row_keys):
-                    if key in prev:
-                        tw[j] = (pos[j] - np.asarray(prev[key])) / step
-        keys.append(row_keys)
-        xy.append(pos)
-        vel.append(tw)
-        prev = {key: (float(pos[j, 0]), float(pos[j, 1])) for j, key in enumerate(row_keys)}
-        prev_t = int(time_ns[i])
-    return PedTracks(keys, xy, vel, named)
+    for t in t_ns:
+        idx = asof_position(frame_times, int(t), TRACK_ALIGN_TOLERANCE_NS)
+        if idx < 0:
+            keys.append([])
+            xy.append(np.empty((0, 2)))
+            vel.append(np.empty((0, 2)))
+            continue
+        held = frames[idx]
+        keys.append([_norm_path(name) for name in held["ped_name"].to_list()])
+        xy.append(held.select("x", "y").to_numpy())
+        vel.append(held.select("vx", "vy").to_numpy())
+    return PedTracks(keys, xy, vel, True)
 
 
 def true_runs(mask: np.ndarray) -> list[tuple[int, int]]:

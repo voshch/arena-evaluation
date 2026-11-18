@@ -6,32 +6,32 @@ pytest.importorskip("arena_simulation_setup.shared.conditions")
 
 from arena_simulation_setup.shared.conditions import parse_atom, parse_node
 
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry, _reconstruct_events
+from arena_evaluation.processing.metrics.common.events import reconstruct_events as _reconstruct_events
+from arena_evaluation.processing.metrics.common.zones import ZoneGeometry as _ZoneGeometry
+from arena_evaluation.processing.metrics.common.caching import loaded_worlds, world_cache
 from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     ConditionComplianceCalculator,
     _EvalContext,
     _clause_verdict,
     _entity_roster,
-    _first_true,
-    _level_cache,
     _node_series,
     _operator_verdict,
     _ped_roster,
-    _strip_env,
-    _value_at,
-    _values_equal,
+    _resample_fleet,
     _wall_cache,
-    _world_cache,
     clips_on_axis,
     load_wall_grid,
     load_zone_geometry,
 )
+from arena_evaluation.processing.pedestrian_frames import frames_of
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.processing.metrics.common.rosters import strip_env
+from arena_evaluation.processing.metrics.common.context import value_at
 from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ConditionComplianceCalculator(RobotParams(0.2, 0.0, 10.0))
+    return ConditionComplianceCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):
@@ -41,6 +41,12 @@ def _start_pos(data):
 
 
 def _episode(data, semantic_snapshot=None, conditions=None):
+    if data is not None and "pos_x" in data.columns and "pos_x_gt" not in data.columns:
+        data = data.with_columns(
+            pl.col("pos_x").alias("pos_x_gt"),
+            pl.col("pos_y").alias("pos_y_gt"),
+            pl.col("yaw").alias("yaw_gt"),
+        )
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,
@@ -63,22 +69,29 @@ def _square(name):
     )
 
 
-def _ctx(time_ns, pos_x=None, pos_y=None, snapshot=None, data=None, zones=None):
-    n = len(time_ns)
-    time_arr = np.asarray(time_ns)
+def _ctx(t_ns, pos_x=None, pos_y=None, snapshot=None, data=None, peds=None, zones=None):
+    n = len(t_ns)
+    time_arr = np.asarray(t_ns, dtype=np.int64)
     pos_x = np.zeros(n) if pos_x is None else np.asarray(pos_x, dtype=float)
     pos_y = np.zeros(n) if pos_y is None else np.asarray(pos_y, dtype=float)
     zones = zones or []
-    data = data if data is not None else pl.DataFrame({"time_ns": list(time_ns)})
+    data_df = data if data is not None else pl.DataFrame({"t_ns": list(t_ns)})
+    peds_df = peds
+    if peds_df is None and data is not None and "ped_name" in data.columns:
+        peds_df = data
+    peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
+    peds_times = np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64)
     return _EvalContext(
         events=_reconstruct_events(snapshot),
-        time_ns=time_arr,
+        t_ns=time_arr,
         pos_x=pos_x,
         pos_y=pos_y,
-        data=data,
+        data=data_df,
         zones_by_name={z.name: z for z in zones},
         entity_roster=_entity_roster(snapshot),
-        ped_roster=_ped_roster(data),
+        ped_roster=_ped_roster(peds_df),
+        peds_frames=peds_frames,
+        peds_times=peds_times,
     )
 
 
@@ -86,31 +99,17 @@ def _ctx(time_ns, pos_x=None, pos_y=None, snapshot=None, data=None, zones=None):
 
 
 def test_strip_env_removes_only_leading_env_segment():
-    assert _strip_env("env_0/ward_a_door") == "ward_a_door"
-    assert _strip_env("env_12/ward_a_door/0") == "ward_a_door/0"
-    assert _strip_env("blocker_1") == "blocker_1"
-
-
-def test_values_equal_float_tolerance_and_string():
-    assert _values_equal("2.0", "2") is True
-    assert _values_equal("0.4000001", "0.4") is True
-    assert _values_equal("1.0", "2.0") is False
-    assert _values_equal("open", "open") is True
-    assert _values_equal("open", "closed") is False
-    assert _values_equal("true", "true") is True
+    assert strip_env("env_0/ward_a_door") == "ward_a_door"
+    assert strip_env("env_12/ward_a_door/0") == "ward_a_door/0"
+    assert strip_env("blocker_1") == "blocker_1"
 
 
 def test_value_at_holds_seed_value_before_and_after_first_recorded_time():
     times = np.array([2_000_000_000, 4_000_000_000])
     values = ["open", "closed"]
-    assert _value_at(times, values, 0) == "open"
-    assert _value_at(times, values, 2_000_000_000) == "open"
-    assert _value_at(times, values, 5_000_000_000) == "closed"
-
-
-def test_first_true_returns_earliest_index_or_none():
-    assert _first_true(np.array([False, False, True, True])) == 2
-    assert _first_true(np.array([False, False])) is None
+    assert value_at(times, values, 0) == "open"
+    assert value_at(times, values, 2_000_000_000) == "open"
+    assert value_at(times, values, 5_000_000_000) == "closed"
 
 
 # -- operator verdicts ----------------------------------------------------
@@ -328,14 +327,21 @@ def test_robot_zone_unresolvable_without_pose_anchor():
 # -- ped zone atoms -------------------------------------------------------
 
 
-def _ped_data(time_ns, names, positions):
-    return pl.DataFrame(
-        {
-            "time_ns": list(time_ns),
-            "peds_names": names,
-            "peds_positions": positions,
-        }
-    )
+def _ped_data(t_ns, names, positions):
+    rows = []
+    for t, n_list, p_list in zip(t_ns, names, positions):
+        pts = []
+        if p_list and isinstance(p_list[0], (list, tuple)):
+            pts = [(p[0], p[1]) for p in p_list]
+        elif p_list:
+            for j in range(0, len(p_list), 3):
+                if j + 1 < len(p_list):
+                    pts.append((p_list[j], p_list[j + 1]))
+        for idx, (name, (x, y)) in enumerate(zip(n_list, pts)):
+            rows.append({"t_ns": int(t), "ped_id": f"ped_{idx}", "ped_name": str(name), "x": float(x), "y": float(y)})
+    if rows:
+        return pl.DataFrame(rows, schema={"t_ns": pl.Int64, "ped_id": pl.Utf8, "ped_name": pl.Utf8, "x": pl.Float64, "y": pl.Float64})
+    return pl.DataFrame(schema={"t_ns": pl.Int64, "ped_id": pl.Utf8, "ped_name": pl.Utf8, "x": pl.Float64, "y": pl.Float64})
 
 
 def test_ped_zone_zero_order_hold_and_before_first_sample_false():
@@ -383,8 +389,8 @@ def test_ped_zone_unresolvable_when_ped_not_recorded():
     assert ok is False
 
 
-def test_ped_zone_unresolvable_without_peds_names_column():
-    data = pl.DataFrame({"time_ns": [0, 1_000_000_000]})
+def test_ped_zone_unresolvable_without_pedestrian_rows():
+    data = pl.DataFrame({"t_ns": [], "ped_name": []}, schema={"t_ns": pl.Int64, "ped_name": pl.String})
     ctx = _ctx([0, 1_000_000_000], data=data, zones=[_square("lobby")])
 
     assert _ped_roster(data) == {}
@@ -434,7 +440,7 @@ def test_clause_verdict_unknown_on_malformed_dict():
 
 def test_calculate_all_none_without_conditions():
     calc = _calc()
-    data = pl.DataFrame({"time_ns": [0, 1_000_000_000], "pos_x": [0.0, 0.0], "pos_y": [0.0, 0.0], "yaw": [0.0, 0.0]})
+    data = pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 0.0], "pos_y": [0.0, 0.0], "yaw": [0.0, 0.0]})
 
     results = calc.calculate(_episode(data, conditions=None), {})
 
@@ -444,7 +450,7 @@ def test_calculate_all_none_without_conditions():
 
 def test_calculate_all_none_when_world_absent():
     calc = _calc()
-    data = pl.DataFrame({"time_ns": [0, 1_000_000_000], "pos_x": [0.0, 0.0], "pos_y": [0.0, 0.0], "yaw": [0.0, 0.0]})
+    data = pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 0.0], "pos_y": [0.0, 0.0], "yaw": [0.0, 0.0]})
     conditions = [{"op": "never", "p": "robot in pharmacy"}]
 
     results = calc.calculate(_episode(data, conditions=conditions), {})
@@ -455,12 +461,12 @@ def test_calculate_all_none_when_world_absent():
 def test_calculate_false_dominates_unknown():
     calc = _calc()
     calc.world = "synthetic_conditions"
-    calc._world_cache["synthetic_conditions"] = [_square("pharmacy")]
+    world_cache["synthetic_conditions"] = [_square("pharmacy")]
     _wall_cache["synthetic_conditions"] = None
 
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000],
+            "t_ns": [0, 1_000_000_000],
             "pos_x": [1.0, 1.0],
             "pos_y": [1.0, 1.0],
             "yaw": [0.0, 0.0],
@@ -483,12 +489,12 @@ def test_calculate_false_dominates_unknown():
 def test_calculate_unknown_when_only_unknown_and_true():
     calc = _calc()
     calc.world = "synthetic_conditions2"
-    calc._world_cache["synthetic_conditions2"] = [_square("pharmacy")]
+    world_cache["synthetic_conditions2"] = [_square("pharmacy")]
     _wall_cache["synthetic_conditions2"] = None
 
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000],
+            "t_ns": [0, 1_000_000_000],
             "pos_x": [10.0, 10.0],
             "pos_y": [10.0, 10.0],
             "yaw": [0.0, 0.0],
@@ -510,12 +516,12 @@ def test_calculate_unknown_when_only_unknown_and_true():
 def test_calculate_success_when_all_true():
     calc = _calc()
     calc.world = "synthetic_conditions3"
-    calc._world_cache["synthetic_conditions3"] = [_square("pharmacy")]
+    world_cache["synthetic_conditions3"] = [_square("pharmacy")]
     _wall_cache["synthetic_conditions3"] = None
 
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000],
+            "t_ns": [0, 1_000_000_000],
             "pos_x": [10.0, 10.0],
             "pos_y": [10.0, 10.0],
             "yaw": [0.0, 0.0],
@@ -538,8 +544,8 @@ def test_calculate_success_when_all_true():
 def _gestures(rows):
     return pl.DataFrame(
         {
-            "time_ns": [t for t, _, _ in rows],
-            "ped_id": [pid for _, pid, _ in rows],
+            "t_ns": [t for t, _, _ in rows],
+            "ped_id": [str(pid) for _, pid, _ in rows],
             "slot": ["body"] * len(rows),
             "clip": [clip for _, _, clip in rows],
             "hand": [""] * len(rows),
@@ -554,13 +560,14 @@ def _gestures(rows):
 def test_clips_on_axis_holds_the_peds_message_and_names_every_pedestrian_in_it():
     peds = pl.DataFrame(
         {
-            "time_ns": [1_000_000_000, 3_000_000_000],
-            "peds_names": [["env_0/alice", "env_0/bob"], ["env_0/alice"]],
-            "peds_ids": [[1, 2], [1]],
-            "peds_positions": [[1.0, 1.0, 0.0, 2.0, 2.0, 0.0], [1.0, 1.0, 0.0]],
+            "t_ns": [1_000_000_000, 1_000_000_000, 3_000_000_000],
+            "ped_name": ["env_0/alice", "env_0/bob", "env_0/alice"],
+            "ped_id": ["1", "2", "1"],
+            "x": [1.0, 2.0, 1.0],
+            "y": [1.0, 2.0, 1.0],
         }
     )
-    gestures = _gestures([(1_000_000_000, 2, "wave"), (3_000_000_000, 1, "beckon"), (3_000_000_000, 1, "gaze")])
+    gestures = _gestures([(1_000_000_000, "2", "wave"), (3_000_000_000, "1", "beckon"), (3_000_000_000, "1", "gaze")])
     axis = np.array([0, 1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000])
 
     assert clips_on_axis(peds, gestures, axis) == [
@@ -572,31 +579,38 @@ def test_clips_on_axis_holds_the_peds_message_and_names_every_pedestrian_in_it()
     ]
     assert clips_on_axis(peds, gestures.clear(), axis) == [{}, {"alice": frozenset(), "bob": frozenset()}, {"alice": frozenset(), "bob": frozenset()}, {"alice": frozenset()}, {"alice": frozenset()}]
     assert clips_on_axis(peds, None, axis) is None
-    assert clips_on_axis(peds.drop("peds_ids"), gestures, axis) is None
+    assert clips_on_axis(peds.drop("ped_id"), gestures, axis) is None
     assert clips_on_axis(None, gestures, axis) is None
 
 
 def test_calculate_plays_atom_from_the_recorded_gestures():
     calc = _calc()
     calc.world = "synthetic_conditions4"
-    calc._world_cache["synthetic_conditions4"] = [_square("pharmacy")]
+    world_cache["synthetic_conditions4"] = [_square("pharmacy")]
     _wall_cache["synthetic_conditions4"] = None
     times = [0, 1_000_000_000, 2_000_000_000]
-    data = pl.DataFrame({"time_ns": times, "pos_x": [1.0] * 3, "pos_y": [1.0] * 3, "yaw": [0.0] * 3, "peds_names": [["env_0/alice"]] * 3, "peds_positions": [[2.0, 2.0, 0.0]] * 3})
-    peds = pl.DataFrame({"time_ns": times, "peds_names": [["env_0/alice"]] * 3, "peds_ids": [[1]] * 3, "peds_positions": [[2.0, 2.0, 0.0]] * 3})
-    gestures = _gestures([(2_000_000_000, 1, "beckon")])
+    data = pl.DataFrame({"t_ns": times, "pos_x": [1.0] * 3, "pos_y": [1.0] * 3, "yaw": [0.0] * 3})
+    peds = pl.DataFrame(
+        {
+            "t_ns": times,
+            "ped_name": ["env_0/alice"] * 3,
+            "ped_id": ["1"] * 3,
+            "x": [2.0] * 3,
+            "y": [2.0] * 3,
+        }
+    )
+    gestures = _gestures([(2_000_000_000, "1", "beckon")])
     conditions = [{"op": "eventually", "p": "alice plays beckon"}, {"op": "always", "p": "not alice plays wave"}, {"op": "eventually", "p": "bob plays beckon"}]
 
     episode = _episode(data, conditions=conditions)
-    episode.peds = peds
-    episode.topics = {"ped_gestures": gestures}
+    episode.topics = {"pedestrian_tracks": peds, "pedestrian_gestures": gestures}
     results = calc.calculate(episode, {})
 
     assert results["clauses_passed"] == 2
     assert results["clauses_unknown"] == 1
     assert results["condition_success"] is None
 
-    episode.topics = {"ped_gestures": gestures.clear()}
+    episode.topics = {"pedestrian_tracks": peds, "pedestrian_gestures": gestures.clear()}
     results = calc.calculate(episode, {})
 
     assert results["condition_success"] == 0.0
@@ -611,12 +625,12 @@ def test_calculate_plays_atom_from_the_recorded_gestures():
 
 
 def test_zone_and_wall_loaders_answer_from_their_caches():
-    _world_cache["synthetic_cached"] = [_square("pharmacy")]
-    assert load_zone_geometry("synthetic_cached") == _world_cache["synthetic_cached"]
-    _level_cache["synthetic_missing"] = None
+    world_cache["synthetic_cached"] = [_square("pharmacy")]
+    assert load_zone_geometry("synthetic_cached") == world_cache["synthetic_cached"]
+    loaded_worlds["synthetic_missing"] = None
     assert load_wall_grid("synthetic_missing") is None
     assert load_zone_geometry("synthetic_missing") is None
-    assert _wall_cache["synthetic_missing"] is None and _world_cache["synthetic_missing"] is None
+    assert _wall_cache["synthetic_missing"] is None and world_cache["synthetic_missing"] is None
 
 
 # -- articulated families and structured conditions -----------------------
@@ -682,3 +696,42 @@ def test_clause_verdict_scores_structured_p_and_q():
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.openness.door_left", "within": [0.0, 1.0]}}, ctx) is True
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": 0.5}}, ctx) is None
     assert _clause_verdict({"op": "always", "p": {"field": "wardrobe.state", "ge": "half"}}, ctx) is None
+
+
+# -- fleet keys ------------------------------------------------------------
+
+
+def _fleet_pose_frame(x_m: float) -> pl.DataFrame:
+    """Two judge-pose samples of one other robot standing at `x_m`."""
+    return pl.DataFrame(
+        {
+            "t_ns": np.array([0, 1_000_000_000], dtype=np.int64),
+            "pos_x": np.array([x_m, x_m], dtype=np.float64),
+            "pos_y": np.zeros(2, dtype=np.float64),
+            "yaw": np.zeros(2, dtype=np.float64),
+        }
+    )
+
+
+def test_resample_fleet_publishes_bare_names_and_excludes_the_ego_by_full_identity():
+    t_ns = np.array([0, 1_000_000_000], dtype=np.int64)
+    fleet = {"env_0_jackal": _fleet_pose_frame(9.0), "env_1_jackal": _fleet_pose_frame(1.0)}
+
+    resampled = _resample_fleet(fleet, t_ns, ego="env_0_jackal")
+
+    assert set(resampled) == {"jackal"}
+    assert resampled["jackal"][0].tolist() == [1.0, 1.0]
+
+
+def test_a_robot_relative_condition_resolves_across_envs_instead_of_being_unknown():
+    t_ns = np.array([0, 1_000_000_000], dtype=np.int64)
+    ctx = _ctx([0, 1_000_000_000], pos_x=[10.0, 10.0], pos_y=[10.0, 10.0], zones=[_square("lobby")])
+    ctx.fleet = _resample_fleet({"env_1_jackal": _fleet_pose_frame(1.0)}, t_ns, ego="env_0_jackal")
+
+    sample = ctx.sample(0)
+    series, ok = _node_series(parse_atom("jackal in lobby"), ctx)
+
+    assert "jackal" in sample.robots
+    assert sample.point("jackal", "robot") == (1.0, 0.0)
+    assert ok is True
+    assert list(series) == [True, True]

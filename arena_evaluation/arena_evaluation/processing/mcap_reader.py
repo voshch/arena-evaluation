@@ -31,6 +31,7 @@ from arena_evaluation.processing.telemetry.writer import ENV_TABLES, FLUSH_ROW_L
 from arena_evaluation.storage.schemas import TopicBundle
 
 if typing.TYPE_CHECKING:
+    from arena_runtime_msgs.msg import RobotFleet
     from mcap.records import Schema
     from tf2_msgs.msg import TFMessage
 
@@ -156,6 +157,7 @@ class _Ingest:
         self._pedestrians = PedestrianRecorder(sink)
         self._scans = sensors.ScanRecorder(sink, include_scan_rays)
         self._plans = context.PlanRecorder(sink)
+        self._fleet = context.FleetRecorder(sink)
         self._schedules = context.ScheduleRecorder()
         self._routes: tuple[tuple[Predicate, Handler], ...] = (
             (_ends_with("/odom"), self._odometry),
@@ -172,6 +174,7 @@ class _Ingest:
             (_ends_with("/characterization_schedule"), self._characterization_schedule),
             (_ends_with("/state/episode"), self._episode),
             (_ends_with("/state/semantics"), self._semantics),
+            (_ends_with("/state/robots"), self._fleet_snapshot),
             (_ends_with("/collision_events"), self._collision_events),
             (_ends_with("/collision_monitor_state"), self._collision_monitor),
             (_ends_with("/power_publisher/power"), self._power),
@@ -249,6 +252,12 @@ class _Ingest:
 
     def _semantics(self, _topic: str, envelope: Envelope) -> None:
         context.record_semantics(self._sink, envelope)
+
+    def _fleet_snapshot(self, topic: str, envelope: Envelope[RobotFleet]) -> None:
+        env_id = env_id_in(topic) or self._environment
+        if env_id is None:
+            raise ValueError(f"fleet topic {topic!r} names no environment")
+        self._fleet.record(envelope.t_ns, env_id, envelope.body)
 
     def _collision_events(self, _topic: str, envelope: Envelope) -> None:
         events.record_collision_events(self._sink, envelope)

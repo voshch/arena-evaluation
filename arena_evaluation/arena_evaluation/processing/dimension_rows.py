@@ -16,7 +16,6 @@ if typing.TYPE_CHECKING:
 
 _NOT_RECORDED = "not_recorded"
 _ROBOT_PARAMETERS = (
-    "max_linear_vel",
     "max_angular_vel",
     "linear_acc",
     "linear_decel",

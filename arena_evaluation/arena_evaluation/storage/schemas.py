@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+import typing
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+import polars as pl
+from pydantic import BaseModel, Field
+
+from arena_evaluation.storage.exceptions import ContractViolationError, MetricInputError
 
 if TYPE_CHECKING:
     import pathlib
-
-    import polars as pl
-
-import typing
-from dataclasses import dataclass, field
-
-from pydantic import BaseModel, Field
 
 
 class RunMetadata(BaseModel):
@@ -72,7 +72,6 @@ class RobotParams:
     laser_max_range: float = 30.0
     base_mass: float = 0.0
     component_masses: dict[str, float] = field(default_factory=dict)
-    max_linear_velocity: float = 0.0
 
     @property
     def mass(self) -> float:
@@ -113,12 +112,6 @@ class RobotParams:
             .get("mass", {})
             .get("base_kg", base_mass)
         )
-        max_linear_velocity = 0.0
-        for block in _read(os.path.join(robot_dir, "control.yaml")).values():
-            params = block.get("ros__parameters", {}) if isinstance(block, dict) else {}
-            if "linear.x.max_velocity" in params:
-                max_linear_velocity = float(params["linear.x.max_velocity"])
-
         components_root = os.path.join(
             os.path.dirname(os.path.dirname(robot_dir)), "components"
         )
@@ -146,8 +139,96 @@ class RobotParams:
             laser_max_range=defaults.laser_max_range,
             base_mass=base_mass,
             component_masses=component_masses,
-            max_linear_velocity=max_linear_velocity,
         )
+
+
+#: The recorded parameter keys that fill a :class:`RobotParams` field.
+_RECORDED_PARAMETER_FIELDS: typing.Final[dict[str, str]] = {
+    "robot_radius": "robot_radius",
+    "robot_mass_kg": "base_mass",
+    "base_mass": "base_mass",
+    "laser_min_range": "laser_min_range",
+    "laser_max_range": "laser_max_range",
+}
+
+#: The RobotParams fields a recorded robot must declare, with the recorded key each one needs.
+_REQUIRED_RECORDED_FIELDS: typing.Final[dict[str, str]] = {
+    "robot_radius": "robot_radius",
+    "base_mass": "robot_mass_kg",
+}
+
+
+def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams:
+    """The parameters of one robot from its recorded fleet rows.
+
+    ``rows`` are the recorded fleet rows of one episode: the descriptor row (``model`` and the
+    frame columns) plus one row per resolved parameter (``param_key``/``param_value``). The two
+    may be concatenated or joined. A robot without a descriptor row or a required parameter raises
+    ``MetricInputError``, which fails the benchmark; a parameter that cannot be parsed raises
+    ``ContractViolationError``. Nothing falls back to a default model, radius or mass.
+    """
+    if "robot_id" not in rows.columns:
+        raise MetricInputError("the recorded fleet rows carry no robot_id; the robot has no descriptor")
+    robot_rows = rows.filter(pl.col("robot_id") == robot_id)
+    if robot_rows.height == 0:
+        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
+    model = _descriptor_model(robot_rows, robot_id)
+    recorded = _recorded_parameters(robot_rows, robot_id)
+    missing = [
+        key
+        for field, key in _REQUIRED_RECORDED_FIELDS.items()
+        if field not in recorded
+    ]
+    if missing:
+        raise MetricInputError(
+            f"robot {robot_id!r} has no recorded parameter(s) {missing}"
+        )
+    return RobotParams(model=model, **recorded)
+
+
+def _descriptor_model(rows: pl.DataFrame, robot_id: str) -> str:
+    """The model of the robot's descriptor row; a row that carries none is not a descriptor."""
+    if "model" not in rows.columns:
+        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
+    models = rows.get_column("model").drop_nulls().unique().to_list()
+    if not models:
+        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
+    if len(models) > 1:
+        raise ContractViolationError(
+            f"robot {robot_id!r} has conflicting recorded models {models}"
+        )
+    return str(models[0])
+
+
+def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
+    """The recorded values of the RobotParams fields, from the long parameter rows and then the wide columns."""
+    values: dict[str, float] = {}
+    if {"param_key", "param_value"} <= set(rows.columns):
+        for key, value in rows.select("param_key", "param_value").drop_nulls("param_key").iter_rows():
+            field = _RECORDED_PARAMETER_FIELDS.get(str(key))
+            if field is not None:
+                values[field] = _parameter_number(robot_id, str(key), value)
+    for field, key in _REQUIRED_RECORDED_FIELDS.items():
+        if field in values or field not in rows.columns:
+            continue
+        candidates = rows.get_column(field).drop_nulls().unique().to_list()
+        if len(candidates) > 1:
+            raise ContractViolationError(
+                f"robot {robot_id!r} has conflicting values of {key!r}: {candidates}"
+            )
+        if candidates:
+            values[field] = _parameter_number(robot_id, key, candidates[0])
+    return values
+
+
+def _parameter_number(robot_id: str, key: str, value: object) -> float:
+    """The numeric value of one recorded parameter; a value that is not a number is refused, never defaulted."""
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as error:
+        raise ContractViolationError(
+            f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -218,8 +299,6 @@ class AlignedEpisodeBundle:
     robot_name: str | None = None
     semantic_snapshot: pl.DataFrame | None = None
     conditions: list[dict] | None = None
-    # Recorded EpisodeRecord.human_params as parameter name -> value, None when no record carried any.
-    human_params: dict[str, typing.Any] | None = None
     # This robot's entry of EpisodeRecord.phases ({phases, conditions, map_poses, goal_inputs, instructions}), None when the record has none.
     phases: dict | None = None
     # Judge poses of every robot in the env by bare name, this robot included.

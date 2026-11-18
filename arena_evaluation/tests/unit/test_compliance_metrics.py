@@ -22,7 +22,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ComplianceMetricsCalculator(RobotParams(0.2, 0.0, 10.0))
+    return ComplianceMetricsCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):
@@ -32,6 +32,12 @@ def _start_pos(data):
 
 
 def _episode(data, semantic_snapshot=None):
+    if data is not None and "pos_x" in data.columns and "pos_x_gt" not in data.columns:
+        data = data.with_columns(
+            pl.col("pos_x").alias("pos_x_gt"),
+            pl.col("pos_y").alias("pos_y_gt"),
+            pl.col("yaw").alias("yaw_gt"),
+        )
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,
@@ -45,16 +51,18 @@ def test_world_not_threaded_returns_none_defaults():
     calc = _calc()
     assert calc.world is None
 
-    results = calc.calculate(_episode(pl.DataFrame({"time_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
+    results = calc.calculate(_episode(pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
 
     assert all(v is None for v in results.values())
     assert set(results) == set(calc.output_keys())
 
 
-def test_world_not_locally_present_returns_none_and_warns():
+def test_world_not_locally_present_returns_none_and_warns(monkeypatch: pytest.MonkeyPatch) -> None:
     import logging
 
-    from arena_evaluation.processing.metrics.ecological import compliance_metrics as cm
+    from arena_evaluation.processing.metrics.common import caching
+
+    monkeypatch.delitem(caching.loaded_worlds, "definitely_nonexistent_world_xyz", raising=False)
 
     records: list[logging.LogRecord] = []
 
@@ -63,13 +71,13 @@ def test_world_not_locally_present_returns_none_and_warns():
             records.append(record)
 
     handler = _CollectingHandler()
-    cm.logger.addHandler(handler)
+    caching.logger.addHandler(handler)
     try:
         calc = _calc()
         calc.world = "definitely_nonexistent_world_xyz"
-        results = calc.calculate(_episode(pl.DataFrame({"time_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
+        results = calc.calculate(_episode(pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
     finally:
-        cm.logger.removeHandler(handler)
+        caching.logger.removeHandler(handler)
 
     assert all(v is None for v in results.values())
     assert any("definitely_nonexistent_world_xyz" in record.getMessage() for record in records)
@@ -149,7 +157,7 @@ def test_restricted_zone_entries_ignores_start_inside():
 def test_door_open_series_and_query():
     events = pl.DataFrame(
         {
-            "time_ns": [1_000_000_000, 3_000_000_000],
+            "t_ns": [1_000_000_000, 3_000_000_000],
             "entity": ["env_0/door_1", "env_0/door_1"],
             "kind": ["door", "door"],
             "field": ["state", "state"],
@@ -175,7 +183,7 @@ def test_doorway_blocking_time_requires_stationary_and_open():
     )
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
+            "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
             "pos_x": [0.0, 0.0, 0.0, 0.0],
             "pos_y": [0.0, 0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0, 0.0],
@@ -187,9 +195,9 @@ def test_doorway_blocking_time_requires_stationary_and_open():
     calc = _calc()
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
     speed = np.abs(episode.data["vel_linear"].to_numpy())
-    time_ns = episode.data["time_ns"].to_numpy()
+    t_ns = episode.data["t_ns"].to_numpy()
 
-    total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, time_ns, doors)
+    total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
 
     # stationary intervals [0,1) and [1,2) both qualify, [2,3) does not (moving)
     assert total == pytest.approx(2.0)
@@ -199,7 +207,7 @@ def test_doorway_blocking_degrades_to_zero_without_snapshot():
     doors = [_DoorGeometry(name="door_1", center_x=0.0, center_y=0.0, radius=1.0)]
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000],
+            "t_ns": [0, 1_000_000_000],
             "pos_x": [0.0, 0.0],
             "pos_y": [0.0, 0.0],
             "yaw": [0.0, 0.0],
@@ -211,9 +219,9 @@ def test_doorway_blocking_degrades_to_zero_without_snapshot():
 
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
     speed = np.abs(episode.data["vel_linear"].to_numpy())
-    time_ns = episode.data["time_ns"].to_numpy()
+    t_ns = episode.data["t_ns"].to_numpy()
 
-    total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, time_ns, doors)
+    total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
 
     assert total == pytest.approx(0.0)
 
@@ -303,14 +311,15 @@ def test_calculate_end_to_end_with_cached_world():
 
     data = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000, 2_000_000_000],
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
             "pos_x": [1.0, 1.0, 1.0],
             "pos_y": [1.0, 1.0, 1.0],
             "yaw": [0.0, 0.0, 0.0],
             "vel_linear": [0.5, 2.0, 0.5],  # over 1.0 m/s cap during [1s, 2s)
         }
     )
-    episode = _episode(data)
+    snapshot = snapshot_frame([(0, "env_0/door_1", "door", "state", "discrete", "closed")])
+    episode = _episode(data, semantic_snapshot=snapshot)
 
     results = calc.calculate(episode, {})
 
@@ -352,11 +361,11 @@ def test_reconstruct_events_empty_without_snapshot():
     events = _reconstruct_events(None)
 
     assert len(events) == 0
-    assert events.columns == ["time_ns", "entity", "kind", "field", "previous", "current"]
+    assert events.columns == ["t_ns", "entity", "kind", "field", "previous", "current"]
 
     empty_snapshot = pl.DataFrame(
         {
-            "time_ns": [],
+            "t_ns": [],
             "entity": [],
             "kind": [],
             "field": [],
@@ -379,11 +388,11 @@ def test_reconstruct_events_seeds_first_row_and_collapses_duplicates():
     )
 
     events = _reconstruct_events(snapshot)
-    rows = events.sort("time_ns").to_dicts()
+    rows = events.sort("t_ns").to_dicts()
 
     assert rows == [
-        {"time_ns": 0, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "", "current": "closed"},
-        {"time_ns": 2_000_000_000, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "closed", "current": "open"},
+        {"t_ns": 0, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "", "current": "closed"},
+        {"t_ns": 2_000_000_000, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "closed", "current": "open"},
     ]
 
 
@@ -398,7 +407,7 @@ def test_reconstruct_events_stringifies_predicate_and_continuous():
     )
 
     events = _reconstruct_events(snapshot)
-    by_field = {(r["entity"], r["field"], r["time_ns"]): r["current"] for r in events.to_dicts()}
+    by_field = {(r["entity"], r["field"], r["t_ns"]): r["current"] for r in events.to_dicts()}
 
     assert by_field[("env_0/door_1", "open", 0)] == "false"
     assert by_field[("env_0/door_1", "open", 1_000_000_000)] == "true"
@@ -410,45 +419,26 @@ def test_reconstruct_events_keeps_members_as_sorted_joined_names():
     snapshot = snapshot_frame(
         [
             (0, "env_0/lobby", "occupancy_cap", "cap", "continuous", 2.0),
+            (0, "env_0/lobby", "occupancy_cap", "members", "members", []),
+            (1_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", ["env_0/robot_0", "env_0/human_1"]),
+            (2_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", ["env_0/human_1", "env_0/robot_0"]),
+            (3_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", []),
         ]
     )
-    members = pl.DataFrame(
-        {
-            "time_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "entity": ["env_0/lobby"] * 4,
-            "kind": ["occupancy_cap"] * 4,
-            "field": ["members"] * 4,
-            "field_kind": ["members"] * 4,
-            "value_str": [None] * 4,
-            "value_num": [None] * 4,
-            "value_bool": [None] * 4,
-            "value_list": [[], ["env_0/robot_0", "env_0/human_1"], ["env_0/human_1", "env_0/robot_0"], []],
-        },
-        schema_overrides={"value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean, "value_list": pl.List(pl.Utf8)},
-    )
-    snapshot = pl.concat([snapshot.with_columns(pl.lit(None, dtype=pl.List(pl.Utf8)).alias("value_list")), members], how="vertical_relaxed")
 
     events = _reconstruct_events(snapshot)
-    member_rows = events.filter(pl.col("field") == "members").sort("time_ns")
+    member_rows = events.filter(pl.col("field") == "members").sort("t_ns")
 
     assert member_rows["current"].to_list() == ["", "env_0/human_1,env_0/robot_0", ""]
-    assert member_rows["time_ns"].to_list() == [0, 1_000_000_000, 3_000_000_000]
+    assert member_rows["t_ns"].to_list() == [0, 1_000_000_000, 3_000_000_000]
     assert len(events.filter(pl.col("field") == "cap")) == 1
 
 
 def test_reconstruct_events_members_without_value_list_column():
-    snapshot = pl.DataFrame(
-        {
-            "time_ns": [0],
-            "entity": ["env_0/lobby"],
-            "kind": ["occupancy_cap"],
-            "field": ["members"],
-            "field_kind": ["members"],
-            "value_str": [None],
-            "value_num": [None],
-            "value_bool": [None],
-        },
-        schema_overrides={"value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean},
+    snapshot = snapshot_frame(
+        [
+            (0, "env_0/lobby", "occupancy_cap", "members", "members", []),
+        ]
     )
 
     events = _reconstruct_events(snapshot)
@@ -459,7 +449,7 @@ def test_reconstruct_events_members_without_value_list_column():
 def test_door_open_series_keys_by_authored_name_with_level_suffix():
     events = pl.DataFrame(
         {
-            "time_ns": [0, 1_000_000_000],
+            "t_ns": [0, 1_000_000_000],
             "entity": ["env_3/main_door/0", "env_3/main_door/0"],
             "kind": ["door", "door"],
             "field": ["state", "state"],
@@ -485,7 +475,37 @@ def test_reconstruct_events_independent_per_entity_and_field():
 
     events = _reconstruct_events(snapshot)
     door_1 = events.filter(pl.col("entity") == "env_0/door_1")
-    door_2 = events.filter(pl.col("entity") == "env_0/door_2").sort("time_ns")
+    door_2 = events.filter(pl.col("entity") == "env_0/door_2").sort("t_ns")
 
     assert door_1["current"].to_list() == ["closed"]
     assert door_2["current"].to_list() == ["open", "closed"]
+
+
+def test_zone_metrics_are_null_without_recorded_world_semantics():
+    """A missing world-semantics snapshot makes the zone/door values unknown, not zero."""
+    from arena_simulation_setup.shared.semantics import SemanticCfg
+    from arena_simulation_setup.tree.World import Level, Zone
+    from arena_simulation_setup.utils.geometry import Position
+
+    zone = Zone(
+        name="lobby",
+        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        semantics=[SemanticCfg(role="state", name="max_speed", value=1.0)],
+    )
+    level = Level(zones=[zone])
+    calc = _calc()
+    calc.world = "synthetic_world"
+    calc._world_cache["synthetic_world"] = (_extract_zone_geometry(level), _extract_door_geometry(level))
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
+            "pos_x": [1.0, 1.0, 1.0],
+            "pos_y": [1.0, 1.0, 1.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "vel_linear": [0.5, 2.0, 0.5],
+        }
+    )
+    results = calc.calculate(_episode(data, semantic_snapshot=None), {})
+    for key in ("speed_zone_violations", "speed_zone_violation_seconds", "quiet_zone_dwell_seconds", "restricted_zone_entries", "doorway_blocking_time"):
+        assert results[key] is None, key
+    assert calc.missing_input_provenance(_episode(data, semantic_snapshot=None))["speed_zone_violations"] == "speed_zone_violations:topic_missing:world_semantics"

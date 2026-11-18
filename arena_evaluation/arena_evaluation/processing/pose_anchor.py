@@ -45,6 +45,17 @@ def resolve_pose_source(bundle: TopicBundle, window: tuple[int | None, int | Non
     return track, PoseSource("tf" if kind == "dense" else "tf_sparse", track.height, median_gap_s)
 
 
+def pose_frame(transforms: pl.DataFrame | pl.LazyFrame | None, window: tuple[int | None, int | None]) -> str | None:
+    """The TF parent the robot pose came from: the most frequent parent_frame inside the episode window."""
+    frame = _windowed(_collect(transforms), window)
+    if frame is None:
+        return None
+    parents = frame.get_column("parent_frame").drop_nulls()
+    if parents.len() == 0:
+        return None
+    return str(parents.mode().sort()[0])
+
+
 def _median_gap_ns(frame: pl.DataFrame) -> float:
     stamps = np.sort(frame.get_column(TIME_COLUMN).to_numpy())
     return float(np.median(np.diff(stamps)))

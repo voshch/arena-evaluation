@@ -4,7 +4,9 @@ import numpy as np
 import polars as pl
 import pytest
 
+from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.social.hhi_contact import (
+    WINDOWS,
     ContactInteractionCalculator,
     bucket,
     pair_track,
@@ -14,7 +16,9 @@ from arena_evaluation.processing.metrics.social.hhi_contact import (
     stall_intervals,
     window_bounds,
 )
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from flat_peds import flat_peds
 
 SEC = 1_000_000_000
 
@@ -72,11 +76,13 @@ def test_point_segment_distance() -> None:
     assert d.tolist() == pytest.approx([1.0, 1.0])
 
 
-def test_pair_track_follows_ids_not_order() -> None:
-    ids = [[1, 2], [2, 1], [2]]
-    pos = [[0.0, 0.0, 0.0, 5.0, 5.0, 0.0], [5.0, 5.0, 0.0, 1.0, 1.0, 0.0], [5.0, 5.0, 0.0]]
-    track = pair_track(ids, pos, 1)
-    assert track[:2].tolist() == [[0.0, 0.0], [1.0, 1.0]]
+def test_pair_track_follows_the_pedestrian_id_at_each_robot_time() -> None:
+    held = pl.DataFrame({"t_ns": [0, SEC, SEC], "ped_id": ["a", "b", "a"], "x": [0.0, 5.0, 1.0], "y": [0.0, 5.0, 1.0]})
+
+    track = pair_track(held, np.array([0, SEC, 2 * SEC]), "a")
+
+    assert track[0].tolist() == [0.0, 0.0]
+    assert track[1].tolist() == [1.0, 1.0]
     assert np.isnan(track[2]).all()
 
 
@@ -87,38 +93,31 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
     for i, ti in enumerate(t):
         x[i] = min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
     y = np.zeros_like(t)
-    peds_ids = [[1, 2]] * len(t)
-    peds_positions = [[6.0, -0.6, 0.0, 6.0, 0.6, 0.0]] * len(t)
     data = pl.DataFrame(
         {
-            "time_ns": (t * SEC).astype(np.int64),
+            "t_ns": (t * SEC).astype(np.int64),
             "pos_x": x,
             "pos_y": y,
             "yaw": np.zeros_like(t),
-            "peds_ids": peds_ids,
-            "peds_positions": peds_positions,
+            "pos_x_gt": x,
+            "pos_y_gt": y,
+            "yaw_gt": np.zeros_like(t),
         }
     )
-    names = ["ACTIVATED", "HOLD_ONSET"] + (["RELEASED"] if release else [])
-    times = [4.0, 5.0] + ([11.0] if release else [])
-    events = pl.DataFrame(
-        {
-            "time_ns": [int(s * SEC) for s in times],
-            "interaction_id": [3] * len(names),
-            "interaction_type": [10] * len(names),
-            "event_name": names,
-            "participants": [[1, 2]] * len(names),
-        }
-    )
-    return AlignedEpisodeBundle(episode_id=0, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=[30.0, 0.0], topics={"interaction_events": events})
+    peds = flat_peds([(int(ti * SEC), [{"ped_id": "Pedestrian_1", "x": 6.0, "y": -0.6}, {"ped_id": "Pedestrian_2", "x": 6.0, "y": 0.6}]) for ti in t])
+    steps = [("ACTIVATED", 0, 4.0), ("HOLD_ONSET", 1, 5.0)] + ([("RELEASED", 2, 11.0)] if release else [])
+    events = pl.DataFrame([{"t_ns": int(s * SEC), "env_id": "env_0", "interaction_id": 3, "interaction_type": 10, "event": code, "event_name": name, "ped_id": ped} for name, code, s in steps for ped in ("Pedestrian_1", "Pedestrian_2")])
+    return AlignedEpisodeBundle(episode_id=0, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=[30.0, 0.0], topics={"pedestrian_tracks": peds, "pedestrian_interaction_events": events})
 
 
 def test_calculator_on_a_synthetic_episode() -> None:
-    out = ContactInteractionCalculator(RobotParams()).calculate(_episode(), {})
+    episode = _episode()
+    contact = ContactInteractionCalculator(RobotParams())
+    out = contact.calculate(episode, {})
     assert out["hhi_interaction"] == "hug"
     assert (out["hhi_hold_onset_s"], out["hhi_release_s"]) == (pytest.approx(5.0), pytest.approx(11.0))
     assert out["hhi_stall_count"] == 1
-    assert out["hhi_stall_onsets_s"][0] == pytest.approx(12.0, abs=0.2)
+    assert contact.series_table(episode).get_column("onset_s")[0] == pytest.approx(12.0, abs=0.2)
     assert (out["hhi_stalls_approach"], out["hhi_stalls_hold"], out["hhi_stalls_post"], out["hhi_stalls_rest"]) == (0, 0, 1, 0)
     shares = [out[f"hhi_share_{w}"] for w in ("approach", "hold", "post", "rest")]
     assert sum(shares) == pytest.approx(1.0)
@@ -135,13 +134,20 @@ def test_calculator_without_a_release_holds_to_the_end() -> None:
     assert out["hhi_stalls_hold"] == 1 and out["hhi_stalls_post"] == 0
 
 
-def test_calculator_without_contact_events() -> None:
+def test_calculator_without_contact_events_reports_unknown_windows() -> None:
+    """Without the interaction stream there is no hold/release window: unknown, never zero."""
     ep = _episode()
     ep.topics = {}
-    out = ContactInteractionCalculator(RobotParams()).calculate(ep, {})
-    assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None
-    assert out["hhi_stalls_approach"] == out["hhi_stall_count"] == 1
-    assert out["hhi_passes_between"] is None
+    calc = ContactInteractionCalculator(RobotParams())
+    out = calc.calculate(ep, {})
+    assert out["hhi_episode_s"] == pytest.approx(22.0, abs=0.1)
+    for key in ("hhi_interaction", "hhi_hold_onset_s", "hhi_release_s", "hhi_stall_count", "hhi_stall_time_s", "hhi_passes_between", "hhi_min_pair_clearance", "hhi_pair_gap_hold"):
+        assert out[key] is None, key
+    for window in ("approach", "hold", "post", "rest"):
+        assert out[f"hhi_stalls_{window}"] is None
+        assert out[f"hhi_share_{window}"] is None
+    provenance = calc.missing_input_provenance(ep)
+    assert provenance["hhi_stall_count"] == "hhi_stall_count:topic_missing:pedestrian_interaction_events"
 
 
 def test_speed_of_a_single_sample_is_zero() -> None:
@@ -157,15 +163,9 @@ def test_crossings_need_a_robot_move() -> None:
     assert segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist() == []
 
 
-def test_pair_track_skips_rows_without_pedestrians() -> None:
-    track = pair_track([None, [1]], [None, [3.0, 4.0, 0.0]], 1)
-    assert np.isnan(track[0]).all()
-    assert track[1].tolist() == [3.0, 4.0]
-
-
 def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
     ep = _episode()
-    ep.topics = {"interaction_events": ep.topics["interaction_events"].filter(pl.col("event_name") == "RELEASED")}
+    ep.topics = {**ep.topics, "pedestrian_interaction_events": ep.topics["pedestrian_interaction_events"].filter(pl.col("event_name") == "RELEASED")}
     out = ContactInteractionCalculator(RobotParams()).calculate(ep, {})
     assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None and out["hhi_release_s"] is None
     assert out["hhi_stall_count"] == 1
@@ -173,8 +173,87 @@ def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
 
 def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
     empty = dict.fromkeys(ContactInteractionCalculator.output_keys())
-    short = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
+    short = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
     assert ContactInteractionCalculator(RobotParams()).calculate(short, {}) == empty
     nan = float("nan")
-    lost = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0, SEC], "pos_x": [nan, nan], "pos_y": [nan, nan], "yaw": [0.0, 0.0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
+    lost = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0, SEC], "pos_x_gt": [nan, nan], "pos_y_gt": [nan, nan], "yaw_gt": [0.0, 0.0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
     assert ContactInteractionCalculator(RobotParams()).calculate(lost, {}) == empty
+
+
+def _window_bundle(episode: AlignedEpisodeBundle, *, end_ns: int | None = None) -> AlignedEpisodeBundle:
+    """The episode as a CONTACT window slice: its flat topics are the window telemetry, the aligned data is empty."""
+    data = episode.data
+    t_ns = data.get_column("t_ns").to_numpy().astype(np.int64)
+    tracks = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "x": data.get_column("pos_x_gt").to_numpy().astype(np.float64),
+            "y": data.get_column("pos_y_gt").to_numpy().astype(np.float64),
+            "yaw": data.get_column("yaw_gt").to_numpy().astype(np.float64),
+            "vx": np.zeros(len(t_ns), dtype=np.float64),
+            "vy": np.zeros(len(t_ns), dtype=np.float64),
+        },
+        schema={
+            "t_ns": pl.Int64,
+            "x": pl.Float64,
+            "y": pl.Float64,
+            "yaw": pl.Float64,
+            "vx": pl.Float64,
+            "vy": pl.Float64,
+        },
+    )
+    topics: dict[str, pl.DataFrame] = {}
+    if end_ns is not None:
+        tracks = tracks.filter(pl.col("t_ns") <= end_ns)
+    topics["robot_tracks"] = tracks
+    for name, frame in (episode.topics or {}).items():
+        topics[name] = frame.filter(pl.col("t_ns") <= end_ns) if end_ns is not None else frame
+    return AlignedEpisodeBundle(
+        episode_id=episode.episode_id,
+        data=pl.DataFrame(),
+        start_pos=episode.start_pos,
+        goal_pos=episode.goal_pos,
+        num_pedestrians=episode.num_pedestrians,
+        topics=topics,
+    )
+
+
+def _contact_slice(window: AlignedEpisodeBundle, t_end_ns: int) -> ScopeSlice:
+    """CONTACT scope slice over one window bundle."""
+    return ScopeSlice(
+        scope=MetricScope.CONTACT,
+        slice_id="con-000-jackal-000",
+        t_start_ns=0,
+        t_end_ns=t_end_ns,
+        identity={},
+        window_bundle=window,
+        full_episode=window,
+    )
+
+
+def test_contact_scope_measures_the_window_telemetry() -> None:
+    """A CONTACT slice recomputes from its own window bundle; spanning the episode reproduces the episode metrics."""
+    episode = _episode()
+    window = _window_bundle(episode)
+    contact = ContactInteractionCalculator(RobotParams())
+    t_ns = episode.data.get_column("t_ns").to_numpy().astype(np.int64)
+    window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, int(t_ns[-1])))
+    assert window_metrics == contact.calculate(episode, {})
+    assert window_metrics["hhi_stall_count"] == 1
+    assert window_metrics["hhi_passes_between"] == 1
+
+
+def test_contact_scope_splits_the_windows_inside_its_own_slice() -> None:
+    """The window split, stall bucket and shares follow the slice's own telemetry, not the episode's."""
+    episode = _episode()
+    window = _window_bundle(episode, end_ns=18 * SEC)
+    contact = ContactInteractionCalculator(RobotParams())
+    window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, 18 * SEC))
+    episode_metrics = contact.calculate(episode, {})
+    assert window_metrics["hhi_episode_s"] == pytest.approx(18.0)
+    assert window_metrics["hhi_episode_s"] < episode_metrics["hhi_episode_s"]
+    assert window_metrics["hhi_stall_count"] == 1
+    assert window_metrics["hhi_stalls_post"] == 1
+    assert window_metrics["hhi_stalls_rest"] == 0
+    shares = [window_metrics[f"hhi_share_{name}"] for name in WINDOWS]
+    assert sum(shares) == pytest.approx(1.0)

@@ -6,14 +6,7 @@ from typing import Final
 
 import polars as pl
 
-from arena_evaluation.storage.registry.table import Column, Table, TableKind
-
-_NULL_REASON: Final[Column] = Column(
-    pl.String,
-    required=False,
-    description="Semicolon-separated <column>:<code> reasons of the NULL cells of this row, empty when there are none.",
-)
-
+from arena_evaluation.storage.registry.table import Column, Table, TableKind, registered_tables
 
 def _key(dtype: pl.DataType | type[pl.DataType], description: str) -> Column:
     """A row-key column: never NULL."""
@@ -81,7 +74,6 @@ class DimEpisodes(_Dimension, name="dim_episodes", kind=TableKind.DIMENSION):
         pl.String, "Ground-truth pose stream of the episode: tf (dense), tf_sparse (raw sparse samples) or absent."
     )
     pose_gap_s = _optional(pl.Float64, "Median gap between the ground-truth samples of the episode.", unit="s")
-    null_reason = _NULL_REASON
 
 
 class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
@@ -99,9 +91,6 @@ class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
     planner = _optional(pl.String, "Planner the robot ran.")
     inter_planner = _optional(pl.String, "Inter-planner of the episode.")
     dispatcher = _optional(pl.String, "Dispatcher that assigned the robot.")
-    max_linear_vel = _optional(
-        pl.Float64, "Maximum linear velocity of the robot's parameters.", unit="m/s"
-    )
     max_angular_vel = _optional(
         pl.Float64, "Maximum angular velocity of the robot's parameters.", unit="rad/s"
     )
@@ -119,7 +108,6 @@ class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
     start_y = _optional(pl.Float64, "Start position of the robot, y.", unit="m")
     goal_x = _optional(pl.Float64, "Goal position of the robot, x.", unit="m")
     goal_y = _optional(pl.Float64, "Goal position of the robot, y.", unit="m")
-    null_reason = _NULL_REASON
 
 
 class DimPedestrians(_Dimension, name="dim_pedestrians", kind=TableKind.DIMENSION):
@@ -162,7 +150,6 @@ class DimPedestrians(_Dimension, name="dim_pedestrians", kind=TableKind.DIMENSIO
     robot_reaction_gain = _optional(
         pl.Float32, unit="1", description="Robot reaction-range multiplier, 1 nominal."
     )
-    null_reason = _NULL_REASON
 
 
 class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIMENSION):
@@ -183,10 +170,8 @@ class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIM
         pl.Float64, "Acoustic transmission loss of the entity.", unit="dB"
     )
     initial_state = _optional(pl.String, "State the entity starts in.")
-    null_reason = _NULL_REASON
 
 
 DIMENSION_TABLES: Final[dict[str, type[Table]]] = {
-    table.table_name: table
-    for table in (DimEpisodes, DimRobots, DimPedestrians, DimWorldEntities)
+    table.table_name: table for table in registered_tables() if table.table_kind is TableKind.DIMENSION
 }

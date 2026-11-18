@@ -7,6 +7,8 @@ import pytest
 from arena_evaluation.processing.metrics.performance import barn_metrics
 from arena_evaluation.processing.metrics.performance.barn_metrics import BARNScoreCalculator, parse_reference, replay, score
 from arena_evaluation.processing.metrics.registry import MetricRegistry
+from arena_evaluation.processing.metrics.base import ScopeSlice
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 PATH_0 = Path(__file__).parent.parent / "fixtures" / "barn" / "jackal_helper" / "worlds" / "BARN" / "path_files" / "path_0.npy"
@@ -67,19 +69,19 @@ def _drive(speed: float, wait: float = 0.0, stop_at: float | None = None):
 def _episode(position, duration: float, collision_at: float | None = None, world: str = "barn_0", t0: float = 5.0) -> AlignedEpisodeBundle:
     stamps = t0 + np.arange(0.0, duration + 1e-9, 1.0 / RATE_HZ)
     xy = np.array([position(t - t0) for t in stamps])
-    time_ns = np.round(stamps * 1e9).astype(np.int64)
-    tf_gt = pl.DataFrame({"time_ns": time_ns, "pos_x_gt": xy[:, 0], "pos_y_gt": xy[:, 1], "yaw_gt": np.full(len(stamps), math.pi / 2)})
+    t_ns = np.round(stamps * 1e9).astype(np.int64)
+    robot_tracks = pl.DataFrame({"t_ns": t_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.full(len(stamps), math.pi / 2), "pose_source": ["tf_gt"] * len(stamps)})
     hits = np.zeros(len(stamps), dtype=np.int64) if collision_at is None else (stamps - t0 >= collision_at).astype(np.int64)
-    collisions = pl.DataFrame({"time_ns": time_ns, "collision_event": hits})
-    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[*START, math.pi / 2], goal_pos=list(GOAL), map=world, topics={"tf_gt": tf_gt, "collision_events": collisions})
+    collisions = pl.DataFrame({"t_ns": t_ns, "event_count": hits})
+    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[*START, math.pi / 2], goal_pos=list(GOAL), map=world, topics={"robot_tracks": robot_tracks, "collision_events": collisions})
 
 
 def _config(path_length: float) -> dict:
     return {"barn": parse_reference({"start": list(START), "goal": list(GOAL), "path_length": {"barn_0": path_length}})}
 
 
-def _calc(path_length: float | None, max_speed: float = 2.0) -> BARNScoreCalculator:
-    calc = BARNScoreCalculator(RobotParams(model="jackal", max_linear_velocity=max_speed))
+def _calc(path_length: float | None) -> BARNScoreCalculator:
+    calc = BARNScoreCalculator(RobotParams(model="jackal"))
     if path_length is not None:
         calc.metrics_config = _config(path_length)
     return calc
@@ -191,19 +193,15 @@ def test_robot_that_never_moves_scores_zero_with_no_time():
     assert (results["barn_success"], results["barn_collided"], results["barn_timeout"]) == (False, False, False)
 
 
-def test_speed_is_the_challenge_constant_whatever_the_robot():
+def test_optimal_time_uses_the_challenge_speed():
     assert barn_metrics.MAX_SPEED_MPS == 2.0
-    episode = _episode(_drive(1.0), 10.0)
-    slow = _calc(10.0, max_speed=1.0).calculate(episode, {})
-    unknown = _calc(10.0, max_speed=0.0).calculate(episode, {})
-    assert slow["barn_optimal_time"] == pytest.approx(5.0)
-    assert unknown["barn_optimal_time"] == pytest.approx(5.0)
-    assert slow["barn_score"] == pytest.approx(unknown["barn_score"])
+    results = _calc(10.0).calculate(_episode(_drive(1.0), 10.0), {})
+    assert results["barn_optimal_time"] == pytest.approx(5.0)
 
 
 def test_no_reference_means_no_score():
     episode = _episode(_drive(1.0), 10.0)
-    assert _calc(None).calculate(episode, {"success": True, "time_to_goal": 9.0, "theta_star_length": 10.0}) == NULLS
+    assert _calc(None).calculate(episode, {"success": True, "time_to_goal_s": 9.0, "theta_star_length": 10.0}) == NULLS
     assert _calc(10.0).calculate(_episode(_drive(1.0), 10.0, world="map_empty"), {}) == NULLS
 
 
@@ -243,24 +241,32 @@ def test_reference_block_normalizes_numbers():
     assert parse_reference({"start": [2, 3], "goal": (2.25, 13), "path_length": {"barn_0": 11}}) == {"start": [2.0, 3.0], "goal": [2.25, 13.0], "path_length": {"barn_0": 11.0}}
 
 
+def _robot_slice(episode):
+    """Robot slice of the whole episode, the shape scoped_evaluator hands the ROBOT pass."""
+    return ScopeSlice(scope=MetricScope.ROBOT, slice_id="robot", t_start_ns=0, t_end_ns=0, identity={}, window_bundle=episode, full_episode=episode)
+
+
 def test_registry_reports_the_score_beside_the_native_metrics():
     episode = _episode(_drive(1.0), 10.0)
-    topics = {"tf_gt", "odom", "collision_events"}
+    topics = {"robot_tracks", "robot_odom", "collision_events"}
     with_reference = MetricRegistry(RobotParams(model="jackal"), metrics_config=_config(10.0))
     assert with_reference.calculators["barn_score"].metrics_config == _config(10.0)
-    results = with_reference.run(episode, available_topics=topics, pedsim_available=False)
+    results = {**with_reference.run(episode, available_topics=topics, pedsim_available=False), **with_reference.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode)).results}
     assert results["barn_success"] is True
     assert results["barn_score"] == pytest.approx(0.5)
     assert {"success", "collision_amount", "time_to_goal"} <= set(results)
-    without = MetricRegistry(RobotParams(model="jackal")).run(_episode(_drive(1.0), 10.0), available_topics=topics, pedsim_available=False)
+    without_registry = MetricRegistry(RobotParams(model="jackal"))
+    without_episode = _episode(_drive(1.0), 10.0)
+    without = {**without_registry.run(without_episode, available_topics=topics, pedsim_available=False), **without_registry.run_scope(MetricScope.ROBOT, without_episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(without_episode)).results}
     assert {key: without[key] for key in NULLS} == NULLS
-    skipped = with_reference.run(_episode(_drive(1.0), 10.0), available_topics={"tf_gt", "odom"}, pedsim_available=False)
+    skipped_episode = _episode(_drive(1.0), 10.0)
+    skipped = {**with_reference.run(skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False), **with_reference.run_scope(MetricScope.ROBOT, skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False, scope_slice=_robot_slice(skipped_episode)).results}
     assert {key: skipped[key] for key in NULLS} == NULLS
 
 
-def test_output_keys_cover_units_and_primary():
+def test_output_keys_cover_primary_and_directions():
     keys = set(BARNScoreCalculator.output_keys())
-    assert set(BARNScoreCalculator.UNITS) <= keys
+    assert {metric.name for metric in BARNScoreCalculator.OUTPUTS} == keys
     assert set(BARNScoreCalculator.PRIMARY_OUTPUTS) <= keys
-    assert set(BARNScoreCalculator.OUTPUT_DIRECTIONS) <= keys
+    assert set(BARNScoreCalculator.DIRECTIONS) <= keys
     assert keys == set(NULLS)

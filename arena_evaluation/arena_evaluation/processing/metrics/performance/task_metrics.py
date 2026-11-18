@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import typing
 
 import attrs
@@ -11,22 +10,31 @@ from arena_simulation_setup.shared.judge import ConditionMonitor, PhaseMonitor
 from arena_simulation_setup.shared.task import GoToPhase, TaskPhase
 from arena_simulation_setup.utils.geometry import Orientation, Pose, Position
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import _reconstruct_events
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.common.caching import world_cache
+from arena_evaluation.processing.metrics.common.context import EvalContext
+from arena_evaluation.processing.metrics.common.events import reconstruct_events
+from arena_evaluation.processing.metrics.common.resampling import resample_fleet
+from arena_evaluation.processing.metrics.common.rosters import entity_roster, ped_roster
+from arena_evaluation.processing.metrics.common.zones import ZoneGeometry
 from arena_evaluation.processing.metrics.ecological.condition_metrics import (
-    _entity_roster,
-    _EvalContext,
-    _ped_roster,
-    _resample_fleet,
-    _world_cache,
     bare_robot_name,
     clips_on_axis,
     load_wall_grid,
     load_zone_geometry,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.processing.pedestrian_frames import frames_of
+from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-logger = logging.getLogger(__name__)
+
+GOAL_CONDITION_RATE = define_metric("goal_condition_rate", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Share of recorded phases the replay judge marks as met, 0 to 1.", null_reason=True)
+JUDGE_AGREES = define_metric("judge_agrees", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Whether the shared judge's replay agrees with every recorded phase verdict and violated condition.", null_reason=True)
+PHASES_DROPPED = define_metric("phases_dropped", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of recorded task phases the record marks as dropped.", null_reason=True)
+PHASES_FAILED = define_metric("phases_failed", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of recorded task phases the record marks as failed.", null_reason=True)
+PHASES_MET = define_metric("phases_met", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of recorded task phases the record marks as met.", null_reason=True)
+PHASES_TOTAL = define_metric("phases_total", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of task phases in the recorded episode.", null_reason=True)
+UNSAFE = define_metric("unsafe", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of violated task conditions the record lists.", null_reason=True)
 
 
 def _split_indices(value: str) -> list[int]:
@@ -38,8 +46,8 @@ def _robot_events(events: pl.DataFrame, robot: str) -> dict[str, tuple[np.ndarra
     rows = events.filter((pl.col("kind") == "robot") & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot))
     series: dict[str, tuple[np.ndarray, list[str]]] = {}
     for (field,), group in rows.group_by(["field"]):
-        g = group.sort("time_ns")
-        series[str(field)] = (g["time_ns"].to_numpy(), g["current"].to_list())
+        g = group.sort("t_ns")
+        series[str(field)] = (g["t_ns"].to_numpy(), g["current"].to_list())
     return series
 
 
@@ -66,48 +74,51 @@ def _active_phase_spans(series: dict[str, tuple[np.ndarray, list[str]]], end_ns:
     return spans
 
 
+def _zones_for_world(world: str | None) -> list[ZoneGeometry] | None:
+    """Zone, door and elevator polygons of the world, from the shared cache when a run has already loaded them."""
+    if not world:
+        return None
+    if world not in world_cache:
+        world_cache[world] = load_zone_geometry(world)
+    return world_cache[world]
+
+
 class TaskReplayCalculator(BaseMetricCalculator):
     """Replays the robot's recorded phases with the shared judge and compares its verdicts to the recorded ones."""
 
     NAME = "task_replay"
     CATEGORY = "performance"
-    REQUIRED_TOPICS = ["task_pose"]
+    REQUIRED_TOPICS = ["robot_task_pose"]
+    PARAMS = ()
 
-    UNITS = {
-        "phases_total": "",
-        "phases_met": "",
-        "phases_failed": "",
-        "phases_dropped": "",
-        "goal_condition_rate": "",
-        "phase_outcomes": "",
-        "unsafe": "",
-        "judge_agrees": "",
-        "judge_disagreements": "",
+    OUTPUTS = (
+        GOAL_CONDITION_RATE,
+        JUDGE_AGREES,
+        PHASES_DROPPED,
+        PHASES_FAILED,
+        PHASES_MET,
+        PHASES_TOTAL,
+        UNSAFE,
+    )
+    # Table-valued results: one outcome token per phase and one disagreement string per mismatch.
+    CHILD_OUTPUTS = ("phase_outcomes", "judge_disagreements")
+    DIRECTIONS = {
+        "goal_condition_rate": Direction.HIGHER,
+        "judge_agrees": Direction.HIGHER,
+        "unsafe": Direction.LOWER,
     }
-
     PRIMARY_OUTPUTS = ["goal_condition_rate", "unsafe", "judge_agrees"]
-    OUTPUT_DIRECTIONS = {"goal_condition_rate": "higher", "unsafe": "lower", "judge_agrees": "higher"}
-
-    world: str | None = None
-
-    def __init__(self, robot_params: RobotParams) -> None:
-        super().__init__(robot_params)
-        self._world_cache = _world_cache
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return list(cls.UNITS.keys())
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
-        empty = dict.fromkeys(self.output_keys())
+        empty = dict.fromkeys((*self.output_keys(), *self.CHILD_OUTPUTS))
         spec = episode.phases
         if not spec or not spec.get("phases"):
             return empty
         phases = [TaskPhase.parse(p) for p in spec["phases"]]
         robot = bare_robot_name(episode.robot_name or "")
         snapshot = episode.semantic_snapshot
-        events = _reconstruct_events(snapshot)
+        events = reconstruct_events(snapshot)
         robot_series = _robot_events(events, robot)
 
         met = set(_split_indices(_last(robot_series, "met")))
@@ -124,31 +135,34 @@ class TaskReplayCalculator(BaseMetricCalculator):
         results["phase_outcomes"] = ["met" if i in met else "failed" if i in failed else "dropped" if i in dropped else "pending" for i in range(len(phases))]
         results["unsafe"] = len(violated)
 
-        poses = episode.topics.get("task_pose") if episode.topics else None
-        zones = load_zone_geometry(self.world) if self.world else None
-        if poses is None or len(poses) == 0 or zones is None or not self.world:
+        poses = episode.topics.get("robot_task_pose") if episode.topics else None
+        zones = _zones_for_world(self.world)
+        if poses is None or len(poses) == 0 or not {"t_ns", "pos_x", "pos_y"} <= set(poses.columns) or zones is None or not self.world:
             return results
 
-        poses = poses.sort("time_ns")
-        time_ns = poses["time_ns"].to_numpy()
-        gestures = episode.topics.get("ped_gestures") if episode.topics else None
-        ctx = _EvalContext(
+        poses = poses.sort("t_ns")
+        t_ns = poses["t_ns"].to_numpy()
+        gestures = episode.topics.get("pedestrian_gestures") if episode.topics else None
+        peds_df = self.native_ped_frame(episode)
+        peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
+        ctx = EvalContext(
             events=events,
-            time_ns=time_ns,
+            t_ns=t_ns,
             pos_x=poses["pos_x"].to_numpy(),
             pos_y=poses["pos_y"].to_numpy(),
-            data=_peds_on_axis(episode.peds, time_ns),
+            data=poses,
             zones_by_name={zone.name: zone for zone in zones},
-            entity_roster=_entity_roster(snapshot),
-            ped_roster={},
+            entity_roster=entity_roster(snapshot),
+            ped_roster=ped_roster(peds_df),
             yaw=poses["yaw"].to_numpy(),
-            fleet=_resample_fleet(episode.fleet, time_ns, robot),
+            fleet=resample_fleet(episode.fleet, t_ns, robot),
             walls=load_wall_grid(self.world),
-            clips=clips_on_axis(episode.peds, gestures, time_ns),
+            clips=clips_on_axis(peds_df, gestures, t_ns),
+            peds_frames=peds_frames,
+            peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )
-        ctx.ped_roster = _ped_roster(ctx.data)
         polygons = ctx.polygons
-        spans = _active_phase_spans(robot_series, int(time_ns[-1]) + 1)
+        spans = _active_phase_spans(robot_series, int(t_ns[-1]) + 1)
 
         disagreements: list[str] = []
         replay_violated: set[str] = set()
@@ -158,8 +172,8 @@ class TaskReplayCalculator(BaseMetricCalculator):
             span = spans.get(index)
             if span is None:
                 continue
-            lo = int(np.searchsorted(time_ns, span[0], side="left"))
-            hi = int(np.searchsorted(time_ns, span[1], side="right"))
+            lo = int(np.searchsorted(t_ns, span[0], side="left"))
+            hi = int(np.searchsorted(t_ns, span[1], side="right"))
             monitor = PhaseMonitor(phase, "robot")
             replay_met = False
             for i in range(lo, hi):
@@ -203,24 +217,6 @@ def _covers(cond: dict, index: int) -> bool:
     first = cond.get("from", 0) or 0
     last = cond.get("to")
     return index >= first and (last is None or index <= last)
-
-
-def _peds_on_axis(peds: pl.DataFrame | None, time_ns: np.ndarray) -> pl.DataFrame:
-    """Recorded ped names and positions held onto the judge pose axis."""
-    if peds is None or len(peds) == 0 or "peds_names" not in peds.columns:
-        return pl.DataFrame({"time_ns": time_ns})
-    peds = peds.sort("time_ns")
-    times = peds["time_ns"].to_numpy()
-    idx = np.searchsorted(times, time_ns, side="right") - 1
-    names = peds["peds_names"].to_list()
-    positions = peds["peds_positions"].to_list()
-    return pl.DataFrame(
-        {
-            "time_ns": time_ns,
-            "peds_names": [names[i] if i >= 0 else [] for i in idx],
-            "peds_positions": [positions[i] if i >= 0 else [] for i in idx],
-        }
-    )
 
 
 __all__ = ["TaskReplayCalculator"]

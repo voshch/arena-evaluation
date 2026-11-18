@@ -5,158 +5,211 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
+from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
+from arena_evaluation.processing.metrics.common.series import null_float_series
+from arena_evaluation.processing.pedestrian_frames import distances_to_pedestrians
+from arena_evaluation.storage.exceptions import MetricInputError
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+
+_RANGE_EPSILON_M: typing.Final[float] = 1e-6
+
+SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
+    "run_id": pl.String,
+    "episode_id": pl.Int64,
+    "robot_id": pl.String,
+    "t_ns": pl.Int64,
+    "obstacle_clearance_m": pl.Float64,
+    "pedestrian_clearance_m": pl.Float64,
+    "combined_clearance_m": pl.Float64,
+}
+
+MEAN_OBSTACLE_CLEARANCE = define_metric("mean_obstacle_clearance", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Mean edge-to-edge clearance to the nearest detected obstacle over the scope window.", null_reason=True)
+MEAN_PEDESTRIAN_CLEARANCE = define_metric("mean_pedestrian_clearance", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Mean edge-to-edge clearance to the nearest pedestrian over the scope window, both recorded radii subtracted.", null_reason=True)
+MIN_OBSTACLE_CLEARANCE_M = define_metric("min_obstacle_clearance_m", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Closest edge-to-edge clearance to a detected obstacle over the scope window, robot radius subtracted.", null_reason=True)
+MIN_PED_CLEARANCE_M = define_metric("min_ped_clearance_m", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Closest edge-to-edge clearance to the nearest pedestrian over the scope window, both recorded radii subtracted.", null_reason=True)
+
+
+def _summaries(obstacle_clearance_m: np.ndarray, pedestrian_clearance_m: np.ndarray) -> dict[str, float | None]:
+    """Minimum and mean of the valid obstacle and pedestrian clearances, None without a single valid sample."""
+    valid_obstacle = obstacle_clearance_m[~np.isnan(obstacle_clearance_m)]
+    valid_pedestrian = pedestrian_clearance_m[~np.isnan(pedestrian_clearance_m)]
+    return {
+        "min_obstacle_clearance_m": float(np.min(valid_obstacle)) if len(valid_obstacle) else None,
+        "mean_obstacle_clearance": float(np.mean(valid_obstacle)) if len(valid_obstacle) else None,
+        "min_ped_clearance_m": float(np.min(valid_pedestrian)) if len(valid_pedestrian) else None,
+        "mean_pedestrian_clearance": float(np.mean(valid_pedestrian)) if len(valid_pedestrian) else None,
+    }
 
 
 class ClearanceMetricsCalculator(BaseMetricCalculator):
-    """Computes minimum clearance distances to obstacles and pedestrians."""
+    """Minimum and mean clearance distances to obstacles and pedestrians over the scope window."""
 
     NAME = "clearance_metrics"
     CATEGORY = "performance"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
-    REQUIRED_TOPICS = [("scan", "peds")]  # at least one of the two
+    REQUIRED_TOPICS = [("robot_scan_summary", "pedestrian_tracks")]
+    PARAMS = ()
 
-    UNITS = {
-        "min_obstacle_clearance": "m",
-        "mean_obstacle_clearance": "m",
-        "min_pedestrian_clearance": "m",
-        "mean_pedestrian_clearance": "m",
-        "clearance_timeseries": "m",
+    OUTPUTS = (MIN_OBSTACLE_CLEARANCE_M, MEAN_OBSTACLE_CLEARANCE, MIN_PED_CLEARANCE_M, MEAN_PEDESTRIAN_CLEARANCE)
+    DIRECTIONS = {
+        "min_obstacle_clearance_m": Direction.HIGHER,
+        "mean_obstacle_clearance": Direction.HIGHER,
+        "min_ped_clearance_m": Direction.HIGHER,
+        "mean_pedestrian_clearance": Direction.HIGHER,
     }
+    PRIMARY_OUTPUTS = ["min_obstacle_clearance_m", "min_ped_clearance_m"]
 
-    PRIMARY_OUTPUTS = ["min_obstacle_clearance", "min_pedestrian_clearance"]
-    OUTPUT_DIRECTIONS = {
-        "min_obstacle_clearance": "higher",
-        "mean_obstacle_clearance": "higher",
-        "min_pedestrian_clearance": "higher",
-        "mean_pedestrian_clearance": "higher",
-    }
-
-    _PED_RADIUS = 0.3  # m
+    SERIES_TABLE_STEM = "clearance"
 
     @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "min_obstacle_clearance",
-            "mean_obstacle_clearance",
-            "min_pedestrian_clearance",
-            "mean_pedestrian_clearance",
-            "clearance_timeseries",
-        ]
+    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
+        # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
+        # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
+        return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
-    def calculate(
+    @staticmethod
+    def _scan_arrays(scan_df: pl.DataFrame | None, t_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Scan minimum and maximum range interpolated onto ``t_ns``, NaN where no scan sample is in tolerance."""
+        if scan_df is None or "scan_min_m" not in scan_df.columns:
+            empty = np.full(len(t_ns), np.nan)
+            return empty, empty.copy()
+        columns = ["t_ns", "scan_min_m"]
+        if "range_max_m" in scan_df.columns:
+            columns.append("range_max_m")
+        scan = scan_df.select([pl.col("t_ns").cast(pl.Int64), *[pl.col(name).cast(pl.Float64) for name in columns[1:]]]).drop_nulls("t_ns").sort("t_ns")
+        joined = asof_join(pl.DataFrame({"t_ns": t_ns.astype(np.int64)}), scan, tolerance_ns=TRACK_ALIGN_TOLERANCE_NS).sort("t_ns")
+        scan_min = joined["scan_min_m"].to_numpy().astype(np.float64)
+        scan_max = joined["range_max_m"].to_numpy().astype(np.float64) if "range_max_m" in joined.columns else np.full(len(t_ns), np.nan)
+        return scan_min, scan_max
+
+    def _pedestrian_clearance(self, t_ns: np.ndarray, pos_x: np.ndarray, pos_y: np.ndarray, peds_df: pl.DataFrame | None) -> np.ndarray:
+        """Per-sample clearance to the nearest pedestrian, each body's recorded radius subtracted.
+
+        The radius is never assumed: a pedestrian frame without ``radius_m``, or a nearest pedestrian
+        whose radius is null or NaN, raises :class:`MetricInputError` because the clearance would be
+        an invented number.
+        """
+        if peds_df is None or len(peds_df) == 0:
+            return np.full(len(t_ns), np.nan)
+        if "radius_m" not in peds_df.columns:
+            raise MetricInputError("clearance_metrics: pedestrian_tracks has no radius_m column; each pedestrian's recorded body radius is required")
+        nearest = (
+            distances_to_pedestrians(t_ns, pos_x, pos_y, peds_df, TRACK_ALIGN_TOLERANCE_NS)
+            .sort(["row", "distance"])
+            .group_by("row", maintain_order=True)
+            .first()
+        )
+        radii = peds_df.select(ped_id=pl.col("ped_id").cast(pl.String), radius_m=pl.col("radius_m").cast(pl.Float64)).unique(subset=["ped_id"], keep="first", maintain_order=True)
+        nearest = nearest.join(radii, on="ped_id", how="left")
+        unresolved = nearest.filter(pl.col("radius_m").is_null() | pl.col("radius_m").is_nan())
+        if unresolved.height > 0:
+            missing = sorted({str(ped_id) for ped_id in unresolved["ped_id"].to_list()})
+            raise MetricInputError(f"clearance_metrics: pedestrian_tracks has no recorded radius_m for the nearest pedestrians {missing}")
+        distance_m = np.full(len(t_ns), np.nan)
+        radius_m = np.full(len(t_ns), np.nan)
+        rows = nearest["row"].to_numpy()
+        distance_m[rows] = nearest["distance"].to_numpy().astype(np.float64)
+        radius_m[rows] = nearest["radius_m"].to_numpy().astype(np.float64)
+        return np.where(np.isnan(distance_m), np.nan, np.maximum(0.0, distance_m - self.robot_params.robot_radius - radius_m))
+
+    def _clearance_arrays(
+        self,
+        t_ns: np.ndarray,
+        pos_x: np.ndarray,
+        pos_y: np.ndarray,
+        scan_df: pl.DataFrame | None,
+        peds_df: pl.DataFrame | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Per-sample obstacle and pedestrian clearance in metres, NaN where that source has no valid sample."""
+        robot_radius_m = self.robot_params.robot_radius
+        scan_min, scan_max = self._scan_arrays(scan_df, t_ns)
+        undetected = np.isnan(scan_max) | (scan_min < scan_max - _RANGE_EPSILON_M)
+        obstacle_valid = np.isfinite(scan_min) & (scan_min > 0.0) & undetected
+        obstacle_clearance_m = np.where(obstacle_valid, np.maximum(0.0, scan_min - robot_radius_m), np.nan)
+        pedestrian_clearance_m = self._pedestrian_clearance(t_ns, pos_x, pos_y, peds_df)
+        return obstacle_clearance_m, pedestrian_clearance_m
+
+    @staticmethod
+    def _combined(obstacle_clearance_m: np.ndarray, pedestrian_clearance_m: np.ndarray) -> np.ndarray:
+        """Sample-wise minimum of both sources, whichever is valid, NaN without either."""
+        both_valid = ~np.isnan(obstacle_clearance_m) & ~np.isnan(pedestrian_clearance_m)
+        combined = np.full(len(obstacle_clearance_m), np.nan)
+        combined[both_valid] = np.minimum(obstacle_clearance_m[both_valid], pedestrian_clearance_m[both_valid])
+        only_obstacle = ~np.isnan(obstacle_clearance_m) & ~both_valid
+        combined[only_obstacle] = obstacle_clearance_m[only_obstacle]
+        only_pedestrian = ~np.isnan(pedestrian_clearance_m) & ~both_valid
+        combined[only_pedestrian] = pedestrian_clearance_m[only_pedestrian]
+        return combined
+
+    def _episode_arrays(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Aligned sample times, ground-truth robot position and the two clearance series of the episode."""
+        if episode.data is None or "t_ns" not in episode.data.columns:
+            empty_int = np.array([], dtype=np.int64)
+            empty = np.array([], dtype=np.float64)
+            return empty_int, empty, empty.copy(), empty.copy()
+
+        pos_x, pos_y, _yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(episode)
+        frame = self.resolve_robot_frame(episode)
+        if frame is None or len(frame) == 0 or len(pos_x) == 0:
+            return np.array([], dtype=np.int64), np.array([], dtype=np.float64), np.array([], dtype=np.float64), np.array([], dtype=np.float64)
+
+        aligned_times_ns = frame["t_ns"].to_numpy().astype(np.int64)
+        topic_scan = self.native_topics(episode).get("robot_scan_summary")
+        peds_df = self.native_ped_frame(episode)
+        obstacle, pedestrian = self._clearance_arrays(aligned_times_ns, pos_x, pos_y, topic_scan, peds_df)
+        return aligned_times_ns, self._combined(obstacle, pedestrian), obstacle, pedestrian
+
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        del prior_results
+        _times, _combined, obstacle, pedestrian = self._episode_arrays(episode)
+        return _summaries(obstacle, pedestrian)
+
+    def _native_arrays(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Native-clock sample times, ground-truth robot position and the two clearance series of a scope window."""
+        pos_x, pos_y, _yaw, t_ns = self.resolve_native_pose(episode)
+        if len(t_ns) == 0:
+            empty = np.array([], dtype=np.float64)
+            return np.array([], dtype=np.int64), empty, empty.copy(), empty.copy()
+        topics = self.native_topics(episode)
+        obstacle, pedestrian = self._clearance_arrays(
+            t_ns,
+            pos_x,
+            pos_y,
+            topics.get("robot_scan_summary"),
+            self.native_ped_frame(episode),
+        )
+        return t_ns, self._combined(obstacle, pedestrian), obstacle, pedestrian
+
+    def calculate_for_scope(
         self,
         episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
+        scope_slice: ScopeSlice | None = None,
     ) -> dict[str, typing.Any]:
-        if episode.data is None:
-            return {k: None for k in self.output_keys()}
+        if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
+            return self.calculate(episode, prior_results)
+        if scope_slice.scope == MetricScope.ENCOUNTER:
+            _times, _combined, obstacle, pedestrian = self._native_arrays(episode)
+            return _summaries(obstacle, pedestrian)
+        raise ValueError(f"clearance_metrics does not serve the {scope_slice.scope.value} scope")
 
-        topics = self.native_topics(episode)
-        scan_df = topics.get("scan")
-        peds_df = topics.get("peds")
-        has_scan = scan_df is not None and "scan_min" in scan_df.columns
-        has_peds = peds_df is not None and "peds_positions" in peds_df.columns
-
-        if not has_scan and not has_peds:
-            return {k: None for k in self.output_keys()}
-
-        pos_x, pos_y, _yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(episode)
-        robot_radius = self.robot_params.robot_radius
-        N = len(pos_x)
-        if N == 0:
-            return {k: None for k in self.output_keys()}
-
-        odom_times_ns = episode.data["time_ns"].to_numpy()
-        tol = 100_000_000
-
-        scan_min_arr = None
-        scan_max_arr = None
-        if has_scan and scan_df is not None:
-            s_df = scan_df.sort("time_ns")
-            joined = (
-                pl.DataFrame({"time_ns": odom_times_ns})
-                .join_asof(
-                    s_df.select(["time_ns", "scan_min", "scan_range_max"]),
-                    on="time_ns",
-                    strategy="backward",
-                    tolerance=tol,
-                )
-                .sort("time_ns")
-            )
-            scan_min_arr = joined["scan_min"].to_numpy()
-            scan_max_arr = joined["scan_range_max"].to_numpy() if "scan_range_max" in joined.columns else None
-
-        peds_positions_list = None
-        num_peds_col = None
-        if has_peds and peds_df is not None:
-            p_df = peds_df.sort("time_ns")
-            cols = ["time_ns", "peds_positions"]
-            if "num_pedestrians" in p_df.columns:
-                cols.append("num_pedestrians")
-            joined = (
-                pl.DataFrame({"time_ns": odom_times_ns})
-                .join_asof(
-                    p_df.select(cols),
-                    on="time_ns",
-                    strategy="backward",
-                    tolerance=tol,
-                )
-                .sort("time_ns")
-            )
-            peds_positions_list = joined["peds_positions"].to_list()
-            if "num_pedestrians" in joined.columns:
-                num_peds_col = joined["num_pedestrians"].to_numpy()
-
-        obstacle_clearances: list[float | None] = []
-        ped_clearances: list[float | None] = []
-        combined_clearances: list[float | None] = []
-
-        for i in range(N):
-            obs_clear = None
-            if scan_min_arr is not None and i < len(scan_min_arr):
-                sm = scan_min_arr[i]
-                if sm is not None and not np.isnan(sm) and not np.isinf(sm) and sm > 0:
-                    r_max = scan_max_arr[i] if scan_max_arr is not None and i < len(scan_max_arr) else None
-                    # At or beyond max range means nothing was detected
-                    if r_max is None or np.isnan(r_max) or sm < float(r_max) - 1e-6:
-                        obs_clear = max(0.0, float(sm) - robot_radius)
-            obstacle_clearances.append(obs_clear)
-
-            ped_clear = None
-            if peds_positions_list is not None and i < len(peds_positions_list):
-                peds_raw = peds_positions_list[i]
-                peds_arr = self._parse_peds(
-                    peds_raw,
-                    num_peds_col[i] if num_peds_col is not None else None,
-                )
-                if peds_arr.shape[0] > 0:
-                    rx, ry = pos_x[i], pos_y[i]
-                    dx = peds_arr[:, 0] - rx
-                    dy = peds_arr[:, 1] - ry
-                    dists = np.sqrt(dx**2 + dy**2)
-                    min_dist = float(np.min(dists))
-                    ped_clear = max(0.0, min_dist - robot_radius - self._PED_RADIUS)
-            ped_clearances.append(ped_clear)
-
-            if obs_clear is not None and ped_clear is not None:
-                combined_clearances.append(float(min(obs_clear, ped_clear)))
-            elif obs_clear is not None:
-                combined_clearances.append(float(obs_clear))
-            elif ped_clear is not None:
-                combined_clearances.append(float(ped_clear))
-            else:
-                combined_clearances.append(None)
-
-        valid_obs = [c for c in obstacle_clearances if c is not None]
-        valid_ped = [c for c in ped_clearances if c is not None]
-
-        return {
-            "min_obstacle_clearance": float(np.min(valid_obs)) if valid_obs else None,
-            "mean_obstacle_clearance": float(np.mean(valid_obs)) if valid_obs else None,
-            "min_pedestrian_clearance": float(np.min(valid_ped)) if valid_ped else None,
-            "mean_pedestrian_clearance": float(np.mean(valid_ped)) if valid_ped else None,
-            "clearance_timeseries": combined_clearances,
-        }
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
+        """1NF flat clearance series, one row per sample, explicit nulls where a source has no valid sample."""
+        times_ns, combined, obstacle, pedestrian = self._episode_arrays(episode)
+        if len(times_ns) == 0:
+            return pl.DataFrame(schema=SERIES_SCHEMA)
+        return pl.DataFrame(
+            {
+                "run_id": pl.Series("run_id", [run_id] * len(times_ns), dtype=pl.String),
+                "episode_id": pl.Series("episode_id", [int(episode.episode_id)] * len(times_ns), dtype=pl.Int64),
+                "robot_id": pl.Series("robot_id", [robot_id or (episode.robot_name or "robot")] * len(times_ns), dtype=pl.String),
+                "t_ns": pl.Series("t_ns", times_ns, dtype=pl.Int64),
+                "obstacle_clearance_m": null_float_series(obstacle, "obstacle_clearance_m"),
+                "pedestrian_clearance_m": null_float_series(pedestrian, "pedestrian_clearance_m"),
+                "combined_clearance_m": null_float_series(combined, "combined_clearance_m"),
+            },
+            schema=SERIES_SCHEMA,
+        )

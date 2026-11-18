@@ -6,7 +6,10 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.common.alignment import interpolate_values
+from arena_evaluation.storage.exceptions import MetricInputError
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 MAX_SPEED_MPS = 2.0
@@ -19,6 +22,13 @@ CLIP_HIGH = 8.0
 
 _TIMEOUT_POLLS = round(TIMEOUT_S / POLL_S)
 
+BARN_COLLIDED = define_metric("barn_collided", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Whether the replayed run collided before reaching the goal radius, under the BARN challenge loop.", null_reason=True)
+BARN_OPTIMAL_TIME = define_metric("barn_optimal_time", pl.Float64, scopes=(MetricScope.EPISODE,), unit="s", description="Optimal traversal time of the map's BARN reference path: path length over the challenge speed 2 m/s.", null_reason=True)
+BARN_SCORE = define_metric("barn_score", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="BARN navigation score of the episode, 0 to 1: success weighted by optimal over clipped actual time.", null_reason=True)
+BARN_SUCCESS = define_metric("barn_success", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Whether the replayed run reached the goal radius before colliding or timing out.", null_reason=True)
+BARN_TIME = define_metric("barn_time", pl.Float64, scopes=(MetricScope.ROBOT,), unit="s", description="Seconds from the first motion beyond the start radius to the replayed run's terminal poll.", null_reason=True)
+BARN_TIMEOUT = define_metric("barn_timeout", pl.Boolean, scopes=(MetricScope.ROBOT,), unit="", description="Whether the replayed run reached the challenge timeout before the goal or a collision.", null_reason=True)
+
 
 class Run(typing.NamedTuple):
     success: bool
@@ -27,7 +37,7 @@ class Run(typing.NamedTuple):
     time: float | None
 
 
-def _point(raw: dict, key: str) -> list[float]:
+def _point(raw: dict[str, typing.Any], key: str) -> list[float]:
     value = raw[key]
     if not isinstance(value, (list, tuple)) or len(value) != 2 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
         raise ValueError(f"barn: {key} must be [x, y] in meters, got {value!r}")
@@ -64,7 +74,7 @@ def replay(t: np.ndarray, x: np.ndarray, y: np.ndarray, start: typing.Sequence[f
     end = float(t[-1])
     polls = np.arange(min(int((end - t0) // POLL_S) + 2, _TIMEOUT_POLLS + 1))
     at = t0 + POLL_S * polls
-    reached = np.hypot(np.interp(at, t, x) - goal[0], np.interp(at, t, y) - goal[1]) <= GOAL_RADIUS_M
+    reached = np.hypot(interpolate_values(t, x, at) - goal[0], interpolate_values(t, y, at) - goal[1]) <= GOAL_RADIUS_M
     collided = at >= min(collision_t, end) if collision_t is not None else np.zeros(len(polls), dtype=bool)
     timeout = polls >= _TIMEOUT_POLLS
     done = np.nonzero(reached | collided | timeout)[0]
@@ -80,10 +90,12 @@ def replay(t: np.ndarray, x: np.ndarray, y: np.ndarray, start: typing.Sequence[f
 
 def _first_collision_s(episode: AlignedEpisodeBundle) -> float | None:
     frame = (episode.topics or {}).get("collision_events")
-    if frame is None or "collision_event" not in frame.columns:
+    if frame is None:
         return None
-    hits = frame.filter(pl.col("collision_event") > 0)
-    return float(hits.select(pl.col("time_ns").min()).item()) / 1e9 if len(hits) else None
+    if "event_count" not in frame.columns:
+        raise MetricInputError("collision_events carries no event_count; the collision count is unknown")
+    hits = frame.filter(pl.col("event_count") > 0)
+    return float(hits.select(pl.col("t_ns").min()).item()) / 1e9 if len(hits) else None
 
 
 class BARNScoreCalculator(BaseMetricCalculator):
@@ -91,42 +103,28 @@ class BARNScoreCalculator(BaseMetricCalculator):
 
     NAME = "barn_score"
     CATEGORY = "performance"
-    REQUIRED_TOPICS = ["collision_events", ("tf_gt", "odom")]
+    REQUIRED_TOPICS = ["collision_events", ("robot_tracks", "robot_odom")]
+    PARAMS = ("barn",)
 
-    UNITS = {
-        "barn_score": "",
-        "barn_optimal_time": "s",
-        "barn_time": "s",
-        "barn_success": "",
-        "barn_collided": "",
-        "barn_timeout": "",
+    OUTPUTS = (BARN_SCORE, BARN_OPTIMAL_TIME, BARN_TIME, BARN_SUCCESS, BARN_COLLIDED, BARN_TIMEOUT)
+    DIRECTIONS = {
+        "barn_score": Direction.HIGHER,
+        "barn_success": Direction.HIGHER,
     }
-
     PRIMARY_OUTPUTS = ["barn_score"]
-    OUTPUT_DIRECTIONS = {"barn_score": "higher", "barn_success": "higher"}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "barn_score",
-            "barn_optimal_time",
-            "barn_time",
-            "barn_success",
-            "barn_collided",
-            "barn_timeout",
-        ]
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        del prior_results
         nulls = dict.fromkeys(self.output_keys())
         reference = self.metrics_config.get("barn")
         if reference is None or episode.map not in reference["path_length"]:
             return nulls
-        x, y, _, time_ns = self.resolve_native_pose(episode)
-        if len(time_ns) == 0:
+        x, y, _, t_ns = self.resolve_native_pose(episode)
+        if len(t_ns) == 0:
             return nulls
 
         path_length = reference["path_length"][episode.map]
-        run = replay(time_ns / 1e9, x, y, reference["start"], reference["goal"], _first_collision_s(episode))
+        run = replay(t_ns / 1e9, x, y, reference["start"], reference["goal"], _first_collision_s(episode))
         return {
             "barn_score": 0.0 if run.time is None else score(run.success, run.time, path_length),
             "barn_optimal_time": path_length / MAX_SPEED_MPS,

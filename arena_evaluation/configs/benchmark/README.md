@@ -38,7 +38,7 @@ task_layer: task_generator    # optional. task runtime name for parsing, checkin
 launch:                       # optional. launch args for the whole run, CLI passthrough wins. stage-owned keys (world, robot, run_seed, task_layer, task.*, record.*) are rejected
   lockstep: true              # steps from bringup, lockstep.paused defaults to false in a benchmark
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
-  max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
+  max_collisions: 1           # a robot succeeds only with fewer collisions than this (default 1: any collision fails)
   barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
     start: [2.25, 3.0]
     goal: [2.25, 13.0]

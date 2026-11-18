@@ -22,7 +22,6 @@ Runs recorded before the native layout are converted once by `arena evaluation m
 | `telemetry/` | Shapes recorded messages into flat rows: `tracks`, `sensors`, `peds`, `events`, `context`, `messages`, and `writer`, which buffers the rows per table |
 | `parquet_store.py` | `TopicParquetStore`: the extraction cache of an episode's `topics/` folder |
 | `pipeline.py` | `ProcessingPipeline`: extracts an episode, a run directory or a benchmark, and writes the benchmark's dimensions |
-| `progress_display.py` | `PipelineProgressDisplay`: the live progress table of the extraction |
 | `dimension_rows.py` | `episode_dimensions`: the dimension rows one episode contributes |
 | `pose_anchor.py` | Classifies the ground-truth pose stream as dense, sparse or absent |
 | `map_registry.py` | `MapRegistry`: the map image of a world, resolved the way the runtime does, and cached |

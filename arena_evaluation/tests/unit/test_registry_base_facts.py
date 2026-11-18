@@ -21,6 +21,8 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "episode_id": pl.Int64,
             "robot_id": pl.String,
             "result": pl.String,
+            "invalid_reason": pl.String,
+            "pose_frame": pl.String,
             "null_reason": pl.String,
         }
     ),
@@ -36,6 +38,11 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "t_start_ns": pl.Int64,
             "t_end_ns": pl.Int64,
             "contact_id": pl.String,
+            "approach_type": pl.String,
+            "min_clearance_m": pl.Float64,
+            "duration_s": pl.Float64,
+            "detector_version": pl.String,
+            "detector_params_hash": pl.String,
             "null_reason": pl.String,
         }
     ),
@@ -50,6 +57,7 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "obstacle_id": pl.String,
             "t_onset_ns": pl.Int64,
             "t_end_ns": pl.Int64,
+            "duration_s": pl.Float64,
             "null_reason": pl.String,
         }
     ),
@@ -87,6 +95,7 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "case_idx": pl.Int64,
             "kind": pl.String,
             "ordinal": pl.Int64,
+            "element": pl.String,
             "null_reason": pl.String,
         }
     ),
@@ -97,6 +106,7 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "robot_id": pl.String,
             "formation_idx": pl.Int64,
             "role": pl.String,
+            "element": pl.String,
             "null_reason": pl.String,
         }
     ),
@@ -106,6 +116,8 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "episode_id": pl.Int64,
             "robot_id": pl.String,
             "phase_idx": pl.Int64,
+            "outcome": pl.String,
+            "met": pl.Boolean,
             "null_reason": pl.String,
         }
     ),
@@ -115,6 +127,7 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "episode_id": pl.Int64,
             "robot_id": pl.String,
             "disagreement_idx": pl.Int64,
+            "disagreement": pl.String,
             "null_reason": pl.String,
         }
     ),
@@ -138,6 +151,7 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "episode_id": pl.Int64,
             "robot_id": pl.String,
             "collision_idx": pl.Int64,
+            "obstacle_id": pl.String,
             "obstacle_kind": pl.String,
             "t_ns": pl.Int64,
             "x_m": pl.Float64,
@@ -162,13 +176,23 @@ _EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _declared_schema(table: FactTable) -> pl.Schema:
+    """The table's declared base columns; ``polars_schema`` merges its scope's metrics."""
+    return pl.Schema(
+        {
+            name: column.dtype
+            for name, column in FACT_TABLES[table]._columns.items()
+        }
+    )
+
+
 def test_the_registry_holds_the_eleven_fact_tables() -> None:
     assert set(FACT_TABLES) == set(FactTable)
 
 
 @pytest.mark.parametrize("table", list(FactTable))
 def test_fact_schema_is_pinned_in_name_and_order(table: FactTable) -> None:
-    assert list(FACT_TABLES[table].polars_schema().items()) == list(
+    assert list(_declared_schema(table).items()) == list(
         _EXPECTED_SCHEMAS[table].items()
     )
 

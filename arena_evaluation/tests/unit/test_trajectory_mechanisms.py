@@ -8,30 +8,20 @@ import polars as pl
 import pytest
 from PIL import Image
 
-from arena_evaluation.presentation.plot_types.trajectory import GIF_FPS, GIF_FRAMES, TrajectoryRenderer, _break_at_teleports, _door_color, _door_leaf, _first_moving_index
-from arena_evaluation.processing.metrics.ecological.mechanism_common import DoorGeom, ElevatorGeom, MechanismWorld, mechanism_world_from_description
+from arena_evaluation.presentation.plot_types.trajectory import _break_at_teleports, _door_color, _door_leaf, _first_moving_index
+from arena_evaluation.processing.metrics.ecological.mechanism_common import DoorGeom, ElevatorGeom, mechanism_world_from_description
 from arena_evaluation.processing.metrics.ecological.mechanism_states import MechanismStatesCalculator
 from arena_evaluation.storage.folder_manager import FolderManager
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, PlotSpec, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from snapshot_rows import snapshot_frame
 
 T = 1_000_000_000
 MAP = "synthetic_trajectory_world"
 
 
 def _snapshot(rows):
-    cols = {k: [] for k in ("time_ns", "entity", "kind", "field", "field_kind", "value_str", "value_num", "value_bool", "value_list")}
-    for t, entity, kind, field, field_kind, value in rows:
-        cols["time_ns"].append(int(t * T))
-        cols["entity"].append(entity)
-        cols["kind"].append(kind)
-        cols["field"].append(field)
-        cols["field_kind"].append(field_kind)
-        cols["value_str"].append(value if field_kind == "discrete" else None)
-        cols["value_num"].append(float(value) if field_kind == "continuous" else None)
-        cols["value_bool"].append(bool(value) if field_kind == "predicate" else None)
-        cols["value_list"].append(None)
-    schema = {"time_ns": pl.Int64, "entity": pl.Utf8, "kind": pl.Utf8, "field": pl.Utf8, "field_kind": pl.Utf8, "value_str": pl.Utf8, "value_num": pl.Float64, "value_bool": pl.Boolean, "value_list": pl.List(pl.Utf8)}
-    return pl.DataFrame(cols, schema=schema)
+    """World-semantics rows: (time_s, entity, kind, field, field_kind, value)."""
+    return snapshot_frame([(int(t * T), entity, kind, field, field_kind, value) for t, entity, kind, field, field_kind, value in rows])
 
 
 def test_teleport_breaks_fast_jumps_only():
@@ -105,13 +95,12 @@ def test_world_description_carries_kind_and_swing():
 
     zone = Zone(name="hall", polygon=[Position(0, 0, 0), Position(4, 0, 0), Position(4, 4, 0)])
     door = Door(name="h", start=Position(0, 0, 0), end=Position(0, 2, 0), kind="hinged", swing_direction=-1)
-    lift = Elevator(name="lift", position=Position(2, 2, 0), size=[2.0, 2.0, 2.5], door_side="+x", door_kind="teleport")
+    lift = Elevator(name="lift", position=Position(2, 2, 0), size=[2.0, 2.0, 2.5], door_side="+x")
     level = Level(id="0", zones=[zone], doors=[door], elevators=[lift])
     mech = mechanism_world_from_description(World(levels={"0": level}), {"0": (0.0, 0.0)})
     door = mech.door("env_0/h/0")
     assert (door.kind, door.swing) == ("hinged", -1)
     assert door.leaf(1.0)[1] == pytest.approx((2.0, 0.0))
-    assert mech.elevator("env_0/lift/0").door_kind == "teleport"
 
 
 def test_mechanism_states_sampled_on_the_time_grid():
@@ -126,7 +115,7 @@ def test_mechanism_states_sampled_on_the_time_grid():
             (0, "env_0/plate/0", "pressure_plate", "pressed", "predicate", False),
         ]
     )
-    data = pl.DataFrame({"time_ns": [i * T for i in range(6)], "pos_x": [0.0] * 6, "pos_y": [0.0] * 6, "yaw": [0.0] * 6})
+    data = pl.DataFrame({"t_ns": [i * T for i in range(6)], "pos_x": [0.0] * 6, "pos_y": [0.0] * 6, "yaw": [0.0] * 6})
     episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[0, 0, 0], goal_pos=[], robot_name="env_0_jackal", semantic_snapshot=snapshot)
     out = MechanismStatesCalculator(RobotParams()).calculate(episode, {"time": [i * T for i in range(6)]})["mechanism_states"]
     by_name = {s["entity"]: s for s in out}
@@ -135,8 +124,9 @@ def test_mechanism_states_sampled_on_the_time_grid():
     assert by_name["door_a"]["progress"] == [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
     assert by_name["door_a"]["locked"] == [False, False, False, True, True, True]
     assert by_name["elev_a"]["progress"] == [0.0, 0.0, 0.0, 0.0, 0.5, 0.5]
-    assert by_name["elev_a"]["locked"] == [False] * 6
-    assert MechanismStatesCalculator(RobotParams()).calculate(episode, {})["mechanism_states"] is None
+    assert by_name["elev_a"]["locked"] == [None] * 6
+    without_prior = MechanismStatesCalculator(RobotParams()).calculate(episode, {})["mechanism_states"]
+    assert without_prior is not None and len(without_prior) == 2
 
 
 def _episode_row(planner: str, episode: int, xs: list[float], result: str, states: list[dict] | None) -> dict:
@@ -169,45 +159,10 @@ def _frames(path: pathlib.Path) -> tuple[list[Image.Image], float]:
     return out, total
 
 
-def test_faceted_gif_animates_each_planner_with_its_own_doors(tmp_path):
-    TrajectoryRenderer._worlds[MAP] = MechanismWorld(doors=[DoorGeom("door_a", "0", (4.0, 0.0), (4.0, 2.0), 1.0)])
-    xs = [float(i) * 0.5 for i in range(16)]
-    open_at_2 = [{"entity": "door_a", "level": "0", "kind": "door", "progress": [0.0, 0.0] + [1.0] * 14, "locked": [False] * 16}]
-    stays_closed = [{"entity": "door_a", "level": "0", "kind": "door", "progress": [0.0] * 16, "locked": [True] * 16}]
-    df = pl.DataFrame([_episode_row("a", 1, xs, "GOAL_REACHED", open_at_2), _episode_row("b", 1, xs[:6], "TIMEOUT", stays_closed)])
-    spec = PlotSpec(id="t", type="trajectory", title="Traces", data_key="path", differentiate="local_planner", options={"facet": "local_planner", "overlay_pedestrians": True, "show_map": False})
-    renderer = TrajectoryRenderer(spec)
-    renderer.generate_gifs = True
-    out = tmp_path / "traj.png"
-    renderer.render_seaborn(df, out)
-
-    assert out.exists() and out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-    frames, total_ms = _frames(out.with_suffix(".gif"))
-    assert total_ms == pytest.approx((GIF_FRAMES + 1) * 1000 / GIF_FPS, rel=0.02)
-    assert len(frames) > 10
-    assert frames[0].tobytes() != frames[-1].tobytes()
-    assert frames[len(frames) // 2].tobytes() != frames[-1].tobytes()
-
-
-def test_single_panel_without_states_keeps_static_doors(tmp_path):
-    TrajectoryRenderer._worlds[MAP] = MechanismWorld(doors=[DoorGeom("door_a", "0", (4.0, 0.0), (4.0, 2.0), 1.0)])
-    xs = [float(i) for i in range(8)]
-    df = pl.DataFrame([_episode_row("a", 1, xs, "GOAL_REACHED", None), _episode_row("a", 2, xs, "COLLISION", None)])
-    spec = PlotSpec(id="t", type="trajectory", title="Traces", data_key="path", options={"show_map": False})
-    renderer = TrajectoryRenderer(spec)
-    renderer.generate_gifs = True
-    out = tmp_path / "single.png"
-    renderer.render_seaborn(df, out)
-    assert out.exists()
-    frames, total_ms = _frames(out.with_suffix(".gif"))
-    assert total_ms == pytest.approx((GIF_FRAMES + 1) * 1000 / GIF_FPS, rel=0.02)
-    assert frames[0].tobytes() != frames[-1].tobytes()
-
-
 def test_describe_episode_from_a_single_directory(tmp_path):
     ep_dir = tmp_path / "bench" / "episodes" / "episode_007"
     ep_dir.mkdir(parents=True)
-    (ep_dir / "episode_007.yaml").write_text("benchmark_id: bench\nplanner: dwb\nmap: m\nstage: s\nepisode_id: 7\nrecording_started_at: '2026-10-06T00:00:00+00:00'\npython_version: 3.12.3\nros_distro: jazzy\n")
+    (ep_dir / "episode_007.yaml").write_text("benchmark_id: bench\nplanner: dwb\nmap: m\nstage: s\nepisode_id: 7\nrecording_started_at: '2026-10-06T00:00:00+00:00'\npython_version: 3.12.3\nros_distro: jazzy\nmodes: {robots: [scenario]}\nparams: {}\n")
     ep = FolderManager.describe_episode(ep_dir)
     assert (ep.benchmark_id, ep.episode_id, ep.planner, ep.stage, ep.map) == ("bench", 7, "dwb", "s", "m")
     assert FolderManager.describe_episode(tmp_path / "bench") is None
