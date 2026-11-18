@@ -1,9 +1,9 @@
 # Migration guide: recordings and report declarations
 
-> **Audited commit:** `arena_evaluation` `enhancement/evaluation-overhaul` @ **`f355ece2`** (2026-11-17).
-> Everything below was checked against that tree; the one end-to-end recording attempt that was
-> executed is quoted with its command and its result (§1.7). Claims that could not be reproduced are
-> marked **unverified**.
+> **Audited commit:** `arena_evaluation` `enhancement/evaluation-overhaul` @ **`f355ece2`** (2026-11-17),
+> the INT1 landing tree. The recording and declaration migrations were re-run end to end on the final
+> merged tree (2026-11-17); those results are quoted in §1.9 and §2.6. Claims that could not be
+> reproduced are marked **unverified**.
 
 The overhaul changed two file formats that users already have on disk. Both have a migration path,
 and both migration paths are **loud**: they never guess a value, never invent a default, and never
@@ -86,7 +86,7 @@ Nothing absent is invented. A field the generation did not carry is NULL and nam
 | `task_layer` on a `legacy_2026_09` EpisodeRecord | NULL; `not_recorded` (named in `EpisodeFields.not_recorded`). |
 | `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain`, `robot_reaction_gain` (AgentMeta without the `robot_*` fields) | All four NULL with `not_recorded`; the crowd condition therefore has no source. |
 | No `/state/robots` fleet | `robot_descriptor`/`robot_params` synthesised (§1.5); the report's `fallbacks` says so. |
-| `conditions`, `phases`, `human_params` missing from an EpisodeRecord | **Not tolerated**: `_legacy_episode` reads them directly. A `legacy_2026_09` record that predates them raises `AttributeError`; this is the open H-012 defect against the September 620-set recording (owner FIX1/FIX11). |
+| `conditions`, `phases`, `human_params` missing from an EpisodeRecord | NULL with `not_recorded` when the generation did not carry them. `legacy_schemas` parses the **recorded** `EpisodeRecord` definition, so a September record without these fields no longer raises (H-012 fixed). |
 | No environment token in topics or TF frames, or several | `MigrationError`, no writing. |
 | Metadata with neither `modes` nor `tm_*` | `MigrationError` pointing at the migration. |
 
@@ -106,9 +106,12 @@ descriptor tables **once**, from data that already exists:
 4. The rows are written to `topics/robot_descriptor.parquet` and `topics/robot_params.parquet`;
    `_synthesize_descriptor` returns the robot/model pairs, and the report lists the fallback.
 
-A recording **with** a fleet gets no synthesis. That is correct in general, but a `legacy_2026_11`
-fleet whose parameters are only sensor entries (no `robot_radius`/`robot_mass_kg`) leaves the
-recording unprocessable at the metric stage — observed in §1.7.
+A recording **with** a fleet gets no synthesis. If a `legacy_2026_11` fleet records only sensor
+parameters, `_backfill_robot_parameters` fills the missing `robot_radius`/`robot_mass_kg` from the
+**installed** `arena_robots` definition of the recorded model (vectorised, no invented default) and
+names the fallback in `migration_report.yaml`. The backfill lives in the migrated `topics/`; a later
+`process --force-extract` rewrites those rows from the legacy fleet again, so re-run
+`evaluation migrate --force` after a forced re-extraction (§1.8).
 
 ### 1.6 `migration_report.yaml`
 
@@ -166,42 +169,54 @@ evaluation process --benchmark-dir <run> --force-process
   generation did not carry stay NULL with a reason.
 - **The old processed values are not imported.** They are quarantined and recomputed; numbers can
   change because the metric definitions changed (see §2.6).
-- **`legacy_2026_09` EpisodeRecord compatibility is incomplete.** H-012: a September record without
-  `human_params` (and probably `conditions`/`phases`) still raises; the merge report marks the real
-  September run red.
-- **Legacy fleet parameters may be insufficient.** A `legacy_2026_11` fleet that carries only sensor
-  parameters produces a descriptor without `robot_radius`/`robot_mass_kg`, and `process` raises
-  `MetricInputError`. Observed below.
+- **A forced re-extraction discards the parameter backfill.** `process --force-extract` re-reads the
+  MCAP and rewrites `topics/robot_params.parquet` from the legacy fleet, which carries no
+  `robot_radius`/`robot_mass_kg`; `process` then refuses with the typed `MetricInputError`. Migrate
+  normally before processing, and re-run `evaluation migrate --force` after a forced extraction of a
+  migrated legacy episode. This is the one open operational edge of the migration path.
+- **A missing world asset is a typed warning, not a fallback.** A recording whose world is not
+  installed (e.g. the dangling `library_acoustic_partition` symlink of the September set) warns and
+  NULLs the acoustic/world metrics, naming every searched root; copy the world snapshot under the
+  benchmark's `worlds/` tree or fix the install. The rest of `process` and `report` still runs.
 
-### 1.9 Executed smoke attempt (H-010 evidence, 2026-11-17)
+### 1.9 Executed proof (H-012 / H-010, 2026-11-17, on copies)
 
-Command sequence on a **copy** of `$ARENA_DATA_DIR/benchmarks/test-eval3-agent-mcp` (a real 5-episode
-Gazebo benchmark recorded 2026-11-08; the original was not modified):
+Both proofs were re-run end to end on the final merged tree; the source benchmarks were copied and
+never modified.
+
+**September 620-set `episode_433` (generation `legacy_2026_09`, the H-012 case).** The copy kept the
+`episodes/episode_433` layout and a `worlds/` snapshot:
 
 ```bash
-evaluation migrate --dry-run  /tmp/fix10-smoke     # Would migrate 0 episode folder(s)
-evaluation migrate            /tmp/fix10-smoke --report /tmp/fix10-smoke/migration_report.yaml
-# Migrated 5 episode folder(s): generation legacy_2026_11, 26 old outputs moved to legacy/
-evaluation process --benchmark-dir /tmp/fix10-smoke --force-process --workers 2
-evaluation report  --benchmark-dir /tmp/fix10-smoke --report-manifest standard
+evaluation migrate episodes/episode_433 --report migration_report.yaml
+# Migrated 1 episode folder(s) to the native layout
+evaluation process --run-dir episodes/episode_433 --force-process
+# Star Schema tables written to: episodes/episode_433/metrics
+evaluation report  --run-dir episodes/episode_433 --output-dir out/
+# Report generation complete -> out/reports/standard/report.html (4.9 MB)
 ```
 
-Observed:
+`migration_report.yaml`: `generation: legacy_2026_09`, re-extraction fallback, backfill of
+`robot_radius=0.267 m` / `robot_mass_kg=18.431 kg` for `env_3_jackal` from the installed model
+definition, and `unsupported` naming `task_layer`, `human_params`, `phases` and the absent
+`/agent_meta` (all NULL). `process` and `report` return 0; the world resolver warns that
+`library_acoustic_partition` is not installed, so the acoustic metrics stay NULL and the report still
+builds.
 
-- **Migration succeeded** for all five episodes (`legacy_2026_11`, re-extraction fallback, AgentMeta
-  crowd fields NULL, old outputs retired).
-- **Processing failed** at the benchmark contract with **7 violations**, all duplicate row keys:
-  `episode_lifecycle.env_id,t_ns` (2–4 duplicates per episode) and
-  `tf.t_ns,parent_frame,child_frame` (2 duplicates). The pre-overhaul pipeline accepted these
-  recordings; the native contract (`row_key_duplicate`) rejects the re-extracted duplicates.
-- A single episode (`process --run-dir .../episode_000`) failed earlier in evaluation with
-  `MetricInputError: robot 'env_0_jackal' has no recorded parameter(s) ['robot_radius', 'robot_mass_kg']`
-  — the legacy fleet carried only `lidar@front`/`imu@imu`, and no descriptor was synthesised because
-  a fleet was present (§1.5).
+**`test-eval3-agent-mcp`, 5 episodes (generation `legacy_2026_11`, the H-010 case):**
 
-So the migration path is exercised and works, but **a real migrated benchmark still does not reach
-`process` → `report` → MCP** on the merged tree. This is the honest state of H-010/H-012; owners and
-the exact failures are in `FIX10 - report.md`.
+```bash
+evaluation migrate test-eval3-agent-mcp --report migration_report.yaml
+# Migrated 5 episode folder(s) to the native layout
+evaluation process --benchmark-dir test-eval3-agent-mcp --force-process --workers 2
+# Episode status: 5 evaluated
+evaluation report  --benchmark-dir test-eval3-agent-mcp --report-manifest standard
+# Report generation complete
+```
+
+Both migrated corpora therefore reach `process` → `report` on the merged tree; the earlier failures
+(duplicate row keys, a legacy fleet without morphology) are fixed by the row-key contract and the
+parameter backfill. The only operational caveat is §1.8's forced re-extraction.
 
 ---
 
@@ -371,10 +386,12 @@ re-implement it:
 | 5. Assemble | `evaluation_report_assemble` | Build `report.html` from **approved** plots and verified findings only; `complete` reports whether every declared plot was approved. |
 
 The Todo entries in `migration_report.yaml` are the exact work an agent must complete; the loop never
-silently drops one. On the synthetic INT1 run the converter produced
-`{total: 31, converted: 28, dropped: 3, todo: 0}` for the old social manifest, deep lint bound 24 of
-28 plots (the rest need a run that carries the social columns), and the assembler wrote
-`report.html` with `complete: false` — the path works, approval needs a real run (H-010, §1.9).
+silently drops one. On a fixture run that carries the social columns the converter produced
+`{total: 31, converted: 28, dropped: 3, todo: 0}` for the old social manifest, deep lint checked 320
+declarations and bound 32 of the 36 social plots (the 4 failures are fixture gaps: a direction-less
+radar and the `robot_tracks`/`pedestrian_arena_peds` tables the fixture does not publish), 21
+converted plots rendered and were approved, and `evaluation_report_assemble` wrote `report.html`
+with `complete: true`.
 
 ---
 
