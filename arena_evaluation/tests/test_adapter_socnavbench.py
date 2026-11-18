@@ -440,8 +440,10 @@ def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
 
     from arena_evaluation.benchmark.tree import (
         ContestIdentifier,
-        ManifestIdentifier,
         SuiteIdentifier,
+    )
+    from arena_evaluation.presentation.manifest_identifier import (
+        ManifestIdentifier,
     )
 
     suite = SuiteIdentifier(name="socnavbench").load(out / "suites" / "socnavbench")

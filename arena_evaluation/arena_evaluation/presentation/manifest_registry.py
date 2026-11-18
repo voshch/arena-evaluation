@@ -11,6 +11,7 @@ from arena_evaluation.storage.config_layout import (
     run_analysis_root,
 )
 
+from .manifest_identifier import ManifestIdentifier
 from .viz_manifest import VizManifest
 
 __all__ = [
@@ -36,8 +37,6 @@ def find_manifest_file(
         if local.is_file():
             return local
 
-    from arena_evaluation.benchmark.tree import ManifestIdentifier
-
     try:
         return ManifestIdentifier(name=stem).resolve_source_sync().path
     except FileNotFoundError:
@@ -46,8 +45,6 @@ def find_manifest_file(
 
 def available_manifests() -> list[str]:
     """Sorted stems of all bundled manifests."""
-    from arena_evaluation.benchmark.tree import ManifestIdentifier
-
     return sorted({m.shortname for m in ManifestIdentifier.listall()})
 
 

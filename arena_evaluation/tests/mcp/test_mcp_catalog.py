@@ -10,8 +10,10 @@ from arena_mcp.core import ToolError
 
 from arena_evaluation.benchmark.tree import (
     ContestIdentifier,
-    ManifestIdentifier,
     SuiteIdentifier,
+)
+from arena_evaluation.presentation.manifest_identifier import (
+    ManifestIdentifier,
 )
 from arena_evaluation.mcp import catalog
 

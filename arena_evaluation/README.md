@@ -110,9 +110,9 @@ arena_evaluation/
 |   `-- cli_acoustic.py        <- Acoustic analysis subcommands
 |-- config/
 |   |-- data_recorder_config.yaml  <- Topic throttle frequencies
-|   |-- mcap_writer_options.yaml   <- MCAP writer tuning
-|   `-- color_palette.yaml         <- Color palette
+|   `-- mcap_writer_options.yaml   <- MCAP writer tuning
 |-- configs/
+|   |-- color_palette.yaml          <- Color palette (flat config asset)
 |   |-- suites/<name>/suite.yaml     <- Suite definitions
 |   |-- contests/<name>/contest.yaml <- Contest definitions
 |   |-- reports/<name>/report.yaml   <- Report manifests (standard, ecological, social, safety, characterization, failure_modes, everything)

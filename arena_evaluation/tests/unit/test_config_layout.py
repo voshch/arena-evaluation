@@ -12,8 +12,10 @@ from arena_evaluation.benchmark.config import Contest, Suite
 from arena_evaluation.benchmark.tree import (
     ConfigPathResolver,
     ContestIdentifier,
-    ManifestIdentifier,
     SuiteIdentifier,
+)
+from arena_evaluation.presentation.manifest_identifier import (
+    ManifestIdentifier,
 )
 from arena_evaluation.presentation.manifest_registry import (
     ManifestNotFoundError,
@@ -23,6 +25,7 @@ from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.presentation.resolver import DataResolver, find_recipe_path
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 from arena_evaluation.storage.config_layout import (
+    CONFIG_ASSETS,
     CONFIG_KINDS,
     all_config_roots,
     bundle_path,
@@ -38,9 +41,13 @@ _PKG_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CONFIGS_DIR = _PKG_ROOT / "configs"
 
 
-def test_package_configs_holds_only_five_kinds_and_readme() -> None:
+def test_package_configs_holds_only_five_kinds_the_flat_assets_and_readme() -> None:
     entries = {p.name for p in _CONFIGS_DIR.iterdir()}
-    expected = {spec.folder for spec in CONFIG_KINDS.values()} | {"README.md"}
+    expected = (
+        {spec.folder for spec in CONFIG_KINDS.values()}
+        | {asset.filename for asset in CONFIG_ASSETS.values()}
+        | {"README.md"}
+    )
     assert entries == expected
     readme = configs_readme_path()
     assert readme is not None and readme.is_file()

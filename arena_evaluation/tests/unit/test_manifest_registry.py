@@ -4,7 +4,10 @@ import pathlib
 
 import pytest
 
-from arena_evaluation.benchmark.tree import ConfigPathResolver, ManifestIdentifier
+from arena_evaluation.benchmark.tree import ConfigPathResolver
+from arena_evaluation.presentation.manifest_identifier import (
+    ManifestIdentifier,
+)
 from arena_evaluation.presentation import manifest_registry as registry
 from arena_evaluation.presentation.viz_manifest import VizManifest
 

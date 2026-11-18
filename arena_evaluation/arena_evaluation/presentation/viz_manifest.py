@@ -246,12 +246,13 @@ class VizManifest(BaseModel):
     @classmethod
     def load_default(cls) -> VizManifest:
         """Load the default 'standard' manifest."""
-        from .manifest_registry import ManifestNotFoundError, find_manifest_file
+        from .manifest_identifier import ManifestIdentifier
 
-        path = find_manifest_file("standard")
-        if path is None:
-            raise ManifestNotFoundError(
-                "standard",
-                "Manifest 'standard' not found. Install arena_evaluation or check configs/reports/standard/report.yaml.",
-            )
+        try:
+            path = ManifestIdentifier(name="standard").resolve_source_sync().path
+        except FileNotFoundError as error:
+            raise FileNotFoundError(
+                "Manifest 'standard' not found. Install arena_evaluation or check "
+                "configs/reports/standard/report.yaml."
+            ) from error
         return cls.load(path)

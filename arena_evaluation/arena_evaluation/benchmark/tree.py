@@ -18,16 +18,15 @@ from arena_simulation_setup.tree import (
     SimplePathResolver,
 )
 
+from arena_evaluation.presentation.manifest_identifier import ManifestIdentifier
 from arena_evaluation.storage.config_layout import (
-    CONFIG_KINDS,
     CONFIGS_DIR_NAME,
     all_config_roots,
+    bundle_config_file,
     share_dir,
 )
 
 if typing.TYPE_CHECKING:
-    from arena_evaluation.presentation.viz_manifest import VizManifest
-
     from .config import Contest, Suite
 
 _BENCH_TTL_S = 365 * 86400
@@ -41,7 +40,7 @@ def _stem(asset_type: str) -> str:
 def _config_file(path: Path, asset_type: str) -> Path:
     """The yaml to read. A local resolver hands back the file itself, a bucket hands back
     the bundle directory holding it, and load() has to accept either."""
-    return path / f"{_stem(asset_type)}.yaml" if path.is_dir() else path
+    return bundle_config_file(path, _stem(asset_type))
 
 
 class SuiteIdentifier(AssetIdentifier["Suite"]):
@@ -78,22 +77,6 @@ class ContestIdentifier(AssetIdentifier["Contest"]):
         return Contest.parse(
             self.name, yaml.safe_load(_config_file(path, self._asset_type).read_text())
         )
-
-
-class ManifestIdentifier(AssetIdentifier["VizManifest"]):
-    _asset_type = CONFIG_KINDS["report"].folder
-
-    def __hash__(self) -> int:
-        return hash(self.name)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, ManifestIdentifier) and self.name == other.name
-
-    def load(self, path: Path, /, **kwargs: object) -> VizManifest:
-        del kwargs
-        from arena_evaluation.presentation.viz_manifest import VizManifest
-
-        return VizManifest.load(_config_file(path, self._asset_type))
 
 
 class ConfigPathResolver(SimplePathResolver):

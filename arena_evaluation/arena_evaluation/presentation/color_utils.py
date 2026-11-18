@@ -2,6 +2,8 @@ import pathlib
 
 import yaml
 
+from arena_evaluation.storage.config_layout import find_config_asset
+
 _PALETTE_CACHE = None
 _DEFAULT_PALETTE = ["#41b6e6", "#d3273e", "#00bfb2", "#ffc845", "#be84a3", "#dc582a", "#1d4289", "#94a596"]
 
@@ -28,10 +30,16 @@ def load_color_palette(config_path: pathlib.Path) -> list[str]:
 
 
 def get_color_palette() -> list[str]:
-    """Colors of config/color_palette.yaml, cached."""
+    """Colors of the ``palette`` config asset (``configs/color_palette.yaml``), cached."""
     global _PALETTE_CACHE
     if _PALETTE_CACHE is None:
-        _PALETTE_CACHE = load_color_palette(pathlib.Path(__file__).resolve().parents[2] / "config" / "color_palette.yaml")
+        path = find_config_asset("palette")
+        if path is None:
+            raise FileNotFoundError(
+                "color_palette.yaml is absent from every config root; the palette is a "
+                "required presentation asset"
+            )
+        _PALETTE_CACHE = load_color_palette(path)
     return _PALETTE_CACHE
 
 

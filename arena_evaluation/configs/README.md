@@ -11,6 +11,7 @@ arena evaluation benchmark --suite <name> --contest <name> [--scale-episodes N]
 
 ```
 configs/
+|-- color_palette.yaml - Color palette (flat config asset, resolved through the config roots)
 |-- suites/           - Stage sequences (`<name>/suite.yaml`)
 |   |-- basic/suite.yaml
 |   |-- meta_suite/suite.yaml

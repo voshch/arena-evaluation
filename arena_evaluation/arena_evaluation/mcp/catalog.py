@@ -34,8 +34,10 @@ def config_identifier(kind: str) -> type[AssetIdentifier]:
     """Return the asset identifier class for ``suite``, ``contest``, or ``manifest``."""
     from arena_evaluation.benchmark.tree import (
         ContestIdentifier,
-        ManifestIdentifier,
         SuiteIdentifier,
+    )
+    from arena_evaluation.presentation.manifest_identifier import (
+        ManifestIdentifier,
     )
 
     return {

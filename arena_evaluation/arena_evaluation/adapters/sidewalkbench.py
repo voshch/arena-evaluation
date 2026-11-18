@@ -370,8 +370,10 @@ class SidewalkBench(Importer):
 
         from arena_evaluation.benchmark.tree import (
             ContestIdentifier,
-            ManifestIdentifier,
             SuiteIdentifier,
+        )
+        from arena_evaluation.presentation.manifest_identifier import (
+            ManifestIdentifier,
         )
 
         suite_dir = out / SuiteIdentifier(name=item).relpath()

@@ -51,8 +51,7 @@ class ConfigAsset:
 
 
 #: The flat configuration assets resolved through all_config_roots(). ``palette`` is the X-068
-#: legacy two-root asset: the presentation loader still reads it from the source ``config/``
-#: directory; it must resolve it here once FIX7/INT1 move the file under ``configs/``.
+#: asset that lives directly under ``configs/`` and is resolved through :func:`find_config_asset`.
 CONFIG_ASSETS: Final[dict[str, ConfigAsset]] = {
     "palette": ConfigAsset(name="palette", filename="color_palette.yaml"),
 }
@@ -160,6 +159,13 @@ def bundle_path(root: pathlib.Path, kind: str, name: str) -> pathlib.Path:
     """Return ``<root>/<kind>s/<name>/<kind>.yaml`` for a config bundle."""
     spec = get_config_kind(kind)
     return root / spec.folder / name / spec.filename
+
+
+def bundle_config_file(path: pathlib.Path, kind: str) -> pathlib.Path:
+    """Return the yaml a config resolver returned: the file itself or the bundle directory's yaml."""
+    if path.is_dir():
+        return path / get_config_kind(kind).filename
+    return path
 
 
 def run_reports_root(output_root: pathlib.Path) -> pathlib.Path:

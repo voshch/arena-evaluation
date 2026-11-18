@@ -388,7 +388,9 @@ def test_runner_loads_the_import_through_the_registered_resolvers(
 
 
 def test_report_manifest_loads_through_the_manifest_identifier(out: Path):
-    from arena_evaluation.benchmark.tree import ManifestIdentifier
+    from arena_evaluation.presentation.manifest_identifier import (
+        ManifestIdentifier,
+    )
     from arena_evaluation.processing.metrics.performance.barn_metrics import (
         BARNScoreCalculator,
     )
