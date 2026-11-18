@@ -112,6 +112,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("collision_wall", pa.int64()),
             ("collision_static", pa.int64()),
             ("collision_pedestrian", pa.int64()),
+            ("collision_device", pa.int64()),
             ("collision_obstacle_ids", pa.list_(pa.string())),
         ]
     ),
@@ -721,10 +722,12 @@ class MCAPReader:
                             wall_count = None
                             static_count = None
                             pedestrian_count = None
+                            device_count = None
                             if has_kind:
                                 wall_count = 0
                                 static_count = 0
                                 pedestrian_count = 0
+                                device_count = 0
                                 for ev in ros_msg.events:
                                     if ev.kind == "wall":
                                         wall_count += 1
@@ -732,9 +735,12 @@ class MCAPReader:
                                         static_count += 1
                                     elif ev.kind == "pedestrian":
                                         pedestrian_count += 1
+                                    elif ev.kind == "device":
+                                        device_count += 1
                             target["collision_wall"].append(wall_count)
                             target["collision_static"].append(static_count)
                             target["collision_pedestrian"].append(pedestrian_count)
+                            target["collision_device"].append(device_count)
                             target["collision_obstacle_ids"].append(sorted({ev.obstacle_id for ev in ros_msg.events}))
                             appended = True
 

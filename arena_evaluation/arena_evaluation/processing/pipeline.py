@@ -321,6 +321,7 @@ _METRIC_DTYPES = {
     "collision_amount_wall": pl.Int64,
     "collision_amount_static": pl.Int64,
     "collision_amount_pedestrian": pl.Int64,
+    "collision_amount_device": pl.Int64,
     "collision_obstacles": pl.List(pl.String),
     "pose_source": pl.String,
     "pose_samples": pl.Int64,

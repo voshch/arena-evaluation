@@ -28,6 +28,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         "collision_amount_wall": "",
         "collision_amount_static": "",
         "collision_amount_pedestrian": "",
+        "collision_amount_device": "",
         "collision_obstacles": "",
         "collisions": "",
         "result": "",
@@ -48,6 +49,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             "collision_amount_wall",
             "collision_amount_static",
             "collision_amount_pedestrian",
+            "collision_amount_device",
             "collision_obstacles",
             "collisions",
             "result",
@@ -103,6 +105,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         collision_amount_wall = self._column_rising_edges(episode, "collision_wall")
         collision_amount_static = self._column_rising_edges(episode, "collision_static")
         collision_amount_pedestrian = self._column_rising_edges(episode, "collision_pedestrian")
+        collision_amount_device = self._column_rising_edges(episode, "collision_device")
         collision_obstacles = self._hit_obstacles(episode)
 
         time_to_goal = prior_results.get("time_to_goal")
@@ -156,6 +159,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             "collision_amount_wall": collision_amount_wall,
             "collision_amount_static": collision_amount_static,
             "collision_amount_pedestrian": collision_amount_pedestrian,
+            "collision_amount_device": collision_amount_device,
             "collision_obstacles": collision_obstacles,
             "collisions": collisions,
             "result": result,
