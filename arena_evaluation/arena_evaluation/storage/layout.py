@@ -157,6 +157,15 @@ def _stale(benchmark_dir: pathlib.Path, reason: str) -> StaleBenchmarkError:
     )
 
 
+def _benchmark_stamp_is_stale(benchmark_dir: pathlib.Path) -> bool:
+    """Whether the benchmark stamp exists and does not carry the native layout version and schema hash."""
+    stamp_path = benchmark_dir / _BENCHMARK_STAMP_FILE
+    if not stamp_path.is_file():
+        return False
+    payload = _stamp(stamp_path, yaml.safe_load, (yaml.YAMLError,))
+    return payload is None or not _is_current_stamp(payload)
+
+
 def check_benchmark_layout(benchmark_dir: pathlib.Path) -> None:
     """Refuse stored outputs that predate the native layout, before any fact table is read."""
     root = pathlib.Path(benchmark_dir)
@@ -169,13 +178,11 @@ def check_benchmark_layout(benchmark_dir: pathlib.Path) -> None:
     incomplete = tuple(path for path in facts if not episode_is_complete(path.parent))
     if incomplete:
         raise _stale(root, f"{incomplete[0]} has no complete episode stamp")
-    stamp_path = root / _BENCHMARK_STAMP_FILE
-    if not stamp_path.is_file():
+    if not (root / _BENCHMARK_STAMP_FILE).is_file():
         if facts:
             raise _stale(root, f"{_BENCHMARK_STAMP_FILE} is absent")
         return
-    payload = _stamp(stamp_path, yaml.safe_load, (yaml.YAMLError,))
-    if payload is None or not _is_current_stamp(payload):
+    if _benchmark_stamp_is_stale(root):
         raise _stale(root, f"{_BENCHMARK_STAMP_FILE} does not match the native layout")
 
 
@@ -200,11 +207,13 @@ def _move_to_legacy(benchmark_dir: pathlib.Path, source: pathlib.Path) -> pathli
 
 
 def retire_legacy_outputs(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...]:
-    """Move old benchmark and incomplete-episode outputs under ``legacy/``, never deleting one."""
+    """Move old benchmark, stale stamp and incomplete-episode outputs under ``legacy/``, never deleting one."""
     root = pathlib.Path(benchmark_dir)
     sources = [
         root / name for name in _LEGACY_BENCHMARK_FILES if (root / name).is_file()
     ]
+    if _benchmark_stamp_is_stale(root):
+        sources.append(root / _BENCHMARK_STAMP_FILE)
     sources.extend(
         path
         for path in _episode_fact_files(_episode_directories(root))

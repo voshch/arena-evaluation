@@ -14,7 +14,9 @@ from arena_evaluation.storage.exceptions import (
     ContractViolationError,
 )
 from arena_evaluation.storage.layout import (
+    check_benchmark_layout,
     retire_legacy_outputs,
+    write_benchmark_stamp,
     write_episode_stamp,
 )
 from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
@@ -141,5 +143,29 @@ def test_an_interrupted_dimension_write_keeps_the_previous_file(
 
     assert pl.read_parquet(tmp_path / "dim_episodes.parquet").equals(previous)
     assert [path for path in tmp_path.iterdir() if path.name.endswith(".tmp")] == []
+
+
+def test_a_forced_process_retires_a_stale_benchmark_stamp(tmp_path: pathlib.Path) -> None:
+    """The stamp of an older layout moves to legacy/ with the stale outputs, so the rewritten benchmark passes the check."""
+    root = tmp_path / "benchmarks" / "stamped"
+    root.mkdir(parents=True)
+    stale_stamp = root / "benchmark_layout.yaml"
+    stale_stamp.write_text("layout_version: 1\nschema_hash: older\n", encoding="utf-8")
+
+    retire_legacy_outputs(root)
+
+    assert not stale_stamp.exists()
+    assert (root / "legacy" / "benchmark_layout.yaml").is_file()
+    check_benchmark_layout(root)
+
+
+def test_retiring_keeps_a_current_benchmark_stamp(tmp_path: pathlib.Path) -> None:
+    root = tmp_path / "benchmarks" / "current"
+    root.mkdir(parents=True)
+    write_benchmark_stamp(root)
+
+    retire_legacy_outputs(root)
+
+    assert (root / "benchmark_layout.yaml").is_file()
 
 
