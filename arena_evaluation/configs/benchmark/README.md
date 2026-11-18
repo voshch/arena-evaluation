@@ -124,7 +124,7 @@ arena evaluation benchmark \
 
 Suites, contests and manifests are `Identifier`s, resolved through the same chain as every
 other arena asset: the package share dir, then the source tree, then one `NetResolver` per
-`BENCHMARK_BUCKETS` provider (default `public/benchmarks` on the asset store), then a write-only
+benchmark source (`BENCHMARK_BUCKETS` entries, then `ARENA_BUCKETS`, default `arena-public` on the asset store), then a write-only
 fallback. A local copy always shadows a bucket copy, so hosting a config never overrides one
 you are editing.
 
