@@ -17,7 +17,7 @@ import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from arena_evaluation.storage.manifest import MetadataWriter
-from arena_rclpy_mixins.param_groups import Param, count
+from arena_rclpy_mixins.params import Param, Range, declare
 from arena_rclpy_mixins.ROSParamServer import ROSParamServer
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
@@ -233,7 +233,7 @@ _RECORDER_PARAMS = (
     Param[int](
         "episodes_requested",
         0,
-        parse=count,
+        constraint=Range(lo=0),
         description="Number of episodes the run asked for (0 = unspecified).",
     ),
     Param[bool](
@@ -278,10 +278,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
-        handles = {
-            param.name: self.ROSParam(param.name, param.default, parse=param.parse)
-            for param in _RECORDER_PARAMS
-        }
+        handles = {param.name: declare(self, param) for param in _RECORDER_PARAMS}
 
         record_data_dir = (
             str(handles["record_data_dir"].value or "")
