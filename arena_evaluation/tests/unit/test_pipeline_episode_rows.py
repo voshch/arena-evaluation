@@ -4,7 +4,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import (
+from arena_evaluation.processing.pipeline import (  # noqa: E402  # follows pytest.importorskip
     _episode_rows,
     _episode_window,
     _record_conditions,

@@ -14,7 +14,15 @@ import rosbag2_py
 from arena_humansim_msgs.msg import AgentFrame, AgentState, AgentStates
 from arena_humansim_msgs.msg import AgentMeta as RosAgentMeta
 from arena_people_msgs.msg import Gesture, Pedestrian, Pedestrians
-from geometry_msgs.msg import Point, Pose, Pose2D, Quaternion, TransformStamped, Twist, Vector3
+from geometry_msgs.msg import (
+    Point,
+    Pose,
+    Pose2D,
+    Quaternion,
+    TransformStamped,
+    Twist,
+    Vector3,
+)
 from nav_msgs.msg import Odometry
 from rclpy.serialization import serialize_message
 from tf2_msgs.msg import TFMessage
@@ -26,11 +34,15 @@ SEC = 1_000_000_000
 MS = 1_000_000
 
 
-def _write_mcap(path: pathlib.Path, messages: list[tuple[str, object, int]]) -> pathlib.Path:
+def _write_mcap(
+    path: pathlib.Path, messages: list[tuple[str, object, int]]
+) -> pathlib.Path:
     writer = rosbag2_py.SequentialWriter()
     writer.open(
         rosbag2_py.StorageOptions(uri=str(path), storage_id="mcap"),
-        rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"),
+        rosbag2_py.ConverterOptions(
+            input_serialization_format="cdr", output_serialization_format="cdr"
+        ),
     )
     created: set[str] = set()
     for topic, msg, t_ns in messages:
@@ -64,7 +76,9 @@ def _robot_context_messages(t_ns: int = 0) -> list[tuple[str, object, int]]:
     ]
 
 
-def test_agent_states_ingestion_preserves_simulation_metadata(tmp_path: pathlib.Path) -> None:
+def test_agent_states_ingestion_preserves_simulation_metadata(
+    tmp_path: pathlib.Path,
+) -> None:
     bag_dir = tmp_path / "agent_states_bag"
     msg = AgentStates()
     msg.header.frame_id = "map"
@@ -120,7 +134,9 @@ def test_agent_states_ingestion_preserves_simulation_metadata(tmp_path: pathlib.
 
     assert pedestrians_file.exists()
     assert not arena_peds_file.exists()
-    assert pq.read_schema(pedestrians_file).equals(TABLE_SCHEMAS["pedestrian_agent_states"], check_metadata=False)
+    assert pq.read_schema(pedestrians_file).equals(
+        TABLE_SCHEMAS["pedestrian_agent_states"], check_metadata=False
+    )
 
     df = pl.read_parquet(pedestrians_file)
     assert df.height == 2
@@ -176,7 +192,15 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
         gait_phase=0.8,
         gait_cadence=1.6,
         agent_type="adult",
-        gestures=[Gesture(slot="right_arm", clip="wave", hand="r", at=Point(x=1.0, y=2.0, z=1.2), render_pose_override=False)],
+        gestures=[
+            Gesture(
+                slot="right_arm",
+                clip="wave",
+                hand="r",
+                at=Point(x=1.0, y=2.0, z=1.2),
+                render_pose_override=False,
+            )
+        ],
     )
     peds_msg = Pedestrians(pedestrians=[ped])
     peds_msg.header.frame_id = "map"
@@ -197,7 +221,9 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
     assert arena_peds_file.exists()
     assert not pedestrians_file.exists()
     assert gestures_file.exists()
-    assert pq.read_schema(arena_peds_file).equals(TABLE_SCHEMAS["pedestrian_arena_peds"], check_metadata=False)
+    assert pq.read_schema(arena_peds_file).equals(
+        TABLE_SCHEMAS["pedestrian_arena_peds"], check_metadata=False
+    )
 
     df = pl.read_parquet(arena_peds_file)
     assert df.height == 1
@@ -228,7 +254,9 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
     assert jackal_peds["ped_id"].to_list() == ["Pedestrian_5"]
 
 
-def test_concurrent_dual_topic_ingestion_eliminates_double_counting(tmp_path: pathlib.Path) -> None:
+def test_concurrent_dual_topic_ingestion_eliminates_double_counting(
+    tmp_path: pathlib.Path,
+) -> None:
     bag_dir = tmp_path / "concurrent_bag"
 
     # Physics published at 50 Hz (20 ms interval = 20_000_000 ns)
@@ -263,7 +291,10 @@ def test_concurrent_dual_topic_ingestion_eliminates_double_counting(tmp_path: pa
         ped = Pedestrian(
             name="smith_mesh",
             id=10,
-            pose=Pose(position=Point(x=float(t_ns) / SEC, y=1.0, z=0.0), orientation=Quaternion(w=1.0)),
+            pose=Pose(
+                position=Point(x=float(t_ns) / SEC, y=1.0, z=0.0),
+                orientation=Quaternion(w=1.0),
+            ),
             twist=Twist(linear=Vector3(x=1.0, y=0.0, z=0.0)),
             animation_state=1,
             interaction_id=-1,
@@ -332,7 +363,11 @@ def test_agent_frame_flat_layout_metadata_ingestion(tmp_path: pathlib.Path) -> N
     frame_msg = AgentFrame()
     frame_msg.header.frame_id = "map"
     frame_msg.agent_id = [3, 99, 7]
-    frame_msg.kind = [AgentState.KIND_HUMAN, AgentState.KIND_ROBOT, AgentState.KIND_HUMAN]
+    frame_msg.kind = [
+        AgentState.KIND_HUMAN,
+        AgentState.KIND_ROBOT,
+        AgentState.KIND_HUMAN,
+    ]
     frame_msg.x = [1.0, 0.0, 4.0]
     frame_msg.y = [2.0, 0.0, 5.0]
     frame_msg.theta = [0.1, 0.0, 0.2]

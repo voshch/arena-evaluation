@@ -33,7 +33,9 @@ DEFAULT_PADDING_CELLS: Final = 5
 ROUNDING_DECIMALS: Final = 6
 
 
-def grid_for_map(map_name: str | None, run_dir: pathlib.Path | None, robot_radius_m: float) -> StaticGrid | None:
+def grid_for_map(
+    map_name: str | None, run_dir: pathlib.Path | None, robot_radius_m: float
+) -> StaticGrid | None:
     """Lethal grid of a named map's world for a robot radius; None for an unnamed map. A world that does not resolve raises."""
     if not map_name or map_name == "unknown":
         return None
@@ -41,7 +43,9 @@ def grid_for_map(map_name: str | None, run_dir: pathlib.Path | None, robot_radiu
 
 
 @functools.cache
-def _world_grid(map_name: str, run_dir: pathlib.Path | None, robot_radius_m: float) -> StaticGrid:
+def _world_grid(
+    map_name: str, run_dir: pathlib.Path | None, robot_radius_m: float
+) -> StaticGrid:
     with MapRegistry.compacted_world_scope(map_name, run_dir=run_dir) as (compacted, _):
         if compacted is None:
             raise ValueError(f"world {map_name!r} compacts to no level")
@@ -53,10 +57,17 @@ def circumradius_m(footprint: Sequence[tuple[float, float]]) -> float:
     return max(math.hypot(x, y) for x, y in footprint)
 
 
-def footprint_polygon(*, x: float, y: float, yaw_rad: float, box: Box) -> shapely.Polygon:
+def footprint_polygon(
+    *, x: float, y: float, yaw_rad: float, box: Box
+) -> shapely.Polygon:
     """The annotated box in the map frame: turned about the model origin, then moved to the pose."""
     (x_min, x_max), (y_min, y_max), _ = box
-    turned = shapely.affinity.rotate(shapely.box(x_min, y_min, x_max, y_max), yaw_rad, origin=(0.0, 0.0), use_radians=True)
+    turned = shapely.affinity.rotate(
+        shapely.box(x_min, y_min, x_max, y_max),
+        yaw_rad,
+        origin=(0.0, 0.0),
+        use_radians=True,
+    )
     return shapely.affinity.translate(turned, x, y)
 
 
@@ -78,10 +89,16 @@ def _obstacle_box(obstacle: Obstacle) -> Box:
     authored = obstacle.extra.get("bbox")
     if authored is not None:
         (x_min, x_max), (y_min, y_max), (z_min, z_max) = authored
-        return (float(x_min), float(x_max)), (float(y_min), float(y_max)), (float(z_min), float(z_max))
+        return (
+            (float(x_min), float(x_max)),
+            (float(y_min), float(y_max)),
+            (float(z_min), float(z_max)),
+        )
     extent = obstacle.model.resolve_sync().extent
     if extent is None:
-        raise ValueError(f"static obstacle {obstacle.name!r} ({obstacle.model}) has no bounding box: annotate its asset or give the world a bbox for it")
+        raise ValueError(
+            f"static obstacle {obstacle.name!r} ({obstacle.model}) has no bounding box: annotate its asset or give the world a bbox for it"
+        )
     return extent
 
 
@@ -100,12 +117,24 @@ def build_static_grid(
 ) -> StaticGrid:
     """Lethal mask of a compacted level, drawn the way the evaluator's map is: rooms, cabins and doors are free and everything else blocks."""
     # The simulator package is imported only when a world is rasterised, as in MapRegistry.
-    from arena_simulation_setup.tree.World.model import render_door_polygons, render_elevator_polygons
+    from arena_simulation_setup.tree.World.model import (
+        render_door_polygons,
+        render_elevator_polygons,
+    )
 
-    door_polygons = [polygon for door in level.doors for polygon in render_door_polygons(door)]
-    cabin_polygons = [polygon for elevator in level.elevators for polygon in render_elevator_polygons(elevator)]
+    door_polygons = [
+        polygon for door in level.doors for polygon in render_door_polygons(door)
+    ]
+    cabin_polygons = [
+        polygon
+        for elevator in level.elevators
+        for polygon in render_elevator_polygons(elevator)
+    ]
     room_polygons = [zone.shape() for zone in level.zones if len(zone.polygon) >= 3]
-    walls = [shapely.LineString([(wall.start.x, wall.start.y), (wall.end.x, wall.end.y)]) for wall in level.all_walls]
+    walls = [
+        shapely.LineString([(wall.start.x, wall.start.y), (wall.end.x, wall.end.y)])
+        for wall in level.all_walls
+    ]
     return build_static_grid_from_parts(
         free=shapely.union_all([*room_polygons, *cabin_polygons, *door_polygons]),
         walls=shapely.union_all(walls),
@@ -134,14 +163,27 @@ def build_static_grid_from_parts(
     min_x, min_y, max_x, max_y = shapely.union_all([free, walls, *footprints]).bounds
     origin_x = min_x - padding_cells * resolution_m
     origin_y = min_y - padding_cells * resolution_m
-    cols = math.ceil(round((max_x - min_x) / resolution_m + 2 * padding_cells, ROUNDING_DECIMALS))
-    rows = math.ceil(round((max_y - min_y) / resolution_m + 2 * padding_cells, ROUNDING_DECIMALS))
-    grid_box = shapely.box(origin_x, origin_y, origin_x + cols * resolution_m, origin_y + rows * resolution_m)
+    cols = math.ceil(
+        round((max_x - min_x) / resolution_m + 2 * padding_cells, ROUNDING_DECIMALS)
+    )
+    rows = math.ceil(
+        round((max_y - min_y) / resolution_m + 2 * padding_cells, ROUNDING_DECIMALS)
+    )
+    grid_box = shapely.box(
+        origin_x,
+        origin_y,
+        origin_x + cols * resolution_m,
+        origin_y + rows * resolution_m,
+    )
     outside = grid_box.difference(free)
     inflated = shapely.buffer(shapely.union_all([outside, blocking]), robot_radius_m)
     centre_x, centre_y = np.meshgrid(
         origin_x + (np.arange(cols) + 0.5) * resolution_m,
         origin_y + (np.arange(rows) + 0.5) * resolution_m,
     )
-    lethal = shapely.intersects(inflated, shapely.points(centre_x.ravel(), centre_y.ravel())).reshape(rows, cols)
-    return StaticGrid(origin_xy=(origin_x, origin_y), resolution_m=resolution_m, lethal=lethal)
+    lethal = shapely.intersects(
+        inflated, shapely.points(centre_x.ravel(), centre_y.ravel())
+    ).reshape(rows, cols)
+    return StaticGrid(
+        origin_xy=(origin_x, origin_y), resolution_m=resolution_m, lethal=lethal
+    )

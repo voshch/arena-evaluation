@@ -10,12 +10,12 @@ from arena_evaluation.processing.metrics.common.caching import world_cache
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
 from arena_evaluation.processing.metrics.common.zones import ZoneGeometry
 from arena_evaluation.processing.metrics.ecological.condition_metrics import _wall_cache
-from arena_evaluation.processing.metrics.performance.task_metrics import (
+from arena_evaluation.processing.metrics.performance.task_metrics import (  # noqa: E402  # follows pytest.importorskip
     TaskReplayCalculator,
     _active_phase_spans,
     _robot_events,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle  # noqa: E402  # follows pytest.importorskip
 
 S = 1_000_000_000
 

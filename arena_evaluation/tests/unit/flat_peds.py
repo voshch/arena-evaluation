@@ -34,7 +34,9 @@ SCHEMA = pl.Schema(
 )
 
 
-def flat_peds(frames: Sequence[tuple[int, Sequence[Mapping[str, object]]]]) -> pl.DataFrame:
+def flat_peds(
+    frames: Sequence[tuple[int, Sequence[Mapping[str, object]]]],
+) -> pl.DataFrame:
     """Pedestrian rows of frames given as (t_ns, pedestrians).
 
     A pedestrian gives x and y and may give ped_id, ped_name, yaw, vx, vy, animation_state, interaction_id and interaction_type;
@@ -59,7 +61,9 @@ def flat_peds(frames: Sequence[tuple[int, Sequence[Mapping[str, object]]]]) -> p
                     "vx": vx,
                     "vy": vy,
                     "vz": 0.0,
-                    "speed_mps": None if vx is None or vy is None else math.hypot(vx, vy),
+                    "speed_mps": None
+                    if vx is None or vy is None
+                    else math.hypot(vx, vy),
                     "radius_m": None,
                     "desired_speed": None,
                     "policy": None,

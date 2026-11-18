@@ -13,17 +13,21 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import _status_row
-from arena_evaluation.storage.schemas import EpisodeDescriptor
+from arena_evaluation.processing.pipeline import _status_row  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.storage.schemas import EpisodeDescriptor  # noqa: E402  # follows pytest.importorskip
 
-_CROWD_FIELDS = frozenset({"crowd_visible", "crowd_condition", "crowd_visibility_source"})
+_CROWD_FIELDS = frozenset(
+    {"crowd_visible", "crowd_condition", "crowd_visibility_source"}
+)
 
 
 def _episode(tmp_path: pathlib.Path, manifest: str | None = None) -> EpisodeDescriptor:
     episode_dir = tmp_path / "benchmarks" / "run_a" / "episodes" / "episode_000"
     episode_dir.mkdir(parents=True)
     if manifest is not None:
-        (tmp_path / "benchmarks" / "run_a" / "manifest.yaml").write_text(manifest, encoding="utf-8")
+        (tmp_path / "benchmarks" / "run_a" / "manifest.yaml").write_text(
+            manifest, encoding="utf-8"
+        )
     return EpisodeDescriptor(
         episode_dir=str(episode_dir),
         benchmark_id="run_a",
@@ -35,7 +39,15 @@ def _episode(tmp_path: pathlib.Path, manifest: str | None = None) -> EpisodeDesc
 
 
 def test_status_row_carries_the_pose_frame_column(tmp_path: pathlib.Path) -> None:
-    row = _status_row(_episode(tmp_path, "run_id: run_a\ncli_args: ['human.robots.visible:=false']\n"), None, "robot", "no_recording", "no MCAP")
+    row = _status_row(
+        _episode(
+            tmp_path, "run_id: run_a\ncli_args: ['human.robots.visible:=false']\n"
+        ),
+        None,
+        "robot",
+        "no_recording",
+        "no MCAP",
+    )
     assert "pose_frame" in row
     assert row["pose_frame"] is None
 

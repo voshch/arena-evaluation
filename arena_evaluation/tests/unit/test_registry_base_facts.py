@@ -179,10 +179,7 @@ _EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
 def _declared_schema(table: FactTable) -> pl.Schema:
     """The table's declared base columns; ``polars_schema`` merges its scope's metrics."""
     return pl.Schema(
-        {
-            name: column.dtype
-            for name, column in FACT_TABLES[table]._columns.items()
-        }
+        {name: column.dtype for name, column in FACT_TABLES[table]._columns.items()}
     )
 
 

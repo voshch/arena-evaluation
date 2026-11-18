@@ -7,7 +7,11 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.path.theta_star import RouteResult, StaticGrid, plan_route
+from arena_evaluation.processing.path.theta_star import (
+    RouteResult,
+    StaticGrid,
+    plan_route,
+)
 
 # Waypoints closer than 0.25 m are the same goal: below the planner's 0.5 m arrival tolerance.
 _ROUTE_WAYPOINT_TOLERANCE_M: typing.Final[float] = 0.25
@@ -16,7 +20,9 @@ _ROUTE_WAYPOINT_TOLERANCE_M: typing.Final[float] = 0.25
 REFERENCE_EXCEEDS_PATH: typing.Final[str] = "invalid_episode:reference_exceeds_path"
 
 
-def _phase_waypoints(phases: typing.Mapping[str, object] | None) -> tuple[tuple[float, float], ...]:
+def _phase_waypoints(
+    phases: typing.Mapping[str, object] | None,
+) -> tuple[tuple[float, float], ...]:
     """The recorded task goal poses of this robot in mission order; () when the record carries none."""
     if not phases:
         return ()
@@ -36,7 +42,9 @@ def _phase_waypoints(phases: typing.Mapping[str, object] | None) -> tuple[tuple[
     return tuple(waypoints)
 
 
-def _planned_waypoints(topics: typing.Mapping[str, pl.DataFrame] | None) -> tuple[tuple[float, float], ...]:
+def _planned_waypoints(
+    topics: typing.Mapping[str, pl.DataFrame] | None,
+) -> tuple[tuple[float, float], ...]:
     """Distinct commanded plan goals in command order, from the recorded robot_plans topic."""
     if not topics:
         return ()
@@ -47,13 +55,27 @@ def _planned_waypoints(topics: typing.Mapping[str, pl.DataFrame] | None) -> tupl
     required = {"t_ns", "plan_id", "waypoint_idx", "x", "y"}
     if not required <= set(plans.columns):
         return ()
-    last_per_plan = plans.sort(["t_ns", "plan_id", "waypoint_idx"]).group_by("plan_id", maintain_order=True).agg(pl.col("t_ns").min().alias("t_ns"), pl.col("x").last().alias("x"), pl.col("y").last().alias("y")).sort("t_ns")
+    last_per_plan = (
+        plans.sort(["t_ns", "plan_id", "waypoint_idx"])
+        .group_by("plan_id", maintain_order=True)
+        .agg(
+            pl.col("t_ns").min().alias("t_ns"),
+            pl.col("x").last().alias("x"),
+            pl.col("y").last().alias("y"),
+        )
+        .sort("t_ns")
+    )
     waypoints: list[tuple[float, float]] = []
-    for raw_x, raw_y in zip(last_per_plan["x"].to_numpy(), last_per_plan["y"].to_numpy(), strict=True):
+    for raw_x, raw_y in zip(
+        last_per_plan["x"].to_numpy(), last_per_plan["y"].to_numpy(), strict=True
+    ):
         point = (float(raw_x), float(raw_y))
         if not (math.isfinite(point[0]) and math.isfinite(point[1])):
             continue
-        if not waypoints or math.dist(point, waypoints[-1]) > _ROUTE_WAYPOINT_TOLERANCE_M:
+        if (
+            not waypoints
+            or math.dist(point, waypoints[-1]) > _ROUTE_WAYPOINT_TOLERANCE_M
+        ):
             waypoints.append(point)
     return tuple(waypoints)
 
@@ -79,12 +101,18 @@ def route_waypoints(
     for waypoint in commanded:
         if math.dist(waypoint, points[-1]) > _ROUTE_WAYPOINT_TOLERANCE_M:
             points.append(waypoint)
-    if len(points) == 1 and goal_pt is not None and math.dist(goal_pt, start_pt) > _ROUTE_WAYPOINT_TOLERANCE_M:
+    if (
+        len(points) == 1
+        and goal_pt is not None
+        and math.dist(goal_pt, start_pt) > _ROUTE_WAYPOINT_TOLERANCE_M
+    ):
         points.append(goal_pt)
     return tuple(points)
 
 
-def plan_mission(*, grid: StaticGrid | None, waypoints: tuple[tuple[float, float], ...]) -> RouteResult:
+def plan_mission(
+    *, grid: StaticGrid | None, waypoints: tuple[tuple[float, float], ...]
+) -> RouteResult:
     """Whole-mission route: the per-leg routes between the waypoints in order, refused at the first leg that is."""
     if grid is None:
         return RouteResult(points=None, length_m=None, null_reason="no_map")

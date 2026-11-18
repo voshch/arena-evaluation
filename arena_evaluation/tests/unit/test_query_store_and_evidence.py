@@ -372,9 +372,7 @@ def test_non_reference_trajectory_queries_do_not_fan_out_per_robot(
     assert deflection_rows.height == 1
 
     # The local-planner variant groups the same deflection by the episode's local planner (R2-10).
-    local_planner_rows = qcat.execute(
-        "pedestrian_deflection_by_local_planner", engine
-    )
+    local_planner_rows = qcat.execute("pedestrian_deflection_by_local_planner", engine)
     assert local_planner_rows.height == 1
     assert set(local_planner_rows.columns) == {
         "local_planner",

@@ -46,6 +46,8 @@ def load_world(world_name: str) -> LoadedWorld | None:
     origins = view.level_origins()
     if origins is None:
         origins = {level_id: (0.0, 0.0) for level_id in world.levels}
-    loaded = LoadedWorld(world=world, origins=origins, flattened=world.compact_world(origins))
+    loaded = LoadedWorld(
+        world=world, origins=origins, flattened=world.compact_world(origins)
+    )
     loaded_worlds[world_name] = loaded
     return loaded

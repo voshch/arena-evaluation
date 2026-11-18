@@ -18,7 +18,12 @@ import polars as pl
 
 from arena_evaluation.storage.registry import INVALID_EPISODE_REASONS, NullReason
 
-__all__ = ["ROBOT_TRACKS_TOPIC", "episode_validity", "invalid_episode", "teleport_reason"]
+__all__ = [
+    "ROBOT_TRACKS_TOPIC",
+    "episode_validity",
+    "invalid_episode",
+    "teleport_reason",
+]
 
 ROBOT_TRACKS_TOPIC: Final[str] = "robot_tracks"
 
@@ -36,20 +41,31 @@ FATAL_OUTCOME_STATE: Final[int] = 5
 def invalid_episode(why: str) -> str:
     """``invalid_episode:<why>`` token, rejected when ``why`` is outside the declared vocabulary."""
     base = why.partition(":")[0]
-    known = why in INVALID_EPISODE_REASONS or f"{base}:<topic>" in INVALID_EPISODE_REASONS
+    known = (
+        why in INVALID_EPISODE_REASONS or f"{base}:<topic>" in INVALID_EPISODE_REASONS
+    )
     if not known:
-        raise ValueError(f"unknown invalid_episode reason {why!r}; declare it in INVALID_EPISODE_REASONS")
+        raise ValueError(
+            f"unknown invalid_episode reason {why!r}; declare it in INVALID_EPISODE_REASONS"
+        )
     return f"{NullReason.INVALID_EPISODE.value}:{why}"
 
 
 def teleport_reason(tracks: pl.DataFrame | None) -> str | None:
     """``invalid_episode:pose_teleport`` when consecutive ground-truth samples jump more than a robot can travel."""
-    if tracks is None or len(tracks) < 2 or not {"t_ns", "x", "y"} <= set(tracks.columns):
+    if (
+        tracks is None
+        or len(tracks) < 2
+        or not {"t_ns", "x", "y"} <= set(tracks.columns)
+    ):
         return None
     rows = tracks.select("t_ns", "x", "y").drop_nulls().sort("t_ns")
     if len(rows) < 2:
         return None
-    steps_m = np.hypot(np.diff(rows.get_column("x").to_numpy().astype(np.float64)), np.diff(rows.get_column("y").to_numpy().astype(np.float64)))
+    steps_m = np.hypot(
+        np.diff(rows.get_column("x").to_numpy().astype(np.float64)),
+        np.diff(rows.get_column("y").to_numpy().astype(np.float64)),
+    )
     impossible = steps_m > TELEPORT_STEP_M
     return None if not bool(np.any(impossible)) else invalid_episode("pose_teleport")
 
@@ -69,7 +85,13 @@ def episode_validity(
         if jump is not None:
             defects.append(jump)
     if outcome_state is None or outcome_state not in RANKABLE_OUTCOME_STATES:
-        defects.append(invalid_episode("simulator_error" if outcome_state == FATAL_OUTCOME_STATE else "incomplete_recording"))
+        defects.append(
+            invalid_episode(
+                "simulator_error"
+                if outcome_state == FATAL_OUTCOME_STATE
+                else "incomplete_recording"
+            )
+        )
     if integrity:
         defects.append(invalid_episode("incomplete_recording"))
     reasons = tuple(dict.fromkeys(defects))

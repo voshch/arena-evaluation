@@ -10,7 +10,12 @@ from arena_evaluation.processing.pose_anchor import pose_frame
 
 
 def test_pose_frame_is_the_most_frequent_parent_inside_the_window() -> None:
-    tf_gt = pl.DataFrame({"t_ns": [1, 2, 3, 4], "parent_frame": ["map", "env_0/jackal/odom", "env_0/jackal/odom", "map"]})
+    tf_gt = pl.DataFrame(
+        {
+            "t_ns": [1, 2, 3, 4],
+            "parent_frame": ["map", "env_0/jackal/odom", "env_0/jackal/odom", "map"],
+        }
+    )
     assert pose_frame(tf_gt, (2, 3)) == "env_0/jackal/odom"
     assert pose_frame(tf_gt, (None, None)) == "env_0/jackal/odom"
     assert pose_frame(tf_gt.lazy(), (4, None)) == "map"

@@ -79,7 +79,7 @@ from .state import (
     find_most_recent_resumable,
 )
 from .step import Step, StepErrorKind, StepResult
-from .tree import ContestIdentifier, SuiteIdentifier, _config_file
+from .tree import ContestIdentifier, SuiteIdentifier, _config_file  # noqa: E402  # imported after the sys.path/ROS bootstrap
 
 
 def _arena_git_provenance(share: pathlib.Path) -> tuple[str | None, bool]:
