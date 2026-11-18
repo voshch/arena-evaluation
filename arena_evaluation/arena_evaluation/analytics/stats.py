@@ -18,6 +18,7 @@ import numpy as np
 import polars as pl
 
 from arena_evaluation.analytics.catalog import _to_lazy
+from arena_evaluation.storage.registry import NullReason
 
 __all__ = [
     "CLUSTER_BOOTSTRAP_SCHEMA",
@@ -29,6 +30,7 @@ __all__ = [
     "RANK_SWAP_MATRIX_SCHEMA",
     "cluster_bootstrap_ci",
     "cluster_bootstrap_means",
+    "contain_estimate",
     "cluster_bootstrap_p_value",
     "draw_cluster_indices",
     "kendalls_w",
@@ -49,6 +51,7 @@ CLUSTER_BOOTSTRAP_SCHEMA: Final[pl.Schema] = pl.Schema(
         "ci_high": pl.Float64,
         "basic_low": pl.Float64,
         "basic_high": pl.Float64,
+        "dropped_rows": pl.Int64,
     }
 )
 
@@ -73,6 +76,7 @@ PAIRED_DIFF_SUMMARY_SCHEMA: Final[pl.Schema] = pl.Schema(
         "mean_diff": pl.Float64,
         "std_diff": pl.Float64,
         "cohens_dz": pl.Float64,
+        "cohens_dz_null_reason": pl.String,
         "ci_level": pl.Float64,
         "ci_low": pl.Float64,
         "ci_high": pl.Float64,
@@ -134,11 +138,12 @@ class KendallWResult:
     metric_col: str
     n_judges: int
     n_entities: int
-    w: float
+    w: float | None
     friedman_chi2: float
     df: int
-    p_value: float
+    p_value: float | None
     rankings_frame: pl.DataFrame
+    note: str = ""
 
 
 def _validate_n_boot(n_boot: int) -> None:
@@ -201,7 +206,21 @@ def cluster_bootstrap_means(
     idx = draw_cluster_indices(n_clusters, n_boot, rng=rng)
     boot_sums = np.sum(cluster_sums[..., idx], axis=-1)
     boot_counts = np.sum(cluster_counts[..., idx], axis=-1)
-    return np.where(boot_counts > 0.0, boot_sums / np.maximum(boot_counts, 1.0), 0.0)
+    return np.where(
+        boot_counts > 0.0,
+        boot_sums / np.where(boot_counts > 0.0, boot_counts, 1.0),
+        np.nan,
+    )
+
+
+def contain_estimate(low: float, high: float, estimate: float) -> tuple[float, float]:
+    """Widen a percentile interval so it contains its own point estimate.
+
+    A bootstrap whose replicates differ only by rounding can lie entirely to one side of its estimate.
+    Both interval constructions in the layer (the OLAP analytics and the paired experiments) apply this
+    one rule, so they cannot disagree about whether they contain the estimate.
+    """
+    return min(low, estimate), max(high, estimate)
 
 
 def _bootstrap_partition_ci(
@@ -235,9 +254,16 @@ def _bootstrap_partition_ci(
 
     alpha = 1.0 - ci_level
     boot_means = cluster_bootstrap_means(sums, counts, n_boot=n_boot, rng=rng)
-    std_err = float(np.std(boot_means, ddof=1)) if n_boot > 1 else 0.0
-    ci_low = min(float(np.quantile(boot_means, alpha / 2.0)), theta_hat)
-    ci_high = max(float(np.quantile(boot_means, 1.0 - alpha / 2.0)), theta_hat)
+    observed_means = boot_means[np.isfinite(boot_means)]
+    if observed_means.size == 0:
+        nan = float("nan")
+        return n_obs, n_clusters, theta_hat, nan, nan, nan, nan, nan
+    std_err = float(np.std(observed_means, ddof=1)) if observed_means.size > 1 else 0.0
+    ci_low, ci_high = contain_estimate(
+        float(np.quantile(observed_means, alpha / 2.0)),
+        float(np.quantile(observed_means, 1.0 - alpha / 2.0)),
+        theta_hat,
+    )
     basic_low = float(2.0 * theta_hat - ci_high)
     basic_high = float(2.0 * theta_hat - ci_low)
     return n_obs, n_clusters, theta_hat, std_err, ci_low, ci_high, basic_low, basic_high
@@ -259,9 +285,12 @@ def cluster_bootstrap_ci(
 
     group_list = list(group_cols)
     cluster_agg_cols = [*group_list, cluster_col] if group_list else [cluster_col]
+    source = _to_lazy(frame)
+    total_rows = source.select(pl.len()).collect().item()
     cluster_df = (
-        _to_lazy(frame)
-        .filter(pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null())
+        source.filter(
+            pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null()
+        )
         .group_by(cluster_agg_cols)
         .agg(
             cluster_sum=pl.col(metric_col).cast(pl.Float64).sum(),
@@ -279,6 +308,9 @@ def cluster_bootstrap_ci(
     )
     if cluster_df.is_empty():
         return pl.DataFrame(schema=out_schema)
+    dropped_rows = int(total_rows) - int(
+        cluster_df.select(pl.col("cluster_count").sum()).item()
+    )
 
     partitions = (
         cluster_df.partition_by(group_list, maintain_order=True)
@@ -315,6 +347,7 @@ def cluster_bootstrap_ci(
                 "ci_high": ci_high,
                 "basic_low": basic_low,
                 "basic_high": basic_high,
+                "dropped_rows": dropped_rows,
             }
         )
         rows.append(row)
@@ -356,13 +389,15 @@ def cluster_bootstrap_p_value(
     return float((1 + extreme_count) / (n_boot + 1))
 
 
-def _cohens_dz(mean_diff: float, std_diff: float) -> float:
-    """Return paired Cohen's dz (0.0 or signed inf when standard deviation is near zero)."""
+def _cohens_dz(mean_diff: float, std_diff: float) -> float | None:
+    """Return paired Cohen's dz, or NULL when the paired differences do not vary.
+
+    A constant difference has no standardised effect size: dividing by a zero standard deviation
+    would publish an infinite (or, at zero difference, a meaningless zero) effect.
+    """
     if std_diff > 1e-12:
         return float(mean_diff / std_diff)
-    if abs(mean_diff) <= 1e-12:
-        return 0.0
-    return math.copysign(float("inf"), mean_diff)
+    return None
 
 
 def _cluster_diff_totals(
@@ -422,6 +457,11 @@ def _build_paired_diff_result(
                 "mean_diff": mean_diff,
                 "std_diff": std_diff,
                 "cohens_dz": cohens_dz,
+                "cohens_dz_null_reason": (
+                    None
+                    if cohens_dz is not None or n_pairs == 0
+                    else f"std_diff:{NullReason.ZERO_DENOMINATOR.value}"
+                ),
                 "ci_level": float(ci_level),
                 "ci_low": ci_low,
                 "ci_high": ci_high,
@@ -710,11 +750,12 @@ def kendalls_w(
             metric_col=metric_col,
             n_judges=0,
             n_entities=0,
-            w=0.0,
+            w=None,
             friedman_chi2=0.0,
             df=0,
-            p_value=1.0,
+            p_value=None,
             rankings_frame=pl.DataFrame(schema=KENDALL_RANKINGS_SCHEMA),
+            note="no complete entity is judged, so concordance is undefined",
         )
 
     total_judges = cell_df.get_column("judge").n_unique()
@@ -738,18 +779,24 @@ def kendalls_w(
 
     k = complete_df.get_column("entity").n_unique()
     m = complete_df.get_column("judge").n_unique()
-    if m < 1 or k < 2:
+    # Concordance needs at least two judges to agree with each other and two entities to be ordered.
+    if m < 2 or k < 2:
+        note = (
+            f"{m} judge(s) and {k} complete entity(ies) cannot be tested for concordance; "
+            "at least two of each are required"
+        )
         return KendallWResult(
             entity_col=entity_col,
             judge_col=judge_col,
             metric_col=metric_col,
             n_judges=m,
             n_entities=k,
-            w=1.0 if m == 1 and k >= 2 else 0.0,
+            w=None,
             friedman_chi2=0.0,
             df=max(0, k - 1),
-            p_value=1.0,
+            p_value=None,
             rankings_frame=complete_df,
+            note=note,
         )
 
     w, friedman_chi2, df, p_value = _compute_kendalls_w_stats(
@@ -796,10 +843,25 @@ def split_discovery_verification_seeds(
     discovery_fraction: float = 0.5,
     cohort_col: str = "cohort",
 ) -> pl.LazyFrame | pl.DataFrame:
-    """Deterministically partition seeds into ``'discovery'`` and ``'verification'`` cohorts."""
+    """Partition seeds into ``'discovery'`` and ``'verification'`` cohorts by dense seed rank.
+
+    The split is deterministic: seeds are ordered by rank, never drawn at random, so the same frame
+    always yields the same cohorts. Fewer than two distinct seeds cannot form both cohorts and raise
+    instead of returning an empty verification side.
+    """
     if not (0.0 < discovery_fraction < 1.0):
         raise ValueError(
             f"discovery_fraction must be in (0, 1), got {discovery_fraction}"
+        )
+    distinct_seeds = (
+        frame.select(pl.col(seed_col).n_unique()).collect().item()
+        if isinstance(frame, pl.LazyFrame)
+        else frame.get_column(seed_col).n_unique()
+    )
+    if int(distinct_seeds) < 2:
+        raise ValueError(
+            f"cannot split {distinct_seeds} distinct seed(s) into discovery and verification cohorts; "
+            "at least two are required"
         )
 
     is_eager = isinstance(frame, pl.DataFrame)

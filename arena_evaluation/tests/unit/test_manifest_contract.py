@@ -123,6 +123,9 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 "robot_model": robots[episode_id % 2],
                 "world": "map_a",
                 "is_reference": False,
+                # An evaluated episode: the required invalid_reason is the empty string, not a dummy
+                # token, so the synthetic benchmark's episodes are valid for ranking (L3-002/L3-030).
+                "invalid_reason": "",
                 "success": episode_id % 4 != 0,
             }
         )
@@ -149,6 +152,8 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             {
                 "episode_id": 0,
                 "contact_id": "c0",
+                # Only a pedestrian contact carries a closing share: a wall cannot close in (L3-013).
+                "collider_kind": "pedestrian",
                 "v_close_robot_mps": 0.6,
                 "v_close_target_mps": 0.4,
                 "relative_impact_speed_mps": 1.0,
@@ -231,6 +236,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                     for name, dtype in ped_schema.items()
                 },
                 "t_ns": step * 1_000_000_000,
+                "env_id": "env_0",
                 "x": float(step) + 0.5,
                 "y": -0.5,
             }
@@ -247,6 +253,10 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                     for name, dtype in rt_schema.items()
                 },
                 "t_ns": step * 1_000_000_000,
+                # A telemetry row carries its recorded keys: the trajectory query joins the episode on
+                # (episode_id, robot_id), so a dummy robot id would fan the sample out onto no episode.
+                "env_id": "env_0",
+                "robot_id": "robot_0",
                 "x": float(step),
                 "y": float(episode_id % 3) * 0.5,
             }

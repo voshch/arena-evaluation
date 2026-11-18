@@ -109,21 +109,25 @@ def test_paired_treatment_diff_edge_cases() -> None:
     assert empty_res.mean_diff is None
     assert empty_res.summary_frame.height == 1
 
-    # Constant nonzero diff (2.0): std_diff=0 -> cohens_dz=+inf, p=1/(100+1)
+    # A constant difference has no standardised effect size: dz is NULL with its reason (L3-034)
     const_res = paired_treatment_diff(
         df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42
     )
     assert const_res.mean_diff == 2.0
     assert const_res.std_diff == 0.0
-    assert math.isinf(const_res.cohens_dz or 0.0) and (const_res.cohens_dz or 0.0) > 0
+    assert const_res.cohens_dz is None
+    assert (
+        const_res.summary_frame.item(0, "cohens_dz_null_reason")
+        == "std_diff:zero_denominator"
+    )
     assert const_res.p_value == pytest.approx(1.0 / 101.0)
 
-    # Constant zero diff: std_diff=0, mean_diff=0 -> cohens_dz=0.0
+    # Constant zero diff: no spread either, so dz stays NULL instead of a fabricated 0.0
     zero_df = df.with_columns(pl.lit(1.0).alias("val"))
     zero_res = paired_treatment_diff(
         zero_df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42
     )
-    assert zero_res.cohens_dz == 0.0
+    assert zero_res.cohens_dz is None
 
     # Single cluster: ci_low == ci_high == mean_diff, p_value == 1.0
     one_cluster = paired_treatment_diff(
@@ -218,12 +222,12 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     assert (empty_kw.n_judges, empty_kw.n_entities, empty_kw.w, empty_kw.p_value) == (
         0,
         0,
-        0.0,
-        1.0,
+        None,
+        None,
     )
     assert empty_kw.rankings_frame.schema == KENDALL_RANKINGS_SCHEMA
 
-    # Single judge, 2 entities -> falls through to chi2=1.0, p=erfc(sqrt(0.5))
+    # A single judge cannot be concordant with itself: W is undefined (L3-039)
     one_judge = kendalls_w(
         pl.DataFrame(
             {
@@ -236,10 +240,11 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     )
     assert one_judge.n_judges == 1
     assert one_judge.n_entities == 2
-    assert one_judge.w == pytest.approx(1.0)
-    assert one_judge.p_value == pytest.approx(math.erfc(math.sqrt(0.5)))
+    assert one_judge.w is None
+    assert one_judge.p_value is None
+    assert "at least two of each" in one_judge.note
 
-    # Single entity -> m=2, k=1 -> degenerate branch w=0.0, p=1.0
+    # Single entity -> m=2, k=1 -> concordance is undefined as well
     one_entity_kw = kendalls_w(
         pl.DataFrame(
             {
@@ -258,8 +263,8 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     ) == (
         2,
         1,
-        0.0,
-        1.0,
+        None,
+        None,
     )
 
     # df == 1 (k=2, m=2, perfect agreement): W=1.0, chi2=2.0, p=erfc(1.0)
@@ -332,4 +337,4 @@ def test_kendalls_w_all_tied_single_judge_returns_p_one() -> None:
     )
     res = kendalls_w(df, "metric")
     assert res.friedman_chi2 == pytest.approx(0.0)
-    assert res.p_value == pytest.approx(1.0)
+    assert res.p_value is None

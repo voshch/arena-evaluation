@@ -53,6 +53,7 @@ CANONICAL_VIEW_NAMES: Final[tuple[str, ...]] = (
     "v_contacts",
     "v_contact_summary",
     "v_encounter_summary",
+    "v_pedestrian_summary",
 )
 
 _JOIN_KEYS: Final[tuple[str, ...]] = dimensions.DimEpisodes.key
@@ -69,6 +70,17 @@ _ENCOUNTER_MEAN_METRICS: Final[tuple[str, ...]] = (
     "probst_R_time",
     "probst_E_robot",
     "probst_E_actor2",
+    "sound_exposure_dose_pa2s",
+)
+
+_PEDESTRIAN_MEAN_METRICS: Final[tuple[str, ...]] = (
+    "ped_max_exposure_dba",
+    "ped_leq_exposure_dba",
+    "ped_max_startle_factor",
+    "ped_path_deflection_m",
+    "ped_velocity_delay_ratio",
+    "total_distance_m",
+    "mean_speed_mps",
 )
 
 _STAR_SCHEMAS: Final[dict[str, pl.Schema]] = {
@@ -93,6 +105,30 @@ _PROTECTED_BASE_NAMES: Final[frozenset[str]] = frozenset(
 
 def _to_lazy(frame: pl.LazyFrame | pl.DataFrame) -> pl.LazyFrame:
     return frame.lazy() if isinstance(frame, pl.DataFrame) else frame
+
+
+def _stream_total(column: str, alias: str) -> pl.Expr:
+    """Sum a per-episode stream count, NULL when no episode of the group recorded that stream.
+
+    A sum of zeros and a stream nobody recorded look identical; the NULL keeps the second one visible and
+    the companion ``_stream_total_reason`` names the missing stream.
+    """
+    return (
+        pl.when(pl.col(column).is_null().sum() == pl.len())
+        .then(pl.lit(None, dtype=pl.Int64))
+        .otherwise(pl.col(column).fill_null(0).sum().cast(pl.Int64))
+        .alias(alias)
+    )
+
+
+def _stream_total_reason(presence_column: str, token: str, topic: str) -> pl.Expr:
+    """The reason a stream total is NULL: the topic was never recorded for the group's episodes."""
+    return (
+        pl.when(pl.col(presence_column).is_null().sum() == pl.len())
+        .then(pl.lit(f"{token}:{NullReason.TOPIC_MISSING.value}"))
+        .otherwise(pl.lit(None, dtype=pl.String))
+        .alias(f"total_{topic}_null_reason")
+    )
 
 
 def _crowd_condition_view(dim_peds: pl.LazyFrame) -> pl.LazyFrame:
@@ -223,6 +259,11 @@ class BenchmarkCatalog:
         per_table: dict[str, list[pl.LazyFrame]] = {}
         for src in merge_manifest.sources:
             src_path = pathlib.Path(src.run_dir)
+            if not src_path.is_dir():
+                raise FileNotFoundError(
+                    f"Merged benchmark {source_dir.name!r} references source run {src.run_id!r} at "
+                    f"{src_path}, which does not exist"
+                )
             src_tables: dict[str, pl.LazyFrame] = {}
             src_tables.update(scan_star_schema(src_path))
             src_tables.update(scan_series_tables(src_path))
@@ -239,10 +280,11 @@ class BenchmarkCatalog:
                     label_exprs
                 )
             for name, lf in src_tables.items():
-                if "run_id" in lf.collect_schema().names():
-                    lf = lf.with_columns(
-                        pl.lit(src.run_id, dtype=pl.String).alias("run_id")
-                    )
+                # Every merged frame carries its source-run key, telemetry included: a telemetry row has
+                # no run of its own and would otherwise be attributed to whichever run happened to be first.
+                lf = lf.with_columns(
+                    pl.lit(src.run_id, dtype=pl.String).alias("run_id")
+                )
                 per_table.setdefault(name, []).append(lf)
         for name, frames in per_table.items():
             self._tables[name] = (
@@ -291,6 +333,22 @@ class BenchmarkCatalog:
     ) -> BenchmarkCatalog:
         """Open a benchmark directory as a lazy ``BenchmarkCatalog``."""
         return cls(benchmark, variant=variant)
+
+    def metric_dictionary(self) -> pl.LazyFrame:
+        """The published metric dictionary: metric, scope, fact table, dtype, unit, direction and description.
+
+        ``dim_metrics`` is the one table every consumer reads metric metadata from, so the catalog offers one
+        projection of it instead of each caller reshaping the table itself.
+        """
+        return self.get_table("dim_metrics").select(
+            "metric",
+            "scope",
+            "fact_table",
+            "dtype",
+            "unit",
+            "description",
+            "direction",
+        )
 
     def is_protected_table(self, name: str) -> bool:
         """Return whether ``name`` is a registered base table or canonical view."""
@@ -343,6 +401,11 @@ class BenchmarkCatalog:
                 "crowd_condition_null_reason",
                 "seed",
                 "is_reference",
+                "is_valid_for_ranking",
+                "dim_episode_null_reason",
+                "dim_robot_null_reason",
+                "fact_episode_null_reason",
+                "fact_robot_null_reason",
             ]
         )
         for name in series_names:
@@ -358,6 +421,7 @@ class BenchmarkCatalog:
         fact_rob = self._tables["fact_robots"]
         fact_enc = self._tables["fact_encounters"]
         fact_con = self._tables["fact_contacts"]
+        fact_ped = self._tables["fact_pedestrians"]
 
         dim_ep_cols = set(dim_ep.collect_schema().names())
         dim_rob_cols = [
@@ -406,10 +470,17 @@ class BenchmarkCatalog:
         ]
 
         ped_cond = _crowd_condition_view(dim_ped)
-        ped_contacts = (
-            fact_con.filter(pl.col("collider_kind") == "pedestrian")
-            .group_by(_JOIN_KEYS)
-            .agg(ped_contact_count=pl.len().cast(pl.Int64))
+        con_counts = fact_con.group_by(_JOIN_KEYS).agg(
+            contact_rows=pl.len().cast(pl.Int64),
+            pedestrian_contact_rows=(pl.col("collider_kind") == "pedestrian")
+            .sum()
+            .cast(pl.Int64),
+            static_contact_rows=(pl.col("collider_kind").is_in(["wall", "static"]))
+            .sum()
+            .cast(pl.Int64),
+            other_robot_contact_rows=(pl.col("collider_kind") == "other_robot")
+            .sum()
+            .cast(pl.Int64),
         )
 
         v_episode_summary = (
@@ -418,22 +489,26 @@ class BenchmarkCatalog:
             .join(fact_ep.select(fact_ep_select), on=list(_JOIN_KEYS), how="left")
             .join(fact_rob.select(fact_rob_exprs), on=list(_JOIN_KEYS), how="left")
             .join(ped_cond, on=["run_id", "episode_id", "env_id"], how="left")
-            .join(ped_contacts, on=list(_JOIN_KEYS), how="left")
+            .join(con_counts, on=list(_JOIN_KEYS), how="left")
             .with_columns(
                 pl.when(pl.col("planner") == "")
                 .then(pl.lit(None, dtype=pl.String))
                 .otherwise(pl.col("planner"))
                 .alias("local_planner"),
                 (
-                    pl.col("invalid_reason").is_null()
-                    | (pl.col("invalid_reason") == "")
+                    pl.col("invalid_reason").is_not_null()
+                    & (pl.col("invalid_reason") == "")
                 ).alias("is_valid_for_ranking"),
-                pl.when(pl.col("success").is_null())
+                pl.when(pl.col("success").is_null() | pl.col("contact_rows").is_null())
                 .then(pl.lit(None, dtype=pl.Boolean))
-                .otherwise(
-                    pl.col("success") & (pl.col("ped_contact_count").fill_null(0) == 0)
-                )
+                .otherwise(pl.col("success") & (pl.col("pedestrian_contact_rows") == 0))
                 .alias("success_without_pedestrian_contact"),
+                pl.when(pl.col("success").is_null())
+                .then(pl.lit(f"success:{NullReason.NOT_RECORDED}"))
+                .when(pl.col("contact_rows").is_null())
+                .then(pl.lit(f"contact_count:{NullReason.TOPIC_MISSING}"))
+                .otherwise(pl.lit(None, dtype=pl.String))
+                .alias("success_without_pedestrian_contact_null_reason"),
                 pl.when(pl.col("crowd_condition").is_null())
                 .then(
                     pl.col("crowd_condition_null_reason").fill_null(
@@ -446,29 +521,31 @@ class BenchmarkCatalog:
                     pl.col("collision_amount_wall") + pl.col("collision_amount_static")
                 ).alias("collision_amount_wall_and_static"),
             )
-            .drop("ped_contact_count")
+            .drop(
+                "contact_rows",
+                "pedestrian_contact_rows",
+                "static_contact_rows",
+                "other_robot_contact_rows",
+            )
         )
         self._tables["v_episode_summary"] = v_episode_summary
 
         enc_counts = fact_enc.group_by(_JOIN_KEYS).agg(
             encounter_count=pl.len().cast(pl.Int64)
         )
-        con_counts = fact_con.group_by(_JOIN_KEYS).agg(
-            contact_count=pl.len().cast(pl.Int64),
-            pedestrian_contact_count=(pl.col("collider_kind") == "pedestrian")
-            .sum()
-            .cast(pl.Int64),
-            static_contact_count=(pl.col("collider_kind").is_in(["wall", "static"]))
-            .sum()
-            .cast(pl.Int64),
-            other_robot_contact_count=(pl.col("collider_kind") == "other_robot")
-            .sum()
-            .cast(pl.Int64),
-        )
 
+        # A merged catalog adds the source-run key and its labels to dim_episodes; they are part of the
+        # identity of every aggregate, not a column the scorecard may drop (L3-060).
+        merged_extras = tuple(
+            name
+            for name in dim_ep.collect_schema().names()
+            if name not in dimensions.DimEpisodes.polars_schema()
+        )
         scorecard_group_cols = (
+            *merged_extras,
             "world",
             "scenario",
+            "stage",
             "crowd_condition",
             "planner",
             "dispatcher",
@@ -503,32 +580,39 @@ class BenchmarkCatalog:
                 mean_energy_total_wh=pl.col("energy_total_wh")
                 .filter(valid_for_ranking)
                 .mean(),
-                total_encounters=pl.col("encounter_count")
-                .fill_null(0)
+                episodes_without_contacts=pl.col("contact_rows")
+                .is_null()
                 .sum()
                 .cast(pl.Int64),
-                total_contacts=pl.col("contact_count")
-                .fill_null(0)
-                .sum()
-                .cast(pl.Int64),
-                pedestrian_contacts=pl.col("pedestrian_contact_count")
-                .fill_null(0)
-                .sum()
-                .cast(pl.Int64),
-                static_contacts=pl.col("static_contact_count")
-                .fill_null(0)
-                .sum()
-                .cast(pl.Int64),
-                other_robot_contacts=pl.col("other_robot_contact_count")
-                .fill_null(0)
-                .sum()
-                .cast(pl.Int64),
+                total_encounters=_stream_total("encounter_count", "total_encounters"),
+                total_contacts=_stream_total("contact_rows", "total_contacts"),
+                pedestrian_contacts=_stream_total(
+                    "pedestrian_contact_rows", "pedestrian_contacts"
+                ),
+                static_contacts=_stream_total("static_contact_rows", "static_contacts"),
+                other_robot_contacts=_stream_total(
+                    "other_robot_contact_rows", "other_robot_contacts"
+                ),
+                total_encounters_null_reason=_stream_total_reason(
+                    "encounter_count", "encounter_count", "encounters"
+                ),
+                total_contacts_null_reason=_stream_total_reason(
+                    "contact_rows", "contact_count", "contacts"
+                ),
             )
             .sort(scorecard_group_cols)
         )
 
         treatment = v_episode_summary.select(
-            [*_JOIN_KEYS, "crowd_condition", "planner"]
+            [
+                *_JOIN_KEYS,
+                *merged_extras,
+                "crowd_condition",
+                "planner",
+                "world",
+                "scenario",
+                "stage",
+            ]
         )
 
         v_robot_close = pl.col("v_close_robot_mps").clip(lower_bound=0.0)
@@ -550,7 +634,14 @@ class BenchmarkCatalog:
         v_contacts = fact_con.with_columns(robot_closing_share, target_closing_share)
         self._tables["v_contacts"] = v_contacts
 
-        contact_group_cols = ("crowd_condition", "planner")
+        contact_group_cols = (
+            *merged_extras,
+            "world",
+            "scenario",
+            "stage",
+            "crowd_condition",
+            "planner",
+        )
         self._tables["v_contact_summary"] = (
             v_contacts.join(treatment, on=list(_JOIN_KEYS), how="left")
             .group_by(contact_group_cols)
@@ -567,7 +658,15 @@ class BenchmarkCatalog:
         )
 
         had_contact = pl.col("contact_id").is_not_null() & (pl.col("contact_id") != "")
-        encounter_group_cols = ("crowd_condition", "planner", "approach_type")
+        encounter_group_cols = (
+            *merged_extras,
+            "world",
+            "scenario",
+            "stage",
+            "crowd_condition",
+            "planner",
+            "approach_type",
+        )
         self._tables["v_encounter_summary"] = (
             fact_enc.join(treatment, on=list(_JOIN_KEYS), how="left")
             .group_by(encounter_group_cols)
@@ -580,4 +679,30 @@ class BenchmarkCatalog:
                 contact_encounters=had_contact.sum().cast(pl.Int64),
             )
             .sort(encounter_group_cols)
+        )
+
+        episode_identity = dim_ep.group_by("run_id", "episode_id").agg(
+            world=pl.col("world").max(),
+            scenario=pl.col("scenario").max(),
+            stage=pl.col("stage").max(),
+        )
+        pedestrian_group_cols = (
+            *merged_extras,
+            "world",
+            "scenario",
+            "stage",
+            "ped_policy",
+        )
+        self._tables["v_pedestrian_summary"] = (
+            fact_ped.join(episode_identity, on=["run_id", "episode_id"], how="left")
+            .group_by(pedestrian_group_cols)
+            .agg(
+                pedestrians=pl.len().cast(pl.Int64),
+                episodes=pl.col("episode_id").n_unique().cast(pl.Int64),
+                *(
+                    pl.col(col).mean().alias(f"mean_{col}")
+                    for col in _PEDESTRIAN_MEAN_METRICS
+                ),
+            )
+            .sort(pedestrian_group_cols)
         )

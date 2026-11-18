@@ -106,6 +106,8 @@ def _rows(
                         "min_ped_clearance_m": 0.5
                         + 0.1 * seed
                         + (0.0 if through else 1.0),
+                        "time_in_intimate_zone": 2.0 + 0.5 * seed,
+                        "time_in_personal_zone": 5.0 + 0.5 * seed,
                         "path_length_m": 6.0 + seed,
                         "time_to_goal": 10.0 + seed,
                     }
@@ -230,6 +232,19 @@ def test_analyze_pairs_the_arms_by_seed_within_each_case(
         0, named=True
     )
     assert clearance["off_minus_on"] == pytest.approx(-1.0)
+    # The two proxemics time metrics are paired like every other metric (L3-071/B-016).
+    intimate = paired.filter(pl.col("metric") == "time_in_intimate_zone").row(
+        0, named=True
+    )
+    assert intimate["off_minus_on"] == pytest.approx(0.0)
+    assert tables["descriptive"].select("intimate_s", "personal_s").columns == [
+        "intimate_s",
+        "personal_s",
+    ]
+    assert tables["matched"].select("intimate_s", "personal_s").columns == [
+        "intimate_s",
+        "personal_s",
+    ]
     assert paired.filter(pl.col("metric") == "success")["p"][0] == 1.0
     assert "p_holm" in paired.columns
     assert {p.name for p in (tmp_path / "out").iterdir()} == {

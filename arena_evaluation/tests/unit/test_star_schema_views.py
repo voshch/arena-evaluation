@@ -141,6 +141,23 @@ def test_catalog_exposes_canonical_views_and_dim_metrics(
     assert catalog.get_table("v_series_clearance").collect().height == 2
 
 
+def test_metric_dictionary_is_the_catalog_metadata_projection() -> None:
+    """One accessor over dim_metrics instead of each caller reshaping the table (X-022)."""
+    catalog = BenchmarkCatalog()
+    dictionary = catalog.metric_dictionary()
+    assert isinstance(dictionary, pl.LazyFrame)
+    assert dictionary.collect_schema().names() == [
+        "metric",
+        "scope",
+        "fact_table",
+        "dtype",
+        "unit",
+        "description",
+        "direction",
+    ]
+    assert dictionary.collect().is_empty()
+
+
 def test_catalog_get_table_raises_for_unknown_table() -> None:
     catalog = BenchmarkCatalog()
     with pytest.raises(KeyError, match="Unknown table or view"):

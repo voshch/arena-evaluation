@@ -2,7 +2,8 @@
 
 - Seeds are fixed per scenario and shared by both arms, so a difference is taken per (scenario, seed).
 - Resampling is a cluster bootstrap over scenarios: a drawn scenario brings all of its seeds.
-- 95 % percentile intervals, printed unadjusted.
+- 95 % percentile intervals, printed unadjusted, widened by the shared
+  :func:`arena_evaluation.analytics.stats.contain_estimate` rule so an interval always contains its estimate.
 - The two-sided p-value is the shifted-null cluster-bootstrap test implemented once in
   :func:`arena_evaluation.analytics.stats.cluster_bootstrap_p_value`, so a difference and its
   interval are reported by the same procedure the OLAP analytics use.
@@ -20,6 +21,7 @@ import polars as pl
 from arena_evaluation.analytics.stats import (
     cluster_bootstrap_means,
     cluster_bootstrap_p_value,
+    contain_estimate,
     draw_cluster_indices,
 )
 
@@ -82,7 +84,9 @@ def cluster_bootstrap(
             estimate, float("nan"), float("nan"), float("nan"), k, n_pairs
         )
     tail = (1.0 - level) / 2.0
-    lo, hi = np.quantile(draws, [tail, 1.0 - tail])
+    lo, hi = contain_estimate(
+        float(np.quantile(draws, tail)), float(np.quantile(draws, 1.0 - tail)), estimate
+    )
     p = cluster_bootstrap_p_value(
         cluster_sums,
         cluster_counts,

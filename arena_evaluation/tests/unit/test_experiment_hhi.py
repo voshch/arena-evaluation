@@ -154,6 +154,74 @@ def test_family_table_compares_the_contact_arm_against_locomotion(
     assert (tmp_path / "run" / "hhi" / "family_a.csv").exists()
 
 
+def test_family_table_carries_the_two_hhi_contact_metrics(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The published study keeps all four family metrics, not only the two episode outcomes (L3-070)."""
+    rows = _rows()
+    contacts = [
+        {
+            "episode_id": row["episode_id"],
+            "contact_id": "c0",
+            "hhi_pair_gap_hold": 0.6,
+            "hhi_hold_onset_s": 2.0,
+            "hhi_release_s": 6.0,
+            "hhi_episode_s": 10.0,
+            "hhi_stall_count": 4 if "_contact" in str(row["stage"]) else 1,
+            "hhi_stalls_post": 3,
+            "hhi_share_post": 0.25,
+            "hhi_passes_between": 2 if "_contact" in str(row["stage"]) else 0,
+        }
+        for row in rows
+        if str(row["stage"]).startswith("hhi_")
+    ]
+    run = write_benchmark(tmp_path / "run", rows, contacts=contacts)
+    family = hhi.analyze(run, n_boot=50)["family_a"]
+
+    assert set(family["metric"].to_list()) == {
+        "success",
+        "ttg",
+        "stalls",
+        "passes_between",
+    }
+    assert family.height == 2 * 2 * 4
+    dwb_stalls = family.filter(
+        (pl.col("planner") == "dwb") & (pl.col("metric") == "stalls")
+    )
+    # Contact arm 4 stalls, locomotion arm 1, over the paired scenarios.
+    assert dwb_stalls["estimate"].to_list() == pytest.approx([3.0, 3.0])
+    dwb_passes = family.filter(
+        (pl.col("planner") == "dwb") & (pl.col("metric") == "passes_between")
+    )
+    assert dwb_passes["estimate"].to_list() == pytest.approx([2.0, 2.0])
+
+
+def test_episode_contact_metrics_keep_a_contactless_episode_null() -> None:
+    episodes = pl.DataFrame(
+        {
+            "run_id": ["run", "run"],
+            "episode_id": [0, 1],
+            "robot_id": ["robot_0", "robot_0"],
+        }
+    )
+    contacts = pl.DataFrame(
+        {
+            "run_id": ["run"],
+            "episode_id": [0],
+            "robot_id": ["robot_0"],
+            "hhi_stall_count": [3],
+            "hhi_passes_between": [1],
+        }
+    )
+    out = hhi.episode_contact_metrics(episodes, contacts)
+    by_episode = {
+        int(row["episode_id"]): (row["hhi_stall_count"], row["hhi_passes_between"])
+        for row in out.to_dicts()
+    }
+    # An episode the contact stream never covered is NULL, not a zero the study would average in.
+    assert by_episode == {0: (3.0, 1.0), 1: (None, None)}
+
+
 def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
     df = pl.DataFrame(
         {

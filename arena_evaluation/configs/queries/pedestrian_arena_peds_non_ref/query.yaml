@@ -1,5 +1,24 @@
 name: pedestrian_arena_peds_non_ref
-description: Pedestrian trajectory samples filtered to non-reference episodes.
-sql: SELECT d.run_id, p.episode_id, p.ped_id, d.world, d.planner, p.t_ns, p.x, p.y,
-  p.yaw FROM pedestrian_arena_peds p JOIN dim_episodes d ON p.episode_id = d.episode_id
-  WHERE NOT d.is_reference
+description: Pedestrian trajectory samples filtered to non-reference episodes. The episode is joined once
+  per (run_id, episode_id), not once per robot, so a pedestrian sample is not repeated once per robot of the
+  episode; planner is a robot attribute and is therefore not published on a pedestrian sample. An episode
+  whose reference flag was not recorded counts as non-reference.
+sql: |
+  WITH non_reference_episode AS (
+      SELECT run_id, episode_id, MAX(world) AS world
+      FROM dim_episodes
+      WHERE is_reference IS NOT TRUE
+      GROUP BY run_id, episode_id
+  )
+  SELECT
+      e.run_id,
+      p.episode_id,
+      p.ped_id,
+      e.world,
+      p.t_ns,
+      p.x,
+      p.y,
+      p.yaw
+  FROM pedestrian_arena_peds p
+  JOIN non_reference_episode e ON p.episode_id = e.episode_id
+  ORDER BY p.episode_id, p.ped_id, p.t_ns

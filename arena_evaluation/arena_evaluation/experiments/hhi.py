@@ -6,7 +6,10 @@ generate: L scenarios per contact kind on map_empty, each run in two arms that s
   In both arms the pair then separates to its exit points and stands.
 
 analyze: paired contact - locomotion differences per (planner, interaction, metric), cluster bootstrap over
-  scenarios, Holm within the family. Window and manipulation checks need the HHI contact metrics, which the canonical Star Schema does not carry yet.
+  scenarios, Holm within the family. The family covers the two episode outcomes (success, time to goal) and the
+  two HHI contact metrics (stalls, passes between) summed over each episode's contacts; the window and
+  manipulation checks read the same fact_contacts rows, plus the release-time window check that the contact
+  metrics record.
 
     python -m arena_evaluation.experiments.hhi generate --scenarios 15
     python -m arena_evaluation.experiments.hhi analyze --benchmark-dir <data_root>/<run_id>
@@ -304,6 +307,11 @@ FAMILY_METRICS = {
     "success": "success",
     "ttg": "time_to_goal",
 }
+#: The HHI contact metrics summed over one episode's contacts, published by the contact scope.
+CONTACT_FAMILY_METRICS = {
+    "stalls": "hhi_stall_count",
+    "passes_between": "hhi_passes_between",
+}
 
 
 def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
@@ -452,14 +460,43 @@ def manipulation_check(contact_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def family_table(
-    df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
+def episode_contact_metrics(
+    episodes: pl.DataFrame, contact_df: pl.DataFrame
 ) -> pl.DataFrame:
-    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them."""
+    """Attach the per-episode sums of the HHI contact metrics to the episode rows.
+
+    ``fact_contacts`` holds one row per contact, so an episode's stall count is the sum over its contacts;
+    an episode without contacts keeps NULL rather than a zero the study would read as a real measurement.
+    """
+    columns = list(CONTACT_FAMILY_METRICS.values())
+    if contact_df.is_empty():
+        return episodes.with_columns(
+            [pl.lit(None, dtype=pl.Float64).alias(column) for column in columns]
+        )
+    sums = contact_df.group_by(["run_id", "episode_id", "robot_id"]).agg(
+        [pl.col(column).cast(pl.Float64).sum().alias(column) for column in columns]
+    )
+    return episodes.join(sums, on=["run_id", "episode_id", "robot_id"], how="left")
+
+
+def family_table(
+    df: pl.DataFrame,
+    *,
+    contact_df: pl.DataFrame | None = None,
+    n_boot: int = DEFAULT_BOOT,
+    seed: int = 0,
+) -> pl.DataFrame:
+    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them.
+
+    ``contact_df`` supplies the contact-scope family metrics (stalls, passes between); without it the family
+    keeps only the episode outcomes, which is what a benchmark without a contact stream can answer.
+    """
+    frame = df if contact_df is None else episode_contact_metrics(df, contact_df)
+    metrics = {**FAMILY_METRICS, **CONTACT_FAMILY_METRICS}
     parts = []
-    for label, column in FAMILY_METRICS.items():
+    for label, column in metrics.items():
         diffs = paired_differences(
-            df.with_columns(pl.col(column).cast(pl.Float64)),
+            frame.with_columns(pl.col(column).cast(pl.Float64)),
             cell=["planner", "interaction"],
             metric=column,
             arm="arm",
@@ -488,7 +525,7 @@ def analyze(
     df = paper_outcomes(load_episodes(episode_summary(benchmark_dir)))
     contact_df = load_contacts(df, contacts(benchmark_dir))
     tables = {
-        "family_a": family_table(df, n_boot=n_boot),
+        "family_a": family_table(df, contact_df=contact_df, n_boot=n_boot),
         "windows": window_table(contact_df, n_boot=n_boot),
         "manipulation_check": manipulation_check(contact_df),
     }

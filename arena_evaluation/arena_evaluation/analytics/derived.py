@@ -59,8 +59,24 @@ def save_derived_table(
     author: str,
     purpose: str = "",
 ) -> dict[str, Any]:
-    """Persist a derived table and its YAML sidecar, archiving version 1 on first replace."""
+    """Persist a derived table and its YAML sidecar, archiving the version it replaces.
+
+    One lock path guards one table: ``<name>.yaml`` is taken for the whole read-archive-write, so a
+    concurrent writer cannot interleave a parquet and a sidecar of different versions. Every superseded
+    table is archived as ``<name>.v<version>.parquet`` where the version is the one the sidecar carried,
+    so the counter names exactly what is on disk and no replaced version is lost.
+    """
     clean = _validate_name(name)
+    nested = [
+        column
+        for column, dtype in frame.schema.items()
+        if isinstance(dtype, (pl.List, pl.Struct, pl.Array, pl.Object))
+    ]
+    if nested:
+        raise ValueError(
+            f"Derived table {clean!r} must be flat; the nested column(s) {nested} cannot be persisted. "
+            "Store one row per element instead (for example a seed column rather than a seed list)."
+        )
     author_clean = author.strip()
     if not author_clean:
         raise ValueError(f"Derived table {clean!r} requires a non-empty author")
@@ -84,10 +100,9 @@ def save_derived_table(
                 )
             version = int(existing.get("version", 1)) + 1
         if parquet_path.is_file():
-            v1_path = root / f"{clean}.v1.parquet"
-            if not v1_path.is_file():
-                with staged_temp_path(v1_path) as tmp_v1:
-                    shutil.copy2(parquet_path, tmp_v1)
+            archived = root / f"{clean}.v{max(version - 1, 1)}.parquet"
+            with staged_temp_path(archived) as tmp_archive:
+                shutil.copy2(parquet_path, tmp_archive)
 
         with staged_temp_path(parquet_path) as tmp_parquet:
             frame.write_parquet(tmp_parquet)
@@ -197,6 +212,8 @@ def refresh_derived_table(benchmark_dir: pathlib.Path, name: str) -> dict[str, A
         purpose=purpose,
         author=author_val,
     )
+    # One analysis owns one table plus its optional ``<name>_summary``: both are derived tables with
+    # their own sidecar and lock, never a second copy of the same rows under the same name.
     summary_sidecar = derived_dir(benchmark_dir) / f"{clean}_summary.yaml"
     if summary_frame is not None and summary_sidecar.is_file():
         save_derived_table(

@@ -18,11 +18,7 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.atomic import file_lock, staged_temp_path
-from arena_evaluation.storage.registry import (
-    FACT_TABLES,
-    dimensions,
-    registered_tables,
-)
+from arena_evaluation.storage.registry import registered_tables
 from arena_evaluation.storage.config_layout import run_evidence_dir
 from arena_evaluation.storage.registry.analysis import EvidenceIndex
 
@@ -40,6 +36,11 @@ __all__ = [
 VALID_EVIDENCE_KINDS: Final[frozenset[str]] = frozenset({"sql", "computation"})
 
 EVIDENCE_INDEX_SCHEMA: Final[pl.Schema] = EvidenceIndex.polars_schema()
+
+#: Directories under a benchmark that hold analysis outputs, not recorded inputs.
+_SNAPSHOT_EXCLUDED_DIRS: Final[frozenset[str]] = frozenset(
+    {"analysis", "reports", "plots", "hhi"}
+)
 
 
 def compute_schema_signature(frame: pl.DataFrame | pl.LazyFrame) -> str:
@@ -80,21 +81,21 @@ def _file_fingerprint(path: pathlib.Path) -> str:
 
 
 def compute_snapshot_id(benchmark_dir: pathlib.Path) -> str:
-    """Compute a deterministic ``snap-<sha256[:12]>`` dataset and registry snapshot identifier."""
+    """Compute a deterministic ``snap-<sha256[:12]>`` dataset and registry snapshot identifier.
+
+    Every recorded Parquet input participates: dimensions and series at the root, and each episode's
+    facts, series and telemetry, so a changed telemetry or series input changes the id. The analysis
+    outputs the store writes (evidence, derived tables, reports, plots) are the products of the inputs,
+    so they are excluded. The detector identity recorded in ``fact_encounters`` is covered by those
+    fingerprints; the evaluator version is not recorded in the data (see the report's coordination note).
+    """
     file_fps: dict[str, str] = {}
     if benchmark_dir.is_dir():
-        for tbl in dimensions.DIMENSION_TABLES.values():
-            dim_path = benchmark_dir / tbl.relative_path()
-            if dim_path.is_file():
-                file_fps[tbl.relative_path().as_posix()] = _file_fingerprint(dim_path)
-        episodes_root = benchmark_dir / "episodes"
-        if episodes_root.is_dir():
-            for ep_dir in sorted(p for p in episodes_root.iterdir() if p.is_dir()):
-                for fact_tbl in FACT_TABLES.values():
-                    fpath = ep_dir / fact_tbl.relative_path()
-                    if fpath.is_file():
-                        rel = fpath.relative_to(benchmark_dir).as_posix()
-                        file_fps[rel] = _file_fingerprint(fpath)
+        for path in sorted(benchmark_dir.rglob("*.parquet")):
+            relative = path.relative_to(benchmark_dir)
+            if relative.parts and relative.parts[0] in _SNAPSHOT_EXCLUDED_DIRS:
+                continue
+            file_fps[relative.as_posix()] = _file_fingerprint(path)
 
     payload = {
         "registry_signature": _registry_signature(),
@@ -114,6 +115,7 @@ class AnalysisResult:
     seeds_used: tuple[int, ...] = ()
     snapshot_id: str = ""
     evidence_id: str = ""
+    diagnostics: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)

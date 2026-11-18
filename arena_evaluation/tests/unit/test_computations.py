@@ -195,6 +195,8 @@ def test_registry_metadata_and_evidence_defaults(tmp_path: pathlib.Path) -> None
         "source": "v_episode_summary",
         "filter": None,
         "exclude_references": True,
+        "valid_only": True,
+        "directions": None,
         "metric": "time_to_goal",
         "group_cols": [],
         "nbins": 15,
@@ -243,7 +245,10 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
             "error_mode": "ci95",
         },
     )
-    assert res_ci95.excluded_rows == {"references": 1}
+    assert res_ci95.excluded_rows == {
+        "references": 1,
+        "time_to_goal:not_recorded": 1,
+    }
     assert res_ci95.summary.columns == [
         "planner",
         *GroupSummaryAnalysis.polars_schema().names(),
@@ -453,11 +458,27 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
     assert log_by_p["p2"] == pytest.approx(0.5)
     assert log_by_p["ghost"] is None
 
-    bad_cat = BenchmarkCatalog.open(
+    # A partial dim_metrics must not silently decide a ranking direction: the error names every
+    # unresolved metric with its count (H-021), and a caller that knows the direction supplies it.
+    partial_cat = BenchmarkCatalog.open(
         _make_benchmark(tmp_path / "bad_bench", rows, null_direction="time_to_goal")
     )
-    with pytest.raises(ValueError, match="lacks a valid direction"):
-        resolve_metric_directions(bad_cat, ["time_to_goal"])
+    with pytest.raises(
+        ValueError, match=r"1 metric\(s\) have no 'higher'/'lower' direction"
+    ):
+        resolve_metric_directions(partial_cat, ["time_to_goal"])
+    declared = resolve_metric_directions(
+        partial_cat, ["time_to_goal"], declared={"time_to_goal": "lower"}
+    )
+    assert declared.by_metric == {"time_to_goal": "lower"}
+    assert declared.from_override == ("time_to_goal",)
+    assert declared.diagnostics[0].startswith("directions_from_param=1:")
+
+    unknown_cat = BenchmarkCatalog.open(
+        _make_benchmark(tmp_path / "unknown_bench", rows)
+    )
+    with pytest.raises(ValueError, match="have no 'higher'/'lower' direction"):
+        resolve_metric_directions(unknown_cat, ["no_such_metric"])
 
 
 def test_composite_and_top_n_ranking_unrounded_precision(

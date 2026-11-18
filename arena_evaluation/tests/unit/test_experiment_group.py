@@ -23,6 +23,8 @@ def _summary() -> pl.DataFrame:
             "planner": ["dwb"] * 3,
             "stage": ["group_ward_on", "group_ward_on", "group_ward_off"],
             "min_ped_clearance_m": [0.2, 1.1, None],
+            "time_in_intimate_zone": [3.0, 5.0, None],
+            "time_in_personal_zone": [8.0, 4.0, None],
             "path_length_m": [7.0, 7.5, None],
             "time_to_goal": [12.0, 13.0, None],
             "success": [True, True, False],
@@ -32,6 +34,8 @@ def _summary() -> pl.DataFrame:
             "planner": pl.String,
             "stage": pl.String,
             "min_ped_clearance_m": pl.Float64,
+            "time_in_intimate_zone": pl.Float64,
+            "time_in_personal_zone": pl.Float64,
             "path_length_m": pl.Float64,
             "time_to_goal": pl.Float64,
             "success": pl.Boolean,
@@ -70,6 +74,8 @@ def test_episode_routes_count_the_ticks_inside_the_formation() -> None:
         "ticks_inside",
         "closest_to_group_m",
         "min_ped_clearance_m",
+        "time_in_intimate_zone",
+        "time_in_personal_zone",
         "path_length_m",
         "time_to_goal",
         "success",
@@ -86,7 +92,11 @@ def test_summarize_reports_the_pierce_rate_per_stage_and_planner() -> None:
     assert (on["episodes"], on["pierce_rate"], on["success"]) == (2, 0.5, 1.0)
     assert on["closest_to_group_m"] == pytest.approx(1.05)
     assert on["clearance_m"] == pytest.approx(0.65)
+    # The two proxemics time metrics are carried through and reported as medians (L3-071).
+    assert on["intimate_s"] == pytest.approx(4.0)
+    assert on["personal_s"] == pytest.approx(6.0)
     assert table.row(1, named=True)["clearance_m"] is None
+    assert table.row(1, named=True)["intimate_s"] is None
 
 
 def test_main_measures_every_benchmark_dir_about_the_center(

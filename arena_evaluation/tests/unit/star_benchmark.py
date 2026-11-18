@@ -8,6 +8,7 @@ import polars as pl
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.storage.registry import FACT_TABLES, FactTable, dimensions
+from arena_evaluation.storage.registry.telemetry import RobotTracks
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
 
 __all__ = ["read_summary", "write_benchmark"]
@@ -27,6 +28,11 @@ def _frame(rows: list[dict[str, object]], schema: pl.Schema) -> pl.DataFrame:
         [{name: row.get(name) for name in schema.names()} for row in rows],
         schema=schema,
     )
+
+
+def _episode_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """A written fact_episodes row is evaluated: ``invalid_reason`` is the required empty string, never NULL."""
+    return [{**row, "invalid_reason": row.get("invalid_reason") or ""} for row in rows]
 
 
 def write_benchmark(
@@ -59,6 +65,8 @@ def write_benchmark(
         ]
         for fact_enum, fact_table in FACT_TABLES.items():
             table_rows = ep_contacts if fact_enum is FactTable.CONTACTS else ep_rows
+            if fact_enum is FactTable.EPISODES:
+                table_rows = _episode_rows(table_rows)
             _frame(table_rows, fact_table.polars_schema()).write_parquet(
                 metrics_dir / f"fact_{fact_enum.value}.parquet"
             )
@@ -80,15 +88,10 @@ def write_benchmark(
                 / "robot_tracks.parquet"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
-            pl.DataFrame(
-                [
-                    {
-                        name: value
-                        for name, value in sample.items()
-                        if name != "episode_id"
-                    }
-                    for sample in samples
-                ]
+            # A telemetry row carries its recorded keys: env_id and robot_id, not only the time.
+            _frame(
+                [{**_KEYS, **sample} for sample in samples],
+                RobotTracks.polars_schema(),
             ).write_parquet(path)
 
     return directory

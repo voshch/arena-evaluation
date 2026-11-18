@@ -250,7 +250,15 @@ def _stage(case: str, arm: str, mode: str, seed: int, episodes: int) -> dict:
 CENTERS = {
     f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()
 } | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
-METRICS = ("min_ped_clearance_m", "path_length_m", "time_to_goal", "pierced", "success")
+METRICS = (
+    "min_ped_clearance_m",
+    "path_length_m",
+    "time_to_goal",
+    "time_in_intimate_zone",
+    "time_in_personal_zone",
+    "pierced",
+    "success",
+)
 
 
 def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
@@ -327,6 +335,8 @@ def matched(df: pl.DataFrame) -> pl.DataFrame:
             pl.len().alias("n"),
             pl.col("pierced").mean().alias("pierce_rate"),
             pl.col("min_ped_clearance_m").median().alias("clearance_m"),
+            pl.col("time_in_intimate_zone").median().alias("intimate_s"),
+            pl.col("time_in_personal_zone").median().alias("personal_s"),
             pl.col("success").mean().alias("success"),
         )
         .sort(["planner", "arm"])
@@ -354,6 +364,8 @@ def analyze(
             pl.col("success").mean().alias("success"),
             pl.col("pierced").mean().alias("pierce_rate"),
             pl.col("min_ped_clearance_m").median().alias("clearance_m"),
+            pl.col("time_in_intimate_zone").median().alias("intimate_s"),
+            pl.col("time_in_personal_zone").median().alias("personal_s"),
             pl.col("path_length_m").median().alias("path_m"),
             pl.col("time_to_goal").median().alias("ttg_s"),
         )

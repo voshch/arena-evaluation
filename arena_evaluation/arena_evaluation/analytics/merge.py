@@ -34,7 +34,13 @@ class MergeManifest:
 
 
 def load_merge_manifest(benchmark_dir: pathlib.Path) -> MergeManifest | None:
-    """Load ``merge.yaml`` from ``benchmark_dir`` when present, otherwise return None."""
+    """Load ``merge.yaml`` from ``benchmark_dir`` when present, otherwise return None.
+
+    A manifest stores each source as a run id relative to the benchmarks root (the merged directory's
+    parent), so a moved data root keeps working; an absolute entry still loads. Every source directory
+    is checked here: a merge that silently drops a source run would publish a smaller benchmark under
+    the merged name.
+    """
     manifest_path = benchmark_dir / MERGE_MANIFEST_FILENAME
     if not manifest_path.is_file():
         return None
@@ -44,17 +50,27 @@ def load_merge_manifest(benchmark_dir: pathlib.Path) -> MergeManifest | None:
     raw_sources = raw.get("sources")
     if not isinstance(raw_sources, list) or not raw_sources:
         raise ValueError(f"Merge manifest {manifest_path} has no sources")
-    sources = tuple(
-        MergeSource(
-            run_id=str(entry["run_id"]),
-            run_dir=str(entry["run_dir"]),
-            labels={str(k): str(v) for k, v in (entry.get("labels") or {}).items()},
+    benchmarks_root = benchmark_dir.resolve().parent
+    sources: list[MergeSource] = []
+    for entry in raw_sources:
+        run_id = str(entry["run_id"])
+        stored = pathlib.Path(str(entry["run_dir"]))
+        resolved = stored if stored.is_absolute() else benchmarks_root / stored
+        if not resolved.is_dir():
+            raise FileNotFoundError(
+                f"Merged benchmark {benchmark_dir.name!r} references source run {run_id!r} at "
+                f"{resolved}, which does not exist; fix the merge manifest or restore the run"
+            )
+        sources.append(
+            MergeSource(
+                run_id=run_id,
+                run_dir=str(resolved),
+                labels={str(k): str(v) for k, v in (entry.get("labels") or {}).items()},
+            )
         )
-        for entry in raw_sources
-    )
     return MergeManifest(
         name=str(raw.get("name") or benchmark_dir.name),
-        sources=sources,
+        sources=tuple(sources),
         created_at=str(raw.get("created_at") or ""),
     )
 
@@ -86,7 +102,8 @@ def create_merged_benchmark(
         sources.append(
             {
                 "run_id": run_id,
-                "run_dir": str(source_dir.resolve()),
+                # Relative to the benchmarks root: the merged benchmark stays valid when the data root moves.
+                "run_dir": source_dir.relative_to(benchmarks_dir).as_posix(),
                 "labels": {
                     str(k): str(v) for k, v in label_map.get(run_id, {}).items()
                 },

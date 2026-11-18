@@ -15,7 +15,7 @@ from arena_evaluation.analytics.sql_engine import (
     validate_readonly_sql,
 )
 from arena_evaluation.storage.registry import FACT_TABLES, FactTable, dimensions
-from arena_evaluation.storage.registry.telemetry import RobotTracks
+from arena_evaluation.storage.registry.telemetry import PedestrianArenaPeds, RobotTracks
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
 
 
@@ -151,6 +151,47 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
     _frame(
         [
             {
+                "run_id": "run-q",
+                "episode_id": 0,
+                "env_id": "env_0",
+                "ped_id": "p0",
+                "ped_name": "p0",
+                "ped_policy": "social_force",
+                "ped_path_deflection_m": 0.4,
+            }
+        ],
+        FACT_TABLES[FactTable.PEDESTRIANS].polars_schema(),
+    ).write_parquet(ep_dir / FACT_TABLES[FactTable.PEDESTRIANS].relative_path())
+
+    _frame(
+        [
+            {
+                "t_ns": 0,
+                "env_id": "env_0",
+                "ped_id": "p0",
+                "ped_name": "p0",
+                "x": 1.0,
+                "y": 1.0,
+                "yaw": 0.0,
+                "speed_mps": 1.0,
+            },
+            {
+                "t_ns": 1_000_000_000,
+                "env_id": "env_0",
+                "ped_id": "p0",
+                "ped_name": "p0",
+                "x": 1.5,
+                "y": 1.0,
+                "yaw": 0.0,
+                "speed_mps": 1.0,
+            },
+        ],
+        PedestrianArenaPeds.polars_schema(),
+    ).write_parquet(ep_dir / PedestrianArenaPeds.relative_path())
+
+    _frame(
+        [
+            {
                 "t_ns": 0,
                 "env_id": "env_0",
                 "robot_id": "robot_0",
@@ -276,26 +317,91 @@ def test_query_catalog_searches_run_dir_before_package(tmp_path: pathlib.Path) -
     assert "42 AS override_val" in catalog.get_query("robot_speed_distribution").sql
 
 
-def test_all_six_shipped_queries_execute_on_fixture(tmp_path: pathlib.Path) -> None:
+def test_all_shipped_queries_execute_on_fixture(tmp_path: pathlib.Path) -> None:
     bench = _write_query_fixture_benchmark(tmp_path / "bench")
     catalog = BenchmarkCatalog.open(bench)
     engine = PolarsSQLEngine(catalog)
     qcat = QueryCatalog()
 
-    expected_names = {
-        "blind_vs_aware_standoff_delta",
-        "contact_attribution_summary",
-        "near_miss_encounter_spikes",
-        "planner_scorecard_overview",
-        "robot_speed_distribution",
-        "telemetry_slice",
-    }
-    assert expected_names <= {q.name for q in qcat.list_queries()}
+    shipped = qcat.list_queries()
+    assert len(shipped) >= 9
     assert not qcat.has_query("closer_threshold_sensitivity")
 
-    for name in sorted(expected_names):
-        df = qcat.execute(name, engine)
-        assert df.height >= 1, f"{name} returned 0 rows"
+    for declaration in shipped:
+        df = qcat.execute(declaration, engine)
+        assert df.height >= 1, f"{declaration.name} returned 0 rows"
+
+
+def test_non_reference_trajectory_queries_do_not_fan_out_per_robot(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A two-robot episode repeats neither a robot sample nor a pedestrian sample (L3-010, L3-011)."""
+    bench = _write_query_fixture_benchmark(tmp_path / "bench")
+    dim_episodes = pl.read_parquet(bench / "dim_episodes.parquet")
+    frame = pl.DataFrame(
+        [
+            dim_episodes.row(0, named=True),
+            {**dim_episodes.row(0, named=True), "robot_id": "robot_1"},
+        ]
+    )
+    frame.write_parquet(bench / "dim_episodes.parquet")
+
+    catalog = BenchmarkCatalog.open(bench)
+    engine = PolarsSQLEngine(catalog)
+    qcat = QueryCatalog()
+
+    # One robot sample and two pedestrian samples exist; the second robot of the episode has none.
+    robot_rows = qcat.execute("robot_tracks_non_ref", engine)
+    assert robot_rows.height == 2
+    assert robot_rows.get_column("robot_id").unique().to_list() == ["robot_0"]
+
+    pedestrian_rows = qcat.execute("pedestrian_arena_peds_non_ref", engine)
+    assert pedestrian_rows.height == 2
+    assert set(pedestrian_rows.columns) == {
+        "run_id",
+        "episode_id",
+        "ped_id",
+        "world",
+        "t_ns",
+        "x",
+        "y",
+        "yaw",
+    }
+
+    deflection_rows = qcat.execute("pedestrian_deflection_by_inter_planner", engine)
+    assert deflection_rows.height == 1
+
+    # The pedestrian-scope exposure query is keyed on the episode, not on the robot (R2-10, L3-010).
+    exposure_rows = qcat.execute("pedestrian_exposure_by_planner", engine)
+    assert exposure_rows.height == 1
+    assert set(exposure_rows.columns) == {
+        "planner",
+        "world",
+        "stage",
+        "crowd_condition",
+        "ped_id",
+        "ped_policy",
+        "ped_max_exposure_dba",
+        "ped_leq_exposure_dba",
+        "ped_max_startle_factor",
+        "ped_path_deflection_m",
+    }
+
+
+def test_snapshot_id_tracks_telemetry_bytes_and_the_evaluator_identity(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Series and telemetry inputs and the evaluator version are part of the snapshot (L3-003)."""
+    from arena_evaluation.analytics.evidence import compute_snapshot_id
+
+    bench = _write_query_fixture_benchmark(tmp_path / "bench")
+    before = compute_snapshot_id(bench)
+    assert before.startswith("snap-")
+
+    tracks = next(bench.rglob("robot_tracks.parquet"))
+    frame = pl.read_parquet(tracks)
+    frame.with_columns(pl.col("x") + 1.0).write_parquet(tracks)
+    assert compute_snapshot_id(bench) != before
 
 
 def test_evidence_index_schema_is_flat_and_registered() -> None:
