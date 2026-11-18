@@ -128,7 +128,7 @@ def _every_topic_bag(path: pathlib.Path) -> pathlib.Path:
         _param("names", 9, string_array_value=["a", "b"]),
         _param("unset", 0),
     ]
-    events = [{"kind": "wall", "obstacle_id": "w1"}, {"kind": "static", "obstacle_id": "s1"}, {"kind": "pedestrian", "obstacle_id": "p1"}, {"kind": "robot", "obstacle_id": "w1"}]
+    events = [{"kind": "wall", "obstacle_id": "w1"}, {"kind": "static", "obstacle_id": "s1"}, {"kind": "pedestrian", "obstacle_id": "p1"}, {"kind": "device", "obstacle_id": "p1"}, {"kind": "robot", "obstacle_id": "w1"}]
     records = [
         ("/env_0/jackal/odom", ODOMETRY, odom, 1 * SEC),
         ("/env_0/jackal/diff_drive_controller/odom", ODOMETRY, controller_odom, 1 * SEC),
@@ -399,9 +399,9 @@ def test_collision_events_count_kinds_only_when_the_schema_has_them(every_topic:
     jackal = events.row(0, named=True)
     assert events.row(1, named=True)["collision_wall"] == 0
     burger = bundles["env_0_burger"].collision_events.collect().row(0, named=True)
-    assert (jackal["collision_event"], jackal["collision_wall"], jackal["collision_static"], jackal["collision_pedestrian"]) == (4, 1, 1, 1)
+    assert (jackal["collision_event"], jackal["collision_wall"], jackal["collision_static"], jackal["collision_pedestrian"], jackal["collision_device"]) == (5, 1, 1, 1, 1)
     assert jackal["collision_obstacle_ids"] == ["p1", "s1", "w1"]
-    assert (burger["collision_event"], burger["collision_wall"], burger["collision_static"], burger["collision_pedestrian"]) == (1, None, None, None)
+    assert (burger["collision_event"], burger["collision_wall"], burger["collision_static"], burger["collision_pedestrian"], burger["collision_device"]) == (1, None, None, None, None)
 
 
 def test_monitor_power_energy_and_plan_topics(every_topic: tuple[pathlib.Path, dict]):

@@ -31,10 +31,11 @@ def test_collision_amount():
 def test_collision_amount_split_by_kind():
     df = pl.DataFrame(
         {
-            "collision_event": [0, 2, 2, 0, 1, 1],
+            "collision_event": [0, 2, 2, 0, 2, 1],
             "collision_wall": [0, 1, 1, 0, 0, 0],
             "collision_static": [0, 1, 1, 0, 0, 0],
             "collision_pedestrian": [0, 0, 0, 0, 1, 1],
+            "collision_device": [0, 0, 0, 0, 1, 0],
         }
     )
 
@@ -48,6 +49,7 @@ def test_collision_amount_split_by_kind():
     assert results["collision_amount_wall"] == 1
     assert results["collision_amount_static"] == 1
     assert results["collision_amount_pedestrian"] == 1
+    assert results["collision_amount_device"] == 1
 
 
 def test_collision_amount_split_by_kind_unknown():
@@ -57,6 +59,7 @@ def test_collision_amount_split_by_kind_unknown():
             "collision_wall": [None, None, None],
             "collision_static": [None, None, None],
             "collision_pedestrian": [None, None, None],
+            "collision_device": [None, None, None],
         }
     )
 
@@ -70,6 +73,7 @@ def test_collision_amount_split_by_kind_unknown():
     assert results["collision_amount_wall"] is None
     assert results["collision_amount_static"] is None
     assert results["collision_amount_pedestrian"] is None
+    assert results["collision_amount_device"] is None
 
 
 def test_collision_timeout_and_fail():

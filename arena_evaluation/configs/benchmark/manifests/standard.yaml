@@ -27,6 +27,7 @@ units:
   collision_amount_wall: ""
   collision_amount_static: ""
   collision_amount_pedestrian: ""
+  collision_amount_device: ""
   tti_min: s
   tti_mean: s
   ade: m
@@ -194,7 +195,7 @@ plots:
     layout_group: safety
     options:
       stacked: true
-      metrics: [collision_amount_wall, collision_amount_static, collision_amount_pedestrian]
+      metrics: [collision_amount_wall, collision_amount_static, collision_amount_pedestrian, collision_amount_device]
   - id: box_tti_min_local
     type: box
     title: Minimum Time to Collision (TTI min) by Local Planner
