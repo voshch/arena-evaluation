@@ -294,7 +294,8 @@ def test_all_shipped_queries_execute_on_fixture(tmp_path: pathlib.Path) -> None:
     qcat = QueryCatalog()
 
     shipped = qcat.list_queries()
-    assert len(shipped) >= 9
+    # the repo ships its own queries; the asset store adds the rest once it is pulled or staged
+    assert len(shipped) >= 3
     assert not qcat.has_query("closer_threshold_sensitivity")
 
     for declaration in shipped:

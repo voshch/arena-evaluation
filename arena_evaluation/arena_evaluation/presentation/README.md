@@ -174,7 +174,7 @@ The registry registers **18** renderer types; `PLOT_TYPE` is the key a declarati
 - `rank_swap`: Pre-computed rank-swap counts/rates per entity.
 - `breakdown`: Stacked attribution shares per `x` and `color` component.
 - `trajectory_slice`: One pre-recorded XY path per frame.
-- `acoustic_field`: Spatial acoustic field, shipped via `configs/plots/acoustic_field/plot.yaml` and bound in `everything`.
+- `acoustic_field`: Spatial acoustic field. Its declaration `plots/acoustic_field/plot.yaml` is in the asset store, not the repo, and it is bound in `everything`.
 - `acoustic_field_animation`: Animated acoustic field (registered; not bound in a shipped report, see L4-010).
   Both acoustic classes expose their static artifact as `render_seaborn` (D-06) and `render_static` delegates to it.
 

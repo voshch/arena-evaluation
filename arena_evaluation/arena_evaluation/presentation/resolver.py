@@ -14,11 +14,13 @@ from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
 from arena_evaluation.presentation.checks import DiagnosticInspector, PlotDiagnostics
+from arena_evaluation.presentation.plot_identifier import PlotIdentifier
 from arena_evaluation.presentation.predicate import compile_where_predicate
 from arena_evaluation.presentation.viz_manifest import PlotSpec
+from arena_evaluation.storage.config_identifiers import config_dirs
 from arena_evaluation.storage.config_layout import (
+    bundle_config_file,
     bundle_path,
-    package_config_roots,
     run_analysis_root,
 )
 
@@ -33,8 +35,8 @@ __all__ = [
 
 
 def recipe_search_dirs() -> tuple[pathlib.Path, ...]:
-    """Return the default package config roots for plot declaration bundles."""
-    return tuple(package_config_roots())
+    """Return the local config roots for plot declaration bundles: the imported root, then the package configs."""
+    return tuple(config_dirs())
 
 
 def find_recipe_path(
@@ -48,7 +50,11 @@ def find_recipe_path(
         bundled = bundle_path(root, "plot", stem)
         if bundled.is_file():
             return bundled
-    return None
+    try:
+        located = PlotIdentifier(name=stem).resolve_source_sync().path
+    except FileNotFoundError:
+        return None
+    return None if located is None else bundle_config_file(located, "plot")
 
 
 def load_recipe(

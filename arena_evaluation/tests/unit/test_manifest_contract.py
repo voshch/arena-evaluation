@@ -12,10 +12,12 @@ import pytest
 from arena_evaluation.analytics.computations import COMPUTATIONS
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.presentation.data_sources import declared_data_sources
+from arena_evaluation.presentation.plot_identifier import PlotIdentifier
 from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.presentation.resolver import DataResolver
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
+from arena_evaluation.storage.config_identifiers import config_dirs
 from arena_evaluation.storage.registry import FACT_TABLES, dimensions
 from arena_evaluation.storage.registry.dimensions import DimWorldGeometry
 from arena_evaluation.storage.registry.series import SERIES_TABLES
@@ -26,7 +28,7 @@ from arena_evaluation.storage.registry.telemetry import (
 )
 
 _PKG_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_MANIFESTS_DIR = _PKG_ROOT / "configs" / "reports"
+_ASSET_REPORTS = ("everything", "safety", "social", "standard")
 _TEST_WORLD_YAML = """format: arena-world/2
 levels:
   - id: L1
@@ -46,19 +48,22 @@ levels:
         span: [[2.0, 1.5], [2.0, 2.5]]
         width: 0.2
 """
-_DECLARATIONS_DIR = _PKG_ROOT / "configs" / "plots"
+def _bundles(folder: str, filename: str) -> list[pathlib.Path]:
+    """One bundle file per name, the first config root that holds the name winning, as the store resolves it."""
+    found: dict[str, pathlib.Path] = {}
+    for root in config_dirs():
+        for path in sorted((root / folder).glob(f"*/{filename}")):
+            found.setdefault(path.parent.name, path)
+    assert found, f"No {folder} bundles found in the config roots"
+    return [found[name] for name in sorted(found)]
 
 
 def _manifest_paths() -> list[pathlib.Path]:
-    paths = sorted(_MANIFESTS_DIR.glob("*/report.yaml"))
-    assert paths, f"No manifests found in {_MANIFESTS_DIR}"
-    return paths
+    return _bundles("reports", "report.yaml")
 
 
 def _declaration_paths() -> list[pathlib.Path]:
-    paths = sorted(_DECLARATIONS_DIR.glob("*/plot.yaml"))
-    assert paths, f"No plot declarations found in {_DECLARATIONS_DIR}"
-    return paths
+    return _bundles("plots", "plot.yaml")
 
 
 def _assert_valid_plot_binding(spec: PlotSpec) -> None:
@@ -349,12 +354,25 @@ def test_bundled_manifest_builds_with_zero_failed_checks(
     )
 
 
+def _assert_converted_tables(
+    reports: dict[str, dict], expected: dict[tuple[str, str], int]
+) -> None:
+    for (rname, pid), count in expected.items():
+        by_id = {p["id"]: p for p in reports[rname]["plots"]}
+        tbl = by_id[pid]
+        assert len(tbl["data"]["params"]["metrics"]) == count, (
+            f"{rname}:{pid} metric count"
+        )
+        assert len(tbl["options"]["labels"]) == count, f"{rname}:{pid} labels count"
+        assert len(tbl["options"]["format"]) == count, f"{rname}:{pid} format count"
+
+
 def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectories() -> (
     None
 ):
+    """The shipped reports keep their options, characterization filters and tables."""
     import yaml
 
-    configs_dir = pathlib.Path(__file__).resolve().parents[2] / "configs"
     reports = {
         p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8"))
         for p in _manifest_paths()
@@ -370,6 +388,74 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
         rdata = yaml.safe_load(rpath.read_text(encoding="utf-8"))
         assert "columns" not in (rdata.get("options") or {}), (
             f"{rpath} uses options.columns"
+        )
+
+    # Characterization preserves 21 phase_kind filters and 18 smooth_window params
+    ch_plots = reports["characterization"]["plots"]
+    filtered = [
+        p
+        for p in ch_plots
+        if "phase_kind" in str((p["data"].get("params") or {}).get("filter", ""))
+        or "phase_kind" in str(p["data"].get("where", ""))
+    ]
+    smoothed = [
+        p for p in ch_plots if (p["data"].get("params") or {}).get("smooth_window")
+    ]
+    assert len(filtered) == 21
+    assert len(smoothed) == 18
+
+    # All group_summary bars declare err_plus/err_minus; all distribution_bins histograms declare bin_low/bin_high
+    for rname, rdata in reports.items():
+        for p in rdata["plots"]:
+            comp = (p.get("data") or {}).get("computation")
+            opts = p.get("options") or {}
+            if p.get("type") == "bar" and comp == "group_summary":
+                assert opts.get("err_plus") == "err_plus", (
+                    f"{rname}:{p['id']} missing options.err_plus"
+                )
+                assert opts.get("err_minus") == "err_minus", (
+                    f"{rname}:{p['id']} missing options.err_minus"
+                )
+            if p.get("type") == "histogram" and comp == "distribution_bins":
+                assert opts.get("bin_low") == "bin_low", (
+                    f"{rname}:{p['id']} missing options.bin_low"
+                )
+                assert opts.get("bin_high") == "bin_high", (
+                    f"{rname}:{p['id']} missing options.bin_high"
+                )
+
+    # Converted tables of the shipped reports preserve full source metric lists, labels, and formats
+    _assert_converted_tables(
+        reports,
+        {
+            ("failure_modes", "table_executive_failure_triage"): 11,
+            ("failure_modes", "table_theta_star_verification"): 9,
+            ("failure_modes", "table_mar_verification"): 3,
+            ("failure_modes", "table_proxemics_verification"): 7,
+            ("failure_modes", "table_etiquette_verification"): 5,
+            ("failure_modes", "table_kinematics_verification"): 9,
+            ("failure_modes", "table_energy_verification"): 10,
+            ("ecological", "eco_summary_table"): 5,
+        },
+    )
+
+
+def test_asset_reports_preserve_their_pinned_bindings() -> None:
+    """The asset-store reports keep their pivots, inter-planner groupings, queries and tables.
+
+    They live in the asset store, so the test skips unless the reports and the contact plot resolve
+    from a local root or a benchmark bucket."""
+    import yaml
+
+    reports = {
+        p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8"))
+        for p in _manifest_paths()
+    }
+    missing = [name for name in _ASSET_REPORTS if name not in reports]
+    if missing:
+        pytest.skip(
+            f"report(s) {', '.join(missing)} are in the asset store, not the repo: "
+            "arena asset pull manifest <name>"
         )
 
     # Pivot heatmaps bind their real metrics, not success
@@ -396,32 +482,20 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
     soc_plots = {p["id"]: p for p in reports["social"]["plots"]}
     assert soc_plots["violin_deflection_inter"]["channels"]["x"] == "inter_planner"
 
-    # Characterization preserves 21 phase_kind filters and 18 smooth_window params
-    ch_plots = reports["characterization"]["plots"]
-    filtered = [
-        p
-        for p in ch_plots
-        if "phase_kind" in str((p["data"].get("params") or {}).get("filter", ""))
-        or "phase_kind" in str(p["data"].get("where", ""))
-    ]
-    smoothed = [
-        p for p in ch_plots if (p["data"].get("params") or {}).get("smooth_window")
-    ]
-    assert len(filtered) == 21
-    assert len(smoothed) == 18
-
     # contact_closing_share recipe is a bar on contact_attribution_summary
-    ccs = yaml.safe_load(
-        (configs_dir / "plots" / "contact_closing_share" / "plot.yaml").read_text(
-            encoding="utf-8"
+    try:
+        ccs = PlotIdentifier(name="contact_closing_share").resolve_sync()
+    except FileNotFoundError:
+        pytest.skip(
+            "plot 'contact_closing_share' is in the asset store: "
+            "arena asset pull plot contact_closing_share"
         )
-    )
     assert ccs["type"] == "bar"
     assert ccs["data"]["stored_query"] == "contact_attribution_summary"
     assert ccs["channels"]["facet_col"] == "crowd_condition"
 
     # standard, social, everything, safety bind both non-reference trajectory queries
-    for rname in ("standard", "social", "everything", "safety"):
+    for rname in _ASSET_REPORTS:
         by_id = {p["id"]: p for p in reports[rname]["plots"]}
         assert (
             by_id["trajectory_plot"]["data"]["stored_query"] == "robot_tracks_non_ref"
@@ -431,47 +505,14 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
             == "pedestrian_arena_peds_non_ref"
         )
 
-    # All group_summary bars declare err_plus/err_minus; all distribution_bins histograms declare bin_low/bin_high
-    for rname, rdata in reports.items():
-        for p in rdata["plots"]:
-            comp = (p.get("data") or {}).get("computation")
-            opts = p.get("options") or {}
-            if p.get("type") == "bar" and comp == "group_summary":
-                assert opts.get("err_plus") == "err_plus", (
-                    f"{rname}:{p['id']} missing options.err_plus"
-                )
-                assert opts.get("err_minus") == "err_minus", (
-                    f"{rname}:{p['id']} missing options.err_minus"
-                )
-            if p.get("type") == "histogram" and comp == "distribution_bins":
-                assert opts.get("bin_low") == "bin_low", (
-                    f"{rname}:{p['id']} missing options.bin_low"
-                )
-                assert opts.get("bin_high") == "bin_high", (
-                    f"{rname}:{p['id']} missing options.bin_high"
-                )
-
-    # Converted tables preserve full source metric lists, labels, and formats
-    expected_table_metrics = {
-        ("failure_modes", "table_executive_failure_triage"): 11,
-        ("failure_modes", "table_theta_star_verification"): 9,
-        ("failure_modes", "table_mar_verification"): 3,
-        ("failure_modes", "table_proxemics_verification"): 7,
-        ("failure_modes", "table_etiquette_verification"): 5,
-        ("failure_modes", "table_kinematics_verification"): 9,
-        ("failure_modes", "table_energy_verification"): 10,
-        ("everything", "master_summary_table"): 10,
-        ("safety", "safety_summary_table"): 8,
-        ("ecological", "eco_summary_table"): 5,
-        ("standard", "overview_table"): 7,
-    }
-    for (rname, pid), count in expected_table_metrics.items():
-        by_id = {p["id"]: p for p in reports[rname]["plots"]}
-        tbl = by_id[pid]
-        assert len(tbl["data"]["params"]["metrics"]) == count, (
-            f"{rname}:{pid} metric count"
-        )
-        assert len(tbl["options"]["labels"]) == count, f"{rname}:{pid} labels count"
-        assert len(tbl["options"]["format"]) == count, f"{rname}:{pid} format count"
+    # Converted tables of the asset reports preserve full source metric lists, labels, and formats
+    _assert_converted_tables(
+        reports,
+        {
+            ("everything", "master_summary_table"): 10,
+            ("safety", "safety_summary_table"): 8,
+            ("standard", "overview_table"): 7,
+        },
+    )
 
 

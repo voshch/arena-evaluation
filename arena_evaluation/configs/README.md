@@ -30,6 +30,24 @@ configs/
 `-- queries/          - Stored SQL queries (`<name>/query.yaml`)
 ```
 
+### What the repo ships, what the asset store holds
+
+The repository ships a small set of declarations: the plots, queries and reports that need nothing outside the
+repository (plain plot types, no joins, no references to other declarations). Everything else lives in
+the asset store, in the `arena-internal` bucket, and is published with the `arena asset` verbs:
+
+```bash
+arena asset push plot <name> --bucket arena-internal
+arena asset push query <name> --bucket arena-internal
+arena asset push manifest <name> --bucket arena-internal
+arena asset pull plot <name>
+```
+
+A declaration resolves in this order: the imported assets root (`ARENA_ASSETS_DIR_IMPORTED`), the
+repository configs, then the benchmark buckets (`BENCHMARK_BUCKETS`). A local copy always shadows a
+bucket copy. The bucket layout is the repository layout: `plots/<name>/plot.yaml`,
+`queries/<name>/query.yaml`, `reports/<name>/report.yaml`, `suites/<name>/suite.yaml`.
+
 ## Suite Files
 
 A suite defines an ordered list of stages executed sequentially across all contestants.
@@ -366,16 +384,13 @@ Each report defines `manifest_version`, `name`, optional `title`, `data_source`,
 
 Reusable single-grammar plot declarations live under `configs/plots/<name>/plot.yaml` and are referenced in reports with `uses: <name>`:
 
-- `acoustic_field` — spatial acoustic field, bound in `everything`
-- `contact_closing_share` — contact closing share bar bound to `v_contact_summary`
-- `encounter_hierarchy_treemap` — hierarchical treemap bound to `v_encounter_summary`
 - `multi_planner_radar` — radar profile bound to `radar_profile`
 - `scorecard_table` — planner scorecard table bound to `v_planner_scorecard`
-- `success_without_contact_interval` — interval plot of the visible-minus-blind difference
 - `success_without_contact_panel` — bar panel of success without pedestrian contact
 
-The seven shipped reports declare 313 plots in total (`standard` 69, `everything` 84,
-`failure_modes` 48, `social` 36, `safety` 29, `characterization` 25, `ecological` 22).
+The other four (`acoustic_field`, `contact_closing_share`, `encounter_hierarchy_treemap`, `success_without_contact_interval`) live in the asset store; pull one with `arena asset pull plot <name>`.
+
+The three shipped reports declare 95 plots (`failure_modes` 48, `characterization` 25, `ecological` 22).
 
 ## Query Files
 

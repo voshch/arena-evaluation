@@ -11,11 +11,12 @@ from typing import Final
 import polars as pl
 import yaml
 
+from arena_evaluation.analytics.query_identifier import QueryIdentifier
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine, validate_readonly_sql
+from arena_evaluation.storage.config_identifiers import bucket_cache_dirs, config_dirs
 from arena_evaluation.storage.config_layout import (
     CONFIG_KINDS,
     bundle_path,
-    package_config_roots,
     run_analysis_root,
 )
 
@@ -108,6 +109,30 @@ class QueryDeclaration:
         return cls(name=str(payload["name"]), description=str(payload.get("description") or ""), sql=str(payload["sql"]), parameters=dict(raw_params), title=str(payload.get("title") or ""))
 
 
+def declaration_from_payload(payload: object, *, folder_name: str, source: str) -> QueryDeclaration:
+    """Validate one parsed ``query.yaml``; a declaration that names no query takes its folder's name."""
+    if not isinstance(payload, Mapping) or "sql" not in payload:
+        raise ValueError(
+            f"Invalid query declaration in {source}: expected a YAML mapping with a 'sql' field."
+        )
+    raw_params = payload.get("parameters") or {}
+    if not isinstance(raw_params, Mapping):
+        raise ValueError(f"Invalid query declaration in {source}: 'parameters' must be a mapping.")
+    declaration = QueryDeclaration.from_dict({
+        **payload,
+        "name": payload.get("name") or folder_name,
+        "title": payload.get("title") or folder_name,
+    })
+    declaration.validate_parameters(declaration.default_parameters())
+    return declaration
+
+
+def read_query_declaration(file_path: pathlib.Path) -> QueryDeclaration:
+    """Parse one ``query.yaml`` bundle file into a validated declaration named after its folder."""
+    payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
+    return declaration_from_payload(payload, folder_name=file_path.parent.name, source=str(file_path))
+
+
 class QueryCatalog:
     """Catalog of stored reusable SQL query declarations with discovery and execution."""
 
@@ -119,7 +144,7 @@ class QueryCatalog:
     ) -> None:
         candidates = [run_analysis_root(run_dir)] if run_dir is not None else []
         candidates.extend(search_dirs or ())
-        candidates.extend(root for root in package_config_roots() if root not in candidates)
+        candidates.extend(root for root in (*config_dirs(), *bucket_cache_dirs()) if root not in candidates)
         self._search_dirs = tuple(candidates)
         self._cache: dict[str, QueryDeclaration] = {}
         self._load_all()
@@ -140,22 +165,7 @@ class QueryCatalog:
                 file_path = entry / query_kind.filename
                 if entry.name in self._cache or not file_path.is_file():
                     continue
-                payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
-                if not isinstance(payload, Mapping) or "sql" not in payload:
-                    raise ValueError(
-                        f"Invalid query declaration in {file_path}: expected a YAML mapping with a 'sql' field."
-                    )
-                raw_params = payload.get("parameters") or {}
-                if not isinstance(raw_params, Mapping):
-                    raise ValueError(
-                        f"Invalid query declaration in {file_path}: 'parameters' must be a mapping."
-                    )
-                declaration = QueryDeclaration.from_dict({
-                    **payload,
-                    "name": payload.get("name") or entry.name,
-                    "title": payload.get("title") or entry.name,
-                })
-                declaration.validate_parameters(declaration.default_parameters())
+                declaration = read_query_declaration(file_path)
                 self._cache[entry.name] = self._cache[declaration.name] = declaration
 
     def list_queries(self) -> list[QueryDeclaration]:
@@ -165,7 +175,21 @@ class QueryCatalog:
 
     def _lookup(self, name: str) -> QueryDeclaration | None:
         stem = name.removesuffix(".yaml").removesuffix(".yml")
-        return self._cache.get(stem) or self._cache.get(name)
+        if (declaration := self._cache.get(stem) or self._cache.get(name)) is not None:
+            return declaration
+        return self._fetch(stem)
+
+    def _fetch(self, stem: str) -> QueryDeclaration | None:
+        """Resolve a query that no local root holds from the benchmark buckets, caching what it loads."""
+        try:
+            payload = QueryIdentifier(name=stem).resolve_sync()
+        except FileNotFoundError:
+            return None
+        declaration = declaration_from_payload(
+            payload, folder_name=stem, source=f"benchmark bucket query '{stem}'"
+        )
+        self._cache[stem] = self._cache[declaration.name] = declaration
+        return declaration
 
     def has_query(self, name: str) -> bool:
         """Check whether a query declaration with ``name`` is available."""

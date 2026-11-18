@@ -28,12 +28,13 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
 from ..ingestion.metadata import IngestionMetadata
+from ..storage.config_layout import CONFIG_KINDS, bundle_config_file
 from ..storage.planner_names import split_planner_name
 from .config import Contest, Contestant, Suite, stage_modes
 from .lockstep import format_table
 from .state import Manifest, capture_git_sha, compute_config_hash
 from .step import Step, StepErrorKind, StepResult
-from .tree import ContestIdentifier, SuiteIdentifier, _config_file
+from .tree import ContestIdentifier, SuiteIdentifier
 
 STATE_TOPIC = "/arena/benchmark/state"
 PREPARED = "benchmark: prepared run_id="
@@ -520,10 +521,16 @@ def _provenance(verdict: ResolverVerdict) -> dict:
     return {"resolver": repr(verdict.resolver), "path": str(verdict.path)}
 
 
+def _config_kind(asset_type: str) -> str:
+    """The config kind whose folder is `asset_type`: `suites` -> `suite`."""
+    return next(kind for kind, spec in CONFIG_KINDS.items() if spec.folder == asset_type)
+
+
 def _resolve_source(identifier: type, name: str) -> tuple[pathlib.Path, dict]:
     verdict = identifier(name=name.removesuffix(".yaml")).resolve_source_sync()
     assert verdict.path is not None
-    return _config_file(verdict.path, identifier._asset_type), _provenance(verdict)
+    kind = _config_kind(identifier._asset_type)
+    return bundle_config_file(verdict.path, kind), _provenance(verdict)
 
 
 def _config_stem(name: str) -> str:
