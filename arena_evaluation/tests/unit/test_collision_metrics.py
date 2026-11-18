@@ -100,8 +100,16 @@ def test_success_is_the_runtime_verdict(outcome_state, outcome_info, expected_su
 @pytest.mark.parametrize("outcome_state", [None, 0, 1])
 def test_an_unresolved_record_is_not_a_success(outcome_state):
     results = CollisionMetricsCalculator(PARAMS).calculate(_episode(_events([0, 0, 0]), outcome_state=outcome_state), {})
-    assert results["success"] is False
-    assert results[f"success{NULL_REASON_SUFFIX}"] is None
+    assert results["success"] is None
+    assert results[f"success{NULL_REASON_SUFFIX}"] == "not_recorded"
+
+
+@pytest.mark.parametrize("outcome_state", [None, 0, 1])
+def test_an_unresolved_verdict_takes_precedence_over_the_missing_collision_count(outcome_state):
+    results = CollisionMetricsCalculator(PARAMS).calculate(_episode(None, outcome_state=outcome_state), {})
+    assert results["collision_amount"] is None
+    assert results["success"] is None
+    assert results[f"success{NULL_REASON_SUFFIX}"] == "not_recorded"
 
 
 def test_one_collision_fails_the_default_threshold():

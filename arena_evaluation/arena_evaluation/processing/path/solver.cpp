@@ -5,6 +5,15 @@
 #include <limits>
 #include <algorithm>
 
+// ABI of the C surface below. arena_evaluation/processing/path/theta_star.py verifies it
+// before binding, so a stale library from an older search raises instead of returning a
+// different route.
+#define ARENA_THETA_STAR_SOLVER_ABI 1
+
+extern "C" int arena_theta_star_solver_abi(void) {
+    return ARENA_THETA_STAR_SOLVER_ABI;
+}
+
 using namespace std;
 
 static bool line_of_sight(

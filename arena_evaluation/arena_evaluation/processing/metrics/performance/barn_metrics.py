@@ -22,6 +22,9 @@ CLIP_HIGH = 8.0
 
 _TIMEOUT_POLLS = round(TIMEOUT_S / POLL_S)
 
+# The BARN challenge replays one robot against one configured start/goal; a fleet has no single run to judge.
+MULTI_ROBOT_REFUSAL: typing.Final[str] = "not_applicable:multi_robot"
+
 BARN_COLLIDED = define_metric(
     "barn_collided",
     pl.Boolean,
@@ -191,7 +194,6 @@ class BARNScoreCalculator(BaseMetricCalculator):
     NAME = "barn_score"
     CATEGORY = "performance"
     REQUIRED_TOPICS = ["collision_events", ("robot_tracks", "robot_odom")]
-    PARAMS = ("barn",)
 
     OUTPUTS = (
         BARN_SCORE,
@@ -207,11 +209,37 @@ class BARNScoreCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["barn_score"]
 
+    @classmethod
+    def required_topics_for_scope(
+        cls, scope: MetricScope
+    ) -> tuple[str | tuple[str, ...], ...]:
+        """The episode-scope optimal time is a suite constant, so it needs no recorded stream."""
+        return (
+            ()
+            if scope == MetricScope.EPISODE
+            else super().required_topics_for_scope(scope)
+        )
+
+    def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
+        """All outputs are unknown, not zero, without a `metrics.barn` path length for this episode's map."""
+        reference = self.metrics_config.get("barn")
+        if reference is not None and episode.map in reference["path_length"]:
+            return {}
+        return {
+            key: f"{key}:reference_missing:metrics.barn" for key in self.output_keys()
+        }
+
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
         del prior_results
         nulls = dict.fromkeys(self.output_keys())
+        if episode.fleet:
+            # Refused, not silently merged: every per-robot field of a fleet would answer for the wrong robot.
+            return {
+                **nulls,
+                **{f"{key}_null_reason": MULTI_ROBOT_REFUSAL for key in nulls},
+            }
         reference = self.metrics_config.get("barn")
         if reference is None or episode.map not in reference["path_length"]:
             return nulls

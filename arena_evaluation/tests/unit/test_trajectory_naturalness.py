@@ -6,10 +6,8 @@ import polars as pl
 import pytest
 import yaml
 
-from arena_evaluation.processing.metrics.common.routes import (
-    _planned_waypoints,
-    _reached_waypoints,
-)
+from arena_evaluation.processing.metrics.common.routes import _planned_waypoints
+import arena_evaluation.processing.metrics.naturalness.trajectory as trajectory_module
 from arena_evaluation.processing.metrics.naturalness.trajectory import (
     TrajectoryMetricsCalculator,
     _discrete_frechet,
@@ -106,6 +104,15 @@ def test_frechet_decimates_long_curves_and_keeps_the_offset():
     assert _discrete_frechet(p, q) == pytest.approx(1.0, abs=0.05)
 
 
+def test_dtw_scores_the_dtaidistance_warping_cost():
+    robot_points = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
+    reference_points = np.array([[0.0, 0.0], [2.0, 0.0]])
+
+    assert TrajectoryMetricsCalculator._dtw(
+        robot_points, reference_points
+    ) == pytest.approx(1.0)
+
+
 def test_empty_trajectory_yields_none_for_every_output():
     res = _calc().calculate(_episode(_gt([], []), [1.0, 1.0]), {})
 
@@ -184,7 +191,7 @@ def test_straight_drive_on_the_reference_line_scores_hand_computed_errors(
     assert res["ade"] == pytest.approx(0.0)
     assert res["mhd"] == pytest.approx(0.5)
     assert res["frechet_distance"] == pytest.approx(1.0)
-    assert res["adtw"] == pytest.approx(1.0 / 3.0)
+    assert res["adtw"] == pytest.approx(math.sqrt(2.0))
     assert res["path_irregularity"] == pytest.approx(0.0)
 
 
@@ -261,6 +268,33 @@ def test_diverged_first_sample_is_refused_without_a_straight_line_reference(
     assert res["mhd"] is None
 
 
+def test_a_missing_world_asset_nulls_the_grid_metrics_and_keeps_the_pose_ones() -> None:
+    res = _calc().calculate(
+        _episode(
+            _gt([0.0, 1.0, 2.0], [0.0, 0.0, 0.0]),
+            [2.0, 0.0],
+            map_name="trajectory_missing_world_zzz",
+        ),
+        {},
+    )
+
+    assert res["fde"] == pytest.approx(0.0)
+    assert res["path_irregularity"] is not None
+    for key in ("theta_star_length", "ade", "mhd", "frechet_distance", "adtw"):
+        assert res[key] is None
+        assert res[f"{key}_null_reason"] == "not_recorded:world"
+
+
+def test_a_world_that_resolves_but_is_broken_still_raises(monkeypatch) -> None:
+    def broken(*_args, **_kwargs):
+        raise ValueError("world compacts to no level")
+
+    monkeypatch.setattr(trajectory_module, "grid_for_map", broken)
+
+    with pytest.raises(ValueError, match="compacts to no level"):
+        _calc().calculate(_episode(_gt([0.0, 1.0], [0.0, 0.0]), [1.0, 0.0]), {})
+
+
 def test_missing_goal_leaves_reference_metrics_unset():
     res = _calc().calculate(_episode(_gt([0.0, 1.0], [0.0, 0.0]), []), {})
 
@@ -295,7 +329,7 @@ def test_theta_star_length_sums_the_recorded_mission_legs(
     assert res["theta_star_length"] == pytest.approx(6.0)
 
 
-def test_unvisited_commanded_goals_do_not_inflate_the_reference_route(
+def test_the_reference_route_follows_every_commanded_goal_even_unvisited(
     open_room_run_dir: pathlib.Path,
 ):
     plans = pl.DataFrame(
@@ -303,12 +337,13 @@ def test_unvisited_commanded_goals_do_not_inflate_the_reference_route(
             "t_ns": [SEC, 2 * SEC],
             "plan_id": ["plan_0", "plan_1"],
             "waypoint_idx": [0, 0],
-            "x": [50.0, 0.0],
+            "x": [2.0, 4.0],
             "y": [0.0, 0.0],
             "yaw": [0.0, 0.0],
         }
     )
-    gt = _gt([0.0, 1.0, 2.0, 3.0, 2.0, 1.0, 0.0], [0.0] * 7)
+    # The track turns back at 2 m: the second commanded goal stays unvisited, yet it extends the mission to 4 m.
+    gt = _gt([0.0, 1.0, 2.0, 1.0, 0.0], [0.0] * 5)
 
     res = _calc().calculate(
         _episode(
@@ -317,7 +352,7 @@ def test_unvisited_commanded_goals_do_not_inflate_the_reference_route(
         {},
     )
 
-    assert res["theta_star_length"] is None
+    assert res["theta_star_length"] == pytest.approx(4.0)
 
 
 def test_unreached_first_leg_falls_back_to_the_commanded_mission_target(
@@ -366,23 +401,4 @@ def test_planned_waypoints_keep_goals_more_than_the_quarter_metre_apart():
     assert _planned_waypoints({"robot_plans": _plans([3.0, 4.2])}) == (
         (3.0, 0.0),
         (4.2, 0.0),
-    )
-
-
-def test_reached_waypoints_count_a_ninety_centimetre_pass():
-    track_x = np.array([0.0, 0.0])
-    track_y = np.array([0.0, 0.0])
-
-    assert _reached_waypoints(
-        track_x=track_x, track_y=track_y, waypoints=((0.0, 0.9),)
-    ) == ((0.0, 0.9),)
-
-
-def test_reached_waypoints_reject_a_one_point_one_metre_pass():
-    track_x = np.array([0.0, 0.0])
-    track_y = np.array([0.0, 0.0])
-
-    assert (
-        _reached_waypoints(track_x=track_x, track_y=track_y, waypoints=((0.0, 1.1),))
-        == ()
     )

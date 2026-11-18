@@ -3,6 +3,7 @@ name = "arena_evaluation"
 version = "1.0.0"
 dependencies = [
     "attrs",
+    "dtaidistance",
     "jinja2",
     "matplotlib",
     "mcap",

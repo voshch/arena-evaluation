@@ -237,16 +237,23 @@ def test_arc_and_lateral_characterization_phases():
     assert abs(table["energy_per_rad_j_rad"][0] - 120.0) < 1e-4
 
 
-def test_calculate_missing_power_and_acoustics():
+def test_calculate_missing_power_and_acoustics_never_models_the_level():
     sample = _sample_episode()
     frame = sample.data.drop(["total_power_w", "total_level_af_dba"])
     ep = _episode(
         frame, topics={"robot_joint_states": sample.topics["robot_joint_states"]}
     )
-    out = _calc().calculate(ep, {})
-    # Missing power is an explicit null, never a silent zero, and acoustics falls back to the joint model.
+    calc = _calc()
+    out = calc.calculate(ep, {})
+
+    # Missing power is an explicit null, never a silent zero; the level is never modelled from built-in constants.
     assert out["char_mean_efficiency"] is None
-    assert out["char_leq_dba"] is not None
+    assert out["char_leq_dba"] is None
+    assert _series(calc, ep)["dba"].is_null().all()
+    assert (
+        calc.missing_input_provenance(ep)["char_leq_dba"]
+        == "char_leq_dba:topic_missing:robot_acoustics"
+    )
 
 
 def test_calculate_empty_returns_none_keys():
@@ -545,7 +552,8 @@ def test_joints_and_power_work_with_production_aligned_schema():
     assert joints_series["power_mech_w"].to_list() == [4.0, 4.0, 4.0]
     joints_out = calc.calculate(joints_only, {})
     assert joints_out["char_sample_count"] == 3
-    assert joints_out["char_leq_dba"] is not None
+    # Joints carry mechanical power, not an acoustic level: no built-in profile stands in for the recording.
+    assert joints_out["char_leq_dba"] is None
 
 
 def test_joints_join_is_backward_asof_within_tolerance():

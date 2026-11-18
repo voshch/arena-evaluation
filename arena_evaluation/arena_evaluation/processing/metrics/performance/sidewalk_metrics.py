@@ -125,7 +125,6 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
     NAME = "sidewalk_metrics"
     CATEGORY = "performance"
     REQUIRED_TOPICS = ["collision_events", "robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (
         SIDEWALK_ROUTE_COMPLETION,
@@ -173,7 +172,7 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
         path_m = float(step[: end - 1].sum())
         duration_s = (end - 1) / SAMPLE_HZ
 
-        outside = ~shapely.intersects_xy(area, gx[:end], gy[:end])
+        outside = ~shapely.intersects(area, shapely.points(gx[:end], gy[:end]))
         off_entries = excursions(outside, round(EXCURSION_MERGE_S * SAMPLE_HZ))
         n_freezes = freezes(
             speed, round(FREEZE_GRACE_S * SAMPLE_HZ), end, round(FREEZE_S * SAMPLE_HZ)

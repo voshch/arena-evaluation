@@ -141,25 +141,25 @@ def test_parse_float_parses_numbers(token: str, expected: float) -> None:
     assert parse_float(token) == expected
 
 
-def test_route_waypoints_returns_start_and_reached_phase_goals() -> None:
-    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases={"map_poses": [[0.0, 0.0], [10.0, 0.0]]}, topics=None, track_x=np.array([0.0, 1.0, 10.0]), track_y=np.array([0.0, 0.0, 0.0]))
-    assert waypoints == ((0.0, 0.0), (10.0, 0.0))
+def test_route_waypoints_returns_every_commanded_phase_goal() -> None:
+    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases={"map_poses": [[0.0, 0.0], [10.0, 0.0], [5.0, 0.0]]}, topics=None)
+    assert waypoints == ((0.0, 0.0), (10.0, 0.0), (5.0, 0.0))
 
 
-def test_route_waypoints_uses_the_last_commanded_goal_when_none_is_reached() -> None:
-    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases={"map_poses": [[10.0, 0.0], [20.0, 0.0]]}, topics=None, track_x=np.array([0.0]), track_y=np.array([0.0]))
-    assert waypoints == ((0.0, 0.0), (20.0, 0.0))
+def test_route_waypoints_keeps_every_commanded_goal_when_none_is_reached() -> None:
+    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases={"map_poses": [[10.0, 0.0], [20.0, 0.0]]}, topics=None)
+    assert waypoints == ((0.0, 0.0), (10.0, 0.0), (20.0, 0.0))
 
 
 @pytest.mark.parametrize(("goal", "expected"), [((0.0, 0.0), ((0.0, 0.0),)), ((0.25, 0.0), ((0.0, 0.0),)), ((0.2501, 0.0), ((0.0, 0.0), (0.2501, 0.0)))])
 def test_route_waypoints_omits_goals_within_the_waypoint_tolerance(goal: tuple[float, float], expected: tuple[tuple[float, float], ...]) -> None:
-    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=goal, phases=None, topics=None, track_x=np.array([]), track_y=np.array([]))
+    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=goal, phases=None, topics=None)
     assert waypoints == expected
 
 
 def test_route_waypoints_reads_distinct_plan_goals_when_phases_are_absent() -> None:
     plans = pl.DataFrame({"t_ns": [1, 2, 3, 4], "plan_id": [1, 1, 2, 2], "waypoint_idx": [0, 1, 0, 1], "x": [0.0, 5.0, 5.0, 10.0], "y": [0.0, 0.0, 0.0, 0.0]})
-    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases=None, topics={"robot_plans": plans}, track_x=np.array([0.0, 5.0, 10.0]), track_y=np.array([0.0, 0.0, 0.0]))
+    waypoints = route_waypoints(start_pt=(0.0, 0.0), goal_pt=None, phases=None, topics={"robot_plans": plans})
     assert waypoints == ((0.0, 0.0), (5.0, 0.0), (10.0, 0.0))
 
 

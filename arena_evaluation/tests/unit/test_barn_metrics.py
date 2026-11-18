@@ -1,3 +1,4 @@
+import dataclasses
 import math
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from arena_evaluation.processing.metrics.performance import barn_metrics
 from arena_evaluation.processing.metrics.performance.barn_metrics import BARNScoreCalculator, parse_reference, replay, score
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.metrics.base import ScopeSlice
+from arena_evaluation.storage.contracts import is_known_null_reason
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -261,7 +263,58 @@ def test_registry_reports_the_score_beside_the_native_metrics():
     assert {key: without[key] for key in NULLS} == NULLS
     skipped_episode = _episode(_drive(1.0), 10.0)
     skipped = {**with_reference.run(skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False), **with_reference.run_scope(MetricScope.ROBOT, skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False, scope_slice=_robot_slice(skipped_episode)).results}
-    assert {key: skipped[key] for key in NULLS} == NULLS
+    assert {key: skipped[key] for key in NULLS if key != "barn_optimal_time"} == {key: NULLS[key] for key in NULLS if key != "barn_optimal_time"}
+    assert skipped["barn_optimal_time"] == pytest.approx(5.0)
+
+
+def test_episode_optimal_time_needs_no_recorded_stream():
+    assert BARNScoreCalculator.required_topics_for_scope(MetricScope.EPISODE) == ()
+    assert BARNScoreCalculator.required_topics_for_scope(MetricScope.ROBOT) == ("collision_events", ("robot_tracks", "robot_odom"))
+
+
+def test_missing_reference_carries_the_reference_missing_reason():
+    episode = _episode(_drive(1.0), 10.0)
+    topics = {"robot_tracks", "robot_odom", "collision_events"}
+    registry = MetricRegistry(RobotParams(model="jackal"))
+    episode_outcome = registry.run_scope(MetricScope.EPISODE, episode, available_topics=topics, pedsim_available=False)
+    robot_outcome = registry.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode))
+    assert episode_outcome.results["barn_optimal_time"] is None
+    assert episode_outcome.provenance["barn_optimal_time"] == "barn_optimal_time:reference_missing:metrics.barn"
+    for key in NULLS:
+        if key == "barn_optimal_time":
+            continue
+        assert robot_outcome.results[key] is None
+        assert robot_outcome.provenance[key] == f"{key}:reference_missing:metrics.barn"
+
+
+def test_a_multi_robot_episode_is_refused_with_its_reason():
+    fleet = {"env_0/robot_1": pl.DataFrame({"t_ns": [0], "x": [20.0], "y": [20.0], "yaw": [0.0]})}
+    episode = dataclasses.replace(_episode(_drive(1.0), 10.0), fleet=fleet)
+
+    results = _calc(10.0).calculate(episode, {})
+
+    assert {key: results[key] for key in NULLS} == NULLS
+    for key in NULLS:
+        assert results[f"{key}_null_reason"] == "not_applicable:multi_robot"
+    assert is_known_null_reason("barn_score:not_applicable:multi_robot")
+
+
+def test_a_multi_robot_episode_refusal_reaches_the_provenance():
+    fleet = {"env_0/robot_1": pl.DataFrame({"t_ns": [0], "x": [20.0], "y": [20.0], "yaw": [0.0]})}
+    episode = dataclasses.replace(_episode(_drive(1.0), 10.0), fleet=fleet)
+    topics = {"robot_tracks", "robot_odom", "collision_events"}
+    registry = MetricRegistry(RobotParams(model="jackal"), metrics_config=_config(10.0))
+
+    outcome = registry.run_scope(
+        MetricScope.ROBOT,
+        episode,
+        available_topics=topics,
+        pedsim_available=False,
+        scope_slice=_robot_slice(episode),
+    )
+
+    assert outcome.results["barn_score"] is None
+    assert outcome.provenance["barn_score"] == "barn_score:not_applicable:multi_robot"
 
 
 def test_output_keys_cover_primary_and_directions():

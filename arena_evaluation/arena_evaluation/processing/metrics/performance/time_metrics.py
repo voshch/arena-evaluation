@@ -66,7 +66,6 @@ class TimeMetricsCalculator(BaseMetricCalculator):
     CATEGORY = "performance"
     DEPENDS_ON = ["motion_metrics"]
     REQUIRED_TOPICS = ["robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (TIME_DIFF, TIME_TO_GOAL, IDLING_TIME)
     DIRECTIONS = {"time_to_goal": Direction.LOWER, "idling_time": Direction.LOWER}

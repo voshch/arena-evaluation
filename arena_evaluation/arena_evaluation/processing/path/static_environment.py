@@ -15,8 +15,6 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 import shapely
 import shapely.affinity
-from PIL import Image
-from scipy.ndimage import distance_transform_edt
 from shapely.geometry.base import BaseGeometry
 
 from arena_evaluation.processing.map_registry import MapRegistry
@@ -33,8 +31,6 @@ PASSAGE_CLEARANCE_M: Final = 2.0
 DEFAULT_RESOLUTION_M: Final = 0.05
 DEFAULT_PADDING_CELLS: Final = 5
 ROUNDING_DECIMALS: Final = 6
-# ROS map convention: a grey level below this is an occupied pixel.
-OCCUPIED_GREY_BELOW: Final = 128
 
 
 def grid_for_map(map_name: str | None, run_dir: pathlib.Path | None, robot_radius_m: float) -> StaticGrid | None:
@@ -147,44 +143,5 @@ def build_static_grid_from_parts(
         origin_x + (np.arange(cols) + 0.5) * resolution_m,
         origin_y + (np.arange(rows) + 0.5) * resolution_m,
     )
-    lethal = shapely.intersects_xy(inflated, centre_x.ravel(), centre_y.ravel()).reshape(rows, cols)
+    lethal = shapely.intersects(inflated, shapely.points(centre_x.ravel(), centre_y.ravel())).reshape(rows, cols)
     return StaticGrid(origin_xy=(origin_x, origin_y), resolution_m=resolution_m, lethal=lethal)
-
-
-def raster_grid_for_map(map_name: str | None, run_dir: pathlib.Path | None, robot_radius_m: float) -> StaticGrid | None:
-    """Lethal grid of a named map's occupancy image for a robot radius; None for an unnamed map. A map without an image raises."""
-    if not map_name or map_name == "unknown":
-        return None
-    return _raster_grid(map_name, run_dir, robot_radius_m)
-
-
-@functools.cache
-def _raster_grid(map_name: str, run_dir: pathlib.Path | None, robot_radius_m: float) -> StaticGrid:
-    map_info = MapRegistry.get_map(map_name, run_dir=run_dir)
-    if map_info is None or "png_path" not in map_info:
-        raise ValueError(f"map {map_name!r} has no occupancy image")
-    grey = np.asarray(Image.open(map_info["png_path"]).convert("L"))
-    occupied = np.flipud(grey < OCCUPIED_GREY_BELOW)
-    origin = map_info["origin"]
-    return build_raster_grid(
-        occupied,
-        origin_xy=(float(origin[0]), float(origin[1])),
-        resolution_m=float(map_info["resolution"]),
-        robot_radius_m=robot_radius_m,
-    )
-
-
-def build_raster_grid(
-    occupied: np.ndarray,
-    *,
-    origin_xy: tuple[float, float],
-    resolution_m: float,
-    robot_radius_m: float,
-) -> StaticGrid:
-    """Lethal mask of an occupancy raster: a cell is lethal when its centre lies within the robot radius of an occupied cell's centre."""
-    if robot_radius_m <= 0.0:
-        raise ValueError(f"robot radius must be positive, got {robot_radius_m}")
-    if not occupied.any():
-        return StaticGrid(origin_xy=origin_xy, resolution_m=resolution_m, lethal=np.zeros(occupied.shape, dtype=bool))
-    distance_m = distance_transform_edt(~occupied) * resolution_m
-    return StaticGrid(origin_xy=origin_xy, resolution_m=resolution_m, lethal=distance_m <= robot_radius_m)

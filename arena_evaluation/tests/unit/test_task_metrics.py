@@ -43,8 +43,7 @@ def _snapshot(rows):
     )
 
 
-def _robot_rows(t, phase, met="", failed="", dropped="", violated=""):
-    entity = "env_0/jackal_0"
+def _robot_rows(t, phase, met="", failed="", dropped="", violated="", entity="env_0/jackal_0"):
     return [
         (t, entity, "robot", "phase", phase),
         (t, entity, "robot", "met", met),
@@ -123,6 +122,17 @@ def test_robot_events_and_spans():
     assert _active_phase_spans(series, 5 * S) == {0: (0, 2 * S), 1: (2 * S, 4 * S)}
 
 
+def test_replay_reads_the_robot_semantic_entity_in_the_underscore_form():
+    phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}, {"goto": [9.0, 9.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
+    poses = _poses([(0.0, 5.0, 5.0), (1.0, 1.0, 1.0), (2.0, 5.0, 5.0)])
+    entity = "env_0_jackal_0"
+    snapshot = _snapshot(_robot_rows(0, "0", entity=entity) + _robot_rows(1 * S, "1", met="0", entity=entity) + _robot_rows(2 * S, "", met="0", failed="1", entity=entity))
+    results = _calc().calculate(_episode(phases, poses, snapshot), {})
+    assert results["phases_met"] == 1
+    assert results["phases_failed"] == 1
+    assert results["phase_outcomes"] == ["met", "failed"]
+
+
 def test_replay_agrees_with_recorded_gotos():
     phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}, {"goto": "hallway", "pose": [12.0, 2.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
     poses = _poses([(0.0, 5.0, 5.0), (1.0, 1.0, 1.0), (2.0, 6.0, 1.0), (3.0, 12.0, 1.0)])
@@ -156,6 +166,26 @@ def test_replay_disagrees_when_recorded_met_is_not_reached():
     assert results["judge_disagreements"] == ["phase 0 recorded as met but not met in replay"]
 
 
+def test_a_failed_phase_the_replay_does_not_meet_agrees():
+    phases = {"phases": [{"goto": [9.0, 9.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _robot_rows(int(1.5 * S), "", failed="0"))
+    results = _calc().calculate(_episode(phases, poses, snapshot), {})
+    assert results["judge_agrees"] is True
+    assert results["judge_disagreements"] == []
+
+
+def test_a_failed_phase_the_replay_meets_is_the_contradiction():
+    phases = {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
+    poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0)])
+    snapshot = _snapshot(_robot_rows(0, "0") + _robot_rows(int(1.5 * S), "", failed="0"))
+    results = _calc().calculate(_episode(phases, poses, snapshot), {})
+    assert results["judge_agrees"] is False
+    assert results["judge_disagreements"] == ["phase 0 recorded as failed but met in replay"]
+
+
+
+
 def test_replay_takes_gesture_outcome_from_the_record():
     phases = {"phases": [{"gesture": "wave"}, {"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": []}
     poses = _poses([(0.0, 1.0, 1.0), (1.0, 1.0, 1.0), (2.0, 1.0, 1.0)])
@@ -163,7 +193,10 @@ def test_replay_takes_gesture_outcome_from_the_record():
     results = _calc().calculate(_episode(phases, poses, snapshot), {})
     assert results["phase_outcomes"] == ["failed", "met"]
     assert results["phases_failed"] == 1
-    assert results["judge_agrees"] is True
+    # The replay closes the gesture with the record's own flag, so it meets a phase the record marks failed:
+    # that is the contradiction D11 reports.
+    assert results["judge_agrees"] is False
+    assert results["judge_disagreements"] == ["phase 0 recorded as failed but met in replay"]
 
 
 def test_replay_agrees_with_a_reach_ended_by_its_stop_condition():

@@ -1,19 +1,24 @@
 import numpy as np
 import pytest
 
-pl = pytest.importorskip("polars")
-shapely = pytest.importorskip("shapely")
+pytest.importorskip("polars")
+pytest.importorskip("shapely")
 
+import polars as pl
+
+from arena_evaluation.processing.metrics.common.events import reconstruct_events as _reconstruct_events
+from arena_evaluation.processing.metrics.common.zones import (
+    DoorGeometry as _DoorGeometry,
+    ZoneGeometry as _ZoneGeometry,
+    extract_zone_geometry as _extract_zone_geometry,
+)
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     ComplianceMetricsCalculator,
-    _DoorGeometry,
-    _ZoneGeometry,
     _door_open_series,
-    _extract_zone_geometry,
     _offset_doors,
-    _reconstruct_events,
     _speed_zone_metrics,
 )
+from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
 from snapshot_rows import snapshot_frame
@@ -55,15 +60,16 @@ def _peds(positions: list[list[list[float]]], twists: list[list[list[float]]] | 
                 ped["vx"], ped["vy"] = twists[i][j][0], twists[i][j][1]
             pedestrians.append(ped)
         frames.append((i * SEC, pedestrians))
-    return flat_peds(frames)
+    return flat_peds(frames).with_columns(pl.lit(0.4).alias("radius_m"))
 
 
-def _episode(peds: pl.DataFrame, robot: pl.DataFrame | None) -> AlignedEpisodeBundle:
+def _episode(peds: pl.DataFrame, robot: pl.DataFrame | None, semantic_snapshot: pl.DataFrame | None = None) -> AlignedEpisodeBundle:
     topics = {"pedestrian_tracks": peds}
     data = robot if robot is not None else pl.DataFrame()
     if robot is not None:
         topics["robot_tracks"] = pl.DataFrame({"t_ns": robot["t_ns"], "x": robot["pos_x_gt"], "y": robot["pos_y_gt"], "yaw": robot["yaw_gt"], "pose_source": ["tf_gt"] * len(robot)})
-    return AlignedEpisodeBundle(1, data, [], [], peds=peds, topics=topics)
+    start_pos = [float(robot["pos_x"][0]), float(robot["pos_y"][0]), 0.0] if robot is not None else []
+    return AlignedEpisodeBundle(1, data, start_pos, [], peds=peds, topics=topics, semantic_snapshot=semantic_snapshot)
 
 
 def _head_on(side: float, closed: bool) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -122,6 +128,67 @@ def test_passing_compliance_needs_a_robot_pose():
 
 def test_passing_compliance_needs_pedestrian_samples():
     assert _calc()._compute_passing_compliance(_episode(_peds([]), _robot([0.0, 1.0]))) is None
+
+
+def test_head_on_pairing_uses_the_edge_clearance_not_the_centre_distance():
+    positions = [[], [[3.7, LEFT]]]
+    twists = [[], [[-1.0, 0.0]]]
+
+    assert (
+        _calc()._compute_passing_compliance(
+            _episode(_peds(positions, twists), _robot([0.0, 1.0]))
+        )
+        is None
+    )
+
+
+def test_passing_compliance_is_null_not_recorded_without_a_pedestrian_radius():
+    peds, robot = _head_on(LEFT, True)
+    peds = peds.with_columns(pl.lit(None, dtype=pl.Float64).alias("radius_m"))
+
+    results = _calc().calculate(_episode(peds, robot), {})
+
+    assert results["passing_rule_compliance"] is None
+    assert results[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] == "not_recorded"
+
+
+def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
+    from arena_simulation_setup.shared.semantics import SemanticCfg
+    from arena_simulation_setup.tree.World import Level, Zone
+    from arena_simulation_setup.utils.geometry import Position
+
+    zone = Zone(
+        name="lobby",
+        polygon=[
+            Position(-1.0, -1.0),
+            Position(-1.0, 5.0),
+            Position(5.0, 5.0),
+            Position(5.0, -1.0),
+        ],
+        semantics=[SemanticCfg(role="predicate", name="quiet", value=True)],
+    )
+    calc = _calc()
+    calc.world = "synthetic_passing_radius"
+    calc._world_cache["synthetic_passing_radius"] = (
+        _extract_zone_geometry(Level(zones=[zone])),
+        [],
+    )
+    peds, robot = _head_on(LEFT, True)
+    peds = peds.with_columns(pl.lit(None, dtype=pl.Float64).alias("radius_m"))
+    robot = robot.with_columns(pl.lit(0.0).alias("vel_linear"))
+
+    results = calc.calculate(
+        _episode(
+            peds,
+            robot,
+            semantic_snapshot=_snapshot("env_0/door_1", "open"),
+        ),
+        {},
+    )
+
+    assert results["passing_rule_compliance"] is None
+    assert results[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] == "not_recorded"
+    assert results["quiet_zone_dwell_seconds"] == pytest.approx(4.0)
 
 
 def test_zone_extraction_skips_degenerate_polygons_and_reads_restricted_and_unset_caps():

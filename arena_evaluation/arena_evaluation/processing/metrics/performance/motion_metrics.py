@@ -5,9 +5,10 @@ polynomial (Savitzky-Golay) fit over a declared **1.0 s** window and **polynomia
 on a uniform grid of at most 20 Hz (a coarser recording keeps its own step). Differentiating the raw speed samples at the
 recording rate amplifies sample noise into physically impossible peaks — a jackal with a
 2.5 m/s² actuator limit showed median peak accelerations near 28 m/s² and median peak jerk
-near 900 m/s³ — so the declared window is what the reported peaks measure. An episode with
-fewer samples than the smoothing fit needs (or without a ground-truth position track) falls
-back to plain finite differences, where smoothing is undefined.
+near 900 m/s³ — so the declared window is what the reported peaks measure. That fit is the only
+derivative estimator: an episode with fewer samples than the smoothing fit needs publishes NULL
+acceleration and jerk (its speed stays measured) instead of a raw finite difference taken at the
+recording rate, which would make the two episodes' peaks incomparable.
 
 ``calculate`` keeps only the scalar aggregates in the metric row. The per-sample kinematics
 are published as one flat 1NF table by :meth:`MotionMetricsCalculator.series_table`; both
@@ -54,10 +55,10 @@ _EPISODE_KEYS: Final[tuple[str, ...]] = (
     "jerk_max_mps3",
 )
 
-ACCELERATION_MEAN = define_metric("acceleration_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Mean smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz.", null_reason=True)
-JERK_MEAN = define_metric("jerk_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Mean smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz.", null_reason=True)
-JERK_MAX_MPS3 = define_metric("jerk_max_mps3", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Peak smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz.", null_reason=True)
-MAX_ACCELERATION_MPS2 = define_metric("max_acceleration_mps2", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Peak smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz.", null_reason=True)
+ACCELERATION_MEAN = define_metric("acceleration_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Mean smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
+JERK_MEAN = define_metric("jerk_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Mean smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
+JERK_MAX_MPS3 = define_metric("jerk_max_mps3", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Peak smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
+MAX_ACCELERATION_MPS2 = define_metric("max_acceleration_mps2", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Peak smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
 MEAN_VELOCITY_MPS = define_metric("mean_velocity_mps", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s", description="Mean ground-truth speed over the scope window's resolved samples.", null_reason=True)
 VELOCITY_MAX = define_metric("velocity_max", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s", description="Peak ground-truth speed over the scope window's resolved samples.", null_reason=True)
 
@@ -123,24 +124,14 @@ def _unique_track(t_ns: np.ndarray, x_m: np.ndarray, y_m: np.ndarray) -> tuple[n
     return time_sorted, x_sorted, y_sorted
 
 
-def _acceleration_from_speed(t_ns: np.ndarray, speed_mps: np.ndarray) -> np.ndarray:
-    """Backward-difference acceleration of a scalar series, at the sample it lands on."""
-    acceleration_mps2 = np.full(len(speed_mps), np.nan, dtype=np.float64)
-    acceleration_mps2[1:] = np.diff(speed_mps) / _dt_s(t_ns)
-    return acceleration_mps2
-
-
-def _raw_kinematics(speed_mps: np.ndarray, t_ns: np.ndarray) -> Kinematics:
-    """Plain finite differences on the recorded samples, the fallback where smoothing is undefined."""
-    acceleration_mps2 = _acceleration_from_speed(t_ns, speed_mps)
-    jerk_mps3 = np.full(len(speed_mps), np.nan, dtype=np.float64)
-    if len(speed_mps) >= 3:
-        jerk_mps3[2:] = np.diff(acceleration_mps2[1:]) / _dt_s(t_ns)[:-1]
+def _speed_only_kinematics(speed_mps: np.ndarray, t_ns: np.ndarray) -> Kinematics:
+    """Measured speed with undefined acceleration and jerk, where the smoothing window does not fit."""
+    undefined = np.full(len(speed_mps), np.nan, dtype=np.float64)
     return Kinematics(
         t_ns=t_ns,
         speed_mps=speed_mps,
-        acceleration_mps2=acceleration_mps2,
-        jerk_mps3=jerk_mps3,
+        acceleration_mps2=undefined,
+        jerk_mps3=undefined.copy(),
     )
 
 
@@ -262,11 +253,8 @@ def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisode
     """
     speed_mps, t_ns = episode_speed_mps(calculator, episode)
     if len(speed_mps) > 0:
-        if len(speed_mps) > 1:
-            smoothed = _smooth_speed_kinematics(t_ns, speed_mps)
-            if smoothed is not None:
-                return smoothed
-        return _raw_kinematics(speed_mps, t_ns)
+        smoothed = _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
+        return smoothed if smoothed is not None else _speed_only_kinematics(speed_mps, t_ns)
 
     track = _pose_track(calculator, episode)
     if track is None:
@@ -279,7 +267,7 @@ def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisode
     if smoothed is not None:
         return smoothed
     derived_speed_mps = _speed_from_pose(unique_x_m, unique_y_m, unique_time_ns)
-    return _raw_kinematics(derived_speed_mps, unique_time_ns)
+    return _speed_only_kinematics(derived_speed_mps, unique_time_ns)
 
 
 def _summarize(kinematics: Kinematics) -> dict[str, float | None]:
@@ -333,14 +321,15 @@ class MotionMetricsCalculator(BaseMetricCalculator):
 
     Acceleration and jerk are local-polynomial derivatives over a declared
     ``SMOOTHING_WINDOW_S`` (1.0 s) window at ``SMOOTHING_POLYORDER`` 2, so the peaks
-    measure the smoothed trajectory rather than sample-rate noise.
+    measure the smoothed trajectory rather than sample-rate noise. That is the only
+    derivative estimator: a recording too short for the window publishes NULL acceleration
+    and jerk, never a raw difference.
     """
 
     NAME = "motion_metrics"
     CATEGORY = "performance"
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (MEAN_VELOCITY_MPS, VELOCITY_MAX, ACCELERATION_MEAN, MAX_ACCELERATION_MPS2, JERK_MEAN, JERK_MAX_MPS3)
     DIRECTIONS = {

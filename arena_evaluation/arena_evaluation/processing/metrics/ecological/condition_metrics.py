@@ -15,7 +15,7 @@ from arena_simulation_setup.shared.judge import (
     zone_polygons,
 )
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.common.alignment import asof_index
 from arena_evaluation.processing.metrics.common.caching import load_world, world_cache
 from arena_evaluation.processing.metrics.common.context import (
@@ -49,35 +49,35 @@ CLAUSES_FAILED = define_metric(
     "clauses_failed",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the condition_compliance calculator",
+    description="Count of condition clauses whose verdict is FALSE; NULL when the conditions, world or robot samples were not recorded.",
     null_reason=True,
 )
 CLAUSES_PASSED = define_metric(
     "clauses_passed",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the condition_compliance calculator",
+    description="Count of condition clauses whose verdict is TRUE; NULL when the conditions, world or robot samples were not recorded.",
     null_reason=True,
 )
 CLAUSES_TOTAL = define_metric(
     "clauses_total",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the condition_compliance calculator",
+    description="Count of condition clauses evaluated for the episode; NULL when the conditions, world or robot samples were not recorded.",
     null_reason=True,
 )
 CLAUSES_UNKNOWN = define_metric(
     "clauses_unknown",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the condition_compliance calculator",
+    description="Count of condition clauses whose verdict is UNKNOWN; NULL when the conditions, world or robot samples were not recorded.",
     null_reason=True,
 )
 CONDITION_SUCCESS = define_metric(
     "condition_success",
     pl.Boolean,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the condition_compliance calculator",
+    description="Episode verdict: TRUE when every clause passes, FALSE when any fails, NULL when undecided or its inputs were not recorded.",
     null_reason=True,
 )
 
@@ -235,6 +235,12 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
         CLAUSES_FAILED,
         CLAUSES_UNKNOWN,
     )
+    DIRECTIONS = {
+        "condition_success": Direction.HIGHER,
+        "clauses_passed": Direction.HIGHER,
+        "clauses_failed": Direction.LOWER,
+        "clauses_unknown": Direction.LOWER,
+    }
     PRIMARY_OUTPUTS = ["condition_success", "clauses_failed"]
 
     def _load_world(self, world_name: str) -> list[ZoneGeometry] | None:
@@ -300,11 +306,11 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
         unknown = sum(1 for v in verdicts if v is None)
 
         if failed:
-            success: float | None = 0.0
+            success: bool | None = False
         elif unknown:
             success = None
         else:
-            success = 1.0
+            success = True
 
         return {
             "condition_success": success,

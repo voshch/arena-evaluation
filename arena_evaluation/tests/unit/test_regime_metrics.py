@@ -3,9 +3,9 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.metrics.base import ScopeSlice
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
-    _DoorGeometry,
+from arena_evaluation.processing.metrics.base import Direction, ScopeSlice
+from arena_evaluation.processing.metrics.common.zones import (
+    DoorGeometry as _DoorGeometry,
 )
 from arena_evaluation.processing.metrics.ecological.regime_metrics import (
     RegimeMetricsCalculator,
@@ -499,6 +499,94 @@ def test_calculate_replan_latency_end_to_end():
 
     assert robot["replan_latency_after_state_change_median"] == pytest.approx(2.0)
     assert robot["replan_latency_after_state_change_p95"] == pytest.approx(2.0)
+    assert robot["replan_unanswered_triggers"] == 0
+
+
+def test_calculate_replan_unanswered_triggers_counts_censored_triggers():
+    calc = _calc()
+    data = pl.DataFrame(
+        {
+            "t_ns": [
+                0,
+                1_000_000_000,
+                2_000_000_000,
+                3_000_000_000,
+                4_000_000_000,
+                5_000_000_000,
+                6_000_000_000,
+            ],
+            "pos_x": [0.0] * 7,
+            "pos_y": [0.0] * 7,
+            "yaw": [0.0] * 7,
+            "linear_x": [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5],
+            "angular_z": [0.0] * 7,
+        }
+    )
+    snapshot = snapshot_frame(
+        [
+            (0, "env_0/door_1", "door", "open", "predicate", False),
+            (1_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
+            (0, "env_0/gate_1", "gate", "locked", "predicate", True),
+            (5_000_000_000, "env_0/gate_1", "gate", "locked", "predicate", False),
+            (0, "env_0/door_2", "door", "open", "predicate", False),
+            (6_000_000_000, "env_0/door_2", "door", "open", "predicate", True),
+        ]
+    )
+
+    robot = _robot_results(calc, _episode(data, semantic_snapshot=snapshot))
+
+    # Only the 1 s door trigger has a later cmd_vel change (at 3 s).
+    assert robot["replan_unanswered_triggers"] == 2
+    assert robot["replan_latency_after_state_change_median"] == pytest.approx(2.0)
+    assert robot["replan_latency_after_state_change_p95"] == pytest.approx(2.0)
+
+
+def test_calculate_replan_metrics_are_null_without_a_required_stream():
+    calc = _calc()
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000],
+            "pos_x": [0.0, 0.0],
+            "pos_y": [0.0, 0.0],
+            "yaw": [0.0, 0.0],
+        }
+    )
+    snapshot = snapshot_frame(
+        [
+            (0, "env_0/door_1", "door", "open", "predicate", False),
+            (1_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
+        ]
+    )
+    episode = _episode(data, semantic_snapshot=snapshot)
+
+    robot = _robot_results(calc, episode)
+
+    assert robot["replan_unanswered_triggers"] is None
+    assert robot["replan_latency_after_state_change_median"] is None
+    assert robot["replan_latency_after_state_change_p95"] is None
+    assert calc.missing_input_provenance(episode) == {
+        "replan_latency_after_state_change_median": "replan_latency_after_state_change_median:topic_missing:robot_cmd_vel",
+        "replan_latency_after_state_change_p95": "replan_latency_after_state_change_p95:topic_missing:robot_cmd_vel",
+        "replan_unanswered_triggers": "replan_unanswered_triggers:topic_missing:robot_cmd_vel",
+    }
+
+    with_cmd_vel = AlignedEpisodeBundle(
+        episode_id=1,
+        data=data.with_columns(
+            pl.lit(0.0).alias("linear_x"),
+            pl.lit(0.0).alias("angular_z"),
+        ),
+        start_pos=_start_pos(data),
+        goal_pos=[],
+        topics={"robot_cmd_vel": pl.DataFrame({"t_ns": [0]})},
+    )
+
+    assert _robot_results(calc, with_cmd_vel)["replan_unanswered_triggers"] is None
+    assert calc.missing_input_provenance(with_cmd_vel) == {
+        "replan_latency_after_state_change_median": "replan_latency_after_state_change_median:topic_missing:world_semantics",
+        "replan_latency_after_state_change_p95": "replan_latency_after_state_change_p95:topic_missing:world_semantics",
+        "replan_unanswered_triggers": "replan_unanswered_triggers:topic_missing:world_semantics",
+    }
 
 
 def test_calculate_entered_over_cap_zone_with_cached_world():
@@ -824,3 +912,16 @@ def test_robot_scope_used_elevator_during_alarm_needs_robot_members():
     assert _robot_results(_calc(), episode)["used_elevator_during_alarm"] is None
     episode.robot_name = "env_0_jackal"
     assert _robot_results(_calc(), episode)["used_elevator_during_alarm"] is None
+
+
+def test_regime_outputs_declare_their_better_side():
+    assert RegimeMetricsCalculator.DIRECTIONS == {
+        "ran_red_signal": Direction.LOWER,
+        "entered_over_cap_zone": Direction.LOWER,
+        "used_elevator_during_alarm": Direction.LOWER,
+        "replan_latency_after_state_change_median": Direction.LOWER,
+        "replan_latency_after_state_change_p95": Direction.LOWER,
+    }
+    assert set(RegimeMetricsCalculator.PRIMARY_OUTPUTS) <= set(
+        RegimeMetricsCalculator.DIRECTIONS
+    )

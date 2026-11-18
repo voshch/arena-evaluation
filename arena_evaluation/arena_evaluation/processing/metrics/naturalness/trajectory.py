@@ -4,6 +4,7 @@ import typing
 
 import numpy as np
 import polars as pl
+from dtaidistance import dtw_ndim
 from scipy.spatial.distance import cdist
 
 from arena_evaluation.processing.metrics.base import (
@@ -26,6 +27,16 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _TWO_PI: typing.Final[float] = 2.0 * np.pi
 
+# The world asset is absent from disk: the route was never measurable, but the episode still ran.
+MISSING_WORLD: typing.Final[str] = "not_recorded:world"
+_GRID_OUTPUTS: typing.Final[tuple[str, ...]] = (
+    "theta_star_length",
+    "ade",
+    "mhd",
+    "frechet_distance",
+    "adtw",
+)
+
 ADE = define_metric(
     "ade",
     pl.Float64,
@@ -47,7 +58,7 @@ ADTW = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="m",
-    description="Asymmetric dynamic-time-warping distance against the current-leg Theta* reference path, m.",
+    description="Dynamic-time-warping distance against the current-leg Theta* reference path, m: plain DTW with no penalty weighting.",
     null_reason=True,
 )
 MHD = define_metric(
@@ -87,7 +98,7 @@ THETA_STAR_LENGTH = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="m",
-    description="Whole-mission route geodesic: sum of per-leg Theta* between the task goals the robot reached; feeds path_efficiency.",
+    description="Whole-mission route geodesic: sum of per-leg Theta* between the start and every commanded task goal, reached or not; the shared route reference of path_efficiency and spl_geodesic.",
     null_reason=True,
 )
 
@@ -179,9 +190,10 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     """Whole-mission route reference plus current-leg tracking errors.
 
     ``theta_star_length`` is the whole-mission route geodesic: the sum of per-leg Theta* lengths
-    between the task goals the robot actually reached. ``path_efficiency`` divides it by the
-    travelled length. ``ade``/``fde``/``mhd``/``frechet_distance``/``adtw`` are tracking errors
-    against the current-leg start -> goal Theta* reference and deliberately stay single-leg.
+    between the start and every commanded task goal, reached or not; ``path_efficiency`` and
+    ``spl_geodesic`` share it. ``ade``/``fde``/``mhd``/``frechet_distance``/``adtw`` are tracking
+    errors against the current-leg start -> goal Theta* reference and deliberately stay single-leg;
+    ``adtw`` is plain dtaidistance DTW, not a penalty-weighted asymmetric variant.
     """
 
     NAME = "trajectory_naturalness"
@@ -189,7 +201,6 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
-    PARAMS = ()
 
     OUTPUTS = (
         ADE,
@@ -257,16 +268,20 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         results["fde"] = float(
             np.sqrt((pos_x[-1] - goal_pt[0]) ** 2 + (pos_y[-1] - goal_pt[1]) ** 2)
         )
-        grid = grid_for_map(
-            episode.map, episode.run_dir, self.robot_params.robot_radius
-        )
+        try:
+            grid = grid_for_map(
+                episode.map, episode.run_dir, self.robot_params.robot_radius
+            )
+        except FileNotFoundError:
+            # The world asset is not on disk: the grid outputs were never measurable, the pose ones still are.
+            for key in _GRID_OUTPUTS:
+                results[f"{key}_null_reason"] = MISSING_WORLD
+            return results
         waypoints = route_waypoints(
             start_pt=start_pt,
             goal_pt=goal_pt,
             phases=episode.phases,
             topics=episode.topics,
-            track_x=pos_x,
-            track_y=pos_y,
         )
         mission = plan_mission(grid=grid, waypoints=waypoints)
         results["theta_star_length"] = mission.length_m
@@ -282,7 +297,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     def _reference_metrics(
         pos_x: np.ndarray, pos_y: np.ndarray, reference_path: np.ndarray
     ) -> dict[str, float | None]:
-        """ADE/MHD/Frechet/ADTW against the geometric Theta* reference path."""
+        """ADE/MHD/Frechet/DTW against the geometric Theta* reference path."""
         ref_x, ref_y = reference_path[:, 0], reference_path[:, 1]
         metrics: dict[str, float | None] = {
             "ade": None,
@@ -331,7 +346,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
                 np.linspace(0, len(reference_points) - 1, 1000, dtype=int)
             ]
         metrics["frechet_distance"] = _discrete_frechet(robot_sample, reference_sample)
-        metrics["adtw"] = TrajectoryMetricsCalculator._asymmetric_dtw(
+        metrics["adtw"] = TrajectoryMetricsCalculator._dtw(
             robot_sample, reference_sample
         )
         return metrics
@@ -359,27 +374,8 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         return float(max(np.mean(robot_to_reference), np.mean(reference_to_robot)))
 
     @staticmethod
-    def _asymmetric_dtw(
-        robot_points: np.ndarray, reference_points: np.ndarray
-    ) -> float | None:
-        """Asymmetric DTW distance via dtaidistance when installed, else the normalized cost matrix."""
-        try:
-            from dtaidistance import dtw_ndim
-        except ImportError:
-            distances = cdist(robot_points, reference_points)
-            rows, columns = distances.shape
-            cost = np.full((rows, columns), np.inf)
-            cost[0, 0] = distances[0, 0]
-            for i in range(1, rows):
-                cost[i, 0] = cost[i - 1, 0] + distances[i, 0]
-            for j in range(1, columns):
-                cost[0, j] = cost[0, j - 1] + distances[0, j]
-            for i in range(1, rows):
-                for j in range(1, columns):
-                    cost[i, j] = distances[i, j] + min(
-                        cost[i - 1, j], cost[i, j - 1], cost[i - 1, j - 1]
-                    )
-            return float(cost[-1, -1] / (rows + columns))
+    def _dtw(robot_points: np.ndarray, reference_points: np.ndarray) -> float:
+        """Plain dynamic-time-warping distance of the robot path against the Theta* reference, no penalty."""
         return float(dtw_ndim.distance(robot_points, reference_points))
 
     def calculate_for_scope(

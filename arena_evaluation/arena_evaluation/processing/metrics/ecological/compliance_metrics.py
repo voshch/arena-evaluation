@@ -7,7 +7,11 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.processing.metrics.base import (
+    NULL_REASON_SUFFIX,
+    BaseMetricCalculator,
+    Direction,
+)
 from arena_evaluation.processing.metrics.common.alignment import asof_position
 from arena_evaluation.processing.metrics.common.caching import load_world
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
@@ -22,16 +26,20 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     entity_name,
     robot_env_snapshot,
 )
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.processing.windows import ENCOUNTER_EDGE_DISTANCE_M
+from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 logger = logging.getLogger(__name__)
+
+# Test modules of another group import this alias; delete it once they import ZoneGeometry from common.zones.
+_ZoneGeometry = ZoneGeometry
 
 SPEED_ZONE_VIOLATIONS = define_metric(
     "speed_zone_violations",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the compliance_metrics calculator",
+    description="Count of contiguous speed-limit violations inside speed-capped zones; NULL when the robot speed stream is absent or not finite.",
     null_reason=True,
 )
 SPEED_ZONE_VIOLATION_SECONDS = define_metric(
@@ -39,7 +47,7 @@ SPEED_ZONE_VIOLATION_SECONDS = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="s",
-    description="ecological metric of the compliance_metrics calculator",
+    description="Seconds spent above a zone's speed limit inside speed-capped zones; NULL when the robot speed stream is absent or not finite.",
     null_reason=True,
 )
 QUIET_ZONE_DWELL_SECONDS = define_metric(
@@ -47,14 +55,14 @@ QUIET_ZONE_DWELL_SECONDS = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="s",
-    description="ecological metric of the compliance_metrics calculator",
+    description="Seconds the robot spends inside quiet zones; NULL when the world semantics or the robot samples were not recorded.",
     null_reason=True,
 )
 RESTRICTED_ZONE_ENTRIES = define_metric(
     "restricted_zone_entries",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the compliance_metrics calculator",
+    description="Count of entries into restricted zones; NULL when the world semantics or the robot samples were not recorded.",
     null_reason=True,
 )
 DOORWAY_BLOCKING_TIME = define_metric(
@@ -62,7 +70,7 @@ DOORWAY_BLOCKING_TIME = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="s",
-    description="ecological metric of the compliance_metrics calculator",
+    description="Seconds the robot blocks an open doorway while stationary; NULL when the speed stream, door states or world were not recorded.",
     null_reason=True,
 )
 PASSING_RULE_COMPLIANCE = define_metric(
@@ -70,21 +78,9 @@ PASSING_RULE_COMPLIANCE = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="1",
-    description="ecological metric of the compliance_metrics calculator",
+    description="Share of head-on pedestrian encounters passed on the configured side; NULL without an encounter or a recorded pedestrian radius.",
     null_reason=True,
 )
-
-# The source helper names stay as module aliases: calculators and tests import them by these names.
-_DoorGeometry = DoorGeometry
-_ZoneGeometry = ZoneGeometry
-_extract_door_geometry = extract_door_geometry
-_extract_zone_geometry = extract_zone_geometry
-_zone_membership = zone_membership
-_reconstruct_events = reconstruct_events
-
-#: Head-on pairing radius for the passing-rule head-on test, centre-to-centre metres (no body radii
-#: removed), so it is 2 m larger than the 2.0 m edge encounter distance of `processing/windows.py`.
-HEAD_ON_CENTRE_DISTANCE_M: float = 4.0
 
 
 def _offset_zones(
@@ -124,6 +120,19 @@ _ZONE_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
     "speed_zone_violation_seconds",
     "speed_zone_violations",
 )
+
+_SPEED_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
+    "doorway_blocking_time",
+    "speed_zone_violation_seconds",
+    "speed_zone_violations",
+)
+
+
+def _null_speed_metrics(result: dict[str, typing.Any], reason: str) -> None:
+    """Every speed-reading metric NULL with its reason, so an unknown speed never becomes a zero."""
+    for key in _SPEED_OUTPUT_KEYS:
+        result[key] = None
+        result[f"{key}{NULL_REASON_SUFFIX}"] = reason
 
 
 def _speed_zone_metrics(
@@ -228,7 +237,6 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     REQUIRES_PEDSIM = True
     DEPENDS_ON = ["motion_metrics"]
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
-    PARAMS = ()
     passing_convention = "right"
 
     OUTPUTS = (
@@ -239,6 +247,14 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         DOORWAY_BLOCKING_TIME,
         PASSING_RULE_COMPLIANCE,
     )
+    DIRECTIONS = {
+        "speed_zone_violations": Direction.LOWER,
+        "speed_zone_violation_seconds": Direction.LOWER,
+        "quiet_zone_dwell_seconds": Direction.LOWER,
+        "restricted_zone_entries": Direction.LOWER,
+        "doorway_blocking_time": Direction.LOWER,
+        "passing_rule_compliance": Direction.HIGHER,
+    }
     PRIMARY_OUTPUTS = ["speed_zone_violations", "passing_rule_compliance"]
 
     STATIONARY_THRESHOLD = 0.05
@@ -293,7 +309,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
         total = 0.0
         for i in range(n - 1):
-            if speed[i] > self.STATIONARY_THRESHOLD:
+            if not np.isfinite(speed[i]) or speed[i] > self.STATIONARY_THRESHOLD:
                 continue
             t = int(t_ns[i])
             for door in doors:
@@ -306,11 +322,44 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                     break
         return total
 
+    @staticmethod
+    def _recorded_speed(episode: AlignedEpisodeBundle) -> np.ndarray | None:
+        """Recorded absolute speed in m/s, None when the recording carries no speed stream."""
+        frame = episode.data
+        if frame is None or len(frame) == 0:
+            return None
+        try:
+            return np.abs(frame["vel_linear"].to_numpy().astype(np.float64))
+        except pl.exceptions.ColumnNotFoundError:
+            return None
+
+    @staticmethod
+    def _recorded_pedestrian_radii(peds_df: pl.DataFrame) -> np.ndarray | None:
+        """Recorded pedestrian radii (m) in frame order, None when a sample has no usable radius."""
+        try:
+            radii = peds_df["radius_m"].to_numpy().astype(np.float64)
+        except pl.exceptions.ColumnNotFoundError:
+            return None
+        return radii if np.isfinite(radii).all() else None
+
+    def _passing_null_reason(self, episode: AlignedEpisodeBundle) -> str | None:
+        """NOT_RECORDED when a pedestrian the head-on pairing reads has no recorded radius."""
+        peds_df = self.native_ped_frame(episode)
+        if peds_df is None or len(peds_df) == 0:
+            return None
+        return (
+            None
+            if self._recorded_pedestrian_radii(peds_df) is not None
+            else NullReason.NOT_RECORDED.value
+        )
+
     def _compute_passing_compliance(
         self, episode: AlignedEpisodeBundle
     ) -> float | None:
         peds_df = self.native_ped_frame(episode)
         if peds_df is None or len(peds_df) == 0:
+            return None
+        if self._recorded_pedestrian_radii(peds_df) is None:
             return None
 
         pos_x, pos_y, yaw, t_odom = self.resolve_native_pose(episode)
@@ -362,6 +411,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         dx = pl.col("x") - pl.col("rx")
         dy = pl.col("y") - pl.col("ry")
         dist = (dx.pow(2) + dy.pow(2)).sqrt()
+        edge_clearance = dist - (self.robot_params.robot_radius + pl.col("radius_m"))
         speed_r = (pl.col("rvx").pow(2) + pl.col("rvy").pow(2)).sqrt()
         speed_p = (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
         denom = speed_r * speed_p
@@ -372,7 +422,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         )
 
         is_head_on = (
-            (dist <= HEAD_ON_CENTRE_DISTANCE_M)
+            (edge_clearance <= ENCOUNTER_EDGE_DISTANCE_M)
             & (speed_r > 0.05)
             & (speed_p > 0.05)
             & (cos_angle < -0.3)
@@ -437,10 +487,14 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         del prior_results
-        result: dict[str, float | None] = {metric.name: None for metric in self.OUTPUTS}
+        result: dict[str, typing.Any] = {metric.name: None for metric in self.OUTPUTS}
 
         # 1. Passing Rule Compliance (Independent of world)
         result["passing_rule_compliance"] = self._compute_passing_compliance(episode)
+        if result["passing_rule_compliance"] is None:
+            passing_reason = self._passing_null_reason(episode)
+            if passing_reason is not None:
+                result[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] = passing_reason
 
         # 2. Zone/Door Metrics (Requires the world and its recorded semantic snapshot). The world file
         # alone is not enough: without the recorded world semantics the zone/door occupancy is unknown,
@@ -456,29 +510,36 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                 pos_x, pos_y, _yaw, _ox, _oy, _oyaw = self.resolve_robot_pose(episode)
 
                 if episode.data is not None and len(episode.data) > 0:
-                    speed = np.abs(episode.data["vel_linear"].to_numpy())
                     t_ns = episode.data["t_ns"].to_numpy()
                     n = len(pos_x)
-                    if n > 0 and len(speed) == n:
+                    if n > 0 and len(t_ns) == n:
                         dt = np.diff(t_ns) / 1e9
                         zone_idx = zone_membership(pos_x, pos_y, zones)
-                        violations, violation_seconds = _speed_zone_metrics(
-                            zone_idx, speed, dt, zones
+                        result["quiet_zone_dwell_seconds"] = _quiet_zone_dwell(
+                            zone_idx, dt, zones
                         )
-                        quiet_seconds = _quiet_zone_dwell(zone_idx, dt, zones)
-                        restricted_entries = _restricted_zone_entries(zone_idx, zones)
-                        doorway_blocking = self._doorway_blocking_time(
-                            episode, pos_x, pos_y, speed, t_ns, doors
+                        result["restricted_zone_entries"] = _restricted_zone_entries(
+                            zone_idx, zones
                         )
 
-                        result.update(
-                            {
-                                "speed_zone_violations": violations,
-                                "speed_zone_violation_seconds": violation_seconds,
-                                "quiet_zone_dwell_seconds": quiet_seconds,
-                                "restricted_zone_entries": restricted_entries,
-                                "doorway_blocking_time": doorway_blocking,
-                            }
-                        )
+                        speed = self._recorded_speed(episode)
+                        if speed is None:
+                            _null_speed_metrics(
+                                result,
+                                f"{NullReason.TOPIC_MISSING.value}:robot_odom",
+                            )
+                        elif len(speed) != n or not np.isfinite(speed).all():
+                            _null_speed_metrics(result, NullReason.NO_SAMPLES.value)
+                        else:
+                            violations, violation_seconds = _speed_zone_metrics(
+                                zone_idx, speed, dt, zones
+                            )
+                            result["speed_zone_violations"] = violations
+                            result["speed_zone_violation_seconds"] = violation_seconds
+                            result["doorway_blocking_time"] = (
+                                self._doorway_blocking_time(
+                                    episode, pos_x, pos_y, speed, t_ns, doors
+                                )
+                            )
 
         return result

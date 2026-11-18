@@ -89,7 +89,6 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
     REQUIRED_TOPICS = [("robot_scan_summary", "pedestrian_tracks")]
-    PARAMS = ()
 
     OUTPUTS = (
         MIN_OBSTACLE_CLEARANCE_M,

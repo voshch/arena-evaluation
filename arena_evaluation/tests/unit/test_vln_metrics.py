@@ -5,9 +5,11 @@ import polars as pl
 import pytest
 import shapely
 
+import arena_evaluation.processing.metrics.performance.vln_metrics as vln_metrics_module
 from arena_evaluation.processing.metrics.performance.path_metrics import PathMetricsCalculator
 from arena_evaluation.processing.metrics.performance.vln_metrics import (
     VlnMetricsCalculator,
+    _within,
     geodesic_distances,
     geodesic_field,
     goal_inputs,
@@ -144,12 +146,14 @@ def test_geodesic_unreachable_and_off_grid_are_inf() -> None:
     assert np.isinf(geodesic_distances(field, np.array([-1.0, 99.0]), np.array([1.0, 1.0]), 0.1, (0.0, 0.0))).all()
 
 
-def test_stop_one_meter_from_goal_succeeds() -> None:
+def test_stop_one_meter_from_goal_succeeds_and_nulls_the_out_of_range_spl() -> None:
     out = _run(_episode([START, (14.0, 10.0)], "vln_free_stop_1m"), _grid(wall=False), success=True)
     assert out["ne"] == pytest.approx(1.0, abs=RES)
     assert out["osr"] is True
     assert out["success_geodesic"] is True
-    assert out["spl_geodesic"] == pytest.approx(1.0)
+    # The stop inside the tolerance leaves the sampled path shorter than the route: NULL, never clamped to one.
+    assert out["spl_geodesic"] is None
+    assert out["spl_geodesic_null_reason"] == "invalid_episode:reference_exceeds_path"
     assert 0.0 < out["sdtw"] == out["ndtw"] <= 1.0
     assert out["stuck"] is False
 
@@ -160,6 +164,13 @@ def test_stop_inside_tolerance_on_an_octile_diagonal_succeeds() -> None:
     assert out["ne"] == pytest.approx(math.hypot(2.75, 1.14), abs=0.01)
     assert out["osr"] is True
     assert out["success_geodesic"] is True
+
+
+def test_spl_weighs_success_by_the_route_over_a_longer_travelled_path() -> None:
+    out = _run(_episode([START, (2.0, 14.0), GOAL], "vln_free_detour"), _grid(wall=False), success=True)
+    travelled = 4.0 + math.hypot(13.0, 4.0)
+    assert out["success_geodesic"] is True
+    assert out["spl_geodesic"] == pytest.approx(13.0 / travelled, rel=0.02)
 
 
 def test_stop_four_meters_from_goal_fails() -> None:
@@ -262,6 +273,28 @@ def test_calculate_without_map_leaves_geodesic_outputs_none() -> None:
     assert out["stuck"] is True
 
 
+def test_a_missing_world_asset_nulls_the_route_metrics_with_its_reason() -> None:
+    episode = _episode([START, (11.0, 10.0)], "vln_missing_world_asset_zzz", dwell_s=15.0)
+
+    out = VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False})
+
+    for key in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"):
+        assert out[key] is None
+        assert out[f"{key}_null_reason"] == "not_recorded:world"
+    assert out["stuck"] is True
+
+
+def test_a_world_that_resolves_but_is_broken_still_raises(monkeypatch) -> None:
+    def broken(*_args, **_kwargs):
+        raise ValueError("world compacts to no level")
+
+    monkeypatch.setattr(vln_metrics_module, "grid_for_map", broken)
+    episode = _episode([START, (11.0, 10.0)], "vln_broken_world_zzz")
+
+    with pytest.raises(ValueError, match="compacts to no level"):
+        VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False})
+
+
 def test_registry_runs_vln_after_its_dependencies() -> None:
     registry = MetricRegistry(RobotParams(robot_radius=RADIUS))
     stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
@@ -269,7 +302,7 @@ def test_registry_runs_vln_after_its_dependencies() -> None:
         assert stage_of[dep] < stage_of[VlnMetricsCalculator.NAME]
 
 
-def test_route_through_leg_goals_scores_against_the_chained_reference() -> None:
+def test_route_through_leg_goals_scores_ndtw_against_the_chained_reference() -> None:
     leg = (8.0, 16.0)
     path = [START, leg, GOAL]
     chained = _run(_episode(path, "vln_free_two_legs", legs=(leg,)), _grid(wall=False), success=True)
@@ -285,6 +318,9 @@ def test_skipping_a_leg_goal_lowers_ndtw_but_not_success() -> None:
     out = _run(_episode([START, GOAL], "vln_free_skip_leg", legs=(leg,)), _grid(wall=False), success=True)
     assert out["success_geodesic"] is True
     assert out["ndtw"] < 0.8
+    # The commanded route is longer than the shortcut that was driven: NULL, not a clamped 1.0.
+    assert out["spl_geodesic"] is None
+    assert out["spl_geodesic_null_reason"] == "invalid_episode:reference_exceeds_path"
 
 
 def test_route_is_the_map_pose_of_every_goto_and_the_last_tolerance() -> None:
@@ -329,3 +365,29 @@ def test_goal_inputs_label_names_derived_inputs(inputs, gotos, instructions, lab
 def test_goal_inputs_label_is_none_for_recordings_without_inputs() -> None:
     assert goal_inputs(None) is None
     assert goal_inputs({"phases": [{"goto": [4.0, 4.0, 0.0]}], "map_poses": [[4.0, 4.0, 0.0]]}) is None
+
+
+@pytest.mark.parametrize(
+    ("final", "goal", "reason"),
+    [
+        ((14.0, 10.0), (3.0, 3.0), "start_outside_grid"),
+        ((2.0, 3.0), (15.0, 10.0), "goal_outside_grid"),
+    ],
+)
+def test_refused_ne_route_carries_the_planner_reason(final, goal, reason) -> None:
+    grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
+    out = _run(_episode([START, final], "vln_refused_ne_route", goal=goal), grid, success=False)
+    assert out["ne"] is None
+    assert out["ne_null_reason"] == reason
+
+
+def test_refused_osr_goal_carries_the_planner_reason() -> None:
+    grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
+    out = _run(_episode([START, (2.0, 3.0)], "vln_refused_osr_route", goal=(15.0, 10.0)), grid, success=False)
+    assert out["osr"] is None
+    assert out["osr_null_reason"] == "goal_outside_grid"
+
+
+def test_refused_route_returns_the_planner_reason() -> None:
+    grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
+    assert _within(grid, (14.0, 10.0), (3.0, 3.0), TOLERANCE) == (False, "start_outside_grid")

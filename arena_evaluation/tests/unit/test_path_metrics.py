@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal, assert_series_equal
 
-from arena_evaluation.processing.metrics.base import MetricScope, ScopeSlice
+from arena_evaluation.processing.metrics.base import Direction, MetricScope, ScopeSlice
 from arena_evaluation.processing.metrics.performance.path_metrics import SERIES_SCHEMA, PathMetricsCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -44,6 +44,11 @@ def test_output_keys_keep_only_the_aggregates():
 
     assert PathMetricsCalculator.output_keys() == expected
     assert {metric.name for metric in PathMetricsCalculator.OUTPUTS} == set(expected)
+
+
+def test_path_length_orders_results_lower():
+    assert PathMetricsCalculator.DIRECTIONS["path_length_m"] is Direction.LOWER
+    assert set(PathMetricsCalculator.PRIMARY_OUTPUTS) <= set(PathMetricsCalculator.DIRECTIONS)
 
 
 def test_series_table_is_flat_with_one_row_per_resolved_sample():

@@ -1,22 +1,29 @@
 import numpy as np
 import pytest
 
-pl = pytest.importorskip("polars")
+pytest.importorskip("polars")
 
+import polars as pl
+
+from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, Direction
 from arena_evaluation.storage.schemas import RobotParams, AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.common.events import (
+    reconstruct_events as _reconstruct_events,
+)
+from arena_evaluation.processing.metrics.common.zones import (
+    DoorGeometry as _DoorGeometry,
+    ZoneGeometry as _ZoneGeometry,
+    extract_door_geometry as _extract_door_geometry,
+    extract_zone_geometry as _extract_zone_geometry,
+    zone_membership as _zone_membership,
+)
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     ComplianceMetricsCalculator,
-    _DoorGeometry,
-    _ZoneGeometry,
     _door_open_series,
-    _extract_door_geometry,
-    _extract_zone_geometry,
     _is_open_at,
     _quiet_zone_dwell,
-    _reconstruct_events,
     _restricted_zone_entries,
     _speed_zone_metrics,
-    _zone_membership,
 )
 from snapshot_rows import snapshot_frame
 
@@ -410,6 +417,130 @@ def test_calculate_end_to_end_with_cached_world():
     assert results["quiet_zone_dwell_seconds"] == pytest.approx(2.0)
     assert results["restricted_zone_entries"] == 0
     assert results["doorway_blocking_time"] == pytest.approx(0.0)
+
+
+def _quiet_zone_level():
+    from arena_simulation_setup.shared.semantics import SemanticCfg
+    from arena_simulation_setup.tree.World import Level, Zone
+    from arena_simulation_setup.utils.geometry import Position
+
+    zone = Zone(
+        name="lobby",
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 4.0),
+            Position(4.0, 4.0),
+            Position(4.0, 0.0),
+        ],
+        semantics=[
+            SemanticCfg(role="state", name="max_speed", value=1.0),
+            SemanticCfg(role="predicate", name="quiet", value=True),
+        ],
+    )
+    return Level(zones=[zone])
+
+
+def _open_door_snapshot():
+    return snapshot_frame([(0, "env_0/door_1", "door", "state", "discrete", "open")])
+
+
+def _quiet_zone_calculator(world_name):
+    level = _quiet_zone_level()
+    calc = _calc()
+    calc.world = world_name
+    calc._world_cache[world_name] = (
+        _extract_zone_geometry(level),
+        _extract_door_geometry(level),
+    )
+    return calc
+
+
+def test_compliance_outputs_declare_their_better_side():
+    assert ComplianceMetricsCalculator.DIRECTIONS == {
+        "speed_zone_violations": Direction.LOWER,
+        "speed_zone_violation_seconds": Direction.LOWER,
+        "quiet_zone_dwell_seconds": Direction.LOWER,
+        "restricted_zone_entries": Direction.LOWER,
+        "doorway_blocking_time": Direction.LOWER,
+        "passing_rule_compliance": Direction.HIGHER,
+    }
+    assert set(ComplianceMetricsCalculator.PRIMARY_OUTPUTS) <= set(
+        ComplianceMetricsCalculator.DIRECTIONS
+    )
+
+
+def test_speed_metrics_are_null_with_topic_missing_without_the_speed_stream():
+    calc = _quiet_zone_calculator("synthetic_speed_missing")
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
+            "pos_x": [1.0, 1.0, 1.0],
+            "pos_y": [1.0, 1.0, 1.0],
+            "yaw": [0.0, 0.0, 0.0],
+        }
+    )
+
+    results = calc.calculate(
+        _episode(data, semantic_snapshot=_open_door_snapshot()), {}
+    )
+
+    for key in (
+        "speed_zone_violations",
+        "speed_zone_violation_seconds",
+        "doorway_blocking_time",
+    ):
+        assert results[key] is None, key
+        assert results[f"{key}{NULL_REASON_SUFFIX}"] == "topic_missing:robot_odom", key
+    assert results["quiet_zone_dwell_seconds"] == pytest.approx(2.0)
+    assert results["restricted_zone_entries"] == 0
+
+
+def test_speed_metrics_are_null_with_no_samples_when_a_speed_is_not_finite():
+    calc = _quiet_zone_calculator("synthetic_speed_not_finite")
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
+            "pos_x": [1.0, 1.0, 1.0],
+            "pos_y": [1.0, 1.0, 1.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "vel_linear": [0.5, float("nan"), 0.5],
+        }
+    )
+
+    results = calc.calculate(
+        _episode(data, semantic_snapshot=_open_door_snapshot()), {}
+    )
+
+    for key in (
+        "speed_zone_violations",
+        "speed_zone_violation_seconds",
+        "doorway_blocking_time",
+    ):
+        assert results[key] is None, key
+        assert results[f"{key}{NULL_REASON_SUFFIX}"] == "no_samples", key
+    assert results["quiet_zone_dwell_seconds"] == pytest.approx(2.0)
+
+
+def test_doorway_blocking_never_counts_a_nan_speed_as_stationary():
+    doors = [_DoorGeometry(name="door_1", center_x=0.0, center_y=0.0, radius=1.0)]
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
+            "pos_x": [0.0, 0.0, 0.0],
+            "pos_y": [0.0, 0.0, 0.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "vel_linear": [float("nan"), float("nan"), 0.0],
+        }
+    )
+    episode = _episode(data, semantic_snapshot=_open_door_snapshot())
+    calc = _calc()
+    pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
+    speed = np.abs(episode.data["vel_linear"].to_numpy())
+    t_ns = episode.data["t_ns"].to_numpy()
+
+    total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
+
+    assert total == pytest.approx(0.0)
 
 
 def test_offset_zones_and_doors_translate_geometry():

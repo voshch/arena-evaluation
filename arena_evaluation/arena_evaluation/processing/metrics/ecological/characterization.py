@@ -12,11 +12,9 @@ list columns in Parquet.
 
 from __future__ import annotations
 
-import functools
 import logging
 import math
 import typing
-from dataclasses import dataclass
 
 import polars as pl
 
@@ -27,7 +25,7 @@ from arena_evaluation.processing.metrics.common.alignment import (
     asof_join,
 )
 from arena_evaluation.storage.registry import MetricScope, define_metric
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +34,7 @@ CHAR_PHASE_COVERAGE = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="1",
-    description="ecological metric of the characterization calculator",
+    description="Fraction of samples whose phase label the characterization schedule recognises; NULL when no phase markers were recorded.",
     null_reason=True,
 )
 CHAR_MEAN_EFFICIENCY = define_metric(
@@ -52,7 +50,7 @@ CHAR_LEQ_DBA = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="dBA",
-    description="Energy-equivalent A-weighted level over the characterization samples, dBA.",
+    description="Energy-equivalent A-weighted level over the characterization samples, dBA, from the recorded robot_acoustics stream; NULL with topic_missing when that stream was not recorded, never modelled from built-in constants.",
     null_reason=True,
 )
 CHAR_MEAN_ENERGY_INTENSITY_J_M = define_metric(
@@ -71,17 +69,6 @@ CHAR_SAMPLE_COUNT = define_metric(
     null_reason=True,
 )
 
-# Last-resort constants, mirroring config/acoustic_profile.yaml.
-_ACOUSTIC_DEFAULTS: typing.Final[dict[str, float]] = {
-    "L_base_0": 42.0,
-    "beta_0": 45.0,
-    "beta_1": 18.0,
-    "beta_2": 5.0,
-    "omega_ref": 5.0,
-    "tau_ref": 10.0,
-    "omega_active": 0.2,
-}
-
 # Head of a dwell where the robot is still accelerating, so not yet steady state.
 _TRANSIENT_S: typing.Final[float] = 1.5  # s, linear, lateral and arc dwells
 _TRANSIENT_ANGULAR_S: typing.Final[float] = 1.0  # s, in-place pivots
@@ -91,92 +78,6 @@ _MIN_SPEED_MPS: typing.Final[float] = 0.05
 _MIN_TURN_RATE_RADPS: typing.Final[float] = 0.05
 _MIN_ACCEL_DT_S: typing.Final[float] = 1e-4
 _MIN_EFFICIENCY_POWER_W: typing.Final[float] = 0.1
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AcousticProfile:
-    """Drivetrain acoustic model coefficients, loaded once at calculator construction."""
-
-    l_base_0_db: float
-    beta_0_db: float
-    beta_1_db: float
-    beta_2_db: float
-    omega_ref_radps: float
-    tau_ref_nm: float
-    omega_active_radps: float
-
-
-BUILTIN_ACOUSTIC_PROFILE: typing.Final[AcousticProfile] = AcousticProfile(
-    l_base_0_db=_ACOUSTIC_DEFAULTS["L_base_0"],
-    beta_0_db=_ACOUSTIC_DEFAULTS["beta_0"],
-    beta_1_db=_ACOUSTIC_DEFAULTS["beta_1"],
-    beta_2_db=_ACOUSTIC_DEFAULTS["beta_2"],
-    omega_ref_radps=_ACOUSTIC_DEFAULTS["omega_ref"],
-    tau_ref_nm=_ACOUSTIC_DEFAULTS["tau_ref"],
-    omega_active_radps=_ACOUSTIC_DEFAULTS["omega_active"],
-)
-
-
-@functools.cache
-def load_acoustic_profile(model: str) -> AcousticProfile:
-    """Per-robot acoustic profile from the arena_robots share directory, the shared profile, else the built-in."""
-    from pathlib import Path
-
-    if not isinstance(model, str) or not model:
-        logger.warning(
-            f"robot model {model!r} is not a name, using built-in acoustic constants"
-        )
-        return BUILTIN_ACOUSTIC_PROFILE
-
-    import yaml
-    from ament_index_python.packages import (
-        PackageNotFoundError,
-        get_package_share_directory,
-    )
-
-    try:
-        share = Path(get_package_share_directory("arena_robots"))
-    except PackageNotFoundError:
-        logger.warning("arena_robots not installed, using built-in acoustic constants")
-        return BUILTIN_ACOUSTIC_PROFILE
-
-    per_robot = share / "robots" / model / "telemetry" / "acoustics.yaml"
-    for candidate in (per_robot, share / "config" / "acoustic_profile.yaml"):
-        if not candidate.is_file():
-            continue
-        try:
-            config = yaml.safe_load(candidate.read_text())
-        except (OSError, yaml.YAMLError) as error:
-            logger.warning(f"unreadable acoustic profile {candidate}: {error!r}")
-            continue
-        if not isinstance(config, dict):
-            logger.warning(
-                f"acoustic profile {candidate} is not a mapping, using built-in acoustic constants"
-            )
-            return BUILTIN_ACOUSTIC_PROFILE
-        missing = sorted(key for key in _ACOUSTIC_DEFAULTS if key not in config)
-        if missing:
-            logger.warning(
-                f"acoustic profile {candidate} lacks {missing}, using built-in values for those"
-            )
-        return AcousticProfile(
-            l_base_0_db=float(config.get("L_base_0", _ACOUSTIC_DEFAULTS["L_base_0"])),
-            beta_0_db=float(config.get("beta_0", _ACOUSTIC_DEFAULTS["beta_0"])),
-            beta_1_db=float(config.get("beta_1", _ACOUSTIC_DEFAULTS["beta_1"])),
-            beta_2_db=float(config.get("beta_2", _ACOUSTIC_DEFAULTS["beta_2"])),
-            omega_ref_radps=float(
-                config.get("omega_ref", _ACOUSTIC_DEFAULTS["omega_ref"])
-            ),
-            tau_ref_nm=float(config.get("tau_ref", _ACOUSTIC_DEFAULTS["tau_ref"])),
-            omega_active_radps=float(
-                config.get("omega_active", _ACOUSTIC_DEFAULTS["omega_active"])
-            ),
-        )
-
-    logger.warning(
-        f"no acoustic profile for {model!r} at {per_robot}, using built-in acoustic constants"
-    )
-    return BUILTIN_ACOUSTIC_PROFILE
 
 
 def _leq_power(level_dba: pl.Series | pl.Expr) -> pl.Series | pl.Expr:
@@ -195,7 +96,6 @@ class CharacterizationCalculator(BaseMetricCalculator):
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (
         CHAR_PHASE_COVERAGE,
@@ -216,10 +116,6 @@ class CharacterizationCalculator(BaseMetricCalculator):
         "ramp_s": pl.Float64,
         "turn_radius_m": pl.Float64,
     }
-
-    def __init__(self, robot_params: RobotParams) -> None:
-        super().__init__(robot_params)
-        self._acoustic_profile = load_acoustic_profile(self.robot_params.model)
 
     def _rebuilt_schedule(self) -> pl.DataFrame:
         """The default schedule for this robot's envelope, for recordings that carry no schedule table."""
@@ -504,24 +400,10 @@ class CharacterizationCalculator(BaseMetricCalculator):
                     .alias("_p_mech"),
                 )
             )
-            joints_stats = (
-                joints_table.select(["t_ns", "velocity", "effort"])
-                .explode(["velocity", "effort"])
-                .group_by("t_ns")
-                .agg(
-                    pl.col("velocity").pow(2).mean().sqrt().alias("_omega_eq"),
-                    pl.col("effort").abs().mean().alias("_t_eq"),
-                )
-                .sort("t_ns")
-            )
-            joints_enriched = joints_table.select(["t_ns", "_p_mech"]).join(
-                joints_stats, on="t_ns", how="left"
-            )
-            out = out.sort("t_ns").join_asof(
-                joints_enriched,
-                on="t_ns",
-                strategy="backward",
-                tolerance=TRACK_ALIGN_TOLERANCE_NS,
+            out = asof_join(
+                out.sort("t_ns"),
+                joints_table.select(["t_ns", "_p_mech"]),
+                tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
             )
         elif has_power:
             out = out.with_columns(
@@ -538,26 +420,6 @@ class CharacterizationCalculator(BaseMetricCalculator):
             if has_acoustics
             else pl.lit(None, dtype=pl.Float64).alias("_dba"),
         )
-
-        if out["_dba"].null_count() == len(out) and has_joints:
-            # Fallback: steady-state drivetrain model from joint states
-            # (omega_eq = RMS wheel speed, t_eq = mean |effort|).
-            profile = self._acoustic_profile
-            out = out.with_columns(
-                pl.col("_omega_eq").clip(lower_bound=profile.omega_active_radps),
-            )
-            p_drive = (
-                (10.0 ** (profile.beta_0_db / 10.0))
-                * (pl.col("_omega_eq") / profile.omega_ref_radps)
-                ** (profile.beta_1_db / 10.0)
-                * (1.0 + pl.col("_t_eq") / profile.tau_ref_nm)
-                ** (profile.beta_2_db / 10.0)
-            )
-            out = out.with_columns(
-                (
-                    10.0 * ((10.0 ** (profile.l_base_0_db / 10.0)) + p_drive).log10()
-                ).alias("_dba")
-            )
 
         return out
 
@@ -638,15 +500,16 @@ class CharacterizationCalculator(BaseMetricCalculator):
         )
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
-        """Phase coverage is unknown, not zero, when no characterization markers were recorded."""
-        if (
-            episode.data is None
-            or "robot_characterization_phase" not in self.native_topics(episode)
-        ):
-            return {
-                "char_phase_coverage": "char_phase_coverage:topic_missing:robot_characterization_phase"
-            }
-        return {}
+        """Unknown, not zero: phase coverage without markers, and the level without the acoustics stream."""
+        topics = self.native_topics(episode)
+        missing: dict[str, str] = {}
+        if episode.data is None or "robot_characterization_phase" not in topics:
+            missing["char_phase_coverage"] = (
+                "char_phase_coverage:topic_missing:robot_characterization_phase"
+            )
+        if "robot_acoustics" not in topics:
+            missing["char_leq_dba"] = "char_leq_dba:topic_missing:robot_acoustics"
+        return missing
 
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]

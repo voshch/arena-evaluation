@@ -1,11 +1,14 @@
 import numpy as np
 import pytest
 
-pl = pytest.importorskip("polars")
+pytest.importorskip("polars")
 pytest.importorskip("arena_simulation_setup.shared.conditions")
+
+import polars as pl
 
 from arena_simulation_setup.shared.conditions import parse_atom, parse_node
 
+from arena_evaluation.processing.metrics.base import Direction
 from arena_evaluation.processing.metrics.common.events import reconstruct_events as _reconstruct_events
 from arena_evaluation.processing.metrics.common.zones import ZoneGeometry as _ZoneGeometry
 from arena_evaluation.processing.metrics.common.caching import loaded_worlds, world_cache
@@ -435,6 +438,19 @@ def test_clause_verdict_unknown_on_malformed_dict():
     assert _clause_verdict({"p": "robot in lobby"}, ctx) is None
 
 
+def test_condition_outputs_declare_their_better_side():
+    assert ConditionComplianceCalculator.DIRECTIONS == {
+        "condition_success": Direction.HIGHER,
+        "clauses_passed": Direction.HIGHER,
+        "clauses_failed": Direction.LOWER,
+        "clauses_unknown": Direction.LOWER,
+    }
+    assert "clauses_total" not in ConditionComplianceCalculator.DIRECTIONS
+    assert set(ConditionComplianceCalculator.PRIMARY_OUTPUTS) <= set(
+        ConditionComplianceCalculator.DIRECTIONS
+    )
+
+
 # -- calculator end to end ------------------------------------------------
 
 
@@ -479,7 +495,7 @@ def test_calculate_false_dominates_unknown():
 
     results = calc.calculate(_episode(data, conditions=conditions), {})
 
-    assert results["condition_success"] == 0.0
+    assert results["condition_success"] is False
     assert results["clauses_total"] == 2
     assert results["clauses_failed"] == 1
     assert results["clauses_unknown"] == 1
@@ -531,7 +547,7 @@ def test_calculate_success_when_all_true():
 
     results = calc.calculate(_episode(data, conditions=conditions), {})
 
-    assert results["condition_success"] == 1.0
+    assert results["condition_success"] is True
     assert results["clauses_passed"] == 1
     assert results["clauses_total"] == 1
 
@@ -613,7 +629,7 @@ def test_calculate_plays_atom_from_the_recorded_gestures():
     episode.topics = {"pedestrian_tracks": peds, "pedestrian_gestures": gestures.clear()}
     results = calc.calculate(episode, {})
 
-    assert results["condition_success"] == 0.0
+    assert results["condition_success"] is False
     assert results["clauses_failed"] == 1
     assert results["clauses_passed"] == 1
     assert results["clauses_unknown"] == 1

@@ -9,8 +9,10 @@ from arena_evaluation.processing.metrics.naturalness.trajectory import (
     TrajectoryMetricsCalculator,
 )
 from arena_evaluation.processing.metrics.performance.efficiency_metrics import (
+    PATH_EFFICIENCY,
     PathEfficiencyCalculator,
 )
+from arena_evaluation.processing.metrics.performance.vln_metrics import SPL_GEODESIC
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 SEC = 1_000_000_000
@@ -84,6 +86,13 @@ def _straight_episode(run_dir: pathlib.Path | None = None) -> AlignedEpisodeBund
     return _episode(
         _gt(xs, [0.0] * len(xs)), [10.0, 0.0], map_name=OPEN_ROOM, run_dir=run_dir
     )
+
+
+def test_both_route_ratio_descriptions_state_the_shared_commanded_reference_rule():
+    for metric in (PATH_EFFICIENCY, SPL_GEODESIC):
+        assert "commanded" in metric.description
+        assert "NULL" in metric.description
+        assert "longer than the sampled path" in metric.description
 
 
 def test_path_efficiency_uses_the_geodesic_reference_prior():

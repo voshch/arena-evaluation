@@ -11,7 +11,10 @@ from scipy.spatial.distance import cdist
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.common.alignment import interpolate_values
-from arena_evaluation.processing.metrics.common.routes import plan_mission
+from arena_evaluation.processing.metrics.common.routes import (
+    REFERENCE_EXCEEDS_PATH,
+    plan_mission,
+)
 from arena_evaluation.processing.path.static_environment import grid_for_map
 from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -19,6 +22,17 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _STEPS = ((0, 1, 1.0), (1, 0, 1.0), (1, 1, math.sqrt(2.0)), (1, -1, math.sqrt(2.0)))
 _OCTILE_MAX_RATIO = math.sqrt(4.0 - 2.0 * math.sqrt(2.0))
+
+# The world asset is absent from disk: the route was never measurable, but the episode still ran.
+MISSING_WORLD: typing.Final[str] = "not_recorded:world"
+_ROUTE_OUTPUTS: typing.Final[tuple[str, ...]] = (
+    "ne",
+    "osr",
+    "success_geodesic",
+    "spl_geodesic",
+    "ndtw",
+    "sdtw",
+)
 
 NE = define_metric(
     "ne",
@@ -49,7 +63,7 @@ SPL_GEODESIC = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="1",
-    description="Success weighted by the chained per-goto geodesic reference length over the travelled length, 0 to 1.",
+    description="Success weighted by the chained geodesic length through the commanded goto goals over the travelled length, 0 to 1; NULL for a successful run whose planned route is longer than the sampled path, the same reference rule as path_efficiency, and 0 for a failed one.",
     null_reason=True,
 )
 NDTW = define_metric(
@@ -247,9 +261,12 @@ def _within(
     start_xy: tuple[float, float],
     goal_xy: tuple[float, float],
     threshold: float,
-) -> bool:
-    length_m = plan_route(grid, start_xy, goal_xy).length_m
-    return length_m is not None and length_m <= threshold
+) -> tuple[bool, str | None]:
+    """Whether the route is within the threshold, and the planner's reason when it refuses."""
+    route_result = plan_route(grid, start_xy, goal_xy)
+    if route_result.length_m is None:
+        return False, route_result.null_reason
+    return route_result.length_m <= threshold, None
 
 
 class VlnMetricsCalculator(BaseMetricCalculator):
@@ -259,7 +276,6 @@ class VlnMetricsCalculator(BaseMetricCalculator):
     CATEGORY = "performance"
     DEPENDS_ON = ["collision_metrics", "path_metrics"]
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
-    PARAMS = ()
 
     OUTPUTS = (NE, OSR, SUCCESS_GEODESIC, SPL_GEODESIC, NDTW, SDTW, STUCK, GOAL_INPUTS)
     DIRECTIONS = {
@@ -281,9 +297,16 @@ class VlnMetricsCalculator(BaseMetricCalculator):
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        grid = grid_for_map(
-            episode.map, episode.run_dir, self.robot_params.robot_radius
-        )
+        """Route metrics on the episode's world grid; a world asset that is not on disk nulls them with its reason."""
+        try:
+            grid = grid_for_map(
+                episode.map, episode.run_dir, self.robot_params.robot_radius
+            )
+        except FileNotFoundError:
+            results = self.calculate_on_grid(episode, prior_results, None)
+            for key in _ROUTE_OUTPUTS:
+                results[f"{key}_null_reason"] = MISSING_WORLD
+            return results
         return self.calculate_on_grid(episode, prior_results, grid)
 
     def calculate_on_grid(
@@ -341,8 +364,15 @@ class VlnMetricsCalculator(BaseMetricCalculator):
     ) -> None:
         start_xy = (float(pos_x[0]), float(pos_y[0]))
         goal_xy = goals[-1]
+        final_route = plan_route(grid, (float(pos_x[-1]), float(pos_y[-1])), goal_xy)
+        results["ne"] = final_route.length_m
+        if final_route.null_reason is not None:
+            results["ne_null_reason"] = final_route.null_reason
         goal_cell = grid.cell_of(*goal_xy)
         if goal_cell is None:
+            if threshold is not None and final_route.null_reason is not None:
+                results["osr"] = None
+                results["osr_null_reason"] = final_route.null_reason
             return
         field = geodesic_field(grid.lethal, goal_cell, grid.resolution_m)
         dists = geodesic_distances(
@@ -350,10 +380,6 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         )
 
         finite = np.isfinite(dists)
-        if finite[-1]:
-            results["ne"] = plan_route(
-                grid, (float(pos_x[-1]), float(pos_y[-1])), goal_xy
-            ).length_m
         if threshold is None:
             return
 
@@ -366,10 +392,20 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         )
         euclid = np.hypot(pos_x[near] - goal_xy[0], pos_y[near] - goal_xy[1])
         near = near[euclid <= threshold][np.argsort(euclid[euclid <= threshold])]
-        results["osr"] = any(
-            _within(grid, (float(pos_x[i]), float(pos_y[i])), goal_xy, threshold)
-            for i in near
-        )
+        results["osr"] = False
+        refusal: str | None = None
+        for i in near:
+            inside, reason = _within(
+                grid, (float(pos_x[i]), float(pos_y[i])), goal_xy, threshold
+            )
+            if inside:
+                results["osr"] = True
+                break
+            if refusal is None:
+                refusal = reason
+        if not results["osr"] and refusal is not None:
+            results["osr"] = None
+            results["osr_null_reason"] = refusal
         if results["ne"] is not None and success is not None:
             results["success_geodesic"] = bool(success) and results["ne"] <= threshold
 
@@ -380,10 +416,21 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         if mission.points is None or mission.length_m is None:
             return
         if results["success_geodesic"] is not None and path_length is not None:
-            denom = max(float(path_length), float(mission.length_m))
-            results["spl_geodesic"] = float(results["success_geodesic"]) * (
-                float(mission.length_m) / denom if denom > 0 else 1.0
+            reference_length = float(mission.length_m)
+            travelled_length = float(path_length)
+            ratio = (
+                reference_length / travelled_length if travelled_length > 0.0 else 1.0
             )
+            if ratio > 1.0:
+                if results["success_geodesic"]:
+                    # The sampled path came out shorter than the route: out of range, never clamped to one.
+                    results["spl_geodesic"] = None
+                    results["spl_geodesic_null_reason"] = REFERENCE_EXCEEDS_PATH
+                else:
+                    # A failed run scores zero whatever the ratio: the weight is never applied.
+                    results["spl_geodesic"] = 0.0
+            else:
+                results["spl_geodesic"] = float(results["success_geodesic"]) * ratio
 
         results["ndtw"] = ndtw(
             mission.points,

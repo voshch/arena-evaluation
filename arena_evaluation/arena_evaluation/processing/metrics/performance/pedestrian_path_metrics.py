@@ -1,9 +1,10 @@
 """Pedestrian trajectories as a flat 1NF series table.
 
-One row per recorded pedestrian frame ``(t_ns, ped_id)``, carrying the position and,
-when the recording published them, the velocity components. The legacy per-pedestrian
-list column is the pre-1NF mirror and has no scalar replacement: this calculator
-publishes no metric-row outputs, only :meth:`series_table`.
+One row per recorded pedestrian sample ``(t_ns, ped_id)``, carrying the position and,
+when the recording published them, the velocity components. The series holds no held last
+position: consumers must use an as-of join to read a pedestrian at another time. The legacy
+per-pedestrian list column is the pre-1NF mirror and has no scalar replacement: this
+calculator publishes no metric-row outputs, only :meth:`series_table`.
 """
 
 from __future__ import annotations
@@ -35,7 +36,6 @@ class PedestrianPathMetricsCalculator(BaseMetricCalculator):
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["pedestrian_tracks"]
     REQUIRES_PEDSIM = True
-    PARAMS = ()
 
     OUTPUTS = ()
 
@@ -52,10 +52,11 @@ class PedestrianPathMetricsCalculator(BaseMetricCalculator):
         return pl.col(column).cast(pl.Float64)
 
     def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
-        """1NF flat pedestrian path series, one row per (t_ns, ped_id); schema-typed when empty.
+        """1NF flat pedestrian path series, one row per recorded pedestrian sample; schema-typed when empty.
 
-        Duplicate recorded telemetry samples for the same key collapse to the last row, so the
-        published natural key is honest.
+        The series holds no held last position: consumers must use an as-of join to read a
+        pedestrian at another time. Duplicate recorded telemetry samples for the same key
+        collapse to the last row, so the published natural key is honest.
         """
         tracks = self.native_ped_frame(episode)
         if tracks is None or tracks.height == 0:

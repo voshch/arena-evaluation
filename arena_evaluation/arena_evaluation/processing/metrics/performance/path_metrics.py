@@ -180,11 +180,11 @@ class PathMetricsCalculator(BaseMetricCalculator):
     CATEGORY = "performance"
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (PATH_LENGTH_M, CURVATURE_MEAN, CURVATURE_MAX, ROUGHNESS_MEAN, ROUGHNESS_MAX, ANGLE_OVER_LENGTH)
     DIRECTIONS = {
         "curvature_mean": Direction.LOWER,
+        "path_length_m": Direction.LOWER,
         "roughness_mean": Direction.LOWER,
     }
     PRIMARY_OUTPUTS = ["path_length_m", "curvature_mean", "roughness_mean"]

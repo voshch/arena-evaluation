@@ -8,7 +8,11 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, ScopeSlice
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
 from arena_evaluation.processing.metrics.common.caching import load_world
 from arena_evaluation.processing.metrics.common.events import (
     reconstruct_events as _reconstruct_events,
@@ -31,7 +35,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     parse_members,
     robot_env_snapshot,
 )
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 if typing.TYPE_CHECKING:
@@ -44,14 +48,14 @@ ENTERED_OVER_CAP_ZONE = define_metric(
     "entered_over_cap_zone",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the regime_metrics calculator",
+    description="Count of robot entries into an occupancy-cap zone while it is over cap; NULL when the occupancy-cap stream, world asset or robot track is absent.",
     null_reason=True,
 )
 RAN_RED_SIGNAL = define_metric(
     "ran_red_signal",
     pl.Int64,
     scopes=(MetricScope.ROBOT,),
-    description="ecological metric of the regime_metrics calculator",
+    description="Count of robot entries into a stopped signal's guarded disc; NULL when the signal stream, world asset or robot track is absent.",
     null_reason=True,
 )
 REPLAN_LATENCY_AFTER_STATE_CHANGE_MEDIAN = define_metric(
@@ -59,7 +63,7 @@ REPLAN_LATENCY_AFTER_STATE_CHANGE_MEDIAN = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="s",
-    description="ecological metric of the regime_metrics calculator",
+    description="Median seconds from a trigger to the next cmd_vel change; unanswered triggers are excluded, replan_unanswered_triggers counts them; NULL without either stream.",
     null_reason=True,
 )
 REPLAN_LATENCY_AFTER_STATE_CHANGE_P95 = define_metric(
@@ -67,7 +71,14 @@ REPLAN_LATENCY_AFTER_STATE_CHANGE_P95 = define_metric(
     pl.Float64,
     scopes=(MetricScope.ROBOT,),
     unit="s",
-    description="ecological metric of the regime_metrics calculator",
+    description="P95 seconds from a trigger to the next cmd_vel change; unanswered triggers are excluded, replan_unanswered_triggers counts them; NULL without either stream.",
+    null_reason=True,
+)
+REPLAN_UNANSWERED_TRIGGERS = define_metric(
+    "replan_unanswered_triggers",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of replan triggers with no later cmd_vel change, excluded from the latency percentiles; NULL without the trigger or cmd_vel stream.",
     null_reason=True,
 )
 USED_ELEVATOR_DURING_ALARM = define_metric(
@@ -343,6 +354,11 @@ def _latency_distribution(triggers: list[int], changes: list[int]) -> list[float
     return latencies
 
 
+def _unanswered_trigger_count(triggers: list[int], changes: list[int]) -> int:
+    """Count of triggers with no later `cmd_vel` change."""
+    return sum(1 for t in triggers if bisect.bisect_right(changes, t) == len(changes))
+
+
 class RegimeMetricsCalculator(BaseMetricCalculator):
     """
     Regime-change metrics replayed from the semantic snapshot, reconstructed into a
@@ -363,7 +379,6 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     NAME = "regime_metrics"
     CATEGORY = "ecological"
     REQUIRED_TOPICS = ["robot_tracks"]
-    PARAMS = ()
 
     OUTPUTS = (
         USED_ELEVATOR_DURING_ALARM,
@@ -371,7 +386,15 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         ENTERED_OVER_CAP_ZONE,
         REPLAN_LATENCY_AFTER_STATE_CHANGE_MEDIAN,
         REPLAN_LATENCY_AFTER_STATE_CHANGE_P95,
+        REPLAN_UNANSWERED_TRIGGERS,
     )
+    DIRECTIONS = {
+        "ran_red_signal": Direction.LOWER,
+        "entered_over_cap_zone": Direction.LOWER,
+        "used_elevator_during_alarm": Direction.LOWER,
+        "replan_latency_after_state_change_median": Direction.LOWER,
+        "replan_latency_after_state_change_p95": Direction.LOWER,
+    }
     PRIMARY_OUTPUTS = ["ran_red_signal", "entered_over_cap_zone"]
 
     CMD_CHANGE_EPSILON = 0.05
@@ -491,7 +514,11 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         if has_events and (kinds & {"door", "gate", "signal", "schedule"}):
             cmd_changes = _cmd_vel_change_times(episode.data, self.CMD_CHANGE_EPSILON)
             if cmd_changes is not None:
-                latencies = _latency_distribution(_replan_triggers(events), cmd_changes)
+                triggers = _replan_triggers(events)
+                latencies = _latency_distribution(triggers, cmd_changes)
+                results["replan_unanswered_triggers"] = _unanswered_trigger_count(
+                    triggers, cmd_changes
+                )
                 if latencies:
                     results["replan_latency_after_state_change_median"] = float(
                         np.median(latencies)
@@ -507,3 +534,23 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
             )
 
         return results
+
+    def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
+        """Replan latency is unknown, not zero, when an input stream it needs was not recorded."""
+        has_cmd_vel = episode.data is not None and any(
+            column in episode.data.columns for column in _CMD_VEL_COLUMNS
+        )
+        if not has_cmd_vel:
+            reason = f"{NullReason.TOPIC_MISSING.value}:robot_cmd_vel"
+        elif episode.semantic_snapshot is None or episode.semantic_snapshot.height == 0:
+            reason = f"{NullReason.TOPIC_MISSING.value}:world_semantics"
+        else:
+            return {}
+        return {
+            metric: f"{metric}:{reason}"
+            for metric in (
+                "replan_latency_after_state_change_median",
+                "replan_latency_after_state_change_p95",
+                "replan_unanswered_triggers",
+            )
+        }

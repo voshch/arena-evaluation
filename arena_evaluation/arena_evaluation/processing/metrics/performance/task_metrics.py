@@ -23,6 +23,9 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     load_wall_grid,
     load_zone_geometry,
 )
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    RobotIdentity,
+)
 from arena_evaluation.processing.pedestrian_frames import frames_of
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -41,7 +44,7 @@ JUDGE_AGREES = define_metric(
     pl.Boolean,
     scopes=(MetricScope.ROBOT,),
     unit="",
-    description="Whether the shared judge's replay agrees with every recorded phase verdict and violated condition.",
+    description="Whether the shared judge's replay contradicts a recorded phase verdict or violated condition; a phase the record marks failed and the replay does not meet agrees, only a contradiction is reported.",
     null_reason=True,
 )
 PHASES_DROPPED = define_metric(
@@ -94,9 +97,19 @@ def _robot_events(
     events: pl.DataFrame, robot: str
 ) -> dict[str, tuple[np.ndarray, list[str]]]:
     """Stepwise series of the robot entity's fields (phase, met, failed, dropped, violated), keyed by field."""
+    identity = RobotIdentity(robot)
+    robot_entities = (
+        events.lazy()
+        .filter(pl.col("kind") == "robot")
+        .select(pl.col("entity").unique())
+        .filter(
+            pl.col("entity").map_elements(identity.matches, return_dtype=pl.Boolean)
+        )
+        .collect()
+        .get_column("entity")
+    )
     rows = events.filter(
-        (pl.col("kind") == "robot")
-        & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot)
+        (pl.col("kind") == "robot") & pl.col("entity").is_in(robot_entities.implode())
     )
     series: dict[str, tuple[np.ndarray, list[str]]] = {}
     for (field,), group in rows.group_by(["field"]):
@@ -140,12 +153,15 @@ def _zones_for_world(world: str | None) -> list[ZoneGeometry] | None:
 
 
 class TaskReplayCalculator(BaseMetricCalculator):
-    """Replays the robot's recorded phases with the shared judge and compares its verdicts to the recorded ones."""
+    """Replays the robot's recorded phases with the shared judge and compares its verdicts to the recorded ones.
+
+    A phase the record marks failed and the replay also does not meet is agreement, not a disagreement:
+    only a contradiction (the replay meets a failed phase, or misses one the record marks met) is reported.
+    """
 
     NAME = "task_replay"
     CATEGORY = "performance"
     REQUIRED_TOPICS = ["robot_task_pose"]
-    PARAMS = ()
 
     OUTPUTS = (
         GOAL_CONDITION_RATE,
@@ -177,7 +193,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
         robot = bare_robot_name(episode.robot_name or "")
         snapshot = episode.semantic_snapshot
         events = reconstruct_events(snapshot)
-        robot_series = _robot_events(events, robot)
+        robot_series = _robot_events(events, episode.robot_name or "")
 
         met = set(_split_indices(_last(robot_series, "met")))
         failed = set(_split_indices(_last(robot_series, "failed")))
@@ -306,20 +322,23 @@ def _phase_disagreements(
     failed: set[int],
     dropped: set[int],
 ) -> list[str]:
-    """Compare replayed phase verdict against recorded met/failed/dropped sets."""
-    disagreements: list[str] = []
-    closed = index in met or index in failed
-    if monitor.misfire is not None and index in met:
-        disagreements.append(
-            f"phase {index} recorded as met but {monitor.misfire} in replay"
+    """Compare the replayed verdict against the recorded one; only a contradiction is a disagreement."""
+    if index in met:
+        if monitor.misfire is not None:
+            return [f"phase {index} recorded as met but {monitor.misfire} in replay"]
+        if not replay_met:
+            return [f"phase {index} recorded as met but not met in replay"]
+        return []
+    if index in failed:
+        # Both say the phase did not succeed: that is agreement, so nothing is reported.
+        return (
+            [f"phase {index} recorded as failed but met in replay"]
+            if replay_met
+            else []
         )
-    elif closed and not replay_met and monitor.misfire is None:
-        disagreements.append(f"phase {index} recorded as met but not met in replay")
-    if index not in met | failed | dropped and replay_met:
-        disagreements.append(
-            f"phase {index} met in replay but still pending in the record"
-        )
-    return disagreements
+    if index not in dropped and replay_met:
+        return [f"phase {index} met in replay but still pending in the record"]
+    return []
 
 
 def _replay_phases(
