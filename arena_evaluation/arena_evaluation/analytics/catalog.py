@@ -125,11 +125,18 @@ class BenchmarkCatalog:
     def __init__(
         self,
         source: pathlib.Path | Mapping[str, pl.LazyFrame | pl.DataFrame] | None = None,
+        *,
+        variant: str | None = None,
     ) -> None:
         self._tables: dict[str, pl.LazyFrame] = {}
         self._source_dir: pathlib.Path | None = (
             source if isinstance(source, pathlib.Path) else None
         )
+        if variant not in (None, "sensitivity"):
+            raise ValueError(
+                f"Unsupported catalog variant {variant!r}; expected None or 'sensitivity'"
+            )
+        self._variant = variant
         self._snapshot_id: str | None = None
         self._load_source(source)
         self._register_canonical_views()
@@ -141,6 +148,20 @@ class BenchmarkCatalog:
         if self._snapshot_id is not None:
             return self._snapshot_id
         if self._source_dir is not None:
+            from arena_evaluation.analytics.merge import load_merge_manifest
+
+            merge_manifest = load_merge_manifest(self._source_dir)
+            if merge_manifest is not None:
+                hasher = hashlib.sha256()
+                for src in merge_manifest.sources:
+                    hasher.update(src.run_id.encode())
+                    hasher.update(
+                        compute_snapshot_id(pathlib.Path(src.run_dir)).encode()
+                    )
+                    for k, v in sorted(src.labels.items()):
+                        hasher.update(f"{k}={v}".encode())
+                self._snapshot_id = f"snap-{hasher.hexdigest()[:12]}"
+                return self._snapshot_id
             self._snapshot_id = compute_snapshot_id(self._source_dir)
             return self._snapshot_id
         hasher = hashlib.sha256()
@@ -163,9 +184,59 @@ class BenchmarkCatalog:
 
     def _load_from_directory(self, source_dir: pathlib.Path) -> None:
         """Scan Star Schema tables, series tables, and telemetry tables from ``source_dir``."""
+        from arena_evaluation.analytics.merge import load_merge_manifest
+
+        merge_manifest = load_merge_manifest(source_dir)
+        if merge_manifest is not None:
+            self._load_merged_directory(source_dir, merge_manifest)
+            return
         self._tables.update(scan_star_schema(source_dir))
         self._tables.update(scan_series_tables(source_dir))
         self._tables.update(scan_telemetry_tables(source_dir))
+        self._register_evidence_index(source_dir)
+
+    def _load_merged_directory(
+        self,
+        source_dir: pathlib.Path,
+        merge_manifest: object,
+    ) -> None:
+        """Compose a lazy catalog across multiple source runs without copying episodes."""
+        from arena_evaluation.analytics.merge import MergeManifest
+
+        assert isinstance(merge_manifest, MergeManifest)
+        all_label_keys = sorted(
+            {k for src in merge_manifest.sources for k in src.labels}
+        )
+        per_table: dict[str, list[pl.LazyFrame]] = {}
+        for src in merge_manifest.sources:
+            src_path = pathlib.Path(src.run_dir)
+            src_tables: dict[str, pl.LazyFrame] = {}
+            src_tables.update(scan_star_schema(src_path))
+            src_tables.update(scan_series_tables(src_path))
+            src_tables.update(scan_telemetry_tables(src_path))
+            if "dim_episodes" in src_tables:
+                label_exprs = [
+                    pl.lit(src.run_id, dtype=pl.String).alias("source_run_id"),
+                    *(
+                        pl.lit(src.labels.get(k), dtype=pl.String).alias(k)
+                        for k in all_label_keys
+                    ),
+                ]
+                src_tables["dim_episodes"] = src_tables["dim_episodes"].with_columns(
+                    label_exprs
+                )
+            for name, lf in src_tables.items():
+                if "run_id" in lf.collect_schema().names():
+                    lf = lf.with_columns(
+                        pl.lit(src.run_id, dtype=pl.String).alias("run_id")
+                    )
+                per_table.setdefault(name, []).append(lf)
+        for name, frames in per_table.items():
+            self._tables[name] = (
+                frames[0]
+                if len(frames) == 1
+                else pl.concat(frames, how="diagonal_relaxed")
+            )
         self._register_evidence_index(source_dir)
 
     def _load_from_mapping(
@@ -199,9 +270,14 @@ class BenchmarkCatalog:
         )
 
     @classmethod
-    def open(cls, benchmark: pathlib.Path) -> BenchmarkCatalog:
+    def open(
+        cls,
+        benchmark: pathlib.Path,
+        *,
+        variant: str | None = None,
+    ) -> BenchmarkCatalog:
         """Open a benchmark directory as a lazy ``BenchmarkCatalog``."""
-        return cls(benchmark)
+        return cls(benchmark, variant=variant)
 
     def is_protected_table(self, name: str) -> bool:
         """Return whether ``name`` is a registered base table or canonical view."""

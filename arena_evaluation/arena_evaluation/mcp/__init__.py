@@ -9,6 +9,7 @@ from . import (
     query,
     recording,
     runs,
+    schema,
     slices,
 )
 from .base import domain
@@ -23,5 +24,6 @@ __all__ = [
     "query",
     "recording",
     "runs",
+    "schema",
     "slices",
 ]
