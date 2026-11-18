@@ -157,6 +157,8 @@ is a quality-gate failure, not a renderer crash.
 
 ## Plot Types
 
+The registry registers **18** renderer types; `PLOT_TYPE` is the key a declaration's `type` names.
+
 - `violin` / `box`: Distribution of a metric per group.
 - `bar`: Mean +/- error bar chart (`err_plus`/`err_minus` options; `barmode` for grouping).
 - `histogram`: Binned distribution (`distribution_bins`, `bin_low`/`bin_high`).

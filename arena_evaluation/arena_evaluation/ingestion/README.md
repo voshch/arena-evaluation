@@ -215,6 +215,11 @@ A present but unrecognised episode or fleet schema is `unknown` and is refused w
 - Report: every run writes `migration_report.yaml` with the generation, mapped fields, fallbacks, unsupported constructs and error of each episode, plus the retired files.
 - Failure: an episode that cannot be mapped is recorded as failed and the remaining episodes still migrate. The command exits non-zero with the list of failed episodes; a failed episode keeps its topics and YAML as they were.
 - Flags (exposed by the CLI): `--dry-run` detects and reports without writing, `--force` re-extracts even when the cache is current, `--report <path>` writes the report elsewhere.
+- Limits: one MCAP per episode folder (continuous recordings split by an EpisodeRecord are out of scope, D-05); no back-fill of missing measurements; old processed values are quarantined and recomputed, never imported; `progress.csv` is runner state and is not migrated.
+- Known gaps at `f355ece2`: a `legacy_2026_09` record whose EpisodeRecord predates `human_params`/`conditions`/`phases` still raises (`H-012`), and a `legacy_2026_11` fleet that carries only sensor parameters yields no `robot_radius`/`robot_mass_kg`, so `process` raises `MetricInputError`. Both are recorded in `FIX10 - report.md` with the observed command output.
+
+The full generation table, NULL mapping, descriptor synthesis rule, `migration_report.yaml` schema and
+limits are in [docs/migrate.md](../../docs/migrate.md).
 
 ---
 

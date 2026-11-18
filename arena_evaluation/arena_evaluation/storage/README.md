@@ -8,7 +8,7 @@ The stored layout of one benchmark: the registry that declares every stored tabl
 
 | File | Purpose |
 |---|---|
-| `registry/` | One `Table` class per stored table: columns, units, row keys, null reasons, the Polars and Arrow schemas and the file path. `table.py` the `Table` base class and the metric declarations, `telemetry.py` the recorded tables, `dimensions.py` the six dimension tables, the metric dictionary among them, `facts.py` the identity and recorded columns of the fact tables (the metric layer declares the metric columns), `scopes.py` the scopes and `null_reasons.py` the reasons of a NULL |
+| `registry/` | One `Table` class per stored table: columns, units, row keys, null reasons, the Polars and Arrow schemas and the file path. `table.py` the `Table` base class and the metric declarations, `telemetry.py` the recorded tables, `dimensions.py` the six dimension tables, the six dimension tables and the metric dictionary among them, `facts.py` the identity and recorded columns of the fact tables (the metric layer declares the metric columns), `scopes.py` the scopes and `null_reasons.py` the reasons of a NULL |
 | `star_schema.py` | Dimension tables: `conform` a frame to its registry schema, `stack` the episodes, `write_benchmark_dimensions` once at the benchmark root |
 | `contracts.py` | The dimension contract: registry schema, unique non-NULL keys, and a reason for every NULL. A violation raises `ContractViolationError` |
 | `schemas.py` | `RunMetadata` (the metadata of one episode), `EpisodeDescriptor`, `RobotParams`, and `TopicBundle` (the recorded tables of one robot) |
@@ -23,17 +23,24 @@ The stored layout of one benchmark: the registry that declares every stored tabl
 
 ```
 <data root>/<benchmark_id>/
+|-- manifest.yaml                 the runner's run manifest
+|-- benchmark_layout.yaml         the layout version and registry schema hash of the tables
+|-- contract_report.yaml          the last benchmark-contract verdict
+|-- migration_report.yaml         written by `evaluation migrate` (see docs/migrate.md)
 |-- dim_episodes.parquet          one row per episode and robot
 |-- dim_robots.parquet
 |-- dim_pedestrians.parquet
 |-- dim_world_entities.parquet
 |-- dim_world_geometry.parquet    one row per vertex of a world's geometry
 |-- dim_metrics.parquet           one row per metric and scope: the metric dictionary
-`-- episodes/episode_NNN/
-    |-- episode_NNN.mcap          the recording
-    |-- episode_NNN.yaml          RunMetadata of the episode
-    |-- topics/                   the native tables, one Parquet file each
-    `-- metrics/                  the fact tables and the series tables, one Parquet file each
+|-- episodes/episode_NNN/
+|   |-- episode_NNN.mcap          the recording
+|   |-- episode_NNN.yaml          RunMetadata of the episode
+|   |-- topics/                   the native tables, one Parquet file each
+|   `-- metrics/                  the fact tables and the series tables, one Parquet file each
+|-- analysis/                     run-local reports/, plots/, queries/ and evidence/ (Layer 3)
+|-- reports/<name>/               rendered report.html and its plots/*.png (Layer 4)
+`-- legacy/                       pre-overhaul outputs quarantined by the migration, never read
 ```
 
 ## Rules

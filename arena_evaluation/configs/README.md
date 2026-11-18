@@ -75,7 +75,7 @@ extension has the extension stripped before it is sent (`4.json` and `4` are equ
 | `map` | string | World name |
 | `robot` | string | Robot model |
 | `modes` | mapping | Axis to mode name, one entry per axis of the suite's task runtime (task_generator: `robots`, `obstacles`, `modules`). Names are strings, checked by the runtime's `validate_modes` (case-insensitive, stored in the runtime's spelling). `modules` takes a comma-separated list, a single-mode axis (`robots`, `obstacles`) exactly one name. An axis left out is sent empty. The parse and `evaluation_validate_suite` fail with the validator's message for an unknown axis or name and for a single-mode axis without exactly one name |
-| `tm_<axis>` | string | Legacy spelling of one `modes` entry (`tm_robots`, `tm_obstacles`), accepted unchanged. Setting an axis in both forms fails the parse |
+| `tm_<axis>` | string | Legacy spelling of one `modes` entry (`tm_robots`, `tm_obstacles`), accepted unchanged for runner compatibility and **deprecated** (to be removed with the old manifests). Setting an axis in both forms fails the parse |
 | `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
 | `config` | dict | Per-mode params. Top-level keys must name a mode the stage selects (e.g. `scenario`, `random`). Inner leaves map to `<mode namespace>.<leaf>` via QueueEpisode, the namespace being the mode's entry in the runtime's `mode_namespaces()` (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
 | `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`), the modes hashed under their `tm_<axis>` keys; can be set explicitly |
@@ -342,6 +342,21 @@ footprint contacts a wall, static obstacle, or pedestrian, instead of the
 default run-to-goal-or-timeout. See
 [BRINGUP.md -> Common options](../../../../arena_bringup/BRINGUP.md#common-options).
 
+## Where the configs moved
+
+Before the overhaul the runner read `configs/benchmark/{suites,contests,manifests}/<name>.yaml`. The
+files now live in named bundles: `configs/suites/<name>/suite.yaml`,
+`configs/contests/<name>/contest.yaml`, `configs/reports/<name>/report.yaml`,
+`configs/plots/<name>/plot.yaml` and `configs/queries/<name>/query.yaml`. A named argument resolves
+the bundle directory, a path to the YAML file, or (for reports) inline `{...}` YAML; the old
+`configs/benchmark/**` tree is not read any more. Recording migration is documented in
+`arena_evaluation/docs/migrate.md`; the declaration converter is
+`arena_evaluation/scripts/migrate_legacy_manifests.py`.
+
+Metric renames introduced by the overhaul are listed in `arena_evaluation/docs/migrate.md` §2.3
+(the converter's checked-in `legacy_metric_map`, the `*_vs_planned_route` renames and the retired
+social-force/acoustic scalars). Ask the converter (`--dry-run`) rather than renaming by hand.
+
 ## Report Files
 
 Declarative report manifests live under `configs/reports/<name>/report.yaml`.
@@ -351,10 +366,16 @@ Each report defines `manifest_version`, `name`, optional `title`, `data_source`,
 
 Reusable single-grammar plot declarations live under `configs/plots/<name>/plot.yaml` and are referenced in reports with `uses: <name>`:
 
-- `contact_closing_share` — contact closing share heatmap bound to `v_contact_summary`
+- `acoustic_field` — spatial acoustic field, bound in `everything`
+- `contact_closing_share` — contact closing share bar bound to `v_contact_summary`
 - `encounter_hierarchy_treemap` — hierarchical treemap bound to `v_encounter_summary`
 - `multi_planner_radar` — radar profile bound to `radar_profile`
 - `scorecard_table` — planner scorecard table bound to `v_planner_scorecard`
+- `success_without_contact_interval` — interval plot of the visible-minus-blind difference
+- `success_without_contact_panel` — bar panel of success without pedestrian contact
+
+The seven shipped reports declare 313 plots in total (`standard` 69, `everything` 84,
+`failure_modes` 48, `social` 36, `safety` 29, `characterization` 25, `ecological` 22).
 
 ## Query Files
 

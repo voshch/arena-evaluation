@@ -49,7 +49,7 @@ carries none from `arena_robots.characterization`, the module the
 +---------------------------------------------------------------------+
 ```
 
-**Layer 3 — Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, and `v_series_*`). Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
+**Layer 3 — Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside the six canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, `v_pedestrian_summary`) and the `v_series_*` views. Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
 
 ---
 
@@ -96,7 +96,7 @@ arena_evaluation/
 |   |   |-- static_renderer.py <- Static PNG/SVG chart dispatcher
 |   |   |-- color_utils.py     <- Palette loader and styling
 |   |   |-- report_template.html.j2 <- Jinja2 report template
-|   |   `-- plot_types/        <- violin, box, bar, histogram, scatter, trajectory, radar, heatmap, timeseries, line, hierarchy, ecdf, pair
+|   |   `-- plot_types/        <- acoustic_field, acoustic_field_animation, bar, box, breakdown, heatmap, hierarchy, histogram, interval, line, radar, rank_swap, scatter, table, timeseries, trajectory, trajectory_slice, violin (18 types)
 |   |-- benchmark/             <- Benchmark runner and CLI
 |   |   |-- runner.py          <- BenchmarkRunner
 |   |   |-- config.py          <- Suite and Contest parsers
@@ -160,17 +160,42 @@ arena evaluation extract --benchmark-dir <run_id>
 
 Reads every episode's MCAP once into its `topics/` folder and writes the benchmark's `dim_*.parquet` at its root.
 
-### 3. Migrate a run recorded before the native layout
+### 3. Process metrics
 
 ```bash
-arena evaluation migrate <run dir>
+arena evaluation process --benchmark-dir <run_id>
+arena evaluation process --run-dir <run>/episodes/episode_004
 ```
 
-See the Migration section of [ingestion/README.md](arena_evaluation/ingestion/README.md). The metric reports (`process`, `run`, `report`, `plot`) return with PR2 and PR4.
+Writes the per-episode `metrics/fact_*.parquet` and `metrics/series_*.parquet`, then the benchmark's
+dimensions and contract report. The extraction cache is reused; `--force-extract` re-reads the MCAP,
+and `--force-process` recomputes a run whose tables already carry the current layout stamp.
 
-### Report manifests (returns with PR4)
+### 4. Report
 
-Report layouts are declarative YAML bundles in `configs/reports/<name>/report.yaml`. Built-in manifests: `standard`, `ecological`, `social`, `safety`, `characterization`, `failure_modes`, `everything`.
+```bash
+arena evaluation report --benchmark-dir <run_id> --report-manifest standard
+arena evaluation report --benchmark-dir A B --output-dir ./merged_report
+```
+
+Writes `reports/report.html` and `reports/plots/*.png`, plus GIF side artefacts with
+`--generate-gifs`; `--export svg|pdf|latex` also exports the approved plots and tables. There is no
+`metrics.parquet`/`combined_metrics.parquet` any more: reports read the Star Schema through
+`BenchmarkCatalog`.
+
+### 5. Migrate a run recorded before the native layout
+
+```bash
+arena evaluation migrate <run dir> --dry-run
+arena evaluation migrate <run dir> --report migration_report.yaml
+```
+
+See [docs/migrate.md](docs/migrate.md) for the supported generations, the NULL-and-reason mapping, the
+descriptor synthesis rule, `migration_report.yaml` and the limits.
+
+Report manifests are declarative YAML bundles in `configs/reports/<name>/report.yaml`; the seven
+built-in ones are `standard`, `ecological`, `social`, `safety`, `characterization`, `failure_modes`
+and `everything`.
 
 ```bash
 arena evaluation run --list-manifests
@@ -183,30 +208,37 @@ arena evaluation run --benchmark-dir X --report-manifest '{name: inline, plots: 
 ## CLI Reference
 
 ```
-usage: arena evaluation <command> [--run-dir DIR | --benchmark-dir DIR] [--output-dir DIR]
-                            [--workers N] [--report-manifest NAME|PATH|{...}] [--list-manifests]
+usage: evaluation <command> [flags]
 
 Commands:
-  extract   Extract topics from MCAP into Parquet files and write the benchmark's dimensions
-  migrate   Convert a run recorded before the native layout to the current layout, in place
-  process   Compute metrics and write metrics.parquet (returns with PR2)
-  run       Full pipeline: extract -> process -> report + plots (returns with PR2 and PR4)
-  report    Generate report.html from existing metrics.parquet (returns with PR4)
-  plot      Generate static PNG plots only (returns with PR4)
+  extract   Layer 1: extract topics from MCAP into Parquet and write the benchmark dimensions
+  process   Layer 2: compute metrics and write the Star Schema fact and series tables
+  run       Full pipeline: extract -> process -> report + plots
+  report    Generate report.html from the existing Star Schema tables
+  plot      Generate static PNG plots only
+  migrate   Convert a run recorded before the native layout, in place
+  validate  Check a suite or contest definition without running it
   acoustic  Acoustic analysis subcommands (list, animate, snapshot)
 ```
 
 | Flag | Description |
 |---|---|
-| `--benchmark-dir DIR...` | Benchmark root directories, every episode under them |
-| `--run-dir DIR...` | Single `episode_NNN` directories: `process` and `extract` handle each alone, `report` and `plot` merge their `metrics.parquet` |
-| `--output-dir DIR` | Output directory for reports and plots (defaults to first input dir) |
-| `--workers N` | Worker count for parallel processing (`-1` = auto CPU count) |
-| `--force-extract` | Force re-extraction of MCAP files |
-| `--report-manifest NAME\|PATH\|{...}` | Report layout: named manifest, YAML path, or inline YAML |
+| `--benchmark-dir DIR...` | Benchmark root directories: `extract`, `process`, `report` and `plot` handle every episode (and every robot) under them |
+| `--run-dir DIR...` | Single `episode_NNN` directories: `process` and `extract` handle each alone, `report` and `plot` merge their Star Schema tables |
+| `--output-dir DIR` | Output directory for reports and plots (defaults to the first input dir) |
+| `--workers N` | Worker count for parallel extraction and processing (`-1` = auto CPU count) |
+| `--profile` | Write `pipeline_profile.yaml` with per-phase resource stats |
+| `--force-extract` | Force re-extraction of MCAP files (`process`) |
+| `--force-process` | Recompute a run whose Star Schema tables already carry the current layout stamp (`process`) |
+| `--report-manifest NAME\|PATH\|{...}` | Report layout: named manifest, YAML path, or inline YAML (`run`, `report`, `plot`) |
 | `--list-manifests` | List available named report manifests |
+| `--export {svg,pdf,latex}` | Also export approved plots as SVG/PDF and/or the approved tables and figures as LaTeX (repeatable) |
+| `--generate-gifs` | Render each trajectory or animation plot's GIF side artefact |
+| `--dry-run`, `--force`, `--report PATH` | `migrate` only: detect without writing, re-extract anyway, write the report elsewhere |
+| `--suite FILE` \| `--contest FILE` | `validate` only: check one suite or contest bundle without running it |
 
-`process` and `run` exit 1 when a benchmark or episode directory produced no metrics.
+`process` and `run` exit 1 when a benchmark or episode directory produced no metrics; a contract
+violation exits non-zero and names the table and column.
 
 ---
 
@@ -217,7 +249,7 @@ The package contributes the `evaluation` domain to the Arena MCP server (`arena_
 - Catalogs come from the live registries and resolvers: task modes and their parameter schemas from the task-mode registry, metrics and their declared directions from the metric registry, drivers from the bringup and adapter registries, nav2 planner configs from `arena_robots`, bridge planners from `arena_planners`, worlds, suites, contests and manifests through their `Identifier` resolvers (with `network=true` the buckets too).
 - Validation runs the runner's own parsers (`Suite.parse`, `Contest.parse` plus the runner's nav2 preflight, `VizManifest`, `parse_scenario`). Created suites, contests and manifests go to the write target of their resolver chain, a manifest for one run into that run directory, scenarios into the world the map name resolves to.
 - Benchmarks (`arena evaluation benchmark`), preflights and soaks (`arena planners test`), processing, extraction, reports, plots and acoustic renders run as jobs of the real CLI verbs. A benchmark always gets an explicit run id, and the start waits until the runner prepared its run directory, so a config error comes back as an error. Poll jobs with `jobs_status` and `jobs_log`, stop a benchmark with `evaluation_stop`, which interrupts its runner process group and escalates only after a grace window.
-- Run state is read from `$ARENA_DATA_DIR/benchmarks/<run_id>` with the package's readers: the manifest's steps, the union of every lane's state file and the folded progress files, so shared runs show their lanes while they run. Analysis tools group by contestant (the `planner` column) and leave reference episodes out unless asked, and they rank only over outputs whose calculator declares `OUTPUT_DIRECTIONS`.
+- Run state is read from `$ARENA_DATA_DIR/benchmarks/<run_id>` with the package's readers: the manifest's steps, the union of every lane's state file and the folded progress files, so shared runs show their lanes while they run. Analysis tools group by contestant (the `planner` column) and leave reference episodes out unless asked, and they rank only over outputs whose calculator declares a `DIRECTIONS` entry (69 tools in the domain today).
 - Recording control calls an env's recorder (`<task generator>/start_episode`) and reads `<task generator>/state/recorded_topics`, env-scoped tools take `env_id`.
 
 Tests live in `tests/mcp/` and drive a real `python3 -m arena_mcp serve` over stdio against run directories built with the package's writers.
@@ -268,6 +300,7 @@ pytest tests/ -v
 - [ingestion/README.md](arena_evaluation/ingestion/README.md): recording, topics, episode lifecycle, migration
 - [processing/README.md](arena_evaluation/processing/README.md): extraction, native tables, pose stream, dimension rows
 - [processing/metrics/README.md](arena_evaluation/processing/metrics/README.md): metric calculator framework
+- [docs/migrate.md](docs/migrate.md): recording and report-declaration migration
 - [presentation/README.md](arena_evaluation/presentation/README.md): declarative manifests, plot types
 - [storage/README.md](arena_evaluation/storage/README.md): registry, dimensions and contracts, paths, metadata
 - [benchmark/README.md](arena_evaluation/benchmark/README.md): runner, state, CLI, profiler
