@@ -67,49 +67,36 @@ levels:
 """
 
 
-def test_head_on_closing_gives_the_expected_time() -> None:
-    assert time_to_collision(
-        (0.0, 0.0), (1.0, 0.0), 0.3, (10.0, 0.0), (-1.0, 0.0), 0.3
-    ) == pytest.approx((10.0 - 0.6) / 2.0)
-
-
-def test_parallel_motion_never_collides() -> None:
-    assert (
-        time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (0.0, 5.0), (1.0, 0.0), 0.3)
-        is None
-    )
-
-
-def test_receding_pair_never_collides() -> None:
-    assert (
-        time_to_collision((0.0, 0.0), (-1.0, 0.0), 0.3, (10.0, 0.0), (1.0, 0.0), 0.3)
-        is None
-    )
-
-
-def test_already_touching_is_zero_not_none() -> None:
-    assert (
-        time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3)
-        == 0.0
-    )
-
-
-def test_no_relative_motion_is_not_a_collision() -> None:
-    assert (
-        time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (5.0, 0.0), (1.0, 0.0), 0.3)
-        is None
-    )
-
-
-def test_overlapping_discs_without_relative_motion_are_already_touching() -> None:
-    assert (
-        time_to_collision((0.0, 0.0), (0.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3)
-        == 0.0
-    )
-    assert (
-        time_to_collision((0.0, 0.0), (1.0, 0.0), 0.3, (0.5, 0.0), (1.0, 0.0), 0.3)
-        == 0.0
-    )
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        (
+            ((0.0, 0.0), (1.0, 0.0), 0.3, (10.0, 0.0), (-1.0, 0.0), 0.3),
+            pytest.approx((10.0 - 0.6) / 2.0),
+        ),
+        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.0, 5.0), (1.0, 0.0), 0.3), None),
+        (((0.0, 0.0), (-1.0, 0.0), 0.3, (10.0, 0.0), (1.0, 0.0), 0.3), None),
+        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3), 0.0),
+        (((0.0, 0.0), (1.0, 0.0), 0.3, (5.0, 0.0), (1.0, 0.0), 0.3), None),
+        (((0.0, 0.0), (0.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3), 0.0),
+        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.5, 0.0), (1.0, 0.0), 0.3), 0.0),
+    ],
+    ids=[
+        "head-on-closing",
+        "parallel-motion",
+        "receding-pair",
+        "already-touching",
+        "no-relative-motion",
+        "overlapping-without-relative-motion",
+        "overlapping-with-equal-velocity",
+    ],
+)
+def test_time_to_collision(arguments: tuple, expected: float | None) -> None:
+    ttc = time_to_collision(*arguments)
+    if expected is None:
+        assert ttc is None
+    else:
+        assert ttc == expected
 
 
 def test_clearance_is_surface_to_surface() -> None:
@@ -219,35 +206,39 @@ def _contact(
     )
 
 
-def test_a_robot_driving_into_a_standing_pedestrian_closes_with_the_robot_only() -> (
-    None
-):
-    r = _contact(robot_vel=(0.8, 0.0), ped_vel=(0.0, 0.0))
+def _assert_closing(value: float, expected: str) -> None:
+    if expected == "positive":
+        assert value > 0.5
+    elif expected == "near-zero":
+        assert abs(value) < 0.05
+    elif expected == "exact-zero":
+        assert value == 0.0
+    else:
+        assert value < 0.0
+
+
+@pytest.mark.parametrize(
+    ("robot_vel", "ped_vel", "robot_closing", "ped_closing"),
+    [
+        ((0.8, 0.0), (0.0, 0.0), "positive", "near-zero"),
+        ((0.0, 0.0), (-0.9, 0.0), "near-zero", "positive"),
+        ((0.6, 0.0), (-0.6, 0.0), "positive", "positive"),
+        ((0.0, 0.0), (0.0, 0.0), "exact-zero", "exact-zero"),
+        ((0.7, 0.0), (0.7, 0.0), "positive", "negative"),
+    ],
+    ids=["robot-only", "pedestrian-only", "both", "neither", "receding-pedestrian"],
+)
+def test_closing_speeds_follow_each_bodys_own_motion(
+    robot_vel: tuple[float, float],
+    ped_vel: tuple[float, float],
+    robot_closing: str,
+    ped_closing: str,
+) -> None:
+    r = _contact(robot_vel=robot_vel, ped_vel=ped_vel)
     assert r.collided
     assert r.collision_with == "p"
-    assert r.collision_robot_closing > 0.5 and abs(r.collision_ped_closing) < 0.05
-
-
-def test_a_pedestrian_walking_into_a_standing_robot_closes_with_the_pedestrian_only() -> (
-    None
-):
-    r = _contact(robot_vel=(0.0, 0.0), ped_vel=(-0.9, 0.0))
-    assert r.collided
-    assert r.collision_ped_closing > 0.5 and abs(r.collision_robot_closing) < 0.05
-
-
-def test_both_closing_speeds_are_measured_when_both_move_and_zero_when_neither_does() -> (
-    None
-):
-    both = _contact((0.6, 0.0), (-0.6, 0.0))
-    still = _contact((0.0, 0.0), (0.0, 0.0))
-    assert both.collision_robot_closing > 0.5 and both.collision_ped_closing > 0.5
-    assert still.collision_robot_closing == 0.0 and still.collision_ped_closing == 0.0
-
-
-def test_a_receding_pedestrian_has_a_negative_closing_speed() -> None:
-    r = _contact(robot_vel=(0.7, 0.0), ped_vel=(0.7, 0.0))
-    assert r.collision_robot_closing > 0.5 and r.collision_ped_closing < 0.0
+    _assert_closing(r.collision_robot_closing, robot_closing)
+    _assert_closing(r.collision_ped_closing, ped_closing)
 
 
 def test_no_contact_leaves_the_closing_speeds_empty() -> None:
@@ -709,17 +700,7 @@ def test_a_robot_running_into_its_intercept_collides_with_it(
         and out.get("edge_case_unplayed") is None
         and out["edge_case_triggered_at"] is None
     )
-
-
-def test_a_collision_publishes_both_closing_speeds_and_no_fault_label(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    edge = [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]
-    out = criticality.calculate(
-        _episode(tmp_path, world, _run(world), {"edge_0": edge}), {}
-    )
-    assert out["edge_case_collided"] is True
+    # Both closing speeds are published and no fault label is invented.
     assert "edge_case_collision_fault" not in out
     assert (
         "edge_case_collision_robot_closing" in out
@@ -912,77 +893,53 @@ def test_the_formation_center_moves_with_the_robot_level_into_the_map_frame(
     assert out["edge_case_formation_formed_at"] == pytest.approx(0.0)
 
 
+def _level_shifted_episode(
+    tmp_path: pathlib.Path, stored_origins: tuple[float, float] | None
+) -> AlignedEpisodeBundle:
+    """Episode shifted by the robot level origin, derived from the geometry or read from the stored file."""
+    world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
+    if stored_origins is None:
+        origin = WorldView(tmp_path / "worlds" / world).level_origins()["1"]
+        assert origin != (0.0, 0.0)
+        map_name = world
+    else:
+        origin = stored_origins
+        (tmp_path / "worlds" / world / "level_origins.yaml").write_text(
+            f"'0': [0.0, 0.0]\n'1': [{origin[0]}, {origin[1]}]\n"
+        )
+        map_name = world + "[1]"
+    ox, oy = origin
+    episode = _episode(
+        tmp_path,
+        map_name,
+        _run(map_name),
+        {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8},
+    )
+    return AlignedEpisodeBundle(
+        episode_id=1,
+        data=episode.data.with_columns(pl.col("x") + ox, pl.col("y") + oy),
+        start_pos=[],
+        goal_pos=[],
+        map=map_name,
+        run=episode.run,
+        topics={
+            "robot_tracks": episode.topics["robot_tracks"].with_columns(
+                pl.col("x") + ox, pl.col("y") + oy
+            ),
+            "pedestrian_arena_peds": episode.topics["pedestrian_arena_peds"],
+        },
+        run_dir=tmp_path,
+    )
+
+
+@pytest.mark.parametrize("stored_origins", [None, (40.0, -3.0)], ids=["derived", "stored"])
 def test_the_encounter_point_moves_with_the_robot_level_into_the_map_frame(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
+    tmp_path: pathlib.Path,
+    criticality: EdgeCaseCriticalityCalculator,
+    stored_origins: tuple[float, float] | None,
 ) -> None:
-    world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
-    ox, oy = WorldView(tmp_path / "worlds" / world).level_origins()["1"]
-    episode = _episode(
-        tmp_path,
-        world,
-        _run(world),
-        {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8},
-    )
-    shifted = {
-        "robot_tracks": episode.topics["robot_tracks"].with_columns(
-            pl.col("x") + ox, pl.col("y") + oy
-        ),
-        "pedestrian_arena_peds": episode.topics["pedestrian_arena_peds"],
-    }
-    shifted_data = episode.data.with_columns(pl.col("x") + ox, pl.col("y") + oy)
     out = criticality.calculate(
-        AlignedEpisodeBundle(
-            episode_id=1,
-            data=shifted_data,
-            start_pos=[],
-            goal_pos=[],
-            map=world,
-            run=episode.run,
-            topics=shifted,
-            run_dir=tmp_path,
-        ),
-        {},
-    )
-    assert (
-        out["edge_case_pet_s"] == pytest.approx(3.0)
-        and out["edge_case_pet_with"] == "edge_0"
-    )
-
-
-def test_a_level_filtered_snapshot_shifts_by_the_level_origins_the_runtime_stored(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
-    ox, oy = 40.0, -3.0
-    (tmp_path / "worlds" / world / "level_origins.yaml").write_text(
-        f"'0': [0.0, 0.0]\n'1': [{ox}, {oy}]\n"
-    )
-    filtered = world + "[1]"
-    episode = _episode(
-        tmp_path,
-        filtered,
-        _run(filtered),
-        {"edge_0": [(6.0 + ox, 4.0 + oy)] * 3 + [(6.0 + ox, oy)] * 8},
-    )
-    shifted = {
-        "robot_tracks": episode.topics["robot_tracks"].with_columns(
-            pl.col("x") + ox, pl.col("y") + oy
-        ),
-        "pedestrian_arena_peds": episode.topics["pedestrian_arena_peds"],
-    }
-    shifted_data = episode.data.with_columns(pl.col("x") + ox, pl.col("y") + oy)
-    out = criticality.calculate(
-        AlignedEpisodeBundle(
-            episode_id=1,
-            data=shifted_data,
-            start_pos=[],
-            goal_pos=[],
-            map=filtered,
-            run=episode.run,
-            topics=shifted,
-            run_dir=tmp_path,
-        ),
-        {},
+        _level_shifted_episode(tmp_path, stored_origins), {}
     )
     assert (
         out["edge_case_pet_s"] == pytest.approx(3.0)
