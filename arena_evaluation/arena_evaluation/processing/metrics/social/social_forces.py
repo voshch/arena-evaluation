@@ -320,10 +320,11 @@ class SocialForcesCalculator(BaseMetricCalculator):
         ):
             return dict.fromkeys(keys)
         row = frame_forces.select(
-            sfm_cumulative_force=(_observed("sfm_force_n") * pl.col("dt_s")).sum(),
-            esfm_cumulative_force=(_observed("esfm_force_n") * pl.col("dt_s")).sum(),
+            # Row by row: a null force adds nothing and keeps its own frame's duration.
+            sfm_cumulative_force=(pl.col("sfm_force_n") * pl.col("dt_s")).sum(),
+            esfm_cumulative_force=(pl.col("esfm_force_n") * pl.col("dt_s")).sum(),
             esfm_ped_cumulative_force=(
-                _observed("esfm_ped_force_n") * pl.col("dt_s")
+                pl.col("esfm_ped_force_n") * pl.col("dt_s")
             ).sum(),
             sfm_peak_force=_observed("sfm_force_n").max(),
             sfm_mean_force=_observed("sfm_force_n").mean(),

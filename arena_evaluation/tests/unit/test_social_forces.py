@@ -112,6 +112,29 @@ def test_an_unresolved_frame_is_null_not_zero(calc: SocialForcesCalculator):
     assert results["sfm_peak_force"] == pytest.approx(_sfm(1.0))
 
 
+def test_a_frame_without_robot_state_is_skipped_in_the_cumulative_force(
+    calc: SocialForcesCalculator,
+):
+    """An unresolved frame in the middle is skipped row by row: its force and its duration stay aligned."""
+    episode = _episode(
+        [0, SEC, 2 * SEC],
+        [[1.0, 0.0]] * 3,
+        [(0.0, 0.0)] * 3,
+        [0.0] * 3,
+        robot_times_ns=[0, 2 * SEC],
+    )
+    frames = calc._geometry(episode).frames
+    duration_s = dict(
+        zip(frames.get_column("t_ns").to_list(), frames.get_column("dt_s").to_list())
+    )
+    expected = sum(
+        _sfm(1.0) * duration_s[t] for t in (0, 2 * SEC) if duration_s[t] is not None
+    )
+    assert calc.calculate(episode, {})["sfm_cumulative_force"] == pytest.approx(
+        expected
+    )
+
+
 def _slice(scope: MetricScope, bundle: AlignedEpisodeBundle) -> ScopeSlice:
     """Scope slice over one bundle, used to prove which population a scope measures."""
     return ScopeSlice(
