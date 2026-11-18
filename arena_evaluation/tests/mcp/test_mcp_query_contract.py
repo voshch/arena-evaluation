@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import polars as pl
 import pytest
 
 pytest.importorskip("arena_mcp")
@@ -45,7 +46,13 @@ def test_query_pins_the_full_result_behind_the_capped_preview(tmp_path):
     assert result["returned_rows"] == 200
     assert result["truncated"] is True
     assert evidence["row_count"] == 10_000
-    assert len(evidence["data"]) == 10_000
+    assert evidence["returned_rows"] == 200
+    assert evidence["truncated"] is True
+    assert evidence["snapshot_id"]
+    assert len(evidence["data"]) == 200
+    run_dir = tmp_path / "data" / "benchmarks" / RUN_ID
+    artifact = run_dir / str(evidence["artifact_path"])
+    assert pl.read_parquet(artifact).height == 10_000
 
 
 def test_query_below_and_above_a_caller_limit(tmp_path):

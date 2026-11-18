@@ -74,7 +74,7 @@ def _plot_bundle_files(root: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
 
 
 @domain.tool(read_only=True)
-def evaluation_plot_declarations() -> list[dict[str, Any]]:
+def evaluation_plot_declarations() -> dict[str, Any]:
     """List all registered declarative plot declarations and recipes with encodings and data sources."""
     results: dict[str, dict[str, Any]] = {}
     for directory in recipe_search_dirs():
@@ -103,7 +103,7 @@ def evaluation_plot_declarations() -> list[dict[str, Any]]:
                 }
             except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError):
                 continue
-    return [results[k] for k in sorted(results)]
+    return {"declarations": [results[k] for k in sorted(results)]}
 
 
 @domain.tool(read_only=True)
@@ -303,7 +303,7 @@ def evaluation_render_plot(
     ) as exc:
         raise ToolError(
             f"Failed to resolve data for plot '{spec.id}': {exc}",
-            hint="check the spec's data source with evaluation_read_metrics or evaluation_evidence",
+            hint="check the spec's data source with evaluation_summarize or evaluation_evidence",
         ) from exc
 
     if df.is_empty():

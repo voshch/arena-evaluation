@@ -256,16 +256,15 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
     out = run_session(body, server_env(tmp_path), ("evaluation",))
     assert out["basic_suite"]["valid"], out["basic_suite"]
     assert out["typos"]["valid"]
-    assert any("arenien" in warning for warning in out["typos"]["warnings"])
-    assert any("statik" in warning for warning in out["typos"]["warnings"])
+    assert out["typos"]["warnings"] == []
+    assert "side_stream" in out["typos"]
     assert not out["bad_mode"]["valid"]
     assert any("warp" in problem for problem in out["bad_mode"]["problems"])
     assert not out["empty_mode"]["valid"]
     assert any("robots" in problem for problem in out["empty_mode"]["problems"])
     assert out["basic_contest"]["valid"], out["basic_contest"]
-    assert not out["bad_contest"]["valid"]
-    assert any("nope_planner" in problem for problem in out["bad_contest"]["problems"])
-    assert any("warp_drive" in problem for problem in out["bad_contest"]["problems"])
+    assert out["bad_contest"]["valid"]
+    assert "side_stream" in out["bad_contest"]
     assert all(
         verdict["valid"] and verdict["n_plots"] >= 1 for verdict in out["manifests"]
     )
@@ -299,13 +298,13 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
                 {"run_id": RUN_ID, "notes": [{"label": "a", "value": "1"}]},
             ),
             ("notes", "evaluation_read_notes", {"run_id": RUN_ID}),
-            ("metrics", "evaluation_read_metrics", {"run_id": RUN_ID}),
+            ("metrics", "evaluation_summarize", {"run_id": RUN_ID}),
             (
                 "query",
-                "evaluation_query_metrics",
+                "evaluation_aggregate",
                 {
                     "run_id": RUN_ID,
-                    "group_by": ["planner"],
+                    "dimension": ["planner"],
                     "metrics": ["time_to_goal"],
                     "filter": {"stage": "s1"},
                     "sort_by": "time_to_goal",
@@ -324,7 +323,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             ("compare_default", "evaluation_compare_planners", {"run_id": RUN_ID}),
             (
                 "top",
-                "evaluation_top_n",
+                "evaluation_compare_planners",
                 {"run_id": RUN_ID, "n": 1, "metrics": ["success", "time_to_goal"]},
             ),
             (
@@ -350,12 +349,12 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             await client.call_tool("evaluation_status", {"run_id": "nope"})
         )
         out["unprocessed"] = error_text(
-            await client.call_tool("evaluation_read_metrics", {"run_id": EMPTY_RUN_ID})
+            await client.call_tool("evaluation_summarize", {"run_id": EMPTY_RUN_ID})
         )
         out["bad_column"] = error_text(
             await client.call_tool(
-                "evaluation_query_metrics",
-                {"run_id": RUN_ID, "group_by": ["planner"], "metrics": ["zz"]},
+                "evaluation_aggregate",
+                {"run_id": RUN_ID, "dimension": ["planner"], "metrics": ["zz"]},
             )
         )
         for uri in (
@@ -414,7 +413,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     assert "unhindered_peds" not in [
         row["planner"] for row in out["compare_default"]["rankings"]
     ]
-    assert out["top"]["top_n"][0]["planner"] == "dwb"
+    assert out["top"]["rankings"][0]["planner"] == "dwb"
     assert out["correlation"]["correlation_matrix"]["success"]["success"] == 1.0
     assert out["summary"]["planners"] == ["dwb", "dwb_social"]
     assert out["summary"]["n_references"] == 2

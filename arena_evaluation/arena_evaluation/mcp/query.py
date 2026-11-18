@@ -19,9 +19,17 @@ from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog, QueryDeclaration
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine, validate_readonly_sql
+from arena_evaluation.storage.config_layout import run_analysis_root
 from arena_evaluation.storage.star_schema import has_star_schema
 
-from .base import OptionalRunId, append_audit_event, component, domain, run_path
+from .base import (
+    OptionalRunId,
+    RunId,
+    append_audit_event,
+    component,
+    domain,
+    run_path,
+)
 
 __all__ = [
     "evaluation_evidence",
@@ -80,18 +88,18 @@ def _query_error(exc: Exception, catalog: BenchmarkCatalog, sql: str) -> ToolErr
         missing = table.group(1)
         return ToolError(
             f"unknown table {missing!r}{_named(_closest(missing, catalog.table_names()))}",
-            hint=f"tables: {_shown(catalog.table_names())}; evaluation_read_metrics shows the episode summary columns",
+            hint=f"tables: {_shown(catalog.table_names())}; evaluation_summarize shows the episode summary columns",
         )
     column = _COLUMN_MISS.search(message)
     if column is not None:
         missing = column.group(1)
         return ToolError(
             f"unknown column {missing!r}{_named(_closest(missing, _column_candidates(catalog, message, sql)))}",
-            hint="evaluation_read_metrics lists the episode summary columns; evaluation_slice previews one table's rows",
+            hint="evaluation_summarize lists the episode summary columns; evaluation_slice previews one table's rows",
         )
     return ToolError(
         f"Query execution failed: {exc}",
-        hint="evaluation_read_metrics lists the run's summary columns",
+        hint="evaluation_summarize lists the run's summary columns",
     )
 
 
@@ -235,15 +243,21 @@ def evaluation_query(
         from arena_evaluation.analytics.derived import save_derived_table
 
         full_df = frame if should_pin else plan.collect()
-        derived_info = save_derived_table(
-            benchmark_path,
-            name=save_as,
-            frame=full_df,
-            definition={"kind": "sql", "sql": sql_to_run},
-            snapshot_id=catalog.snapshot_id,
-            purpose=purpose.strip() or save_as,
-            author="analyst",
-        )
+        try:
+            derived_info = save_derived_table(
+                benchmark_path,
+                name=save_as,
+                frame=full_df,
+                definition={"kind": "sql", "sql": sql_to_run},
+                snapshot_id=catalog.snapshot_id,
+                purpose=purpose.strip() or save_as,
+                author="analyst",
+            )
+        except (ValueError, OSError) as exc:
+            raise ToolError(
+                f"cannot save derived table {save_as!r}: {exc}",
+                hint="use a save_as of letters, digits, '_' or '-', not starting with '-'",
+            ) from exc
 
     rec = None
     if should_pin:
@@ -312,14 +326,15 @@ def evaluation_query(
 
 
 @domain.tool(read_only=True)
-def evaluation_queries() -> list[dict[str, Any]]:
-    """List all stored query declarations in the SQL Query Store."""
-    q_catalog = QueryCatalog()
-    return [q.to_dict() for q in q_catalog.list_queries()]
+def evaluation_queries(run_id: OptionalRunId = None) -> dict[str, Any]:
+    """List the stored query declarations: the run's own first when a run is given, then the package store."""
+    catalog = QueryCatalog(run_dir=run_path(run_id)) if run_id else QueryCatalog()
+    return {"queries": [q.to_dict() for q in catalog.list_queries()]}
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_query_save(
+    run_id: RunId,
     name: Annotated[
         str, pydantic.Field(description="Unique identifier for the query declaration")
     ],
@@ -344,7 +359,7 @@ def evaluation_query_save(
         str | None, pydantic.Field(description="Human-readable title")
     ] = None,
 ) -> dict[str, Any]:
-    """Save a new reusable query declaration to the SQL Query Store."""
+    """Save a query declaration into the run's analysis queries; the package store is read only."""
     safe_name = component(name.removesuffix(".yaml").removesuffix(".yml"), "name")
     decl = QueryDeclaration(
         name=safe_name,
@@ -367,14 +382,21 @@ def evaluation_query_save(
             hint="fix the SQL or the parameter declarations and save it again",
         ) from exc
 
-    q_catalog = QueryCatalog()
-    saved = q_catalog.save_query(
-        name=safe_name,
-        description=decl.description,
-        sql=decl.sql,
-        parameters=decl.parameters,
-        title=decl.title,
-    )
+    run_dir = run_path(run_id)
+    try:
+        saved = QueryCatalog(run_dir=run_dir).save_query(
+            name=safe_name,
+            description=decl.description,
+            sql=decl.sql,
+            parameters=decl.parameters,
+            title=decl.title,
+            directory=run_analysis_root(run_dir),
+        )
+    except OSError as exc:
+        raise ToolError(
+            f"cannot save query {safe_name!r} into run {run_dir.name!r}: {exc}",
+            hint="the run's analysis folder must be a writable directory; evaluation_queries lists the stored queries",
+        ) from exc
     return {
         "status": "saved",
         "name": saved.name,
@@ -392,6 +414,10 @@ def evaluation_evidence(
     purpose_filter: Annotated[
         str | None, pydantic.Field(description="Substring filter for evidence purpose")
     ] = None,
+    limit: Annotated[
+        int,
+        pydantic.Field(description="most evidence rows to return", ge=1),
+    ] = 200,
 ) -> dict[str, Any]:
     """Query evidence index or load specific pinned evidence DataFrame for a benchmark run."""
     import polars as pl
@@ -403,25 +429,30 @@ def evaluation_evidence(
         clean_ev_id = component(evidence_id, "evidence_id")
         try:
             rec = store.get(clean_ev_id)
-            df = store.read_frame(clean_ev_id)
+            frame = store.read_frame(clean_ev_id)
         except KeyError as exc:
             raise ToolError(
                 f"Evidence {clean_ev_id!r} not found in run {benchmark_path.name!r}",
                 hint="evaluation_evidence lists the run's pinned evidence ids",
             ) from exc
+        preview = frame.head(limit)
         return {
             "run_id": benchmark_path.name,
+            "snapshot_id": rec.snapshot_id,
             "evidence_id": rec.evidence_id,
             "kind": rec.kind,
             "operation": rec.operation,
             "purpose": rec.purpose,
-            "row_count": df.height,
-            "columns": list(df.columns),
+            "row_count": frame.height,
+            "returned_rows": preview.height,
+            "truncated": frame.height > preview.height,
+            "limit": limit,
+            "columns": list(frame.columns),
             "created_at_ns": rec.created_at_ns,
             "artifact_path": str(rec.artifact_path)
             if rec.artifact_path is not None
             else None,
-            "data": df.to_dicts(),
+            "data": preview.to_dicts(),
         }
 
     index_df = store.load_index()
@@ -431,8 +462,11 @@ def evaluation_evidence(
             pl.col("purpose").str.to_lowercase().str.contains(pat)
         )
 
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
+
     return {
         "run_id": benchmark_path.name,
+        "snapshot_id": BenchmarkCatalog.open(benchmark_path).snapshot_id,
         "total_records": index_df.height,
         "records": index_df.to_dicts(),
     }

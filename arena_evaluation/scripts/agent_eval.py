@@ -1,4 +1,11 @@
-"""Standalone hypothesis-to-report evaluation script via an in-process MCPServer."""
+"""Standalone hypothesis-to-report evaluation script via an in-process MCPServer.
+
+The proof is allowed to fail. A hypothesis's verdict is direction aware (a lower-than
+claim needs a strictly negative interval, a two-sided claim only excludes zero), the
+interval must have a non-zero width, and every quoted number is recomputed from the pinned
+compare evidence before it is published. The run also writes its result table and tool
+transcript next to the run's analysis artifacts (H-001, L5-037).
+"""
 
 from __future__ import annotations
 
@@ -6,10 +13,17 @@ import argparse
 import asyncio
 import json
 import pathlib
+import re
 from typing import Any
 
+import polars as pl
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ImageContent
+
+RESULTS_FILENAME = "agent_eval_results.parquet"
+TRANSCRIPT_FILENAME = "agent_eval_transcript.json"
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+NUMBER_TOLERANCE = 1e-4
 
 
 async def _call(
@@ -25,6 +39,103 @@ async def _call(
     res = await server.call_tool(name, arguments)
     assert res.structured_content is not None, f"{name} returned no structured_content"
     return dict(res.structured_content)
+
+
+def _require_identifier(value: str, what: str) -> str:
+    """Refuse a metric or planner name that is not a plain SQL identifier."""
+    if not _IDENTIFIER.fullmatch(value):
+        raise ValueError(f"{what} {value!r} is not a plain identifier")
+    return value
+
+
+def verdict_for(direction: str, ci_low: float, ci_high: float) -> str:
+    """Map a claim direction and its interval to ``verified``/``refuted``.
+
+    ``lower`` needs the whole interval below zero, ``higher`` above zero, and
+    ``different`` needs the interval to exclude zero on either side.
+    """
+    match direction:
+        case "lower":
+            verified = ci_high < 0.0
+        case "higher":
+            verified = ci_low > 0.0
+        case "different":
+            verified = ci_low > 0.0 or ci_high < 0.0
+        case _:
+            raise ValueError(
+                f"unknown claim direction {direction!r}; use lower, higher or different"
+            )
+    return "verified" if verified else "refuted"
+
+
+async def _quoted_planner_mean(
+    server: MCPServer,
+    run_id: str,
+    *,
+    derived_table: str,
+    planner: str,
+    metric: str,
+    called: list[str],
+) -> tuple[float, str]:
+    """Quote the claim planner's mean from the comparison table and pin it as evidence."""
+    planner = _require_identifier(planner, "planner")
+    metric = _require_identifier(metric, "metric")
+    query = (
+        f"SELECT AVG({metric}) AS val FROM {derived_table} WHERE planner = '{planner}'"
+    )
+    result = await _call(
+        server,
+        "evaluation_query",
+        {"run_id": run_id, "query": query, "pin_evidence": True},
+        called=called,
+    )
+    value = float(result["data"][0]["val"])
+    return value, str(result["evidence_id"])
+
+
+def _recompute_from_evidence(
+    evidence_rows: list[dict[str, Any]], planner: str, metric: str
+) -> tuple[float, float]:
+    """Recompute the planner mean and the pooled mean from the pinned compare frame."""
+    frame = pl.DataFrame(evidence_rows)
+    planner_rows = frame.filter(pl.col("planner") == planner)
+    if planner_rows.height == 0:
+        raise AssertionError(f"no evidence rows for planner {planner!r}")
+    return (
+        float(planner_rows[metric].mean()),
+        float(frame[metric].mean()),
+    )
+
+
+def _run_analysis_dir(run_id: str) -> pathlib.Path:
+    """Return ``<run>/analysis`` for ``run_id`` and make sure it exists."""
+    from arena_evaluation.storage.data_root import benchmarks_root
+
+    analysis = benchmarks_root() / run_id / "analysis"
+    analysis.mkdir(parents=True, exist_ok=True)
+    return analysis
+
+
+def _write_artifacts(
+    run_id: str, results: list[dict[str, Any]], called: list[str]
+) -> tuple[pathlib.Path, pathlib.Path]:
+    """Write the result table and the tool transcript into the run's analysis directory."""
+    analysis = _run_analysis_dir(run_id)
+    results_path = analysis / RESULTS_FILENAME
+    transcript_path = analysis / TRANSCRIPT_FILENAME
+    pl.DataFrame(results).write_parquet(results_path)
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "called_tools": called,
+                "results_path": str(results_path),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return results_path, transcript_path
 
 
 async def evaluate_hypotheses_async(
@@ -47,8 +158,10 @@ async def evaluate_hypotheses_async(
     )
     draft_id = str(draft["draft_id"])
     created_ids: list[str] = []
+    measurements: dict[str, dict[str, Any]] = {}
 
     for hyp in truth.get("hypotheses", []):
+        save_as = f"proof_{hyp['id']}"
         cmp_res = await _call(
             server,
             "evaluation_analysis",
@@ -60,12 +173,25 @@ async def evaluate_hypotheses_async(
                     "planner_b": hyp["planner_b"],
                     "metric": hyp["metric"],
                 },
-                "save_as": f"proof_{hyp['id']}",
+                "save_as": save_as,
             },
             called=called,
         )
         ev_id = str(cmp_res["evidence_id"])
         summary = cmp_res["summary"]
+        measured: dict[str, Any] = {
+            "direction": hyp.get("direction", "different"),
+            "ci_low": None,
+            "ci_high": None,
+            "ci_width": None,
+            "n_pairs": None,
+            "mean_diff": None,
+            "quoted_number": None,
+            "evidence_recomputed_number": None,
+            "pooled_number": None,
+            "number_resolved": False,
+            "derived_table": cmp_res.get("derived_table"),
+        }
 
         if cmp_res["n_rows"] == 0 or summary.get("reason") == "all_null":
             f_obj = await _call(
@@ -81,21 +207,53 @@ async def evaluate_hypotheses_async(
             )
             target_status = "needs_work"
         else:
-            mean_diff = float(summary["mean_diff"])
             ci_low = float(summary["ci_low"])
             ci_high = float(summary["ci_high"])
-            q_res = await _call(
+            mean_diff = float(summary["mean_diff"])
+            assert ci_high > ci_low, (
+                f"{hyp['id']}: interval [{ci_low}, {ci_high}] has zero width; "
+                "the proof cannot falsify a deterministic fixture"
+            )
+            derived_table = cmp_res.get("derived_table")
+            assert derived_table, f"{hyp['id']}: compare wrote no derived table"
+            quoted, q_ev_id = await _quoted_planner_mean(
                 server,
-                "evaluation_query",
-                {
-                    "run_id": run_id,
-                    "query": f"SELECT AVG({hyp['metric']}) AS val FROM derived_proof_{hyp['id']}",
-                    "pin_evidence": True,
-                },
+                run_id,
+                derived_table=str(derived_table),
+                planner=str(hyp["planner_a"]),
+                metric=str(hyp["metric"]),
                 called=called,
             )
-            q_ev_id = str(q_res["evidence_id"])
-            q_val = float(q_res["data"][0]["val"])
+            evidence = await _call(
+                server,
+                "evaluation_evidence",
+                {"run_id": run_id, "evidence_id": ev_id},
+                called=called,
+            )
+            recomputed, pooled = _recompute_from_evidence(
+                evidence["data"], str(hyp["planner_a"]), str(hyp["metric"])
+            )
+            assert abs(recomputed - quoted) <= NUMBER_TOLERANCE, (
+                f"{hyp['id']}: quoted {quoted} != evidence-recomputed {recomputed}"
+            )
+            if abs(mean_diff) > 1.0:
+                assert abs(quoted - pooled) > 0.5, (
+                    f"{hyp['id']}: quoted number {quoted} is the pooled mean {pooled}, "
+                    "not the compared planner's mean"
+                )
+            measured.update(
+                {
+                    "ci_low": ci_low,
+                    "ci_high": ci_high,
+                    "ci_width": ci_high - ci_low,
+                    "n_pairs": summary.get("n_pairs"),
+                    "mean_diff": mean_diff,
+                    "quoted_number": quoted,
+                    "evidence_recomputed_number": recomputed,
+                    "pooled_number": pooled,
+                    "number_resolved": True,
+                }
+            )
             f_obj = await _call(
                 server,
                 "evaluation_finding_create",
@@ -107,16 +265,15 @@ async def evaluate_hypotheses_async(
                         {
                             "evidence_id": q_ev_id,
                             "column": "val",
-                            "value": q_val,
-                            "tolerance": 1e-4,
+                            "value": quoted,
+                            "tolerance": NUMBER_TOLERANCE,
                         }
                     ],
-                    "numbers": {"mean_diff": mean_diff, "mean_val": q_val},
                     "author": "analyst",
                 },
                 called=called,
             )
-            target_status = "verified" if ci_high < 0.0 or ci_low > 0.0 else "refuted"
+            target_status = verdict_for(str(measured["direction"]), ci_low, ci_high)
 
         finding_id = str(f_obj["finding_id"])
         verify_res = await _call(
@@ -139,6 +296,7 @@ async def evaluate_hypotheses_async(
             called=called,
         )
         created_ids.append(finding_id)
+        measurements[finding_id] = measured
 
     stored = await _call(
         server, "evaluation_findings", {"run_id": run_id}, called=called
@@ -195,18 +353,35 @@ async def evaluate_hypotheses_async(
     results: list[dict[str, Any]] = []
     for hyp, finding_id in zip(truth.get("hypotheses", []), created_ids, strict=True):
         f_stored = by_id[finding_id]
+        measured = measurements[finding_id]
         results.append(
             {
                 "hypothesis_id": hyp["id"],
+                "direction": measured["direction"],
                 "expected_verdict": hyp["expected_verdict"],
                 "actual_verdict": f_stored["status"],
                 "mechanical_passed": f_stored["mechanical_passed"],
                 "finding_id": finding_id,
                 "evidence_id": f_stored["evidence_id"],
                 "snapshot_id": sch["snapshot_id"],
+                "ci_low": measured["ci_low"],
+                "ci_high": measured["ci_high"],
+                "ci_width": measured["ci_width"],
+                "n_pairs": measured["n_pairs"],
+                "mean_diff": measured["mean_diff"],
+                "quoted_number": measured["quoted_number"],
+                "evidence_recomputed_number": measured["evidence_recomputed_number"],
+                "pooled_number": measured["pooled_number"],
+                "number_resolved": measured["number_resolved"],
+                "planted_delta": truth.get("planted_delta"),
                 "report_path": report["report_path"],
             }
         )
+
+    results_path, transcript_path = _write_artifacts(run_id, results, called)
+    for row in results:
+        row["results_path"] = str(results_path)
+        row["transcript_path"] = str(transcript_path)
     return results, called
 
 

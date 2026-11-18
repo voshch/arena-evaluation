@@ -58,13 +58,11 @@ def test_h2_snapshot_id_propagates_across_tools_and_changes_on_reprocess(
         run_id=run_dir.name,
         query="SELECT planner, success FROM v_episode_summary",
     )
-    m_res = analysis.evaluation_read_metrics(run_id=run_dir.name)
     s_res = analysis.evaluation_summarize(run_id=run_dir.name)
     sl_res = slices.evaluation_slice(run_id=run_dir.name, episode_id=0)
 
     snap = sch["snapshot_id"]
     assert q_res["snapshot_id"] == snap
-    assert m_res["snapshot_id"] == snap
     assert s_res["snapshot_id"] == snap
     assert sl_res.snapshot_id == snap
 

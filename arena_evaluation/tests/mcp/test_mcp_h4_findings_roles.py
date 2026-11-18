@@ -205,8 +205,6 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
     run_dir = data_dir / "benchmarks" / "h4_stale"
     write_synthetic_benchmark(run_dir, include_swap=False)
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
-    (run_dir / "report.html").write_text("<html></html>", encoding="utf-8")
-
     pinned = query.evaluation_query(
         run_id="h4_stale",
         query=(
@@ -239,6 +237,10 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
         by="verifier",
     )
     draft = reporting.evaluation_report_draft(run_id="h4_stale", title="stale finding")
+    verified_facts = {
+        path: path.read_bytes()
+        for path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet")
+    }
     _shift_time_to_goal(run_dir, 500.0)
 
     with pytest.raises(ToolError, match="snapshot"):
@@ -266,7 +268,8 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
     with pytest.raises(ToolError, match="needs_work"):
         findings.evaluation_finding_attach(run_id="h4_stale", finding_id=finding_id)
 
-    _shift_time_to_goal(run_dir, -500.0)
+    for path, content in verified_facts.items():
+        path.write_bytes(content)
     restored = findings.evaluation_finding_verify(
         run_id="h4_stale", finding_id=finding_id
     )
@@ -277,16 +280,16 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
         status="verified",
         by="verifier",
     )
-    attached = findings.evaluation_finding_attach(
-        run_id="h4_stale", finding_id=finding_id
-    )
-    assert attached.finding.status is findings.FindingStatus.VERIFIED
     assembled = reporting.evaluation_report_assemble(
         run_id="h4_stale",
         draft_id=draft["draft_id"],
         name="fresh_report",
     )
     assert assembled["findings_used"] == [finding_id]
+    attached = findings.evaluation_finding_attach(
+        run_id="h4_stale", finding_id=finding_id, report="fresh_report"
+    )
+    assert attached.finding.status is findings.FindingStatus.VERIFIED
 
     audit_path = run_dir / "analysis" / "audit.jsonl"
     audit_entries = [
@@ -479,7 +482,11 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     v_reproc_ok = findings.evaluation_finding_verify(
         run_id="h4_r12", finding_id=created.finding_id
     )
-    assert v_reproc_ok["mechanical_passed"] is True
+    assert v_reproc_ok["mechanical_passed"] is False
+    snapshot_chk = next(
+        c for c in v_reproc_ok["checks"] if c.get("mode") == "snapshot_changed"
+    )
+    assert snapshot_chk["passed"] is False
     assert v_reproc_ok["snapshot_id"] != q_res["snapshot_id"]
 
     # (b) Changed data under claimed number fails and shows rerun_value

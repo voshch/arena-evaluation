@@ -273,6 +273,17 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
             None,
         ),
         (
+            "roughness_mean",
+            "robots",
+            "fact_robots",
+            "Float64",
+            "rad/m",
+            "Mean path roughness",
+            "lower",
+            "motion",
+            None,
+        ),
+        (
             "energy_total_wh",
             "robots",
             "fact_robots",

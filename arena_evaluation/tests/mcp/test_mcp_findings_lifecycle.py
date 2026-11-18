@@ -88,7 +88,9 @@ def test_attach_needs_a_verified_finding(run_dir):
 
     evaluation_finding_verify(RUN_ID, finding.finding_id)
     evaluation_finding_status(RUN_ID, finding.finding_id, "verified", by="verifier")
-    attached = evaluation_finding_attach(RUN_ID, finding.finding_id)
+    attached = evaluation_finding_attach(
+        RUN_ID, finding.finding_id, report="report.html"
+    )
     assert attached.finding.status is FindingStatus.VERIFIED
     assert attached.finding.report == "report.html"
 

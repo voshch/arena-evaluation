@@ -73,7 +73,7 @@ def test_notes_replace_keeps_the_finding_rows(tmp_path):
         finding = evaluation_finding_create(RUN_ID, "claim")
         evaluation_finding_verify(RUN_ID, finding.finding_id)
         evaluation_finding_status(RUN_ID, finding.finding_id, "verified", by="verifier")
-        evaluation_finding_attach(RUN_ID, finding.finding_id)
+        evaluation_finding_attach(RUN_ID, finding.finding_id, report="report.html")
         evaluation_write_notes(RUN_ID, [Note(label="summary", value="2")], "replace")
         rows = load_notes(run_dir / "notes.yaml")
 

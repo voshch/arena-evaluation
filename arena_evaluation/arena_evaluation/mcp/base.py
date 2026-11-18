@@ -97,7 +97,7 @@ domain = EvaluationDomain(
     """Benchmarks and their analysis: suites, contests and report manifests, `arena evaluation benchmark` runs and `arena planners test` preflights, processing, reports, plots, recording control and metrics analysis.
     A run lives in $ARENA_DATA_DIR/benchmarks/<run_id>, run tools take that run_id (evaluation_runs lists them, evaluation_status reads one, shared runs included).
     Benchmarks, preflights, processing, reports, extraction, plots and acoustic renders run as jobs: poll jobs_status, read jobs_log, stop a benchmark with evaluation_stop.
-    Catalog tools list suites, contests, report manifests and metrics, validate tools run the runner's own parsers. Task modes, worlds, scenarios, robots and planners come from the episode, worlds, robots and planners domains.""",
+    Catalog tools list suites, contests, report manifests and metrics, validate tools run the runner's own parsers. evaluation_aggregate groups by one or more dimensions, evaluation_summarize carries the run's summary columns, and evaluation_compare_planners(n=...) returns the top contestants (the merged query/read/top surface). Task modes, worlds, scenarios, robots and planners come from the episode, worlds, robots and planners domains.""",
     requires=("polars", "yaml", "arena_simulation_setup", "arena_runtime"),
 )
 

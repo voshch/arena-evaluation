@@ -311,19 +311,49 @@ def evaluation_merge_runs(
 
 
 @domain.tool(read_only=True)
-def evaluation_lint_declarations(run_id: OptionalRunId = None) -> dict[str, Any]:
-    """Validate every stored query, plot recipe, and report manifest against the catalog and registry."""
+def evaluation_lint_declarations(
+    run_id: OptionalRunId = None,
+    deep: Annotated[
+        bool,
+        pydantic.Field(
+            description="resolve every plot's query, stored query, computation, and channels, not only its schema"
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    """Validate every stored query, plot recipe, and report manifest against the catalog and registry.
+
+    With ``deep=True`` each plot's data binding is executed and every channel is resolved
+    against the produced frame, so ``valid`` is false when a shipped or run-local plot
+    cannot bind (the shallow check misses those). ``plots`` carries one verdict per
+    declaration with the reason.
+    """
     from arena_evaluation.presentation.lint import lint_declarations
+
+    from .lint import deep_lint_declarations
 
     path = run_path(run_id) if run_id is not None else None
     report = lint_declarations(path)
+    deep_report = deep_lint_declarations(path) if deep else None
+    problems = [*report.problems, *(deep_report.problems if deep_report else ())]
     return {
         "run_id": path.name if path is not None else None,
-        "valid": report.valid,
-        "problems": list(report.problems),
+        "valid": report.valid and (deep_report.valid if deep_report else True),
+        "problems": problems,
         "checked_queries": report.checked_queries,
         "checked_plots": report.checked_plots,
         "checked_manifests": report.checked_manifests,
+        "deep": deep,
+        "deep_checked_plots": deep_report.checked if deep_report else 0,
+        "plots": [
+            {
+                "name": verdict.name,
+                "passed": verdict.passed,
+                "checked": verdict.checked,
+                "reason": verdict.reason,
+                "row_count": verdict.row_count,
+            }
+            for verdict in (deep_report.plots if deep_report else ())
+        ],
     }
 
 

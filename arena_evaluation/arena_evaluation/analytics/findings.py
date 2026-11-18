@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import math
 import pathlib
 import tempfile
 import uuid
@@ -85,7 +84,6 @@ class Finding(pydantic.BaseModel):
     stored_query: str | None = None
     evidence_id: str | None = None
     evidence_ids: list[str] = pydantic.Field(default_factory=list)
-    numbers: dict[str, float] = pydantic.Field(default_factory=dict)
     structured_numbers: list[dict[str, Any]] = pydantic.Field(default_factory=list)
     author: str
     figure_path: str | None = None
@@ -199,18 +197,6 @@ def _new_finding_id(existing: list[Finding]) -> str:
     )
 
 
-def _checked_numbers(numbers: dict[str, float] | None) -> dict[str, float]:
-    if not numbers:
-        return {}
-    non_finite = sorted(k for k, v in numbers.items() if not math.isfinite(v))
-    if non_finite:
-        raise FindingError(
-            f"finding numbers must be finite, got {', '.join(non_finite)}",
-            hint="pass finite numbers, e.g. {'min_clearance_m': 0.42}",
-        )
-    return dict(numbers)
-
-
 def _checked_evidence(run_dir: pathlib.Path, evidence_id: str) -> str:
     store = EvidenceStore(run_dir)
     index = store.load_index().filter(pl.col("evidence_id") == evidence_id)
@@ -314,6 +300,11 @@ def create_finding(
             "pass the SQL or a stored query name, not both",
             hint="evaluation_queries lists stored queries",
         )
+    if numbers:
+        raise FindingError(
+            "free-form numbers are not checked against evidence",
+            hint="quote each number as a structured_numbers entry {evidence_id, column, value, tolerance} that the pinned evidence contains",
+        )
     checked_stored_query = (
         None if stored_query is None else _checked_stored_query(run_dir, stored_query)
     )
@@ -323,7 +314,6 @@ def create_finding(
     checked_figure = (
         None if figure_path is None else _checked_figure(run_dir, figure_path)
     )
-    checked_numbers = _checked_numbers(numbers)
     verified_structured = _validate_structured_numbers(run_dir, structured_numbers)
     all_ev = list(
         dict.fromkeys(
@@ -350,7 +340,6 @@ def create_finding(
             stored_query=checked_stored_query,
             evidence_id=checked_evidence or (all_ev[0] if all_ev else None),
             evidence_ids=all_ev,
-            numbers=checked_numbers,
             structured_numbers=verified_structured,
             author=author_clean,
             figure_path=checked_figure,
@@ -510,6 +499,7 @@ def verify_finding(
                     }
                 )
             else:
+                passed = False
                 checks.append(
                     {
                         "check": "evidence_rerun",
@@ -518,7 +508,7 @@ def verify_finding(
                         "stored_snapshot": record.snapshot_id,
                         "current_snapshot": catalog.snapshot_id,
                         "rerun_rows": rerun_frame.height,
-                        "passed": True,
+                        "passed": False,
                     }
                 )
 
@@ -580,7 +570,7 @@ def verify_finding(
                 "status": status,
                 "mechanical_passed": passed,
                 "verification_checks": checks,
-                "snapshot_id": catalog.snapshot_id,
+                "snapshot_id": catalog.snapshot_id if passed else finding.snapshot_id,
             }
         )
         save_finding(run_dir, updated)

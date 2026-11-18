@@ -115,7 +115,6 @@ def benchmark_argv(
     scale_episodes: float | None = None,
     data_root: str | None = None,
     lanes: int | None = None,
-    ros_domain_id: int | None = None,
     sim: str | None = None,
     headless: bool | None = None,
     env_n: int | None = None,
@@ -165,7 +164,6 @@ def benchmark_argv(
         ("--scale-episodes", scale_episodes),
         ("--data-root", data_root),
         ("--lanes", lanes),
-        ("--ros-domain-id", ros_domain_id),
         ("--viz-port", viz_port),
     ):
         if value is not None:
@@ -422,14 +420,6 @@ async def evaluation_benchmark(
             ge=1,
         ),
     ] = None,
-    ros_domain_id: Annotated[
-        int | None,
-        pydantic.Field(
-            description="ROS domain for the runtime and its envs (GZ_PARTITION follows); omitted, an already-set ROS_DOMAIN_ID is kept and otherwise the runner picks the lowest domain with no arena runtime",
-            ge=0,
-            le=232,
-        ),
-    ] = None,
     sim: Annotated[
         str | None,
         pydantic.Field(
@@ -518,7 +508,6 @@ async def evaluation_benchmark(
         scale_episodes=scale_episodes,
         data_root=data_root_dir,
         lanes=lanes,
-        ros_domain_id=ros_domain_id,
         sim=sim,
         headless=headless,
         env_n=env_n,
@@ -720,7 +709,6 @@ def evaluation_runs(
                     "suite",
                     "contest",
                     "simulator",
-                    "ros_domain_id",
                     "created_at",
                     "state",
                     "steps_total",
@@ -931,24 +919,22 @@ def manifest_ref(reference: str, first: pathlib.Path) -> str:
     return str(local) if local.is_file() else reference
 
 
-async def pipeline_job(
+def pipeline_argv(
     verb: str,
     run_ids: list[str] | None,
     episode_dirs: list[str] | None,
     *,
     output_dir: str | None = None,
-    generate_gifs: bool = False,
     profile: bool = False,
     workers: int | None = None,
     report_manifest: str | None = None,
     force_extract: bool = False,
-) -> dict[str, Any]:
+) -> list[str]:
+    """The `arena evaluation` arguments of one pipeline verb over these runs or episode folders."""
     flag, paths = pipeline_inputs(run_ids, episode_dirs)
     argv = [verb, flag, *map(str, paths)]
     if output_dir:
         argv += ["--output-dir", output_dir]
-    if generate_gifs:
-        argv.append("--generate-gifs")
     if profile:
         argv.append("--profile")
     if workers is not None:
@@ -957,6 +943,31 @@ async def pipeline_job(
         argv += ["--report-manifest", manifest_ref(report_manifest, paths[0])]
     if force_extract:
         argv.append("--force-extract")
+    return argv
+
+
+async def pipeline_job(
+    verb: str,
+    run_ids: list[str] | None,
+    episode_dirs: list[str] | None,
+    *,
+    output_dir: str | None = None,
+    profile: bool = False,
+    workers: int | None = None,
+    report_manifest: str | None = None,
+    force_extract: bool = False,
+) -> dict[str, Any]:
+    flag, paths = pipeline_inputs(run_ids, episode_dirs)
+    argv = pipeline_argv(
+        verb,
+        run_ids,
+        episode_dirs,
+        output_dir=output_dir,
+        profile=profile,
+        workers=workers,
+        report_manifest=report_manifest,
+        force_extract=force_extract,
+    )
     out_dir = pathlib.Path(output_dir) if output_dir else paths[0]
 
     def outputs(_job: Job) -> dict[str, Any]:
@@ -1011,7 +1022,6 @@ ReportManifest = Annotated[
         description="report manifest: a name (evaluation_manifests), a custom manifest in the run dir, a path, or inline {...} YAML"
     ),
 ]
-Gifs = Annotated[bool, pydantic.Field(description="also render trajectory GIFs, slow")]
 Profile = Annotated[
     bool,
     pydantic.Field(
@@ -1058,7 +1068,6 @@ async def evaluation_report(
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
-    generate_gifs: Gifs = False,
     profile: Profile = False,
 ) -> dict[str, Any]:
     """Start `arena evaluation report` as a job: report.html and plots from existing metrics, several runs merged into one report."""
@@ -1067,7 +1076,6 @@ async def evaluation_report(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
-        generate_gifs=generate_gifs,
         profile=profile,
         report_manifest=report_manifest,
     )
@@ -1079,7 +1087,6 @@ async def evaluation_plot(
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
-    generate_gifs: Gifs = False,
     profile: Profile = False,
 ) -> dict[str, Any]:
     """Start `arena evaluation plot` as a job: the manifest's static PNG plots only, no HTML."""
@@ -1088,7 +1095,6 @@ async def evaluation_plot(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
-        generate_gifs=generate_gifs,
         profile=profile,
         report_manifest=report_manifest,
     )
@@ -1100,7 +1106,6 @@ async def evaluation_pipeline(
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
-    generate_gifs: Gifs = False,
     workers: Workers = None,
     profile: Profile = False,
 ) -> dict[str, Any]:
@@ -1110,7 +1115,6 @@ async def evaluation_pipeline(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
-        generate_gifs=generate_gifs,
         profile=profile,
         workers=workers,
         report_manifest=report_manifest,
@@ -1278,4 +1282,4 @@ def evaluation_benchmark_workflow(goal: str) -> str:
 1. Pick or author configs: evaluation_suites, evaluation_contests, evaluation_config_schema, episode_task_modes, planners_list, assets_ls kind=world; validate with evaluation_validate_suite and evaluation_validate_contest before evaluation_create_suite or evaluation_create_contest.
 2. Start it with evaluation_benchmark, then follow evaluation_status, evaluation_progress and evaluation_console; stop it with evaluation_stop.
 3. When the job ended, run evaluation_process and wait for its job, then evaluation_report.
-4. Analyze with evaluation_summarize, evaluation_compare_planners and evaluation_top_n; evaluation_query returns a capped preview and pin_evidence=true keeps the full result as evidence. Record findings with evaluation_finding_create, review them with evaluation_finding_status and attach accepted ones with evaluation_finding_attach."""
+4. Analyze with evaluation_summarize and evaluation_compare_planners (pass n for the top contestants); evaluation_query returns a capped preview and pin_evidence=true keeps the full result as evidence. Record findings with evaluation_finding_create, review them with evaluation_finding_status and attach accepted ones with evaluation_finding_attach."""

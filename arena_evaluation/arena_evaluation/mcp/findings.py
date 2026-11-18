@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any, Final, Literal
 
+import polars as pl
 import pydantic
 from arena_mcp.core import ToolError
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
+from arena_evaluation.analytics.computations import COMPUTATIONS, run_computation
 from arena_evaluation.analytics.findings import (
     Finding,
     FindingAttachResponse,
@@ -54,15 +57,18 @@ __all__ = [
     "evaluation_findings",
 ]
 
-DEFAULT_REPORT: Final[str] = "report.html"
+DEFAULT_REPORT: Final[str] = (
+    "reviewed_report"  # the name evaluation_report_assemble writes by default
+)
 
 
 def _note_text(finding: Finding) -> str:
     """One self-contained notes.yaml entry for a finding attached to a report."""
     parts = [finding.claim]
-    if finding.numbers:
+    if finding.structured_numbers:
         formatted = ", ".join(
-            f"{key}={value}" for key, value in sorted(finding.numbers.items())
+            f"{entry['column']}={entry['value']}"
+            for entry in finding.structured_numbers
         )
         parts.append(f"numbers: {formatted}")
     if finding.evidence_id:
@@ -77,6 +83,8 @@ def _note_text(finding: Finding) -> str:
 def _report_token(run_dir: pathlib.Path, report: str) -> str:
     """Resolve the report file or run-local/package manifest name."""
     stem = component(report.removesuffix(".yaml"), "report")
+    if (run_dir / "reports" / stem / "report.html").is_file():
+        return stem
     report_file = run_dir / report
     manifest = run_dir / f"{stem}.yaml"
     run_bundle = bundle_path(run_analysis_root(run_dir), "report", stem)
@@ -91,8 +99,28 @@ def _report_token(run_dir: pathlib.Path, report: str) -> str:
             return stem
     raise ToolError(
         f"run {run_dir.name!r} has no report {report!r}",
-        hint="evaluation_report writes report.html; evaluation_create_manifest writes <name>/report.yaml",
+        hint="evaluation_report_assemble writes reports/<name>/report.html: assemble the draft, then attach; evaluation_create_manifest writes <name>/report.yaml",
     )
+
+
+ComputationRunner = Callable[[pathlib.Path, Mapping[str, Any]], pl.DataFrame]
+
+
+def _computation_runners() -> dict[str, ComputationRunner]:
+    """Rerun each registered L3 computation, and the sensitivity rerun, keyed by evidence operation."""
+
+    def runner_for(name: str) -> ComputationRunner:
+        def rerun(run_dir: pathlib.Path, params: Mapping[str, Any]) -> pl.DataFrame:
+            catalog = BenchmarkCatalog.open(run_dir)
+            return run_computation(name, catalog, params).summary
+
+        return rerun
+
+    runners: dict[str, ComputationRunner] = {
+        name: runner_for(name) for name in COMPUTATIONS
+    }
+    runners["evaluation_sensitivity"] = rerun_sensitivity_params
+    return runners
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
@@ -131,7 +159,9 @@ def evaluation_finding_create(
     ] = None,
     numbers: Annotated[
         dict[str, float] | None,
-        pydantic.Field(description="named numeric values quoted in the claim"),
+        pydantic.Field(
+            description="refused: free-form numbers are not checked against evidence; quote them in structured_numbers"
+        ),
     ] = None,
     structured_numbers: Annotated[
         list[dict[str, Any]] | None,
@@ -201,7 +231,7 @@ def evaluation_finding_verify(run_id: RunId, finding_id: str) -> dict[str, Any]:
         result = verify_finding(
             run_dir,
             finding_id,
-            computation_runners={"evaluation_sensitivity": rerun_sensitivity_params},
+            computation_runners=_computation_runners(),
         )
     except FindingError as exc:
         raise ToolError(
@@ -273,13 +303,12 @@ def evaluation_finding_attach(
     report: Annotated[
         str,
         pydantic.Field(
-            description="report.html or the run-local manifest name the finding belongs to"
+            description="assembled report name: reports/<name>/report.html written by evaluation_report_assemble"
         ),
     ] = DEFAULT_REPORT,
 ) -> FindingAttachResponse:
     """Attach a verified finding to a report, locking findings and notes together."""
     run_dir = run_path(run_id)
-    report_token = _report_token(run_dir, report)
     notes_path = run_dir / "notes.yaml"
     note_label = f"{FINDING_NOTE_PREFIX}{finding_id}"
 
@@ -306,6 +335,7 @@ def evaluation_finding_attach(
                 f"finding {finding_id} was verified at snapshot {finding.snapshot_id!r}, the run is at {current_snapshot!r}",
                 hint=f"run evaluation_finding_verify and evaluation_finding_status({run_id!r}, {finding_id!r}, 'verified') again",
             )
+        report_token = _report_token(run_dir, report)
         attached = finding.model_copy(update={"report": report_token})
         save_finding(run_dir, attached)
         write_notes(

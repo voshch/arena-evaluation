@@ -275,7 +275,7 @@ def mcp_star_tables() -> dict[str, pl.DataFrame]:
 
 
 def test_mcp_evaluation_plot_declarations() -> None:
-    declarations = evaluation_plot_declarations()
+    declarations = evaluation_plot_declarations()["declarations"]
     assert isinstance(declarations, list)
     assert len(declarations) >= 2
 

@@ -6,14 +6,14 @@ import asyncio
 import json
 import pathlib
 
+import polars as pl
 import pytest
 
-
-from agent_eval import evaluate_hypotheses
+from agent_eval import RESULTS_FILENAME, TRANSCRIPT_FILENAME, evaluate_hypotheses
+from h6_fixture import write_noisy_benchmark
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError as MCPToolError
 from mcp_fixtures import arena_data
-from synthetic_benchmark import write_synthetic_benchmark
 
 from arena_evaluation.mcp import domain, roles
 
@@ -21,12 +21,12 @@ from arena_evaluation.mcp import domain, roles
 def test_h6_scripted_truth_loop_verifies_refutes_and_flags_missing(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Every hypothesis in truth.json reaches its expected stored verdict over MCPServer."""
-    run_dir = tmp_path / "data" / "benchmarks" / "h6_proof"
-    write_synthetic_benchmark(run_dir, include_swap=False)
+    """Every hypothesis reaches its expected verdict; the interval is noisy, direction-aware, and evidence-checked."""
+    run_dir = tmp_path / "data" / "benchmarks" / "h6_noisy"
+    truth = write_noisy_benchmark(run_dir)
 
     with arena_data(tmp_path):
-        results, called_tools = evaluate_hypotheses("h6_proof", run_dir / "truth.json")
+        results, called_tools = evaluate_hypotheses("h6_noisy", run_dir / "truth.json")
 
     assert len(results) == 3
     for row in results:
@@ -34,6 +34,36 @@ def test_h6_scripted_truth_loop_verifies_refutes_and_flags_missing(
         assert row["mechanical_passed"] is True
         assert row["evidence_id"]
         assert pathlib.Path(row["report_path"]).is_file()
+
+    by_id = {row["hypothesis_id"]: row for row in results}
+    difference = by_id["H_diff"]
+    assert difference["ci_width"] is not None and difference["ci_width"] > 0.0
+    assert difference["ci_low"] <= truth["planted_delta"] <= difference["ci_high"]
+    assert difference["quoted_number"] is not None
+    assert (
+        abs(difference["quoted_number"] - difference["evidence_recomputed_number"])
+        <= 1e-4
+    )
+    assert abs(difference["quoted_number"] - difference["pooled_number"]) > 0.5
+    assert difference["number_resolved"] is True
+
+    null = by_id["H_null"]
+    assert null["ci_width"] is not None and null["ci_width"] > 0.0
+    assert null["ci_low"] < 0.0 < null["ci_high"]
+    assert null["actual_verdict"] == "refuted"
+
+    missing = by_id["H_missing"]
+    assert missing["ci_low"] is None
+    assert missing["number_resolved"] is False
+
+    results_path = pathlib.Path(difference["results_path"])
+    transcript_path = pathlib.Path(difference["transcript_path"])
+    assert results_path.name == RESULTS_FILENAME
+    assert transcript_path.name == TRANSCRIPT_FILENAME
+    table = pl.read_parquet(results_path)
+    assert table.height == 3
+    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+    assert "evaluation_finding_create" in transcript["called_tools"]
 
     audit_path = run_dir / "analysis" / "audit.jsonl"
     assert audit_path.is_file()
@@ -70,7 +100,8 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
 ) -> None:
     """Missing structured numbers, self-verification, and unverified attach are refused; role allowlists exclude operator tools."""
     run_dir = tmp_path / "data" / "benchmarks" / "h6_refusals"
-    write_synthetic_benchmark(run_dir, include_swap=False)
+    write_noisy_benchmark(run_dir)
+    (run_dir / "truth.json").unlink()
 
     server = MCPServer("test-refusals")
     domain.install(server)

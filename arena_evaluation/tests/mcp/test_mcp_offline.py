@@ -14,7 +14,7 @@ import polars as pl
 from arena_mcp.core import ToolError
 from mcp_fixtures import EMPTY_RUN_ID, build_runs, metric_rows
 
-from arena_evaluation.mcp import analysis, authoring, runs, slices
+from arena_evaluation.mcp import analysis, runs, slices
 
 
 def _frame() -> pl.DataFrame:
@@ -71,7 +71,6 @@ def test_benchmark_argv_renders_runner_options_and_launch_args():
         spawn_budget=120.0,
         world_swap=True,
         lanes=3,
-        ros_domain_id=57,
         sim="flatsim",
         headless=False,
         env_n=4,
@@ -93,7 +92,6 @@ def test_benchmark_argv_renders_runner_options_and_launch_args():
     assert argv[argv.index("--retries") + 1] == "0"
     assert argv[argv.index("--efficacy") + 1] == "0.5"
     assert argv[argv.index("--lanes") + 1] == "3"
-    assert argv[argv.index("--ros-domain-id") + 1] == "57"
     assert {
         "sim:=flatsim",
         "headless:=false",
@@ -157,19 +155,23 @@ def test_a_canonical_measure_with_a_declared_direction_ranks_higher_is_better(tm
     run_id = _write_star_run(tmp_path)
     desc = analysis.evaluation_describe_metric("mar", run_id=run_id)
     assert desc["direction"] == "higher"
-    top = analysis.evaluation_top_n(run_id, n=1, metrics=["success", "time_to_goal"])
-    assert top["top_n"][0]["planner"] in {"dwb", "dwb_social"}
+    top = analysis.evaluation_compare_planners(
+        run_id, n=1, metrics=["success", "time_to_goal"]
+    )
+    assert top["rankings"][0]["planner"] in {"dwb", "dwb_social"}
 
 
-def test_top_n_weights_must_match_the_metrics(tmp_path):
+def test_compare_planners_weights_must_match_the_metrics(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
     with pytest.raises(ToolError, match="2 weights for 1 metrics"):
-        analysis.evaluation_top_n(run_id, metrics=["success"], weights=[1.0, 2.0])
-    weighted = analysis.evaluation_top_n(
-        run_id, metrics=["success", "time_to_goal"], weights=[0.0, 1.0]
+        analysis.evaluation_compare_planners(
+            run_id, n=1, metrics=["success"], weights=[1.0, 2.0]
+        )
+    weighted = analysis.evaluation_compare_planners(
+        run_id, n=2, metrics=["success", "time_to_goal"], weights=[0.0, 1.0]
     )
-    assert weighted["top_n"][0]["planner"] == "dwb"
+    assert weighted["rankings"][0]["planner"] == "dwb"
 
 
 def test_correlation_is_bounded_and_worst_encounters_reads_dim_metrics(tmp_path):
@@ -224,37 +226,6 @@ def test_notes_replace_append_and_merge(tmp_path):
         {"label": "k1", "value": "v1"},
         {"label": "k2", "value": "v2"},
     ]
-
-
-def test_mode_params_come_from_the_registered_schemas():
-    from arena_runtime.env.task_layer import registered_modes, task_layer
-    from task_generator.tasks.registry import (
-        MODULE_MODES,
-        OBSTACLES_MODES,
-        ROBOTS_MODES,
-    )
-
-    layer = task_layer()
-    registered = authoring.mode_params(layer, registered_modes(layer))
-    for axis, registry in (
-        ("robots", ROBOTS_MODES),
-        ("obstacles", OBSTACLES_MODES),
-        ("modules", MODULE_MODES),
-    ):
-        assert set(registered[axis]) == {key.value for key in registry.keys()}
-        for key in registry.keys():
-            assert bool(registered[axis][key.value]) == (
-                registry.meta(key).schema is not None
-            ), (axis, key)
-
-    def names(axis: str, mode: str) -> dict[str, dict]:
-        return {param["name"]: param for param in registered[axis][mode]}
-
-    assert {"dynamic.n", "dynamic.models", "static.n"} <= set(
-        names("obstacles", "random")
-    )
-    assert {"pos_x", "pos_y", "pos_theta"} <= set(names("robots", "stationary"))
-    assert isinstance(names("obstacles", "scenario")["contact_mode"]["enum"], list)
 
 
 def test_progress_rows_fold_lane_files_without_writing(tmp_path):
@@ -333,16 +304,3 @@ def test_runner_lookup_skips_flags_and_reads_the_run_id():
         for child in (sleeper, named):
             child.kill()
             child.wait()
-
-
-def test_mode_params_declare_only_the_selected_modes():
-    from arena_runtime.env.task_layer import task_layer
-
-    layer = task_layer()
-    assert authoring.mode_params(layer, {"obstacles": ["random"]}).keys() == {
-        "obstacles"
-    }
-    assert list(
-        authoring.mode_params(layer, {"obstacles": ["random"]})["obstacles"]
-    ) == ["random"]
-    assert authoring.mode_params(layer, {}) == {}

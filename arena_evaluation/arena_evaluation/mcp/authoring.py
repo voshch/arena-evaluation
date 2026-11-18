@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import functools
-import importlib
-import os
 import pathlib
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import Annotated, Any
 
 import pydantic
 from arena_mcp.core import ToolError
@@ -13,78 +10,26 @@ from arena_mcp.core import ToolError
 from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
-if TYPE_CHECKING:
-    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
-    from arena_runtime.env.task_layer import TaskLayer, TaskModes
-    from arena_simulation_setup.tree import DomainAssetIdentifier
-
-
 Overwrite = Annotated[
     bool, pydantic.Field(description="replace an existing config of that name")
 ]
 
 
-def _constraint_tokens(text: str) -> dict[str, object]:
-    out: dict[str, object] = {}
-    for token in filter(None, text.split(";")):
-        key, sep, value = token.partition(":")
-        out[key] = (value.split(",") if key == "enum" else value) if sep else True
-    return out
+def _parser(module: str, attribute: str, what: str) -> Any:
+    """Import a parser lazily; a missing dependency becomes a hinted ToolError instead of ImportError."""
+    import importlib
 
-
-@functools.cache
-def _authoring_node() -> ROSParamServer:
-    """The node schemas are declared on, one per process: a long-lived server must never tear down its own rclpy context."""
-    import rclpy
-    from arena_rclpy_mixins.ROSParamServer import ROSParamServer
-
-    if not rclpy.ok():
-        rclpy.init()
-    return ROSParamServer(
-        f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False
-    )
-
-
-def mode_params(
-    layer: TaskLayer, selected: TaskModes
-) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
-    from arena_rclpy_mixins.params import declared
-
-    namespaces = layer.mode_namespaces()
-    node = _authoring_node()
-
-    def entries(axis: str, mode: str) -> list[dict[str, Any]]:
-        layer.declare_mode_schema(node, axis, mode)
-        prefix = f"{namespaces[axis][mode]}."
-        return [
-            {
-                "name": name.removeprefix(prefix),
-                **_constraint_tokens(param.descriptor().additional_constraints),
-            }
-            for name, param in sorted(declared(node).items())
-            if name.startswith(prefix)
-        ]
-
-    return {
-        axis: {mode: entries(axis, mode) for mode in modes}
-        for axis, modes in selected.items()
-    }
-
-
-def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
-    """Names of a domain asset kind the way task modes reference them."""
-    from arena_simulation_setup import DOMAIN_DEFAULT
-
-    return sorted(
-        {
-            item.name if item.domain == DOMAIN_DEFAULT else item.shortname
-            for item in identifier.listall()
-        }
-    )
+    try:
+        return getattr(importlib.import_module(module), attribute)
+    except (ImportError, AttributeError) as exc:
+        raise ToolError(
+            f"the {what} parser is not available in this build",
+            hint="install the arena_evaluation benchmark layer, or validate the declaration on the side stream",
+        ) from exc
 
 
 def world_names() -> list[str]:
+    """Names of every local world, for the dashboard's spawn options."""
     from arena_simulation_setup.tree.World import WorldIdentifier
 
     return sorted(
@@ -96,220 +41,73 @@ def world_names() -> list[str]:
     )
 
 
-def world_resolves(name: str, known: set[str]) -> bool:
-    """True when every world of a possibly composite, level-filtered world name is known."""
-    from arena_simulation_setup.tree.World import WorldIdentifier
-    from arena_simulation_setup.tree.World.view import composite_parts
-
-    return all(
-        WorldIdentifier.split_filter(part)[0] in known for part in composite_parts(name)
-    )
-
-
-def registered_drivers() -> dict[str, set[str]]:
-    """Drivers per cap from the bringup and adapter registries."""
-    from arena_robots.bringup import BRINGUPS
-    from arena_runtime.env.adapters import ADAPTERS
-
-    for cap in ADAPTERS:
-        importlib.import_module(f"arena_runtime.env.adapters.{cap}")
-    return {
-        cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys())
-        for cap in sorted(set(BRINGUPS) | set(ADAPTERS))
-    }
-
-
-def _leaves(block: dict[str, Any], prefix: str = "") -> list[str]:
-    out = []
-    for key, value in block.items():
-        name = f"{prefix}{key}"
-        if isinstance(value, dict) and not ({"min", "max"} <= set(value)):
-            out += _leaves(value, f"{name}.")
-        elif isinstance(value, dict):
-            out.append(f"{name}.n")
-            out += _leaves(
-                {key: item for key, item in value.items() if key not in ("min", "max")},
-                f"{name}.",
-            )
-        else:
-            out.append(name)
-    return out
-
-
-def _at(block: dict[str, Any], dotted: str) -> object:
-    node: object = block
-    for part in dotted.split("."):
-        if not isinstance(node, dict) or part not in node:
-            return None
-        node = node[part]
-    return node
-
-
 def check_suite(data: object) -> dict[str, Any]:
-    """Suite.parse verdict plus warnings for task modes, config keys, worlds, robots and models the registries and resolvers do not know."""
-    from arena_robots.Robot import RobotIdentifier
-    from arena_runtime.env.constants import Constants
-    from arena_runtime.env.robot_manager.robots_manager import split_robot_arg
-    from arena_runtime.env.task_layer import registered_modes, task_layer
-    from arena_simulation_setup.tree.assets.Human import HumanIdentifier
-    from arena_simulation_setup.tree.assets.Object import ObjectIdentifier
-
-    from arena_evaluation.benchmark.config import Suite, stage_modes
-
+    """Suite.parse verdict; mode, world, robot and model availability runs on the side stream."""
+    Suite = _parser("arena_evaluation.benchmark.config", "Suite", "suite")
     if not isinstance(data, dict):
         return {
             "valid": False,
             "problems": [
                 f"a suite is a mapping with stages, got {type(data).__name__}"
             ],
+            "warnings": [],
         }
     try:
         suite = Suite.parse("_validate", data)
     except (LookupError, ValueError, TypeError) as exc:
-        return {"valid": False, "problems": [f"{type(exc).__name__}: {exc}"]}
-    layer = task_layer(suite.task_layer)
-    vocabulary = registered_modes(layer)
-    chosen = [stage_modes(stage, vocabulary) for stage in suite.stages]
-    selected: TaskModes = {
-        axis: sorted(
-            {
-                mode
-                for modes in chosen
-                for mode in modes[axis]
-                if mode in vocabulary.get(axis, [])
-            }
-        )
-        for axis in vocabulary
-    }
-    declared_params = mode_params(layer, selected)
-    worlds = set(world_names())
-    robots = {item.shortname for item in RobotIdentifier.listall()}
-    catalogs = {
-        "pedestrians": set(domain_asset_names(HumanIdentifier)),
-        "objects": set(domain_asset_names(ObjectIdentifier)),
-    }
-    human_blocks = {
-        *Constants.HUMAN_PARAM_NAMESPACES.values(),
-        Constants.HUMAN_PARAM_RESERVED,
-    }
-    problems: list[str] = []
-    warnings: list[str] = []
-    for raw, stage, stage_chosen in zip(
-        data["stages"], suite.stages, chosen, strict=True
-    ):
-        where = f"stage {stage.name!r}"
-        for axis, names in stage_chosen.items():
-            problems.extend(
-                f"{where}: {axis} mode {mode!r} is not registered, see episode_task_modes"
-                for mode in names
-                if mode not in vocabulary.get(axis, [])
-            )
-        if Constants.HUMAN_PARAM_RESERVED in stage.config:
-            problems.append(
-                f"{where}: config block {Constants.HUMAN_PARAM_RESERVED!r} is reserved and fails the stage"
-            )
-        axis_of = {mode: axis for axis, names in stage_chosen.items() for mode in names}
-        for block_name, block in stage.config.items():
-            if block_name in human_blocks:
-                continue
-            if block_name not in axis_of:
-                warnings.append(
-                    f"{where}: config block {block_name!r} matches none of the stage's modes and is not sent"
-                )
-                continue
-            axis = axis_of[block_name]
-            if block_name not in declared_params.get(axis, {}) or not isinstance(
-                block, dict
-            ):
-                continue
-            params = declared_params[axis][block_name]
-            declared = {param["name"] for param in params}
-            for leaf in _leaves(block):
-                if leaf not in declared:
-                    warnings.append(
-                        f"{where}: config.{block_name}.{leaf} is not a parameter of {block_name}, known: {sorted(declared)}"
-                    )
-            for param in params:
-                catalog = catalogs.get(str(param.get("catalog")))
-                names = _at(block, param["name"]) if catalog is not None else None
-                if catalog is None or not isinstance(names, list):
-                    continue
-                for name in names:
-                    if name not in catalog:
-                        warnings.append(
-                            f"{where}: config.{block_name}.{param['name']} model {name!r} is not in the {param['catalog']} catalog, fetch it with arena asset pull or fix the name"
-                        )
-        if not world_resolves(stage.map, worlds):
-            warnings.append(
-                f"{where}: map {stage.map!r} does not resolve locally, it may be bucket-only (assets_ls kind=world network=true) or misspelled"
-            )
-        unknown = [
-            entry
-            for entry in split_robot_arg(stage.robot)
-            if entry.partition("[")[0].strip() not in robots
-        ]
-        if raw.get("robot") != "auto" and unknown:
-            warnings.append(
-                f"{where}: robot {', '.join(unknown)} not in the robot catalog (robots_catalog)"
-            )
+        return {
+            "valid": False,
+            "problems": [f"{type(exc).__name__}: {exc}"],
+            "warnings": [],
+        }
     return {
-        "valid": not problems,
+        "valid": True,
         "n_stages": len(suite.stages),
         "stages": [stage.name for stage in suite.stages],
         "references": suite.references,
         "launch": suite.launch_args,
-        "problems": problems,
-        "warnings": warnings,
+        "problems": [],
+        "warnings": [],
+        "side_stream": (
+            "task-mode, world, robot, model and driver availability is checked by "
+            "evaluation_preflight, episode_task_modes and the robots/worlds/planners tools"
+        ),
     }
 
 
-def _contest_drivers(args: dict[str, Any], cap: str) -> str | None:
-    value = args.get(cap)
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict) and isinstance(value.get("driver"), str):
-        return value["driver"]
-    flat = args.get(f"{cap}.driver")
-    return flat if isinstance(flat, str) else None
-
-
 def check_contest(data: object) -> dict[str, Any]:
-    """Contest.parse verdict plus the runner's nav2 preflight and drivers checked against the bringup and adapter registries."""
-    from arena_evaluation.benchmark.config import Contest
-    from arena_evaluation.benchmark.runner import _preflight_contest
-
+    """Contest.parse verdict; the planner preflight and driver registration run on the side stream."""
+    Contest = _parser("arena_evaluation.benchmark.config", "Contest", "contest")
     if not isinstance(data, list | dict):
         return {
             "valid": False,
             "problems": [
                 f"a contest is a list or a mapping, got {type(data).__name__}"
             ],
+            "warnings": [],
         }
     try:
         contest = Contest.parse("_validate", data)
     except (KeyError, ValueError, TypeError) as exc:
-        return {"valid": False, "problems": [f"{type(exc).__name__}: {exc}"]}
-    drivers = registered_drivers()
-    problems = list(_preflight_contest(contest))
-    for contestant in contest.contestants:
-        for cap, known in drivers.items():
-            driver = _contest_drivers(contestant.args, cap)
-            if driver is not None and driver not in known:
-                problems.append(
-                    f"{contestant.name}: {cap} driver {driver!r} is not registered, known: {sorted(known)}"
-                )
+        return {
+            "valid": False,
+            "problems": [f"{type(exc).__name__}: {exc}"],
+            "warnings": [],
+        }
     return {
-        "valid": not problems,
+        "valid": True,
         "n_contestants": len(contest.contestants),
         "contestants": [
             {"name": entry.name, "args": entry.args, "parts": entry.parts}
             for entry in contest.contestants
         ],
-        "problems": problems,
+        "problems": [],
+        "warnings": [],
+        "side_stream": (
+            "the nav2 planner preflight and driver registration are checked by "
+            "evaluation_preflight on a run, not by this schema validation"
+        ),
     }
-
-
-_DRL_DRIVERS: Final = frozenset({"drl", "vla", "rosnav_rl"})
 
 
 def check_manifest(data: object) -> dict[str, Any]:
@@ -357,13 +155,13 @@ def write_config(
 
 @domain.tool(read_only=True)
 def evaluation_validate_suite(yaml_content: YamlText) -> dict[str, Any]:
-    """Check a suite with the runner's Suite parser, then warn about task modes, config keys, maps, robots and models the registries do not know."""
+    """Check a suite with the runner's Suite parser; task-mode, world, robot and model availability is a side-stream check."""
     return check_suite(parse_yaml(yaml_content, "suite"))
 
 
 @domain.tool(read_only=True)
 def evaluation_validate_contest(yaml_content: YamlText) -> dict[str, Any]:
-    """Check a contest with the runner's Contest parser and its nav2 planner preflight, and its drivers against the registries."""
+    """Check a contest with the runner's Contest parser; the nav2 preflight and driver registration are side-stream checks."""
     return check_contest(parse_yaml(yaml_content, "contest"))
 
 

@@ -592,13 +592,11 @@ def test_finding_create_list_review_and_attach(run: pathlib.Path) -> None:
         "dwb cuts the corner in a blind crowd, ending in a robot-fault contact.",
         episode_id=EPISODE_ID,
         contact_id=CONTACT_ID,
-        numbers={"min_clearance_m": 0.4, "impact_speed_mps": 0.8},
         figure_path="plots/episode_000_clearance.png",
     )
     assert finding.finding_id.startswith("fnd-")
     assert finding.status is FindingStatus.PROPOSED
     assert finding.figure_path == "plots/episode_000_clearance.png"
-    assert finding.numbers == {"min_clearance_m": 0.4, "impact_speed_mps": 0.8}
 
     finding_file = run / "analysis" / "findings" / f"{finding.finding_id}.yaml"
     document = yaml.safe_load(finding_file.read_text(encoding="utf-8"))
@@ -615,7 +613,9 @@ def test_finding_create_list_review_and_attach(run: pathlib.Path) -> None:
     assert reviewed.status is FindingStatus.VERIFIED
     assert evaluation_findings(RUN_ID).findings[0].status is FindingStatus.VERIFIED
 
-    attached = evaluation_finding_attach(RUN_ID, finding.finding_id)
+    attached = evaluation_finding_attach(
+        RUN_ID, finding.finding_id, report="report.html"
+    )
     assert attached.finding.report == "report.html"
     assert attached.note_label == f"finding:{finding.finding_id}"
     notes = yaml.safe_load((run / "notes.yaml").read_text(encoding="utf-8"))
@@ -681,13 +681,6 @@ def test_finding_attach_needs_a_report(run: pathlib.Path) -> None:
 def test_finding_status_rejects_an_unknown_finding(run: pathlib.Path) -> None:
     with pytest.raises(ToolError, match="no finding"):
         evaluation_finding_status(RUN_ID, "fnd-missing", "verified", by="verifier")
-
-
-def test_finding_rejects_non_finite_numbers(run: pathlib.Path) -> None:
-    with pytest.raises(ToolError, match="must be finite"):
-        evaluation_finding_create(
-            RUN_ID, "claim", numbers={"min_clearance_m": float("nan")}
-        )
 
 
 def test_finding_rejects_an_empty_claim(run: pathlib.Path) -> None:
