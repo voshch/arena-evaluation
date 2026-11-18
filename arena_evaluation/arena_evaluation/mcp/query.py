@@ -21,7 +21,7 @@ from arena_evaluation.analytics.queries import QueryCatalog, QueryDeclaration
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine, validate_readonly_sql
 from arena_evaluation.storage.star_schema import has_star_schema
 
-from .base import OptionalRunId, component, domain, run_path
+from .base import OptionalRunId, append_audit_event, component, domain, run_path
 
 __all__ = [
     "evaluation_evidence",
@@ -129,6 +129,12 @@ def evaluation_query(
             ge=1,
         ),
     ] = PREVIEW_ROWS,
+    save_as: Annotated[
+        str | None,
+        pydantic.Field(
+            description="Optional derived table name to persist under analysis/derived/<name>.parquet"
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Execute an ad-hoc or stored analytical SQL query and return a capped preview: row_count, returned_rows, truncated, columns and data; pin_evidence=true pins the full result."""
     if query is None and stored_query is None:
@@ -224,6 +230,21 @@ def evaluation_query(
             polars.exceptions.PolarsError,
         ) as exc:
             raise _query_error(exc, catalog, sql_to_run) from exc
+    derived_info: dict[str, Any] | None = None
+    if save_as is not None:
+        from arena_evaluation.analytics.derived import save_derived_table
+
+        full_df = frame if should_pin else plan.collect()
+        derived_info = save_derived_table(
+            benchmark_path,
+            name=save_as,
+            frame=full_df,
+            definition={"kind": "sql", "sql": sql_to_run},
+            snapshot_id=catalog.snapshot_id,
+            purpose=purpose.strip() or save_as,
+            author="analyst",
+        )
+
     rec = None
     if should_pin:
         rec = EvidenceStore(benchmark_path).record(
@@ -234,6 +255,24 @@ def evaluation_query(
             purpose=purpose.strip(),
             params=params or {},
             sql_text=sql_to_run,
+        )
+
+    if save_as is not None or rec is not None:
+        produced: list[str] = []
+        if derived_info is not None:
+            produced.append(derived_info["table_name"])
+        if rec is not None:
+            produced.append(rec.evidence_id)
+        append_audit_event(
+            benchmark_path,
+            role="analyst",
+            tool="evaluation_query",
+            args={
+                "query": sql_to_run,
+                "save_as": save_as,
+                "pin_evidence": pin_evidence,
+            },
+            produced_ids=produced,
         )
 
     if rec is not None:
@@ -252,6 +291,7 @@ def evaluation_query(
             if rec.artifact_path is not None
             else None,
             "data": preview.to_dicts(),
+            **({"derived_table": derived_info["table_name"]} if derived_info else {}),
         }
 
     return {
@@ -267,6 +307,7 @@ def evaluation_query(
         "columns": list(preview.columns),
         "artifact_path": None,
         "data": preview.to_dicts(),
+        **({"derived_table": derived_info["table_name"]} if derived_info else {}),
     }
 
 

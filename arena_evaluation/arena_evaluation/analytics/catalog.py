@@ -194,15 +194,18 @@ class BenchmarkCatalog:
 
     def _load_from_directory(self, source_dir: pathlib.Path) -> None:
         """Scan Star Schema tables, series tables, and telemetry tables from ``source_dir``."""
+        from arena_evaluation.analytics.derived import scan_derived_tables
         from arena_evaluation.analytics.merge import load_merge_manifest
 
         merge_manifest = load_merge_manifest(source_dir)
         if merge_manifest is not None:
             self._load_merged_directory(source_dir, merge_manifest)
+            self._tables.update(scan_derived_tables(source_dir))
             return
         self._tables.update(scan_star_schema(source_dir))
         self._tables.update(scan_series_tables(source_dir))
         self._tables.update(scan_telemetry_tables(source_dir))
+        self._tables.update(scan_derived_tables(source_dir))
         self._register_evidence_index(source_dir)
 
     def _load_merged_directory(

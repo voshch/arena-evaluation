@@ -15,6 +15,12 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ImageContent
 
 from arena_evaluation.mcp import domain
+from arena_evaluation.mcp.findings import (
+    evaluation_finding_attach,
+    evaluation_finding_create,
+    evaluation_finding_status,
+    evaluation_findings,
+)
 from arena_evaluation.mcp.query import evaluation_query
 from arena_evaluation.mcp.slices import evaluation_slice, evaluation_worst_encounters
 
@@ -36,6 +42,11 @@ TOOL_CLASSES: dict[str, str] = {
     "evaluation_describe_metric": "read",
     "evaluation_evidence": "read",
     "evaluation_extract": "overwrite",
+    "evaluation_finding_attach": "overwrite",
+    "evaluation_finding_create": "write",
+    "evaluation_finding_status": "overwrite",
+    "evaluation_finding_verify": "write",
+    "evaluation_findings": "read",
     "evaluation_kill": "overwrite",
     "evaluation_lint_declarations": "read",
     "evaluation_manifests": "read",
@@ -59,6 +70,7 @@ TOOL_CLASSES: dict[str, str] = {
     "evaluation_record_start": "overwrite",
     "evaluation_record_stop": "overwrite",
     "evaluation_recorded_topics": "read",
+    "evaluation_refresh_table": "overwrite",
     "evaluation_render_plot": "overwrite",
     "evaluation_report": "overwrite",
     "evaluation_runs": "read",
@@ -70,6 +82,7 @@ TOOL_CLASSES: dict[str, str] = {
     "evaluation_stop": "overwrite",
     "evaluation_suites": "read",
     "evaluation_summarize": "read",
+    "evaluation_tables": "read",
     "evaluation_top_n": "read",
     "evaluation_validate_contest": "read",
     "evaluation_validate_manifest": "read",
@@ -82,6 +95,10 @@ TOOL_CLASSES: dict[str, str] = {
 PydanticTool = typing.Callable[..., pydantic.BaseModel]
 
 MODEL_TOOLS = (
+    evaluation_findings,
+    evaluation_finding_create,
+    evaluation_finding_status,
+    evaluation_finding_attach,
     evaluation_slice,
     evaluation_worst_encounters,
 )
@@ -107,8 +124,39 @@ def test_every_tool_is_classified_with_matching_flags():
             raise AssertionError(f"unknown category {category!r} for {name}")
 
 
+def test_append_insight_is_gone_and_the_finding_tools_replace_it():
+    names = {spec.name for spec in domain.tools}
 
-@pytest.mark.parametrize("tool", (evaluation_slice, evaluation_worst_encounters))
+    assert "evaluation_append_insight" not in names
+    assert {
+        "evaluation_finding_create",
+        "evaluation_finding_status",
+        "evaluation_finding_attach",
+        "evaluation_findings",
+    } <= names
+
+
+@pytest.mark.parametrize("tool", MODEL_TOOLS)
 def test_a_model_returning_tool_stays_typed_for_its_output_schema(tool: PydanticTool):
     annotation = typing.get_type_hints(tool)["return"]
+
     assert isinstance(annotation, type) and issubclass(annotation, pydantic.BaseModel)
+
+
+def test_the_capped_query_contract_keeps_its_inline_fields():
+    annotation = typing.get_type_hints(evaluation_query)["return"]
+
+    assert typing.get_origin(annotation) is dict
+
+
+def test_mcp_server_publishes_output_schemas_and_structured_content():
+    server = MCPServer("test-eval")
+    domain.install(server)
+
+    tools = {t.name: t for t in asyncio.run(server.list_tools())}
+    for fn in MODEL_TOOLS:
+        t = tools[fn.__name__]
+        assert t.output_schema is not None, f"{t.name} missing output_schema"
+        assert "properties" in t.output_schema, t.name
+
+

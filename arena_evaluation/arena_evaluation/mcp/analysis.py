@@ -8,7 +8,14 @@ from arena_mcp.core.msgs import jsonable
 
 from arena_evaluation.analytics.computations import run_computation
 
-from .base import OptionalRunId, RunId, data_root, domain, run_path
+from .base import (
+    OptionalRunId,
+    RunId,
+    append_audit_event,
+    data_root,
+    domain,
+    run_path,
+)
 
 if TYPE_CHECKING:
     import pathlib
@@ -687,6 +694,10 @@ def evaluation_analysis(
         pydantic.Field(description="Procedure parameter dictionary"),
     ] = None,
     run_id: OptionalRunId = None,
+    save_as: Annotated[
+        str | None,
+        pydantic.Field(description="Optional purpose/label for pinned evidence"),
+    ] = None,
 ) -> dict[str, Any]:
     """List or run a named statistical analysis procedure over a run and pin its evidence."""
     from arena_evaluation.analytics.analyses import list_procedures, run_procedure
@@ -711,6 +722,7 @@ def evaluation_analysis(
             catalog,
             params,
             evidence_store=store,
+            save_as=save_as,
         )
     except (KeyError, ValueError, pydantic.ValidationError) as exc:
         raise ToolError(
@@ -719,6 +731,47 @@ def evaluation_analysis(
         ) from exc
 
     summary_rows = result.summary.to_dicts()
+    derived_table: str | None = None
+    derived_summary_table: str | None = None
+    if save_as is not None:
+        from arena_evaluation.analytics.derived import save_derived_table
+
+        definition = {
+            "kind": "procedure",
+            "procedure": procedure,
+            "params": params or {},
+        }
+        d_info = save_derived_table(
+            path,
+            name=save_as,
+            frame=result.frame,
+            definition=definition,
+            snapshot_id=result.snapshot_id,
+            purpose=save_as,
+            author="analyst",
+        )
+        summary_info = save_derived_table(
+            path,
+            name=f"{save_as}_summary",
+            frame=result.summary,
+            definition={**definition, "kind": "procedure_summary"},
+            snapshot_id=result.snapshot_id,
+            purpose=save_as,
+            author="analyst",
+        )
+        derived_table = d_info["table_name"]
+        derived_summary_table = summary_info["table_name"]
+        append_audit_event(
+            path,
+            role="analyst",
+            tool="evaluation_analysis",
+            args={"procedure": procedure, "save_as": save_as},
+            produced_ids=[
+                result.evidence_id,
+                derived_table,
+                derived_summary_table,
+            ],
+        )
     return {
         "run_id": path.name,
         "procedure": procedure,
@@ -729,6 +782,12 @@ def evaluation_analysis(
         "preview": result.frame.head(20).to_dicts(),
         "excluded_rows": dict(result.excluded_rows),
         "seeds_used": list(result.seeds_used),
+        **({"derived_table": derived_table} if derived_table else {}),
+        **(
+            {"derived_summary_table": derived_summary_table}
+            if derived_summary_table
+            else {}
+        ),
     }
 
 
@@ -780,6 +839,18 @@ def evaluation_sensitivity(
         purpose=save_as or "sensitivity",
         params={"episodes": episodes, "detector_params": detector_params or {}},
     )
+    append_audit_event(
+        path,
+        role="analyst",
+        tool="evaluation_sensitivity",
+        args={
+            "run_id": run_id,
+            "episodes": episodes,
+            "detector_params": detector_params or {},
+            "save_as": save_as,
+        },
+        produced_ids=[record.evidence_id],
+    )
     return {
         "run_id": path.name,
         "snapshot_id": catalog.snapshot_id,
@@ -789,3 +860,47 @@ def evaluation_sensitivity(
         "preview": frame.head(20).to_dicts(),
     }
 
+
+@domain.tool(read_only=True)
+def evaluation_tables(run_id: RunId) -> dict[str, Any]:
+    """List derived tables saved under ``<run>/analysis/derived`` with freshness status."""
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
+    from arena_evaluation.analytics.derived import list_derived_tables
+    from arena_evaluation.storage.star_schema import has_star_schema
+
+    path = run_path(run_id)
+    if not has_star_schema(path):
+        raise ToolError(
+            f"run {run_id!r} has no Star Schema tables",
+            hint="evaluation_process builds them",
+        )
+    catalog = BenchmarkCatalog.open(path)
+    tables = list_derived_tables(path, current_snapshot_id=catalog.snapshot_id)
+    return {
+        "run_id": path.name,
+        "snapshot_id": catalog.snapshot_id,
+        "tables": tables,
+    }
+
+
+@domain.tool(read_only=False, destructive=True, idempotent=True)
+def evaluation_refresh_table(run_id: RunId, name: str) -> dict[str, Any]:
+    """Recompute a stale derived table from its stored definition against the current snapshot."""
+    from arena_evaluation.analytics.derived import refresh_derived_table
+
+    path = run_path(run_id)
+    try:
+        info = refresh_derived_table(path, name)
+    except (FileNotFoundError, ValueError) as exc:
+        raise ToolError(
+            str(exc),
+            hint="evaluation_tables lists saved derived tables",
+        ) from exc
+    append_audit_event(
+        path,
+        role="analyst",
+        tool="evaluation_refresh_table",
+        args={"run_id": run_id, "name": name},
+        produced_ids=[info["table_name"]],
+    )
+    return {"run_id": path.name, **info}

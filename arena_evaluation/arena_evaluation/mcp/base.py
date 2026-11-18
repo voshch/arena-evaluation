@@ -206,3 +206,50 @@ def assert_safe_analysis_write(
         )
     return resolved_target
 
+
+def append_audit_event(
+    run_dir: pathlib.Path,
+    *,
+    role: str,
+    tool: str,
+    args: dict[str, object],
+    produced_ids: list[str] | None = None,
+) -> None:
+    """Append one JSONL audit entry to ``<run>/analysis/audit.jsonl`` under a file lock."""
+    import datetime
+    import hashlib
+    import json
+
+    audit_path = run_dir / "analysis" / "audit.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    args_hash = hashlib.sha256(
+        json.dumps(args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:12]
+    entry = {
+        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+        "role": role,
+        "tool": tool,
+        "args_hash": args_hash,
+        "produced_ids": produced_ids or [],
+    }
+    with file_lock(audit_path.with_suffix(".jsonl.lock")):
+        with audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+__all__ = [
+    "OptionalRunId",
+    "RunId",
+    "YamlText",
+    "append_audit_event",
+    "assert_safe_analysis_write",
+    "atomic_write_text",
+    "component",
+    "config_stem",
+    "data_root",
+    "domain",
+    "file_lock",
+    "is_inline",
+    "parse_yaml",
+    "run_path",
+]

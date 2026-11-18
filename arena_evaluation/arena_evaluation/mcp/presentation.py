@@ -41,6 +41,7 @@ from arena_evaluation.storage.star_schema import has_star_schema
 from .base import (
     OptionalRunId,
     YamlText,
+    append_audit_event,
     assert_safe_analysis_write,
     atomic_write_text,
     component,
@@ -342,7 +343,6 @@ def evaluation_render_plot(
         if isinstance(html_body, list):
             html_body = "\n".join(html_body)
 
-
         plotly_js = plotly.offline.get_plotlyjs()
         full_html = (
             f"<!DOCTYPE html>\n<html>\n<head>\n<title>{html.escape(spec.title or clean_stem)}</title>\n"
@@ -378,6 +378,18 @@ def evaluation_render_plot(
                 hint="check the plot data and try output_format='png'",
             )
 
+    append_audit_event(
+        benchmark_path,
+        role="reporter",
+        tool="evaluation_render_plot",
+        args={
+            "run_id": run_id,
+            "declaration": declaration,
+            "spec_id": spec.id or clean_stem,
+            "output_format": output_format,
+        },
+        produced_ids=[str(out_file)],
+    )
     summary_payload: dict[str, Any] = {
         "plot_path": str(out_file),
         "format": output_format,
