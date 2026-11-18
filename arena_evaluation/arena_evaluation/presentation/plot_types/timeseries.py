@@ -6,24 +6,24 @@ import pathlib
 from typing import ClassVar
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import plotly.graph_objects as go
 import polars as pl
-import seaborn as sns
 
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import (
     BasePlotRenderer,
     finish_axes,
-    label_values,
     new_figure,
     palette_color,
     series_values,
 )
 
+EPISODE_COLUMN = "episode_id"
+Curve = tuple[str, pl.DataFrame, str]
+
 
 class TimeseriesRenderer(BasePlotRenderer):
-    """Renders multi-series time-domain curves using Plotly and Seaborn."""
+    """Renders time-domain curves, one per signal and per colour value and episode, in Plotly and Matplotlib alike."""
 
     PLOT_TYPE = "timeseries"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
@@ -42,25 +42,33 @@ class TimeseriesRenderer(BasePlotRenderer):
     def _label(self, column: str) -> str:
         return self.format_label(column.replace("_", " ").title(), column)
 
-    def _series_groups(
+    def _curves(
         self, sorted_df: pl.DataFrame, y_cols: list[str], color_col: str | None
-    ) -> list[tuple[str, pl.DataFrame, str]]:
-        if len(y_cols) > 1 or color_col is None:
-            return [(y_col, sorted_df, y_col) for y_col in y_cols]
-        labels = sorted(
-            label_values(sorted_df.select(color_col).unique(), color_col).tolist()
-        )
-        y_col = y_cols[0]
-        return [
-            (
-                label,
-                sorted_df.filter(pl.col(color_col).is_null())
-                if label == "NULL"
-                else sorted_df.filter(pl.col(color_col).cast(pl.Utf8) == label),
-                y_col,
-            )
-            for label in labels
+    ) -> list[Curve]:
+        """One curve per signal and per (colour, episode) group: repeats of a robot never join into one line."""
+        split_cols = [
+            col for col in (color_col, EPISODE_COLUMN) if col and col in sorted_df.columns
         ]
+        if not split_cols:
+            return [(y_col, sorted_df, y_col) for y_col in y_cols]
+        groups = sorted_df.partition_by(split_cols, as_dict=True, maintain_order=True)
+        return [
+            (self._curve_name(y_col, y_cols, split_cols, key), sub, y_col)
+            for y_col in y_cols
+            for key, sub in groups.items()
+        ]
+
+    @staticmethod
+    def _curve_name(
+        y_col: str, y_cols: list[str], split_cols: list[str], key: tuple
+    ) -> str:
+        parts = [] if len(y_cols) == 1 else [y_col]
+        for column, value in zip(split_cols, key, strict=True):
+            if column == EPISODE_COLUMN:
+                parts.append(f"episode {value}")
+            else:
+                parts.append("NULL" if value is None else str(value))
+        return " · ".join(parts)
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly timeseries plot."""
@@ -71,7 +79,7 @@ class TimeseriesRenderer(BasePlotRenderer):
         fig = go.Figure()
 
         for idx, (name, sub, y_col) in enumerate(
-            self._series_groups(df.sort(x_col), y_cols, color_col)
+            self._curves(df.sort(x_col), y_cols, color_col)
         ):
             fig.add_trace(
                 go.Scatter(
@@ -96,49 +104,26 @@ class TimeseriesRenderer(BasePlotRenderer):
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        """Render a static Seaborn timeseries plot."""
+        """Render a static Matplotlib timeseries plot with the same curves as the interactive one."""
         if df.is_empty():
             return
         x_col, y_cols, color_col = self._resolve_columns(df)
-        sorted_df = df.sort(x_col)
+        curves = self._curves(df.sort(x_col), y_cols, color_col)
         palette = get_color_palette()
         fig, ax = new_figure()
 
-        if len(y_cols) > 1:
-            melted = sorted_df.select([x_col, *y_cols]).unpivot(
-                index=x_col, on=y_cols, variable_name="signal", value_name="value"
+        for idx, (name, sub, y_col) in enumerate(curves):
+            ax.plot(
+                sub[x_col].to_numpy(),
+                series_values(sub, y_col),
+                color=palette_color(palette, idx),
+                linewidth=2.0,
+                label=name,
             )
-            sns.lineplot(
-                data=melted.to_pandas(),
-                x=x_col,
-                y="value",
-                hue="signal",
-                palette=palette,
-                estimator=None,
-                errorbar=None,
-                ax=ax,
-            )
-            y_title = "Value"
-        else:
-            y_col = y_cols[0]
-            cols = [c for c in dict.fromkeys([x_col, y_col, color_col]) if c]
-            pdf = sorted_df.select(cols).to_pandas()
-            line_kwargs: dict[str, object] = {
-                "data": pdf,
-                "x": x_col,
-                "y": y_col,
-                "estimator": None,
-                "errorbar": None,
-                "ax": ax,
-            }
-            if color_col:
-                pdf[color_col] = pd.Series(label_values(sorted_df, color_col))
-                line_kwargs.update(hue=color_col, palette=palette)
-            else:
-                line_kwargs["color"] = palette_color(palette, 0)
-            sns.lineplot(**line_kwargs)
-            y_title = self._label(y_col)
+        if len(curves) > 1:
+            ax.legend(frameon=False)
 
+        y_title = "Value" if len(y_cols) > 1 else self._label(y_cols[0])
         x_title = self._label(x_col)
         finish_axes(
             ax,
