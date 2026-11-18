@@ -17,13 +17,13 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from arena_rclpy_mixins.params import Param, Range, declare
 from arena_rclpy_mixins.spin import create_executor, spin_node
+from arena_rclpy_mixins.Time import TimeNode
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
 from arena_simulation_setup import params as world_params
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
@@ -135,7 +135,7 @@ _RECORDER_PARAMS = (
 )
 
 
-class DataRecorderNode(Node, EpisodeWriter):
+class DataRecorderNode(TimeNode, EpisodeWriter):
     def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
         super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
 
@@ -632,7 +632,7 @@ class DataRecorderNode(Node, EpisodeWriter):
 
     def semantic_snapshot_callback(self, msg: bytes):
         env_namespace = self.get_namespace().strip('/')
-        now = self.current_time or self.get_clock().now().nanoseconds
+        now = self.current_time or self.sim_time.to_nanoseconds()
         topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
         self._write_to_bag_at(topic, msg, now)
 
@@ -642,7 +642,7 @@ class DataRecorderNode(Node, EpisodeWriter):
 
     def robots_fleet_callback(self, msg: RobotFleet):
         env_namespace = self.get_namespace().strip('/')
-        now = self.current_time or self.get_clock().now().nanoseconds
+        now = self.current_time or self.sim_time.to_nanoseconds()
         topic = f"/{env_namespace}/state/robots" if env_namespace else "/state/robots"
         self._write_to_bag_at(topic, msg, now)
 

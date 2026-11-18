@@ -1807,7 +1807,7 @@ class BenchmarkRunner(ArenaMixinNode):
         if not rclpy.ok():
             return
         msg = BenchmarkState()
-        msg.stamp = self.get_clock().now().to_msg()
+        msg.stamp = self.wall_time.to_msg()
         msg.run_id = self._run_id
         msg.suite = self._suite.name
         msg.contest = self._contest.name
