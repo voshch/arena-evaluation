@@ -187,30 +187,42 @@ class IntervalRenderer(BasePlotRenderer):
         for group_index, group in enumerate(group_order):
             offset = (group_index - (len(group_order) - 1) / 2.0) * dodge
             colour = palette_color(palette, group_index)
-            drew_one = False
-            for label, value, lower, upper, row_group in zip(
-                labels,
-                values.tolist(),
-                low.tolist(),
-                high.tolist(),
-                groups if groups is not None else [""] * len(labels),
-                strict=True,
-            ):
-                if row_group != group:
-                    continue
-                drew_one = True
-                position = positions_by_label[label] + offset
-                ax.vlines(position, lower, upper, color=colour, linewidth=1.5)
-                for bound in (lower, upper):
-                    ax.hlines(
-                        bound,
-                        position - _CAP_HALF_WIDTH,
-                        position + _CAP_HALF_WIDTH,
-                        color=colour,
-                        linewidth=1.5,
-                    )
-                ax.plot([position], [value], "o", color=colour)
-            if drew_one and groups is not None:
+            rows = [
+                (
+                    positions_by_label[label] + offset,
+                    value,
+                    lower,
+                    upper,
+                )
+                for label, value, lower, upper, row_group in zip(
+                    labels,
+                    values.tolist(),
+                    low.tolist(),
+                    high.tolist(),
+                    groups if groups is not None else [""] * len(labels),
+                    strict=True,
+                )
+                if row_group == group
+            ]
+            if not rows:
+                continue
+            positions = [row[0] for row in rows]
+            values = [row[1] for row in rows]
+            lowers = [row[2] for row in rows]
+            uppers = [row[3] for row in rows]
+            ax.vlines(positions, lowers, uppers, color=colour, linewidth=1.5)
+            caps_left = [position - _CAP_HALF_WIDTH for position in positions]
+            caps_right = [position + _CAP_HALF_WIDTH for position in positions]
+            for bound_values in (lowers, uppers):
+                ax.hlines(
+                    bound_values,
+                    caps_left,
+                    caps_right,
+                    color=colour,
+                    linewidth=1.5,
+                )
+            ax.plot(positions, values, "o", color=colour)
+            if groups is not None:
                 ax.plot([], [], "o", color=colour, label=group)
         ax.set_xticks(np.arange(len(positions_by_label)))
         ax.set_xticklabels(list(positions_by_label), rotation=20, ha="right")

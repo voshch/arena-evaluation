@@ -66,15 +66,18 @@ def test_interval_error_bars_span_the_bound_columns() -> None:
 
     plotly_figure = renderer.build_plotly_figure(frame)
     assert plotly_figure is not None
-    whisker_y = np.array(
-        [np.nan if value is None else value for value in plotly_figure.data[0].y],
-        dtype=float,
-    ).reshape(-1, 3)
-    np.testing.assert_allclose(whisker_y[:, :2], expected)
-    np.testing.assert_allclose(
-        np.asarray(plotly_figure.data[1].y, dtype=float),
-        frame["mean_diff"].to_numpy(),
+    # The interactive trace carries the bounds as asymmetric error bars around the mean;
+    # the plotted span must still be exactly the declared low/high columns.
+    trace = plotly_figure.data[0]
+    means = np.asarray(trace.y, dtype=float)
+    np.testing.assert_allclose(means, frame["mean_diff"].to_numpy())
+    drawn = np.column_stack(
+        [
+            means - np.asarray(trace.error_y.arrayminus, dtype=float),
+            means + np.asarray(trace.error_y.array, dtype=float),
+        ]
     )
+    np.testing.assert_allclose(drawn, expected)
     plt.close(figure)
 
 

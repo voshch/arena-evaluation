@@ -569,7 +569,7 @@ def test_report_builder_writes_the_static_png_for_an_animation_plot(
         ],
     )
     builder = ReportBuilder(bench, manifest=manifest)
-    _write_test_world(builder.output_dir, "af_test_map")
+    _write_test_world(bench, "af_test_map")
     builder.build()
 
     static_png = builder.plots_dir / "acoustic_anim.png"

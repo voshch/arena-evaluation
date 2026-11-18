@@ -1083,11 +1083,17 @@ class ProcessingPipeline:
         )
 
     def process_run_dir(
-        self, run_dir: pathlib.Path, force_extract: bool = False
+        self,
+        run_dir: pathlib.Path,
+        force_extract: bool = False,
+        *,
+        force_process: bool = False,
     ) -> pathlib.Path | None:
         """Extract, evaluate and publish one `episode_NNN` directory."""
         episode = self._describe_run_dir(run_dir)
-        self.process_episode(episode, force_extract=force_extract)
+        self.process_episode(
+            episode, force_extract=force_extract, force_process=force_process
+        )
         out = pathlib.Path(run_dir) / "metrics"
         if not out.exists():
             return None

@@ -9,7 +9,7 @@ import logging
 import pathlib
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Final
 
 import jinja2
 import markupsafe
@@ -33,6 +33,7 @@ from arena_evaluation.presentation.checks import (
 from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
 from arena_evaluation.presentation.exports import LatexExport, export_report_latex
 from arena_evaluation.presentation.manifest_registry import is_inline, resolve_manifest
+from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
 from arena_evaluation.presentation.report_plot_block import (
     plot_block,
@@ -249,6 +250,21 @@ def _resolve_manifest_and_name(
     return resolve_manifest(None, benchmark_dir=benchmark_dir), "standard"
 
 
+#: The extra vector formats the builder can export each approved figure in.
+_VECTOR_FORMATS: Final[frozenset[str]] = frozenset({"svg", "pdf"})
+
+
+def _checked_vector_formats(formats: Sequence[str]) -> tuple[str, ...]:
+    """Validate and de-duplicate the requested extra figure formats, in request order."""
+    unknown = set(formats) - _VECTOR_FORMATS
+    if unknown:
+        raise ValueError(
+            f"unknown vector export format(s) {sorted(unknown)}; "
+            f"supported: {sorted(_VECTOR_FORMATS)}"
+        )
+    return tuple(dict.fromkeys(formats))
+
+
 class ReportBuilder:
     """Generates interactive HTML reports and static plots from a VizManifest and BenchmarkCatalog."""
 
@@ -259,6 +275,7 @@ class ReportBuilder:
         output_dir: pathlib.Path | None = None,
         manifest: VizManifest | str | pathlib.Path | None = None,
         generate_gifs: bool = False,
+        vector_formats: Sequence[str] = (),
         external_assets: bool = False,
         findings: Sequence[Mapping[str, str]] = (),
         findings_not_used: Sequence[Mapping[str, str]] = (),
@@ -266,6 +283,7 @@ class ReportBuilder:
     ) -> None:
         self.benchmark_dir = pathlib.Path(benchmark_dir)
         self.generate_gifs = generate_gifs
+        self.vector_formats = _checked_vector_formats(vector_formats)
         self.external_assets = external_assets
         self.findings = tuple(findings)
         self.findings_not_used = tuple(findings_not_used)
@@ -303,6 +321,7 @@ class ReportBuilder:
         *,
         manifest: VizManifest | str | pathlib.Path | None = None,
         generate_gifs: bool = False,
+        vector_formats: Sequence[str] = (),
         external_assets: bool = False,
         findings: Sequence[Mapping[str, str]] = (),
         findings_not_used: Sequence[Mapping[str, str]] = (),
@@ -311,6 +330,7 @@ class ReportBuilder:
         """Build a ReportBuilder that resolves across multiple benchmark source directories."""
         instance = cls.__new__(cls)
         instance.generate_gifs = generate_gifs
+        instance.vector_formats = _checked_vector_formats(vector_formats)
         instance.external_assets = external_assets
         instance.findings = tuple(findings)
         instance.findings_not_used = tuple(findings_not_used)
@@ -457,7 +477,13 @@ class ReportBuilder:
             try:
                 if raw_spec.uses:
                     spec = spec_resolver.resolve_spec(raw_spec)
-                if self.generate_gifs and not spec.options.get("generate_gifs"):
+                renderer_cls = RENDERER_REGISTRY.get(spec.type)
+                if (
+                    self.generate_gifs
+                    and not spec.options.get("generate_gifs")
+                    and renderer_cls is not None
+                    and "generate_gifs" in renderer_cls.SUPPORTED_OPTIONS
+                ):
                     spec = spec.model_copy(
                         update={"options": {**spec.options, "generate_gifs": True}}
                     )
@@ -527,19 +553,24 @@ class ReportBuilder:
                 record_failure(spec, CheckStage.STATIC, str(exc))
                 plot_failed = True
 
+            requested_formats = list(self.vector_formats)
             if spec.options.get("vector_svg", False):
-                svg_path = self.plots_dir / f"{spec.id}.svg"
+                requested_formats.append("svg")
+            for vector_format in dict.fromkeys(requested_formats):
+                vector_path = self.plots_dir / f"{spec.id}.{vector_format}"
                 try:
                     static_renderer.render(
                         spec,
                         plot_df,
-                        svg_path,
+                        vector_path,
                         run_dir=self.benchmark_dir,
                         world_geometry=world_geometry,
                         diagnostics=diag,
                     )
                 except Exception as exc:
-                    record_failure(spec, CheckStage.STATIC, f"vector SVG: {exc}")
+                    record_failure(
+                        spec, CheckStage.STATIC, f"vector {vector_format}: {exc}"
+                    )
                     plot_failed = True
 
             html_chunks: list[str] = []

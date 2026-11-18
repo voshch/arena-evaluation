@@ -13,29 +13,25 @@ def _ros_gate():
         pytest.skip("ROS2 not available")
 
 
-def test_migrate_targets_lists_a_run_roots_episode_folders(
-    tmp_path: pathlib.Path,
+@pytest.mark.parametrize(
+    ("argv", "flags"),
+    [
+        (["report", "--help"], ("--export", "--generate-gifs")),
+        (["process", "--help"], ("--force-process", "--force-extract")),
+        (["migrate", "--help"], ("--dry-run", "--force", "--report")),
+    ],
+)
+def test_evaluation_cli_lists_the_layer_flags(
+    argv: list[str], flags: tuple[str, ...], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from arena_evaluation.cli import _migrate_targets
+    from arena_evaluation.cli import _main_impl
 
-    run = tmp_path / "run"
-    for name in ("episode_002", "episode_000"):
-        (run / "episodes" / name).mkdir(parents=True)
-    (run / "manifest.yaml").write_text("run_id: run\n")
-
-    assert [path.name for path in _migrate_targets(run)] == [
-        "episode_000",
-        "episode_002",
-    ]
-
-
-def test_migrate_targets_keeps_a_single_episode_folder(tmp_path: pathlib.Path) -> None:
-    from arena_evaluation.cli import _migrate_targets
-
-    episode = tmp_path / "episode_004"
-    episode.mkdir()
-
-    assert _migrate_targets(episode) == [episode]
+    with pytest.raises(SystemExit) as raised:
+        _main_impl(argv)
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    for flag in flags:
+        assert flag in help_text
 
 
 def test_migrate_run_root_with_an_empty_episode_reports_one_line(
@@ -47,7 +43,7 @@ def test_migrate_run_root_with_an_empty_episode_reports_one_line(
     (run / "episodes" / "episode_000").mkdir(parents=True)
     (run / "manifest.yaml").write_text("run_id: run\n")
 
-    assert _main_impl(["migrate", str(run)]) == 1
+    assert _main_impl(["migrate", "--dry-run", str(run)]) == 1
 
     stderr = capsys.readouterr().err
     lines = [line for line in stderr.splitlines() if line.strip()]

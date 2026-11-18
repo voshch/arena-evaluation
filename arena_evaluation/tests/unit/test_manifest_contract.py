@@ -22,6 +22,7 @@ from arena_evaluation.storage.registry.dimensions import DimWorldGeometry
 from arena_evaluation.storage.registry.series import SERIES_TABLES
 from arena_evaluation.storage.registry.telemetry import (
     PedestrianArenaPeds,
+    RobotAcoustics,
     RobotTracks,
 )
 
@@ -312,6 +313,27 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
         ]
         pl.DataFrame(rt_rows, schema=rt_schema).write_parquet(
             topics_dir / f"{RobotTracks.table_name}.parquet"
+        )
+
+        # A-028: the acoustic-field recipe refuses to invent a source level, so the benchmark
+        # records one robot_acoustics sample per frame like the acoustics backend does.
+        ra_schema = RobotAcoustics.polars_schema()
+        ra_rows = [
+            {
+                **{
+                    name: _dummy_val(name, dtype, rng, step)
+                    for name, dtype in ra_schema.items()
+                },
+                "t_ns": step * 1_000_000_000,
+                "env_id": "env_0",
+                "robot_id": "robot_0",
+                "total_level_af_dba": 62.0 + float(step),
+                "validity_flags": 1,
+            }
+            for step in range(4)
+        ]
+        pl.DataFrame(ra_rows, schema=ra_schema).write_parquet(
+            topics_dir / f"{RobotAcoustics.table_name}.parquet"
         )
 
     return bench

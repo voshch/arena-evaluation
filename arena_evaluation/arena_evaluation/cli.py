@@ -70,15 +70,6 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def _migrate_targets(run_dir: pathlib.Path) -> list[pathlib.Path]:
-    """The episode folders of a run root, or the folder itself when it already is one episode."""
-    for container in (run_dir / "episodes", run_dir):
-        episodes = sorted(path for path in container.glob("episode_*") if path.is_dir())
-        if episodes:
-            return episodes
-    return [run_dir]
-
-
 def _validate_config(path: pathlib.Path, kind: str) -> tuple[str, tuple[str, ...]]:
     """Parse one suite or contest bundle; return its name and the suite stages without an explicit seed."""
     import yaml
@@ -180,7 +171,25 @@ Examples:
         action="store_true",
         help="List the available named report manifests and exit.",
     )
-    run_parent.set_defaults(force_extract=False)
+    run_parent.add_argument(
+        "--export",
+        action="append",
+        choices=("svg", "pdf", "latex"),
+        default=None,
+        help=(
+            "Also export every approved plot as SVG or PDF, and/or the approved "
+            "tables and figures as LaTeX. Repeatable."
+        ),
+    )
+    run_parent.add_argument(
+        "--generate-gifs",
+        action="store_true",
+        help=(
+            "Render each trajectory or animation plot's GIF side artefact "
+            "during the report build."
+        ),
+    )
+    run_parent.set_defaults(force_extract=False, force_process=False)
 
     subparsers.add_parser(
         "extract",
@@ -202,6 +211,11 @@ Examples:
         action="store_true",
         help="Force re-extraction of MCAP files, overwriting the topic cache.",
     )
+    process_parser.add_argument(
+        "--force-process",
+        action="store_true",
+        help="Recompute a run whose Star Schema tables already carry the current layout stamp.",
+    )
     subparsers.add_parser(
         "report",
         parents=[run_parent],
@@ -221,6 +235,22 @@ Examples:
         "run_dir",
         type=pathlib.Path,
         help="Run directory, or one episode folder, to migrate. A run directory is migrated episode by episode.",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what the migration would map without writing any metadata or table.",
+    )
+    migrate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract and rewrite an episode even when its topics and metadata are already current.",
+    )
+    migrate_parser.add_argument(
+        "--report",
+        type=pathlib.Path,
+        metavar="PATH",
+        help="Where to write migration_report.yaml (default: <run>/migration_report.yaml).",
     )
 
     validate_parser = subparsers.add_parser(
@@ -274,16 +304,27 @@ Examples:
         return 0
 
     if args.command == "migrate":
-        from arena_evaluation.ingestion.migrate import MigrationError, migrate_run
+        from arena_evaluation.ingestion.migrate import (
+            MigrationError,
+            migrate_benchmark,
+        )
 
-        migrated: list[pathlib.Path] = []
         try:
-            for target in _migrate_targets(args.run_dir):
-                migrated.extend(migrate_run(target))
+            report = migrate_benchmark(
+                args.run_dir,
+                dry_run=args.dry_run,
+                force=args.force,
+                report_path=args.report,
+            )
         except MigrationError as error:
             print(f"Error: {error}", file=sys.stderr)
             return 1
-        print(f"Migrated {len(migrated)} episode folder(s) to the native layout")
+        if report.failures:
+            print(f"Error: {report.failure_message()}", file=sys.stderr)
+            return 1
+        migrated = sum(1 for episode in report.episodes if episode.migrated)
+        verb = "Would migrate" if args.dry_run else "Migrated"
+        print(f"{verb} {migrated} episode folder(s) to the native layout")
         return 0
 
     # acoustic subcommand handler
@@ -336,7 +377,11 @@ Examples:
                     pipeline.extract_run_dir(run_dir)
                 else:
                     print(f"Processing single run: {run_dir}")
-                    out = pipeline.process_run_dir(run_dir, force_extract=force_extract)
+                    out = pipeline.process_run_dir(
+                        run_dir,
+                        force_extract=force_extract,
+                        force_process=args.force_process,
+                    )
                     if out:
                         print(f"Star Schema tables written to: {out}")
                     else:
@@ -357,7 +402,9 @@ Examples:
                     print(f"Processing benchmark: {benchmark_dir.name}")
                     if (
                         pipeline.process_benchmark(
-                            benchmark_dir.name, force_extract=force_extract
+                            benchmark_dir.name,
+                            force_extract=force_extract,
+                            force_process=args.force_process,
                         )
                         is None
                     ):
@@ -383,12 +430,23 @@ Examples:
         )
         _ctx = profiler.phase("report") if profiler else contextlib.nullcontext()
         with _ctx:
+            requested_exports = tuple(args.export or ())
             builder = ReportBuilder.from_dirs(
                 target_dirs,
                 output_dir=output_dir,
                 manifest=manifest_obj,
+                generate_gifs=args.generate_gifs,
+                vector_formats=tuple(
+                    name for name in requested_exports if name in ("svg", "pdf")
+                ),
             )
             builder.build()
+            if "latex" in requested_exports:
+                latex = builder.export_latex(builder.output_dir / "report.tex")
+                print(
+                    f"Exported {len(latex.tables)} table(s) and "
+                    f"{len(latex.figures)} figure(s) to {latex.path}"
+                )
         print("Report generation complete.")
 
     if profiler is not None:
