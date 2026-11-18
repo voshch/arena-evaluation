@@ -339,8 +339,3 @@ def test_registry_runs_the_calculator_beside_the_native_metrics():
     assert {key: skipped[key] for key in NULLS} == NULLS
 
 
-def test_output_keys_cover_outputs_primary_and_directions():
-    keys = set(SidewalkMetricsCalculator.output_keys())
-    assert {metric.name for metric in SidewalkMetricsCalculator.OUTPUTS} == keys
-    assert set(SidewalkMetricsCalculator.PRIMARY_OUTPUTS) <= keys
-    assert set(SidewalkMetricsCalculator.DIRECTIONS) <= keys

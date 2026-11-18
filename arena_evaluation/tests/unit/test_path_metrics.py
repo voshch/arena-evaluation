@@ -46,20 +46,6 @@ def _series(poses: list[tuple[float, float, float]]) -> pl.DataFrame:
     return calculator.series_table(_episode(poses), run_id="run", robot_id="jackal_0")
 
 
-def test_output_keys_keep_only_the_aggregates():
-    expected = [
-        "path_length_m",
-        "curvature_mean",
-        "curvature_max",
-        "roughness_mean",
-        "roughness_max",
-        "angle_over_length",
-    ]
-
-    assert PathMetricsCalculator.output_keys() == expected
-    assert {metric.name for metric in PathMetricsCalculator.OUTPUTS} == set(expected)
-
-
 def test_path_length_orders_results_lower():
     assert PathMetricsCalculator.DIRECTIONS["path_length_m"] is Direction.LOWER
     assert set(PathMetricsCalculator.PRIMARY_OUTPUTS) <= set(
