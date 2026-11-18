@@ -246,7 +246,7 @@ def _native_episode(record: object) -> EpisodeFields:
         path_length=float(record.path_length),
         start_t_ns=int(record.start_time.sec) * 1_000_000_000
         + int(record.start_time.nanosec),
-        integrity=tuple(str(flag) for flag in record.integrity),
+        integrity=_integrity_flags(record.integrity),
         params_yaml=yaml.dump(
             {
                 parameter.name: parameter_value(parameter.value)
@@ -267,6 +267,13 @@ def _native_episode(record: object) -> EpisodeFields:
         phases=str(record.phases) or None,
         not_recorded=(),
     )
+
+
+def _integrity_flags(value: object) -> tuple[str, ...]:
+    """The recorded integrity reasons; a pre-list recording stored one bool flag instead."""
+    if isinstance(value, bool):
+        return ("recording_integrity_flag",) if value else ()
+    return tuple(str(flag) for flag in typing.cast(typing.Iterable[object], value))
 
 
 def _legacy_episode(record: object) -> EpisodeFields:
@@ -305,7 +312,7 @@ def _legacy_episode(record: object) -> EpisodeFields:
         path_length=float(record.path_length),
         start_t_ns=int(record.start_time.sec) * 1_000_000_000
         + int(record.start_time.nanosec),
-        integrity=tuple(str(flag) for flag in record.integrity),
+        integrity=_integrity_flags(record.integrity),
         params_yaml=params_yaml(params),
         human_params_json=json.dumps(
             {

@@ -1429,10 +1429,15 @@ class ProcessingPipeline:
         ep: EpisodeDescriptor,
         force_extract: bool = False,
         status_dict: _EpisodeStatus | None = None,
+        *,
+        force_process: bool = False,
     ) -> list[dict]:
         """Extract, evaluate and publish one episode."""
         evaluation = self.evaluate_episode(
-            ep, force_extract=force_extract, status_dict=status_dict
+            ep,
+            force_extract=force_extract,
+            status_dict=status_dict,
+            force_process=force_process,
         )
         self.publish_evaluation(evaluation)
         return evaluation.rows
