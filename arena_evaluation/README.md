@@ -222,6 +222,8 @@ The package contributes the `evaluation` domain to the Arena MCP server (`arena_
 
 Tests live in `tests/mcp/` and drive a real `python3 -m arena_mcp serve` over stdio against run directories built with the package's writers.
 
+The domain is implemented via `EvaluationDomain` (`arena_evaluation/mcp/base.py`), which publishes Pydantic `BaseModel` output schemas and `structuredContent` alongside `ImageContent` plot views. Role allowlists and agent-area destructive tools (`<run>/analysis/`, `<run>/reports/`) are declared in `arena_evaluation/mcp/roles.py` (`ROLES`, `AGENT_AREA_TOOLS`), guarded by `assert_safe_analysis_write` and logged to `<run>/analysis/audit.jsonl`. Tests discovering `arena_mcp.domains` require the package entry point (`arena_evaluation.mcp:domain`) to be visible on `PYTHONPATH`.
+
 ---
 
 ## Running Tests
