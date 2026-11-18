@@ -8,13 +8,18 @@ generation did not record is NULL and named in ``not_recorded``.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import pathlib
+import re
 import typing
 from collections.abc import Iterable, Mapping, Sequence
 
 import yaml
 from mcap.reader import NonSeekingReader, make_reader
+
+if typing.TYPE_CHECKING:
+    from mcap.records import Schema
 
 NATIVE: typing.Final[str] = "native"
 LEGACY_2026_09: typing.Final[str] = "legacy_2026_09"
@@ -36,10 +41,129 @@ _ROBOT_SETTINGS: typing.Final[tuple[str, ...]] = (
     "robot_repulsion_gain",
     "robot_reaction_gain",
 )
+_EPISODE_FIELD_LINE: typing.Final[re.Pattern[str]] = re.compile(
+    r"(?P<type>[A-Za-z][\w/]*(?:\[[^\]]*\])?)\s+(?P<name>[A-Za-z_]\w*)"
+    r"(?:\s+\S.*)?"
+)
+_NATIVE_EPISODE_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {
+        "episode_id",
+        "world",
+        "seed",
+        "task_layer",
+        "modes",
+        "robots",
+        "outcome_state",
+        "outcome_info",
+        "goal_uuid",
+        "goal_dist_start",
+        "goal_dist_min",
+        "path_length",
+        "start_time",
+        "integrity",
+        "params",
+        "human_params",
+        "conditions",
+        "phases",
+    }
+)
+_LEGACY_EPISODE_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {
+        "episode_id",
+        "world",
+        "seed",
+        "tm_robots",
+        "tm_obstacles",
+        "tm_modules",
+        "robots",
+        "outcome_state",
+        "outcome_info",
+        "goal_uuid",
+        "goal_dist_start",
+        "goal_dist_min",
+        "path_length",
+        "start_time",
+        "integrity",
+        "obstacles_params",
+        "robots_params",
+        "human_params",
+        "conditions",
+        "phases",
+    }
+)
+_LEGACY_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {
+        "episode_id",
+        "world",
+        "seed",
+        "tm_robots",
+        "tm_obstacles",
+        "tm_modules",
+        "robots",
+        "outcome_state",
+        "outcome_info",
+        "goal_uuid",
+        "goal_dist_start",
+        "goal_dist_min",
+        "path_length",
+        "start_time",
+        "obstacles_params",
+        "robots_params",
+    }
+)
+_LEGACY_OPTIONAL_FIELDS: typing.Final[tuple[str, ...]] = (
+    "integrity",
+    "human_params",
+    "conditions",
+    "phases",
+)
+_DESCRIPTOR_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {"name", "model", "ns", "frame", "base_frame"}
+)
+_DESCRIPTOR_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {"name", "model", "ns", "frame"}
+)
+_PEDESTRIAN_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {
+        "name",
+        "id",
+        "pose",
+        "twist",
+        "animation_state",
+        "joint_state",
+        "gait_phase",
+        "model_uri",
+        "gestures",
+        "body",
+        "interaction_id",
+        "interaction_type",
+        "agent_type",
+        "gait_cadence",
+    }
+)
+_PEDESTRIAN_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
+    {"name", "id", "pose", "twist", "animation_state"}
+)
 
 
 class LegacySchemaError(ValueError):
     """A recorded schema the migration cannot map; the caller turns it into a hinted MigrationError."""
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class EpisodeSchema:
+    """The fields one recorded EpisodeRecord definition declares, by field name and ROS type."""
+
+    name: str
+    types: Mapping[str, str]
+
+    def carries(self, field: str) -> bool:
+        """Whether the recorded definition declares this field."""
+        return field in self.types
+
+    def is_single_bool(self, field: str) -> bool:
+        """Whether the recorded definition stores this field as one bool rather than a list."""
+        return self.types[field] == "bool"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -52,6 +176,25 @@ class RecordingGeneration:
     agent_meta_schema: str | None
     agent_meta_has_crowd: bool
     unsupported: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class FleetDescriptor:
+    """One recorded robot descriptor, normalised to the native identity fields."""
+
+    name: str
+    model: str
+    ns: str
+    frame: str
+    base_frame: str | None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class FleetRobot:
+    """One fleet member: its normalised descriptor and its recorded parameters."""
+
+    descriptor: FleetDescriptor
+    params: tuple[object, ...]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -86,6 +229,7 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     fleet = _schema_of(topics, "/state/robots")
     agent_meta = _schema_of(topics, "/agent_meta")
     agent_text = topics.get(_topic_by_suffix(topics, "/agent_meta"), (None, ""))[1]
+    episode_text = topics.get(_topic_by_suffix(topics, "/state/episode"), (None, ""))[1]
     crowd = "robot_awareness" in agent_text
     unsupported: list[str] = []
     if episode is None:
@@ -100,6 +244,18 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     else:
         unsupported.append(f"episode schema {episode!r} is not a supported generation")
         name = UNKNOWN
+    if episode == LEGACY_EPISODE_SCHEMA and episode_text:
+        try:
+            parsed = episode_schema(episode, episode_text)
+        except LegacySchemaError as error:
+            unsupported.append(str(error))
+            name = UNKNOWN
+        else:
+            unsupported.extend(
+                f"EpisodeRecord does not carry {field}; the migrated value is NULL "
+                "(not_recorded)"
+                for field in _legacy_not_recorded(parsed)
+            )
     if fleet is None:
         unsupported.append("no /state/robots topic; the descriptor must be synthesised")
     elif fleet not in _SUPPORTED_FLEETS:
@@ -141,20 +297,175 @@ def agent_meta_has_crowd(schema_text: str) -> bool:
     return all(setting in schema_text for setting in _ROBOT_SETTINGS)
 
 
-def episode_fields(record: object, schema_name: str) -> EpisodeFields:
-    """The native field set of one EpisodeRecord generation, absent legacy fields NULL and named."""
-    if schema_name == NATIVE_EPISODE_SCHEMA:
-        return _native_episode(record)
-    if schema_name == LEGACY_EPISODE_SCHEMA:
-        return _legacy_episode(record)
+@functools.lru_cache(maxsize=None)
+def episode_schema(name: str, definition: str) -> EpisodeSchema:
+    """The declared fields of one recorded EpisodeRecord schema; loud on an unsupported construction."""
+    if name == NATIVE_EPISODE_SCHEMA:
+        return _validated_schema(name, definition, _NATIVE_EPISODE_FIELDS)
+    if name == LEGACY_EPISODE_SCHEMA:
+        return _validated_schema(
+            name, definition, _LEGACY_EPISODE_FIELDS, required=_LEGACY_REQUIRED_FIELDS
+        )
     raise LegacySchemaError(
-        f"episode schema {schema_name!r} is not a supported generation; "
+        f"episode schema {name!r} is not a supported generation; "
         "the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord"
     )
 
 
-def fleet_robots(fleet: object, schema_name: str) -> tuple[object, ...]:
-    """The RobotState sequence of a fleet snapshot, whichever supported schema carried it."""
+def _validated_schema(
+    name: str,
+    definition: str,
+    known: frozenset[str],
+    *,
+    required: frozenset[str] | None = None,
+) -> EpisodeSchema:
+    """One recorded schema's top-level fields, refusing a field the migration does not map."""
+    types = _declared_fields(definition)
+    unsupported = sorted(set(types) - known)
+    if unsupported:
+        raise LegacySchemaError(
+            f"the {name} recording declares unsupported EpisodeRecord field(s) {unsupported}; "
+            "the migration maps only the known generation's field set"
+        )
+    required_fields = known if required is None else required
+    missing = sorted(required_fields - set(types))
+    if missing:
+        raise LegacySchemaError(
+            f"the {name} recording lacks required EpisodeRecord field(s) {missing}; "
+            "the migration cannot map this construction"
+        )
+    return EpisodeSchema(name=name, types=types)
+
+
+def _declared_fields(definition: str) -> dict[str, str]:
+    """Top-level field name -> ROS type of one recorded message definition."""
+    body = definition.split("\n====", 1)[0]
+    fields = _field_types(body.splitlines())
+    if not fields:
+        raise LegacySchemaError("the EpisodeRecord schema declares no field")
+    return fields
+
+
+def _field_types(lines: Iterable[str]) -> dict[str, str]:
+    """Field name -> ROS type of one message definition body, constants left out."""
+    fields: dict[str, str] = {}
+    for line in lines:
+        stripped = line.split("#", 1)[0].strip()
+        if not stripped or "=" in stripped:
+            continue
+        match = _EPISODE_FIELD_LINE.fullmatch(stripped)
+        if match is None:
+            raise LegacySchemaError(
+                f"cannot parse the message schema line {stripped!r}; "
+                "the migration maps plain fields and constants only"
+            )
+        fields[match["name"]] = match["type"]
+    return fields
+
+
+def _dependency_fields(definition: str, message: str) -> dict[str, str]:
+    """The fields of one nested message definition the recorded schema carries."""
+    for block in re.split(r"\n=+\n", definition):
+        lines = block.strip().splitlines()
+        if not lines or not lines[0].strip().startswith("MSG:"):
+            continue
+        header = lines[0].strip().removeprefix("MSG:").strip()
+        if header.rsplit("/", 1)[-1] == message:
+            return _field_types(lines[1:])
+    raise LegacySchemaError(
+        f"the recorded schema declares no {message} definition; "
+        "the migration cannot map the fleet descriptor"
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _descriptor_fields(schema_name: str, definition: str) -> frozenset[str]:
+    """The RobotDescriptor fields the recording declared, loud on an unsupported identity shape."""
+    fields = _dependency_fields(definition, "RobotDescriptor")
+    unsupported = sorted(set(fields) - _DESCRIPTOR_FIELDS)
+    if unsupported:
+        raise LegacySchemaError(
+            f"the {schema_name} recording declares unsupported RobotDescriptor "
+            f"field(s) {unsupported}; the migration maps only the known identity fields"
+        )
+    missing = sorted(_DESCRIPTOR_REQUIRED_FIELDS - set(fields))
+    if missing:
+        raise LegacySchemaError(
+            f"the {schema_name} recording lacks required RobotDescriptor "
+            f"field(s) {missing}; the migration cannot map the fleet descriptor"
+        )
+    return frozenset(fields)
+
+
+def episode_fields(record: object, schema: Schema) -> EpisodeFields:
+    """The native field set of one EpisodeRecord generation, absent legacy fields NULL and named."""
+    parsed = episode_schema(schema.name, schema.data.decode("utf-8", "replace"))
+    if parsed.name == NATIVE_EPISODE_SCHEMA:
+        return _native_episode(record, parsed)
+    if parsed.name == LEGACY_EPISODE_SCHEMA:
+        return _legacy_episode(record, parsed)
+    raise LegacySchemaError(
+        f"episode schema {parsed.name!r} is not a supported generation; "
+        "the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord"
+    )
+
+
+def _legacy_not_recorded(schema: EpisodeSchema) -> tuple[str, ...]:
+    """The native fields one legacy generation never recorded, keyed on that generation's schema."""
+    return tuple(
+        field
+        for field in ("task_layer", *_LEGACY_OPTIONAL_FIELDS)
+        if not schema.carries(field)
+    )
+
+
+def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
+    """Normalise a fleet snapshot, its descriptor read as the recording itself declared it."""
+    states = _fleet_states(fleet, schema.name)
+    fields = _descriptor_fields(schema.name, schema.data.decode("utf-8", "replace"))
+    return tuple(
+        FleetRobot(
+            descriptor=FleetDescriptor(
+                name=str(state.descriptor.name),
+                model=str(state.descriptor.model),
+                ns=str(state.descriptor.ns),
+                frame=str(state.descriptor.frame),
+                base_frame=(
+                    str(state.descriptor.base_frame) if "base_frame" in fields else None
+                ),
+            ),
+            params=tuple(state.params),
+        )
+        for state in states
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def pedestrian_schema(name: str, definition: str) -> EpisodeSchema:
+    """The Pedestrian fields the recording declared, loud on an unsupported construction."""
+    fields = _dependency_fields(definition, "Pedestrian")
+    unsupported = sorted(set(fields) - _PEDESTRIAN_FIELDS)
+    if unsupported:
+        raise LegacySchemaError(
+            f"the {name} recording declares unsupported Pedestrian field(s) "
+            f"{unsupported}; the migration maps only the known pedestrian fields"
+        )
+    missing = sorted(_PEDESTRIAN_REQUIRED_FIELDS - set(fields))
+    if missing:
+        raise LegacySchemaError(
+            f"the {name} recording lacks required Pedestrian field(s) {missing}; "
+            "the migration cannot map the pedestrian rows"
+        )
+    return EpisodeSchema(name=name, types=fields)
+
+
+def pedestrian_fields(schema: Schema) -> EpisodeSchema:
+    """The Pedestrian fields of one recorded Pedestrians schema."""
+    return pedestrian_schema(schema.name, schema.data.decode("utf-8", "replace"))
+
+
+def _fleet_states(fleet: object, schema_name: str) -> tuple[object, ...]:
+    """The RobotState objects of a fleet snapshot, whichever supported schema carried them."""
     if schema_name.endswith("/RobotFleet"):
         return tuple(fleet.robots)
     if schema_name.endswith("/RobotState"):
@@ -227,10 +538,40 @@ def params_yaml(params: Mapping[str, typing.Any]) -> str | None:
     return yaml.dump(dict(params)) if params else None
 
 
-def _native_episode(record: object) -> EpisodeFields:
+def _parameter_values(parameters: Iterable[object]) -> dict[str, object]:
+    """The recorded name -> value of one rcl_interfaces Parameter sequence."""
     from arena_evaluation.processing.telemetry.messages import parameter_value
 
+    return {
+        parameter.name: parameter_value(parameter.value) for parameter in parameters
+    }
+
+
+def _human_params_json(parameters: Iterable[object]) -> str | None:
+    values = _parameter_values(parameters)
+    return json.dumps(values) if values else None
+
+
+def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
+    """The recorded integrity reasons, read as the generation's own declared field type."""
+    if not schema.carries("integrity"):
+        return ()
+    if schema.is_single_bool("integrity"):
+        return ("recording_integrity_flag",) if record.integrity else ()
+    if schema.types["integrity"] != "string[]":
+        raise LegacySchemaError(
+            f"the {schema.name} recording stores integrity as "
+            f"{schema.types['integrity']!r}; the migration maps bool and string[] only"
+        )
+    return tuple(
+        str(flag) for flag in typing.cast(typing.Iterable[object], record.integrity)
+    )
+
+
+def _native_episode(record: object, schema: EpisodeSchema) -> EpisodeFields:
     modes = {mode.key: mode.value for mode in record.modes}
+    params = _parameter_values(record.params)
+    human_params = _parameter_values(record.human_params)
     return EpisodeFields(
         episode_id=int(record.episode_id),
         world=str(record.world) if record.world else None,
@@ -246,57 +587,33 @@ def _native_episode(record: object) -> EpisodeFields:
         path_length=float(record.path_length),
         start_t_ns=int(record.start_time.sec) * 1_000_000_000
         + int(record.start_time.nanosec),
-        integrity=_integrity_flags(record.integrity),
-        params_yaml=yaml.dump(
-            {
-                parameter.name: parameter_value(parameter.value)
-                for parameter in record.params
-            }
-        )
-        if record.params
-        else None,
-        human_params_json=json.dumps(
-            {
-                parameter.name: parameter_value(parameter.value)
-                for parameter in record.human_params
-            }
-        )
-        if record.human_params
-        else None,
+        integrity=_integrity_flags(record, schema),
+        params_yaml=yaml.dump(params) if params else None,
+        human_params_json=json.dumps(human_params) if human_params else None,
         conditions=str(record.conditions) or None,
         phases=str(record.phases) or None,
         not_recorded=(),
     )
 
 
-def _integrity_flags(value: object) -> tuple[str, ...]:
-    """The recorded integrity reasons; a pre-list recording stored one bool flag instead."""
-    if isinstance(value, bool):
-        return ("recording_integrity_flag",) if value else ()
-    return tuple(str(flag) for flag in typing.cast(typing.Iterable[object], value))
-
-
-def _legacy_episode(record: object) -> EpisodeFields:
-    from arena_evaluation.processing.telemetry.messages import parameter_value
-
+def _legacy_episode(record: object, schema: EpisodeSchema) -> EpisodeFields:
     modes = legacy_modes(
         robots=record.tm_robots,
         obstacles=record.tm_obstacles,
         modules=record.tm_modules,
     )
-    robots_params = flatten_params(
-        {
-            parameter.name: parameter_value(parameter.value)
-            for parameter in record.robots_params
-        }
-    )
-    obstacles_params = flatten_params(
-        {
-            parameter.name: parameter_value(parameter.value)
-            for parameter in record.obstacles_params
-        }
-    )
+    robots_params = flatten_params(_parameter_values(record.robots_params))
+    obstacles_params = flatten_params(_parameter_values(record.obstacles_params))
     params = legacy_params(modes, robots_params, obstacles_params)
+    human_params = (
+        _human_params_json(record.human_params)
+        if schema.carries("human_params")
+        else None
+    )
+    conditions = (
+        (str(record.conditions) or None) if schema.carries("conditions") else None
+    )
+    phases = (str(record.phases) or None) if schema.carries("phases") else None
     return EpisodeFields(
         episode_id=int(record.episode_id),
         world=str(record.world) if record.world else None,
@@ -312,19 +629,12 @@ def _legacy_episode(record: object) -> EpisodeFields:
         path_length=float(record.path_length),
         start_t_ns=int(record.start_time.sec) * 1_000_000_000
         + int(record.start_time.nanosec),
-        integrity=_integrity_flags(record.integrity),
+        integrity=_integrity_flags(record, schema),
         params_yaml=params_yaml(params),
-        human_params_json=json.dumps(
-            {
-                parameter.name: parameter_value(parameter.value)
-                for parameter in record.human_params
-            }
-        )
-        if record.human_params
-        else None,
-        conditions=str(record.conditions) or None,
-        phases=str(record.phases) or None,
-        not_recorded=("task_layer",),
+        human_params_json=human_params,
+        conditions=conditions,
+        phases=phases,
+        not_recorded=_legacy_not_recorded(schema),
     )
 
 

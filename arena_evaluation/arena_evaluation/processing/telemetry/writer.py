@@ -34,6 +34,9 @@ ENV_TABLES: Final[tuple[str, ...]] = tuple(
 GLOBAL_TABLES: Final[tuple[str, ...]] = tuple(
     table.table_name for table in _TELEMETRY_TABLES if not table.key
 )
+_ROW_KEYS: Final[dict[str, tuple[str, ...]]] = {
+    table.table_name: table.row_key for table in _TELEMETRY_TABLES
+}
 
 
 class TableSink:
@@ -49,6 +52,7 @@ class TableSink:
         self._writers: dict[str, pq.ParquetWriter] = {}
         self._last_stamp: dict[str, int] = {}
         self._unsorted: set[str] = set()
+        self._key_rows: dict[str, dict[tuple[Any, ...], int]] = {}
         self._pending_rows = 0
 
     def append(self, table: str, row: Mapping[str, Any]) -> None:
@@ -60,8 +64,19 @@ class TableSink:
         if previous is not None and stamp < previous:
             self._unsorted.add(table)
         self._last_stamp[table] = stamp
+        key = _ROW_KEYS.get(table, ())
+        if key:
+            key_value = tuple(row[name] for name in key)
+            index = self._key_rows.setdefault(table, {}).get(key_value)
+            if index is not None:
+                # The declared key is the contract: one row per key, the later record wins.
+                for name, values in columns.items():
+                    values[index] = row[name]
+                return
         for name, values in columns.items():
             values.append(row[name])
+        if key:
+            self._key_rows[table][key_value] = len(columns["t_ns"]) - 1
         self._pending_rows += 1
         if self._pending_rows >= self._flush_rows:
             self.flush()
@@ -73,6 +88,7 @@ class TableSink:
                 self._writer(table).write_batch(batch)
                 for values in columns.values():
                     values.clear()
+                self._key_rows.setdefault(table, {}).clear()
         self._pending_rows = 0
 
     def close(self) -> None:

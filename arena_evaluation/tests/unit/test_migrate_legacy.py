@@ -375,6 +375,111 @@ def test_an_unknown_generation_fails_loudly_but_the_other_episodes_continue(
     assert by_name["episode_001"]["generation"] == "unknown"
 
 
+SEPT_REAL_EPISODE = (
+    "task_generator_msgs/msg/EpisodeRecord",
+    SEP.join(
+        [
+            "uint32 episode_id\nstring world\nint64 seed\nstring tm_robots\n"
+            "string tm_obstacles\nstring[] tm_modules\nstring[] robots\n"
+            "uint8 RUNNING = 1\nuint8 outcome_state\nstring outcome_info\n"
+            "string goal_uuid\nfloat32 goal_dist_start\nfloat32 goal_dist_min\n"
+            "float32 path_length\nbuiltin_interfaces/Time start_time\n"
+            "bool integrity\nrcl_interfaces/Parameter[] obstacles_params\n"
+            "rcl_interfaces/Parameter[] robots_params\nstring conditions",
+            TIME,
+            PARAM,
+            PARAM_VALUE,
+            KEY_VALUE,
+        ]
+    ),
+)
+SEPT_MYSTERY_EPISODE = (
+    "task_generator_msgs/msg/EpisodeRecord",
+    SEP.join(
+        [
+            "uint32 episode_id\nstring world\nint64 seed\nstring tm_robots\n"
+            "string tm_obstacles\nstring[] tm_modules\nstring[] robots\n"
+            "uint8 RUNNING = 1\nuint8 outcome_state\nstring outcome_info\n"
+            "string goal_uuid\nfloat32 goal_dist_start\nfloat32 goal_dist_min\n"
+            "float32 path_length\nbuiltin_interfaces/Time start_time\n"
+            "bool integrity\nrcl_interfaces/Parameter[] obstacles_params\n"
+            "rcl_interfaces/Parameter[] robots_params\nstring conditions\n"
+            "string mystery",
+            TIME,
+            PARAM,
+            PARAM_VALUE,
+            KEY_VALUE,
+        ]
+    ),
+)
+
+
+def _sept_real_records() -> list[tuple[str, tuple[str, str], dict, int]]:
+    return [
+        (
+            "/env_0/state/episode",
+            SEPT_REAL_EPISODE,
+            {
+                "episode_id": 433,
+                "world": "library_acoustic_partition",
+                "seed": 101,
+                "tm_robots": "jackal",
+                "tm_obstacles": "static",
+                "tm_modules": [],
+                "robots": ["jackal"],
+                "outcome_state": 2,
+                "outcome_info": "finished",
+                "goal_uuid": "goal",
+                "goal_dist_start": 1.0,
+                "goal_dist_min": 0.5,
+                "path_length": 2.0,
+                "start_time": {"sec": 1, "nanosec": 0},
+                "integrity": False,
+                "obstacles_params": [],
+                "robots_params": [],
+                "conditions": '[{"op": "never", "p": "robot in restricted"}]',
+            },
+            SEC,
+        )
+    ]
+
+
+def test_the_real_september_shape_migrates_with_the_absent_fields_null(
+    tmp_path: pathlib.Path,
+) -> None:
+    episode = _episode(tmp_path / "episode_000", _sept_real_records())
+
+    assert legacy_schemas.detect(episode / "episode_000.mcap").name == "legacy_2026_09"
+
+    migrate_episode(episode)
+
+    lifecycle = pl.read_parquet(episode / "topics" / "episode_lifecycle.parquet")
+    row = lifecycle.row(0, named=True)
+    assert row["human_params"] is None
+    assert row["phases_yaml"] is None
+    assert row["conditions_yaml"] == '[{"op": "never", "p": "robot in restricted"}]'
+    assert row["task_layer"] is None
+    generation = legacy_schemas.detect(episode / "episode_000.mcap")
+    assert any("human_params" in note for note in generation.unsupported)
+    assert any("phases" in note for note in generation.unsupported)
+
+
+def test_an_unknown_episode_field_is_a_loud_migration_error(
+    tmp_path: pathlib.Path,
+) -> None:
+    message = {
+        **_sept_real_records()[0][2],
+        "mystery": "x",
+    }
+    episode = _episode(
+        tmp_path / "episode_000",
+        [("/env_0/state/episode", SEPT_MYSTERY_EPISODE, message, SEC)],
+    )
+
+    with pytest.raises(MigrationError, match="mystery"):
+        migrate_episode(episode)
+
+
 _SMOKE_ROOT = pathlib.Path("/home/nelson/arena_ws/data/benchmarks")
 
 

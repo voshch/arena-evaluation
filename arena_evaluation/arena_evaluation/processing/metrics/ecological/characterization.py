@@ -394,11 +394,12 @@ class CharacterizationCalculator(BaseMetricCalculator):
                 .sort("t_ns")
                 .with_columns(
                     (pl.col("effort") * pl.col("velocity"))
-                    .list.eval(pl.element().abs())
-                    .list.sum()
+                    .abs()
                     .cast(pl.Float64)
-                    .alias("_p_mech"),
+                    .alias("_p_joint"),
                 )
+                .group_by("t_ns", maintain_order=True)
+                .agg(pl.col("_p_joint").sum().alias("_p_mech"))
             )
             out = asof_join(
                 out.sort("t_ns"),

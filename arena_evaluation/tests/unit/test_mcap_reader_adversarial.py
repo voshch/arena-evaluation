@@ -10,10 +10,17 @@ from test_mcap_reader_topics import ODOMETRY, _header, _write_bag
 
 
 def _odom(x: float) -> dict:
-    return {"header": _header(frame_id="odom"), "pose": {"pose": {"position": {"x": x, "y": 0.0}, "orientation": {"w": 1.0}}}, "twist": {"twist": {}}}
+    return {
+        "header": _header(frame_id="odom"),
+        "pose": {"pose": {"position": {"x": x, "y": 0.0}, "orientation": {"w": 1.0}}},
+        "twist": {"twist": {}},
+    }
 
 
-def test_duplicate_timestamps_keep_arrival_order_and_out_of_order_messages_are_sorted(tmp_path):
+def test_duplicate_timestamps_keep_the_last_row_and_out_of_order_messages_are_sorted(
+    tmp_path,
+):
+    """One sample per declared row key: a second message at one stamp replaces the first."""
     bag = _write_bag(
         tmp_path / "episode.mcap",
         [
@@ -26,8 +33,8 @@ def test_duplicate_timestamps_keep_arrival_order_and_out_of_order_messages_are_s
 
     odom = MCAPReader(bag).read(tmp_path / "raw")["env_0"].robot_odom.collect()
 
-    assert odom["t_ns"].to_list() == [1000, 1000, 3000, 5000]
-    assert odom["odom_x"].to_list() == [1.0, 1.1, 3.0, 5.0]
+    assert odom["t_ns"].to_list() == [1000, 3000, 5000]
+    assert odom["odom_x"].to_list() == [1.1, 3.0, 5.0]
 
 
 def test_an_all_zero_quaternion_has_no_heading():

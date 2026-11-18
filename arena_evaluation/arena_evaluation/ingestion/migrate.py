@@ -29,6 +29,10 @@ if typing.TYPE_CHECKING:
 _STAGED_TOPICS: typing.Final[str] = ".migrate-topics"
 _TRANSFORM_TOPICS: typing.Final[tuple[str, ...]] = ("/tf", "/tf_static")
 _REPORT_NAME: typing.Final[str] = "migration_report.yaml"
+_PHYSICAL_PARAMETER_KEYS: typing.Final[tuple[str, ...]] = (
+    "robot_radius",
+    "robot_mass_kg",
+)
 _BENCHMARK_YAMLS: typing.Final[frozenset[str]] = frozenset(
     {
         "manifest.yaml",
@@ -272,7 +276,15 @@ def _migrate_episode(
         staged = episode_dir / _STAGED_TOPICS
         if staged.exists():
             shutil.rmtree(staged)
-        MCAPReader(recording, environment=environment).read(staged)
+        try:
+            MCAPReader(recording, environment=environment).read(staged)
+        except legacy_schemas.LegacySchemaError as error:
+            shutil.rmtree(staged, ignore_errors=True)
+            raise MigrationError(
+                f"{recording}: {error}. Run `evaluation migrate` on a recording whose "
+                "EpisodeRecord schema this migration maps, or report the unsupported "
+                "construct to the Arena Evaluation owners."
+            ) from error
         if topics.exists():
             shutil.rmtree(topics)
         staged.rename(topics)
@@ -286,7 +298,19 @@ def _migrate_episode(
                 "synthesised robot_descriptor/robot_params from RunMetadata.robot_model and "
                 "the installed arena_robots definition for " + ", ".join(synthesized)
             )
-    changed = needs_extraction or bool(synthesized) or bool(mapped)
+    backfilled: tuple[str, ...] = ()
+    if generation.name in (
+        legacy_schemas.LEGACY_2026_09,
+        legacy_schemas.LEGACY_2026_11,
+    ):
+        backfilled = _backfill_robot_parameters(topics)
+        if backfilled:
+            fallbacks.append(
+                "backfilled " + ", ".join(backfilled) + " from the installed "
+                "arena_robots definition; the September fleet recorded no physical "
+                "parameters"
+            )
+    changed = needs_extraction or bool(synthesized) or bool(mapped) or bool(backfilled)
     if changed:
         MetadataWriter.write(metadata, metadata_path)
     return EpisodeMigration(
@@ -480,6 +504,72 @@ def _synthesize_descriptor(
     return tuple(f"{name}={model}" for name, model in assignment.items())
 
 
+def _backfill_robot_parameters(topics: pathlib.Path) -> tuple[str, ...]:
+    """Fill a legacy fleet's missing physical parameters from the installed model definition."""
+    descriptor_path = topics / "robot_descriptor.parquet"
+    params_path = topics / "robot_params.parquet"
+    if not descriptor_path.is_file() or not params_path.is_file():
+        return ()
+    descriptors = pl.read_parquet(descriptor_path)
+    parameters = pl.read_parquet(params_path)
+    if descriptors.height == 0:
+        return ()
+    installed = pl.DataFrame(
+        [
+            {"model": str(model), "param_key": key, "param_value": value}
+            for model in descriptors.get_column("model").unique()
+            for key, value in _installed_parameters(str(model)).items()
+        ]
+    )
+    recorded = parameters.select("robot_id", "param_key").unique()
+    expected = (
+        descriptors.select("robot_id", "model")
+        .unique()
+        .join(pl.DataFrame({"param_key": list(_PHYSICAL_PARAMETER_KEYS)}), how="cross")
+    )
+    missing = expected.join(recorded, on=["robot_id", "param_key"], how="anti")
+    if missing.height == 0:
+        return ()
+    filled = (
+        missing.join(installed, on=["model", "param_key"], how="left")
+        .join(
+            descriptors.select("robot_id", "t_ns", "env_id").unique(),
+            on="robot_id",
+            how="left",
+        )
+        .select("t_ns", "env_id", "robot_id", "param_key", "param_value", "model")
+    )
+    unresolved = filled.filter(pl.col("param_value").is_null())
+    if unresolved.height:
+        pairs = ", ".join(
+            f"{model}/{key}"
+            for model, key in zip(
+                unresolved.get_column("model"),
+                unresolved.get_column("param_key"),
+                strict=True,
+            )
+        )
+        raise MigrationError(
+            f"the installed arena_robots definition of {pairs} lacks a physical "
+            "parameter; the legacy fleet parameter cannot be filled"
+        )
+    _write_frame(
+        params_path,
+        pl.concat(
+            [
+                parameters,
+                filled.select("t_ns", "env_id", "robot_id", "param_key", "param_value"),
+            ],
+            how="diagonal",
+        ),
+        RobotParamRows,
+    )
+    robots = ", ".join(
+        sorted(str(robot) for robot in filled.get_column("robot_id").unique())
+    )
+    return (f"robot_radius/robot_mass_kg for {robots}",)
+
+
 def _installed_parameters(model: str) -> dict[str, str]:
     """The recorded parameters of one model from the installed arena_robots definition; a missing one is loud."""
     from ament_index_python.packages import get_package_share_directory
@@ -541,15 +631,20 @@ def _robot_names(recording: pathlib.Path, environment: str) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-def _write_rows(
-    path: pathlib.Path, rows: Iterable[Mapping[str, typing.Any]], table: type
-) -> None:
+def _write_frame(path: pathlib.Path, frame: pl.DataFrame, table: type) -> None:
     """Write one telemetry table with its declared schema in one rename."""
     schema = table.polars_schema()
-    frame = pl.DataFrame(list(rows)).select(list(schema.names()))
+    frame = frame.select(list(schema.names()))
     frame = frame.cast({name: dtype for name, dtype in schema.items()})
     with staged_temp_path(path) as temporary:
         frame.write_parquet(temporary, compression="zstd")
+
+
+def _write_rows(
+    path: pathlib.Path, rows: Iterable[Mapping[str, typing.Any]], table: type
+) -> None:
+    """Write one telemetry table from its row mappings, in one rename."""
+    _write_frame(path, pl.DataFrame(list(rows)), table)
 
 
 def _write_report(report: MigrationReport, path: pathlib.Path) -> None:

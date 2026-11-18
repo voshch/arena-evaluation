@@ -116,8 +116,6 @@ def _sample_episode() -> AlignedEpisodeBundle:
             "vel_linear": [0.0, 0.25, 0.5, 1.0],
             "total_power_w": [50.0, 55.0, 60.0, 65.0],
             "total_level_af_dba": [42.0, 46.0, 51.0, 56.0],
-            "velocity": [[0.0, 0.0], [2.0, 2.0], [4.0, 4.0], [8.0, 8.0]],
-            "effort": [[0.1, 0.1], [0.5, -0.5], [1.0, 1.0], [1.0, -1.0]],
             "label": [
                 "ramp_apex_vx_0.25_h_1.00",
                 "ramp_apex_vx_0.25_h_1.00",
@@ -126,7 +124,14 @@ def _sample_episode() -> AlignedEpisodeBundle:
             ],
         }
     )
-    return _episode(frame)
+    joints = pl.DataFrame(
+        {
+            "t_ns": [0, 0, SEC, SEC, 2 * SEC, 2 * SEC, 3 * SEC, 3 * SEC],
+            "effort": [0.1, 0.1, 0.5, -0.5, 1.0, 1.0, 1.0, -1.0],
+            "velocity": [0.0, 0.0, 2.0, 2.0, 4.0, 4.0, 8.0, 8.0],
+        }
+    )
+    return _episode(frame, topics={"robot_joint_states": joints})
 
 
 def test_calculate_reports_scalar_summaries():
@@ -523,9 +528,9 @@ def test_joints_and_power_work_with_production_aligned_schema():
     )
     joints = pl.DataFrame(
         {
-            "t_ns": t_ns,
-            "effort": [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
-            "velocity": [[2.0, 2.0], [2.0, 2.0], [2.0, 2.0]],
+            "t_ns": [t for t in t_ns for _ in range(2)],
+            "effort": [1.0] * (2 * len(t_ns)),
+            "velocity": [2.0] * (2 * len(t_ns)),
         }
     )
     power_only = AlignedEpisodeBundle(
@@ -589,9 +594,9 @@ def test_joints_join_is_backward_asof_within_tolerance():
             "robot_tracks": tracks,
             "robot_joint_states": pl.DataFrame(
                 {
-                    "t_ns": [2 * SEC],
-                    "effort": [[1.5, 1.5]],
-                    "velocity": [[2.0, 2.0]],
+                    "t_ns": [2 * SEC, 2 * SEC],
+                    "effort": [1.5, 1.5],
+                    "velocity": [2.0, 2.0],
                 }
             ),
         },
@@ -608,9 +613,9 @@ def test_joints_join_is_backward_asof_within_tolerance():
             "robot_tracks": tracks,
             "robot_joint_states": pl.DataFrame(
                 {
-                    "t_ns": [0],
-                    "effort": [[1.0, 1.0]],
-                    "velocity": [[2.0, 2.0]],
+                    "t_ns": [0, 0],
+                    "effort": [1.0, 1.0],
+                    "velocity": [2.0, 2.0],
                 }
             ),
         },

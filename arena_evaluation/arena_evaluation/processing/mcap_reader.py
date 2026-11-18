@@ -359,7 +359,7 @@ class _Ingest:
         context.record_episode(
             self._sink,
             envelope,
-            legacy_schemas.episode_fields(envelope.body, envelope.schema.name),
+            legacy_schemas.episode_fields(envelope.body, envelope.schema),
         )
 
     def _semantics(self, _topic: str, envelope: Envelope) -> None:
@@ -372,7 +372,7 @@ class _Ingest:
         self._fleet.record(
             envelope.t_ns,
             env_id,
-            legacy_schemas.fleet_robots(envelope.body, envelope.schema.name),
+            legacy_schemas.fleet_robots(envelope.body, envelope.schema),
         )
 
     def _collision_events(self, _topic: str, envelope: Envelope) -> None:

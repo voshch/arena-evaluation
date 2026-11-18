@@ -19,7 +19,7 @@ from arena_evaluation.processing.telemetry.messages import (
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
-    from arena_evaluation.processing.legacy_schemas import EpisodeFields
+    from arena_evaluation.processing.legacy_schemas import EpisodeFields, FleetRobot
     from arena_runtime_msgs.msg import SemanticSnapshot
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
     from nav_msgs.msg import OccupancyGrid, Path
@@ -69,7 +69,7 @@ class FleetRecorder:
         self._sink = sink
         self._recorded: set[tuple[str, str]] = set()
 
-    def record(self, t_ns: int, env_id: str, robots: Sequence[object]) -> None:
+    def record(self, t_ns: int, env_id: str, robots: Sequence[FleetRobot]) -> None:
         for state in robots:
             name = str(state.descriptor.name)
             if (env_id, name) in self._recorded:

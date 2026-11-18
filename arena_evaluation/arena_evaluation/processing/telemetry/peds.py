@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from arena_evaluation.processing import legacy_schemas
 from arena_evaluation.processing.telemetry.messages import (
     Envelope,
     env_row,
@@ -204,6 +205,7 @@ def _agents(
 def _pedestrians_columns(envelope: Envelope[Pedestrians]) -> dict[str, list[Any]]:
     peds = envelope.body.pedestrians
     nulls = [None] * len(peds)
+    fields = legacy_schemas.pedestrian_fields(envelope.schema)
     return {
         "number": [int(ped.id) for ped in peds],
         "name": [ped.name or str(ped.id) for ped in peds],
@@ -217,12 +219,32 @@ def _pedestrians_columns(envelope: Envelope[Pedestrians]) -> dict[str, list[Any]
         "radius_m": nulls,
         "desired_speed": nulls,
         "policy": nulls,
-        "agent_type": [_text_or_none(ped.agent_type) for ped in peds],
+        "agent_type": (
+            [_text_or_none(ped.agent_type) for ped in peds]
+            if fields.carries("agent_type")
+            else nulls
+        ),
         "animation_state": [int(ped.animation_state) for ped in peds],
-        "interaction_id": [int(ped.interaction_id) for ped in peds],
-        "interaction_type": [int(ped.interaction_type) for ped in peds],
-        "gait_phase": [_nonzero(float(ped.gait_phase)) for ped in peds],
-        "gait_cadence": [_nonzero(float(ped.gait_cadence)) for ped in peds],
+        "interaction_id": (
+            [int(ped.interaction_id) for ped in peds]
+            if fields.carries("interaction_id")
+            else nulls
+        ),
+        "interaction_type": (
+            [int(ped.interaction_type) for ped in peds]
+            if fields.carries("interaction_type")
+            else nulls
+        ),
+        "gait_phase": (
+            [_nonzero(float(ped.gait_phase)) for ped in peds]
+            if fields.carries("gait_phase")
+            else nulls
+        ),
+        "gait_cadence": (
+            [_nonzero(float(ped.gait_cadence)) for ped in peds]
+            if fields.carries("gait_cadence")
+            else nulls
+        ),
         "crowd": nulls,
     }
 
@@ -299,6 +321,9 @@ def _agent_states_columns(
 
 def _gesture_rows(envelope: Envelope) -> list[dict[str, Any]]:
     if envelope.schema.name != PEDESTRIANS_SCHEMA:
+        return []
+    fields = legacy_schemas.pedestrian_fields(envelope.schema)
+    if not fields.carries("gestures"):
         return []
     peds = cast("Envelope[Pedestrians]", envelope).body.pedestrians
     return [
