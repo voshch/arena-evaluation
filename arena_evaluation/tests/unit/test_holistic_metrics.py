@@ -88,8 +88,28 @@ def test_declares_the_published_series_dependencies() -> None:
     )
 
 
-def test_no_series_yields_none() -> None:
-    assert _aeps((0, 1), None, None) is None
+_LEVELS = _levels([(0, [90.0]), (1, [90.0])])
+_CLEARANCES = _clearances([(0, 0.5), (1, 0.5)])
+_EMPTY_LEVELS = pl.DataFrame(
+    schema={"t_ns": pl.Int64, "ped_id": pl.String, "exposure_dba": pl.Float64}
+)
+_EMPTY_CLEARANCES = pl.DataFrame(
+    schema={"t_ns": pl.Int64, "min_ped_clearance_m": pl.Float64}
+)
+
+
+@pytest.mark.parametrize(
+    ("levels", "clearances"),
+    [
+        (None, None),
+        (None, _CLEARANCES),
+        (_LEVELS, None),
+        (_EMPTY_LEVELS, _EMPTY_CLEARANCES),
+    ],
+    ids=["no-series", "no-acoustic-series", "no-clearance-series", "empty-frames"],
+)
+def test_aeps_is_none_without_its_inputs(levels, clearances) -> None:
+    assert _aeps((0, 1), levels, clearances) is None
 
 
 def test_aeps_integrates_the_series_over_intruded_frames() -> None:
@@ -110,24 +130,6 @@ def test_aeps_is_zero_without_intrusions() -> None:
     levels = _levels([(0, [90.0]), (1, [90.0]), (2, [90.0])])
     clearances = _clearances([(0, 1.2), (1, 3.0), (2, None)])
     assert _aeps((0, 1, 2), levels, clearances) == 0.0
-
-
-def test_aeps_is_none_without_the_acoustic_series() -> None:
-    assert _aeps((0, 1), None, _clearances([(0, 0.5), (1, 0.5)])) is None
-
-
-def test_aeps_is_none_without_the_clearance_series() -> None:
-    assert _aeps((0, 1), _levels([(0, [90.0]), (1, [90.0])]), None) is None
-
-
-def test_aeps_is_none_for_empty_series_frames() -> None:
-    empty_levels = pl.DataFrame(
-        schema={"t_ns": pl.Int64, "ped_id": pl.String, "exposure_dba": pl.Float64}
-    )
-    empty_clearance = pl.DataFrame(
-        schema={"t_ns": pl.Int64, "min_ped_clearance_m": pl.Float64}
-    )
-    assert _aeps((0, 1), empty_levels, empty_clearance) is None
 
 
 def test_aeps_is_none_without_an_aligned_time_axis() -> None:
