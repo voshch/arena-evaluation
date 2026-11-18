@@ -1,7 +1,10 @@
 """Unit tests for the long-format line renderer."""
 
+import base64
+import json
 import pathlib
 
+import numpy as np
 import polars as pl
 
 from arena_evaluation.presentation.plot_types.line import LineRenderer
@@ -77,7 +80,6 @@ def test_line_seaborn_empty_df_no_crash(tmp_path: pathlib.Path):
 
 
 def test_line_error_band_clamped_at_zero():
-    # If std > mean (e.g. mean=10, std=25), y_low should be clamped at 0.0, not -15.0
     df = pl.DataFrame(
         {
             "time_ns": [1e9, 2e9],
@@ -89,8 +91,9 @@ def test_line_error_band_clamped_at_zero():
     spec = _spec(y="p_total_w", error_y="std")
     html = LineRenderer(spec).render_plotly(df)
     assert html is not None
-    # Verify negative values are not in the lower band y coordinates
-    assert "-15" not in html
+    traces, _ = json.JSONDecoder().raw_decode(html, html.index("[", html.index("Plotly.newPlot(")))
+    band = next(trace for trace in traces if trace.get("fill") == "toself")
+    assert np.frombuffer(base64.b64decode(band["y"]["bdata"]), dtype=band["y"]["dtype"]).tolist() == [35.0, 35.0, 0.0, 0.0]
 
 
 def test_line_bin_x_aggregation():
