@@ -111,15 +111,13 @@ class CharacterizationCalculator(BaseMetricCalculator):
     }
 
     def _mobile(self) -> MobileSpec | None:
-        """The mobile cap of this robot's instance, None when its model cannot be resolved."""
-        from arena_robots.fleet import instance_caps
+        """The mobile cap of this robot's instance, None when its recording carries none."""
+        from pathlib import Path
 
-        try:
-            caps = instance_caps(self.robot_params.model.partition("[")[0], self.robot_params.instance_params)
-            return caps.mobile if "mobile" in caps.available else None
-        except Exception as e:
-            logger.warning(f"characterization: no mobile cap for {self.robot_params.model!r}: {e!r}")
-            return None
+        from arena_robots.caps import MobileSpec
+
+        raw = self.robot_params.mobile
+        return None if raw is None else MobileSpec(path=Path(f"{self.robot_params.model}/caps/mobile.yaml"), raw=raw)
 
     def _rebuilt_schedule(self) -> pl.DataFrame:
         """The default schedule for this robot's envelope, for recordings that carry no schedule table."""

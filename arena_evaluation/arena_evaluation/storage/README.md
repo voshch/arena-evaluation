@@ -19,7 +19,7 @@ The stored layout of one benchmark: the registry that declares every stored tabl
 | `planner_names.py` | Splits a planner name into its local and inter planner |
 | `exceptions.py` | The package's exception types |
 
-`RobotParams.instance_params` holds every recorded parameter of the robot, the placed parts (`<type>@<mount>`) and the cap overrides (`cap:<path>`, a JSON value) among them. A metric resolves the instance's effective caps from it with `arena_robots.fleet.instance_caps`.
+`RobotParams.snapshot` is the caps snapshot the recorder wrote for the robot (`robots/<robot ns, / as _>/caps.yaml` of the run, `format: arena-caps/1`) and is None for a run recorded without one. It holds `model`, `request`, `effective` (every cap and the `body`, `power` and `acoustics` fact blocks of the instance as it ran), `provenance` and `hash`, and `runtime_hash` when the hash the recorder resolved differs from the runtime's `caps:hash`. `RobotParams.mobile`, `power` and `acoustics` return the matching `effective` blocks. The radius and mass stay the recorded fleet parameters.
 
 ## Layout of a benchmark
 

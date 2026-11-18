@@ -17,6 +17,7 @@ import typing
 from collections.abc import Callable, MutableMapping
 
 import polars as pl
+import yaml
 
 if typing.TYPE_CHECKING:
     from arena_evaluation.processing.scoped_evaluator import ScopedFactTables
@@ -59,6 +60,7 @@ from arena_evaluation.storage.schemas import (
     RobotParams,
     RunMetadata,
     TopicBundle,
+    caps_snapshot_path,
 )
 from arena_evaluation.storage.star_schema import stack, write_benchmark_dimensions
 
@@ -450,7 +452,7 @@ def _with_pedestrian_constants(
     }
 
 
-def _robot_identity(bundle: TopicBundle) -> tuple[str, RobotParams]:
+def _robot_identity(bundle: TopicBundle, run_dir: pathlib.Path) -> tuple[str, RobotParams]:
     """This robot's recorded identity and parameters, never the installed definition or a default."""
     from arena_evaluation.storage.schemas import robot_params_from_recorded
 
@@ -463,7 +465,23 @@ def _robot_identity(bundle: TopicBundle) -> tuple[str, RobotParams]:
         raise MetricInputError("a robot bundle has no recorded table that names its robot")
     recorded = [_frame(table) for table in (bundle.robot_descriptor, bundle.robot_params)]
     rows = pl.concat([frame for frame in recorded if frame is not None], how="diagonal") if any(frame is not None for frame in recorded) else pl.DataFrame()
-    return robot_id, robot_params_from_recorded(rows, robot_id)
+    return robot_id, robot_params_from_recorded(rows, robot_id, _caps_snapshot(bundle, robot_id, run_dir))
+
+
+def _caps_snapshot(bundle: TopicBundle, robot_id: str, run_dir: pathlib.Path) -> dict[str, typing.Any] | None:
+    """The caps snapshot the run recorded for this robot, None when it has none or it does not read."""
+    descriptor = _frame(bundle.robot_descriptor)
+    if descriptor is None:
+        return None
+    namespaces = descriptor.filter(pl.col("robot_id") == robot_id).get_column("ns").drop_nulls()
+    if namespaces.len() == 0:
+        return None
+    path = caps_snapshot_path(run_dir, str(namespaces[0]))
+    try:
+        return yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as e:
+        _log.warning(f"caps snapshot {path} unreadable: {e!r}")
+        return None
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -1087,7 +1105,7 @@ class ProcessingPipeline:
                     _unaligned_facts(ep, metadata, robot, any_record),
                 )
 
-            params_by_robot = {name: _robot_identity(bundle)[1] for name, bundle in robots.items()}
+            params_by_robot = {name: _robot_identity(bundle, episode_dir.parent.parent)[1] for name, bundle in robots.items()}
             evaluated = [
                 self._evaluate_robot_bundle(
                     ep,

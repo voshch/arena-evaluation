@@ -15,7 +15,7 @@ _PARAMETERS = {
     "laser_max_range": None,
     "base_mass": 18.431,
     "component_masses": {},
-    "instance_params": {},
+    "snapshot": None,
 }
 
 

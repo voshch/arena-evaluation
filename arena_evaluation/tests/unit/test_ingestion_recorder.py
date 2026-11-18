@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import pathlib
 import re
@@ -28,6 +29,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSReliabilityPolicy
 from rclpy.serialization import deserialize_message, serialize_message
 from rosgraph_msgs.msg import Clock
+from diagnostic_msgs.msg import KeyValue
 from std_msgs.msg import String
 from arena_runtime_msgs.msg import (
     EpisodeRecord,
@@ -124,6 +126,8 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.episodes_root = None
     node.robot_model = "unknown"
     node.known_robots = set()
+    node._robot_params = {}
+    node._robot_snapshots = {}
     node._recorded_rows = {}
     node._unresolved_types = set()
     node.subs = []
@@ -653,13 +657,14 @@ def test_semantic_snapshot_callback_writes_state_semantics(env_node):
     assert env_node._pre_episode_buffer == [("/env_0/state/semantics", b"snap", 777)]
 
 
-def _fleet_message(robots_ns_model):
+def _fleet_message(robots_ns_model, params=None):
     fleet = RobotFleet()
     states = []
     for ns, model in robots_ns_model:
         st = RobotState()
         st.descriptor.ns = ns
         st.descriptor.model = model
+        st.params = [KeyValue(key=key, value=value) for key, value in (params or {}).get(ns, {}).items()]
         states.append(st)
     fleet.robots = states
     return fleet
@@ -685,7 +690,7 @@ def test_robots_fleet_callback_writes_and_discovers_robots(env_node):
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
     assert len(node.subs) == count
 
-    # a new robot triggers a new subscription wave, no controller topics for a model without model_params
+    # a new robot triggers a new subscription wave, no controller topics for a model whose caps do not resolve
     node.robots_fleet_callback(_fleet_message([("robot_1", "turtlebot3")]))
     second_wave = {sub.topic for sub in node.subs[count:]}
     assert "/robot_1/cmd_vel" in second_wave
@@ -1118,3 +1123,92 @@ def test_constructor_auto_mode_generates_run_id_from_map_robot_planner(fake_shar
         sys.argv = old_argv
         if node is not None:
             node.destroy_node()
+
+
+def test_robots_fleet_callback_writes_the_caps_snapshot(env_node):
+    node = env_node
+    node.current_time = 2000
+    node._begin_episode(0)
+    node.current_metadata = _make_run_metadata(robot_model=["unknown"])
+    params = {"robot_0": {"cap:mobile.limits": json.dumps({"scale": 0.5})}}
+
+    node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")], params))
+
+    snapshot = yaml.safe_load((node.run_dir / "robots" / "robot_0" / "caps.yaml").read_text())
+    assert snapshot["format"] == "arena-caps/1"
+    assert snapshot["model"] == "jackal"
+    assert snapshot["request"]["overrides"] == {"mobile.limits": {"scale": 0.5}}
+    assert snapshot["effective"]["body"]["cmd_vel_topic"]
+    assert "runtime_hash" not in snapshot
+
+
+def test_robots_fleet_callback_takes_the_controller_topics_from_the_caps_body(env_node):
+    node = env_node
+    node.current_time = 2000
+    node._begin_episode(0)
+    node.current_metadata = _make_run_metadata(robot_model=["unknown"])
+
+    node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
+
+    body = node._robot_snapshots["robot_0"]["effective"]["body"]
+    topics = {sub.topic for sub in node.subs}
+    assert f"/robot_0/{body['odom_topic']}" in topics
+    assert f"/robot_0/{body['cmd_vel_topic']}" in topics
+
+
+def test_robots_fleet_callback_rewrites_the_snapshot_when_the_params_change(env_node):
+    node = env_node
+    node.current_time = 2000
+    node._begin_episode(0)
+    node.current_metadata = _make_run_metadata(robot_model=["unknown"])
+    path = node.run_dir / "robots" / "robot_0" / "caps.yaml"
+
+    node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
+    before = yaml.safe_load(path.read_text())
+    node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")], {"robot_0": {"cap:mobile.radius": "0.5"}}))
+    after = yaml.safe_load(path.read_text())
+
+    assert before["effective"]["mobile"]["radius"] != 0.5
+    assert after["effective"]["mobile"]["radius"] == 0.5
+    assert before["hash"] != after["hash"]
+
+
+def test_a_runtime_hash_mismatch_warns_and_stores_both_hashes(tmp_path):
+    node = _bare_node(run_dir=tmp_path)
+    stale = "0" * 64
+
+    snapshot = node._snapshot_robot_caps("robot_0", "jackal", {"caps:hash": stale})
+
+    assert snapshot is not None
+    assert any(stale in line for line in _log(node, "WARN"))
+    written = yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps.yaml").read_text())
+    assert written["runtime_hash"] == stale
+    assert written["hash"] != stale
+
+
+def test_a_matching_runtime_hash_is_not_recorded_twice(tmp_path):
+    node = _bare_node(run_dir=tmp_path)
+    from arena_robots.fleet import instance_caps
+
+    runtime_hash = instance_caps("jackal", {}).snapshot()["hash"]
+
+    node._snapshot_robot_caps("robot_0", "jackal", {"caps:hash": runtime_hash})
+
+    assert _log(node, "WARN") == []
+    assert "runtime_hash" not in yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps.yaml").read_text())
+
+
+def test_a_robot_namespace_with_slashes_is_flattened_in_the_snapshot_path(tmp_path):
+    node = _bare_node(run_dir=tmp_path)
+
+    node._snapshot_robot_caps("env_0/robot_0", "jackal", {})
+
+    assert (tmp_path / "robots" / "env_0_robot_0" / "caps.yaml").is_file()
+
+
+def test_a_model_that_does_not_resolve_records_no_snapshot(tmp_path):
+    node = _bare_node(run_dir=tmp_path)
+
+    assert node._snapshot_robot_caps("robot_0", "no_such_robot", {}) is None
+    assert not (tmp_path / "robots").exists()
+    assert any("no_such_robot" in line for line in _log(node, "WARN"))

@@ -14,7 +14,9 @@ SEC = 1_000_000_000
 
 
 def _calc() -> CharacterizationCalculator:
-    return CharacterizationCalculator(make_robot_params(model="jackal"))
+    from arena_robots.fleet import instance_caps
+
+    return CharacterizationCalculator(make_robot_params(model="jackal", snapshot=instance_caps("jackal", {}).snapshot()))
 
 
 def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:

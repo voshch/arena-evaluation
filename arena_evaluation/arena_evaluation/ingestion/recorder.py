@@ -31,6 +31,7 @@ from rosgraph_msgs.msg import Clock
 from tf2_msgs.msg import TFMessage
 
 from arena_evaluation.storage.manifest import MetadataWriter
+from arena_evaluation.storage.schemas import caps_snapshot_path
 
 from .episode_writer import EpisodeWriter
 from .metadata import IngestionMetadata
@@ -317,6 +318,8 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self.robot_model = str(handles["robot"].value or "unknown")
         self.current_sim_episode_id: int | None = None
         self.known_robots = set()
+        self._robot_params: dict[str, dict[str, str]] = {}
+        self._robot_snapshots: dict[str, dict[str, Any]] = {}
 
         self.current_episode_id: int | None = None
         self.current_episode_dir: pathlib.Path | None = None
@@ -837,6 +840,12 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         for state in msg.robots:
             robot = state.descriptor
             robot_ns = robot.ns.strip("/")
+            params = {item.key: item.value for item in state.params}
+            if self._robot_params.get(robot_ns) != params:
+                self._robot_params[robot_ns] = params
+                snapshot = self._snapshot_robot_caps(robot_ns, robot.model, params)
+                if snapshot is not None:
+                    self._robot_snapshots[robot_ns] = snapshot
             if robot_ns not in self.known_robots:
                 self._subscribe_new_robot(robot_ns, robot.model, env_namespace)
 
@@ -862,7 +871,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         self._subscribe_recorded_rows(robot_ns)
         ns_prefix = f"/{robot_ns}" if robot_ns else ""
-        cmd_vel_topic, odom_topic = self._control_topics(robot_model)
+        cmd_vel_topic, odom_topic = self._control_topics(self._robot_snapshots.get(robot_ns))
         for rel, msg_type, rate_hz in (
             (odom_topic, Odometry, _ODOM_THROTTLE_RATE_HZ),
             (cmd_vel_topic, TwistStamped, DEFAULT_THROTTLE_RATE_HZ),
@@ -896,21 +905,35 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         except Exception as e:
             self.get_logger().warn(f"Failed to write episode metadata: {e}")
 
-    @staticmethod
-    def _control_topics(model: str) -> tuple[str, str]:
-        """The model's controller-side (cmd_vel_topic, odom_topic), relative to the robot namespace."""
+    def _snapshot_robot_caps(self, robot_ns: str, model: str, params: dict[str, str]) -> dict[str, Any] | None:
+        """Write the effective caps of a robot instance to its caps snapshot file."""
+        from arena_robots.fleet import instance_caps
+
+        runtime_hash = params.get("caps:hash")
+        request = {key: value for key, value in params.items() if key != "caps:hash"}
         try:
-            path = os.path.join(
-                get_package_share_directory("arena_robots"),
-                "robots",
-                model.partition("[")[0],
-                "model_params.yaml",
-            )
-            with open(path) as f:
-                control = (yaml.safe_load(f) or {}).get("control", {})
-        except Exception:
+            snapshot = instance_caps(model.partition("[")[0], request).snapshot()
+        except Exception as e:
+            self._log_warn(f"Robot {robot_ns}: caps of {model} do not resolve from {request}: {e}")
+            return None
+        if runtime_hash is not None and runtime_hash != snapshot["hash"]:
+            self._log_warn(f"Robot {robot_ns}: caps hash {snapshot['hash']} differs from the runtime's {runtime_hash}")
+            snapshot["runtime_hash"] = runtime_hash
+        path = caps_snapshot_path(self.run_dir, robot_ns)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.safe_dump(snapshot, sort_keys=False))
+        except Exception as e:
+            self._log_error(f"Failed to write the caps snapshot of {robot_ns}: {e}")
+        return snapshot
+
+    @staticmethod
+    def _control_topics(snapshot: dict[str, Any] | None) -> tuple[str, str]:
+        """The (cmd_vel_topic, odom_topic) of a caps snapshot's body, relative to the robot namespace."""
+        body = None if snapshot is None else snapshot["effective"].get("body")
+        if body is None:
             return "", ""
-        return str(control.get("cmd_vel_topic", "")), str(control.get("odom_topic", ""))
+        return str(body["cmd_vel_topic"]), str(body["odom_topic"])
 
     def _create_throttled_callback(self, topic_name: str, *, rate_hz: float = DEFAULT_THROTTLE_RATE_HZ) -> Callable[[object], None]:
         """A callback through the topic's rate gate, overridden by record_rates_hz by exact name."""
