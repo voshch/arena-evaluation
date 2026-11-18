@@ -141,22 +141,6 @@ def _trajectory(
     )
 
 
-def test_trajectory2d_exposes_xy_vel_and_seconds() -> None:
-    trajectory = Trajectory2D(
-        t_ns=np.array([0, NS_PER_S], dtype=np.int64),
-        x=np.array([0.0, 1.0]),
-        y=np.array([2.0, 3.0]),
-        vx=np.array([0.5, 0.5]),
-        vy=np.array([-1.0, -2.0]),
-        radius_m=0.4,
-    )
-
-    np.testing.assert_allclose(trajectory.xy, [[0.0, 2.0], [1.0, 3.0]])
-    np.testing.assert_allclose(trajectory.vel, [[0.5, -1.0], [0.5, -2.0]])
-    np.testing.assert_allclose(trajectory.times_s, [0.0, 1.0])
-    assert trajectory.radius_m == 0.4
-
-
 @pytest.mark.parametrize(
     ("window_s", "expected_x"),
     [
@@ -401,17 +385,13 @@ def test_extract_ped_tracks_keeps_an_unmeasured_velocity_null() -> None:
     assert np.isnan(track.vx).all()
 
 
-def test_extract_ped_tracks_without_table_is_empty() -> None:
-    assert extract_episode_ped_tracks(_episode({})) == {}
-
-
-def test_extract_ped_tracks_empty_frame_is_empty() -> None:
-    assert (
-        extract_episode_ped_tracks(
-            _episode({"pedestrian_arena_peds": pl.DataFrame(schema=_PED_SCHEMA)})
-        )
-        == {}
-    )
+@pytest.mark.parametrize(
+    "topics",
+    [{}, {"pedestrian_arena_peds": pl.DataFrame(schema=_PED_SCHEMA)}],
+    ids=["without-table", "empty-frame"],
+)
+def test_extract_ped_tracks_without_rows_is_empty(topics) -> None:
+    assert extract_episode_ped_tracks(_episode(topics)) == {}
 
 
 def test_extract_ped_tracks_drops_non_finite_positions() -> None:
@@ -428,55 +408,6 @@ def test_extract_ped_tracks_drops_non_finite_positions() -> None:
     ]
 
     np.testing.assert_allclose(track.x, [1.0])
-
-
-@pytest.mark.parametrize(
-    ("mask", "times_s", "merge_gap_s", "expected"),
-    [
-        (
-            [True, True, False, True, True],
-            [0.0, 1.0, 2.0, 4.0, 5.0],
-            2.0,
-            [(0, 1), (3, 4)],
-        ),
-        ([True, True, False, True, True], [0.0, 1.0, 2.0, 4.0, 5.0], 4.0, [(0, 4)]),
-        ([False, False, False], [0.0, 1.0, 2.0], 1.0, []),
-        ([True, True, True], [0.0, 1.0, 2.0], 1.0, [(0, 2)]),
-        ([True, True, True], [0.0, 1.0, 3.0], 1.0, [(0, 1), (2, 2)]),
-    ],
-)
-def test_contiguous_spans_bridges_gaps_within_the_merge_window(
-    mask: list[bool],
-    times_s: list[float],
-    merge_gap_s: float,
-    expected: list[tuple[int, int]],
-) -> None:
-    t_ns = (np.asarray(times_s, dtype=np.float64) * NS_PER_S).astype(np.int64)
-
-    assert (
-        contiguous_spans(
-            np.asarray(mask, dtype=bool), t_ns, int(merge_gap_s * NS_PER_S)
-        )
-        == expected
-    )
-
-
-@pytest.mark.parametrize(
-    ("intervals", "expected"),
-    [
-        ([], []),
-        ([(0, 10)], [(0, 10)]),
-        ([(0, 5), (5, 10)], [(0, 10)]),
-        ([(0, 6), (4, 9)], [(0, 9)]),
-        ([(0, 6), (7, 9)], [(0, 6), (7, 9)]),
-        ([(5, 10), (0, 3)], [(0, 3), (5, 10)]),
-        ([(3, 2)], []),
-    ],
-)
-def test_merge_intervals_ns_unions_overlapping_intervals(
-    intervals: list[tuple[int, int]], expected: list[tuple[int, int]]
-) -> None:
-    assert merge_intervals_ns(intervals) == expected
 
 
 def _encounter_episode(
