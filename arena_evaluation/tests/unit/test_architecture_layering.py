@@ -44,7 +44,6 @@ _PRESENTATION_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.presentation",
 )
 _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
-    ("manifest_registry.py", "arena_evaluation.benchmark.tree"): {"ManifestIdentifier"},
     (
         "plot_types/acoustic_field.py",
         "arena_evaluation.processing.acoustics.door_map",
@@ -85,12 +84,17 @@ _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
     },
 }
 
-_ALIGNMENT_MODULE: str = "processing/metrics/common/alignment.py"
+#: The one alignment implementation and the metric-layer module that re-exports it (FIX2).
+_ALIGNMENT_MODULES: frozenset[str] = frozenset(
+    {
+        "processing/alignment.py",
+        "processing/metrics/common/alignment.py",
+    }
+)
 # Direct alignment sites that still bypass the one alignment module. Each is owned by a row
 # that must route it through `alignment` (X-026); delete the entry once the file no longer
 # aligns streams itself, the assertion below fails until then.
 _KNOWN_DIRECT_ALIGNMENT_SITES: dict[str, str] = {
-    "processing/metrics/ecological/characterization.py": "X-026 / PR2",
     "processing/metrics/social/encounter_costs.py": "X-026 / PR2",
 }
 
@@ -237,7 +241,7 @@ def test_streams_are_aligned_only_in_the_alignment_module() -> None:
     seen_known: set[str] = set()
     for path in sorted(_PKG_ROOT.rglob("*.py")):
         rel = path.relative_to(_PKG_ROOT).as_posix()
-        if rel == _ALIGNMENT_MODULE:
+        if rel in _ALIGNMENT_MODULES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         lines = [
@@ -254,7 +258,7 @@ def test_streams_are_aligned_only_in_the_alignment_module() -> None:
             continue
         violations.append(f"{rel}:{lines}")
 
-    assert not violations, f"streams aligned outside {_ALIGNMENT_MODULE}: {violations}"
+    assert not violations, f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
     assert seen_known == set(_KNOWN_DIRECT_ALIGNMENT_SITES), (
         f"site(s) no longer aligning directly, delete their entry: {set(_KNOWN_DIRECT_ALIGNMENT_SITES) - seen_known}"
     )
@@ -311,6 +315,9 @@ _MCP_ALLOWED: tuple[str, ...] = (
 )
 _MCP_PINNED: dict[tuple[str, str], set[str]] = {
     ("analysis.py", "arena_evaluation.processing.sensitivity"): {"rerun_sensitivity"},
+    ("migration.py", "arena_evaluation.processing.metrics.dictionary"): {
+        "metric_dictionary"
+    },
 }
 
 
@@ -436,11 +443,24 @@ def _strongly_connected(graph: dict[str, set[str]]) -> list[list[str]]:
     return components
 
 
-#: The reviewed module import cycles. The presentation/benchmark one is X-005: it disappears once
-#: ``ManifestIdentifier`` leaves ``benchmark/tree.py`` for ``storage/config_layout.py`` (FIX7/FIX9,
-#: INT1), and this allow-list must then drop it. The metrics one is the type-only X-008 cycle.
+#: The reviewed module import cycles; the metrics one is the type-only X-008 cycle.
 _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
     {
+        # Type-only (TYPE_CHECKING) pair: exports annotates the builder it exports.
+        frozenset(
+            {
+                "arena_evaluation.presentation.exports",
+                "arena_evaluation.presentation.report_builder",
+            }
+        ),
+        # The manifest identifier loads the model it identifies; the model resolves the
+        # default report by name. Presentation-internal, no cross-layer edge (X-005).
+        frozenset(
+            {
+                "arena_evaluation.presentation.manifest_identifier",
+                "arena_evaluation.presentation.viz_manifest",
+            }
+        ),
         frozenset(
             {
                 "arena_evaluation.processing.metrics.base",
@@ -454,15 +474,9 @@ _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
                 "arena_evaluation.analytics.catalog",
                 "arena_evaluation.analytics.computations",
                 "arena_evaluation.analytics.derived",
+                "arena_evaluation.analytics.ranking",
                 "arena_evaluation.analytics.sql_engine",
                 "arena_evaluation.analytics.stats",
-            }
-        ),
-        frozenset(
-            {
-                "arena_evaluation.benchmark.tree",
-                "arena_evaluation.presentation.manifest_registry",
-                "arena_evaluation.presentation.viz_manifest",
             }
         ),
         frozenset(
@@ -471,7 +485,6 @@ _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
                 "arena_evaluation.benchmark.dashboard",
                 "arena_evaluation.benchmark.dashboard_runtime",
                 "arena_evaluation.benchmark.runner",
-                "arena_evaluation.mcp.authoring",
                 "arena_evaluation.mcp.runs",
             }
         ),
