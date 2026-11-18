@@ -222,7 +222,7 @@ def _star_tables() -> dict[str, pl.DataFrame]:
                 result="GOAL_REACHED",
                 success=True,
                 path_length_m=28.0,
-                null_reason="mar:no_samples;pfi:no_samples",
+                null_reason="mar_vs_planned_route:no_samples;pfi_vs_planned_route:no_samples",
             )
         ],
     )
@@ -453,14 +453,14 @@ def test_contact_slice_explains_the_attributed_contact(run: pathlib.Path) -> Non
     expected = _persisted(run, "fact_contacts").select(
         "contact_id",
         "encounter_id",
-        "edge_case_collision_fault",
+        "edge_case_collision_at",
         "edge_case_collision_with",
     )
     assert_frame_equal(
         contact_rows.select(
             "contact_id",
             "encounter_id",
-            "edge_case_collision_fault",
+            "edge_case_collision_at",
             "edge_case_collision_with",
         ),
         expected,
@@ -469,7 +469,7 @@ def test_contact_slice_explains_the_attributed_contact(run: pathlib.Path) -> Non
     assert response.episode.rows[0]["result"] == "GOAL_REACHED"
     assert response.collisions.n_rows == 1
     assert "obstacle_speed_at_impact_mps:no_samples" in response.null_reasons
-    assert "mar:no_samples" in response.null_reasons
+    assert "mar_vs_planned_route:no_samples" in response.null_reasons
 
 
 def test_encounter_slice_previews_its_contact_and_pedestrian_rows(

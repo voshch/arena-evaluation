@@ -13,7 +13,7 @@ sql: |
       COUNT(*) AS total_encounters,
       AVG(e.min_clearance_m) AS mean_min_clearance_m,
       AVG(e.detour_time_s) AS mean_detour_time_s,
-      AVG(e.robot_path_deviation_m) AS mean_robot_path_deviation_m,
+      AVG(e.robot_path_deviation_vs_planned_m) AS mean_robot_path_deviation_vs_planned_m,
       AVG(e.probst_R_robot) AS mean_probst_R_robot,
       AVG(e.probst_R_actor2) AS mean_probst_R_actor2,
       AVG(e.probst_E_robot) AS mean_probst_E_robot

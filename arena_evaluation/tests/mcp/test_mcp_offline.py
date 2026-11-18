@@ -153,7 +153,7 @@ def test_metrics_without_a_declared_direction_raise_hinted_tool_error(tmp_path):
 def test_a_canonical_measure_with_a_declared_direction_ranks_higher_is_better(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
-    desc = analysis.evaluation_describe_metric("mar", run_id=run_id)
+    desc = analysis.evaluation_describe_metric("mar_vs_planned_route", run_id=run_id)
     assert desc["direction"] == "higher"
     top = analysis.evaluation_compare_planners(
         run_id, n=1, metrics=["success", "time_to_goal"]

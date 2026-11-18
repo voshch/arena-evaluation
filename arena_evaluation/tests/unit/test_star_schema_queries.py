@@ -162,7 +162,7 @@ def _write_multi_condition_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "probst_R_time": 0.5,
                 "probst_E_robot": 0.7,
                 "probst_E_actor2": 0.3,
-                "robot_path_deviation_m": 0.25,
+                "robot_path_deviation_vs_planned_m": 0.25,
                 "detour_time_s": 0.4,
             }
         ],

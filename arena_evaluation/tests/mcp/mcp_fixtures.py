@@ -99,8 +99,8 @@ def metric_rows() -> list[dict]:
                     "path_efficiency": path_efficiency[index],
                     "energy_total_wh": energy[index],
                     "min_ped_clearance_m": 0.5,
-                    "mar": 0.4,
-                    "pfi": 0.2,
+                    "mar_vs_planned_route": 0.4,
+                    "pfi_vs_planned_route": 0.2,
                 }
             )
     for _ in range(2):
@@ -118,8 +118,8 @@ def metric_rows() -> list[dict]:
                 "path_efficiency": None,
                 "energy_total_wh": None,
                 "min_ped_clearance_m": None,
-                "mar": None,
-                "pfi": None,
+                "mar_vs_planned_route": None,
+                "pfi_vs_planned_route": None,
             }
         )
     return rows
@@ -295,12 +295,12 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
             None,
         ),
         (
-            "mar",
-            "episodes",
-            "fact_episodes",
+            "mar_vs_planned_route",
+            "encounters",
+            "fact_encounters",
             "Float64",
             "",
-            "Minimum accepted ratio",
+            "Mutual accommodation ratio against the planned route",
             "higher",
             "social",
             None,

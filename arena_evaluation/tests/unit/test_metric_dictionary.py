@@ -105,8 +105,10 @@ def test_a_row_carries_the_dtype_unit_and_description_of_the_stored_metric() -> 
             assert row["description"] == metric.description
 
 
-def test_mar_is_higher_is_better_in_the_dictionary() -> None:
-    mar = metric_dictionary().filter(pl.col("metric") == "mar")
+def test_mar_vs_planned_route_is_higher_is_better_in_the_dictionary() -> None:
+    mar = metric_dictionary().filter(
+        pl.col("metric") == "mar_vs_planned_route"
+    )
 
     assert mar["direction"].to_list() == ["higher"]
 

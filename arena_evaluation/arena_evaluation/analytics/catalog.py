@@ -62,7 +62,7 @@ _ENCOUNTER_MEAN_METRICS: Final[tuple[str, ...]] = (
     "duration_s",
     "min_clearance_m",
     "detour_time_s",
-    "robot_path_deviation_m",
+    "robot_path_deviation_vs_planned_m",
     "energy_total_wh",
     "energy_surge_ratio",
     "probst_R_robot",
