@@ -68,6 +68,30 @@ _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
         "downsample_mask",
         "downsample_occupancy",
     },
+    (
+        "plot_types/acoustic_field.py",
+        "arena_evaluation.processing.acoustics.constants",
+    ): {
+        "MIC_DISTANCE_M",
+        "ROBOT_ACOUSTICS_TOPIC",
+        "WALL_TRANSMISSION_LOSS_DB",
+    },
+    (
+        "plot_types/acoustic_field.py",
+        "arena_evaluation.processing.acoustics.episode_series",
+    ): {
+        "episode_number",
+        "load_aligned_episode",
+    },
+}
+
+_ALIGNMENT_MODULE: str = "processing/metrics/common/alignment.py"
+# Direct alignment sites that still bypass the one alignment module. Each is owned by a row
+# that must route it through `alignment` (X-026); delete the entry once the file no longer
+# aligns streams itself, the assertion below fails until then.
+_KNOWN_DIRECT_ALIGNMENT_SITES: dict[str, str] = {
+    "processing/metrics/ecological/characterization.py": "X-026 / PR2",
+    "processing/metrics/social/encounter_costs.py": "X-026 / PR2",
 }
 
 
@@ -205,6 +229,35 @@ _FORBIDDEN_STAT_ATTRS: frozenset[str] = frozenset(
     }
 )
 _FORBIDDEN_STAT_MODULES: tuple[str, ...] = ("scipy.stats", "scipy.cluster")
+
+
+def test_streams_are_aligned_only_in_the_alignment_module() -> None:
+    """Alignment is one module: presentation binds published series and nothing re-pairs streams itself."""
+    violations: list[str] = []
+    seen_known: set[str] = set()
+    for path in sorted(_PKG_ROOT.rglob("*.py")):
+        rel = path.relative_to(_PKG_ROOT).as_posix()
+        if rel == _ALIGNMENT_MODULE:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        lines = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"join_asof", "interp"}
+        ]
+        if not lines:
+            continue
+        if rel in _KNOWN_DIRECT_ALIGNMENT_SITES:
+            seen_known.add(rel)
+            continue
+        violations.append(f"{rel}:{lines}")
+
+    assert not violations, f"streams aligned outside {_ALIGNMENT_MODULE}: {violations}"
+    assert seen_known == set(_KNOWN_DIRECT_ALIGNMENT_SITES), (
+        f"site(s) no longer aligning directly, delete their entry: {set(_KNOWN_DIRECT_ALIGNMENT_SITES) - seen_known}"
+    )
 
 
 def test_presentation_computes_no_statistics() -> None:

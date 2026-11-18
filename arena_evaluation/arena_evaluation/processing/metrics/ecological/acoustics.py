@@ -8,6 +8,18 @@ from typing import Final
 import numpy as np
 import polars as pl
 
+from arena_evaluation.processing.acoustics.constants import (
+    ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2,
+    ROBOT_ACOUSTICS_TOPIC,
+)
+from arena_evaluation.processing.acoustics.statistics import (
+    MIN_DBA,
+    energy_equivalent_level_dba,
+    frame_durations_s,
+    linear_energy,
+    max_positive_rise_dba_per_s,
+    rise_rates_dba_per_s,
+)
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
@@ -16,16 +28,9 @@ from arena_evaluation.processing.metrics.base import (
 from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-ACOUSTIC_REFERENCE_PRESSURE_PA: Final[float] = 20e-6
-ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2: Final[float] = (
-    ACOUSTIC_REFERENCE_PRESSURE_PA * ACOUSTIC_REFERENCE_PRESSURE_PA
-)
-NANOSECONDS_PER_SECOND: Final[float] = 1e9
-MIN_DBA: Final[float] = 1.0
 STARTLE_GATE_DBA: Final[float] = 65.0
 SURGE_WINDOW_S: Final[float] = 1.0
 MIN_PATH_LENGTH_M: Final[float] = 0.1
-MIN_DT_S: Final[float] = 1e-6
 
 _SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
 
@@ -66,15 +71,15 @@ ACOUSTIC_STARTLE_FACTOR = define_metric(
     pl.Float64,
     scopes=_SCOPES,
     unit="dBA/s",
-    description="Maximum positive rise rate of 3-sample median-filtered level gated at 65 dBA.",
+    description="Maximum positive rise rate of 3-sample median-filtered level gated at 65 dBA, 0 dBA/s when the level never rose above the gate.",
     null_reason=True,
 )
 ACOUSTIC_SURGE_INDEX = define_metric(
     "acoustic_surge_index",
     pl.Float64,
     scopes=_SCOPES,
-    unit="dBA²",
-    description="Variance of 1 s energy-equivalent A-weighted levels over the scope.",
+    unit="dB²",
+    description="Variance of 1 s energy-equivalent A-weighted levels over the scope, in squared decibels.",
     null_reason=True,
 )
 ACOUSTIC_COST = define_metric(
@@ -104,22 +109,12 @@ class AcousticsCalculator(BaseMetricCalculator):
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = ["path_metrics"]
-    REQUIRED_TOPICS = ["robot_acoustics"]
+    REQUIRED_TOPICS = [ROBOT_ACOUSTICS_TOPIC]
     PARAMS = ()
 
     OUTPUTS = _METRICS
     DIRECTIONS = {metric.name: Direction.LOWER for metric in _METRICS}
     PRIMARY_OUTPUTS = ["l_aeq_t", "acoustic_startle_factor"]
-
-    @classmethod
-    def required_topics_for_scope(
-        cls, scope: MetricScope
-    ) -> tuple[str | tuple[str, ...], ...]:
-        return (
-            ()
-            if scope == MetricScope.ENCOUNTER
-            else super().required_topics_for_scope(scope)
-        )
 
     def calculate_for_scope(
         self,
@@ -142,7 +137,7 @@ class AcousticsCalculator(BaseMetricCalculator):
         episode: AlignedEpisodeBundle,
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
-        acous = self.native_topics(episode).get("robot_acoustics")
+        acous = self.native_topics(episode).get(ROBOT_ACOUSTICS_TOPIC)
         if acous is None or len(acous) < 2:
             return dict.fromkeys(self.output_keys())
 
@@ -165,48 +160,25 @@ class AcousticsCalculator(BaseMetricCalculator):
         if np.all(np.isnan(dba)):
             return dict.fromkeys(self.output_keys())
 
-        dt = np.diff(t_ns) / NANOSECONDS_PER_SECOND
-        dt = np.append(dt, dt[-1] if len(dt) > 0 else 0.01)
-        dt = np.where(dt <= 0.0, MIN_DT_S, dt)
-
-        linear_energy = 10.0 ** (dba / 10.0)
+        dt = frame_durations_s(t_ns)
+        energy = linear_energy(dba)
         total_duration_s = float(np.sum(dt))
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            l_aeq_t_val = 10.0 * np.log10(np.sum(linear_energy * dt) / total_duration_s)
-        l_aeq_t = (
-            None
-            if (np.isnan(l_aeq_t_val) or np.isinf(l_aeq_t_val))
-            else float(l_aeq_t_val)
-        )
+        l_aeq_t = energy_equivalent_level_dba(dba, dt)
 
         l_a10 = float(np.percentile(dba, 90))
         l_a50 = float(np.percentile(dba, 50))
         l_a90 = float(np.percentile(dba, 10))
 
         dba_filt = self._median_filter_3(dba)
-        d_level = np.diff(dba_filt)
-        dt_diff = np.where(
-            np.diff(t_ns) / NANOSECONDS_PER_SECOND <= 0.0,
-            MIN_DT_S,
-            np.diff(t_ns) / NANOSECONDS_PER_SECOND,
-        )
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rates = d_level / dt_diff
-
-        gated = np.where(dba_filt[1:] >= STARTLE_GATE_DBA, rates, 0.0)
-        positive_rates = gated[gated > 0]
-        acoustic_startle_factor = (
-            float(np.max(positive_rates)) if len(positive_rates) > 0 else 0.0
+        acoustic_startle_factor = max_positive_rise_dba_per_s(
+            rise_rates_dba_per_s(dba_filt, t_ns, gate_dba=STARTLE_GATE_DBA)
         )
 
-        acoustic_surge_index = self._surge_index(dt, linear_energy, total_duration_s)
+        acoustic_surge_index = self._surge_index(dt, energy, total_duration_s)
 
         path_length_m = prior_results.get("path_length_m")
         if path_length_m is not None and path_length_m >= MIN_PATH_LENGTH_M:
-            dose_pa2s = ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2 * float(
-                np.sum(linear_energy * dt)
-            )
+            dose_pa2s = ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2 * float(np.sum(energy * dt))
             acoustic_cost = float(dose_pa2s / path_length_m)
         else:
             acoustic_cost = None

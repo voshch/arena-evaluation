@@ -399,11 +399,11 @@ def _series_by_time(
 
 def test_metric_raises_when_no_barrier_map_exists(calc, world_run_dir):
     with pytest.raises(MetricInputError, match="unknown"):
-        calc.calculate(
+        _pedestrian_scalars(
+            calc,
             _episode(
                 _frames([(1.0, 1.0)], [[(4.0, 1.0)]]), "unknown", run_dir=world_run_dir
             ),
-            {},
         )
 
 
@@ -424,7 +424,7 @@ def test_reference_run_is_evaluated_like_any_other_episode(derived_map, world_ru
         _frames([(1.0, 1.0)], [[(4.0, 1.0)]]), map_name, run=run, run_dir=world_run_dir
     )
     reference_calc = AcousticExposureCalculator(RobotParams())
-    result = reference_calc.calculate(episode, {})
+    result = _pedestrian_scalars(reference_calc, episode)
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
     assert reference_calc.series_table(episode).height > 0
 
@@ -432,30 +432,32 @@ def test_reference_run_is_evaluated_like_any_other_episode(derived_map, world_ru
 @pytest.mark.parametrize("data", [None, pl.DataFrame()], ids=["none", "empty"])
 def test_missing_episode_data_yields_nulls(data, calc, derived_map, world_run_dir):
     assert (
-        calc.calculate(_episode(data, derived_map(), run_dir=world_run_dir), {})
+        _pedestrian_scalars(calc, _episode(data, derived_map(), run_dir=world_run_dir))
         == NULLS
     )
 
 
 def test_missing_map_name_raises_metric_input_error(calc):
     with pytest.raises(MetricInputError, match="missing world map name"):
-        calc.calculate(_episode(_frames([(1.0, 1.0)], [[(4.0, 1.0)]]), None), {})
+        _pedestrian_scalars(calc, _episode(_frames([(1.0, 1.0)], [[(4.0, 1.0)]]), None))
 
 
 def test_world_fallback_supplies_the_map(calc, derived_map, world_run_dir):
     calc.world = derived_map()
-    result = calc.calculate(
-        _episode(_frames([(1.0, 1.0)], [[(4.0, 1.0)]]), None, run_dir=world_run_dir), {}
+    result = _pedestrian_scalars(
+        calc,
+        _episode(_frames([(1.0, 1.0)], [[(4.0, 1.0)]]), None, run_dir=world_run_dir),
     )
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
 
 
 def test_prior_map_overrides_episode_map(calc, derived_map, world_run_dir):
-    result = calc.calculate(
+    result = _pedestrian_scalars(
+        calc,
         _episode(
             _frames([(1.0, 1.0)], [[(4.0, 1.0)]]), "unknown", run_dir=world_run_dir
         ),
-        {"map": derived_map()},
+        prior={"map": derived_map()},
     )
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
 
@@ -484,7 +486,8 @@ def test_scalars_follow_the_exposure_series(calc, derived_map, world_run_dir):
         source=[42.0, 60.0, 60.0, 60.0],
     )
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
-    result = calc.calculate(episode, {})
+    near = _pedestrian_scalars(calc, episode, "ped_0")
+    far = _pedestrian_scalars(calc, episode, "ped_1")
     table = calc.series_table(episode, run_id="run", robot_id="robot")
     assert table.schema == pl.Schema(
         {
@@ -505,12 +508,20 @@ def test_scalars_follow_the_exposure_series(calc, derived_map, world_run_dir):
         }
     )
     values = table["exposure_dba"].drop_nulls()
-    assert result["ped_max_exposure_dba"] == pytest.approx(float(values.max()))
-    assert result["ped_leq_exposure_dba"] == pytest.approx(_leq(values.to_list()))
+    near_values = table.filter(pl.col("ped_id") == "ped_0")["exposure_dba"].drop_nulls()
+    far_values = table.filter(pl.col("ped_id") == "ped_1")["exposure_dba"].drop_nulls()
+    assert near["ped_max_exposure_dba"] == pytest.approx(float(values.max()))
+    assert near["ped_max_exposure_dba"] == pytest.approx(float(near_values.max()))
+    assert near["ped_leq_exposure_dba"] == pytest.approx(_leq(near_values.to_list()))
+    # Each pedestrian is summarised on its own samples, never on the pool of them.
+    assert far["ped_max_exposure_dba"] == pytest.approx(float(far_values.max()))
+    assert far["ped_leq_exposure_dba"] == pytest.approx(_leq(far_values.to_list()))
+    assert far["worst_case_acoustic_t_ns"] == 2 * SECOND_NS
     # One row per (sample, reachable pedestrian).
     assert len(table) == 6
-    assert result["ped_max_startle_factor"] == pytest.approx(18.0, abs=1e-3)
-    assert result["worst_case_acoustic_t_ns"] == SECOND_NS
+    assert near["ped_max_startle_factor"] == pytest.approx(18.0, abs=1e-3)
+    assert far["ped_max_startle_factor"] == 0.0
+    assert near["worst_case_acoustic_t_ns"] == SECOND_NS
     worst_rows = table.filter(pl.col("is_worst_frame"))
     assert len(worst_rows) == 1
     assert int(worst_rows["t_ns"][0]) == SECOND_NS
@@ -526,7 +537,7 @@ def test_frames_without_ground_truth_produce_no_exposure(
         [(None, None), (0.5, 0.5), (0.5, 0.5)], [[], [(3.5, 4.5)], [(3.5, 4.5)]]
     )
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
-    result = calc.calculate(episode, {})
+    result = _pedestrian_scalars(calc, episode)
     expected = 42.0 - _att(5.0)
     assert result["ped_max_exposure_dba"] == pytest.approx(expected, abs=1e-3)
     assert result["ped_leq_exposure_dba"] == pytest.approx(expected, abs=1e-3)
@@ -540,7 +551,9 @@ def test_repeated_timestamp_contributes_no_startle(calc, derived_map, world_run_
     frames = _frames(
         [(1.0, 2.0), (1.0, 1.0)], [[(4.0, 1.0)], [(4.0, 1.0)]], times=[0, 0]
     )
-    result = calc.calculate(_episode(frames, derived_map(), run_dir=world_run_dir), {})
+    result = _pedestrian_scalars(
+        calc, _episode(frames, derived_map(), run_dir=world_run_dir)
+    )
     assert result["ped_max_startle_factor"] is None
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
 
@@ -548,19 +561,19 @@ def test_repeated_timestamp_contributes_no_startle(calc, derived_map, world_run_
 def test_unreachable_pedestrians_are_dropped(calc, derived_map, world_run_dir):
     frames = _frames([(1.0, 1.0), (1.0, 1.0)], [[(4.0, 1.0), (9.0, 9.0)], [(9.0, 9.0)]])
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
-    result = calc.calculate(episode, {})
+    result = _pedestrian_scalars(calc, episode)
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
     assert calc.series_table(episode)["ped_id"].unique().to_list() == ["ped_0"]
 
 
 def test_robot_off_map_yields_nulls(calc, derived_map, world_run_dir):
-    result = calc.calculate(
+    result = _pedestrian_scalars(
+        calc,
         _episode(
             _frames([(9.0, 9.0), (9.0, 9.0)], [[(4.0, 1.0)], []]),
             derived_map(),
             run_dir=world_run_dir,
         ),
-        {},
     )
     assert result == NULLS
 
@@ -573,7 +586,7 @@ def test_static_scene_caches_episode_frames_across_fifty_samples(
         derived_map(),
         run_dir=world_run_dir,
     )
-    result = calc.calculate(episode, {})
+    result = _pedestrian_scalars(calc, episode)
     assert result["ped_max_startle_factor"] == 0.0
     assert len(calc.series_table(episode)) == 50
     assert len(calc._episode_frame_cache) == 1
@@ -587,7 +600,7 @@ def test_door_opening_switches_attenuation_and_marks_worst_frame_open(tmp_path, 
     episode = _episode(
         frames, name, run=run, folder_manager=folder_manager, semantic_snapshot=semantic
     )
-    result = calc.calculate(episode, {})
+    result = _pedestrian_scalars(calc, episode)
     closed, opened = _att(3.0) + 25.0, _att(3.0)
     attenuation_by_time = _series_by_time(calc, episode)
     assert [values[0][2] for values in attenuation_by_time.values()] == pytest.approx(
@@ -613,7 +626,7 @@ def test_the_pipeline_run_dir_reads_the_doors_of_the_run_snapshot(tmp_path, calc
         run_dir=tmp_path / "bench",
         semantic_snapshot=semantic,
     )
-    calc.calculate(episode, {})
+    _pedestrian_scalars(calc, episode)
     table = calc.series_table(episode)
     assert table["open_doors"][0] == ""
     assert table["attenuation_db"][0] == pytest.approx(_att(3.0) + 25.0, abs=0.5)
@@ -624,7 +637,7 @@ def test_doors_without_semantic_timeline_return_null(tmp_path, calc):
     folder_manager, run = _door_run(tmp_path, name)
     frames = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
     episode = _episode(frames, name, run=run, folder_manager=folder_manager)
-    assert calc.calculate(episode, {}) == NULLS
+    assert _pedestrian_scalars(calc, episode) == NULLS
     assert calc.series_table(episode).is_empty()
 
 
@@ -636,7 +649,7 @@ def test_semantic_timeline_for_another_door_keeps_door_closed(tmp_path, calc):
     episode = _episode(
         frames, name, run=run, folder_manager=folder_manager, semantic_snapshot=semantic
     )
-    calc.calculate(episode, {})
+    _pedestrian_scalars(calc, episode)
     table = calc.series_table(episode)
     assert table["open_doors"][0] == ""
     assert table["attenuation_db"][0] == pytest.approx(_att(3.0) + 25.0, abs=0.5)
@@ -665,7 +678,6 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
         source=[60.0, 60.0],
     )
     episode = _episode(frames, map_name, run_dir=world_run_dir)
-    full = calc.calculate(episode, {})
 
     def pedestrian_result(ped_id: str) -> dict[str, object]:
         ped_topics = dict(episode.topics)
@@ -698,9 +710,6 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
     assert far["ped_max_exposure_dba"] == pytest.approx(
         60.0 - 20.0 * math.log10(math.sqrt(18.0)), abs=1e-2
     )
-    assert near["ped_max_exposure_dba"] == pytest.approx(
-        full["ped_max_exposure_dba"], abs=1e-3
-    )
     # The pedestrian scope publishes the worst frame's t_ns discriminator, never the nested struct.
     assert set(near) == set(
         AcousticExposureCalculator.output_keys_for_scope(MetricScope.PEDESTRIAN)
@@ -717,9 +726,9 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
 def _pedestrian_scope_slice(episode: AlignedEpisodeBundle, ped_id: str) -> ScopeSlice:
     """A PEDESTRIAN slice whose window bundle carries only that pedestrian's track."""
     topics = dict(episode.topics or {})
-    topics["pedestrian_tracks"] = topics["pedestrian_tracks"].filter(
-        pl.col("ped_id") == ped_id
-    )
+    peds = topics.get("pedestrian_tracks")
+    if peds is not None:
+        topics["pedestrian_tracks"] = peds.filter(pl.col("ped_id") == ped_id)
     bundle = AlignedEpisodeBundle(
         episode_id=episode.episode_id,
         data=pl.DataFrame(),
@@ -736,6 +745,19 @@ def _pedestrian_scope_slice(episode: AlignedEpisodeBundle, ped_id: str) -> Scope
         identity={"ped_id": ped_id},
         window_bundle=bundle,
         full_episode=episode,
+    )
+
+
+def _pedestrian_scalars(
+    calc: AcousticExposureCalculator,
+    episode: AlignedEpisodeBundle,
+    ped_id: str = "ped_0",
+    prior: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """The published pedestrian-scope summary of `ped_id`, the only scope these metrics store."""
+    scope_slice = _pedestrian_scope_slice(episode, ped_id)
+    return calc.calculate_for_scope(
+        scope_slice.window_bundle, dict(prior or {}), scope_slice
     )
 
 
@@ -767,7 +789,7 @@ def test_one_acoustic_solve_serves_the_episode_and_every_pedestrian(
         [(1.0, 1.0)] * 3, [[(4.0, 1.0), (2.0, 4.0)]] * 3, source=[40.0, 60.0, 60.0]
     )
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
-    calc.calculate(episode, {})
+    _pedestrian_scalars(calc, episode)
     for ped_id in ("ped_0", "ped_1"):
         pedestrian_slice = _pedestrian_scope_slice(episode, ped_id)
         calc.calculate_for_scope(pedestrian_slice.window_bundle, {}, pedestrian_slice)
@@ -781,7 +803,7 @@ def test_missing_robot_acoustics_topic_returns_null_without_fallback(
         [(1.0, 1.0), (1.0, 1.0)], [[(4.0, 1.0)], [(4.0, 1.0)]], omit_acoustics=True
     )
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
-    assert calc.calculate(episode, {}) == NULLS
+    assert _pedestrian_scalars(calc, episode) == NULLS
 
     registry = MetricRegistry(RobotParams(), calculators=[AcousticExposureCalculator])
     ped_slice = _pedestrian_scope_slice(episode, "ped_0")
@@ -808,7 +830,7 @@ def test_missing_solver_library_raises_metric_input_error(
         )
         impedance_grid._solver_library.cache_clear()
         with pytest.raises(MetricInputError, match="arena build"):
-            calc.calculate(episode, {})
+            _pedestrian_scalars(calc, episode)
     finally:
         if saved is None:
             os.environ.pop("ARENA_ACOUSTIC_SOLVER_SO", None)
@@ -869,3 +891,80 @@ def test_encounter_scope_golden_wall_dose_and_non_pedestrian_not_applicable(
         "sound_exposure_dose_pa2s": None,
         "sound_exposure_dose_pa2s_null_reason": "not_applicable",
     }
+
+
+def _energy_weighted_leq(pairs: list[tuple[int, float]]) -> float:
+    """Sum of linear energy times the frame duration over the summed duration, the last gap repeated."""
+    ordered = sorted(pairs)
+    times_s = np.array([stamp for stamp, _ in ordered], dtype=np.float64) / 1e9
+    levels = np.array([level for _, level in ordered], dtype=np.float64)
+    gaps = np.diff(times_s)
+    durations = np.append(gaps, gaps[-1])
+    energy = np.sum(10.0 ** (levels / 10.0) * durations) / np.sum(durations)
+    return float(10.0 * np.log10(energy))
+
+
+def test_leq_is_energy_equivalent_over_non_uniform_frame_spacing(
+    calc, derived_map, world_run_dir
+):
+    """The pedestrian Leq weights each sample by the time it stands for, not by its share of rows."""
+    frames = _frames(
+        [(1.0, 1.0)] * 3,
+        [[(4.0, 1.0)]] * 3,
+        source=[60.0, 66.0, 60.0],
+        times=[0, SECOND_NS, 4 * SECOND_NS],
+    )
+    episode = _episode(frames, derived_map(), run_dir=world_run_dir)
+    result = _pedestrian_scalars(calc, episode)
+    table = calc.series_table(episode).filter(pl.col("ped_id") == "ped_0")
+    pairs = list(zip(table["t_ns"].to_list(), table["exposure_dba"].to_list()))
+    assert len(pairs) == 3
+    assert result["ped_leq_exposure_dba"] == pytest.approx(
+        _energy_weighted_leq(pairs), abs=1e-6
+    )
+    # A plain row mean would answer a different question on this spacing.
+    plain_mean = 10.0 * np.log10(
+        float(np.mean([10.0 ** (level / 10.0) for _, level in pairs]))
+    )
+    assert abs(result["ped_leq_exposure_dba"] - plain_mean) > 0.5
+
+
+def test_max_startle_is_never_negative(calc, derived_map, world_run_dir):
+    """A falling exposure publishes a zero rise, never a negative rate."""
+    frames = _frames([(1.0, 1.0)] * 3, [[(4.0, 1.0)]] * 3, source=[70.0, 60.0, 60.0])
+    result = _pedestrian_scalars(
+        calc, _episode(frames, derived_map(), run_dir=world_run_dir)
+    )
+    assert result["ped_max_startle_factor"] == 0.0
+
+
+def test_rise_rates_pair_by_pedestrian_not_by_frame_length(
+    calc, derived_map, world_run_dir
+):
+    """Frames with different pedestrian counts still yield each pedestrian's own rise rate."""
+    frames = _frames(
+        [(1.0, 1.0)] * 3,
+        [[(4.0, 1.0)], [(4.0, 1.0), (1.0, 4.0)], [(4.0, 1.0)]],
+        source=[60.0, 70.0, 60.0],
+    )
+    episode = _episode(frames, derived_map(), run_dir=world_run_dir)
+    near = _pedestrian_scalars(calc, episode, "ped_0")
+    newcomer = _pedestrian_scalars(calc, episode, "ped_1")
+    assert near["ped_max_startle_factor"] == pytest.approx(10.0, abs=1e-3)
+    assert newcomer["ped_max_startle_factor"] is None
+
+
+def test_doors_without_world_semantics_report_the_missing_input(tmp_path, calc):
+    """A world with doors and no recorded door state publishes NULL with the typed reason."""
+    name = f"acx-{uuid.uuid4().hex}"
+    folder_manager, run = _door_run(tmp_path, name)
+    frames = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
+    episode = _episode(frames, name, run=run, folder_manager=folder_manager)
+    registry = MetricRegistry(RobotParams(), calculators=[AcousticExposureCalculator])
+    ped_slice = _pedestrian_scope_slice(episode, "ped_0")
+    outcome = registry.run_scope(MetricScope.PEDESTRIAN, episode, scope_slice=ped_slice)
+    assert outcome.results["ped_max_exposure_dba"] is None
+    assert (
+        outcome.provenance["ped_max_exposure_dba"]
+        == "ped_max_exposure_dba:topic_missing:world_semantics"
+    )

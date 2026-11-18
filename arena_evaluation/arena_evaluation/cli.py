@@ -183,9 +183,9 @@ Examples:
         help="Run directory, or one episode folder, to migrate.",
     )
 
-    from arena_evaluation.cli_acoustic import setup_acoustic_subparsers
+    from arena_evaluation.cli_acoustic import add_acoustic_commands
 
-    setup_acoustic_subparsers(subparsers)
+    add_acoustic_commands(subparsers)
 
     args = parser.parse_args()
 
@@ -208,9 +208,9 @@ Examples:
 
     # acoustic subcommand handler
     if args.command == "acoustic":
-        from arena_evaluation.cli_acoustic import _handle_acoustic
+        from arena_evaluation.cli_acoustic import handle_acoustic
 
-        _handle_acoustic(args)
+        handle_acoustic(args)
         return 0
 
     if args.benchmark_dir is None and args.run_dir is None:

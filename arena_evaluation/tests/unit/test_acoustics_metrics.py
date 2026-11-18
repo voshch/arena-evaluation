@@ -3,10 +3,13 @@ import math
 import polars as pl
 import pytest
 
+from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.ecological.acoustics import (
     ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2,
     AcousticsCalculator,
 )
+from arena_evaluation.processing.metrics.registry import MetricRegistry
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 SEC = 1_000_000_000
@@ -115,3 +118,32 @@ def test_acoustic_cost_needs_a_path_length(calc):
 def test_null_levels_are_forward_filled(calc):
     results = calc.calculate(_episode([60.0, None, 60.0, 60.0]), {})
     assert results["l_aeq_t"] == pytest.approx(60.0, abs=1e-9)
+
+
+def test_both_scopes_require_the_acoustics_topic():
+    """One definition per (metric, scope): the encounter scope carries the same topic guard."""
+    robot = AcousticsCalculator.required_topics_for_scope(MetricScope.ROBOT)
+    encounter = AcousticsCalculator.required_topics_for_scope(MetricScope.ENCOUNTER)
+    assert encounter == robot
+    assert robot == tuple(AcousticsCalculator.REQUIRED_TOPICS)
+
+
+def test_the_encounter_scope_nulls_with_the_topic_reason():
+    """A recording without robot_acoustics says which topic is missing, not that it had no samples."""
+    episode = _episode([60.0] * 4)
+    episode.topics.pop("robot_acoustics")
+    registry = MetricRegistry(RobotParams(), calculators=[AcousticsCalculator])
+    scope_slice = ScopeSlice(
+        scope=MetricScope.ENCOUNTER,
+        slice_id="enc_0",
+        t_start_ns=0,
+        t_end_ns=3 * SEC,
+        identity={"actor_1": "robot", "actor_2": "ped_0", "actor_2_kind": "pedestrian"},
+        window_bundle=episode,
+        full_episode=episode,
+    )
+    outcome = registry.run_scope(
+        MetricScope.ENCOUNTER, episode, scope_slice=scope_slice
+    )
+    assert outcome.results["l_aeq_t"] is None
+    assert outcome.provenance["l_aeq_t"] == "l_aeq_t:topic_missing:robot_acoustics"

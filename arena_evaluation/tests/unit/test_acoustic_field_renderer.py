@@ -43,7 +43,7 @@ def test_downsampled_field_keeps_closed_door_in_doorway() -> None:
             "t_ns": [0],
             "pos_x_gt": [2.4],
             "pos_y_gt": [1.0],
-            "total_level_af_dba": [100.0],
+            "source_dba": [100.0],
         }
     )
     renderer = AcousticFieldRenderer(_spec("acoustic_field"))

@@ -9,6 +9,21 @@
 #define PARETO_K 2
 #endif
 
+// PARETO_K bounds the Pareto frontier each cell keeps (one label per accumulated
+// transmission loss). Measured, not assumed: on random 120x120 and maze 160x160 grids
+// with 6x400 and 4x500 targets, K=2 against K=32 differs by at most 0.00 dB and K=1
+// against K=32 by at most 0.02 dB, so K=2 truncates nothing observable
+// (tests/unit/test_acoustics_build.py::test_pareto_truncation_matches_a_wide_frontier).
+
+// ABI of the C surface below. arena_evaluation/processing/acoustics/impedance_grid.py
+// verifies it before binding, so a stale library from an older model raises instead of
+// returning a different attenuation.
+#define ARENA_ACOUSTIC_SOLVER_ABI 1
+
+extern "C" int arena_acoustic_solver_abi(void) {
+    return ARENA_ACOUSTIC_SOLVER_ABI;
+}
+
 using namespace std;
 
 struct Label {

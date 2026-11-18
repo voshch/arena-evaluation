@@ -13,6 +13,7 @@ is an error, not a closed door.
 from __future__ import annotations
 
 import bisect
+import inspect
 
 import numpy as np
 import polars as pl
@@ -382,5 +383,28 @@ def test_progress_is_the_only_open_measure():
     assert tl.open_doors_at(99) == frozenset()
 
 
-def test_progress_threshold_constant():
-    assert OPEN_PROGRESS_THRESHOLD == 0.15
+def test_progress_threshold_constant_is_the_shared_model_default():
+    from arena_evaluation.processing.acoustics import constants
+
+    assert OPEN_PROGRESS_THRESHOLD == constants.DOOR_OPEN_PROGRESS_THRESHOLD == 0.15
+    default = (
+        inspect.signature(DoorStateTimeline.from_semantic_frame)
+        .parameters["open_progress_threshold"]
+        .default
+    )
+    assert default == OPEN_PROGRESS_THRESHOLD
+
+
+def test_custom_open_progress_threshold_changes_openness():
+    df = _frame_strict_schema([_progress(100, "d1", 0.2)])
+
+    assert DoorStateTimeline.from_semantic_frame(df).open_sets[0] == frozenset({"d1"})
+    assert DoorStateTimeline.from_semantic_frame(
+        df, open_progress_threshold=0.1
+    ).open_sets[0] == frozenset({"d1"})
+    assert (
+        DoorStateTimeline.from_semantic_frame(
+            df, open_progress_threshold=0.5
+        ).open_sets[0]
+        == frozenset()
+    )

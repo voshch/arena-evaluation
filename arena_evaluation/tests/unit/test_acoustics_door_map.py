@@ -10,6 +10,7 @@ the ws_root candidate must be exercised.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import os
 import pathlib
 from collections.abc import Iterator
@@ -27,6 +28,7 @@ from arena_evaluation.processing.acoustics.door_map import (
     barrier_door_tl,
     build_pixel_tl,
     load_barrier_map,
+    resolve_world_dir,
 )
 from arena_evaluation.processing.world_lookup import installed_world_dir
 from arena_evaluation.storage.exceptions import MetricInputError
@@ -178,6 +180,23 @@ def test_find_world_level_not_found(tmp_path):
     assert _find_world_level("ae_nonesuch_map", run_dir=tmp_path / "run") is None
 
 
+def test_resolve_world_dir_reports_the_run_snapshot(tmp_path):
+    run = tmp_path / "run"
+    world = _write_world(run / "worlds" / "m2", doors=[_door("d2")])
+
+    assert resolve_world_dir("m2", run_dir=run) == (world, "run directory")
+
+
+def test_resolve_world_dir_reports_the_arena_dir_fallback(tmp_path):
+    with _env_vars(ARENA_DIR=str(tmp_path / "src" / "Arena")):
+        world = _write_world(
+            tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m4"
+        )
+        resolved = resolve_world_dir("m4")
+
+    assert resolved == (world, "ARENA_DIR source tree")
+
+
 def test_load_level_cached(tmp_path):
     world = _write_world(tmp_path / "w", doors=[_door("first")])
     assert [door.name for door in _load_level(str(world)).doors] == ["first"]
@@ -268,6 +287,34 @@ def test_barrier_door_tl_keys_and_closed_tl(tmp_path):
     assert tl == pytest.approx(DEFAULT_DOOR_TL_DB * barrier.resolution / 1.0)
 
 
+def test_barrier_door_tl_custom_door_tl_changes_the_result(tmp_path):
+    _write_world(
+        tmp_path / "run" / "worlds" / "m1",
+        doors=[_door("s", start=(10.0, 5.0), end=(16.0, 5.0))],
+    )
+    barrier = load_barrier_map("m1", run_dir=tmp_path / "run")
+
+    default_mask, default_tl = barrier_door_tl(barrier)["world/s"]
+    custom_mask, custom_tl = barrier_door_tl(barrier, door_tl_db=50.0)["world/s"]
+
+    assert custom_mask is default_mask
+    assert default_tl == pytest.approx(
+        DEFAULT_DOOR_TL_DB / barrier.door_cells_across["s"]
+    )
+    assert custom_tl == pytest.approx(50.0 / barrier.door_cells_across["s"])
+    assert custom_tl == pytest.approx(default_tl * 50.0 / DEFAULT_DOOR_TL_DB)
+
+
+def test_model_defaults_are_the_shared_constants():
+    from arena_evaluation.processing.acoustics import constants
+
+    assert DEFAULT_DOOR_TL_DB == constants.DOOR_TRANSMISSION_LOSS_DB == 25.0
+    door_default = inspect.signature(barrier_door_tl).parameters["door_tl_db"].default
+    assert door_default == DEFAULT_DOOR_TL_DB
+    wall_default = inspect.signature(build_pixel_tl).parameters["wall_tl_db"].default
+    assert wall_default == constants.WALL_TRANSMISSION_LOSS_DB == 47.0
+
+
 def test_barrier_doors_carve_the_tl_map(tmp_path):
     _write_world(
         tmp_path / "run" / "worlds" / "m1",
@@ -304,10 +351,25 @@ def test_entity_matches_door_strips_model_suffix():
     assert _entity_matches_door("world/d1", "world/d1/3")
 
 
-def test_entity_matches_door_leaf_fallback():
-    assert _entity_matches_door(
-        "level_a/main_hallway", "env_0/some_zone/main_hallway/0"
+def test_entity_matches_door_scene_graph_name_of_the_same_world_door():
+    # The run's flattened world keys the door as world/<name>; the scene graph names it bare.
+    assert _entity_matches_door("world/main_hallway", "env_0/main_hallway/0")
+
+
+def test_entity_matches_door_same_leaf_from_another_level_does_not_match():
+    assert not _entity_matches_door(
+        "world/main_hallway", "env_0/some_zone/main_hallway/0"
     )
+    assert not _entity_matches_door(
+        "level_a/main_hallway", "env_0/level_b/main_hallway/0"
+    )
+    assert not _entity_matches_door("world/door_1", "env_0/other/door_1/0")
+
+
+def test_entity_matches_door_legitimate_nested_and_level_keys():
+    assert _entity_matches_door("world/d1", "env_0/world/d1/7")
+    assert _entity_matches_door("world/d1", "env_42/d1/0")
+    assert _entity_matches_door("level_a/d1", "env_0/level_a/d1")
 
 
 def test_entity_matches_door_no_match():
@@ -367,12 +429,22 @@ def test_build_pixel_tl_open_entity_env_prefixed():
     assert np.all(tl[mask] == 0.0)
 
 
-def test_build_pixel_tl_open_entity_leaf_match():
+def test_build_pixel_tl_open_entity_scene_graph_name():
     grid = _wall_grid()
     mask = np.zeros_like(grid, dtype=bool)
     mask[5, 10:16] = True
-    tl = build_pixel_tl(grid, {"level_a/d1": (mask, 25.0)}, open_doors={"env_3/d1/2"})
+    tl = build_pixel_tl(grid, {"world/d1": (mask, 25.0)}, open_doors={"env_3/d1/2"})
     assert np.all(tl[mask] == 0.0)
+
+
+def test_build_pixel_tl_open_entity_from_another_level_keeps_door_closed():
+    grid = _wall_grid()
+    mask = np.zeros_like(grid, dtype=bool)
+    mask[5, 10:16] = True
+    tl = build_pixel_tl(
+        grid, {"world/d1": (mask, 25.0)}, open_doors={"env_3/other/d1/2"}
+    )
+    assert np.all(tl[mask] == 25.0)
 
 
 def test_build_pixel_tl_only_matching_door_opened():

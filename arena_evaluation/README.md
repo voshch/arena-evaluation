@@ -226,14 +226,40 @@ The domain is implemented via `EvaluationDomain` (`arena_evaluation/mcp/base.py`
 
 ---
 
+## Building the C++ solver libraries
+
+Two C++17 sources are loaded through `ctypes` and must be compiled before an acoustic metric or a route plan can run:
+
+| source | artefact | loaded by |
+|---|---|---|
+| `arena_evaluation/processing/acoustics/solver.cpp` | `arena_evaluation/processing/acoustics/solver.so` | `processing/acoustics/impedance_grid.py` |
+| `arena_evaluation/processing/path/solver.cpp` | `arena_evaluation/processing/path/solver.so` | `processing/path/theta_star.py` |
+
+`arena build` compiles both: colcon installs this package with `setup.py develop`, and the `build_ext` command in `setup.py` configures `CMakeLists.txt` with `-DARENA_SOLVERS_ONLY=ON` and builds the two targets into the package tree. The same two libraries can be built on their own:
+
+```bash
+cmake -S arena_evaluation -B build/solvers -DARENA_SOLVERS_ONLY=ON
+cmake --build build/solvers --parallel
+```
+
+This needs `cmake` and a C++17 compiler (`g++` or `clang++`), both part of the Arena environment. The loaded library exports `arena_acoustic_solver_abi`, which the wrapper verifies before binding: a library built from another model raises `MetricInputError` instead of publishing a different attenuation. `ARENA_ACOUSTIC_SOLVER_SO` overrides the file that is loaded and is the supported way to use a library built elsewhere.
+
+---
+
 ## Running Tests
 
-Unit tests are pure Python and do not require ROS.
+The unit tests use the solver libraries above and need no running ROS graph:
 
 ```bash
 pytest tests/unit -v
 pytest tests/ -v
 ```
+
+---
+
+## Packaging
+
+`arena build` (colcon) and `setup.py build`/`install` are the supported build paths. A pure-Python wheel is not supported: `pyproject.toml` sets `package = false` for `uv`, and the two solver libraries are platform-specific artefacts produced by the build, not by wheel metadata.
 
 ---
 

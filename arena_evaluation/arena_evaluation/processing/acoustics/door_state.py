@@ -1,4 +1,11 @@
-"""Door state timeline constructed from SemanticSnapshot messages."""
+"""Door state timeline constructed from SemanticSnapshot messages.
+
+A door is open while its continuous ``progress`` field (0 closed, 1 open) is strictly above
+``OPEN_PROGRESS_THRESHOLD``, so a door exactly at the threshold counts as closed. The threshold is
+a declared model parameter (``constants.DOOR_OPEN_PROGRESS_THRESHOLD``) and
+``DoorStateTimeline.from_semantic_frame`` accepts an ``open_progress_threshold`` keyword for
+what-if runs; the default keeps every published number identical.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +14,10 @@ import bisect
 import numpy as np
 import polars as pl
 
+from arena_evaluation.processing.acoustics.constants import (
+    DOOR_OPEN_PROGRESS_THRESHOLD as OPEN_PROGRESS_THRESHOLD,
+)
 from arena_evaluation.storage.exceptions import MetricInputError
-
-OPEN_PROGRESS_THRESHOLD = 0.15
 
 
 class DoorStateTimeline:
@@ -21,12 +29,17 @@ class DoorStateTimeline:
 
     @classmethod
     def from_semantic_frame(
-        cls, semantic: pl.DataFrame | None
+        cls,
+        semantic: pl.DataFrame | None,
+        *,
+        open_progress_threshold: float = OPEN_PROGRESS_THRESHOLD,
     ) -> DoorStateTimeline | None:
         """Build the timeline from the flattened semantic snapshot table.
 
-        A door is open while its progress (0 closed, 1 open) is above OPEN_PROGRESS_THRESHOLD, whether it is opening or
-        closing. State labels are not used. A door reading without a progress row is an error.
+        A door is open while its progress (0 closed, 1 open) is strictly above
+        ``open_progress_threshold`` (default ``OPEN_PROGRESS_THRESHOLD``, declared in
+        ``constants.DOOR_OPEN_PROGRESS_THRESHOLD``), whether it is opening or closing. State
+        labels are not used. A door reading without a progress row is an error.
         """
         if semantic is None:
             return None
@@ -60,7 +73,7 @@ class DoorStateTimeline:
             )
 
         is_open_expr = pl.col("value_num").is_not_nan() & (
-            pl.col("value_num") > OPEN_PROGRESS_THRESHOLD
+            pl.col("value_num") > open_progress_threshold
         )
         all_timestamps = df.select("t_ns").unique().sort("t_ns")
         open_by_ts = (
