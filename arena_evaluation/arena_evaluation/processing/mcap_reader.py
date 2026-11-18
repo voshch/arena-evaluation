@@ -10,6 +10,7 @@ import typing
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 
+import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
 from mcap.reader import NonSeekingReader
@@ -67,6 +68,10 @@ _OCCUPANCY_GRID_SCHEMA = "nav_msgs/msg/OccupancyGrid"
 _STATIC_ANCHOR_CHILD = re.compile(r"(env_\d+)(?:/map)?")
 _MAP_ANCHOR_CHILD = re.compile(r"(env_\d+)/map")
 _UNMAPPED_FRAMES = ("", "map")
+# Yaw (degrees) and translation (metres) below which a recorded map-frame transform counts as the identity.
+_ALIGNED_TOLERANCE = 1e-6
+_MAP_PARENT = pl.col("parent_frame").is_in(list(_UNMAPPED_FRAMES))
+_CHILD_ENVIRONMENT = pl.col("child_frame").str.extract(r"(env_\d+)", 1)
 # Stored tables whose x/y columns are map-frame positions. Odometry is map-aligned in this runtime: the recorded map -> odom transform is the identity.
 _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
     "robot_tracks": ("x", "y"), "robot_odom": ("odom_x", "odom_y"),
@@ -441,11 +446,13 @@ def align_to_environment(
     An environment's offset is its recorded map -> env/map transform (tf_static, else tf). Each position
     column in _POSITION_COLUMNS and the episode phases leave the map frame here, so the stored tables,
     the metrics and the plots all read one frame. An episode without a recorded transform keeps its
-    positions as recorded.
+    positions as recorded. The recorded transforms whose parent is the map frame (tf_static and tf) move
+    with the anchor too; a rotated environment frame, or an odometry frame that is not the map frame, is refused.
     """
     anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"))
     if not anchors:
         return
+    _refuse_rotated_or_unaligned_frames(out_dir, anchors)
     for env_id in sorted({env_id for env_id, _robot_id in _robot_refs(out_dir)}):
         if env_id not in anchors:
             raise ValueError(
@@ -470,18 +477,44 @@ def align_to_environment(
         _rewrite_columns(
             lifecycle, ["phases_yaml"], lambda frame: _shift_episode_phases(frame, anchors)
         )
+    for name in ("tf_static", "tf"):
+        if (out_dir / f"{name}.parquet").exists():
+            _rewrite_columns(
+                out_dir / f"{name}.parquet",
+                ["tx", "ty"],
+                lambda frame: frame.with_columns(
+                    _in_environment(
+                        anchors,
+                        "tx",
+                        lambda value, ox, _oy: value - ox,
+                        env=_CHILD_ENVIRONMENT,
+                        where=_MAP_PARENT,
+                    ),
+                    _in_environment(
+                        anchors,
+                        "ty",
+                        lambda value, _ox, oy: value - oy,
+                        env=_CHILD_ENVIRONMENT,
+                        where=_MAP_PARENT,
+                    ),
+                ),
+                keys=("parent_frame", "child_frame", "t_ns"),
+            )
 
 
 def _in_environment(
     anchors: Mapping[str, list[Anchor]],
     column: str,
     shifted: Callable[[pl.Expr, float, float], pl.Expr],
+    *,
+    env: pl.Expr = pl.col("env_id"),
+    where: pl.Expr = pl.lit(True),
 ) -> pl.Expr:
-    """`column` of each row, moved by the offset of its environment in effect at the row's t_ns."""
+    """`column` of each row selected by `where`, moved by the offset of its environment in effect at the row's t_ns."""
     expr = pl.col(column)
     for env_id, shifts in anchors.items():
         moved = by_anchor(shifts, lambda ox, oy: shifted(pl.col(column), ox, oy))
-        expr = pl.when(pl.col("env_id") == env_id).then(moved).otherwise(expr)
+        expr = pl.when(where & (env == env_id)).then(moved).otherwise(expr)
     return expr.alias(column)
 
 
@@ -505,16 +538,62 @@ def _rewrite_columns(
     path: pathlib.Path,
     names: list[str],
     transform: Callable[[pl.DataFrame], pl.DataFrame],
+    keys: tuple[str, ...] = ("env_id", "t_ns"),
 ) -> None:
     """Replace the named columns of a stored table with their transformed values; every other column and the arrow schema stay as written."""
     table = pq.read_table(path)
-    needed = list(dict.fromkeys(["env_id", "t_ns", *names]))
+    needed = list(dict.fromkeys([*keys, *names]))
     shifted = transform(pl.from_arrow(table.select(needed))).to_arrow()
     for name in names:
         index = table.schema.get_field_index(name)
         field = table.schema.field(index)
         table = table.set_column(index, field, shifted.column(name).cast(field.type))
     pq.write_table(table, path)
+
+
+def _map_parented_transforms(out_dir: pathlib.Path) -> pl.DataFrame | None:
+    """Every recorded transform whose parent is the map frame, static and dynamic, with its yaw in degrees."""
+    frames = [
+        frame.select("parent_frame", "child_frame", "t_ns", "tx", "ty", "qz", "qw")
+        for name in ("tf_static", "tf")
+        if (frame := _lazy_table(out_dir, name)) is not None
+    ]
+    if not frames:
+        return None
+    transforms = pl.concat(frames).filter(_MAP_PARENT).collect()
+    yaw_deg = np.degrees(2.0 * np.arctan2(transforms["qz"].to_numpy(), transforms["qw"].to_numpy()))
+    return transforms.with_columns(pl.Series("yaw_deg", yaw_deg))
+
+
+def _refuse_rotated_or_unaligned_frames(
+    out_dir: pathlib.Path, anchors: Mapping[str, list[Anchor]]
+) -> None:
+    """Refuse the recorded map frames a translation-only alignment cannot place: a rotated environment frame, or an odometry frame that is not the map frame."""
+    transforms = _map_parented_transforms(out_dir)
+    if transforms is None:
+        return
+    for env_id in anchors:
+        for row in transforms.filter(pl.col("child_frame") == f"{env_id}/map").iter_rows(named=True):
+            if abs(row["yaw_deg"]) > _ALIGNED_TOLERANCE:
+                raise ValueError(
+                    f"{env_id}: the recorded map -> {env_id}/map transform is rotated ({row['yaw_deg']:.3f} deg); "
+                    "only translated environment frames are supported"
+                )
+    unaligned = transforms.filter(
+        pl.col("child_frame").str.contains("odom")
+        & (
+            (pl.col("tx").abs() > _ALIGNED_TOLERANCE)
+            | (pl.col("ty").abs() > _ALIGNED_TOLERANCE)
+            | (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)
+        )
+    )
+    if unaligned.height:
+        row = unaligned.row(0, named=True)
+        raise ValueError(
+            f"{row['child_frame']}: the recorded map -> odom transform is not the identity "
+            f"(translation {row['tx']}, {row['ty']}; yaw {row['yaw_deg']:.3f} deg), so odometry and ground truth "
+            "cannot be placed in the environment frame by the anchor alone"
+        )
 
 
 def _lazy_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
