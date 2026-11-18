@@ -15,7 +15,8 @@ def test_static_renderer_dispatches_and_writes_non_blank_png(
     tmp_path: pathlib.Path,
 ) -> None:
     renderer = StaticRenderer(units={"time_to_goal": "s"})
-    assert "acoustic_field" not in RENDERER_REGISTRY
+    assert "acoustic_field" in RENDERER_REGISTRY
+    assert "acoustic_field_animation" in RENDERER_REGISTRY
     assert "dendrogram" not in RENDERER_REGISTRY
 
     spec = PlotSpec(

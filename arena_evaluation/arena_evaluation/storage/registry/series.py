@@ -51,6 +51,62 @@ class _Series(Table, abstract=True):
     t_ns = _TIME
 
 
+class SeriesAcousticExposure(
+    _Series,
+    name="series_acoustic_exposure",
+    kind=TableKind.SERIES,
+    scope=MetricScope.PEDESTRIAN,
+):
+    """Per-frame barrier-aware acoustic exposure at each reachable pedestrian."""
+
+    key = ("run_id", "episode_id", "robot_id", "t_ns", "ped_id")
+
+    ped_id = _PEDESTRIAN
+    exposure_dba = Column(
+        pl.Float64,
+        unit="dBA",
+        description="Barrier-aware A-weighted sound pressure level reaching the pedestrian.",
+    )
+    attenuation_db = Column(
+        pl.Float64,
+        unit="dB",
+        description="Acoustic propagation attenuation from the robot to the pedestrian.",
+    )
+    robot_x_m = Column(
+        pl.Float64,
+        unit="m",
+        description="Robot x position in the world frame at the sample.",
+    )
+    robot_y_m = Column(
+        pl.Float64,
+        unit="m",
+        description="Robot y position in the world frame at the sample.",
+    )
+    source_dba = Column(
+        pl.Float64,
+        unit="dBA",
+        description="Emitted robot A-weighted sound pressure level at the sample.",
+    )
+    ped_x_m = Column(
+        pl.Float64,
+        unit="m",
+        description="Pedestrian x position in the world frame at the sample.",
+    )
+    ped_y_m = Column(
+        pl.Float64,
+        unit="m",
+        description="Pedestrian y position in the world frame at the sample.",
+    )
+    is_worst_frame = Column(
+        pl.Boolean,
+        description="Whether this sample is the episode's loudest exposure frame.",
+    )
+    open_doors = Column(
+        pl.String,
+        description="Comma-separated world door keys open at the sample.",
+    )
+
+
 class SeriesCharacterization(
     _Series,
     name="series_characterization",

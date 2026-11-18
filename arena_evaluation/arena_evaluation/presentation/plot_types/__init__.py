@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from .acoustic_field import AcousticFieldAnimationRenderer, AcousticFieldRenderer
 from .bar import BarRenderer
 from .base import BasePlotRenderer
 from .box import BoxRenderer
@@ -20,6 +21,8 @@ from .trajectory import TrajectoryRenderer
 from .violin import ViolinRenderer
 
 RENDERER_REGISTRY: dict[str, type[BasePlotRenderer]] = {
+    "acoustic_field": AcousticFieldRenderer,
+    "acoustic_field_animation": AcousticFieldAnimationRenderer,
     "bar": BarRenderer,
     "box": BoxRenderer,
     "heatmap": HeatmapRenderer,
@@ -66,6 +69,8 @@ def prepare_renderer(
 __all__ = [
     "RENDERER_REGISTRY",
     "prepare_renderer",
+    "AcousticFieldAnimationRenderer",
+    "AcousticFieldRenderer",
     "BarRenderer",
     "BasePlotRenderer",
     "BoxRenderer",

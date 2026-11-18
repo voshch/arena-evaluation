@@ -119,6 +119,19 @@ _EXPECTED_COLUMNS: dict[str, tuple[tuple[str, pl.DataType], ...]] = {
         ("time_s", pl.Float64),
         ("min_ped_clearance_m", pl.Float64),
     ),
+    "series_acoustic_exposure": (
+        *_IDENTITY,
+        ("ped_id", pl.String),
+        ("exposure_dba", pl.Float64),
+        ("attenuation_db", pl.Float64),
+        ("robot_x_m", pl.Float64),
+        ("robot_y_m", pl.Float64),
+        ("source_dba", pl.Float64),
+        ("ped_x_m", pl.Float64),
+        ("ped_y_m", pl.Float64),
+        ("is_worst_frame", pl.Boolean),
+        ("open_doors", pl.String),
+    ),
     "series_social_forces": (
         *_IDENTITY,
         ("time_s", pl.Float64),
@@ -128,7 +141,11 @@ _EXPECTED_COLUMNS: dict[str, tuple[tuple[str, pl.DataType], ...]] = {
 }
 
 _EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
-    name: _PEDESTRIAN_KEY if name == "series_pedestrian_path_metrics" else _ROBOT_KEY
+    name: (
+        _PEDESTRIAN_KEY
+        if name in {"series_pedestrian_path_metrics", "series_acoustic_exposure"}
+        else _ROBOT_KEY
+    )
     for name in _EXPECTED_COLUMNS
 }
 

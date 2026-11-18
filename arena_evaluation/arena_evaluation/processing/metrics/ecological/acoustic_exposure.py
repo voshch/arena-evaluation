@@ -30,6 +30,7 @@ from arena_evaluation.processing.metrics.common.alignment import (
 )
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
+from arena_evaluation.storage.registry.series import SeriesAcousticExposure
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 logger = logging.getLogger(__name__)
@@ -98,22 +99,7 @@ _PEDESTRIAN_KEYS: Final[tuple[str, ...]] = (
     "worst_case_acoustic_t_ns",
 )
 
-SERIES_SCHEMA: Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "ped_id": pl.String,
-    "exposure_dba": pl.Float64,
-    "attenuation_db": pl.Float64,
-    "robot_x_m": pl.Float64,
-    "robot_y_m": pl.Float64,
-    "source_dba": pl.Float64,
-    "ped_x_m": pl.Float64,
-    "ped_y_m": pl.Float64,
-    "is_worst_frame": pl.Boolean,
-    "open_doors": pl.String,
-}
+SERIES_SCHEMA: Final[pl.Schema] = SeriesAcousticExposure.polars_schema()
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

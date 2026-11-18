@@ -36,6 +36,29 @@ _PRESENTATION_ALLOWED: tuple[str, ...] = (
 )
 _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
     ("manifest_registry.py", "arena_evaluation.benchmark.tree"): {"ManifestIdentifier"},
+    (
+        "plot_types/acoustic_field.py",
+        "arena_evaluation.processing.acoustics.door_map",
+    ): {
+        "_entity_matches_door",
+        "barrier_door_tl",
+        "build_pixel_tl",
+        "load_barrier_map",
+    },
+    (
+        "plot_types/acoustic_field.py",
+        "arena_evaluation.processing.acoustics.door_state",
+    ): {
+        "DoorStateTimeline",
+    },
+    (
+        "plot_types/acoustic_field.py",
+        "arena_evaluation.processing.acoustics.impedance_grid",
+    ): {
+        "compute_acoustic_field",
+        "downsample_mask",
+        "downsample_occupancy",
+    },
 }
 
 
