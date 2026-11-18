@@ -19,11 +19,7 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import (
-    BaseMetricCalculator,
-    Direction,
-    ScopeSlice,
-)
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
@@ -179,16 +175,5 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        """Compute the episode-scope holistic metrics over the bundle's own samples."""
-        return self._episode_metrics(episode, prior_results)
-
-    def calculate_for_scope(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: dict[str, typing.Any],
-        scope_slice: ScopeSlice | None = None,
-    ) -> dict[str, typing.Any]:
-        """EPISODE scope only: the slice's own window and child-scope rollups are the population."""
-        if scope_slice is not None and scope_slice.scope != MetricScope.EPISODE:
-            return dict.fromkeys(self.output_keys())
+        """Holistic values over the bundle's own samples, at whichever scope the bundle was sliced for."""
         return self._episode_metrics(episode, prior_results)

@@ -151,3 +151,55 @@ def test_registry_reports_the_missing_series_and_never_returns_a_value() -> None
     )
 
 
+def _robot_slice(window: AlignedEpisodeBundle, full: AlignedEpisodeBundle) -> ScopeSlice:
+    return ScopeSlice(
+        scope=MetricScope.ROBOT,
+        slice_id="robot_1",
+        t_start_ns=0,
+        t_end_ns=2 * S,
+        identity={"robot_id": "robot_1"},
+        window_bundle=window,
+        full_episode=full,
+    )
+
+
+def test_the_robot_scope_gives_the_episode_values_for_its_own_window() -> None:
+    """Holistic metrics are declared at robot scope: a robot slice carries the values its window gives."""
+    bundle = _episode(
+        (0.0, 1.0, 2.0),
+        levels=_levels([(0.0, [60.0]), (1.0, [60.0]), (2.0, [60.0])]),
+        clearances=_clearances([(0.0, 1.0), (1.0, 1.0), (2.0, 1.0)]),
+    )
+    prior = {
+        "specific_cost_of_transport": 2.0,
+        "collision_amount": 0,
+        "personal_space_intrusion_integral": 1.5,
+        "time_to_goal": 4.0,
+    }
+    calculator = HolisticMetricsCalculator(make_robot_params())
+    expected = calculator.calculate(bundle, prior)
+
+    robot = calculator.calculate_for_scope(bundle, prior, _robot_slice(bundle, bundle))
+
+    assert robot["aeps_linear_s"] == pytest.approx(expected["aeps_linear_s"])
+    assert robot["e_cot"] == pytest.approx(expected["e_cot"])
+
+
+def test_the_robot_scope_measures_its_own_window_not_the_full_episode() -> None:
+    window = _episode(
+        (0.0, 1.0),
+        levels=_levels([(0.0, [60.0]), (1.0, [60.0])]),
+        clearances=_clearances([(0.0, 2.0), (1.0, 2.0)]),
+    )
+    full = _episode(
+        (0.0, 1.0),
+        levels=_levels([(0.0, [60.0]), (1.0, [60.0])]),
+        clearances=_clearances([(0.0, 1.0), (1.0, 1.0)]),
+    )
+    calculator = HolisticMetricsCalculator(make_robot_params())
+
+    robot = calculator.calculate_for_scope(window, {}, _robot_slice(window, full))
+
+    assert robot["aeps_linear_s"] == 0.0
+
+
