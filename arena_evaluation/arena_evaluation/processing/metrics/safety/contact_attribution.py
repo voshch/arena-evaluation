@@ -514,6 +514,36 @@ def detect_contact_events(
     *,
     merge_gap_ns: int,
 ) -> list[ContactEvent]:
+    """Contact intervals of one episode, each lasting at least one robot sample period.
+
+    A contact seen at a single robot sample would otherwise have an empty window; its end is moved one period later.
+    """
+    bouts = _contact_bouts(episode, robot, tracks, merge_gap_ns=merge_gap_ns)
+    if not bouts:
+        return bouts
+    period_ns = _sample_period_ns(robot)
+    return [
+        replace(bout, t_end_ns=max(bout.t_end_ns, bout.t0_ns + period_ns))
+        for bout in bouts
+    ]
+
+
+def _sample_period_ns(robot: Trajectory2D) -> int:
+    """Median spacing of the robot samples, in ns."""
+    if len(robot.t_ns) < 2:
+        raise MetricInputError(
+            "contact intervals need at least two robot samples to set the sample period"
+        )
+    return int(np.median(np.diff(robot.t_ns)))
+
+
+def _contact_bouts(
+    episode: AlignedEpisodeBundle,
+    robot: Trajectory2D,
+    tracks: Mapping[str, PedTrack],
+    *,
+    merge_gap_ns: int,
+) -> list[ContactEvent]:
     """Contact intervals of the recorded collision stream; the clearance and bumper streams stand in when it is absent or empty."""
     contact_rows = episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC)
     if contact_rows is not None and not contact_rows.is_empty():
