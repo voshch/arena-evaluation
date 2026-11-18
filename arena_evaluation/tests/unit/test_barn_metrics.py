@@ -12,6 +12,7 @@ from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.storage.contracts import is_known_null_reason
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 PATH_0 = Path(__file__).parent.parent / "fixtures" / "barn" / "jackal_helper" / "worlds" / "BARN" / "path_files" / "path_0.npy"
 X_SHIFT = 4.5
@@ -83,7 +84,7 @@ def _config(path_length: float) -> dict:
 
 
 def _calc(path_length: float | None) -> BARNScoreCalculator:
-    calc = BARNScoreCalculator(RobotParams(model="jackal"))
+    calc = BARNScoreCalculator(make_robot_params(model="jackal"))
     if path_length is not None:
         calc.metrics_config = _config(path_length)
     return calc
@@ -251,13 +252,13 @@ def _robot_slice(episode):
 def test_registry_reports_the_score_beside_the_native_metrics():
     episode = _episode(_drive(1.0), 10.0)
     topics = {"robot_tracks", "robot_odom", "collision_events"}
-    with_reference = MetricRegistry(RobotParams(model="jackal"), metrics_config=_config(10.0))
+    with_reference = MetricRegistry(make_robot_params(model="jackal"), metrics_config=_config(10.0))
     assert with_reference.calculators["barn_score"].metrics_config == _config(10.0)
     results = {**with_reference.run(episode, available_topics=topics, pedsim_available=False), **with_reference.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode)).results}
     assert results["barn_success"] is True
     assert results["barn_score"] == pytest.approx(0.5)
     assert {"success", "collision_amount", "time_to_goal"} <= set(results)
-    without_registry = MetricRegistry(RobotParams(model="jackal"))
+    without_registry = MetricRegistry(make_robot_params(model="jackal"))
     without_episode = _episode(_drive(1.0), 10.0)
     without = {**without_registry.run(without_episode, available_topics=topics, pedsim_available=False), **without_registry.run_scope(MetricScope.ROBOT, without_episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(without_episode)).results}
     assert {key: without[key] for key in NULLS} == NULLS
@@ -275,7 +276,7 @@ def test_episode_optimal_time_needs_no_recorded_stream():
 def test_missing_reference_carries_the_reference_missing_reason():
     episode = _episode(_drive(1.0), 10.0)
     topics = {"robot_tracks", "robot_odom", "collision_events"}
-    registry = MetricRegistry(RobotParams(model="jackal"))
+    registry = MetricRegistry(make_robot_params(model="jackal"))
     episode_outcome = registry.run_scope(MetricScope.EPISODE, episode, available_topics=topics, pedsim_available=False)
     robot_outcome = registry.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode))
     assert episode_outcome.results["barn_optimal_time"] is None
@@ -303,7 +304,7 @@ def test_a_multi_robot_episode_refusal_reaches_the_provenance():
     fleet = {"env_0/robot_1": pl.DataFrame({"t_ns": [0], "x": [20.0], "y": [20.0], "yaw": [0.0]})}
     episode = dataclasses.replace(_episode(_drive(1.0), 10.0), fleet=fleet)
     topics = {"robot_tracks", "robot_odom", "collision_events"}
-    registry = MetricRegistry(RobotParams(model="jackal"), metrics_config=_config(10.0))
+    registry = MetricRegistry(make_robot_params(model="jackal"), metrics_config=_config(10.0))
 
     outcome = registry.run_scope(
         MetricScope.ROBOT,

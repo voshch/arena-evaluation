@@ -35,6 +35,7 @@ from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, EpisodeDescriptor, RobotParams, RunMetadata
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 ROBOT_RADIUS = 0.3
@@ -282,7 +283,7 @@ def test_scenario_name_loads_the_runtime_of_the_run_metadata() -> None:
 
 
 def test_both_calculators_are_registered() -> None:
-    assert {"edge_case_criticality", "edge_case_formation"} <= set(MetricRegistry(RobotParams()).calculators)
+    assert {"edge_case_criticality", "edge_case_formation"} <= set(MetricRegistry(make_robot_params()).calculators)
 
 
 def _world(root: pathlib.Path, *, world_yaml: str = ONE_LEVEL, provenance: str | None = None, robot_level: str | None = None, humans: str = "", name: str | None = None) -> str:
@@ -350,12 +351,12 @@ formation: {center: [5.0, 3.0], radius: 1.5, variant: cluster, at: {at: 4.0}}
 
 @pytest.fixture
 def criticality() -> EdgeCaseCriticalityCalculator:
-    return EdgeCaseCriticalityCalculator(RobotParams(robot_radius=ROBOT_RADIUS))
+    return EdgeCaseCriticalityCalculator(make_robot_params(robot_radius=ROBOT_RADIUS))
 
 
 @pytest.fixture
 def formation() -> EdgeCaseFormationCalculator:
-    return EdgeCaseFormationCalculator(RobotParams(robot_radius=ROBOT_RADIUS))
+    return EdgeCaseFormationCalculator(make_robot_params(robot_radius=ROBOT_RADIUS))
 
 
 def test_a_scenario_without_provenance_yields_nothing(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, formation: EdgeCaseFormationCalculator) -> None:
@@ -707,7 +708,7 @@ def test_an_episode_without_a_map_falls_back_to_the_calculator_world(tmp_path: p
 
 
 def _registry_run(episode: AlignedEpisodeBundle, *, topics: set[str], pedsim: bool = True) -> dict:
-    registry = MetricRegistry(RobotParams(robot_radius=ROBOT_RADIUS), world=episode.map)
+    registry = MetricRegistry(make_robot_params(robot_radius=ROBOT_RADIUS), world=episode.map)
     results = dict(registry.run(episode, available_topics=topics, pedsim_available=pedsim))
     for scope in (MetricScope.ROBOT, MetricScope.CONTACT, MetricScope.ENCOUNTER):
         scope_slice = ScopeSlice(scope=scope, slice_id=scope.name.lower(), t_start_ns=0, t_end_ns=10 * SEC, identity={}, window_bundle=episode, full_episode=episode)
@@ -919,7 +920,7 @@ def test_every_published_series_is_read_back_with_its_declared_class_and_a_uniqu
 def test_encounters_and_contacts_score_only_the_case_agent_they_name(tmp_path: pathlib.Path) -> None:
     world = _world(tmp_path, provenance=CASE)
     episode = _episode(tmp_path, world, _run(world), {"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)], "passerby": _standing(2.0, 0.0)})
-    calculator = MetricRegistry(RobotParams(robot_radius=ROBOT_RADIUS), world=episode.map).calculators_by_scope[MetricScope.ENCOUNTER]["edge_case_criticality"]
+    calculator = MetricRegistry(make_robot_params(robot_radius=ROBOT_RADIUS), world=episode.map).calculators_by_scope[MetricScope.ENCOUNTER]["edge_case_criticality"]
 
     def outputs(scope: MetricScope, actor_key: str, actor_id: str) -> dict:
         scope_slice = ScopeSlice(scope=scope, slice_id=actor_id, t_start_ns=0, t_end_ns=10 * SEC, identity={actor_key: actor_id}, window_bundle=episode, full_episode=episode)

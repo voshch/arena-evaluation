@@ -15,6 +15,7 @@ from arena_evaluation.processing.metrics.social.encounter_costs import (
 )
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 ROBOT_RADIUS_M = 0.3
@@ -133,7 +134,7 @@ def _window(
 
 def _calculator() -> EncounterCostsCalculator:
     calculator = EncounterCostsCalculator(
-        RobotParams(model="jackal", robot_radius=ROBOT_RADIUS_M)
+        make_robot_params(model="jackal", robot_radius=ROBOT_RADIUS_M)
     )
     calculator.metrics_config = {}
     return calculator

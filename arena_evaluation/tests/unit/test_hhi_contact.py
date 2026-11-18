@@ -19,6 +19,7 @@ from arena_evaluation.processing.metrics.social.hhi_contact import (
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -112,7 +113,7 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
 
 def test_calculator_on_a_synthetic_episode() -> None:
     episode = _episode()
-    contact = ContactInteractionCalculator(RobotParams())
+    contact = ContactInteractionCalculator(make_robot_params())
     out = contact.calculate(episode, {})
     assert out["hhi_interaction"] == "hug"
     assert (out["hhi_hold_onset_s"], out["hhi_release_s"]) == (pytest.approx(5.0), pytest.approx(11.0))
@@ -129,7 +130,7 @@ def test_calculator_on_a_synthetic_episode() -> None:
 
 
 def test_calculator_without_a_release_holds_to_the_end() -> None:
-    out = ContactInteractionCalculator(RobotParams()).calculate(_episode(release=False), {})
+    out = ContactInteractionCalculator(make_robot_params()).calculate(_episode(release=False), {})
     assert out["hhi_release_s"] is None
     assert out["hhi_stalls_hold"] == 1 and out["hhi_stalls_post"] == 0
 
@@ -138,7 +139,7 @@ def test_calculator_without_contact_events_reports_unknown_windows() -> None:
     """Without the interaction stream there is no hold/release window: unknown, never zero."""
     ep = _episode()
     ep.topics = {}
-    calc = ContactInteractionCalculator(RobotParams())
+    calc = ContactInteractionCalculator(make_robot_params())
     out = calc.calculate(ep, {})
     assert out["hhi_episode_s"] == pytest.approx(22.0, abs=0.1)
     for key in ("hhi_interaction", "hhi_hold_onset_s", "hhi_release_s", "hhi_stall_count", "hhi_stall_time_s", "hhi_passes_between", "hhi_min_pair_clearance", "hhi_pair_gap_hold"):
@@ -166,7 +167,7 @@ def test_crossings_need_a_robot_move() -> None:
 def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
     ep = _episode()
     ep.topics = {**ep.topics, "pedestrian_interaction_events": ep.topics["pedestrian_interaction_events"].filter(pl.col("event_name") == "RELEASED")}
-    out = ContactInteractionCalculator(RobotParams()).calculate(ep, {})
+    out = ContactInteractionCalculator(make_robot_params()).calculate(ep, {})
     assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None and out["hhi_release_s"] is None
     assert out["hhi_stall_count"] == 1
 
@@ -174,10 +175,10 @@ def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
 def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
     empty = dict.fromkeys(ContactInteractionCalculator.output_keys())
     short = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
-    assert ContactInteractionCalculator(RobotParams()).calculate(short, {}) == empty
+    assert ContactInteractionCalculator(make_robot_params()).calculate(short, {}) == empty
     nan = float("nan")
     lost = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0, SEC], "pos_x_gt": [nan, nan], "pos_y_gt": [nan, nan], "yaw_gt": [0.0, 0.0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
-    assert ContactInteractionCalculator(RobotParams()).calculate(lost, {}) == empty
+    assert ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty
 
 
 def _window_bundle(episode: AlignedEpisodeBundle, *, end_ns: int | None = None) -> AlignedEpisodeBundle:
@@ -235,7 +236,7 @@ def test_contact_scope_measures_the_window_telemetry() -> None:
     """A CONTACT slice recomputes from its own window bundle; spanning the episode reproduces the episode metrics."""
     episode = _episode()
     window = _window_bundle(episode)
-    contact = ContactInteractionCalculator(RobotParams())
+    contact = ContactInteractionCalculator(make_robot_params())
     t_ns = episode.data.get_column("t_ns").to_numpy().astype(np.int64)
     window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, int(t_ns[-1])))
     assert window_metrics == contact.calculate(episode, {})
@@ -247,7 +248,7 @@ def test_contact_scope_splits_the_windows_inside_its_own_slice() -> None:
     """The window split, stall bucket and shares follow the slice's own telemetry, not the episode's."""
     episode = _episode()
     window = _window_bundle(episode, end_ns=18 * SEC)
-    contact = ContactInteractionCalculator(RobotParams())
+    contact = ContactInteractionCalculator(make_robot_params())
     window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, 18 * SEC))
     episode_metrics = contact.calculate(episode, {})
     assert window_metrics["hhi_episode_s"] == pytest.approx(18.0)

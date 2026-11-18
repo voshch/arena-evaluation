@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from robot_params_factory import make_robot_params
 
 pytest.importorskip("polars")
 pytest.importorskip("arena_simulation_setup.shared.conditions")
@@ -34,7 +35,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ConditionComplianceCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    return ConditionComplianceCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):

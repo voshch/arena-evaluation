@@ -11,6 +11,7 @@ from arena_evaluation.processing.metrics.ecological.acoustics import (
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -32,7 +33,7 @@ def _episode(levels_dba, dt_s=1.0):
 
 @pytest.fixture
 def calc():
-    return AcousticsCalculator(RobotParams(robot_radius=0.25))
+    return AcousticsCalculator(make_robot_params(robot_radius=0.25))
 
 
 def test_without_the_acoustics_topic_all_outputs_are_none(calc):
@@ -132,7 +133,7 @@ def test_the_encounter_scope_nulls_with_the_topic_reason():
     """A recording without robot_acoustics says which topic is missing, not that it had no samples."""
     episode = _episode([60.0] * 4)
     episode.topics.pop("robot_acoustics")
-    registry = MetricRegistry(RobotParams(), calculators=[AcousticsCalculator])
+    registry = MetricRegistry(make_robot_params(), calculators=[AcousticsCalculator])
     scope_slice = ScopeSlice(
         scope=MetricScope.ENCOUNTER,
         slice_id="enc_0",

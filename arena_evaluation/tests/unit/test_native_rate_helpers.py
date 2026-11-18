@@ -4,6 +4,7 @@ import pytest
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -23,7 +24,7 @@ class _Probe(BaseMetricCalculator):
 
 @pytest.fixture
 def probe():
-    return _Probe(RobotParams(robot_radius=0.25))
+    return _Probe(make_robot_params(robot_radius=0.25))
 
 
 def _bundle(topics=None, data=None, start_pos=None):

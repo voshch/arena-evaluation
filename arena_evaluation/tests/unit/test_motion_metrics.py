@@ -13,6 +13,7 @@ from arena_evaluation.processing.metrics.performance.motion_metrics import (
     _speed_from_pose,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -41,7 +42,7 @@ def _episode(*, vel_linear: list[float | None] | None = None, pos_x_gt: list[flo
 
 
 def _calculator() -> MotionMetricsCalculator:
-    return MotionMetricsCalculator(RobotParams(robot_radius=0.2))
+    return MotionMetricsCalculator(make_robot_params(robot_radius=0.2))
 
 
 def test_output_keys_keep_only_the_aggregates():

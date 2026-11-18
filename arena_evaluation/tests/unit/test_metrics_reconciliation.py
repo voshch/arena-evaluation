@@ -12,6 +12,7 @@ from arena_evaluation.processing.metrics.social.proxemics_extended import Proxem
 from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 PED_RADIUS_M = 0.3
@@ -49,7 +50,7 @@ def test_geometric_theta_star_obstacle_detour() -> None:
 
 def test_spl_and_path_efficiency() -> None:
     """SPL and Path Efficiency must correctly evaluate against Theta* reference length."""
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     coll_calc = CollisionMetricsCalculator(params)
     eff_calc = PathEfficiencyCalculator(params)
 
@@ -92,7 +93,7 @@ def test_spl_and_path_efficiency() -> None:
 
 def test_psii_penetration_depth_monotonicity() -> None:
     """Deep penetration into personal space must yield strictly higher PSII penalty than shallow skimming."""
-    params = RobotParams(robot_radius=0.3)  # r_robot = 0.3
+    params = make_robot_params(robot_radius=0.3)  # r_robot = 0.3
     calc = ProxemicsExtendedCalculator(params)
 
     # Robot at origin (0, 0)
@@ -141,7 +142,7 @@ def test_psii_penetration_depth_monotonicity() -> None:
 
 def test_holistic_effective_cot() -> None:
     """Effective Cost of Transport (E-CoT) must correctly penalize baseline CoT for collisions and PSII."""
-    params = RobotParams(robot_radius=0.3)
+    params = make_robot_params(robot_radius=0.3)
     calc = HolisticMetricsCalculator(params)
 
     episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[])

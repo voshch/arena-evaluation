@@ -7,6 +7,7 @@ import pytest
 from arena_evaluation.processing.metrics.social.pedestrian_disturbance import PedestrianDisturbanceCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
+from robot_params_factory import make_robot_params
 
 S = 1_000_000_000
 ALL_NONE = {"ped_path_deflection_m": None, "ped_velocity_delay_ratio": None}
@@ -29,7 +30,7 @@ def _calc(peds: pl.DataFrame | None) -> dict:
     topics = {} if peds is None else {"pedestrian_tracks": peds}
     data = None if peds is None else pl.DataFrame({"t_ns": peds["t_ns"].unique().sort()})
     episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[], peds=peds, topics=topics)
-    return PedestrianDisturbanceCalculator(RobotParams()).calculate(episode, {})
+    return PedestrianDisturbanceCalculator(make_robot_params()).calculate(episode, {})
 
 
 def _walk(*points: tuple[float, float]) -> list[list[float]]:

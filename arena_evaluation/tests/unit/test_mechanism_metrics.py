@@ -2,6 +2,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from robot_params_factory import make_robot_params
 
 pl = pytest.importorskip("polars")
 
@@ -45,7 +46,7 @@ DOOR = "env_0/door_1/0"
 
 
 def _calc(world=None):
-    calc = MechanismMetricsCalculator(RobotParams())
+    calc = MechanismMetricsCalculator(make_robot_params())
     if world is not None:
         calc.world = "synthetic_mechanism_world"
         calc._world_cache["synthetic_mechanism_world"] = world

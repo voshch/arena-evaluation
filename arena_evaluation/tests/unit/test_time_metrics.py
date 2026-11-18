@@ -10,12 +10,13 @@ from arena_evaluation.processing.metrics.performance.motion_metrics import SERIE
 from arena_evaluation.processing.metrics.performance.path_metrics import SERIES_SCHEMA as PATH_SERIES_SCHEMA
 from arena_evaluation.processing.metrics.performance.time_metrics import TimeMetricsCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
 
 def _calculator() -> TimeMetricsCalculator:
-    return TimeMetricsCalculator(RobotParams(robot_radius=0.2))
+    return TimeMetricsCalculator(make_robot_params(robot_radius=0.2))
 
 
 def _episode(t_ns: list[int], vel_linear: list[float | None] | None = None, goal: list[float] | None = None) -> AlignedEpisodeBundle:

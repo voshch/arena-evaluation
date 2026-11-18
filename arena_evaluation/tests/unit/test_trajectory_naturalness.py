@@ -13,6 +13,7 @@ from arena_evaluation.processing.metrics.naturalness.trajectory import (
     _discrete_frechet,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 OPEN_ROOM = "trajectory_test_open_room"
@@ -46,7 +47,7 @@ def open_room_run_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def _calc() -> TrajectoryMetricsCalculator:
-    return TrajectoryMetricsCalculator(RobotParams(robot_radius=0.25))
+    return TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
 
 
 def _gt(

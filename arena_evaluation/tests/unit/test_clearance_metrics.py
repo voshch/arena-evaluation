@@ -8,6 +8,7 @@ from arena_evaluation.processing.metrics.performance.clearance_metrics import (
 )
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 RADIUS = 0.25
@@ -53,7 +54,7 @@ def _episode(times_ns, scan=None, peds=None, radius_m=PED_RADIUS, radii=None):
 
 @pytest.fixture
 def calc():
-    return ClearanceMetricsCalculator(RobotParams(robot_radius=RADIUS))
+    return ClearanceMetricsCalculator(make_robot_params(robot_radius=RADIUS))
 
 
 def _series(calc, episode, column):

@@ -27,6 +27,7 @@ from arena_evaluation.processing.metrics.social.probst_responsibility import (
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 # One pedestrian trajectory: canonical id, name, (N, 2) positions, (N, 2) velocities, collision radius in metres.
 _PedSpec = tuple[str, str, np.ndarray, np.ndarray, float | None]
@@ -239,7 +240,7 @@ def test_probst_golden_scenario_stopped_robot_rammed_by_blind_pedestrian() -> No
             ("Pedestrian_1", "blind_pedestrian", ped_xy, ped_vel, PED_RADIUS_M)
         ],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
     calculator.metrics_config = {"target_agent_id": "Pedestrian_1"}
 
     outputs = calculator.calculate(episode, {})
@@ -350,7 +351,7 @@ def test_probst_calculator_encounter_and_pre_contact_scopes() -> None:
         robot_vel,
         ped_tracks=[("Pedestrian_1", "ped_1", ped_xy, ped_vel, PED_RADIUS_M)],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
 
     out_enc = calculator.calculate(episode, {})
     assert set(out_enc) == set(calculator.output_keys())
@@ -466,7 +467,7 @@ def test_calculate_without_pedestrian_tracks_returns_none_outputs() -> None:
     t = np.arange(0.0, 3.0, 0.1)
     robot_xy, robot_vel = _straight_robot(t)
     episode = _make_episode(t, robot_xy, robot_vel)
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
 
     out = calculator.calculate(episode, {})
     assert set(out) == set(calculator.output_keys())
@@ -477,7 +478,7 @@ def test_calculate_with_empty_pedestrian_tracks_returns_none_outputs() -> None:
     t = np.arange(0.0, 3.0, 0.1)
     robot_xy, robot_vel = _straight_robot(t)
     episode = _make_episode(t, robot_xy, robot_vel, ped_tracks=[])
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
 
     out = calculator.calculate(episode, {})
     assert set(out) == set(calculator.output_keys())
@@ -498,7 +499,7 @@ def test_calculate_with_two_pedestrians_rolls_up_additive_parts() -> None:
             ("Pedestrian_2", "beta", ped_2_xy, zero_vel, PED_RADIUS_M),
         ],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
 
     robot, _ = resolve_robot_trajectory(calculator, episode)
     tracks = extract_episode_ped_tracks(episode)
@@ -533,7 +534,7 @@ def test_calculate_resolves_target_identifiers(target_agent_id: int | str) -> No
         robot_vel,
         ped_tracks=[("Pedestrian_1", "alpha", ped_xy, ped_vel, PED_RADIUS_M)],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
     calculator.metrics_config = {"target_agent_id": target_agent_id}
 
     out = calculator.calculate(episode, {})
@@ -555,7 +556,7 @@ def test_calculate_pre_contact_unknown_pedestrian_returns_none_outputs() -> None
         robot_vel,
         ped_tracks=[("Pedestrian_1", "alpha", ped_xy, ped_vel, PED_RADIUS_M)],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
 
     out = calculator.calculate_pre_contact(episode, int(3.0 * 1e9), "Pedestrian_99")
     assert set(out) == set(calculator.output_keys())
@@ -572,7 +573,7 @@ def test_probst_requires_recorded_pedestrian_radius() -> None:
         robot_vel,
         ped_tracks=[("Pedestrian_1", "alpha", ped_xy, ped_vel, None)],
     )
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
     calculator.metrics_config = {"target_agent_id": "Pedestrian_1"}
 
     with pytest.raises(MetricInputError, match="radius_m"):
@@ -583,7 +584,7 @@ def test_probst_robot_actor_encounter_is_not_applicable() -> None:
     t = np.arange(0.0, 3.0, 0.1)
     robot_xy, robot_vel = _straight_robot(t)
     episode = _make_episode(t, robot_xy, robot_vel)
-    calculator = ProbstResponsibilityCalculator(RobotParams(robot_radius=PED_RADIUS_M))
+    calculator = ProbstResponsibilityCalculator(make_robot_params(robot_radius=PED_RADIUS_M))
     scope_slice = ScopeSlice(
         scope=MetricScope.ENCOUNTER,
         slice_id="enc_0",

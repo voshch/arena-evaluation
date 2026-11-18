@@ -22,6 +22,7 @@ from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.processing.path.static_environment import build_static_grid_from_parts
 from arena_evaluation.processing.path.theta_star import StaticGrid
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 RES = 0.1
 SIZE = 200
@@ -113,7 +114,7 @@ def _episode(
 
 
 def _run(episode: AlignedEpisodeBundle, grid: StaticGrid, success: bool) -> dict:
-    params = RobotParams(robot_radius=RADIUS)
+    params = make_robot_params(robot_radius=RADIUS)
     prior = PathMetricsCalculator(params).calculate(episode, {})
     prior.update(success=success)
     return VlnMetricsCalculator(params).calculate_on_grid(episode, prior, grid)
@@ -267,7 +268,7 @@ def test_stuck_flags_failed_dwell_and_ignores_success() -> None:
 def test_calculate_without_map_leaves_geodesic_outputs_none() -> None:
     episode = _episode([START, (11.0, 10.0)], "", dwell_s=15.0)
     episode.map = None
-    out = VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False, "path_length": 9.0})
+    out = VlnMetricsCalculator(make_robot_params(robot_radius=RADIUS)).calculate(episode, {"success": False, "path_length": 9.0})
     assert set(out) == set(VlnMetricsCalculator.output_keys())
     assert all(out[k] is None for k in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
     assert out["stuck"] is True
@@ -276,7 +277,7 @@ def test_calculate_without_map_leaves_geodesic_outputs_none() -> None:
 def test_a_missing_world_asset_nulls_the_route_metrics_with_its_reason() -> None:
     episode = _episode([START, (11.0, 10.0)], "vln_missing_world_asset_zzz", dwell_s=15.0)
 
-    out = VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False})
+    out = VlnMetricsCalculator(make_robot_params(robot_radius=RADIUS)).calculate(episode, {"success": False})
 
     for key in ("ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"):
         assert out[key] is None
@@ -292,11 +293,11 @@ def test_a_world_that_resolves_but_is_broken_still_raises(monkeypatch) -> None:
     episode = _episode([START, (11.0, 10.0)], "vln_broken_world_zzz")
 
     with pytest.raises(ValueError, match="compacts to no level"):
-        VlnMetricsCalculator(RobotParams(robot_radius=RADIUS)).calculate(episode, {"success": False})
+        VlnMetricsCalculator(make_robot_params(robot_radius=RADIUS)).calculate(episode, {"success": False})
 
 
 def test_registry_runs_vln_after_its_dependencies() -> None:
-    registry = MetricRegistry(RobotParams(robot_radius=RADIUS))
+    registry = MetricRegistry(make_robot_params(robot_radius=RADIUS))
     stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
     for dep in VlnMetricsCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of[VlnMetricsCalculator.NAME]

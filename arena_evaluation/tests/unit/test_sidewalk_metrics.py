@@ -11,6 +11,7 @@ from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 WORLD = "sidewalk_synthetic"
 BARE = "road_only_synthetic"
@@ -40,7 +41,7 @@ def zones():
 
 
 def _calc(world: str = WORLD) -> SidewalkMetricsCalculator:
-    calc = SidewalkMetricsCalculator(RobotParams(model="jackal"))
+    calc = SidewalkMetricsCalculator(make_robot_params(model="jackal"))
     calc.world = world
     return calc
 
@@ -192,7 +193,7 @@ def test_episode_without_goal_has_no_completion():
 
 def test_world_without_sidewalk_zones_yields_nulls():
     assert _calc(BARE).calculate(_episode(_lane, 22.0), {}) == NULLS
-    assert SidewalkMetricsCalculator(RobotParams(model="jackal")).calculate(_episode(_lane, 22.0), {}) == NULLS
+    assert SidewalkMetricsCalculator(make_robot_params(model="jackal")).calculate(_episode(_lane, 22.0), {}) == NULLS
 
 
 def test_missing_pose_yields_nulls():
@@ -228,7 +229,7 @@ def _robot_slice(episode):
 
 def test_registry_runs_the_calculator_beside_the_native_metrics():
     topics = {"robot_tracks", "robot_odom", "collision_events"}
-    registry = MetricRegistry(RobotParams(model="jackal"), world=WORLD)
+    registry = MetricRegistry(make_robot_params(model="jackal"), world=WORLD)
     episode = _episode(_lane, 22.0)
     results = registry.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode)).results
     assert results["sidewalk_route_completion"] is True

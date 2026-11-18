@@ -7,6 +7,7 @@ from polars.testing import assert_frame_equal
 from arena_evaluation.processing.metrics.base import MetricScope, ScopeSlice
 from arena_evaluation.processing.metrics.ecological.energy import EnergyCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 MASS = 18.431
@@ -31,7 +32,7 @@ def _episode(**columns: list[float | None] | pl.Series) -> AlignedEpisodeBundle:
 
 @pytest.fixture
 def calc() -> EnergyCalculator:
-    return EnergyCalculator(RobotParams(robot_radius=0.25, base_mass=MASS))
+    return EnergyCalculator(make_robot_params(robot_radius=0.25, base_mass=MASS))
 
 
 def test_missing_power_and_battery_give_null_energy(calc):
@@ -118,7 +119,7 @@ def test_cost_of_transport_is_energy_over_weight_times_distance(calc):
 
 
 def test_cost_of_transport_is_unreported_without_a_declared_mass():
-    undeclared = EnergyCalculator(RobotParams(robot_radius=0.25))
+    undeclared = EnergyCalculator(make_robot_params(robot_radius=0.25))
     results = undeclared.calculate(
         _episode(total_power_w=[0.0, 3600.0]), {"path_length_m": 10.0}
     )

@@ -11,6 +11,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_component import (
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 
 def test_component_normalisation():
@@ -36,7 +37,7 @@ def test_component_list_includes_condition_success_and_is_well_formed():
 
 
 def test_component_keys_are_registered_metric_outputs():
-    registry = MetricRegistry(RobotParams())
+    registry = MetricRegistry(make_robot_params())
     outputs = {key for calc in registry.calculators.values() for key in calc.output_keys()}
     assert {c.key for c in MECHANISM_COMPONENTS} <= outputs
     directions = {}
@@ -68,7 +69,7 @@ def test_mechanism_score_weights():
 
 
 def test_calculator_reads_prior_results():
-    calc = MechanismComponentCalculator(RobotParams())
+    calc = MechanismComponentCalculator(make_robot_params())
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
     out = calc.calculate(episode, {"condition_success": 1.0, "door_oscillations": 0})
     assert out == {"mechanism_score": 1.0, "mechanism_components": 2}
@@ -78,7 +79,7 @@ def test_calculator_reads_prior_results():
 
 
 def test_calculator_runs_after_its_inputs():
-    registry = MetricRegistry(RobotParams())
+    registry = MetricRegistry(make_robot_params())
     stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
     for dep in MechanismComponentCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of["mechanism_component"]

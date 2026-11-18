@@ -29,6 +29,7 @@ from arena_evaluation.processing.metrics.social.social_forces import SocialForce
 from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 PED_RADIUS_M = 0.3
@@ -68,7 +69,7 @@ def test_literature_theta_star_any_angle_optimality() -> None:
 
 def test_literature_path_irregularity_straight_vs_weaving() -> None:
     """Morales et al. / Stulp et al.: Path Irregularity must be 0.0 for straight line, >0 for weaving."""
-    calc = TrajectoryMetricsCalculator(RobotParams(robot_radius=0.25))
+    calc = TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
 
     # Case A: Straight line trajectory
     df_straight = pl.DataFrame(
@@ -99,7 +100,7 @@ def test_literature_path_irregularity_straight_vs_weaving() -> None:
 
 def test_literature_topological_complexity_winding_loops() -> None:
     """Mavrogiannis et al. (2019): Winding number W = 1/(2*pi) * |sum Delta theta_rel|."""
-    calc = TrajectoryMetricsCalculator(RobotParams(robot_radius=0.25))
+    calc = TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
 
     # Robot circles a stationary pedestrian at (5.0, 5.0) in a full 2*pi loop (radius 2.0m)
     angles = np.linspace(0, 2 * np.pi, 50)
@@ -125,7 +126,7 @@ def test_literature_topological_complexity_winding_loops() -> None:
 
 def test_literature_proxemics_four_zones_and_monotonic_psii() -> None:
     """Hall (1966) & Gao & Huang (2022): Clearance classifies zones; PSII increases monotonically with intrusion depth."""
-    calc = ProxemicsExtendedCalculator(RobotParams(robot_radius=0.35))
+    calc = ProxemicsExtendedCalculator(make_robot_params(robot_radius=0.35))
 
     t_ns = [0, SEC]
     tf_df = pl.DataFrame({"t_ns": t_ns, "pos_x_gt": [0.0, 0.0], "pos_y_gt": [0.0, 0.0], "yaw_gt": [0.0, 0.0]})
@@ -156,7 +157,7 @@ def test_literature_proxemics_four_zones_and_monotonic_psii() -> None:
 
 def test_literature_social_forces_anisotropic_potential() -> None:
     """Helbing & Molnar (1995): Pedestrian heading induces elliptical potential (higher in front, lower on sides)."""
-    calc = SocialForcesCalculator(RobotParams(robot_radius=0.35))
+    calc = SocialForcesCalculator(make_robot_params(robot_radius=0.35))
 
     t_ns = [0, SEC]
     tf_front = pl.DataFrame({"t_ns": t_ns, "pos_x_gt": [1.0, 1.0], "pos_y_gt": [0.0, 0.0], "yaw_gt": [np.pi, np.pi]})
@@ -182,8 +183,8 @@ def test_literature_social_forces_anisotropic_potential() -> None:
 
 def test_literature_spl_and_path_efficiency() -> None:
     """Anderson et al. (2018): SPL = Success * (L_optimal / max(L_actual, L_optimal))."""
-    calc_coll = CollisionMetricsCalculator(RobotParams(robot_radius=0.25))
-    calc_eff = PathEfficiencyCalculator(RobotParams(robot_radius=0.25))
+    calc_coll = CollisionMetricsCalculator(make_robot_params(robot_radius=0.25))
+    calc_eff = PathEfficiencyCalculator(make_robot_params(robot_radius=0.25))
 
     ep_success = AlignedEpisodeBundle(
         1,
@@ -224,7 +225,7 @@ def test_literature_spl_and_path_efficiency() -> None:
 
 def test_literature_kinematic_jerk_smoothness() -> None:
     """Flash & Hogan / Kyriakopoulos: Jerk measures derivative of acceleration."""
-    calc = MotionMetricsCalculator(RobotParams(robot_radius=0.25))
+    calc = MotionMetricsCalculator(make_robot_params(robot_radius=0.25))
 
     t = np.linspace(0, 5, 50)
     t_ns = (t * SEC).astype(int)
@@ -251,7 +252,7 @@ def test_literature_kinematic_jerk_smoothness() -> None:
 
 def test_literature_corridor_passing_rule_compliance() -> None:
     """Continental Traffic Rule: Head-on encounters require passing to the right of oncoming pedestrians."""
-    calc = ComplianceMetricsCalculator(RobotParams(robot_radius=0.35))
+    calc = ComplianceMetricsCalculator(make_robot_params(robot_radius=0.35))
 
     t_ns = np.array([0, SEC, 2 * SEC, 3 * SEC])
     peds_df = _peds([(int(t_ns[i]), [{"ped_id": "ped_0", "x": x, "y": 0.0, "vx": -2.0, "vy": 0.0}]) for i, x in enumerate([8.0, 6.0, 4.0, 2.0])])
@@ -273,7 +274,7 @@ def test_literature_corridor_passing_rule_compliance() -> None:
 
 def test_literature_holistic_effective_cost_of_transport() -> None:
     """Gao & Huang (2022) & Master Spec: E-CoT = CoT * (1.0 + 2.0*N_coll + 0.5*PSII/T)."""
-    calc = HolisticMetricsCalculator(RobotParams(robot_radius=0.35))
+    calc = HolisticMetricsCalculator(make_robot_params(robot_radius=0.35))
     ep = AlignedEpisodeBundle(1, pl.DataFrame(), [0, 0, 0], [10, 0, 0])
 
     # Unimpeded run

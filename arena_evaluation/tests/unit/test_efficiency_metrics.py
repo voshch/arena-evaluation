@@ -14,6 +14,7 @@ from arena_evaluation.processing.metrics.performance.efficiency_metrics import (
 )
 from arena_evaluation.processing.metrics.performance.vln_metrics import SPL_GEODESIC
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 OPEN_ROOM = "efficiency_test_open_room"
@@ -47,7 +48,7 @@ def open_room_run_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def _params() -> RobotParams:
-    return RobotParams(robot_radius=0.25)
+    return make_robot_params(robot_radius=0.25)
 
 
 def _gt(xs: list[float], ys: list[float]) -> pl.DataFrame:

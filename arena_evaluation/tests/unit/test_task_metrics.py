@@ -1,4 +1,5 @@
 import pytest
+from robot_params_factory import make_robot_params
 
 pl = pytest.importorskip("polars")
 pytest.importorskip("arena_simulation_setup.shared.judge")
@@ -20,7 +21,7 @@ def _square(name, x0, y0):
 
 
 def _calc(world="synthetic_task", walls=None):
-    calc = TaskReplayCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    calc = TaskReplayCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
     calc.world = world
     world_cache[world] = [_square("kitchen", 0, 0), _square("hallway", 10, 0)]
     _wall_cache[world] = walls

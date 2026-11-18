@@ -17,6 +17,7 @@ from arena_evaluation.processing.windows import (
     empty_encounter_windows,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 NS_PER_S = 1_000_000_000
 ROBOT_RADIUS_M = 0.3
@@ -95,7 +96,7 @@ def test_a_robot_contact_window_carries_the_other_robots_track(
         {"robot_tracks": _robot_track()},
         fleet={"env_0_jackal_1": _other_robot_task_poses()},
     )
-    evaluator = ScopedEvaluator(RobotParams(robot_radius=ROBOT_RADIUS_M))
+    evaluator = ScopedEvaluator(make_robot_params(robot_radius=ROBOT_RADIUS_M))
 
     slices = evaluator._build_contact_slices(
         episode,
@@ -125,7 +126,7 @@ def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_
         }
     )
 
-    result = ScopedEvaluator(RobotParams(robot_radius=ROBOT_RADIUS_M)).evaluate(
+    result = ScopedEvaluator(make_robot_params(robot_radius=ROBOT_RADIUS_M)).evaluate(
         episode,
         run_id="run",
         episode_id=0,
@@ -143,7 +144,7 @@ def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_
 def test_an_episode_without_pedestrians_carries_no_bare_pedsim_code() -> None:
     episode = _bundle({"robot_tracks": _robot_track()})
 
-    result = ScopedEvaluator(RobotParams(robot_radius=ROBOT_RADIUS_M)).evaluate(
+    result = ScopedEvaluator(make_robot_params(robot_radius=ROBOT_RADIUS_M)).evaluate(
         episode,
         run_id="run",
         episode_id=0,
@@ -176,7 +177,7 @@ def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles
     episode = _bundle({"robot_tracks": _robot_track(), "collision_contacts": contacts})
 
     frame = ScopedEvaluator(
-        RobotParams(robot_radius=ROBOT_RADIUS_M)
+        make_robot_params(robot_radius=ROBOT_RADIUS_M)
     )._collision_fact_frame(
         episode,
         run_id="run",

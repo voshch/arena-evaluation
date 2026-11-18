@@ -18,6 +18,7 @@ from arena_evaluation.processing.metrics.social.proxemics_extended import (
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 RADIUS = 0.25
@@ -90,7 +91,7 @@ def _episode(
 
 @pytest.fixture
 def calc() -> ProxemicsExtendedCalculator:
-    return ProxemicsExtendedCalculator(RobotParams(robot_radius=RADIUS))
+    return ProxemicsExtendedCalculator(make_robot_params(robot_radius=RADIUS))
 
 
 def test_output_keys_do_not_collide_with_legacy_proxemics():

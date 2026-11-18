@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from robot_params_factory import make_robot_params
 
 pytest.importorskip("polars")
 pytest.importorskip("shapely")
@@ -29,7 +30,7 @@ RIGHT = -0.5
 
 
 def _calc(convention: str = "right") -> ComplianceMetricsCalculator:
-    calc = ComplianceMetricsCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    calc = ComplianceMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
     calc.passing_convention = convention
     return calc
 

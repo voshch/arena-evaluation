@@ -1,3 +1,4 @@
+from robot_params_factory import make_robot_params
 """Unit tests for the CharacterizationCalculator (ecological metric).
 
 Pure Python + Polars, no ROS, no Gazebo required.
@@ -20,7 +21,7 @@ SEC = 1_000_000_000
 
 
 def _calc() -> CharacterizationCalculator:
-    return CharacterizationCalculator(RobotParams.load("jackal"))
+    return CharacterizationCalculator(make_robot_params(model="jackal"))
 
 
 def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:

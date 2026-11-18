@@ -12,6 +12,7 @@ from arena_evaluation.storage.exceptions import (
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.registry.table import Metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 
 def _output(name: str) -> Metric:
@@ -101,7 +102,7 @@ class SilentCalc(BaseMetricCalculator):
 
 def test_registry_orders_calculators_by_their_dependencies() -> None:
     registry = MetricRegistry(
-        RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0),
+        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0),
         calculators=(Calc3, Calc1, Calc2),
     )
 
@@ -110,12 +111,12 @@ def test_registry_orders_calculators_by_their_dependencies() -> None:
 
 def test_registry_refuses_a_circular_dependency() -> None:
     with pytest.raises(CircularDependencyError):
-        MetricRegistry(RobotParams(robot_radius=0.25), calculators=(CycleA, CycleB))
+        MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB))
 
 
 def test_registry_uses_a_calculators_companion_null_reason() -> None:
     registry = MetricRegistry(
-        RobotParams(robot_radius=0.25), calculators=(CustomNullReasonCalc,)
+        make_robot_params(robot_radius=0.25), calculators=(CustomNullReasonCalc,)
     )
 
     outcome = registry.run_scope(
@@ -128,7 +129,7 @@ def test_registry_uses_a_calculators_companion_null_reason() -> None:
 
 
 def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
-    registry = MetricRegistry(RobotParams(robot_radius=0.25), calculators=(LeakyCalc,))
+    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,))
 
     with pytest.raises(SchemaViolationError, match="leaky_extra"):
         registry.run_scope(
@@ -140,7 +141,7 @@ def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
 
 
 def test_registry_refuses_a_declaration_without_a_producer() -> None:
-    registry = MetricRegistry(RobotParams(robot_radius=0.25), calculators=(SilentCalc,))
+    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(SilentCalc,))
 
     with pytest.raises(SchemaViolationError, match="silent_out"):
         registry.run_scope(
@@ -181,7 +182,7 @@ def test_registry_run_scope_pins_topic_alternatives_pedsim_callback_and_exceptio
     None
 ):
     registry = MetricRegistry(
-        RobotParams(robot_radius=0.25),
+        make_robot_params(robot_radius=0.25),
         calculators=(_AltTopicCalc, _PedsimCalc, _CrashingCalc),
     )
     empty_topic = pl.DataFrame({"t_ns": pl.Series([], dtype=pl.Int64)})

@@ -5,9 +5,10 @@ from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, MetricS
 from arena_evaluation.processing.metrics.performance.collision_metrics import CollisionMetricsCalculator
 from arena_evaluation.processing.outcome import outcome_verdict
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC_NS = 1_000_000_000
-PARAMS = RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
+PARAMS = make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
 _EVENTS_SCHEMA = {
     "t_ns": pl.Int64,
     "event_count": pl.Int64,

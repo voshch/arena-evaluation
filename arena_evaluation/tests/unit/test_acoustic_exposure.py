@@ -26,6 +26,7 @@ from arena_evaluation.storage.schemas import (
     EpisodeDescriptor,
     RobotParams,
 )
+from robot_params_factory import make_robot_params
 
 
 def test_acoustics_free_space():
@@ -144,7 +145,7 @@ def _leq(values: list[float]) -> float:
 
 @pytest.fixture
 def calc() -> AcousticExposureCalculator:
-    return AcousticExposureCalculator(RobotParams())
+    return AcousticExposureCalculator(make_robot_params())
 
 
 @pytest.fixture
@@ -423,7 +424,7 @@ def test_reference_run_is_evaluated_like_any_other_episode(derived_map, world_ru
     episode = _episode(
         _frames([(1.0, 1.0)], [[(4.0, 1.0)]]), map_name, run=run, run_dir=world_run_dir
     )
-    reference_calc = AcousticExposureCalculator(RobotParams())
+    reference_calc = AcousticExposureCalculator(make_robot_params())
     result = _pedestrian_scalars(reference_calc, episode)
     assert result["ped_max_exposure_dba"] == pytest.approx(42.0 - _att(3.0), abs=1e-3)
     assert reference_calc.series_table(episode).height > 0
@@ -467,7 +468,7 @@ def test_series_collapses_duplicate_clock_samples(calc, derived_map, world_run_d
     repeated = _frames(
         [(1.0, 1.0), (1.0, 1.0)], [[(4.0, 1.0)], [(4.0, 1.0)]], times=[0, 0]
     )
-    table = AcousticExposureCalculator(RobotParams()).series_table(
+    table = AcousticExposureCalculator(make_robot_params()).series_table(
         _episode(repeated, derived_map(), run_dir=world_run_dir)
     )
     assert table.height == 1
@@ -805,7 +806,7 @@ def test_missing_robot_acoustics_topic_returns_null_without_fallback(
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
     assert _pedestrian_scalars(calc, episode) == NULLS
 
-    registry = MetricRegistry(RobotParams(), calculators=[AcousticExposureCalculator])
+    registry = MetricRegistry(make_robot_params(), calculators=[AcousticExposureCalculator])
     ped_slice = _pedestrian_scope_slice(episode, "ped_0")
     outcome = registry.run_scope(MetricScope.PEDESTRIAN, episode, scope_slice=ped_slice)
     assert outcome.results["ped_max_exposure_dba"] is None
@@ -960,7 +961,7 @@ def test_doors_without_world_semantics_report_the_missing_input(tmp_path, calc):
     folder_manager, run = _door_run(tmp_path, name)
     frames = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
     episode = _episode(frames, name, run=run, folder_manager=folder_manager)
-    registry = MetricRegistry(RobotParams(), calculators=[AcousticExposureCalculator])
+    registry = MetricRegistry(make_robot_params(), calculators=[AcousticExposureCalculator])
     ped_slice = _pedestrian_scope_slice(episode, "ped_0")
     outcome = registry.run_scope(MetricScope.PEDESTRIAN, episode, scope_slice=ped_slice)
     assert outcome.results["ped_max_exposure_dba"] is None

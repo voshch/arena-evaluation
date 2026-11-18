@@ -12,6 +12,7 @@ from arena_evaluation.processing.metrics.performance.pedestrian_path_metrics imp
     PedestrianPathMetricsCalculator,
 )
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -26,7 +27,7 @@ def _episode(times: list[int], frames: list[tuple[int, list[dict]]] | None = Non
 
 
 def _series(times: list[int], frames: list[tuple[int, list[dict]]]) -> pl.DataFrame:
-    calculator = PedestrianPathMetricsCalculator(RobotParams())
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
     return calculator.series_table(_episode(times, frames), run_id="run", robot_id="jackal_0")
 
 
@@ -37,24 +38,24 @@ def _at(x: float, y: float) -> dict:
 def test_the_legacy_list_key_has_no_metric_row_output():
     assert PedestrianPathMetricsCalculator.output_keys() == []
     assert PedestrianPathMetricsCalculator.OUTPUTS == ()
-    assert PedestrianPathMetricsCalculator(RobotParams()).calculate(AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[]), {}) == {}
+    assert PedestrianPathMetricsCalculator(make_robot_params()).calculate(AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[]), {}) == {}
 
 
 def test_missing_frame_yields_a_schema_typed_empty_table():
-    calculator = PedestrianPathMetricsCalculator(RobotParams())
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
 
     assert_frame_equal(calculator.series_table(episode), pl.DataFrame(schema=SERIES_SCHEMA), check_dtypes=True)
 
 
 def test_robot_samples_without_a_pedestrian_table_yield_a_schema_typed_empty_table():
-    calculator = PedestrianPathMetricsCalculator(RobotParams())
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
 
     assert_frame_equal(calculator.series_table(_episode([0, SEC])), pl.DataFrame(schema=SERIES_SCHEMA), check_dtypes=True)
 
 
 def test_a_pedestrian_table_without_rows_yields_a_schema_typed_empty_table():
-    calculator = PedestrianPathMetricsCalculator(RobotParams())
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
 
     assert_frame_equal(calculator.series_table(_episode([0, SEC], [])), pl.DataFrame(schema=SERIES_SCHEMA), check_dtypes=True)
 
@@ -116,7 +117,7 @@ def test_leading_robot_samples_before_the_first_message_add_no_pedestrian_rows()
 
 
 def test_a_pedestrian_table_without_a_position_column_is_rejected():
-    calculator = PedestrianPathMetricsCalculator(RobotParams())
+    calculator = PedestrianPathMetricsCalculator(make_robot_params())
     tracks = pl.DataFrame({"t_ns": [0], "ped_id": ["a"], "x": [0.0]}, schema={"t_ns": pl.Int64, "ped_id": pl.String, "x": pl.Float64})
     episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame({"t_ns": [0]}, schema={"t_ns": pl.Int64}), start_pos=[], goal_pos=[], topics={"pedestrian_tracks": tracks})
 

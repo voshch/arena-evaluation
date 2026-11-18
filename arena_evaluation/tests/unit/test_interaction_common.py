@@ -25,6 +25,7 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
 )
 from arena_evaluation.processing.windows import empty_encounter_windows
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 NS_PER_S = 1_000_000_000
 ROBOT_RADIUS_M = 0.25
@@ -69,7 +70,7 @@ def _episode(
 
 
 def _calculator() -> ContactAttributionCalculator:
-    return ContactAttributionCalculator(RobotParams(robot_radius=ROBOT_RADIUS_M))
+    return ContactAttributionCalculator(make_robot_params(robot_radius=ROBOT_RADIUS_M))
 
 
 def _robot_frame(

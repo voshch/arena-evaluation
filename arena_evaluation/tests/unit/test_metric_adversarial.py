@@ -10,6 +10,7 @@ from arena_evaluation.processing.metrics.social.pedestrian_disturbance import Pe
 from arena_evaluation.processing.metrics.social.proxemics import ProxemicsCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 from flat_peds import flat_peds
+from robot_params_factory import make_robot_params
 
 
 def test_collision_adversarial_overlapping_hitboxes() -> None:
@@ -30,7 +31,7 @@ def test_collision_adversarial_overlapping_hitboxes() -> None:
         goal_pos=[1.0, 1.0, 0.0],
         topics={"collision_events": events},
     )
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     calc = CollisionMetricsCalculator(params)
     prior = {"time_to_goal_s": 10.0}
     results = calc.calculate(episode, prior)
@@ -44,7 +45,7 @@ def test_collision_adversarial_overlapping_hitboxes() -> None:
 def test_efficiency_adversarial_zero_length() -> None:
     # Mathematically zero-length paths and near-zero floats
     episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0, 0.0], goal_pos=[0.0, 0.0, 0.0])
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     calc = PathEfficiencyCalculator(params)
 
     prior = {"path_length_m": 0.0, "theta_star_length": 5.0}
@@ -88,7 +89,7 @@ def test_pedestrian_disturbance_adversarial_chaotic() -> None:
     )
     data = pl.DataFrame({"t_ns": t_ns})
     episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[], topics={"pedestrian_tracks": peds})
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     calc = PedestrianDisturbanceCalculator(params)
     prior = {}
 
@@ -110,7 +111,7 @@ def test_gaze_adversarial_chaotic() -> None:
         ]
     )
     episode = AlignedEpisodeBundle(episode_id=1, data=tf_df, start_pos=[], goal_pos=[], topics={"pedestrian_tracks": peds})
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     calc = GazeMetricsCalculator(params)
 
     # Must run without crashing
@@ -169,7 +170,7 @@ def test_proxemics_adversarial_chaotic() -> None:
         topics={"pedestrian_tracks": peds, "robot_tracks": robot_tracks},
     )
     episode.num_pedestrians = 1
-    params = RobotParams(robot_radius=0.2)
+    params = make_robot_params(robot_radius=0.2)
     calc = ProxemicsCalculator(params)
 
     prior = {"velocity": [1.0, float("inf"), float("nan")]}

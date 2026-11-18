@@ -34,6 +34,7 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SECOND_NS = 1_000_000_000
 SAMPLE_S = 0.05
@@ -173,7 +174,7 @@ def _episode(topics: Mapping[str, pl.DataFrame] | None) -> AlignedEpisodeBundle:
 def _calculator(
     config: Mapping[str, object] | None = None,
 ) -> ContactAttributionCalculator:
-    calc = ContactAttributionCalculator(RobotParams(robot_radius=ROBOT_RADIUS_M))
+    calc = ContactAttributionCalculator(make_robot_params(robot_radius=ROBOT_RADIUS_M))
     calc.metrics_config = dict(config or {})
     return calc
 

@@ -11,6 +11,7 @@ from polars.testing import assert_frame_equal, assert_series_equal
 from arena_evaluation.processing.metrics.base import Direction, MetricScope, ScopeSlice
 from arena_evaluation.processing.metrics.performance.path_metrics import SERIES_SCHEMA, PathMetricsCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 
@@ -35,7 +36,7 @@ def _episode(poses: list[tuple[float, float, float]], *, odom_dx: float = 0.0, e
 
 
 def _series(poses: list[tuple[float, float, float]], *, odom_dx: float = 0.0) -> pl.DataFrame:
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     return calculator.series_table(_episode(poses, odom_dx=odom_dx), run_id="run", robot_id="jackal_0")
 
 
@@ -79,7 +80,7 @@ def test_series_table_is_flat_with_one_row_per_resolved_sample():
 
 
 def test_curvature_lands_on_the_middle_sample_of_its_triple():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = _episode([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, math.pi / 2)])
 
     table = calculator.series_table(episode)
@@ -98,7 +99,7 @@ def test_curvature_lands_on_the_middle_sample_of_its_triple():
 
 
 def test_stationary_track_has_zero_length_and_no_curvature():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = _episode([(0.0, 0.0, 0.0)] * 4)
 
     results = calculator.calculate(episode, {})
@@ -113,7 +114,7 @@ def test_stationary_track_has_zero_length_and_no_curvature():
 
 
 def test_null_ground_truth_rows_are_dropped_before_the_geometry():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     data = pl.DataFrame(
         {
             "t_ns": pl.Series("t_ns", [0, SEC, 2 * SEC, 3 * SEC], dtype=pl.Int64),
@@ -142,7 +143,7 @@ def test_missing_ground_truth_yields_null_aggregates_and_an_empty_series():
             "yaw": pl.Series("yaw", [0.0, 0.0], dtype=pl.Float64),
         }
     )
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[])
 
     assert calculator.calculate(episode, {}) == dict.fromkeys(PathMetricsCalculator.output_keys())
@@ -150,7 +151,7 @@ def test_missing_ground_truth_yields_null_aggregates_and_an_empty_series():
 
 
 def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
 
     assert calculator.calculate(episode, {}) == dict.fromkeys(PathMetricsCalculator.output_keys())
@@ -158,7 +159,7 @@ def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
 
 
 def test_a_single_sample_has_no_step_and_no_curvature():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = _episode([(2.0, 3.0, 0.5)])
 
     table = calculator.series_table(episode)
@@ -173,7 +174,7 @@ def test_a_single_sample_has_no_step_and_no_curvature():
 
 
 def test_path_length_is_the_single_metric_on_an_encounter_or_robot_slice():
-    calculator = PathMetricsCalculator(RobotParams(robot_radius=0.2))
+    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = _episode([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)])
 
     for scope in (MetricScope.ENCOUNTER, MetricScope.ROBOT):

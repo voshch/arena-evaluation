@@ -3,6 +3,7 @@ import pytest
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 
 class _Calc(BaseMetricCalculator):
@@ -42,7 +43,7 @@ def test_map_transform_anchors_at_episode_start_not_segment_start():
             "yaw": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         }
     )
-    calc = _Calc(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    calc = _Calc(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(_episode(data, start_pos=[0.0, 0.0, 0.0]))
 
     assert pos_x[0] == pytest.approx(5.0)
@@ -59,7 +60,7 @@ def test_map_transform_identity_without_teleport():
             "yaw": [0.0, 0.0, 0.0],
         }
     )
-    calc = _Calc(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    calc = _Calc(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
     pos_x, pos_y, *_ = calc.resolve_robot_pose(_episode(data, start_pos=[1.0, 2.0, 0.0]))
 
     assert pos_x[0] == pytest.approx(1.0)

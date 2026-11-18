@@ -22,6 +22,7 @@ from arena_evaluation.processing.metrics.social.social_forces import (
 )
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
 RADIUS = 0.25
@@ -92,7 +93,7 @@ def _episode(
 
 @pytest.fixture
 def calc() -> SocialForcesCalculator:
-    return SocialForcesCalculator(RobotParams(robot_radius=RADIUS))
+    return SocialForcesCalculator(make_robot_params(robot_radius=RADIUS))
 
 
 def test_no_nested_series_column_is_an_output_key():
@@ -191,7 +192,7 @@ def test_force_at_contact_stays_finite(calc: SocialForcesCalculator):
 
 def test_force_is_clamped_for_a_large_footprint():
     """A wide robot at contact would blow up the exponential without the clamp."""
-    calc = SocialForcesCalculator(RobotParams(robot_radius=1.5))
+    calc = SocialForcesCalculator(make_robot_params(robot_radius=1.5))
     episode = _episode([0, SEC], [[0.0, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0])
     results = calc.calculate(episode, {})
     assert results["sfm_peak_force"] == pytest.approx(SFM_MAX_FORCE_N)

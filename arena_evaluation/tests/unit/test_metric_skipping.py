@@ -6,6 +6,7 @@ from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from robot_params_factory import make_robot_params
 
 
 def _robot_slice(episode: AlignedEpisodeBundle) -> ScopeSlice:
@@ -39,7 +40,7 @@ def _run_skipping(
 
 
 def test_registry_skipping_with_available_topics():
-    params = RobotParams(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
+    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
     registry = MetricRegistry(params)
 
     df_odom_only = pl.DataFrame(
@@ -73,7 +74,7 @@ def test_registry_skipping_with_available_topics():
 
 
 def test_registry_skipping_with_all_topics():
-    params = RobotParams(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
+    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
     registry = MetricRegistry(params)
 
     df_all = pl.DataFrame(
