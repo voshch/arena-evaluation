@@ -35,19 +35,20 @@ def calc() -> EnergyCalculator:
     return EnergyCalculator(make_robot_params(robot_radius=0.25, base_mass=MASS))
 
 
-def test_missing_power_and_battery_give_null_energy(calc):
-    results = calc.calculate(_episode(speed_mps=[0.1, 0.2, 0.3]), {})
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {"speed_mps": [0.1, 0.2, 0.3]},
+        {
+            "total_power_w": pl.Series([None, None, None], dtype=pl.Float64),
+            "battery_soc_percent": pl.Series([None, None, None], dtype=pl.Float64),
+        },
+    ],
+    ids=["missing-power-and-battery", "all-null-power"],
+)
+def test_missing_power_and_battery_give_null_energy(calc, columns) -> None:
+    results = calc.calculate(_episode(**columns), {})
     assert set(results) == set(calc.output_keys())
-    assert results["energy_total_wh"] is None
-    assert results["power_peak_w"] is None
-    assert results["battery_soc_final"] is None
-
-
-def test_all_null_power_gives_null_energy_and_peak(calc):
-    nulls = pl.Series([None, None, None], dtype=pl.Float64)
-    results = calc.calculate(
-        _episode(total_power_w=nulls, battery_soc_percent=nulls), {}
-    )
     assert results["energy_total_wh"] is None
     assert results["power_peak_w"] is None
     assert results["battery_soc_final"] is None
@@ -62,36 +63,24 @@ def test_leading_power_nulls_are_back_filled(calc):
     assert results["energy_static_wh"] is None
 
 
-def test_total_is_the_integral_of_power_not_the_mean_times_duration(calc):
-    results = calc.calculate(_episode(total_power_w=[0.0, 0.0, 7200.0]), {})
-    # 0, 0, then 7200 W over one-second steps is 7200 J, i.e. 2 Wh. Mean power times duration would give 1.33 Wh.
+@pytest.mark.parametrize(
+    ("power_w", "counter_wh"),
+    [
+        ([0.0, 0.0, 7200.0], None),
+        ([0.0, 3600.0, 3600.0], [1.0, 1.5, 2.25]),
+        ([0.0, 3600.0, 3600.0], [0.0, 1.0, 2.0]),
+    ],
+    ids=["integral-not-mean-times-duration", "disagreeing-counter", "consistent-counter"],
+)
+def test_total_is_the_integral_of_power(
+    calc, power_w: list[float], counter_wh: list[float] | None
+) -> None:
+    # The integral of the power series is the total; a device counter only cross-checks it.
+    columns: dict[str, object] = {"total_power_w": power_w}
+    if counter_wh is not None:
+        columns["total_energy_consumed_wh"] = counter_wh
+    results = calc.calculate(_episode(**columns), {})
     assert results["energy_total_wh"] == pytest.approx(2.0)
-    assert results["energy_total_wh"] == pytest.approx(2.0)
-
-
-def test_a_disagreeing_device_counter_does_not_change_the_total(calc):
-    results = calc.calculate(
-        _episode(
-            total_power_w=[0.0, 3600.0, 3600.0],
-            total_energy_consumed_wh=[1.0, 1.5, 2.25],
-        ),
-        {},
-    )
-    assert results["energy_total_wh"] == pytest.approx(2.0)
-
-
-def test_the_integral_agrees_with_a_consistent_device_counter(calc):
-    counter_wh = [0.0, 1.0, 2.0]
-    results = calc.calculate(
-        _episode(
-            total_power_w=[0.0, 3600.0, 3600.0], total_energy_consumed_wh=counter_wh
-        ),
-        {},
-    )
-    counter_difference_wh = (
-        counter_wh[-1] - counter_wh[0]
-    )  # cross-check only, never published
-    assert results["energy_total_wh"] == pytest.approx(counter_difference_wh)
 
 
 def test_mean_power_is_energy_over_the_episode_span(calc):
@@ -142,20 +131,26 @@ def test_negligible_path_length_is_rejected(calc):
     assert results["energy_per_meter"] is None
 
 
-def test_peak_to_mean_power_ratio_is_median_filtered(calc):
-    results = calc.calculate(_episode(total_power_w=[10.0, 10.0, 10.0, 30.0]), {})
-    # The median-filtered series [10, 10, 10, 20] has peak 20 over mean 12.5.
-    assert results["peak_to_mean_power_ratio"] == pytest.approx(20.0 / 12.5)
-
-
-def test_flat_power_gives_unit_peak_to_mean_ratio(calc):
-    results = calc.calculate(_episode(total_power_w=[12.0] * 5), {})
-    assert results["peak_to_mean_power_ratio"] == pytest.approx(1.0)
-
-
-def test_zero_power_leaves_the_peak_to_mean_ratio_undefined(calc):
-    results = calc.calculate(_episode(total_power_w=[0.0, 0.0, 0.0]), {})
-    assert results["peak_to_mean_power_ratio"] is None
+@pytest.mark.parametrize(
+    ("power_w", "expected"),
+    [
+        # The median-filtered series [10, 10, 10, 20] has peak 20 over mean 12.5.
+        ([10.0, 10.0, 10.0, 30.0], 20.0 / 12.5),
+        ([12.0] * 5, 1.0),
+        ([0.0, 0.0, 0.0], None),
+    ],
+    ids=["median-filtered", "flat-power", "zero-power"],
+)
+def test_peak_to_mean_power_ratio_is_median_filtered(
+    calc, power_w: list[float], expected: float | None
+) -> None:
+    ratio = calc.calculate(_episode(total_power_w=power_w), {})[
+        "peak_to_mean_power_ratio"
+    ]
+    if expected is None:
+        assert ratio is None
+    else:
+        assert ratio == pytest.approx(expected)
 
 
 def test_standstill_penalty_only_bills_stationary_samples(calc):
