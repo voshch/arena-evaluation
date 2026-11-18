@@ -40,8 +40,25 @@ RANDOM_ROBOTS = "random"
 RANDOM_OBSTACLES = "random"
 
 
-def _stage(name: str = "s1", *, episodes: int = 4, robot: str = "jackal", world: str = "map1", optim: dict | None = None) -> Suite.Stage:
-    return Suite.Stage(name=name, episodes=episodes, robot=robot, map=world, modes={"robots": RANDOM_ROBOTS, "obstacles": RANDOM_OBSTACLES}, config={}, seed=7, timeout=60.0, optim=optim)
+def _stage(
+    name: str = "s1",
+    *,
+    episodes: int = 4,
+    robot: str = "jackal",
+    world: str = "map1",
+    optim: dict | None = None,
+) -> Suite.Stage:
+    return Suite.Stage(
+        name=name,
+        episodes=episodes,
+        robot=robot,
+        map=world,
+        modes={"robots": RANDOM_ROBOTS, "obstacles": RANDOM_OBSTACLES},
+        config={},
+        seed=7,
+        timeout=60.0,
+        optim=optim,
+    )
 
 
 def _suite(*stages: Suite.Stage, references: bool = False) -> Suite:
@@ -49,11 +66,24 @@ def _suite(*stages: Suite.Stage, references: bool = False) -> Suite:
 
 
 def _contest(*names: str, args: dict | None = None) -> Contest:
-    return Contest(name="contest", description=None, contestants=[Contest.Contestant(name=n, args=args or {}) for n in names])
+    return Contest(
+        name="contest",
+        description=None,
+        contestants=[Contest.Contestant(name=n, args=args or {}) for n in names],
+    )
 
 
-def _step(contestant: str = "dwb", stage: Suite.Stage | None = None, args: dict | None = None, **kwargs: object) -> Step:
-    return Step(contestant=Contest.Contestant(name=contestant, args=args or {}), stage=stage or _stage(), **kwargs)
+def _step(
+    contestant: str = "dwb",
+    stage: Suite.Stage | None = None,
+    args: dict | None = None,
+    **kwargs: object,
+) -> Step:
+    return Step(
+        contestant=Contest.Contestant(name=contestant, args=args or {}),
+        stage=stage or _stage(),
+        **kwargs,
+    )
 
 
 def _result(key: str, status: str, kind: StepErrorKind | None = None) -> StepResult:
@@ -69,7 +99,13 @@ def test_launch_args_carry_stage_optim_overrides():
 
 
 def test_launch_args_drop_stage_owned_keys_from_cap_dicts(runner_log: list[str]):
-    step = _step(args={"robot": {"driver": "other"}, "task": {"robots": "scenario", "speed": 2, "unset": ""}, "mobile": {"driver": "nav2", "local_planner": "dwb"}})
+    step = _step(
+        args={
+            "robot": {"driver": "other"},
+            "task": {"robots": "scenario", "speed": 2, "unset": ""},
+            "mobile": {"driver": "nav2", "local_planner": "dwb"},
+        }
+    )
 
     args = build_launch_args(step, "gazebo")
 
@@ -83,17 +119,36 @@ def test_launch_args_drop_stage_owned_keys_from_cap_dicts(runner_log: list[str])
 
 
 def test_launch_args_forward_passthrough_except_runner_owned_and_stage_keys():
-    args = build_launch_args(_step(), "gazebo", passthrough={"headless": "true", "env.n": "4", "env_n": "4", "world": "other", "viz.view": "robot"})
+    args = build_launch_args(
+        _step(),
+        "gazebo",
+        passthrough={
+            "headless": "true",
+            "env.n": "4",
+            "env_n": "4",
+            "world": "other",
+            "viz.view": "robot",
+        },
+    )
 
     assert "viz.view:=robot" in args
     assert "world:=map1" in args
-    assert not any(a.startswith(("headless:=", "env.n:=", "env_n:=", "world:=other")) for a in args)
+    assert not any(
+        a.startswith(("headless:=", "env.n:=", "env_n:=", "world:=other")) for a in args
+    )
 
 
 def test_runtime_launch_args_start_a_suite_lockstep_stepping():
-    args = runtime_launch_args({"lockstep": "True", "headless": "True"}, {"sim": "flatsim"})
+    args = runtime_launch_args(
+        {"lockstep": "True", "headless": "True"}, {"sim": "flatsim"}
+    )
 
-    assert args == {"lockstep": "True", "headless": "True", "sim": "flatsim", "lockstep.paused": "false"}
+    assert args == {
+        "lockstep": "True",
+        "headless": "True",
+        "sim": "flatsim",
+        "lockstep.paused": "false",
+    }
 
 
 def test_runtime_launch_args_start_a_cli_lockstep_stepping():
@@ -101,15 +156,30 @@ def test_runtime_launch_args_start_a_cli_lockstep_stepping():
 
 
 def test_runtime_launch_args_keep_an_explicit_paused_lockstep():
-    assert runtime_launch_args({"lockstep": "True", "lockstep.paused": "True"}, {})["lockstep.paused"] == "True"
-    assert runtime_launch_args({"lockstep": "True"}, {"lockstep.paused": "true"})["lockstep.paused"] == "true"
+    assert (
+        runtime_launch_args({"lockstep": "True", "lockstep.paused": "True"}, {})[
+            "lockstep.paused"
+        ]
+        == "True"
+    )
+    assert (
+        runtime_launch_args({"lockstep": "True"}, {"lockstep.paused": "true"})[
+            "lockstep.paused"
+        ]
+        == "true"
+    )
 
 
 def test_runtime_launch_args_leave_runs_without_lockstep_alone():
-    assert runtime_launch_args({"headless": "True"}, {"lockstep": "false"}) == {"headless": "True", "lockstep": "false"}
+    assert runtime_launch_args({"headless": "True"}, {"lockstep": "false"}) == {
+        "headless": "True",
+        "lockstep": "false",
+    }
 
 
-def test_reference_grid_adds_an_unobstructed_run_per_cell_and_one_ped_run_per_stage(tmp_path: pathlib.Path):
+def test_reference_grid_adds_an_unobstructed_run_per_cell_and_one_ped_run_per_stage(
+    tmp_path: pathlib.Path,
+):
     suite = _suite(_stage("s1"), _stage("s2", episodes=3), references=True)
 
     steps = _all_steps_grid(suite, _contest("a", "b"), 2.0, tmp_path)
@@ -141,7 +211,9 @@ def test_grid_refuses_duplicate_stage_names(references: bool):
 def test_grid_refuses_a_contestant_that_collides_with_the_reference_name():
     suite = _suite(_stage("s1"), references=True)
 
-    with pytest.raises(ValueError, match="duplicate step key: 'a_unobstructed_robot/s1'"):
+    with pytest.raises(
+        ValueError, match="duplicate step key: 'a_unobstructed_robot/s1'"
+    ):
         _all_steps_grid(suite, _contest("a", "a_unobstructed_robot"), 1.0)
 
 
@@ -158,7 +230,9 @@ def test_all_steps_has_no_record_dir():
     assert [(s.key, s.episodes, s.record_dir) for s in steps] == [("a/s1", 3, None)]
 
 
-def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(tmp_path: pathlib.Path):
+def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(
+    tmp_path: pathlib.Path,
+):
     suite = _suite(*(_stage(f"s{i}") for i in range(5)))
     states = {
         "a/s0": _result("a/s0", "ok"),
@@ -169,25 +243,50 @@ def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(tmp_path:
     RunDir.create(tmp_path, "r", _manifest("0" * 40)).state.write(states)
     run_dir = RunDir.open(tmp_path, "r")
 
-    pending = build_pending(suite, _contest("a"), 1.0, run_dir, retry_failed=False, record_root=tmp_path / "r")
-    retried = build_pending(suite, _contest("a"), 1.0, run_dir, retry_failed=True, record_root=tmp_path / "r")
+    pending = build_pending(
+        suite,
+        _contest("a"),
+        1.0,
+        run_dir,
+        retry_failed=False,
+        record_root=tmp_path / "r",
+    )
+    retried = build_pending(
+        suite,
+        _contest("a"),
+        1.0,
+        run_dir,
+        retry_failed=True,
+        record_root=tmp_path / "r",
+    )
 
     assert [s.key for s in pending] == ["a/s2", "a/s3", "a/s4"]
     assert [s.key for s in retried] == ["a/s1", "a/s2", "a/s3", "a/s4"]
 
 
 def test_planner_identity_prefers_the_mobile_cap_planners():
-    assert resolve_planner_identity(Contest.Contestant(name="x", args={"mobile": {"local_planner": "dwb", "inter_planner": "spline"}})) == ("dwb", "spline")
-    assert resolve_planner_identity(Contest.Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})) == ("mppi", "none")
+    assert resolve_planner_identity(
+        Contest.Contestant(
+            name="x",
+            args={"mobile": {"local_planner": "dwb", "inter_planner": "spline"}},
+        )
+    ) == ("dwb", "spline")
+    assert resolve_planner_identity(
+        Contest.Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})
+    ) == ("mppi", "none")
 
 
 def test_planner_identity_falls_back_to_the_contestant_name():
     from arena_evaluation.storage.planner_names import split_planner_name
 
-    contestant = Contest.Contestant(name="teb-spline", args={"mobile": {"driver": "nav2"}})
+    contestant = Contest.Contestant(
+        name="teb-spline", args={"mobile": {"driver": "nav2"}}
+    )
 
     assert resolve_planner_identity(contestant) == split_planner_name("teb-spline")
-    assert resolve_planner_identity(Contest.Contestant(name="teb-spline", args={})) == split_planner_name("teb-spline")
+    assert resolve_planner_identity(
+        Contest.Contestant(name="teb-spline", args={})
+    ) == split_planner_name("teb-spline")
 
 
 def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
@@ -196,11 +295,43 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
         name="c",
         description=None,
         contestants=[
-            Contest.Contestant(name="good", args={"mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "default"}}),
-            Contest.Contestant(name="no_inter", args={"mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "none"}}),
-            Contest.Contestant(name="bad", args={"mobile": {"driver": "nav2", "local_planner": "nope_planner", "inter_planner": "nope_inter"}}),
-            Contest.Contestant(name="drl", args={"mobile": {"driver": "rosnav", "local_planner": "nope_planner"}}),
-            Contest.Contestant(name="flat", args={"mobile.local_planner": "nope_planner"}),
+            Contest.Contestant(
+                name="good",
+                args={
+                    "mobile": {
+                        "driver": "nav2",
+                        "local_planner": "dwb",
+                        "inter_planner": "default",
+                    }
+                },
+            ),
+            Contest.Contestant(
+                name="no_inter",
+                args={
+                    "mobile": {
+                        "driver": "nav2",
+                        "local_planner": "dwb",
+                        "inter_planner": "none",
+                    }
+                },
+            ),
+            Contest.Contestant(
+                name="bad",
+                args={
+                    "mobile": {
+                        "driver": "nav2",
+                        "local_planner": "nope_planner",
+                        "inter_planner": "nope_inter",
+                    }
+                },
+            ),
+            Contest.Contestant(
+                name="drl",
+                args={"mobile": {"driver": "rosnav", "local_planner": "nope_planner"}},
+            ),
+            Contest.Contestant(
+                name="flat", args={"mobile.local_planner": "nope_planner"}
+            ),
             Contest.Contestant(name="bare_nav2", args={"mobile": {"driver": "nav2"}}),
         ],
     )
@@ -217,12 +348,26 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
 def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
     jackal = _step("a", _stage("s1", robot="jackal", world="w1"))
     burger = _step("b", _stage("s2", robot="burger", world="w1"))
-    peds_jackal = _step("unhindered_peds", _stage("s1", robot="jackal", world="w1"), is_reference=True, reference_type="unhindered_peds")
-    peds_orphan = _step("unhindered_peds", _stage("s3", robot="jackal", world="w9"), is_reference=True, reference_type="unhindered_peds")
+    peds_jackal = _step(
+        "unhindered_peds",
+        _stage("s1", robot="jackal", world="w1"),
+        is_reference=True,
+        reference_type="unhindered_peds",
+    )
+    peds_orphan = _step(
+        "unhindered_peds",
+        _stage("s3", robot="jackal", world="w9"),
+        is_reference=True,
+        reference_type="unhindered_peds",
+    )
 
     groups = group_pending([jackal, burger, peds_jackal, peds_orphan], "gazebo")
 
-    assert [[s.key for s in g] for g in groups] == [["a/s1", "unhindered_peds/s1"], ["b/s2"], ["unhindered_peds/s3"]]
+    assert [[s.key for s in g] for g in groups] == [
+        ["a/s1", "unhindered_peds/s1"],
+        ["b/s2"],
+        ["unhindered_peds/s3"],
+    ]
 
 
 @pytest.mark.parametrize(
@@ -233,13 +378,30 @@ def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
         (0.5, ParameterType.PARAMETER_DOUBLE, "double_value", 0.5),
         ("x", ParameterType.PARAMETER_STRING, "string_value", "x"),
         ([], ParameterType.PARAMETER_STRING_ARRAY, "string_array_value", []),
-        ([True, False], ParameterType.PARAMETER_BOOL_ARRAY, "bool_array_value", [True, False]),
+        (
+            [True, False],
+            ParameterType.PARAMETER_BOOL_ARRAY,
+            "bool_array_value",
+            [True, False],
+        ),
         ([1, 2], ParameterType.PARAMETER_INTEGER_ARRAY, "integer_array_value", [1, 2]),
-        ([0.5, 1.5], ParameterType.PARAMETER_DOUBLE_ARRAY, "double_array_value", [0.5, 1.5]),
-        (["a", "b"], ParameterType.PARAMETER_STRING_ARRAY, "string_array_value", ["a", "b"]),
+        (
+            [0.5, 1.5],
+            ParameterType.PARAMETER_DOUBLE_ARRAY,
+            "double_array_value",
+            [0.5, 1.5],
+        ),
+        (
+            ["a", "b"],
+            ParameterType.PARAMETER_STRING_ARRAY,
+            "string_array_value",
+            ["a", "b"],
+        ),
     ],
 )
-def test_walk_dict_types_each_leaf(value: object, kind: int, field: str, expected: object):
+def test_walk_dict_types_each_leaf(
+    value: object, kind: int, field: str, expected: object
+):
     (param,) = _walk_dict({"leaf": value})
 
     assert param.name == "leaf"
@@ -256,7 +418,13 @@ def test_walk_dict_turns_float_ranges_into_double_pairs_and_keeps_sibling_keys()
     assert list(params[0].value.double_array_value) == [1.0, 2.5]
 
 
-@pytest.mark.parametrize(("value", "message"), [([1, "a"], "unsupported mixed list type for 'leaf'"), (None, "unsupported param type for 'leaf': NoneType")])
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ([1, "a"], "unsupported mixed list type for 'leaf'"),
+        (None, "unsupported param type for 'leaf': NoneType"),
+    ],
+)
 def test_walk_dict_rejects_values_without_a_parameter_type(value: object, message: str):
     with pytest.raises(TypeError, match=message):
         _walk_dict({"leaf": value})
@@ -309,8 +477,18 @@ def test_robot_without_an_assembly_is_judged_by_its_model_sensors():
     assert robot_has_depth_camera("ridgeback_plus") is False
 
 
-@pytest.mark.parametrize(("raw", "expected"), [("[{name: a}]", True), ("  {stages: []}", True), ("basic", False), ("basic.yaml", False)])
-def test_inline_configs_are_recognized_by_their_first_character(raw: str, expected: bool):
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("[{name: a}]", True),
+        ("  {stages: []}", True),
+        ("basic", False),
+        ("basic.yaml", False),
+    ],
+)
+def test_inline_configs_are_recognized_by_their_first_character(
+    raw: str, expected: bool
+):
     assert _is_inline_contest(raw) is expected
     assert _is_inline_suite(raw) is expected
 
@@ -323,19 +501,29 @@ def test_default_run_id_names_lane_and_config_stems():
 
 
 def test_default_run_id_without_lane():
-    assert _default_run_id("{stages: []}", "allplanners", None).endswith("-inline-allplanners")
+    assert _default_run_id("{stages: []}", "allplanners", None).endswith(
+        "-inline-allplanners"
+    )
 
 
 def test_named_suite_and_contest_resolve_to_shipped_files():
     suite_path, bundle_dir, provenance = _resolve_suite_source("basic.yaml")
     contest_path, contest_provenance = _resolve_contest_source("basic")
 
-    assert suite_path.name == "basic.yaml" and suite_path.parent.name == "suites"
-    assert bundle_dir is None
+    assert (
+        suite_path.name == "suite.yaml"
+        and suite_path.parent.name == "basic"
+        and suite_path.parents[1].name == "suites"
+    )
+    assert bundle_dir == suite_path.parent
     assert provenance["path"] == str(suite_path)
-    assert contest_path.parent.name == "contests"
+    assert (
+        contest_path.name == "contest.yaml"
+        and contest_path.parent.name == "basic"
+        and contest_path.parents[1].name == "contests"
+    )
     assert contest_provenance["path"] == str(contest_path)
-    assert _suite_bundle_dir("basic") is None
+    assert _suite_bundle_dir("basic") == suite_path.parent
 
 
 def test_inline_suite_has_no_bundle_dir():
@@ -343,14 +531,19 @@ def test_inline_suite_has_no_bundle_dir():
 
 
 def test_load_suite_contest_parses_inline_and_named_configs():
-    suite, contest, suite_dict, contest_dict, bundle_dir, suite_prov, contest_prov = _load_suite_contest("{stages: [{name: s, episodes: 1, robot: jackal, map: m, tm_robots: random, tm_obstacles: random}]}", "basic.yaml")
+    suite, contest, suite_dict, contest_dict, bundle_dir, suite_prov, contest_prov = (
+        _load_suite_contest(
+            "{stages: [{name: s, episodes: 1, robot: jackal, map: m, tm_robots: random, tm_obstacles: random}]}",
+            "basic.yaml",
+        )
+    )
 
     assert (suite.name, [s.name for s in suite.stages]) == ("inline", ["s"])
     assert suite_dict["stages"][0]["map"] == "m"
     assert (bundle_dir, suite_prov) == (None, None)
     assert contest.name == "basic"
     assert [c.name for c in contest.contestants] == [c["name"] for c in contest_dict]
-    assert contest_prov["path"].endswith("basic.yaml")
+    assert contest_prov["path"].endswith("contests/basic/contest.yaml")
 
 
 def test_load_suite_contest_parses_a_named_suite_and_an_inline_contest():
@@ -404,14 +597,25 @@ def test_shared_token_must_be_a_plain_file_name():
 
 @pytest.mark.skipif("ARENA_LANE" in os.environ, reason="needs a runner without a lane")
 def test_shared_run_needs_a_lane_name():
-    assert _shared_lane("tok", "r", None) == (None, "--shared needs ARENA_LANE set to this runner's lane name (e.g. ARENA_LANE=p1)")
+    assert _shared_lane("tok", "r", None) == (
+        None,
+        "--shared needs ARENA_LANE set to this runner's lane name (e.g. ARENA_LANE=p1)",
+    )
 
 
-@pytest.mark.skipif(not os.environ.get("ARENA_LANE"), reason="needs a runner inside a lane")
+@pytest.mark.skipif(
+    not os.environ.get("ARENA_LANE"), reason="needs a runner inside a lane"
+)
 def test_shared_run_needs_one_explicit_run_for_every_lane():
     lane = os.environ["ARENA_LANE"]
 
-    assert _shared_lane("tok", None, "__auto__") == (None, "--shared refuses bare --resume, pass --resume <run_id> so every lane opens the same run")
-    assert _shared_lane("tok", None, None) == (None, "--shared needs --run-id <id> for a fresh run or --resume <run_id>, shared by every lane")
+    assert _shared_lane("tok", None, "__auto__") == (
+        None,
+        "--shared refuses bare --resume, pass --resume <run_id> so every lane opens the same run",
+    )
+    assert _shared_lane("tok", None, None) == (
+        None,
+        "--shared needs --run-id <id> for a fresh run or --resume <run_id>, shared by every lane",
+    )
     assert _shared_lane("tok", "r", None) == (lane, None)
     assert _shared_lane("tok", None, "r") == (lane, None)

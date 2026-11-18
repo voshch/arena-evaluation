@@ -18,7 +18,12 @@ from arena_simulation_setup.tree import (
     SimplePathResolver,
 )
 
-from arena_evaluation.presentation.manifest_registry import share_dir, source_tree_dir
+from arena_evaluation.storage.config_layout import (
+    CONFIG_KINDS,
+    CONFIGS_DIR_NAME,
+    all_config_roots,
+    share_dir,
+)
 
 if typing.TYPE_CHECKING:
     from arena_evaluation.presentation.viz_manifest import VizManifest
@@ -30,17 +35,17 @@ _BENCH_TTL_S = 365 * 86400
 
 def _stem(asset_type: str) -> str:
     """`suites` -> `suite`: the filename a directory bundle stores its config under."""
-    return asset_type.removesuffix('s')
+    return asset_type.removesuffix("s")
 
 
 def _config_file(path: Path, asset_type: str) -> Path:
     """The yaml to read. A local resolver hands back the file itself, a bucket hands back
     the bundle directory holding it, and load() has to accept either."""
-    return path / f'{_stem(asset_type)}.yaml' if path.is_dir() else path
+    return path / f"{_stem(asset_type)}.yaml" if path.is_dir() else path
 
 
 class SuiteIdentifier(AssetIdentifier["Suite"]):
-    _asset_type = 'suites'
+    _asset_type = "suites"
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -52,11 +57,13 @@ class SuiteIdentifier(AssetIdentifier["Suite"]):
         del kwargs
         from .config import Suite
 
-        return Suite.parse(self.name, yaml.safe_load(_config_file(path, self._asset_type).read_text()))
+        return Suite.parse(
+            self.name, yaml.safe_load(_config_file(path, self._asset_type).read_text())
+        )
 
 
 class ContestIdentifier(AssetIdentifier["Contest"]):
-    _asset_type = 'contests'
+    _asset_type = "contests"
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -68,11 +75,13 @@ class ContestIdentifier(AssetIdentifier["Contest"]):
         del kwargs
         from .config import Contest
 
-        return Contest.parse(self.name, yaml.safe_load(_config_file(path, self._asset_type).read_text()))
+        return Contest.parse(
+            self.name, yaml.safe_load(_config_file(path, self._asset_type).read_text())
+        )
 
 
-class ManifestIdentifier(AssetIdentifier['VizManifest']):
-    _asset_type = 'manifests'
+class ManifestIdentifier(AssetIdentifier["VizManifest"]):
+    _asset_type = CONFIG_KINDS["report"].folder
 
     def __hash__(self) -> int:
         return hash(self.name)
@@ -88,18 +97,13 @@ class ManifestIdentifier(AssetIdentifier['VizManifest']):
 
 
 class ConfigPathResolver(SimplePathResolver):
-    """Flat `<name>.yaml` wins over the directory-bundle `<name>/<kind>.yaml`."""
+    """Resolves directory bundles ``<kind>s/<name>/<kind>.yaml`` only."""
 
     async def resolve(self, identifier: AssetIdentifier) -> Path | None:
         if identifier in self._cache:
             return self._cache[identifier]
         kind = _stem(self._asset_type)
-        stem = self.path / identifier.relpath()
-        flat = stem.with_suffix('.yaml')
-        if flat.is_file():
-            self._cache[identifier] = flat
-            return flat
-        bundled = stem / f'{kind}.yaml'
+        bundled = self.path / identifier.relpath() / f"{kind}.yaml"
         if bundled.is_file():
             self._cache[identifier] = bundled
             return bundled
@@ -112,9 +116,7 @@ class ConfigPathResolver(SimplePathResolver):
         if not source.is_dir():
             return
         for entry in sorted(source.iterdir()):
-            if entry.is_file() and entry.suffix == '.yaml':
-                yield self._IdentifierT(name=entry.stem)
-            elif entry.is_dir() and (entry / f'{kind}.yaml').is_file():
+            if entry.is_dir() and (entry / f"{kind}.yaml").is_file():
                 yield self._IdentifierT(name=entry.name)
 
     async def listall_async(self, **kwargs: object) -> list[AssetIdentifier]:
@@ -123,19 +125,25 @@ class ConfigPathResolver(SimplePathResolver):
 
 
 def _bench_dirs() -> Iterator[Path]:
-    """The imported assets root, then configs/benchmark under the package share dir, then the source-tree fallback."""
-    yield DynamicPaths.IMPORTED.path
-    for base in (share_dir(), source_tree_dir()):
-        if base is not None:
-            yield base / 'configs' / 'benchmark'
+    """The imported assets root, then source-tree configs, then installed share configs."""
+    yield from all_config_roots(DynamicPaths.IMPORTED.path)
 
 
 def _register(cls: type[AssetIdentifier]) -> None:
     cls.use(*(ConfigPathResolver(cls, d) for d in _bench_dirs()))
-    cls.use(*NetResolver.all(cls, providers=BENCHMARK_PROVIDERS, formats=(), ttl=_BENCH_TTL_S, annotated=False, list_prefix=cls._asset_type))
+    cls.use(
+        *NetResolver.all(
+            cls,
+            providers=BENCHMARK_PROVIDERS,
+            formats=(),
+            ttl=_BENCH_TTL_S,
+            annotated=False,
+            list_prefix=cls._asset_type,
+        )
+    )
     share = share_dir()
     if share is not None:
-        cls.use(FallbackResolver(cls, share / 'configs' / 'benchmark'))
+        cls.use(FallbackResolver(cls, share / CONFIGS_DIR_NAME))
 
 
 _register(SuiteIdentifier)

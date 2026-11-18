@@ -23,6 +23,7 @@ from arena_evaluation.storage.registry import (
     dimensions,
     registered_tables,
 )
+from arena_evaluation.storage.config_layout import run_evidence_dir
 from arena_evaluation.storage.registry.analysis import EvidenceIndex
 
 __all__ = [
@@ -178,7 +179,7 @@ class EvidenceStore:
 
     def __init__(self, benchmark_dir: pathlib.Path) -> None:
         self.benchmark_dir = pathlib.Path(benchmark_dir)
-        self.evidence_dir = self.benchmark_dir / "analysis" / "evidence"
+        self.evidence_dir = run_evidence_dir(self.benchmark_dir)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
 
     @property

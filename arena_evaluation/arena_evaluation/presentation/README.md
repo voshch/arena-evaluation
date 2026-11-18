@@ -1,6 +1,6 @@
-# presentation (Layer 5: Report and Plot Generation)
+# presentation (Layer 4: Report and Plot Generation)
 
-Reads processed metric data (Parquet) and produces interactive HTML reports, static PNG plots, and optional animated GIFs offline.
+Reads processed metric data (Parquet) and produces interactive HTML reports and static PNG/SVG plots offline.
 
 ---
 
@@ -10,11 +10,13 @@ Reads processed metric data (Parquet) and produces interactive HTML reports, sta
 |---|---|
 | `report_builder.py` | `ReportBuilder`: resolves manifests, loads data sources, renders `report.html` and `plots/` |
 | `manifest_registry.py` | Resolves report manifests by name, path, or inline YAML |
-| `viz_manifest.py` | `VizManifest` and `PlotSpec` models and default manifest loader |
+| `viz_manifest.py` | `VizManifest`, `PlotSpec`, `PlotDataSpec`, `PlotChannels`, `PlotSliceSpec` models |
+| `data_sources.py` | Declared Star Schema tables, canonical views, and series views |
+| `predicate.py` | AST-to-Polars compiler for `data.where` row predicates |
+| `resolver.py` | `DataResolver` for views, SQL queries, computations, evidence, and recipes |
 | `plotly_renderer.py` | Dispatches `PlotSpec` to interactive chart renderers |
-| `seaborn_renderer.py` | Dispatches `PlotSpec` to static PNG renderers |
+| `static_renderer.py` | Dispatches `PlotSpec` to static seaborn/Matplotlib PNG renderers |
 | `color_utils.py` | Accessibility color palette loader and global plotting styles |
-| `dimension_detector.py` | Auto-detects varying dimensions and builds compound labels |
 | `report_template.html.j2` | Jinja2 HTML template for reports |
 | `plot_types/` | Individual chart type implementations |
 
@@ -54,7 +56,7 @@ builder.build()
 
 ## Declarative Report Manifests
 
-Report layouts are defined in `configs/benchmark/manifests/*.yaml`:
+Report layouts are defined in `configs/reports/<name>/report.yaml`:
 
 | Manifest | Focus |
 |---|---|
@@ -68,10 +70,9 @@ Report layouts are defined in `configs/benchmark/manifests/*.yaml`:
 
 1. Inline YAML (starts with `{` or `[`).
 2. Explicit YAML file path.
-3. Named manifest in `configs/benchmark/manifests/<name>.yaml`.
-4. Legacy `benchmark_dir/viz_manifest.yaml`.
-5. `report_manifest.yaml` in benchmark directory.
-6. Default `standard`.
+3. Run-local bundle in `<run>/analysis/reports/<name>/report.yaml`.
+4. Named bundle via asset chain (`<imported>`, `<share>/configs/reports/<name>/report.yaml`, `<source>/configs/reports/<name>/report.yaml`).
+5. Default `standard` resolved through the same chain.
 
 ### Manifest Schema
 
@@ -79,14 +80,14 @@ Report layouts are defined in `configs/benchmark/manifests/*.yaml`:
 manifest_version: "1.0"
 name: characterization
 title: Open-Loop Characterization Report
-data_source: characterization_samples
+data_source: v_series_characterization
 groups:
   - {id: power_curves, title: Power vs. Velocity Curves}
 summary:
-  - {metric: mean_power_total_w, label: Mean Power, format: "{:.1f}"}
-summary_group_by: [phase_kind, robot]
+  - {metric: power_total_w, label: Mean Power, format: "{:.1f}"}
+summary_group_by: [phase_kind, robot_model]
 units:
-  p_total_w: W
+  power_total_w: W
   leq_af_dba: dBA
 plots: [ ... ]
 ```
@@ -96,16 +97,15 @@ plots: [ ... ]
 | Field | Type | Description |
 |---|---|---|
 | `id` | `str` | Unique plot identifier and PNG filename |
-| `type` | `str` | Plot type (`violin`, `box`, `bar`, `histogram`, `scatter`, `trajectory`, `radar`, `heatmap`, `timeseries`, `line`, `table`) |
+| `type` | `str` | Plot type (`violin`, `box`, `bar`, `histogram`, `scatter`, `trajectory`, `radar`, `heatmap`, `timeseries`, `line`, `table`, `hierarchy`) |
 | `title` | `str` | Plot title |
-| `data_key` | `str` | Column name in data source (or `"*"` for multi-metric plots) |
-| `group_by` | `str \| list[str]` | Grouping columns |
-| `differentiate` | `str` | Color differentiation column (default: `"planner"`) |
-| `auto_differentiate` | `bool` | Auto-detect varying dimensions and construct compound labels |
-| `filter` | `dict` | Row filter before plotting (e.g. `{"is_reference": false}`) |
+| `uses` | `str \| None` | Plot bundle name from `plots/<name>/plot.yaml` |
+| `data` | `PlotDataSpec \| None` | Binding (`source`, `query`, `stored_query`, `computation`, `params`, `evidence_id`, `where`) |
+| `channels` | `PlotChannels` | Visual channels (`x`, `y`, `color`, `facet_col`, `facet_row`, `size`, `symbol`, `split`, `hierarchy`) |
+| `slice` | `PlotSliceSpec \| None` | Entity or window slice (`scope`, `episode_id`, `encounter_id`, `contact_id`) |
 | `options` | `dict` | Renderer options |
-| `layout_group` | `str` | Report section identifier |
-| `data_source` | `str \| None` | Per-plot data source override |
+| `checks` | `dict` | Technical check expectations (`require_columns`) |
+| `layout_group` | `str \| None` | Report section identifier |
 
 ---
 
@@ -118,16 +118,17 @@ plots: [ ... ]
 - `timeseries`: Wide-format per-episode list columns vs time axis.
 - `line`: Long-format line charts with optional confidence bands (`error_y`).
 - `table`: Declarative HTML summary table.
-- `trajectory`: paths over the world map, broken at teleports (resets, elevator rides, stair crossings), with doors and elevator cabins drawn from the world. Options: `show_map`, `overlay_markers`, `overlay_pedestrians`, `overlay_theta_star`, `overlay_reference`, `overlay_mechanisms` (default on), `facet` (a column, one panel per value), `crop` (view limited to the tracks, default on with `facet`). With `--generate-gifs` the static plot is replayed on sim time: paths grow, pedestrians walk, doors and cabin doors follow the recorded `mechanism_states`, goal and collision marks appear when their episode ends. Doors animate only on a panel that holds one episode, so `facet: local_planner` compares planners.
+- `trajectory`: Robot or pedestrian paths rendered over `dim_world_geometry` (with optional `world` filter).
 - `radar`: Normalized multi-metric profile.
 - `heatmap`: Correlation matrix or pivot grid.
+- `hierarchy`: Treemap / sunburst hierarchical breakdown.
 
 ---
 
 ## Adding a Plot Type
 
 1. Create `plot_types/<mytype>.py`, subclass `BasePlotRenderer`, and define `PLOT_TYPE`.
-2. Implement `render_plotly(df)` and `render_seaborn(df, out_path)`.
-3. Register class in `plot_types/__init__.py`, `plotly_renderer.py`, and `seaborn_renderer.py`.
-4. Ensure renderers handle empty or missing columns safely.
+2. Implement `render_plotly(df, ...)` and `render_static(df, out_path, ...)`.
+3. Register the class in `plot_types/__init__.py` (`PLOT_RENDERERS`).
+4. Ensure renderers preserve nulls cleanly and handle empty or missing columns via `PlotChecks` / `DiagnosticInspector`.
 

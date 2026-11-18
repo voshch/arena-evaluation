@@ -17,14 +17,51 @@ from arena_evaluation.adapters import socnavbench
 from arena_evaluation.adapters.socnavbench import SocNavBenchSuite
 
 ARENA_CLI = Path(__file__).parents[3] / "_meta"
-NATIVE_STAGE_KEYS = {"name", "map", "robot", "tm_robots", "tm_obstacles", "episodes", "timeout", "config"}
+NATIVE_STAGE_KEYS = {
+    "name",
+    "map",
+    "robot",
+    "tm_robots",
+    "tm_obstacles",
+    "episodes",
+    "timeout",
+    "config",
+}
 REVISION = "2724ea85ff22ca61a88ee95285dfc3fa056656c6"
 SCENES = {"eth": "eth", "zara01": "zara", "zara02": "zara"}
 PLACEMENTS = {
-    "eth": ("eth/world_coordinate_inter_eth.csv", 15, [1.4, 14.4, 0], True, True, False),
-    "hotel": ("hotel/world_coordinate_inter_hotel.csv", 15, [12, 4.5, 0], True, False, False),
-    "zara01": ("zara01/world_coordinate_inter.csv", 25, [9.5, 3.0, 0], False, True, True),
-    "zara02": ("zara02/world_coordinate_inter.csv", 25, [9.5, 1.85, 0], False, True, True),
+    "eth": (
+        "eth/world_coordinate_inter_eth.csv",
+        15,
+        [1.4, 14.4, 0],
+        True,
+        True,
+        False,
+    ),
+    "hotel": (
+        "hotel/world_coordinate_inter_hotel.csv",
+        15,
+        [12, 4.5, 0],
+        True,
+        False,
+        False,
+    ),
+    "zara01": (
+        "zara01/world_coordinate_inter.csv",
+        25,
+        [9.5, 3.0, 0],
+        False,
+        True,
+        True,
+    ),
+    "zara02": (
+        "zara02/world_coordinate_inter.csv",
+        25,
+        [9.5, 1.85, 0],
+        False,
+        True,
+        True,
+    ),
     "univ": ("univ/world_coordinate_inter.csv", 15, [10, 6, 0], False, True, True),
 }
 EPISODES = [
@@ -48,7 +85,11 @@ EPISODES = [
     ("t_univ1", "univ", 0, [[8.0, 8.5, 0], [15, 1, -0.2]], 60),
     ("t_hotel_against", "hotel", 361, [[2, 5, 0], [15, 5, 0.2]], 60),
 ]
-STAGES = [(name, f"socnavbench_{SCENES[dataset]}", max_time) for name, dataset, _, _, max_time in EPISODES if dataset in SCENES]
+STAGES = [
+    (name, f"socnavbench_{SCENES[dataset]}", max_time)
+    for name, dataset, _, _, max_time in EPISODES
+    if dataset in SCENES
+]
 
 _RUNNER = """
 import json
@@ -143,7 +184,13 @@ def _ros_gate() -> None:
 
 
 def _subprocess(script: str, *args: str, **env: str) -> dict:
-    proc = subprocess.run([sys.executable, "-c", script, *args], capture_output=True, text=True, env={**os.environ, **env}, timeout=300)
+    proc = subprocess.run(
+        [sys.executable, "-c", script, *args],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **env},
+        timeout=300,
+    )
     assert proc.returncode == 0, proc.stderr[-3000:]
     return json.loads(proc.stdout.splitlines()[-1])
 
@@ -153,7 +200,14 @@ def write_sequence(path: Path, idents: list[int]) -> None:
     columns = []
     for order, ident in enumerate(idents):
         for step in range(101):
-            columns.append((10 * ident + step, ident, round(1.0 + order % 4, 4), round(0.08 * step if order % 2 else 8.0 - 0.08 * step, 4)))
+            columns.append(
+                (
+                    10 * ident + step,
+                    ident,
+                    round(1.0 + order % 4, 4),
+                    round(0.08 * step if order % 2 else 8.0 - 0.08 * step, 4),
+                )
+            )
     columns.sort()
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
@@ -163,13 +217,22 @@ def write_sequence(path: Path, idents: list[int]) -> None:
 def seed(cache: Path) -> Path:
     for dataset in SCENES:
         starts = sorted({start for _, used, start, _, _ in EPISODES if used == dataset})
-        write_sequence(cache / "agents" / "humans" / "datasets" / PLACEMENTS[dataset][0], [start + offset for start in starts for offset in (1, 2)])
+        write_sequence(
+            cache / "agents" / "humans" / "datasets" / PLACEMENTS[dataset][0],
+            [start + offset for start in starts for offset in (1, 2)],
+        )
     placements = ["[dataset_params]\n"]
     for name, (file, fps, offset, swapxy, flipxn, flipyn) in PLACEMENTS.items():
-        placements.append(f"[{name}] ; recommended map\nfile_name={file}\nfps={fps} ; framerate of data capture\nspawn_delay_s = 0\noffset={offset!r}\nswapxy={swapxy}\nflipxn={flipxn}\nflipyn={flipyn}\n")
-    episodes = ["[episodes_params]\ntests=['t_eth_dense_against']\n\nwithout_robot=False ; lite version without the robot\n"]
+        placements.append(
+            f"[{name}] ; recommended map\nfile_name={file}\nfps={fps} ; framerate of data capture\nspawn_delay_s = 0\noffset={offset!r}\nswapxy={swapxy}\nflipxn={flipxn}\nflipyn={flipyn}\n"
+        )
+    episodes = [
+        "[episodes_params]\ntests=['t_eth_dense_against']\n\nwithout_robot=False ; lite version without the robot\n"
+    ]
     for name, dataset, start, start_goal, max_time in EPISODES:
-        episodes.append(f'[{name}]\nmap_name=Synthetic\npedestrian_datasets=["{dataset}"]\ndatasets_start_t = [0]\nped_ranges=[({start}, -1)]\nagents_start=[]\nagents_end=[]\nrobot_start_goal={start_goal!r}\nmax_time={max_time}\nwrite_episode_log=True\n')
+        episodes.append(
+            f'[{name}]\nmap_name=Synthetic\npedestrian_datasets=["{dataset}"]\ndatasets_start_t = [0]\nped_ranges=[({start}, -1)]\nagents_start=[]\nagents_end=[]\nrobot_start_goal={start_goal!r}\nmax_time={max_time}\nwrite_episode_log=True\n'
+        )
     (cache / "params").mkdir(parents=True, exist_ok=True)
     (cache / "params" / "dataset_params.ini").write_text("\n".join(placements))
     (cache / "params" / "episode_params_val.ini").write_text("\n".join(episodes))
@@ -181,7 +244,10 @@ def assets(tmp_path_factory: pytest.TempPathFactory) -> Path:
     _ros_gate()
     root = tmp_path_factory.mktemp("assets")
     importer = SocNavBenchSuite(cache=seed(root / ".import" / "socnavbench"))
-    assert importer.import_item("socnavbench", root / "_imported") == root / "_imported" / "suites" / "socnavbench"
+    assert (
+        importer.import_item("socnavbench", root / "_imported")
+        == root / "_imported" / "suites" / "socnavbench"
+    )
     return root
 
 
@@ -196,7 +262,9 @@ def suite(out: Path) -> dict:
 
 
 def _files(root: Path) -> list[str]:
-    return sorted(f.relative_to(root).as_posix() for f in root.rglob("*") if f.is_file())
+    return sorted(
+        f.relative_to(root).as_posix() for f in root.rglob("*") if f.is_file()
+    )
 
 
 def test_registry_loads_this_class():
@@ -204,7 +272,10 @@ def test_registry_loads_this_class():
     assert IMPORTERS.load("suite", "socnavbench") is SocNavBenchSuite
     assert SocNavBenchSuite.meta.kind == "suite"
     assert list(SocNavBenchSuite(cache=Path("/nonexistent")).items()) == ["socnavbench"]
-    assert SocNavBenchSuite.default_provider().url("params/episode_params_val.ini") == f"https://raw.githubusercontent.com/CMU-TBD/SocNavBench/{REVISION}/params/episode_params_val.ini"
+    assert (
+        SocNavBenchSuite.default_provider().url("params/episode_params_val.ini")
+        == f"https://raw.githubusercontent.com/CMU-TBD/SocNavBench/{REVISION}/params/episode_params_val.ini"
+    )
 
 
 def test_module_import_leaves_task_generator_unloaded():
@@ -213,22 +284,52 @@ def test_module_import_leaves_task_generator_unloaded():
 
 def test_import_writes_the_bucket_bundle_layout_with_both_scene_worlds(out: Path):
     bundle = out / "suites" / "socnavbench"
-    assert sorted(path.name for path in bundle.iterdir()) == [ATTRIBUTION_FILE, "suite.yaml", "worlds"]
-    assert sorted(path.name for path in (bundle / "worlds").iterdir()) == ["socnavbench_eth", "socnavbench_zara"]
+    assert sorted(path.name for path in bundle.iterdir()) == [
+        ATTRIBUTION_FILE,
+        "suite.yaml",
+        "worlds",
+    ]
+    assert sorted(path.name for path in (bundle / "worlds").iterdir()) == [
+        "socnavbench_eth",
+        "socnavbench_zara",
+    ]
     for world in ("socnavbench_eth", "socnavbench_zara"):
-        assert sorted(path.name for path in (bundle / "worlds" / world).iterdir()) == [ATTRIBUTION_FILE, "map", "scenarios", "world.yaml"]
+        assert sorted(path.name for path in (bundle / "worlds" / world).iterdir()) == [
+            ATTRIBUTION_FILE,
+            "map",
+            "scenarios",
+            "world.yaml",
+        ]
         assert _files(bundle / "worlds" / world / "map") == ["0.png", "0.yaml"]
-        scenarios = sorted(name for name, stage_world, _ in STAGES if stage_world == world)
-        assert sorted(path.name for path in (bundle / "worlds" / world / "scenarios").iterdir()) == scenarios
+        scenarios = sorted(
+            name for name, stage_world, _ in STAGES if stage_world == world
+        )
+        assert (
+            sorted(
+                path.name
+                for path in (bundle / "worlds" / world / "scenarios").iterdir()
+            )
+            == scenarios
+        )
         for name in scenarios:
             files = _files(bundle / "worlds" / world / "scenarios" / name)
             assert {ATTRIBUTION_FILE, "scenario.yaml"} < set(files)
-            assert all(file in (ATTRIBUTION_FILE, "scenario.yaml") or re.fullmatch(r"ped_\d+\.csv", file) for file in files)
-    assert _files(out / "contests" / "socnavbench") == [ATTRIBUTION_FILE, "contest.yaml"]
-    assert _files(out / "manifests" / "socnavbench") == [ATTRIBUTION_FILE, "manifest.yaml"]
-    for kind in ("suites", "contests", "manifests"):
+            assert all(
+                file in (ATTRIBUTION_FILE, "scenario.yaml")
+                or re.fullmatch(r"ped_\d+\.csv", file)
+                for file in files
+            )
+    assert _files(out / "contests" / "socnavbench") == [
+        ATTRIBUTION_FILE,
+        "contest.yaml",
+    ]
+    assert _files(out / "reports" / "socnavbench") == [ATTRIBUTION_FILE, "report.yaml"]
+    for kind in ("suites", "contests", "reports"):
         attribution = read_attribution(out / kind / "socnavbench" / ATTRIBUTION_FILE)
-        assert attribution.license == "MIT for the episodes, unspecified for the ETH and UCY trajectories"
+        assert (
+            attribution.license
+            == "MIT for the episodes, unspecified for the ETH and UCY trajectories"
+        )
         assert "Silvera" in attribution.authors and "2103.00047" in attribution.citation
     scene = read_attribution(bundle / "worlds" / "socnavbench_zara" / ATTRIBUTION_FILE)
     assert REVISION in scene.url and "Lerner" in scene.authors
@@ -239,10 +340,16 @@ def test_suite_lists_the_seventeen_episodes_with_their_time_budgets(suite: dict)
     assert suite["launch"] == {"human": "replay"}
     assert suite["metrics"] == {"max_collisions": 1}
     assert len(suite["stages"]) == 17
-    assert [(stage["name"], stage["map"], stage["timeout"]) for stage in suite["stages"]] == [(name, world, f"{max_time}s") for name, world, max_time in STAGES]
+    assert [
+        (stage["name"], stage["map"], stage["timeout"]) for stage in suite["stages"]
+    ] == [(name, world, f"{max_time}s") for name, world, max_time in STAGES]
     assert {stage["timeout"] for stage in suite["stages"]} == {"20s", "50s", "60s"}
-    assert [stage["name"] for stage in suite["stages"] if stage["timeout"] != "60s"] == ["t_ETH1", "t_zara1_wrap"]
-    assert [stage["map"] for stage in suite["stages"]] == ["socnavbench_eth"] * 6 + ["socnavbench_zara"] * 11
+    assert [
+        stage["name"] for stage in suite["stages"] if stage["timeout"] != "60s"
+    ] == ["t_ETH1", "t_zara1_wrap"]
+    assert [stage["map"] for stage in suite["stages"]] == ["socnavbench_eth"] * 6 + [
+        "socnavbench_zara"
+    ] * 11
     for stage in suite["stages"]:
         assert set(stage) == NATIVE_STAGE_KEYS
     assert suite["stages"][0] == {
@@ -263,28 +370,65 @@ def test_bundled_scenario_holds_the_episode_start_and_goal(out: Path):
     from arena_simulation_setup.tree.World.Scenario import RobotGoal
     from arena_runtime.datasets.eth_ucy import SEQUENCES, in_meters
 
-    scenario = yaml.safe_load((out / "suites" / "socnavbench" / "worlds" / "socnavbench_eth" / "scenarios" / "t_eth_dense_against" / "scenario.yaml").read_text())
+    scenario = yaml.safe_load(
+        (
+            out
+            / "suites"
+            / "socnavbench"
+            / "worlds"
+            / "socnavbench_eth"
+            / "scenarios"
+            / "t_eth_dense_against"
+            / "scenario.yaml"
+        ).read_text()
+    )
     assert scenario.keys() == {"format", "humans", "robots"}
-    assert scenario["robots"] == [{"start": [13.4, 3.6, round(1.5 + math.pi / 2, 3)], "phases": [{"goto": [-1.1, 11.1, round(math.pi / 2, 3)]}]}]
+    assert scenario["robots"] == [
+        {
+            "start": [13.4, 3.6, round(1.5 + math.pi / 2, 3)],
+            "phases": [{"goto": [-1.1, 11.1, round(math.pi / 2, 3)]}],
+        }
+    ]
     assert [entry["name"] for entry in scenario["humans"]] == ["ped_251", "ped_252"]
     goal = RobotGoal.parse(scenario["robots"][0])
     (phase,) = goal.phase_list()
     assert isinstance(phase, GoToPhase)
     assert (goal.start.position.x, phase.pose.position.y) == pytest.approx((13.4, 11.1))
-    zara = yaml.safe_load((out / "suites" / "socnavbench" / "worlds" / "socnavbench_zara" / "scenarios" / "t_zara2_wrap" / "scenario.yaml").read_text())
-    x, y = in_meters(SEQUENCES["zara02"].to_meters, np.array([-10.5, 8.0]), np.array([-10.0, -5.0]))
+    zara = yaml.safe_load(
+        (
+            out
+            / "suites"
+            / "socnavbench"
+            / "worlds"
+            / "socnavbench_zara"
+            / "scenarios"
+            / "t_zara2_wrap"
+            / "scenario.yaml"
+        ).read_text()
+    )
+    x, y = in_meters(
+        SEQUENCES["zara02"].to_meters, np.array([-10.5, 8.0]), np.array([-10.0, -5.0])
+    )
     assert zara["robots"][0]["start"][:2] == pytest.approx([x[0], y[0]], abs=1e-3)
-    assert zara["robots"][0]["phases"][0]["goto"][:2] == pytest.approx([x[1], y[1]], abs=1e-3)
+    assert zara["robots"][0]["phases"][0]["goto"][:2] == pytest.approx(
+        [x[1], y[1]], abs=1e-3
+    )
 
 
 def test_contest_pins_the_goal_margin_and_keeps_the_episode_running(out: Path):
     from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
-    contest = yaml.safe_load((out / "contests" / "socnavbench" / "contest.yaml").read_text())
+    contest = yaml.safe_load(
+        (out / "contests" / "socnavbench" / "contest.yaml").read_text()
+    )
     assert contest == [
         {
             "name": "dwb",
-            "mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "navigate_w_replanning_time"},
+            "mobile": {
+                "driver": "nav2",
+                "local_planner": "dwb",
+                "inter_planner": "navigate_w_replanning_time",
+            },
             "task.episode.goto_pose.tolerance.radius": 0.3,
             "task.episode.goto_pose.tolerance.angle": "0.0",
         }
@@ -294,44 +438,73 @@ def test_contest_pins_the_goal_margin_and_keeps_the_episode_running(out: Path):
 
 def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
 
-    from arena_evaluation.benchmark.tree import ContestIdentifier, ManifestIdentifier, SuiteIdentifier
+    from arena_evaluation.benchmark.tree import (
+        ContestIdentifier,
+        ManifestIdentifier,
+        SuiteIdentifier,
+    )
 
     suite = SuiteIdentifier(name="socnavbench").load(out / "suites" / "socnavbench")
-    assert [(stage.name, stage.map, stage.timeout) for stage in suite.stages] == [(name, world, float(max_time)) for name, world, max_time in STAGES]
+    assert [(stage.name, stage.map, stage.timeout) for stage in suite.stages] == [
+        (name, world, float(max_time)) for name, world, max_time in STAGES
+    ]
     assert len(suite.stages) == 17
-    assert {tuple(stage.modes.items()) for stage in suite.stages} == {(("robots", "scenario"), ("obstacles", "scenario"))}
+    assert {tuple(stage.modes.items()) for stage in suite.stages} == {
+        (("robots", "scenario"), ("obstacles", "scenario"))
+    }
     assert {stage.robot for stage in suite.stages} == {"jackal"}
     assert {stage.episodes for stage in suite.stages} == {1}
     assert suite.launch_args == {"human": "replay"}
     assert suite.metrics == {"max_collisions": 1}
     assert suite.references is False
 
-    contest = ContestIdentifier(name="socnavbench").load(out / "contests" / "socnavbench")
+    contest = ContestIdentifier(name="socnavbench").load(
+        out / "contests" / "socnavbench"
+    )
     assert [contestant.name for contestant in contest.contestants] == ["dwb"]
     assert contest.contestants[0].args["mobile"]["driver"] == "nav2"
 
-    manifest = ManifestIdentifier(name="socnavbench").load(out / "manifests" / "socnavbench")
+    manifest = ManifestIdentifier(name="socnavbench").load(
+        out / "reports" / "socnavbench"
+    )
     assert manifest.name == "socnavbench"
-    assert manifest.data_source == "metrics"
+    assert manifest.data_source == "v_episode_summary"
     assert manifest.summary_group_by == ["planner"]
-    assert [column.metric for column in manifest.summary] == ["success", "collision_amount", "time_to_goal"]
-    assert {plot.layout_group for plot in manifest.plots} == {group.id for group in manifest.groups}
+    assert [column.metric for column in manifest.summary] == [
+        "success",
+        "collision_amount",
+        "time_to_goal",
+    ]
+    assert {plot.layout_group for plot in manifest.plots} == {
+        group.id for group in manifest.groups
+    }
     (per_episode,) = manifest.plots
     assert per_episode.type == "table"
-    assert per_episode.options["group_by"] == ["planner", "stage"]
-    assert [column["metric"] for column in per_episode.options["columns"]] == ["success", "collision_amount", "time_to_goal"]
-    text = (out / "manifests" / "socnavbench" / "manifest.yaml").read_text()
+    assert per_episode.data.params["group_cols"] == ["planner", "stage"]
+    assert per_episode.data.params["metrics"] == [
+        "success",
+        "collision_amount",
+        "time_to_goal",
+    ]
+    text = (out / "reports" / "socnavbench" / "report.yaml").read_text()
     assert yaml.safe_load(text) == socnavbench.MANIFEST
     assert "&id" not in text
 
 
-def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, out: Path, tmp_path: Path):
+def test_runner_loads_the_import_through_the_registered_resolvers(
+    assets: Path, out: Path, tmp_path: Path
+):
     from arena_runtime.env.constants.runtime import EPISODE_PARAMS
 
     from arena_evaluation.processing.pipeline import _suite_metrics
 
-    seen = _subprocess(_RUNNER, ARENA_ASSETS_DIR=str(assets), ARENA_ASSETS_DIR_IMPORTED=str(out))
-    assert all("ConfigPathResolver" in resolver and str(out) in resolver for resolver in seen["resolvers"])
+    seen = _subprocess(
+        _RUNNER, ARENA_ASSETS_DIR=str(assets), ARENA_ASSETS_DIR_IMPORTED=str(out)
+    )
+    assert all(
+        "ConfigPathResolver" in resolver and str(out) in resolver
+        for resolver in seen["resolvers"]
+    )
     assert seen["verdicts"] == ["HIT", "HIT"]
     assert seen["bundle_dir"] == str(out / "suites" / "socnavbench")
     assert seen["keys"] == [f"dwb/{name}" for name, _, _ in STAGES]
@@ -348,7 +521,11 @@ def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, 
     assert launch["robot.mobile"] == "nav2"
     assert launch["robot.mobile.local_planner"] == "dwb"
     assert launch["robot.mobile.inter_planner"] == "navigate_w_replanning_time"
-    episode = {key: yaml.safe_load(value) for key, value in launch.items() if key in EPISODE_PARAMS}
+    episode = {
+        key: yaml.safe_load(value)
+        for key, value in launch.items()
+        if key in EPISODE_PARAMS
+    }
     assert episode == {
         "task.episode.auto_reset": False,
         "task.episode.goto_pose.tolerance.radius": 0.3,
@@ -364,7 +541,9 @@ def test_runner_loads_the_import_through_the_registered_resolvers(assets: Path, 
     assert _suite_metrics(episode_dir, tmp_path) == {"max_collisions": 1}
 
 
-def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path, out: Path, tmp_path: Path):
+def test_report_renders_the_metrics_per_contestant_and_per_episode(
+    assets: Path, out: Path, tmp_path: Path
+):
     import polars as pl
 
     run = tmp_path / "20261007-000000-socnavbench-socnavbench"
@@ -372,7 +551,12 @@ def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path,
     pl.DataFrame(
         {
             "planner": ["dwb", "dwb", "teb", "teb"],
-            "map": ["socnavbench_eth", "socnavbench_zara", "socnavbench_eth", "socnavbench_zara"],
+            "map": [
+                "socnavbench_eth",
+                "socnavbench_zara",
+                "socnavbench_eth",
+                "socnavbench_zara",
+            ],
             "stage": ["t_ETH1", "t_zara2", "t_ETH1", "t_zara2"],
             "episode": [0, 1, 2, 3],
             "success": [True, True, False, True],
@@ -381,15 +565,22 @@ def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path,
         }
     ).write_parquet(run / "combined_metrics.parquet")
 
-    seen = _subprocess(_REPORT, str(run), ARENA_ASSETS_DIR=str(assets), ARENA_ASSETS_DIR_IMPORTED=str(out))
+    seen = _subprocess(
+        _REPORT,
+        str(run),
+        ARENA_ASSETS_DIR=str(assets),
+        ARENA_ASSETS_DIR_IMPORTED=str(out),
+    )
     assert seen["name"] == "socnavbench"
-    assert seen["file"] == str(out / "manifests" / "socnavbench" / "manifest.yaml")
+    assert seen["file"] == str(out / "reports" / "socnavbench" / "report.yaml")
     assert {"socnavbench", "standard"} <= set(seen["available"])
-    assert yaml.safe_load((run / "report_manifest.yaml").read_text())["name"] == "socnavbench"
 
-    content = (run / "report.html").read_text()
+    content = (run / "reports" / "socnavbench" / "report.html").read_text()
     assert "SocNavBench Report" in content
-    rows = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)]
+    rows = [
+        re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)
+        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)
+    ]
     assert ["planner", "Success", "Collisions", "Time to Goal (s)"] in rows
     assert ["dwb", "100%", "0.00", "20.60"] in rows
     assert ["teb", "50%", "0.50", "30.60"] in rows
@@ -400,12 +591,16 @@ def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path,
     assert ["teb", "t_zara2", "100%", "0.00", "41.20"] in rows
 
 
-def test_runtime_resolves_a_bundled_world_and_scenario_from_the_exported_world_path(out: Path):
+def test_runtime_resolves_a_bundled_world_and_scenario_from_the_exported_world_path(
+    out: Path,
+):
     worlds = out / "suites" / "socnavbench" / "worlds"
     seen = _subprocess(_RUNTIME, ARENA_WORLD_PATH=str(worlds))
     assert seen["path"] == str(worlds / "socnavbench_eth")
     assert seen["levels"] == ["0"]
-    assert seen["scenarios"] == sorted(name for name, world, _ in STAGES if world == "socnavbench_eth")
+    assert seen["scenarios"] == sorted(
+        name for name, world, _ in STAGES if world == "socnavbench_eth"
+    )
     assert seen["start"] == pytest.approx([13.4, 3.6])
     assert seen["goal"] == pytest.approx([-1.1, 11.1])
     assert seen["pedestrians"] == ["ped_251", "ped_252"]
@@ -416,7 +611,12 @@ def test_push_preflight_finds_no_dangling_world(assets: Path, out: Path):
     if not (ARENA_CLI / "arena_cli" / "asset.py").is_file():
         pytest.skip("arena_cli is not checked out beside this package")
     path = os.pathsep.join(filter(None, [str(ARENA_CLI), os.environ.get("PYTHONPATH")]))
-    seen = _subprocess(_PUSH, ARENA_ASSETS_DIR=str(assets), ARENA_ASSETS_DIR_IMPORTED=str(out), PYTHONPATH=path)
+    seen = _subprocess(
+        _PUSH,
+        ARENA_ASSETS_DIR=str(assets),
+        ARENA_ASSETS_DIR_IMPORTED=str(out),
+        PYTHONPATH=path,
+    )
     assert seen == {"source": str(out / "suites" / "socnavbench"), "dangling": []}
 
 
@@ -425,37 +625,87 @@ def test_convert_replaces_a_previous_bundle(tmp_path: Path):
     cache = seed(tmp_path / "cache")
     stale = tmp_path / "out" / "suites" / "socnavbench" / "worlds" / "socnavbench_hotel"
     stale.mkdir(parents=True)
-    assert SocNavBenchSuite(cache=tmp_path / "elsewhere").convert("socnavbench", cache, tmp_path / "out") == "suites/socnavbench"
+    assert (
+        SocNavBenchSuite(cache=tmp_path / "elsewhere").convert(
+            "socnavbench", cache, tmp_path / "out"
+        )
+        == "suites/socnavbench"
+    )
     assert not stale.exists()
-    assert (tmp_path / "out" / "suites" / "socnavbench" / "worlds" / "socnavbench_eth" / "world.yaml").is_file()
+    assert (
+        tmp_path
+        / "out"
+        / "suites"
+        / "socnavbench"
+        / "worlds"
+        / "socnavbench_eth"
+        / "world.yaml"
+    ).is_file()
     assert not (tmp_path / "elsewhere").exists()
 
 
 def test_unknown_item_is_refused(tmp_path: Path):
     _ros_gate()
     importer = SocNavBenchSuite(cache=tmp_path / "cache")
-    for call in (importer.fetch, importer.attribution, lambda item: importer.convert(item, tmp_path / "cache", tmp_path / "out")):
+    for call in (
+        importer.fetch,
+        importer.attribution,
+        lambda item: importer.convert(item, tmp_path / "cache", tmp_path / "out"),
+    ):
         with pytest.raises(KeyError, match="the only item is 'socnavbench'"):
             call("t_ETH1")
     assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.network
-def test_live_import_lists_the_seventeen_episodes_with_the_upstream_time_budgets(tmp_path: Path):
+def test_live_import_lists_the_seventeen_episodes_with_the_upstream_time_budgets(
+    tmp_path: Path,
+):
     _ros_gate()
     from arena_evaluation.benchmark.tree import SuiteIdentifier
 
     importer = SocNavBenchSuite(cache=tmp_path / "cache")
     bundle = importer.import_item("socnavbench", tmp_path / "out")
     suite = SuiteIdentifier(name="socnavbench").load(bundle)
-    assert [(stage.name, stage.map, stage.timeout) for stage in suite.stages] == [(name, world, float(max_time)) for name, world, max_time in STAGES]
+    assert [(stage.name, stage.map, stage.timeout) for stage in suite.stages] == [
+        (name, world, float(max_time)) for name, world, max_time in STAGES
+    ]
     for stage in suite.stages:
-        scenario = yaml.safe_load((bundle / "worlds" / stage.map / "scenarios" / stage.name / "scenario.yaml").read_text())
-        assert len(scenario["robots"]) == 1 and len(scenario["humans"]) >= 14, stage.name
-    eth = yaml.safe_load((bundle / "worlds" / "socnavbench_eth" / "scenarios" / "t_eth_dense_against" / "scenario.yaml").read_text())
+        scenario = yaml.safe_load(
+            (
+                bundle
+                / "worlds"
+                / stage.map
+                / "scenarios"
+                / stage.name
+                / "scenario.yaml"
+            ).read_text()
+        )
+        assert len(scenario["robots"]) == 1 and len(scenario["humans"]) >= 14, (
+            stage.name
+        )
+    eth = yaml.safe_load(
+        (
+            bundle
+            / "worlds"
+            / "socnavbench_eth"
+            / "scenarios"
+            / "t_eth_dense_against"
+            / "scenario.yaml"
+        ).read_text()
+    )
     assert len(eth["humans"]) == 66
-    assert eth["robots"][0] == {"start": [13.4, 3.6, 3.071], "phases": [{"goto": [-1.1, 11.1, 1.571]}]}
-    defaults = importer.provider.get("params/.default_params.ini", tmp_path / "default_params.ini").read_text()
-    assert re.search(r"^goal_margin=([0-9.]+)", defaults, re.M).group(1) == str(socnavbench.GOAL_MARGIN_M)
-    user = importer.provider.get("params/user_params.ini", tmp_path / "user_params.ini").read_text()
+    assert eth["robots"][0] == {
+        "start": [13.4, 3.6, 3.071],
+        "phases": [{"goto": [-1.1, 11.1, 1.571]}],
+    }
+    defaults = importer.provider.get(
+        "params/.default_params.ini", tmp_path / "default_params.ini"
+    ).read_text()
+    assert re.search(r"^goal_margin=([0-9.]+)", defaults, re.M).group(1) == str(
+        socnavbench.GOAL_MARGIN_M
+    )
+    user = importer.provider.get(
+        "params/user_params.ini", tmp_path / "user_params.ini"
+    ).read_text()
     assert re.search(r"^keep_episode_running=(\w+)", user, re.M).group(1) == "True"

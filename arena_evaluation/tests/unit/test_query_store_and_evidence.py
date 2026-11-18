@@ -238,13 +238,14 @@ def test_sql_engine_has_no_default_row_cap() -> None:
 def test_query_catalog_surfaces_malformed_yaml_and_validates_save(
     tmp_path: pathlib.Path,
 ) -> None:
-    bad_dir = tmp_path / "queries"
-    bad_dir.mkdir()
-    (bad_dir / "broken.yaml").write_text("name: broken\n", encoding="utf-8")
+    bad_root = tmp_path / "bad_root"
+    bad_bundle = bad_root / "queries" / "broken"
+    bad_bundle.mkdir(parents=True)
+    (bad_bundle / "query.yaml").write_text("name: broken\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Invalid query declaration"):
-        QueryCatalog([bad_dir])
+        QueryCatalog([bad_root])
 
-    good_dir = tmp_path / "good_queries"
+    good_dir = tmp_path / "good_root"
     catalog = QueryCatalog([good_dir])
     with pytest.raises(SQLGuardError):
         catalog.save_query(
@@ -265,9 +266,9 @@ def test_query_catalog_surfaces_malformed_yaml_and_validates_save(
 
 
 def test_query_catalog_searches_run_dir_before_package(tmp_path: pathlib.Path) -> None:
-    run_queries = tmp_path / "analysis" / "queries"
+    run_queries = tmp_path / "analysis" / "queries" / "robot_speed_distribution"
     run_queries.mkdir(parents=True)
-    (run_queries / "robot_speed_distribution.yaml").write_text(
+    (run_queries / "query.yaml").write_text(
         "name: robot_speed_distribution\ndescription: override\nsql: SELECT 42 AS override_val\n",
         encoding="utf-8",
     )

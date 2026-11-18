@@ -284,8 +284,9 @@ def generate(
 
     suite = {"stages": stages}
     suite_path = suite_path or (
-        _ROOT.parents[1] / "configs" / "benchmark" / "suites" / "beckon_service.yaml"
+        _ROOT.parents[1] / "configs" / "suites" / "beckon_service" / "suite.yaml"
     )
+    suite_path.parent.mkdir(parents=True, exist_ok=True)
 
     header = (
         "# Study B, a pedestrian calls a patrolling robot for help (EVALUATION.md B).\n"

@@ -34,18 +34,19 @@ carries none from `arena_robots.characterization`, the module the
 |  MCAPReader -> native tables (topics/*.parquet) -> dimension rows   |
 |  -> dim_*.parquet at the benchmark root, once per benchmark.        |
 |  Each episode is read once; telemetry keeps its native timestamps.  |
-|  Layer 2 metric calculators and their report return with PR2, PR4.  |
+|  Layer 2 metric calculators populate fact tables and series parquet.   |
 |  Output: topics/*.parquet per episode, dim_*.parquet per benchmark  |
 +-------------------------+-------------------------------------------+
                          | Parquet files
                          v
 +---------------------------------------------------------------------+
-|  Layer 5 - Presentation  (presentation/)                            |
-|  ReportBuilder reads parquet selected by a declarative manifest     |
-|  (configs/benchmark/manifests/*.yaml) and generates HTML reports,   |
-|  static PNG plots, and optional GIFs.                               |
-|  Output: report.html + plots/*.png (+ plots/*.gif)                  |
-+-------------------------+-------------------------------------------+
+|  Layer 4 - Presentation  (presentation/)                            |
+|  ReportBuilder reads a single-grammar report.yaml,                  |
+|  resolves plot data per BenchmarkCatalog via DataResolver (views,   |
+|  SQL queries, or analytics computations), checks PlotDiagnostics    |
+|  via DiagnosticInspector, and renders HTML + static PNG/SVG plots.  |
+|  Output: reports/<name>/report.html + plots/*.png (+ plotly.min.js) |
++---------------------------------------------------------------------+
 ```
 
 **Layer 3 — Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, and `v_series_*`). Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
@@ -82,21 +83,20 @@ arena_evaluation/
 |   |   |-- dimension_rows.py  <- The dimension rows of one episode
 |   |   |-- map_registry.py    <- The map image of a world, resolved and cached
 |   |   |-- pipeline.py        <- ProcessingPipeline: extracts, then writes the benchmark's dimensions
-|   |   |-- metrics/           <- Metric calculators (layer 2, returns with PR2)
+|   |   |-- metrics/           <- Metric calculators (layer 2)
 |   |   |-- acoustics/         <- Acoustic propagation solver and door geometry (layer 2)
 |   |   |-- path/              <- Reference path solver (layer 2)
 |   |   `-- pose_segments.py   <- Teleport detection (layer 2)
 |   |-- analytics/             <- Layer 3: BenchmarkCatalog, canonical views, guarded SQL, query store
-|   |-- presentation/          <- Layer 5: Report and plot generation
+|   |-- presentation/          <- Layer 4: Report and plot generation
 |   |   |-- report_builder.py  <- Generates report.html and plots
 |   |   |-- manifest_registry.py <- Resolves report manifests
 |   |   |-- viz_manifest.py    <- VizManifest model and default loader
 |   |   |-- plotly_renderer.py <- Interactive HTML chart dispatcher
-|   |   |-- seaborn_renderer.py<- Static PNG chart dispatcher
+|   |   |-- static_renderer.py <- Static PNG/SVG chart dispatcher
 |   |   |-- color_utils.py     <- Palette loader and styling
-|   |   |-- dimension_detector.py <- Auto-detects varying dimensions for compound labels
 |   |   |-- report_template.html.j2 <- Jinja2 report template
-|   |   `-- plot_types/        <- violin, box, bar, histogram, scatter, trajectory, radar, heatmap, timeseries, line
+|   |   `-- plot_types/        <- violin, box, bar, histogram, scatter, trajectory, radar, heatmap, timeseries, line, hierarchy, ecdf, pair
 |   |-- benchmark/             <- Benchmark runner and CLI
 |   |   |-- runner.py          <- BenchmarkRunner
 |   |   |-- config.py          <- Suite and Contest parsers
@@ -112,11 +112,12 @@ arena_evaluation/
 |   |-- data_recorder_config.yaml  <- Topic throttle frequencies
 |   |-- mcap_writer_options.yaml   <- MCAP writer tuning
 |   `-- color_palette.yaml         <- Color palette
-|-- configs/declarations/query_declarations/ <- Named read-only SQL query declarations
-|-- configs/benchmark/
-|   |-- suites/                <- Suite definitions
-|   |-- contests/              <- Contest definitions
-|   `-- manifests/             <- Report manifests (standard, ecological, social, safety, characterization)
+|-- configs/
+|   |-- suites/<name>/suite.yaml     <- Suite definitions
+|   |-- contests/<name>/contest.yaml <- Contest definitions
+|   |-- reports/<name>/report.yaml   <- Report manifests (standard, ecological, social, safety, characterization, failure_modes, everything)
+|   |-- plots/<name>/plot.yaml       <- Reusable plot declarations (`uses: <name>`)
+|   `-- queries/<name>/query.yaml    <- Stored SQL queries (`stored_query: <name>`)
 `-- tests/
     |-- unit/                  <- Unit tests (no ROS required)
     |-- integration/           <- Integration tests
@@ -169,7 +170,7 @@ See the Migration section of [ingestion/README.md](arena_evaluation/ingestion/RE
 
 ### Report manifests (returns with PR4)
 
-Report layouts are declarative YAML files in `configs/benchmark/manifests/`. Built-in manifests: `standard`, `ecological`, `social`, `safety`, `characterization`.
+Report layouts are declarative YAML bundles in `configs/reports/<name>/report.yaml`. Built-in manifests: `standard`, `ecological`, `social`, `safety`, `characterization`, `failure_modes`, `everything`.
 
 ```bash
 arena evaluation run --list-manifests
@@ -242,6 +243,6 @@ pytest tests/ -v
 - [presentation/README.md](arena_evaluation/presentation/README.md): declarative manifests, plot types
 - [storage/README.md](arena_evaluation/storage/README.md): registry, dimensions and contracts, paths, metadata
 - [benchmark/README.md](arena_evaluation/benchmark/README.md): runner, state, CLI, profiler
-- [configs/benchmark/README.md](configs/benchmark/README.md): suites, contests, characterization
+- [configs/README.md](configs/README.md): suites, contests, reports, plots, queries
 - [arena_evaluation_msgs/README.md](../arena_evaluation_msgs/README.md): ROS 2 message and service definitions
 

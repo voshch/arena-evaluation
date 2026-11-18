@@ -1,56 +1,59 @@
+"""Unit tests for HeatmapRenderer on pre-computed long and wide matrices."""
+
+from __future__ import annotations
+
+import pathlib
+
 import polars as pl
-from arena_evaluation.storage.schemas import PlotSpec
+
 from arena_evaluation.presentation.plot_types.heatmap import HeatmapRenderer
+from arena_evaluation.presentation.viz_manifest import PlotChannels, PlotSpec
 
 
-def test_heatmap_correlation():
+def test_heatmap_long_form_preserves_null_cells(tmp_path: pathlib.Path) -> None:
+    spec = PlotSpec(
+        id="hm_long",
+        type="heatmap",
+        data={"computation": "group_summary"},
+        channels=PlotChannels(x="world", y="planner", color="mean"),
+    )
     df = pl.DataFrame(
         {
-            "success": [1.0, 0.5, 0.8],
-            "time_to_goal": [15.0, 20.0, 18.0],
-            "path_length": [10.0, 12.0, 11.0],
-            "collision_amount": [0.0, 1.0, 0.0],
+            "world": ["w1", "w2", "w1", "w2"],
+            "planner": ["dwb", "dwb", "teb", "teb"],
+            "mean": [0.9, None, 0.8, 0.95],
         }
     )
-
-    spec = PlotSpec(
-        id="correlation_matrix",
-        type="heatmap",
-        title="Metrics Correlation Matrix",
-        data_key="*",
-        layout_group="overview",
-    )
-
     renderer = HeatmapRenderer(spec)
-
-    # This should return the plotly HTML string without raising any AttributeErrors
     html = renderer.render_plotly(df)
-    assert html is not None
-    assert "Correlation" in html
+    assert isinstance(html, str)
+    assert "dwb" in html
+
+    out = tmp_path / "hm_long.png"
+    renderer.render_static(df, out)
+    assert out.exists() and out.stat().st_size > 1000
 
 
-def test_heatmap_seaborn(tmp_path):
-    import pathlib
-
+def test_heatmap_wide_correlation_matrix(tmp_path: pathlib.Path) -> None:
+    spec = PlotSpec(
+        id="hm_corr",
+        type="heatmap",
+        data={"computation": "correlation_matrix"},
+        channels=PlotChannels(x="metric_x", y="metric_y", color="pearson_r"),
+    )
+    # differs from overhaul/source:plot_types/heatmap.py:85: correlation_matrix emits long (metric_x, metric_y, pearson_r) and renders NULL as blank cell
     df = pl.DataFrame(
         {
-            "success": [1.0, 0.5, 0.8],
-            "time_to_goal": [15.0, 20.0, 18.0],
-            "path_length": [10.0, 12.0, 11.0],
-            "collision_amount": [0.0, 1.0, 0.0],
+            "metric_x": ["time_to_goal", "time_to_goal", "path_length", "path_length"],
+            "metric_y": ["time_to_goal", "path_length", "time_to_goal", "path_length"],
+            "pearson_r": [1.0, 0.82, None, 1.0],
+            "n_pairs": [10, 10, 0, 10],
         }
     )
-
-    spec = PlotSpec(
-        id="correlation_matrix",
-        type="heatmap",
-        title="Metrics Correlation Matrix",
-        data_key="*",
-        layout_group="overview",
-    )
-
     renderer = HeatmapRenderer(spec)
-    out_path = tmp_path / "correlation_matrix.png"
-
-    renderer.render_seaborn(df, out_path)
-    assert out_path.exists()
+    html = renderer.render_plotly(df)
+    assert isinstance(html, str)
+    assert "null" in html.lower()
+    out = tmp_path / "hm_corr.png"
+    renderer.render_static(df, out)
+    assert out.exists() and out.stat().st_size > 1000

@@ -218,9 +218,8 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
         "#   off  suite social_off + contest paper_planners_blind  (none of the three)\n"
     )
     for arm in ("on", "off"):
-        path = (
-            _ROOT.parents[1] / "configs" / "benchmark" / "suites" / f"social_{arm}.yaml"
-        )
+        path = _ROOT.parents[1] / "configs" / "suites" / f"social_{arm}" / "suite.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False)
         )

@@ -7,12 +7,14 @@ import pathlib
 
 import arena_evaluation.analytics as analytics_package
 import arena_evaluation.experiments as experiments_package
+import arena_evaluation.presentation as presentation_package
 import arena_evaluation.storage as storage_package
 
 _PKG_ROOT: pathlib.Path = pathlib.Path(storage_package.__file__).parents[1]
 _STORAGE_ROOT: pathlib.Path = pathlib.Path(storage_package.__file__).parent
 _ANALYTICS_ROOT: pathlib.Path = pathlib.Path(analytics_package.__file__).parent
 _EXPERIMENTS_ROOT: pathlib.Path = pathlib.Path(experiments_package.__file__).parent
+_PRESENTATION_ROOT: pathlib.Path = pathlib.Path(presentation_package.__file__).parent
 
 _STORAGE_ALLOWED: tuple[str, ...] = ("arena_evaluation.storage",)
 _ANALYTICS_ALLOWED: tuple[str, ...] = (
@@ -26,6 +28,14 @@ _EXPERIMENTS_ALLOWED: tuple[str, ...] = (
 )
 _EXPERIMENTS_PINNED: dict[tuple[str, str], set[str]] = {
     ("beckon.py", "arena_evaluation.benchmark.config"): {"_parse_duration"},
+}
+_PRESENTATION_ALLOWED: tuple[str, ...] = (
+    "arena_evaluation.storage",
+    "arena_evaluation.analytics",
+    "arena_evaluation.presentation",
+)
+_PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
+    ("manifest_registry.py", "arena_evaluation.benchmark.tree"): {"ManifestIdentifier"},
 }
 
 
@@ -105,4 +115,93 @@ def test_experiments_imports_only_allowed_layers_and_pinned_edge() -> None:
     assert not violations, f"experiments imports outside allow-list: {violations}"
     assert seen_pinned == set(_EXPERIMENTS_PINNED), (
         f"pinned edge(s) missing: {set(_EXPERIMENTS_PINNED) - seen_pinned}"
+    )
+
+
+def test_presentation_imports_only_allowed_layers_and_pinned_edge() -> None:
+    violations: list[str] = []
+    seen_pinned: set[tuple[str, str]] = set()
+    for path in sorted(_PRESENTATION_ROOT.rglob("*.py")):
+        rel = path.relative_to(_PRESENTATION_ROOT).as_posix()
+        for module, names in _imports_of(path):
+            if not _is_internal(module) or _matches_allowed(
+                module, _PRESENTATION_ALLOWED
+            ):
+                continue
+            key = (rel, module)
+            if key in _PRESENTATION_PINNED and set(names) == _PRESENTATION_PINNED[key]:
+                seen_pinned.add(key)
+            else:
+                violations.append(f"{rel} imports {module} ({list(names)})")
+
+    assert not violations, f"presentation imports outside allow-list: {violations}"
+    assert seen_pinned == set(_PRESENTATION_PINNED), (
+        f"pinned edge(s) missing: {set(_PRESENTATION_PINNED) - seen_pinned}"
+    )
+
+
+_FORBIDDEN_STAT_ATTRS: frozenset[str] = frozenset(
+    {
+        "mean",
+        "std",
+        "var",
+        "median",
+        "quantile",
+        "percentile",
+        "corr",
+        "corrcoef",
+        "group_by",
+        "histogram",
+        "histplot",
+        "kdeplot",
+        "regplot",
+        "lmplot",
+        "Histogram",
+        "pivot_table",
+        "nan_to_num",
+        "linkage",
+        "theta_star",
+    }
+)
+_FORBIDDEN_STAT_MODULES: tuple[str, ...] = ("scipy.stats", "scipy.cluster")
+
+
+def test_presentation_computes_no_statistics() -> None:
+    violations: list[str] = []
+    for path in sorted(_PRESENTATION_ROOT.rglob("*.py")):
+        rel = path.relative_to(_PRESENTATION_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for module, _ in _imports_of(path):
+            if any(
+                module == prefix or module.startswith(f"{prefix}.")
+                for prefix in _FORBIDDEN_STAT_MODULES
+            ):
+                violations.append(f"{rel} imports forbidden stats module {module}")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr in _FORBIDDEN_STAT_ATTRS:
+                        violations.append(
+                            f"{rel}:{node.lineno} calls .{node.func.attr}()"
+                        )
+                    if node.func.attr == "fill_null" and node.args:
+                        arg0 = node.args[0]
+                        if isinstance(arg0, ast.Constant) and arg0.value in (0, 0.0):
+                            violations.append(
+                                f"{rel}:{node.lineno} calls .fill_null({arg0.value!r})"
+                            )
+                elif (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id in _FORBIDDEN_STAT_ATTRS
+                ):
+                    violations.append(f"{rel}:{node.lineno} calls {node.func.id}()")
+                for kw in node.keywords:
+                    if kw.arg == "estimator" and not (
+                        isinstance(kw.value, ast.Constant) and kw.value.value is None
+                    ):
+                        violations.append(
+                            f"{rel}:{node.lineno} passes estimator= (non-None)"
+                        )
+    assert not violations, (
+        f"presentation must bind, not compute statistics: {violations}"
     )

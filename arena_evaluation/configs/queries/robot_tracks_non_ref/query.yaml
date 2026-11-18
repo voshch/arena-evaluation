@@ -1,0 +1,5 @@
+name: robot_tracks_non_ref
+description: Robot trajectory samples filtered to non-reference episodes.
+sql: SELECT d.run_id, t.episode_id, t.robot_id, d.world, d.planner, t.t_ns, t.x, t.y,
+  t.yaw FROM robot_tracks t JOIN dim_episodes d ON t.episode_id = d.episode_id WHERE
+  NOT d.is_reference

@@ -17,6 +17,12 @@ import polars as pl
 import yaml
 
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine, validate_readonly_sql
+from arena_evaluation.storage.config_layout import (
+    CONFIG_KINDS,
+    bundle_path,
+    package_config_roots,
+    run_analysis_root,
+)
 
 __all__ = [
     "QueryCatalog",
@@ -28,13 +34,6 @@ _PARAM_COLON_RE: Final[re.Pattern[str]] = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)
 _PARAM_BRACE_RE: Final[re.Pattern[str]] = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _VALID_PARAM_TYPES: Final[frozenset[str]] = frozenset(
     {"string", "integer", "float", "boolean"}
-)
-
-_PACKAGE_QUERY_DIR: Final[pathlib.Path] = (
-    pathlib.Path(__file__).resolve().parents[2]
-    / "configs"
-    / "declarations"
-    / "query_declarations"
 )
 
 
@@ -153,22 +152,6 @@ class QueryDeclaration:
         )
 
 
-def _package_share_query_dir() -> pathlib.Path | None:
-    try:
-        from ament_index_python.packages import get_package_share_directory
-    except ImportError:
-        return None
-    try:
-        return (
-            pathlib.Path(get_package_share_directory("arena_evaluation"))
-            / "configs"
-            / "declarations"
-            / "query_declarations"
-        )
-    except Exception:
-        return None
-
-
 class QueryCatalog:
     """Catalog of stored reusable SQL query declarations with discovery and execution."""
 
@@ -180,13 +163,12 @@ class QueryCatalog:
     ) -> None:
         candidates: list[pathlib.Path] = []
         if run_dir is not None:
-            candidates.append(run_dir / "analysis" / "queries")
+            candidates.append(run_analysis_root(run_dir))
         if search_dirs:
             candidates.extend(search_dirs)
-        candidates.append(_PACKAGE_QUERY_DIR)
-        share_dir = _package_share_query_dir()
-        if share_dir is not None and share_dir not in candidates:
-            candidates.append(share_dir)
+        for root in package_config_roots():
+            if root not in candidates:
+                candidates.append(root)
 
         self._search_dirs = tuple(candidates)
         self._cache: dict[str, QueryDeclaration] = {}
@@ -194,18 +176,23 @@ class QueryCatalog:
 
     @property
     def search_dirs(self) -> tuple[pathlib.Path, ...]:
-        """Configured directory search paths for query declarations."""
+        """Configured config-root search paths for query declarations."""
         return self._search_dirs
 
     def _load_all(self) -> None:
-        """Scan search directories and populate cached query declarations, failing on invalid YAML."""
-        for directory in self._search_dirs:
-            if not directory.is_dir():
+        """Scan search roots for ``queries/<name>/query.yaml`` bundles."""
+        query_kind = CONFIG_KINDS["query"]
+        for root in self._search_dirs:
+            queries_dir = root / query_kind.folder
+            if not queries_dir.is_dir():
                 continue
-            for file_path in sorted(directory.glob("*.yaml")) + sorted(
-                directory.glob("*.yml")
-            ):
-                name = file_path.stem
+            for entry in sorted(queries_dir.iterdir()):
+                if not entry.is_dir():
+                    continue
+                file_path = entry / query_kind.filename
+                if not file_path.is_file():
+                    continue
+                name = entry.name
                 if name in self._cache:
                     continue
                 payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
@@ -283,8 +270,8 @@ class QueryCatalog:
             if target_dir is None:
                 target_dir = self._search_dirs[0]
 
-        target_dir.mkdir(parents=True, exist_ok=True)
-        file_path = target_dir / f"{clean_name}.yaml"
+        file_path = bundle_path(target_dir, "query", clean_name)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(
             yaml.safe_dump(decl.to_dict(), sort_keys=False), encoding="utf-8"
         )

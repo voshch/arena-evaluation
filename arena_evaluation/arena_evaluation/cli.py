@@ -118,11 +118,6 @@ Examples:
         help="Optional path to output directory for reports and plots. Defaults to the first input directory.",
     )
     run_parent.add_argument(
-        "--generate-gifs",
-        action="store_true",
-        help="Generate animated GIFs for trajectories (computationally intensive).",
-    )
-    run_parent.add_argument(
         "--profile",
         action="store_true",
         help="Enable resource profiling. Writes pipeline_profile.yaml with per-phase CPU, GPU, RAM, and duration stats.",
@@ -138,7 +133,7 @@ Examples:
         type=str,
         default=None,
         metavar="NAME|PATH|{...}",
-        help="Report manifest: a name from configs/benchmark/manifests/, a path to a YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
+        help="Report manifest: a name from configs/reports/, a path to a YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
     )
     run_parent.add_argument(
         "--list-manifests",
@@ -306,14 +301,12 @@ Examples:
         print(
             f"Building report/plots from {len(target_dirs)} sources into: {output_dir}"
         )
-        generate_gifs = args.generate_gifs
         _ctx = profiler.phase("report") if profiler else contextlib.nullcontext()
         with _ctx:
             builder = ReportBuilder.from_dirs(
                 target_dirs,
                 output_dir=output_dir,
                 manifest=manifest_obj,
-                generate_gifs=generate_gifs,
             )
             builder.build()
         print("Report generation complete.")

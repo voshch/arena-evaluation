@@ -231,7 +231,7 @@ def test_sampling_gives_up_after_its_tries() -> None:
 
 def test_default_paths_sit_beside_the_package() -> None:
     suite = hhi._default_suite_path()
-    assert suite.parts[-4:] == ("configs", "benchmark", "suites", "hhi_contact.yaml")
+    assert suite.parts[-4:] == ("configs", "suites", "hhi_contact", "suite.yaml")
     assert (suite.parents[3] / "arena_evaluation" / "experiments" / "hhi.py").is_file()
     try:
         scenarios = hhi._default_scenarios_dir()

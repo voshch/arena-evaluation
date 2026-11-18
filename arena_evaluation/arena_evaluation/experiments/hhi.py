@@ -65,7 +65,7 @@ def _default_scenarios_dir() -> pathlib.Path:
 
 
 def _default_suite_path() -> pathlib.Path:
-    return _ROOT.parents[2] / "configs" / "benchmark" / "suites" / "hhi_contact.yaml"
+    return _ROOT.parents[2] / "configs" / "suites" / "hhi_contact" / "suite.yaml"
 
 
 # -- generation --------------------------------------------------------------------------------
@@ -292,7 +292,7 @@ def generate(
     )
     suite_path.parent.mkdir(parents=True, exist_ok=True)
     suite_path.write_text(header + yaml.safe_dump(suite, sort_keys=False))
-    (suite_path.parent / f"{suite_path.stem}.scenarios.yaml").write_text(
+    (suite_path.parent / "scenarios.yaml").write_text(
         yaml.safe_dump(manifest, sort_keys=False)
     )
     return suite

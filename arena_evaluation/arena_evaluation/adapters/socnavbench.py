@@ -9,7 +9,13 @@ from pathlib import Path
 
 import yaml
 
-from arena_assets.importers import ATTRIBUTION_FILE, IMPORTERS, Attribution, Importer, write_attribution
+from arena_assets.importers import (
+    ATTRIBUTION_FILE,
+    IMPORTERS,
+    Attribution,
+    Importer,
+    write_attribution,
+)
 from arena_assets.importers.providers import Provider
 
 if typing.TYPE_CHECKING:
@@ -21,7 +27,11 @@ HUMAN = "replay"
 GOAL_MARGIN_M = 0.3
 CONTESTANT = {
     "name": "dwb",
-    "mobile": {"driver": "nav2", "local_planner": "dwb", "inter_planner": "navigate_w_replanning_time"},
+    "mobile": {
+        "driver": "nav2",
+        "local_planner": "dwb",
+        "inter_planner": "navigate_w_replanning_time",
+    },
     "task.episode.goto_pose.tolerance.radius": GOAL_MARGIN_M,
     "task.episode.goto_pose.tolerance.angle": "0.0",
 }
@@ -36,7 +46,7 @@ MANIFEST = {
     "name": ITEM,
     "title": "SocNavBench Report",
     "description": "Success, collisions and time to goal on the SocNavBench curated episodes per contestant and per episode.",
-    "data_source": "metrics",
+    "data_source": "v_episode_summary",
     "groups": [{"id": "episodes", "title": "Episodes"}],
     "summary": [dict(column) for column in _COLUMNS],
     "summary_group_by": ["planner"],
@@ -45,9 +55,16 @@ MANIFEST = {
             "id": "socnavbench_per_episode",
             "type": "table",
             "title": "Metrics per episode",
-            "data_key": "*",
+            "data": {
+                "computation": "group_summary",
+                "params": {
+                    "metrics": [str(column["metric"]) for column in _COLUMNS],
+                    "group_cols": ["planner", "stage"],
+                },
+            },
+            "channels": {},
             "layout_group": "episodes",
-            "options": {"group_by": ["planner", "stage"], "columns": [dict(column) for column in _COLUMNS]},
+            "options": {"columns": ["planner", "stage", "metric", "n", "mean", "std"]},
         },
     ],
 }
@@ -84,7 +101,10 @@ class SocNavBenchSuite(Importer):
             raise KeyError(f"no item '{item}', the only item is '{ITEM}'")
 
     def _episodes(self, cache: Path) -> SocNavBench:
-        return typing.cast("SocNavBench", IMPORTERS.load("scenario", ITEM)(cache=cache, provider=self.provider))
+        return typing.cast(
+            "SocNavBench",
+            IMPORTERS.load("scenario", ITEM)(cache=cache, provider=self.provider),
+        )
 
     def items(self) -> Iterable[str]:
         return [ITEM]
@@ -99,7 +119,11 @@ class SocNavBenchSuite(Importer):
     def convert(self, item: str, src: Path, out: Path) -> str:
         self._check(item)
 
-        from arena_evaluation.benchmark.tree import ContestIdentifier, ManifestIdentifier, SuiteIdentifier
+        from arena_evaluation.benchmark.tree import (
+            ContestIdentifier,
+            ManifestIdentifier,
+            SuiteIdentifier,
+        )
 
         suite_dir = out / SuiteIdentifier(name=item).relpath()
         contest_dir = out / ContestIdentifier(name=item).relpath()
@@ -113,11 +137,20 @@ class SocNavBenchSuite(Importer):
         stages: list[dict] = []
         for name in episodes.items():
             scenario = episodes.import_item(name, suite_dir / "worlds")
-            stages.append(stage(name, scenario.parents[1].name, episodes.episode(name).max_time))
+            stages.append(
+                stage(name, scenario.parents[1].name, episodes.episode(name).max_time)
+            )
 
-        _dump(suite_dir / "suite.yaml", {"launch": {"human": HUMAN}, "metrics": {"max_collisions": 1}, "stages": stages})
+        _dump(
+            suite_dir / "suite.yaml",
+            {
+                "launch": {"human": HUMAN},
+                "metrics": {"max_collisions": 1},
+                "stages": stages,
+            },
+        )
         _dump(contest_dir / "contest.yaml", [CONTESTANT])
-        _dump(manifest_dir / "manifest.yaml", MANIFEST)
+        _dump(manifest_dir / "report.yaml", MANIFEST)
         SuiteIdentifier(name=item).load(suite_dir)
         ContestIdentifier(name=item).load(contest_dir)
         ManifestIdentifier(name=item).load(manifest_dir)

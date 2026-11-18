@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from arena_runtime.env.task_layer import TaskLayer, TaskModes
     from arena_simulation_setup.tree import DomainAssetIdentifier
 
-Overwrite = Annotated[bool, pydantic.Field(description="replace an existing config of that name")]
+Overwrite = Annotated[
+    bool, pydantic.Field(description="replace an existing config of that name")
+]
 
 
 def _constraint_tokens(text: str) -> dict[str, object]:
@@ -38,10 +40,14 @@ def _authoring_node() -> ROSParamServer:
 
     if not rclpy.ok():
         rclpy.init()
-    return ROSParamServer(f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False)
+    return ROSParamServer(
+        f"arena_mcp_authoring_{os.getpid()}", start_parameter_services=False
+    )
 
 
-def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, list[dict[str, Any]]]]:
+def mode_params(
+    layer: TaskLayer, selected: TaskModes
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """The parameters the selected modes of the task layer declare below their namespace with their constraint tokens, by axis and mode."""
     from arena_rclpy_mixins.params import declared
 
@@ -51,22 +57,43 @@ def mode_params(layer: TaskLayer, selected: TaskModes) -> dict[str, dict[str, li
     def entries(axis: str, mode: str) -> list[dict[str, Any]]:
         layer.declare_mode_schema(node, axis, mode)
         prefix = f"{namespaces[axis][mode]}."
-        return [{"name": name.removeprefix(prefix), **_constraint_tokens(param.descriptor().additional_constraints)} for name, param in sorted(declared(node).items()) if name.startswith(prefix)]
+        return [
+            {
+                "name": name.removeprefix(prefix),
+                **_constraint_tokens(param.descriptor().additional_constraints),
+            }
+            for name, param in sorted(declared(node).items())
+            if name.startswith(prefix)
+        ]
 
-    return {axis: {mode: entries(axis, mode) for mode in modes} for axis, modes in selected.items()}
+    return {
+        axis: {mode: entries(axis, mode) for mode in modes}
+        for axis, modes in selected.items()
+    }
 
 
 def domain_asset_names(identifier: type[DomainAssetIdentifier]) -> list[str]:
     """Names of a domain asset kind the way task modes reference them."""
     from arena_simulation_setup import DOMAIN_DEFAULT
 
-    return sorted({item.name if item.domain == DOMAIN_DEFAULT else item.shortname for item in identifier.listall()})
+    return sorted(
+        {
+            item.name if item.domain == DOMAIN_DEFAULT else item.shortname
+            for item in identifier.listall()
+        }
+    )
 
 
 def world_names() -> list[str]:
     from arena_simulation_setup.tree.World import WorldIdentifier
 
-    return sorted({item.shortname for item in WorldIdentifier.listall() if not item.shortname.startswith(".")})
+    return sorted(
+        {
+            item.shortname
+            for item in WorldIdentifier.listall()
+            if not item.shortname.startswith(".")
+        }
+    )
 
 
 def world_resolves(name: str, known: set[str]) -> bool:
@@ -74,7 +101,9 @@ def world_resolves(name: str, known: set[str]) -> bool:
     from arena_simulation_setup.tree.World import WorldIdentifier
     from arena_simulation_setup.tree.World.view import composite_parts
 
-    return all(WorldIdentifier.split_filter(part)[0] in known for part in composite_parts(name))
+    return all(
+        WorldIdentifier.split_filter(part)[0] in known for part in composite_parts(name)
+    )
 
 
 def registered_drivers() -> dict[str, set[str]]:
@@ -84,7 +113,10 @@ def registered_drivers() -> dict[str, set[str]]:
 
     for cap in ADAPTERS:
         importlib.import_module(f"arena_runtime.env.adapters.{cap}")
-    return {cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys()) for cap in sorted(set(BRINGUPS) | set(ADAPTERS))}
+    return {
+        cap: set(BRINGUPS.get(cap, {}).keys()) | set(ADAPTERS.get(cap, {}).keys())
+        for cap in sorted(set(BRINGUPS) | set(ADAPTERS))
+    }
 
 
 def _leaves(block: dict[str, Any], prefix: str = "") -> list[str]:
@@ -95,7 +127,10 @@ def _leaves(block: dict[str, Any], prefix: str = "") -> list[str]:
             out += _leaves(value, f"{name}.")
         elif isinstance(value, dict):
             out.append(f"{name}.n")
-            out += _leaves({key: item for key, item in value.items() if key not in ("min", "max")}, f"{name}.")
+            out += _leaves(
+                {key: item for key, item in value.items() if key not in ("min", "max")},
+                f"{name}.",
+            )
         else:
             out.append(name)
     return out
@@ -122,7 +157,12 @@ def check_suite(data: object) -> dict[str, Any]:
     from arena_evaluation.benchmark.config import Suite, stage_modes
 
     if not isinstance(data, dict):
-        return {"valid": False, "problems": [f"a suite is a mapping with stages, got {type(data).__name__}"]}
+        return {
+            "valid": False,
+            "problems": [
+                f"a suite is a mapping with stages, got {type(data).__name__}"
+            ],
+        }
     try:
         suite = Suite.parse("_validate", data)
     except (LookupError, ValueError, TypeError) as exc:
@@ -130,35 +170,65 @@ def check_suite(data: object) -> dict[str, Any]:
     layer = task_layer(suite.task_layer)
     vocabulary = registered_modes(layer)
     chosen = [stage_modes(stage, vocabulary) for stage in suite.stages]
-    selected: TaskModes = {axis: sorted({mode for modes in chosen for mode in modes[axis] if mode in vocabulary.get(axis, [])}) for axis in vocabulary}
+    selected: TaskModes = {
+        axis: sorted(
+            {
+                mode
+                for modes in chosen
+                for mode in modes[axis]
+                if mode in vocabulary.get(axis, [])
+            }
+        )
+        for axis in vocabulary
+    }
     declared_params = mode_params(layer, selected)
     worlds = set(world_names())
     robots = {item.shortname for item in RobotIdentifier.listall()}
-    catalogs = {"pedestrians": set(domain_asset_names(HumanIdentifier)), "objects": set(domain_asset_names(ObjectIdentifier))}
-    human_blocks = {*Constants.HUMAN_PARAM_NAMESPACES.values(), Constants.HUMAN_PARAM_RESERVED}
+    catalogs = {
+        "pedestrians": set(domain_asset_names(HumanIdentifier)),
+        "objects": set(domain_asset_names(ObjectIdentifier)),
+    }
+    human_blocks = {
+        *Constants.HUMAN_PARAM_NAMESPACES.values(),
+        Constants.HUMAN_PARAM_RESERVED,
+    }
     problems: list[str] = []
     warnings: list[str] = []
-    for raw, stage, stage_chosen in zip(data["stages"], suite.stages, chosen, strict=True):
+    for raw, stage, stage_chosen in zip(
+        data["stages"], suite.stages, chosen, strict=True
+    ):
         where = f"stage {stage.name!r}"
         for axis, names in stage_chosen.items():
-            problems.extend(f"{where}: {axis} mode {mode!r} is not registered, see episode_task_modes" for mode in names if mode not in vocabulary.get(axis, []))
+            problems.extend(
+                f"{where}: {axis} mode {mode!r} is not registered, see episode_task_modes"
+                for mode in names
+                if mode not in vocabulary.get(axis, [])
+            )
         if Constants.HUMAN_PARAM_RESERVED in stage.config:
-            problems.append(f"{where}: config block {Constants.HUMAN_PARAM_RESERVED!r} is reserved and fails the stage")
+            problems.append(
+                f"{where}: config block {Constants.HUMAN_PARAM_RESERVED!r} is reserved and fails the stage"
+            )
         axis_of = {mode: axis for axis, names in stage_chosen.items() for mode in names}
         for block_name, block in stage.config.items():
             if block_name in human_blocks:
                 continue
             if block_name not in axis_of:
-                warnings.append(f"{where}: config block {block_name!r} matches none of the stage's modes and is not sent")
+                warnings.append(
+                    f"{where}: config block {block_name!r} matches none of the stage's modes and is not sent"
+                )
                 continue
             axis = axis_of[block_name]
-            if block_name not in declared_params.get(axis, {}) or not isinstance(block, dict):
+            if block_name not in declared_params.get(axis, {}) or not isinstance(
+                block, dict
+            ):
                 continue
             params = declared_params[axis][block_name]
             declared = {param["name"] for param in params}
             for leaf in _leaves(block):
                 if leaf not in declared:
-                    warnings.append(f"{where}: config.{block_name}.{leaf} is not a parameter of {block_name}, known: {sorted(declared)}")
+                    warnings.append(
+                        f"{where}: config.{block_name}.{leaf} is not a parameter of {block_name}, known: {sorted(declared)}"
+                    )
             for param in params:
                 catalog = catalogs.get(str(param.get("catalog")))
                 names = _at(block, param["name"]) if catalog is not None else None
@@ -166,13 +236,31 @@ def check_suite(data: object) -> dict[str, Any]:
                     continue
                 for name in names:
                     if name not in catalog:
-                        warnings.append(f"{where}: config.{block_name}.{param['name']} model {name!r} is not in the {param['catalog']} catalog, fetch it with arena asset pull or fix the name")
+                        warnings.append(
+                            f"{where}: config.{block_name}.{param['name']} model {name!r} is not in the {param['catalog']} catalog, fetch it with arena asset pull or fix the name"
+                        )
         if not world_resolves(stage.map, worlds):
-            warnings.append(f"{where}: map {stage.map!r} does not resolve locally, it may be bucket-only (assets_ls kind=world network=true) or misspelled")
-        unknown = [entry for entry in split_robot_arg(stage.robot) if entry.partition("[")[0].strip() not in robots]
+            warnings.append(
+                f"{where}: map {stage.map!r} does not resolve locally, it may be bucket-only (assets_ls kind=world network=true) or misspelled"
+            )
+        unknown = [
+            entry
+            for entry in split_robot_arg(stage.robot)
+            if entry.partition("[")[0].strip() not in robots
+        ]
         if raw.get("robot") != "auto" and unknown:
-            warnings.append(f"{where}: robot {', '.join(unknown)} not in the robot catalog (robots_catalog)")
-    return {"valid": not problems, "n_stages": len(suite.stages), "stages": [stage.name for stage in suite.stages], "references": suite.references, "launch": suite.launch_args, "problems": problems, "warnings": warnings}
+            warnings.append(
+                f"{where}: robot {', '.join(unknown)} not in the robot catalog (robots_catalog)"
+            )
+    return {
+        "valid": not problems,
+        "n_stages": len(suite.stages),
+        "stages": [stage.name for stage in suite.stages],
+        "references": suite.references,
+        "launch": suite.launch_args,
+        "problems": problems,
+        "warnings": warnings,
+    }
 
 
 def _contest_drivers(args: dict[str, Any], cap: str) -> str | None:
@@ -191,7 +279,12 @@ def check_contest(data: object) -> dict[str, Any]:
     from arena_evaluation.benchmark.runner import _preflight_contest
 
     if not isinstance(data, list | dict):
-        return {"valid": False, "problems": [f"a contest is a list or a mapping, got {type(data).__name__}"]}
+        return {
+            "valid": False,
+            "problems": [
+                f"a contest is a list or a mapping, got {type(data).__name__}"
+            ],
+        }
     try:
         contest = Contest.parse("_validate", data)
     except (KeyError, ValueError, TypeError) as exc:
@@ -202,29 +295,53 @@ def check_contest(data: object) -> dict[str, Any]:
         for cap, known in drivers.items():
             driver = _contest_drivers(contestant.args, cap)
             if driver is not None and driver not in known:
-                problems.append(f"{contestant.name}: {cap} driver {driver!r} is not registered, known: {sorted(known)}")
-    return {"valid": not problems, "n_contestants": len(contest.contestants), "contestants": [{"name": entry.name, "args": entry.args, "parts": entry.parts} for entry in contest.contestants], "problems": problems}
+                problems.append(
+                    f"{contestant.name}: {cap} driver {driver!r} is not registered, known: {sorted(known)}"
+                )
+    return {
+        "valid": not problems,
+        "n_contestants": len(contest.contestants),
+        "contestants": [
+            {"name": entry.name, "args": entry.args, "parts": entry.parts}
+            for entry in contest.contestants
+        ],
+        "problems": problems,
+    }
 
 
 def check_manifest(data: object) -> dict[str, Any]:
     from arena_evaluation.presentation.viz_manifest import VizManifest
 
     if not isinstance(data, dict):
-        return {"valid": False, "problems": [f"a manifest is a mapping, got {type(data).__name__}"]}
+        return {
+            "valid": False,
+            "problems": [f"a manifest is a mapping, got {type(data).__name__}"],
+        }
     try:
         manifest = VizManifest.model_validate(data)
     except pydantic.ValidationError as exc:
         return {"valid": False, "problems": [str(exc)]}
-    return {"valid": True, "n_plots": len(manifest.plots), "n_groups": len(manifest.groups), "problems": []}
+    return {
+        "valid": True,
+        "n_plots": len(manifest.plots),
+        "n_groups": len(manifest.groups),
+        "problems": [],
+    }
 
 
 def write_config(kind: str, name: str, text: str, overwrite: bool) -> pathlib.Path:
-    """Write a suite, contest or manifest to the write target its resolver chain names, as a flat <name>.yaml."""
+    """Write a suite, contest or manifest to the write target its resolver chain names, as a bundle <name>/<kind>.yaml."""
+    from arena_evaluation.storage.config_layout import get_config_kind
+
     stem = config_stem(name)
     if stem in config_names(kind) and not overwrite:
-        raise ToolError(f"a {kind} named {stem!r} already exists", hint="pick another name or pass overwrite=true")
+        raise ToolError(
+            f"a {kind} named {stem!r} already exists",
+            hint="pick another name or pass overwrite=true",
+        )
     target = asyncio.run(config_identifier(kind)(name=stem).resolve_write_path())
-    path = target.parent / f"{target.name}.yaml"
+    layout_kind = "report" if kind == "manifest" else kind
+    path = target / get_config_kind(layout_kind).filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
@@ -249,29 +366,60 @@ def evaluation_validate_manifest(yaml_content: YamlText) -> dict[str, Any]:
 
 
 @domain.tool()
-def evaluation_create_suite(name: str, yaml_content: YamlText, overwrite: Overwrite = False) -> dict[str, Any]:
+def evaluation_create_suite(
+    name: str, yaml_content: YamlText, overwrite: Overwrite = False
+) -> dict[str, Any]:
     """Validate a suite (evaluation_config_schema and episode_task_modes give its keys) and write it where the runner resolves it by name."""
     verdict = check_suite(parse_yaml(yaml_content, "suite"))
     if not verdict["valid"]:
-        raise ToolError("suite does not validate: " + "; ".join(verdict["problems"]), hint="evaluation_config_schema kind=suite shows the schema")
-    return {"path": str(write_config("suite", name, yaml_content, overwrite)), **verdict}
+        raise ToolError(
+            "suite does not validate: " + "; ".join(verdict["problems"]),
+            hint="evaluation_config_schema kind=suite shows the schema",
+        )
+    return {
+        "path": str(write_config("suite", name, yaml_content, overwrite)),
+        **verdict,
+    }
 
 
 @domain.tool()
-def evaluation_create_contest(name: str, yaml_content: YamlText, overwrite: Overwrite = False) -> dict[str, Any]:
+def evaluation_create_contest(
+    name: str, yaml_content: YamlText, overwrite: Overwrite = False
+) -> dict[str, Any]:
     """Validate a contest (planners_list gives the planner names) and write it where the runner resolves it by name."""
     verdict = check_contest(parse_yaml(yaml_content, "contest"))
     if not verdict["valid"]:
-        raise ToolError("contest does not validate: " + "; ".join(verdict["problems"]), hint="planners_list lists the planners")
-    return {"path": str(write_config("contest", name, yaml_content, overwrite)), **verdict}
+        raise ToolError(
+            "contest does not validate: " + "; ".join(verdict["problems"]),
+            hint="planners_list lists the planners",
+        )
+    return {
+        "path": str(write_config("contest", name, yaml_content, overwrite)),
+        **verdict,
+    }
 
 
 @domain.tool()
 def evaluation_create_manifest(
     name: str,
-    yaml_content: Annotated[str | None, pydantic.Field(description="complete manifest YAML, or omit and give a template")] = None,
-    template: Annotated[str | None, pydantic.Field(description="a resolvable manifest to start from (evaluation_manifests)")] = None,
-    run_id: Annotated[str | None, pydantic.Field(description="write into this run's directory instead of the shared manifest root")] = None,
+    yaml_content: Annotated[
+        str | None,
+        pydantic.Field(
+            description="complete manifest YAML, or omit and give a template"
+        ),
+    ] = None,
+    template: Annotated[
+        str | None,
+        pydantic.Field(
+            description="a resolvable manifest to start from (evaluation_manifests)"
+        ),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        pydantic.Field(
+            description="write into this run's directory instead of the shared manifest root"
+        ),
+    ] = None,
     overwrite: Overwrite = False,
 ) -> dict[str, Any]:
     """Write a report manifest, from YAML or a copy of a template, into a run directory or the shared manifest root (table notes: options.notes, options.rows, options.note, options.notes_key)."""
@@ -283,18 +431,30 @@ def evaluation_create_manifest(
         try:
             manifest = resolve_manifest(config_stem(template))
         except FileNotFoundError as exc:
-            raise ToolError(str(exc), hint="evaluation_manifests lists the templates") from exc
+            raise ToolError(
+                str(exc), hint="evaluation_manifests lists the templates"
+            ) from exc
         manifest.name = name
-        yaml_content = yaml.safe_dump(manifest.model_dump(exclude_none=True), sort_keys=False)
+        yaml_content = yaml.safe_dump(
+            manifest.model_dump(exclude_none=True), sort_keys=False
+        )
     elif yaml_content is None or template is not None:
         raise ToolError("pass yaml_content or template")
     verdict = check_manifest(parse_yaml(yaml_content, "manifest"))
     if not verdict["valid"]:
         raise ToolError("manifest does not validate: " + "; ".join(verdict["problems"]))
     if run_id is None:
-        return {"path": str(write_config("manifest", name, yaml_content, overwrite)), **verdict}
-    path = run_path(run_id) / f"{config_stem(name)}.yaml"
+        return {
+            "path": str(write_config("manifest", name, yaml_content, overwrite)),
+            **verdict,
+        }
+    from arena_evaluation.storage.config_layout import bundle_path, run_analysis_root
+
+    path = bundle_path(run_analysis_root(run_path(run_id)), "report", config_stem(name))
     if path.exists() and not overwrite:
-        raise ToolError(f"{path} exists", hint="pick another name or pass overwrite=true")
+        raise ToolError(
+            f"{path} exists", hint="pick another name or pass overwrite=true"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml_content)
     return {"path": str(path), **verdict}

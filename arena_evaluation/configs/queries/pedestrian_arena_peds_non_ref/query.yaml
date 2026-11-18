@@ -1,0 +1,5 @@
+name: pedestrian_arena_peds_non_ref
+description: Pedestrian trajectory samples filtered to non-reference episodes.
+sql: SELECT d.run_id, p.episode_id, p.ped_id, d.world, d.planner, p.t_ns, p.x, p.y,
+  p.yaw FROM pedestrian_arena_peds p JOIN dim_episodes d ON p.episode_id = d.episode_id
+  WHERE NOT d.is_reference

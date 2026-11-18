@@ -98,7 +98,9 @@ class RobotParams:
                 model.partition("[")[0],
             )
         except (ImportError, OSError, KeyError) as error:
-            raise FileNotFoundError(f"arena_robots is not installed, so the parameters of {model!r} are unknown") from error
+            raise FileNotFoundError(
+                f"arena_robots is not installed, so the parameters of {model!r} are unknown"
+            ) from error
 
         def _read(path: str) -> dict:
             with open(path) as file:
@@ -168,16 +170,16 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
     ``ContractViolationError``. Nothing falls back to a default model, radius or mass.
     """
     if "robot_id" not in rows.columns:
-        raise MetricInputError("the recorded fleet rows carry no robot_id; the robot has no descriptor")
+        raise MetricInputError(
+            "the recorded fleet rows carry no robot_id; the robot has no descriptor"
+        )
     robot_rows = rows.filter(pl.col("robot_id") == robot_id)
     if robot_rows.height == 0:
         raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
     model = _descriptor_model(robot_rows, robot_id)
     recorded = _recorded_parameters(robot_rows, robot_id)
     missing = [
-        key
-        for field, key in _REQUIRED_RECORDED_FIELDS.items()
-        if field not in recorded
+        key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded
     ]
     if missing:
         raise MetricInputError(
@@ -204,7 +206,9 @@ def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
     """The recorded values of the RobotParams fields, from the long parameter rows and then the wide columns."""
     values: dict[str, float] = {}
     if {"param_key", "param_value"} <= set(rows.columns):
-        for key, value in rows.select("param_key", "param_value").drop_nulls("param_key").iter_rows():
+        for key, value in (
+            rows.select("param_key", "param_value").drop_nulls("param_key").iter_rows()
+        ):
             field = _RECORDED_PARAMETER_FIELDS.get(str(key))
             if field is not None:
                 values[field] = _parameter_number(robot_id, str(key), value)
@@ -316,19 +320,3 @@ class AlignedEpisodeBundle:
     series: dict[str, pl.DataFrame] = field(default_factory=dict)
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
-
-
-class PlotSpec(BaseModel):
-    """Specification for a single plot in a report manifest."""
-
-    id: str
-    type: str
-    title: str
-    data_key: str
-    group_by: list[str] | str | None = None
-    differentiate: str | None = "planner"
-    auto_differentiate: bool = True
-    filter: dict[str, typing.Any] | None = None
-    options: dict[str, typing.Any] = Field(default_factory=dict)
-    layout_group: str | None = None
-    data_source: str | None = None

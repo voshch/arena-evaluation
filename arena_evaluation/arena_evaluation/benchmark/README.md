@@ -53,8 +53,8 @@ Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
 |   |   |-- episode_000.mcap
 |   |   `-- episode_000.yaml
 |   `-- ...
-|-- combined_metrics.parquet   # Processed metrics
-`-- report_manifest.yaml       # Used report manifest
+|-- analysis/                  # Run-local reports/<name>/report.yaml, plots/<name>/plot.yaml, queries/<name>/query.yaml, evidence/
+`-- reports/<name>/            # Rendered report.html, plots/*.png, plotly.min.js
 ```
 
 ## Liveness

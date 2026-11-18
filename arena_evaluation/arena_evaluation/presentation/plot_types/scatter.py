@@ -1,99 +1,164 @@
+"""Scatter plot renderer for bivariate and multi-dimensional relationships."""
+
 from __future__ import annotations
 
 import pathlib
+from typing import ClassVar
 
+import matplotlib.pyplot as plt
+import pandas as pd
 import plotly.express as px
 import polars as pl
+import seaborn as sns
 
-from .base import BasePlotRenderer
+from arena_evaluation.presentation.color_utils import get_color_palette
+from arena_evaluation.presentation.plot_types.base import (
+    BasePlotRenderer,
+    finish_axes,
+    label_values,
+    new_figure,
+    palette_color,
+)
 
 
 class ScatterRenderer(BasePlotRenderer):
+    """Renders 2D scatter plots with optional color, size, symbol, and facets."""
+
     PLOT_TYPE = "scatter"
+    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
+        "alpha"
+    }
+
+    def _resolve_columns(self, df: pl.DataFrame) -> dict[str, str | None]:
+        return {
+            "x": self.resolve_channel("x"),
+            "y": self.resolve_channel("y"),
+            "color": self.resolve_channel("color"),
+            "size": self.resolve_channel("size"),
+            "symbol": self.resolve_channel("symbol"),
+            "facet_col": self.resolve_channel("facet_col"),
+            "facet_row": self.resolve_channel("facet_row"),
+        }
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
-        df_filtered = self._apply_filters(df)
-
-        x_col = self.spec.data_key
-        y_col = self.spec.options.get("y")
-
-        if not y_col or x_col not in df_filtered.columns or y_col not in df_filtered.columns:
+        """Render an interactive Plotly scatter plot."""
+        if df.is_empty():
+            return None
+        cols = self._resolve_columns(df)
+        x_col, y_col = cols["x"], cols["y"]
+        if not x_col or not y_col:
             return None
 
-        diff_col, df_filtered = self.resolve_diff_col(df_filtered)
-        if diff_col not in df_filtered.columns:
-            return None
+        selected = [c for c in dict.fromkeys(cols.values()) if c is not None]
+        pdf = df.select(selected).to_pandas()
+        if cols["color"] and df.schema[cols["color"]] in (
+            pl.Utf8,
+            pl.Categorical,
+            pl.Boolean,
+        ):
+            pdf[cols["color"]] = pd.Series(label_values(df, cols["color"]))
 
-        filter_keys = [k for k in (self.spec.filter or {}) if k in df_filtered.columns]
-        keep = list(dict.fromkeys([c for c in [x_col, y_col, diff_col, *filter_keys] if c in df_filtered.columns]))
-        list_cols = [c for c in keep if df_filtered.schema[c] == pl.List]
-        if list_cols:
-            df_filtered = df_filtered.select(keep).explode(list_cols)
-        else:
-            df_filtered = df_filtered.select(keep)
-        df_filtered = self._apply_row_filters(df_filtered)
-
-        pdf = df_filtered.to_pandas()
-        if pdf.empty:
-            return None
-
-        max_points = int(self.spec.options.get("max_points_per_trace", 5000))
-        if max_points > 0 and len(pdf) > max_points:
-            stride = max(1, len(pdf) // max_points)
-            pdf = pdf.iloc[::stride]
-
+        alpha = float(self.spec.options.get("alpha", 0.8))
         fig = px.scatter(
             pdf,
             x=x_col,
             y=y_col,
-            color=diff_col,
+            color=cols["color"],
+            size=cols["size"],
+            symbol=cols["symbol"],
+            facet_col=cols["facet_col"],
+            facet_row=cols["facet_row"],
+            opacity=alpha,
+            color_discrete_sequence=get_color_palette(),
+            title=self.spec.title or f"{y_col} vs {x_col}",
             template="plotly_white",
-            opacity=0.7,
         )
+        fig.update_layout(
+            xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col),
+            yaxis_title=self.format_label(y_col.replace("_", " ").title(), y_col),
+            margin=dict(t=55, b=60, l=65, r=30),
+        )
+        return fig.to_html(include_plotlyjs=False, full_html=False)
 
-        fig.update_layout(xaxis_title=self.format_label(x_col.replace("_", " ").title(), x_col), yaxis_title=self.format_label(y_col.replace("_", " ").title(), y_col), legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5))
-
-        return fig.to_html(full_html=False, include_plotlyjs=False, config={'responsive': True})
-
-    def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        df_filtered = self._apply_filters(df)
-
-        x_col = self.spec.data_key
-        y_col = self.spec.options.get("y")
-
-        if not y_col or x_col not in df_filtered.columns or y_col not in df_filtered.columns:
+    def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
+        """Render a static Seaborn scatter plot."""
+        if df.is_empty():
+            return
+        cols = self._resolve_columns(df)
+        x_col, y_col = cols["x"], cols["y"]
+        if not x_col or not y_col:
             return
 
-        diff_col, df_filtered = self.resolve_diff_col(df_filtered)
-        if diff_col not in df_filtered.columns:
+        selected = [c for c in dict.fromkeys(cols.values()) if c is not None]
+        pdf = df.select(selected).to_pandas()
+        if cols["color"] and df.schema[cols["color"]] in (
+            pl.Utf8,
+            pl.Categorical,
+            pl.Boolean,
+        ):
+            pdf[cols["color"]] = pd.Series(label_values(df, cols["color"]))
+
+        palette = get_color_palette()
+        alpha = float(self.spec.options.get("alpha", 0.8))
+        x_label = self.format_label(x_col.replace("_", " ").title(), x_col)
+        y_label = self.format_label(y_col.replace("_", " ").title(), y_col)
+        title = self.spec.title or f"{y_col} vs {x_col}"
+
+        if cols["facet_col"] or cols["facet_row"]:
+            rel_kw: dict[str, object] = {
+                "data": pdf,
+                "x": x_col,
+                "y": y_col,
+                "kind": "scatter",
+                "col": cols["facet_col"],
+                "row": cols["facet_row"],
+                "alpha": alpha,
+                "height": 4.2,
+                "aspect": 1.25,
+            }
+            if cols["color"]:
+                rel_kw["hue"] = cols["color"]
+                rel_kw["palette"] = palette
+            else:
+                rel_kw["color"] = palette_color(palette, 0)
+            if cols["size"]:
+                rel_kw["size"] = cols["size"]
+            if cols["symbol"]:
+                rel_kw["style"] = cols["symbol"]
+            grid = sns.relplot(**rel_kw)
+            grid.set_axis_labels(x_label, y_label)
+            grid.figure.suptitle(title, y=1.02, fontsize=12, fontweight="bold")
+            grid.figure.tight_layout()
+            self.save_figure(grid.figure, out_path)
+            plt.close(grid.figure)
             return
 
-        keep = [c for c in [x_col, y_col, diff_col] if c in df_filtered.columns]
-        list_cols = [c for c in keep if df_filtered.schema[c] == pl.List]
-        if list_cols:
-            df_filtered = df_filtered.select(keep).explode(list_cols)
+        fig, ax = new_figure()
+        scatter_kw: dict[str, object] = {
+            "data": pdf,
+            "x": x_col,
+            "y": y_col,
+            "ax": ax,
+            "alpha": alpha,
+        }
+        if cols["color"]:
+            scatter_kw["hue"] = cols["color"]
+            scatter_kw["palette"] = palette
         else:
-            df_filtered = df_filtered.select(keep)
-        df_filtered = self._apply_row_filters(df_filtered)
+            scatter_kw["color"] = palette_color(palette, 0)
+        if cols["size"]:
+            scatter_kw["size"] = cols["size"]
+        if cols["symbol"]:
+            scatter_kw["style"] = cols["symbol"]
 
-        pdf = df_filtered.to_pandas()
-        if pdf.empty:
-            return
-
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        plt.figure(figsize=(10, 6))
-        sns.scatterplot(
-            data=pdf,
-            x=x_col,
-            y=y_col,
-            hue=diff_col,
-            alpha=0.7,
+        sns.scatterplot(**scatter_kw)
+        finish_axes(
+            ax,
+            title=title,
+            x_label=x_label,
+            y_label=y_label,
+            grid_axis="both",
         )
-        plt.title(self.spec.title)
-        plt.xlabel(self.format_label(x_col.replace("_", " ").title(), x_col))
-        plt.ylabel(self.format_label(y_col.replace("_", " ").title(), y_col))
-        plt.tight_layout()
-        plt.savefig(out_path, dpi=300)
-        plt.close()
+        fig.tight_layout()
+        self.save_figure(fig, out_path)
+        plt.close(fig)

@@ -1,0 +1,642 @@
+title: Open-Loop Characterization Report
+description: Comprehensive energy, acoustic, dynamic surge, and actuator fidelity
+  characterization across multi-mode operating working points.
+units:
+  power_total_w: W
+  power_mech_w: W
+  dba: dBA
+  vx_achieved_mps: m/s
+  vy_achieved_mps: m/s
+  wz_achieved_radps: rad/s
+  speed_achieved_mps: m/s
+  accel_achieved_mps2: m/s^2
+  accel_target_mps2: m/s^2
+  efficiency: ''
+  vx_target_mps: m/s
+  vy_target_mps: m/s
+  wz_target_radps: rad/s
+  turn_radius_m: m
+  energy_intensity_j_m: J/m
+  energy_per_rad_j_rad: J/rad
+  time_s: s
+groups:
+- id: overview
+  title: Overview & Multi-Phase Summary
+- id: tracking_fidelity
+  title: Actuator Tracking & Velocity Fidelity
+- id: power_curves
+  title: Power vs. Actual Velocity Curves
+- id: efficiency_curves
+  title: Energy Intensity & Cost of Transport
+- id: arc_steering
+  title: Curvilinear Arc Steering Performance
+- id: holonomic_curves
+  title: Holonomic Lateral Cruising
+- id: dynamic_surges
+  title: Dynamic Acceleration & Deceleration Surges
+- id: acoustic_curves
+  title: Acoustic Noise Levels vs. Dynamic State
+- id: time_traces
+  title: Continuous Time Profiles
+summary:
+- metric: speed_achieved_mps
+  label: Mean Speed
+  format: '{:.2f}'
+- metric: power_total_w
+  label: Total Power
+  format: '{:.1f}'
+- metric: power_mech_w
+  label: Mech Power
+  format: '{:.1f}'
+- metric: dba
+  label: Sound Level
+  format: '{:.1f}'
+- metric: energy_intensity_j_m
+  label: Energy Intensity
+  format: '{:.2f}'
+plots:
+- id: bar_idle_standby_power
+  type: bar
+  title: Baseline Standby / Idle Power Draw by Robot
+  data:
+    computation: group_summary
+    params:
+      source: v_series_characterization
+      metrics:
+      - power_total_w
+      group_cols:
+      - robot_id
+      filter:
+        phase_kind: idle
+  channels:
+    x: robot_id
+    y: mean
+  layout_group: overview
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: scatter_achieved_vs_commanded_linear
+  type: scatter
+  title: Linear Velocity Fidelity (Achieved vs. Commanded)
+  data:
+    source: v_series_characterization
+    where: phase_kind in ('linear_cruise', 'ramp_up', 'ramp_down')
+  channels:
+    x: vx_target_mps
+    y: vx_achieved_mps
+    color: robot_model
+  layout_group: tracking_fidelity
+- id: scatter_achieved_vs_commanded_angular
+  type: scatter
+  title: Angular Velocity Fidelity (Achieved vs. Commanded)
+  data:
+    source: v_series_characterization
+    where: phase_kind in ('pivot', 'arc_cruise')
+  channels:
+    x: wz_target_radps
+    y: wz_achieved_radps
+    color: robot_model
+  layout_group: tracking_fidelity
+- id: line_accel_achieved_vs_target
+  type: line
+  title: Dynamic Acceleration Tracking (Achieved vs. Commanded Rate)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: accel_target_mps2
+      metric: accel_achieved_mps2
+      group_cols:
+      - robot_model
+      bin_x: 0.2
+      filter:
+        phase_kind:
+        - ramp_up
+        - ramp_down
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: tracking_fidelity
+  options:
+    show_markers: true
+- id: line_power_vs_vx_achieved
+  type: line
+  title: Total Electrical Power vs. Actual Linear Speed (Cruising)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: power_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_mech_power_vs_vx_achieved
+  type: line
+  title: Mechanical Power vs. Actual Linear Speed (Cruising)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: power_mech_w
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: power_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_efficiency_vs_vx_achieved
+  type: line
+  title: Drivetrain Conversion Efficiency vs. Actual Linear Speed
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: efficiency
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: power_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_power_vs_wz_achieved
+  type: line
+  title: Total Power vs. Actual Angular Velocity (Pivot Rotation)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: wz_achieved_radps
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: pivot
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: power_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_mech_power_vs_wz_achieved
+  type: line
+  title: Mechanical Power vs. Actual Angular Velocity (Pivot Rotation)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: wz_achieved_radps
+      metric: power_mech_w
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: pivot
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: power_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_energy_intensity_vs_vx_achieved
+  type: line
+  title: Energy Intensity (J/m) vs. Actual Linear Speed (Bathtub Cruising Curve)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: energy_intensity_j_m
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: efficiency_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_energy_per_rad_vs_wz_achieved
+  type: line
+  title: Rotational Cost of Transport (J/rad) vs. Actual Angular Speed
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: wz_achieved_radps
+      metric: energy_per_rad_j_rad
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: pivot
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: efficiency_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_power_vs_turn_radius_arc
+  type: line
+  title: Total Power vs. Turn Radius (Curvilinear Steering)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: turn_radius_m
+      metric: power_total_w
+      group_cols:
+      - vx_target_mps
+      error_mode: ci95
+      smooth_window: 5
+      filter:
+        phase_kind: arc_cruise
+  channels:
+    x: x
+    y: value
+    color: vx_target_mps
+  layout_group: arc_steering
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_mech_power_vs_turn_radius_arc
+  type: line
+  title: Mechanical Power vs. Turn Radius (Curvilinear Steering)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: turn_radius_m
+      metric: power_mech_w
+      group_cols:
+      - vx_target_mps
+      error_mode: ci95
+      smooth_window: 5
+      filter:
+        phase_kind: arc_cruise
+  channels:
+    x: x
+    y: value
+    color: vx_target_mps
+  layout_group: arc_steering
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_power_vs_vy_achieved
+  type: line
+  title: Total Power vs. Actual Lateral Speed (Holonomic)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vy_achieved_mps
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: holonomic_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: holonomic_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_mech_power_vs_vy_achieved
+  type: line
+  title: Mechanical Power vs. Actual Lateral Speed (Holonomic)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vy_achieved_mps
+      metric: power_mech_w
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      error_mode: ci95
+      trim_percentile: 0.05
+      smooth_window: 5
+      filter:
+        phase_kind: holonomic_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: holonomic_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_power_vs_accel_achieved
+  type: line
+  title: "Dynamic Surge Power vs. Actual Acceleration (m/s\xB2)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: accel_achieved_mps2
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+      filter:
+        phase_kind:
+        - ramp_up
+        - ramp_down
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: dynamic_surges
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_dynamic_braking_surges
+  type: line
+  title: Power Draw During Emergency Braking Steps
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: time_s
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      error_mode: ci95
+      smooth_window: 5
+      filter:
+        phase_kind:
+        - ramp_down
+        - ramp_apex
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: dynamic_surges
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_leq_vs_vx_achieved
+  type: line
+  title: Equivalent Level L_Aeq vs. Actual Linear Speed (Cruising)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: dba
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      reduce: leq
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: acoustic_curves
+  options:
+    show_markers: true
+- id: line_lafmax_vs_vx_achieved
+  type: line
+  title: Peak Sound Level L_AFmax vs. Actual Linear Speed (Cruising)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: vx_achieved_mps
+      metric: dba
+      group_cols:
+      - robot_model
+      bin_x: 0.05
+      reduce: max
+      filter:
+        phase_kind: linear_cruise
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: acoustic_curves
+  options:
+    show_markers: true
+- id: line_leq_vs_wz_achieved
+  type: line
+  title: Equivalent Level L_Aeq vs. Actual Angular Speed (Pivot Rotation)
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: wz_achieved_radps
+      metric: dba
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      reduce: leq
+      filter:
+        phase_kind: pivot
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: acoustic_curves
+  options:
+    show_markers: true
+- id: line_noise_vs_accel_achieved
+  type: line
+  title: "Acoustic Sound Level (dBA) vs. Actual Acceleration (m/s\xB2)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: accel_achieved_mps2
+      metric: dba
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+      filter:
+        phase_kind:
+        - ramp_up
+        - ramp_down
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: acoustic_curves
+  options:
+    show_markers: true
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_power_over_time
+  type: line
+  title: "Total Electrical Power Over Time (mean \xB1 95% CI)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: time_s
+      metric: power_total_w
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: time_traces
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_mech_power_over_time
+  type: line
+  title: "Mechanical Drivetrain Power Over Time (mean \xB1 95% CI)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: time_s
+      metric: power_mech_w
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: time_traces
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_dba_over_time
+  type: line
+  title: "Acoustic Noise Level (dBA) Over Time (mean \xB1 95% CI)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: time_s
+      metric: dba
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: time_traces
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: line_vx_achieved_over_time
+  type: line
+  title: "Actual Linear Velocity Over Time (mean \xB1 95% CI)"
+  data:
+    computation: series_profile
+    params:
+      source: v_series_characterization
+      x: time_s
+      metric: vx_achieved_mps
+      group_cols:
+      - robot_model
+      bin_x: 0.1
+      error_mode: ci95
+      smooth_window: 5
+  channels:
+    x: x
+    y: value
+    color: robot_model
+  layout_group: time_traces
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+data_source: v_series_characterization
+summary_group_by:
+- phase_kind
+- speed_target_mps

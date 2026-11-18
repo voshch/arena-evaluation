@@ -1,0 +1,9 @@
+name: pedestrian_deflection_by_inter_planner
+title: "Pedestrian Path Deflection by Inter-Planner"
+description: "Pedestrian path deflection joined with episode inter-planner"
+sql: |
+  SELECT
+      e.inter_planner,
+      p.ped_path_deflection_m
+  FROM fact_pedestrians p
+  JOIN dim_episodes e USING (run_id, episode_id)

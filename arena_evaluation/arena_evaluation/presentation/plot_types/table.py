@@ -1,205 +1,191 @@
-"""HTML table plot renderer for aggregated metric columns and notes."""
+"""Table renderer for structured scorecard and summary tables."""
 
 from __future__ import annotations
 
-import html as html_escape
+import math
 import pathlib
-import typing
+from typing import ClassVar
 
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import polars as pl
 
 from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 
-if typing.TYPE_CHECKING:
-    from arena_evaluation.presentation.report_builder import ReportBuilder  # noqa: F401
+_STAT_VALUE_COLS = frozenset({"mean", "std", "err_plus", "err_minus"})
 
 
-def _load_notes(notes: object | None, benchmark_dir: pathlib.Path | None) -> list[dict[str, str]]:
-    """Normalize notes input into a list of label/value mappings."""
-    rows: list[dict[str, str]] = []
-    if notes is None:
-        return rows
-    if isinstance(notes, list):
-        for item in notes:
-            if isinstance(item, dict):
-                rows.append(
-                    {
-                        "label": str(item.get("label", item.get("key", ""))),
-                        "value": str(item.get("value", "")),
-                    }
-                )
-        return rows
-    if isinstance(notes, str):
-        notes = notes.strip()
-        if not notes:
-            return rows
+def _format_cell(
+    value: object, *, reason: object = None, fmt: str | None = None
+) -> str:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return str(reason) if reason is not None else "NULL"
+    if fmt:
+        return fmt.format(value) if "{" in fmt else format(value, fmt)
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
 
-        path: pathlib.Path | None = None
-        if "\n" not in notes and len(notes) < 256:
-            try:
-                candidate = pathlib.Path(notes)
-                if candidate.is_file():
-                    path = candidate
-                elif benchmark_dir is not None and (benchmark_dir / candidate).is_file():
-                    path = benchmark_dir / candidate
-            except (OSError, ValueError):
-                path = None
 
-        if path is not None:
-            text = path.read_text()
+def _column_formats(raw_format: object) -> tuple[str | None, dict[str, str]]:
+    if isinstance(raw_format, str):
+        return raw_format, {}
+    if isinstance(raw_format, dict):
+        return None, {str(k): str(v) for k, v in raw_format.items()}
+    return None, {}
+
+
+def _label_map(raw_labels: object) -> dict[str, str]:
+    if isinstance(raw_labels, dict):
+        return {str(k): str(v) for k, v in raw_labels.items()}
+    return {}
+
+
+def _formatted_cells(
+    df: pl.DataFrame,
+    cols: list[str],
+    raw_format: object,
+    raw_labels: object = None,
+) -> list[list[str]]:
+    default_fmt, per_col_fmt = _column_formats(raw_format)
+    labels = _label_map(raw_labels)
+    metric_names: list[str] | None = None
+    if "metric" in cols:
+        raw_m = df["metric"].to_list()  # agent-contracts: ignore AC004 - cell export
+        metric_names = [str(m) for m in raw_m]
+    result: list[list[str]] = []
+    for col in cols:
+        col_fmt = per_col_fmt.get(col, default_fmt)
+        reason_col = f"{col}_null_reason"
+        values = df[col].to_list()  # agent-contracts: ignore AC004 - cell export
+        if (
+            reason_col in df.columns
+        ):  # agent-contracts: ignore AC003 - optional companion null_reason column
+            reasons = df[
+                reason_col
+            ].to_list()  # agent-contracts: ignore AC004 - explicit table cell serialization boundary
         else:
-            text = notes  # inline YAML or text
-
-        try:
-            import yaml
-
-            data = yaml.safe_load(text)
-            if isinstance(data, list):
-                return _load_notes(data, benchmark_dir)
-            if isinstance(data, dict):
-                return [{"label": str(k), "value": str(v)} for k, v in data.items()]
-        except Exception:
-            pass
-
-        # Fallback: "key: value" text lines (agent-friendly free text).
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if ":" in line:
-                key, _, value = line.partition(":")
-                rows.append({"label": key.strip(), "value": value.strip()})
-            else:
-                rows.append({"label": "", "value": line})
-    return rows
-
-
-def _render_notes_callout(notes_rows: list[dict[str, str]]) -> str:
-    """Render agent notes as a standalone callout section (never table rows)."""
-    if not notes_rows:
-        return ""
-    parts = [
-        "<div class='notes-callout'>",
-        "<div class='notes-callout-title'>Analysis Notes</div>",
-    ]
-    for note in notes_rows:
-        label = html_escape.escape(note.get("label", ""), quote=True)
-        value = html_escape.escape(note.get("value", ""), quote=True).replace("\n", "<br>")
-        if label:
-            parts.append(f"<div class='notes-callout-row'><span class='notes-callout-label'>{label}</span><span class='notes-callout-value'>{value}</span></div>")
-        else:
-            parts.append(f"<div class='notes-callout-row notes-callout-row-plain'><span class='notes-callout-value'>{value}</span></div>")
-    parts.append("</div>")
-    return "".join(parts)
+            reasons = [None] * len(values)
+        if col == "metric" and labels:
+            result.append(
+                [
+                    str(r)
+                    if (v is None or (isinstance(v, float) and math.isnan(v)))
+                    and r is not None
+                    else ("NULL" if v is None else labels.get(str(v), str(v)))
+                    for v, r in zip(values, reasons, strict=True)
+                ]
+            )
+            continue
+        if metric_names is not None and col in _STAT_VALUE_COLS:
+            result.append(
+                [
+                    _format_cell(v, reason=r, fmt=per_col_fmt.get(m, col_fmt))
+                    for v, r, m in zip(values, reasons, metric_names, strict=True)
+                ]
+            )
+            continue
+        result.append(
+            [
+                _format_cell(v, reason=r, fmt=col_fmt)
+                for v, r in zip(values, reasons, strict=True)
+            ]
+        )
+    return result
 
 
 class TableRenderer(BasePlotRenderer):
+    """Renders tabular data directly from bound DataFrame columns."""
+
     PLOT_TYPE = "table"
-    run_dir: pathlib.Path | None = None  # set by the renderer dispatcher (notes resolution)
+    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
+        "format",
+        "labels",
+    }
 
-    def _columns(self) -> list[dict[str, str]]:
-        cols = (self.spec.options or {}).get("columns") or []
-        return [{"metric": str(c.get("metric", "")), "label": str(c.get("label", c.get("metric", ""))), "format": str(c.get("format", "{:.2f}"))} for c in cols if isinstance(c, dict) and c.get("metric")]
+    def _resolve_columns(self, df: pl.DataFrame) -> list[str]:
+        y_cols = self.resolve_channel_list("y")
+        x_col = self.resolve_channel("x")
+        color_col = self.resolve_channel("color")
+        chosen = list(dict.fromkeys([c for c in (x_col, color_col, *y_cols) if c]))
+        if not chosen:
+            raise ValueError(
+                f"Plot {self.spec.id!r}: table plot requires declared 'x'/'y'/'color' channels."
+            )
+        return chosen
 
-    def _agent_rows(self) -> list[dict[str, str]]:
-        """Agent-authored rows: exactly as given, no predefined layout."""
-        rows = (self.spec.options or {}).get("rows") or []
-        out: list[dict[str, str]] = []
-        for item in rows:
-            if isinstance(item, dict):
-                out.append(
-                    {
-                        "label": str(item.get("label", item.get("key", ""))),
-                        "value": str(item.get("value", "")),
-                    }
-                )
-        return out
-
-    def _data_rows(self, df: pl.DataFrame) -> list[list[str]]:
-        """Aggregate the metrics frame per group_by into label/value rows."""
-        group_by = self.spec.options.get("group_by") or []
-        if isinstance(group_by, str):
-            group_by = [group_by]
-        group_cols = [g for g in group_by if g in df.columns]
-        cols = self._columns()
-        if not group_cols or not cols:
-            return []
-
-        list_cols = [c for c in [*group_cols, *(c["metric"] for c in cols)] if c in df.columns and df.schema[c] == pl.List]
-        if list_cols:
-            need = [c for c in [*group_cols, *(c["metric"] for c in cols)] if c in df.columns]
-            df = df.select(need).explode(list_cols)
-        df = self._apply_row_filters(df)
-
-        agg = [pl.col(c["metric"]).mean().alias(f"__m{i}__") for i, c in enumerate(cols) if c["metric"] in df.columns]
-        if not agg:
-            return []
-        grouped = df.group_by(group_cols).agg(agg).sort(group_cols)
-
-        rows: list[list[str]] = []
-        for row in grouped.iter_rows(named=True):
-            values = []
-            for i, c in enumerate(cols):
-                val = row.get(f"__m{i}__")
-                try:
-                    values.append(c["format"].format(float(val)) if val is not None else "N/A")
-                except (TypeError, ValueError):
-                    values.append("N/A")
-            rows.append([*(str(row.get(g, "")) for g in group_cols), *values])
-        return rows
-
-    def _render_data_table(self, df: pl.DataFrame) -> str | None:
-        opts = self.spec.options or {}
-        cols = self._columns()
-        group_cols = opts.get("group_by") or []
-        if isinstance(group_cols, str):
-            group_cols = [group_cols]
-        group_cols = [g for g in group_cols if g in df.columns]
-
-        header = [*[g.replace("_", " ").title() for g in group_cols], *[c["label"] for c in cols]]
-        if not header:
-            return None
-        rows = self._data_rows(df)
-        if not rows:
-            return None
-
-        html = ["<table class='dataframe' style='border-collapse: collapse; margin: 8px 0;'>"]
-        html.append("<thead><tr>" + "".join(f"<th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>{h}</th>" for h in header) + "</tr></thead>")
-        html.append("<tbody>")
-        for row in rows:
-            cells = row + [""] * (len(header) - len(row))
-            html.append("<tr>" + "".join(f"<td style='border:1px solid #ccc; padding:4px 10px;'>{c}</td>" for c in cells) + "</tr>")
-        html.append("</tbody></table>")
-        return "".join(html)
-
-    def _render_agent_table(self) -> str | None:
-        """Agent-authored rows as a clean two-column table."""
-        rows = self._agent_rows()
-        if not rows:
-            return None
-        parts = ["<table class='dataframe' style='border-collapse: collapse; margin: 8px 0;'>", "<thead><tr><th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Label</th><th style='border:1px solid #ccc; padding:4px 10px; background:#f5f5f5;'>Value</th></tr></thead>", "<tbody>"]
-        for row in rows:
-            label = html_escape.escape(row.get("label", ""), quote=True)
-            value = html_escape.escape(row.get("value", ""), quote=True).replace("\n", "<br>")
-            parts.append(f"<tr><td style='border:1px solid #ccc; padding:4px 10px;'>{label}</td><td style='border:1px solid #ccc; padding:4px 10px;'>{value}</td></tr>")
-        parts.append("</tbody></table>")
-        return "".join(parts)
-
-    def _render_html(self, df: pl.DataFrame, benchmark_dir: pathlib.Path | None) -> str | None:
-        opts = self.spec.options or {}
-        data_table = self._render_data_table(df)
-        agent_table = self._render_agent_table()
-        note_rows = _load_notes(opts.get("notes"), benchmark_dir)
-        notes_callout = _render_notes_callout(note_rows)
-
-        pieces = [p for p in (data_table, agent_table, notes_callout) if p]
-        if not pieces:
-            return None
-        return "".join(pieces)
+    def _headers(self, cols: list[str]) -> list[str]:
+        labels = _label_map(self.spec.options.get("labels"))
+        return [labels.get(c, c.replace("_", " ").title()) for c in cols]
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
-        df_filtered = self._apply_filters(df)
-        return self._render_html(df_filtered, self.run_dir)
+        """Render an interactive Plotly table."""
+        if df.is_empty():
+            return None
+        cols = self._resolve_columns(df)
+        if not cols:
+            return None
 
-    def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        pass  # Tables render as HTML only (like timeseries).
+        headers = self._headers(cols)
+        cells = _formatted_cells(
+            df,
+            cols,
+            self.spec.options.get("format"),
+            self.spec.options.get("labels"),
+        )
+
+        fig = go.Figure(
+            data=[
+                go.Table(
+                    header={
+                        "values": headers,
+                        "fill_color": "#1e293b",
+                        "font": {"color": "white", "size": 12},
+                        "align": "left",
+                    },
+                    cells={
+                        "values": cells,
+                        "fill_color": "#f8fafc",
+                        "font": {"color": "#0f172a", "size": 11},
+                        "align": "left",
+                    },
+                )
+            ]
+        )
+        fig.update_layout(
+            title=self.spec.title or "Summary Table",
+            margin=dict(t=50, b=20, l=20, r=20),
+            height=max(240, 60 + df.height * 28),
+        )
+        return fig.to_html(include_plotlyjs=False, full_html=False)
+
+    def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
+        """Render a static Matplotlib table image."""
+        if df.is_empty():
+            return
+        cols = self._resolve_columns(df)
+        if not cols:
+            return
+
+        headers = self._headers(cols)
+        cells_by_col = _formatted_cells(
+            df,
+            cols,
+            self.spec.options.get("format"),
+            self.spec.options.get("labels"),
+        )
+        rows = [list(row) for row in zip(*cells_by_col, strict=True)]
+
+        fig, ax = plt.subplots(
+            figsize=(max(8.0, len(cols) * 1.6), max(2.5, 0.8 + len(rows) * 0.4))
+        )
+        ax.axis("off")
+        tbl = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="left")
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(9)
+        tbl.scale(1.0, 1.3)
+        if self.spec.title:
+            ax.set_title(self.spec.title, pad=12, fontsize=12, fontweight="bold")
+        fig.tight_layout()
+        self.save_figure(fig, out_path)
+        plt.close(fig)
