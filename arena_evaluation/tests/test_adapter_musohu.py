@@ -211,11 +211,9 @@ def test_evaluation_pipeline_scores_the_episode(converted: Path):
 
 def test_stray_cmd_vel_adds_no_frame(tmp_path: Path):
     pytest.importorskip("rosbags")
-    from arena_evaluation.processing.recorded_episodes import RecordedEpisodes
 
     run = convert(write_bag(tmp_path / "stray.bag", cmd=True, stray=3), tmp_path / "musohu", cmd_vel=CMD_VEL)
     assert extract(run)["cmd_vel"].height == COUNT + 3
-    assert RecordedEpisodes(run).frames().height == COUNT
 
 
 def test_without_cmd_vel_the_velocity_stays_in_odom(tmp_path: Path, bag: Path):

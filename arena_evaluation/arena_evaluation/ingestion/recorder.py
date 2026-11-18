@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import pathlib
 import re
-import shutil
 import signal
 import sys
 import threading
@@ -15,20 +14,23 @@ import rclpy
 import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from arena_rclpy_mixins.params import Param, Range, declare
+from arena_evaluation.storage.manifest import MetadataWriter
+from arena_rclpy_mixins.param_groups import Param, count
+from arena_rclpy_mixins.ROSParamServer import ROSParamServer
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
-from arena_simulation_setup import params as world_params
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from tf2_msgs.msg import TFMessage
+
+from .episode_writer import EpisodeWriter
+from .metadata import IngestionMetadata
 
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
@@ -71,12 +73,6 @@ _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "t
 _ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "interactions", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
 
 
-from arena_evaluation.storage.manifest import MetadataWriter
-
-from .episode_writer import EpisodeWriter
-from .metadata import IngestionMetadata
-
-
 class _NodeKwargs(TypedDict, total=False):
     context: Context | None
     cli_args: list[str] | None
@@ -95,53 +91,36 @@ class _RecorderConfig(TypedDict, total=False):
     optional_topics: list[str]
 
 
-def copy_scenario(source: pathlib.Path, target: pathlib.Path) -> bool:
-    """Copy the scenario directory `source` to `target` in one rename, False when `target` already exists."""
-    if target.exists():
-        return False
-    partial = target.parent / f".{target.name}.{os.getpid()}.partial"
-    shutil.rmtree(partial, ignore_errors=True)
-    shutil.copytree(source, partial)
-    try:
-        partial.rename(target)
-    except OSError:
-        shutil.rmtree(partial, ignore_errors=True)
-        if not target.exists():
-            raise
-        return False
-    return True
-
-
 _RECORDER_PARAMS = (
-    Param[str]("record_data_dir", "", "Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
-    Param[str]("benchmark_id", "unknown", "Benchmark run id the recording belongs to."),
-    Param[str]("contestant", "unknown", "Contestant name of the recorded planner."),
-    Param[str]("stage", "unknown", "Benchmark stage the recording belongs to."),
-    Param[str]("map", "unknown", "Map the episodes run on."),
-    Param[str]("world", "unknown", "World the episodes run in."),
-    Param[str]("suite_name", "", "Benchmark suite the run belongs to."),
-    Param[str]("contest_name", "", "Contest the run belongs to."),
-    Param[str]("local_planner", "", "Local planner under test."),
-    Param[str]("inter_planner", "", "Intermediate planner under test."),
-    Param[str]("robot", "", "Robot model of the run."),
-    Param[int]("episodes_requested", 0, "Number of episodes the run asked for (0 = unspecified).", constraint=Range(lo=0)),
-    Param[bool]("is_reference", False, "Mark the recording as a reference run."),
-    Param[str]("reference_type", "", "Kind of reference the recording is (empty = none)."),
-    Param[int]("episode_id_offset", 0, "Offset added to the recorded episode ids."),
-    Param[str]("workspace_dir", "", "Workspace directory the run was started from."),
-    world_params.WORLD_LIGHTING,
-    world_params.KG_DERIVE,
-    Param[str]("data_recorder_autoprefix", "", "Run id chosen for an automatic run directory (empty = generated at start)."),
+    Param[str]("record_data_dir", "", description="Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
+    Param[str]("benchmark_id", "unknown", description="Benchmark run id the recording belongs to."),
+    Param[str]("contestant", "unknown", description="Contestant name of the recorded planner."),
+    Param[str]("stage", "unknown", description="Benchmark stage the recording belongs to."),
+    Param[str]("map", "unknown", description="Map the episodes run on."),
+    Param[str]("world", "unknown", description="World the episodes run in."),
+    Param[str]("suite_name", "", description="Benchmark suite the run belongs to."),
+    Param[str]("contest_name", "", description="Contest the run belongs to."),
+    Param[str]("local_planner", "", description="Local planner under test."),
+    Param[str]("inter_planner", "", description="Intermediate planner under test."),
+    Param[str]("robot", "", description="Robot model of the run."),
+    Param[int]("episodes_requested", 0, parse=count, description="Number of episodes the run asked for (0 = unspecified)."),
+    Param[bool]("is_reference", False, description="Mark the recording as a reference run."),
+    Param[str]("reference_type", "", description="Kind of reference the recording is (empty = none)."),
+    Param[int]("episode_id_offset", 0, description="Offset added to the recorded episode ids."),
+    Param[str]("workspace_dir", "", description="Workspace directory the run was started from."),
+    Param[str]("world.lighting", "authored", description="Lighting mode of the world the episodes run in."),
+    Param[str]("kg.derive", "auto", description="Mode in which the knowledge graph of the world is derived."),
+    Param[str]("data_recorder_autoprefix", "", description="Run id chosen for an automatic run directory (empty = generated at start)."),
 )
 
 
-class DataRecorderNode(Node, EpisodeWriter):
+class DataRecorderNode(ROSParamServer, EpisodeWriter):
     def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
         super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
-        handles = {param.name: declare(self, param) for param in _RECORDER_PARAMS}
+        handles = {param.name: self.ROSParam(param.name, param.default, parse=param.parse) for param in _RECORDER_PARAMS}
 
         record_data_dir = str(handles["record_data_dir"].value or "")
 
@@ -243,7 +222,6 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.world_lighting = str(handles["world.lighting"].value)
         self.kg_derive = str(handles["kg.derive"].value)
         self._snapshot_worlds: set[str] = set()
-        self._snapshot_scenarios: set[tuple[str, str]] = set()
 
         env_namespace = self.get_namespace().strip('/')
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
@@ -495,7 +473,6 @@ class DataRecorderNode(Node, EpisodeWriter):
                 continue
 
             name_lower = name.lower()
-            is_scan = "scan" in name_lower or "lidar" in name_lower
             is_odom = "odom" in name_lower
 
             if is_odom and "nav_msgs/msg/Odometry" in types:
@@ -620,7 +597,6 @@ class DataRecorderNode(Node, EpisodeWriter):
         self._update_metadata_from_episode(msg)
         if msg.world:
             self._snapshot_world(msg.world)
-            self._snapshot_scenario(msg)
 
         env_namespace = self.get_namespace().strip('/')
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
@@ -894,32 +870,6 @@ class DataRecorderNode(Node, EpisodeWriter):
             self._log_info(f"Wrote world snapshot: {directory}")
         except Exception as e:
             self._log_error(f"Failed to write the world snapshot of {name}: {e}")
-
-    def _snapshot_scenario(self, msg: EpisodeRecord) -> None:
-        """Copy the scenario an episode runs to run_dir/worlds/<world>/scenarios/<file> once per run, off the callback thread."""
-        from arena_simulation_setup.tree.World import WorldIdentifier
-
-        from arena_evaluation.processing.metrics.edge_case.provenance import scenario_file
-
-        scenario = scenario_file(decode_modes(msg.modes), self._record_params(msg), msg.task_layer)
-        if scenario is None:
-            return
-        name, _ = WorldIdentifier.split_filter(msg.world)
-        if (name, scenario) in self._snapshot_scenarios:
-            return
-        self._snapshot_scenarios.add((name, scenario))
-        threading.Thread(target=self._write_scenario_snapshot, args=(name, scenario), name=f"scenario_snapshot_{scenario}", daemon=True).start()
-
-    def _write_scenario_snapshot(self, name: str, scenario: str) -> None:
-        from arena_simulation_setup.tree.World import WorldIdentifier
-
-        directory = self.run_dir / "worlds" / name / "scenarios" / scenario
-        try:
-            source = WorldIdentifier(name).resolve_sync().scenario(scenario).resolve_sync().path
-            if copy_scenario(pathlib.Path(source), directory):
-                self._log_info(f"Wrote scenario snapshot: {directory}")
-        except Exception as e:
-            self._log_error(f"Failed to write the scenario snapshot of {name}/{scenario}: {e}")
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""

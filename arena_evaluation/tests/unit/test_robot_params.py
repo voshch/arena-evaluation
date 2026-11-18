@@ -16,13 +16,10 @@ def _robot_yaml(model: str, *parts: str) -> dict:
         return yaml.safe_load(f)
 
 
-def test_unknown_model_declares_no_mass():
-    """An unknown robot reports 0 kg, the sentinel for undeclared."""
-    params = RobotParams.load("no_such_robot")
-    assert params.model == "no_such_robot"
-    assert params.base_mass == 0.0
-    assert params.component_masses == {}
-    assert params.mass == 0.0
+def test_unknown_model_raises_instead_of_declaring_no_mass():
+    """A robot without parameter files is not a zero-mass robot: loading its parameters raises."""
+    with pytest.raises(FileNotFoundError, match="no_such_robot"):
+        RobotParams.load("no_such_robot")
 
 
 def test_base_mass_and_radius_come_from_the_robot_definition():

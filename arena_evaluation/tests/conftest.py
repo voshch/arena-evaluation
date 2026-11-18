@@ -5,7 +5,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from arena_evaluation.benchmark import runner
 
 _ROS_SKIP_REASON = "ROS2 not discoverable, source install/setup.bash to enable"
 
@@ -18,7 +17,9 @@ def _ros_available() -> bool:
     return True
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     if _ros_available():
         return
     skip = pytest.mark.skip(reason=_ROS_SKIP_REASON)
@@ -56,6 +57,8 @@ class _Messages(logging.Handler):
 
 @pytest.fixture
 def runner_log() -> Iterator[list[str]]:
+    from arena_evaluation.benchmark import runner
+
     handler = _Messages()
     runner._log.addHandler(handler)
     yield handler.messages

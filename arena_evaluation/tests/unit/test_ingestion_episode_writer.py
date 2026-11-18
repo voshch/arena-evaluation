@@ -60,8 +60,8 @@ def test_processing_reads_what_the_writer_wrote(writer, tmp_path: Path):
     directory = tmp_path / "run" / "episodes" / EPISODE
     record(writer, directory, [0.1, 0.2, 0.3])
     bundles = MCAPReader(directory / f"{EPISODE}.mcap").read(tmp_path / "topics")
-    command = bundles["env_0_jackal"].cmd_vel.collect()
-    assert command["time_ns"].to_list() == [0, 100_000_000, 200_000_000]
+    command = bundles["env_0_jackal"].robot_cmd_vel.collect()
+    assert command["t_ns"].to_list() == [0, 100_000_000, 200_000_000]
     assert command["linear_x"].to_list() == pytest.approx([0.1, 0.2, 0.3])
 
 

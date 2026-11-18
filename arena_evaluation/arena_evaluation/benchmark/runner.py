@@ -210,11 +210,10 @@ def _launch_key(k: str) -> str:
 
 
 def runtime_launch_args(suite_args: dict[str, str], passthrough: dict[str, str]) -> dict[str, str]:
-    """Suite launch args under the CLI passthrough, an explicit lockstep stepping unpaced from bringup unless `lockstep.paused` or `lockstep.rtf` is set."""
+    """Suite launch args under the CLI passthrough, an autostarted lockstep stepping from bringup unless `lockstep.paused` is set."""
     merged = {**suite_args, **passthrough}
-    if merged.get("lockstep", "").lower() in ("true", "1"):
+    if merged.get("lockstep", "false").lower() in ("true", "1"):
         merged.setdefault("lockstep.paused", "false")
-        merged.setdefault("lockstep.rtf", "0")
     return merged
 
 

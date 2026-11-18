@@ -69,23 +69,13 @@ def test_progress_csv_ends_with_the_integrity_column_as_a_json_list(tmp_path: pa
     assert [json.loads(r["integrity"]) for r in rows] == [[], [SPAWNED, 'robot "x" moved, then retasked']]
 
 
-def test_progress_csv_with_an_older_header_is_upgraded_on_open(tmp_path: pathlib.Path) -> None:
+def test_progress_csv_with_an_older_header_is_refused_on_open(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "progress.csv"
-    old_row = ["2026-10-13T10:00:00+00:00", "r", "dwb/preflight", "dwb", "preflight", "0", "0", *[""] * (len(OLD_HEADER.split(",")) - 7)]
-    with path.open("w", newline="") as fh:
-        fh.write(OLD_HEADER + "\n")
-        csv.writer(fh).writerow(old_row)
-        fh.write("2026-10-13T10:00:01+00:00,r,dwb/pre")
+    path.write_text(OLD_HEADER + "\n", encoding="utf-8")
 
-    log = ProgressLog(path)
-    log.write_comment("resumed at 2026-10-14T10:00:00+00:00")
-    _append(log, "2026-10-14T10:00:01+00:00", 1, _record(MOVED))
-    log.dedupe_in_place({})
-    log.close()
-
-    assert path.read_text().splitlines()[0] == ProgressLog._HEADER
-    rows = _rows(path)
-    assert [(r["episode_id"], r["integrity"]) for r in rows] == [("0", ""), ("1", json.dumps([MOVED]))]
+    with pytest.raises(ValueError, match="not the current layout"):
+        ProgressLog(path)
+    assert path.read_text(encoding="utf-8") == OLD_HEADER + "\n"
 
 
 def test_progress_csv_matching_the_current_header_is_left_alone(tmp_path: pathlib.Path) -> None:

@@ -1,19 +1,37 @@
 import json
 import pathlib
 
+import polars as pl
 import pytest
 
-pl = pytest.importorskip("polars")
+pytest.importorskip("polars")
 pytest.importorskip("mcap_ros2.writer")
 
 from arena_evaluation.processing.mcap_reader import MCAPReader
-from test_mcap_reader_topics import PARAM, PARAM_VALUE, _msgdef, _write_bag
-
-EPISODE_RECORD = ("arena_runtime_msgs/msg/EpisodeRecord", _msgdef("uint32 episode_id\nuint8 outcome_state\nstring outcome_info\nstring goal_uuid\nrcl_interfaces/Parameter[] params\nstring conditions", PARAM, PARAM_VALUE))
+from test_mcap_reader_topics import EPISODE_RECORD, _write_bag
 
 
 def _record(outcome_state: int, conditions: str) -> dict:
-    return {"episode_id": 1, "outcome_state": outcome_state, "outcome_info": "", "goal_uuid": "", "params": [], "conditions": conditions}
+    return {
+        "episode_id": 1,
+        "world": "test_world",
+        "seed": 42,
+        "task_layer": "standard",
+        "modes": [],
+        "robots": ["jackal"],
+        "outcome_state": outcome_state,
+        "outcome_info": "",
+        "goal_uuid": "",
+        "goal_dist_start": 5.0,
+        "goal_dist_min": 0.1,
+        "path_length": 6.2,
+        "start_time": {"sec": 1, "nanosec": 0},
+        "integrity": [],
+        "params": [],
+        "human_params": [],
+        "conditions": conditions,
+        "phases": "",
+    }
 
 
 def test_reader_keeps_episode_conditions(tmp_path: pathlib.Path):
@@ -29,5 +47,5 @@ def test_reader_keeps_episode_conditions(tmp_path: pathlib.Path):
 
     MCAPReader(bag).read(tmp_path / "raw")
 
-    er = pl.read_parquet(tmp_path / "raw" / "env_0" / "episode_record.parquet")
-    assert er["conditions"].to_list() == ["", clauses]
+    episodes = pl.read_parquet(tmp_path / "raw" / "episode_lifecycle.parquet")
+    assert episodes["conditions_yaml"].to_list() == [None, clauses]

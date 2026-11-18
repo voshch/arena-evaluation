@@ -4,8 +4,10 @@ import pathlib
 
 import pytest
 
-pl = pytest.importorskip("polars")
+pytest.importorskip("polars")
 pytest.importorskip("mcap_ros2.writer")
+
+import polars as pl
 
 from test_mcap_reader_topics import ODOMETRY, _header, _write_bag
 
@@ -36,7 +38,7 @@ def test_extract_episode_reextracts_a_cache_written_by_an_older_layout(tmp_path:
     bundles = pipeline.extract_episode(episode)
 
     assert bundles is not None
-    assert bundles["env_0_jackal"].odom.collect()["pos_x"].to_list() == [1.0]
+    assert bundles["env_0_jackal"].robot_odom.collect()["odom_x"].to_list() == [1.0]
     assert TopicParquetStore.is_current(topics)
 
 
@@ -48,4 +50,4 @@ def test_extract_episode_reuses_a_cache_written_by_this_layout(tmp_path: pathlib
     second = pipeline.extract_episode(episode)
 
     assert first is not None and second is not None
-    assert second["env_0_jackal"].odom.collect().equals(first["env_0_jackal"].odom.collect())
+    assert second["env_0_jackal"].robot_odom.collect().equals(first["env_0_jackal"].robot_odom.collect())

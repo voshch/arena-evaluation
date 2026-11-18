@@ -30,12 +30,12 @@ carries none from `arena_robots.characterization`, the module the
                          | MCAP file (one per episode)
                          v
 +---------------------------------------------------------------------+
-|  Layer 3 - Processing  (processing/)                                |
-|  MCAPReader -> TopicParquetStore -> TopicAligner -> MetricRegistry  |
-|  -> ParquetStore                                                    |
-|  Reads episode MCAPs offline, aligns multi-rate topics onto the     |
-|  odom axis, and computes metrics.                                   |
-|  Output: metrics.parquet + combined_metrics.parquet                 |
+|  Layer 1 - Processing  (processing/)                                |
+|  MCAPReader -> native tables (topics/*.parquet) -> dimension rows   |
+|  -> dim_*.parquet at the benchmark root, once per benchmark.        |
+|  Each episode is read once; telemetry keeps its native timestamps.  |
+|  Layer 2 metric calculators and their report return with PR2, PR4.  |
+|  Output: topics/*.parquet per episode, dim_*.parquet per benchmark  |
 +-------------------------+-------------------------------------------+
                          | Parquet files
                          v
@@ -57,22 +57,34 @@ arena_evaluation/
 |-- arena_evaluation/          <- Python package root
 |   |-- ingestion/             <- Layer 1: Live recording (ROS node)
 |   |   |-- recorder.py        <- DataRecorderNode (service-driven episode lifecycle)
-|   |   |-- metadata.py        <- IngestionMetadata (per-episode YAML context)
+|   |   |-- episode_writer.py  <- EpisodeWriter (episode folder, MCAP writer, metadata finalize)
+|   |   |-- metadata.py        <- IngestionMetadata (per-episode metadata)
+|   |   |-- migrate.py         <- Migration of runs recorded before the native layout
 |   |   `-- topics.py          <- Topic definitions and type registry
-|   |-- storage/               <- Layer 2: Shared schemas and path management
-|   |   |-- schemas.py         <- Data models (RunMetadata, PlotSpec, VizManifest, ...)
-|   |   |-- folder_manager.py  <- Path resolution and run discovery
+|   |-- storage/               <- Layer 1: Registry, dimensions and path management
+|   |   |-- registry/          <- One Table class per stored table (telemetry, dimensions, facts)
+|   |   |-- star_schema.py     <- Dimension tables: conform, stack, write once at the benchmark root
+|   |   |-- contracts.py       <- Dimension contract (schema, keys, reasons of NULL)
+|   |   |-- schemas.py         <- RunMetadata, EpisodeDescriptor, RobotParams, TopicBundle
+|   |   |-- folder_manager.py  <- Path resolution and episode discovery
 |   |   |-- manifest.py        <- MetadataWriter (YAML read/write)
 |   |   |-- planner_names.py   <- split_planner_name helper
-|   |   |-- data_root.py       <- benchmarks_root and latest_benchmark helpers
-|   |   `-- exceptions.py      <- Pipeline exceptions
-|   |-- processing/            <- Layer 3: Offline metric computation
-|   |   |-- mcap_reader.py     <- MCAP to TopicBundle parser
-|   |   |-- topic_aligner.py   <- Aligns multi-rate topics via join_asof
-|   |   |-- parquet_store.py   <- Reads/writes topic cache and metrics
-|   |   |-- pipeline.py        <- ProcessingPipeline orchestrator
-|   |   |-- map_registry.py    <- Discovers and caches map images (PGM to PNG)
-|   |   `-- metrics/           <- Metric calculators (performance, social, ecological, naturalness, edge_case)
+|   |   |-- data_root.py       <- benchmarks root and latest benchmark helpers
+|   |   |-- atomic.py          <- Atomic file replacement and locks
+|   |   `-- exceptions.py      <- Package exception types
+|   |-- processing/            <- Layer 1: Extraction and dimension rows
+|   |   |-- mcap_reader.py     <- MCAPReader: one recording into flat tables, one bundle per robot
+|   |   |-- telemetry/         <- Shapes recorded messages into flat rows, written as ZSTD Parquet
+|   |   |-- parquet_store.py   <- TopicParquetStore: the extraction cache of an episode
+|   |   |-- pose_anchor.py     <- Dense, sparse or absent ground-truth pose stream
+|   |   |-- dimension_rows.py  <- The dimension rows of one episode
+|   |   |-- map_registry.py    <- The map image of a world, resolved and cached
+|   |   |-- pipeline.py        <- ProcessingPipeline: extracts, then writes the benchmark's dimensions
+|   |   |-- progress_display.py <- Live progress table of the extraction
+|   |   |-- metrics/           <- Metric calculators (layer 2, returns with PR2)
+|   |   |-- acoustics/         <- Acoustic propagation solver and door geometry (layer 2)
+|   |   |-- path/              <- Reference path solver (layer 2)
+|   |   `-- pose_segments.py   <- Teleport detection (layer 2)
 |   |-- presentation/          <- Layer 5: Report and plot generation
 |   |   |-- report_builder.py  <- Generates report.html and plots
 |   |   |-- manifest_registry.py <- Resolves report manifests
@@ -136,17 +148,23 @@ Edge cases: generated scenarios run as `scenario` stages against the `edge_case_
 arena evaluation benchmark --suite <edge-case suite> --contest edge_case_differential
 ```
 
-### 2. Process and report (offline)
+### 2. Extract (offline)
 
 ```bash
-# Standard metrics report
-arena evaluation run --benchmark-dir <run_id>
-
-# Characterization report
-arena evaluation run --benchmark-dir <run_id> --report-manifest characterization
+arena evaluation extract --benchmark-dir <run_id>
 ```
 
-### Report manifests
+Reads every episode's MCAP once into its `topics/` folder and writes the benchmark's `dim_*.parquet` at its root.
+
+### 3. Migrate a run recorded before the native layout
+
+```bash
+arena evaluation migrate <run dir>
+```
+
+See the Migration section of [ingestion/README.md](arena_evaluation/ingestion/README.md). The metric reports (`process`, `run`, `report`, `plot`) return with PR2 and PR4.
+
+### Report manifests (returns with PR4)
 
 Report layouts are declarative YAML files in `configs/benchmark/manifests/`. Built-in manifests: `standard`, `ecological`, `social`, `safety`, `characterization`.
 
@@ -165,11 +183,12 @@ usage: arena evaluation <command> [--run-dir DIR | --benchmark-dir DIR] [--outpu
                             [--workers N] [--report-manifest NAME|PATH|{...}] [--list-manifests]
 
 Commands:
-  extract   Extract topics from MCAP into Parquet files
-  process   Compute metrics and write metrics.parquet
-  run       Full pipeline: extract -> process -> report + plots
-  report    Generate report.html from existing metrics.parquet
-  plot      Generate static PNG plots only
+  extract   Extract topics from MCAP into Parquet files and write the benchmark's dimensions
+  migrate   Convert a run recorded before the native layout to the current layout, in place
+  process   Compute metrics and write metrics.parquet (returns with PR2)
+  run       Full pipeline: extract -> process -> report + plots (returns with PR2 and PR4)
+  report    Generate report.html from existing metrics.parquet (returns with PR4)
+  plot      Generate static PNG plots only (returns with PR4)
   acoustic  Acoustic analysis subcommands (list, animate, snapshot)
 ```
 
@@ -214,11 +233,11 @@ pytest tests/ -v
 
 ## Sub-package Documentation
 
-- [ingestion/README.md](arena_evaluation/ingestion/README.md): recording, topics, episode lifecycle
-- [processing/README.md](arena_evaluation/processing/README.md): extraction, alignment, metrics
+- [ingestion/README.md](arena_evaluation/ingestion/README.md): recording, topics, episode lifecycle, migration
+- [processing/README.md](arena_evaluation/processing/README.md): extraction, native tables, pose stream, dimension rows
 - [processing/metrics/README.md](arena_evaluation/processing/metrics/README.md): metric calculator framework
 - [presentation/README.md](arena_evaluation/presentation/README.md): declarative manifests, plot types
-- [storage/README.md](arena_evaluation/storage/README.md): schemas, paths, metadata
+- [storage/README.md](arena_evaluation/storage/README.md): registry, dimensions and contracts, paths, metadata
 - [benchmark/README.md](arena_evaluation/benchmark/README.md): runner, state, CLI, profiler
 - [configs/benchmark/README.md](configs/benchmark/README.md): suites, contests, characterization
 - [arena_evaluation_msgs/README.md](../arena_evaluation_msgs/README.md): ROS 2 message and service definitions

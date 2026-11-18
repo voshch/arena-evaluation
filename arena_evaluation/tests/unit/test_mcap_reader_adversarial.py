@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("mcap_ros2.writer")
 
 from arena_evaluation.processing.mcap_reader import MCAPReader
+from arena_evaluation.processing.telemetry.messages import yaw_from_orientation
 from test_mcap_reader_topics import ODOMETRY, _header, _write_bag
 
 
@@ -10,7 +13,7 @@ def _odom(x: float) -> dict:
     return {"header": _header(frame_id="odom"), "pose": {"pose": {"position": {"x": x, "y": 0.0}, "orientation": {"w": 1.0}}}, "twist": {"twist": {}}}
 
 
-def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
+def test_duplicate_timestamps_keep_arrival_order_and_out_of_order_messages_are_sorted(tmp_path):
     bag = _write_bag(
         tmp_path / "episode.mcap",
         [
@@ -21,13 +24,11 @@ def test_mcap_reader_duplicate_timestamps_and_out_of_order(tmp_path):
         ],
     )
 
-    odom = MCAPReader(bag).read(tmp_path / "raw")["env_0"].odom.collect()
+    odom = MCAPReader(bag).read(tmp_path / "raw")["env_0"].robot_odom.collect()
 
-    assert odom["time_ns"].to_list() == [1000, 1000, 3000, 5000]
-    assert odom["pos_x"].to_list() == [1.0, 1.1, 3.0, 5.0]
+    assert odom["t_ns"].to_list() == [1000, 1000, 3000, 5000]
+    assert odom["odom_x"].to_list() == [1.0, 1.1, 3.0, 5.0]
 
 
-def test_quaternion_to_yaw_adversarial():
-    # Invalid quaternion (0,0,0,0)
-    yaw = MCAPReader._quaternion_to_yaw(0, 0, 0, 0)
-    assert yaw == 0.0
+def test_an_all_zero_quaternion_has_no_heading():
+    assert yaw_from_orientation(SimpleNamespace(x=0.0, y=0.0, z=0.0, w=0.0)) == 0.0

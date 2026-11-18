@@ -8,11 +8,9 @@ if TYPE_CHECKING:
     import polars as pl
 
 import typing
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 
-from pydantic import BaseModel, Field, model_validator
-
-from .legacy import read_metadata
+from pydantic import BaseModel, Field
 
 
 class RunMetadata(BaseModel):
@@ -43,8 +41,8 @@ class RunMetadata(BaseModel):
     ros_distro: str
 
     task_layer: str = ""
-    modes: dict[str, list[str]] = Field(default_factory=dict)
-    params: dict[str, typing.Any] = Field(default_factory=dict)
+    modes: dict[str, list[str]] | None = None
+    params: dict[str, typing.Any] | None = None
 
     recording_ended_at: str | None = None
     episodes_recorded: int | None = None
@@ -62,11 +60,6 @@ class RunMetadata(BaseModel):
     is_reference: bool = False
     reference_type: str | None = None
     parent_episode_id: int | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _map_legacy_fields(cls, data: object) -> object:
-        return read_metadata(data) if isinstance(data, dict) else data
 
 
 @dataclass(frozen=True)
@@ -88,7 +81,7 @@ class RobotParams:
 
     @classmethod
     def load(cls, model: str) -> RobotParams:
-        """Load parameters from arena_robots share directory, returning defaults on failure."""
+        """Load parameters from the arena_robots share directory; raises when the package or a parameter file is missing."""
         import os
 
         import yaml
@@ -100,32 +93,49 @@ class RobotParams:
         component_masses: dict[str, float] = {}
 
         try:
-            robot_dir = os.path.join(get_package_share_directory("arena_robots"), "robots", model.partition("[")[0])
-        except Exception:
-            return cls(model=model)
+            robot_dir = os.path.join(
+                get_package_share_directory("arena_robots"),
+                "robots",
+                model.partition("[")[0],
+            )
+        except (ImportError, OSError, KeyError) as error:
+            raise FileNotFoundError(f"arena_robots is not installed, so the parameters of {model!r} are unknown") from error
 
         def _read(path: str) -> dict:
-            try:
-                with open(path) as file:
-                    return yaml.safe_load(file) or {}
-            except Exception:
-                return {}
+            with open(path) as file:
+                return yaml.safe_load(file) or {}
 
-        radius = float(_read(os.path.join(robot_dir, "caps", "mobile.yaml")).get("radius", radius))
-        base_mass = float(_read(os.path.join(robot_dir, "model_params.yaml")).get("mass", {}).get("base_kg", base_mass))
+        radius = float(
+            _read(os.path.join(robot_dir, "caps", "mobile.yaml")).get("radius", radius)
+        )
+        base_mass = float(
+            _read(os.path.join(robot_dir, "model_params.yaml"))
+            .get("mass", {})
+            .get("base_kg", base_mass)
+        )
         max_linear_velocity = 0.0
         for block in _read(os.path.join(robot_dir, "control.yaml")).values():
             params = block.get("ros__parameters", {}) if isinstance(block, dict) else {}
             if "linear.x.max_velocity" in params:
                 max_linear_velocity = float(params["linear.x.max_velocity"])
 
-        components_root = os.path.join(os.path.dirname(os.path.dirname(robot_dir)), "components")
-        for kind, entries in _read(os.path.join(robot_dir, "assembly.yaml")).get("defaults", {}).items():
+        components_root = os.path.join(
+            os.path.dirname(os.path.dirname(robot_dir)), "components"
+        )
+        for kind, entries in (
+            _read(os.path.join(robot_dir, "assembly.yaml")).get("defaults", {}).items()
+        ):
             for entry in entries or []:
                 variant = (entry or {}).get("variant")
                 if not variant:
                     continue
-                kg = _read(os.path.join(components_root, kind, variant, "component.yaml")).get("mass", {}).get("kg")
+                kg = (
+                    _read(
+                        os.path.join(components_root, kind, variant, "component.yaml")
+                    )
+                    .get("mass", {})
+                    .get("kg")
+                )
                 if kg:
                     component_masses[f"{kind}/{variant}"] = float(kg)
 
@@ -141,16 +151,6 @@ class RobotParams:
 
 
 @dataclass(frozen=True)
-class RunDescriptor:
-    """Descriptor for a single run directory."""
-
-    run_dir: str
-    benchmark_id: str
-    planner: str
-    stage: str
-
-
-@dataclass(frozen=True)
 class EpisodeDescriptor:
     """Descriptor for an episode directory in flat storage."""
 
@@ -159,44 +159,51 @@ class EpisodeDescriptor:
     episode_id: int
     planner: str
     stage: str
-    map: str = "unknown"
+    map: str
     is_reference: bool = False
     reference_type: str | None = None
 
 
 @dataclass
 class TopicBundle:
-    """Raw topic dataframes extracted from MCAP."""
+    """Flat telemetry tables of one robot: the episode's ingested tables filtered to its robot and environment."""
 
-    odom: pl.DataFrame | pl.LazyFrame | None = None
-    scan: pl.DataFrame | pl.LazyFrame | None = None
-    cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
-    joint_states: pl.DataFrame | pl.LazyFrame | None = None
-    peds: pl.DataFrame | pl.LazyFrame | None = None
-    peds_physics: pl.DataFrame | pl.LazyFrame | None = None
-    ped_gestures: pl.DataFrame | pl.LazyFrame | None = None
-    interactions: pl.DataFrame | pl.LazyFrame | None = None
-    interaction_events: pl.DataFrame | pl.LazyFrame | None = None
-    animation_states: pl.DataFrame | pl.LazyFrame | None = None
-    episode_record: pl.DataFrame | pl.LazyFrame | None = None
-    collision_events: pl.DataFrame | pl.LazyFrame | None = None
-    collision_monitor_state: pl.DataFrame | pl.LazyFrame | None = None
-    power: pl.DataFrame | pl.LazyFrame | None = None
-    energy: pl.DataFrame | pl.LazyFrame | None = None
-    acoustics: pl.DataFrame | pl.LazyFrame | None = None
-    plan: pl.DataFrame | pl.LazyFrame | None = None
-    characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
-    characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
-    initialpose: pl.DataFrame | pl.LazyFrame | None = None
-    task_pose: pl.DataFrame | pl.LazyFrame | None = None
     tf: pl.DataFrame | pl.LazyFrame | None = None
     tf_static: pl.DataFrame | pl.LazyFrame | None = None
-    tf_gt: pl.DataFrame | pl.LazyFrame | None = None
-    semantic_snapshot: pl.DataFrame | pl.LazyFrame | None = None
+    world_semantics: pl.DataFrame | pl.LazyFrame | None = None
+    robot_tracks: pl.DataFrame | pl.LazyFrame | None = None
+    robot_odom: pl.DataFrame | pl.LazyFrame | None = None
+    robot_cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
+    robot_scan_summary: pl.DataFrame | pl.LazyFrame | None = None
+    robot_scan_rays: pl.DataFrame | pl.LazyFrame | None = None
+    robot_joint_states: pl.DataFrame | pl.LazyFrame | None = None
+    robot_power: pl.DataFrame | pl.LazyFrame | None = None
+    robot_joint_power: pl.DataFrame | pl.LazyFrame | None = None
+    robot_energy: pl.DataFrame | pl.LazyFrame | None = None
+    robot_acoustics: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_events: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_contacts: pl.DataFrame | pl.LazyFrame | None = None
+    robot_collision_monitor: pl.DataFrame | pl.LazyFrame | None = None
+    robot_plans: pl.DataFrame | pl.LazyFrame | None = None
+    robot_characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
+    robot_characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
+    robot_initialpose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_task_pose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_descriptor: pl.DataFrame | pl.LazyFrame | None = None
+    robot_params: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_arena_peds: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_agent_states: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_gestures: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_animations: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interactions: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interaction_members: pl.DataFrame | pl.LazyFrame | None = None
+    pedestrian_interaction_events: pl.DataFrame | pl.LazyFrame | None = None
+    episode_lifecycle: pl.DataFrame | pl.LazyFrame | None = None
+    episode_integrity: pl.DataFrame | pl.LazyFrame | None = None
 
     def available(self) -> set[str]:
         """Names of the topics this bundle carries."""
-        return {f.name for f in fields(self) if getattr(self, f.name) is not None}
+        return {name for name, table in vars(self).items() if table is not None}
 
 
 @dataclass
@@ -211,6 +218,8 @@ class AlignedEpisodeBundle:
     robot_name: str | None = None
     semantic_snapshot: pl.DataFrame | None = None
     conditions: list[dict] | None = None
+    # Recorded EpisodeRecord.human_params as parameter name -> value, None when no record carried any.
+    human_params: dict[str, typing.Any] | None = None
     # This robot's entry of EpisodeRecord.phases ({phases, conditions, map_poses, goal_inputs, instructions}), None when the record has none.
     phases: dict | None = None
     # Judge poses of every robot in the env by bare name, this robot included.
@@ -223,6 +232,9 @@ class AlignedEpisodeBundle:
     peds: pl.DataFrame | None = None
     map: str | None = None
     topics: dict[str, pl.DataFrame] | None = None
+    # 1NF series frames of this robot episode by table stem, populated before scope evaluation so
+    # calculators with SERIES_DEPENDS_ON read the published tables instead of retired list outputs.
+    series: dict[str, pl.DataFrame] = field(default_factory=dict)
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
 

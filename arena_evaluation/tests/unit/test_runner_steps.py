@@ -93,16 +93,7 @@ def test_launch_args_forward_passthrough_except_runner_owned_and_stage_keys():
 def test_runtime_launch_args_start_a_suite_lockstep_stepping():
     args = runtime_launch_args({"lockstep": "True", "headless": "True"}, {"sim": "flatsim"})
 
-    assert args == {"lockstep": "True", "headless": "True", "sim": "flatsim", "lockstep.paused": "false", "lockstep.rtf": "0"}
-
-
-def test_runtime_launch_args_keep_an_explicit_lockstep_rtf():
-    assert runtime_launch_args({"lockstep": "True", "lockstep.rtf": "1"}, {})["lockstep.rtf"] == "1"
-    assert runtime_launch_args({"lockstep": "True"}, {"lockstep.rtf": "4"})["lockstep.rtf"] == "4"
-
-
-def test_runtime_launch_args_leave_the_lockstep_default_to_the_launch_file():
-    assert runtime_launch_args({"headless": "True"}, {"sim": "gazebo"}) == {"headless": "True", "sim": "gazebo"}
+    assert args == {"lockstep": "True", "headless": "True", "sim": "flatsim", "lockstep.paused": "false"}
 
 
 def test_runtime_launch_args_start_a_cli_lockstep_stepping():

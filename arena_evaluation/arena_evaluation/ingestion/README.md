@@ -20,7 +20,8 @@ ROS 2 node that records live simulation runs into structured MCAP files.
 |---|---|
 | `recorder.py` | `DataRecorderNode` recording node |
 | `episode_writer.py` | `EpisodeWriter`: episode directory, MCAP writer, flatten and metadata finalize, shared by the recorder node and offline importers (`arena asset import episode musohu <bag>` writes MuSoHu rosbag1 runs as reference episodes of the robot model `human`: scan, odom with the `/action` twist and cmd_vel on the recorder's topics, every other topic with a ROS 2 type under the robot namespace and tf on `/tf` and `/tf_static`, frames prefixed `env_0/human/`) |
-| `metadata.py` | `IngestionMetadata` helper building initial `RunMetadata` |
+| `metadata.py` | `IngestionMetadata` helper building the `RunMetadata` of an episode |
+| `migrate.py` | `migrate_run`: converts a run recorded before the native layout to the current metadata and tables (see Migration) |
 | `topics.py` | Topic name constants and type-string mapping |
 
 ---
@@ -54,7 +55,7 @@ Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XX
 list of reasons the episode is compromised, empty when it is intact. Reasons accrue during the
 episode, so the yaml holds the latest list.
 
-The same rewrite stores `task_layer`, the name of the task runtime from `EpisodeRecord.task_layer` (empty in recordings made before it, which mean the default runtime and which scenario provenance looks up namespaces in), `modes`, the selection per axis decoded from `EpisodeRecord.modes` (axis to list of mode names), and `params`, the effective params of the selected modes under their full names. `episode_XXX.yaml` files written before `modes` (with `tm_robots`, `tm_obstacles`, `tm_modules`, `robots_params` and `obstacles_params`) read into the same two fields: the tm_* fields become the `robots`, `obstacles` and `modules` axes and a leaf param of the robots or obstacles mode `m` becomes `task.<m>.<leaf>`.
+The same rewrite stores `task_layer`, the name of the task runtime from `EpisodeRecord.task_layer` (empty in recordings made before it, which mean the default runtime and which scenario provenance looks up namespaces in), `modes`, the selection per axis decoded from `EpisodeRecord.modes` (axis to list of mode names), and `params`, the effective params of the selected modes under their full names. Episode files written before `modes` (with `tm_robots`, `tm_obstacles`, `tm_modules`, `robots_params` and `obstacles_params`) are not read by the recorder; the Migration section maps them once.
 
 A bag directory `episode_XXX/episode_XXX/` that an earlier recorder left unclosed is kept as
 `episode_XXX/episode_XXX_unclosed_N/` and the episode is recorded as usual.
@@ -94,11 +95,7 @@ written out, ceilings under the `world.lighting` mode) and `kg.yaml`
 `level_origins.yaml`, the per-level shifts the runtime flattened the full
 world with, which a level-filtered snapshot cannot derive from its own levels.
 Env offsets and other runtime state stay out. Evaluation reads world geometry from there before the
-package worlds. On the first episode of each scenario a `scenario` task mode
-runs, the recorder also copies that scenario's directory (`scenario.yaml`,
-`provenance.yaml`, scenario-local agent types) to
-`<run_dir>/worlds/<world name>/scenarios/<file>/`, which the edge-case metrics
-read before the world's own scenario.
+package worlds. The recorder copies no scenario directories: the edge-case provenance that reads them moves with the metric layer.
 
 ### Recorded Topics
 
@@ -136,9 +133,9 @@ the env namespace, i.e. one level above the recorder) rather than from the fixed
 | `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 50 ms (per-ped clip, playhead, gesture phase, blend weight) |
 | `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states`, `/{parent_ns}/interactions` | fallback if the fixed paths above miss them | 20 ms, interactions latched |
 
-The reader turns them into `interactions`, `interaction_events`, `animation_states` and `ped_gestures` env tables,
+The reader writes them to the `pedestrian_*` tables (interactions, interaction events, animations and gestures),
 and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as
-`peds` and `peds_physics`.
+`pedestrian_arena_peds` and `pedestrian_agent_states`.
 
 Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`arena_runtime_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
 
@@ -156,14 +153,15 @@ Simulator backends declare further topics on the latched `/{parent_ns}/state/rec
 
 ## metadata.py - IngestionMetadata
 
-Builds the initial `RunMetadata` written to `metadata.yaml` on node startup.
+Builds the `RunMetadata` of one episode, written to `episode_XXX.yaml`. `modes` and `params` stay NULL until the episode's `EpisodeRecord` arrives.
 
 ```python
-metadata = IngestionMetadata.create_initial_metadata(
+metadata = IngestionMetadata.create_episode_metadata(
     benchmark_id="my_benchmark",
     planner="dwa",
     stage="stage_1",
-    episodes_requested=10,
+    map_name="hospital",
+    episode_id=0,
     robot_model="jackal",
     suite_name="default",
     contest_name="dwa_vs_teb",
@@ -183,6 +181,17 @@ topics = get_topics(namespace="arena/env_0/arena_env_node/jackal")
 ```
 
 `recorded_topic_definition(row, tg_namespace, robot_namespace)` turns one `RecordedTopic` row into a `TopicDefinition`, or `None` when its message type does not import.
+
+---
+
+## Migration: `arena evaluation migrate`
+
+`arena evaluation migrate <run dir>` converts a run recorded before the native layout, once and in place. It takes a run directory or a single episode folder.
+
+- Metadata: the `tm_robots`, `tm_obstacles` and `tm_modules` fields become the `robots`, `obstacles` and `modules` axes of `modes`. The nested `robots_params` and `obstacles_params` become `params` under the full names `task.<mode>.<leaf>`. An episode with neither `modes` nor the `tm_*` fields is refused.
+- Environment: taken from the topic names, then from the transform frames. A recording that names no environment, or several, is refused.
+- Telemetry: the MCAP is read again into the native tables under `topics/`, and the episode YAML is rewritten.
+- Failure: the first episode that cannot be mapped stops the run. Episodes before it are already migrated; the failing one keeps its topics and YAML as they were.
 
 ---
 

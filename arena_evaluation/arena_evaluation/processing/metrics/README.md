@@ -44,7 +44,7 @@ Each calculator declares:
 
 ## Data Sources
 
-Per-topic Parquet files are extracted by `MCAPReader` and aligned by `TopicAligner` onto the odom time axis.
+Per-topic Parquet files are extracted by `MCAPReader` into the episode's `topics/` folder.
 
 ## Usage
 

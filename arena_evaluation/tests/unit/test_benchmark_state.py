@@ -29,7 +29,6 @@ from arena_evaluation.benchmark.state import (
     capture_git_sha,
     compute_config_hash,
     find_most_recent_resumable,
-    progress_rows,
 )
 from arena_evaluation.benchmark.lockstep import LockstepSummary
 from arena_evaluation.benchmark.step import StepErrorKind, StepResult
@@ -67,7 +66,9 @@ def _make_episode_record(*, episode_id: int = 1) -> types.SimpleNamespace:
         episode_id=episode_id,
         world="map1",
         seed=42,
-        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}),
+        modes=encode_modes(
+            {"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}
+        ),
         robots=["turtlebot3_burger"],
         outcome_state=1,
         outcome_info="",
@@ -131,13 +132,26 @@ def test_compute_config_hash_differs_on_input():
 # ---------------------------------------------------------------------------
 
 
-def _make_resumable_run(root: pathlib.Path, name: str, *, state_steps: object | None = None, manifest_text: str | None = None, with_state: bool = True) -> pathlib.Path:
+def _make_resumable_run(
+    root: pathlib.Path,
+    name: str,
+    *,
+    state_steps: object | None = None,
+    manifest_text: str | None = None,
+    with_state: bool = True,
+) -> pathlib.Path:
     """Create a run dir that is structurally resumable (manifest + state)."""
     run_path = root / name
     run_path.mkdir(parents=True)
-    (run_path / "manifest.yaml").write_text(manifest_text if manifest_text is not None else _make_manifest(run_id=name).to_yaml())
+    (run_path / "manifest.yaml").write_text(
+        manifest_text
+        if manifest_text is not None
+        else _make_manifest(run_id=name).to_yaml()
+    )
     if with_state:
-        (run_path / ".benchmark_state.json").write_text(json.dumps({"steps": state_steps or {}}))
+        (run_path / ".benchmark_state.json").write_text(
+            json.dumps({"steps": state_steps or {}})
+        )
     return run_path
 
 
@@ -156,8 +170,12 @@ def test_find_resumable_skips_missing_manifest(tmp_path: pathlib.Path):
 
 
 def test_find_resumable_skips_corrupt_manifest(tmp_path: pathlib.Path):
-    _make_resumable_run(tmp_path, "r1", manifest_text="not: [valid yaml\n", with_state=False)
-    _make_resumable_run(tmp_path, "r2", manifest_text="run_id: only_one_field\n", with_state=False)
+    _make_resumable_run(
+        tmp_path, "r1", manifest_text="not: [valid yaml\n", with_state=False
+    )
+    _make_resumable_run(
+        tmp_path, "r2", manifest_text="run_id: only_one_field\n", with_state=False
+    )
     assert find_most_recent_resumable(tmp_path) is None
 
 
@@ -167,7 +185,10 @@ def test_find_resumable_skips_all_ok_run(tmp_path: pathlib.Path):
 
 
 def test_find_resumable_mixed_status_run_is_candidate(tmp_path: pathlib.Path):
-    steps = {"a/s1": {"status": "ok"}, "a/s2": {"status": "failed", "error_kind": "internal"}}
+    steps = {
+        "a/s1": {"status": "ok"},
+        "a/s2": {"status": "failed", "error_kind": "internal"},
+    }
     _make_resumable_run(tmp_path, "r1", state_steps=steps)
     assert find_most_recent_resumable(tmp_path) == "r1"
 
@@ -191,8 +212,12 @@ def test_find_resumable_no_state_file_is_candidate(tmp_path: pathlib.Path):
 
 
 def test_find_resumable_returns_most_recent(tmp_path: pathlib.Path):
-    _make_resumable_run(tmp_path, "20260623-100000-s-c", state_steps={"a/s": {"status": "failed"}})
-    _make_resumable_run(tmp_path, "20260624-090000-s-c", state_steps={"a/s": {"status": "partial"}})
+    _make_resumable_run(
+        tmp_path, "20260623-100000-s-c", state_steps={"a/s": {"status": "failed"}}
+    )
+    _make_resumable_run(
+        tmp_path, "20260624-090000-s-c", state_steps={"a/s": {"status": "partial"}}
+    )
     assert find_most_recent_resumable(tmp_path) == "20260624-090000-s-c"
 
 
@@ -201,7 +226,9 @@ def test_find_resumable_returns_most_recent(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 
 
-def _install_fake_git(monkeypatch, results: list[subprocess.CompletedProcess]) -> list[list[str]]:
+def _install_fake_git(
+    monkeypatch, results: list[subprocess.CompletedProcess]
+) -> list[list[str]]:
     calls: list[list[str]] = []
 
     def _run(cmd, capture_output, text, timeout):  # noqa: ARG001
@@ -236,7 +263,9 @@ def test_capture_git_sha_dirty(monkeypatch):
 
 
 def test_capture_git_sha_nonzero_returncode(monkeypatch):
-    results = [subprocess.CompletedProcess([], 1, stdout="", stderr="fatal: not a git repo")]
+    results = [
+        subprocess.CompletedProcess([], 1, stdout="", stderr="fatal: not a git repo")
+    ]
     _install_fake_git(monkeypatch, results)
     assert capture_git_sha(pathlib.Path("/ws")) == (None, False)
 
@@ -373,7 +402,9 @@ def test_state_file_backward_compat_error_field(tmp_path: pathlib.Path):
 
 
 def test_state_file_open_invalid_error_kind_raises(tmp_path: pathlib.Path):
-    (tmp_path / ".benchmark_state.json").write_text(json.dumps({"steps": {"p/s": {"status": "failed", "error_kind": "bogus_kind"}}}))
+    (tmp_path / ".benchmark_state.json").write_text(
+        json.dumps({"steps": {"p/s": {"status": "failed", "error_kind": "bogus_kind"}}})
+    )
     with pytest.raises(ValueError):
         StateFile.open(tmp_path)
 
@@ -411,7 +442,9 @@ def test_params_to_json_scalar():
 
 def test_params_to_json_array_tolist():
     """numpy array values are converted with .tolist() before serialization."""
-    out = _params_to_json([_msg_param("a_arr", ParameterType.PARAMETER_INTEGER_ARRAY, [1, 2, 3])])
+    out = _params_to_json(
+        [_msg_param("a_arr", ParameterType.PARAMETER_INTEGER_ARRAY, [1, 2, 3])]
+    )
     assert json.loads(out) == [{"name": "a_arr", "value": [1, 2, 3]}]
 
 
@@ -530,7 +563,14 @@ def test_progress_log_optional_fields_empty(tmp_path: pathlib.Path):
 
 def test_progress_log_lockstep_counts(tmp_path: pathlib.Path):
     log = ProgressLog(tmp_path / "progress.csv")
-    summary = LockstepSummary(active=True, rtf=1.5, channels=("engine", "nav/jackal", "planner/jackal"), ticks=90, beats=88, beats_due=90)
+    summary = LockstepSummary(
+        active=True,
+        rtf=1.5,
+        channels=("engine", "nav/jackal", "planner/jackal"),
+        ticks=90,
+        beats=88,
+        beats_due=90,
+    )
     log.append(
         ts_iso="t",
         run_id="r",
@@ -548,7 +588,11 @@ def test_progress_log_lockstep_counts(tmp_path: pathlib.Path):
     with (tmp_path / "progress.csv").open(newline="") as fh:
         row = next(csv.DictReader(fh))
     assert row["lockstep_beat_channels"] == "nav/jackal,planner/jackal"
-    assert (row["lockstep_ticks"], row["lockstep_beats"], row["lockstep_beats_due"]) == ("90", "88", "90")
+    assert (
+        row["lockstep_ticks"],
+        row["lockstep_beats"],
+        row["lockstep_beats_due"],
+    ) == ("90", "88", "90")
 
 
 def test_progress_log_error_fields(tmp_path: pathlib.Path):
@@ -583,7 +627,7 @@ def test_progress_log_reopen_no_duplicate_header(tmp_path: pathlib.Path):
     log2.close()
     with path.open(newline="") as fh:
         lines = fh.readlines()
-    assert sum(1 for l in lines if l.startswith("ts_iso,")) == 1
+    assert sum(1 for line in lines if line.startswith("ts_iso,")) == 1
 
 
 def test_progress_log_write_comment(tmp_path: pathlib.Path):
@@ -626,47 +670,17 @@ def test_progress_log_append_with_parameter_msg_params(tmp_path: pathlib.Path):
     with (tmp_path / "progress.csv").open(newline="") as fh:
         row = next(csv.DictReader(fh))
     assert json.loads(row["params_json"]) == [{"name": "task.r.speed", "value": 3}]
-    assert json.loads(row["modes"]) == {"modules": ["m"], "obstacles": ["o"], "robots": ["r"]}
+    assert json.loads(row["modes"]) == {
+        "modules": ["m"],
+        "obstacles": ["o"],
+        "robots": ["r"],
+    }
 
 
 _OLD_COLUMNS = [
     "ts_iso", "run_id", "step_key", "contestant", "stage", "env_id", "episode_id", "world", "seed",
     "tm_robots", "tm_obstacles", "tm_modules", "robots", "robots_params_json", "obstacles_params_json",
 ]  # fmt: skip
-
-
-def test_a_progress_file_from_before_modes_reads_into_modes_and_params(tmp_path: pathlib.Path):
-    with (tmp_path / "progress.csv").open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=_OLD_COLUMNS)
-        writer.writeheader()
-        writer.writerow(
-            {
-                "ts_iso": "2026-01-01T00:00:00+00:00",
-                "step_key": "c/s",
-                "episode_id": "1",
-                "world": "map1",
-                "tm_robots": "scenario",
-                "tm_obstacles": "random",
-                "tm_modules": "benchmark,sounds",
-                "robots_params_json": json.dumps([{"name": "file", "value": "case_1"}]),
-                "obstacles_params_json": json.dumps([{"name": "static.n", "value": [1, 2]}]),
-            }
-        )
-    (row,) = progress_rows(tmp_path)
-    assert json.loads(row["modes"]) == {"modules": ["benchmark", "sounds"], "obstacles": ["random"], "robots": ["scenario"]}
-    assert json.loads(row["params_json"]) == [{"name": "task.scenario.file", "value": "case_1"}, {"name": "task.random.static.n", "value": [1, 2]}]
-    assert "tm_robots" not in row
-    assert row["world"] == "map1"
-
-
-def test_opening_a_progress_file_from_before_modes_rewrites_it_under_the_current_header(tmp_path: pathlib.Path):
-    path = tmp_path / "progress.csv"
-    path.write_text(",".join(_OLD_COLUMNS) + "\n" + "t,r,c/s,c,s,0,1,map1,3,random,random,,bot,[],[]\n")
-    ProgressLog(path).close()
-    with path.open(newline="") as fh:
-        (row,) = csv.DictReader(fh)
-    assert json.loads(row["modes"]) == {"modules": [], "obstacles": ["random"], "robots": ["random"]}
-    assert json.loads(row["params_json"]) == []
 
 
 # -- dedupe_in_place --
@@ -731,7 +745,9 @@ def test_run_dir_create_layout(tmp_path: pathlib.Path):
     assert (run_dir.path / "manifest.yaml").exists()
     assert (run_dir.path / "progress.csv").exists()
     assert run_dir.state.steps == {}
-    assert Manifest.from_yaml((run_dir.path / "manifest.yaml").read_text()).run_id == "r1"
+    assert (
+        Manifest.from_yaml((run_dir.path / "manifest.yaml").read_text()).run_id == "r1"
+    )
 
 
 def test_run_dir_create_existing_raises(tmp_path: pathlib.Path):
@@ -756,6 +772,7 @@ def test_run_dir_open_round_trip(tmp_path: pathlib.Path):
 def test_run_dir_attach_log_handler(tmp_path: pathlib.Path):
     run_dir = RunDir.create(tmp_path, "r1", _make_manifest(run_id="r1"))
     logger = logging.getLogger("arena_evaluation.tests.run_dir")
+    logger.setLevel(logging.INFO)
     try:
         run_dir.attach_log_handler(logger)
         logger.info("hello from runner")

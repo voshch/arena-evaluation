@@ -4,7 +4,6 @@ import os
 import pathlib
 import sys
 
-from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.data_root import latest_benchmark
 from arena_evaluation.storage.folder_manager import FolderManager
@@ -149,7 +148,7 @@ Examples:
     subparsers.add_parser(
         "extract",
         parents=[run_parent],
-        help="Layer 3: Extract topics from MCAP into fast Parquet files (cache).",
+        help="Layer 1: Extract topics from MCAP into fast Parquet files (cache).",
     )
     subparsers.add_parser(
         "run",
@@ -159,7 +158,7 @@ Examples:
     process_parser = subparsers.add_parser(
         "process",
         parents=[run_parent],
-        help="Layer 3: Compute metrics and write metrics.parquet (uses cached extraction by default).",
+        help="Layer 2: Compute metrics and write metrics.parquet (uses cached extraction by default).",
     )
     process_parser.add_argument(
         "--force-extract",
@@ -177,6 +176,12 @@ Examples:
         help="Layer 5: Generate static PNG plots only (no HTML report).",
     )
 
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Convert a run recorded before the native layout (old metadata and MCAP) to the current layout, in place.",
+    )
+    migrate_parser.add_argument("run_dir", type=pathlib.Path, help="Run directory, or one episode folder, to migrate.")
+
     from arena_evaluation.cli_acoustic import setup_acoustic_subparsers
 
     setup_acoustic_subparsers(subparsers)
@@ -192,6 +197,13 @@ Examples:
         return 0
 
     args = resolve_paths(args)
+
+    if args.command == "migrate":
+        from arena_evaluation.ingestion.migrate import migrate_run
+
+        migrated = migrate_run(args.run_dir)
+        print(f"Migrated {len(migrated)} episode folder(s) to the native layout")
+        return 0
 
     # acoustic subcommand handler
     if args.command == "acoustic":
@@ -268,6 +280,7 @@ Examples:
             output_dir = target_dirs[0]
 
         from arena_evaluation.presentation.manifest_registry import resolve_manifest
+        from arena_evaluation.presentation.report_builder import ReportBuilder
 
         manifest_obj = resolve_manifest(args.report_manifest, benchmark_dir=target_dirs[0])
 

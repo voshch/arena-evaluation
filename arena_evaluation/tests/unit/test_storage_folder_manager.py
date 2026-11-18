@@ -11,7 +11,7 @@ import pathlib
 
 import pytest
 
-import arena_evaluation.storage.folder_manager as folder_manager_mod
+from arena_evaluation.storage.exceptions import ManifestGenerationError
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
@@ -41,6 +41,8 @@ def _make_metadata(
         recording_started_at="2026-01-01T00:00:00+00:00",
         python_version="3.12.3",
         ros_distro="jazzy",
+        modes={},
+        params={},
         is_reference=is_reference,
         reference_type=reference_type,
     )
@@ -61,7 +63,9 @@ def _write_episode(
     ep_dir = root / benchmark_id / "episodes" / name
     ep_dir.mkdir(parents=True, exist_ok=True)
     if valid:
-        meta = _make_metadata(benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs)
+        meta = _make_metadata(
+            benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs
+        )
         sidecar = ep_dir / ("metadata.yaml" if legacy else f"{name}.yaml")
         MetadataWriter.write(meta, sidecar)
     return ep_dir
@@ -98,16 +102,24 @@ def test_init_accepts_str_data_root(tmp_path: pathlib.Path):
     assert fm.data_root.is_dir()
 
 
-def test_init_default_root_uses_package_share(monkeypatch, tmp_path: pathlib.Path):
+def test_init_default_root_uses_package_share(tmp_path: pathlib.Path):
     share = tmp_path / "share" / "arena_evaluation"
-    monkeypatch.setattr(
-        folder_manager_mod,
-        "get_package_share_directory",
-        lambda pkg: str(share),
-    )
-    fm = FolderManager()
-    assert fm.data_root == share / "data"
+    fm = FolderManager(environ={}, share_directory=lambda pkg: str(share))
+    assert fm.data_root == (share / "data").resolve()
     assert fm.data_root.is_dir()
+
+
+def test_init_default_root_follows_arena_data_dir(tmp_path: pathlib.Path):
+    fm = FolderManager(environ={"ARENA_DATA_DIR": str(tmp_path)})
+    assert fm.data_root == (tmp_path / "benchmarks").resolve()
+    assert fm.data_root.is_dir()
+
+
+def test_benchmark_dir_resolves_only_the_benchmarks_root(tmp_path: pathlib.Path):
+    (tmp_path / "runs" / "bench").mkdir(parents=True)
+    (tmp_path / "benchmarks" / "bench").mkdir(parents=True)
+    fm = FolderManager(tmp_path)
+    assert fm.benchmark_dir("bench") == (tmp_path / "bench").resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +142,9 @@ def test_episode_dir_formatting(tmp_path: pathlib.Path):
     "episode_id, expected_name",
     [(0, "episode_000"), (42, "episode_042"), (1234, "episode_1234")],
 )
-def test_episode_dir_zero_padding(tmp_path: pathlib.Path, episode_id: int, expected_name: str):
+def test_episode_dir_zero_padding(
+    tmp_path: pathlib.Path, episode_id: int, expected_name: str
+):
     fm = FolderManager(tmp_path)
     expected = (tmp_path / "bench" / "episodes" / expected_name).resolve()
     assert fm.episode_dir("bench", episode_id) == expected
@@ -180,18 +194,6 @@ def test_episode_dir_absolute_nested_inside_root_is_allowed(tmp_path: pathlib.Pa
     assert fm.episode_dir(str(tmp_path / "nested"), 1) == expected
 
 
-def test_combined_metrics_path_blocks_parent_traversal(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.combined_metrics_path("../outside")
-
-
-def test_combined_metrics_path_blocks_absolute_escape(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.combined_metrics_path(str(tmp_path.parent / "outside"))
-
-
 # ---------------------------------------------------------------------------
 # discover_episodes
 # ---------------------------------------------------------------------------
@@ -224,7 +226,9 @@ def test_discover_episodes_single(tmp_path: pathlib.Path):
 
 
 def test_discover_episodes_descriptor_fields(tmp_path: pathlib.Path):
-    ep_dir = _write_episode(tmp_path, 5, planner="dwb", stage="stage_one", map_name="map_empty")
+    ep_dir = _write_episode(
+        tmp_path, 5, planner="dwb", stage="stage_one", map_name="map_empty"
+    )
     fm = FolderManager(tmp_path)
     episodes = fm.discover_episodes("bench")
     assert len(episodes) == 1
@@ -280,18 +284,20 @@ def test_discover_episodes_skips_missing_sidecar(tmp_path: pathlib.Path):
     assert fm.discover_episodes("bench") == []
 
 
-def test_discover_episodes_skips_invalid_sidecar(tmp_path: pathlib.Path):
+def test_discover_episodes_refuses_an_invalid_sidecar_loudly(tmp_path: pathlib.Path):
     ep_dir = _write_episode(tmp_path, 3, valid=False)
     (ep_dir / "episode_003.yaml").write_text("hello: world\n")
     fm = FolderManager(tmp_path)
-    assert fm.discover_episodes("bench") == []
+    with pytest.raises(ManifestGenerationError, match="episode_003.yaml"):
+        fm.discover_episodes("bench")
 
 
-def test_discover_episodes_skips_empty_sidecar(tmp_path: pathlib.Path):
+def test_discover_episodes_refuses_an_empty_sidecar_loudly(tmp_path: pathlib.Path):
     ep_dir = _write_episode(tmp_path, 4, valid=False)
     (ep_dir / "episode_004.yaml").write_text("")
     fm = FolderManager(tmp_path)
-    assert fm.discover_episodes("bench") == []
+    with pytest.raises(ManifestGenerationError, match="episode_004.yaml"):
+        fm.discover_episodes("bench")
 
 
 def test_discover_episodes_lexical_order_not_numeric(tmp_path: pathlib.Path):
@@ -325,12 +331,30 @@ def test_discover_episodes_sorted_and_filtered(tmp_path: pathlib.Path):
 @pytest.mark.parametrize(
     ("files", "expected"),
     [
-        pytest.param({"episode_001.mcap": "payload", "other.mcap": "payload"}, "episode_001.mcap", id="canonical_preferred"),
-        pytest.param({"episode_001.mcap": ""}, "episode_001.mcap", id="canonical_zero_size_still_used"),
-        pytest.param({"recording.mcap": "payload"}, "recording.mcap", id="fallback_other_name"),
-        pytest.param({"b.mcap": "bb", "a.mcap": "aa"}, "a.mcap", id="fallback_first_lexically"),
-        pytest.param({"zzz.mcap": "", "a.mcap": "aa"}, "a.mcap", id="fallback_skips_zero_size"),
-        pytest.param({"recording.mcap": ""}, "episode_001.mcap", id="only_zero_size_returns_canonical"),
+        pytest.param(
+            {"episode_001.mcap": "payload", "other.mcap": "payload"},
+            "episode_001.mcap",
+            id="canonical_preferred",
+        ),
+        pytest.param(
+            {"episode_001.mcap": ""},
+            "episode_001.mcap",
+            id="canonical_zero_size_still_used",
+        ),
+        pytest.param(
+            {"recording.mcap": "payload"}, "recording.mcap", id="fallback_other_name"
+        ),
+        pytest.param(
+            {"b.mcap": "bb", "a.mcap": "aa"}, "a.mcap", id="fallback_first_lexically"
+        ),
+        pytest.param(
+            {"zzz.mcap": "", "a.mcap": "aa"}, "a.mcap", id="fallback_skips_zero_size"
+        ),
+        pytest.param(
+            {"recording.mcap": ""},
+            "episode_001.mcap",
+            id="only_zero_size_returns_canonical",
+        ),
         pytest.param({}, "episode_001.mcap", id="missing_returns_canonical"),
     ],
 )
@@ -338,7 +362,10 @@ def test_mcap_path_for_episode(tmp_path: pathlib.Path, files, expected):
     ep_dir = _make_episode_dir(tmp_path)
     for name, content in files.items():
         (ep_dir / name).write_text(content)
-    assert FolderManager(tmp_path).mcap_path_for_episode(ep_dir) == (ep_dir / expected).resolve()
+    assert (
+        FolderManager(tmp_path).mcap_path_for_episode(ep_dir)
+        == (ep_dir / expected).resolve()
+    )
 
 
 def test_mcap_canonical_symlink_escape_raises(tmp_path: pathlib.Path):
@@ -395,10 +422,4 @@ def test_extracted_topics_path_escape_raises(tmp_path: pathlib.Path):
 
 
 # ---------------------------------------------------------------------------
-# combined_metrics_path
 # ---------------------------------------------------------------------------
-
-
-def test_combined_metrics_path(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    assert fm.combined_metrics_path("bench") == (tmp_path / "bench" / "combined_metrics.parquet").resolve()

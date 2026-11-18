@@ -291,7 +291,7 @@ def test_map_occupancy_is_none_for_unreadable_image(calc, cached_map, module_log
 
 
 def test_reference_run_yields_nulls(calc, cached_map):
-    run = EpisodeDescriptor(episode_dir="ep", benchmark_id="bench", episode_id=7, planner="p", stage="s", is_reference=True)
+    run = EpisodeDescriptor(episode_dir="ep", benchmark_id="bench", episode_id=7, planner="p", stage="s", map="unknown", is_reference=True)
     episode = _episode(_frames([(1.0, 1.0)], [[(4.0, 1.0)]]), cached_map(), run=run)
     assert calc.calculate(episode, {}) == NULLS
 
@@ -458,7 +458,7 @@ def test_semantic_timeline_for_another_door_keeps_door_closed(tmp_path, calc, ca
 def test_run_worlds_need_a_benchmark_id(benchmark_id, tmp_path, calc, cached_map):
     name = cached_map(_walled())
     folder_manager, _ = _door_run(tmp_path, name)
-    run = None if benchmark_id is None else EpisodeDescriptor(episode_dir="ep", benchmark_id=benchmark_id, episode_id=7, planner="p", stage="s")
+    run = None if benchmark_id is None else EpisodeDescriptor(episode_dir="ep", benchmark_id=benchmark_id, episode_id=7, planner="p", stage="s", map="unknown")
     data = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
     result = calc.calculate(_episode(data, name, run=run, folder_manager=folder_manager), {})
     assert result["timeseries_acoustic_attenuation_db"] == [pytest.approx([_att(3.0) + 47.0], abs=1e-3)]

@@ -4,12 +4,6 @@ class ArenaEvaluationError(Exception):
     pass
 
 
-class MetricCalculationError(ArenaEvaluationError):
-    """Raised when a metric calculator fails."""
-
-    pass
-
-
 class CircularDependencyError(ArenaEvaluationError):
     """Raised when metric calculators have a circular dependency."""
 
@@ -22,13 +16,13 @@ class SchemaViolationError(ArenaEvaluationError):
     pass
 
 
-class RobotNotFoundError(ArenaEvaluationError):
-    """Raised when robot parameters cannot be resolved."""
+class ManifestGenerationError(ArenaEvaluationError):
+    """Raised when generating or validating a manifest fails."""
 
     pass
 
 
-class ManifestGenerationError(ArenaEvaluationError):
-    """Raised when generating or validating a manifest fails."""
+class ContractViolationError(ArenaEvaluationError):
+    """Raised when the stored benchmark breaks the publish-time contract; nothing partial is published."""
 
     pass

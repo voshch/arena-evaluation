@@ -19,15 +19,17 @@ arena_git_sha: ba4fb594d0bf3ed1a4940e16824598431507e4a3
 arena_git_dirty: true
 python_version: 3.12.3
 ros_distro: jazzy
-tm_obstacles: scenario
-tm_robots: scenario
-tm_modules: []
-obstacles_params:
-  linger_after_completion: false
-  file: barn
-robots_params:
-  linger_after_completion: false
-  file: barn
+modes:
+  robots:
+  - scenario
+  obstacles:
+  - scenario
+  modules: []
+params:
+  task.robots.file: barn
+  task.robots.linger_after_completion: false
+  task.obstacles.file: barn
+  task.obstacles.linger_after_completion: false
 recording_ended_at: '2026-10-07T05:05:07.277876+00:00'
 pedsim_available: true
 recorded_topics:
