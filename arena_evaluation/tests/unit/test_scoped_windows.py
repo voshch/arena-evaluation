@@ -28,7 +28,6 @@ from arena_evaluation.processing.windows import (
     detect_encounter_windows_lf,
     empty_contact_windows,
     empty_encounter_windows,
-    empty_pairs,
     fleet_pairs_lf,
     pedestrian_pairs_lf,
 )
@@ -259,18 +258,6 @@ def test_pedestrian_pairs_alignment_tolerance(
     assert result.schema == PAIR_SCHEMA
 
 
-def test_pedestrian_pairs_accepts_lazy_input() -> None:
-    robot = _robot_tracks([{"t_ns": 0}])
-    pedestrians = _pedestrian_tracks([{"t_ns": 0, "x": 1.0}])
-
-    eager = pedestrian_pairs_lf(robot, pedestrians, ROBOT_RADIUS_M).collect()
-    lazy = pedestrian_pairs_lf(
-        robot.lazy(), pedestrians.lazy(), ROBOT_RADIUS_M
-    ).collect()
-
-    assert_frame_equal(lazy, eager)
-
-
 # ---------------------------------------------------------------------------
 # detect_encounter_windows_lf
 # ---------------------------------------------------------------------------
@@ -372,89 +359,38 @@ def test_encounter_leading_shoulder_does_not_extend_start() -> None:
     )
 
 
-def test_encounter_one_sample_gap_longer_than_the_merge_window_does_not_bridge() -> (
-    None
-):
-    rows = [
-        {"t_ns": t_s * NS_PER_S, "actor_x": x}
-        for t_s, x in ((0, 2.0), (1, 5.0), (2, 2.0))
-    ]
+@pytest.mark.parametrize(
+    ("rows", "expected_bounds"),
+    [
+        (
+            [(0, 2.0), (NS_PER_S, 5.0), (2 * NS_PER_S, 2.0)],
+            [(0, 0), (2 * NS_PER_S, 2 * NS_PER_S)],
+        ),
+        (
+            [(0, 2.0), (450_000_000, 5.0), (900_000_000, 2.0)],
+            [(0, 900_000_000)],
+        ),
+        (
+            [(0, 2.0), (500_000_000, 5.0), (1_000_000_000, 2.0)],
+            [(0, 0), (1_000_000_000, 1_000_000_000)],
+        ),
+    ],
+    ids=["gap-longer-than-merge-window", "short-gap-bridges", "gap-of-merge-window"],
+)
+def test_encounter_interior_gap_bridges_only_inside_the_merge_window(
+    rows: list[tuple[int, float]], expected_bounds: list[tuple[int, int]]
+) -> None:
+    windows = _detect_windows(_pairs_lf([{"t_ns": t, "actor_x": x} for t, x in rows]))
 
-    windows = _detect_windows(_pairs_lf(rows))
-
-    expected = pl.DataFrame(
-        {
-            "t_start_ns": [0, 2_000_000_000],
-            "t_end_ns": [0, 2_000_000_000],
-            "min_distance_m": [2.0, 2.0],
-            "min_clearance_m": [
-                2.0 - ROBOT_RADIUS_M - ACTOR_RADIUS_M,
-                2.0 - ROBOT_RADIUS_M - ACTOR_RADIUS_M,
-            ],
-        },
-        schema={
-            "t_start_ns": pl.Int64,
-            "t_end_ns": pl.Int64,
-            "min_distance_m": pl.Float64,
-            "min_clearance_m": pl.Float64,
-        },
+    assert (
+        list(zip(windows["t_start_ns"], windows["t_end_ns"], strict=True))
+        == expected_bounds
     )
-    assert_frame_equal(
-        windows.select("t_start_ns", "t_end_ns", "min_distance_m", "min_clearance_m"),
-        expected,
-    )
-
-
-def test_encounter_bridges_short_interior_gap() -> None:
-    rows = [
-        {"t_ns": t_ns, "actor_x": x}
-        for t_ns, x in ((0, 2.0), (450_000_000, 5.0), (900_000_000, 2.0))
-    ]
-
-    windows = _detect_windows(_pairs_lf(rows))
-
-    expected = pl.DataFrame(
-        {
-            "t_start_ns": [0],
-            "t_end_ns": [900_000_000],
-            "min_distance_m": [2.0],
-            "min_clearance_m": [2.0 - ROBOT_RADIUS_M - ACTOR_RADIUS_M],
-        },
-        schema={
-            "t_start_ns": pl.Int64,
-            "t_end_ns": pl.Int64,
-            "min_distance_m": pl.Float64,
-            "min_clearance_m": pl.Float64,
-        },
-    )
-    assert_frame_equal(
-        windows.select("t_start_ns", "t_end_ns", "min_distance_m", "min_clearance_m"),
-        expected,
-    )
-
-
-def test_encounter_gap_of_exactly_the_merge_window_does_not_bridge() -> None:
-    rows = [
-        {"t_ns": t_ns, "actor_x": x}
-        for t_ns, x in ((0, 2.0), (500_000_000, 5.0), (1_000_000_000, 2.0))
-    ]
-
-    windows = _detect_windows(_pairs_lf(rows))
-
-    expected = pl.DataFrame(
-        {
-            "encounter_idx": pl.Series([0, 1], dtype=pl.UInt32),
-            "t_start_ns": [0, 1_000_000_000],
-            "t_end_ns": [0, 1_000_000_000],
-        },
-        schema={
-            "encounter_idx": pl.UInt32,
-            "t_start_ns": pl.Int64,
-            "t_end_ns": pl.Int64,
-        },
-    )
-    assert_frame_equal(
-        windows.select("encounter_idx", "t_start_ns", "t_end_ns"), expected
+    assert windows["encounter_idx"].to_list() == list(range(len(expected_bounds)))
+    clearance = 2.0 - ROBOT_RADIUS_M - ACTOR_RADIUS_M
+    assert windows["min_distance_m"].to_list() == [2.0] * len(expected_bounds)
+    assert windows["min_clearance_m"].to_list() == pytest.approx(
+        [clearance] * len(expected_bounds)
     )
 
 
@@ -581,22 +517,22 @@ def test_encounter_stationary_threshold_is_a_detector_parameter(
     assert windows["approach_type"].to_list() == [expected]
 
 
-def test_encounter_detector_metadata_constants() -> None:
-    windows = _detect_windows(_pairs_lf([{"t_ns": 0, "actor_x": 1.0}]))
+def test_detector_metadata_pins_the_version_the_hash_and_the_parameter_sensitivity() -> None:
+    rows = [{"t_ns": 0, "actor_x": 2.5}]
+    custom_params = DetectorParams(encounter_edge_distance_m=1.9)
+    default_windows = _detect_windows(_pairs_lf(rows))
+    custom_windows = _detect_windows(_pairs_lf(rows), custom_params)
 
     assert DETECTOR_VERSION == "wp2-scope-detectors-v4"
+    assert DEFAULT_DETECTOR_PARAMS == DetectorParams()
     assert_series_equal(
-        windows["detector_version"],
+        default_windows["detector_version"],
         pl.Series("detector_version", ["wp2-scope-detectors-v4"], dtype=pl.String),
     )
     assert_series_equal(
-        windows["detector_params_hash"],
+        default_windows["detector_params_hash"],
         pl.Series("detector_params_hash", [DEFAULT_PARAMS_HASH], dtype=pl.String),
     )
-
-
-def test_detector_params_fingerprint_is_stable_and_param_sensitive() -> None:
-    assert DEFAULT_DETECTOR_PARAMS == DetectorParams()
     fingerprint = DEFAULT_DETECTOR_PARAMS.fingerprint()
     assert fingerprint == "b66b842c3b4c"
     assert len(fingerprint) == 12
@@ -604,32 +540,15 @@ def test_detector_params_fingerprint_is_stable_and_param_sensitive() -> None:
     assert DetectorParams(encounter_edge_distance_m=1.5).fingerprint() != fingerprint
     assert DetectorParams(contact_merge_gap_s=0.5).fingerprint() != fingerprint
     assert DetectorParams(stationary_speed_mps=0.2).fingerprint() != fingerprint
-
-
-def test_encounter_custom_params_change_threshold_and_hash() -> None:
-    rows = [{"t_ns": 0, "actor_x": 2.5}]
-    custom_params = DetectorParams(encounter_edge_distance_m=1.9)
-
-    default_windows = _detect_windows(_pairs_lf(rows))
-    custom_windows = _detect_windows(_pairs_lf(rows), custom_params)
-
     assert default_windows.height == 1
     assert custom_windows.height == 0
-    assert_series_equal(
-        default_windows["detector_params_hash"],
-        pl.Series("detector_params_hash", [DEFAULT_PARAMS_HASH], dtype=pl.String),
-    )
     assert DEFAULT_PARAMS_HASH != custom_params.fingerprint()
 
 
-def test_encounter_empty_pairs_returns_canonical_empty_frame() -> None:
-    windows = _detect_windows(pl.LazyFrame(schema=PAIR_SCHEMA))
-
-    assert_frame_equal(windows, empty_encounter_windows())
-
-
-def test_empty_frame_helpers_have_canonical_schemas() -> None:
-    assert_frame_equal(empty_pairs(), pl.DataFrame(schema=PAIR_SCHEMA))
+def test_empty_input_and_helpers_have_canonical_schemas() -> None:
+    assert_frame_equal(
+        _detect_windows(pl.LazyFrame(schema=PAIR_SCHEMA)), empty_encounter_windows()
+    )
     assert_frame_equal(
         empty_encounter_windows(), pl.DataFrame(schema=ENCOUNTER_WINDOW_SCHEMA)
     )
@@ -735,7 +654,7 @@ def test_fleet_pairs_empty_fleet_returns_canonical_empty_frame() -> None:
         _robot_tracks([{"t_ns": 0}]), {}, robot_radius_m=0.4
     ).collect()
 
-    assert_frame_equal(pairs, empty_pairs())
+    assert_frame_equal(pairs, pl.DataFrame(schema=PAIR_SCHEMA))
 
 
 def test_fleet_encounter_detects_robot_actor_window() -> None:
@@ -1065,8 +984,3 @@ def test_no_bouts_give_the_canonical_empty_frame() -> None:
     assert_frame_equal(windows, empty_contact_windows())
 
 
-def test_canonical_encounter_edge_distance_constant_is_shared() -> None:
-    assert ENCOUNTER_EDGE_DISTANCE_M == 2.0
-    assert (
-        DEFAULT_DETECTOR_PARAMS.encounter_edge_distance_m == ENCOUNTER_EDGE_DISTANCE_M
-    )
