@@ -13,7 +13,11 @@ from arena_mcp.core import JOBS, ROS, Job, ToolError, cli, msgs, proc
 from arena_mcp.core.jobs import RUNNING, SUCCEEDED
 
 from arena_evaluation.benchmark.dashboard import find_rendered_reports
-from arena_evaluation.storage.config_layout import bundle_path, run_analysis_root
+from arena_evaluation.storage.config_layout import (
+    bundle_path,
+    find_rendered_plots,
+    run_analysis_root,
+)
 from arena_evaluation.storage.star_schema import has_star_schema
 
 from .base import (
@@ -978,11 +982,7 @@ async def pipeline_job(
             reports = find_rendered_reports(out_dir)
             found["report"] = str(reports[0]) if reports else None
         if verb in ("report", "run", "plot"):
-            found["plots"] = (
-                sorted(str(plot) for plot in (out_dir / "plots").glob("*.png"))[:200]
-                if (out_dir / "plots").is_dir()
-                else []
-            )
+            found["plots"] = [str(plot) for plot in find_rendered_plots(out_dir)][:200]
         return found
 
     job = await cli.job(

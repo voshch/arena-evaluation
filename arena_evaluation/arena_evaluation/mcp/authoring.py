@@ -7,6 +7,8 @@ from typing import Annotated, Any
 import pydantic
 from arena_mcp.core import ToolError
 
+from arena_evaluation.storage.config_layout import get_config_kind
+
 from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
@@ -147,7 +149,8 @@ def write_config(
             hint="pick another name or pass overwrite=true",
         )
     target = asyncio.run(config_identifier(kind)(name=stem).resolve_write_path())
-    path = target / f"{kind}.yaml"
+    file_kind = "report" if kind == "manifest" else kind
+    path = target / get_config_kind(file_kind).filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
