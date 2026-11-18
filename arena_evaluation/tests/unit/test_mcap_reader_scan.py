@@ -15,7 +15,7 @@ def _summary(tmp_path: pathlib.Path, ranges: list[float], range_min: float = 0.1
     out = tmp_path / "telemetry"
     sink = TableSink(out)
     scan = types.SimpleNamespace(range_min=range_min, range_max=range_max, ranges=ranges, angle_min=0.0, angle_increment=0.1)
-    ScanRecorder(sink, include_rays=False).record(Envelope(t_ns=1, ref=_REF, schema=None, body=scan))
+    ScanRecorder(sink).record(Envelope(t_ns=1, ref=_REF, schema=None, body=scan))
     sink.close()
     return pl.read_parquet(out / f"{SCAN_SUMMARY_TABLE}.parquet").row(0, named=True)
 

@@ -96,7 +96,7 @@ def test_data_resolver_missing_table_raises_without_fallback(
     spec = PlotSpec(
         id="bad_source",
         type="bar",
-        data=PlotDataSpec(source="robot_scan_rays"),
+        data=PlotDataSpec(source="robot_odom"),
         channels=PlotChannels(x="planner", y="time_to_goal"),
     )
     with pytest.raises((KeyError, ValueError)):

@@ -74,6 +74,9 @@ def test_episode_yaml_without_integrity_reads_as_intact(tmp_path: pathlib.Path) 
                 "map": "map_empty",
                 "stage": "preflight",
                 "outcome_state": 2,
+                # The native contract requires the episode modes and params (L1-006).
+                "modes": {},
+                "params": {},
                 "recording_started_at": "2026-01-01T00:00:00+00:00",
                 "python_version": "3.12",
                 "ros_distro": "jazzy",
