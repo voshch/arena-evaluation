@@ -8,19 +8,33 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import EpisodeCondition, Node
-from arena_simulation_setup.shared.judge import NodeMonitor, WallGrid, operator_verdict, zone_polygons
+from arena_simulation_setup.shared.judge import (
+    NodeMonitor,
+    WallGrid,
+    operator_verdict,
+    zone_polygons,
+)
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.common.alignment import asof_index
 from arena_evaluation.processing.metrics.common.caching import load_world, world_cache
-from arena_evaluation.processing.metrics.common.context import EvalContext as _EvalContext
-from arena_evaluation.processing.metrics.common.events import reconstruct_events as _reconstruct_events
-from arena_evaluation.processing.metrics.common.resampling import resample_fleet as _resample_fleet
+from arena_evaluation.processing.metrics.common.context import (
+    EvalContext as _EvalContext,
+)
+from arena_evaluation.processing.metrics.common.events import (
+    reconstruct_events as _reconstruct_events,
+)
+from arena_evaluation.processing.metrics.common.resampling import (
+    resample_fleet as _resample_fleet,
+)
 from arena_evaluation.processing.metrics.common.rosters import (
     entity_roster as _entity_roster,
     ped_roster as _ped_roster,
 )
-from arena_evaluation.processing.metrics.common.zones import ZoneGeometry, extract_zone_geometry
+from arena_evaluation.processing.metrics.common.zones import (
+    ZoneGeometry,
+    extract_zone_geometry,
+)
 from arena_evaluation.processing.pedestrian_frames import frames_of
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -31,11 +45,41 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-CLAUSES_FAILED = define_metric("clauses_failed", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the condition_compliance calculator", null_reason=True)
-CLAUSES_PASSED = define_metric("clauses_passed", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the condition_compliance calculator", null_reason=True)
-CLAUSES_TOTAL = define_metric("clauses_total", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the condition_compliance calculator", null_reason=True)
-CLAUSES_UNKNOWN = define_metric("clauses_unknown", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the condition_compliance calculator", null_reason=True)
-CONDITION_SUCCESS = define_metric("condition_success", pl.Boolean, scopes=(MetricScope.ROBOT,), description="ecological metric of the condition_compliance calculator", null_reason=True)
+CLAUSES_FAILED = define_metric(
+    "clauses_failed",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the condition_compliance calculator",
+    null_reason=True,
+)
+CLAUSES_PASSED = define_metric(
+    "clauses_passed",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the condition_compliance calculator",
+    null_reason=True,
+)
+CLAUSES_TOTAL = define_metric(
+    "clauses_total",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the condition_compliance calculator",
+    null_reason=True,
+)
+CLAUSES_UNKNOWN = define_metric(
+    "clauses_unknown",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the condition_compliance calculator",
+    null_reason=True,
+)
+CONDITION_SUCCESS = define_metric(
+    "condition_success",
+    pl.Boolean,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the condition_compliance calculator",
+    null_reason=True,
+)
 
 _ROBOT_DIR_PREFIX = re.compile(r"^env_\d+_")
 
@@ -51,7 +95,13 @@ def judge_zone_geometry(flattened: Level) -> list[ZoneGeometry]:
     """Every polygon the online judge resolves by name on a flattened world: zones, doors and elevator cabins."""
     zones = extract_zone_geometry(flattened, require_annotation=False)
     known = {zone.name for zone in zones}
-    zones.extend(ZoneGeometry(name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False) for name, polygon in zone_polygons(flattened).items() if name not in known)
+    zones.extend(
+        ZoneGeometry(
+            name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False
+        )
+        for name, polygon in zone_polygons(flattened).items()
+        if name not in known
+    )
     return zones
 
 
@@ -81,7 +131,9 @@ def load_wall_grid(world_name: str) -> WallGrid | None:
     return walls
 
 
-def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
+def clips_on_axis(
+    peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray
+) -> list[dict[str, frozenset[str]]] | None:
     """Per instant, the gesture clips of every pedestrian in the frame held at it, None when the recording carries no pedestrian_gestures table."""
     if gestures is None or peds is None or len(peds) == 0:
         return None
@@ -90,13 +142,25 @@ def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns
     if not {"t_ns", "ped_id"} <= set(peds.columns):
         return None
     playing: dict[int, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for t, ped_id, clip in zip(gestures["t_ns"].to_list(), gestures["ped_id"].to_list(), gestures["clip"].to_list(), strict=True):
+    for t, ped_id, clip in zip(
+        gestures["t_ns"].to_numpy(),
+        gestures["ped_id"].to_numpy(),
+        gestures["clip"].to_numpy(),
+        strict=True,
+    ):
         playing[int(t)][str(ped_id)].add(str(clip))
     frames = frames_of(peds)
     times = np.array([int(frame["t_ns"][0]) for frame in frames], dtype=np.int64)
     rows: list[dict[str, frozenset[str]]] = []
     for k, frame in enumerate(frames):
-        rows.append({strip_env(str(name)): frozenset(playing.get(int(times[k]), {}).get(str(ped_id), ())) for name, ped_id in zip(frame["ped_name"], frame["ped_id"], strict=True)})
+        rows.append(
+            {
+                strip_env(str(name)): frozenset(
+                    playing.get(int(times[k]), {}).get(str(ped_id), ())
+                )
+                for name, ped_id in zip(frame["ped_name"], frame["ped_id"], strict=True)
+            }
+        )
     idx = asof_index(times, t_ns)
     return [rows[i] if i >= 0 else {} for i in idx]
 
@@ -195,7 +259,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             return empty
 
         pos_x, pos_y, yaw, _ox, _oy, _oyaw = self.resolve_robot_pose(episode)
-        if episode.data is None or "t_ns" not in episode.data.columns or len(episode.data) == 0:
+        if episode.data is None or len(episode.data) == 0:
             return empty
 
         t_ns = episode.data["t_ns"].to_numpy()
@@ -203,7 +267,9 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             return empty
 
         peds_df = self.native_ped_frame(episode)
-        peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
+        peds_frames = (
+            frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
+        )
         ctx = _EvalContext(
             events=_reconstruct_events(episode.semantic_snapshot),
             t_ns=t_ns,
@@ -217,9 +283,15 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             yaw=yaw,
             fleet=_resample_fleet(episode.fleet, t_ns, episode.robot_name or ""),
             walls=load_wall_grid(self.world),
-            clips=clips_on_axis(peds_df, episode.topics.get("pedestrian_gestures") if episode.topics else None, t_ns),
+            clips=clips_on_axis(
+                peds_df,
+                episode.topics.get("pedestrian_gestures") if episode.topics else None,
+                t_ns,
+            ),
             peds_frames=peds_frames,
-            peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
+            peds_times=np.array(
+                [int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64
+            ),
         )
 
         verdicts = [_clause_verdict(clause, ctx) for clause in conditions]

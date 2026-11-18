@@ -4,7 +4,9 @@ import pytest
 pl = pytest.importorskip("polars")
 
 from arena_evaluation.processing.metrics.base import ScopeSlice
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import _DoorGeometry
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
+    _DoorGeometry,
+)
 from arena_evaluation.processing.metrics.ecological.regime_metrics import (
     RegimeMetricsCalculator,
     _CapZoneGeometry,
@@ -25,7 +27,9 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return RegimeMetricsCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    return RegimeMetricsCalculator(
+        RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
+    )
 
 
 def _start_pos(data):
@@ -52,7 +56,15 @@ def _episode(data, semantic_snapshot=None):
 
 def _robot_results(calc, episode):
     """Robot-scope values, computed the way the registry hands the robot slice over."""
-    scope_slice = ScopeSlice(scope=MetricScope.ROBOT, slice_id="robot", t_start_ns=0, t_end_ns=0, identity={}, window_bundle=episode, full_episode=episode)
+    scope_slice = ScopeSlice(
+        scope=MetricScope.ROBOT,
+        slice_id="robot",
+        t_start_ns=0,
+        t_end_ns=0,
+        identity={},
+        window_bundle=episode,
+        full_episode=episode,
+    )
     return calc.calculate_for_scope(episode, {}, scope_slice)
 
 
@@ -76,11 +88,16 @@ def test_windows_pairs_transitions_and_holds_open_at_end():
 
     windows = _windows(events, "schedule", "active", _bool, end_t_ns=6_000_000_000)
 
-    assert windows["sched_1"] == [(1_000_000_000, 3_000_000_000), (4_000_000_000, 6_000_000_000)]
+    assert windows["sched_1"] == [
+        (1_000_000_000, 3_000_000_000),
+        (4_000_000_000, 6_000_000_000),
+    ]
 
 
 def test_windows_empty_without_matching_rows():
-    events = pl.DataFrame({"t_ns": [], "entity": [], "kind": [], "field": [], "current": []})
+    events = pl.DataFrame(
+        {"t_ns": [], "entity": [], "kind": [], "field": [], "current": []}
+    )
 
     assert _windows(events, "schedule", "active", _bool, end_t_ns=None) == {}
 
@@ -126,7 +143,12 @@ def test_used_elevator_during_alarm_counts_overlapping_window():
     events = pl.DataFrame(
         {
             "t_ns": [1_000_000_000, 5_000_000_000, 2_000_000_000, 3_000_000_000],
-            "entity": ["env_0/fire_alarm", "env_0/fire_alarm", "env_0/main_elevator", "env_0/main_elevator"],
+            "entity": [
+                "env_0/fire_alarm",
+                "env_0/fire_alarm",
+                "env_0/main_elevator",
+                "env_0/main_elevator",
+            ],
             "kind": ["schedule", "schedule", "elevator", "elevator"],
             "field": ["active", "active", "occupants", "occupants"],
             "current": ["true", "false", "1.0", "0.0"],
@@ -140,7 +162,12 @@ def test_used_elevator_during_alarm_no_overlap_not_counted():
     events = pl.DataFrame(
         {
             "t_ns": [1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000],
-            "entity": ["env_0/fire_alarm", "env_0/fire_alarm", "env_0/main_elevator", "env_0/main_elevator"],
+            "entity": [
+                "env_0/fire_alarm",
+                "env_0/fire_alarm",
+                "env_0/main_elevator",
+                "env_0/main_elevator",
+            ],
             "kind": ["schedule", "schedule", "elevator", "elevator"],
             "field": ["active", "active", "occupants", "occupants"],
             "current": ["true", "false", "1.0", "0.0"],
@@ -166,7 +193,9 @@ def test_entered_over_cap_zone_counts_transitions_during_over_cap_window():
     zone_idx = np.array([-1, 0, -1, 0, 0])
     t_ns = np.array([0, 1_500_000_000, 2_000_000_000, 2_500_000_000, 5_000_000_000])
 
-    count = _entered_over_cap_zone(events, zone_idx, t_ns, end_t_ns=6_000_000_000, zone_names=["lobby"])
+    count = _entered_over_cap_zone(
+        events, zone_idx, t_ns, end_t_ns=6_000_000_000, zone_names=["lobby"]
+    )
 
     assert count == 2
 
@@ -184,17 +213,23 @@ def test_entered_over_cap_zone_ignores_entries_outside_window():
     zone_idx = np.array([-1, -1, 0])
     t_ns = np.array([0, 2_500_000_000, 3_000_000_000])
 
-    count = _entered_over_cap_zone(events, zone_idx, t_ns, end_t_ns=4_000_000_000, zone_names=["lobby"])
+    count = _entered_over_cap_zone(
+        events, zone_idx, t_ns, end_t_ns=4_000_000_000, zone_names=["lobby"]
+    )
 
     assert count == 0
 
 
 def test_entered_over_cap_zone_zero_without_any_over_cap_window():
-    events = pl.DataFrame({"t_ns": [], "entity": [], "kind": [], "field": [], "current": []})
+    events = pl.DataFrame(
+        {"t_ns": [], "entity": [], "kind": [], "field": [], "current": []}
+    )
     zone_idx = np.array([-1, 0])
     t_ns = np.array([0, 1_000_000_000])
 
-    count = _entered_over_cap_zone(events, zone_idx, t_ns, end_t_ns=2_000_000_000, zone_names=["lobby"])
+    count = _entered_over_cap_zone(
+        events, zone_idx, t_ns, end_t_ns=2_000_000_000, zone_names=["lobby"]
+    )
 
     assert count == 0
 
@@ -217,7 +252,9 @@ def test_ran_red_signal_counts_entries_during_stop_window():
     pos_y = np.array([5.0, 0.0, 5.0])
     t_ns = np.array([0, 1_500_000_000, 2_000_000_000])
 
-    count = _ran_red_signal(events, pos_x, pos_y, t_ns, end_t_ns=4_000_000_000, doors=doors)
+    count = _ran_red_signal(
+        events, pos_x, pos_y, t_ns, end_t_ns=4_000_000_000, doors=doors
+    )
 
     assert count == 1
 
@@ -237,7 +274,9 @@ def test_ran_red_signal_ignores_entries_outside_stop_window():
     pos_y = np.array([5.0, 0.0])
     t_ns = np.array([0, 3_000_000_000])
 
-    count = _ran_red_signal(events, pos_x, pos_y, t_ns, end_t_ns=4_000_000_000, doors=doors)
+    count = _ran_red_signal(
+        events, pos_x, pos_y, t_ns, end_t_ns=4_000_000_000, doors=doors
+    )
 
     assert count == 0
 
@@ -257,7 +296,9 @@ def test_ran_red_signal_skips_signal_without_matching_door():
     pos_y = np.array([0.0])
     t_ns = np.array([2_000_000_000])
 
-    count = _ran_red_signal(events, pos_x, pos_y, t_ns, end_t_ns=3_000_000_000, doors=doors)
+    count = _ran_red_signal(
+        events, pos_x, pos_y, t_ns, end_t_ns=3_000_000_000, doors=doors
+    )
 
     assert count == 0
 
@@ -288,8 +329,20 @@ def test_cmd_vel_change_times_none_without_cmd_columns():
 def test_replan_triggers_collects_all_four_kinds_and_direction():
     events = pl.DataFrame(
         {
-            "t_ns": [1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000, 5_000_000_000],
-            "entity": ["env_0/door_1", "env_0/gate_1", "env_0/sig_1", "env_0/sched_1", "env_0/door_1"],
+            "t_ns": [
+                1_000_000_000,
+                2_000_000_000,
+                3_000_000_000,
+                4_000_000_000,
+                5_000_000_000,
+            ],
+            "entity": [
+                "env_0/door_1",
+                "env_0/gate_1",
+                "env_0/sig_1",
+                "env_0/sched_1",
+                "env_0/door_1",
+            ],
             "kind": ["door", "gate", "signal", "schedule", "door"],
             "field": ["open", "locked", "state", "active", "open"],
             "previous": ["false", "true", "red", "false", "true"],
@@ -322,12 +375,22 @@ def test_extract_occupancy_zone_geometry_filters_by_annotation():
 
     annotated = Zone(
         name="lobby",
-        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 4.0),
+            Position(4.0, 4.0),
+            Position(4.0, 0.0),
+        ],
         semantics=[SemanticCfg(role="state", name="cap", value=2.0)],
     )
     plain = Zone(
         name="plain_room",
-        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 2.0),
+            Position(2.0, 2.0),
+            Position(2.0, 0.0),
+        ],
     )
     level = Level(zones=[annotated, plain])
 
@@ -370,10 +433,38 @@ def test_calculate_used_elevator_during_alarm_end_to_end_without_world():
     )
     snapshot = snapshot_frame(
         [
-            (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
-            (5_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", False),
-            (2_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 1.0),
-            (3_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 0.0),
+            (
+                1_000_000_000,
+                "env_0/fire_alarm",
+                "schedule",
+                "active",
+                "predicate",
+                True,
+            ),
+            (
+                5_000_000_000,
+                "env_0/fire_alarm",
+                "schedule",
+                "active",
+                "predicate",
+                False,
+            ),
+            (
+                2_000_000_000,
+                "env_0/main_elevator",
+                "elevator",
+                "occupants",
+                "continuous",
+                1.0,
+            ),
+            (
+                3_000_000_000,
+                "env_0/main_elevator",
+                "elevator",
+                "occupants",
+                "continuous",
+                0.0,
+            ),
         ]
     )
     episode = _episode(data, semantic_snapshot=snapshot)
@@ -415,7 +506,9 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
 
     calc = _calc()
     calc.world = "synthetic_world_cap"
-    zone = _CapZoneGeometry(name="lobby", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]))
+    zone = _CapZoneGeometry(
+        name="lobby", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)])
+    )
     calc._world_cache["synthetic_world_cap"] = ([zone], [], [])
 
     data = pl.DataFrame(
@@ -429,7 +522,14 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
     snapshot = snapshot_frame(
         [
             (0, "env_0/lobby", "occupancy_cap", "over_cap", "predicate", True),
-            (4_000_000_000, "env_0/lobby", "occupancy_cap", "over_cap", "predicate", False),
+            (
+                4_000_000_000,
+                "env_0/lobby",
+                "occupancy_cap",
+                "over_cap",
+                "predicate",
+                False,
+            ),
         ]
     )
 
@@ -464,12 +564,12 @@ def test_calculate_ran_red_signal_with_cached_world():
     assert robot["ran_red_signal"] == 1
 
 
-def test_calculate_world_not_locally_present_leaves_geometry_metrics_none(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_calculate_world_not_locally_present_leaves_geometry_metrics_none() -> None:
     import logging
 
     from arena_evaluation.processing.metrics.common import caching
 
-    monkeypatch.delitem(caching.loaded_worlds, "definitely_nonexistent_world_xyz", raising=False)
+    caching.loaded_worlds.pop("definitely_nonexistent_world_xyz", None)
 
     records: list[logging.LogRecord] = []
 
@@ -492,10 +592,38 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none(monkey
         )
         snapshot = snapshot_frame(
             [
-                (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
-                (5_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", False),
-                (2_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 1.0),
-                (3_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 0.0),
+                (
+                    1_000_000_000,
+                    "env_0/fire_alarm",
+                    "schedule",
+                    "active",
+                    "predicate",
+                    True,
+                ),
+                (
+                    5_000_000_000,
+                    "env_0/fire_alarm",
+                    "schedule",
+                    "active",
+                    "predicate",
+                    False,
+                ),
+                (
+                    2_000_000_000,
+                    "env_0/main_elevator",
+                    "elevator",
+                    "occupants",
+                    "continuous",
+                    1.0,
+                ),
+                (
+                    3_000_000_000,
+                    "env_0/main_elevator",
+                    "elevator",
+                    "occupants",
+                    "continuous",
+                    0.0,
+                ),
             ]
         )
         episode = _episode(data, semantic_snapshot=snapshot)
@@ -507,7 +635,9 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none(monkey
     assert results == {"used_elevator_during_alarm": 1}
     assert robot["entered_over_cap_zone"] is None
     assert robot["ran_red_signal"] is None
-    assert any("definitely_nonexistent_world_xyz" in record.getMessage() for record in records)
+    assert any(
+        "definitely_nonexistent_world_xyz" in record.getMessage() for record in records
+    )
 
 
 def _members_events(rows):
@@ -535,11 +665,15 @@ def test_windows_keys_level_suffixed_entities_by_authored_name():
 
     windows = _windows(events, "signal", "stop", _bool, end_t_ns=4_000_000_000)
 
-    assert windows == {"sig_1": [(1_000_000_000, 2_000_000_000), (3_000_000_000, 4_000_000_000)]}
+    assert windows == {
+        "sig_1": [(1_000_000_000, 2_000_000_000), (3_000_000_000, 4_000_000_000)]
+    }
 
 
 def test_ran_red_signal_prefers_signal_position_and_radius():
-    from arena_evaluation.processing.metrics.ecological.mechanism_common import SignalGeom
+    from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+        SignalGeom,
+    )
 
     events = _members_events([(0, "env_0/crossing_1/0", "signal", "stop", "true")])
     door = _DoorGeometry(name="crossing_1", center_x=0.0, center_y=0.0, radius=1.0)
@@ -549,13 +683,26 @@ def test_ran_red_signal_prefers_signal_position_and_radius():
     t_ns = np.arange(4) * 1_000_000_000
 
     assert _ran_red_signal(events, pos_x, pos_y, t_ns, 4_000_000_000, [door]) == 1
-    assert _ran_red_signal(events, pos_x, pos_y, t_ns, 4_000_000_000, [door], [signal]) == 1
-    assert _ran_red_signal(events, pos_x[:3], pos_y[:3], t_ns[:3], 4_000_000_000, [door], [signal]) == 0
+    assert (
+        _ran_red_signal(events, pos_x, pos_y, t_ns, 4_000_000_000, [door], [signal])
+        == 1
+    )
+    assert (
+        _ran_red_signal(
+            events, pos_x[:3], pos_y[:3], t_ns[:3], 4_000_000_000, [door], [signal]
+        )
+        == 0
+    )
 
 
 def test_ran_red_signal_radius_falls_back_to_door_then_default():
-    from arena_evaluation.processing.metrics.ecological.mechanism_common import SignalGeom
-    from arena_evaluation.processing.metrics.ecological.regime_metrics import DEFAULT_SIGNAL_RADIUS, _signal_area
+    from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+        SignalGeom,
+    )
+    from arena_evaluation.processing.metrics.ecological.regime_metrics import (
+        DEFAULT_SIGNAL_RADIUS,
+        _signal_area,
+    )
 
     door = _DoorGeometry(name="s", center_x=0.0, center_y=0.0, radius=2.5)
     placed = SignalGeom("s", "0", 3.0, 4.0, None)
@@ -567,19 +714,41 @@ def test_ran_red_signal_radius_falls_back_to_door_then_default():
 
 
 def test_calculate_ran_red_signal_with_cached_signal_geometry():
-    from arena_evaluation.processing.metrics.ecological.mechanism_common import SignalGeom
+    from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+        SignalGeom,
+    )
 
     calc = _calc()
     calc.world = "synthetic_world_signal_pos"
-    calc._world_cache["synthetic_world_signal_pos"] = ([], [], [SignalGeom("crossing_1", "0", 20.0, 20.0, 1.0)])
-    data = pl.DataFrame({"t_ns": [0, 1_000_000_000, 2_000_000_000], "pos_x": [25.0, 20.0, 25.0], "pos_y": [20.0, 20.0, 20.0], "yaw": [0.0] * 3})
-    snapshot = snapshot_frame([(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)])
+    calc._world_cache["synthetic_world_signal_pos"] = (
+        [],
+        [],
+        [SignalGeom("crossing_1", "0", 20.0, 20.0, 1.0)],
+    )
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 2_000_000_000],
+            "pos_x": [25.0, 20.0, 25.0],
+            "pos_y": [20.0, 20.0, 20.0],
+            "yaw": [0.0] * 3,
+        }
+    )
+    snapshot = snapshot_frame(
+        [(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)]
+    )
 
-    assert _robot_results(calc, _episode(data, semantic_snapshot=snapshot))["ran_red_signal"] == 1
+    assert (
+        _robot_results(calc, _episode(data, semantic_snapshot=snapshot))[
+            "ran_red_signal"
+        ]
+        == 1
+    )
 
 
 def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
-    from arena_evaluation.processing.metrics.ecological.mechanism_common import RobotIdentity
+    from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+        RobotIdentity,
+    )
 
     ident = RobotIdentity("env_0_jackal")
     ped_only = _members_events(
@@ -587,7 +756,13 @@ def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
             (1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true"),
             (5_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "false"),
             (2_000_000_000, "env_0/elev/0", "elevator", "occupants", "1.0"),
-            (2_000_000_000, "env_0/elev/0", "elevator", "members", "env_0/Pedestrian_1"),
+            (
+                2_000_000_000,
+                "env_0/elev/0",
+                "elevator",
+                "members",
+                "env_0/Pedestrian_1",
+            ),
         ]
     )
     assert _used_elevator_during_alarm(ped_only, 6_000_000_000) == 1
@@ -597,22 +772,51 @@ def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
         [
             (1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true"),
             (5_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "false"),
-            (3_000_000_000, "env_0/elev/0", "elevator", "members", "env_0/Pedestrian_1,env_0/jackal"),
+            (
+                3_000_000_000,
+                "env_0/elev/0",
+                "elevator",
+                "members",
+                "env_0/Pedestrian_1,env_0/jackal",
+            ),
             (4_000_000_000, "env_0/elev/0", "elevator", "members", ""),
         ]
     )
     assert _used_elevator_during_alarm(robot, 6_000_000_000, ident) == 1
 
-    no_members = _members_events([(1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true")])
+    no_members = _members_events(
+        [(1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true")]
+    )
     assert _used_elevator_during_alarm(no_members, 6_000_000_000, ident) is None
 
 
 def test_robot_scope_used_elevator_during_alarm_needs_robot_members():
-    data = pl.DataFrame({"t_ns": [0, 1_000_000_000, 6_000_000_000], "pos_x": [0.0] * 3, "pos_y": [0.0] * 3, "yaw": [0.0] * 3})
+    data = pl.DataFrame(
+        {
+            "t_ns": [0, 1_000_000_000, 6_000_000_000],
+            "pos_x": [0.0] * 3,
+            "pos_y": [0.0] * 3,
+            "yaw": [0.0] * 3,
+        }
+    )
     snapshot = snapshot_frame(
         [
-            (1_000_000_000, "env_0/fire_alarm", "schedule", "active", "predicate", True),
-            (2_000_000_000, "env_0/main_elevator", "elevator", "occupants", "continuous", 1.0),
+            (
+                1_000_000_000,
+                "env_0/fire_alarm",
+                "schedule",
+                "active",
+                "predicate",
+                True,
+            ),
+            (
+                2_000_000_000,
+                "env_0/main_elevator",
+                "elevator",
+                "occupants",
+                "continuous",
+                1.0,
+            ),
         ]
     )
     episode = _episode(data, semantic_snapshot=snapshot)

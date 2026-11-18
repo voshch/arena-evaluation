@@ -136,9 +136,10 @@ def enforce_dimension_contract(dimensions: Mapping[str, pl.DataFrame]) -> None:
 
 def _check_dimension_keys(name: str, frame: pl.DataFrame, table: type[Table]) -> None:
     keys = list(table.key)
-    if frame.height and frame.select(
-        pl.any_horizontal(pl.col(keys).is_null()).any()
-    ).item():
+    if (
+        frame.height
+        and frame.select(pl.any_horizontal(pl.col(keys).is_null()).any()).item()
+    ):
         raise ContractViolationError(f"{name}: a key column is NULL")
     duplicated = frame.group_by(keys).len().filter(pl.col("len") > 1)
     if duplicated.height:
@@ -301,9 +302,7 @@ def _check_stored_schemas(
                 )
                 continue
             violations.extend(
-                _file_schema_violations(
-                    _fact_key(table), path, table.polars_schema()
-                )
+                _file_schema_violations(_fact_key(table), path, table.polars_schema())
             )
     return violations
 
@@ -455,8 +454,7 @@ def _check_windows(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation]
 def _check_actor_pairs(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation]:
     """An encounter never pairs an actor with itself."""
     invalid = views[f"fact_{FactTable.ENCOUNTERS.value}"].filter(
-        pl.col("actor_1").is_not_null()
-        & (pl.col("actor_1") == pl.col("actor_2"))
+        pl.col("actor_1").is_not_null() & (pl.col("actor_1") == pl.col("actor_2"))
     )
     count = invalid.select(pl.len()).collect().item()
     if not count:
@@ -544,9 +542,7 @@ def _check_null_reason_vocabulary(
             .collect()
             .get_column(NULL_REASON_COLUMN)
         )
-        unknown = [
-            value for value in emitted.to_list() if not is_known_null_reason(value)
-        ]
+        unknown = [value for value in emitted if not is_known_null_reason(value)]
         if unknown:
             violations.append(
                 ContractViolation(

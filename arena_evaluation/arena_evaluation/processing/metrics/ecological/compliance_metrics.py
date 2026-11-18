@@ -18,18 +18,61 @@ from arena_evaluation.processing.metrics.common.zones import (
     extract_zone_geometry,
     zone_membership,
 )
-from arena_evaluation.processing.metrics.ecological.mechanism_common import entity_name, robot_env_snapshot
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    entity_name,
+    robot_env_snapshot,
+)
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 logger = logging.getLogger(__name__)
 
-SPEED_ZONE_VIOLATIONS = define_metric("speed_zone_violations", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the compliance_metrics calculator", null_reason=True)
-SPEED_ZONE_VIOLATION_SECONDS = define_metric("speed_zone_violation_seconds", pl.Float64, scopes=(MetricScope.ROBOT,), unit="s", description="ecological metric of the compliance_metrics calculator", null_reason=True)
-QUIET_ZONE_DWELL_SECONDS = define_metric("quiet_zone_dwell_seconds", pl.Float64, scopes=(MetricScope.ROBOT,), unit="s", description="ecological metric of the compliance_metrics calculator", null_reason=True)
-RESTRICTED_ZONE_ENTRIES = define_metric("restricted_zone_entries", pl.Int64, scopes=(MetricScope.ROBOT,), description="ecological metric of the compliance_metrics calculator", null_reason=True)
-DOORWAY_BLOCKING_TIME = define_metric("doorway_blocking_time", pl.Float64, scopes=(MetricScope.ROBOT,), unit="s", description="ecological metric of the compliance_metrics calculator", null_reason=True)
-PASSING_RULE_COMPLIANCE = define_metric("passing_rule_compliance", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="ecological metric of the compliance_metrics calculator", null_reason=True)
+SPEED_ZONE_VIOLATIONS = define_metric(
+    "speed_zone_violations",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
+SPEED_ZONE_VIOLATION_SECONDS = define_metric(
+    "speed_zone_violation_seconds",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
+QUIET_ZONE_DWELL_SECONDS = define_metric(
+    "quiet_zone_dwell_seconds",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
+RESTRICTED_ZONE_ENTRIES = define_metric(
+    "restricted_zone_entries",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
+DOORWAY_BLOCKING_TIME = define_metric(
+    "doorway_blocking_time",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
+PASSING_RULE_COMPLIANCE = define_metric(
+    "passing_rule_compliance",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="1",
+    description="ecological metric of the compliance_metrics calculator",
+    null_reason=True,
+)
 
 # The source helper names stay as module aliases: calculators and tests import them by these names.
 _DoorGeometry = DoorGeometry
@@ -44,20 +87,34 @@ _reconstruct_events = reconstruct_events
 HEAD_ON_CENTRE_DISTANCE_M: float = 4.0
 
 
-def _offset_zones(zones: list[ZoneGeometry], offset: tuple[float, float]) -> list[ZoneGeometry]:
+def _offset_zones(
+    zones: list[ZoneGeometry], offset: tuple[float, float]
+) -> list[ZoneGeometry]:
     """World-frame zones translated into the recorded map frame by the env packing offset."""
     if offset == (0.0, 0.0):
         return zones
     import shapely.affinity
 
-    return [dataclasses.replace(zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1])) for zone in zones]
+    return [
+        dataclasses.replace(
+            zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1])
+        )
+        for zone in zones
+    ]
 
 
-def _offset_doors(doors: list[DoorGeometry], offset: tuple[float, float]) -> list[DoorGeometry]:
+def _offset_doors(
+    doors: list[DoorGeometry], offset: tuple[float, float]
+) -> list[DoorGeometry]:
     """World-frame door centers translated into the recorded map frame."""
     if offset == (0.0, 0.0):
         return doors
-    return [dataclasses.replace(door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]) for door in doors]
+    return [
+        dataclasses.replace(
+            door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]
+        )
+        for door in doors
+    ]
 
 
 _ZONE_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
@@ -69,7 +126,9 @@ _ZONE_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
 )
 
 
-def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> tuple[int, float]:
+def _speed_zone_metrics(
+    zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]
+) -> tuple[int, float]:
     mask = np.zeros(len(zone_idx), dtype=bool)
     for i, j in enumerate(zone_idx):
         if j == -1:
@@ -89,7 +148,9 @@ def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray,
     return violations, seconds
 
 
-def _quiet_zone_dwell(zone_idx: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> float:
+def _quiet_zone_dwell(
+    zone_idx: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]
+) -> float:
     total = 0.0
     for i in range(len(dt)):
         j = zone_idx[i]
@@ -111,7 +172,9 @@ def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[ZoneGeometry]) ->
 
 def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Per-door sorted (t_ns, is_open) event series keyed by authored door name."""
-    door_events = events.filter((pl.col("kind") == "door") & (pl.col("field") == "state")).sort("t_ns")
+    door_events = events.filter(
+        (pl.col("kind") == "door") & (pl.col("field") == "state")
+    ).sort("t_ns")
     result: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if len(door_events) == 0:
         return result
@@ -120,12 +183,14 @@ def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.nd
         g = group.sort("t_ns")
         name = entity_name(str(g["entity"][0]))
         times = g["t_ns"].to_numpy()
-        is_open = np.array([v == "open" for v in g["current"].to_list()])
+        is_open = np.array([v == "open" for v in g["current"]], dtype=bool)
         result[name] = (times, is_open)
     return result
 
 
-def _is_open_at(door_series: dict[str, tuple[np.ndarray, np.ndarray]], name: str, t_ns: int) -> bool:
+def _is_open_at(
+    door_series: dict[str, tuple[np.ndarray, np.ndarray]], name: str, t_ns: int
+) -> bool:
     entry = door_series.get(name)
     if entry is None:
         return False
@@ -180,9 +245,13 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        self._world_cache: dict[str, tuple[list[ZoneGeometry], list[DoorGeometry]] | None] = {}
+        self._world_cache: dict[
+            str, tuple[list[ZoneGeometry], list[DoorGeometry]] | None
+        ] = {}
 
-    def _load_world(self, world_name: str) -> tuple[list[ZoneGeometry], list[DoorGeometry]] | None:
+    def _load_world(
+        self, world_name: str
+    ) -> tuple[list[ZoneGeometry], list[DoorGeometry]] | None:
         if world_name in self._world_cache:
             return self._world_cache[world_name]
 
@@ -190,7 +259,10 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         if loaded is None:
             self._world_cache[world_name] = None
             return None
-        result = (extract_zone_geometry(loaded.flattened), extract_door_geometry(loaded.flattened))
+        result = (
+            extract_zone_geometry(loaded.flattened),
+            extract_door_geometry(loaded.flattened),
+        )
         self._world_cache[world_name] = result
         return result
 
@@ -206,7 +278,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         if not doors:
             return 0.0
 
-        events = reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
+        events = reconstruct_events(
+            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
+        )
         if len(events) == 0:
             return 0.0
 
@@ -225,14 +299,18 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             for door in doors:
                 dx = pos_x[i] - door.center_x
                 dy = pos_y[i] - door.center_y
-                if dx * dx + dy * dy <= door.radius**2 and _is_open_at(door_series, door.name, t):
+                if dx * dx + dy * dy <= door.radius**2 and _is_open_at(
+                    door_series, door.name, t
+                ):
                     total += dt[i]
                     break
         return total
 
-    def _compute_passing_compliance(self, episode: AlignedEpisodeBundle) -> float | None:
+    def _compute_passing_compliance(
+        self, episode: AlignedEpisodeBundle
+    ) -> float | None:
         peds_df = self.native_ped_frame(episode)
-        if peds_df is None or "x" not in peds_df.columns:
+        if peds_df is None or len(peds_df) == 0:
             return None
 
         pos_x, pos_y, yaw, t_odom = self.resolve_native_pose(episode)
@@ -240,7 +318,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             if episode.data is None or len(episode.data) == 0:
                 return None
             pos_x, pos_y, yaw, _, _, _ = self.resolve_robot_pose(episode)
-            t_odom = episode.data["t_ns"].to_numpy().astype(np.int64) if "t_ns" in episode.data.columns else np.arange(len(pos_x), dtype=np.int64)
+            t_odom = episode.data["t_ns"].to_numpy().astype(np.int64)
 
         if len(pos_x) < 2:
             return None
@@ -269,12 +347,14 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         dt_ped_s = pl.col("t_ns").diff().over("ped_id") * 1e-9
         dt_ped_safe = pl.when(dt_ped_s > 0).then(dt_ped_s).otherwise(1e-3)
 
-        has_vx = "vx" in peds_df.columns
-        has_vy = "vy" in peds_df.columns
         # A first sample has no previous step, so its velocity stays NULL: it is unknown, not zero.
         peds_with_vel = peds_lf.with_columns(
-            vx=(pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan()).then(pl.col("x").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vx")) if has_vx else pl.col("x").diff().over("ped_id") / dt_ped_safe),
-            vy=(pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan()).then(pl.col("y").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vy")) if has_vy else pl.col("y").diff().over("ped_id") / dt_ped_safe),
+            vx=pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan())
+            .then(pl.col("x").diff().over("ped_id") / dt_ped_safe)
+            .otherwise(pl.col("vx")),
+            vy=pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan())
+            .then(pl.col("y").diff().over("ped_id") / dt_ped_safe)
+            .otherwise(pl.col("vy")),
         )
 
         joined = peds_with_vel.join(robot_interp_lf, on="t_ns", how="inner")
@@ -285,9 +365,18 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         speed_r = (pl.col("rvx").pow(2) + pl.col("rvy").pow(2)).sqrt()
         speed_p = (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
         denom = speed_r * speed_p
-        cos_angle = pl.when(denom > 1e-6).then((pl.col("rvx") * pl.col("vx") + pl.col("rvy") * pl.col("vy")) / denom).otherwise(0.0)
+        cos_angle = (
+            pl.when(denom > 1e-6)
+            .then((pl.col("rvx") * pl.col("vx") + pl.col("rvy") * pl.col("vy")) / denom)
+            .otherwise(0.0)
+        )
 
-        is_head_on = (dist <= HEAD_ON_CENTRE_DISTANCE_M) & (speed_r > 0.05) & (speed_p > 0.05) & (cos_angle < -0.3)
+        is_head_on = (
+            (dist <= HEAD_ON_CENTRE_DISTANCE_M)
+            & (speed_r > 0.05)
+            & (speed_p > 0.05)
+            & (cos_angle < -0.3)
+        )
         lat_offset = pl.col("rvx") * dy - pl.col("rvy") * dx
 
         pairs_analyzed = (
@@ -300,7 +389,10 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             .agg(
                 head_on_found=pl.col("is_head_on").any(),
                 curr_min_dist=pl.col("dist").filter(pl.col("is_head_on")).min(),
-                curr_lat=pl.col("lat_offset").filter(pl.col("is_head_on")).sort_by(pl.col("dist").filter(pl.col("is_head_on"))).first(),
+                curr_lat=pl.col("lat_offset")
+                .filter(pl.col("is_head_on"))
+                .sort_by(pl.col("dist").filter(pl.col("is_head_on")))
+                .first(),
             )
             .sort("t_ns")
             .with_columns(
@@ -312,7 +404,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             .collect()
         )
 
-        bouts = pairs_analyzed.filter(pl.col("head_on_found")).partition_by("bout_id", maintain_order=True)
+        bouts = pairs_analyzed.filter(pl.col("head_on_found")).partition_by(
+            "bout_id", maintain_order=True
+        )
         if not bouts:
             return None
 
@@ -332,7 +426,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Zone and door compliance needs the recorded world semantics; without it the values are unknown."""
         if episode.semantic_snapshot is None or episode.semantic_snapshot.height == 0:
-            return {key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS}
+            return {
+                key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS
+            }
         return {}
 
     def calculate(
@@ -349,24 +445,31 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         # 2. Zone/Door Metrics (Requires the world and its recorded semantic snapshot). The world file
         # alone is not enough: without the recorded world semantics the zone/door occupancy is unknown,
         # so the values stay null instead of collapsing to a fabricated zero.
-        has_semantics = episode.semantic_snapshot is not None and episode.semantic_snapshot.height > 0
+        has_semantics = (
+            episode.semantic_snapshot is not None
+            and episode.semantic_snapshot.height > 0
+        )
         if self.world is not None and episode.start_pos:
             loaded = self._load_world(self.world)
             if loaded is not None and has_semantics:
                 zones, doors = loaded
                 pos_x, pos_y, _yaw, _ox, _oy, _oyaw = self.resolve_robot_pose(episode)
 
-                if episode.data is not None and len(episode.data) > 0 and "vel_linear" in episode.data.columns:
+                if episode.data is not None and len(episode.data) > 0:
                     speed = np.abs(episode.data["vel_linear"].to_numpy())
                     t_ns = episode.data["t_ns"].to_numpy()
                     n = len(pos_x)
                     if n > 0 and len(speed) == n:
                         dt = np.diff(t_ns) / 1e9
                         zone_idx = zone_membership(pos_x, pos_y, zones)
-                        violations, violation_seconds = _speed_zone_metrics(zone_idx, speed, dt, zones)
+                        violations, violation_seconds = _speed_zone_metrics(
+                            zone_idx, speed, dt, zones
+                        )
                         quiet_seconds = _quiet_zone_dwell(zone_idx, dt, zones)
                         restricted_entries = _restricted_zone_entries(zone_idx, zones)
-                        doorway_blocking = self._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
+                        doorway_blocking = self._doorway_blocking_time(
+                            episode, pos_x, pos_y, speed, t_ns, doors
+                        )
 
                         result.update(
                             {

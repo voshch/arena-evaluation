@@ -7,7 +7,11 @@ import typing
 import numpy as np
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.mechanism_common import SemanticView, entity_level, entity_name
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    SemanticView,
+    entity_level,
+    entity_name,
+)
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 PROGRESS_FIELD = {"door": "progress", "elevator": "cabin_door_progress"}
@@ -35,10 +39,12 @@ class MechanismStatesCalculator(BaseMetricCalculator):
     CATEGORY = "ecological"
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del prior_results
         frame = episode.data
-        if frame is None or "t_ns" not in frame.columns or len(frame) == 0:
+        if frame is None or len(frame) == 0:
             return {"mechanism_states": None}
         view = SemanticView.from_episode(episode)
         query = frame["t_ns"].to_numpy().astype(np.int64)
@@ -55,7 +61,9 @@ class MechanismStatesCalculator(BaseMetricCalculator):
                         "level": entity_level(entity),
                         "kind": kind,
                         "progress": _floats(progress.sample(query)),
-                        "locked": [v == "true" for v in locked.sample(query)] if locked is not None else [None] * len(query),
+                        "locked": [v == "true" for v in locked.sample(query)]
+                        if locked is not None
+                        else [None] * len(query),
                     }
                 )
         return {"mechanism_states": states or None}

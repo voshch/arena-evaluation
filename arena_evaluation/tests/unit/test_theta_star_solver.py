@@ -4,11 +4,21 @@ import numpy as np
 import pytest
 
 from arena_evaluation.processing.path import theta_star
-from arena_evaluation.processing.path.theta_star import StaticGrid, _line_of_sight, plan_route
+from arena_evaluation.processing.path.theta_star import (
+    StaticGrid,
+    _line_of_sight,
+    plan_route,
+)
 
 
-def _open(size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)) -> StaticGrid:
-    return StaticGrid(origin_xy=origin, resolution_m=resolution, lethal=np.zeros((size, size), dtype=bool))
+def _open(
+    size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)
+) -> StaticGrid:
+    return StaticGrid(
+        origin_xy=origin,
+        resolution_m=resolution,
+        lethal=np.zeros((size, size), dtype=bool),
+    )
 
 
 def test_line_of_sight_leaving_the_grid_is_blocked():
@@ -18,15 +28,22 @@ def test_line_of_sight_leaving_the_grid_is_blocked():
 
 
 @pytest.mark.parametrize("blocked", [(0, 1), (1, 0)])
-def test_line_of_sight_diagonal_step_refuses_to_cut_an_occupied_corner(blocked: tuple[int, int]):
+def test_line_of_sight_diagonal_step_refuses_to_cut_an_occupied_corner(
+    blocked: tuple[int, int],
+):
     grid = np.zeros((3, 3), dtype=bool)
     grid[blocked] = True
 
     assert _line_of_sight(grid, 0, 0, 1, 1) is False
 
 
-@pytest.mark.parametrize(("start", "end"), [((0, 0), (2, 2)), ((2, 2), (0, 0)), ((0, 0), (1, 3)), ((3, 1), (0, 0))])
-def test_line_of_sight_through_free_cells_in_every_direction(start: tuple[int, int], end: tuple[int, int]):
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [((0, 0), (2, 2)), ((2, 2), (0, 0)), ((0, 0), (1, 3)), ((3, 1), (0, 0))],
+)
+def test_line_of_sight_through_free_cells_in_every_direction(
+    start: tuple[int, int], end: tuple[int, int]
+):
     grid = np.zeros((4, 4), dtype=bool)
 
     assert _line_of_sight(grid, *start, *end) is True
@@ -102,7 +119,9 @@ def test_goal_walled_in_has_no_route_and_no_straight_line():
         ((float("nan"), 1.0), (3.0, 3.0), "endpoint_not_finite"),
     ],
 )
-def test_endpoint_that_cannot_be_planned_from_gives_its_reason(start: tuple[float, float], goal: tuple[float, float], reason: str):
+def test_endpoint_that_cannot_be_planned_from_gives_its_reason(
+    start: tuple[float, float], goal: tuple[float, float], reason: str
+):
     res = plan_route(_open(), start, goal)
 
     assert res.null_reason == reason
@@ -113,13 +132,18 @@ def test_endpoint_inside_a_lethal_cell_is_refused_not_routed_around():
     grid = _open()
     grid.lethal[10:14, 10:14] = True
 
-    assert plan_route(grid, (1.05, 1.05), (3.0, 3.0)).null_reason == "start_in_lethal_cell"
-    assert plan_route(grid, (3.0, 3.0), (1.05, 1.05)).null_reason == "goal_in_lethal_cell"
+    assert (
+        plan_route(grid, (1.05, 1.05), (3.0, 3.0)).null_reason == "start_in_lethal_cell"
+    )
+    assert (
+        plan_route(grid, (3.0, 3.0), (1.05, 1.05)).null_reason == "goal_in_lethal_cell"
+    )
 
 
-def test_missing_search_library_raises_instead_of_routing_a_fallback(monkeypatch, tmp_path):
-    monkeypatch.setattr(theta_star, "_SOLVER_LIBRARY", tmp_path / "solver.so")
-    monkeypatch.setattr(theta_star, "_SOLVER_SOURCE", tmp_path / "solver.cpp")
+def test_missing_search_library_raises_instead_of_routing_a_fallback(tmp_path):
+    orig_lib, orig_src = theta_star._SOLVER_LIBRARY, theta_star._SOLVER_SOURCE
+    theta_star._SOLVER_LIBRARY = tmp_path / "solver.so"
+    theta_star._SOLVER_SOURCE = tmp_path / "solver.cpp"
     grid = _open()
     grid.lethal[0:30, 20] = True
     theta_star._solver_library.cache_clear()
@@ -127,17 +151,28 @@ def test_missing_search_library_raises_instead_of_routing_a_fallback(monkeypatch
         with pytest.raises(RuntimeError, match="search library"):
             plan_route(grid, (1.0, 1.0), (3.0, 1.0))
     finally:
+        theta_star._SOLVER_LIBRARY = orig_lib
+        theta_star._SOLVER_SOURCE = orig_src
         theta_star._solver_library.cache_clear()
 
 
 def test_search_that_exhausts_its_iteration_budget_reports_the_cap_not_no_path():
     lethal = np.zeros((40, 40), dtype=bool)
     lethal[:-1, 20] = True
-    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=1) == "iteration_cap"
-    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000) != "iteration_cap"
+    assert (
+        theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=1)
+        == "iteration_cap"
+    )
+    assert (
+        theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000)
+        != "iteration_cap"
+    )
 
 
 def test_search_reports_no_path_when_a_full_wall_separates_the_endpoints():
     lethal = np.zeros((40, 40), dtype=bool)
     lethal[:, 20] = True
-    assert theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000) == "no_path"
+    assert (
+        theta_star._search(lethal, 0.1, (5, 5), (35, 5), max_iterations=100000)
+        == "no_path"
+    )

@@ -17,8 +17,14 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.registry.series import SeriesProxemicsExtended
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
-from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
+from arena_evaluation.processing.metrics.common.alignment import (
+    TRACK_ALIGN_TOLERANCE_NS,
+)
 from arena_evaluation.processing.metrics.social.proxemics import (
     INTIMATE_CLEARANCE_M,
     PERSONAL_CLEARANCE_M,
@@ -47,37 +53,164 @@ SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemicsExtended.polars_schema()
 
 ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
 
-TIME_IN_INTIMATE_ZONE = define_metric("time_in_intimate_zone", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Seconds whose nearest pedestrian sat inside 0.45 m edge clearance.", null_reason=True)
-TIME_IN_PERSONAL_ZONE = define_metric("time_in_personal_zone", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Seconds whose nearest pedestrian sat inside 1.20 m edge clearance.", null_reason=True)
-TIME_IN_SOCIAL_ZONE = define_metric("time_in_social_zone", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Seconds whose nearest pedestrian sat inside 3.60 m edge clearance.", null_reason=True)
-TIME_IN_PUBLIC_ZONE = define_metric("time_in_public_zone", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Seconds whose nearest pedestrian sat at or beyond 3.60 m edge clearance.", null_reason=True)
-PSI_INTIMATE_EVENTS = define_metric("psi_intimate_events", pl.Int64, scopes=ZONE_SCOPES, unit="", description="Contiguous stays of the nearest pedestrian inside 0.45 m edge clearance, nearby stays merged.", null_reason=True)
-PSI_PERSONAL_EVENTS = define_metric("psi_personal_events", pl.Int64, scopes=ZONE_SCOPES, unit="", description="Contiguous stays of the nearest pedestrian inside 1.20 m edge clearance, nearby stays merged.", null_reason=True)
-PSI_SOCIAL_EVENTS = define_metric("psi_social_events", pl.Int64, scopes=ZONE_SCOPES, unit="", description="Contiguous stays of the nearest pedestrian inside 3.60 m edge clearance, nearby stays merged.", null_reason=True)
-MAX_SPEED_INTIMATE_ZONE = define_metric("max_speed_intimate_zone", pl.Float64, scopes=ZONE_SCOPES, unit="m/s", description="Fastest robot speed while the nearest pedestrian sat inside 0.45 m edge clearance.", null_reason=True)
-MAX_SPEED_PERSONAL_ZONE = define_metric("max_speed_personal_zone", pl.Float64, scopes=ZONE_SCOPES, unit="m/s", description="Fastest robot speed while the nearest pedestrian sat inside 1.20 m edge clearance.", null_reason=True)
-MAX_SPEED_SOCIAL_ZONE = define_metric("max_speed_social_zone", pl.Float64, scopes=ZONE_SCOPES, unit="m/s", description="Fastest robot speed while the nearest pedestrian sat inside 3.60 m edge clearance.", null_reason=True)
-MAX_SPEED_PUBLIC_ZONE = define_metric("max_speed_public_zone", pl.Float64, scopes=ZONE_SCOPES, unit="m/s", description="Fastest robot speed while the nearest pedestrian sat at or beyond 3.60 m edge clearance.", null_reason=True)
-MOVEMENT_TOWARDS_PEDS_RATIO = define_metric("movement_towards_peds_ratio", pl.Float64, scopes=ZONE_SCOPES, unit="1", description="Share of resolved frames whose robot velocity pointed at the nearest pedestrian.", null_reason=True)
-TTI_MIN = define_metric("tti_min", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Shortest telemetry-only time to collision of a pedestrian closing on the robot.", null_reason=True)
-TTI_MEAN = define_metric("tti_mean", pl.Float64, scopes=ZONE_SCOPES, unit="s", description="Mean telemetry-only time to collision of the pedestrians closing on the robot.", null_reason=True)
-PERSONAL_SPACE_INTRUSION_INTEGRAL = define_metric("personal_space_intrusion_integral", pl.Float64, scopes=ZONE_SCOPES, unit="m·s", description="Time integral of the penetration depth inside 1.20 m edge clearance.", null_reason=True)
+TIME_IN_INTIMATE_ZONE = define_metric(
+    "time_in_intimate_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Seconds whose nearest pedestrian sat inside 0.45 m edge clearance.",
+    null_reason=True,
+)
+TIME_IN_PERSONAL_ZONE = define_metric(
+    "time_in_personal_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Seconds whose nearest pedestrian sat inside 1.20 m edge clearance.",
+    null_reason=True,
+)
+TIME_IN_SOCIAL_ZONE = define_metric(
+    "time_in_social_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Seconds whose nearest pedestrian sat inside 3.60 m edge clearance.",
+    null_reason=True,
+)
+TIME_IN_PUBLIC_ZONE = define_metric(
+    "time_in_public_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Seconds whose nearest pedestrian sat at or beyond 3.60 m edge clearance.",
+    null_reason=True,
+)
+PSI_INTIMATE_EVENTS = define_metric(
+    "psi_intimate_events",
+    pl.Int64,
+    scopes=ZONE_SCOPES,
+    unit="",
+    description="Contiguous stays of the nearest pedestrian inside 0.45 m edge clearance, nearby stays merged.",
+    null_reason=True,
+)
+PSI_PERSONAL_EVENTS = define_metric(
+    "psi_personal_events",
+    pl.Int64,
+    scopes=ZONE_SCOPES,
+    unit="",
+    description="Contiguous stays of the nearest pedestrian inside 1.20 m edge clearance, nearby stays merged.",
+    null_reason=True,
+)
+PSI_SOCIAL_EVENTS = define_metric(
+    "psi_social_events",
+    pl.Int64,
+    scopes=ZONE_SCOPES,
+    unit="",
+    description="Contiguous stays of the nearest pedestrian inside 3.60 m edge clearance, nearby stays merged.",
+    null_reason=True,
+)
+MAX_SPEED_INTIMATE_ZONE = define_metric(
+    "max_speed_intimate_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="m/s",
+    description="Fastest robot speed while the nearest pedestrian sat inside 0.45 m edge clearance.",
+    null_reason=True,
+)
+MAX_SPEED_PERSONAL_ZONE = define_metric(
+    "max_speed_personal_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="m/s",
+    description="Fastest robot speed while the nearest pedestrian sat inside 1.20 m edge clearance.",
+    null_reason=True,
+)
+MAX_SPEED_SOCIAL_ZONE = define_metric(
+    "max_speed_social_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="m/s",
+    description="Fastest robot speed while the nearest pedestrian sat inside 3.60 m edge clearance.",
+    null_reason=True,
+)
+MAX_SPEED_PUBLIC_ZONE = define_metric(
+    "max_speed_public_zone",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="m/s",
+    description="Fastest robot speed while the nearest pedestrian sat at or beyond 3.60 m edge clearance.",
+    null_reason=True,
+)
+MOVEMENT_TOWARDS_PEDS_RATIO = define_metric(
+    "movement_towards_peds_ratio",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="1",
+    description="Share of resolved frames whose robot velocity pointed at the nearest pedestrian.",
+    null_reason=True,
+)
+TTI_MIN = define_metric(
+    "tti_min",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Shortest telemetry-only time to collision of a pedestrian closing on the robot.",
+    null_reason=True,
+)
+TTI_MEAN = define_metric(
+    "tti_mean",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="s",
+    description="Mean telemetry-only time to collision of the pedestrians closing on the robot.",
+    null_reason=True,
+)
+PERSONAL_SPACE_INTRUSION_INTEGRAL = define_metric(
+    "personal_space_intrusion_integral",
+    pl.Float64,
+    scopes=ZONE_SCOPES,
+    unit="m·s",
+    description="Time integral of the penetration depth inside 1.20 m edge clearance.",
+    null_reason=True,
+)
 
 
 def _zone_expression() -> pl.Expr:
     """Hall zone of an edge-to-edge clearance, null while the clearance is unknown."""
     clearance_m = pl.col("clearance_m")
-    return pl.when(clearance_m.is_null()).then(pl.lit(None, dtype=pl.String)).when(clearance_m < INTIMATE_CLEARANCE_M).then(pl.lit("intimate")).when(clearance_m < PERSONAL_CLEARANCE_M).then(pl.lit("personal")).when(clearance_m < SOCIAL_CLEARANCE_M).then(pl.lit("social")).otherwise(pl.lit("public"))
+    return (
+        pl.when(clearance_m.is_null())
+        .then(pl.lit(None, dtype=pl.String))
+        .when(clearance_m < INTIMATE_CLEARANCE_M)
+        .then(pl.lit("intimate"))
+        .when(clearance_m < PERSONAL_CLEARANCE_M)
+        .then(pl.lit("personal"))
+        .when(clearance_m < SOCIAL_CLEARANCE_M)
+        .then(pl.lit("social"))
+        .otherwise(pl.lit("public"))
+    )
 
 
 def _dwell_expression(zone: str) -> pl.Expr:
     """Seconds whose closest pedestrian sat in ``zone``."""
-    return pl.when(pl.col("zone") == zone).then(pl.col("dt_s")).otherwise(0.0).sum().alias(f"time_in_{zone}_zone_s")
+    return (
+        pl.when(pl.col("zone") == zone)
+        .then(pl.col("dt_s"))
+        .otherwise(0.0)
+        .sum()
+        .alias(f"time_in_{zone}_zone_s")
+    )
 
 
 def _zone_top_speed_expression(zone: str) -> pl.Expr:
     """Fastest robot speed while the closest pedestrian sat in ``zone``, null when never."""
-    return pl.when(pl.col("zone") == zone).then(pl.col("robot_speed_mps")).otherwise(None).max().alias(f"max_speed_{zone}_zone_mps")
+    return (
+        pl.when(pl.col("zone") == zone)
+        .then(pl.col("robot_speed_mps"))
+        .otherwise(None)
+        .max()
+        .alias(f"max_speed_{zone}_zone_mps")
+    )
 
 
 def zone_entry_events(
@@ -102,7 +235,9 @@ def zone_entry_events(
     if runs.height == 0:
         return 0
     previous_end_ns = pl.col("end_ns").shift(1)
-    starts_event = previous_end_ns.is_null() | ((pl.col("start_ns") - previous_end_ns) >= merge_gap_ns)
+    starts_event = previous_end_ns.is_null() | (
+        (pl.col("start_ns") - previous_end_ns) >= merge_gap_ns
+    )
     return int(runs.select(starts_event.sum()).item())
 
 
@@ -149,7 +284,9 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
 
     def _combined_radius_expression(self) -> pl.Expr:
         """Robot plus pedestrian radius removed from the centre distance to reach the edge clearance."""
-        return pl.lit(float(self.robot_params.robot_radius), dtype=pl.Float64) + pl.col("radius_m")
+        return pl.lit(float(self.robot_params.robot_radius), dtype=pl.Float64) + pl.col(
+            "radius_m"
+        )
 
     def _edge_clearance_expression(self) -> pl.Expr:
         """Surface clearance of one pedestrian row, from its own recorded radius."""
@@ -164,29 +301,46 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
         )
         if peds is None or peds.height == 0:
-            return FrameGeometry(frames=geometry.frames, pedestrians=geometry.pedestrians.with_columns(radius_m=pl.lit(None, dtype=pl.Float64)))
-        if "radius_m" not in peds.columns:
-            raise MetricInputError("proxemics_extended needs each pedestrian's recorded radius_m; pedestrian_tracks carries none")
-        invalid = peds.filter(pl.col("radius_m").is_null() | pl.col("radius_m").is_nan() | (pl.col("radius_m") <= 0.0))
+            return FrameGeometry(
+                frames=geometry.frames,
+                pedestrians=geometry.pedestrians.with_columns(
+                    radius_m=pl.lit(None, dtype=pl.Float64)
+                ),
+            )
+        invalid = peds.filter(
+            pl.col("radius_m").is_null()
+            | pl.col("radius_m").is_nan()
+            | (pl.col("radius_m") <= 0.0)
+        )
         if invalid.height > 0:
-            raise MetricInputError("proxemics_extended needs each pedestrian's recorded radius_m; a pedestrian has none or a non-positive one")
+            raise MetricInputError(
+                "proxemics_extended needs each pedestrian's recorded radius_m; a pedestrian has none or a non-positive one"
+            )
         radii = peds.select(
             t_ns=pl.col("t_ns").cast(pl.Int64),
             ped_id=pl.col("ped_id").cast(pl.String),
             radius_m=pl.col("radius_m").cast(pl.Float64),
         ).unique(subset=["t_ns", "ped_id"], keep="first")
-        pedestrians = geometry.pedestrians.join(radii, on=["t_ns", "ped_id"], how="left")
+        pedestrians = geometry.pedestrians.join(
+            radii, on=["t_ns", "ped_id"], how="left"
+        )
         return FrameGeometry(frames=geometry.frames, pedestrians=pedestrians)
 
     def _nearest_frame_pedestrians(self, geometry: FrameGeometry) -> pl.DataFrame:
         """The pedestrian with the smallest edge clearance of every resolved frame, with the frame's robot state."""
         if geometry.pedestrians.height == 0:
             return pl.DataFrame()
-        ranked = geometry.pedestrians.filter(pl.col("distance_m").is_not_null()).with_columns(clearance_m=self._edge_clearance_expression())
-        ranked = ranked.with_columns(clearance_rank=pl.col("clearance_m").rank("ordinal").over("frame_ix"))
+        ranked = geometry.pedestrians.filter(
+            pl.col("distance_m").is_not_null()
+        ).with_columns(clearance_m=self._edge_clearance_expression())
+        ranked = ranked.with_columns(
+            clearance_rank=pl.col("clearance_m").rank("ordinal").over("frame_ix")
+        )
         nearest = ranked.filter(pl.col("clearance_rank") == 1).drop("clearance_rank")
         return nearest.join(
-            geometry.frames.select("frame_ix", "dt_s", "robot_vx_mps", "robot_vy_mps", "robot_speed_mps"),
+            geometry.frames.select(
+                "frame_ix", "dt_s", "robot_vx_mps", "robot_vy_mps", "robot_speed_mps"
+            ),
             on="frame_ix",
             how="inner",
         )
@@ -195,15 +349,25 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
         """The closest pedestrian of every resolved frame, its edge clearance, Hall zone and integration step."""
         if geometry.pedestrians.height == 0:
             return pl.DataFrame()
-        return self._nearest_frame_pedestrians(geometry).sort("t_ns").with_columns(zone=_zone_expression())
+        return (
+            self._nearest_frame_pedestrians(geometry)
+            .sort("t_ns")
+            .with_columns(zone=_zone_expression())
+        )
 
     def _closing_times(self, geometry: FrameGeometry) -> pl.DataFrame:
         """Telemetry-only time-to-collision of every pedestrian closing on the robot inside the lookahead."""
         clearance_m = self._edge_clearance_expression()
-        closing_m2_s2 = pl.col("dx_m") * pl.col("rel_vx_mps") + pl.col("dy_m") * pl.col("rel_vy_mps")
+        closing_m2_s2 = pl.col("dx_m") * pl.col("rel_vx_mps") + pl.col("dy_m") * pl.col(
+            "rel_vy_mps"
+        )
         return (
             geometry.pedestrians.with_columns(clearance_m=clearance_m)
-            .filter((pl.col("rel_speed_mps") > TTI_MIN_REL_SPEED_MPS) & (closing_m2_s2 < 0.0) & (pl.col("clearance_m") > 0.0))
+            .filter(
+                (pl.col("rel_speed_mps") > TTI_MIN_REL_SPEED_MPS)
+                & (closing_m2_s2 < 0.0)
+                & (pl.col("clearance_m") > 0.0)
+            )
             .with_columns(tti_s=pl.col("clearance_m") / pl.col("rel_speed_mps"))
             .filter((pl.col("tti_s") > 0.0) & (pl.col("tti_s") < TTI_LOOKAHEAD_S))
             .select("tti_s")
@@ -225,8 +389,22 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             _zone_top_speed_expression("personal"),
             _zone_top_speed_expression("social"),
             _zone_top_speed_expression("public"),
-            personal_space_intrusion_integral_m_s=(pl.when(pl.col("clearance_m") < PERSONAL_CLEARANCE_M).then((PERSONAL_CLEARANCE_M - pl.col("clearance_m").clip(lower_bound=0.0)) * pl.col("dt_s")).otherwise(0.0).sum()),
-            approaching_frames=((pl.col("robot_vx_mps") * pl.col("dx_m") + pl.col("robot_vy_mps") * pl.col("dy_m")) > 0.0).sum(),
+            personal_space_intrusion_integral_m_s=(
+                pl.when(pl.col("clearance_m") < PERSONAL_CLEARANCE_M)
+                .then(
+                    (PERSONAL_CLEARANCE_M - pl.col("clearance_m").clip(lower_bound=0.0))
+                    * pl.col("dt_s")
+                )
+                .otherwise(0.0)
+                .sum()
+            ),
+            approaching_frames=(
+                (
+                    pl.col("robot_vx_mps") * pl.col("dx_m")
+                    + pl.col("robot_vy_mps") * pl.col("dy_m")
+                )
+                > 0.0
+            ).sum(),
             sampled_frames=pl.len(),
         ).row(0, named=True)
 
@@ -248,13 +426,19 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             "max_speed_personal_zone": summary["max_speed_personal_zone_mps"],
             "max_speed_social_zone": summary["max_speed_social_zone_mps"],
             "max_speed_public_zone": summary["max_speed_public_zone_mps"],
-            "movement_towards_peds_ratio": approaching_frames / sampled_frames if sampled_frames > 0 else None,
+            "movement_towards_peds_ratio": approaching_frames / sampled_frames
+            if sampled_frames > 0
+            else None,
             "tti_min": tti_min,
             "tti_mean": tti_mean,
-            "personal_space_intrusion_integral": float(summary["personal_space_intrusion_integral_m_s"]),
+            "personal_space_intrusion_integral": float(
+                summary["personal_space_intrusion_integral_m_s"]
+            ),
         }
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         """Compute the episode-scope proxemics set over the bundle's own pedestrian frames."""
         del prior_results
         return self._episode_metrics(episode)
@@ -288,7 +472,9 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
         if geometry.frames.height == 0 or geometry.pedestrians.height == 0:
             return pl.DataFrame(schema=SERIES_SCHEMA)
         first_t_ns = int(geometry.frames.select(pl.col("t_ns").min()).item())
-        clearances = self._nearest_frame_pedestrians(geometry).select("frame_ix", "clearance_m")
+        clearances = self._nearest_frame_pedestrians(geometry).select(
+            "frame_ix", "clearance_m"
+        )
         resolved_robot = robot_id or (episode.robot_name or "robot")
         return (
             geometry.frames.join(clearances, on="frame_ix", how="left")

@@ -15,7 +15,11 @@ import numpy as np
 import polars as pl
 
 from arena_evaluation.storage.registry.series import SeriesHhiContact
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
 from arena_evaluation.processing.metrics.social.interaction_common import (
     ROBOT_TRACKS_TOPIC,
     native_robot_frame,
@@ -40,26 +44,147 @@ WINDOWS: Final[tuple[str, ...]] = ("approach", "hold", "post", "rest")
 
 STALL_SERIES_SCHEMA: Final[pl.Schema] = SeriesHhiContact.polars_schema()
 
-HHI_INTERACTION = define_metric("hhi_interaction", pl.String, scopes=(MetricScope.CONTACT,), unit="", description="First two-person contact type of the contact window: hug or shake_hand.", null_reason=True)
-HHI_HOLD_ONSET_S = define_metric("hhi_hold_onset_s", pl.Float64, scopes=(MetricScope.CONTACT,), unit="s", description="Seconds from the contact window's start to the pair's hold onset.", null_reason=True)
-HHI_RELEASE_S = define_metric("hhi_release_s", pl.Float64, scopes=(MetricScope.CONTACT,), unit="s", description="Seconds from the contact window's start to the pair's release.", null_reason=True)
-HHI_EPISODE_S = define_metric("hhi_episode_s", pl.Float64, scopes=(MetricScope.CONTACT,), unit="s", description="Seconds of the contact window's robot time axis the interaction windows are measured over.", null_reason=True)
-HHI_STALL_COUNT = define_metric("hhi_stall_count", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Number of robot stalls of at least 3 s after first motion and away from the goal.", null_reason=True)
-HHI_STALL_TIME_S = define_metric("hhi_stall_time_s", pl.Float64, scopes=(MetricScope.CONTACT,), unit="s", description="Total seconds the robot spent in those stalls.", null_reason=True)
-HHI_STALLS_APPROACH = define_metric("hhi_stalls_approach", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Stalls whose onset fell in the approach window.", null_reason=True)
-HHI_STALLS_HOLD = define_metric("hhi_stalls_hold", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Stalls whose onset fell in the hold window.", null_reason=True)
-HHI_STALLS_POST = define_metric("hhi_stalls_post", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Stalls whose onset fell in the post-release window.", null_reason=True)
-HHI_STALLS_REST = define_metric("hhi_stalls_rest", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Stalls whose onset fell in the rest window.", null_reason=True)
-HHI_SHARE_APPROACH = define_metric("hhi_share_approach", pl.Float64, scopes=(MetricScope.CONTACT,), unit="1", description="Share of the contact window's time covered by the approach window.", null_reason=True)
-HHI_SHARE_HOLD = define_metric("hhi_share_hold", pl.Float64, scopes=(MetricScope.CONTACT,), unit="1", description="Share of the contact window's time covered by the hold window.", null_reason=True)
-HHI_SHARE_POST = define_metric("hhi_share_post", pl.Float64, scopes=(MetricScope.CONTACT,), unit="1", description="Share of the contact window's time covered by the post-release window.", null_reason=True)
-HHI_SHARE_REST = define_metric("hhi_share_rest", pl.Float64, scopes=(MetricScope.CONTACT,), unit="1", description="Share of the contact window's time covered by the rest window.", null_reason=True)
-HHI_PASSES_BETWEEN = define_metric("hhi_passes_between", pl.Int64, scopes=(MetricScope.CONTACT,), unit="", description="Number of robot steps that passed between the two interacting pedestrians during the hold.", null_reason=True)
-HHI_MIN_PAIR_CLEARANCE = define_metric("hhi_min_pair_clearance", pl.Float64, scopes=(MetricScope.CONTACT,), unit="m", description="Minimum distance of the robot to the segment between the two interacting pedestrians during the hold.", null_reason=True)
-HHI_PAIR_GAP_HOLD = define_metric("hhi_pair_gap_hold", pl.Float64, scopes=(MetricScope.CONTACT,), unit="m", description="Median distance between the two interacting pedestrians during the hold.", null_reason=True)
+HHI_INTERACTION = define_metric(
+    "hhi_interaction",
+    pl.String,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="First two-person contact type of the contact window: hug or shake_hand.",
+    null_reason=True,
+)
+HHI_HOLD_ONSET_S = define_metric(
+    "hhi_hold_onset_s",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="s",
+    description="Seconds from the contact window's start to the pair's hold onset.",
+    null_reason=True,
+)
+HHI_RELEASE_S = define_metric(
+    "hhi_release_s",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="s",
+    description="Seconds from the contact window's start to the pair's release.",
+    null_reason=True,
+)
+HHI_EPISODE_S = define_metric(
+    "hhi_episode_s",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="s",
+    description="Seconds of the contact window's robot time axis the interaction windows are measured over.",
+    null_reason=True,
+)
+HHI_STALL_COUNT = define_metric(
+    "hhi_stall_count",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Number of robot stalls of at least 3 s after first motion and away from the goal.",
+    null_reason=True,
+)
+HHI_STALL_TIME_S = define_metric(
+    "hhi_stall_time_s",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="s",
+    description="Total seconds the robot spent in those stalls.",
+    null_reason=True,
+)
+HHI_STALLS_APPROACH = define_metric(
+    "hhi_stalls_approach",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Stalls whose onset fell in the approach window.",
+    null_reason=True,
+)
+HHI_STALLS_HOLD = define_metric(
+    "hhi_stalls_hold",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Stalls whose onset fell in the hold window.",
+    null_reason=True,
+)
+HHI_STALLS_POST = define_metric(
+    "hhi_stalls_post",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Stalls whose onset fell in the post-release window.",
+    null_reason=True,
+)
+HHI_STALLS_REST = define_metric(
+    "hhi_stalls_rest",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Stalls whose onset fell in the rest window.",
+    null_reason=True,
+)
+HHI_SHARE_APPROACH = define_metric(
+    "hhi_share_approach",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="1",
+    description="Share of the contact window's time covered by the approach window.",
+    null_reason=True,
+)
+HHI_SHARE_HOLD = define_metric(
+    "hhi_share_hold",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="1",
+    description="Share of the contact window's time covered by the hold window.",
+    null_reason=True,
+)
+HHI_SHARE_POST = define_metric(
+    "hhi_share_post",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="1",
+    description="Share of the contact window's time covered by the post-release window.",
+    null_reason=True,
+)
+HHI_SHARE_REST = define_metric(
+    "hhi_share_rest",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="1",
+    description="Share of the contact window's time covered by the rest window.",
+    null_reason=True,
+)
+HHI_PASSES_BETWEEN = define_metric(
+    "hhi_passes_between",
+    pl.Int64,
+    scopes=(MetricScope.CONTACT,),
+    unit="",
+    description="Number of robot steps that passed between the two interacting pedestrians during the hold.",
+    null_reason=True,
+)
+HHI_MIN_PAIR_CLEARANCE = define_metric(
+    "hhi_min_pair_clearance",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="m",
+    description="Minimum distance of the robot to the segment between the two interacting pedestrians during the hold.",
+    null_reason=True,
+)
+HHI_PAIR_GAP_HOLD = define_metric(
+    "hhi_pair_gap_hold",
+    pl.Float64,
+    scopes=(MetricScope.CONTACT,),
+    unit="m",
+    description="Median distance between the two interacting pedestrians during the hold.",
+    null_reason=True,
+)
 
 
-def smoothed_speed(t_s: np.ndarray, x: np.ndarray, y: np.ndarray, window_s: float = SPEED_WINDOW_S) -> np.ndarray:
+def smoothed_speed(
+    t_s: np.ndarray, x: np.ndarray, y: np.ndarray, window_s: float = SPEED_WINDOW_S
+) -> np.ndarray:
     """Planar speed from positions, moving-averaged over window_s."""
     n = len(t_s)
     if n < 2:
@@ -95,14 +220,21 @@ def stall_intervals(
         stopped &= dist_to_goal > goal_tolerance
     out: list[tuple[float, float]] = []
     edges = np.diff(np.concatenate(([0], stopped.astype(np.int8), [0])))
-    for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True):
+    for start, stop in zip(
+        np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True
+    ):
         onset, end = float(t_s[start]), float(t_s[stop - 1])
         if end - onset >= min_s:
             out.append((onset, end))
     return out
 
 
-def window_bounds(t_end: float, hold_onset: float | None, release: float | None, post_s: float = POST_S) -> dict[str, tuple[float, float]]:
+def window_bounds(
+    t_end: float,
+    hold_onset: float | None,
+    release: float | None,
+    post_s: float = POST_S,
+) -> dict[str, tuple[float, float]]:
     """Episode-relative [start, end) of each window, clipped to [0, t_end]; absent edges collapse the later windows."""
 
     def clip(a: float, b: float) -> tuple[float, float]:
@@ -110,7 +242,12 @@ def window_bounds(t_end: float, hold_onset: float | None, release: float | None,
         return (a, max(a, b))
 
     if hold_onset is None:
-        return {"approach": clip(0.0, t_end), "hold": clip(t_end, t_end), "post": clip(t_end, t_end), "rest": clip(t_end, t_end)}
+        return {
+            "approach": clip(0.0, t_end),
+            "hold": clip(t_end, t_end),
+            "post": clip(t_end, t_end),
+            "rest": clip(t_end, t_end),
+        }
     hold_end = t_end if release is None else release
     post_end = hold_end if release is None else release + post_s
     return {
@@ -121,10 +258,16 @@ def window_bounds(t_end: float, hold_onset: float | None, release: float | None,
     }
 
 
-def bucket(onsets: typing.Iterable[float], windows: dict[str, tuple[float, float]]) -> dict[str, int]:
+def bucket(
+    onsets: typing.Iterable[float], windows: dict[str, tuple[float, float]]
+) -> dict[str, int]:
     """Count onsets per window, [start, end) except the last non-empty window which also takes its end."""
     counts: dict[str, int] = dict.fromkeys(WINDOWS, 0)
-    last = max((w for w in WINDOWS if windows[w][1] > windows[w][0]), key=lambda w: windows[w][1], default=None)
+    last = max(
+        (w for w in WINDOWS if windows[w][1] > windows[w][0]),
+        key=lambda w: windows[w][1],
+        default=None,
+    )
     for onset in onsets:
         for window in WINDOWS:
             start, end = windows[window]
@@ -135,10 +278,14 @@ def bucket(onsets: typing.Iterable[float], windows: dict[str, tuple[float, float
 
 
 def _cross(origin: np.ndarray, first: np.ndarray, second: np.ndarray) -> np.ndarray:
-    return (first[:, 0] - origin[:, 0]) * (second[:, 1] - origin[:, 1]) - (first[:, 1] - origin[:, 1]) * (second[:, 0] - origin[:, 0])
+    return (first[:, 0] - origin[:, 0]) * (second[:, 1] - origin[:, 1]) - (
+        first[:, 1] - origin[:, 1]
+    ) * (second[:, 0] - origin[:, 0])
 
 
-def segment_crossings(robot: np.ndarray, ped_a: np.ndarray, ped_b: np.ndarray) -> np.ndarray:
+def segment_crossings(
+    robot: np.ndarray, ped_a: np.ndarray, ped_b: np.ndarray
+) -> np.ndarray:
     """Per step i: whether the move robot[i]->robot[i+1] crosses the pair segment a[i]-b[i], a sample on the segment counting once."""
     if len(robot) < 2:
         return np.zeros(0, dtype=bool)
@@ -151,12 +298,15 @@ def segment_crossings(robot: np.ndarray, ped_a: np.ndarray, ped_b: np.ndarray) -
     return hit & np.isfinite(d1) & np.isfinite(d2) & np.isfinite(d3) & np.isfinite(d4)
 
 
-def point_segment_distance(point: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+def point_segment_distance(
+    point: np.ndarray, a: np.ndarray, b: np.ndarray
+) -> np.ndarray:
     delta = b - a
     denominator = np.einsum("ij,ij->i", delta, delta)
     projection = np.where(
         denominator > 0,
-        np.einsum("ij,ij->i", point - a, delta) / np.where(denominator > 0, denominator, 1.0),
+        np.einsum("ij,ij->i", point - a, delta)
+        / np.where(denominator > 0, denominator, 1.0),
         0.0,
     )
     projection = np.clip(projection, 0.0, 1.0)
@@ -170,7 +320,9 @@ def pair_track(held: pl.DataFrame, t_ns: np.ndarray, ped_id: str) -> np.ndarray:
     if rows.height == 0:
         return positions
     held_times = rows.get_column("t_ns").to_numpy().astype(np.int64)
-    positions[np.searchsorted(t_ns.astype(np.int64), held_times)] = rows.select("x", "y").to_numpy().astype(np.float64)
+    positions[np.searchsorted(t_ns.astype(np.int64), held_times)] = (
+        rows.select("x", "y").to_numpy().astype(np.float64)
+    )
     return positions
 
 
@@ -181,7 +333,11 @@ class ContactInteractionCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = []
-    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_tracks", "pedestrian_interaction_events"]
+    REQUIRED_TOPICS = [
+        "robot_tracks",
+        "pedestrian_tracks",
+        "pedestrian_interaction_events",
+    ]
 
     OUTPUTS = (
         HHI_INTERACTION,
@@ -206,32 +362,56 @@ class ContactInteractionCalculator(BaseMetricCalculator):
     DIRECTIONS = {"hhi_min_pair_clearance": Direction.HIGHER}
 
     @staticmethod
-    def _contact_edges(events: pl.DataFrame | None, t0_ns: int) -> tuple[int | None, list[str], float | None, float | None]:
+    def _contact_edges(
+        events: pl.DataFrame | None, t0_ns: int
+    ) -> tuple[int | None, list[str], float | None, float | None]:
         """(type, participant ped_ids, hold onset s, release s) of the episode's first contact interaction."""
         if events is None or events.height == 0:
             return None, [], None, None
-        contact = events.filter(pl.col("interaction_type").is_in(list(CONTACT_TYPES))).sort("t_ns")
-        activated = contact.filter(pl.col("event_name").is_in([EVENT_ACTIVATED, EVENT_HOLD_ONSET]))
+        contact = events.filter(
+            pl.col("interaction_type").is_in(list(CONTACT_TYPES))
+        ).sort("t_ns")
+        activated = contact.filter(
+            pl.col("event_name").is_in([EVENT_ACTIVATED, EVENT_HOLD_ONSET])
+        )
         if activated.height == 0:
             return None, [], None, None
         first = activated.row(0, named=True)
         interaction_id = first["interaction_id"]
         mine = contact.filter(pl.col("interaction_id") == interaction_id)
-        same_event = mine.filter((pl.col("t_ns") == first["t_ns"]) & (pl.col("event_name") == first["event_name"]))
-        participants = same_event.get_column("ped_id").drop_nulls().to_list()
+        same_event = mine.filter(
+            (pl.col("t_ns") == first["t_ns"])
+            & (pl.col("event_name") == first["event_name"])
+        )
+        participants = [
+            str(v) for v in same_event.get_column("ped_id").drop_nulls().to_numpy()
+        ]
 
         def at(name: str) -> float | None:
             rows = mine.filter(pl.col("event_name") == name)
-            return None if rows.height == 0 else (int(rows.get_column("t_ns")[0]) - t0_ns) / 1e9
+            return (
+                None
+                if rows.height == 0
+                else (int(rows.get_column("t_ns")[0]) - t0_ns) / 1e9
+            )
 
-        return int(first["interaction_type"]), participants, at(EVENT_HOLD_ONSET), at(EVENT_RELEASED)
+        return (
+            int(first["interaction_type"]),
+            participants,
+            at(EVENT_HOLD_ONSET),
+            at(EVENT_RELEASED),
+        )
 
-    def _robot_time_axis(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, float] | None:
+    def _robot_time_axis(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float] | None:
         """Times, x, y and the offset of the episode view's robot samples, none when it has fewer than two."""
         data = episode.data
         if data is None or data.height < 2:
             return None
-        pos_x, pos_y, _yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(episode)
+        pos_x, pos_y, _yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(
+            episode
+        )
         t_ns = data.get_column("t_ns").to_numpy().astype(np.int64)
         length = min(len(t_ns), len(pos_x))
         if length < 2:
@@ -256,7 +436,9 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         t_s = (t_ns - t0_ns) / 1e9
         dist_to_goal = None
         if episode.goal_pos and len(episode.goal_pos) >= 2:
-            dist_to_goal = np.hypot(pos_x - episode.goal_pos[0], pos_y - episode.goal_pos[1])
+            dist_to_goal = np.hypot(
+                pos_x - episode.goal_pos[0], pos_y - episode.goal_pos[1]
+            )
         return stall_intervals(t_s, smoothed_speed(t_s, pos_x, pos_y), dist_to_goal)
 
     def _metrics_for_axis(
@@ -279,8 +461,14 @@ class ContactInteractionCalculator(BaseMetricCalculator):
             without_stream = dict.fromkeys(self.output_keys())
             without_stream["hhi_episode_s"] = t_end
             return without_stream
-        interaction_type, participants, hold_onset, release = self._contact_edges(events, int(t0_ns))
-        out["hhi_interaction"] = CONTACT_TYPES.get(interaction_type) if interaction_type is not None else None
+        interaction_type, participants, hold_onset, release = self._contact_edges(
+            events, int(t0_ns)
+        )
+        out["hhi_interaction"] = (
+            CONTACT_TYPES.get(interaction_type)
+            if interaction_type is not None
+            else None
+        )
         out["hhi_hold_onset_s"] = hold_onset
         out["hhi_release_s"] = release
         out["hhi_episode_s"] = t_end
@@ -294,7 +482,9 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         for window, count in bucket(onsets, windows).items():
             out[f"hhi_stalls_{window}"] = count
         for window, (start_s, end_s) in windows.items():
-            out[f"hhi_share_{window}"] = (end_s - start_s) / t_end if t_end > 0 else None
+            out[f"hhi_share_{window}"] = (
+                (end_s - start_s) / t_end if t_end > 0 else None
+            )
 
         peds_df = self.native_ped_frame(episode)
         if len(participants) >= 2 and peds_df is not None:
@@ -307,13 +497,31 @@ class ContactInteractionCalculator(BaseMetricCalculator):
                 hold_start_s, hold_end_s = windows["hold"]
                 in_hold = (t_s >= hold_start_s) & (t_s <= hold_end_s) & present
                 if len(in_hold) > 1:
-                    out["hhi_passes_between"] = int(np.sum(segment_crossings(robot, pair_a, pair_b) & in_hold[:-1] & in_hold[1:]))
+                    out["hhi_passes_between"] = int(
+                        np.sum(
+                            segment_crossings(robot, pair_a, pair_b)
+                            & in_hold[:-1]
+                            & in_hold[1:]
+                        )
+                    )
                 if in_hold.any():
-                    out["hhi_min_pair_clearance"] = float(np.min(point_segment_distance(robot[in_hold], pair_a[in_hold], pair_b[in_hold])))
-                    out["hhi_pair_gap_hold"] = float(np.median(np.linalg.norm(pair_a[in_hold] - pair_b[in_hold], axis=1)))
+                    out["hhi_min_pair_clearance"] = float(
+                        np.min(
+                            point_segment_distance(
+                                robot[in_hold], pair_a[in_hold], pair_b[in_hold]
+                            )
+                        )
+                    )
+                    out["hhi_pair_gap_hold"] = float(
+                        np.median(
+                            np.linalg.norm(pair_a[in_hold] - pair_b[in_hold], axis=1)
+                        )
+                    )
         return out
 
-    def _native_axis(self, window: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, float] | None:
+    def _native_axis(
+        self, window: AlignedEpisodeBundle
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float] | None:
         """The window's own robot time axis and planar positions, none when it has fewer than two samples."""
         frame = native_robot_frame(window)
         if frame is None or frame.height < 2:
@@ -330,10 +538,15 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         """Stall windows need the interaction stream; without it their counters are unknown, not zero."""
         events = (episode.topics or {}).get("pedestrian_interaction_events")
         if events is None or events.height == 0:
-            return {key: f"{key}:topic_missing:pedestrian_interaction_events" for key in self.output_keys()}
+            return {
+                key: f"{key}:topic_missing:pedestrian_interaction_events"
+                for key in self.output_keys()
+            }
         return {}
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del prior_results
         axis = self._robot_time_axis(episode)
         if axis is None:
@@ -341,7 +554,9 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         return self._metrics_for_axis(episode, axis)
 
     @classmethod
-    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(
+        cls, scope: MetricScope
+    ) -> tuple[str | tuple[str, ...], ...]:
         """A contact window only requires the robot axis; its interaction stream and pair may be absent."""
         if scope == MetricScope.CONTACT:
             return (ROBOT_TRACKS_TOPIC,)
@@ -392,7 +607,9 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         t_ns, _pos_x, _pos_y, t0_ns = axis
         t_end = float((t_ns[-1] - t0_ns) / 1e9)
         events = (episode.topics or {}).get("pedestrian_interaction_events")
-        _interaction_type, _participants, hold_onset, release = self._contact_edges(events, int(t0_ns))
+        _interaction_type, _participants, hold_onset, release = self._contact_edges(
+            events, int(t0_ns)
+        )
         windows = window_bounds(t_end, hold_onset, release)
         last_window = max(
             (window for window in WINDOWS if windows[window][1] > windows[window][0]),
@@ -402,7 +619,12 @@ class ContactInteractionCalculator(BaseMetricCalculator):
         resolved_robot = robot_id or (episode.robot_name or "robot")
         window_of = {
             onset: next(
-                (window for window in WINDOWS if windows[window][0] <= onset < windows[window][1] or (window == last_window and onset == windows[window][1])),
+                (
+                    window
+                    for window in WINDOWS
+                    if windows[window][0] <= onset < windows[window][1]
+                    or (window == last_window and onset == windows[window][1])
+                ),
                 None,
             )
             for onset, _end in stalls

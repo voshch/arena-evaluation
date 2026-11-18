@@ -4,7 +4,13 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import _episode_rows, _episode_window, _record_conditions, _record_integrity, _robot_phases
+from arena_evaluation.processing.pipeline import (
+    _episode_rows,
+    _episode_window,
+    _record_conditions,
+    _record_integrity,
+    _robot_phases,
+)
 
 _OLD_CONDITIONS = '[{"op": "always", "p": "old episode"}]'
 _OLD_PHASES = '{"jackal": {"phases": [], "conditions": [], "map_poses": [[1.0, 2.0, 0.0]], "goal_inputs": [], "instructions": []}}'
@@ -19,8 +25,8 @@ def _bag_records() -> pl.DataFrame:
             "outcome_state": [3, 1, 2, 0],
             "outcome_info": ["collision", "", "", ""],
             "integrity": [["sim_death"], [], [], ["queued"]],
-            "conditions": [_OLD_CONDITIONS, "[]", "[]", "[]"],
-            "phases": [_OLD_PHASES, "", "", ""],
+            "conditions_yaml": [_OLD_CONDITIONS, "[]", "[]", "[]"],
+            "phases_yaml": [_OLD_PHASES, "", "", ""],
         }
     )
 

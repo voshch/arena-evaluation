@@ -6,8 +6,16 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, BaseMetricCalculator, Direction, ScopeSlice
-from arena_evaluation.processing.metrics.safety.contact_attribution import COLLISION_CONTACTS_TOPIC, COLLISION_EVENTS_TOPIC
+from arena_evaluation.processing.metrics.base import (
+    NULL_REASON_SUFFIX,
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
+from arena_evaluation.processing.metrics.safety.contact_attribution import (
+    COLLISION_CONTACTS_TOPIC,
+    COLLISION_EVENTS_TOPIC,
+)
 from arena_evaluation.processing.outcome import outcome_verdict
 from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -89,10 +97,16 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
     PRIMARY_OUTPUTS = ["success", "collision_amount"]
 
     @classmethod
-    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(
+        cls, scope: MetricScope
+    ) -> tuple[str | tuple[str, ...], ...]:
         # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
         # `no_samples`, not a row-level `topic_missing` that would block the whole encounter or contact.
-        return () if scope in (MetricScope.ENCOUNTER, MetricScope.CONTACT) else super().required_topics_for_scope(scope)
+        return (
+            ()
+            if scope in (MetricScope.ENCOUNTER, MetricScope.CONTACT)
+            else super().required_topics_for_scope(scope)
+        )
 
     @staticmethod
     def _count_rising_edges(is_active: np.ndarray) -> int:
@@ -112,7 +126,9 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         return None
 
     @classmethod
-    def _column_rising_edges(cls, episode: AlignedEpisodeBundle, column: str) -> int | None:
+    def _column_rising_edges(
+        cls, episode: AlignedEpisodeBundle, column: str
+    ) -> int | None:
         frame = cls._collision_frame(episode)
         if frame is None:
             return None
@@ -126,10 +142,18 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
 
     @staticmethod
     def _hit_obstacles(episode: AlignedEpisodeBundle) -> list[str]:
-        contacts = episode.topics.get(COLLISION_CONTACTS_TOPIC) if episode.topics else None
-        if contacts is None or "obstacle_id" not in contacts.columns:
+        contacts = (
+            episode.topics.get(COLLISION_CONTACTS_TOPIC) if episode.topics else None
+        )
+        if contacts is None or len(contacts) == 0:
             return []
-        return sorted({obstacle for obstacle in contacts["obstacle_id"].drop_nulls().to_list() if obstacle})
+        return sorted(
+            {
+                str(obstacle)
+                for obstacle in contacts["obstacle_id"].drop_nulls()
+                if obstacle
+            }
+        )
 
     def _window_onset_count(
         self,
@@ -147,16 +171,29 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         events = self.native_topics(episode).get(COLLISION_EVENTS_TOPIC)
         if events is None:
             return None
-        active = (pl.col(_NATIVE_COUNT_COLUMNS[column]).cast(pl.Float64) > 0.0).alias("active")
-        onsets = events.select(pl.col("t_ns").cast(pl.Int64), active).sort("t_ns").filter(pl.col("active") & ~pl.col("active").shift(1, fill_value=False)).get_column("t_ns")
+        active = (pl.col(_NATIVE_COUNT_COLUMNS[column]).cast(pl.Float64) > 0.0).alias(
+            "active"
+        )
+        onsets = (
+            events.select(pl.col("t_ns").cast(pl.Int64), active)
+            .sort("t_ns")
+            .filter(pl.col("active") & ~pl.col("active").shift(1, fill_value=False))
+            .get_column("t_ns")
+        )
         inside = (onsets >= scope_slice.t_start_ns) & (onsets <= scope_slice.t_end_ns)
         return int(inside.sum())
 
-    def _contact_result(self, episode: AlignedEpisodeBundle, scope_slice: ScopeSlice) -> dict[str, typing.Any]:
+    def _contact_result(
+        self, episode: AlignedEpisodeBundle, scope_slice: ScopeSlice
+    ) -> dict[str, typing.Any]:
         """One contact window's own collision counts and its subject actor."""
         return {
-            "collision_amount": self._window_onset_count(episode, scope_slice, "collision_event"),
-            "collision_amount_wall": self._window_onset_count(episode, scope_slice, "collision_wall"),
+            "collision_amount": self._window_onset_count(
+                episode, scope_slice, "collision_event"
+            ),
+            "collision_amount_wall": self._window_onset_count(
+                episode, scope_slice, "collision_wall"
+            ),
             "collision_obstacles": [str(scope_slice.identity["obstacle_id"])],
             "collisions": [],
         }
@@ -164,9 +201,15 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
     def _encounter_result(self, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
         return {
             "collision_amount": self._column_rising_edges(episode, "collision_event"),
-            "collision_amount_wall": self._column_rising_edges(episode, "collision_wall"),
-            "collision_amount_static": self._column_rising_edges(episode, "collision_static"),
-            "collision_amount_pedestrian": self._column_rising_edges(episode, "collision_pedestrian"),
+            "collision_amount_wall": self._column_rising_edges(
+                episode, "collision_wall"
+            ),
+            "collision_amount_static": self._column_rising_edges(
+                episode, "collision_static"
+            ),
+            "collision_amount_pedestrian": self._column_rising_edges(
+                episode, "collision_pedestrian"
+            ),
             "collision_obstacles": self._hit_obstacles(episode),
         }
 
@@ -183,20 +226,36 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             return self._encounter_result(episode)
         if scope_slice.scope == MetricScope.CONTACT:
             return self._contact_result(episode, scope_slice)
-        raise ValueError(f"collision_metrics does not serve the {scope_slice.scope.value} scope")
+        raise ValueError(
+            f"collision_metrics does not serve the {scope_slice.scope.value} scope"
+        )
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del prior_results
         result, success = outcome_verdict(episode.outcome_state, episode.outcome_info)
         collision_amount = self._column_rising_edges(episode, "collision_event")
-        max_collisions = int(self.metrics_config.get("max_collisions", DEFAULT_MAX_COLLISIONS))
+        max_collisions = int(
+            self.metrics_config.get("max_collisions", DEFAULT_MAX_COLLISIONS)
+        )
         return {
             "collision_amount": collision_amount,
-            "collision_amount_wall": self._column_rising_edges(episode, "collision_wall"),
-            "collision_amount_static": self._column_rising_edges(episode, "collision_static"),
-            "collision_amount_pedestrian": self._column_rising_edges(episode, "collision_pedestrian"),
-            "success": None if collision_amount is None else success and collision_amount < max_collisions,
-            f"success{NULL_REASON_SUFFIX}": NullReason.NO_SAMPLES.value if collision_amount is None else None,
+            "collision_amount_wall": self._column_rising_edges(
+                episode, "collision_wall"
+            ),
+            "collision_amount_static": self._column_rising_edges(
+                episode, "collision_static"
+            ),
+            "collision_amount_pedestrian": self._column_rising_edges(
+                episode, "collision_pedestrian"
+            ),
+            "success": None
+            if collision_amount is None
+            else success and collision_amount < max_collisions,
+            f"success{NULL_REASON_SUFFIX}": NullReason.NO_SAMPLES.value
+            if collision_amount is None
+            else None,
             "collision_obstacles": self._hit_obstacles(episode),
             "collisions": [],
         }

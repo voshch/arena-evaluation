@@ -19,25 +19,49 @@ _log = logging.getLogger(__name__)
 
 class MapRegistry:
     @staticmethod
-    def compacted_world(map_name: str, run_dir: pathlib.Path | None = None) -> tuple[Level | None, dict[str, tuple[float, float]] | None]:
+    def compacted_world(
+        map_name: str, run_dir: pathlib.Path | None = None
+    ) -> tuple[Level | None, dict[str, tuple[float, float]] | None]:
         """The world's levels compacted onto one grid the way the runtime renders them, with its level origins. A world copied into the run's worlds folder wins over the workspace's. Raises when the world does not resolve."""
-        with MapRegistry.compacted_world_scope(map_name, run_dir=run_dir) as compacted_and_origins:
+        with MapRegistry.compacted_world_scope(
+            map_name, run_dir=run_dir
+        ) as compacted_and_origins:
             return compacted_and_origins
 
     @staticmethod
     @contextlib.contextmanager
-    def compacted_world_scope(map_name: str, run_dir: pathlib.Path | None = None) -> Iterator[tuple[Level | None, dict[str, tuple[float, float]] | None]]:
+    def compacted_world_scope(
+        map_name: str, run_dir: pathlib.Path | None = None
+    ) -> Iterator[tuple[Level | None, dict[str, tuple[float, float]] | None]]:
         """Like compacted_world, with the world's assets resolvable inside the block. A run's copy of a world carries its layout but not its assets, so those come from the workspace world of the same name."""
-        from arena_simulation_setup.tree.World import WorldIdentifier, WorldView, world_assets
+        from arena_simulation_setup.tree.World import (
+            WorldIdentifier,
+            WorldView,
+            world_assets,
+        )
 
         bare, level_filter = WorldIdentifier.split_filter(map_name)
-        run_world = pathlib.Path(run_dir) / "worlds" / bare if run_dir is not None else None
-        view = WorldView(run_world) if run_world is not None and run_world.is_dir() else WorldIdentifier(bare).resolve_sync()
-        asset_view = view if (view.path / "assets").is_dir() else WorldIdentifier(bare).resolve_sync()
+        run_world = (
+            pathlib.Path(run_dir) / "worlds" / bare if run_dir is not None else None
+        )
+        view = (
+            WorldView(run_world)
+            if run_world is not None and run_world.is_dir()
+            else WorldIdentifier(bare).resolve_sync()
+        )
+        asset_view = (
+            view
+            if (view.path / "assets").is_dir()
+            else WorldIdentifier(bare).resolve_sync()
+        )
         with world_assets(asset_view):
             loaded = view.load(level_filter=level_filter)
             origins = view.level_origins()
-            compacted = loaded.compact_world(origins=origins if origins is not None else {fid: (0.0, 0.0) for fid in loaded.level_ids})
+            compacted = loaded.compact_world(
+                origins=origins
+                if origins is not None
+                else {fid: (0.0, 0.0) for fid in loaded.level_ids}
+            )
             yield compacted, origins
 
     @staticmethod
@@ -84,7 +108,7 @@ class MapRegistry:
         return path if path.exists() else None
 
     @staticmethod
-    def _find_ros_map_dir(map_name: str, run_dir: pathlib.Path | None = None) -> pathlib.Path | None:
+    def _map_name_candidates(map_name: str) -> list[str]:
         candidates = [map_name]
         if "_stage" in map_name:
             candidates.append(map_name.split("_stage")[0])
@@ -92,54 +116,69 @@ class MapRegistry:
             candidates.append(map_name.split("-")[0])
         if "_" in map_name:
             candidates.append(map_name.split("_")[0])
+        return candidates
 
-        for m_name in candidates:
+    @staticmethod
+    def _arena_worlds_roots() -> list[pathlib.Path]:
+        roots: list[pathlib.Path] = []
+        try:
+            res = subprocess.run(
+                ["rospack", "find", "arena_simulation_setup"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                roots.append(pathlib.Path(res.stdout.strip()) / "worlds")
+        except Exception:
+            pass
+        try:
+            from ament_index_python.packages import get_package_share_directory
+
+            roots.append(
+                pathlib.Path(get_package_share_directory("arena_simulation_setup"))
+                / "worlds"
+            )
+        except Exception:
+            pass
+        roots.append(
+            pathlib.Path("/opt/arena_ws/src/Arena/arena_simulation_setup/worlds")
+        )
+        arena_dir = os.environ.get("ARENA_DIR")
+        if arena_dir:
+            roots.append(pathlib.Path(arena_dir) / "arena_simulation_setup/worlds")
+        return roots
+
+    @staticmethod
+    def _find_ros_map_dir(
+        map_name: str, run_dir: pathlib.Path | None = None
+    ) -> pathlib.Path | None:
+        roots = MapRegistry._arena_worlds_roots()
+        for m_name in MapRegistry._map_name_candidates(map_name):
             if run_dir is not None:
-                for cand_p in [
-                    pathlib.Path(run_dir) / "worlds" / m_name,
-                    pathlib.Path(run_dir) / "maps" / m_name,
-                ]:
+                for sub in ("worlds", "maps"):
+                    cand_p = pathlib.Path(run_dir) / sub / m_name
                     if cand_p.exists():
                         return cand_p
-
-            try:
-                res = subprocess.run(["rospack", "find", "arena_simulation_setup"], capture_output=True, text=True, check=False)
-                if res.returncode == 0 and res.stdout.strip():
-                    map_dir = pathlib.Path(res.stdout.strip()) / "worlds" / m_name
-                    if map_dir.exists():
-                        return map_dir
-            except Exception:
-                pass
-
-            try:
-                from ament_index_python.packages import get_package_share_directory
-
-                pkg_path = pathlib.Path(get_package_share_directory("arena_simulation_setup"))
-                map_dir = pkg_path / "worlds" / m_name
+            for root in roots:
+                map_dir = root / m_name
                 if map_dir.exists():
                     return map_dir
-            except Exception:
-                pass
-
-            map_dir = pathlib.Path("/opt/arena_ws/src/Arena/arena_simulation_setup/worlds") / m_name
-            if map_dir.exists():
-                return map_dir
-
-            arena_dir = os.environ.get("ARENA_DIR")
-            if arena_dir:
-                map_dir = pathlib.Path(arena_dir) / "arena_simulation_setup/worlds" / m_name
-                if map_dir.exists():
-                    return map_dir
-
         return None
 
     @staticmethod
-    def get_map(map_name: str, cache_dir: pathlib.Path | None = None, run_dir: pathlib.Path | None = None) -> dict | None:
+    def get_map(
+        map_name: str,
+        cache_dir: pathlib.Path | None = None,
+        run_dir: pathlib.Path | None = None,
+    ) -> dict | None:
         if not map_name or map_name == "unknown":
             return None
 
         if cache_dir is None:
-            data_root = os.environ.get("ARENA_DATA_DIR") or os.path.join(os.environ.get("ARENA_WS_DIR", "/opt/arena_ws"), "data")
+            data_root = os.environ.get("ARENA_DATA_DIR") or os.path.join(
+                os.environ.get("ARENA_WS_DIR", "/opt/arena_ws"), "data"
+            )
             cache_dir = pathlib.Path(data_root) / "maps_cache"
 
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -161,7 +200,14 @@ class MapRegistry:
         if not ros_map_dir:
             return MapRegistry._render_world_map(map_name, cache_dir)
 
-        yaml_path = next((ros_map_dir / cand for cand in ("map/map.yaml", "map.yaml") if (ros_map_dir / cand).exists()), None) or MapRegistry._world_preview(ros_map_dir)
+        yaml_path = next(
+            (
+                ros_map_dir / cand
+                for cand in ("map/map.yaml", "map.yaml")
+                if (ros_map_dir / cand).exists()
+            ),
+            None,
+        ) or MapRegistry._world_preview(ros_map_dir)
 
         if not yaml_path:
             return MapRegistry._render_world_map(map_name, cache_dir)
@@ -182,7 +228,13 @@ class MapRegistry:
 
             origin = [float(x) for x in map_meta.get("origin", [0.0, 0.0, 0.0])]
 
-            cache_meta = {"png_path": str(png_path), "resolution": float(map_meta.get("resolution", 0.05)), "origin": origin, "width": img.width, "height": img.height}
+            cache_meta = {
+                "png_path": str(png_path),
+                "resolution": float(map_meta.get("resolution", 0.05)),
+                "origin": origin,
+                "width": img.width,
+                "height": img.height,
+            }
             with open(meta_path, "w") as f:
                 yaml.dump(cache_meta, f)
 

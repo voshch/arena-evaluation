@@ -30,13 +30,53 @@ def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:
             "t_ns": frame["t_ns"].cast(pl.Int64),
             "x": frame["pos_x"].cast(pl.Float64),
             "y": frame["pos_y"].cast(pl.Float64),
-            "yaw": [0.0] * len(frame),
+            "yaw": frame["yaw"].cast(pl.Float64)
+            if "yaw" in frame.columns
+            else [0.0] * len(frame),
         }
     )
-    return AlignedEpisodeBundle(episode_id=0, data=frame, start_pos=[], goal_pos=[], robot_name="env_0_jackal", topics={"robot_tracks": tracks}, **kwargs)
+    topics: dict[str, pl.DataFrame] = {"robot_tracks": tracks}
+    if "label" in frame.columns:
+        topics["robot_characterization_phase"] = frame.select("t_ns", "label")
+    if {"linear_x", "linear_y", "angular_z"} <= set(frame.columns):
+        topics["robot_cmd_vel"] = frame.select(
+            "t_ns", "linear_x", "linear_y", "angular_z"
+        )
+    if "total_power_w" in frame.columns:
+        if "total_mech_power_w" not in frame.columns:
+            frame = frame.with_columns(
+                pl.lit(None, dtype=pl.Float64).alias("total_mech_power_w")
+            )
+        topics["robot_power"] = frame.select(
+            "t_ns", "total_power_w", "total_mech_power_w"
+        )
+    if "total_level_af_dba" in frame.columns:
+        topics["robot_acoustics"] = frame.select("t_ns", "total_level_af_dba")
+    if "vel_linear" in frame.columns:
+        if "vel_angular" not in frame.columns:
+            frame = frame.with_columns(
+                pl.lit(None, dtype=pl.Float64).alias("vel_angular")
+            )
+        topics["robot_odom"] = frame.select("t_ns", "vel_linear", "vel_angular")
+    if {"effort", "velocity"} <= set(frame.columns):
+        topics["robot_joint_states"] = frame.select("t_ns", "effort", "velocity")
+        frame = frame.drop("effort", "velocity")
+    if "topics" in kwargs:
+        topics.update(kwargs.pop("topics"))
+    return AlignedEpisodeBundle(
+        episode_id=0,
+        data=frame,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics=topics,
+        **kwargs,
+    )
 
 
-def _series(calc: CharacterizationCalculator, episode: AlignedEpisodeBundle) -> pl.DataFrame:
+def _series(
+    calc: CharacterizationCalculator, episode: AlignedEpisodeBundle
+) -> pl.DataFrame:
     return calc.series_table(episode, run_id="run", robot_id="robot")
 
 
@@ -59,7 +99,10 @@ def test_output_keys_are_scalars_only():
 def test_leq_power():
     values = pl.Series([50.0, 60.0])
     mean_power = float(_leq_power(values).mean())
-    assert abs(10.0 * math.log10(mean_power) - 10.0 * math.log10((10**5 + 10**6) / 2)) < 1e-6
+    assert (
+        abs(10.0 * math.log10(mean_power) - 10.0 * math.log10((10**5 + 10**6) / 2))
+        < 1e-6
+    )
 
 
 def _sample_episode() -> AlignedEpisodeBundle:
@@ -92,9 +135,18 @@ def test_calculate_reports_scalar_summaries():
     assert out["char_phase_coverage"] == 1.0
     assert out["char_sample_count"] == 4
     # mean of 0/50, 2/55, 8/60, 16/65
-    assert out["char_mean_efficiency"] == pytest.approx(sum([0.0, 2 / 55, 8 / 60, 16 / 65]) / 4)
-    assert out["char_mean_energy_intensity_j_m"] == pytest.approx((220.0 + 120.0 + 65.0) / 3)
-    assert out["char_leq_dba"] == pytest.approx(10.0 * math.log10(sum(10 ** (value / 10.0) for value in [42.0, 46.0, 51.0, 56.0]) / 4))
+    assert out["char_mean_efficiency"] == pytest.approx(
+        sum([0.0, 2 / 55, 8 / 60, 16 / 65]) / 4
+    )
+    assert out["char_mean_energy_intensity_j_m"] == pytest.approx(
+        (220.0 + 120.0 + 65.0) / 3
+    )
+    assert out["char_leq_dba"] == pytest.approx(
+        10.0
+        * math.log10(
+            sum(10 ** (value / 10.0) for value in [42.0, 46.0, 51.0, 56.0]) / 4
+        )
+    )
 
 
 def test_series_table_is_flat_1nf_with_ground_truth_columns():
@@ -136,8 +188,12 @@ def test_series_table_is_flat_1nf_with_ground_truth_columns():
 def test_speed_falls_back_to_path_rate_without_vel_linear():
     frame = _sample_episode().data.drop("vel_linear")
     table = _series(_calc(), _episode(frame))
-    expected = pl.Series("energy_intensity_j_m", [None, 220.0, 120.0, 65.0], dtype=pl.Float64)
-    assert_series_equal(table["energy_intensity_j_m"], expected, check_names=False, rel_tol=1e-9)
+    expected = pl.Series(
+        "energy_intensity_j_m", [None, 220.0, 120.0, 65.0], dtype=pl.Float64
+    )
+    assert_series_equal(
+        table["energy_intensity_j_m"], expected, check_names=False, rel_tol=1e-9
+    )
 
 
 def test_steady_state_transient_filtering():
@@ -152,7 +208,9 @@ def test_steady_state_transient_filtering():
         }
     )
     table = _series(_calc(), _episode(frame))
-    expected = pl.Series("phase_kind", ["transient", "transient", "linear", "linear"], dtype=pl.String)
+    expected = pl.Series(
+        "phase_kind", ["transient", "transient", "linear", "linear"], dtype=pl.String
+    )
     assert_series_equal(table["phase_kind"], expected, check_names=False)
 
 
@@ -180,15 +238,25 @@ def test_arc_and_lateral_characterization_phases():
 
 
 def test_calculate_missing_power_and_acoustics():
-    frame = _sample_episode().data.drop(["total_power_w", "total_level_af_dba"])
-    out = _calc().calculate(_episode(frame), {})
+    sample = _sample_episode()
+    frame = sample.data.drop(["total_power_w", "total_level_af_dba"])
+    ep = _episode(
+        frame, topics={"robot_joint_states": sample.topics["robot_joint_states"]}
+    )
+    out = _calc().calculate(ep, {})
     # Missing power is an explicit null, never a silent zero, and acoustics falls back to the joint model.
     assert out["char_mean_efficiency"] is None
     assert out["char_leq_dba"] is not None
 
 
 def test_calculate_empty_returns_none_keys():
-    episode = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame(), start_pos=[], goal_pos=[], robot_name="env_0_jackal")
+    episode = AlignedEpisodeBundle(
+        episode_id=0,
+        data=pl.DataFrame(),
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+    )
     out = _calc().calculate(episode, {})
     assert all(value is None for value in out.values())
     assert _series(_calc(), episode).schema == pl.Schema(SERIES_SCHEMA)
@@ -232,7 +300,9 @@ def test_accel_target_is_signed_by_direction_of_change():
     episode = _episode(frame)
     assert calc.calculate(episode, {})["char_phase_coverage"] == 1.0
     expected = pl.Series("accel_target_mps2", [1.0, -1.0, -1.0, 1.0], dtype=pl.Float64)
-    assert_series_equal(_series(calc, episode)["accel_target_mps2"], expected, check_names=False)
+    assert_series_equal(
+        _series(calc, episode)["accel_target_mps2"], expected, check_names=False
+    )
 
 
 def test_unmatched_labels_lower_phase_coverage():
@@ -289,7 +359,11 @@ def test_recorded_schedule_beats_the_rebuild():
     )
     assert calc.calculate(episode, {})["char_phase_coverage"] == 1.0
     table = _series(calc, episode)
-    assert_series_equal(table["vx_target_mps"], pl.Series("vx_target_mps", [0.33, 0.75], dtype=pl.Float64), check_names=False)
+    assert_series_equal(
+        table["vx_target_mps"],
+        pl.Series("vx_target_mps", [0.33, 0.75], dtype=pl.Float64),
+        check_names=False,
+    )
     assert table["turn_radius_m"][0] == 0.90
     # ramp_down decelerates, so its accel target is the negative of the ramp rate
     assert table["accel_target_mps2"][1] == pytest.approx(-0.375)
@@ -330,13 +404,24 @@ def test_duplicate_recorded_schedule_rows_do_not_duplicate_samples():
     )
     table = _series(calc, episode)
     assert len(table) == 2
-    assert_series_equal(table["vx_target_mps"], pl.Series("vx_target_mps", [0.55, 0.55], dtype=pl.Float64), check_names=False)
+    assert_series_equal(
+        table["vx_target_mps"],
+        pl.Series("vx_target_mps", [0.55, 0.55], dtype=pl.Float64),
+        check_names=False,
+    )
 
 
 def test_steady_state_bidirectional_windowing():
     frame = pl.DataFrame(
         {
-            "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000, 5_000_000_000],
+            "t_ns": [
+                0,
+                1_000_000_000,
+                2_000_000_000,
+                3_000_000_000,
+                4_000_000_000,
+                5_000_000_000,
+            ],
             "pos_x": [0.0, 0.25, 0.50, 0.75, 1.0, 1.25],
             "pos_y": [0.0] * 6,
             "vel_linear": [0.0, 0.25, 0.25, 0.25, 0.25, 0.0],
@@ -345,7 +430,11 @@ def test_steady_state_bidirectional_windowing():
         }
     )
     table = _series(_calc(), _episode(frame))
-    expected = pl.Series("phase_kind", ["transient", "transient", "linear", "linear", "linear", "transient"], dtype=pl.String)
+    expected = pl.Series(
+        "phase_kind",
+        ["transient", "transient", "linear", "linear", "linear", "transient"],
+        dtype=pl.String,
+    )
     assert_series_equal(table["phase_kind"], expected, check_names=False)
 
 
@@ -359,7 +448,14 @@ def test_without_ground_truth_the_series_has_null_step_distances():
             "label": ["linear_vx_0.50"] * 3,
         }
     )
-    episode = AlignedEpisodeBundle(episode_id=0, data=frame, start_pos=[], goal_pos=[], robot_name="env_0_jackal", topics={})
+    episode = AlignedEpisodeBundle(
+        episode_id=0,
+        data=frame,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={},
+    )
     calc = _calc()
     # No odometry fallback: without /tf ground truth the path rate is unavailable, so intensity is null.
     assert calc.calculate(episode, {})["char_mean_energy_intensity_j_m"] is None
@@ -372,7 +468,10 @@ def test_phase_coverage_is_null_without_characterization_markers():
     episode = _episode(frame)
     calc = _calc()
     assert calc.calculate(episode, {})["char_phase_coverage"] is None
-    assert calc.missing_input_provenance(episode)["char_phase_coverage"] == "char_phase_coverage:topic_missing:robot_characterization_phase"
+    assert (
+        calc.missing_input_provenance(episode)["char_phase_coverage"]
+        == "char_phase_coverage:topic_missing:robot_characterization_phase"
+    )
 
 
 def test_vy_achieved_is_derived_from_the_ground_truth_motion():
@@ -381,3 +480,166 @@ def test_vy_achieved_is_derived_from_the_ground_truth_motion():
     lateral = series.get_column("vy_achieved_mps")
     assert lateral.null_count() == 1  # the first sample has no previous step
     assert lateral.drop_nulls().abs().max() < 1e-9
+
+
+def test_joints_and_power_work_with_production_aligned_schema():
+    """Production aligned bundles lack effort/velocity and rename mech power to total_mech_power_w."""
+    t_ns = [0, SEC, 2 * SEC]
+    aligned = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "pos_x": [0.0, 1.0, 2.0],
+            "pos_y": [0.0, 0.0, 0.0],
+            "vel_linear": [1.0, 1.0, 1.0],
+            "vel_angular": [0.0, 0.0, 0.0],
+            "total_power_w": [50.0, 50.0, 50.0],
+            "total_mech_power_w": [10.0, 10.0, 10.0],
+        }
+    )
+    tracks = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
+        }
+    )
+    power = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "total_power_w": [50.0, 50.0, 50.0],
+            "total_mech_power_w": [10.0, 10.0, 10.0],
+        }
+    )
+    joints = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "effort": [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]],
+            "velocity": [[2.0, 2.0], [2.0, 2.0], [2.0, 2.0]],
+        }
+    )
+    power_only = AlignedEpisodeBundle(
+        episode_id=0,
+        data=aligned,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={"robot_tracks": tracks, "robot_power": power},
+    )
+    joints_only = AlignedEpisodeBundle(
+        episode_id=0,
+        data=aligned.drop("total_power_w", "total_mech_power_w"),
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={"robot_tracks": tracks, "robot_joint_states": joints},
+    )
+    calc = _calc()
+    power_series = _series(calc, power_only)
+    assert power_series["power_mech_w"].to_list() == [10.0, 10.0, 10.0]
+    power_out = calc.calculate(power_only, {})
+    assert abs(power_out["char_mean_efficiency"] - 0.2) < 1e-6
+    joints_series = _series(calc, joints_only)
+    assert joints_series["power_mech_w"].to_list() == [4.0, 4.0, 4.0]
+    joints_out = calc.calculate(joints_only, {})
+    assert joints_out["char_sample_count"] == 3
+    assert joints_out["char_leq_dba"] is not None
+
+
+def test_joints_join_is_backward_asof_within_tolerance():
+    t_ns = [0, SEC, 2 * SEC]
+    aligned = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "pos_x": [0.0, 1.0, 2.0],
+            "pos_y": [0.0, 0.0, 0.0],
+            "vel_linear": [1.0, 1.0, 1.0],
+            "vel_angular": [0.0, 0.0, 0.0],
+        }
+    )
+    tracks = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
+        }
+    )
+    calc = _calc()
+    future_only = AlignedEpisodeBundle(
+        episode_id=0,
+        data=aligned,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={
+            "robot_tracks": tracks,
+            "robot_joint_states": pl.DataFrame(
+                {
+                    "t_ns": [2 * SEC],
+                    "effort": [[1.5, 1.5]],
+                    "velocity": [[2.0, 2.0]],
+                }
+            ),
+        },
+    )
+    assert _series(calc, future_only)["power_mech_w"].to_list() == [None, None, 6.0]
+
+    stale_only = AlignedEpisodeBundle(
+        episode_id=0,
+        data=aligned,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={
+            "robot_tracks": tracks,
+            "robot_joint_states": pl.DataFrame(
+                {
+                    "t_ns": [0],
+                    "effort": [[1.0, 1.0]],
+                    "velocity": [[2.0, 2.0]],
+                }
+            ),
+        },
+    )
+    assert _series(calc, stale_only)["power_mech_w"].to_list() == [4.0, None, None]
+
+
+def test_odomless_bundle_uses_vel_linear_and_vel_angular_from_tracks():
+    """Without robot_odom, vel_linear and vel_angular from robot_tracks are still used."""
+    t_ns = [0, SEC, 2 * SEC]
+    aligned = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "pos_x": [0.0, 1.0, 2.0],
+            "pos_y": [0.0, 0.0, 0.0],
+            "vel_linear": [2.0, 2.0, 2.0],
+            "vel_angular": [1.0, 1.0, 1.0],
+        }
+    )
+    tracks = pl.DataFrame(
+        {
+            "t_ns": t_ns,
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "yaw": [0.0, 0.0, 0.0],
+            "speed_mps": [2.0, 2.0, 2.0],
+            "omega_z": [1.0, 1.0, 1.0],
+        }
+    )
+    bundle = AlignedEpisodeBundle(
+        episode_id=0,
+        data=aligned,
+        start_pos=[],
+        goal_pos=[],
+        robot_name="env_0_jackal",
+        topics={"robot_tracks": tracks},
+    )
+    series = _series(_calc(), bundle)
+    assert series["vx_achieved_mps"].to_list() == [2.0, 2.0, 2.0]
+    assert series["wz_achieved_radps"].to_list() == [1.0, 1.0, 1.0]
+    assert series["speed_achieved_mps"].to_list() == [2.0, 2.0, 2.0]

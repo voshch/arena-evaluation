@@ -11,7 +11,11 @@ import typing
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_index, asof_position
+from arena_evaluation.processing.metrics.common.alignment import (
+    TRACK_ALIGN_TOLERANCE_NS,
+    asof_index,
+    asof_position,
+)
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
 
 if typing.TYPE_CHECKING:
@@ -99,23 +103,29 @@ def robot_identity(episode: AlignedEpisodeBundle) -> RobotIdentity | None:
 
 def episode_end_t_ns(episode: AlignedEpisodeBundle) -> int | None:
     """Last aligned stamp of the episode, None when it has no samples."""
-    if episode.data is None or "t_ns" not in episode.data.columns or len(episode.data) == 0:
+    if episode.data is None or len(episode.data) == 0:
         return None
     return int(episode.data["t_ns"].to_numpy().max())
 
 
-def robot_env_snapshot(snapshot: pl.DataFrame | pl.LazyFrame | None, robot_name: str | None) -> pl.DataFrame | None:
+def robot_env_snapshot(
+    snapshot: pl.DataFrame | pl.LazyFrame | None, robot_name: str | None
+) -> pl.DataFrame | None:
     """The snapshot restricted to the robot's env when it carries several envs, unchanged otherwise."""
     if snapshot is None:
         return None
     if isinstance(snapshot, pl.LazyFrame):
         snapshot = snapshot.collect()
-    if len(snapshot) == 0 or "entity_name" not in snapshot.columns or not robot_name:
+    if len(snapshot) == 0 or not robot_name:
         return snapshot
     env = RobotIdentity(robot_name).env
     if env is None:
         return snapshot
-    envs = snapshot.select(pl.col("entity_name").str.extract(r"^/*(env_\d+)/", 1).unique())["entity_name"].to_list()
+    envs = set(
+        snapshot.select(
+            pl.col("entity_name").str.extract(r"^/*(env_\d+)/", 1).unique()
+        )["entity_name"]
+    )
     if env not in envs or len(envs) < 2:
         return snapshot
     return snapshot.filter(pl.col("entity_name").str.contains(rf"^/*{env}/"))
@@ -150,14 +160,22 @@ class SemanticView:
         self.series: dict[tuple[str, str], FieldSeries] = {}
         if len(events) == 0:
             return
-        for (entity, kind, field), group in events.group_by(["entity", "kind", "field"]):
+        for (entity, kind, field), group in events.group_by(
+            ["entity", "kind", "field"]
+        ):
             g = group.sort("t_ns")
             self.kinds.setdefault(entity, kind)
-            self.series[(entity, field)] = FieldSeries(g["t_ns"].to_numpy().astype(np.int64), g["current"].to_list())
+            self.series[(entity, field)] = FieldSeries(
+                g["t_ns"].to_numpy().astype(np.int64), list(g["current"])
+            )
 
     @classmethod
     def from_episode(cls, episode: AlignedEpisodeBundle) -> SemanticView:
-        return cls(reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)))
+        return cls(
+            reconstruct_events(
+                robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
+            )
+        )
 
     def entities(self, kind: str) -> list[str]:
         return sorted(e for e, k in self.kinds.items() if k == kind)
@@ -192,7 +210,10 @@ class DoorGeom:
 
     @property
     def center(self) -> tuple[float, float]:
-        return ((self.start[0] + self.end[0]) / 2.0, (self.start[1] + self.end[1]) / 2.0)
+        return (
+            (self.start[0] + self.end[0]) / 2.0,
+            (self.start[1] + self.end[1]) / 2.0,
+        )
 
     def leaf(self, progress: float) -> tuple[tuple[float, float], tuple[float, float]]:
         """Closed-part segment of the slab at `progress` (0 closed, 1 open)."""
@@ -200,7 +221,10 @@ class DoorGeom:
         dx, dy = bx - ax, by - ay
         if self.kind == "hinged":
             angle = self.swing * progress * math.pi / 2.0
-            return self.start, (ax + dx * math.cos(angle) - dy * math.sin(angle), ay + dx * math.sin(angle) + dy * math.cos(angle))
+            return self.start, (
+                ax + dx * math.cos(angle) - dy * math.sin(angle),
+                ay + dx * math.sin(angle) + dy * math.cos(angle),
+            )
         return self.start, (ax + dx * (1.0 - progress), ay + dy * (1.0 - progress))
 
 
@@ -220,7 +244,10 @@ class ElevatorGeom:
 
     @property
     def door_center(self) -> tuple[float, float]:
-        return ((self.door_start[0] + self.door_end[0]) / 2.0, (self.door_start[1] + self.door_end[1]) / 2.0)
+        return (
+            (self.door_start[0] + self.door_end[0]) / 2.0,
+            (self.door_start[1] + self.door_end[1]) / 2.0,
+        )
 
 
 @dataclasses.dataclass
@@ -249,7 +276,9 @@ class MechanismWorld:
     egress_zones: list[EgressZone] = dataclasses.field(default_factory=list)
 
     @staticmethod
-    def _pick[G: (DoorGeom, ElevatorGeom, SignalGeom)](items: list[G], name: str, level: str | None) -> G | None:
+    def _pick[G: (DoorGeom, ElevatorGeom, SignalGeom)](
+        items: list[G], name: str, level: str | None
+    ) -> G | None:
         candidates = [item for item in items if item.name == name]
         if level is not None:
             on_level = [item for item in candidates if item.level == level]
@@ -267,7 +296,9 @@ class MechanismWorld:
         return self._pick(self.signals, entity_name(entity), entity_level(entity))
 
 
-def _cabin_door_segment(cx: float, cy: float, hw: float, hh: float, side: str) -> tuple[tuple[float, float], tuple[float, float]]:
+def _cabin_door_segment(
+    cx: float, cy: float, hw: float, hh: float, side: str
+) -> tuple[tuple[float, float], tuple[float, float]]:
     if side == "-x":
         return (cx - hw, cy - hh), (cx - hw, cy + hh)
     if side == "+y":
@@ -277,7 +308,9 @@ def _cabin_door_segment(cx: float, cy: float, hw: float, hh: float, side: str) -
     return (cx + hw, cy - hh), (cx + hw, cy + hh)
 
 
-def _signal_geometry(signal: Signal, world: World, origins: dict[str, tuple[float, float]]) -> SignalGeom | None:
+def _signal_geometry(
+    signal: Signal, world: World, origins: dict[str, tuple[float, float]]
+) -> SignalGeom | None:
     """Stop line from the signal params in the frame of the level whose zones cover it (else the first level), None when unplaced."""
     try:
         position = signal.stop_position
@@ -287,24 +320,50 @@ def _signal_geometry(signal: Signal, world: World, origins: dict[str, tuple[floa
         return None
     x, y = position
     level_id = next(
-        (lid for lid, level in world.levels.items() if any(in_polygon(np.array([x]), np.array([y]), [(c.x, c.y) for c in zone.polygon])[0] for zone in level.zones)),
+        (
+            lid
+            for lid, level in world.levels.items()
+            if any(
+                in_polygon(
+                    np.array([x]), np.array([y]), [(c.x, c.y) for c in zone.polygon]
+                )[0]
+                for zone in level.zones
+            )
+        ),
         next(iter(world.levels), ""),
     )
     origin = origins.get(level_id, (0.0, 0.0))
-    return SignalGeom(signal.name, level_id, x + origin[0], y + origin[1], signal.stop_radius)
+    return SignalGeom(
+        signal.name, level_id, x + origin[0], y + origin[1], signal.stop_radius
+    )
 
 
 def _is_egress(zone: Zone) -> bool:
-    return any(cfg.role == "predicate" and cfg.name == "egress" and cfg.value is not False for cfg in zone.semantics)
+    return any(
+        cfg.role == "predicate" and cfg.name == "egress" and cfg.value is not False
+        for cfg in zone.semantics
+    )
 
 
 def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
     for door in level.all_doors:
-        out.doors.append(DoorGeom(door.name, level_id, (door.start.x, door.start.y), (door.end.x, door.end.y), float(max(door.activation_distance)), door.kind, door.swing_direction))
+        out.doors.append(
+            DoorGeom(
+                door.name,
+                level_id,
+                (door.start.x, door.start.y),
+                (door.end.x, door.end.y),
+                float(max(door.activation_distance)),
+                door.kind,
+                door.swing_direction,
+            )
+        )
     for elevator in level.all_elevators:
         cx, cy = elevator.position.x, elevator.position.y
         hw, hh = elevator.size[0] / 2.0, elevator.size[1] / 2.0
-        door_start, door_end = _cabin_door_segment(cx, cy, hw, hh, elevator.door_side or "+x")
+        door_start, door_end = _cabin_door_segment(
+            cx, cy, hw, hh, elevator.door_side or "+x"
+        )
         out.elevators.append(
             ElevatorGeom(
                 name=elevator.name,
@@ -319,14 +378,20 @@ def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
         )
     for zone in level.zones:
         if len(zone.polygon) >= 3 and _is_egress(zone):
-            out.egress_zones.append(EgressZone(zone.name, level_id, [(c.x, c.y) for c in zone.polygon]))
+            out.egress_zones.append(
+                EgressZone(zone.name, level_id, [(c.x, c.y) for c in zone.polygon])
+            )
 
 
-def mechanism_world_from_description(world: World, origins: dict[str, tuple[float, float]]) -> MechanismWorld:
+def mechanism_world_from_description(
+    world: World, origins: dict[str, tuple[float, float]]
+) -> MechanismWorld:
     """Extract mechanism geometry per level, shifted by each level's origin like `compact_world`."""
     out = MechanismWorld()
     for level_id, level in world.levels.items():
-        _level_geometry(out, level_id, level.shifted(*origins.get(level_id, (0.0, 0.0))))
+        _level_geometry(
+            out, level_id, level.shifted(*origins.get(level_id, (0.0, 0.0)))
+        )
     for signal in world.signals:
         geom = _signal_geometry(signal, world, origins)
         if geom is not None:
@@ -342,7 +407,9 @@ def load_mechanism_world(world_name: str) -> MechanismWorld | None:
         view = WorldIdentifier(world_name).resolve_sync()
         world = view.load()
     except FileNotFoundError as e:
-        logger.warning("mechanism metrics: world '%s' not available locally: %s", world_name, e)
+        logger.warning(
+            "mechanism metrics: world '%s' not available locally: %s", world_name, e
+        )
         return None
 
     origins = view.level_origins()
@@ -351,7 +418,9 @@ def load_mechanism_world(world_name: str) -> MechanismWorld | None:
     return mechanism_world_from_description(world, origins)
 
 
-def segment_distance(px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
+def segment_distance(
+    px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]
+) -> np.ndarray:
     """Euclidean distance of points to the segment a-b."""
     px = np.asarray(px, dtype=np.float64)
     py = np.asarray(py, dtype=np.float64)
@@ -365,13 +434,19 @@ def segment_distance(px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: 
     return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def side_of(px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
+def side_of(
+    px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]
+) -> np.ndarray:
     """Signed side of points relative to the directed line a->b (+1 left, -1 right, 0 on it)."""
-    cross = (b[0] - a[0]) * (np.asarray(py, dtype=np.float64) - a[1]) - (b[1] - a[1]) * (np.asarray(px, dtype=np.float64) - a[0])
+    cross = (b[0] - a[0]) * (np.asarray(py, dtype=np.float64) - a[1]) - (
+        b[1] - a[1]
+    ) * (np.asarray(px, dtype=np.float64) - a[0])
     return np.sign(cross)
 
 
-def in_polygon(px: np.ndarray, py: np.ndarray, polygon: list[tuple[float, float]]) -> np.ndarray:
+def in_polygon(
+    px: np.ndarray, py: np.ndarray, polygon: list[tuple[float, float]]
+) -> np.ndarray:
     """Vectorised even-odd point-in-polygon."""
     px = np.asarray(px, dtype=np.float64)
     py = np.asarray(py, dtype=np.float64)
@@ -412,7 +487,9 @@ def hold_dt(t_ns: np.ndarray) -> np.ndarray:
     return dt
 
 
-def robot_track(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> RobotTrack | None:
+def robot_track(
+    calc: BaseMetricCalculator, episode: AlignedEpisodeBundle
+) -> RobotTrack | None:
     """Resolved map-frame robot track, None when the episode has no usable pose or start pose."""
     if episode.data is None or len(episode.data) == 0 or not episode.start_pos:
         return None
@@ -421,12 +498,19 @@ def robot_track(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Ro
         return None
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
     t_ns = frame["t_ns"].to_numpy().astype(np.int64)
-    if "vel_linear" in frame.columns:
+    try:
         # A missing speed stays unknown: it is never promoted to 0 m/s (a measured standstill).
         speed = np.abs(frame["vel_linear"].to_numpy().astype(np.float64))
-    else:
+    except pl.exceptions.ColumnNotFoundError:
+        # Registry parquet always supplies vel_linear; only hand-built pose-only test bundles hit this fallback.
         speed = calc.speed_from_pose(pos_x, pos_y, t_ns)
-    return RobotTrack(t_ns, np.asarray(pos_x, dtype=np.float64), np.asarray(pos_y, dtype=np.float64), speed, hold_dt(t_ns))
+    return RobotTrack(
+        t_ns,
+        np.asarray(pos_x, dtype=np.float64),
+        np.asarray(pos_y, dtype=np.float64),
+        speed,
+        hold_dt(t_ns),
+    )
 
 
 @dataclasses.dataclass
@@ -440,10 +524,11 @@ class PedTracks:
 
 
 def _ped_frames(peds: pl.DataFrame) -> list[pl.DataFrame]:
-    """The pedestrians of each recorded frame, frames in time order; [] without a time column."""
-    if "t_ns" not in peds.columns:
-        return []
-    return [frame for (_t_ns,), frame in peds.sort("t_ns").group_by("t_ns", maintain_order=True)]
+    """The pedestrians of each recorded frame, frames in time order."""
+    return [
+        frame
+        for (_t_ns,), frame in peds.sort("t_ns").group_by("t_ns", maintain_order=True)
+    ]
 
 
 def ped_tracks(peds: pl.DataFrame | None, t_ns: np.ndarray) -> PedTracks | None:
@@ -465,7 +550,7 @@ def ped_tracks(peds: pl.DataFrame | None, t_ns: np.ndarray) -> PedTracks | None:
             vel.append(np.empty((0, 2)))
             continue
         held = frames[idx]
-        keys.append([_norm_path(name) for name in held["ped_name"].to_list()])
+        keys.append([_norm_path(name) for name in held["ped_name"]])
         xy.append(held.select("x", "y").to_numpy())
         vel.append(held.select("vx", "vy").to_numpy())
     return PedTracks(keys, xy, vel, True)

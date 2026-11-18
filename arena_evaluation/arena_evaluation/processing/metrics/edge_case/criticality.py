@@ -58,7 +58,9 @@ class Criticality:
         return self.samples > 0 and self.min_clearance_m is not None
 
 
-def time_to_collision(p_a: Point, v_a: Point, r_a: float, p_b: Point, v_b: Point, r_b: float) -> float | None:
+def time_to_collision(
+    p_a: Point, v_a: Point, r_a: float, p_b: Point, v_b: Point, r_b: float
+) -> float | None:
     """Seconds until two discs on constant velocities touch, 0.0 when they already do, None when they never will."""
     dpx, dpy = p_b[0] - p_a[0], p_b[1] - p_a[1]
     dvx, dvy = v_b[0] - v_a[0], v_b[1] - v_a[1]
@@ -87,7 +89,9 @@ def _speed(v: Point) -> float:
     return math.hypot(v[0], v[1])
 
 
-def post_encroachment_time(samples: Sequence[Sample], encounter: Point, agent: str) -> float | None:
+def post_encroachment_time(
+    samples: Sequence[Sample], encounter: Point, agent: str
+) -> float | None:
     """Time gap between the robot and `agent` passing `encounter`, None when either never comes within ENCOUNTER_NEAR_CENTRE_M of it."""
 
     def crossing_time(track: Iterable[tuple[float, Point]]) -> float | None:
@@ -105,7 +109,74 @@ def post_encroachment_time(samples: Sequence[Sample], encounter: Point, agent: s
     return abs(t_agent - t_robot)
 
 
-def score(samples: Sequence[Sample], *, only: Sequence[str] | None = None, encounters: Sequence[tuple[str, Point]] = (), settle_s: float = SETTLE_S) -> Criticality:
+def _min_pet(
+    samples: Sequence[Sample], encounters: Sequence[tuple[str, Point]]
+) -> tuple[float | None, str]:
+    pet: float | None = None
+    pet_with = ""
+    for agent, point in encounters:
+        gap = post_encroachment_time(samples, point, agent)
+        if gap is not None and (pet is None or gap < pet):
+            pet, pet_with = gap, agent
+    return pet, pet_with
+
+
+def _collision_fault(
+    s: Sample, p: Point, v: Point, t0: float, name: str
+) -> tuple[str, str, float, float, float]:
+    dx, dy = p[0] - s.robot[0], p[1] - s.robot[1]
+    norm = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / norm, dy / norm
+    rc = s.robot_vel[0] * ux + s.robot_vel[1] * uy
+    pc = -(v[0] * ux + v[1] * uy)
+    r_moving, p_moving = rc >= FREEZE_SPEED, pc >= FREEZE_SPEED
+    fault = (
+        "mutual"
+        if r_moving and p_moving
+        else "robot"
+        if r_moving
+        else "pedestrian"
+        if p_moving
+        else "static"
+    )
+    return fault, name, s.t - t0, rc, pc
+
+
+def _sample_ped_stats(
+    s: Sample, t0: float, wanted: set[str] | None
+) -> tuple[
+    tuple[float, str, float] | None,
+    tuple[float, str, float] | None,
+    tuple[str, str, float, float, float] | None,
+    bool,
+]:
+    best_clear: tuple[float, str, float] | None = None
+    best_ttc: tuple[float, str, float] | None = None
+    first_collision: tuple[str, str, float, float, float] | None = None
+    intruding = False
+    for name, (p, v, r) in s.peds.items():
+        if wanted is not None and name not in wanted:
+            continue
+        clearance = math.dist(s.robot, p) - (s.robot_radius + r)
+        if best_clear is None or clearance < best_clear[0]:
+            best_clear = (clearance, name, s.t - t0)
+        if clearance <= 0.0 and first_collision is None:
+            first_collision = _collision_fault(s, p, v, t0, name)
+        if clearance < PERSONAL_SPACE:
+            intruding = True
+        ttc = time_to_collision(s.robot, s.robot_vel, s.robot_radius, p, v, r)
+        if ttc is not None and (best_ttc is None or ttc < best_ttc[0]):
+            best_ttc = (ttc, name, s.t - t0)
+    return best_clear, best_ttc, first_collision, intruding
+
+
+def score(
+    samples: Sequence[Sample],
+    *,
+    only: Sequence[str] | None = None,
+    encounters: Sequence[tuple[str, Point]] = (),
+    settle_s: float = SETTLE_S,
+) -> Criticality:
     """Criticality of `samples` against the pedestrians in `only`, every pedestrian when it is empty, with PET at the designed `encounters`."""
     if not samples:
         return Criticality()
@@ -125,47 +196,26 @@ def score(samples: Sequence[Sample], *, only: Sequence[str] | None = None, encou
     fault_pc: float | None = None
 
     for i, s in enumerate(samples):
-        dt = (samples[i + 1].t - s.t) if i + 1 < len(samples) else 0.0
-        dt = max(0.0, dt)
-
+        dt = max(0.0, (samples[i + 1].t - s.t) if i + 1 < len(samples) else 0.0)
         if s.t - t0 >= settle_s and _speed(s.robot_vel) < FREEZE_SPEED:
             freeze += dt
 
-        intruding = False
-        for name, (p, v, r) in s.peds.items():
-            if wanted is not None and name not in wanted:
-                continue
-
-            clearance = math.dist(s.robot, p) - (s.robot_radius + r)
-            if min_clear is None or clearance < min_clear:
-                min_clear, clear_with, clear_at = clearance, name, s.t - t0
-            if clearance <= 0.0:
-                if not collided:
-                    dx, dy = p[0] - s.robot[0], p[1] - s.robot[1]
-                    norm = math.hypot(dx, dy) or 1.0
-                    ux, uy = dx / norm, dy / norm
-                    rc = s.robot_vel[0] * ux + s.robot_vel[1] * uy
-                    pc = -(v[0] * ux + v[1] * uy)
-                    r_moving, p_moving = rc >= FREEZE_SPEED, pc >= FREEZE_SPEED
-                    fault = "mutual" if r_moving and p_moving else "robot" if r_moving else "pedestrian" if p_moving else "static"
-                    fault_with, fault_at, fault_rc, fault_pc = name, s.t - t0, rc, pc
-                collided = True
-            if clearance < PERSONAL_SPACE:
-                intruding = True
-
-            ttc = time_to_collision(s.robot, s.robot_vel, s.robot_radius, p, v, r)
-            if ttc is not None and (min_ttc is None or ttc < min_ttc):
-                min_ttc, ttc_with, ttc_at = ttc, name, s.t - t0
-
+        sample_clear, sample_ttc, sample_collision, intruding = _sample_ped_stats(
+            s, t0, wanted
+        )
+        if sample_clear is not None and (
+            min_clear is None or sample_clear[0] < min_clear
+        ):
+            min_clear, clear_with, clear_at = sample_clear
+        if sample_ttc is not None and (min_ttc is None or sample_ttc[0] < min_ttc):
+            min_ttc, ttc_with, ttc_at = sample_ttc
+        if sample_collision is not None and not collided:
+            fault, fault_with, fault_at, fault_rc, fault_pc = sample_collision
+            collided = True
         if intruding:
             intrusion += dt
 
-    pet: float | None = None
-    pet_with = ""
-    for agent, point in encounters:
-        gap = post_encroachment_time(samples, point, agent)
-        if gap is not None and (pet is None or gap < pet):
-            pet, pet_with = gap, agent
+    pet, pet_with = _min_pet(samples, encounters)
     return Criticality(
         min_ttc_s=min_ttc,
         min_ttc_with=ttc_with,
@@ -202,10 +252,20 @@ class FormationHold:
 
 
 def _centroid(points: Sequence[Point]) -> Point:
-    return (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
+    return (
+        sum(p[0] for p in points) / len(points),
+        sum(p[1] for p in points) / len(points),
+    )
 
 
-def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius: float = FORMATION_RADIUS_M, center: Point | None = None, form_at: float | None = None) -> FormationHold:
+def formation_hold(
+    samples: Sequence[Sample],
+    members: Sequence[str],
+    *,
+    radius: float = FORMATION_RADIUS_M,
+    center: Point | None = None,
+    form_at: float | None = None,
+) -> FormationHold:
     """When the recorded members stood within `radius` of the center (else their centroid) from `form_at` on, and how long."""
     wanted = tuple(sorted({str(m) for m in members}))
     recorded = {name for sample in samples for name in sample.peds}
@@ -240,4 +300,12 @@ def formation_hold(samples: Sequence[Sample], members: Sequence[str], *, radius:
             break
         held_until = sample.t - t0
     held_s = None if formed_at is None or held_until is None else held_until - formed_at
-    return FormationHold(members=wanted, absent=absent, seen=True, formed_at=formed_at, held_s=held_s, broke_at=broke_at, arrived=arrived)
+    return FormationHold(
+        members=wanted,
+        absent=absent,
+        seen=True,
+        formed_at=formed_at,
+        held_s=held_s,
+        broke_at=broke_at,
+        arrived=arrived,
+    )

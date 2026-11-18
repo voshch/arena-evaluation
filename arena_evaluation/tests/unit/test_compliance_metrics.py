@@ -22,7 +22,9 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ComplianceMetricsCalculator(RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    return ComplianceMetricsCalculator(
+        RobotParams(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
+    )
 
 
 def _start_pos(data):
@@ -51,18 +53,30 @@ def test_world_not_threaded_returns_none_defaults():
     calc = _calc()
     assert calc.world is None
 
-    results = calc.calculate(_episode(pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
+    results = calc.calculate(
+        _episode(
+            pl.DataFrame(
+                {
+                    "t_ns": [0, 1_000_000_000],
+                    "pos_x": [0.0, 1.0],
+                    "pos_y": [0.0, 1.0],
+                    "yaw": [0.0, 0.0],
+                }
+            )
+        ),
+        {},
+    )
 
     assert all(v is None for v in results.values())
     assert set(results) == set(calc.output_keys())
 
 
-def test_world_not_locally_present_returns_none_and_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_world_not_locally_present_returns_none_and_warns() -> None:
     import logging
 
     from arena_evaluation.processing.metrics.common import caching
 
-    monkeypatch.delitem(caching.loaded_worlds, "definitely_nonexistent_world_xyz", raising=False)
+    caching.loaded_worlds.pop("definitely_nonexistent_world_xyz", None)
 
     records: list[logging.LogRecord] = []
 
@@ -75,19 +89,37 @@ def test_world_not_locally_present_returns_none_and_warns(monkeypatch: pytest.Mo
     try:
         calc = _calc()
         calc.world = "definitely_nonexistent_world_xyz"
-        results = calc.calculate(_episode(pl.DataFrame({"t_ns": [0, 1_000_000_000], "pos_x": [0.0, 1.0], "pos_y": [0.0, 1.0], "yaw": [0.0, 0.0]})), {})
+        results = calc.calculate(
+            _episode(
+                pl.DataFrame(
+                    {
+                        "t_ns": [0, 1_000_000_000],
+                        "pos_x": [0.0, 1.0],
+                        "pos_y": [0.0, 1.0],
+                        "yaw": [0.0, 0.0],
+                    }
+                )
+            ),
+            {},
+        )
     finally:
         caching.logger.removeHandler(handler)
 
     assert all(v is None for v in results.values())
-    assert any("definitely_nonexistent_world_xyz" in record.getMessage() for record in records)
+    assert any(
+        "definitely_nonexistent_world_xyz" in record.getMessage() for record in records
+    )
 
 
 def test_zone_membership_boundary_inclusive():
     import shapely
 
     square = shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)])
-    zones = [_ZoneGeometry(name="lobby", polygon=square, max_speed=None, quiet=False, restricted=False)]
+    zones = [
+        _ZoneGeometry(
+            name="lobby", polygon=square, max_speed=None, quiet=False, restricted=False
+        )
+    ]
 
     pos_x = np.array([4.0, 5.0])
     pos_y = np.array([2.0, 2.0])
@@ -99,7 +131,11 @@ def test_zone_membership_boundary_inclusive():
 
 
 def test_speed_zone_violations_counts_contiguous_runs():
-    zones = [_ZoneGeometry(name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False)]
+    zones = [
+        _ZoneGeometry(
+            name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False
+        )
+    ]
     zone_idx = np.array([0, 0, 0, 0, 0, 0])
     speed = np.array([0.5, 1.5, 1.5, 0.5, 2.0, 0.5])
     dt = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
@@ -111,7 +147,11 @@ def test_speed_zone_violations_counts_contiguous_runs():
 
 
 def test_speed_zone_violations_ignore_zones_without_max_speed():
-    zones = [_ZoneGeometry(name="lobby", polygon=None, max_speed=None, quiet=True, restricted=False)]
+    zones = [
+        _ZoneGeometry(
+            name="lobby", polygon=None, max_speed=None, quiet=True, restricted=False
+        )
+    ]
     zone_idx = np.array([0, 0, 0])
     speed = np.array([5.0, 5.0, 5.0])
     dt = np.array([1.0, 1.0])
@@ -124,8 +164,12 @@ def test_speed_zone_violations_ignore_zones_without_max_speed():
 
 def test_quiet_zone_dwell_seconds_sums_only_quiet_zones():
     zones = [
-        _ZoneGeometry(name="ward", polygon=None, max_speed=None, quiet=True, restricted=False),
-        _ZoneGeometry(name="corridor", polygon=None, max_speed=None, quiet=False, restricted=False),
+        _ZoneGeometry(
+            name="ward", polygon=None, max_speed=None, quiet=True, restricted=False
+        ),
+        _ZoneGeometry(
+            name="corridor", polygon=None, max_speed=None, quiet=False, restricted=False
+        ),
     ]
     zone_idx = np.array([0, 0, -1, 1])
     dt = np.array([2.0, 3.0, 4.0])
@@ -136,7 +180,11 @@ def test_quiet_zone_dwell_seconds_sums_only_quiet_zones():
 
 
 def test_restricted_zone_entries_counts_transitions_not_dwell():
-    zones = [_ZoneGeometry(name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True)]
+    zones = [
+        _ZoneGeometry(
+            name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True
+        )
+    ]
     # outside, enter, stay, leave, re-enter
     zone_idx = np.array([-1, 0, 0, -1, 0])
 
@@ -146,7 +194,11 @@ def test_restricted_zone_entries_counts_transitions_not_dwell():
 
 
 def test_restricted_zone_entries_ignores_start_inside():
-    zones = [_ZoneGeometry(name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True)]
+    zones = [
+        _ZoneGeometry(
+            name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True
+        )
+    ]
     zone_idx = np.array([0, 0, 0])
 
     entries = _restricted_zone_entries(zone_idx, zones)
@@ -232,10 +284,20 @@ def test_extract_zone_and_door_geometry_reads_world_assets():
     from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    door = Door(name="door_1", start=Position(5.0, 1.0), end=Position(5.0, 2.0), activation_distance=(1.5, 1.5))
+    door = Door(
+        name="door_1",
+        start=Position(5.0, 1.0),
+        end=Position(5.0, 2.0),
+        activation_distance=(1.5, 1.5),
+    )
     zone = Zone(
         name="lobby",
-        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 4.0),
+            Position(4.0, 4.0),
+            Position(4.0, 0.0),
+        ],
         semantics=[
             SemanticCfg(role="state", name="max_speed", value=1.0),
             SemanticCfg(role="predicate", name="quiet", value=True),
@@ -265,7 +327,12 @@ def test_extract_zone_geometry_skips_unannotated_zones():
 
     zone = Zone(
         name="plain_room",
-        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 2.0),
+            Position(2.0, 2.0),
+            Position(2.0, 0.0),
+        ],
     )
     level = Level(zones=[zone])
 
@@ -278,7 +345,12 @@ def test_extract_zone_geometry_keeps_unannotated_when_not_required():
 
     zone = Zone(
         name="plain_room",
-        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0), Position(2.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 2.0),
+            Position(2.0, 2.0),
+            Position(2.0, 0.0),
+        ],
     )
     level = Level(zones=[zone])
 
@@ -297,7 +369,12 @@ def test_calculate_end_to_end_with_cached_world():
 
     zone = Zone(
         name="lobby",
-        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 4.0),
+            Position(4.0, 4.0),
+            Position(4.0, 0.0),
+        ],
         semantics=[
             SemanticCfg(role="state", name="max_speed", value=1.0),
             SemanticCfg(role="predicate", name="quiet", value=True),
@@ -307,7 +384,10 @@ def test_calculate_end_to_end_with_cached_world():
 
     calc = _calc()
     calc.world = "synthetic_world"
-    calc._world_cache["synthetic_world"] = (_extract_zone_geometry(level), _extract_door_geometry(level))
+    calc._world_cache["synthetic_world"] = (
+        _extract_zone_geometry(level),
+        _extract_door_geometry(level),
+    )
 
     data = pl.DataFrame(
         {
@@ -318,7 +398,9 @@ def test_calculate_end_to_end_with_cached_world():
             "vel_linear": [0.5, 2.0, 0.5],  # over 1.0 m/s cap during [1s, 2s)
         }
     )
-    snapshot = snapshot_frame([(0, "env_0/door_1", "door", "state", "discrete", "closed")])
+    snapshot = snapshot_frame(
+        [(0, "env_0/door_1", "door", "state", "discrete", "closed")]
+    )
     episode = _episode(data, semantic_snapshot=snapshot)
 
     results = calc.calculate(episode, {})
@@ -382,7 +464,14 @@ def test_reconstruct_events_seeds_first_row_and_collapses_duplicates():
     snapshot = snapshot_frame(
         [
             (0, "env_0/door_1", "door", "state", "discrete", "closed"),
-            (1_000_000_000, "env_0/door_1", "door", "state", "discrete", "closed"),  # unchanged, dropped
+            (
+                1_000_000_000,
+                "env_0/door_1",
+                "door",
+                "state",
+                "discrete",
+                "closed",
+            ),  # unchanged, dropped
             (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
         ]
     )
@@ -391,8 +480,22 @@ def test_reconstruct_events_seeds_first_row_and_collapses_duplicates():
     rows = events.sort("t_ns").to_dicts()
 
     assert rows == [
-        {"t_ns": 0, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "", "current": "closed"},
-        {"t_ns": 2_000_000_000, "entity": "env_0/door_1", "kind": "door", "field": "state", "previous": "closed", "current": "open"},
+        {
+            "t_ns": 0,
+            "entity": "env_0/door_1",
+            "kind": "door",
+            "field": "state",
+            "previous": "",
+            "current": "closed",
+        },
+        {
+            "t_ns": 2_000_000_000,
+            "entity": "env_0/door_1",
+            "kind": "door",
+            "field": "state",
+            "previous": "closed",
+            "current": "open",
+        },
     ]
 
 
@@ -402,12 +505,21 @@ def test_reconstruct_events_stringifies_predicate_and_continuous():
             (0, "env_0/door_1", "door", "open", "predicate", False),
             (1_000_000_000, "env_0/door_1", "door", "open", "predicate", True),
             (0, "env_0/elevator_1", "elevator", "arriving_eta", "continuous", -1.0),
-            (1_000_000_000, "env_0/elevator_1", "elevator", "arriving_eta", "continuous", 4.5),
+            (
+                1_000_000_000,
+                "env_0/elevator_1",
+                "elevator",
+                "arriving_eta",
+                "continuous",
+                4.5,
+            ),
         ]
     )
 
     events = _reconstruct_events(snapshot)
-    by_field = {(r["entity"], r["field"], r["t_ns"]): r["current"] for r in events.to_dicts()}
+    by_field = {
+        (r["entity"], r["field"], r["t_ns"]): r["current"] for r in events.to_dicts()
+    }
 
     assert by_field[("env_0/door_1", "open", 0)] == "false"
     assert by_field[("env_0/door_1", "open", 1_000_000_000)] == "true"
@@ -420,8 +532,22 @@ def test_reconstruct_events_keeps_members_as_sorted_joined_names():
         [
             (0, "env_0/lobby", "occupancy_cap", "cap", "continuous", 2.0),
             (0, "env_0/lobby", "occupancy_cap", "members", "members", []),
-            (1_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", ["env_0/robot_0", "env_0/human_1"]),
-            (2_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", ["env_0/human_1", "env_0/robot_0"]),
+            (
+                1_000_000_000,
+                "env_0/lobby",
+                "occupancy_cap",
+                "members",
+                "members",
+                ["env_0/robot_0", "env_0/human_1"],
+            ),
+            (
+                2_000_000_000,
+                "env_0/lobby",
+                "occupancy_cap",
+                "members",
+                "members",
+                ["env_0/human_1", "env_0/robot_0"],
+            ),
             (3_000_000_000, "env_0/lobby", "occupancy_cap", "members", "members", []),
         ]
     )
@@ -489,13 +615,21 @@ def test_zone_metrics_are_null_without_recorded_world_semantics():
 
     zone = Zone(
         name="lobby",
-        polygon=[Position(0.0, 0.0), Position(0.0, 4.0), Position(4.0, 4.0), Position(4.0, 0.0)],
+        polygon=[
+            Position(0.0, 0.0),
+            Position(0.0, 4.0),
+            Position(4.0, 4.0),
+            Position(4.0, 0.0),
+        ],
         semantics=[SemanticCfg(role="state", name="max_speed", value=1.0)],
     )
     level = Level(zones=[zone])
     calc = _calc()
     calc.world = "synthetic_world"
-    calc._world_cache["synthetic_world"] = (_extract_zone_geometry(level), _extract_door_geometry(level))
+    calc._world_cache["synthetic_world"] = (
+        _extract_zone_geometry(level),
+        _extract_door_geometry(level),
+    )
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
@@ -506,6 +640,17 @@ def test_zone_metrics_are_null_without_recorded_world_semantics():
         }
     )
     results = calc.calculate(_episode(data, semantic_snapshot=None), {})
-    for key in ("speed_zone_violations", "speed_zone_violation_seconds", "quiet_zone_dwell_seconds", "restricted_zone_entries", "doorway_blocking_time"):
+    for key in (
+        "speed_zone_violations",
+        "speed_zone_violation_seconds",
+        "quiet_zone_dwell_seconds",
+        "restricted_zone_entries",
+        "doorway_blocking_time",
+    ):
         assert results[key] is None, key
-    assert calc.missing_input_provenance(_episode(data, semantic_snapshot=None))["speed_zone_violations"] == "speed_zone_violations:topic_missing:world_semantics"
+    assert (
+        calc.missing_input_provenance(_episode(data, semantic_snapshot=None))[
+            "speed_zone_violations"
+        ]
+        == "speed_zone_violations:topic_missing:world_semantics"
+    )

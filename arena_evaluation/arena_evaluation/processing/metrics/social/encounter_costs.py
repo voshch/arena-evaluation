@@ -16,7 +16,11 @@ from typing import Any, Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.base import (
+    NULL_REASON_SUFFIX,
+    BaseMetricCalculator,
+    Direction,
+)
 from arena_evaluation.processing.metrics.ecological.energy import JOULES_PER_WH
 from arena_evaluation.processing.metrics.social.interaction_common import (
     NS_PER_S,
@@ -31,23 +35,78 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
     resolve_robot_trajectory,
 )
 from arena_evaluation.processing.path.static_environment import grid_for_map
-from arena_evaluation.processing.path.theta_star import RouteResult, StaticGrid, plan_route
+from arena_evaluation.processing.path.theta_star import (
+    RouteResult,
+    StaticGrid,
+    plan_route,
+)
 from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 INTIMATE_ZONE_M: Final[float] = 0.45
 _DEGENERATE_SEGMENT_M2: Final[float] = 1e-12
 
-DETOUR_TIME = define_metric("detour_time_s", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="s", description="Pedestrian detour time in the encounter window: window duration minus the time its planned route takes at its free speed.", null_reason=True)
-PED_PATH_EXCESS = define_metric("ped_path_excess_m", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="m", description="Pedestrian path length in the encounter window minus its planned route length.", null_reason=True)
-ROBOT_PATH_EXCESS = define_metric("robot_path_excess_m", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="m", description="Robot path length in the encounter window minus its planned route length.", null_reason=True)
-ROBOT_PATH_DEVIATION = define_metric("robot_path_deviation_m", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="m", description="Largest distance from the robot's path in the encounter window to its planned route.", null_reason=True)
-MAR = define_metric("mar", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="1", description="Mutual accommodation ratio: robot path excess over the sum of the robot and pedestrian path excesses, each floored at zero. Higher is better.", null_reason=True)
-PFI = define_metric("pfi", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="m/s", description="Pedestrian frustration index: mean pedestrian deceleration over the window times its dwell in the intimate zone.", null_reason=True)
-KCSC_WH = define_metric("kcsc_wh", pl.Float64, scopes=(MetricScope.ENCOUNTER,), unit="Wh", description="Kinematic cost of social compliance: robot energy in the encounter window minus the energy of its planned route, floored at zero.", null_reason=True)
+DETOUR_TIME = define_metric(
+    "detour_time_s",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="s",
+    description="Pedestrian detour time in the encounter window: window duration minus the time its planned route takes at its free speed.",
+    null_reason=True,
+)
+PED_PATH_EXCESS = define_metric(
+    "ped_path_excess_m",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="m",
+    description="Pedestrian path length in the encounter window minus its planned route length.",
+    null_reason=True,
+)
+ROBOT_PATH_EXCESS = define_metric(
+    "robot_path_excess_m",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="m",
+    description="Robot path length in the encounter window minus its planned route length.",
+    null_reason=True,
+)
+ROBOT_PATH_DEVIATION = define_metric(
+    "robot_path_deviation_m",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="m",
+    description="Largest distance from the robot's path in the encounter window to its planned route.",
+    null_reason=True,
+)
+MAR = define_metric(
+    "mar",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="1",
+    description="Mutual accommodation ratio: robot path excess over the sum of the robot and pedestrian path excesses, each floored at zero. Higher is better.",
+    null_reason=True,
+)
+PFI = define_metric(
+    "pfi",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="m/s",
+    description="Pedestrian frustration index: mean pedestrian deceleration over the window times its dwell in the intimate zone.",
+    null_reason=True,
+)
+KCSC_WH = define_metric(
+    "kcsc_wh",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="Wh",
+    description="Kinematic cost of social compliance: robot energy in the encounter window minus the energy of its planned route, floored at zero.",
+    null_reason=True,
+)
 
 
-def mutual_accommodation_ratio(robot_excess_m: float, pedestrian_excess_m: float) -> float | None:
+def mutual_accommodation_ratio(
+    robot_excess_m: float, pedestrian_excess_m: float
+) -> float | None:
     """Robot excess over the summed excesses, each floored at zero; None when neither agent deviated."""
     robot = max(robot_excess_m, 0.0)
     pedestrian = max(pedestrian_excess_m, 0.0)
@@ -84,7 +143,9 @@ def _outside(t_ns: np.ndarray, spans: Sequence[tuple[int, int]]) -> np.ndarray:
     return ~inside
 
 
-def _pair_speeds(t_ns: np.ndarray, x: np.ndarray, y: np.ndarray, free: np.ndarray) -> np.ndarray:
+def _pair_speeds(
+    t_ns: np.ndarray, x: np.ndarray, y: np.ndarray, free: np.ndarray
+) -> np.ndarray:
     """Speeds (m/s) of consecutive sample pairs whose two samples are both free."""
     dt_s = np.diff(t_ns).astype(np.float64) / NS_PER_S
     distance_m = np.hypot(np.diff(x), np.diff(y))
@@ -98,16 +159,25 @@ def _pair_energy_wh(t_ns: np.ndarray, power_w: np.ndarray, pairs: np.ndarray) ->
     return float(np.sum(power_w[:-1][pairs] * dt_s[pairs]) / JOULES_PER_WH)
 
 
-def _power_samples(episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray] | None:
+def _power_samples(
+    episode: AlignedEpisodeBundle,
+) -> tuple[np.ndarray, np.ndarray] | None:
     table = (episode.topics or {}).get("robot_power")
-    if table is None or "total_power_w" not in table.columns:
+    if table is None or table.height == 0:
         return None
-    return table["t_ns"].to_numpy().astype(np.float64), table["total_power_w"].to_numpy().astype(np.float64)
+    return table["t_ns"].to_numpy().astype(np.float64), table[
+        "total_power_w"
+    ].to_numpy().astype(np.float64)
 
 
 def _speed_between(trajectory: Trajectory2D, first: int, second: int) -> float:
     dt_s = float(trajectory.t_ns[second] - trajectory.t_ns[first]) / NS_PER_S
-    distance_m = float(np.hypot(trajectory.x[second] - trajectory.x[first], trajectory.y[second] - trajectory.y[first]))
+    distance_m = float(
+        np.hypot(
+            trajectory.x[second] - trajectory.x[first],
+            trajectory.y[second] - trajectory.y[first],
+        )
+    )
     return distance_m / dt_s
 
 
@@ -115,7 +185,9 @@ def _deceleration_mps2(pedestrian_window: Trajectory2D) -> float | None:
     """Speed lost between the window's entry and exit, per second of window."""
     if len(pedestrian_window.t_ns) < 3:
         return None
-    duration_s = float(pedestrian_window.t_ns[-1] - pedestrian_window.t_ns[0]) / NS_PER_S
+    duration_s = (
+        float(pedestrian_window.t_ns[-1] - pedestrian_window.t_ns[0]) / NS_PER_S
+    )
     if duration_s <= 0.0:
         return None
     entry_speed = _speed_between(pedestrian_window, 0, 1)
@@ -123,19 +195,29 @@ def _deceleration_mps2(pedestrian_window: Trajectory2D) -> float | None:
     return max(0.0, entry_speed - exit_speed) / duration_s
 
 
-def _intimate_dwell_s(robot_window: Trajectory2D, track: PedTrack, robot_radius_m: float) -> float | None:
+def _intimate_dwell_s(
+    robot_window: Trajectory2D, track: PedTrack, robot_radius_m: float
+) -> float | None:
     if track.radius_m is None or not np.isfinite(track.radius_m):
         return None
     on_robot_times = track.trajectory.resample_onto(robot_window.t_ns)
-    clearance_m = np.hypot(on_robot_times.x - robot_window.x, on_robot_times.y - robot_window.y) - (robot_radius_m + float(track.radius_m))
+    clearance_m = np.hypot(
+        on_robot_times.x - robot_window.x, on_robot_times.y - robot_window.y
+    ) - (robot_radius_m + float(track.radius_m))
     dt_s = np.diff(robot_window.t_ns).astype(np.float64) / NS_PER_S
     return float(np.sum(dt_s[clearance_m[:-1] < INTIMATE_ZONE_M]))
 
 
-def _planned(grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray) -> RouteResult:
+def _planned(
+    grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray
+) -> RouteResult:
     if grid is None:
         return RouteResult(points=None, length_m=None, null_reason="no_map")
-    return plan_route(grid, (float(start_xy[0]), float(start_xy[1])), (float(goal_xy[0]), float(goal_xy[1])))
+    return plan_route(
+        grid,
+        (float(start_xy[0]), float(start_xy[1])),
+        (float(goal_xy[0]), float(goal_xy[1])),
+    )
 
 
 def _refusal(route: RouteResult) -> str:
@@ -156,36 +238,70 @@ def _encounter_outputs(
     t_start_ns, t_end_ns = window_ns
     robot_window = robot.slice_ns(t_start_ns, t_end_ns)
     pedestrian_window = track.trajectory.slice_ns(t_start_ns, t_end_ns)
-    outputs: dict[str, Any] = {metric.name: None for metric in (DETOUR_TIME, PED_PATH_EXCESS, ROBOT_PATH_EXCESS, ROBOT_PATH_DEVIATION, MAR, PFI, KCSC_WH)}
+    outputs: dict[str, Any] = {
+        metric.name: None
+        for metric in (
+            DETOUR_TIME,
+            PED_PATH_EXCESS,
+            ROBOT_PATH_EXCESS,
+            ROBOT_PATH_DEVIATION,
+            MAR,
+            PFI,
+            KCSC_WH,
+        )
+    }
     reasons: dict[str, str] = {}
     if len(robot_window.t_ns) < 2 or len(pedestrian_window.t_ns) < 2:
         reasons = {name: NullReason.NO_SAMPLES.value for name in outputs}
         return _with_reasons(outputs, reasons)
 
-    robot_route = _planned(grid_for_map(map_name, run_dir, robot_radius_m), robot_window.xy[0], robot_window.xy[-1])
+    robot_route = _planned(
+        grid_for_map(map_name, run_dir, robot_radius_m),
+        robot_window.xy[0],
+        robot_window.xy[-1],
+    )
     if track.radius_m is None or not np.isfinite(track.radius_m):
-        ped_route = RouteResult(points=None, length_m=None, null_reason="pedestrian_radius_missing")
+        ped_route = RouteResult(
+            points=None, length_m=None, null_reason="pedestrian_radius_missing"
+        )
     else:
-        ped_route = _planned(grid_for_map(map_name, run_dir, float(track.radius_m)), pedestrian_window.xy[0], pedestrian_window.xy[-1])
+        ped_route = _planned(
+            grid_for_map(map_name, run_dir, float(track.radius_m)),
+            pedestrian_window.xy[0],
+            pedestrian_window.xy[-1],
+        )
 
     robot_excess_m: float | None = None
     if robot_route.points is not None and robot_route.length_m is not None:
-        robot_excess_m = _polyline_length(robot_window.x, robot_window.y) - robot_route.length_m
+        robot_excess_m = (
+            _polyline_length(robot_window.x, robot_window.y) - robot_route.length_m
+        )
         outputs["robot_path_excess_m"] = robot_excess_m
-        outputs["robot_path_deviation_m"] = max_orthogonal_deviation_m(robot_window.xy, robot_route.points)
+        outputs["robot_path_deviation_m"] = max_orthogonal_deviation_m(
+            robot_window.xy, robot_route.points
+        )
     else:
         reasons["robot_path_excess_m"] = _refusal(robot_route)
         reasons["robot_path_deviation_m"] = _refusal(robot_route)
 
     ped_excess_m: float | None = None
     if ped_route.points is not None and ped_route.length_m is not None:
-        ped_excess_m = _polyline_length(pedestrian_window.x, pedestrian_window.y) - ped_route.length_m
+        ped_excess_m = (
+            _polyline_length(pedestrian_window.x, pedestrian_window.y)
+            - ped_route.length_m
+        )
         outputs["ped_path_excess_m"] = ped_excess_m
     else:
         reasons["ped_path_excess_m"] = _refusal(ped_route)
 
-    own_spans = [(start_ns, end_ns) for ped_id, start_ns, end_ns in spans if str(ped_id) == str(track.ped_id)]
-    free_speeds = _pair_speeds(track.t_ns, track.x, track.y, _outside(track.t_ns, own_spans))
+    own_spans = [
+        (start_ns, end_ns)
+        for ped_id, start_ns, end_ns in spans
+        if str(ped_id) == str(track.ped_id)
+    ]
+    free_speeds = _pair_speeds(
+        track.t_ns, track.x, track.y, _outside(track.t_ns, own_spans)
+    )
     free_speed_mps = float(np.median(free_speeds)) if free_speeds.size else 0.0
     duration_s = (t_end_ns - t_start_ns) / NS_PER_S
     if ped_route.length_m is None:
@@ -195,6 +311,40 @@ def _encounter_outputs(
     else:
         outputs["detour_time_s"] = duration_s - ped_route.length_m / free_speed_mps
 
+    _populate_interaction_costs(
+        outputs=outputs,
+        reasons=reasons,
+        robot=robot,
+        robot_window=robot_window,
+        pedestrian_window=pedestrian_window,
+        track=track,
+        spans=spans,
+        window_ns=(t_start_ns, t_end_ns),
+        robot_radius_m=robot_radius_m,
+        robot_route=robot_route,
+        robot_excess_m=robot_excess_m,
+        ped_excess_m=ped_excess_m,
+        power=power,
+    )
+    return _with_reasons(outputs, reasons)
+
+
+def _populate_interaction_costs(
+    *,
+    outputs: dict[str, Any],
+    reasons: dict[str, str],
+    robot: Trajectory2D,
+    robot_window: Trajectory2D,
+    pedestrian_window: Trajectory2D,
+    track: PedTrack,
+    spans: Sequence[tuple[str, int, int]],
+    window_ns: tuple[int, int],
+    robot_radius_m: float,
+    robot_route: RouteResult,
+    robot_excess_m: float | None,
+    ped_excess_m: float | None,
+    power: tuple[np.ndarray, np.ndarray] | None,
+) -> None:
     if robot_excess_m is not None and ped_excess_m is not None:
         mar = mutual_accommodation_ratio(robot_excess_m, ped_excess_m)
         outputs["mar"] = mar
@@ -215,8 +365,9 @@ def _encounter_outputs(
     elif robot_route.length_m is None:
         reasons["kcsc_wh"] = _refusal(robot_route)
     else:
-        outputs["kcsc_wh"] = _robot_excess_energy_wh(robot, robot_window, spans, power, (t_start_ns, t_end_ns), robot_route.length_m, reasons)
-    return _with_reasons(outputs, reasons)
+        outputs["kcsc_wh"] = _robot_excess_energy_wh(
+            robot, robot_window, spans, power, window_ns, robot_route.length_m, reasons
+        )
 
 
 def _robot_excess_energy_wh(
@@ -232,11 +383,15 @@ def _robot_excess_energy_wh(
     robot_power_w = np.interp(robot.t_ns.astype(np.float64), power_t_ns, power_values)
     free = _outside(robot.t_ns, [(start_ns, end_ns) for _, start_ns, end_ns in spans])
     free_pairs = free[:-1] & free[1:]
-    free_distance_m = float(np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs]))
+    free_distance_m = float(
+        np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs])
+    )
     if free_distance_m <= 0.0:
         reasons["kcsc_wh"] = NullReason.NO_SAMPLES.value
         return None
-    energy_per_m_wh = _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
+    energy_per_m_wh = (
+        _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
+    )
     window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
     window_energy_wh = _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
     return max(window_energy_wh - energy_per_m_wh * planned_length_m, 0.0)
@@ -261,7 +416,15 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         "encounter_edge_distance_m",
         "encounter_merge_gap_s",
     )
-    OUTPUTS = (DETOUR_TIME, PED_PATH_EXCESS, ROBOT_PATH_EXCESS, ROBOT_PATH_DEVIATION, MAR, PFI, KCSC_WH)
+    OUTPUTS = (
+        DETOUR_TIME,
+        PED_PATH_EXCESS,
+        ROBOT_PATH_EXCESS,
+        ROBOT_PATH_DEVIATION,
+        MAR,
+        PFI,
+        KCSC_WH,
+    )
     DIRECTIONS = {
         "detour_time_s": Direction.LOWER,
         "ped_path_excess_m": Direction.LOWER,
@@ -278,26 +441,44 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         """Every published output key mapped to None, optionally with one shared null reason."""
         output: dict[str, Any] = {metric.name: None for metric in cls.OUTPUTS}
         if null_reason is not None:
-            output.update({f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output})
+            output.update(
+                {f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output}
+            )
         return output
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, Any]) -> dict[str, Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, Any]
+    ) -> dict[str, Any]:
         """Encounter scope only: the episode as a whole carries no encounter costs."""
         del episode, prior_results
         return self._null_output()
 
-    def calculate_for_scope(self, episode: AlignedEpisodeBundle, prior_results: dict[str, Any], scope_slice: Any = None) -> dict[str, Any]:
+    def calculate_for_scope(
+        self,
+        episode: AlignedEpisodeBundle,
+        prior_results: dict[str, Any],
+        scope_slice: Any = None,
+    ) -> dict[str, Any]:
         """Costs of one encounter window of the robot and its pedestrian."""
         del prior_results
         if scope_slice is None or scope_slice.scope != MetricScope.ENCOUNTER:
             return self._null_output()
-        if str(scope_slice.identity.get("actor_2_kind", "pedestrian")).lower() != "pedestrian":
+        if (
+            str(scope_slice.identity.get("actor_2_kind", "pedestrian")).lower()
+            != "pedestrian"
+        ):
             return self._null_output(NullReason.NOT_APPLICABLE.value)
         robot, _ = resolve_robot_trajectory(self, episode)
-        track = resolve_ped_track(extract_episode_ped_tracks(episode), scope_slice.identity.get("actor_2"))
+        track = resolve_ped_track(
+            extract_episode_ped_tracks(episode), scope_slice.identity.get("actor_2")
+        )
         if track is None or len(robot.t_ns) < 2:
             return self._null_output()
-        spans = pedestrian_encounter_spans(episode, float(self.robot_params.robot_radius), detector_params_from_config(self.metrics_config))
+        spans = pedestrian_encounter_spans(
+            episode,
+            float(self.robot_params.robot_radius),
+            detector_params_from_config(self.metrics_config),
+        )
         return _encounter_outputs(
             track=track,
             window_ns=(int(scope_slice.t_start_ns), int(scope_slice.t_end_ns)),
