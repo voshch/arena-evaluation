@@ -1,4 +1,4 @@
-"""The series tables: eleven declared kinds of per-sample rows, their names, keys, schemas and the writer that conforms them."""
+"""The series tables: twelve declared kinds of per-sample rows, their names, keys, schemas and the writer that conforms them."""
 
 from __future__ import annotations
 
