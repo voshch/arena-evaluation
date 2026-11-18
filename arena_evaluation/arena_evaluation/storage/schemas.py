@@ -187,6 +187,7 @@ class TopicBundle:
     plan: pl.DataFrame | pl.LazyFrame | None = None
     characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
     characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
+    hearing_search_state: pl.DataFrame | pl.LazyFrame | None = None
     initialpose: pl.DataFrame | pl.LazyFrame | None = None
     task_pose: pl.DataFrame | pl.LazyFrame | None = None
     tf: pl.DataFrame | pl.LazyFrame | None = None
@@ -225,6 +226,7 @@ class AlignedEpisodeBundle:
     topics: dict[str, pl.DataFrame] | None = None
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
+    window_ns: tuple[int | None, int | None] = (None, None)
 
 
 class PlotSpec(BaseModel):

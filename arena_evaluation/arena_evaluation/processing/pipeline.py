@@ -3,6 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import logging
+import math
 import multiprocessing
 import os
 import pathlib
@@ -338,6 +339,23 @@ _METRIC_DTYPES = {
     "ndtw": pl.Float64,
     "sdtw": pl.Float64,
     "stuck": pl.Boolean,
+    "found": pl.Boolean,
+    "found_1m": pl.Boolean,
+    "found_1_5m": pl.Boolean,
+    "found_3m": pl.Boolean,
+    "time_to_find_s": pl.Float64,
+    "time_to_find_1m_s": pl.Float64,
+    "time_to_find_1_5m_s": pl.Float64,
+    "time_to_find_3m_s": pl.Float64,
+    "tsr": pl.Float64,
+    "spl_search": pl.Float64,
+    "stops": pl.Int64,
+    "listened_s": pl.Float64,
+    "goals_sent": pl.Int64,
+    "goals_failed": pl.Int64,
+    "calls": pl.Int64,
+    "stopped_s": pl.Float64,
+    "driving_s": pl.Float64,
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
 }
@@ -497,6 +515,15 @@ def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[s
                     metrics["max_collisions"] = int(v)
                 except (TypeError, ValueError):
                     _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
+            v = raw.get("timeout_s")
+            if v is not None:
+                try:
+                    timeout_s = float(v)
+                    if not math.isfinite(timeout_s) or timeout_s <= 0:
+                        raise ValueError(v)
+                    metrics["timeout_s"] = timeout_s
+                except (TypeError, ValueError):
+                    _log.warning(f"{manifest_path}: suite metrics.timeout_s {v!r} is not a positive number, ignoring")
             barn = raw.get("barn")
             if barn is not None:
                 from .metrics.performance.barn_metrics import parse_reference
@@ -656,7 +683,7 @@ class ProcessingPipeline:
                     t0 = int(aligned_df["time_ns"][0])
                     t1 = int(aligned_df["time_ns"][-1])
                     tol = 100_000_000
-                    topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if "time_ns" in df.columns else df for name, df in topics.items()}
+                    topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if name != "hearing_search_state" and "time_ns" in df.columns else df for name, df in topics.items()}
 
                 num_pedestrians = peds_count if pose_source.kind == "odom" else 0
                 if "num_pedestrians" in aligned_df.columns:
@@ -668,6 +695,7 @@ class ProcessingPipeline:
                 if isinstance(semantic_snapshot_df, pl.LazyFrame):
                     semantic_snapshot_df = semantic_snapshot_df.collect()
 
+                phase_window = window
                 conditions = None
                 phases = None
                 outcome_state = None
@@ -679,7 +707,9 @@ class ProcessingPipeline:
                     if len(er) > 0:
                         conditions = _record_conditions(er)
                         if "outcome_state" in er.columns and "time_ns" in er.columns:
-                            phases = _robot_phases(_episode_rows(er), robot_name)
+                            episode_rows = _episode_rows(er)
+                            phases = _robot_phases(episode_rows, robot_name)
+                            phase_window = _episode_window(episode_rows)
                         outcome_state, outcome_info = _record_outcome(er, metadata)
 
                 integrity = _record_integrity(bundle.episode_record, metadata)
@@ -698,6 +728,7 @@ class ProcessingPipeline:
                     semantic_snapshot=semantic_snapshot_df,
                     conditions=conditions,
                     phases=phases,
+                    window_ns=phase_window,
                     fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
