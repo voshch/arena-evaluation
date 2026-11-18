@@ -102,3 +102,11 @@ def test_a_descriptor_row_without_a_model_is_not_a_descriptor():
 
     with pytest.raises(MetricInputError, match="has no descriptor row"):
         robot_params_from_recorded(rows, "jackal")
+
+
+def test_every_recorded_parameter_is_an_instance_parameter():
+    rows = _rows(("robot_radius", "0.43"), ("robot_mass_kg", "18.4"), ("cap:mobile.radius", "0.5"))
+
+    params = robot_params_from_recorded(rows, "jackal")
+
+    assert params.instance_params == {"robot_radius": "0.43", "robot_mass_kg": "18.4", "cap:mobile.radius": "0.5"}

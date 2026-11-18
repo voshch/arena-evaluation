@@ -19,6 +19,8 @@ The stored layout of one benchmark: the registry that declares every stored tabl
 | `planner_names.py` | Splits a planner name into its local and inter planner |
 | `exceptions.py` | The package's exception types |
 
+`RobotParams.instance_params` holds every recorded parameter of the robot, the placed parts (`<type>@<mount>`) and the cap overrides (`cap:<path>`, a JSON value) among them. A metric resolves the instance's effective caps from it with `arena_robots.fleet.instance_caps`.
+
 ## Layout of a benchmark
 
 ```

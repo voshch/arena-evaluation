@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("controller_manager_msgs")
 
+from arena_robots.caps import MobileSpec, RobotCaps
 from arena_robots.characterization import (
     ANGULAR_DWELL_S,
     ARC_RADIUS_FACTORS,
@@ -29,12 +30,15 @@ from arena_robots.characterization import (
 )
 
 
-def _caps(tmp_path: pathlib.Path, name: str, body: str) -> pathlib.Path:
-    """Write a caps/mobile.yaml for a fictional robot and return its caps root."""
-    caps = tmp_path / name / "caps"
+def _mobile(tmp_path: pathlib.Path, body: str, **overrides: object) -> MobileSpec:
+    """The mobile cap of a fictional robot written from body, with the instance's cap overrides applied."""
+    caps = tmp_path / "robot" / "caps"
     caps.mkdir(parents=True)
     (caps / "mobile.yaml").write_text(body)
-    return tmp_path
+    return RobotCaps(caps, overrides=dict(overrides)).mobile
+
+
+_ACTIONS = "actions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n"
 
 
 def test_schedule_structure():
@@ -178,12 +182,7 @@ def test_modes_select_blocks():
 
 
 def test_resolve_envelope_from_caps(tmp_path: pathlib.Path):
-    caps_dir = _caps(
-        tmp_path,
-        "some_robot",
-        "radius: 0.42\nactions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n",
-    )
-    assert resolve_envelope("some_robot", caps_dir=caps_dir) == {
+    assert resolve_envelope(_mobile(tmp_path, f"radius: 0.42\n{_ACTIONS}")) == {
         "vx_max": 3.0,
         "vy_max": 0.0,
         "wz_max": 4.0,
@@ -192,22 +191,31 @@ def test_resolve_envelope_from_caps(tmp_path: pathlib.Path):
     }
 
 
+def test_resolve_envelope_follows_the_instance_cap_overrides(tmp_path: pathlib.Path):
+    mobile = _mobile(
+        tmp_path,
+        f"radius: 0.42\n{_ACTIONS}",
+        **{"mobile.radius": 0.6, "mobile.actions.continuous.linear.max": 1.0, "mobile.is_holonomic": True},
+    )
+    assert resolve_envelope(mobile) == {
+        "vx_max": 1.0,
+        "vy_max": 1.0,
+        "wz_max": 4.0,
+        "radius": 0.6,
+        "is_holonomic": True,
+    }
+
+
 def test_resolve_envelope_holonomic_without_a_lateral_limit(tmp_path: pathlib.Path):
     # No robot in the fleet declares actions.continuous.lateral, so a holonomic
     # robot sweeps sideways up to its forward limit.
-    caps_dir = _caps(
-        tmp_path,
-        "omni_robot",
-        "is_holonomic: true\nradius: 0.3\nactions:\n  continuous:\n    linear:\n      max: 2.0\n",
-    )
-    env = resolve_envelope("omni_robot", caps_dir=caps_dir)
+    env = resolve_envelope(_mobile(tmp_path, f"is_holonomic: true\nradius: 0.3\n{_ACTIONS}"))
     assert env["is_holonomic"] is True
-    assert env["vy_max"] == 2.0
+    assert env["vy_max"] == 3.0
 
 
-def test_resolve_envelope_fallback(tmp_path: pathlib.Path):
-    # Unknown robot with no caps file -> generic defaults.
-    assert resolve_envelope("ghost_robot", caps_dir=tmp_path) == {
+def test_resolve_envelope_fallback():
+    assert resolve_envelope(None) == {
         "vx_max": VX_MAX,
         "vy_max": 0.0,
         "wz_max": 2.5,
@@ -217,12 +225,7 @@ def test_resolve_envelope_fallback(tmp_path: pathlib.Path):
 
 
 def test_schedule_uses_resolved_envelope(tmp_path: pathlib.Path):
-    caps_dir = _caps(
-        tmp_path,
-        "big_robot",
-        "radius: 0.6\nactions:\n  continuous:\n    linear:\n      max: 3.0\n    angular:\n      max: 4.0\n",
-    )
-    env = resolve_envelope("big_robot", caps_dir=caps_dir)
+    env = resolve_envelope(_mobile(tmp_path, f"radius: 0.6\n{_ACTIONS}"))
     phases = build_schedule(
         vx_max=float(env["vx_max"]),
         wz_max=float(env["wz_max"]),

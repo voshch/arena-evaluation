@@ -9,7 +9,9 @@ Suites take their task-mode names and params from the selected task runtime, see
 [task runtimes](../../arena_runtime/arena_runtime/arena_runtime/env/README.md#task-runtimes).
 The characterization metric rebuilds the default schedule of a recording that
 carries none from `arena_robots.characterization`, the module the
-`characterization` robot mode publishes from.
+`characterization` robot mode publishes from. Both read the envelope from the
+robot instance's effective caps, so a robot with cap overrides is swept and
+scored with its own limits.
 
 ## Architecture Overview
 

@@ -75,6 +75,7 @@ class RobotParams:
     laser_max_range: float | None
     base_mass: float
     component_masses: dict[str, float]
+    instance_params: dict[str, str]
 
     @property
     def mass(self) -> float:
@@ -114,6 +115,7 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
         laser_max_range=recorded.get("laser_max_range"),
         base_mass=recorded["base_mass"],
         component_masses={},
+        instance_params=_recorded_instance_params(parameter_rows),
     )
 
 
@@ -147,6 +149,12 @@ def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
         if recorded.len() == 1:
             values[parameter_field] = _parameter_number(robot_id, keys[0], recorded.item())
     return values
+
+
+def _recorded_instance_params(rows: pl.DataFrame) -> dict[str, str]:
+    """Every recorded parameter of the robot, the last value of each key."""
+    latest = rows.drop_nulls("param_value").sort("t_ns", maintain_order=True)
+    return dict(zip(latest.get_column("param_key"), latest.get_column("param_value"), strict=True))
 
 
 def _parameter_number(robot_id: str, key: str, value: str) -> float:
