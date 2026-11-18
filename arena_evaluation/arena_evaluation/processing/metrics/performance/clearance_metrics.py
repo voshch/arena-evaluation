@@ -88,7 +88,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
     CATEGORY = "performance"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
-    REQUIRED_TOPICS = [("robot_scan_summary", "pedestrian_tracks")]
+    REQUIRED_TOPICS = [("robot_scan_summary", "pedestrian_arena_peds")]
 
     OUTPUTS = (
         MIN_OBSTACLE_CLEARANCE_M,
@@ -140,9 +140,9 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
             scan,
             tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
         ).sort("t_ns")
-        scan_min = joined["scan_min_m"].to_numpy().astype(np.float64)
-        scan_max = joined["range_max_m"].to_numpy().astype(np.float64)
-        return scan_min, scan_max
+        scan_min_m = joined["scan_min_m"].to_numpy().astype(np.float64)
+        scan_max_m = joined["range_max_m"].to_numpy().astype(np.float64)
+        return scan_min_m, scan_max_m
 
     def _pedestrian_clearance(
         self,
@@ -177,7 +177,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
         if unresolved.height > 0:
             missing = sorted({str(ped_id) for ped_id in unresolved["ped_id"]})
             raise MetricInputError(
-                f"clearance_metrics: pedestrian_tracks has no recorded radius_m for the nearest pedestrians {missing}"
+                f"clearance_metrics: pedestrian_arena_peds has no recorded radius_m for the nearest pedestrians {missing}"
             )
         distance_m = np.full(len(t_ns), np.nan)
         radius_m = np.full(len(t_ns), np.nan)
@@ -200,11 +200,11 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
     ) -> tuple[np.ndarray, np.ndarray]:
         """Per-sample obstacle and pedestrian clearance in metres, NaN where that source has no valid sample."""
         robot_radius_m = self.robot_params.robot_radius
-        scan_min, scan_max = self._scan_arrays(scan_df, t_ns)
-        undetected = np.isnan(scan_max) | (scan_min < scan_max - _RANGE_EPSILON_M)
-        obstacle_valid = np.isfinite(scan_min) & (scan_min > 0.0) & undetected
+        scan_min_m, scan_max_m = self._scan_arrays(scan_df, t_ns)
+        undetected = np.isnan(scan_max_m) | (scan_min_m < scan_max_m - _RANGE_EPSILON_M)
+        obstacle_valid = np.isfinite(scan_min_m) & (scan_min_m > 0.0) & undetected
         obstacle_clearance_m = np.where(
-            obstacle_valid, np.maximum(0.0, scan_min - robot_radius_m), np.nan
+            obstacle_valid, np.maximum(0.0, scan_min_m - robot_radius_m), np.nan
         )
         pedestrian_clearance_m = self._pedestrian_clearance(t_ns, pos_x, pos_y, peds_df)
         return obstacle_clearance_m, pedestrian_clearance_m

@@ -81,11 +81,18 @@ REPLAN_UNANSWERED_TRIGGERS = define_metric(
     description="Count of replan triggers with no later cmd_vel change, excluded from the latency percentiles; NULL without the trigger or cmd_vel stream.",
     null_reason=True,
 )
-USED_ELEVATOR_DURING_ALARM = define_metric(
-    "used_elevator_during_alarm",
+USED_ELEVATOR_DURING_ALARM_ANYONE = define_metric(
+    "used_elevator_during_alarm_anyone",
     pl.Int64,
-    scopes=(MetricScope.EPISODE, MetricScope.ROBOT),
-    description="Alarm windows overlapped by elevator occupancy: by anyone aboard at episode scope, by the robot itself as an elevator member at robot scope (NULL when no elevator reports members).",
+    scopes=(MetricScope.EPISODE,),
+    description="Alarm windows overlapped by elevator occupancy by anyone aboard.",
+    null_reason=True,
+)
+USED_ELEVATOR_DURING_ALARM_ROBOT = define_metric(
+    "used_elevator_during_alarm_robot",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Alarm windows overlapped by the robot itself as an elevator member (NULL when no elevator reports members).",
     null_reason=True,
 )
 
@@ -364,9 +371,9 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     Regime-change metrics replayed from the semantic snapshot, reconstructed into a
     per-field change-point series (see `_reconstruct_events`).
 
-    used_elevator_during_alarm: alarm windows overlapped by nonzero elevator occupancy by
-    anyone at episode scope; at robot scope, alarm windows overlapped by the robot itself
-    being in an elevator's `members` (None when no elevator reports members).
+    used_elevator_during_alarm_anyone: alarm windows overlapped by nonzero elevator
+    occupancy by anyone. used_elevator_during_alarm_robot: alarm windows overlapped by the
+    robot itself being in an elevator's `members` (None when no elevator reports members).
     entered_over_cap_zone: trajectory entries into an over-cap zone via the M1 zone
     geometry path. ran_red_signal: robot entries into the signal's guarded disc while the
     signal is `stop`, the disc being the signal preset's `position`/`radius` params when
@@ -381,7 +388,8 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     REQUIRED_TOPICS = ["robot_tracks"]
 
     OUTPUTS = (
-        USED_ELEVATOR_DURING_ALARM,
+        USED_ELEVATOR_DURING_ALARM_ANYONE,
+        USED_ELEVATOR_DURING_ALARM_ROBOT,
         RAN_RED_SIGNAL,
         ENTERED_OVER_CAP_ZONE,
         REPLAN_LATENCY_AFTER_STATE_CHANGE_MEDIAN,
@@ -391,7 +399,8 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     DIRECTIONS = {
         "ran_red_signal": Direction.LOWER,
         "entered_over_cap_zone": Direction.LOWER,
-        "used_elevator_during_alarm": Direction.LOWER,
+        "used_elevator_during_alarm_anyone": Direction.LOWER,
+        "used_elevator_during_alarm_robot": Direction.LOWER,
         "replan_latency_after_state_change_median": Direction.LOWER,
         "replan_latency_after_state_change_p95": Direction.LOWER,
     }
@@ -438,9 +447,9 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         end_t_ns = episode_end_t_ns(episode)
         kinds = set(events["kind"].unique())
         if end_t_ns is None or not {"schedule", "elevator"} <= kinds:
-            return {"used_elevator_during_alarm": None}
+            return {"used_elevator_during_alarm_anyone": None}
         return {
-            "used_elevator_during_alarm": _used_elevator_during_alarm(
+            "used_elevator_during_alarm_anyone": _used_elevator_during_alarm(
                 events, end_t_ns, None
             )
         }
@@ -484,7 +493,11 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
 
     def _robot_metrics(self, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
         """Robot scope: elevator use by the robot itself, and the robot's own signal, zone and replan metrics."""
-        results: dict[str, typing.Any] = {metric.name: None for metric in self.OUTPUTS}
+        results: dict[str, typing.Any] = {
+            metric.name: None
+            for metric in self.OUTPUTS
+            if MetricScope.ROBOT in self.scopes_of_output(metric)
+        }
 
         events = _reconstruct_events(
             robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
@@ -507,7 +520,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
             and has_events
             and {"schedule", "elevator"}.issubset(kinds)
         ):
-            results["used_elevator_during_alarm"] = _used_elevator_during_alarm(
+            results["used_elevator_during_alarm_robot"] = _used_elevator_during_alarm(
                 events, end_t_ns, RobotIdentity(episode.robot_name)
             )
 

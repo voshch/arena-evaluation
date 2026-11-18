@@ -335,7 +335,7 @@ class ContactInteractionCalculator(BaseMetricCalculator):
     DEPENDS_ON = []
     REQUIRED_TOPICS = [
         "robot_tracks",
-        "pedestrian_tracks",
+        "pedestrian_arena_peds",
         "pedestrian_interaction_events",
     ]
 

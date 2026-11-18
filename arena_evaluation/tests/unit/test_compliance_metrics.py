@@ -36,18 +36,12 @@ def _calc():
 
 
 def _start_pos(data):
-    if data is not None and "pos_x" in data.columns and len(data) > 0:
-        return [data["pos_x"][0], data["pos_y"][0], data["yaw"][0]]
+    if data is not None and "x" in data.columns and len(data) > 0:
+        return [data["x"][0], data["y"][0], data["yaw"][0]]
     return []
 
 
 def _episode(data, semantic_snapshot=None):
-    if data is not None and "pos_x" in data.columns and "pos_x_gt" not in data.columns:
-        data = data.with_columns(
-            pl.col("pos_x").alias("pos_x_gt"),
-            pl.col("pos_y").alias("pos_y_gt"),
-            pl.col("yaw").alias("yaw_gt"),
-        )
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,
@@ -66,8 +60,8 @@ def test_world_not_threaded_returns_none_defaults():
             pl.DataFrame(
                 {
                     "t_ns": [0, 1_000_000_000],
-                    "pos_x": [0.0, 1.0],
-                    "pos_y": [0.0, 1.0],
+                    "x": [0.0, 1.0],
+                    "y": [0.0, 1.0],
                     "yaw": [0.0, 0.0],
                 }
             )
@@ -102,8 +96,8 @@ def test_world_not_locally_present_returns_none_and_warns() -> None:
                 pl.DataFrame(
                     {
                         "t_ns": [0, 1_000_000_000],
-                        "pos_x": [0.0, 1.0],
-                        "pos_y": [0.0, 1.0],
+                        "x": [0.0, 1.0],
+                        "y": [0.0, 1.0],
                         "yaw": [0.0, 0.0],
                     }
                 )
@@ -244,17 +238,17 @@ def test_doorway_blocking_time_requires_stationary_and_open():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "pos_x": [0.0, 0.0, 0.0, 0.0],
-            "pos_y": [0.0, 0.0, 0.0, 0.0],
+            "x": [0.0, 0.0, 0.0, 0.0],
+            "y": [0.0, 0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0, 0.0],
-            "vel_linear": [0.0, 0.0, 1.0, 0.0],  # moving through [2s, 3s)
+            "speed_mps": [0.0, 0.0, 1.0, 0.0],  # moving through [2s, 3s)
         }
     )
     episode = _episode(data, semantic_snapshot=snapshot)
 
     calc = _calc()
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
-    speed = np.abs(episode.data["vel_linear"].to_numpy())
+    speed = np.abs(episode.data["speed_mps"].to_numpy())
     t_ns = episode.data["t_ns"].to_numpy()
 
     total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
@@ -268,17 +262,17 @@ def test_doorway_blocking_degrades_to_zero_without_snapshot():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.0],
-            "pos_y": [0.0, 0.0],
+            "x": [0.0, 0.0],
+            "y": [0.0, 0.0],
             "yaw": [0.0, 0.0],
-            "vel_linear": [0.0, 0.0],
+            "speed_mps": [0.0, 0.0],
         }
     )
     episode = _episode(data, semantic_snapshot=None)
     calc = _calc()
 
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
-    speed = np.abs(episode.data["vel_linear"].to_numpy())
+    speed = np.abs(episode.data["speed_mps"].to_numpy())
     t_ns = episode.data["t_ns"].to_numpy()
 
     total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
@@ -400,10 +394,10 @@ def test_calculate_end_to_end_with_cached_world():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [1.0, 1.0, 1.0],
-            "pos_y": [1.0, 1.0, 1.0],
+            "x": [1.0, 1.0, 1.0],
+            "y": [1.0, 1.0, 1.0],
             "yaw": [0.0, 0.0, 0.0],
-            "vel_linear": [0.5, 2.0, 0.5],  # over 1.0 m/s cap during [1s, 2s)
+            "speed_mps": [0.5, 2.0, 0.5],  # over 1.0 m/s cap during [1s, 2s)
         }
     )
     snapshot = snapshot_frame(
@@ -475,8 +469,8 @@ def test_speed_metrics_are_null_with_topic_missing_without_the_speed_stream():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [1.0, 1.0, 1.0],
-            "pos_y": [1.0, 1.0, 1.0],
+            "x": [1.0, 1.0, 1.0],
+            "y": [1.0, 1.0, 1.0],
             "yaw": [0.0, 0.0, 0.0],
         }
     )
@@ -501,10 +495,10 @@ def test_speed_metrics_are_null_with_no_samples_when_a_speed_is_not_finite():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [1.0, 1.0, 1.0],
-            "pos_y": [1.0, 1.0, 1.0],
+            "x": [1.0, 1.0, 1.0],
+            "y": [1.0, 1.0, 1.0],
             "yaw": [0.0, 0.0, 0.0],
-            "vel_linear": [0.5, float("nan"), 0.5],
+            "speed_mps": [0.5, float("nan"), 0.5],
         }
     )
 
@@ -527,16 +521,16 @@ def test_doorway_blocking_never_counts_a_nan_speed_as_stationary():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [0.0, 0.0, 0.0],
-            "pos_y": [0.0, 0.0, 0.0],
+            "x": [0.0, 0.0, 0.0],
+            "y": [0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0],
-            "vel_linear": [float("nan"), float("nan"), 0.0],
+            "speed_mps": [float("nan"), float("nan"), 0.0],
         }
     )
     episode = _episode(data, semantic_snapshot=_open_door_snapshot())
     calc = _calc()
     pos_x, pos_y, _yaw, _ox, _oy, _oyaw = calc.resolve_robot_pose(episode)
-    speed = np.abs(episode.data["vel_linear"].to_numpy())
+    speed = np.abs(episode.data["speed_mps"].to_numpy())
     t_ns = episode.data["t_ns"].to_numpy()
 
     total = calc._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
@@ -765,10 +759,10 @@ def test_zone_metrics_are_null_without_recorded_world_semantics():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [1.0, 1.0, 1.0],
-            "pos_y": [1.0, 1.0, 1.0],
+            "x": [1.0, 1.0, 1.0],
+            "y": [1.0, 1.0, 1.0],
             "yaw": [0.0, 0.0, 0.0],
-            "vel_linear": [0.5, 2.0, 0.5],
+            "speed_mps": [0.5, 2.0, 0.5],
         }
     )
     results = calc.calculate(_episode(data, semantic_snapshot=None), {})

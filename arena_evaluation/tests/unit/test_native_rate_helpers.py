@@ -39,7 +39,9 @@ def _bundle(topics=None, data=None, start_pos=None):
 
 def test_native_topics_absent_is_empty_dict(probe):
     assert probe.native_topics(_bundle()) == {}
-    assert probe.native_topics(_bundle(topics={"odom": pl.DataFrame()})).keys() == {"odom"}
+    assert probe.native_topics(_bundle(topics={"odom": pl.DataFrame()})).keys() == {
+        "odom"
+    }
 
 
 def test_resolve_native_pose_from_robot_tracks(probe):
@@ -86,18 +88,24 @@ def test_pose_at_times_backward_asof(probe):
     py = np.array([0.0, 0.0, 0.0])
     yaw = np.array([0.0, 0.5, 1.0])
 
-    qx, qy, qyaw = probe.pose_at_times(np.array([0, 2 * SEC, 4 * SEC]), px, py, yaw, pose_t)
+    qx, qy, qyaw = probe.pose_at_times(
+        np.array([0, 2 * SEC, 4 * SEC]), px, py, yaw, pose_t
+    )
     assert qx.tolist() == [0.0, 2.0, 4.0]
     assert qyaw.tolist() == [0.0, 0.5, 1.0]
 
     # 50 ms after a sample is inside the 100 ms tolerance and holds its value.
-    qx, _qy, _qyaw = probe.pose_at_times(np.array([2 * SEC + 50_000_000]), px, py, yaw, pose_t)
+    qx, _qy, _qyaw = probe.pose_at_times(
+        np.array([2 * SEC + 50_000_000]), px, py, yaw, pose_t
+    )
     assert qx.tolist() == [2.0]
 
 
 def test_pose_at_times_beyond_tolerance_is_zero_filled(probe):
     pose_t = np.array([0])
-    out_x, out_y, out_yaw = probe.pose_at_times(np.array([5 * SEC]), np.array([3.0]), np.array([4.0]), np.array([1.0]), pose_t)
+    out_x, out_y, out_yaw = probe.pose_at_times(
+        np.array([5 * SEC]), np.array([3.0]), np.array([4.0]), np.array([1.0]), pose_t
+    )
     assert np.isnan(out_x).all()
     assert np.isnan(out_y).all()
     assert np.isnan(out_yaw).all()
@@ -144,10 +152,19 @@ def test_speed_from_pose_single_sample_is_zero(probe):
 
 
 def test_native_ped_frame_sorted_by_time(probe):
-    peds = pl.DataFrame({"t_ns": [2 * SEC, 0, SEC], "ped_id": ["p1", "p2", "p3"], "x": [1.0, 2.0, 3.0], "y": [0.0, 0.0, 0.0]})
-    out = probe.native_ped_frame(_bundle(topics={"pedestrian_tracks": peds}))
+    peds = pl.DataFrame(
+        {
+            "t_ns": [2 * SEC, 0, SEC],
+            "ped_id": ["p1", "p2", "p3"],
+            "x": [1.0, 2.0, 3.0],
+            "y": [0.0, 0.0, 0.0],
+        }
+    )
+    out = probe.native_ped_frame(_bundle(topics={"pedestrian_arena_peds": peds}))
     assert out is not None
     assert out["t_ns"].to_list() == [0, SEC, 2 * SEC]
     assert probe.native_ped_frame(_bundle()) is None
     with pytest.raises(pl.exceptions.ColumnNotFoundError):
-        probe.native_ped_frame(_bundle(topics={"pedestrian_tracks": pl.DataFrame({"x": [1]})}))
+        probe.native_ped_frame(
+            _bundle(topics={"pedestrian_arena_peds": pl.DataFrame({"x": [1]})})
+        )

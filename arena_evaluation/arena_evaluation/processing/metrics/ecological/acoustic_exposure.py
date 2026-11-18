@@ -132,13 +132,13 @@ class AcousticExposureCalculator(BaseMetricCalculator):
     SERIES_KEY = ("t_ns", "ped_id")
     SERIES_REQUIRED_TOPICS = (
         "robot_tracks",
-        "pedestrian_tracks",
+        "pedestrian_arena_peds",
         ROBOT_ACOUSTICS_TOPIC,
     )
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = []
-    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_tracks", ROBOT_ACOUSTICS_TOPIC]
+    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_arena_peds", ROBOT_ACOUSTICS_TOPIC]
     PARAMS = ()
 
     OUTPUTS = _METRICS
@@ -639,7 +639,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
     ) -> pl.DataFrame:
         """1NF flat pedestrian acoustic exposure series, one row per (sample, pedestrian).
 
-        `is_worst_frame` marks the episode-global loudest frame for every pedestrian of that
+        `is_episode_worst_frame` marks the episode-global loudest frame for every pedestrian of that
         frame (see the series declaration); the per-pedestrian worst instant is the published
         `worst_case_acoustic_t_ns` metric, so a per-pedestrian filter must use the metric, not
         this column.
@@ -709,7 +709,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 "source_dba": source,
                 "ped_x_m": ped_x,
                 "ped_y_m": ped_y,
-                "is_worst_frame": is_worst,
+                "is_episode_worst_frame": is_worst,
                 "open_doors": open_doors,
             },
             schema=SERIES_SCHEMA,

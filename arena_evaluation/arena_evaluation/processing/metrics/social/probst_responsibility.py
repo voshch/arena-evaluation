@@ -16,7 +16,7 @@ from arena_evaluation.processing.metrics.base import (
 )
 from arena_evaluation.processing.metrics.social.interaction_common import (
     NS_PER_S,
-    PEDESTRIAN_TRACKS_TOPIC,
+    PEDESTRIAN_ARENA_PEDS_TOPIC,
     ROBOT_TRACKS_TOPIC,
     PedTrack,
     Trajectory2D,
@@ -431,7 +431,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
 
     NAME = "probst_responsibility"
     CATEGORY = "social"
-    REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC, PEDESTRIAN_TRACKS_TOPIC]
+    REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC, PEDESTRIAN_ARENA_PEDS_TOPIC]
     PARAMS = (
         "pre_contact_window_s",
         "encounter_edge_distance_m",

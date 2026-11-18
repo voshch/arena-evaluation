@@ -292,8 +292,8 @@ def _frames(
             else [index * SECOND_NS for index in range(len(robot))],
             dtype=pl.Int64,
         ),
-        "pos_x_gt": pl.Series([position[0] for position in robot], dtype=pl.Float64),
-        "pos_y_gt": pl.Series([position[1] for position in robot], dtype=pl.Float64),
+        "x": pl.Series([position[0] for position in robot], dtype=pl.Float64),
+        "y": pl.Series([position[1] for position in robot], dtype=pl.Float64),
         "peds_positions": pl.Series(
             [[list(point) for point in frame] for frame in peds],
             dtype=pl.List(pl.List(pl.Float64)),
@@ -312,7 +312,7 @@ def _episode(
     if (
         data is not None
         and "t_ns" in data.columns
-        and "pedestrian_tracks" not in topics
+        and "pedestrian_arena_peds" not in topics
         and "peds_positions" in data.columns
     ):
         peds_rows = []
@@ -339,7 +339,7 @@ def _episode(
                             }
                         )
         schema = {"t_ns": pl.Int64, "ped_id": pl.Utf8, "x": pl.Float64, "y": pl.Float64}
-        topics["pedestrian_tracks"] = (
+        topics["pedestrian_arena_peds"] = (
             pl.DataFrame(peds_rows, schema=schema)
             if peds_rows
             else pl.DataFrame(schema=schema)
@@ -360,8 +360,8 @@ def _episode(
             pl.DataFrame(
                 {
                     "t_ns": data["t_ns"].cast(pl.Int64),
-                    "x": data["pos_x_gt"].cast(pl.Float64),
-                    "y": data["pos_y_gt"].cast(pl.Float64),
+                    "x": data["x"].cast(pl.Float64),
+                    "y": data["y"].cast(pl.Float64),
                     "yaw": [0.0] * len(data),
                 }
             )
@@ -503,7 +503,7 @@ def test_scalars_follow_the_exposure_series(calc, derived_map, world_run_dir):
             "source_dba": pl.Float64,
             "ped_x_m": pl.Float64,
             "ped_y_m": pl.Float64,
-            "is_worst_frame": pl.Boolean,
+            "is_episode_worst_frame": pl.Boolean,
             "open_doors": pl.String,
         }
     )
@@ -522,7 +522,7 @@ def test_scalars_follow_the_exposure_series(calc, derived_map, world_run_dir):
     assert near["ped_max_startle_factor"] == pytest.approx(18.0, abs=1e-3)
     assert far["ped_max_startle_factor"] == 0.0
     assert near["worst_case_acoustic_t_ns"] == SECOND_NS
-    worst_rows = table.filter(pl.col("is_worst_frame"))
+    worst_rows = table.filter(pl.col("is_episode_worst_frame"))
     assert len(worst_rows) == 1
     assert int(worst_rows["t_ns"][0]) == SECOND_NS
     assert float(worst_rows["robot_x_m"][0]) == 1.0
@@ -612,7 +612,7 @@ def test_door_opening_switches_attenuation_and_marks_worst_frame_open(tmp_path, 
     )
     assert result["ped_max_startle_factor"] == pytest.approx(25.0, abs=0.5)
     assert result["worst_case_acoustic_t_ns"] == SECOND_NS
-    worst_rows = calc.series_table(episode).filter(pl.col("is_worst_frame"))
+    worst_rows = calc.series_table(episode).filter(pl.col("is_episode_worst_frame"))
     assert worst_rows["open_doors"][0] == "world/front_door"
 
 
@@ -681,9 +681,9 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
 
     def pedestrian_result(ped_id: str) -> dict[str, object]:
         ped_topics = dict(episode.topics)
-        ped_topics["pedestrian_tracks"] = episode.topics["pedestrian_tracks"].filter(
-            pl.col("ped_id") == ped_id
-        )
+        ped_topics["pedestrian_arena_peds"] = episode.topics[
+            "pedestrian_arena_peds"
+        ].filter(pl.col("ped_id") == ped_id)
         bundle = AlignedEpisodeBundle(
             episode_id=episode.episode_id,
             data=pl.DataFrame(),
@@ -726,9 +726,9 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
 def _pedestrian_scope_slice(episode: AlignedEpisodeBundle, ped_id: str) -> ScopeSlice:
     """A PEDESTRIAN slice whose window bundle carries only that pedestrian's track."""
     topics = dict(episode.topics or {})
-    peds = topics.get("pedestrian_tracks")
+    peds = topics.get("pedestrian_arena_peds")
     if peds is not None:
-        topics["pedestrian_tracks"] = peds.filter(pl.col("ped_id") == ped_id)
+        topics["pedestrian_arena_peds"] = peds.filter(pl.col("ped_id") == ped_id)
     bundle = AlignedEpisodeBundle(
         episode_id=episode.episode_id,
         data=pl.DataFrame(),
@@ -777,7 +777,9 @@ def test_pedestrian_scope_publishes_the_worst_frame_discriminator(
     assert "worst_case_acoustic_frame" not in result
     assert result["worst_case_acoustic_t_ns"] == SECOND_NS
     series = calc.series_table(episode)
-    worst_rows = series.filter((pl.col("ped_id") == "ped_0") & pl.col("is_worst_frame"))
+    worst_rows = series.filter(
+        (pl.col("ped_id") == "ped_0") & pl.col("is_episode_worst_frame")
+    )
     assert worst_rows["t_ns"].to_list() == [SECOND_NS]
 
 
@@ -805,7 +807,9 @@ def test_missing_robot_acoustics_topic_returns_null_without_fallback(
     episode = _episode(frames, derived_map(), run_dir=world_run_dir)
     assert _pedestrian_scalars(calc, episode) == NULLS
 
-    registry = MetricRegistry(make_robot_params(), calculators=[AcousticExposureCalculator])
+    registry = MetricRegistry(
+        make_robot_params(), calculators=[AcousticExposureCalculator]
+    )
     ped_slice = _pedestrian_scope_slice(episode, "ped_0")
     outcome = registry.run_scope(MetricScope.PEDESTRIAN, episode, scope_slice=ped_slice)
     assert outcome.results["ped_max_exposure_dba"] is None
@@ -960,7 +964,9 @@ def test_doors_without_world_semantics_report_the_missing_input(tmp_path, calc):
     folder_manager, run = _door_run(tmp_path, name)
     frames = _frames([(1.0, 2.5)], [[(4.0, 2.5)]], source=[60.0])
     episode = _episode(frames, name, run=run, folder_manager=folder_manager)
-    registry = MetricRegistry(make_robot_params(), calculators=[AcousticExposureCalculator])
+    registry = MetricRegistry(
+        make_robot_params(), calculators=[AcousticExposureCalculator]
+    )
     ped_slice = _pedestrian_scope_slice(episode, "ped_0")
     outcome = registry.run_scope(MetricScope.PEDESTRIAN, episode, scope_slice=ped_slice)
     assert outcome.results["ped_max_exposure_dba"] is None

@@ -55,13 +55,16 @@ MECHANISM_COMPONENTS: tuple[MechanismComponent, ...] = (
     MechanismComponent("door_freeze_s", "lower", 10.0),
     MechanismComponent("door_oscillations", "lower", 1.0),
     MechanismComponent("ran_red_signal", "lower", 1.0),
-    MechanismComponent("used_elevator_during_alarm", "lower", 1.0),
+    MechanismComponent("used_elevator_during_alarm_robot", "lower", 1.0),
     MechanismComponent("entered_over_cap_zone", "lower", 1.0),
-    MechanismComponent("time_waiting_at_doors", "lower", 30.0),
+    MechanismComponent("time_waiting_at_doors_robot", "lower", 30.0),
 )
 
 
-def mechanism_score(results: dict[str, typing.Any], components: typing.Sequence[MechanismComponent] = MECHANISM_COMPONENTS) -> tuple[float | None, int]:
+def mechanism_score(
+    results: dict[str, typing.Any],
+    components: typing.Sequence[MechanismComponent] = MECHANISM_COMPONENTS,
+) -> tuple[float | None, int]:
     """Weighted mean of the available component scores and how many were available."""
     total = 0.0
     weight = 0.0
@@ -78,8 +81,22 @@ def mechanism_score(results: dict[str, typing.Any], components: typing.Sequence[
     return total / weight, used
 
 
-MECHANISM_SCORE = define_metric("mechanism_score", pl.Float64, scopes=(MetricScope.ROBOT,), unit=DIMENSIONLESS_UNIT, description="Weighted mean of the available normalised mechanism component scores, 0 to 1 with 1 best. NULL when no component was measured.", null_reason=True)
-MECHANISM_COMPONENT_COUNT = define_metric("mechanism_components", pl.Int64, scopes=(MetricScope.ROBOT,), unit="", description="Number of measured mechanism component scores that contributed to mechanism_score.", required=True)
+MECHANISM_SCORE = define_metric(
+    "mechanism_score",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit=DIMENSIONLESS_UNIT,
+    description="Weighted mean of the available normalised mechanism component scores, 0 to 1 with 1 best. NULL when no component was measured.",
+    null_reason=True,
+)
+MECHANISM_COMPONENT_COUNT = define_metric(
+    "mechanism_components",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of measured mechanism component scores that contributed to mechanism_score.",
+    required=True,
+)
 
 
 class MechanismComponentCalculator(BaseMetricCalculator):
@@ -87,13 +104,20 @@ class MechanismComponentCalculator(BaseMetricCalculator):
 
     NAME = "mechanism_component"
     CATEGORY = "ecological"
-    DEPENDS_ON = ["condition_compliance", "mechanism_metrics", "regime_metrics", "semantic_interaction_metrics"]
+    DEPENDS_ON = [
+        "condition_compliance",
+        "mechanism_metrics",
+        "regime_metrics",
+        "semantic_interaction_metrics",
+    ]
 
     OUTPUTS = (MECHANISM_SCORE, MECHANISM_COMPONENT_COUNT)
     DIRECTIONS = {"mechanism_score": Direction.HIGHER}
     PRIMARY_OUTPUTS = ["mechanism_score"]
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del episode
         score, used = mechanism_score(prior_results)
         return {"mechanism_score": score, "mechanism_components": used}

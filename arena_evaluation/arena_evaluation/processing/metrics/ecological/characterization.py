@@ -435,16 +435,16 @@ class CharacterizationCalculator(BaseMetricCalculator):
             out["t_ns"].cast(pl.Float64) - out["t_ns"].cast(pl.Float64).min()
         ) / _NANOSECONDS_PER_SECOND
         try:
-            speed = out["vel_linear"].cast(pl.Float64).abs()
+            speed = out["speed_mps"].cast(pl.Float64).abs()
         except pl.exceptions.ColumnNotFoundError:
-            # Registry parquet always supplies vel_linear; only hand-built pose-only test bundles hit this fallback.
+            # Registry parquet always supplies speed_mps; only hand-built pose-only test bundles hit this fallback.
             speed = (
                 pl.when(out["_dt"] > 1e-6).then(out["_ds"] / out["_dt"]).otherwise(None)
             )
         try:
-            turn_rate = out["vel_angular"].cast(pl.Float64).abs()
+            turn_rate = out["omega_z"].cast(pl.Float64).abs()
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit vel_angular.
+            # Hand-built pose-only test bundles omit omega_z.
             turn_rate = pl.lit(None, dtype=pl.Float64)
 
         ground_truth_x, ground_truth_y = self._ground_truth_xy(episode, out["t_ns"])
@@ -553,14 +553,14 @@ class CharacterizationCalculator(BaseMetricCalculator):
 
         series, _coverage = self._series_frame(episode)
         try:
-            vx_col = series["vel_linear"].cast(pl.Float64).alias("vx_achieved_mps")
+            vx_col = series["speed_mps"].cast(pl.Float64).alias("vx_achieved_mps")
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit vel_linear.
+            # Hand-built pose-only test bundles omit speed_mps.
             vx_col = pl.lit(None, dtype=pl.Float64).alias("vx_achieved_mps")
         try:
-            wz_col = series["vel_angular"].cast(pl.Float64).alias("wz_achieved_radps")
+            wz_col = series["omega_z"].cast(pl.Float64).alias("wz_achieved_radps")
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit vel_angular.
+            # Hand-built pose-only test bundles omit omega_z.
             wz_col = pl.lit(None, dtype=pl.Float64).alias("wz_achieved_radps")
         return series.select(
             pl.lit(run_id).alias("run_id"),

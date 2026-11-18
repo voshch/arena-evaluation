@@ -41,8 +41,8 @@ def test_downsampled_field_keeps_closed_door_in_doorway() -> None:
     df = pl.DataFrame(
         {
             "t_ns": [0],
-            "pos_x_gt": [2.4],
-            "pos_y_gt": [1.0],
+            "x": [2.4],
+            "y": [1.0],
             "source_dba": [100.0],
         }
     )

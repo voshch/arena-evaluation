@@ -34,18 +34,12 @@ def _calc():
 
 
 def _start_pos(data):
-    if data is not None and "pos_x" in data.columns and len(data) > 0:
-        return [data["pos_x"][0], data["pos_y"][0], data["yaw"][0]]
+    if data is not None and "x" in data.columns and len(data) > 0:
+        return [data["x"][0], data["y"][0], data["yaw"][0]]
     return []
 
 
 def _episode(data, semantic_snapshot=None):
-    if data is not None and "pos_x" in data.columns and "pos_x_gt" not in data.columns:
-        data = data.with_columns(
-            pl.col("pos_x").alias("pos_x_gt"),
-            pl.col("pos_y").alias("pos_y_gt"),
-            pl.col("yaw").alias("yaw_gt"),
-        )
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,
@@ -409,14 +403,14 @@ def test_calculate_returns_none_defaults_without_semantic_snapshot():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.0],
-            "pos_y": [0.0, 0.0],
+            "x": [0.0, 0.0],
+            "y": [0.0, 0.0],
             "yaw": [0.0, 0.0],
         }
     )
     episode = _episode(data, semantic_snapshot=None)
 
-    assert calc.calculate(episode, {}) == {"used_elevator_during_alarm": None}
+    assert calc.calculate(episode, {}) == {"used_elevator_during_alarm_anyone": None}
     robot = _robot_results(calc, episode)
     assert all(v is None for v in robot.values())
     assert set(robot) == set(calc.output_keys_for_scope(MetricScope.ROBOT))
@@ -427,8 +421,8 @@ def test_calculate_used_elevator_during_alarm_end_to_end_without_world():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 6_000_000_000],
-            "pos_x": [0.0, 0.0, 0.0],
-            "pos_y": [0.0, 0.0, 0.0],
+            "x": [0.0, 0.0, 0.0],
+            "y": [0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0],
         }
     )
@@ -470,7 +464,7 @@ def test_calculate_used_elevator_during_alarm_end_to_end_without_world():
     )
     episode = _episode(data, semantic_snapshot=snapshot)
 
-    assert calc.calculate(episode, {}) == {"used_elevator_during_alarm": 1}
+    assert calc.calculate(episode, {}) == {"used_elevator_during_alarm_anyone": 1}
     robot = _robot_results(calc, episode)
     assert robot["ran_red_signal"] is None
     assert robot["entered_over_cap_zone"] is None
@@ -482,8 +476,8 @@ def test_calculate_replan_latency_end_to_end():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000],
-            "pos_x": [0.0] * 5,
-            "pos_y": [0.0] * 5,
+            "x": [0.0] * 5,
+            "y": [0.0] * 5,
             "yaw": [0.0] * 5,
             "linear_x": [0.0, 0.0, 0.0, 0.5, 0.5],
             "angular_z": [0.0, 0.0, 0.0, 0.0, 0.0],
@@ -516,8 +510,8 @@ def test_calculate_replan_unanswered_triggers_counts_censored_triggers():
                 5_000_000_000,
                 6_000_000_000,
             ],
-            "pos_x": [0.0] * 7,
-            "pos_y": [0.0] * 7,
+            "x": [0.0] * 7,
+            "y": [0.0] * 7,
             "yaw": [0.0] * 7,
             "linear_x": [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5],
             "angular_z": [0.0] * 7,
@@ -547,8 +541,8 @@ def test_calculate_replan_metrics_are_null_without_a_required_stream():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.0],
-            "pos_y": [0.0, 0.0],
+            "x": [0.0, 0.0],
+            "y": [0.0, 0.0],
             "yaw": [0.0, 0.0],
         }
     )
@@ -603,8 +597,8 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "pos_x": [10.0, 1.0, 10.0, 1.0],
-            "pos_y": [10.0, 1.0, 10.0, 1.0],
+            "x": [10.0, 1.0, 10.0, 1.0],
+            "y": [10.0, 1.0, 10.0, 1.0],
             "yaw": [0.0, 0.0, 0.0, 0.0],
         }
     )
@@ -636,8 +630,8 @@ def test_calculate_ran_red_signal_with_cached_world():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [5.0, 0.0, 5.0],
-            "pos_y": [5.0, 0.0, 5.0],
+            "x": [5.0, 0.0, 5.0],
+            "y": [5.0, 0.0, 5.0],
             "yaw": [0.0, 0.0, 0.0],
         }
     )
@@ -674,8 +668,8 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none() -> N
         data = pl.DataFrame(
             {
                 "t_ns": [0, 1_000_000_000, 6_000_000_000],
-                "pos_x": [0.0, 0.0, 0.0],
-                "pos_y": [0.0, 0.0, 0.0],
+                "x": [0.0, 0.0, 0.0],
+                "y": [0.0, 0.0, 0.0],
                 "yaw": [0.0, 0.0, 0.0],
             }
         )
@@ -721,7 +715,7 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none() -> N
     finally:
         caching.logger.removeHandler(handler)
 
-    assert results == {"used_elevator_during_alarm": 1}
+    assert results == {"used_elevator_during_alarm_anyone": 1}
     assert robot["entered_over_cap_zone"] is None
     assert robot["ran_red_signal"] is None
     assert any(
@@ -817,8 +811,8 @@ def test_calculate_ran_red_signal_with_cached_signal_geometry():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [25.0, 20.0, 25.0],
-            "pos_y": [20.0, 20.0, 20.0],
+            "x": [25.0, 20.0, 25.0],
+            "y": [20.0, 20.0, 20.0],
             "yaw": [0.0] * 3,
         }
     )
@@ -883,8 +877,8 @@ def test_robot_scope_used_elevator_during_alarm_needs_robot_members():
     data = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 6_000_000_000],
-            "pos_x": [0.0] * 3,
-            "pos_y": [0.0] * 3,
+            "x": [0.0] * 3,
+            "y": [0.0] * 3,
             "yaw": [0.0] * 3,
         }
     )
@@ -910,16 +904,17 @@ def test_robot_scope_used_elevator_during_alarm_needs_robot_members():
     )
     episode = _episode(data, semantic_snapshot=snapshot)
 
-    assert _robot_results(_calc(), episode)["used_elevator_during_alarm"] is None
+    assert _robot_results(_calc(), episode)["used_elevator_during_alarm_robot"] is None
     episode.robot_name = "env_0_jackal"
-    assert _robot_results(_calc(), episode)["used_elevator_during_alarm"] is None
+    assert _robot_results(_calc(), episode)["used_elevator_during_alarm_robot"] is None
 
 
 def test_regime_outputs_declare_their_better_side():
     assert RegimeMetricsCalculator.DIRECTIONS == {
         "ran_red_signal": Direction.LOWER,
         "entered_over_cap_zone": Direction.LOWER,
-        "used_elevator_during_alarm": Direction.LOWER,
+        "used_elevator_during_alarm_anyone": Direction.LOWER,
+        "used_elevator_during_alarm_robot": Direction.LOWER,
         "replan_latency_after_state_change_median": Direction.LOWER,
         "replan_latency_after_state_change_p95": Direction.LOWER,
     }

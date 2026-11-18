@@ -330,7 +330,7 @@ def test_extract_episode_ped_tracks_groups_rows_by_ped_id() -> None:
         schema=_PED_SCHEMA,
     )
 
-    tracks = extract_episode_ped_tracks(_episode({"pedestrian_tracks": frame}))
+    tracks = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))
 
     assert set(tracks) == {"Pedestrian_1", "Pedestrian_2"}
     alice = tracks["Pedestrian_1"]
@@ -357,7 +357,7 @@ def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first
         schema=_PED_SCHEMA,
     )
 
-    track = extract_episode_ped_tracks(_episode({"pedestrian_tracks": frame}))[
+    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
         "Pedestrian_3"
     ]
 
@@ -376,7 +376,7 @@ def test_extract_ped_tracks_keeps_recorded_velocity_when_the_pedestrian_moves() 
         schema=_PED_SCHEMA,
     )
 
-    track = extract_episode_ped_tracks(_episode({"pedestrian_tracks": frame}))[
+    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
         "Pedestrian_4"
     ]
 
@@ -394,7 +394,7 @@ def test_extract_ped_tracks_keeps_an_unmeasured_velocity_null() -> None:
         schema=_PED_SCHEMA,
     ).with_columns(pl.lit(None, dtype=pl.Float64).alias("vx"))
 
-    track = extract_episode_ped_tracks(_episode({"pedestrian_tracks": frame}))[
+    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
         "Pedestrian_6"
     ]
 
@@ -408,7 +408,7 @@ def test_extract_ped_tracks_without_table_is_empty() -> None:
 def test_extract_ped_tracks_empty_frame_is_empty() -> None:
     assert (
         extract_episode_ped_tracks(
-            _episode({"pedestrian_tracks": pl.DataFrame(schema=_PED_SCHEMA)})
+            _episode({"pedestrian_arena_peds": pl.DataFrame(schema=_PED_SCHEMA)})
         )
         == {}
     )
@@ -423,7 +423,7 @@ def test_extract_ped_tracks_drops_non_finite_positions() -> None:
         schema=_PED_SCHEMA,
     )
 
-    track = extract_episode_ped_tracks(_episode({"pedestrian_tracks": frame}))[
+    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
         "Pedestrian_5"
     ]
 
@@ -492,7 +492,7 @@ def _encounter_episode(
     )
     topics = {"robot_tracks": robot}
     if with_pedestrians:
-        topics["pedestrian_tracks"] = pl.DataFrame(
+        topics["pedestrian_arena_peds"] = pl.DataFrame(
             [
                 _ped_row(
                     t * NS_PER_S,

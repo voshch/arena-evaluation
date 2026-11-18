@@ -25,12 +25,12 @@ def _calc() -> CharacterizationCalculator:
 
 
 def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:
-    """Bundle whose native /tf ground truth follows the aligned pos_x/pos_y columns."""
+    """Bundle whose native /tf ground truth follows the aligned x/y columns."""
     tracks = pl.DataFrame(
         {
             "t_ns": frame["t_ns"].cast(pl.Int64),
-            "x": frame["pos_x"].cast(pl.Float64),
-            "y": frame["pos_y"].cast(pl.Float64),
+            "x": frame["x"].cast(pl.Float64),
+            "y": frame["y"].cast(pl.Float64),
             "yaw": frame["yaw"].cast(pl.Float64)
             if "yaw" in frame.columns
             else [0.0] * len(frame),
@@ -53,12 +53,10 @@ def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:
         )
     if "total_level_af_dba" in frame.columns:
         topics["robot_acoustics"] = frame.select("t_ns", "total_level_af_dba")
-    if "vel_linear" in frame.columns:
-        if "vel_angular" not in frame.columns:
-            frame = frame.with_columns(
-                pl.lit(None, dtype=pl.Float64).alias("vel_angular")
-            )
-        topics["robot_odom"] = frame.select("t_ns", "vel_linear", "vel_angular")
+    if "speed_mps" in frame.columns:
+        if "omega_z" not in frame.columns:
+            frame = frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("omega_z"))
+        topics["robot_odom"] = frame.select("t_ns", "speed_mps", "omega_z")
     if {"effort", "velocity"} <= set(frame.columns):
         topics["robot_joint_states"] = frame.select("t_ns", "effort", "velocity")
         frame = frame.drop("effort", "velocity")
@@ -111,9 +109,9 @@ def _sample_episode() -> AlignedEpisodeBundle:
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "pos_x": [0.0, 0.25, 0.75, 1.75],
-            "pos_y": [0.0, 0.0, 0.0, 0.0],
-            "vel_linear": [0.0, 0.25, 0.5, 1.0],
+            "x": [0.0, 0.25, 0.75, 1.75],
+            "y": [0.0, 0.0, 0.0, 0.0],
+            "speed_mps": [0.0, 0.25, 0.5, 1.0],
             "total_power_w": [50.0, 55.0, 60.0, 65.0],
             "total_level_af_dba": [42.0, 46.0, 51.0, 56.0],
             "label": [
@@ -191,8 +189,8 @@ def test_series_table_is_flat_1nf_with_ground_truth_columns():
     assert_frame_equal(table, expected, check_dtypes=True, rel_tol=1e-9)
 
 
-def test_speed_falls_back_to_path_rate_without_vel_linear():
-    frame = _sample_episode().data.drop("vel_linear")
+def test_speed_falls_back_to_path_rate_without_speed_mps():
+    frame = _sample_episode().data.drop("speed_mps")
     table = _series(_calc(), _episode(frame))
     expected = pl.Series(
         "energy_intensity_j_m", [None, 220.0, 120.0, 65.0], dtype=pl.Float64
@@ -206,9 +204,9 @@ def test_steady_state_transient_filtering():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "pos_x": [0.0, 0.25, 0.50, 0.75],
-            "pos_y": [0.0, 0.0, 0.0, 0.0],
-            "vel_linear": [0.0, 0.25, 0.25, 0.25],
+            "x": [0.0, 0.25, 0.50, 0.75],
+            "y": [0.0, 0.0, 0.0, 0.0],
+            "speed_mps": [0.0, 0.25, 0.25, 0.25],
             "total_power_w": [500.0, 200.0, 42.2, 42.2],
             "label": ["linear_vx_0.25"] * 4,
         }
@@ -224,10 +222,10 @@ def test_arc_and_lateral_characterization_phases():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000, 3_000_000_000],
-            "pos_x": [0.0, 0.5, 1.0, 1.5],
-            "pos_y": [0.0, 0.1, 0.3, 0.6],
-            "vel_linear": [0.5, 0.5, 1.0, 1.0],
-            "vel_angular": [0.5, 0.5, 1.0, 1.0],
+            "x": [0.0, 0.5, 1.0, 1.5],
+            "y": [0.0, 0.1, 0.3, 0.6],
+            "speed_mps": [0.5, 0.5, 1.0, 1.0],
+            "omega_z": [0.5, 0.5, 1.0, 1.0],
             "total_power_w": [60.0, 60.0, 75.0, 75.0],
             "total_level_af_dba": [45.0, 45.0, 50.0, 50.0],
             "label": ["arc_vx_0.50_r_0.67_left"] * 2 + ["arc_vx_1.00_r_0.67_left"] * 2,
@@ -279,9 +277,9 @@ def test_energy_intensity_speed_threshold_gating():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [0.0, 0.01, 0.50],
-            "pos_y": [0.0, 0.0, 0.0],
-            "vel_linear": [0.0, 0.01, 0.49],
+            "x": [0.0, 0.01, 0.50],
+            "y": [0.0, 0.0, 0.0],
+            "speed_mps": [0.0, 0.01, 0.49],
             "total_power_w": [50.0, 50.0, 50.0],
             "total_level_af_dba": [42.0, 42.0, 42.0],
             "label": ["ramp_up_vx_0.50_h_1.00"] * 3,
@@ -297,9 +295,9 @@ def test_accel_target_is_signed_by_direction_of_change():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 500_000_000, 1_000_000_000, 1_500_000_000],
-            "pos_x": [0.0, 0.5, 1.0, 1.5],
-            "pos_y": [0.0, 0.0, 0.0, 0.0],
-            "vel_linear": [1.0, 0.5, -1.0, -0.5],
+            "x": [0.0, 0.5, 1.0, 1.5],
+            "y": [0.0, 0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 0.5, -1.0, -0.5],
             "total_power_w": [60.0, 60.0, 60.0, 60.0],
             "label": [
                 "ramp_up_vx_1.00_h_1.00",
@@ -322,9 +320,9 @@ def test_unmatched_labels_lower_phase_coverage():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.5],
-            "pos_y": [0.0, 0.0],
-            "vel_linear": [0.5, 0.5],
+            "x": [0.0, 0.5],
+            "y": [0.0, 0.0],
+            "speed_mps": [0.5, 0.5],
             "total_power_w": [60.0, 60.0],
             "linear_x": [0.5, 0.5],
             "angular_z": [0.0, 0.0],
@@ -341,9 +339,9 @@ def test_recorded_schedule_beats_the_rebuild():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.5],
-            "pos_y": [0.0, 0.0],
-            "vel_linear": [0.33, -0.75],
+            "x": [0.0, 0.5],
+            "y": [0.0, 0.0],
+            "speed_mps": [0.33, -0.75],
             "total_power_w": [60.0, 60.0],
             "label": ["arc_vx_0.33_r_0.90_left", "ramp_down_vx_0.75_h_2.00"],
         }
@@ -386,9 +384,9 @@ def test_duplicate_recorded_schedule_rows_do_not_duplicate_samples():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000],
-            "pos_x": [0.0, 0.5],
-            "pos_y": [0.0, 0.0],
-            "vel_linear": [0.5, 0.5],
+            "x": [0.0, 0.5],
+            "y": [0.0, 0.0],
+            "speed_mps": [0.5, 0.5],
             "total_power_w": [60.0, 60.0],
             "label": ["linear_vx_0.50", "linear_vx_0.50"],
         }
@@ -435,9 +433,9 @@ def test_steady_state_bidirectional_windowing():
                 4_000_000_000,
                 5_000_000_000,
             ],
-            "pos_x": [0.0, 0.25, 0.50, 0.75, 1.0, 1.25],
-            "pos_y": [0.0] * 6,
-            "vel_linear": [0.0, 0.25, 0.25, 0.25, 0.25, 0.0],
+            "x": [0.0, 0.25, 0.50, 0.75, 1.0, 1.25],
+            "y": [0.0] * 6,
+            "speed_mps": [0.0, 0.25, 0.25, 0.25, 0.25, 0.0],
             "total_power_w": [500.0, 200.0, 42.2, 42.2, 42.2, 150.0],
             "label": ["linear_vx_0.25"] * 6,
         }
@@ -455,8 +453,8 @@ def test_without_ground_truth_the_series_has_null_step_distances():
     frame = pl.DataFrame(
         {
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
             "total_power_w": [50.0, 50.0, 50.0],
             "label": ["linear_vx_0.50"] * 3,
         }
@@ -501,10 +499,10 @@ def test_joints_and_power_work_with_production_aligned_schema():
     aligned = pl.DataFrame(
         {
             "t_ns": t_ns,
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
-            "vel_linear": [1.0, 1.0, 1.0],
-            "vel_angular": [0.0, 0.0, 0.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
             "total_power_w": [50.0, 50.0, 50.0],
             "total_mech_power_w": [10.0, 10.0, 10.0],
         }
@@ -567,10 +565,10 @@ def test_joints_join_is_backward_asof_within_tolerance():
     aligned = pl.DataFrame(
         {
             "t_ns": t_ns,
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
-            "vel_linear": [1.0, 1.0, 1.0],
-            "vel_angular": [0.0, 0.0, 0.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
         }
     )
     tracks = pl.DataFrame(
@@ -623,16 +621,16 @@ def test_joints_join_is_backward_asof_within_tolerance():
     assert _series(calc, stale_only)["power_mech_w"].to_list() == [4.0, None, None]
 
 
-def test_odomless_bundle_uses_vel_linear_and_vel_angular_from_tracks():
-    """Without robot_odom, vel_linear and vel_angular from robot_tracks are still used."""
+def test_odomless_bundle_uses_speed_mps_and_omega_z_from_tracks():
+    """Without robot_odom, speed_mps and omega_z from robot_tracks are still used."""
     t_ns = [0, SEC, 2 * SEC]
     aligned = pl.DataFrame(
         {
             "t_ns": t_ns,
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
-            "vel_linear": [2.0, 2.0, 2.0],
-            "vel_angular": [1.0, 1.0, 1.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
+            "speed_mps": [2.0, 2.0, 2.0],
+            "omega_z": [1.0, 1.0, 1.0],
         }
     )
     tracks = pl.DataFrame(

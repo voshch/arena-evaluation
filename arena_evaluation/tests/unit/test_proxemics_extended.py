@@ -59,7 +59,9 @@ def _episode(
                 ped["vx"], ped["vy"] = twists[i][3 * j], twists[i][3 * j + 1]
             pedestrians.append(ped)
         frames.append((t, pedestrians))
-    peds = flat_peds(frames).with_columns(radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64))
+    peds = flat_peds(frames).with_columns(
+        radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64)
+    )
     robot_times = times_ns if robot_times_ns is None else robot_times_ns
     robot = pl.DataFrame(
         {
@@ -76,15 +78,15 @@ def _episode(
         data=pl.DataFrame(
             {
                 "t_ns": times_ns,
-                "pos_x_gt": [p[0] for p in robot_xy],
-                "pos_y_gt": [p[1] for p in robot_xy],
-                "yaw_gt": [0.0] * n,
+                "x": [p[0] for p in robot_xy],
+                "y": [p[1] for p in robot_xy],
+                "yaw": [0.0] * n,
             }
         ),
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[5.0, 0.0],
         num_pedestrians=1,
-        topics={"robot_tracks": robot, "pedestrian_tracks": peds},
+        topics={"robot_tracks": robot, "pedestrian_arena_peds": peds},
         peds=peds,
     )
 
@@ -96,13 +98,18 @@ def calc() -> ProxemicsExtendedCalculator:
 
 def test_output_keys_do_not_collide_with_legacy_proxemics():
     """Both calculators land in the same results dict, so keys must be disjoint."""
-    overlap = set(ProxemicsCalculator.output_keys()) & set(ProxemicsExtendedCalculator.output_keys())
+    overlap = set(ProxemicsCalculator.output_keys()) & set(
+        ProxemicsExtendedCalculator.output_keys()
+    )
     assert overlap == set()
 
 
 def test_no_nested_series_column_is_an_output_key():
     """The per-frame clearance series is a 1NF table, never a list-valued metric."""
-    assert not any(key.startswith("timeseries_") for key in ProxemicsExtendedCalculator.output_keys())
+    assert not any(
+        key.startswith("timeseries_")
+        for key in ProxemicsExtendedCalculator.output_keys()
+    )
     assert set(SERIES_SCHEMA) == {
         "run_id",
         "episode_id",
@@ -114,17 +121,23 @@ def test_no_nested_series_column_is_an_output_key():
 
 
 def test_no_topics_yields_all_none(calc: ProxemicsExtendedCalculator):
-    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0)
+    episode = AlignedEpisodeBundle(
+        episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0
+    )
     results = calc.calculate(episode, {})
     assert set(results) == set(calc.output_keys())
     assert all(value is None for value in results.values())
 
 
 @pytest.mark.parametrize("radius_m", [None, 0.0, -0.3])
-def test_a_pedestrian_without_a_positive_recorded_radius_is_refused(calc: ProxemicsExtendedCalculator, radius_m: float | None):
+def test_a_pedestrian_without_a_positive_recorded_radius_is_refused(
+    calc: ProxemicsExtendedCalculator, radius_m: float | None
+):
     """The calculator never invents a body size; a missing or non-positive recorded radius raises."""
     episode = _episode([0, SEC], [[1.0, 0.0], [1.0, 0.0]])
-    episode.topics["pedestrian_tracks"] = episode.topics["pedestrian_tracks"].with_columns(radius_m=pl.lit(radius_m, dtype=pl.Float64))
+    episode.topics["pedestrian_arena_peds"] = episode.topics[
+        "pedestrian_arena_peds"
+    ].with_columns(radius_m=pl.lit(radius_m, dtype=pl.Float64))
     with pytest.raises(MetricInputError):
         calc.calculate(episode, {})
 
@@ -283,7 +296,12 @@ def test_zone_entry_events_bridge_stays_within_the_merge_gap():
     assert zone_entry_events(merged, "intimate") == 1
     spread = pl.DataFrame(
         {
-            "t_ns": [0, SEC // 2, ZONE_EVENT_MERGE_GAP_NS, ZONE_EVENT_MERGE_GAP_NS + SEC],
+            "t_ns": [
+                0,
+                SEC // 2,
+                ZONE_EVENT_MERGE_GAP_NS,
+                ZONE_EVENT_MERGE_GAP_NS + SEC,
+            ],
             "zone": ["intimate", "personal", "intimate", "intimate"],
             "dt_s": [0.5, 1.0, 1.0, 1e-6],
         }
@@ -309,9 +327,14 @@ def test_episode_scope_recomputes_and_unserved_scopes_do_not_masquerade(
 ):
     """The EPISODE scope is the calculator's own population; a scope it does not serve yields typed nulls."""
     episode = _episode([0, SEC], [_at_clearance(0.8), _at_clearance(0.8)])
-    assert calc.calculate_for_scope(episode, {}, _slice(MetricScope.EPISODE, episode)) == calc.calculate(episode, {})
+    assert calc.calculate_for_scope(
+        episode, {}, _slice(MetricScope.EPISODE, episode)
+    ) == calc.calculate(episode, {})
     pedestrian_slice = _slice(MetricScope.PEDESTRIAN, episode)
-    assert all(value is None for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values())
+    assert all(
+        value is None
+        for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values()
+    )
 
 
 def test_encounter_scope_recomputes_the_window_telemetry(
@@ -320,7 +343,9 @@ def test_encounter_scope_recomputes_the_window_telemetry(
     """An ENCOUNTER slice measures its own window bundle, never the episode bundle passed alongside it."""
     episode = _episode([0, SEC, 2 * SEC], [_at_clearance(0.8)] * 3)
     window = _episode([0, SEC], [_at_clearance(0.8)] * 2)
-    window_metrics = calc.calculate_for_scope(episode, {}, _slice(MetricScope.ENCOUNTER, window))
+    window_metrics = calc.calculate_for_scope(
+        episode, {}, _slice(MetricScope.ENCOUNTER, window)
+    )
     assert window_metrics == calc.calculate(window, {})
     assert window_metrics["time_in_personal_zone"] == pytest.approx(1.0, abs=1e-5)
     assert window_metrics["psi_personal_events"] == 1

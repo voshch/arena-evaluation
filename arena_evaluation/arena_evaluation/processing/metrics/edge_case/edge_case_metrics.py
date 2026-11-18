@@ -371,7 +371,7 @@ def _pedestrian_radius_m(
         or recorded_radius_m <= 0.0
     ):
         raise MetricInputError(
-            f"edge_case needs the radius of pedestrian {name!r}: the scenario pins none and pedestrian_tracks records none"
+            f"edge_case needs the radius of pedestrian {name!r}: the scenario pins none and pedestrian_arena_peds records none"
         )
     return float(recorded_radius_m)
 
@@ -440,7 +440,7 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
     NAME = "edge_case_criticality"
     CATEGORY = "edge_case"
     REQUIRES_PEDSIM = True
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
 
     OUTPUTS = (
         EDGE_CASE_COLLIDED,
@@ -593,7 +593,7 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
     NAME = "edge_case_formation"
     CATEGORY = "edge_case"
     REQUIRES_PEDSIM = True
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
 
     OUTPUTS = (
         EDGE_CASE_FORMATION_ARRIVED,

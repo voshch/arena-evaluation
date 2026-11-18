@@ -106,8 +106,8 @@ ROBOT_KIND: Final[str] = "robot"
 #: Collider kinds that move on their own and whose speed is therefore recorded on a track.
 TRACKED_KINDS: Final[frozenset[str]] = frozenset({PEDESTRIAN_KIND, ROBOT_KIND})
 PEDESTRIAN_KIND_PATTERN: Final[str] = "ped|human"
-COLLISION_CONTACTS_TOPIC: Final[str] = "collision_contacts"
-COLLISION_EVENTS_TOPIC: Final[str] = "collision_events"
+ROBOT_COLLISION_CONTACTS_TOPIC: Final[str] = "robot_collision_contacts"
+ROBOT_COLLISION_EVENTS_TOPIC: Final[str] = "robot_collision_events"
 
 CONTACT_COUNT_PEDESTRIAN = define_metric(
     "contact_count_pedestrian",
@@ -619,7 +619,7 @@ def _contacts_from_table(
     tracks: Mapping[str, PedTrack],
     merge_gap_ns: int,
 ) -> list[ContactEvent]:
-    """ContactEvent rows grouped per resolved target from a flat collision_contacts table."""
+    """ContactEvent rows grouped per resolved target from a flat robot_collision_contacts table."""
     grouped = _group_contact_rows(
         _resolve_contact_targets(cc_df, robot, tracks), merge_gap_ns
     )
@@ -698,7 +698,7 @@ def _contacts_from_clearance(
 
 
 def _contacts_from_bumper_events(ce_df: pl.DataFrame | None) -> list[ContactEvent]:
-    """ContactEvent rows for wall and static counts in the flat collision_events table."""
+    """ContactEvent rows for wall and static counts in the flat robot_collision_events table."""
     if ce_df is None or len(ce_df) == 0:
         return []
     bumper_rows = (
@@ -758,7 +758,7 @@ def detect_contact_events(
     merge_gap_ns: int,
 ) -> list[ContactEvent]:
     """Contact intervals of the recorded collision stream; the clearance and bumper streams stand in when it is absent or empty."""
-    contact_rows = episode_table(episode, COLLISION_CONTACTS_TOPIC)
+    contact_rows = episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC)
     if contact_rows is not None and len(contact_rows) > 0:
         return _contacts_from_table(
             cc_df=contact_rows, robot=robot, tracks=tracks, merge_gap_ns=merge_gap_ns
@@ -768,7 +768,9 @@ def detect_contact_events(
         robot=robot, tracks=tracks, merge_gap_ns=merge_gap_ns
     )
     events.extend(
-        _contacts_from_bumper_events(episode_table(episode, COLLISION_EVENTS_TOPIC))
+        _contacts_from_bumper_events(
+            episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC)
+        )
     )
     events.sort(key=lambda event: (event.t0_ns, event.obstacle_kind, event.obstacle_id))
     return _merge_contact_events(events)
@@ -777,8 +779,8 @@ def detect_contact_events(
 def contact_stream_recorded(episode: AlignedEpisodeBundle) -> bool:
     """Whether the recording carries a collision stream: an empty stream means no contact, an absent one means unknown."""
     return (
-        episode_table(episode, COLLISION_CONTACTS_TOPIC) is not None
-        or episode_table(episode, COLLISION_EVENTS_TOPIC) is not None
+        episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC) is not None
+        or episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC) is not None
     )
 
 
@@ -969,7 +971,7 @@ class ContactAttributionCalculator(BaseMetricCalculator):
         if contact_stream_recorded(episode):
             return {CONTACT_COUNT.name: 0, **by_kind}
         return self._undefined_counts(
-            f"{NullReason.TOPIC_MISSING.value}:{COLLISION_CONTACTS_TOPIC}"
+            f"{NullReason.TOPIC_MISSING.value}:{ROBOT_COLLISION_CONTACTS_TOPIC}"
         )
 
     def _event_from_slice(

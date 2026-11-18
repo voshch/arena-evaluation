@@ -7,7 +7,9 @@ pytest.importorskip("shapely")
 
 import polars as pl
 
-from arena_evaluation.processing.metrics.common.events import reconstruct_events as _reconstruct_events
+from arena_evaluation.processing.metrics.common.events import (
+    reconstruct_events as _reconstruct_events,
+)
 from arena_evaluation.processing.metrics.common.zones import (
     DoorGeometry as _DoorGeometry,
     ZoneGeometry as _ZoneGeometry,
@@ -30,7 +32,9 @@ RIGHT = -0.5
 
 
 def _calc(convention: str = "right") -> ComplianceMetricsCalculator:
-    calc = ComplianceMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    calc = ComplianceMetricsCalculator(
+        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
+    )
     calc.passing_convention = convention
     return calc
 
@@ -40,17 +44,16 @@ def _robot(xs: list[float]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "t_ns": [i * SEC for i in range(len(xs))],
-            "pos_x": [float(x) for x in xs],
-            "pos_y": [0.0] * len(xs),
+            "x": [float(x) for x in xs],
+            "y": [0.0] * len(xs),
             "yaw": [0.0] * len(xs),
-            "pos_x_gt": [float(x) for x in xs],
-            "pos_y_gt": [0.0] * len(xs),
-            "yaw_gt": [0.0] * len(xs),
         }
     )
 
 
-def _peds(positions: list[list[list[float]]], twists: list[list[list[float]]] | None = None) -> pl.DataFrame:
+def _peds(
+    positions: list[list[list[float]]], twists: list[list[list[float]]] | None = None
+) -> pl.DataFrame:
     """Per 1 Hz sample the pedestrians as [x, y] pairs, with optional [vx, vy, vz] twists per pedestrian."""
     frames = []
     for i, sample in enumerate(positions):
@@ -64,17 +67,44 @@ def _peds(positions: list[list[list[float]]], twists: list[list[list[float]]] | 
     return flat_peds(frames).with_columns(pl.lit(0.4).alias("radius_m"))
 
 
-def _episode(peds: pl.DataFrame, robot: pl.DataFrame | None, semantic_snapshot: pl.DataFrame | None = None) -> AlignedEpisodeBundle:
-    topics = {"pedestrian_tracks": peds}
+def _episode(
+    peds: pl.DataFrame,
+    robot: pl.DataFrame | None,
+    semantic_snapshot: pl.DataFrame | None = None,
+) -> AlignedEpisodeBundle:
+    topics = {"pedestrian_arena_peds": peds}
     data = robot if robot is not None else pl.DataFrame()
     if robot is not None:
-        topics["robot_tracks"] = pl.DataFrame({"t_ns": robot["t_ns"], "x": robot["pos_x_gt"], "y": robot["pos_y_gt"], "yaw": robot["yaw_gt"], "pose_source": ["tf_gt"] * len(robot)})
-    start_pos = [float(robot["pos_x"][0]), float(robot["pos_y"][0]), 0.0] if robot is not None else []
-    return AlignedEpisodeBundle(1, data, start_pos, [], peds=peds, topics=topics, semantic_snapshot=semantic_snapshot)
+        topics["robot_tracks"] = pl.DataFrame(
+            {
+                "t_ns": robot["t_ns"],
+                "x": robot["x"],
+                "y": robot["y"],
+                "yaw": robot["yaw"],
+                "pose_source": ["tf_gt"] * len(robot),
+            }
+        )
+    start_pos = (
+        [float(robot["x"][0]), float(robot["y"][0]), 0.0] if robot is not None else []
+    )
+    return AlignedEpisodeBundle(
+        1,
+        data,
+        start_pos,
+        [],
+        peds=peds,
+        topics=topics,
+        semantic_snapshot=semantic_snapshot,
+    )
 
 
 def _head_on(side: float, closed: bool) -> tuple[pl.DataFrame, pl.DataFrame]:
-    positions = [[[4.0, side]], [[3.0, side], [3.5, -side]], [[2.5, side]], [[1.5, side]]]
+    positions = [
+        [[4.0, side]],
+        [[3.0, side], [3.5, -side]],
+        [[2.5, side]],
+        [[1.5, side]],
+    ]
     twists = [[[-1.0, 0.0]], [[-1.0, 0.0], [-1.0, 0.0]], [[-1.0, 0.0]], [[-1.0, 0.0]]]
     if closed:
         positions.append([[1.0, side]])
@@ -95,40 +125,82 @@ def _head_on(side: float, closed: bool) -> tuple[pl.DataFrame, pl.DataFrame]:
         (LEFT, "left", False, 0.0),
     ],
 )
-def test_head_on_encounter_is_judged_by_the_side_at_closest_approach(side: float, convention: str, closed: bool, expected: float):
+def test_head_on_encounter_is_judged_by_the_side_at_closest_approach(
+    side: float, convention: str, closed: bool, expected: float
+):
     peds, robot = _head_on(side, closed)
 
-    assert _calc(convention)._compute_passing_compliance(_episode(peds, robot)) == expected
+    assert (
+        _calc(convention)._compute_passing_compliance(_episode(peds, robot)) == expected
+    )
 
 
 def test_two_encounters_on_opposite_sides_score_one_half():
-    positions = [[[3.0, LEFT]], [[2.0, LEFT]], [[2.0, LEFT]], [[5.0, RIGHT]], [[4.0, RIGHT]], [[4.0, RIGHT]]]
-    twists = [[[-1.0, 0.0]], [[-1.0, 0.0]], [[0.0, 0.0]], [[-1.0, 0.0]], [[-1.0, 0.0]], [[0.0, 0.0]]]
+    positions = [
+        [[3.0, LEFT]],
+        [[2.0, LEFT]],
+        [[2.0, LEFT]],
+        [[5.0, RIGHT]],
+        [[4.0, RIGHT]],
+        [[4.0, RIGHT]],
+    ]
+    twists = [
+        [[-1.0, 0.0]],
+        [[-1.0, 0.0]],
+        [[0.0, 0.0]],
+        [[-1.0, 0.0]],
+        [[-1.0, 0.0]],
+        [[0.0, 0.0]],
+    ]
 
-    assert _calc()._compute_passing_compliance(_episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))) == 0.5
+    assert (
+        _calc()._compute_passing_compliance(
+            _episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+        )
+        == 0.5
+    )
 
 
 def test_pedestrian_walking_the_same_way_is_no_encounter():
     positions = [[[3.0, LEFT]], [[4.0, LEFT]], [[5.0, LEFT]]]
     twists = [[[1.0, 0.0]]] * 3
 
-    assert _calc()._compute_passing_compliance(_episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0]))) is None
+    assert (
+        _calc()._compute_passing_compliance(
+            _episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0]))
+        )
+        is None
+    )
 
 
 def test_pedestrian_velocity_comes_from_finite_differences_without_velocities():
     positions = [[], [[3.0, RIGHT]], [[2.0, RIGHT]], [[2.0, RIGHT]]]
     peds = _peds(positions)
-    peds = peds.with_columns(pl.lit(None, dtype=pl.Float64).alias("vx"), pl.lit(None, dtype=pl.Float64).alias("vy"))
+    peds = peds.with_columns(
+        pl.lit(None, dtype=pl.Float64).alias("vx"),
+        pl.lit(None, dtype=pl.Float64).alias("vy"),
+    )
 
-    assert _calc()._compute_passing_compliance(_episode(peds, _robot([0.0, 1.0, 2.0, 3.0]))) == 0.0
+    assert (
+        _calc()._compute_passing_compliance(
+            _episode(peds, _robot([0.0, 1.0, 2.0, 3.0]))
+        )
+        == 0.0
+    )
 
 
 def test_passing_compliance_needs_a_robot_pose():
-    assert _calc()._compute_passing_compliance(_episode(_peds([[[1.0, 0.0]]]), None)) is None
+    assert (
+        _calc()._compute_passing_compliance(_episode(_peds([[[1.0, 0.0]]]), None))
+        is None
+    )
 
 
 def test_passing_compliance_needs_pedestrian_samples():
-    assert _calc()._compute_passing_compliance(_episode(_peds([]), _robot([0.0, 1.0]))) is None
+    assert (
+        _calc()._compute_passing_compliance(_episode(_peds([]), _robot([0.0, 1.0])))
+        is None
+    )
 
 
 def test_head_on_pairing_uses_the_edge_clearance_not_the_centre_distance():
@@ -176,7 +248,7 @@ def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
     )
     peds, robot = _head_on(LEFT, True)
     peds = peds.with_columns(pl.lit(None, dtype=pl.Float64).alias("radius_m"))
-    robot = robot.with_columns(pl.lit(0.0).alias("vel_linear"))
+    robot = robot.with_columns(pl.lit(0.0).alias("speed_mps"))
 
     results = calc.calculate(
         _episode(
@@ -197,11 +269,19 @@ def test_zone_extraction_skips_degenerate_polygons_and_reads_restricted_and_unse
     from arena_simulation_setup.tree.World import Level, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    sliver = Zone(name="sliver", polygon=[Position(0.0, 0.0), Position(1.0, 0.0)], semantics=[SemanticCfg(role="predicate", name="restricted", value=True)])
+    sliver = Zone(
+        name="sliver",
+        polygon=[Position(0.0, 0.0), Position(1.0, 0.0)],
+        semantics=[SemanticCfg(role="predicate", name="restricted", value=True)],
+    )
     vault = Zone(
         name="vault",
         polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0)],
-        semantics=[SemanticCfg(role="state", name="max_speed", value=None), SemanticCfg(role="predicate", name="restricted", value=True), SemanticCfg(role="state", name="occupancy", value=3.0)],
+        semantics=[
+            SemanticCfg(role="state", name="max_speed", value=None),
+            SemanticCfg(role="predicate", name="restricted", value=True),
+            SemanticCfg(role="state", name="occupancy", value=3.0),
+        ],
     )
 
     zones = _extract_zone_geometry(Level(zones=[sliver, vault]))
@@ -219,9 +299,15 @@ def test_zero_offset_keeps_the_door_list():
 
 
 def test_speed_violations_ignore_samples_outside_every_zone():
-    zones = [_ZoneGeometry(name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False)]
+    zones = [
+        _ZoneGeometry(
+            name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False
+        )
+    ]
 
-    violations, seconds = _speed_zone_metrics(np.array([-1, 0, -1]), np.array([5.0, 2.0, 5.0]), np.array([1.0, 1.0]), zones)
+    violations, seconds = _speed_zone_metrics(
+        np.array([-1, 0, -1]), np.array([5.0, 2.0, 5.0]), np.array([1.0, 1.0]), zones
+    )
 
     assert (violations, seconds) == (1, pytest.approx(1.0))
 
@@ -229,11 +315,21 @@ def test_speed_violations_ignore_samples_outside_every_zone():
 def test_members_only_snapshot_reconstructs_the_empty_members_seed():
     snapshot = snapshot_frame([(0, "env_0/lobby", "zone", "members", "members", "")])
 
-    assert _reconstruct_events(snapshot).rows() == [(0, "env_0/lobby", "zone", "members", "", "")]
+    assert _reconstruct_events(snapshot).rows() == [
+        (0, "env_0/lobby", "zone", "members", "", "")
+    ]
 
 
 def test_door_series_is_empty_without_door_state_events():
-    events = pl.DataFrame({"t_ns": [0], "entity": ["env_0/elevator_1"], "kind": ["elevator"], "field": ["state"], "current": ["open"]})
+    events = pl.DataFrame(
+        {
+            "t_ns": [0],
+            "entity": ["env_0/elevator_1"],
+            "kind": ["elevator"],
+            "field": ["state"],
+            "current": ["open"],
+        }
+    )
 
     assert _door_open_series(events) == {}
 
@@ -242,27 +338,35 @@ def _snapshot(entity: str, state: str) -> pl.DataFrame:
     return snapshot_frame([(0, entity, "door", "state", "discrete", state)])
 
 
-def _door_episode(xs: list[float], ys: list[float], vel: list[float], snapshot: pl.DataFrame | None) -> AlignedEpisodeBundle:
+def _door_episode(
+    xs: list[float], ys: list[float], vel: list[float], snapshot: pl.DataFrame | None
+) -> AlignedEpisodeBundle:
     n = len(xs)
     data = pl.DataFrame(
         {
             "t_ns": [i * SEC for i in range(n)],
-            "pos_x": xs,
-            "pos_y": ys,
+            "x": xs,
+            "y": ys,
             "yaw": [0.0] * n,
-            "vel_linear": vel,
-            "pos_x_gt": xs,
-            "pos_y_gt": ys,
-            "yaw_gt": [0.0] * n,
+            "speed_mps": vel,
         }
     )
-    return AlignedEpisodeBundle(1, data, [xs[0], ys[0], 0.0], [], semantic_snapshot=snapshot)
+    return AlignedEpisodeBundle(
+        1, data, [xs[0], ys[0], 0.0], [], semantic_snapshot=snapshot
+    )
 
 
 def _blocking(episode: AlignedEpisodeBundle, doors: list[_DoorGeometry]) -> float:
     calc = _calc()
     pos_x, pos_y, _, _, _, _ = calc.resolve_robot_pose(episode)
-    return calc._doorway_blocking_time(episode, pos_x, pos_y, np.abs(episode.data["vel_linear"].to_numpy()), episode.data["t_ns"].to_numpy(), doors)
+    return calc._doorway_blocking_time(
+        episode,
+        pos_x,
+        pos_y,
+        np.abs(episode.data["speed_mps"].to_numpy()),
+        episode.data["t_ns"].to_numpy(),
+        doors,
+    )
 
 
 def test_doorway_blocking_needs_two_samples():
@@ -272,14 +376,25 @@ def test_doorway_blocking_needs_two_samples():
 
 
 def test_doorway_blocking_checks_every_door_and_counts_an_interval_once():
-    episode = _door_episode([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], _snapshot("env_0/door_1", "open"))
-    doors = [_DoorGeometry("far_door", 10.0, 10.0, 1.0), _DoorGeometry("door_1", 0.0, 0.0, 1.0), _DoorGeometry("door_1", 0.5, 0.0, 1.0)]
+    episode = _door_episode(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        _snapshot("env_0/door_1", "open"),
+    )
+    doors = [
+        _DoorGeometry("far_door", 10.0, 10.0, 1.0),
+        _DoorGeometry("door_1", 0.0, 0.0, 1.0),
+        _DoorGeometry("door_1", 0.5, 0.0, 1.0),
+    ]
 
     assert _blocking(episode, doors) == pytest.approx(2.0)
 
 
 def test_doorway_blocking_ignores_open_doors_out_of_reach():
-    episode = _door_episode([5.0, 5.0], [0.0, 0.0], [0.0, 0.0], _snapshot("env_0/door_1", "open"))
+    episode = _door_episode(
+        [5.0, 5.0], [0.0, 0.0], [0.0, 0.0], _snapshot("env_0/door_1", "open")
+    )
 
     assert _blocking(episode, [_DoorGeometry("door_1", 0.0, 0.0, 1.0)]) == 0.0
 
@@ -288,7 +403,9 @@ def test_cached_world_without_velocity_column_leaves_zone_metrics_unset():
     calc = _calc()
     calc.world = "compliance_test_world"
     calc._world_cache["compliance_test_world"] = ([], [])
-    data = pl.DataFrame({"t_ns": [0, SEC], "pos_x": [0.0, 1.0], "pos_y": [0.0, 0.0], "yaw": [0.0, 0.0], "pos_x_gt": [0.0, 1.0], "pos_y_gt": [0.0, 0.0], "yaw_gt": [0.0, 0.0]})
+    data = pl.DataFrame(
+        {"t_ns": [0, SEC], "x": [0.0, 1.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
+    )
 
     res = calc.calculate(AlignedEpisodeBundle(1, data, [0.0, 0.0, 0.0], []), {})
 
@@ -301,16 +418,19 @@ def test_world_is_loaded_from_the_shipped_assets_once_and_cached():
     data = pl.DataFrame(
         {
             "t_ns": [0, SEC, 2 * SEC],
-            "pos_x": [15.0, 15.0, 15.0],
-            "pos_y": [0.2, 0.2, 0.2],
+            "x": [15.0, 15.0, 15.0],
+            "y": [0.2, 0.2, 0.2],
             "yaw": [0.0] * 3,
-            "vel_linear": [0.0] * 3,
-            "pos_x_gt": [15.0, 15.0, 15.0],
-            "pos_y_gt": [0.2, 0.2, 0.2],
-            "yaw_gt": [0.0] * 3,
+            "speed_mps": [0.0] * 3,
         }
     )
-    episode = AlignedEpisodeBundle(1, data, [15.0, 0.2, 0.0], [], semantic_snapshot=_snapshot("env_0/south_door", "open"))
+    episode = AlignedEpisodeBundle(
+        1,
+        data,
+        [15.0, 0.2, 0.0],
+        [],
+        semantic_snapshot=_snapshot("env_0/south_door", "open"),
+    )
 
     res = calc.calculate(episode, {})
     loaded = calc._world_cache["map_empty"]
@@ -330,6 +450,10 @@ def test_world_is_loaded_from_the_shipped_assets_once_and_cached():
 def test_multi_level_world_flattens_each_level_door_to_its_own_place():
     _, doors = _calc()._load_world("three_storied_residential")
 
-    edges = {d.name: (d.center_x, d.center_y) for d in doors if d.name.startswith("door_edge_")}
+    edges = {
+        d.name: (d.center_x, d.center_y)
+        for d in doors
+        if d.name.startswith("door_edge_")
+    }
     assert set(edges) == {"door_edge_1_1", "door_edge_2_1", "door_edge_3_1"}
     assert len(set(edges.values())) == 3

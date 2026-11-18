@@ -163,7 +163,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
     NAME = "pedestrian_disturbance"
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
-    REQUIRED_TOPICS = ["pedestrian_tracks"]
+    REQUIRED_TOPICS = ["pedestrian_arena_peds"]
 
     OUTPUTS = (PED_PATH_DEFLECTION_M, PED_VELOCITY_DELAY_RATIO)
     PRIMARY_OUTPUTS = ["ped_path_deflection_m"]

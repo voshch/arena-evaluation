@@ -24,19 +24,34 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-ELEVATOR_RIDES = define_metric(
-    "elevator_rides",
+ELEVATOR_RIDES_ANYONE = define_metric(
+    "elevator_rides_anyone",
     pl.Int64,
-    scopes=(MetricScope.EPISODE, MetricScope.ROBOT),
-    description="Elevator rides: arrivals of a cabin with occupants aboard, counted for anyone at episode scope and for the robot itself at robot scope.",
+    scopes=(MetricScope.EPISODE,),
+    description="Elevator rides: arrivals of a cabin with occupants aboard, counted for anyone of the environment.",
     null_reason=True,
 )
-TIME_WAITING_AT_DOORS = define_metric(
-    "time_waiting_at_doors",
+ELEVATOR_RIDES_ROBOT = define_metric(
+    "elevator_rides_robot",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Elevator rides with the robot itself in the cabin members within 3 s of the arrival.",
+    null_reason=True,
+)
+TIME_WAITING_AT_DOORS_ANYONE = define_metric(
+    "time_waiting_at_doors_anyone",
     pl.Float64,
-    scopes=(MetricScope.EPISODE, MetricScope.ROBOT),
+    scopes=(MetricScope.EPISODE,),
     unit="s",
-    description="Seconds a door is triggered and not open: while anyone waits at episode scope, while the robot itself waits at robot scope.",
+    description="Seconds a door is triggered and not open while anyone waits.",
+    null_reason=True,
+)
+TIME_WAITING_AT_DOORS_ROBOT = define_metric(
+    "time_waiting_at_doors_robot",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Seconds a door is triggered and not open while the robot itself is a door member.",
     null_reason=True,
 )
 
@@ -50,16 +65,29 @@ def _members_recorded(events: pl.DataFrame, kind: str) -> bool:
 
 
 class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
-    """Door waiting and elevator rides: anyone aboard at episode scope, the robot itself at robot scope."""
+    """Door waiting and elevator rides, with one name for anyone and one for the robot itself."""
 
     NAME = "semantic_interaction_metrics"
     CATEGORY = "ecological"
     REQUIRED_TOPICS = ["world_semantics"]
     PARAMS = ()
 
-    OUTPUTS = (TIME_WAITING_AT_DOORS, ELEVATOR_RIDES)
-    DIRECTIONS = {"time_waiting_at_doors": Direction.LOWER}
-    PRIMARY_OUTPUTS = ["time_waiting_at_doors", "elevator_rides"]
+    OUTPUTS = (
+        TIME_WAITING_AT_DOORS_ANYONE,
+        TIME_WAITING_AT_DOORS_ROBOT,
+        ELEVATOR_RIDES_ANYONE,
+        ELEVATOR_RIDES_ROBOT,
+    )
+    DIRECTIONS = {
+        "time_waiting_at_doors_anyone": Direction.LOWER,
+        "time_waiting_at_doors_robot": Direction.LOWER,
+    }
+    PRIMARY_OUTPUTS = [
+        "time_waiting_at_doors_anyone",
+        "time_waiting_at_doors_robot",
+        "elevator_rides_anyone",
+        "elevator_rides_robot",
+    ]
 
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
@@ -67,15 +95,18 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
         """Episode scope: door waiting and rides by anyone aboard; NULL when no semantic snapshot was recorded."""
         del prior_results
         if episode.semantic_snapshot is None:
-            return dict.fromkeys(self.output_keys())
+            return {
+                "time_waiting_at_doors_anyone": None,
+                "elevator_rides_anyone": None,
+            }
         events = _reconstruct_events(
             robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
         )
         return {
-            "time_waiting_at_doors": self._time_waiting_at_doors(
+            "time_waiting_at_doors_anyone": self._time_waiting_at_doors(
                 events, episode_end_t_ns(episode), None
             ),
-            "elevator_rides": self._elevator_rides(events),
+            "elevator_rides_anyone": self._elevator_rides(events),
         }
 
     def calculate_for_scope(
@@ -88,7 +119,10 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
             return self.calculate(episode, prior_results)
         identity = RobotIdentity(episode.robot_name) if episode.robot_name else None
         if episode.semantic_snapshot is None or identity is None:
-            return dict.fromkeys(self.output_keys())
+            return {
+                "time_waiting_at_doors_robot": None,
+                "elevator_rides_robot": None,
+            }
         events = _reconstruct_events(
             robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
         )
@@ -102,12 +136,12 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
             anyone_rides == 0 or _members_recorded(events, "elevator")
         )
         return {
-            "time_waiting_at_doors": self._time_waiting_at_doors(
+            "time_waiting_at_doors_robot": self._time_waiting_at_doors(
                 events, end_t_ns, identity
             )
             if robot_waiting_defined
             else None,
-            "elevator_rides": self._elevator_rides_robot(events, identity)
+            "elevator_rides_robot": self._elevator_rides_robot(events, identity)
             if robot_rides_defined
             else None,
         }

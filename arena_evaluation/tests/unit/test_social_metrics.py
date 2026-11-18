@@ -33,7 +33,9 @@ EMPTY_EPISODE = AlignedEpisodeBundle(
 
 
 def _calc(cls):
-    return cls(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
+    return cls(
+        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
+    )
 
 
 def test_proxemics_no_peds():
@@ -123,7 +125,7 @@ def _window_bundle(*, ped_x_m: float, count: int = 3) -> AlignedEpisodeBundle:
         data=pl.DataFrame(),
         start_pos=[],
         goal_pos=[],
-        topics={"robot_tracks": robot, "pedestrian_tracks": peds},
+        topics={"robot_tracks": robot, "pedestrian_arena_peds": peds},
     )
 
 
@@ -203,7 +205,7 @@ def test_velocity_delay_ratio_uses_the_recorded_desired_speed():
         data=pl.DataFrame(),
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[1.0, 0.0, 0.0],
-        topics={"pedestrian_tracks": frame},
+        topics={"pedestrian_arena_peds": frame},
     )
 
     results = _calc(PedestrianDisturbanceCalculator).calculate(episode, {})
@@ -220,7 +222,7 @@ def test_a_pedestrian_without_recorded_twist_has_no_first_velocity_sample():
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[1.0, 0.0, 0.0],
         topics={
-            "pedestrian_tracks": pl.DataFrame(
+            "pedestrian_arena_peds": pl.DataFrame(
                 {
                     "ped_id": ["Pedestrian_1"] * 4,
                     "ped_name": ["Pedestrian_1"] * 4,

@@ -97,9 +97,9 @@ class SeriesAcousticExposure(
         unit="m",
         description="Pedestrian y position in the world frame at the sample.",
     )
-    is_worst_frame = Column(
+    is_episode_worst_frame = Column(
         pl.Boolean,
-        description="Whether this sample is the episode's loudest exposure frame.",
+        description="Whether this sample is the episode-global loudest exposure frame.",
     )
     open_doors = Column(
         pl.String,

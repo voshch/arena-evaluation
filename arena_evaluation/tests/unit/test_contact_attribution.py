@@ -16,7 +16,7 @@ import pytest
 from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.safety import ContactAttributionCalculator
 from arena_evaluation.processing.metrics.safety.contact_attribution import (
-    COLLISION_CONTACTS_TOPIC,
+    ROBOT_COLLISION_CONTACTS_TOPIC,
     CONTACT_MERGE_GAP_S,
     ContactAttributionRecord,
     ContactContext,
@@ -153,9 +153,9 @@ def _scene(
     }
     if ped is not None:
         ped_id, ped_x, ped_vx = ped
-        topics["pedestrian_tracks"] = _pedestrian_tracks(ped_id, t_s, ped_x, ped_vx)
+        topics["pedestrian_arena_peds"] = _pedestrian_tracks(ped_id, t_s, ped_x, ped_vx)
     if contacts is not None:
-        topics[COLLISION_CONTACTS_TOPIC] = pl.DataFrame(
+        topics[ROBOT_COLLISION_CONTACTS_TOPIC] = pl.DataFrame(
             contacts, schema=_CONTACT_SCHEMA
         )
     return _episode(topics)
@@ -353,7 +353,9 @@ def test_golden_6_empty_recorded_collision_stream_is_zero_contacts_and_absent_is
     assert recorded_empty["contact_count"] == 0
     assert "contact_count_null_reason" not in recorded_empty
     assert absent["contact_count"] is None
-    assert absent["contact_count_null_reason"] == "topic_missing:collision_contacts"
+    assert (
+        absent["contact_count_null_reason"] == "topic_missing:robot_collision_contacts"
+    )
 
 
 # --- scalar helpers and output contract ---------------------------------------
@@ -501,7 +503,7 @@ def test_a_wall_without_a_position_has_no_closing_speed() -> None:
             "robot_tracks": _robot_tracks(
                 t_s, t_s, np.zeros_like(t_s), np.ones_like(t_s), np.zeros_like(t_s)
             ),
-            "collision_events": events,
+            "robot_collision_events": events,
         }
     )
 
@@ -573,7 +575,7 @@ def test_episode_contact_counts_are_all_null_without_robot_tracks() -> None:
     zeros = np.zeros_like(t_s)
     episode = _episode(
         {
-            "pedestrian_tracks": _pedestrian_tracks(
+            "pedestrian_arena_peds": _pedestrian_tracks(
                 "Pedestrian_1", t_s, np.full_like(t_s, 2.0), zeros
             )
         }
@@ -604,8 +606,8 @@ def test_a_pedestrian_contact_without_a_recorded_radius_has_no_frozen_clearance(
     episode = _episode(
         {
             "robot_tracks": _robot_tracks(t_s, t_s, zeros, np.ones_like(t_s), zeros),
-            "pedestrian_tracks": peds,
-            COLLISION_CONTACTS_TOPIC: pl.DataFrame(
+            "pedestrian_arena_peds": peds,
+            ROBOT_COLLISION_CONTACTS_TOPIC: pl.DataFrame(
                 [_hit(SECOND_NS, "Pedestrian_5", 2.0)], schema=_CONTACT_SCHEMA
             ),
         }
@@ -636,7 +638,7 @@ def test_clearance_detection_refuses_a_pedestrian_without_a_recorded_radius() ->
     episode = _episode(
         {
             "robot_tracks": _robot_tracks(t_s, t_s, zeros, np.ones_like(t_s), zeros),
-            "pedestrian_tracks": peds,
+            "pedestrian_arena_peds": peds,
         }
     )
 
@@ -759,10 +761,10 @@ def test_a_contact_after_the_pedestrian_track_has_no_target_speed() -> None:
     episode = _episode(
         {
             "robot_tracks": _robot_tracks(t_s, zeros, zeros, zeros, zeros),
-            "pedestrian_tracks": _pedestrian_tracks(
+            "pedestrian_arena_peds": _pedestrian_tracks(
                 "Pedestrian_1", t_s[:10], np.full(10, 0.45), np.zeros(10)
             ),
-            COLLISION_CONTACTS_TOPIC: pl.DataFrame(
+            ROBOT_COLLISION_CONTACTS_TOPIC: pl.DataFrame(
                 [_hit(2 * SECOND_NS, "Pedestrian_1", 0.45)], schema=_CONTACT_SCHEMA
             ),
         }
@@ -788,7 +790,7 @@ def test_bumper_events_read_wall_and_static_counts() -> None:
     episode = _episode(
         {
             "robot_tracks": _robot_tracks(t_s, zeros, zeros, zeros, zeros),
-            "collision_events": events,
+            "robot_collision_events": events,
         }
     )
 

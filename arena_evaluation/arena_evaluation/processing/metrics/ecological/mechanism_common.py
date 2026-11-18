@@ -500,9 +500,9 @@ def robot_track(
     t_ns = frame["t_ns"].to_numpy().astype(np.int64)
     try:
         # A missing speed stays unknown: it is never promoted to 0 m/s (a measured standstill).
-        speed = np.abs(frame["vel_linear"].to_numpy().astype(np.float64))
+        speed = np.abs(frame["speed_mps"].to_numpy().astype(np.float64))
     except pl.exceptions.ColumnNotFoundError:
-        # Registry parquet always supplies vel_linear; only hand-built pose-only test bundles hit this fallback.
+        # Registry parquet always supplies speed_mps; only hand-built pose-only test bundles hit this fallback.
         speed = calc.speed_from_pose(pos_x, pos_y, t_ns)
     return RobotTrack(
         t_ns,

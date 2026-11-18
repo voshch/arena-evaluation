@@ -140,7 +140,7 @@ def _write_episode_telemetry(
                 "drivetrain_level_dba": [55.0, 65.0],
                 "operating_state": ["moving", "moving"],
                 "calibration_status": ["ok", "ok"],
-                "uncertainty_dba": [1.0, 1.0],
+                "uncertainty_1sigma_dba": [1.0, 1.0],
                 "validity_flags": [0, 0],
             }
         ).write_parquet(topics / "robot_acoustics.parquet")

@@ -106,14 +106,18 @@ cabin, ride arrival = cabin entry within 3 s of being in another cabin or across
 | `door_freeze_s` | s | robot stationary within a door's activation radius while the door is steady (`open`/`closed`) |
 | `door_oscillations` | count | door re-openings after the first within one robot visit of its activation radius |
 | `ran_red_signal` | count | robot entries into the signal's disc while `stop`: preset params `position`/`radius`, else the same-named door |
-| `time_waiting_at_doors` | s | seconds a door is `triggered` and not `open` while anyone waits (episode scope); at robot scope while the robot is a door member (NULL when members are never recorded and anyone waited) |
-| `elevator_rides` | count | `just_arrived` rises with occupants aboard (episode scope); at robot scope with the robot in the cabin members within 3 s |
-| `used_elevator_during_alarm` | count | alarm windows overlapped by elevator occupancy (episode scope); at robot scope by the robot being an elevator member (NULL when no elevator reports members) |
+| `time_waiting_at_doors_anyone` | s | seconds a door is `triggered` and not `open` while anyone waits (episode scope) |
+| `time_waiting_at_doors_robot` | s | seconds a door is `triggered` and not `open` while the robot is a door member (NULL when members are never recorded and anyone waited) |
+| `elevator_rides_anyone` | count | `just_arrived` rises with occupants aboard (episode scope) |
+| `elevator_rides_robot` | count | `just_arrived` rises with the robot in the cabin members within 3 s |
+| `used_elevator_during_alarm_anyone` | count | alarm windows overlapped by elevator occupancy (episode scope) |
+| `used_elevator_during_alarm_robot` | count | alarm windows overlapped by the robot being an elevator member (NULL when no elevator reports members) |
 | `mechanism_states` | list | per door and elevator: `progress` (0 closed, 1 open) and `locked` at every sample of `time`, the trajectory plot's animation input (`ecological/mechanism_states.py`) |
 
-Teleports that land within 2 s of an elevator arrival (`just_arrived` rising) or a stair crossing
-(`just_crossed` rising on a `stairs` or `escalator` entity) are rides and no longer cut the
-episode to its longest single-floor segment (`pose_segments.ride_arrival_times`).
+Every robot-scope calculation reads the aligned episode frame, which is the robot's native `/tf`
+track for the whole episode window (D3). A teleport therefore no longer cuts the track to its
+longest single-floor segment; the episode frame carries the recorded pose source
+(`robot_tracks.pose_source`, `tf_gt`).
 
 ### `mechanism` component
 
@@ -126,7 +130,7 @@ a "lower is better" value x maps to `1 / (1 + x / scale)` (0 -> 1, x == scale ->
 | Key | Direction | Scale |
 |---|---|---|
 | `condition_success` | higher | - |
-| `boarded_before_exit`, `elevator_missed_cycles`, `elevator_unnecessary_calls`, `entered_full_cabin`, `door_yield_violations`, `elevator_queue_jumps`, `door_oscillations`, `ran_red_signal`, `used_elevator_during_alarm`, `entered_over_cap_zone` | lower | 1 |
+| `boarded_before_exit`, `elevator_missed_cycles`, `elevator_unnecessary_calls`, `entered_full_cabin`, `door_yield_violations`, `elevator_queue_jumps`, `door_oscillations`, `ran_red_signal`, `used_elevator_during_alarm_robot`, `entered_over_cap_zone` | lower | 1 |
 | `blocked_closing_door_s`, `cabin_door_blocking_s` | lower | 5 s |
 | `alarm_egress_blocking_s`, `door_freeze_s` | lower | 10 s |
-| `ped_mechanism_delay_seconds`, `elevator_wait_to_board_s`, `time_waiting_at_doors` | lower | 30 s |
+| `ped_mechanism_delay_seconds`, `elevator_wait_to_board_s`, `time_waiting_at_doors_robot` | lower | 30 s |

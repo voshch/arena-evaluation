@@ -19,7 +19,11 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
@@ -37,14 +41,32 @@ def _aligned_values(t_ns: np.ndarray, frame: pl.DataFrame, column: str) -> np.nd
     """`frame[column]` reindexed onto the episode's sample times, NaN where the sample is absent."""
     if frame.height == 0:
         return np.full(len(t_ns), np.nan, dtype=np.float64)
-    values = frame.select(pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64)).drop_nulls("t_ns")
+    values = frame.select(
+        pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64)
+    ).drop_nulls("t_ns")
     values = values.unique(subset=["t_ns"], keep="last")
-    joined = pl.DataFrame({"t_ns": t_ns.astype(np.int64)}).join(values, on="t_ns", how="left")
+    joined = pl.DataFrame({"t_ns": t_ns.astype(np.int64)}).join(
+        values, on="t_ns", how="left"
+    )
     return joined.get_column(column).to_numpy().astype(np.float64, copy=False)
 
 
-AEPS_LINEAR_S = define_metric("aeps_linear_s", pl.Float64, scopes=(MetricScope.ROBOT,), unit="s", description="Acoustic exposure inside personal space: integral of the linear sound power over the frames whose nearest pedestrian stayed inside 1.2 m. Bounded below by the measured levels; no nominal 45 dBA floor is substituted, so an absent acoustic-exposure series gives NULL.", null_reason=True)
-E_COT = define_metric("e_cot", pl.Float64, scopes=(MetricScope.ROBOT,), unit=DIMENSIONLESS_UNIT, description="Effective cost of transport: specific cost of transport times (1 + 2 * collisions + 0.5 * personal-space intrusion integral / episode duration). NULL without a positive specific cost of transport.", null_reason=True)
+AEPS_LINEAR_S = define_metric(
+    "aeps_linear_s",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Acoustic exposure inside personal space: integral of the linear sound power over the frames whose nearest pedestrian stayed inside 1.2 m. Bounded below by the measured levels; no nominal 45 dBA floor is substituted, so an absent acoustic-exposure series gives NULL.",
+    null_reason=True,
+)
+E_COT = define_metric(
+    "e_cot",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit=DIMENSIONLESS_UNIT,
+    description="Effective cost of transport: specific cost of transport times (1 + 2 * collisions + 0.5 * personal-space intrusion integral / episode duration). NULL without a positive specific cost of transport.",
+    null_reason=True,
+)
 
 
 class HolisticMetricsCalculator(BaseMetricCalculator):
@@ -61,22 +83,30 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
         "acoustic_exposure",
     ]
     SERIES_DEPENDS_ON = ("acoustic_exposure", "proxemics_extended")
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
 
     OUTPUTS = (AEPS_LINEAR_S, E_COT)
     DIRECTIONS = {"aeps_linear_s": Direction.LOWER, "e_cot": Direction.LOWER}
     PRIMARY_OUTPUTS = ["e_cot"]
 
-    def _level_series(self, episode: AlignedEpisodeBundle, t_ns: np.ndarray) -> np.ndarray | None:
+    def _level_series(
+        self, episode: AlignedEpisodeBundle, t_ns: np.ndarray
+    ) -> np.ndarray | None:
         """Per-frame dBA: the loudest pedestrian exposure at each sample time from the published series."""
         frame = self.series_frame(episode, "acoustic_exposure")
         if frame is None:
             return None
-        per_frame = frame.group_by("t_ns").agg(pl.col("exposure_dba").max().alias("level_dba")).sort("t_ns")
+        per_frame = (
+            frame.group_by("t_ns")
+            .agg(pl.col("exposure_dba").max().alias("level_dba"))
+            .sort("t_ns")
+        )
         levels = _aligned_values(t_ns, per_frame, "level_dba")
         return levels if np.isfinite(levels).any() else None
 
-    def _clearance_series(self, episode: AlignedEpisodeBundle, t_ns: np.ndarray) -> np.ndarray | None:
+    def _clearance_series(
+        self, episode: AlignedEpisodeBundle, t_ns: np.ndarray
+    ) -> np.ndarray | None:
         """Per-frame nearest-pedestrian clearance from the published proxemics-extended series."""
         frame = self.series_frame(episode, "proxemics_extended")
         if frame is None:
@@ -102,7 +132,11 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
             return None
         step_s = np.diff(t_ns, prepend=t_ns[0]) / 1e9
         step_s[step_s < 0.0] = 0.0
-        intruded = (clearance < PERSONAL_SPACE_CLEARANCE_M) & np.isfinite(levels) & np.isfinite(clearance)
+        intruded = (
+            (clearance < PERSONAL_SPACE_CLEARANCE_M)
+            & np.isfinite(levels)
+            & np.isfinite(clearance)
+        )
         if not np.any(intruded):
             return 0.0
         return float(np.sum(np.power(10.0, levels[intruded] / 10.0) * step_s[intruded]))
@@ -116,12 +150,19 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
         collisions = prior_results.get("collision_amount")
         intrusion_integral = prior_results.get("personal_space_intrusion_integral")
         time_to_goal = prior_results.get("time_to_goal")
-        if cost_of_transport is None or collisions is None or intrusion_integral is None or time_to_goal is None:
+        if (
+            cost_of_transport is None
+            or collisions is None
+            or intrusion_integral is None
+            or time_to_goal is None
+        ):
             return None
         if float(cost_of_transport) <= 0.0 or float(time_to_goal) <= 0.0:
             return None
         value = float(cost_of_transport) * (
-            1.0 + COLLISION_PENALTY * int(collisions) + INTRUSION_WEIGHT * float(intrusion_integral) / float(time_to_goal)
+            1.0
+            + COLLISION_PENALTY * int(collisions)
+            + INTRUSION_WEIGHT * float(intrusion_integral) / float(time_to_goal)
         )
         return round(value, COT_DECIMALS)
 
@@ -136,7 +177,9 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
             "e_cot": self._effective_cost_of_transport(prior_results),
         }
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         """Compute the episode-scope holistic metrics over the bundle's own samples."""
         return self._episode_metrics(episode, prior_results)
 

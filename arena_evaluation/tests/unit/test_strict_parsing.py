@@ -15,7 +15,7 @@ from arena_evaluation.storage.exceptions import ContractViolationError, MetricIn
 
 def _episode_without_event_count() -> types.SimpleNamespace:
     return types.SimpleNamespace(
-        topics={"collision_events": pl.DataFrame({"t_ns": [0]})}
+        topics={"robot_collision_events": pl.DataFrame({"t_ns": [0]})}
     )
 
 

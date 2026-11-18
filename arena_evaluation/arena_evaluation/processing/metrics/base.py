@@ -11,7 +11,6 @@ import numpy as np
 import polars as pl
 
 from ...storage.registry import Metric, MetricScope
-from ..pose_segments import consistent_segment, ride_arrival_times
 from .common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_values, interpolate_values
 
 if typing.TYPE_CHECKING:
@@ -62,28 +61,6 @@ class ScopeExecutionOutcome(Mapping[str, typing.Any]):
         return len(self.results)
 
 
-def _anchored_odometry(
-    xs: np.ndarray,
-    ys: np.ndarray,
-    yaws: np.ndarray,
-    origin: tuple[float, float, float],
-    start_pos: list[float] | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Odometry turned and moved so that its first sample sits at the episode's start pose; unchanged without one."""
-    if not start_pos or len(start_pos) < 2 or len(xs) == 0:
-        return xs, ys, yaws
-    start_yaw = start_pos[2] if len(start_pos) >= 3 else 0.0
-    origin_x, origin_y, origin_yaw = origin
-    theta = start_yaw - origin_yaw
-    cos_t, sin_t = np.cos(theta), np.sin(theta)
-    dx = xs - origin_x
-    dy = ys - origin_y
-    x = start_pos[0] + dx * cos_t - dy * sin_t
-    y = start_pos[1] + dx * sin_t + dy * cos_t
-    yaw = (yaws + theta + np.pi) % (2 * np.pi) - np.pi
-    return x, y, yaw
-
-
 class BaseMetricCalculator(ABC):
     """Abstract Base Class for all metric calculators."""
 
@@ -100,7 +77,9 @@ class BaseMetricCalculator(ABC):
     # Better side of each output that has one; an output absent here has none.
     DIRECTIONS: typing.ClassVar[Mapping[str, Direction]] = MappingProxyType({})
     # Scopes at which this calculator publishes a metric; absent names use the metric's own scopes.
-    OUTPUT_SCOPES: typing.ClassVar[Mapping[str, tuple[MetricScope, ...]]] = MappingProxyType({})
+    OUTPUT_SCOPES: typing.ClassVar[Mapping[str, tuple[MetricScope, ...]]] = (
+        MappingProxyType({})
+    )
     # Table-valued results (replay phases, collision records, edge-case rows); not metric columns.
     CHILD_OUTPUTS: typing.ClassVar[tuple[str, ...]] = ()
     PRIMARY_OUTPUTS: list[str] = []
@@ -122,7 +101,9 @@ class BaseMetricCalculator(ABC):
     @classmethod
     def effective_scopes(cls) -> frozenset[MetricScope]:
         """All evaluation scopes in which this calculator is registered."""
-        return frozenset(scope for metric in cls.OUTPUTS for scope in cls.scopes_of_output(metric))
+        return frozenset(
+            scope for metric in cls.OUTPUTS for scope in cls.scopes_of_output(metric)
+        )
 
     @classmethod
     def scopes_of_output(cls, metric: Metric) -> tuple[MetricScope, ...]:
@@ -130,7 +111,9 @@ class BaseMetricCalculator(ABC):
         return cls.OUTPUT_SCOPES.get(metric.name, metric.scopes)
 
     @classmethod
-    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(
+        cls, scope: MetricScope
+    ) -> tuple[str | tuple[str, ...], ...]:
         """Required topic names (or topic alternatives) for executing in `scope`."""
         del scope
         normalized: list[str | tuple[str, ...]] = []
@@ -144,85 +127,67 @@ class BaseMetricCalculator(ABC):
     @classmethod
     def output_keys_for_scope(cls, scope: MetricScope) -> tuple[str, ...]:
         """Names of the metrics this calculator publishes at `scope`."""
-        return tuple(metric.name for metric in cls.OUTPUTS if scope in cls.scopes_of_output(metric))
-
-    def _consistent_ground_truth(self, episode: AlignedEpisodeBundle) -> tuple[pl.DataFrame, int, int] | None:
-        """Ground-truth rows and the bounds of the longest teleport-free segment, None when no sample is usable."""
-        if episode.data is None or "pos_x_gt" not in episode.data.columns:  # agent-contracts: ignore optional stream: a recording without a ground-truth track has no pos_x_gt column
-            return None
-        frame = episode.data.filter(pl.col("pos_x_gt").is_not_null() & ~pl.col("pos_x_gt").is_nan() & pl.col("pos_y_gt").is_not_null() & ~pl.col("pos_y_gt").is_nan() & pl.col("yaw_gt").is_not_null() & ~pl.col("yaw_gt").is_nan())
-        if len(frame) == 0:
-            return None
-        start, end = consistent_segment(
-            frame["pos_x_gt"].to_numpy().copy(),
-            frame["pos_y_gt"].to_numpy().copy(),
-            frame["t_ns"].to_numpy(),
-            self._ride_arrivals(episode),
+        return tuple(
+            metric.name
+            for metric in cls.OUTPUTS
+            if scope in cls.scopes_of_output(metric)
         )
-        return frame, start, end
+
+    def _ground_truth_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
+        """The aligned native /tf rows with a finite pose, None when no sample is usable."""
+        if (
+            episode.data is None or not {"x", "y", "yaw"} <= set(episode.data.columns)
+        ):  # agent-contracts: ignore optional stream: a recording without a ground-truth track carries none of x, y or yaw
+            return None
+        frame = episode.data.filter(
+            pl.col("x").is_not_null()
+            & ~pl.col("x").is_nan()
+            & pl.col("y").is_not_null()
+            & ~pl.col("y").is_nan()
+            & pl.col("yaw").is_not_null()
+            & ~pl.col("yaw").is_nan()
+        )
+        return None if len(frame) == 0 else frame
 
     def resolve_robot_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
-        """The teleport-free ground-truth piece of the episode, sliced consistently with resolve_robot_pose."""
-        resolved = self._consistent_ground_truth(episode)
-        if resolved is None:
-            return None
-        frame, start, end = resolved
-        return frame.slice(start, end - start)
+        """The aligned native /tf rows with a finite pose, the one track every robot-scope metric reads."""
+        return self._ground_truth_frame(episode)
 
-    def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Map-frame ground-truth pose (pos_x, pos_y, yaw) of the longest teleport-free piece of the track.
+    def resolve_robot_pose(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Map-frame native /tf pose (x, y, yaw) of the episode.
 
-        The second triple is the odometry of the same piece, anchored to the episode start: an estimate for drift only.
-        Without ground truth both are empty, because odometry never stands in for the trajectory.
+        There is one pose source: the robot's native /tf track. The trailing estimate triple is
+        empty, because the aligned frame carries no wheel odometry and odometry never stands in
+        for the trajectory (D3).
         """
         empty = np.array([], dtype=np.float64)
-        resolved = self._consistent_ground_truth(episode)
-        if resolved is None:
+        frame = self._ground_truth_frame(episode)
+        if frame is None:
             return empty, empty, empty, empty, empty, empty
-        df, start, end = resolved
-
-        track_x = df["pos_x_gt"].to_numpy().copy()
-        track_y = df["pos_y_gt"].to_numpy().copy()
-        track_yaw = df["yaw_gt"].to_numpy().copy()
-        has_odometry = "pos_x" in df.columns and "yaw" in df.columns  # agent-contracts: ignore optional stream: wheel odometry is missing from some recordings and is never a pose source
-        odom_x = df["pos_x"].to_numpy().astype(np.float64) if has_odometry else empty
-        odom_y = df["pos_y"].to_numpy().astype(np.float64) if has_odometry else empty
-        odom_yaw = df["yaw"].to_numpy().astype(np.float64) if has_odometry else empty
-        odometry_origin = (odom_x[0], odom_y[0], odom_yaw[0]) if has_odometry and len(odom_x) > 0 else (0.0, 0.0, 0.0)
-
-        odom_x_trans, odom_y_trans, odom_yaw_trans = _anchored_odometry(
-            odom_x[start:end],
-            odom_y[start:end],
-            odom_yaw[start:end],
-            odometry_origin,
-            episode.start_pos,
-        )
         return (
-            track_x[start:end],
-            track_y[start:end],
-            track_yaw[start:end],
-            odom_x_trans,
-            odom_y_trans,
-            odom_yaw_trans,
+            frame["x"].to_numpy().copy(),
+            frame["y"].to_numpy().copy(),
+            frame["yaw"].to_numpy().copy(),
+            empty,
+            empty,
+            empty,
         )
 
-    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame | None:
+    def series_table(
+        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
+    ) -> pl.DataFrame | None:
         """1NF long-format series this calculator publishes, None when it publishes none."""
         return None
-
-    @staticmethod
-    def _ride_arrivals(episode: AlignedEpisodeBundle) -> np.ndarray:
-        """Elevator arrival and stair crossing log times of the robot's env, the teleports that are rides."""
-        # Local on purpose: ecological.mechanism_common imports this module, so a top-level import would cycle.
-        from .ecological.mechanism_common import robot_env_snapshot
-
-        return ride_arrival_times(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
 
     def native_topics(self, episode: AlignedEpisodeBundle) -> dict:
         """Raw native-rate topic frames keyed by topic name; {} when absent."""
         return episode.topics if isinstance(episode.topics, dict) else {}
 
-    def series_frame(self, episode: AlignedEpisodeBundle, stem: str) -> pl.DataFrame | None:
+    def series_frame(
+        self, episode: AlignedEpisodeBundle, stem: str
+    ) -> pl.DataFrame | None:
         """The episode's published 1NF series frame for `stem`, None when it is absent or empty."""
         frame = episode.series.get(stem)
         if frame is None or frame.height == 0:
@@ -238,8 +203,10 @@ class BaseMetricCalculator(ABC):
         del episode
         return {}
 
-    def resolve_native_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Ground-truth robot pose on the native clock: (pos_x, pos_y, yaw, t_ns) float64 arrays, empty without ground truth.
+    def resolve_native_pose(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Ground-truth robot pose on the native clock: (x, y, yaw, t_ns) float64 arrays, empty without ground truth.
 
         The robot's /tf track is the only trajectory source; wheel odometry never stands in for it.
         """
@@ -257,7 +224,7 @@ class BaseMetricCalculator(ABC):
 
     def native_ped_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
         """The robot's pedestrians as flat rows, one per pedestrian per frame, sorted by t_ns; None when absent."""
-        peds = self.native_topics(episode).get("pedestrian_tracks")
+        peds = self.native_topics(episode).get("pedestrian_arena_peds")
         if peds is None:
             return None
         return peds.sort("t_ns")
@@ -265,8 +232,8 @@ class BaseMetricCalculator(ABC):
     def pose_at_times(
         self,
         times_ns: np.ndarray,
-        pos_x: np.ndarray,
-        pos_y: np.ndarray,
+        x: np.ndarray,
+        y: np.ndarray,
         yaw: np.ndarray,
         t_ns: np.ndarray,
         tolerance_ns: int | None = TRACK_ALIGN_TOLERANCE_NS,
@@ -282,8 +249,8 @@ class BaseMetricCalculator(ABC):
 
         order = np.argsort(t_ns)
         t_sorted = t_ns[order]
-        x_sorted = np.asarray(pos_x, dtype=np.float64)[order]
-        y_sorted = np.asarray(pos_y, dtype=np.float64)[order]
+        x_sorted = np.asarray(x, dtype=np.float64)[order]
+        y_sorted = np.asarray(y, dtype=np.float64)[order]
         yaw_sorted = np.asarray(yaw, dtype=np.float64)[order]
 
         if continuous or tolerance_ns is None:
@@ -319,27 +286,34 @@ class BaseMetricCalculator(ABC):
         return asof_values(t_sorted, v_sorted, query_times_ns, tolerance_ns)
 
     @staticmethod
-    def speed_from_pose(pos_x: np.ndarray, pos_y: np.ndarray, t_ns: np.ndarray) -> np.ndarray:
+    def speed_from_pose(x: np.ndarray, y: np.ndarray, t_ns: np.ndarray) -> np.ndarray:
         """GT speed (m/s) by finite-differencing GT positions; NaN where no step has a positive duration."""
-        n = len(pos_x)
+        n = len(x)
         speed = np.full(n, np.nan)
         if n < 2:
             return speed
         dt = np.diff(t_ns) / 1e9
-        speed[1:] = np.divide(np.hypot(np.diff(pos_x), np.diff(pos_y)), dt, out=np.full(n - 1, np.nan), where=dt > 0.0)
+        speed[1:] = np.divide(
+            np.hypot(np.diff(x), np.diff(y)),
+            dt,
+            out=np.full(n - 1, np.nan),
+            where=dt > 0.0,
+        )
         return speed
 
     @staticmethod
-    def velocity_from_pose(pos_x: np.ndarray, pos_y: np.ndarray, t_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def velocity_from_pose(
+        x: np.ndarray, y: np.ndarray, t_ns: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """GT velocity vector (m/s) by finite-differencing GT positions; NaN where no step has a positive duration."""
-        n = len(pos_x)
+        n = len(x)
         vx = np.full(n, np.nan)
         vy = np.full(n, np.nan)
         if n < 2:
             return vx, vy
         dt = np.diff(t_ns) / 1e9
-        vx[1:] = np.divide(np.diff(pos_x), dt, out=np.full(n - 1, np.nan), where=dt > 0.0)
-        vy[1:] = np.divide(np.diff(pos_y), dt, out=np.full(n - 1, np.nan), where=dt > 0.0)
+        vx[1:] = np.divide(np.diff(x), dt, out=np.full(n - 1, np.nan), where=dt > 0.0)
+        vy[1:] = np.divide(np.diff(y), dt, out=np.full(n - 1, np.nan), where=dt > 0.0)
         return vx, vy
 
     @classmethod
@@ -348,7 +322,9 @@ class BaseMetricCalculator(ABC):
         return [metric.name for metric in cls.OUTPUTS]
 
     @abstractmethod
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         """Calculate metrics for a single episode."""
         pass
 

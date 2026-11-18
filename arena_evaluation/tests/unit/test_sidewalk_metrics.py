@@ -5,8 +5,15 @@ import polars as pl
 import pytest
 import shapely
 from arena_evaluation.processing.metrics.common.caching import world_cache
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry
-from arena_evaluation.processing.metrics.performance.sidewalk_metrics import SidewalkMetricsCalculator, excursions, freezes, walkable_area
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
+    _ZoneGeometry,
+)
+from arena_evaluation.processing.metrics.performance.sidewalk_metrics import (
+    SidewalkMetricsCalculator,
+    excursions,
+    freezes,
+    walkable_area,
+)
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.storage.registry import MetricScope
@@ -22,7 +29,13 @@ NULLS = dict.fromkeys(SidewalkMetricsCalculator.output_keys())
 
 
 def _zone(name: str, x0: float, y0: float, x1: float, y1: float) -> _ZoneGeometry:
-    return _ZoneGeometry(name=name, polygon=shapely.box(x0, y0, x1, y1), max_speed=None, quiet=False, restricted=False)
+    return _ZoneGeometry(
+        name=name,
+        polygon=shapely.box(x0, y0, x1, y1),
+        max_speed=None,
+        quiet=False,
+        restricted=False,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -46,14 +59,32 @@ def _calc(world: str = WORLD) -> SidewalkMetricsCalculator:
     return calc
 
 
-def _episode(position, duration: float, collision_at: float | None = None, goal: list[float] | None = None) -> AlignedEpisodeBundle:
+def _episode(
+    position,
+    duration: float,
+    collision_at: float | None = None,
+    goal: list[float] | None = None,
+) -> AlignedEpisodeBundle:
     stamps = T0 + np.arange(0.0, duration + 1e-9, 1.0 / RATE_HZ)
     xy = np.array([position(t - T0) for t in stamps])
     time_ns = np.round(stamps * 1e9).astype(np.int64)
-    tracks = pl.DataFrame({"t_ns": time_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.zeros(len(stamps))})
-    hits = np.zeros(len(stamps), dtype=np.int64) if collision_at is None else (stamps - T0 >= collision_at).astype(np.int64)
+    tracks = pl.DataFrame(
+        {"t_ns": time_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.zeros(len(stamps))}
+    )
+    hits = (
+        np.zeros(len(stamps), dtype=np.int64)
+        if collision_at is None
+        else (stamps - T0 >= collision_at).astype(np.int64)
+    )
     collisions = pl.DataFrame({"t_ns": time_ns, "event_count": hits})
-    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0, 0.0], goal_pos=GOAL if goal is None else goal, map=WORLD, topics={"robot_tracks": tracks, "collision_events": collisions})
+    return AlignedEpisodeBundle(
+        episode_id=1,
+        data=pl.DataFrame(),
+        start_pos=[0.0, 0.0, 0.0],
+        goal_pos=GOAL if goal is None else goal,
+        map=WORLD,
+        topics={"robot_tracks": tracks, "robot_collision_events": collisions},
+    )
 
 
 def _lane(t: float) -> tuple[float, float]:
@@ -61,7 +92,18 @@ def _lane(t: float) -> tuple[float, float]:
 
 
 def _weave(t: float) -> tuple[float, float]:
-    knots = [(0, 0), (5, 0), (6, 3), (8, 3), (9, 0), (13, 0), (14, 3), (15, 3), (16, 0), (30, 0)]
+    knots = [
+        (0, 0),
+        (5, 0),
+        (6, 3),
+        (8, 3),
+        (9, 0),
+        (13, 0),
+        (14, 3),
+        (15, 3),
+        (16, 0),
+        (30, 0),
+    ]
     return t, float(np.interp(t, [k[0] for k in knots], [k[1] for k in knots]))
 
 
@@ -94,21 +136,27 @@ def test_leaving_the_sidewalk_twice_and_one_collision_count_three_failures():
     assert results["sidewalk_route_completion"] is False
     assert results["sidewalk_off_sidewalk"] is True
     assert results["sidewalk_freezes"] == 0
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(3 / path * 100.0, abs=1e-6)
+    assert results["sidewalk_failures_per_100m"] == pytest.approx(
+        3 / path * 100.0, abs=1e-6
+    )
     assert results["sidewalk_mean_speed"] == pytest.approx(path / 20.1, abs=1e-6)
 
 
 def test_off_sidewalk_alone_fails_the_route():
     results = _calc().calculate(_episode(_weave, 22.0), {})
     assert results["sidewalk_route_completion"] is False
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(2 / (20.1 - 4.0 + 4 * math.sqrt(10.0)) * 100.0, abs=1e-6)
+    assert results["sidewalk_failures_per_100m"] == pytest.approx(
+        2 / (20.1 - 4.0 + 4 * math.sqrt(10.0)) * 100.0, abs=1e-6
+    )
 
 
 def test_collision_alone_fails_the_route():
     results = _calc().calculate(_episode(_lane, 22.0, collision_at=7.0), {})
     assert results["sidewalk_route_completion"] is False
     assert results["sidewalk_off_sidewalk"] is False
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(1 / 20.1 * 100.0, abs=1e-6)
+    assert results["sidewalk_failures_per_100m"] == pytest.approx(
+        1 / 20.1 * 100.0, abs=1e-6
+    )
 
 
 def test_driving_through_the_road_zone_is_off_the_sidewalk():
@@ -124,18 +172,28 @@ def test_curb_is_not_walkable():
     def curb_walk(t: float) -> tuple[float, float]:
         return t, -2.5
 
-    assert _calc().calculate(_episode(curb_walk, 22.0, goal=[21.05, -2.5]), {})["sidewalk_off_sidewalk"] is True
+    assert (
+        _calc().calculate(_episode(curb_walk, 22.0, goal=[21.05, -2.5]), {})[
+            "sidewalk_off_sidewalk"
+        ]
+        is True
+    )
 
 
 def test_stop_longer_than_five_seconds_is_one_freeze():
     results = _calc().calculate(_episode(_stopping(5.0, 13.0), 30.0), {})
     assert results["sidewalk_freezes"] == 1
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(1 / 20.1 * 100.0, abs=1e-6)
+    assert results["sidewalk_failures_per_100m"] == pytest.approx(
+        1 / 20.1 * 100.0, abs=1e-6
+    )
     assert results["sidewalk_route_completion"] is True
 
 
 def test_stop_of_three_seconds_is_not_a_freeze():
-    assert _calc().calculate(_episode(_stopping(5.0, 8.0), 30.0), {})["sidewalk_freezes"] == 0
+    assert (
+        _calc().calculate(_episode(_stopping(5.0, 8.0), 30.0), {})["sidewalk_freezes"]
+        == 0
+    )
 
 
 def test_two_separate_stops_are_two_freezes():
@@ -193,11 +251,23 @@ def test_episode_without_goal_has_no_completion():
 
 def test_world_without_sidewalk_zones_yields_nulls():
     assert _calc(BARE).calculate(_episode(_lane, 22.0), {}) == NULLS
-    assert SidewalkMetricsCalculator(make_robot_params(model="jackal")).calculate(_episode(_lane, 22.0), {}) == NULLS
+    assert (
+        SidewalkMetricsCalculator(make_robot_params(model="jackal")).calculate(
+            _episode(_lane, 22.0), {}
+        )
+        == NULLS
+    )
 
 
 def test_missing_pose_yields_nulls():
-    episode = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=GOAL, map=WORLD, topics={})
+    episode = AlignedEpisodeBundle(
+        episode_id=1,
+        data=pl.DataFrame(),
+        start_pos=[],
+        goal_pos=GOAL,
+        map=WORLD,
+        topics={},
+    )
     assert _calc().calculate(episode, {}) == NULLS
 
 
@@ -207,10 +277,20 @@ def test_walkable_area_unions_sidewalk_and_crosswalk_pieces_only():
 
 
 def test_walkable_area_unions_a_self_touching_zone_ring():
-    pinched = shapely.Polygon([(0, 0), (4, 0), (4, 2), (2, 2), (2.0001, 1.9999), (2, 2), (0, 2)])
+    pinched = shapely.Polygon(
+        [(0, 0), (4, 0), (4, 2), (2, 2), (2.0001, 1.9999), (2, 2), (0, 2)]
+    )
     assert not pinched.is_valid
-    zone = _ZoneGeometry(name="sidewalk_0", polygon=pinched, max_speed=None, quiet=False, restricted=False)
-    assert walkable_area([zone, _zone("crosswalk", 4, 0, 6, 2)]).area == pytest.approx(12.0, abs=1e-3)
+    zone = _ZoneGeometry(
+        name="sidewalk_0",
+        polygon=pinched,
+        max_speed=None,
+        quiet=False,
+        restricted=False,
+    )
+    assert walkable_area([zone, _zone("crosswalk", 4, 0, 6, 2)]).area == pytest.approx(
+        12.0, abs=1e-3
+    )
 
 
 def test_excursions_merge_gaps_shorter_than_the_merge_window():
@@ -224,18 +304,38 @@ def test_excursions_merge_gaps_shorter_than_the_merge_window():
 
 def _robot_slice(episode):
     """Robot slice of the whole episode, the shape scoped_evaluator hands the ROBOT pass."""
-    return ScopeSlice(scope=MetricScope.ROBOT, slice_id="robot", t_start_ns=0, t_end_ns=0, identity={}, window_bundle=episode, full_episode=episode)
+    return ScopeSlice(
+        scope=MetricScope.ROBOT,
+        slice_id="robot",
+        t_start_ns=0,
+        t_end_ns=0,
+        identity={},
+        window_bundle=episode,
+        full_episode=episode,
+    )
 
 
 def test_registry_runs_the_calculator_beside_the_native_metrics():
-    topics = {"robot_tracks", "robot_odom", "collision_events"}
+    topics = {"robot_tracks", "robot_odom", "robot_collision_events"}
     registry = MetricRegistry(make_robot_params(model="jackal"), world=WORLD)
     episode = _episode(_lane, 22.0)
-    results = registry.run_scope(MetricScope.ROBOT, episode, available_topics=topics, pedsim_available=False, scope_slice=_robot_slice(episode)).results
+    results = registry.run_scope(
+        MetricScope.ROBOT,
+        episode,
+        available_topics=topics,
+        pedsim_available=False,
+        scope_slice=_robot_slice(episode),
+    ).results
     assert results["sidewalk_route_completion"] is True
     assert {"success", "collision_amount", "time_to_goal"} <= set(results)
     skipped_episode = _episode(_lane, 22.0)
-    skipped = registry.run_scope(MetricScope.ROBOT, skipped_episode, available_topics={"robot_tracks", "robot_odom"}, pedsim_available=False, scope_slice=_robot_slice(skipped_episode)).results
+    skipped = registry.run_scope(
+        MetricScope.ROBOT,
+        skipped_episode,
+        available_topics={"robot_tracks", "robot_odom"},
+        pedsim_available=False,
+        scope_slice=_robot_slice(skipped_episode),
+    ).results
     assert {key: skipped[key] for key in NULLS} == NULLS
 
 

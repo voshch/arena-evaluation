@@ -28,7 +28,11 @@ from scipy.signal import savgol_filter
 from arena_evaluation.storage.registry.series import SeriesMotionMetrics
 from arena_evaluation.processing.metrics.common.alignment import interpolate_values
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from arena_evaluation.processing.metrics.common.series import null_float_series
@@ -55,12 +59,54 @@ _EPISODE_KEYS: Final[tuple[str, ...]] = (
     "jerk_max_mps3",
 )
 
-ACCELERATION_MEAN = define_metric("acceleration_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Mean smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
-JERK_MEAN = define_metric("jerk_mean", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Mean smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
-JERK_MAX_MPS3 = define_metric("jerk_max_mps3", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s³", description="Peak smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
-MAX_ACCELERATION_MPS2 = define_metric("max_acceleration_mps2", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s²", description="Peak smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.", null_reason=True)
-MEAN_VELOCITY_MPS = define_metric("mean_velocity_mps", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s", description="Mean ground-truth speed over the scope window's resolved samples.", null_reason=True)
-VELOCITY_MAX = define_metric("velocity_max", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m/s", description="Peak ground-truth speed over the scope window's resolved samples.", null_reason=True)
+ACCELERATION_MEAN = define_metric(
+    "acceleration_mean",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s²",
+    description="Mean smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
+    null_reason=True,
+)
+JERK_MEAN = define_metric(
+    "jerk_mean",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s³",
+    description="Mean smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
+    null_reason=True,
+)
+JERK_MAX_MPS3 = define_metric(
+    "jerk_max_mps3",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s³",
+    description="Peak smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
+    null_reason=True,
+)
+MAX_ACCELERATION_MPS2 = define_metric(
+    "max_acceleration_mps2",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s²",
+    description="Peak smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
+    null_reason=True,
+)
+MEAN_VELOCITY_MPS = define_metric(
+    "mean_velocity_mps",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s",
+    description="Mean ground-truth speed over the scope window's resolved samples.",
+    null_reason=True,
+)
+VELOCITY_MAX = define_metric(
+    "velocity_max",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
+    unit="m/s",
+    description="Peak ground-truth speed over the scope window's resolved samples.",
+    null_reason=True,
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -89,14 +135,16 @@ def _dt_s(t_ns: np.ndarray) -> np.ndarray:
     return np.where(dt <= 0.0, MIN_DT_S, dt)
 
 
-def _pose_track(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    """Ground-truth position samples of the scope view: the aligned teleport-free frame, else the native track."""
+def _pose_track(
+    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Ground-truth position samples of the scope view: the aligned native /tf frame, else the native track."""
     frame = calculator.resolve_robot_frame(episode)
     if frame is not None and frame.height >= 2:
         return (
             frame.get_column("t_ns").to_numpy().astype(np.int64),
-            frame.get_column("pos_x_gt").to_numpy().astype(np.float64),
-            frame.get_column("pos_y_gt").to_numpy().astype(np.float64),
+            frame.get_column("x").to_numpy().astype(np.float64),
+            frame.get_column("y").to_numpy().astype(np.float64),
         )
     tracks = calculator.native_topics(episode).get("robot_tracks")
     if tracks is None or tracks.height < 2:
@@ -109,7 +157,9 @@ def _pose_track(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle)
     )
 
 
-def _unique_track(t_ns: np.ndarray, x_m: np.ndarray, y_m: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+def _unique_track(
+    t_ns: np.ndarray, x_m: np.ndarray, y_m: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Samples in ascending time with one row per stamp and finite positions, None when fewer than two remain."""
     order = np.argsort(t_ns, kind="stable")
     time_sorted = t_ns[order]
@@ -172,11 +222,19 @@ def _smooth_position_kinematics(
         return None
     grid_x = interpolate_values(grid_time_ns, grid_x_m, grid)
     grid_y = interpolate_values(grid_time_ns, grid_y_m, grid)
-    velocity_x = savgol_filter(grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
-    velocity_y = savgol_filter(grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
+    velocity_x = savgol_filter(
+        grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
+    )
+    velocity_y = savgol_filter(
+        grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
+    )
     speed_mps = np.hypot(velocity_x, velocity_y)
-    acceleration_mps2 = savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
-    jerk_mps3 = savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s)
+    acceleration_mps2 = savgol_filter(
+        speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
+    )
+    jerk_mps3 = savgol_filter(
+        speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
+    )
     return Kinematics(
         t_ns=grid,
         speed_mps=speed_mps,
@@ -193,7 +251,9 @@ def _smooth_speed_kinematics(
     order = np.argsort(t_ns, kind="stable")
     time_sorted = t_ns[order]
     speed_sorted = speed_mps[order]
-    keep = np.concatenate(([True], np.diff(time_sorted) > 0)) & np.isfinite(speed_sorted)
+    keep = np.concatenate(([True], np.diff(time_sorted) > 0)) & np.isfinite(
+        speed_sorted
+    )
     time_sorted, speed_sorted = time_sorted[keep], speed_sorted[keep]
     if len(time_sorted) < 2:
         return None
@@ -213,8 +273,12 @@ def _smooth_speed_kinematics(
     if window < MIN_SMOOTHING_SAMPLES:
         return None
     grid_speed_mps = interpolate_values(time_sorted, speed_sorted, grid)
-    acceleration_mps2 = savgol_filter(grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
-    jerk_mps3 = savgol_filter(grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s)
+    acceleration_mps2 = savgol_filter(
+        grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
+    )
+    jerk_mps3 = savgol_filter(
+        grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
+    )
     return Kinematics(
         t_ns=grid,
         speed_mps=grid_speed_mps,
@@ -223,7 +287,9 @@ def _smooth_speed_kinematics(
     )
 
 
-def episode_speed_mps(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray]:
+def episode_speed_mps(
+    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
+) -> tuple[np.ndarray, np.ndarray]:
     """Recorded speed (m/s) and sample times (ns) of an episode, the speed-only fallback stream.
 
     Used where the recording carries a speed stream but no ground-truth position track.
@@ -232,20 +298,22 @@ def episode_speed_mps(calculator: BaseMetricCalculator, episode: AlignedEpisodeB
     if frame is None or frame.height == 0:
         return np.array([]), np.array([], dtype=np.int64)
     try:
-        frame = frame.select("t_ns", "vel_linear")
+        frame = frame.select("t_ns", "speed_mps")
     except pl.exceptions.ColumnNotFoundError:
         return np.array([]), np.array([], dtype=np.int64)
-    valid = pl.col("vel_linear").is_not_null() & ~pl.col("vel_linear").is_nan()
+    valid = pl.col("speed_mps").is_not_null() & ~pl.col("speed_mps").is_nan()
     frame = frame.filter(valid)
     if frame.height == 0:
         return np.array([]), np.array([], dtype=np.int64)
     return (
-        np.abs(frame["vel_linear"].to_numpy().astype(np.float64)),
+        np.abs(frame["speed_mps"].to_numpy().astype(np.float64)),
         frame["t_ns"].to_numpy().astype(np.int64),
     )
 
 
-def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Kinematics:
+def episode_kinematics(
+    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
+) -> Kinematics:
     """Speed, acceleration and jerk of the scope view, smoothed over the declared window when it fits.
 
     The recorded ground-truth speed stream is the signal (the same stream the metric always
@@ -253,8 +321,14 @@ def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisode
     """
     speed_mps, t_ns = episode_speed_mps(calculator, episode)
     if len(speed_mps) > 0:
-        smoothed = _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
-        return smoothed if smoothed is not None else _speed_only_kinematics(speed_mps, t_ns)
+        smoothed = (
+            _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
+        )
+        return (
+            smoothed
+            if smoothed is not None
+            else _speed_only_kinematics(speed_mps, t_ns)
+        )
 
     track = _pose_track(calculator, episode)
     if track is None:
@@ -278,7 +352,9 @@ def _summarize(kinematics: Kinematics) -> dict[str, float | None]:
         return result
     result["mean_velocity_mps"] = float(np.mean(speed_mps))
     result["velocity_max"] = float(np.max(speed_mps))
-    acceleration_mps2 = kinematics.acceleration_mps2[np.isfinite(kinematics.acceleration_mps2)]
+    acceleration_mps2 = kinematics.acceleration_mps2[
+        np.isfinite(kinematics.acceleration_mps2)
+    ]
     if len(acceleration_mps2) > 0:
         result["acceleration_mean"] = float(np.mean(np.abs(acceleration_mps2)))
         result["max_acceleration_mps2"] = float(np.max(np.abs(acceleration_mps2)))
@@ -300,16 +376,24 @@ def _motion_series_frame(
     sample_count = len(kinematics.speed_mps)
     if sample_count == 0:
         return pl.DataFrame(schema=SERIES_SCHEMA)
-    time_s = (kinematics.t_ns.astype(np.float64) - float(kinematics.t_ns[0])) / NANOSECONDS_PER_SECOND
+    time_s = (
+        kinematics.t_ns.astype(np.float64) - float(kinematics.t_ns[0])
+    ) / NANOSECONDS_PER_SECOND
     return pl.DataFrame(
         {
             "run_id": pl.Series("run_id", [run_id] * sample_count, dtype=pl.String),
-            "episode_id": pl.Series("episode_id", [int(episode_id)] * sample_count, dtype=pl.Int64),
-            "robot_id": pl.Series("robot_id", [robot_id] * sample_count, dtype=pl.String),
+            "episode_id": pl.Series(
+                "episode_id", [int(episode_id)] * sample_count, dtype=pl.Int64
+            ),
+            "robot_id": pl.Series(
+                "robot_id", [robot_id] * sample_count, dtype=pl.String
+            ),
             "t_ns": pl.Series("t_ns", kinematics.t_ns, dtype=pl.Int64),
             "time_s": pl.Series("time_s", time_s, dtype=pl.Float64),
             "speed_mps": null_float_series(kinematics.speed_mps, "speed_mps"),
-            "acceleration_mps2": null_float_series(kinematics.acceleration_mps2, "acceleration_mps2"),
+            "acceleration_mps2": null_float_series(
+                kinematics.acceleration_mps2, "acceleration_mps2"
+            ),
             "jerk_mps3": null_float_series(kinematics.jerk_mps3, "jerk_mps3"),
         },
         schema=SERIES_SCHEMA,
@@ -331,22 +415,42 @@ class MotionMetricsCalculator(BaseMetricCalculator):
     DEPENDS_ON = []
     REQUIRED_TOPICS = ["robot_tracks"]
 
-    OUTPUTS = (MEAN_VELOCITY_MPS, VELOCITY_MAX, ACCELERATION_MEAN, MAX_ACCELERATION_MPS2, JERK_MEAN, JERK_MAX_MPS3)
+    OUTPUTS = (
+        MEAN_VELOCITY_MPS,
+        VELOCITY_MAX,
+        ACCELERATION_MEAN,
+        MAX_ACCELERATION_MPS2,
+        JERK_MEAN,
+        JERK_MAX_MPS3,
+    )
     DIRECTIONS = {
         "acceleration_mean": Direction.LOWER,
         "max_acceleration_mps2": Direction.LOWER,
         "jerk_mean": Direction.LOWER,
         "jerk_max_mps3": Direction.LOWER,
     }
-    PRIMARY_OUTPUTS = ["mean_velocity_mps", "velocity_max", "jerk_mean", "jerk_max_mps3"]
+    PRIMARY_OUTPUTS = [
+        "mean_velocity_mps",
+        "velocity_max",
+        "jerk_mean",
+        "jerk_max_mps3",
+    ]
 
     @classmethod
-    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(
+        cls, scope: MetricScope
+    ) -> tuple[str | tuple[str, ...], ...]:
         # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
         # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
-        return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
+        return (
+            ()
+            if scope == MetricScope.ENCOUNTER
+            else super().required_topics_for_scope(scope)
+        )
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         del prior_results
         return _summarize(episode_kinematics(self, episode))
 
@@ -361,9 +465,13 @@ class MotionMetricsCalculator(BaseMetricCalculator):
         del prior_results
         if scope_slice.scope == MetricScope.ENCOUNTER:
             return _summarize(episode_kinematics(self, episode))
-        raise ValueError(f"motion_metrics does not serve the {scope_slice.scope.value} scope")
+        raise ValueError(
+            f"motion_metrics does not serve the {scope_slice.scope.value} scope"
+        )
 
-    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
+    def series_table(
+        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
+    ) -> pl.DataFrame:
         """1NF flat motion series, one row per kinematics sample; schema-typed when empty."""
         return _motion_series_frame(
             episode_kinematics(self, episode),

@@ -107,7 +107,10 @@ def _episode(
     *,
     run_dir: pathlib.Path | None = None,
 ) -> AlignedEpisodeBundle:
-    topics: dict[str, pl.DataFrame] = {"robot_tracks": robot, "pedestrian_tracks": ped}
+    topics: dict[str, pl.DataFrame] = {
+        "robot_tracks": robot,
+        "pedestrian_arena_peds": ped,
+    }
     if power is not None:
         topics["robot_power"] = power
     return AlignedEpisodeBundle(

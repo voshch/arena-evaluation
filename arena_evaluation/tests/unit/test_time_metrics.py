@@ -6,9 +6,15 @@ import polars as pl
 import pytest
 
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
-from arena_evaluation.processing.metrics.performance.motion_metrics import SERIES_SCHEMA as MOTION_SERIES_SCHEMA
-from arena_evaluation.processing.metrics.performance.path_metrics import SERIES_SCHEMA as PATH_SERIES_SCHEMA
-from arena_evaluation.processing.metrics.performance.time_metrics import TimeMetricsCalculator
+from arena_evaluation.processing.metrics.performance.motion_metrics import (
+    SERIES_SCHEMA as MOTION_SERIES_SCHEMA,
+)
+from arena_evaluation.processing.metrics.performance.path_metrics import (
+    SERIES_SCHEMA as PATH_SERIES_SCHEMA,
+)
+from arena_evaluation.processing.metrics.performance.time_metrics import (
+    TimeMetricsCalculator,
+)
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
@@ -19,24 +25,34 @@ def _calculator() -> TimeMetricsCalculator:
     return TimeMetricsCalculator(make_robot_params(robot_radius=0.2))
 
 
-def _episode(t_ns: list[int], vel_linear: list[float | None] | None = None, goal: list[float] | None = None) -> AlignedEpisodeBundle:
+def _episode(
+    t_ns: list[int],
+    speed_mps: list[float | None] | None = None,
+    goal: list[float] | None = None,
+) -> AlignedEpisodeBundle:
     columns: dict[str, pl.Series] = {"t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64)}
-    if vel_linear is not None:
-        columns["vel_linear"] = pl.Series("vel_linear", vel_linear, dtype=pl.Float64)
-    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(columns), start_pos=[], goal_pos=goal or [])
+    if speed_mps is not None:
+        columns["speed_mps"] = pl.Series("speed_mps", speed_mps, dtype=pl.Float64)
+    return AlignedEpisodeBundle(
+        episode_id=1, data=pl.DataFrame(columns), start_pos=[], goal_pos=goal or []
+    )
 
 
-def _ground_truth_episode(xs: list[float], times_s: list[float], goal: list[float]) -> AlignedEpisodeBundle:
+def _ground_truth_episode(
+    xs: list[float], times_s: list[float], goal: list[float]
+) -> AlignedEpisodeBundle:
     t_ns = [int(t * SEC) for t in times_s]
     data = pl.DataFrame(
         {
             "t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64),
-            "pos_x_gt": pl.Series("pos_x_gt", xs, dtype=pl.Float64),
-            "pos_y_gt": pl.Series("pos_y_gt", [0.0] * len(xs), dtype=pl.Float64),
-            "yaw_gt": pl.Series("yaw_gt", [0.0] * len(xs), dtype=pl.Float64),
+            "x": pl.Series("x", xs, dtype=pl.Float64),
+            "y": pl.Series("y", [0.0] * len(xs), dtype=pl.Float64),
+            "yaw": pl.Series("yaw", [0.0] * len(xs), dtype=pl.Float64),
         }
     )
-    return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=goal)
+    return AlignedEpisodeBundle(
+        episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=goal
+    )
 
 
 def test_output_keys_do_not_carry_the_sample_clock():
@@ -48,7 +64,9 @@ def test_output_keys_do_not_carry_the_sample_clock():
 
 
 def test_the_span_and_idling_come_from_the_recorded_speed_track():
-    episode = _episode([1 * SEC, 2 * SEC, 3 * SEC, 4 * SEC], vel_linear=[0.5, 0.0, 0.0, 0.5])
+    episode = _episode(
+        [1 * SEC, 2 * SEC, 3 * SEC, 4 * SEC], speed_mps=[0.5, 0.0, 0.0, 0.5]
+    )
 
     results = _calculator().calculate(episode, {})
 
@@ -57,7 +75,9 @@ def test_the_span_and_idling_come_from_the_recorded_speed_track():
 
 
 def test_the_robot_reaches_its_goal_at_the_first_sample_within_one_metre():
-    episode = _ground_truth_episode(xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[3.0, 0.0])
+    episode = _ground_truth_episode(
+        xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[3.0, 0.0]
+    )
 
     results = _calculator().calculate(episode, {})
 
@@ -66,7 +86,9 @@ def test_the_robot_reaches_its_goal_at_the_first_sample_within_one_metre():
 
 
 def test_a_track_that_never_comes_within_one_metre_of_the_goal_has_no_time_to_goal():
-    episode = _ground_truth_episode(xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[9.0, 0.0])
+    episode = _ground_truth_episode(
+        xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[9.0, 0.0]
+    )
 
     results = _calculator().calculate(episode, {})
 
@@ -99,7 +121,9 @@ def test_without_a_speed_track_idling_is_null_and_the_span_survives():
 def test_without_an_aligned_frame_every_time_output_is_absent():
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
 
-    assert _calculator().calculate(episode, {}) == dict.fromkeys(TimeMetricsCalculator.output_keys())
+    assert _calculator().calculate(episode, {}) == dict.fromkeys(
+        TimeMetricsCalculator.output_keys()
+    )
 
 
 def test_the_retired_clock_is_the_t_ns_column_of_the_series_tables():

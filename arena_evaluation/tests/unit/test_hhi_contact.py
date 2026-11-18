@@ -50,7 +50,12 @@ def test_smoothed_speed_of_constant_motion() -> None:
 
 def test_windows_split_at_the_edges_and_clip() -> None:
     w = window_bounds(30.0, 8.0, 14.0)
-    assert w == {"approach": (0.0, 8.0), "hold": (8.0, 14.0), "post": (14.0, 19.0), "rest": (19.0, 30.0)}
+    assert w == {
+        "approach": (0.0, 8.0),
+        "hold": (8.0, 14.0),
+        "post": (14.0, 19.0),
+        "rest": (19.0, 30.0),
+    }
     assert window_bounds(16.0, 8.0, 14.0)["post"] == (14.0, 16.0)
     assert window_bounds(16.0, 8.0, 14.0)["rest"] == (16.0, 16.0)
     no_release = window_bounds(20.0, 8.0, None)
@@ -60,7 +65,12 @@ def test_windows_split_at_the_edges_and_clip() -> None:
 
 def test_bucket_by_onset_window() -> None:
     w = window_bounds(30.0, 8.0, 14.0)
-    assert bucket([1.0, 8.0, 13.9, 14.0, 18.9, 19.0, 30.0], w) == {"approach": 1, "hold": 2, "post": 2, "rest": 2}
+    assert bucket([1.0, 8.0, 13.9, 14.0, 18.9, 19.0, 30.0], w) == {
+        "approach": 1,
+        "hold": 2,
+        "post": 2,
+        "rest": 2,
+    }
 
 
 def test_segment_crossing_detects_passing_between() -> None:
@@ -73,12 +83,23 @@ def test_segment_crossing_detects_passing_between() -> None:
 
 
 def test_point_segment_distance() -> None:
-    d = point_segment_distance(np.array([[0.0, 1.0], [2.0, 0.0]]), np.array([[-1.0, 0.0]] * 2), np.array([[1.0, 0.0]] * 2))
+    d = point_segment_distance(
+        np.array([[0.0, 1.0], [2.0, 0.0]]),
+        np.array([[-1.0, 0.0]] * 2),
+        np.array([[1.0, 0.0]] * 2),
+    )
     assert d.tolist() == pytest.approx([1.0, 1.0])
 
 
 def test_pair_track_follows_the_pedestrian_id_at_each_robot_time() -> None:
-    held = pl.DataFrame({"t_ns": [0, SEC, SEC], "ped_id": ["a", "b", "a"], "x": [0.0, 5.0, 1.0], "y": [0.0, 5.0, 1.0]})
+    held = pl.DataFrame(
+        {
+            "t_ns": [0, SEC, SEC],
+            "ped_id": ["a", "b", "a"],
+            "x": [0.0, 5.0, 1.0],
+            "y": [0.0, 5.0, 1.0],
+        }
+    )
 
     track = pair_track(held, np.array([0, SEC, 2 * SEC]), "a")
 
@@ -92,23 +113,55 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
     t = np.arange(0.0, 22.0, 0.05)
     x = np.empty_like(t)
     for i, ti in enumerate(t):
-        x[i] = min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
+        x[i] = (
+            min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
+        )
     y = np.zeros_like(t)
     data = pl.DataFrame(
         {
             "t_ns": (t * SEC).astype(np.int64),
-            "pos_x": x,
-            "pos_y": y,
+            "x": x,
+            "y": y,
             "yaw": np.zeros_like(t),
-            "pos_x_gt": x,
-            "pos_y_gt": y,
-            "yaw_gt": np.zeros_like(t),
         }
     )
-    peds = flat_peds([(int(ti * SEC), [{"ped_id": "Pedestrian_1", "x": 6.0, "y": -0.6}, {"ped_id": "Pedestrian_2", "x": 6.0, "y": 0.6}]) for ti in t])
-    steps = [("ACTIVATED", 0, 4.0), ("HOLD_ONSET", 1, 5.0)] + ([("RELEASED", 2, 11.0)] if release else [])
-    events = pl.DataFrame([{"t_ns": int(s * SEC), "env_id": "env_0", "interaction_id": 3, "interaction_type": 10, "event": code, "event_name": name, "ped_id": ped} for name, code, s in steps for ped in ("Pedestrian_1", "Pedestrian_2")])
-    return AlignedEpisodeBundle(episode_id=0, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=[30.0, 0.0], topics={"pedestrian_tracks": peds, "pedestrian_interaction_events": events})
+    peds = flat_peds(
+        [
+            (
+                int(ti * SEC),
+                [
+                    {"ped_id": "Pedestrian_1", "x": 6.0, "y": -0.6},
+                    {"ped_id": "Pedestrian_2", "x": 6.0, "y": 0.6},
+                ],
+            )
+            for ti in t
+        ]
+    )
+    steps = [("ACTIVATED", 0, 4.0), ("HOLD_ONSET", 1, 5.0)] + (
+        [("RELEASED", 2, 11.0)] if release else []
+    )
+    events = pl.DataFrame(
+        [
+            {
+                "t_ns": int(s * SEC),
+                "env_id": "env_0",
+                "interaction_id": 3,
+                "interaction_type": 10,
+                "event": code,
+                "event_name": name,
+                "ped_id": ped,
+            }
+            for name, code, s in steps
+            for ped in ("Pedestrian_1", "Pedestrian_2")
+        ]
+    )
+    return AlignedEpisodeBundle(
+        episode_id=0,
+        data=data,
+        start_pos=[0.0, 0.0, 0.0],
+        goal_pos=[30.0, 0.0],
+        topics={"pedestrian_arena_peds": peds, "pedestrian_interaction_events": events},
+    )
 
 
 def test_calculator_on_a_synthetic_episode() -> None:
@@ -116,10 +169,20 @@ def test_calculator_on_a_synthetic_episode() -> None:
     contact = ContactInteractionCalculator(make_robot_params())
     out = contact.calculate(episode, {})
     assert out["hhi_interaction"] == "hug"
-    assert (out["hhi_hold_onset_s"], out["hhi_release_s"]) == (pytest.approx(5.0), pytest.approx(11.0))
+    assert (out["hhi_hold_onset_s"], out["hhi_release_s"]) == (
+        pytest.approx(5.0),
+        pytest.approx(11.0),
+    )
     assert out["hhi_stall_count"] == 1
-    assert contact.series_table(episode).get_column("onset_s")[0] == pytest.approx(12.0, abs=0.2)
-    assert (out["hhi_stalls_approach"], out["hhi_stalls_hold"], out["hhi_stalls_post"], out["hhi_stalls_rest"]) == (0, 0, 1, 0)
+    assert contact.series_table(episode).get_column("onset_s")[0] == pytest.approx(
+        12.0, abs=0.2
+    )
+    assert (
+        out["hhi_stalls_approach"],
+        out["hhi_stalls_hold"],
+        out["hhi_stalls_post"],
+        out["hhi_stalls_rest"],
+    ) == (0, 0, 1, 0)
     shares = [out[f"hhi_share_{w}"] for w in ("approach", "hold", "post", "rest")]
     assert sum(shares) == pytest.approx(1.0)
     assert out["hhi_share_post"] == pytest.approx(5.0 / out["hhi_episode_s"])
@@ -130,7 +193,9 @@ def test_calculator_on_a_synthetic_episode() -> None:
 
 
 def test_calculator_without_a_release_holds_to_the_end() -> None:
-    out = ContactInteractionCalculator(make_robot_params()).calculate(_episode(release=False), {})
+    out = ContactInteractionCalculator(make_robot_params()).calculate(
+        _episode(release=False), {}
+    )
     assert out["hhi_release_s"] is None
     assert out["hhi_stalls_hold"] == 1 and out["hhi_stalls_post"] == 0
 
@@ -142,17 +207,31 @@ def test_calculator_without_contact_events_reports_unknown_windows() -> None:
     calc = ContactInteractionCalculator(make_robot_params())
     out = calc.calculate(ep, {})
     assert out["hhi_episode_s"] == pytest.approx(22.0, abs=0.1)
-    for key in ("hhi_interaction", "hhi_hold_onset_s", "hhi_release_s", "hhi_stall_count", "hhi_stall_time_s", "hhi_passes_between", "hhi_min_pair_clearance", "hhi_pair_gap_hold"):
+    for key in (
+        "hhi_interaction",
+        "hhi_hold_onset_s",
+        "hhi_release_s",
+        "hhi_stall_count",
+        "hhi_stall_time_s",
+        "hhi_passes_between",
+        "hhi_min_pair_clearance",
+        "hhi_pair_gap_hold",
+    ):
         assert out[key] is None, key
     for window in ("approach", "hold", "post", "rest"):
         assert out[f"hhi_stalls_{window}"] is None
         assert out[f"hhi_share_{window}"] is None
     provenance = calc.missing_input_provenance(ep)
-    assert provenance["hhi_stall_count"] == "hhi_stall_count:topic_missing:pedestrian_interaction_events"
+    assert (
+        provenance["hhi_stall_count"]
+        == "hhi_stall_count:topic_missing:pedestrian_interaction_events"
+    )
 
 
 def test_speed_of_a_single_sample_is_zero() -> None:
-    assert smoothed_speed(np.array([0.0]), np.array([1.0]), np.array([2.0])).tolist() == [0.0]
+    assert smoothed_speed(
+        np.array([0.0]), np.array([1.0]), np.array([2.0])
+    ).tolist() == [0.0]
 
 
 def test_no_stalls_without_samples_or_prior_motion() -> None:
@@ -161,36 +240,66 @@ def test_no_stalls_without_samples_or_prior_motion() -> None:
 
 
 def test_crossings_need_a_robot_move() -> None:
-    assert segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist() == []
+    assert (
+        segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist()
+        == []
+    )
 
 
 def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
     ep = _episode()
-    ep.topics = {**ep.topics, "pedestrian_interaction_events": ep.topics["pedestrian_interaction_events"].filter(pl.col("event_name") == "RELEASED")}
+    ep.topics = {
+        **ep.topics,
+        "pedestrian_interaction_events": ep.topics[
+            "pedestrian_interaction_events"
+        ].filter(pl.col("event_name") == "RELEASED"),
+    }
     out = ContactInteractionCalculator(make_robot_params()).calculate(ep, {})
-    assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None and out["hhi_release_s"] is None
+    assert (
+        out["hhi_interaction"] is None
+        and out["hhi_hold_onset_s"] is None
+        and out["hhi_release_s"] is None
+    )
     assert out["hhi_stall_count"] == 1
 
 
 def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
     empty = dict.fromkeys(ContactInteractionCalculator.output_keys())
-    short = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
-    assert ContactInteractionCalculator(make_robot_params()).calculate(short, {}) == empty
+    short = AlignedEpisodeBundle(
+        episode_id=0,
+        data=pl.DataFrame({"t_ns": [0]}),
+        start_pos=[0.0, 0.0, 0.0],
+        goal_pos=[1.0, 0.0],
+    )
+    assert (
+        ContactInteractionCalculator(make_robot_params()).calculate(short, {}) == empty
+    )
     nan = float("nan")
-    lost = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0, SEC], "pos_x_gt": [nan, nan], "pos_y_gt": [nan, nan], "yaw_gt": [0.0, 0.0]}), start_pos=[0.0, 0.0, 0.0], goal_pos=[1.0, 0.0])
-    assert ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty
+    lost = AlignedEpisodeBundle(
+        episode_id=0,
+        data=pl.DataFrame(
+            {"t_ns": [0, SEC], "x": [nan, nan], "y": [nan, nan], "yaw": [0.0, 0.0]}
+        ),
+        start_pos=[0.0, 0.0, 0.0],
+        goal_pos=[1.0, 0.0],
+    )
+    assert (
+        ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty
+    )
 
 
-def _window_bundle(episode: AlignedEpisodeBundle, *, end_ns: int | None = None) -> AlignedEpisodeBundle:
+def _window_bundle(
+    episode: AlignedEpisodeBundle, *, end_ns: int | None = None
+) -> AlignedEpisodeBundle:
     """The episode as a CONTACT window slice: its flat topics are the window telemetry, the aligned data is empty."""
     data = episode.data
     t_ns = data.get_column("t_ns").to_numpy().astype(np.int64)
     tracks = pl.DataFrame(
         {
             "t_ns": t_ns,
-            "x": data.get_column("pos_x_gt").to_numpy().astype(np.float64),
-            "y": data.get_column("pos_y_gt").to_numpy().astype(np.float64),
-            "yaw": data.get_column("yaw_gt").to_numpy().astype(np.float64),
+            "x": data.get_column("x").to_numpy().astype(np.float64),
+            "y": data.get_column("y").to_numpy().astype(np.float64),
+            "yaw": data.get_column("yaw").to_numpy().astype(np.float64),
             "vx": np.zeros(len(t_ns), dtype=np.float64),
             "vy": np.zeros(len(t_ns), dtype=np.float64),
         },
@@ -208,7 +317,9 @@ def _window_bundle(episode: AlignedEpisodeBundle, *, end_ns: int | None = None) 
         tracks = tracks.filter(pl.col("t_ns") <= end_ns)
     topics["robot_tracks"] = tracks
     for name, frame in (episode.topics or {}).items():
-        topics[name] = frame.filter(pl.col("t_ns") <= end_ns) if end_ns is not None else frame
+        topics[name] = (
+            frame.filter(pl.col("t_ns") <= end_ns) if end_ns is not None else frame
+        )
     return AlignedEpisodeBundle(
         episode_id=episode.episode_id,
         data=pl.DataFrame(),
@@ -238,7 +349,9 @@ def test_contact_scope_measures_the_window_telemetry() -> None:
     window = _window_bundle(episode)
     contact = ContactInteractionCalculator(make_robot_params())
     t_ns = episode.data.get_column("t_ns").to_numpy().astype(np.int64)
-    window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, int(t_ns[-1])))
+    window_metrics = contact.calculate_for_scope(
+        episode, {}, _contact_slice(window, int(t_ns[-1]))
+    )
     assert window_metrics == contact.calculate(episode, {})
     assert window_metrics["hhi_stall_count"] == 1
     assert window_metrics["hhi_passes_between"] == 1
@@ -249,7 +362,9 @@ def test_contact_scope_splits_the_windows_inside_its_own_slice() -> None:
     episode = _episode()
     window = _window_bundle(episode, end_ns=18 * SEC)
     contact = ContactInteractionCalculator(make_robot_params())
-    window_metrics = contact.calculate_for_scope(episode, {}, _contact_slice(window, 18 * SEC))
+    window_metrics = contact.calculate_for_scope(
+        episode, {}, _contact_slice(window, 18 * SEC)
+    )
     episode_metrics = contact.calculate(episode, {})
     assert window_metrics["hhi_episode_s"] == pytest.approx(18.0)
     assert window_metrics["hhi_episode_s"] < episode_metrics["hhi_episode_s"]

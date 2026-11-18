@@ -15,8 +15,14 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.registry.series import SeriesSocialForces
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
-from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
+from arena_evaluation.processing.metrics.common.alignment import (
+    TRACK_ALIGN_TOLERANCE_NS,
+)
 from arena_evaluation.processing.pedestrian_frames import FrameGeometry, frame_geometry
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -35,24 +41,106 @@ CI_SIGMA_Y_M: Final[float] = 0.28
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesSocialForces.polars_schema()
 
-FORCE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.EPISODE, MetricScope.ENCOUNTER)
+FORCE_SCOPES: Final[tuple[MetricScope, ...]] = (
+    MetricScope.EPISODE,
+    MetricScope.ENCOUNTER,
+)
 
-SFM_CUMULATIVE_FORCE = define_metric("sfm_cumulative_force", pl.Float64, scopes=FORCE_SCOPES, unit="N·s", description="Time integral of the Helbing social force from the robot onto the pedestrians.", null_reason=True)
-SFM_PEAK_FORCE = define_metric("sfm_peak_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Peak Helbing social force from the robot onto the pedestrians.", null_reason=True)
-SFM_MEAN_FORCE = define_metric("sfm_mean_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Mean Helbing social force from the robot onto the pedestrians over the resolved frames.", null_reason=True)
-ESFM_CUMULATIVE_FORCE = define_metric("esfm_cumulative_force", pl.Float64, scopes=FORCE_SCOPES, unit="N·s", description="Time integral of the extended-SFM force with robot-heading anisotropy.", null_reason=True)
-ESFM_PEAK_FORCE = define_metric("esfm_peak_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Peak extended-SFM force with robot-heading anisotropy.", null_reason=True)
-ESFM_MEAN_FORCE = define_metric("esfm_mean_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Mean extended-SFM force with robot-heading anisotropy.", null_reason=True)
-ESFM_PED_CUMULATIVE_FORCE = define_metric("esfm_ped_cumulative_force", pl.Float64, scopes=FORCE_SCOPES, unit="N·s", description="Time integral of the extended-SFM force with pedestrian-heading anisotropy.", null_reason=True)
-ESFM_PED_PEAK_FORCE = define_metric("esfm_ped_peak_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Peak extended-SFM force with pedestrian-heading anisotropy.", null_reason=True)
-ESFM_PED_MEAN_FORCE = define_metric("esfm_ped_mean_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Mean extended-SFM force with pedestrian-heading anisotropy.", null_reason=True)
-CI_MAX = define_metric("ci_max", pl.Float64, scopes=FORCE_SCOPES, unit="1", description="Peak Gaussian personal-space index of the pedestrians.", null_reason=True)
-CI_MEAN = define_metric("ci_mean", pl.Float64, scopes=FORCE_SCOPES, unit="1", description="Mean Gaussian personal-space index over the resolved frames.", null_reason=True)
+SFM_CUMULATIVE_FORCE = define_metric(
+    "sfm_cumulative_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N·s",
+    description="Time integral of the Helbing social force from the robot onto the pedestrians.",
+    null_reason=True,
+)
+SFM_PEAK_FORCE = define_metric(
+    "sfm_peak_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Peak Helbing social force from the robot onto the pedestrians.",
+    null_reason=True,
+)
+SFM_MEAN_FORCE = define_metric(
+    "sfm_mean_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Mean Helbing social force from the robot onto the pedestrians over the resolved frames.",
+    null_reason=True,
+)
+ESFM_CUMULATIVE_FORCE = define_metric(
+    "esfm_cumulative_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N·s",
+    description="Time integral of the extended-SFM force with robot-heading anisotropy.",
+    null_reason=True,
+)
+ESFM_PEAK_FORCE = define_metric(
+    "esfm_peak_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Peak extended-SFM force with robot-heading anisotropy.",
+    null_reason=True,
+)
+ESFM_MEAN_FORCE = define_metric(
+    "esfm_mean_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Mean extended-SFM force with robot-heading anisotropy.",
+    null_reason=True,
+)
+ESFM_PED_CUMULATIVE_FORCE = define_metric(
+    "esfm_ped_cumulative_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N·s",
+    description="Time integral of the extended-SFM force with pedestrian-heading anisotropy.",
+    null_reason=True,
+)
+ESFM_PED_PEAK_FORCE = define_metric(
+    "esfm_ped_peak_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Peak extended-SFM force with pedestrian-heading anisotropy.",
+    null_reason=True,
+)
+ESFM_PED_MEAN_FORCE = define_metric(
+    "esfm_ped_mean_force",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="N",
+    description="Mean extended-SFM force with pedestrian-heading anisotropy.",
+    null_reason=True,
+)
+CI_MAX = define_metric(
+    "ci_max",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="1",
+    description="Peak Gaussian personal-space index of the pedestrians.",
+    null_reason=True,
+)
+CI_MEAN = define_metric(
+    "ci_mean",
+    pl.Float64,
+    scopes=FORCE_SCOPES,
+    unit="1",
+    description="Mean Gaussian personal-space index over the resolved frames.",
+    null_reason=True,
+)
 
 
 def _anisotropy(angle_rad: pl.Expr) -> pl.Expr:
     """Extended-SFM anisotropy weight in [0, 1] of a heading angle difference."""
-    return (ESFM_ANISOTROPY + (1.0 - ESFM_ANISOTROPY) * (1.0 + angle_rad.cos()) / 2.0).clip(0.0, 1.0)
+    return (
+        ESFM_ANISOTROPY + (1.0 - ESFM_ANISOTROPY) * (1.0 + angle_rad.cos()) / 2.0
+    ).clip(0.0, 1.0)
 
 
 def _force_expression(robot_radius_m: float) -> pl.Expr:
@@ -64,7 +152,18 @@ def _force_expression(robot_radius_m: float) -> pl.Expr:
     """
     distance_m = pl.col("distance_m")
     combined_radius_m = robot_radius_m + pl.col("radius_m")
-    return pl.when(distance_m.is_null()).then(pl.lit(None, dtype=pl.Float64)).when(distance_m <= SFM_CUTOFF_M).then((SFM_INTERACTION_STRENGTH_N * ((combined_radius_m - distance_m) / SFM_INTERACTION_RANGE_M).exp()).clip(upper_bound=SFM_MAX_FORCE_N)).otherwise(0.0)
+    return (
+        pl.when(distance_m.is_null())
+        .then(pl.lit(None, dtype=pl.Float64))
+        .when(distance_m <= SFM_CUTOFF_M)
+        .then(
+            (
+                SFM_INTERACTION_STRENGTH_N
+                * ((combined_radius_m - distance_m) / SFM_INTERACTION_RANGE_M).exp()
+            ).clip(upper_bound=SFM_MAX_FORCE_N)
+        )
+        .otherwise(0.0)
+    )
 
 
 def _personal_space_index_expression() -> pl.Expr:
@@ -73,14 +172,31 @@ def _personal_space_index_expression() -> pl.Expr:
     heading_sin = pl.col("ped_yaw_rad").sin()
     d_front_m = pl.col("dx_m") * heading_cos + pl.col("dy_m") * heading_sin
     d_side_m = -pl.col("dx_m") * heading_sin + pl.col("dy_m") * heading_cos
-    positional_exponent = -(pl.col("dx_m").pow(2) / (2.0 * CI_SIGMA_X_M**2) + pl.col("dy_m").pow(2) / (2.0 * CI_SIGMA_Y_M**2))
-    heading_exponent = -(d_front_m.pow(2) / (2.0 * CI_SIGMA_FRONT_M**2) + d_side_m.pow(2) / (2.0 * CI_SIGMA_SIDE_M**2))
-    return pl.when(pl.col("ped_yaw_rad").is_null()).then(positional_exponent).otherwise(heading_exponent).exp()
+    positional_exponent = -(
+        pl.col("dx_m").pow(2) / (2.0 * CI_SIGMA_X_M**2)
+        + pl.col("dy_m").pow(2) / (2.0 * CI_SIGMA_Y_M**2)
+    )
+    heading_exponent = -(
+        d_front_m.pow(2) / (2.0 * CI_SIGMA_FRONT_M**2)
+        + d_side_m.pow(2) / (2.0 * CI_SIGMA_SIDE_M**2)
+    )
+    return (
+        pl.when(pl.col("ped_yaw_rad").is_null())
+        .then(positional_exponent)
+        .otherwise(heading_exponent)
+        .exp()
+    )
 
 
 def _frame_value(column: str, resolved: str) -> pl.Expr:
     """A frame's pedestrian-derived value: zero without pedestrians, null while the robot state is unresolved."""
-    return pl.when(~pl.col("has_pedestrians")).then(pl.lit(0.0)).when(~pl.col(resolved)).then(pl.lit(None, dtype=pl.Float64)).otherwise(pl.col(column))
+    return (
+        pl.when(~pl.col("has_pedestrians"))
+        .then(pl.lit(0.0))
+        .when(~pl.col(resolved))
+        .then(pl.lit(None, dtype=pl.Float64))
+        .otherwise(pl.col(column))
+    )
 
 
 def _integral_expression(value: str) -> pl.Expr:
@@ -100,7 +216,7 @@ class SocialForcesCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = []
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
 
     OUTPUTS = (
         SFM_CUMULATIVE_FORCE,
@@ -136,17 +252,36 @@ class SocialForcesCalculator(BaseMetricCalculator):
             ped_id=pl.col("ped_id").cast(pl.String),
             radius_m=pl.col("radius_m").cast(pl.Float64),
         ).unique(subset=["t_ns", "ped_id"], keep="first")
-        pedestrians = geometry.pedestrians.join(radii, on=["t_ns", "ped_id"], how="left")
+        pedestrians = geometry.pedestrians.join(
+            radii, on=["t_ns", "ped_id"], how="left"
+        )
         resolved = pedestrians.filter(pl.col("distance_m").is_not_null())
-        if resolved.filter(pl.col("radius_m").is_null() | pl.col("radius_m").is_nan()).height > 0:
-            raise MetricInputError("social_forces needs each pedestrian's recorded radius_m; the pedestrian track has a body without one")
+        if (
+            resolved.filter(
+                pl.col("radius_m").is_null() | pl.col("radius_m").is_nan()
+            ).height
+            > 0
+        ):
+            raise MetricInputError(
+                "social_forces needs each pedestrian's recorded radius_m; the pedestrian track has a body without one"
+            )
         return FrameGeometry(frames=geometry.frames, pedestrians=pedestrians)
 
     def _frame_forces(self, geometry: FrameGeometry) -> pl.DataFrame:
         """Per-frame social force totals and personal-space index, one row per pedestrian frame."""
         force_n = _force_expression(float(self.robot_params.robot_radius))
-        robot_anisotropy = _anisotropy(pl.col("robot_yaw_rad") - pl.arctan2(pl.col("dy_m"), pl.col("dx_m")))
-        pedestrian_anisotropy = pl.when(pl.col("ped_yaw_rad").is_null()).then(pl.lit(1.0)).otherwise(_anisotropy(pl.col("ped_yaw_rad") - pl.arctan2(-pl.col("dy_m"), -pl.col("dx_m"))))
+        robot_anisotropy = _anisotropy(
+            pl.col("robot_yaw_rad") - pl.arctan2(pl.col("dy_m"), pl.col("dx_m"))
+        )
+        pedestrian_anisotropy = (
+            pl.when(pl.col("ped_yaw_rad").is_null())
+            .then(pl.lit(1.0))
+            .otherwise(
+                _anisotropy(
+                    pl.col("ped_yaw_rad") - pl.arctan2(-pl.col("dy_m"), -pl.col("dx_m"))
+                )
+            )
+        )
         contributions = geometry.pedestrians.with_columns(
             force_n=force_n,
             esfm_force_n=force_n * robot_anisotropy,
@@ -193,7 +328,11 @@ class SocialForcesCalculator(BaseMetricCalculator):
             "ci_max",
             "ci_mean",
         )
-        if frame_forces.height == 0 or frame_forces.select(pl.col("sfm_force_n").is_not_null().any()).item() is not True:
+        if (
+            frame_forces.height == 0
+            or frame_forces.select(pl.col("sfm_force_n").is_not_null().any()).item()
+            is not True
+        ):
             return dict.fromkeys(keys)
         row = frame_forces.select(
             sfm_cumulative_force=_integral_expression("sfm_force_n"),
@@ -210,7 +349,9 @@ class SocialForcesCalculator(BaseMetricCalculator):
         ).row(0, named=True)
         return {key: None if row[key] is None else float(row[key]) for key in keys}
 
-    def _episode_metrics(self, episode: AlignedEpisodeBundle) -> dict[str, float | None]:
+    def _episode_metrics(
+        self, episode: AlignedEpisodeBundle
+    ) -> dict[str, float | None]:
         """Every social-force output over the given episode view."""
         geometry = self._geometry(episode)
         if not geometry.observed:
@@ -220,7 +361,9 @@ class SocialForcesCalculator(BaseMetricCalculator):
             **aggregate,
         }
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         """Compute the episode-scope social forces over the bundle's own pedestrian frames."""
         del prior_results
         return self._episode_metrics(episode)

@@ -107,14 +107,14 @@ def freezes(speed: np.ndarray, lo: int, hi: int, min_len: int) -> int:
 
 def _collisions(episode: AlignedEpisodeBundle) -> int:
     """Number of native collision-event runs of the episode."""
-    frame = (episode.topics or {}).get("collision_events")
+    frame = (episode.topics or {}).get("robot_collision_events")
     if frame is None:
         return 0
     try:
         hits = frame.sort("t_ns")["event_count"].to_numpy().astype(float) > 0
     except pl.exceptions.ColumnNotFoundError as exc:
         raise MetricInputError(
-            "collision_events carries no event_count column"
+            "robot_collision_events carries no event_count column"
         ) from exc
     return len(_runs(hits))
 
@@ -124,7 +124,7 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
 
     NAME = "sidewalk_metrics"
     CATEGORY = "performance"
-    REQUIRED_TOPICS = ["collision_events", "robot_tracks"]
+    REQUIRED_TOPICS = ["robot_collision_events", "robot_tracks"]
 
     OUTPUTS = (
         SIDEWALK_ROUTE_COMPLETION,

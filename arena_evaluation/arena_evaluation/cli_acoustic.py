@@ -498,8 +498,8 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
             "Use --frame N to pick a specific frame."
         )
 
-    rx_m_raw = row.get("pos_x_gt")
-    ry_m_raw = row.get("pos_y_gt")
+    rx_m_raw = row.get("x")
+    ry_m_raw = row.get("y")
     src_raw = row.get("source_dba")
     if rx_m_raw is None or ry_m_raw is None or src_raw is None:
         print(

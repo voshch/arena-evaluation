@@ -58,9 +58,6 @@ def _gt(
     return pl.DataFrame(
         {
             "t_ns": times,
-            "pos_x_gt": [float(x) for x in xs],
-            "pos_y_gt": [float(y) for y in ys],
-            "yaw_gt": [0.0] * n if yaws is None else yaws,
             "x": [float(x) for x in xs],
             "y": [float(y) for y in ys],
             "yaw": [0.0] * n if yaws is None else yaws,
@@ -79,7 +76,7 @@ def _episode(
 ) -> AlignedEpisodeBundle:
     topics = {"robot_tracks": gt, "tf_gt": gt}
     if peds is not None:
-        topics["pedestrian_tracks"] = peds
+        topics["pedestrian_arena_peds"] = peds
         topics["peds"] = peds
     if plans is not None:
         topics["robot_plans"] = plans

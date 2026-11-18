@@ -230,7 +230,7 @@ class RobotAcoustics(
     drivetrain_level_dba = _FLOAT
     operating_state = _TEXT
     calibration_status = _TEXT
-    uncertainty_dba = _FLOAT
+    uncertainty_1sigma_dba = _FLOAT
     validity_flags = _INT
 
 

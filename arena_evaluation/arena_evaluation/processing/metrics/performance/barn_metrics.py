@@ -176,14 +176,14 @@ def replay(
 
 
 def _first_collision_s(episode: AlignedEpisodeBundle) -> float | None:
-    frame = (episode.topics or {}).get("collision_events")
+    frame = (episode.topics or {}).get("robot_collision_events")
     if frame is None:
         return None
     try:
         hits = frame.filter(pl.col("event_count") > 0)
     except pl.exceptions.ColumnNotFoundError as exc:
         raise MetricInputError(
-            "collision_events carries no event_count column"
+            "robot_collision_events carries no event_count column"
         ) from exc
     return float(hits.select(pl.col("t_ns").min()).item()) / 1e9 if len(hits) else None
 
@@ -193,7 +193,7 @@ class BARNScoreCalculator(BaseMetricCalculator):
 
     NAME = "barn_score"
     CATEGORY = "performance"
-    REQUIRED_TOPICS = ["collision_events", ("robot_tracks", "robot_odom")]
+    REQUIRED_TOPICS = ["robot_collision_events", ("robot_tracks", "robot_odom")]
 
     OUTPUTS = (
         BARN_SCORE,

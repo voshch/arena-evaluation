@@ -51,7 +51,10 @@ ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social", "public")
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemicsExtended.polars_schema()
 
-ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.EPISODE, MetricScope.ENCOUNTER)
+ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (
+    MetricScope.EPISODE,
+    MetricScope.ENCOUNTER,
+)
 
 TIME_IN_INTIMATE_ZONE = define_metric(
     "time_in_intimate_zone",
@@ -248,7 +251,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = ["motion_metrics", "path_metrics"]
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
 
     OUTPUTS = (
         TIME_IN_INTIMATE_ZONE,
@@ -392,7 +395,10 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             personal_space_intrusion_integral_m_s=(
                 pl.when(pl.col("clearance_m") < PERSONAL_ZONE_EDGE_CLEARANCE_M)
                 .then(
-                    (PERSONAL_ZONE_EDGE_CLEARANCE_M - pl.col("clearance_m").clip(lower_bound=0.0))
+                    (
+                        PERSONAL_ZONE_EDGE_CLEARANCE_M
+                        - pl.col("clearance_m").clip(lower_bound=0.0)
+                    )
                     * pl.col("dt_s")
                 )
                 .otherwise(0.0)

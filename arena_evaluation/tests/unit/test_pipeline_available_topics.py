@@ -10,12 +10,14 @@ from arena_evaluation.storage.schemas import TopicBundle
 @pytest.mark.parametrize(
     ("recorded_field", "calculator_topic"),
     [
-        ("pedestrian_arena_peds", "pedestrian_tracks"),
-        ("pedestrian_agent_states", "pedestrian_tracks_physics"),
+        ("pedestrian_arena_peds", "pedestrian_arena_peds"),
+        ("pedestrian_agent_states", "pedestrian_agent_states"),
         ("robot_tracks", "robot_tracks"),
     ],
 )
-def test_recorded_table_is_listed_under_the_topic_name_its_calculators_read(recorded_field: str, calculator_topic: str) -> None:
+def test_recorded_table_is_listed_under_the_topic_name_its_calculators_read(
+    recorded_field: str, calculator_topic: str
+) -> None:
     bundle = TopicBundle(**{recorded_field: pl.DataFrame({"t_ns": [0]})})
 
     names = _calculator_topic_names(bundle)

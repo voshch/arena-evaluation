@@ -151,7 +151,7 @@ def _make_episode(
                 "drivetrain_level_dba": [55.0] * len(times),
                 "operating_state": ["moving"] * len(times),
                 "calibration_status": ["ok"] * len(times),
-                "uncertainty_dba": [1.0] * len(times),
+                "uncertainty_1sigma_dba": [1.0] * len(times),
                 "validity_flags": [0] * len(times),
             }
         ).write_parquet(topics / "robot_acoustics.parquet")
@@ -292,8 +292,8 @@ def test_load_episode_data_reads_aligned_catalog_telemetry(
     assert ep_df.height == 3
     assert {
         "t_ns",
-        "pos_x_gt",
-        "pos_y_gt",
+        "x",
+        "y",
         "source_dba",
         "has_collision",
         "peds_positions",
@@ -585,8 +585,8 @@ def test_field_timeseries_skips_frames_without_a_recorded_source(
     df = pl.DataFrame(
         {
             "t_ns": [0, 1],
-            "pos_x_gt": [1.0, 1.0],
-            "pos_y_gt": [1.0, 1.0],
+            "x": [1.0, 1.0],
+            "y": [1.0, 1.0],
             "source_dba": [70.0, None],
         }
     )
@@ -605,8 +605,8 @@ def test_animation_collision_flags_come_from_recorded_collision_events(
     collided = pl.DataFrame(
         {
             "t_ns": [0],
-            "pos_x_gt": [1.0],
-            "pos_y_gt": [1.0],
+            "x": [1.0],
+            "y": [1.0],
             "source_dba": [70.0],
             "has_collision": [True],
         }
@@ -614,8 +614,8 @@ def test_animation_collision_flags_come_from_recorded_collision_events(
     quiet = pl.DataFrame(
         {
             "t_ns": [0],
-            "pos_x_gt": [1.0],
-            "pos_y_gt": [1.0],
+            "x": [1.0],
+            "y": [1.0],
             "source_dba": [120.0],
             "has_collision": [False],
         }

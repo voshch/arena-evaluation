@@ -18,8 +18,6 @@ from collections.abc import Callable, MutableMapping
 import polars as pl
 
 if typing.TYPE_CHECKING:
-    import numpy as np
-
     from arena_evaluation.processing.scoped_evaluator import ScopedFactTables
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
@@ -36,16 +34,12 @@ from arena_evaluation.processing.metrics.common.alignment import (
 )
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.processing.metrics.social.interaction_common import (
-    PEDESTRIAN_PHYSICS_TOPIC,
-    PEDESTRIAN_TRACKS_TOPIC,
+    PEDESTRIAN_AGENT_STATES_TOPIC,
+    PEDESTRIAN_ARENA_PEDS_TOPIC,
 )
 from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.processing.pose_anchor import pose_frame, resolve_pose_source
 from arena_evaluation.processing.outcome import outcome_verdict
-from arena_evaluation.processing.pose_segments import (
-    consistent_segment,
-    ride_arrival_times,
-)
 from arena_evaluation.storage.contracts import enforce_benchmark_contract
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.folder_manager import FolderManager
@@ -74,63 +68,16 @@ _log = logging.getLogger(__name__)
 _SHARED_FRAMES = frozenset(
     {"tf", "tf_static", "world_semantics", "episode_lifecycle", "episode_integrity"}
 )
-KEPT_EMPTY_TABLES = ("collision_contacts", "pedestrian_gestures")
-# Recorded table name -> the topic name the calculators read; the recorder names most of them alike.
-_TOPIC_NAMES: typing.Final[dict[str, str]] = {
-    "pedestrian_arena_peds": "pedestrian_tracks",
-    "pedestrian_agent_states": "pedestrian_tracks_physics",
-    "robot_collision_events": "collision_events",
-    "robot_collision_contacts": "collision_contacts",
-}
+KEPT_EMPTY_TABLES = ("robot_collision_contacts", "pedestrian_gestures")
 
-# The robot's ground-truth track is the clock; the legacy column names carry it and the `_gt` aliases mirror it.
-_PRIMARY = {
-    "x": "pos_x",
-    "y": "pos_y",
-    "yaw": "yaw",
-    "speed_mps": "vel_linear",
-    "omega_z": "vel_angular",
-}
-_GROUND_TRUTH_ALIASES = {"x": "pos_x_gt", "y": "pos_y_gt", "yaw": "yaw_gt"}
-_SCAN = {
-    "scan_min_m": "scan_min",
-    "range_max_m": "scan_range_max",
-    "n_valid_rays": "n_rays",
-}
-_CMD_VEL = {
-    "linear_x": "linear_x",
-    "linear_y": "linear_y",
-    "linear_z": "linear_z",
-    "angular_x": "angular_x",
-    "angular_y": "angular_y",
-    "angular_z": "angular_z",
-}
-_COLLISIONS = {
-    "event_count": "collision_event",
-    "wall_count": "collision_wall",
-    "static_count": "collision_static",
-    "ped_count": "collision_pedestrian",
-}
-_MONITOR = {"action_type": "action_type", "polygon_name": "polygon_name"}
-_POWER = {
-    "total_power_w": "total_power_w",
-    "static_power_w": "static_power_w",
-    "total_mech_power_w": "total_mech_power_w",
-    "total_thermal_power_w": "total_thermal_power_w",
-}
-_ENERGY = {
-    "total_energy_consumed_wh": "total_energy_consumed_wh",
-    "battery_soc_percent": "battery_soc_percent",
-}
-_ACOUSTICS = {
-    "total_level_af_dba": "total_level_af_dba",
-    "total_level_zf_db": "total_level_zf_db",
-    "baseline_level_dba": "baseline_level_dba",
-    "drivetrain_level_dba": "drivetrain_level_dba",
-    "uncertainty_dba": "uncertainty_1sigma_dba",
-    "validity_flags": "validity_flags",
-}
-_MARKERS = {"label": "label"}
+# The robot track's registry columns that every episode-scope calculator reads off the aligned frame.
+_TRACK_COLUMNS: typing.Final[tuple[str, ...]] = (
+    "x",
+    "y",
+    "yaw",
+    "speed_mps",
+    "omega_z",
+)
 
 # EpisodeRecord.outcome_state -> (result, success)
 _STATUS_EVALUATED = "evaluated"
@@ -316,7 +263,7 @@ def _peak_pedestrian_count(
 def _align_bundle(
     bundle: TopicBundle, start_t_ns: int | None = None, end_t_ns: int | None = None
 ) -> pl.DataFrame | None:
-    """Align the robot's recorded tables onto its ground-truth track on native timestamps.
+    """Align the robot's recorded tables onto its native /tf track in registry vocabulary.
 
     The source ``processing.native_bundle`` module is absent at the PR1 tip; its one alignment
     implementation is carried here because every episode-scope calculator reads ``episode.data``.
@@ -334,53 +281,70 @@ def _align_bundle(
     frame = track.select(
         [
             pl.col("t_ns"),
-            *(
-                pl.col(source).alias(target)
-                for source, target in _PRIMARY.items()
-                if source in available
-            ),
-            *(
-                pl.col(source).alias(target)
-                for source, target in _GROUND_TRUTH_ALIASES.items()
-                if source in available
-            ),
+            *(pl.col(column) for column in _TRACK_COLUMNS if column in available),
         ]
+    )
+    # A recording can carry a null or NaN sample; no metric may read one as a pose.
+    frame = frame.filter(
+        pl.col("x").is_not_null()
+        & ~pl.col("x").is_nan()
+        & pl.col("y").is_not_null()
+        & ~pl.col("y").is_nan()
+        & pl.col("yaw").is_not_null()
+        & ~pl.col("yaw").is_nan()
     ).sort("t_ns")
-    for field_name, renames in _SECONDARY_TABLES:
+    if frame.height == 0:
+        return None
+    for field_name, columns in _SECONDARY_TABLES:
         frame = _join_secondary(
-            frame, vars(bundle)[field_name], renames, start_t_ns, end_t_ns
+            frame, vars(bundle)[field_name], columns, start_t_ns, end_t_ns
         )
     markers = _frame(bundle.robot_characterization_phase)
     if markers is not None and markers.height > 0:
-        selected = markers.select(
-            [
-                pl.col("t_ns"),
-                *(
-                    pl.col(source).alias(target)
-                    for source, target in _MARKERS.items()
-                    if source in markers.columns
-                ),
-            ]
-        ).sort("t_ns")
+        selected = markers.select(["t_ns", "label"]).sort("t_ns")
         frame = asof_join(frame, selected, tolerance_ns=None)
     return frame
 
 
-_SECONDARY_TABLES: typing.Final[tuple[tuple[str, dict[str, str]], ...]] = (
-    ("robot_scan_summary", _SCAN),
-    ("robot_cmd_vel", _CMD_VEL),
-    ("robot_collision_events", _COLLISIONS),
-    ("robot_collision_monitor", _MONITOR),
-    ("robot_power", _POWER),
-    ("robot_energy", _ENERGY),
-    ("robot_acoustics", _ACOUSTICS),
+_SECONDARY_TABLES: typing.Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    ("robot_scan_summary", ("scan_min_m", "range_max_m", "n_valid_rays")),
+    (
+        "robot_cmd_vel",
+        ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z"),
+    ),
+    (
+        "robot_collision_events",
+        ("event_count", "wall_count", "static_count", "ped_count"),
+    ),
+    ("robot_collision_monitor", ("action_type", "polygon_name")),
+    (
+        "robot_power",
+        (
+            "total_power_w",
+            "static_power_w",
+            "total_mech_power_w",
+            "total_thermal_power_w",
+        ),
+    ),
+    ("robot_energy", ("total_energy_consumed_wh", "battery_soc_percent")),
+    (
+        "robot_acoustics",
+        (
+            "total_level_af_dba",
+            "total_level_zf_db",
+            "baseline_level_dba",
+            "drivetrain_level_dba",
+            "uncertainty_1sigma_dba",
+            "validity_flags",
+        ),
+    ),
 )
 
 
 def _join_secondary(
     primary: pl.DataFrame,
     table: pl.DataFrame | pl.LazyFrame | None,
-    renames: dict[str, str],
+    columns: tuple[str, ...],
     start_t_ns: int | None,
     end_t_ns: int | None,
 ) -> pl.DataFrame:
@@ -399,39 +363,10 @@ def _join_secondary(
     selected = frame.select(
         [
             pl.col("t_ns"),
-            *(
-                pl.col(source).alias(target)
-                for source, target in renames.items()
-                if source in available
-            ),
+            *(pl.col(column) for column in columns if column in available),
         ]
     ).sort("t_ns")
     return asof_join(primary, selected, tolerance_ns=tolerance)
-
-
-def _consistent_pose_segment(
-    aligned_df: pl.DataFrame | None, ride_arrivals_ns: np.ndarray | None = None
-) -> pl.DataFrame | None:
-    """The rows with a finite ground-truth pose, cut to the longest stretch free of teleport jumps (elevator rides and stair crossings excepted)."""
-    if aligned_df is None or len(aligned_df) == 0:
-        return aligned_df
-    aligned_df = aligned_df.filter(
-        pl.col("pos_x_gt").is_not_null()
-        & ~pl.col("pos_x_gt").is_nan()
-        & pl.col("pos_y_gt").is_not_null()
-        & ~pl.col("pos_y_gt").is_nan()
-        & pl.col("yaw_gt").is_not_null()
-        & ~pl.col("yaw_gt").is_nan()
-    )
-    if len(aligned_df) < 2:
-        return aligned_df
-    start, end = consistent_segment(
-        aligned_df["pos_x_gt"].to_numpy(),
-        aligned_df["pos_y_gt"].to_numpy(),
-        aligned_df["t_ns"].to_numpy(),
-        ride_arrivals_ns,
-    )
-    return aligned_df.slice(start, end - start)
 
 
 def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | None:
@@ -481,12 +416,8 @@ def _episode_endpoints(
     """Map-frame (x, y, yaw) of the first sample and of the goal: the last goto of the recorded phases, else the last planned pose, else the last sample."""
     first_row = aligned_df.row(0, named=True)
     last_row = aligned_df.row(-1, named=True)
-    # Ground truth is map frame, odom starts wherever the robot's odometry happened to be.
-    x, y, yaw = (
-        ("pos_x_gt", "pos_y_gt", "yaw_gt")
-        if "pos_x_gt" in first_row
-        else ("pos_x", "pos_y", "yaw")
-    )
+    # The native /tf track is map frame.
+    x, y, yaw = ("x", "y", "yaw")
 
     start_pos: list[float] = []
     goal_pos: list[float] = []
@@ -566,8 +497,8 @@ def _fleet_poses(
 
 
 def _calculator_topic_names(bundle: TopicBundle) -> set[str]:
-    """The bundle's carried tables under the topic names the calculators read, so a topic gate sees what the bundle holds."""
-    return {_TOPIC_NAMES.get(name, name) for name in bundle.available()}
+    """The bundle's carried tables, already named as the calculators read them, so a topic gate sees what the bundle holds."""
+    return set(bundle.available())
 
 
 def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
@@ -577,7 +508,7 @@ def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
         df = _frame(vars(bundle)[field_name])
         if df is None:
             continue
-        topic = _TOPIC_NAMES.get(field_name, field_name)
+        topic = field_name
         if len(df) > 0 or topic in KEPT_EMPTY_TABLES:
             topics[topic] = df
     return _with_pedestrian_constants(topics)
@@ -597,8 +528,8 @@ def _with_pedestrian_constants(
     topics: dict[str, pl.DataFrame],
 ) -> dict[str, pl.DataFrame]:
     """The arena pedestrian rows with the engine table's latched constants joined on by ped_id, so the track frame carries the recorded radius and crowd settings."""
-    arena = topics.get(PEDESTRIAN_TRACKS_TOPIC)
-    engine = topics.get(PEDESTRIAN_PHYSICS_TOPIC)
+    arena = topics.get(PEDESTRIAN_ARENA_PEDS_TOPIC)
+    engine = topics.get(PEDESTRIAN_AGENT_STATES_TOPIC)
     if arena is None or engine is None or engine.height == 0:
         return topics
     available = [
@@ -610,7 +541,7 @@ def _with_pedestrian_constants(
     arena_rows = arena.drop([column for column in available if column in arena.columns])
     return {
         **topics,
-        PEDESTRIAN_TRACKS_TOPIC: arena_rows.join(
+        PEDESTRIAN_ARENA_PEDS_TOPIC: arena_rows.join(
             constants, on="ped_id", how="left", maintain_order="left"
         ),
     }
@@ -1146,10 +1077,7 @@ class ProcessingPipeline:
         pedsim_avail: bool,
         status_dict: _EpisodeStatus | None,
     ) -> tuple[dict, ScopedFactTables | None, dict[str, pl.DataFrame] | None]:
-        """Align, slice, and evaluate one robot's TopicBundle within an episode."""
-        from arena_evaluation.processing.metrics.ecological.mechanism_common import (
-            robot_env_snapshot,
-        )
+        """Align and evaluate one robot's TopicBundle within an episode."""
         from arena_evaluation.processing.scoped_evaluator import ScopedEvaluator
 
         robot_params = params_by_robot[robot_name]
@@ -1181,28 +1109,6 @@ class ProcessingPipeline:
         aligned_df = _align_bundle(bundle, *window)
         if aligned_df is None or len(aligned_df) < 5:
             reason = f"{0 if aligned_df is None else len(aligned_df)} ground-truth rows inside the episode window"
-            _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
-            return (
-                _status_row(
-                    ep,
-                    metadata,
-                    robot_name,
-                    "no_trajectory",
-                    reason,
-                    bundle.episode_lifecycle,
-                    bundle.episode_integrity,
-                ),
-                None,
-                None,
-            )
-
-        # Resolve the pose frame once so all calculators share it
-        aligned_df = _consistent_pose_segment(
-            aligned_df,
-            ride_arrival_times(robot_env_snapshot(bundle.world_semantics, robot_name)),
-        )
-        if aligned_df is None or len(aligned_df) < 5:
-            reason = f"{0 if aligned_df is None else len(aligned_df)} pose rows after resolution"
             _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
             return (
                 _status_row(

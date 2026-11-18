@@ -45,11 +45,7 @@ def load_aligned_episode(
 
     tracks = (
         tracks_table.filter(pl.col("episode_id") == ep_num)
-        .select(
-            "t_ns",
-            pl.col("x").alias("pos_x_gt"),
-            pl.col("y").alias("pos_y_gt"),
-        )
+        .select("t_ns", "x", "y")
         .sort("t_ns")
         .collect()
     )

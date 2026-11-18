@@ -126,7 +126,7 @@ _EXPECTED: dict[str, tuple[tuple[str, pa.DataType, bool], ...]] = {
         ("drivetrain_level_dba", pa.float64(), True),
         ("operating_state", pa.string(), True),
         ("calibration_status", pa.string(), True),
-        ("uncertainty_dba", pa.float64(), True),
+        ("uncertainty_1sigma_dba", pa.float64(), True),
         ("validity_flags", pa.int64(), True),
     ),
     "robot_collision_events": (

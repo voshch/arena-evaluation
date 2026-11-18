@@ -109,8 +109,8 @@ def personal_space_counts(
 ) -> pl.DataFrame:
     """One row per robot ground-truth sample with the number of pedestrians inside ``clearance_m`` edge clearance."""
     t_ns = robot_frame.get_column("t_ns").to_numpy().astype(np.int64)
-    pos_x = robot_frame.get_column("pos_x_gt").to_numpy().astype(np.float64)
-    pos_y = robot_frame.get_column("pos_y_gt").to_numpy().astype(np.float64)
+    pos_x = robot_frame.get_column("x").to_numpy().astype(np.float64)
+    pos_y = robot_frame.get_column("y").to_numpy().astype(np.float64)
     radii = _pedestrian_radii(peds)
     within = (
         distances_to_pedestrians(t_ns, pos_x, pos_y, peds)
@@ -145,7 +145,7 @@ class ProxemicsCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = ["motion_metrics"]
-    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_tracks"]
+    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_arena_peds"]
 
     OUTPUTS = (
         NUM_PEDESTRIANS,
@@ -182,8 +182,8 @@ class ProxemicsCalculator(BaseMetricCalculator):
         step_s = np.append(np.diff(t_ns) / 1e9, 0.0)
         inside = occupancy > 0
         speeds = self.speed_from_pose(
-            robot_frame.get_column("pos_x_gt").to_numpy().astype(np.float64),
-            robot_frame.get_column("pos_y_gt").to_numpy().astype(np.float64),
+            robot_frame.get_column("x").to_numpy().astype(np.float64),
+            robot_frame.get_column("y").to_numpy().astype(np.float64),
             t_ns,
         )
         return {
@@ -200,11 +200,7 @@ class ProxemicsCalculator(BaseMetricCalculator):
             return dict.fromkeys(self.output_keys())
         t_ns = robot.get_column("t_ns").to_numpy().astype(np.int64)
         counts = personal_space_counts(
-            robot.select(
-                t_ns=pl.col("t_ns"),
-                pos_x_gt=pl.col("x"),
-                pos_y_gt=pl.col("y"),
-            ),
+            robot,
             peds,
             PERSONAL_ZONE_EDGE_CLEARANCE_M,
             float(self.robot_params.robot_radius),
@@ -281,7 +277,7 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = []
-    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_tracks"]
+    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_arena_peds"]
 
     OUTPUTS = (TOTAL_INTRUSIONS_INTIMATE, TOTAL_INTRUSIONS_PERSONAL)
     PRIMARY_OUTPUTS = ["total_intrusions_intimate", "total_intrusions_personal"]
@@ -297,7 +293,7 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         topics = self.native_topics(episode)
         robot_tracks = topics.get("robot_tracks")
-        ped_tracks = topics.get("pedestrian_tracks")
+        ped_tracks = topics.get("pedestrian_arena_peds")
 
         if isinstance(robot_tracks, pl.LazyFrame):
             robot_tracks = robot_tracks.collect()

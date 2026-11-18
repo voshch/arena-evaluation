@@ -129,7 +129,7 @@ _EXPECTED_COLUMNS: dict[str, tuple[tuple[str, pl.DataType], ...]] = {
         ("source_dba", pl.Float64),
         ("ped_x_m", pl.Float64),
         ("ped_y_m", pl.Float64),
-        ("is_worst_frame", pl.Boolean),
+        ("is_episode_worst_frame", pl.Boolean),
         ("open_doors", pl.String),
     ),
     "series_social_forces": (

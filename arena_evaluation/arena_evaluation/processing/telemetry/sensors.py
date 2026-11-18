@@ -105,7 +105,7 @@ def record_acoustics(sink: TableSink, envelope: Envelope[Acoustics]) -> None:
             drivetrain_level_dba=float(acoustics.drivetrain_level_dba),
             operating_state=str(acoustics.operating_state),
             calibration_status=str(acoustics.calibration_status),
-            uncertainty_dba=float(acoustics.uncertainty_1sigma_dba),
+            uncertainty_1sigma_dba=float(acoustics.uncertainty_1sigma_dba),
             validity_flags=int(acoustics.validity_flags),
         ),
     )

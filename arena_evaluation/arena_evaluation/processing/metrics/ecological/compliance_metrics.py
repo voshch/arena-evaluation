@@ -236,7 +236,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = ["motion_metrics"]
-    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_tracks"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
     passing_convention = "right"
 
     OUTPUTS = (
@@ -329,7 +329,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         if frame is None or len(frame) == 0:
             return None
         try:
-            return np.abs(frame["vel_linear"].to_numpy().astype(np.float64))
+            return np.abs(frame["speed_mps"].to_numpy().astype(np.float64))
         except pl.exceptions.ColumnNotFoundError:
             return None
 

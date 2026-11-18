@@ -467,12 +467,6 @@ _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
         ),
         frozenset(
             {
-                "arena_evaluation.processing.metrics.base",
-                "arena_evaluation.processing.metrics.ecological.mechanism_common",
-            }
-        ),
-        frozenset(
-            {
                 "arena_evaluation.analytics.analyses",
                 "arena_evaluation.analytics.analyses.procedures",
                 "arena_evaluation.analytics.catalog",

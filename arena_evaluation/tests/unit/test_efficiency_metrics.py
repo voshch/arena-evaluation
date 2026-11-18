@@ -56,9 +56,6 @@ def _gt(xs: list[float], ys: list[float]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "t_ns": times,
-            "pos_x_gt": [float(x) for x in xs],
-            "pos_y_gt": [float(y) for y in ys],
-            "yaw_gt": [0.0] * len(xs),
             "x": [float(x) for x in xs],
             "y": [float(y) for y in ys],
             "yaw": [0.0] * len(xs),

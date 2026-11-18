@@ -96,16 +96,13 @@ def _flat_peds(frames):
 
 
 def _data(points, step_s=1.0, peds=None, **columns):
-    """Robot samples on a 1 Hz clock: odometry and ground truth at the given points, with optional pedestrians."""
+    """Robot samples on a 1 Hz clock: the native /tf ground truth at the given points, with optional pedestrians."""
     n = len(points)
     frame = {
         "t_ns": [int(i * step_s * T) for i in range(n)],
-        "pos_x": [float(p[0]) for p in points],
-        "pos_y": [float(p[1]) for p in points],
+        "x": [float(p[0]) for p in points],
+        "y": [float(p[1]) for p in points],
         "yaw": [0.0] * n,
-        "pos_x_gt": [float(p[0]) for p in points],
-        "pos_y_gt": [float(p[1]) for p in points],
-        "yaw_gt": [0.0] * n,
     }
     frame.update(columns)
     return Scene(pl.DataFrame(frame), peds)
@@ -113,7 +110,25 @@ def _data(points, step_s=1.0, peds=None, **columns):
 
 def _peds(per_sample):
     """The pedestrian table of per-sample lists of (name, x, y, vx, vy), one frame per 1 Hz sample."""
-    return _flat_peds([(i * T, [{"ped_id": name, "ped_name": name, "x": x, "y": y, "vx": vx, "vy": vy} for name, x, y, vx, vy in peds]) for i, peds in enumerate(per_sample)])
+    return _flat_peds(
+        [
+            (
+                i * T,
+                [
+                    {
+                        "ped_id": name,
+                        "ped_name": name,
+                        "x": x,
+                        "y": y,
+                        "vx": vx,
+                        "vy": vy,
+                    }
+                    for name, x, y, vx, vy in peds
+                ],
+            )
+            for i, peds in enumerate(per_sample)
+        ]
+    )
 
 
 _SNAPSHOT_SCHEMA = pl.Schema(
@@ -143,7 +158,11 @@ def _snap(rows):
         values["kind"].append(kind)
         values["field_name"].append(field)
         values["field_kind"].append(field_kind)
-        values["value_str"].append(",".join(sorted(value)) if field_kind == "members" else (value if field_kind == "discrete" else None))
+        values["value_str"].append(
+            ",".join(sorted(value))
+            if field_kind == "members"
+            else (value if field_kind == "discrete" else None)
+        )
         values["value_num"].append(float(value) if field_kind == "continuous" else None)
         values["value_bool"].append(bool(value) if field_kind == "predicate" else None)
     return pl.DataFrame(values, schema=_SNAPSHOT_SCHEMA)
@@ -151,9 +170,18 @@ def _snap(rows):
 
 def _episode(scene, snapshot=None, robot_name=ROBOT):
     data, peds = (scene.data, scene.peds) if isinstance(scene, Scene) else (scene, None)
-    start = [data["pos_x"][0], data["pos_y"][0], 0.0] if len(data) else []
-    topics = {} if peds is None else {"pedestrian_tracks": peds}
-    return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=start, goal_pos=[], robot_name=robot_name, semantic_snapshot=snapshot, peds=peds, topics=topics)
+    start = [data["x"][0], data["y"][0], 0.0] if len(data) else []
+    topics = {} if peds is None else {"pedestrian_arena_peds": peds}
+    return AlignedEpisodeBundle(
+        episode_id=1,
+        data=data,
+        start_pos=start,
+        goal_pos=[],
+        robot_name=robot_name,
+        semantic_snapshot=snapshot,
+        peds=peds,
+        topics=topics,
+    )
 
 
 def _ctx(episode, world=None):
@@ -171,7 +199,15 @@ def _ctx(episode, world=None):
 
 def _elevator(name="elev_a", level="0", capacity=None):
     """2x2 cabin at x,y in [0, 2], door on the +x side, call area radius 3 around (2, 1)."""
-    return ElevatorGeom(name, level, [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)], (2.0, 0.0), (2.0, 2.0), 3.0, capacity)
+    return ElevatorGeom(
+        name,
+        level,
+        [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+        (2.0, 0.0),
+        (2.0, 2.0),
+        3.0,
+        capacity,
+    )
 
 
 def _door(name="door_1", level="0"):
@@ -217,8 +253,15 @@ def test_parse_members_round_trip():
 
 
 def test_robot_env_snapshot_filters_multi_env_only():
-    snap = _snap([(0, "env_0/door_1/0", "door", "state", "discrete", "open"), (0, "env_1/door_1/0", "door", "state", "discrete", "closed")])
-    assert robot_env_snapshot(snap, "env_1_jackal")["entity_name"].to_list() == ["env_1/door_1/0"]
+    snap = _snap(
+        [
+            (0, "env_0/door_1/0", "door", "state", "discrete", "open"),
+            (0, "env_1/door_1/0", "door", "state", "discrete", "closed"),
+        ]
+    )
+    assert robot_env_snapshot(snap, "env_1_jackal")["entity_name"].to_list() == [
+        "env_1/door_1/0"
+    ]
     assert len(robot_env_snapshot(snap, None)) == 2
     single = snap.filter(pl.col("entity_name").str.starts_with("env_0"))
     assert len(robot_env_snapshot(single, "env_5_jackal")) == 1
@@ -241,7 +284,13 @@ def test_semantic_view_members_seen_and_fields():
     view = SemanticView.from_episode(
         _episode(
             _data([(0, 0)] * 3),
-            _snap([(0, ELEV, "elevator", "members", "members", []), (1, ELEV, "elevator", "members", "members", [PED]), (0, DOOR, "door", "members", "members", [])]),
+            _snap(
+                [
+                    (0, ELEV, "elevator", "members", "members", []),
+                    (1, ELEV, "elevator", "members", "members", [PED]),
+                    (0, DOOR, "door", "members", "members", []),
+                ]
+            ),
         )
     )
     assert view.members_seen("elevator")
@@ -251,17 +300,37 @@ def test_semantic_view_members_seen_and_fields():
 
 
 def test_geometry_helpers():
-    assert list(in_polygon(np.array([1.0, 3.0]), np.array([1.0, 1.0]), [(0, 0), (2, 0), (2, 2), (0, 2)])) == [True, False]
-    assert segment_distance(np.array([1.0]), np.array([1.0]), (0.0, 0.0), (0.0, 2.0))[0] == pytest.approx(1.0)
-    assert segment_distance(np.array([0.0]), np.array([3.0]), (0.0, 0.0), (0.0, 2.0))[0] == pytest.approx(1.0)
-    assert list(side_of(np.array([-1.0, 1.0, 0.0]), np.array([1.0, 1.0, 1.0]), (0.0, 0.0), (0.0, 2.0))) == [1.0, -1.0, 0.0]
+    assert list(
+        in_polygon(
+            np.array([1.0, 3.0]), np.array([1.0, 1.0]), [(0, 0), (2, 0), (2, 2), (0, 2)]
+        )
+    ) == [True, False]
+    assert segment_distance(np.array([1.0]), np.array([1.0]), (0.0, 0.0), (0.0, 2.0))[
+        0
+    ] == pytest.approx(1.0)
+    assert segment_distance(np.array([0.0]), np.array([3.0]), (0.0, 0.0), (0.0, 2.0))[
+        0
+    ] == pytest.approx(1.0)
+    assert list(
+        side_of(
+            np.array([-1.0, 1.0, 0.0]),
+            np.array([1.0, 1.0, 1.0]),
+            (0.0, 0.0),
+            (0.0, 2.0),
+        )
+    ) == [1.0, -1.0, 0.0]
     assert true_runs(np.array([False, True, True, False, True])) == [(1, 3), (4, 5)]
     elev = _elevator()
-    assert list(in_call_area(np.array([4.0, 1.0, 9.0]), np.array([1.0, 1.0, 1.0]), elev)) == [True, False, False]
+    assert list(
+        in_call_area(np.array([4.0, 1.0, 9.0]), np.array([1.0, 1.0, 1.0]), elev)
+    ) == [True, False, False]
 
 
 def test_ped_tracks_holds_each_named_pedestrian_on_the_robot_axis():
-    scene = _data([(0, 0)] * 2, peds=_peds([[("env_0/p1", 0, 0, 0.3, 0)], [("env_0/p1", 1, 0, 0.3, 0)]]))
+    scene = _data(
+        [(0, 0)] * 2,
+        peds=_peds([[("env_0/p1", 0, 0, 0.3, 0)], [("env_0/p1", 1, 0, 0.3, 0)]]),
+    )
     tracks = ped_tracks(scene.peds, np.array([0, T]))
     assert tracks.named and tracks.keys[0] == ["env_0/p1"]
     assert tracks.vel[1][0, 0] == pytest.approx(0.3)
@@ -273,14 +342,46 @@ def test_mechanism_world_from_description_shifts_levels_and_reads_params():
     from arena_simulation_setup.tree.World import Level, World, Zone
     from arena_simulation_setup.utils.geometry import Position
 
-    zone = Zone(name="hall", polygon=[Position(0, 0, 0), Position(4, 0, 0), Position(4, 4, 0), Position(0, 4, 0)], semantics=[{"predicate": "egress", "value": True}])
+    zone = Zone(
+        name="hall",
+        polygon=[
+            Position(0, 0, 0),
+            Position(4, 0, 0),
+            Position(4, 4, 0),
+            Position(0, 4, 0),
+        ],
+        semantics=[{"predicate": "egress", "value": True}],
+    )
     level = Level(
         id="1",
         zones=[zone],
-        doors=[Door(name="d1", start=Position(0, 0, 0), end=Position(0, 2, 0), activation_distance=[1.0, 2.5])],
-        elevators=[Elevator(name="e1", position=Position(10, 10, 0), size=[2.0, 2.0, 2.0], door_side="-y", destinations=["e2"])],
+        doors=[
+            Door(
+                name="d1",
+                start=Position(0, 0, 0),
+                end=Position(0, 2, 0),
+                activation_distance=[1.0, 2.5],
+            )
+        ],
+        elevators=[
+            Elevator(
+                name="e1",
+                position=Position(10, 10, 0),
+                size=[2.0, 2.0, 2.0],
+                door_side="-y",
+                destinations=["e2"],
+            )
+        ],
     )
-    signals = [Signal(name="sig", semantics=[{"preset": "signal", "params": {"position": [1.0, 2.0], "radius": 0.5}}]), Signal(name="unplaced", semantics=[{"preset": "signal"}])]
+    signals = [
+        Signal(
+            name="sig",
+            semantics=[
+                {"preset": "signal", "params": {"position": [1.0, 2.0], "radius": 0.5}}
+            ],
+        ),
+        Signal(name="unplaced", semantics=[{"preset": "signal"}]),
+    ]
     world = World(levels={"1": level}, signals=signals)
     mech = mechanism_world_from_description(world, {"1": (100.0, 0.0)})
 
@@ -308,16 +409,37 @@ def test_no_snapshot_all_none():
 
 def test_empty_episode_all_none():
     calc = _calc()
-    empty = pl.DataFrame({"t_ns": [], "pos_x": [], "pos_y": [], "yaw": []}, schema={"t_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64, "yaw": pl.Float64})
-    results = calc.calculate(_episode(empty, _snap([(0, DOOR, "door", "state", "discrete", "closed")])), {})
+    empty = pl.DataFrame(
+        {"t_ns": [], "x": [], "y": [], "yaw": []},
+        schema={"t_ns": pl.Int64, "x": pl.Float64, "y": pl.Float64, "yaw": pl.Float64},
+    )
+    results = calc.calculate(
+        _episode(empty, _snap([(0, DOOR, "door", "state", "discrete", "closed")])), {}
+    )
     assert all(v is None for v in results.values())
 
 
 def test_absent_kinds_are_none_present_kind_computed():
     calc = _calc(MechanismWorld(doors=[_door()]))
-    snap = _snap([(0, DOOR, "door", "state", "discrete", "closed"), (0, DOOR, "door", "members", "members", [])])
+    snap = _snap(
+        [
+            (0, DOOR, "door", "state", "discrete", "closed"),
+            (0, DOOR, "door", "members", "members", []),
+        ]
+    )
     results = calc.calculate(_episode(_data([(10, 10)] * 3), snap), {})
-    for key in ("boarded_before_exit", "elevator_wait_to_board_s", "elevator_missed_cycles", "elevator_unnecessary_calls", "entered_full_cabin", "cabin_door_blocking_s", "elevator_queue_jumps", "alarm_egress_blocking_s", "blocked_closing_door", "blocked_closing_door_s"):
+    for key in (
+        "boarded_before_exit",
+        "elevator_wait_to_board_s",
+        "elevator_missed_cycles",
+        "elevator_unnecessary_calls",
+        "entered_full_cabin",
+        "cabin_door_blocking_s",
+        "elevator_queue_jumps",
+        "alarm_egress_blocking_s",
+        "blocked_closing_door",
+        "blocked_closing_door_s",
+    ):
         assert results[key] is None, key
     assert results["door_freeze_s"] == 0.0
     assert results["door_oscillations"] == 0
@@ -339,7 +461,10 @@ def test_robot_never_near_mechanisms():
             (0, ELEV, "elevator", "members", "members", []),
         ]
     )
-    data = _data([(30, 30), (31, 30), (32, 30)], peds=_peds([[("env_0/far", 50.0, 50.0, 0.0, 0.0)]] * 3))
+    data = _data(
+        [(30, 30), (31, 30), (32, 30)],
+        peds=_peds([[("env_0/far", 50.0, 50.0, 0.0, 0.0)]] * 3),
+    )
     results = _calc(world).calculate(_episode(data, snap), {})
     assert results["boarded_before_exit"] == 0
     assert results["entered_full_cabin"] == 0
@@ -385,28 +510,65 @@ def test_boarded_before_exit_counts_boarding_while_arrivals_inside():
 
 def test_boarded_before_exit_zero_after_arrivals_left():
     snap = _ride_snapshot(ped_exits_at=4)
-    snap = snap.filter(~((pl.col("t_ns") == 5 * T) & (pl.col("field_name") == "members")))
-    snap = pl.concat([snap, _snap([(5, ELEV, "elevator", "members", "members", [ROBOT_MEMBER])])])
+    snap = snap.filter(
+        ~((pl.col("t_ns") == 5 * T) & (pl.col("field_name") == "members"))
+    )
+    snap = pl.concat(
+        [snap, _snap([(5, ELEV, "elevator", "members", "members", [ROBOT_MEMBER])])]
+    )
     results = _calc().calculate(_episode(_data([(9, 9)] * 9), snap), {})
     assert results["boarded_before_exit"] == 0
 
 
 def test_boarded_before_exit_none_without_just_arrived_field():
-    snap = _snap([(0, ELEV, "elevator", "members", "members", []), (2, ELEV, "elevator", "members", "members", [ROBOT_MEMBER])])
+    snap = _snap(
+        [
+            (0, ELEV, "elevator", "members", "members", []),
+            (2, ELEV, "elevator", "members", "members", [ROBOT_MEMBER]),
+        ]
+    )
     results = _calc().calculate(_episode(_data([(9, 9)] * 4), snap), {})
     assert results["boarded_before_exit"] is None
     assert results["entered_full_cabin"] is None
 
 
 def test_entered_full_cabin_with_capacity():
-    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=1.0)), {})["entered_full_cabin"] == 1
-    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=2.0)), {})["entered_full_cabin"] == 0
-    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=-1.0)), {})["entered_full_cabin"] == 0
+    assert (
+        _calc().calculate(
+            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=1.0)), {}
+        )["entered_full_cabin"]
+        == 1
+    )
+    assert (
+        _calc().calculate(
+            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=2.0)), {}
+        )["entered_full_cabin"]
+        == 0
+    )
+    assert (
+        _calc().calculate(
+            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=-1.0)), {}
+        )["entered_full_cabin"]
+        == 0
+    )
 
 
 def test_entered_full_cabin_from_full_predicate():
-    snap = pl.concat([_ride_snapshot(), _snap([(0, ELEV, "elevator", "full", "predicate", False), (4, ELEV, "elevator", "full", "predicate", True)])])
-    assert _calc().calculate(_episode(_data([(9, 9)] * 9), snap), {})["entered_full_cabin"] == 1
+    snap = pl.concat(
+        [
+            _ride_snapshot(),
+            _snap(
+                [
+                    (0, ELEV, "elevator", "full", "predicate", False),
+                    (4, ELEV, "elevator", "full", "predicate", True),
+                ]
+            ),
+        ]
+    )
+    assert (
+        _calc().calculate(_episode(_data([(9, 9)] * 9), snap), {})["entered_full_cabin"]
+        == 1
+    )
 
 
 def test_boardings_exclude_ride_arrivals():
@@ -487,43 +649,91 @@ def test_elevator_call_not_attributed_when_ped_waits():
 
 def test_cabin_door_blocking_seconds():
     world = MechanismWorld(elevators=[_elevator()])
-    snap = _snap([(0, ELEV, "elevator", "cabin_door", "discrete", "open"), (0, ELEV, "elevator", "members", "members", [])])
+    snap = _snap(
+        [
+            (0, ELEV, "elevator", "cabin_door", "discrete", "open"),
+            (0, ELEV, "elevator", "members", "members", []),
+        ]
+    )
     points = [(4, 1), (2.1, 1), (2.1, 1), (2.1, 1), (4, 1)]
     results = _calc(world).calculate(_episode(_data(points), snap), {})
     assert results["cabin_door_blocking_s"] == pytest.approx(2.0)
 
-    closed = _snap([(0, ELEV, "elevator", "cabin_door", "discrete", "closed"), (0, ELEV, "elevator", "members", "members", [])])
-    assert _calc(world).calculate(_episode(_data(points), closed), {})["cabin_door_blocking_s"] == 0.0
+    closed = _snap(
+        [
+            (0, ELEV, "elevator", "cabin_door", "discrete", "closed"),
+            (0, ELEV, "elevator", "members", "members", []),
+        ]
+    )
+    assert (
+        _calc(world).calculate(_episode(_data(points), closed), {})[
+            "cabin_door_blocking_s"
+        ]
+        == 0.0
+    )
 
 
 def test_cabin_door_blocking_none_without_world():
     snap = _snap([(0, ELEV, "elevator", "cabin_door", "discrete", "open")])
-    assert _calc().calculate(_episode(_data([(2.1, 1)] * 3), snap), {})["cabin_door_blocking_s"] is None
+    assert (
+        _calc().calculate(_episode(_data([(2.1, 1)] * 3), snap), {})[
+            "cabin_door_blocking_s"
+        ]
+        is None
+    )
 
 
 def _queue_episode(ped_leaves):
     points = [(8, 1), (4.5, 1), (3, 1), (1, 1), (1, 1)]
     waiting = (PED, 3.5, 1.5, 0.0, 0.0)
     gone = (PED, 9.0, 9.0, 0.0, 0.0)
-    peds = [[waiting], [waiting], [gone if ped_leaves else waiting], [gone if ped_leaves else waiting], [waiting]]
-    snap = _snap([(0, ELEV, "elevator", "members", "members", []), (3, ELEV, "elevator", "members", "members", [ROBOT_MEMBER])])
+    peds = [
+        [waiting],
+        [waiting],
+        [gone if ped_leaves else waiting],
+        [gone if ped_leaves else waiting],
+        [waiting],
+    ]
+    snap = _snap(
+        [
+            (0, ELEV, "elevator", "members", "members", []),
+            (3, ELEV, "elevator", "members", "members", [ROBOT_MEMBER]),
+        ]
+    )
     return _episode(_data(points, peds=_peds(peds)), snap)
 
 
 def test_elevator_queue_jump_over_waiting_ped():
     world = MechanismWorld(elevators=[_elevator()])
-    assert _calc(world).calculate(_queue_episode(ped_leaves=False), {})["elevator_queue_jumps"] == 1
+    assert (
+        _calc(world).calculate(_queue_episode(ped_leaves=False), {})[
+            "elevator_queue_jumps"
+        ]
+        == 1
+    )
 
 
 def test_elevator_no_queue_jump_when_ped_left():
     world = MechanismWorld(elevators=[_elevator()])
-    assert _calc(world).calculate(_queue_episode(ped_leaves=True), {})["elevator_queue_jumps"] == 0
+    assert (
+        _calc(world).calculate(_queue_episode(ped_leaves=True), {})[
+            "elevator_queue_jumps"
+        ]
+        == 0
+    )
 
 
 def test_elevator_queue_jumps_none_without_peds():
     world = MechanismWorld(elevators=[_elevator()])
-    snap = _snap([(0, ELEV, "elevator", "members", "members", []), (3, ELEV, "elevator", "members", "members", [ROBOT_MEMBER])])
-    results = _calc(world).calculate(_episode(_data([(8, 1), (4.5, 1), (3, 1), (1, 1)]), snap), {})
+    snap = _snap(
+        [
+            (0, ELEV, "elevator", "members", "members", []),
+            (3, ELEV, "elevator", "members", "members", [ROBOT_MEMBER]),
+        ]
+    )
+    results = _calc(world).calculate(
+        _episode(_data([(8, 1), (4.5, 1), (3, 1), (1, 1)]), snap), {}
+    )
     assert results["elevator_queue_jumps"] is None
     assert results["elevator_wait_to_board_s"] == pytest.approx(2.0)
 
@@ -543,7 +753,17 @@ def test_blocked_closing_door_count_and_seconds():
             (0, DOOR, "door", "state", "discrete", "closing"),
         ]
     )
-    points = [(5, 1), (0.2, 1), (0.2, 1), (0.2, 1), (0.2, 1), (5, 1), (5, 1), (5, 1), (5, 1)]
+    points = [
+        (5, 1),
+        (0.2, 1),
+        (0.2, 1),
+        (0.2, 1),
+        (0.2, 1),
+        (5, 1),
+        (5, 1),
+        (5, 1),
+        (5, 1),
+    ]
     results = _calc(world).calculate(_episode(_data(points), snap), {})
     assert results["blocked_closing_door"] == 1
     assert results["blocked_closing_door_s"] == pytest.approx(2.0)
@@ -567,7 +787,9 @@ def test_blocked_closing_door_members_fallback_without_geometry():
 
 def test_blocked_closing_door_none_when_unattributable():
     snap = _snap([(0, DOOR, "door", "blocked_close", "predicate", True)])
-    results = _calc().calculate(_episode(_data([(0, 0)] * 3), snap, robot_name=None), {})
+    results = _calc().calculate(
+        _episode(_data([(0, 0)] * 3), snap, robot_name=None), {}
+    )
     assert results["blocked_closing_door"] is None
     assert results["blocked_closing_door_s"] is None
 
@@ -606,13 +828,28 @@ def _crossing(ped):
 
 def test_door_yield_violation_ped_approaching_from_far_side():
     world = MechanismWorld(doors=[_door()])
-    assert _calc(world).calculate(_crossing((PED, 1.5, 1.2, -0.5, 0.0)), {})["door_yield_violations"] == 1
+    assert (
+        _calc(world).calculate(_crossing((PED, 1.5, 1.2, -0.5, 0.0)), {})[
+            "door_yield_violations"
+        ]
+        == 1
+    )
 
 
 def test_door_yield_no_violation_ped_moving_away_or_same_side():
     world = MechanismWorld(doors=[_door()])
-    assert _calc(world).calculate(_crossing((PED, 1.5, 1.2, 0.5, 0.0)), {})["door_yield_violations"] == 0
-    assert _calc(world).calculate(_crossing((PED, -1.5, 1.2, 0.5, 0.0)), {})["door_yield_violations"] == 0
+    assert (
+        _calc(world).calculate(_crossing((PED, 1.5, 1.2, 0.5, 0.0)), {})[
+            "door_yield_violations"
+        ]
+        == 0
+    )
+    assert (
+        _calc(world).calculate(_crossing((PED, -1.5, 1.2, 0.5, 0.0)), {})[
+            "door_yield_violations"
+        ]
+        == 0
+    )
 
 
 def test_ped_mechanism_delay_seconds():
@@ -620,28 +857,56 @@ def test_ped_mechanism_delay_seconds():
     ped = [(PED, 1.0, 1.0, 0.0, 0.0)]
     closed = _snap([(0, DOOR, "door", "state", "discrete", "closed")])
     data = _data([(10, 10)] * 4, peds=_peds([ped] * 4))
-    assert _calc(world).calculate(_episode(data, closed), {})["ped_mechanism_delay_seconds"] == pytest.approx(3.0)
+    assert _calc(world).calculate(_episode(data, closed), {})[
+        "ped_mechanism_delay_seconds"
+    ] == pytest.approx(3.0)
 
     opened = _snap([(0, DOOR, "door", "state", "discrete", "open")])
-    assert _calc(world).calculate(_episode(data, opened), {})["ped_mechanism_delay_seconds"] == 0.0
+    assert (
+        _calc(world).calculate(_episode(data, opened), {})[
+            "ped_mechanism_delay_seconds"
+        ]
+        == 0.0
+    )
 
     walking = _data([(10, 10)] * 4, peds=_peds([[(PED, 1.0, 1.0, 1.0, 0.0)]] * 4))
-    assert _calc(world).calculate(_episode(walking, closed), {})["ped_mechanism_delay_seconds"] == 0.0
+    assert (
+        _calc(world).calculate(_episode(walking, closed), {})[
+            "ped_mechanism_delay_seconds"
+        ]
+        == 0.0
+    )
 
 
 def test_ped_mechanism_delay_at_closed_elevator():
     world = MechanismWorld(elevators=[_elevator()])
-    snap = _snap([(0, ELEV, "elevator", "cabin_door", "discrete", "closed"), (2, ELEV, "elevator", "cabin_door", "discrete", "open")])
+    snap = _snap(
+        [
+            (0, ELEV, "elevator", "cabin_door", "discrete", "closed"),
+            (2, ELEV, "elevator", "cabin_door", "discrete", "open"),
+        ]
+    )
     data = _data([(10, 10)] * 4, peds=_peds([[(PED, 3.5, 1.0, 0.0, 0.0)]] * 4))
-    assert _calc(world).calculate(_episode(data, snap), {})["ped_mechanism_delay_seconds"] == pytest.approx(2.0)
+    assert _calc(world).calculate(_episode(data, snap), {})[
+        "ped_mechanism_delay_seconds"
+    ] == pytest.approx(2.0)
 
 
 # -- alarms -------------------------------------------------------------------------------
 
 
 def test_alarm_egress_blocking_seconds():
-    world = MechanismWorld(egress_zones=[EgressZone("exit_corridor", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])])
-    snap = _snap([(0, "env_0/fire_alarm/0", "schedule", "active", "predicate", False), (2, "env_0/fire_alarm/0", "schedule", "active", "predicate", True)])
+    world = MechanismWorld(
+        egress_zones=[
+            EgressZone("exit_corridor", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])
+        ]
+    )
+    snap = _snap(
+        [
+            (0, "env_0/fire_alarm/0", "schedule", "active", "predicate", False),
+            (2, "env_0/fire_alarm/0", "schedule", "active", "predicate", True),
+        ]
+    )
     results = _calc(world).calculate(_episode(_data([(1, 1)] * 5), snap), {})
     assert results["alarm_egress_blocking_s"] == pytest.approx(2.0)
 
@@ -651,10 +916,22 @@ def test_alarm_egress_blocking_seconds():
 
 def test_alarm_egress_blocking_none_without_egress_zones_or_schedule():
     snap = _snap([(0, "env_0/fire_alarm/0", "schedule", "active", "predicate", True)])
-    assert _calc(MechanismWorld()).calculate(_episode(_data([(1, 1)] * 3), snap), {})["alarm_egress_blocking_s"] is None
-    world = MechanismWorld(egress_zones=[EgressZone("exit", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])])
+    assert (
+        _calc(MechanismWorld()).calculate(_episode(_data([(1, 1)] * 3), snap), {})[
+            "alarm_egress_blocking_s"
+        ]
+        is None
+    )
+    world = MechanismWorld(
+        egress_zones=[EgressZone("exit", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])]
+    )
     door_only = _snap([(0, DOOR, "door", "state", "discrete", "open")])
-    assert _calc(world).calculate(_episode(_data([(1, 1)] * 3), door_only), {})["alarm_egress_blocking_s"] is None
+    assert (
+        _calc(world).calculate(_episode(_data([(1, 1)] * 3), door_only), {})[
+            "alarm_egress_blocking_s"
+        ]
+        is None
+    )
 
 
 def test_multi_env_snapshot_scoped_to_robot_env():
@@ -667,12 +944,14 @@ def test_multi_env_snapshot_scoped_to_robot_env():
     )
     results = _calc(world).calculate(_episode(_data([(1, 1)] * 3), snap), {})
     assert results["door_freeze_s"] == 0.0
-    other_env = _calc(world).calculate(_episode(_data([(1, 1)] * 3), snap, robot_name="env_1_jackal"), {})
+    other_env = _calc(world).calculate(
+        _episode(_data([(1, 1)] * 3), snap, robot_name="env_1_jackal"), {}
+    )
     assert other_env["door_freeze_s"] == pytest.approx(1.0)
 
 
-def test_elevator_ride_teleport_keeps_full_track():
-    """A ride teleport landing at an elevator arrival must not cut the track to one floor."""
+def test_elevator_ride_teleport_keeps_the_native_track():
+    """D3: the aligned frame is the native /tf track, so a teleport never cuts it to one floor."""
     snap = _snap(
         [
             (0, ELEV, "elevator", "just_arrived", "predicate", False),
@@ -684,5 +963,8 @@ def test_elevator_ride_teleport_keeps_full_track():
     track = robot_track(_calc(), episode)
     assert len(track) == len(points)
 
-    no_arrival = _episode(_data(points), _snap([(0, ELEV, "elevator", "just_arrived", "predicate", False)]))
-    assert len(robot_track(_calc(), no_arrival)) == 4
+    no_arrival = _episode(
+        _data(points),
+        _snap([(0, ELEV, "elevator", "just_arrived", "predicate", False)]),
+    )
+    assert len(robot_track(_calc(), no_arrival)) == len(points)

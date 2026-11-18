@@ -110,7 +110,7 @@ def test_a_robot_contact_window_carries_the_other_robots_track(
 
     assert [contact.identity["collider_kind"] for contact in slices] == ["robot"]
     assert [contact.identity["obstacle_id"] for contact in slices] == ["env_0_jackal_1"]
-    actor_track = slices[0].window_bundle.topics["pedestrian_tracks"]
+    actor_track = slices[0].window_bundle.topics["pedestrian_arena_peds"]
     assert actor_track["x"].to_list() == [OTHER_ROBOT_X_M]
 
 
@@ -120,7 +120,7 @@ def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_
     episode = _bundle(
         {
             "robot_tracks": _robot_track(),
-            "collision_events": pl.DataFrame(
+            "robot_collision_events": pl.DataFrame(
                 {"t_ns": [5 * NS_PER_S], "wall_count": [1], "static_count": [0]}
             ),
         }
@@ -174,7 +174,9 @@ def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles
             "distance": [0.0],
         }
     )
-    episode = _bundle({"robot_tracks": _robot_track(), "collision_contacts": contacts})
+    episode = _bundle(
+        {"robot_tracks": _robot_track(), "robot_collision_contacts": contacts}
+    )
 
     frame = ScopedEvaluator(
         make_robot_params(robot_radius=ROBOT_RADIUS_M)

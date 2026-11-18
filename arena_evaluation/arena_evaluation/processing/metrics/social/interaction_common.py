@@ -37,8 +37,8 @@ PEDESTRIAN_ID_PREFIXES: Final[tuple[str, ...]] = ("ped", "pedestrian")
 UNIDENTIFIED_ROBOT_ID: Final[str] = "robot"
 NS_PER_S: Final[float] = 1e9
 ROBOT_TRACKS_TOPIC: Final[str] = "robot_tracks"
-PEDESTRIAN_TRACKS_TOPIC: Final[str] = "pedestrian_tracks"
-PEDESTRIAN_PHYSICS_TOPIC: Final[str] = "pedestrian_tracks_physics"
+PEDESTRIAN_ARENA_PEDS_TOPIC: Final[str] = "pedestrian_arena_peds"
+PEDESTRIAN_AGENT_STATES_TOPIC: Final[str] = "pedestrian_agent_states"
 
 NATIVE_ROBOT_COLUMNS: Final[tuple[str, ...]] = ("t_ns", "x", "y", "yaw", "vx", "vy")
 
@@ -108,7 +108,14 @@ class Trajectory2D:
         """Linearly interpolate trajectory onto query_time_ns; an empty source stays undefined (NaN), never the origin."""
         if len(self.t_ns) == 0 or len(query_time_ns) == 0:
             undefined = np.full(len(query_time_ns), np.nan)
-            return Trajectory2D(query_time_ns, undefined, undefined.copy(), undefined.copy(), undefined.copy(), self.radius_m)
+            return Trajectory2D(
+                query_time_ns,
+                undefined,
+                undefined.copy(),
+                undefined.copy(),
+                undefined.copy(),
+                self.radius_m,
+            )
         t_src = self.t_ns.astype(np.float64)
         t_dst = query_time_ns.astype(np.float64)
         return Trajectory2D(
@@ -165,19 +172,32 @@ def episode_table(episode: AlignedEpisodeBundle, topic: str) -> pl.DataFrame | N
     return topics.get(topic)
 
 
-def resolve_robot_trajectory(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[Trajectory2D, np.ndarray]:
+def resolve_robot_trajectory(
+    calc: BaseMetricCalculator, episode: AlignedEpisodeBundle
+) -> tuple[Trajectory2D, np.ndarray]:
     """Robot ground-truth Trajectory2D and yaw array from the flat robot_tracks table.
 
     A missing velocity or yaw sample stays NaN: the recording holds no measurement for it.
     """
     radius_m = float(calc.robot_params.robot_radius)
     empty = np.array([], dtype=np.float64)
-    empty_trajectory = Trajectory2D(t_ns=np.array([], dtype=np.int64), x=empty, y=empty.copy(), vx=empty.copy(), vy=empty.copy(), radius_m=radius_m)
+    empty_trajectory = Trajectory2D(
+        t_ns=np.array([], dtype=np.int64),
+        x=empty,
+        y=empty.copy(),
+        vx=empty.copy(),
+        vy=empty.copy(),
+        radius_m=radius_m,
+    )
     tracks = episode_table(episode, ROBOT_TRACKS_TOPIC)
     if tracks is None:
         return empty_trajectory, empty
 
-    rows = tracks.select("t_ns", "x", "y", "yaw", "vx", "vy").drop_nulls(["t_ns", "x", "y"]).sort("t_ns")
+    rows = (
+        tracks.select("t_ns", "x", "y", "yaw", "vx", "vy")
+        .drop_nulls(["t_ns", "x", "y"])
+        .sort("t_ns")
+    )
     if len(rows) == 0:
         return empty_trajectory, empty
 
@@ -195,33 +215,60 @@ def resolve_robot_trajectory(calc: BaseMetricCalculator, episode: AlignedEpisode
 
 
 def extract_episode_ped_tracks(episode: AlignedEpisodeBundle) -> dict[str, PedTrack]:
-    """Pedestrian tracks of the episode keyed by canonical ped_id, read from the flat pedestrian_tracks table."""
-    return extract_ped_tracks(episode_table(episode, PEDESTRIAN_TRACKS_TOPIC))
+    """Pedestrian tracks of the episode keyed by canonical ped_id, read from the flat pedestrian_arena_peds table."""
+    return extract_ped_tracks(episode_table(episode, PEDESTRIAN_ARENA_PEDS_TOPIC))
 
 
 def extract_ped_tracks(peds: pl.DataFrame | None) -> dict[str, PedTrack]:
-    """Pedestrian tracks keyed by canonical ped_id from a flat pedestrian_tracks frame."""
+    """Pedestrian tracks keyed by canonical ped_id from a flat pedestrian_arena_peds frame."""
     if peds is None or len(peds) == 0:
         return {}
 
-    rows = peds.select("t_ns", "ped_id", "ped_name", "x", "y", "vx", "vy", "radius_m", "desired_speed").drop_nulls(["t_ns", "ped_id"]).filter(pl.col("x").is_finite() & pl.col("y").is_finite()).sort("t_ns")
+    rows = (
+        peds.select(
+            "t_ns",
+            "ped_id",
+            "ped_name",
+            "x",
+            "y",
+            "vx",
+            "vy",
+            "radius_m",
+            "desired_speed",
+        )
+        .drop_nulls(["t_ns", "ped_id"])
+        .filter(pl.col("x").is_finite() & pl.col("y").is_finite())
+        .sort("t_ns")
+    )
     if len(rows) == 0:
         return {}
 
-    return {str(frame["ped_id"][0]): _track_from_frame(frame) for frame in rows.partition_by("ped_id", maintain_order=True)}
+    return {
+        str(frame["ped_id"][0]): _track_from_frame(frame)
+        for frame in rows.partition_by("ped_id", maintain_order=True)
+    }
 
 
-def resolve_ped_track(tracks: Mapping[str, PedTrack], target_agent_id: int | str | None, target_agent_name: str | None = None) -> PedTrack | None:
+def resolve_ped_track(
+    tracks: Mapping[str, PedTrack],
+    target_agent_id: int | str | None,
+    target_agent_name: str | None = None,
+) -> PedTrack | None:
     """Track addressed by a configured agent id (canonical ped_id, name, numeric or ``ped_<n>`` alias), then by name."""
     if target_agent_id is not None:
         wanted = _identity_aliases(str(target_agent_id))
         for track in tracks.values():
-            if wanted & _identity_aliases(track.ped_id) or wanted & _identity_aliases(track.ped_name):
+            if wanted & _identity_aliases(track.ped_id) or wanted & _identity_aliases(
+                track.ped_name
+            ):
                 return track
     if target_agent_name is not None:
         wanted_name = target_agent_name.strip().lower()
         for track in tracks.values():
-            if track.ped_name.strip().lower() == wanted_name or track.ped_id.strip().lower() == wanted_name:
+            if (
+                track.ped_name.strip().lower() == wanted_name
+                or track.ped_id.strip().lower() == wanted_name
+            ):
                 return track
     return None
 
@@ -237,11 +284,17 @@ def _identity_aliases(value: str) -> set[str]:
     return {normalized}
 
 
-def detector_params_from_config(metrics_config: Mapping[str, typing.Any]) -> DetectorParams:
+def detector_params_from_config(
+    metrics_config: Mapping[str, typing.Any],
+) -> DetectorParams:
     """Detector parameters of a metrics config, only the edge distance and merge gap being metric-configurable."""
     return DetectorParams(
-        encounter_edge_distance_m=float(metrics_config.get("encounter_edge_distance_m", ENCOUNTER_EDGE_DISTANCE_M)),
-        encounter_merge_gap_s=float(metrics_config.get("encounter_merge_gap_s", ENCOUNTER_MERGE_GAP_S)),
+        encounter_edge_distance_m=float(
+            metrics_config.get("encounter_edge_distance_m", ENCOUNTER_EDGE_DISTANCE_M)
+        ),
+        encounter_merge_gap_s=float(
+            metrics_config.get("encounter_merge_gap_s", ENCOUNTER_MERGE_GAP_S)
+        ),
     )
 
 
@@ -263,9 +316,11 @@ def episode_encounter_windows(
         pl.col("vy").cast(pl.Float64),
     ).with_columns(robot_id=pl.lit(episode.robot_name or UNIDENTIFIED_ROBOT_ID))
     pairs: list[pl.LazyFrame] = []
-    pedestrian_tracks = episode_table(episode, PEDESTRIAN_TRACKS_TOPIC)
+    pedestrian_tracks = episode_table(episode, PEDESTRIAN_ARENA_PEDS_TOPIC)
     if pedestrian_tracks is not None and len(pedestrian_tracks) > 0:
-        pairs.append(pedestrian_pairs_lf(robot, pedestrian_tracks, robot_radius_m, params))
+        pairs.append(
+            pedestrian_pairs_lf(robot, pedestrian_tracks, robot_radius_m, params)
+        )
     if episode.fleet:
         pairs.append(fleet_pairs_lf(robot, episode.fleet, robot_radius_m, params))
     if not pairs:
@@ -302,7 +357,9 @@ def _track_from_frame(frame: pl.DataFrame) -> PedTrack:
     vy = _measured(frame["vy"].to_numpy().astype(np.float64))
 
     twist_is_zero = not bool(np.any(np.hypot(vx, vy) > 1e-9))
-    position_moved = len(x) >= 2 and bool(np.any(np.hypot(np.diff(x), np.diff(y)) > 1e-6))
+    position_moved = len(x) >= 2 and bool(
+        np.any(np.hypot(np.diff(x), np.diff(y)) > 1e-6)
+    )
     if twist_is_zero and position_moved:
         vx, vy = BaseMetricCalculator.velocity_from_pose(x, y, t_ns)
         vx[0], vy[0] = np.nan, np.nan
@@ -311,7 +368,9 @@ def _track_from_frame(frame: pl.DataFrame) -> PedTrack:
     if radius_m is None or not np.isfinite(radius_m) or radius_m <= 0.0:
         radius_m = None
     effective_radius_m = radius_m if radius_m is not None else DEFAULT_PED_RADIUS_M
-    trajectory = Trajectory2D(t_ns=t_ns, x=x, y=y, vx=vx, vy=vy, radius_m=effective_radius_m)
+    trajectory = Trajectory2D(
+        t_ns=t_ns, x=x, y=y, vx=vx, vy=vy, radius_m=effective_radius_m
+    )
     return PedTrack(
         ped_id=ped_id,
         ped_name=_first_text(frame["ped_name"], ped_id),
@@ -341,14 +400,19 @@ def _first_float(series: pl.Series) -> float | None:
     return float(present[0]) if len(present) > 0 else None
 
 
-def contiguous_spans(mask: np.ndarray, t_ns: np.ndarray, merge_gap_ns: int) -> list[tuple[int, int]]:
+def contiguous_spans(
+    mask: np.ndarray, t_ns: np.ndarray, merge_gap_ns: int
+) -> list[tuple[int, int]]:
     """Inclusive index spans of the True runs of a mask, bridging gaps of at most merge_gap_ns."""
     hits = np.flatnonzero(mask)
     if len(hits) == 0:
         return []
     breaks = np.flatnonzero(np.diff(t_ns[hits]) > merge_gap_ns) + 1
     edges = np.concatenate(([0], breaks, [len(hits)]))
-    return [(int(hits[start]), int(hits[end - 1])) for start, end in zip(edges[:-1], edges[1:], strict=True)]
+    return [
+        (int(hits[start]), int(hits[end - 1]))
+        for start, end in zip(edges[:-1], edges[1:], strict=True)
+    ]
 
 
 def merge_intervals_ns(intervals: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:

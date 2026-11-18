@@ -18,24 +18,37 @@ from robot_params_factory import make_robot_params
 SEC = 1_000_000_000
 
 
-def _episode(*, vel_linear: list[float | None] | None = None, pos_x_gt: list[float] | None = None, sample_count: int | None = None) -> AlignedEpisodeBundle:
+def _episode(
+    *,
+    speed_mps: list[float | None] | None = None,
+    x: list[float] | None = None,
+    sample_count: int | None = None,
+) -> AlignedEpisodeBundle:
     """Episode frame at 1 s spacing, with a twist stream or a ground-truth pose track."""
-    if pos_x_gt is not None:
-        count = len(pos_x_gt)
+    if x is not None:
+        count = len(x)
         data = pl.DataFrame(
             {
-                "t_ns": pl.Series("t_ns", [index * SEC for index in range(count)], dtype=pl.Int64),
-                "pos_x_gt": pl.Series("pos_x_gt", pos_x_gt, dtype=pl.Float64),
-                "pos_y_gt": pl.Series("pos_y_gt", [0.0] * count, dtype=pl.Float64),
-                "yaw_gt": pl.Series("yaw_gt", [0.0] * count, dtype=pl.Float64),
+                "t_ns": pl.Series(
+                    "t_ns", [index * SEC for index in range(count)], dtype=pl.Int64
+                ),
+                "x": pl.Series("x", x, dtype=pl.Float64),
+                "y": pl.Series("y", [0.0] * count, dtype=pl.Float64),
+                "yaw": pl.Series("yaw", [0.0] * count, dtype=pl.Float64),
             }
         )
     else:
-        count = len(vel_linear) if vel_linear is not None else (sample_count or 0)
+        count = len(speed_mps) if speed_mps is not None else (sample_count or 0)
         data = pl.DataFrame(
             {
-                "t_ns": pl.Series("t_ns", [index * SEC for index in range(count)], dtype=pl.Int64),
-                "vel_linear": pl.Series("vel_linear", vel_linear if vel_linear is not None else [None] * count, dtype=pl.Float64),
+                "t_ns": pl.Series(
+                    "t_ns", [index * SEC for index in range(count)], dtype=pl.Int64
+                ),
+                "speed_mps": pl.Series(
+                    "speed_mps",
+                    speed_mps if speed_mps is not None else [None] * count,
+                    dtype=pl.Float64,
+                ),
             }
         )
     return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[])
@@ -46,13 +59,22 @@ def _calculator() -> MotionMetricsCalculator:
 
 
 def test_output_keys_keep_only_the_aggregates():
-    expected = ["mean_velocity_mps", "velocity_max", "acceleration_mean", "max_acceleration_mps2", "jerk_mean", "jerk_max_mps3"]
+    expected = [
+        "mean_velocity_mps",
+        "velocity_max",
+        "acceleration_mean",
+        "max_acceleration_mps2",
+        "jerk_mean",
+        "jerk_max_mps3",
+    ]
 
     assert MotionMetricsCalculator.output_keys() == expected
     assert {metric.name for metric in MotionMetricsCalculator.OUTPUTS} == set(expected)
 
 
-def _dense_speed_episode(speed_mps: float, *, rate_hz: float = 50.0, duration_s: float = 6.0) -> AlignedEpisodeBundle:
+def _dense_speed_episode(
+    speed_mps: float, *, rate_hz: float = 50.0, duration_s: float = 6.0
+) -> AlignedEpisodeBundle:
     """Constant-speed episode on a grid fine enough for the declared 1.0 s smoothing window."""
     count = int(round(duration_s * rate_hz))
     t_ns = (np.arange(count, dtype=np.float64) / rate_hz * SEC).astype(np.int64)
@@ -61,7 +83,9 @@ def _dense_speed_episode(speed_mps: float, *, rate_hz: float = 50.0, duration_s:
         data=pl.DataFrame(
             {
                 "t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64),
-                "vel_linear": pl.Series("vel_linear", np.full(count, speed_mps), dtype=pl.Float64),
+                "speed_mps": pl.Series(
+                    "speed_mps", np.full(count, speed_mps), dtype=pl.Float64
+                ),
             }
         ),
         start_pos=[],
@@ -85,7 +109,7 @@ def test_constant_velocity_series_has_zero_acceleration_and_jerk():
 
 def test_below_the_smoothing_window_acceleration_and_jerk_are_null_never_the_raw_difference():
     calculator = _calculator()
-    episode = _episode(vel_linear=[0.0, 1.0, 2.0, 3.0])
+    episode = _episode(speed_mps=[0.0, 1.0, 2.0, 3.0])
 
     table = calculator.series_table(episode)
     results = calculator.calculate(episode, {})
@@ -102,9 +126,14 @@ def test_below_the_smoothing_window_acceleration_and_jerk_are_null_never_the_raw
 
 
 def test_velocity_series_is_derived_from_ground_truth_without_a_twist_stream():
-    table = _calculator().series_table(_episode(pos_x_gt=[0.0, 1.0, 2.0, 3.0]))
+    table = _calculator().series_table(_episode(x=[0.0, 1.0, 2.0, 3.0]))
 
-    assert_series_equal(table["speed_mps"], pl.Series("speed_mps", [None, 1.0, 1.0, 1.0], dtype=pl.Float64), check_names=False, rel_tol=1e-9)
+    assert_series_equal(
+        table["speed_mps"],
+        pl.Series("speed_mps", [None, 1.0, 1.0, 1.0], dtype=pl.Float64),
+        check_names=False,
+        rel_tol=1e-9,
+    )
     assert table["acceleration_mps2"].is_null().all()
     assert table["jerk_mps3"].is_null().all()
 
@@ -116,15 +145,21 @@ def test_series_summaries_match_the_metric_row():
     table = calculator.series_table(episode)
     results = calculator.calculate(episode, {})
 
-    assert results["mean_velocity_mps"] == pytest.approx(float(table["speed_mps"].mean()))
+    assert results["mean_velocity_mps"] == pytest.approx(
+        float(table["speed_mps"].mean())
+    )
     assert results["velocity_max"] == pytest.approx(float(table["speed_mps"].max()))
-    assert results["max_acceleration_mps2"] == pytest.approx(float(table["acceleration_mps2"].abs().max()))
-    assert results["jerk_max_mps3"] == pytest.approx(float(table["jerk_mps3"].abs().max()))
+    assert results["max_acceleration_mps2"] == pytest.approx(
+        float(table["acceleration_mps2"].abs().max())
+    )
+    assert results["jerk_max_mps3"] == pytest.approx(
+        float(table["jerk_mps3"].abs().max())
+    )
 
 
 def test_a_single_sample_has_no_acceleration_series():
     calculator = _calculator()
-    episode = _episode(vel_linear=[1.0])
+    episode = _episode(speed_mps=[1.0])
 
     table = calculator.series_table(episode)
     results = calculator.calculate(episode, {})
@@ -139,12 +174,16 @@ def test_a_single_sample_has_no_acceleration_series():
 
 def test_two_samples_have_speed_but_no_derivative_series():
     calculator = _calculator()
-    episode = _episode(vel_linear=[0.0, 2.0])
+    episode = _episode(speed_mps=[0.0, 2.0])
 
     table = calculator.series_table(episode)
     results = calculator.calculate(episode, {})
 
-    assert_series_equal(table["speed_mps"], pl.Series("speed_mps", [0.0, 2.0], dtype=pl.Float64), check_names=False)
+    assert_series_equal(
+        table["speed_mps"],
+        pl.Series("speed_mps", [0.0, 2.0], dtype=pl.Float64),
+        check_names=False,
+    )
     assert table["acceleration_mps2"].is_null().all()
     assert table["jerk_mps3"].is_null().all()
     assert results["mean_velocity_mps"] == pytest.approx(1.0)
@@ -156,14 +195,26 @@ def test_without_an_aligned_frame_aggregates_and_series_are_empty():
     calculator = _calculator()
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
 
-    assert calculator.calculate(episode, {}) == dict.fromkeys(MotionMetricsCalculator.output_keys())
-    assert_frame_equal(calculator.series_table(episode), pl.DataFrame(schema=SERIES_SCHEMA), check_dtypes=True)
+    assert calculator.calculate(episode, {}) == dict.fromkeys(
+        MotionMetricsCalculator.output_keys()
+    )
+    assert_frame_equal(
+        calculator.series_table(episode),
+        pl.DataFrame(schema=SERIES_SCHEMA),
+        check_dtypes=True,
+    )
 
 
 # --- smoothed derivative estimator: physical plausibility ---------------------------------
 
 
-def _ramp_episode(*, rate_hz: float = 50.0, duration_s: float = 6.0, accel_mps2: float = 1.0, ramp_s: float = 2.0) -> AlignedEpisodeBundle:
+def _ramp_episode(
+    *,
+    rate_hz: float = 50.0,
+    duration_s: float = 6.0,
+    accel_mps2: float = 1.0,
+    ramp_s: float = 2.0,
+) -> AlignedEpisodeBundle:
     """Analytic profile: constant acceleration for ramp_s, then constant velocity."""
     count = int(round(duration_s * rate_hz))
     time_s = np.arange(count, dtype=np.float64) / rate_hz
@@ -178,10 +229,12 @@ def _ramp_episode(*, rate_hz: float = 50.0, duration_s: float = 6.0, accel_mps2:
         episode_id=1,
         data=pl.DataFrame(
             {
-                "t_ns": pl.Series("t_ns", (time_s * SEC).astype(np.int64), dtype=pl.Int64),
-                "pos_x_gt": pl.Series("pos_x_gt", x_m, dtype=pl.Float64),
-                "pos_y_gt": pl.Series("pos_y_gt", np.zeros(count), dtype=pl.Float64),
-                "yaw_gt": pl.Series("yaw_gt", np.zeros(count), dtype=pl.Float64),
+                "t_ns": pl.Series(
+                    "t_ns", (time_s * SEC).astype(np.int64), dtype=pl.Int64
+                ),
+                "x": pl.Series("x", x_m, dtype=pl.Float64),
+                "y": pl.Series("y", np.zeros(count), dtype=pl.Float64),
+                "yaw": pl.Series("yaw", np.zeros(count), dtype=pl.Float64),
             }
         ),
         start_pos=[],
@@ -222,9 +275,9 @@ def test_a_noisy_ground_truth_tracks_does_not_inflate_the_peaks():
         data=pl.DataFrame(
             {
                 "t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64),
-                "pos_x_gt": pl.Series("pos_x_gt", x_m, dtype=pl.Float64),
-                "pos_y_gt": pl.Series("pos_y_gt", y_m, dtype=pl.Float64),
-                "yaw_gt": pl.Series("yaw_gt", np.zeros(count), dtype=pl.Float64),
+                "x": pl.Series("x", x_m, dtype=pl.Float64),
+                "y": pl.Series("y", y_m, dtype=pl.Float64),
+                "yaw": pl.Series("yaw", np.zeros(count), dtype=pl.Float64),
             }
         ),
         start_pos=[],
@@ -249,11 +302,17 @@ def test_sample_order_and_duplicate_stamps_leave_the_peaks_unchanged():
 
     duplicated = pl.concat([episode.data, episode.data.head(1)])
     reordered = duplicated.sort("t_ns", descending=True)
-    variant = AlignedEpisodeBundle(episode_id=1, data=reordered, start_pos=[], goal_pos=[])
+    variant = AlignedEpisodeBundle(
+        episode_id=1, data=reordered, start_pos=[], goal_pos=[]
+    )
     reordered_results = calculator.calculate(variant, {})
 
-    assert reordered_results["max_acceleration_mps2"] == pytest.approx(baseline["max_acceleration_mps2"], rel=1e-9)
-    assert reordered_results["jerk_max_mps3"] == pytest.approx(baseline["jerk_max_mps3"], rel=1e-9)
+    assert reordered_results["max_acceleration_mps2"] == pytest.approx(
+        baseline["max_acceleration_mps2"], rel=1e-9
+    )
+    assert reordered_results["jerk_max_mps3"] == pytest.approx(
+        baseline["jerk_max_mps3"], rel=1e-9
+    )
 
 
 def test_smoothed_series_and_metric_row_cannot_disagree():
@@ -262,7 +321,13 @@ def test_smoothed_series_and_metric_row_cannot_disagree():
     table = calculator.series_table(episode)
     results = calculator.calculate(episode, {})
 
-    assert results["mean_velocity_mps"] == pytest.approx(float(table["speed_mps"].mean()))
+    assert results["mean_velocity_mps"] == pytest.approx(
+        float(table["speed_mps"].mean())
+    )
     assert results["velocity_max"] == pytest.approx(float(table["speed_mps"].max()))
-    assert results["max_acceleration_mps2"] == pytest.approx(float(table["acceleration_mps2"].abs().max()))
-    assert results["jerk_max_mps3"] == pytest.approx(float(table["jerk_mps3"].abs().max()))
+    assert results["max_acceleration_mps2"] == pytest.approx(
+        float(table["acceleration_mps2"].abs().max())
+    )
+    assert results["jerk_max_mps3"] == pytest.approx(
+        float(table["jerk_mps3"].abs().max())
+    )

@@ -21,26 +21,36 @@ def _episode(times_ns, scan=None, peds=None, radius_m=PED_RADIUS, radii=None):
     data = pl.DataFrame(
         {
             "t_ns": times_ns,
-            "pos_x": [0.0] * n,
-            "pos_y": [0.0] * n,
+            "x": [0.0] * n,
+            "y": [0.0] * n,
             "yaw": [0.0] * n,
-            "pos_x_gt": [0.0] * n,
-            "pos_y_gt": [0.0] * n,
-            "yaw_gt": [0.0] * n,
         }
     )
-    topics = {"robot_tracks": pl.DataFrame({"t_ns": times_ns, "x": [0.0] * n, "y": [0.0] * n, "yaw": [0.0] * n})}
+    topics = {
+        "robot_tracks": pl.DataFrame(
+            {"t_ns": times_ns, "x": [0.0] * n, "y": [0.0] * n, "yaw": [0.0] * n}
+        )
+    }
     if scan is not None:
         topics["robot_scan_summary"] = pl.DataFrame({"t_ns": times_ns, **scan})
     frames = None
     if peds is not None:
-        frames = flat_peds([(t, [{"x": x, "y": y} for x, y in sample]) for t, sample in zip(times_ns, peds, strict=True)])
+        frames = flat_peds(
+            [
+                (t, [{"x": x, "y": y} for x, y in sample])
+                for t, sample in zip(times_ns, peds, strict=True)
+            ]
+        )
         if radius_m is not None:
             radius_expr = pl.lit(radius_m, dtype=pl.Float64)
             for ped_id, ped_radius in (radii or {}).items():
-                radius_expr = pl.when(pl.col("ped_id") == ped_id).then(pl.lit(ped_radius, dtype=pl.Float64)).otherwise(radius_expr)
+                radius_expr = (
+                    pl.when(pl.col("ped_id") == ped_id)
+                    .then(pl.lit(ped_radius, dtype=pl.Float64))
+                    .otherwise(radius_expr)
+                )
             frames = frames.with_columns(radius_m=radius_expr)
-        topics["pedestrian_tracks"] = frames
+        topics["pedestrian_arena_peds"] = frames
     return AlignedEpisodeBundle(
         episode_id=1,
         data=data,
@@ -68,7 +78,13 @@ def test_no_topics_yields_all_none(calc):
 
 
 def test_series_table_is_flat_with_one_row_per_sample(calc):
-    table = calc.series_table(_episode([0, SEC], scan={"scan_min_m": [2.0, 3.0], "range_max_m": [10.0, 10.0]}), run_id="run", robot_id="robot")
+    table = calc.series_table(
+        _episode(
+            [0, SEC], scan={"scan_min_m": [2.0, 3.0], "range_max_m": [10.0, 10.0]}
+        ),
+        run_id="run",
+        robot_id="robot",
+    )
     assert table.schema == pl.Schema(
         {
             "run_id": pl.String,
@@ -93,7 +109,9 @@ def test_obstacle_clearance_subtracts_the_robot_radius(calc):
 
 def test_scan_at_max_range_is_no_detection_not_a_far_obstacle(calc):
     """The sentinel frame must not be averaged in as a huge clearance."""
-    episode = _episode([0, SEC], scan={"scan_min_m": [2.0, 10.0], "range_max_m": [10.0, 10.0]})
+    episode = _episode(
+        [0, SEC], scan={"scan_min_m": [2.0, 10.0], "range_max_m": [10.0, 10.0]}
+    )
     results = calc.calculate(episode, {})
     assert results["min_obstacle_clearance_m"] == pytest.approx(2.0 - RADIUS)
     assert results["mean_obstacle_clearance"] == pytest.approx(2.0 - RADIUS)
@@ -108,7 +126,10 @@ def test_every_frame_at_max_range_leaves_no_obstacle_clearance(calc):
 
 
 def test_pedestrian_clearance_is_edge_to_edge(calc):
-    results = calc.calculate(_episode([0, SEC], peds=[[(1.5, 0.0), (3.0, 0.0)], [(1.5, 0.0), (3.0, 0.0)]]), {})
+    results = calc.calculate(
+        _episode([0, SEC], peds=[[(1.5, 0.0), (3.0, 0.0)], [(1.5, 0.0), (3.0, 0.0)]]),
+        {},
+    )
     assert results["min_ped_clearance_m"] == pytest.approx(1.5 - RADIUS - PED_RADIUS)
 
 
@@ -125,7 +146,12 @@ def test_nearest_pedestrian_wins(calc):
 
 def test_each_pedestrians_recorded_radius_is_used(calc):
     peds = [[(1.0, 0.0), (3.0, 0.0)], [(1.0, 0.0), (3.0, 0.0)]]
-    results = calc.calculate(_episode([0, SEC], peds=peds, radii={"Pedestrian_0": 0.45, "Pedestrian_1": 0.15}), {})
+    results = calc.calculate(
+        _episode(
+            [0, SEC], peds=peds, radii={"Pedestrian_0": 0.45, "Pedestrian_1": 0.15}
+        ),
+        {},
+    )
     assert results["min_ped_clearance_m"] == pytest.approx(1.0 - RADIUS - 0.45)
 
 
@@ -136,15 +162,40 @@ def test_pedestrian_clearance_requires_the_recorded_radius(calc):
 
 
 def test_timeseries_takes_the_minimum_of_both_sources(calc):
-    episode = _episode([0, SEC], scan={"scan_min_m": [2.0, 0.5], "range_max_m": [10.0, 10.0]}, peds=[[(1.0, 0.0)], [(5.0, 0.0)]])
+    episode = _episode(
+        [0, SEC],
+        scan={"scan_min_m": [2.0, 0.5], "range_max_m": [10.0, 10.0]},
+        peds=[[(1.0, 0.0)], [(5.0, 0.0)]],
+    )
     calc.calculate(episode, {})
-    expected = pl.Series("combined_clearance_m", [1.0 - RADIUS - PED_RADIUS, 0.5 - RADIUS], dtype=pl.Float64, nan_to_null=True)
-    assert_series_equal(_series(calc, episode, "combined_clearance_m"), expected, check_names=False, rel_tol=1e-9)
+    expected = pl.Series(
+        "combined_clearance_m",
+        [1.0 - RADIUS - PED_RADIUS, 0.5 - RADIUS],
+        dtype=pl.Float64,
+        nan_to_null=True,
+    )
+    assert_series_equal(
+        _series(calc, episode, "combined_clearance_m"),
+        expected,
+        check_names=False,
+        rel_tol=1e-9,
+    )
 
 
 def test_frames_without_pedestrians_fall_back_to_the_scan(calc):
-    episode = _episode([0, SEC], scan={"scan_min_m": [2.0, 2.0], "range_max_m": [10.0, 10.0]}, peds=[[], []])
+    episode = _episode(
+        [0, SEC],
+        scan={"scan_min_m": [2.0, 2.0], "range_max_m": [10.0, 10.0]},
+        peds=[[], []],
+    )
     results = calc.calculate(episode, {})
     assert results["min_ped_clearance_m"] is None
-    expected = pl.Series("combined_clearance_m", [2.0 - RADIUS, 2.0 - RADIUS], dtype=pl.Float64)
-    assert_series_equal(_series(calc, episode, "combined_clearance_m"), expected, check_names=False, rel_tol=1e-9)
+    expected = pl.Series(
+        "combined_clearance_m", [2.0 - RADIUS, 2.0 - RADIUS], dtype=pl.Float64
+    )
+    assert_series_equal(
+        _series(calc, episode, "combined_clearance_m"),
+        expected,
+        check_names=False,
+        rel_tol=1e-9,
+    )

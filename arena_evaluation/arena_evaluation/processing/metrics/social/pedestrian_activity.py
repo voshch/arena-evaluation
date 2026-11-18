@@ -16,9 +16,30 @@ ROUND_TRIP_REACH_SHARE: Final[float] = 0.75
 ROUND_TRIP_RETURN_SHARE: Final[float] = 0.25
 ROUND_TRIP_MIN_DISPLACEMENT_M: Final[float] = 0.5
 
-TOTAL_DISTANCE_M = define_metric("total_distance_m", pl.Float64, scopes=(MetricScope.PEDESTRIAN,), unit="m", description="Planar distance the pedestrian travelled over the recorded track.", null_reason=True)
-MEAN_SPEED_MPS = define_metric("mean_speed_mps", pl.Float64, scopes=(MetricScope.PEDESTRIAN,), unit="m/s", description="Mean recorded speed of the pedestrian over the samples that carry one.", null_reason=True)
-ROUND_TRIPS_COMPLETED = define_metric("round_trips_completed", pl.Int64, scopes=(MetricScope.PEDESTRIAN,), unit="", description="Completed patrol rounds: an away reach of three quarters of the farthest displacement followed by a return within one quarter.", null_reason=True)
+TOTAL_DISTANCE_M = define_metric(
+    "total_distance_m",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="m",
+    description="Planar distance the pedestrian travelled over the recorded track.",
+    null_reason=True,
+)
+MEAN_SPEED_MPS = define_metric(
+    "mean_speed_mps",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="m/s",
+    description="Mean recorded speed of the pedestrian over the samples that carry one.",
+    null_reason=True,
+)
+ROUND_TRIPS_COMPLETED = define_metric(
+    "round_trips_completed",
+    pl.Int64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="",
+    description="Completed patrol rounds: an away reach of three quarters of the farthest displacement followed by a return within one quarter.",
+    null_reason=True,
+)
 
 
 class PedestrianActivityCalculator(BaseMetricCalculator):
@@ -28,7 +49,7 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = []
-    REQUIRED_TOPICS = ["pedestrian_tracks"]
+    REQUIRED_TOPICS = ["pedestrian_arena_peds"]
 
     OUTPUTS = (TOTAL_DISTANCE_M, MEAN_SPEED_MPS, ROUND_TRIPS_COMPLETED)
     PRIMARY_OUTPUTS = ["total_distance_m", "mean_speed_mps"]
@@ -41,21 +62,29 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         target_id: str | None = None,
     ) -> dict[str, typing.Any]:
         del prior_results
-        ped_tracks = self.native_topics(episode).get("pedestrian_tracks")
+        ped_tracks = self.native_topics(episode).get("pedestrian_arena_peds")
         if ped_tracks is not None and isinstance(ped_tracks, pl.LazyFrame):
             ped_tracks = ped_tracks.collect()
 
         if ped_tracks is None or len(ped_tracks) == 0:
             return dict.fromkeys(self.output_keys())
 
-        resolved_target = target_id if target_id is not None else self.metrics_config.get("target_agent_id")
+        resolved_target = (
+            target_id
+            if target_id is not None
+            else self.metrics_config.get("target_agent_id")
+        )
         if resolved_target is not None:
             ped_tracks = ped_tracks.filter(pl.col("ped_id") == str(resolved_target))
 
         if len(ped_tracks) == 0:
             return dict.fromkeys(self.output_keys())
 
-        tracks = ped_tracks.sort("t_ns").with_columns(derived_speed_mps=pl.col("speed_mps").fill_null((pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()))
+        tracks = ped_tracks.sort("t_ns").with_columns(
+            derived_speed_mps=pl.col("speed_mps").fill_null(
+                (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
+            )
+        )
         dx = tracks.get_column("x").diff().drop_nulls()
         dy = tracks.get_column("y").diff().drop_nulls()
         step_dist = np.hypot(dx.to_numpy(), dy.to_numpy())
@@ -75,8 +104,15 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         if max_disp > ROUND_TRIP_MIN_DISPLACEMENT_M:
             reach_m = ROUND_TRIP_REACH_SHARE * max_disp
             return_m = ROUND_TRIP_RETURN_SHARE * max_disp
-            disp_df = pl.DataFrame({"disp": displacements}).filter((pl.col("disp") >= reach_m) | (pl.col("disp") <= return_m)).with_columns(is_away=pl.col("disp") >= reach_m).with_columns(next_away=pl.col("is_away").shift(-1))
-            completed = disp_df.filter(pl.col("is_away") & ~pl.col("next_away").fill_null(True))
+            disp_df = (
+                pl.DataFrame({"disp": displacements})
+                .filter((pl.col("disp") >= reach_m) | (pl.col("disp") <= return_m))
+                .with_columns(is_away=pl.col("disp") >= reach_m)
+                .with_columns(next_away=pl.col("is_away").shift(-1))
+            )
+            completed = disp_df.filter(
+                pl.col("is_away") & ~pl.col("next_away").fill_null(True)
+            )
             round_trips = len(completed)
 
         return {
@@ -85,7 +121,9 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
             "round_trips_completed": round_trips,
         }
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
         return self._calculate_for_target(episode, prior_results)
 
     def calculate_for_scope(
@@ -94,5 +132,9 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
         scope_slice: ScopeSlice | None = None,
     ) -> dict[str, typing.Any]:
-        target_id = scope_slice.slice_id if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN else None
+        target_id = (
+            scope_slice.slice_id
+            if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN
+            else None
+        )
         return self._calculate_for_target(episode, prior_results, target_id=target_id)

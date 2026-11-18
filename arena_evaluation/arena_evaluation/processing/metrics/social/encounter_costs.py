@@ -24,7 +24,7 @@ from arena_evaluation.processing.metrics.base import (
 from arena_evaluation.processing.metrics.ecological.energy import JOULES_PER_WH
 from arena_evaluation.processing.metrics.social.interaction_common import (
     NS_PER_S,
-    PEDESTRIAN_TRACKS_TOPIC,
+    PEDESTRIAN_ARENA_PEDS_TOPIC,
     ROBOT_TRACKS_TOPIC,
     PedTrack,
     Trajectory2D,
@@ -432,7 +432,7 @@ class EncounterCostsCalculator(BaseMetricCalculator):
 
     NAME = "encounter_costs"
     CATEGORY = "social"
-    REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC, PEDESTRIAN_TRACKS_TOPIC]
+    REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC, PEDESTRIAN_ARENA_PEDS_TOPIC]
     PARAMS = (
         "encounter_edge_distance_m",
         "encounter_merge_gap_s",

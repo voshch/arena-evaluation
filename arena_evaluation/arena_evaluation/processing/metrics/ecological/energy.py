@@ -510,8 +510,8 @@ def _episode_series(episode: AlignedEpisodeBundle) -> _Series | None:
         mechanical_w=_column(frame, "total_mech_power_w"),
         thermal_w=_column(frame, "total_thermal_power_w"),
         battery_pct=_column(frame, "battery_soc_percent"),
-        velocity_mps=_column(frame, "vel_linear"),
-        angular_velocity_radps=_column(frame, "vel_angular"),
+        velocity_mps=_column(frame, "speed_mps"),
+        angular_velocity_radps=_column(frame, "omega_z"),
     )
 
 

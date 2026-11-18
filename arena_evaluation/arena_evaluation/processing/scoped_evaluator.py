@@ -30,14 +30,14 @@ from arena_evaluation.processing.metrics.registry import (
     load_metric_definitions,
 )
 from arena_evaluation.processing.metrics.safety.contact_attribution import (
-    COLLISION_CONTACTS_TOPIC,
+    ROBOT_COLLISION_CONTACTS_TOPIC,
     ContactAttributionCalculator,
     ContactEvent,
     detect_contact_events,
     static_point_of,
 )
 from arena_evaluation.processing.metrics.social.interaction_common import (
-    PEDESTRIAN_TRACKS_TOPIC,
+    PEDESTRIAN_ARENA_PEDS_TOPIC,
     ROBOT_TRACKS_TOPIC,
     extract_episode_ped_tracks,
     resolve_robot_trajectory,
@@ -750,7 +750,7 @@ class ScopedEvaluator:
             ped_start_ns = min_ped_t if isinstance(min_ped_t, int) else ep_start_ns
             ped_end_ns = max_ped_t if isinstance(max_ped_t, int) else ep_end_ns
             ped_topics = dict(materialized.topics or {})
-            ped_topics[PEDESTRIAN_TRACKS_TOPIC] = ped_df
+            ped_topics[PEDESTRIAN_ARENA_PEDS_TOPIC] = ped_df
             ped_bundle = dataclasses.replace(
                 materialized, data=pl.DataFrame(), topics=ped_topics, fleet={}
             )
@@ -810,7 +810,7 @@ class ScopedEvaluator:
         """Stage 1: Materialize episode topics once and decompose into immutable ScopeSlice hierarchy."""
         materialized = _materialize_episode_bundle(episode)
         robot_tracks = _table(materialized, ROBOT_TRACKS_TOPIC)
-        pedestrian_tracks = _table(materialized, PEDESTRIAN_TRACKS_TOPIC)
+        pedestrian_tracks = _table(materialized, PEDESTRIAN_ARENA_PEDS_TOPIC)
         contact_windows = empty_contact_windows()
         encounter_windows = empty_encounter_windows()
 
@@ -1069,14 +1069,14 @@ class ScopedEvaluator:
         for name, frame in (episode.topics or {}).items():
             if not isinstance(frame, pl.DataFrame):
                 continue
-            if name == PEDESTRIAN_TRACKS_TOPIC:
+            if name == PEDESTRIAN_ARENA_PEDS_TOPIC:
                 frame = self._actor_track_frame(episode, frame, actor_id, actor_kind)
             if len(frame) > 0:
                 frame = frame.filter(
                     (pl.col("t_ns") >= t_start_ns) & (pl.col("t_ns") <= t_end_ns)
                 )
             topics[name] = frame
-        if PEDESTRIAN_TRACKS_TOPIC not in topics and actor_kind != ACTOR_PEDESTRIAN:
+        if PEDESTRIAN_ARENA_PEDS_TOPIC not in topics and actor_kind != ACTOR_PEDESTRIAN:
             actor_frame = self._actor_track_frame(
                 episode, pl.DataFrame(), actor_id, actor_kind
             )
@@ -1084,7 +1084,7 @@ class ScopedEvaluator:
                 actor_frame = actor_frame.filter(
                     (pl.col("t_ns") >= t_start_ns) & (pl.col("t_ns") <= t_end_ns)
                 )
-            topics[PEDESTRIAN_TRACKS_TOPIC] = actor_frame
+            topics[PEDESTRIAN_ARENA_PEDS_TOPIC] = actor_frame
         return dataclasses.replace(
             episode, data=pl.DataFrame(), topics=topics, fleet={}
         )
@@ -1654,7 +1654,7 @@ class ScopedEvaluator:
         identifiers = pl.DataFrame(
             {"obstacle_id": pl.Series("obstacle_id", obstacles, dtype=pl.String)}
         ).with_row_index("collision_idx")
-        contacts = _table(episode, COLLISION_CONTACTS_TOPIC)
+        contacts = _table(episode, ROBOT_COLLISION_CONTACTS_TOPIC)
         if contacts is None or not {"obstacle_id", "t_ns"} <= set(contacts.columns):
             firsts = identifiers.with_columns(
                 obstacle_kind=pl.lit(None, dtype=pl.String),

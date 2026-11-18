@@ -383,9 +383,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
                     frame_idx = 0
                 ep_row = ep_df.row(frame_idx, named=True)
                 if rx is None:
-                    rx = ep_row.get("pos_x_gt")
+                    rx = ep_row.get("x")
                 if ry is None:
-                    ry = ep_row.get("pos_y_gt")
+                    ry = ep_row.get("y")
                 if src_dba is None:
                     src_dba = ep_row.get("source_dba")
                 if t_ns is None:
@@ -733,16 +733,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             "ped_waypoints": {},
         }
         schema = df.schema if df is not None else {}
-        rx_col = (
-            "pos_x_gt"
-            if "pos_x_gt" in schema
-            else ("pos_x" if "pos_x" in schema else None)
-        )
-        ry_col = (
-            "pos_y_gt"
-            if "pos_y_gt" in schema
-            else ("pos_y" if "pos_y" in schema else None)
-        )
+        rx_col = "x" if "x" in schema else None
+        ry_col = "y" if "y" in schema else None
 
         if rx_col and ry_col and df is not None:
             rx = df[rx_col].to_numpy()
@@ -1108,8 +1100,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         for frame_idx in indices:
             row = rows[frame_idx]
-            rx_m = row.get("pos_x_gt")
-            ry_m = row.get("pos_y_gt")
+            rx_m = row.get("x")
+            ry_m = row.get("y")
             source_dba = row.get("source_dba")
             t_ns = int(row.get("t_ns", 0))
 
@@ -1528,8 +1520,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             layers.im.set_data(layers.render_grids[rg_idx])
 
             row = frames.rows[min(frames.indices[orig_idx], frames.total_rows - 1)]
-            rx_m = float(row.get("pos_x_gt", 0) or 0)
-            ry_m = float(row.get("pos_y_gt", 0) or 0)
+            rx_m = float(row.get("x", 0) or 0)
+            ry_m = float(row.get("y", 0) or 0)
             layers.robot_dot.set_data([rx_m], [ry_m])
             robot_xs.append(rx_m)
             robot_ys.append(ry_m)
@@ -1699,8 +1691,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         )
         row = frames.rows[min(frames.indices[orig_idx], frames.total_rows - 1)]
         ax_frame.plot(
-            float(row.get("pos_x_gt", 0) or 0),
-            float(row.get("pos_y_gt", 0) or 0),
+            float(row.get("x", 0) or 0),
+            float(row.get("y", 0) or 0),
             marker="o",
             color="#00e5ff",
             markeredgecolor="#ffffff",

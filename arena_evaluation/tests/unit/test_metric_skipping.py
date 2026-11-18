@@ -28,7 +28,12 @@ def _run_skipping(
     available_topics: set[str],
 ) -> tuple[dict[str, object], Mapping[str, object]]:
     """The EPISODE and ROBOT results merged, and the ROBOT pass's child rows."""
-    episode_outcome = registry.run_scope(MetricScope.EPISODE, episode, available_topics=available_topics, pedsim_available=True)
+    episode_outcome = registry.run_scope(
+        MetricScope.EPISODE,
+        episode,
+        available_topics=available_topics,
+        pedsim_available=True,
+    )
     robot_outcome = registry.run_scope(
         MetricScope.ROBOT,
         episode,
@@ -40,29 +45,35 @@ def _run_skipping(
 
 
 def test_registry_skipping_with_available_topics():
-    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
+    params = make_robot_params(
+        robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0
+    )
     registry = MetricRegistry(params)
 
     df_odom_only = pl.DataFrame(
         {
             "t_ns": [1000, 2000, 3000],
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0],
-            "pos_x_gt": [0.0, 1.0, 2.0],
-            "pos_y_gt": [0.0, 0.0, 0.0],
-            "yaw_gt": [0.0, 0.0, 0.0],
-            "vel_linear": [1.0, 1.0, 1.0],
-            "vel_angular": [0.0, 0.0, 0.0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
         }
     )
 
-    episode = AlignedEpisodeBundle(episode_id=1, data=df_odom_only, start_pos=[0.0, 0.0, 0.0], goal_pos=[2.0, 0.0, 0.0])
+    episode = AlignedEpisodeBundle(
+        episode_id=1,
+        data=df_odom_only,
+        start_pos=[0.0, 0.0, 0.0],
+        goal_pos=[2.0, 0.0, 0.0],
+    )
     results, children = _run_skipping(registry, episode, {"robot_tracks"})
 
     assert results["path_length_m"] > 0
     # The sample at 2000 ns is exactly 1 m from the goal, which is within the 1 m tolerance.
-    assert results["time_to_goal"] == pytest.approx(1e-6)  # 1000 ns after the first sample
+    assert results["time_to_goal"] == pytest.approx(
+        1e-6
+    )  # 1000 ns after the first sample
     assert results["mean_velocity_mps"] == 1.0
 
     assert results["collision_amount"] is None
@@ -74,21 +85,20 @@ def test_registry_skipping_with_available_topics():
 
 
 def test_registry_skipping_with_all_topics():
-    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
+    params = make_robot_params(
+        robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0
+    )
     registry = MetricRegistry(params)
 
     df_all = pl.DataFrame(
         {
             "t_ns": [1000, 2000, 3000],
-            "pos_x": [0.0, 1.0, 2.0],
-            "pos_y": [0.0, 0.0, 0.0],
+            "x": [0.0, 1.0, 2.0],
+            "y": [0.0, 0.0, 0.0],
             "yaw": [0.0, 0.0, 0.0],
-            "pos_x_gt": [0.0, 1.0, 2.0],
-            "pos_y_gt": [0.0, 0.0, 0.0],
-            "yaw_gt": [0.0, 0.0, 0.0],
-            "vel_linear": [1.0, 1.0, 1.0],
-            "vel_angular": [0.0, 0.0, 0.0],
-            "collision_event": [0, 0, 0],
+            "speed_mps": [1.0, 1.0, 1.0],
+            "omega_z": [0.0, 0.0, 0.0],
+            "event_count": [0, 0, 0],
             "collision_monitor_state_action": ["none", "none", "none"],
         }
     )
@@ -114,17 +124,32 @@ def test_registry_skipping_with_all_topics():
         }
     )
 
-    collision_events = pl.DataFrame({"t_ns": [1000, 2000, 3000], "event_count": [0, 0, 0]})
+    collision_events = pl.DataFrame(
+        {"t_ns": [1000, 2000, 3000], "event_count": [0, 0, 0]}
+    )
     episode = AlignedEpisodeBundle(
         episode_id=1,
         data=df_all,
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[2.0, 0.0, 0.0],
-        topics={"pedestrian_tracks": peds, "collision_events": collision_events},
+        topics={
+            "pedestrian_arena_peds": peds,
+            "robot_collision_events": collision_events,
+        },
         outcome_state=2,
         outcome_info="",
     )
-    results, _ = _run_skipping(registry, episode, {"robot_odom", "robot_tracks", "pedestrian_tracks", "collision_events", "collision_monitor_state"})
+    results, _ = _run_skipping(
+        registry,
+        episode,
+        {
+            "robot_odom",
+            "robot_tracks",
+            "pedestrian_arena_peds",
+            "robot_collision_events",
+            "collision_monitor_state",
+        },
+    )
 
     assert results["path_length_m"] > 0
     assert results["collision_amount"] == 0

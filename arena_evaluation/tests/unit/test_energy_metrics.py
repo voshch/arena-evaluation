@@ -36,7 +36,7 @@ def calc() -> EnergyCalculator:
 
 
 def test_missing_power_and_battery_give_null_energy(calc):
-    results = calc.calculate(_episode(vel_linear=[0.1, 0.2, 0.3]), {})
+    results = calc.calculate(_episode(speed_mps=[0.1, 0.2, 0.3]), {})
     assert set(results) == set(calc.output_keys())
     assert results["energy_total_wh"] is None
     assert results["power_peak_w"] is None
@@ -161,7 +161,7 @@ def test_zero_power_leaves_the_peak_to_mean_ratio_undefined(calc):
 def test_standstill_penalty_only_bills_stationary_samples(calc):
     results = calc.calculate(
         _episode(
-            total_power_w=[10.0, 10.0, 50.0, 50.0], vel_linear=[0.0, 0.0, 1.0, 1.0]
+            total_power_w=[10.0, 10.0, 50.0, 50.0], speed_mps=[0.0, 0.0, 1.0, 1.0]
         ),
         {},
     )
@@ -173,7 +173,7 @@ def test_short_standstill_blocks_are_ignored(calc):
     episode = _episode_at(
         [0, 100_000_000, 200_000_000, 300_000_000],
         total_power_w=[10.0, 10.0, 10.0, 10.0],
-        vel_linear=[1.0, 0.0, 1.0, 1.0],
+        speed_mps=[1.0, 0.0, 1.0, 1.0],
     )
     assert calc.calculate(episode, {})["standstill_energy_penalty_wh"] == pytest.approx(
         0.0
@@ -182,7 +182,7 @@ def test_short_standstill_blocks_are_ignored(calc):
 
 def test_a_robot_that_never_moves_is_billed_for_the_whole_run(calc):
     results = calc.calculate(
-        _episode(total_power_w=[20.0, 20.0, 20.0], vel_linear=[0.0, 0.0, 0.0]), {}
+        _episode(total_power_w=[20.0, 20.0, 20.0], speed_mps=[0.0, 0.0, 0.0]), {}
     )
     assert results["standstill_energy_penalty_wh"] == pytest.approx(40.0 / 3600.0)
 
@@ -190,7 +190,7 @@ def test_a_robot_that_never_moves_is_billed_for_the_whole_run(calc):
 def test_kinetic_energy_demand_stays_unknown_until_a_yaw_rate_is_recorded(calc):
     results = calc.calculate(
         _episode(
-            total_power_w=[10.0, 10.0, 10.0, 10.0], vel_linear=[0.0, 1.0, 1.0, 0.0]
+            total_power_w=[10.0, 10.0, 10.0, 10.0], speed_mps=[0.0, 1.0, 1.0, 0.0]
         ),
         {},
     )
@@ -200,7 +200,7 @@ def test_kinetic_energy_demand_stays_unknown_until_a_yaw_rate_is_recorded(calc):
 def test_series_table_is_flat_one_row_per_sample(calc):
     power = pl.Series([None, 36.0, 72.0], dtype=pl.Float64)
     table = calc.series_table(
-        _episode(total_power_w=power, vel_linear=[0.1, 0.2, 0.3]),
+        _episode(total_power_w=power, speed_mps=[0.1, 0.2, 0.3]),
         run_id="run",
         robot_id="robot",
     )
@@ -376,8 +376,8 @@ def test_mechanical_energy_reads_the_aligned_mechanical_power_column(calc):
         total_thermal_power_w=[0.0] * 3,
         static_power_w=[0.0] * 3,
         battery_soc_percent=[90.0] * 3,
-        vel_linear=[0.0] * 3,
-        vel_angular=[0.0] * 3,
+        speed_mps=[0.0] * 3,
+        omega_z=[0.0] * 3,
     )
     results = calc.calculate(episode, {})
     assert results["energy_mechanical_wh"] is not None
@@ -388,8 +388,8 @@ def test_kinetic_energy_demand_uses_the_recorded_yaw_rate(calc):
     episode = _episode(
         total_power_w=[10.0] * 3,
         total_mech_power_w=[10.0] * 3,
-        vel_linear=[0.0] * 3,
-        vel_angular=[0.0, 1.0, 0.0],
+        speed_mps=[0.0] * 3,
+        omega_z=[0.0, 1.0, 0.0],
     )
     results = calc.calculate(episode, {})
     spin_up_j = 0.5 * calc.robot_params.mass * calc.robot_params.robot_radius**2 * 0.5

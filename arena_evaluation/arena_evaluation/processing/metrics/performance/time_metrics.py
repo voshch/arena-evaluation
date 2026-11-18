@@ -80,8 +80,8 @@ class TimeMetricsCalculator(BaseMetricCalculator):
         track = self.resolve_robot_frame(episode)
         if track is None:
             return None, "topic_missing:robot_tracks"
-        distance_sq = (track["pos_x_gt"] - float(episode.goal_pos[0])) ** 2 + (
-            track["pos_y_gt"] - float(episode.goal_pos[1])
+        distance_sq = (track["x"] - float(episode.goal_pos[0])) ** 2 + (
+            track["y"] - float(episode.goal_pos[1])
         ) ** 2
         arrivals = (distance_sq <= GOAL_TOLERANCE_M**2).arg_true()
         if len(arrivals) == 0:
