@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import itertools
-import json
+import logging
 import re
 import typing
 
@@ -41,9 +40,16 @@ _STAGE_OWNED_PREFIXES = ("task.", "record.")
 
 _SUITE_METRIC_KEYS = frozenset({"max_collisions", "barn"})
 
+# Accepted runner back-compat: every shipped suite still spells its modes `tm_<axis>`
+# (decision R-026/X-064, see the FIX9 report), so the legacy keys stay until the corpus migrates.
 _LEGACY_MODE_PREFIX = "tm_"
 
-_IMPLICIT_SEED_EXCLUDES = ("timeout", "timeout_peds", "optim")
+# Keys a stage carries that are not fields of Suite.Stage: they are parsed separately.
+_STAGE_EXTRA_KEYS = ("timeout", "timeout_peds", "optim")
+
+_SUITE_KEYS = frozenset({"name", "stages", "launch", "references", "metrics", "task_layer"})
+
+_log = logging.getLogger(__name__)
 
 
 def _layer(task_layer_key: str = "") -> TaskLayer:
@@ -52,10 +58,9 @@ def _layer(task_layer_key: str = "") -> TaskLayer:
     return task_layer(task_layer_key)
 
 
-def _expand_modes(obj: dict, layer: TaskLayer) -> tuple[dict, dict]:
-    """obj with its validated `modes` selection, and the same selection under legacy `tm_<axis>` keys in the input's key order."""
+def _expand_modes(obj: dict, layer: TaskLayer) -> dict:
+    """obj with its validated `modes` selection and every legacy `tm_<axis>` key removed."""
     out: dict = {}
-    legacy: dict = {}
     modes: dict[str, str] = {}
     for key, value in obj.items():
         if key == "modes":
@@ -66,7 +71,6 @@ def _expand_modes(obj: dict, layer: TaskLayer) -> tuple[dict, dict]:
             pairs = [(key.removeprefix(_LEGACY_MODE_PREFIX), value)]
         else:
             out[key] = value
-            legacy[key] = value
             continue
         for axis, name in pairs:
             if not isinstance(name, str):
@@ -74,12 +78,10 @@ def _expand_modes(obj: dict, layer: TaskLayer) -> tuple[dict, dict]:
             if axis in modes:
                 raise ValueError(f"stage sets the {axis!r} mode twice")
             given = [part.strip() for part in name.split(",") if part.strip()]
-            canonical = ",".join(layer.validate_modes({axis: given})[axis])
-            modes[axis] = canonical
-            legacy[f"{_LEGACY_MODE_PREFIX}{axis}"] = canonical
+            modes[axis] = ",".join(layer.validate_modes({axis: given})[axis])
     if modes:
         out["modes"] = modes
-    return out, legacy
+    return out
 
 
 def stage_modes(stage: Suite.Stage, vocabulary: TaskModes) -> TaskModes:
@@ -87,9 +89,30 @@ def stage_modes(stage: Suite.Stage, vocabulary: TaskModes) -> TaskModes:
     return {axis: [name for name in stage.modes.get(axis, "").split(",") if name] for axis in vocabulary}
 
 
+def _launch_value(key: str, value: object) -> str:
+    """Canonical `key:=value` text of a suite launch value; only bool, number and string are launchable."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    raise ValueError(
+        f"suite launch: {key!r} must be a bool, number or string, got {type(value).__name__}"
+    )
+
+
 class Suite(typing.NamedTuple):
     @classmethod
     def parse(cls, name: str, obj: dict) -> Suite:
+        unknown = sorted(set(obj) - _SUITE_KEYS)
+        if unknown:
+            _log.warning(
+                "suite %r: unknown top-level keys %s ignored, known: %s",
+                name,
+                unknown,
+                sorted(_SUITE_KEYS),
+            )
         task_layer_key = str(obj.get("task_layer") or "")
         layer = _layer(task_layer_key)
         return cls(
@@ -103,7 +126,7 @@ class Suite(typing.NamedTuple):
 
     @staticmethod
     def _parse_launch(obj: dict) -> dict[str, str]:
-        launch = {str(k): str(v) for k, v in obj.items()}
+        launch = {str(k): _launch_value(str(k), v) for k, v in obj.items()}
         owned = [k for k in launch if k in _STAGE_OWNED_KEYS or k.startswith(_STAGE_OWNED_PREFIXES)]
         if owned:
             raise ValueError(f"suite launch: {owned} are set per stage, not suite-wide")
@@ -139,41 +162,20 @@ class Suite(typing.NamedTuple):
         map: str
         modes: dict[str, str]
         config: dict
-        seed: int
+        seed: int | None
         timeout: float
         optim: dict | None = None
         timeout_peds: float | None = None
 
         @classmethod
-        def _make_serializable(cls, item: object) -> object:
-            if isinstance(item, dict):
-                return {k: cls._make_serializable(v) for k, v in item.items()}
-            if isinstance(item, (list, tuple)):
-                return [cls._make_serializable(i) for i in item]
-            return item
-
-        @classmethod
-        def hash(cls, obj: dict) -> int:
-            hashable_obj = {k: v for k, v in obj.items() if k != "config"}
-            hashable_obj = cls._make_serializable(hashable_obj)
-            try:
-                return 0x7FFFFFFF & int.from_bytes(
-                    hashlib.sha1(json.dumps(hashable_obj).encode()).digest()[-4:],
-                    byteorder="big",
-                )
-            except Exception:
-                return 0
-
-        @classmethod
         def parse(cls, obj: dict, layer: TaskLayer | None = None) -> Suite.Stage:
-            obj, legacy = _expand_modes(obj, _layer() if layer is None else layer)
+            obj = _expand_modes(obj, _layer() if layer is None else layer)
             obj.setdefault("config", {})
-            raw_timeout, raw_timeout_peds, optim = (obj.pop(key, None) for key in _IMPLICIT_SEED_EXCLUDES)
+            raw_timeout, raw_timeout_peds, optim = (obj.pop(key, None) for key in _STAGE_EXTRA_KEYS)
             timeout_f = _DEFAULT_TIMEOUT_S if raw_timeout is None else _parse_duration(str(raw_timeout))
             timeout_peds_f = _parse_duration(str(raw_timeout_peds)) if raw_timeout_peds is not None else None
             modes = obj.pop("modes", {})
-            if "seed" not in obj:
-                obj["seed"] = cls.hash({key: value for key, value in legacy.items() if key not in _IMPLICIT_SEED_EXCLUDES})
+            obj.setdefault("seed", None)
             return cls(timeout=timeout_f, optim=optim, timeout_peds=timeout_peds_f, modes=modes, **obj)
 
     name: str
@@ -232,9 +234,6 @@ class Contest:
 
     class Index(int):
         pass
-
-    # Keep Contestant accessible as Contest.Contestant for backward compat with runner imports.
-    Contestant = Contestant
 
     @property
     def min_index(self) -> Contest.Index:

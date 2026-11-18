@@ -16,7 +16,7 @@ import pytest
 from arena_runtime.env.task_layer import encode_modes
 
 import arena_evaluation.benchmark.state as state_module
-from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.config import Contestant, Suite
 from arena_evaluation.benchmark.runner import block_claim_key, group_pending
 from arena_evaluation.benchmark.state import (
     SUPERSEDED_PROGRESS,
@@ -110,7 +110,7 @@ def _lanes(tmp_path: pathlib.Path, *lanes: str) -> list[RunDir]:
 
 def _make_step(contestant: str, stage: str, world: str) -> Step:
     return Step(
-        contestant=Contest.Contestant(name=contestant, args={}),
+        contestant=Contestant(name=contestant, args={}),
         stage=Suite.Stage(
             name=stage,
             episodes=2,

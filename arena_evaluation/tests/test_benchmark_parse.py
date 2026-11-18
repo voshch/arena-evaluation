@@ -74,11 +74,25 @@ def test_suite_parse_launch_args_from_launch_mapping():
 
     obj = {
         "stages": [_make_stage_dict()],
-        "launch": {"sim.isaac.physics": "newton", "headless": True},
+        "launch": {"sim.isaac.physics": "newton", "headless": True, "env.n": 2},
     }
     result = Suite.parse("test_suite", obj)
 
-    assert result.launch_args == {"sim.isaac.physics": "newton", "headless": "True"}
+    assert result.launch_args == {
+        "sim.isaac.physics": "newton",
+        "headless": "true",
+        "env.n": "2",
+    }
+
+
+def test_suite_parse_launch_rejects_a_non_scalar_value():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="must be a bool, number or string"):
+        Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "launch": {"human.robots": ["a", "b"]}},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -112,14 +126,14 @@ def test_stage_parse_missing_timeout_defaults_to_60():
     assert result.timeout == 60.0
 
 
-def test_stage_parse_seed_defaults_to_hash():
+def test_stage_parse_without_seed_stays_none():
     from arena_evaluation.benchmark.config import Suite
 
     obj = _make_stage_dict()
     obj.pop("seed", None)
     result = Suite.Stage.parse(obj)
 
-    assert isinstance(result.seed, int)
+    assert result.seed is None
 
 
 def test_stage_parse_takes_any_case_of_a_vocabulary_name_on_every_axis():
@@ -186,10 +200,7 @@ def test_stage_parse_modules_axis_takes_a_comma_list():
     assert result.modes["modules"] == ",".join(names)
 
 
-def test_stage_seed_hashes_the_legacy_keys_of_the_raw_stage():
-    import hashlib
-    import json
-
+def test_stage_parse_keeps_an_explicit_seed():
     from arena_evaluation.benchmark.config import Suite
 
     raw = {
@@ -200,45 +211,23 @@ def test_stage_seed_hashes_the_legacy_keys_of_the_raw_stage():
         "tm_obstacles": "random",
         "tm_robots": "scenario",
         "config": {"scenario": {"file": "x"}},
+        "seed": 1234,
     }
-    expected = 0x7FFFFFFF & int.from_bytes(
-        hashlib.sha1(
-            json.dumps({k: v for k, v in raw.items() if k != "config"}).encode()
-        ).digest()[-4:],
-        byteorder="big",
-    )
-    assert Suite.Stage.parse(raw).seed == expected
+    assert Suite.Stage.parse(raw).seed == 1234
 
 
-def test_every_shipped_suite_keeps_its_stage_seeds():
-    import hashlib
-    import json
+def test_every_shipped_suite_keeps_its_explicit_seeds_and_leaves_others_unset():
     import pathlib
 
     import yaml
 
     from arena_evaluation.benchmark.config import Suite
 
-    def old_seed(raw: dict) -> int:
-        legacy = {
-            key: value
-            for key, value in raw.items()
-            if key not in ("timeout", "timeout_peds", "optim")
-        }
-        for key in ("tm_robots", "tm_obstacles"):
-            if key in legacy:
-                legacy[key] = legacy[key].lower()
-        return 0x7FFFFFFF & int.from_bytes(
-            hashlib.sha1(
-                json.dumps({k: v for k, v in legacy.items() if k != "config"}).encode()
-            ).digest()[-4:],
-            byteorder="big",
-        )
-
     suites = sorted(
         (pathlib.Path(__file__).parents[1] / "configs" / "suites").rglob("suite.yaml")
     )
-    checked = 0
+    explicit = 0
+    unset = 0
     for path in suites:
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict) or "stages" not in data or "task_layer" in data:
@@ -246,10 +235,14 @@ def test_every_shipped_suite_keeps_its_stage_seeds():
         for raw, stage in zip(
             data["stages"], Suite.parse(path.parent.name, data).stages, strict=True
         ):
-            if "seed" not in raw and "modes" not in raw:
-                assert stage.seed == old_seed(raw), (path.name, raw["name"])
-                checked += 1
-    assert checked
+            if "seed" in raw:
+                assert stage.seed == raw["seed"], (path.parent.name, raw["name"])
+                explicit += 1
+            else:
+                assert stage.seed is None, (path.parent.name, raw["name"])
+                unset += 1
+    assert explicit
+    assert unset
 
 
 def test_stage_parse_invalid_mode_name_raises():
@@ -282,6 +275,32 @@ def test_stage_parse_passes_on_the_message_of_the_runtime_validator():
                 {axis: [name for name in value.split(",") if name]}
             )
         assert str(parsed.value) == str(validated.value)
+
+
+def test_suite_parse_warns_about_an_unknown_top_level_key(caplog):
+    import logging
+
+    from arena_evaluation.benchmark.config import Suite
+
+    with caplog.at_level(logging.WARNING):
+        suite = Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "metric": {"max_collisions": 5}},
+        )
+
+    assert suite.metrics == {}
+    assert "unknown top-level keys ['metric']" in caplog.text
+
+
+def test_suite_parse_accepts_the_name_key_without_warning(caplog):
+    import logging
+
+    from arena_evaluation.benchmark.config import Suite
+
+    with caplog.at_level(logging.WARNING):
+        Suite.parse("test_suite", {"name": "other", "stages": [_make_stage_dict()]})
+
+    assert "unknown top-level keys" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -676,8 +695,8 @@ def test_shipped_landmarks_suite_and_contest_parse():
     assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
     assert {stage.robot for stage in suite.stages} == {"jackal"}
     assert (
-        suite.launch_args["lockstep"] == "True"
-        and suite.launch_args["lockstep.paused"] == "False"
+        suite.launch_args["lockstep"] == "true"
+        and suite.launch_args["lockstep.paused"] == "false"
     )
     wordings = {c.name: c.args["mobile"].get("wording") for c in contest.contestants}
     assert wordings["nav2"] is None and wordings["omnivla-edge-pose"] is None

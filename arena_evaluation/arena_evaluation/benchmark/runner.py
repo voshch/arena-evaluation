@@ -65,9 +65,10 @@ _SHUTDOWN_DEADLINE_S = _ARENA_SIGINT_GRACE_S + _ARENA_SIGTERM_GRACE_S + _ARENA_O
 _EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
 
 
+from ..ingestion.metadata import IngestionMetadata
 from ..storage.planner_names import split_planner_name
 from . import dashboard
-from .config import Contest, Suite, stage_modes
+from .config import Contest, Contestant, Suite, stage_modes
 from .lockstep import LockstepMonitor, LockstepSummary, format_report, format_table
 from .progress_display import BenchmarkProgressDisplay
 from .state import (
@@ -79,6 +80,12 @@ from .state import (
 )
 from .step import Step, StepErrorKind, StepResult
 from .tree import ContestIdentifier, SuiteIdentifier, _config_file
+
+
+def _arena_git_provenance(share: pathlib.Path) -> tuple[str | None, bool]:
+    """Git sha and dirty flag of the Arena checkout that owns the installed share."""
+    workspace = IngestionMetadata.resolve_git_workspace(str(share))
+    return capture_git_sha(pathlib.Path(workspace))
 
 
 def _proc_starttime(pid: int) -> int | None:
@@ -226,7 +233,7 @@ def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, 
         f"robot:={step.robot}",
         f"world:={s.map}",
         *selection_args(stage_modes(s, registered_modes(task_layer(step.task_layer)))),
-        f"run_seed:={s.seed}",
+        *([f"run_seed:={s.seed}"] if s.seed is not None else []),
         "task.episode.auto_reset:=false",
     ]
     if s.optim:
@@ -330,7 +337,7 @@ def _all_steps_grid(
     if not suite.references:
         return steps
 
-    dummy_peds_contestant = Contest.Contestant(name="unhindered_peds", args={})
+    dummy_peds_contestant = Contestant(name="unhindered_peds", args={})
     for stage in suite.stages:
         ref_peds_step = Step(
             contestant=dummy_peds_contestant,
@@ -374,7 +381,7 @@ def build_pending(
     return pending
 
 
-def resolve_planner_identity(contestant: Contest.Contestant) -> tuple[str, str]:
+def resolve_planner_identity(contestant: Contestant) -> tuple[str, str]:
     """Return (local_planner, inter_planner) for a contestant."""
     mobile = (contestant.args or {}).get("mobile")
     if isinstance(mobile, dict):
@@ -2536,7 +2543,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         if fresh is not None:
             suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = fresh
             run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
-            sha, dirty = capture_git_sha(share.parent.parent.parent)
+            sha, dirty = _arena_git_provenance(share)
             steps_list = [
                 {
                     "key": c.key,

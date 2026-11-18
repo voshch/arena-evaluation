@@ -70,7 +70,41 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def _main_impl() -> int | None:
+def _migrate_targets(run_dir: pathlib.Path) -> list[pathlib.Path]:
+    """The episode folders of a run root, or the folder itself when it already is one episode."""
+    for container in (run_dir / "episodes", run_dir):
+        episodes = sorted(path for path in container.glob("episode_*") if path.is_dir())
+        if episodes:
+            return episodes
+    return [run_dir]
+
+
+def _validate_config(path: pathlib.Path, kind: str) -> tuple[str, tuple[str, ...]]:
+    """Parse one suite or contest bundle; return its name and the suite stages without an explicit seed."""
+    import yaml
+
+    from arena_evaluation.benchmark.config import Contest, Suite
+
+    config_path = path / f"{kind}.yaml" if path.is_dir() else path
+    if not config_path.is_file():
+        raise ValueError(f"{path}: no {kind}.yaml")
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    name = (
+        config_path.parent.name
+        if config_path.name == f"{kind}.yaml"
+        else config_path.stem
+    )
+    if kind == "contest":
+        return Contest.parse(name, data).name, ()
+    if not isinstance(data, dict) or not isinstance(data.get("stages"), list):
+        raise ValueError(f"{config_path}: a suite needs a mapping with a stages list")
+    if not all(isinstance(stage, dict) for stage in data["stages"]):
+        raise ValueError(f"{config_path}: every suite stage must be a mapping")
+    suite = Suite.parse(name, data)
+    return suite.name, tuple(stage.name for stage in suite.stages if stage.seed is None)
+
+
+def _main_impl(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(
         description="Arena Evaluation Pipeline CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -90,6 +124,12 @@ Examples:
 
   # With no input dir, operate on the most recent benchmark under $ARENA_DATA_DIR/benchmarks:
   evaluation run
+
+  # Migrate a run recorded before the native layout, one episode folder at a time:
+  evaluation migrate /opt/arena_ws/data/benchmarks/my_benchmark
+
+  # Check a suite or contest definition without running it:
+  evaluation validate --suite configs/suites/basic
 """,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -109,7 +149,7 @@ Examples:
         type=pathlib.Path,
         nargs="+",
         metavar="DIR",
-        help="Path to one or more episode directories (episode_NNN with episode_NNN.yaml and the MCAP). process and extract handle each alone, report and plot merge their metrics.parquet",
+        help="Path to one or more episode directories (episode_NNN with episode_NNN.yaml and the MCAP). process and extract handle each alone, report and plot merge their Star Schema tables",
     )
     run_parent.add_argument(
         "--output-dir",
@@ -155,7 +195,7 @@ Examples:
     process_parser = subparsers.add_parser(
         "process",
         parents=[run_parent],
-        help="Layer 2: Compute metrics and write metrics.parquet (uses cached extraction by default).",
+        help="Layer 2: Compute metrics and write the Star Schema tables (uses cached extraction by default).",
     )
     process_parser.add_argument(
         "--force-extract",
@@ -165,7 +205,7 @@ Examples:
     subparsers.add_parser(
         "report",
         parents=[run_parent],
-        help="Layer 5: Generate an interactive HTML report from existing metrics.parquet.",
+        help="Layer 5: Generate an interactive HTML report from the existing Star Schema tables.",
     )
     subparsers.add_parser(
         "plot",
@@ -180,14 +220,32 @@ Examples:
     migrate_parser.add_argument(
         "run_dir",
         type=pathlib.Path,
-        help="Run directory, or one episode folder, to migrate.",
+        help="Run directory, or one episode folder, to migrate. A run directory is migrated episode by episode.",
+    )
+
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Check a suite or contest definition without running it.",
+    )
+    validate_group = validate_parser.add_mutually_exclusive_group(required=True)
+    validate_group.add_argument(
+        "--suite",
+        type=pathlib.Path,
+        metavar="FILE",
+        help="Suite bundle directory or suite.yaml to validate.",
+    )
+    validate_group.add_argument(
+        "--contest",
+        type=pathlib.Path,
+        metavar="FILE",
+        help="Contest bundle directory or contest.yaml to validate.",
     )
 
     from arena_evaluation.cli_acoustic import add_acoustic_commands
 
     add_acoustic_commands(subparsers)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.list_manifests:
         from arena_evaluation.presentation.manifest_registry import available_manifests
@@ -199,10 +257,32 @@ Examples:
 
     args = resolve_paths(args)
 
-    if args.command == "migrate":
-        from arena_evaluation.ingestion.migrate import migrate_run
+    if args.command == "validate":
+        kind = "suite" if args.suite is not None else "contest"
+        config_path = args.suite if args.suite is not None else args.contest
+        try:
+            name, seedless = _validate_config(config_path, kind)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        if seedless:
+            print(
+                f"warning: {len(seedless)} stage(s) without an explicit seed: {', '.join(seedless)}",
+                file=sys.stderr,
+            )
+        print(f"valid {kind}: {name}")
+        return 0
 
-        migrated = migrate_run(args.run_dir)
+    if args.command == "migrate":
+        from arena_evaluation.ingestion.migrate import MigrationError, migrate_run
+
+        migrated: list[pathlib.Path] = []
+        try:
+            for target in _migrate_targets(args.run_dir):
+                migrated.extend(migrate_run(target))
+        except MigrationError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
         print(f"Migrated {len(migrated)} episode folder(s) to the native layout")
         return 0
 
@@ -258,7 +338,7 @@ Examples:
                     print(f"Processing single run: {run_dir}")
                     out = pipeline.process_run_dir(run_dir, force_extract=force_extract)
                     if out:
-                        print(f"Metrics written to: {out}")
+                        print(f"Star Schema tables written to: {out}")
                     else:
                         print(f"Processing failed for {run_dir} - see errors above.")
                         failed.append(run_dir)
@@ -282,7 +362,7 @@ Examples:
                         is None
                     ):
                         print(
-                            f"Processing failed for {benchmark_dir} - no combined metrics written."
+                            f"Processing failed for {benchmark_dir} - no Star Schema tables written."
                         )
                         failed.append(benchmark_dir)
 

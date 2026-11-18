@@ -7,7 +7,7 @@ import pathlib
 import pytest
 from arena_runtime_msgs.msg import EpisodeRecord
 
-from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.config import Contestant, Suite
 from arena_evaluation.benchmark.runner import compromised_table, episode_line
 from arena_evaluation.benchmark.state import Manifest, ProgressLog, RunDir, StateFile, fold_run_dir
 from arena_evaluation.benchmark.step import Step, StepResult
@@ -43,7 +43,7 @@ def _result(key: str, run: int, compromised: int) -> StepResult:
 
 def _step(contestant: str, stage: str) -> Step:
     return Step(
-        contestant=Contest.Contestant(name=contestant, args={"mobile.local_planner": contestant}),
+        contestant=Contestant(name=contestant, args={"mobile.local_planner": contestant}),
         stage=Suite.Stage(
             name=stage,
             episodes=2,
@@ -91,22 +91,38 @@ def test_progress_csv_matching_the_current_header_is_left_alone(tmp_path: pathli
     assert path.read_text() == before
 
 
-def test_fold_carries_integrity_of_lane_files_over_an_older_progress_csv(tmp_path: pathlib.Path) -> None:
+def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(tmp_path: pathlib.Path) -> None:
     run = tmp_path / "shared-run"
     run.mkdir()
     old_row = ["2026-10-13T10:00:00+00:00", "shared-run", "dwb/preflight", "dwb", "preflight", "0", "0", *[""] * (len(OLD_HEADER.split(",")) - 7)]
-    with (run / "progress.csv").open("w", newline="") as fh:
+    legacy = run / "progress.csv"
+    with legacy.open("w", newline="") as fh:
         fh.write(OLD_HEADER + "\n")
         csv.writer(fh).writerow(old_row)
+    before = legacy.read_text()
     lane = ProgressLog(run / "progress.p1.csv")
     _append(lane, "2026-10-14T10:00:00+00:00", 1, _record(SPAWNED))
+    lane.close()
+
+    with pytest.raises(ValueError, match="not the current layout"):
+        fold_run_dir(run)
+
+    assert legacy.read_text() == before
+
+
+def test_fold_merges_current_lane_files(tmp_path: pathlib.Path) -> None:
+    run = tmp_path / "shared-run"
+    run.mkdir()
+    ProgressLog(run / "progress.csv").close()
+    lane = ProgressLog(run / "progress.p1.csv")
+    _append(lane, "2026-10-14T10:00:00+00:00", 0, _record(MOVED))
     lane.close()
 
     fold_run_dir(run)
 
     assert (run / "progress.csv").read_text().splitlines()[0] == ProgressLog._HEADER
     rows = _rows(run / "progress.csv")
-    assert [(r["episode_id"], r["integrity"]) for r in rows] == [("0", ""), ("1", json.dumps([SPAWNED]))]
+    assert [(r["episode_id"], r["integrity"]) for r in rows] == [("0", json.dumps([MOVED]))]
 
 
 def test_state_file_keeps_the_compromised_episode_count(tmp_path: pathlib.Path) -> None:

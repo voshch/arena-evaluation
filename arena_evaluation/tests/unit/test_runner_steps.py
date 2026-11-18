@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.config import Contestant, Contest, Suite
 from arena_evaluation.benchmark.runner import (
     _all_steps,
     _all_steps_grid,
@@ -69,7 +69,7 @@ def _contest(*names: str, args: dict | None = None) -> Contest:
     return Contest(
         name="contest",
         description=None,
-        contestants=[Contest.Contestant(name=n, args=args or {}) for n in names],
+        contestants=[Contestant(name=n, args=args or {}) for n in names],
     )
 
 
@@ -80,7 +80,7 @@ def _step(
     **kwargs: object,
 ) -> Step:
     return Step(
-        contestant=Contest.Contestant(name=contestant, args=args or {}),
+        contestant=Contestant(name=contestant, args=args or {}),
         stage=stage or _stage(),
         **kwargs,
     )
@@ -266,26 +266,24 @@ def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(
 
 def test_planner_identity_prefers_the_mobile_cap_planners():
     assert resolve_planner_identity(
-        Contest.Contestant(
+        Contestant(
             name="x",
             args={"mobile": {"local_planner": "dwb", "inter_planner": "spline"}},
         )
     ) == ("dwb", "spline")
     assert resolve_planner_identity(
-        Contest.Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})
+        Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})
     ) == ("mppi", "none")
 
 
 def test_planner_identity_falls_back_to_the_contestant_name():
     from arena_evaluation.storage.planner_names import split_planner_name
 
-    contestant = Contest.Contestant(
-        name="teb-spline", args={"mobile": {"driver": "nav2"}}
-    )
+    contestant = Contestant(name="teb-spline", args={"mobile": {"driver": "nav2"}})
 
     assert resolve_planner_identity(contestant) == split_planner_name("teb-spline")
     assert resolve_planner_identity(
-        Contest.Contestant(name="teb-spline", args={})
+        Contestant(name="teb-spline", args={})
     ) == split_planner_name("teb-spline")
 
 
@@ -295,7 +293,7 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
         name="c",
         description=None,
         contestants=[
-            Contest.Contestant(
+            Contestant(
                 name="good",
                 args={
                     "mobile": {
@@ -305,7 +303,7 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
                     }
                 },
             ),
-            Contest.Contestant(
+            Contestant(
                 name="no_inter",
                 args={
                     "mobile": {
@@ -315,7 +313,7 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
                     }
                 },
             ),
-            Contest.Contestant(
+            Contestant(
                 name="bad",
                 args={
                     "mobile": {
@@ -325,14 +323,12 @@ def test_preflight_names_missing_nav2_planners_and_skips_other_drivers():
                     }
                 },
             ),
-            Contest.Contestant(
+            Contestant(
                 name="drl",
                 args={"mobile": {"driver": "rosnav", "local_planner": "nope_planner"}},
             ),
-            Contest.Contestant(
-                name="flat", args={"mobile.local_planner": "nope_planner"}
-            ),
-            Contest.Contestant(name="bare_nav2", args={"mobile": {"driver": "nav2"}}),
+            Contestant(name="flat", args={"mobile.local_planner": "nope_planner"}),
+            Contestant(name="bare_nav2", args={"mobile": {"driver": "nav2"}}),
         ],
     )
 

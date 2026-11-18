@@ -9,7 +9,6 @@ filesystem state lives under ``tmp_path``.
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 import types
@@ -163,7 +162,7 @@ def test_cmd_list_prints_table(tmp_path: pathlib.Path, capsys):
     assert "RUN_ID" in out and "IN_FLIGHT" in out
     # created_at[:16] with 'T' replaced by space
     assert "2026-06-23 20:25" in out
-    lines = {l.split()[0]: l.split() for l in out.splitlines() if l.split() and l.split()[0] in ("run-a", "run-b")}
+    lines = {line.split()[0]: line.split() for line in out.splitlines() if line.split() and line.split()[0] in ("run-a", "run-b")}
     # columns: run_id suite contest total ok partial failed skipped in_flight created...
     assert lines["run-a"][3:9] == ["1", "0", "0", "0", "0", "1"]
     assert lines["run-b"][3:9] == ["1", "1", "0", "1", "0", "0"]
@@ -287,6 +286,29 @@ def test_ago_seconds_minutes_hours():
 # ---------------------------------------------------------------------------
 # _status_from_disk / _cmd_status
 # ---------------------------------------------------------------------------
+
+
+def test_status_from_disk_matches_dashboard_run_status(tmp_path: pathlib.Path):
+    from arena_evaluation.benchmark.dashboard import run_status
+
+    _make_run(
+        tmp_path,
+        "r1",
+        state_steps={
+            "p/s0": _sr("p/s0", "ok"),
+            "p/s1": _sr("p/s1", "partial"),
+            "p/s2": StepResult("p/s2", "failed", 1, 0.0, 1.0, StepErrorKind.INTERNAL, "boom"),
+        },
+    )
+    status = run_status(tmp_path / "r1", light=True)
+
+    block = cli_mod._status_from_disk(tmp_path, "r1")
+
+    assert f"steps: {status['steps_total']}" in block
+    assert f"ok: {status['steps']['ok']}" in block
+    assert f"partial: {status['steps']['partial']}" in block
+    assert f"failed: {status['steps']['failed']}" in block
+    assert "p/s2: internal: boom" in block
 
 
 def test_status_from_disk_active_and_failed(tmp_path: pathlib.Path):

@@ -12,7 +12,7 @@ import pytest
 
 rclpy = pytest.importorskip("rclpy")
 
-from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.config import Contestant, Contest, Suite
 from arena_evaluation.benchmark.progress_display import BenchmarkProgressDisplay
 from arena_evaluation.benchmark.runner import (
     ARENA_NODE_FQN,
@@ -54,7 +54,7 @@ def _stage(name: str = "s1", *, timeout_peds: float | None = None, config: dict 
 
 
 def _step(name: str = "dwb", episodes: int = 1, reference_type: str | None = None, timeout_peds: float | None = None, config: dict | None = None) -> Step:
-    return Step(contestant=Contest.Contestant(name=name, args={}), stage=_stage(timeout_peds=timeout_peds, config=config), episodes=episodes, is_reference=reference_type is not None, reference_type=reference_type)
+    return Step(contestant=Contestant(name=name, args={}), stage=_stage(timeout_peds=timeout_peds, config=config), episodes=episodes, is_reference=reference_type is not None, reference_type=reference_type)
 
 
 def _run_dir(tmp_path: pathlib.Path) -> RunDir:
@@ -81,7 +81,7 @@ def _run_dir(tmp_path: pathlib.Path) -> RunDir:
 def _drive(tmp_path: pathlib.Path, body: typing.Callable[[BenchmarkRunner], typing.Awaitable[T]], **kwargs: object) -> T:
     async def main() -> T:
         suite = Suite(name="suite", stages=[_stage()])
-        contest = Contest(name="contest", description=None, contestants=[Contest.Contestant(name="dwb", args={})])
+        contest = Contest(name="contest", description=None, contestants=[Contestant(name="dwb", args={})])
         runner = BenchmarkRunner(suite, contest, simulator=None, scale_episodes=1.0, env_n=1, run_id="run", headless=True, run_dir=_run_dir(tmp_path), **kwargs)
         try:
             return await body(runner)
@@ -266,7 +266,7 @@ def test_fail_remaining_drains_the_queue_and_reports_an_abort(tmp_path: pathlib.
     async def body(runner: BenchmarkRunner) -> tuple[bool, bool]:
         q: asyncio.Queue[Step] = asyncio.Queue()
         for name in ("a", "b", "c"):
-            q.put_nowait(Step(contestant=Contest.Contestant(name=name, args={}), stage=_stage(), episodes=2))
+            q.put_nowait(Step(contestant=Contestant(name=name, args={}), stage=_stage(), episodes=2))
         return runner._fail_remaining(q, 4, "spawn_env failed", flush), q.empty()
 
     assert _drive(tmp_path, body) == (True, True)

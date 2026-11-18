@@ -250,7 +250,7 @@ class ProgressLog:
         is_empty = not path.exists() or path.stat().st_size == 0
         if not is_empty and _header_line(path) not in (None, self._HEADER):
             raise ValueError(
-                f"{path}: the progress header is not the current layout; older progress files are not upgraded, move the file aside"
+                f"{path}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run"
             )
         self._fh = path.open("a", newline="")
         if is_empty:
@@ -428,7 +428,7 @@ def _keep_superseded(
 def _rows_by_column(
     sources: typing.Iterable[pathlib.Path], header: list[str]
 ) -> list[list[str]]:
-    """Complete rows of progress csvs, each mapped onto header by column name."""
+    """Complete rows of current-layout progress csvs; another header raises and is never rewritten."""
     rows: list[list[str]] = []
     for source in sources:
         lines = _csv_lines(source)
@@ -437,12 +437,12 @@ def _rows_by_column(
         records = list(csv.reader(lines))
         if not records:
             continue
-        src_header = records[0]
-        for row in records[1:]:
-            if len(row) != len(src_header):
-                continue
-            by_name = dict(zip(src_header, row, strict=True))
-            rows.append([by_name.get(col, "") for col in header])
+        source_header = records[0]
+        if source_header != header:
+            raise ValueError(
+                f"{source}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run"
+            )
+        rows.extend(row for row in records[1:] if len(row) == len(source_header))
     return rows
 
 

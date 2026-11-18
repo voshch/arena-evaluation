@@ -12,7 +12,7 @@ import time
 import types
 
 import pytest
-from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.config import Contestant, Contest, Suite
 from arena_evaluation.benchmark.runner import (
     _snapshot_bundle_worlds,
     _MAX_SIM_DEATHS,
@@ -58,8 +58,8 @@ def _make_stage(name: str = "s1") -> Suite.Stage:
     )
 
 
-def _make_contestant(name: str = "planner_a", args: dict | None = None) -> Contest.Contestant:
-    return Contest.Contestant(
+def _make_contestant(name: str = "planner_a", args: dict | None = None) -> Contestant:
+    return Contestant(
         name=name,
         args=args if args is not None else {"mobile.local_planner": "dwa"},
     )
@@ -519,7 +519,7 @@ def _make_cell(
         timeout=120.0,
     )
     args = contestant_args if contestant_args is not None else {"mobile.local_planner": "dwa"}
-    contestant = Contest.Contestant(name=contestant_name, args=args)
+    contestant = Contestant(name=contestant_name, args=args)
     return Step(contestant=contestant, stage=stage, episodes=episodes, record_dir=record_dir)
 
 
@@ -1210,7 +1210,7 @@ def _make_step_for(contestant_name: str, stage_name: str, robot: str = "jackal",
         seed=0,
         timeout=120.0,
     )
-    contestant = Contest.Contestant(name=contestant_name, args={})
+    contestant = Contestant(name=contestant_name, args={})
     return Step(contestant=contestant, stage=stage, episodes=5, record_dir=None)
 
 
@@ -1297,7 +1297,7 @@ def test_contestant_parts_reach_env_key_and_launch_args():
     from arena_evaluation.benchmark.runner import build_launch_args, env_key
 
     stage = _make_step_for("planner_a", "indoor", robot="jackal[camera=vln_navid]").stage
-    step = Step(contestant=Contest.Contestant(name="cma", args={"mobile": {"driver": "vla", "planner": "cma"}}, parts={"camera": "vln_rgbd"}), stage=stage, episodes=5, record_dir=None)
+    step = Step(contestant=Contestant(name="cma", args={"mobile": {"driver": "vla", "planner": "cma"}}, parts={"camera": "vln_rgbd"}), stage=stage, episodes=5, record_dir=None)
 
     assert env_key(step, "gazebo") == ("cma", "jackal[camera=vln_rgbd]", "map1", "gazebo")
     args = build_launch_args(step, "gazebo")
@@ -1308,13 +1308,22 @@ def test_contestant_parts_reach_env_key_and_launch_args():
 def test_contestant_parts_keep_the_stage_seed():
     from arena_evaluation.benchmark.runner import build_launch_args
 
-    stage = Suite.Stage.parse({"name": "s", "episodes": 1, "robot": "jackal", "map": "map1", "tm_robots": "random", "tm_obstacles": "random"})
-    plain = Step(contestant=Contest.Contestant(name="nav2"), stage=stage, episodes=1, record_dir=None)
-    camera = Step(contestant=Contest.Contestant(name="cma", parts={"camera": "vln_rgbd"}), stage=stage, episodes=1, record_dir=None)
+    stage = Suite.Stage.parse({"name": "s", "episodes": 1, "robot": "jackal", "map": "map1", "tm_robots": "random", "tm_obstacles": "random", "seed": 7})
+    plain = Step(contestant=Contestant(name="nav2"), stage=stage, episodes=1, record_dir=None)
+    camera = Step(contestant=Contestant(name="cma", parts={"camera": "vln_rgbd"}), stage=stage, episodes=1, record_dir=None)
 
-    assert f"run_seed:={stage.seed}" in build_launch_args(plain, "gazebo")
-    assert f"run_seed:={stage.seed}" in build_launch_args(camera, "gazebo")
-    assert stage.seed != Suite.Stage.parse({"name": "s", "episodes": 1, "robot": camera.robot, "map": "map1", "tm_robots": "random", "tm_obstacles": "random"}).seed
+    assert "run_seed:=7" in build_launch_args(plain, "gazebo")
+    assert "run_seed:=7" in build_launch_args(camera, "gazebo")
+
+
+def test_seedless_stage_omits_the_run_seed_launch_arg():
+    from arena_evaluation.benchmark.runner import build_launch_args
+
+    stage = Suite.Stage.parse({"name": "s", "episodes": 1, "robot": "jackal", "map": "map1", "tm_robots": "random", "tm_obstacles": "random"})
+    step = Step(contestant=Contestant(name="nav2"), stage=stage, episodes=1, record_dir=None)
+
+    assert stage.seed is None
+    assert not any(arg.startswith("run_seed:=") for arg in build_launch_args(step, "gazebo"))
 
 
 def test_env_key_world_swap_drops_map():
