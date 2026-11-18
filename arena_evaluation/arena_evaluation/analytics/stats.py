@@ -212,7 +212,11 @@ def _bootstrap_partition_ci(
     ci_level: float,
     rng: np.random.Generator,
 ) -> tuple[int, int, float, float, float, float, float, float]:
-    """Compute point estimate, SE, percentile CI, and basic CI for one cluster partition."""
+    """Compute point estimate, SE, percentile CI, and basic CI for one cluster partition.
+
+    A bootstrap whose replicates differ only by rounding can lie entirely to one side of
+    its own point estimate, so the percentile interval is widened to contain the estimate.
+    """
     n_clusters = len(sums)
     n_obs = int(np.sum(counts))
     total_count = float(np.sum(counts))
@@ -232,8 +236,8 @@ def _bootstrap_partition_ci(
     alpha = 1.0 - ci_level
     boot_means = cluster_bootstrap_means(sums, counts, n_boot=n_boot, rng=rng)
     std_err = float(np.std(boot_means, ddof=1)) if n_boot > 1 else 0.0
-    ci_low = float(np.quantile(boot_means, alpha / 2.0))
-    ci_high = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
+    ci_low = min(float(np.quantile(boot_means, alpha / 2.0)), theta_hat)
+    ci_high = max(float(np.quantile(boot_means, 1.0 - alpha / 2.0)), theta_hat)
     basic_low = float(2.0 * theta_hat - ci_high)
     basic_high = float(2.0 * theta_hat - ci_low)
     return n_obs, n_clusters, theta_hat, std_err, ci_low, ci_high, basic_low, basic_high
@@ -515,18 +519,16 @@ def paired_treatment_diff(
     n_pairs = len(diffs)
     mean_a = float(np.mean(vals_a))
     mean_b = float(np.mean(vals_b))
-    mean_diff = float(np.mean(diffs))
-    std_diff = float(np.std(diffs, ddof=1)) if n_pairs > 1 else 0.0
-    cohens_dz = _cohens_dz(mean_diff, std_diff)
-
     c_sums, c_cnts = _cluster_diff_totals(pairs_df, pair_list, cluster_col)
-    _, n_clusters, _, _, ci_low, ci_high, _, _ = _bootstrap_partition_ci(
+    _, n_clusters, mean_diff, _, ci_low, ci_high, _, _ = _bootstrap_partition_ci(
         c_sums,
         c_cnts,
         n_boot=n_boot,
         ci_level=ci_level,
         rng=np.random.default_rng(random_seed),
     )
+    std_diff = float(np.std(diffs, ddof=1)) if n_pairs > 1 else 0.0
+    cohens_dz = _cohens_dz(mean_diff, std_diff)
 
     p_value = cluster_bootstrap_p_value(
         c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed
