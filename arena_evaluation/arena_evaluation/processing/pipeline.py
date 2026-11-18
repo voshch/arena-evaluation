@@ -1246,7 +1246,7 @@ class ProcessingPipeline:
                 )
                 continue
             metadata = MetadataWriter.read(episode_dir / f"{episode_dir.name}.yaml")
-            bundles = load_bundles(topics, {})
+            bundles = load_bundles(topics)
             contributions.append(
                 episode_dimensions(
                     run_id=benchmark_id,

@@ -9,7 +9,7 @@ pytest.importorskip("polars")
 
 import polars as pl
 
-from arena_evaluation.processing.mcap_reader import load_bundles
+from arena_evaluation.processing.mcap_reader import align_to_environment, load_bundles
 
 ENV = "env_3"
 JACKAL = "env_3_jackal"
@@ -33,7 +33,8 @@ def _write(topics: pathlib.Path, name: str, rows: list[dict]) -> None:
 
 
 def _load(topics: pathlib.Path, frames: dict | None = None) -> dict:
-    return load_bundles(topics, PEDESTRIAN_FRAMES if frames is None else frames)
+    align_to_environment(topics, PEDESTRIAN_FRAMES if frames is None else frames)
+    return load_bundles(topics)
 
 
 @pytest.fixture

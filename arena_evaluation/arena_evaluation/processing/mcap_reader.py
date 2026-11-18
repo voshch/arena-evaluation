@@ -11,6 +11,7 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 
 import polars as pl
+import pyarrow.parquet as pq
 from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
@@ -66,11 +67,14 @@ _OCCUPANCY_GRID_SCHEMA = "nav_msgs/msg/OccupancyGrid"
 _STATIC_ANCHOR_CHILD = re.compile(r"(env_\d+)(?:/map)?")
 _MAP_ANCHOR_CHILD = re.compile(r"(env_\d+)/map")
 _UNMAPPED_FRAMES = ("", "map")
+# Stored tables whose x/y columns are map-frame positions. Odometry is map-aligned in this runtime: the recorded map -> odom transform is the identity.
 _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
-    "robot_tracks": ("x", "y"), "robot_initialpose": ("pos_x", "pos_y"),
-    "robot_plans": ("x", "y"), "pedestrian_arena_peds": ("x", "y"),
-    "pedestrian_agent_states": ("x", "y"), "pedestrian_gestures": ("at_x", "at_y"),
-    "robot_goal_pose": ("pos_x", "pos_y"), "environment_map": ("origin_x", "origin_y"),
+    "robot_tracks": ("x", "y"), "robot_odom": ("odom_x", "odom_y"),
+    "robot_odom_controller": ("odom_x", "odom_y"), "robot_initialpose": ("pos_x", "pos_y"),
+    "robot_goal_pose": ("pos_x", "pos_y"), "robot_task_pose": ("pos_x", "pos_y"),
+    "robot_plans": ("x", "y"), "robot_collision_contacts": ("obstacle_x", "obstacle_y"),
+    "pedestrian_arena_peds": ("x", "y"), "pedestrian_agent_states": ("x", "y"),
+    "pedestrian_gestures": ("at_x", "at_y"), "environment_map": ("origin_x", "origin_y"),
 }
 
 
@@ -150,7 +154,8 @@ class MCAPReader:
                 self._stream(path, ingest)
         finally:
             ingest.finish()
-        return load_bundles(out_dir, ingest.pedestrian_frames())
+        align_to_environment(out_dir, ingest.pedestrian_frames())
+        return load_bundles(out_dir)
 
     def _stream(self, path: pathlib.Path, ingest: _Ingest) -> None:
         factory = DecoderFactory()
@@ -385,19 +390,11 @@ def _scoped(
     return frame if frame.head(1).collect().height else None
 
 
-def load_bundles(
-    out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
-) -> dict[str, TopicBundle]:
-    """One TopicBundle per robot: the episode's flat tables filtered to that robot and its environment."""
-    global_frames = {
-        name: pl.scan_parquet(path) if (path := out_dir / f"{name}.parquet").exists() else None
-        for name in GLOBAL_TABLES
-    }
-    anchors = _env_anchors(global_frames["tf"], global_frames["tf_static"])
+def load_bundles(out_dir: pathlib.Path) -> dict[str, TopicBundle]:
+    """One TopicBundle per robot: the episode's stored tables, filtered to that robot and its environment."""
+    global_frames = {name: _lazy_table(out_dir, name) for name in GLOBAL_TABLES}
     return {
-        robot_id: _robot_bundle(
-            out_dir, global_frames, anchors, pedestrian_frames, env_id, robot_id
-        )
+        robot_id: _robot_bundle(out_dir, global_frames, env_id, robot_id)
         for env_id, robot_id in _robot_refs(out_dir)
     }
 
@@ -405,23 +402,13 @@ def load_bundles(
 def _robot_bundle(
     out_dir: pathlib.Path,
     global_frames: Mapping[str, pl.LazyFrame | None],
-    anchors: Mapping[str, list[Anchor]],
-    pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
     env_id: str,
     robot_id: str,
 ) -> TopicBundle:
-    if anchors and env_id not in anchors:
-        raise ValueError(
-            f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}"
-        )
-    shifts = anchors.get(env_id, [])
     frames: dict[str, pl.LazyFrame | None] = {
         name: _scoped(out_dir, name, "robot_id", robot_id) for name in ROBOT_TABLES
     }
     frames |= {name: _scoped(out_dir, name, "env_id", env_id) for name in ENV_TABLES}
-    if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
-        _check_map_frames(env_id, shifts, pedestrian_frames)
-        _shift_to_map(frames, shifts)
     odom_controller = frames.pop("robot_odom_controller")
     cmd_vel_controller = frames.pop("robot_cmd_vel_controller")
     frames["robot_odom"] = _first_present(odom_controller, frames["robot_odom"])
@@ -446,30 +433,93 @@ def _check_map_frames(
             )
 
 
-def _shift_to_map(frames: dict[str, pl.LazyFrame | None], shifts: list[Anchor]) -> None:
-    for name, (x_column, y_column) in _POSITION_COLUMNS.items():
-        frame = frames[name]
-        if frame is not None:
-            frames[name] = frame.with_columns(
-                by_anchor(shifts, lambda ox, _: pl.col(x_column) - ox).alias(x_column),
-                by_anchor(shifts, lambda _, oy: pl.col(y_column) - oy).alias(y_column),
+def align_to_environment(
+    out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
+) -> None:
+    """Move the map-frame positions of the stored tables into their environment frame, once, in place.
+
+    An environment's offset is its recorded map -> env/map transform (tf_static, else tf). Each position
+    column in _POSITION_COLUMNS and the episode phases leave the map frame here, so the stored tables,
+    the metrics and the plots all read one frame. An episode without a recorded transform keeps its
+    positions as recorded.
+    """
+    anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"))
+    if not anchors:
+        return
+    for env_id in sorted({env_id for env_id, _robot_id in _robot_refs(out_dir)}):
+        if env_id not in anchors:
+            raise ValueError(
+                f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}"
             )
-    lifecycle = frames.get("episode_lifecycle")
-    if lifecycle is not None:
-        frames["episode_lifecycle"] = _shift_episode_phases(lifecycle, shifts)
-
-
-def _shift_episode_phases(frame: pl.LazyFrame, anchors: list[Anchor]) -> pl.LazyFrame:
-    return frame.with_columns(
-        pl.struct(["t_ns", "phases_yaml"])
-        .map_elements(
-            lambda row: _shift_map_poses(
-                row["phases_yaml"], *anchor_at(anchors, int(row["t_ns"]))
-            ),
-            return_dtype=pl.String,
+        shifts = anchors[env_id]
+        if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
+            _check_map_frames(env_id, shifts, pedestrian_frames)
+    for name, (x_column, y_column) in _POSITION_COLUMNS.items():
+        path = out_dir / f"{name}.parquet"
+        if path.exists():
+            _rewrite_columns(
+                path,
+                [x_column, y_column],
+                lambda frame: frame.with_columns(
+                    _in_environment(anchors, x_column, lambda value, ox, _oy: value - ox),
+                    _in_environment(anchors, y_column, lambda value, _ox, oy: value - oy),
+                ),
+            )
+    lifecycle = out_dir / "episode_lifecycle.parquet"
+    if lifecycle.exists():
+        _rewrite_columns(
+            lifecycle, ["phases_yaml"], lambda frame: _shift_episode_phases(frame, anchors)
         )
+
+
+def _in_environment(
+    anchors: Mapping[str, list[Anchor]],
+    column: str,
+    shifted: Callable[[pl.Expr, float, float], pl.Expr],
+) -> pl.Expr:
+    """`column` of each row, moved by the offset of its environment in effect at the row's t_ns."""
+    expr = pl.col(column)
+    for env_id, shifts in anchors.items():
+        moved = by_anchor(shifts, lambda ox, oy: shifted(pl.col(column), ox, oy))
+        expr = pl.when(pl.col("env_id") == env_id).then(moved).otherwise(expr)
+    return expr.alias(column)
+
+
+def _shift_episode_phases(
+    frame: pl.DataFrame, anchors: Mapping[str, list[Anchor]]
+) -> pl.DataFrame:
+    def shifted(row: Mapping[str, typing.Any]) -> str:
+        env_anchors = anchors.get(row["env_id"])
+        if env_anchors is None:
+            return row["phases_yaml"]
+        return _shift_map_poses(row["phases_yaml"], *anchor_at(env_anchors, int(row["t_ns"])))
+
+    return frame.with_columns(
+        pl.struct(["env_id", "t_ns", "phases_yaml"])
+        .map_elements(shifted, return_dtype=pl.String)
         .alias("phases_yaml")
     )
+
+
+def _rewrite_columns(
+    path: pathlib.Path,
+    names: list[str],
+    transform: Callable[[pl.DataFrame], pl.DataFrame],
+) -> None:
+    """Replace the named columns of a stored table with their transformed values; every other column and the arrow schema stay as written."""
+    table = pq.read_table(path)
+    needed = list(dict.fromkeys(["env_id", "t_ns", *names]))
+    shifted = transform(pl.from_arrow(table.select(needed))).to_arrow()
+    for name in names:
+        index = table.schema.get_field_index(name)
+        field = table.schema.field(index)
+        table = table.set_column(index, field, shifted.column(name).cast(field.type))
+    pq.write_table(table, path)
+
+
+def _lazy_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
+    path = out_dir / f"{name}.parquet"
+    return pl.scan_parquet(path) if path.exists() else None
 
 
 def _shift_map_poses(payload: str, ox: float, oy: float) -> str:

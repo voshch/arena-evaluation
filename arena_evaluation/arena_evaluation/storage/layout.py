@@ -28,7 +28,7 @@ __all__ = [
     "write_episode_stamp",
 ]
 
-NATIVE_LAYOUT_VERSION: Final[int] = 1
+NATIVE_LAYOUT_VERSION: Final[int] = 2  # 2: stored positions are in the environment frame.
 
 _BENCHMARK_STAMP_FILE: Final[str] = "benchmark_layout.yaml"
 _EPISODE_STAMP_FILE: Final[str] = ".complete"
