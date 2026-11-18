@@ -73,6 +73,11 @@ TOOL_CLASSES: dict[str, str] = {
     "evaluation_refresh_table": "overwrite",
     "evaluation_render_plot": "overwrite",
     "evaluation_report": "overwrite",
+    "evaluation_report_assemble": "overwrite",
+    "evaluation_report_draft": "write",
+    "evaluation_report_plot": "overwrite",
+    "evaluation_report_review": "write",
+    "evaluation_report_view": "read",
     "evaluation_runs": "read",
     "evaluation_save_plot_declaration": "overwrite",
     "evaluation_schema": "read",
@@ -160,3 +165,147 @@ def test_mcp_server_publishes_output_schemas_and_structured_content():
         assert "properties" in t.output_schema, t.name
 
 
+def test_mcp_server_image_tools_return_image_content_and_structured_payload(tmp_path):
+    import polars as pl
+    from arena_evaluation.mcp.reporting import (
+        evaluation_report_draft,
+        evaluation_report_plot,
+    )
+
+    run_dir = tmp_path / "benchmarks" / "run-img-01"
+    run_dir.mkdir(parents=True)
+    os.environ["ARENA_DATA_DIR"] = str(tmp_path)
+
+    from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
+    from arena_evaluation.storage.registry.facts import FACT_TABLES
+
+    de_schema = DIMENSION_TABLES["dim_episodes"].polars_schema()
+    pl.DataFrame(
+        [
+            {col: None for col in de_schema.names()}
+            | {
+                "run_id": "run-img-01",
+                "episode_id": eid,
+                "planner": planner,
+                "world": "w1",
+                "scenario": "s1",
+                "duration_s": dur,
+            }
+            for eid, planner, dur in [(0, "dwb", 10.0), (1, "mppi", 12.0)]
+        ],
+        schema=de_schema,
+    ).write_parquet(run_dir / "dim_episodes.parquet")
+
+    fe_schema = FACT_TABLES["episodes"].polars_schema()
+    pl.DataFrame(
+        [
+            {col: None for col in fe_schema.names()}
+            | {"run_id": "run-img-01", "episode_id": eid, "result": "COMPLETED"}
+            for eid in (0, 1)
+        ],
+        schema=fe_schema,
+    ).write_parquet(run_dir / "fact_episodes.parquet")
+
+    dm_schema = DIMENSION_TABLES["dim_metrics"].polars_schema()
+    pl.DataFrame(
+        [
+            {col: None for col in dm_schema.names()}
+            | {
+                "metric": "time_to_goal",
+                "scope": "robots",
+                "fact_table": "fact_robots",
+                "dtype": "Float64",
+                "unit": "s",
+                "direction": "lower",
+            }
+        ],
+        schema=dm_schema,
+    ).write_parquet(run_dir / "dim_metrics.parquet")
+
+    server = MCPServer("test-eval-img")
+    domain.install(server)
+
+    res_plot = asyncio.run(
+        server.call_tool(
+            "evaluation_render_plot",
+            {
+                "run_id": "run-img-01",
+                "spec_yaml": (
+                    "id: test_bar\ntitle: Test Bar\ntype: bar\n"
+                    "data:\n  source: dim_episodes\n"
+                    "channels:\n  x: episode_id\n  y: duration_s\n"
+                ),
+                "output_format": "png",
+            },
+        )
+    )
+    assert any(isinstance(c, ImageContent) for c in res_plot.content)
+    assert res_plot.structured_content is not None
+    assert res_plot.structured_content["format"] == "png"
+    import matplotlib
+
+    assert matplotlib.get_backend().lower() == "agg"
+
+    draft_id = evaluation_report_draft(run_id="run-img-01", title="T")["draft_id"]
+    evaluation_report_plot(
+        run_id="run-img-01",
+        draft_id=draft_id,
+        plot={
+            "id": "p1",
+            "title": "P1",
+            "type": "bar",
+            "data": {"source": "dim_episodes"},
+            "channels": {"x": "episode_id", "y": "duration_s"},
+        },
+    )
+    res_view = asyncio.run(
+        server.call_tool(
+            "evaluation_report_view",
+            {"run_id": "run-img-01", "draft_id": draft_id, "plot_id": "p1"},
+        )
+    )
+    assert any(isinstance(c, ImageContent) for c in res_view.content)
+    assert res_view.structured_content is not None
+    assert res_view.structured_content["plot_id"] == "p1"
+
+
+def test_evaluation_domain_registers_same_resources_and_prompts_as_domain():
+    from arena_mcp.core import Domain
+    from arena_evaluation.mcp.base import EvaluationDomain
+
+    def make_pair(dom_cls):
+        dom = dom_cls("toy", "toy domain")
+
+        @dom.tool(read_only=True)
+        def toy_ping() -> dict[str, int]:
+            """Ping."""
+            return {"ok": 1}
+
+        @dom.resource(
+            "arena://toy/info", mime_type="application/json", description="info"
+        )
+        def toy_info() -> str:
+            return "{}"
+
+        @dom.prompt(description="help")
+        def toy_help() -> str:
+            return "help"
+
+        srv = MCPServer(f"srv-{dom_cls.__name__}")
+        dom.install(srv)
+        return srv
+
+    base_srv = make_pair(Domain)
+    eval_srv = make_pair(EvaluationDomain)
+
+    async def inspect_pair():
+        return (
+            [str(r.uri) for r in await base_srv.list_resources()],
+            [str(r.uri) for r in await eval_srv.list_resources()],
+            [p.name for p in await base_srv.list_prompts()],
+            [p.name for p in await eval_srv.list_prompts()],
+        )
+
+    b_res, e_res, b_prm, e_prm = asyncio.run(inspect_pair())
+    assert b_res == e_res == ["arena://toy/info"]
+    assert b_prm == e_prm == ["toy_help"]

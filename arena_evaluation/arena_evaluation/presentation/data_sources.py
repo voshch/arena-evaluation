@@ -80,6 +80,8 @@ def validate_data_source(data_source: str) -> str:
         raise ValueError(
             f"unknown data_source {data_source!r}: no declared catalog view. Declared views: {available}"
         )
+    if data_source.startswith("derived_"):
+        return data_source
     if not data_source.startswith("v_") and data_source not in declared_data_sources():
         available = ", ".join(sorted(declared_data_sources()))
         raise ValueError(

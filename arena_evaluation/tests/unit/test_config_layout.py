@@ -198,7 +198,9 @@ def test_report_build_writes_into_reports_subdir_only(tmp_path: pathlib.Path) ->
     expected_dir = run_report_output_dir(bench, "custom_rep")
     assert out_html == expected_dir / "report.html"
     assert out_html.is_file()
-    assert (expected_dir / "plotly.min.js").is_file()
+    report_text = out_html.read_text(encoding="utf-8")
+    assert "plotly.js v" in report_text
+    assert not (expected_dir / "plotly.min.js").exists()
     assert (expected_dir / "plots" / "time_bar.png").is_file()
     assert not (bench / "report.html").exists()
     assert not (bench / "report_manifest.yaml").exists()

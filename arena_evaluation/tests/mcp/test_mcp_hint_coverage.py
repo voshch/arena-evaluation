@@ -37,7 +37,7 @@ def _raise_sites() -> list[tuple[str, int, bool]]:
 
 def test_every_tool_error_raise_carries_a_hint() -> None:
     sites = _raise_sites()
-    assert len(sites) >= 40, (
+    assert len(sites) >= 95, (
         f"expected the MCP domain's ToolError raises, found {len(sites)}"
     )
     missing = [f"{name}:{line}" for name, line, has_hint in sites if not has_hint]

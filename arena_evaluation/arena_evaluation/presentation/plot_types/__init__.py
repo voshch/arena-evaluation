@@ -9,15 +9,19 @@ from .acoustic_field import AcousticFieldAnimationRenderer, AcousticFieldRendere
 from .bar import BarRenderer
 from .base import BasePlotRenderer
 from .box import BoxRenderer
+from .breakdown import BreakdownRenderer
 from .heatmap import HeatmapRenderer
 from .hierarchy import HierarchyRenderer
 from .histogram import HistogramRenderer
+from .interval import IntervalRenderer
 from .line import LineRenderer
 from .radar import RadarRenderer
+from .rank_swap import RankSwapRenderer
 from .scatter import ScatterRenderer
 from .table import TableRenderer
 from .timeseries import TimeseriesRenderer
 from .trajectory import TrajectoryRenderer
+from .trajectory_slice import TrajectorySliceRenderer
 from .violin import ViolinRenderer
 
 RENDERER_REGISTRY: dict[str, type[BasePlotRenderer]] = {
@@ -25,15 +29,19 @@ RENDERER_REGISTRY: dict[str, type[BasePlotRenderer]] = {
     "acoustic_field_animation": AcousticFieldAnimationRenderer,
     "bar": BarRenderer,
     "box": BoxRenderer,
+    "breakdown": BreakdownRenderer,
     "heatmap": HeatmapRenderer,
     "hierarchy": HierarchyRenderer,
     "histogram": HistogramRenderer,
+    "interval": IntervalRenderer,
     "line": LineRenderer,
     "radar": RadarRenderer,
+    "rank_swap": RankSwapRenderer,
     "scatter": ScatterRenderer,
     "table": TableRenderer,
     "timeseries": TimeseriesRenderer,
     "trajectory": TrajectoryRenderer,
+    "trajectory_slice": TrajectorySliceRenderer,
     "violin": ViolinRenderer,
 }
 
@@ -74,14 +82,18 @@ __all__ = [
     "BarRenderer",
     "BasePlotRenderer",
     "BoxRenderer",
+    "BreakdownRenderer",
     "HeatmapRenderer",
     "HierarchyRenderer",
     "HistogramRenderer",
+    "IntervalRenderer",
     "LineRenderer",
     "RadarRenderer",
+    "RankSwapRenderer",
     "ScatterRenderer",
     "TableRenderer",
     "TimeseriesRenderer",
     "TrajectoryRenderer",
+    "TrajectorySliceRenderer",
     "ViolinRenderer",
 ]

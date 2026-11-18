@@ -14,7 +14,6 @@ from typing import Any
 
 import jinja2
 import markupsafe
-import plotly.offline
 import polars as pl
 import yaml
 
@@ -34,6 +33,11 @@ from arena_evaluation.presentation.checks import (
 from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
 from arena_evaluation.presentation.manifest_registry import is_inline, resolve_manifest
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
+from arena_evaluation.presentation.report_plot_block import (
+    plot_block,
+    plot_block_styles,
+    plotly_bundle_script,
+)
 from arena_evaluation.presentation.resolver import DataResolver
 from arena_evaluation.presentation.static_renderer import StaticRenderer
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
@@ -471,6 +475,7 @@ class ReportBuilder:
                     record_failure(spec, CheckStage.STATIC, f"vector SVG: {exc}")
                     plot_failed = True
 
+            html_chunks: list[str] = []
             try:
                 html_chunk = plotly_renderer.render(
                     spec,
@@ -487,23 +492,31 @@ class ReportBuilder:
                     )
                     plot_failed = True
                 else:
-                    chunks = (
+                    html_chunks = (
                         html_chunk if isinstance(html_chunk, list) else [html_chunk]
                     )
-                    for chunk in chunks:
-                        plot_entries.append(
-                            {
-                                "group": spec.layout_group,
-                                "title": spec.title,
-                                "gate_error": None,
-                                "html": markupsafe.Markup(chunk),
-                                "note_html": note_html,
-                                "agent_note_html": agent_note_html,
-                            }
-                        )
             except Exception as exc:
                 record_failure(spec, CheckStage.INTERACTIVE, str(exc))
                 plot_failed = True
+
+            if not plot_failed and png_path.is_file() and html_chunks:
+                plot_entries.append(
+                    {
+                        "group": spec.layout_group,
+                        "title": spec.title,
+                        "gate_error": None,
+                        "html": markupsafe.Markup(
+                            plot_block(
+                                plot_id=spec.id,
+                                title=spec.title,
+                                interactive_html="\n".join(html_chunks),
+                                png_path=png_path,
+                            )
+                        ),
+                        "note_html": note_html,
+                        "agent_note_html": agent_note_html,
+                    }
+                )
 
             records.append(
                 PlotBuildRecord(
@@ -537,9 +550,6 @@ class ReportBuilder:
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(html_content, encoding="utf-8")
-        (self.output_dir / "plotly.min.js").write_text(
-            plotly.offline.get_plotlyjs(), encoding="utf-8"
-        )
         return self.report_path
 
     def _build_summary_tables(
@@ -779,4 +789,6 @@ class ReportBuilder:
             overview_plots=overview_plots,
             plot_groups=plot_groups,
             failed_checks=failed_checks,
+            plotly_bundle=markupsafe.Markup(plotly_bundle_script()),
+            plot_block_styles=markupsafe.Markup(plot_block_styles()),
         )

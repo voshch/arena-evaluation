@@ -54,7 +54,7 @@ Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
 |   |   `-- episode_000.yaml
 |   `-- ...
 |-- analysis/                  # Run-local reports/<name>/report.yaml, plots/<name>/plot.yaml, queries/<name>/query.yaml, evidence/
-`-- reports/<name>/            # Rendered report.html, plots/*.png, plotly.min.js
+`-- reports/<name>/            # Rendered report.html with the Plotly bundle inline, plots/*.png
 ```
 
 ## Liveness

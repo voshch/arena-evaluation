@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 
+from report_page import parse_page
 from star_benchmark import write_benchmark
 
 from arena_evaluation.presentation.report_builder import ReportBuilder
@@ -92,7 +93,10 @@ def test_report_builder_single_run_records_provenance_and_artifacts(
 
     assert report_path is not None and report_path.exists()
     assert report_path.parent == out_dir / "reports" / "builder_test"
-    assert (report_path.parent / "plotly.min.js").exists()
+    report_html = report_path.read_text(encoding="utf-8")
+    assert "plotly-graph-div" in report_html
+    assert "plotly.js v" in report_html
+    assert not (report_path.parent / "plotly.min.js").exists()
     assert (report_path.parent / "plots" / "planner_success.png").exists()
     assert (report_path.parent / "plots" / "episode_ttg.png").exists()
 
@@ -275,3 +279,60 @@ def test_report_builder_escapes_html_and_sanitizes_markdown_links(
     )
     assert 'href="javascript:' not in html
     assert 'href="https://example.com"' in html
+
+
+def test_report_builder_embeds_bundle_and_static_render_for_every_plot(
+    tmp_path: pathlib.Path,
+) -> None:
+    """One one-shot report: one bundle, one Plotly figure and PNG per plot, no sibling file."""
+    bench_dir = tmp_path / "bench_blocks"
+    write_benchmark(bench_dir, _ROWS)
+    manifest = VizManifest(
+        name="blocks_test",
+        title="Plot Blocks",
+        plots=[
+            PlotSpec(
+                id="bar_ok",
+                type="bar",
+                title="Bar",
+                data={
+                    "computation": "group_summary",
+                    "params": {"metrics": ["time_to_goal"], "group_cols": ["planner"]},
+                },
+                channels=PlotChannels(x="planner", y="mean"),
+            ),
+            PlotSpec(
+                id="box_ok",
+                type="box",
+                title="Box",
+                data={"source": "v_episode_summary"},
+                channels=PlotChannels(x="planner", y="time_to_goal"),
+            ),
+            PlotSpec(
+                id="bar_plotly_fails",
+                type="bar",
+                title="Plotly Fails",
+                data={
+                    "computation": "group_summary",
+                    "params": {"metrics": ["time_to_goal"], "group_cols": ["planner"]},
+                },
+                channels=PlotChannels(x="planner", y="mean"),
+                options={"orientation": "diagonal"},
+            ),
+        ],
+    )
+    builder = ReportBuilder(
+        bench_dir, output_dir=tmp_path / "out_blocks", manifest=manifest
+    )
+    report_path = builder.build()
+    assert report_path is not None
+    page = report_path.read_text(encoding="utf-8")
+    parts = parse_page(page)
+    assert parts.bundle_count == 1
+    assert parts.plotly_figures == 2
+    assert parts.png_images == 2
+    assert parts.references == []
+    assert not (report_path.parent / "plotly.min.js").exists()
+    assert builder.build_checks.failed_count == 1
+    assert builder.build_checks.failures[0].plot_id == "bar_plotly_fails"
+    assert "bar_plotly_fails" in page

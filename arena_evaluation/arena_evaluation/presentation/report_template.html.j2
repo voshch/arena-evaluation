@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arena Evaluation Report - {{ benchmark_id }}</title>
-    <script src="plotly.min.js"></script>
+    {{ plotly_bundle }}
+    {{ plot_block_styles }}
     <style>
         * {
             box-sizing: border-box;

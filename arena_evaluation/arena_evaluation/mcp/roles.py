@@ -79,6 +79,11 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
             "evaluation_read_plot_declaration",
             "evaluation_render_plot",
             "evaluation_manifests",
+            "evaluation_report_draft",
+            "evaluation_report_plot",
+            "evaluation_report_view",
+            "evaluation_report_review",
+            "evaluation_report_assemble",
         ],
     },
     "operator": {
@@ -111,6 +116,8 @@ AGENT_AREA_TOOLS: Final[dict[str, str]] = {
     "evaluation_finding_attach": "analysis",
     "evaluation_refresh_table": "analysis",
     "evaluation_render_plot": "analysis",
+    "evaluation_report_plot": "analysis",
+    "evaluation_report_assemble": "reports",
 }
 
 

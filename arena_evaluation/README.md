@@ -45,7 +45,7 @@ carries none from `arena_robots.characterization`, the module the
 |  resolves plot data per BenchmarkCatalog via DataResolver (views,   |
 |  SQL queries, or analytics computations), checks PlotDiagnostics    |
 |  via DiagnosticInspector, and renders HTML + static PNG/SVG plots.  |
-|  Output: reports/<name>/report.html + plots/*.png (+ plotly.min.js) |
+|  Output: reports/<name>/report.html + plots/*.png (Plotly inline)   |
 +---------------------------------------------------------------------+
 ```
 

@@ -16,7 +16,7 @@ from arena_mcp.core import ToolError
 from mcp_fixtures import run_session, server_env
 from synthetic_benchmark import write_synthetic_benchmark
 
-from arena_evaluation.mcp import analysis, base, findings, query, roles
+from arena_evaluation.mcp import analysis, base, findings, query, reporting, roles
 
 
 def test_h4_structured_number_rejected_when_not_in_evidence(
@@ -187,6 +187,118 @@ def test_h4_write_guard_refuses_episodes_and_audit_logs_mutations(
         if line.strip()
     ]
     assert any(e["tool"] == "evaluation_query" for e in entries)
+
+
+def _shift_time_to_goal(run_dir: pathlib.Path, delta_s: float) -> None:
+    for path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
+        frame = pl.read_parquet(path)
+        frame.with_columns(
+            (pl.col("time_to_goal") + delta_s).alias("time_to_goal")
+        ).write_parquet(path)
+
+
+def test_h4_failed_verification_moves_verified_finding_to_needs_work(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A stale or failed verification is not attachable, and a failed verify moves the finding."""
+    data_dir = tmp_path / "data"
+    run_dir = data_dir / "benchmarks" / "h4_stale"
+    write_synthetic_benchmark(run_dir, include_swap=False)
+    os.environ["ARENA_DATA_DIR"] = str(data_dir)
+    (run_dir / "report.html").write_text("<html></html>", encoding="utf-8")
+
+    pinned = query.evaluation_query(
+        run_id="h4_stale",
+        query=(
+            "SELECT planner, AVG(time_to_goal) AS val FROM v_episode_summary "
+            "GROUP BY planner ORDER BY planner"
+        ),
+        pin_evidence=True,
+    )
+    value = float(pinned["data"][0]["val"])
+    created = findings.evaluation_finding_create(
+        run_id="h4_stale",
+        claim="claim tied to the recorded average",
+        evidence_ids=[pinned["evidence_id"]],
+        structured_numbers=[
+            {
+                "evidence_id": pinned["evidence_id"],
+                "column": "val",
+                "value": value,
+            }
+        ],
+        author="analyst",
+    )
+    finding_id = created.finding_id
+    first = findings.evaluation_finding_verify(run_id="h4_stale", finding_id=finding_id)
+    assert first["mechanical_passed"] is True
+    findings.evaluation_finding_status(
+        run_id="h4_stale",
+        finding_id=finding_id,
+        status="verified",
+        by="verifier",
+    )
+    draft = reporting.evaluation_report_draft(run_id="h4_stale", title="stale finding")
+    _shift_time_to_goal(run_dir, 500.0)
+
+    with pytest.raises(ToolError, match="snapshot"):
+        findings.evaluation_finding_attach(run_id="h4_stale", finding_id=finding_id)
+    left_out = reporting.evaluation_report_assemble(
+        run_id="h4_stale",
+        draft_id=draft["draft_id"],
+        name="stale_report",
+    )
+    assert left_out["findings_used"] == []
+    assert [entry["finding_id"] for entry in left_out["findings_left_out"]] == [
+        finding_id
+    ]
+
+    second = findings.evaluation_finding_verify(
+        run_id="h4_stale", finding_id=finding_id
+    )
+    assert second["mechanical_passed"] is False
+    stored = next(
+        finding
+        for finding in findings.evaluation_findings(run_id="h4_stale").findings
+        if finding.finding_id == finding_id
+    )
+    assert stored.status is findings.FindingStatus.NEEDS_WORK
+    with pytest.raises(ToolError, match="needs_work"):
+        findings.evaluation_finding_attach(run_id="h4_stale", finding_id=finding_id)
+
+    _shift_time_to_goal(run_dir, -500.0)
+    restored = findings.evaluation_finding_verify(
+        run_id="h4_stale", finding_id=finding_id
+    )
+    assert restored["mechanical_passed"] is True
+    findings.evaluation_finding_status(
+        run_id="h4_stale",
+        finding_id=finding_id,
+        status="verified",
+        by="verifier",
+    )
+    attached = findings.evaluation_finding_attach(
+        run_id="h4_stale", finding_id=finding_id
+    )
+    assert attached.finding.status is findings.FindingStatus.VERIFIED
+    assembled = reporting.evaluation_report_assemble(
+        run_id="h4_stale",
+        draft_id=draft["draft_id"],
+        name="fresh_report",
+    )
+    assert assembled["findings_used"] == [finding_id]
+
+    audit_path = run_dir / "analysis" / "audit.jsonl"
+    audit_entries = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(
+        entry["tool"] == "evaluation_finding_status"
+        and entry["produced_ids"] == [finding_id]
+        for entry in audit_entries
+    )
 
 
 def test_h4_roles_resource_and_allowlists_valid(tmp_path: pathlib.Path) -> None:
