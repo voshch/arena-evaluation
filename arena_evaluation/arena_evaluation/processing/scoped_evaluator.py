@@ -14,7 +14,7 @@ import dataclasses
 import pathlib
 import re
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final
 
 import numpy as np
@@ -31,20 +31,26 @@ from arena_evaluation.processing.metrics.registry import (
 )
 from arena_evaluation.processing.metrics.safety.contact_attribution import (
     COLLISION_CONTACTS_TOPIC,
+    ContactAttributionCalculator,
+    ContactEvent,
+    detect_contact_events,
     static_point_of,
 )
 from arena_evaluation.processing.metrics.social.interaction_common import (
     PEDESTRIAN_TRACKS_TOPIC,
     ROBOT_TRACKS_TOPIC,
+    extract_episode_ped_tracks,
+    resolve_robot_trajectory,
 )
 from arena_evaluation.processing.outcome import outcome_verdict
 from arena_evaluation.processing.validity import episode_validity
 from arena_evaluation.processing.windows import (
     ACTOR_PEDESTRIAN,
+    ACTOR_ROBOT,
     DEFAULT_DETECTOR_PARAMS,
     NS_PER_S,
     DetectorParams,
-    detect_contact_windows_lf,
+    contact_windows_lf,
     detect_encounter_windows_lf,
     empty_contact_windows,
     empty_encounter_windows,
@@ -80,12 +86,12 @@ _GENERIC_PROVENANCE_KINDS: Final[tuple[str, ...]] = (
 )
 
 ROBOT_POWER_TOPIC: Final[str] = "robot_power"
-ROBOT_ACOUSTICS_TOPIC: Final[str] = "robot_acoustics"
 
 CONTACT_PRE_WINDOW_S: Final[float] = 0.5
 CONTACT_POST_WINDOW_S: Final[float] = 0.5
-METRES_PER_WH_J: Final[float] = 3600.0
 _ENV_PREFIX: Final[re.Pattern[str]] = re.compile(r"^env_[0-9]+_")
+#: The env prefix of a robot name in either spelling, ``env_0_jackal_1`` or ``env_0/jackal_1``.
+_ROBOT_NAMESPACE: Final[re.Pattern[str]] = re.compile(r"^env_[0-9]+[_/]")
 #: The identity value of a row that has no such parent (no encounter, no contact).
 _ABSENT_ID: Final[str] = ""
 
@@ -339,19 +345,20 @@ def _null_reason_expression(nullable: tuple[str, ...]) -> pl.Expr:
 def _merge_provenance_reasons(
     base_reason: str, provenance: Mapping[str, str], row: Mapping[str, object]
 ) -> str:
-    """Combine field missingness codes with registry topic_missing and exception provenance, on the vocabulary."""
-    parts = [part for part in base_reason.split(";") if part]
-    seen = set(parts)
-    for key, code in provenance.items():
-        if (
-            ":exception:" in code
-            or (":topic_missing:" in code and row.get(key) is None)
-            or (":not_recorded:" in code and row.get(key) is None)
-        ):
-            if code not in seen:
-                parts.append(code)
-                seen.add(code)
-    return ";".join(parts)
+    """Combine field missingness codes with registry topic_missing and exception provenance, one code per field."""
+    causes = {
+        key: code
+        for key, code in provenance.items()
+        if ":exception:" in code
+        or (":topic_missing:" in code and row.get(key) is None)
+        or (":not_recorded:" in code and row.get(key) is None)
+    }
+    kept = [
+        part
+        for part in base_reason.split(";")
+        if part and part.partition(":")[0] not in causes
+    ]
+    return ";".join(dict.fromkeys([*kept, *causes.values()]))
 
 
 def _declared_value(value: object, declaration: Metric) -> object:
@@ -426,6 +433,67 @@ def _frame(rows: list[dict[str, object]], table: FactTable) -> pl.DataFrame:
         return pl.DataFrame(schema=schema)
     projected = [{name: row.get(name) for name in schema.names()} for row in rows]
     return pl.DataFrame(projected, schema=schema)
+
+
+def _fleet_key(robot_name: str, fleet: Mapping[str, pl.DataFrame]) -> str:
+    """The fleet key of the robot a contact names: its recorded id, or the same robot under another env prefix."""
+    if robot_name in fleet:
+        return robot_name
+    bare_name = _ROBOT_NAMESPACE.sub("", robot_name)
+    return next(
+        (key for key in fleet if _ROBOT_NAMESPACE.sub("", key) == bare_name),
+        robot_name,
+    )
+
+
+def _contact_events(
+    calculator: ContactAttributionCalculator, episode: AlignedEpisodeBundle
+) -> list[ContactEvent]:
+    """Contact intervals of the episode from the contact calculator's detector, the same one its count reads."""
+    robot, _yaw = resolve_robot_trajectory(calculator, episode)
+    if len(robot.t_ns) == 0:
+        return []
+    merge_gap_s = float(
+        calculator.metrics_config.get(
+            "contact_merge_gap_s", DEFAULT_DETECTOR_PARAMS.contact_merge_gap_s
+        )
+    )
+    return detect_contact_events(
+        episode,
+        robot,
+        extract_episode_ped_tracks(episode),
+        merge_gap_ns=round(merge_gap_s * NS_PER_S),
+    )
+
+
+def _contact_intervals(events: Sequence[ContactEvent]) -> pl.DataFrame:
+    """One row per contact interval in the collider vocabulary the contact windows link from."""
+    return pl.DataFrame(
+        {
+            "t_onset_ns": [event.t0_ns for event in events],
+            "t_end_ns": [event.t_end_ns for event in events],
+            "collider_kind": [event.obstacle_kind for event in events],
+            "obstacle_id": [event.obstacle_id for event in events],
+            "obstacle_x": [_static_x(event) for event in events],
+            "obstacle_y": [_static_y(event) for event in events],
+        },
+        schema={
+            "t_onset_ns": pl.Int64,
+            "t_end_ns": pl.Int64,
+            "collider_kind": pl.String,
+            "obstacle_id": pl.String,
+            "obstacle_x": pl.Float64,
+            "obstacle_y": pl.Float64,
+        },
+    )
+
+
+def _static_x(event: ContactEvent) -> float | None:
+    return None if event.static_point is None else event.static_point[0]
+
+
+def _static_y(event: ContactEvent) -> float | None:
+    return None if event.static_point is None else event.static_point[1]
 
 
 ProgressCallback = Callable[[str, int, int], None]
@@ -531,20 +599,20 @@ class ScopedEvaluator:
             contact_windows.get_column("encounter_idx").fill_null(-1).to_numpy(),
             strict=True,
         ):
-            internal_kind = (
-                ACTOR_PEDESTRIAN
-                if collider_kind in (ACTOR_PEDESTRIAN, "robot")
-                else str(collider_kind)
+            kind = str(collider_kind)
+            actor_id = (
+                _fleet_key(str(obstacle_id), materialized.fleet)
+                if kind == ACTOR_ROBOT
+                else str(obstacle_id)
             )
-            actor_id = str(obstacle_id)
             win_start_ns = int(t_onset_ns - round(pre_window_s * NS_PER_S))
             win_end_ns = int(t_end_ns + round(post_window_s * NS_PER_S))
             window_bundle = self._window_episode(
-                materialized, win_start_ns, win_end_ns, actor_id, internal_kind
+                materialized, win_start_ns, win_end_ns, actor_id, kind
             )
             static_pt = (
                 None
-                if collider_kind in (ACTOR_PEDESTRIAN, "robot")
+                if collider_kind in (ACTOR_PEDESTRIAN, ACTOR_ROBOT)
                 else static_point_of(float(obstacle_x), float(obstacle_y))
             )
             enc_index = None if int(encounter_idx) < 0 else int(encounter_idx)
@@ -732,7 +800,12 @@ class ScopedEvaluator:
         return pedestrian_slices
 
     def decompose_hierarchy(
-        self, episode: AlignedEpisodeBundle, *, run_id: str, episode_id: int
+        self,
+        episode: AlignedEpisodeBundle,
+        *,
+        run_id: str,
+        episode_id: int,
+        contact_calculator: ContactAttributionCalculator,
     ) -> EpisodeScopeHierarchy:
         """Stage 1: Materialize episode topics once and decompose into immutable ScopeSlice hierarchy."""
         materialized = _materialize_episode_bundle(episode)
@@ -745,7 +818,9 @@ class ScopedEvaluator:
             encounter_windows = self._detect_encounters(
                 materialized, typing.cast(pl.DataFrame, robot_tracks), pedestrian_tracks
             )
-            contact_windows = self._detect_contacts(materialized, encounter_windows)
+            contact_windows = self._detect_contacts(
+                materialized, encounter_windows, contact_calculator
+            )
 
         robot_id = self._robot_actor_id(materialized, robot_tracks)
         robot_token = self._short_robot_token(robot_id)
@@ -840,19 +915,31 @@ class ScopedEvaluator:
         progress_callback: ProgressCallback | None = None,
     ) -> EvaluatedEpisode:
         """Evaluate one robot's episode: its series, its episode scope and the scopes below it, as eleven fact tables."""
+        materialized_input = _materialize_episode_bundle(episode)
         registry = MetricRegistry(
-            self.robot_params, world=world, metrics_config=dict(self.metrics_config)
+            self.robot_params,
+            world=world,
+            metrics_config={
+                "contact_merge_gap_s": self.detector_params.contact_merge_gap_s,
+                **self.metrics_config,
+            },
         )
         series_tables = _episode_series_tables(
             registry,
-            episode,
+            materialized_input,
             run_id=run_id,
-            robot_id=str(episode.robot_name or "robot"),
+            robot_id=str(materialized_input.robot_name or "robot"),
         )
-        episode = dataclasses.replace(episode, series=series_tables)
+        episode = dataclasses.replace(materialized_input, series=series_tables)
 
         hierarchy = self.decompose_hierarchy(
-            episode, run_id=run_id, episode_id=episode_id
+            episode,
+            run_id=run_id,
+            episode_id=episode_id,
+            contact_calculator=typing.cast(
+                ContactAttributionCalculator,
+                registry.calculators[ContactAttributionCalculator.NAME],
+            ),
         )
         episode_slice = hierarchy.episodes[0]
         materialized = episode_slice.full_episode
@@ -956,14 +1043,17 @@ class ScopedEvaluator:
         return detect_encounter_windows_lf(combined, self.detector_params).collect()
 
     def _detect_contacts(
-        self, episode: AlignedEpisodeBundle, encounters: pl.DataFrame
+        self,
+        episode: AlignedEpisodeBundle,
+        encounters: pl.DataFrame,
+        contact_calculator: ContactAttributionCalculator,
     ) -> pl.DataFrame:
-        """Contact windows of the recorded collision stream, each linked to its enclosing encounter."""
-        contacts = _table(episode, COLLISION_CONTACTS_TOPIC)
-        if not _has_rows(contacts):
+        """Contact windows of the contact calculator's detector, each linked to its enclosing encounter."""
+        events = _contact_events(contact_calculator, episode)
+        if not events:
             return empty_contact_windows()
-        return detect_contact_windows_lf(
-            typing.cast(pl.DataFrame, contacts), encounters, self.detector_params
+        return contact_windows_lf(
+            _contact_intervals(events), encounters, self.detector_params
         ).collect()
 
     def _window_episode(
@@ -1118,12 +1208,10 @@ class ScopedEvaluator:
         row: Mapping[str, object],
         provenance: Mapping[str, str],
     ) -> str:
-        """Episode provenance: missing-field codes, missing stream topics and calculator exceptions."""
+        """Episode provenance: missing-field codes, the missing robot stream and calculator exceptions, one code per field."""
         reasons = [_row_null_reason(row, _nullable(FactTable.EPISODES), provenance)]
         if not _has_rows(_table(episode, ROBOT_TRACKS_TOPIC)):
             reasons.append(f"{TOPIC_MISSING}:{ROBOT_TRACKS_TOPIC}")
-        if not _has_rows(_table(episode, PEDESTRIAN_TRACKS_TOPIC)):
-            reasons.append(PEDSIM_UNAVAILABLE)
         base = ";".join(reason for reason in reasons if reason)
         return _merge_provenance_reasons(base, provenance, row)
 
@@ -1188,22 +1276,15 @@ class ScopedEvaluator:
 
         power_tbl = _table(episode, ROBOT_POWER_TOPIC)
         has_power = _has_rows(power_tbl)
-        episode_mean_power_w = (
-            float(
-                typing.cast(pl.DataFrame, power_tbl)
-                .get_column("total_power_w")
-                .drop_nulls()
-                .mean()
-            )  # type: ignore[arg-type]
+        mean_power_w = (
+            typing.cast(pl.DataFrame, power_tbl)
+            .get_column("total_power_w")
+            .drop_nulls()
+            .mean()
             if has_power
-            and len(
-                typing.cast(pl.DataFrame, power_tbl)
-                .get_column("total_power_w")
-                .drop_nulls()
-            )
-            > 0
             else None
         )
+        episode_mean_power_w = None if mean_power_w is None else float(mean_power_w)
 
         contacts_by_encounter: dict[str, dict[str, object]] = {}
         for contact in contact_rows:

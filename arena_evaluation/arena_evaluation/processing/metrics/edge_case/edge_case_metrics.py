@@ -55,14 +55,6 @@ EDGE_CASE_COLLISION_AT = define_metric(
     description="Seconds after the episode start of the first collision with a scored agent.",
     null_reason=True,
 )
-EDGE_CASE_COLLISION_FAULT = define_metric(
-    "edge_case_collision_fault",
-    pl.String,
-    scopes=(MetricScope.CONTACT,),
-    unit="",
-    description="Which side was closing at the first collision: robot, pedestrian, mutual or static.",
-    null_reason=True,
-)
 EDGE_CASE_COLLISION_PED_CLOSING = define_metric(
     "edge_case_collision_ped_closing",
     pl.Float64,
@@ -453,7 +445,6 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
     OUTPUTS = (
         EDGE_CASE_COLLIDED,
         EDGE_CASE_COLLISION_AT,
-        EDGE_CASE_COLLISION_FAULT,
         EDGE_CASE_COLLISION_PED_CLOSING,
         EDGE_CASE_COLLISION_ROBOT_CLOSING,
         EDGE_CASE_COLLISION_WITH,
@@ -563,7 +554,6 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
                 "edge_case_freeze_s": result.freeze_duration_s,
                 "edge_case_intrusion_s": result.intrusion_time_s,
                 "edge_case_collided": result.collided,
-                "edge_case_collision_fault": result.collision_fault or None,
                 "edge_case_collision_with": result.collision_with or None,
                 "edge_case_collision_at": result.collision_at,
                 "edge_case_collision_robot_closing": result.collision_robot_closing,

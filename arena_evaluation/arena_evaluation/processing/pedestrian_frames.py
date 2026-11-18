@@ -14,7 +14,7 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.common.alignment import (
+from arena_evaluation.processing.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,
     asof_join,
 )

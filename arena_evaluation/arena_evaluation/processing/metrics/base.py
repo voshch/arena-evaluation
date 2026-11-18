@@ -213,6 +213,7 @@ class BaseMetricCalculator(ABC):
     @staticmethod
     def _ride_arrivals(episode: AlignedEpisodeBundle) -> np.ndarray:
         """Elevator arrival and stair crossing log times of the robot's env, the teleports that are rides."""
+        # Local on purpose: ecological.mechanism_common imports this module, so a top-level import would cycle.
         from .ecological.mechanism_common import robot_env_snapshot
 
         return ride_arrival_times(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))

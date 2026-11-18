@@ -14,7 +14,7 @@ from typing import Final
 
 import polars as pl
 
-from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
+from arena_evaluation.processing.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import NullReason
 
@@ -93,6 +93,8 @@ CONTACT_WINDOW_SCHEMA = pl.Schema(
         "obstacle_x": pl.Float64,
         "obstacle_y": pl.Float64,
         "encounter_idx": pl.Int64,
+        "detector_version": pl.String,
+        "detector_params_hash": pl.String,
     }
 )
 
@@ -303,41 +305,12 @@ def detect_encounter_windows_lf(pairs: pl.LazyFrame, params: DetectorParams = DE
     )
 
 
-def contact_intervals_lf(collision_contacts: pl.DataFrame | pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.LazyFrame:
-    """Contact bouts of the recorded collision stream: contacts with one obstacle less than the merge gap apart form one bout."""
-    merge_gap_ns = int(params.contact_merge_gap_s * NS_PER_S)
-    return (
-        collision_contacts.lazy()
-        .select(
-            pl.col("t_ns").cast(pl.Int64),
-            pl.col("obstacle_id").fill_null(""),
-            pl.col("kind").fill_null("static"),
-            pl.col("obstacle_x").cast(pl.Float64),
-            pl.col("obstacle_y").cast(pl.Float64),
-        )
-        .sort(["kind", "obstacle_id", "t_ns"])
-        .with_columns(
-            same_target=(pl.col("kind") == pl.col("kind").shift(1)) & (pl.col("obstacle_id") == pl.col("obstacle_id").shift(1)),
-            beyond_gap=pl.col("t_ns").diff() > merge_gap_ns,
-        )
-        .with_columns(group_id=(~(pl.col("same_target").fill_null(False)) | pl.col("beyond_gap").fill_null(True)).cum_sum())
-        .group_by("group_id")
-        .agg(
-            collider_kind=pl.col("kind").first(),
-            obstacle_id=pl.col("obstacle_id").first(),
-            t_onset_ns=pl.col("t_ns").min(),
-            t_end_ns=pl.col("t_ns").max(),
-            obstacle_x=pl.col("obstacle_x").first(),
-            obstacle_y=pl.col("obstacle_y").first(),
-        )
-    )
-
-
-def contact_windows_lf(intervals: pl.DataFrame | pl.LazyFrame, encounters: pl.DataFrame | pl.LazyFrame) -> pl.LazyFrame:
+def contact_windows_lf(intervals: pl.DataFrame | pl.LazyFrame, encounters: pl.DataFrame | pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.LazyFrame:
     """Contact bouts of one episode, each linked to the encounter that encloses its onset.
 
     ``intervals`` holds one row per contact bout with its raw ``collider_kind`` and ``obstacle_id``. Each obstacle id is
     resolved to the encounter actor that carries it (by id, name or numeric suffix) before the bout is linked to it.
+    The bouts come from the contact calculator's detector; each row is stamped with the detector version and parameters.
     """
     normalized_kind = pl.col("collider_kind").fill_null("static").str.to_lowercase()
     collider_kind = (
@@ -404,12 +377,15 @@ def contact_windows_lf(intervals: pl.DataFrame | pl.LazyFrame, encounters: pl.Da
         .group_by("contact_idx")
         .agg(encounter_idx=pl.col("encounter_idx").min())
     )
-    return resolved.join(enclosing, on="contact_idx", how="left").with_columns(pl.col("encounter_idx").cast(pl.Int64)).select(CONTACT_WINDOW_SCHEMA.names())
-
-
-def detect_contact_windows_lf(collision_contacts: pl.DataFrame | pl.LazyFrame, encounters: pl.DataFrame | pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.LazyFrame:
-    """Contact bouts of the recorded collision stream, each linked to its enclosing encounter."""
-    return contact_windows_lf(contact_intervals_lf(collision_contacts, params), encounters)
+    return (
+        resolved.join(enclosing, on="contact_idx", how="left")
+        .with_columns(
+            encounter_idx=pl.col("encounter_idx").cast(pl.Int64),
+            detector_version=pl.lit(DETECTOR_VERSION),
+            detector_params_hash=pl.lit(params.fingerprint()),
+        )
+        .select(CONTACT_WINDOW_SCHEMA.names())
+    )
 
 
 def empty_encounter_windows() -> pl.DataFrame:

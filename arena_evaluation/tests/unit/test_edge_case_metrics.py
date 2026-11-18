@@ -119,10 +119,10 @@ def test_only_restricts_scoring_to_the_named_agent() -> None:
     assert score(s, only=["edge_0"]).min_clearance_m == pytest.approx(4.0 - 0.6)
 
 
-def test_a_robot_driving_into_a_standing_pedestrian_is_at_fault() -> None:
+def test_a_robot_driving_into_a_pedestrian_records_the_contact_and_its_agent() -> None:
     s = [Sample(t=float(t), robot=(float(t), 0.0), robot_vel=(1.0, 0.0), peds={"a": ((3.5, 0.0), (0.0, 0.0), 0.3)}) for t in range(4)]
     out = score(s)
-    assert (out.collided, out.collision_fault, out.collision_with, out.collision_at) == (True, "robot", "a", 3.0)
+    assert (out.collided, out.collision_with, out.collision_at) == (True, "a", 3.0)
 
 
 def _contact(robot_vel: tuple[float, float], ped_vel: tuple[float, float]) -> Criticality:
@@ -136,31 +136,34 @@ def _contact(robot_vel: tuple[float, float], ped_vel: tuple[float, float]) -> Cr
     )
 
 
-def test_robot_driving_into_a_standing_pedestrian_is_robot_fault() -> None:
+def test_a_robot_driving_into_a_standing_pedestrian_closes_with_the_robot_only() -> None:
     r = _contact(robot_vel=(0.8, 0.0), ped_vel=(0.0, 0.0))
-    assert r.collided and r.collision_fault == "robot"
+    assert r.collided
     assert r.collision_with == "p"
     assert r.collision_robot_closing > 0.5 and abs(r.collision_ped_closing) < 0.05
 
 
-def test_pedestrian_walking_into_a_standing_robot_is_pedestrian_fault() -> None:
+def test_a_pedestrian_walking_into_a_standing_robot_closes_with_the_pedestrian_only() -> None:
     r = _contact(robot_vel=(0.0, 0.0), ped_vel=(-0.9, 0.0))
-    assert r.collided and r.collision_fault == "pedestrian"
-    assert r.collision_ped_closing > 0.5
+    assert r.collided
+    assert r.collision_ped_closing > 0.5 and abs(r.collision_robot_closing) < 0.05
 
 
-def test_both_closing_is_mutual_and_neither_is_static() -> None:
-    assert _contact((0.6, 0.0), (-0.6, 0.0)).collision_fault == "mutual"
-    assert _contact((0.0, 0.0), (0.0, 0.0)).collision_fault == "static"
+def test_both_closing_speeds_are_measured_when_both_move_and_zero_when_neither_does() -> None:
+    both = _contact((0.6, 0.0), (-0.6, 0.0))
+    still = _contact((0.0, 0.0), (0.0, 0.0))
+    assert both.collision_robot_closing > 0.5 and both.collision_ped_closing > 0.5
+    assert still.collision_robot_closing == 0.0 and still.collision_ped_closing == 0.0
 
 
-def test_receding_pedestrian_contact_is_not_their_fault() -> None:
-    assert _contact(robot_vel=(0.7, 0.0), ped_vel=(0.7, 0.0)).collision_fault == "robot"
+def test_a_receding_pedestrian_has_a_negative_closing_speed() -> None:
+    r = _contact(robot_vel=(0.7, 0.0), ped_vel=(0.7, 0.0))
+    assert r.collision_robot_closing > 0.5 and r.collision_ped_closing < 0.0
 
 
-def test_no_contact_leaves_the_fault_empty() -> None:
+def test_no_contact_leaves_the_closing_speeds_empty() -> None:
     r = score([Sample(t=0.0, robot=(0.0, 0.0), peds={"p": ((5.0, 0.0), (0.0, 0.0), 0.25)})])
-    assert not r.collided and r.collision_fault == "" and r.collision_at is None
+    assert not r.collided and r.collision_at is None and r.collision_robot_closing is None
 
 
 def test_pet_is_the_time_gap_through_the_encounter_point() -> None:
@@ -384,7 +387,7 @@ def test_the_case_is_scored_against_its_own_agents(tmp_path: pathlib.Path, criti
     assert out["edge_case_min_clearance_with"] == "edge_0"
     assert out["edge_case_min_clearance_m"] == pytest.approx(2.0 - 2 * ROBOT_RADIUS)
     assert out["edge_case_min_clearance_at"] == pytest.approx(6.0)
-    assert out["edge_case_collided"] is False and out["edge_case_collision_fault"] is None
+    assert out["edge_case_collided"] is False and out["edge_case_collision_robot_closing"] is None
     assert out["edge_case_pet_s"] is None and out["edge_case_pet_with"] is None
     assert out["edge_case_freeze_s"] == 0.0
 
@@ -394,10 +397,19 @@ def test_a_robot_running_into_its_intercept_collides_with_it(tmp_path: pathlib.P
     edge = [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]
     out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": edge}), {})
     assert out["edge_case_missing"] == ["d_1", "d_2"]
-    assert out["edge_case_collided"] is True and out["edge_case_collision_with"] == "edge_0" and out["edge_case_collision_fault"] == "robot"
+    assert out["edge_case_collided"] is True and out["edge_case_collision_with"] == "edge_0"
     assert out["edge_case_pet_s"] == pytest.approx(3.0) and out["edge_case_pet_with"] == "edge_0"
     assert out["edge_case_min_ttc_s"] == pytest.approx(0.0) and out["edge_case_min_ttc_with"] == "edge_0"
     assert out.get("edge_case_played") is None and out.get("edge_case_unplayed") is None and out["edge_case_triggered_at"] is None
+
+
+def test_a_collision_publishes_both_closing_speeds_and_no_fault_label(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+    world = _world(tmp_path, provenance=CASE)
+    edge = [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]
+    out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": edge}), {})
+    assert out["edge_case_collided"] is True
+    assert "edge_case_collision_fault" not in out
+    assert "edge_case_collision_robot_closing" in out and "edge_case_collision_ped_closing" in out
 
 
 def test_a_case_whose_agents_never_appeared_falls_back_to_everyone(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
@@ -648,21 +660,24 @@ def test_the_ttc_follows_a_moving_pedestrians_twist(tmp_path: pathlib.Path, crit
     assert (out["edge_case_min_ttc_s"], out["edge_case_min_ttc_with"], out["edge_case_min_ttc_at"]) == (pytest.approx(2.0), "edge_0", pytest.approx(9.9))
 
 
-def test_a_pedestrian_walking_into_the_passing_robot_is_at_fault(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+def test_a_pedestrian_walking_into_the_passing_robot_closes_with_it_alone(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
     crossing = [(5.0, 3.0 - 0.5 * k) for k in range(11)]
     out = criticality.calculate(_episode(tmp_path, world, _run(world), {"edge_0": crossing}, twists={"edge_0": (0.0, -0.5)}), {})
-    assert (out["edge_case_collided"], out["edge_case_collision_fault"], out["edge_case_collision_at"]) == (True, "pedestrian", pytest.approx(5.0))
+    assert (out["edge_case_collided"], out["edge_case_collision_at"]) == (True, pytest.approx(5.0))
+    assert out["edge_case_collision_ped_closing"] >= 0.05 and out["edge_case_collision_robot_closing"] < 0.05
 
 
-def test_a_head_on_contact_is_mutual_and_without_twists_the_robots(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
+def test_a_head_on_contact_has_both_closing_speeds_and_without_twists_only_the_robot(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:
     world = _world(tmp_path, provenance=CASE)
     oncoming = [(8.0 - 0.5 * k, 0.0) for k in range(11)]
     episode = _episode(tmp_path, world, _run(world), {"edge_0": oncoming}, twists={"edge_0": (-0.5, 0.0)})
     out = criticality.calculate(episode, {})
-    assert (out["edge_case_collision_fault"], out["edge_case_collision_at"]) == ("mutual", pytest.approx(5.0))
+    assert out["edge_case_collision_at"] == pytest.approx(5.0)
+    assert out["edge_case_collision_robot_closing"] >= 0.05 and out["edge_case_collision_ped_closing"] >= 0.05
     episode.topics["pedestrian_tracks"] = episode.topics["pedestrian_tracks"].with_columns(vx=0.0, vy=0.0)
-    assert criticality.calculate(episode, {})["edge_case_collision_fault"] == "robot"
+    still = criticality.calculate(episode, {})
+    assert still["edge_case_collision_robot_closing"] >= 0.05 and still["edge_case_collision_ped_closing"] < 0.05
 
 
 def test_a_single_robot_pose_is_not_scored(tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator) -> None:

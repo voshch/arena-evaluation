@@ -45,7 +45,6 @@ class Criticality:
     intrusion_time_s: float = 0.0
 
     collided: bool = False
-    collision_fault: str = ""
     collision_with: str = ""
     collision_at: float | None = None
     collision_robot_closing: float | None = None
@@ -121,25 +120,16 @@ def _min_pet(
     return pet, pet_with
 
 
-def _collision_fault(
+def _first_collision(
     s: Sample, p: Point, v: Point, t0: float, name: str
-) -> tuple[str, str, float, float, float]:
+) -> tuple[str, float, float, float]:
+    """The agent touched, the time of contact, and the robot and pedestrian closing speeds along the line of sight."""
     dx, dy = p[0] - s.robot[0], p[1] - s.robot[1]
     norm = math.hypot(dx, dy) or 1.0
     ux, uy = dx / norm, dy / norm
     rc = s.robot_vel[0] * ux + s.robot_vel[1] * uy
     pc = -(v[0] * ux + v[1] * uy)
-    r_moving, p_moving = rc >= FREEZE_SPEED, pc >= FREEZE_SPEED
-    fault = (
-        "mutual"
-        if r_moving and p_moving
-        else "robot"
-        if r_moving
-        else "pedestrian"
-        if p_moving
-        else "static"
-    )
-    return fault, name, s.t - t0, rc, pc
+    return name, s.t - t0, rc, pc
 
 
 def _sample_ped_stats(
@@ -147,12 +137,12 @@ def _sample_ped_stats(
 ) -> tuple[
     tuple[float, str, float] | None,
     tuple[float, str, float] | None,
-    tuple[str, str, float, float, float] | None,
+    tuple[str, float, float, float] | None,
     bool,
 ]:
     best_clear: tuple[float, str, float] | None = None
     best_ttc: tuple[float, str, float] | None = None
-    first_collision: tuple[str, str, float, float, float] | None = None
+    first_collision: tuple[str, float, float, float] | None = None
     intruding = False
     for name, (p, v, r) in s.peds.items():
         if wanted is not None and name not in wanted:
@@ -161,7 +151,7 @@ def _sample_ped_stats(
         if best_clear is None or clearance < best_clear[0]:
             best_clear = (clearance, name, s.t - t0)
         if clearance <= 0.0 and first_collision is None:
-            first_collision = _collision_fault(s, p, v, t0, name)
+            first_collision = _first_collision(s, p, v, t0, name)
         if clearance < PERSONAL_SPACE:
             intruding = True
         ttc = time_to_collision(s.robot, s.robot_vel, s.robot_radius, p, v, r)
@@ -191,9 +181,10 @@ def score(
     freeze = 0.0
     intrusion = 0.0
     collided = False
-    fault, fault_with, fault_at = "", "", None
-    fault_rc: float | None = None
-    fault_pc: float | None = None
+    collision_with = ""
+    collision_at: float | None = None
+    collision_rc: float | None = None
+    collision_pc: float | None = None
 
     for i, s in enumerate(samples):
         dt = max(0.0, (samples[i + 1].t - s.t) if i + 1 < len(samples) else 0.0)
@@ -210,7 +201,7 @@ def score(
         if sample_ttc is not None and (min_ttc is None or sample_ttc[0] < min_ttc):
             min_ttc, ttc_with, ttc_at = sample_ttc
         if sample_collision is not None and not collided:
-            fault, fault_with, fault_at, fault_rc, fault_pc = sample_collision
+            collision_with, collision_at, collision_rc, collision_pc = sample_collision
             collided = True
         if intruding:
             intrusion += dt
@@ -228,11 +219,10 @@ def score(
         freeze_duration_s=freeze,
         intrusion_time_s=intrusion,
         collided=collided,
-        collision_fault=fault,
-        collision_with=fault_with,
-        collision_at=fault_at,
-        collision_robot_closing=fault_rc,
-        collision_ped_closing=fault_pc,
+        collision_with=collision_with,
+        collision_at=collision_at,
+        collision_robot_closing=collision_rc,
+        collision_ped_closing=collision_pc,
         samples=len(samples),
         duration_s=samples[-1].t - t0,
     )
