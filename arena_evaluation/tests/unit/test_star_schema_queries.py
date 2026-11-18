@@ -43,7 +43,6 @@ def _write_multi_condition_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "scenario": "corridor",
                 "planner": planner,
                 "dispatcher": "none",
-                "robot_model": "jackal",
                 "seed": 1,
                 "is_reference": False,
             }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import ClassVar, Final, cast
 
 import polars as pl
 
@@ -21,6 +21,7 @@ class _RobotTelemetry(Table, abstract=True):
     """Telemetry of one robot: its native time, environment and robot."""
 
     key = ("env_id", "robot_id")
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns")
 
     t_ns = _TIME
     env_id = _TEXT
@@ -31,6 +32,7 @@ class _EnvironmentTelemetry(Table, abstract=True):
     """Telemetry of one simulation environment: its native time and environment."""
 
     key = ("env_id",)
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns")
 
     t_ns = _TIME
     env_id = _TEXT
@@ -38,6 +40,8 @@ class _EnvironmentTelemetry(Table, abstract=True):
 
 class _GlobalTelemetry(Table, abstract=True):
     """Telemetry that belongs to no robot and no environment key: its native time only."""
+
+    row_key: ClassVar[tuple[str, ...]] = ("t_ns",)
 
     t_ns = _TIME
 
@@ -141,17 +145,19 @@ class RobotScanSummary(
     n_valid_rays = _INT
 
 
-class RobotScanRays(
+class RobotGoalPose(
     _RobotTelemetry,
-    name="robot_scan_rays",
+    name="robot_goal_pose",
     kind=TableKind.TELEMETRY,
     scope=MetricScope.ROBOT,
 ):
-    """One ray of a laser scan of a robot."""
+    """The goal the robot was last given, as recorded on its goal_pose topic."""
 
-    ray_idx = _INT
-    range_m = _FLOAT
-    angle_rad = _FLOAT
+    pos_x = _FLOAT
+    pos_y = _FLOAT
+    pos_z = _FLOAT
+    yaw = _FLOAT
+    frame_id = _TEXT
 
 
 class RobotJointStates(
@@ -162,6 +168,7 @@ class RobotJointStates(
 ):
     """Joint state of one joint of a robot."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "joint_name")
     joint_name = _TEXT
     position = _FLOAT
     velocity = _FLOAT
@@ -190,6 +197,7 @@ class RobotJointPower(
 ):
     """Power of one joint of a robot."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "joint_name")
     joint_name = _TEXT
     mechanical_power_w = _FLOAT
     thermal_power_w = _FLOAT
@@ -248,6 +256,7 @@ class RobotCollisionContacts(
 ):
     """One contact of a robot with an obstacle."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "obstacle_id")
     obstacle_id = _TEXT
     kind = _TEXT
     obstacle_x = _FLOAT
@@ -276,6 +285,13 @@ class RobotPlans(
 ):
     """One waypoint of a plan of a robot."""
 
+    row_key: ClassVar[tuple[str, ...]] = (
+        "env_id",
+        "robot_id",
+        "t_ns",
+        "plan_id",
+        "waypoint_idx",
+    )
     plan_id = _INT
     waypoint_idx = _INT
     x = _FLOAT
@@ -302,6 +318,7 @@ class RobotCharacterizationSchedule(
 ):
     """One phase of the characterization schedule of a robot."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "phase_idx")
     phase_idx = _INT
     phase_label = _TEXT
     phase_kind = _TEXT
@@ -363,6 +380,7 @@ class RobotParamRows(
 ):
     """One resolved morphology parameter of a robot, as the fleet message carries it."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "param_key")
     param_key = _TEXT
     param_value = _TEXT
 
@@ -375,6 +393,7 @@ class PedestrianArenaPeds(
 ):
     """Pedestrian poses and velocities as the arena_peds topic publishes them, one row per pedestrian and time."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id")
     ped_id = _TEXT
     ped_name = _TEXT
     x = _FLOAT
@@ -404,6 +423,7 @@ class PedestrianAgentStates(
 ):
     """Crowd-engine state of each pedestrian, with the four robot-interaction settings of its agent."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id")
     ped_id = _TEXT
     ped_name = _TEXT
     x = _FLOAT
@@ -437,6 +457,7 @@ class PedestrianGestures(
 ):
     """A gesture of a pedestrian."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id", "slot")
     ped_id = _TEXT
     slot = _TEXT
     clip = _TEXT
@@ -455,6 +476,7 @@ class PedestrianAnimations(
 ):
     """An animation layer of a pedestrian."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id", "slot")
     ped_id = _TEXT
     ped_name = _TEXT
     base = _TEXT
@@ -475,6 +497,7 @@ class PedestrianInteractions(
 ):
     """A pedestrian interaction with an object or another pedestrian."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "interaction_id")
     interaction_id = _INT
     interaction_type = _INT
     outcome = _INT
@@ -492,6 +515,7 @@ class PedestrianInteractionMembers(
 ):
     """The members of a pedestrian interaction and their roles."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "interaction_id", "ped_id")
     interaction_id = _INT
     ped_id = _TEXT
     member_role = _TEXT
@@ -505,6 +529,13 @@ class PedestrianInteractionEvents(
 ):
     """An event of a pedestrian interaction."""
 
+    row_key: ClassVar[tuple[str, ...]] = (
+        "env_id",
+        "t_ns",
+        "interaction_id",
+        "event",
+        "ped_id",
+    )
     interaction_id = _INT
     interaction_type = _INT
     event = _INT
@@ -547,6 +578,7 @@ class EpisodeIntegrity(
 ):
     """An integrity flag of an episode."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "flag_idx")
     flag_idx = _INT
     flag = _TEXT
 
@@ -554,6 +586,7 @@ class EpisodeIntegrity(
 class Tf(_GlobalTelemetry, name="tf", kind=TableKind.TELEMETRY):
     """Dynamic transforms between frames."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("t_ns", "parent_frame", "child_frame")
     parent_frame = _TEXT
     child_frame = _TEXT
     tx = _FLOAT
@@ -568,6 +601,7 @@ class Tf(_GlobalTelemetry, name="tf", kind=TableKind.TELEMETRY):
 class TfStatic(_GlobalTelemetry, name="tf_static", kind=TableKind.TELEMETRY):
     """Static transforms between frames."""
 
+    row_key: ClassVar[tuple[str, ...]] = ("t_ns", "parent_frame", "child_frame")
     parent_frame = _TEXT
     child_frame = _TEXT
     tx = _FLOAT
@@ -584,6 +618,14 @@ class WorldSemantics(
 ):
     """Semantic state of the world's entities, one field per row."""
 
+    row_key: ClassVar[tuple[str, ...]] = (
+        "t_ns",
+        "env_id",
+        "entity_name",
+        "kind",
+        "field_name",
+        "field_kind",
+    )
     env_id = _TEXT
     world = _TEXT
     entity_name = _TEXT
@@ -593,3 +635,56 @@ class WorldSemantics(
     value_str = _TEXT
     value_num = _FLOAT
     value_bool = _FLAG
+
+
+class EnvironmentMap(
+    _EnvironmentTelemetry,
+    name="environment_map",
+    kind=TableKind.TELEMETRY,
+    scope=MetricScope.EPISODE,
+):
+    """Metadata of one latched occupancy-grid snapshot recorded from an environment map or door mask."""
+
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "kind")
+    kind = _TEXT
+    frame_id = _TEXT
+    resolution_m = _FLOAT
+    width_cells = _INT
+    height_cells = _INT
+    origin_x = _FLOAT
+    origin_y = _FLOAT
+    origin_yaw = _FLOAT
+
+
+class EnvironmentMapCells(
+    _EnvironmentTelemetry,
+    name="environment_map_cells",
+    kind=TableKind.TELEMETRY,
+    scope=MetricScope.EPISODE,
+):
+    """One non-free cell of a recorded occupancy-grid snapshot, stored sparsely."""
+
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "kind", "row", "col")
+    kind = _TEXT
+    row = _INT
+    col = _INT
+    occupancy = _INT
+
+
+_TelemetryTable = (
+    type[_RobotTelemetry] | type[_EnvironmentTelemetry] | type[_GlobalTelemetry]
+)
+
+
+def duplicate_row_keys(table: type[Table], frame: pl.DataFrame) -> pl.DataFrame:
+    """Rows of a telemetry frame whose row key repeats, with their key columns."""
+    keys = cast(_TelemetryTable, table).row_key
+    return frame.filter(pl.struct(keys).is_duplicated()).select(keys)
+
+
+def null_row_keys(table: type[Table], frame: pl.DataFrame) -> pl.DataFrame:
+    """Rows of a telemetry frame whose row key carries a null, with their key columns."""
+    keys = cast(_TelemetryTable, table).row_key
+    return frame.filter(
+        pl.any_horizontal([pl.col(key).is_null() for key in keys])
+    ).select(keys)

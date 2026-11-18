@@ -22,14 +22,15 @@ from arena_evaluation.storage.contracts import (
     write_contract_report,
 )
 from arena_evaluation.storage.exceptions import ContractViolationError
+from arena_evaluation.storage.layout import write_benchmark_stamp, write_episode_stamp
 from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
+from arena_evaluation.storage.registry.table import NULL_REASON_COLUMN, Table
 from arena_evaluation.storage.registry.facts import (
     FactEncounters,
     FactEpisodes,
     FactPhaseOutcomes,
     FactRobots,
 )
-from arena_evaluation.storage.registry.table import Table
 
 RUN_ID = "bench-contract"
 ROBOT_ID = "env_0_jackal_0"
@@ -93,12 +94,14 @@ def _protagonist_robot_row(**overrides: object) -> dict[str, object]:
         "robot_id": ROBOT_ID,
         "robot_model": "turtlebot3",
         "planner": "dwb",
+        "robot_radius": 0.22,
+        "robot_mass_kg": 1.5,
         "null_reason": None,
         **overrides,
     }
 
 
-def _dimension_frames() -> dict[str, pl.DataFrame]:
+def _raw_dimension_frames() -> dict[str, pl.DataFrame]:
     return {
         "dim_episodes": _frame(
             [
@@ -135,6 +138,28 @@ def _dimension_frames() -> dict[str, pl.DataFrame]:
     }
 
 
+def _explained(frame: pl.DataFrame, table: type[Table]) -> pl.DataFrame:
+    """The frame with every NULL in a reason-carrying column explained as not recorded."""
+    rows = []
+    for row in frame.iter_rows(named=True):
+        reasons = [
+            f"{column}:not_recorded"
+            for column in table.null_reason_columns()
+            if row[column] is None
+        ]
+        joined = "; ".join(filter(None, [row[NULL_REASON_COLUMN], *reasons]))
+        rows.append({**row, NULL_REASON_COLUMN: joined or None})
+    return pl.DataFrame(rows, schema=frame.schema)
+
+
+def _dimension_frames() -> dict[str, pl.DataFrame]:
+    """The clean dimension frames, every NULL explained by its reason."""
+    return {
+        name: _explained(frame, DIMENSION_TABLES[name])
+        for name, frame in _raw_dimension_frames().items()
+    }
+
+
 def _write_benchmark(
     root: pathlib.Path,
     *,
@@ -144,11 +169,12 @@ def _write_benchmark(
     fact_phase_outcomes: pl.DataFrame | None = None,
     write_dimensions: bool = True,
 ) -> pathlib.Path:
-    """Write the canonical dimension root and the per-episode fact files."""
+    """Write the canonical dimension root and the per-episode fact files, stamped for the layout."""
     root.mkdir(parents=True, exist_ok=True)
     if write_dimensions:
         for name, frame in _dimension_frames().items():
             frame.write_parquet(root / f"{name}.parquet")
+    write_benchmark_stamp(root)
 
     metrics = root / "episodes" / "episode_000" / "metrics"
     metrics.mkdir(parents=True, exist_ok=True)
@@ -160,6 +186,7 @@ def _write_benchmark(
     ):
         if frame is not None:
             frame.write_parquet(metrics / table.file_name())
+    write_episode_stamp(metrics)
     return root
 
 
@@ -204,12 +231,12 @@ def test_a_nested_column_fails_the_flat_schema_contract(
     nested = _frame([_episode_row()], FactEpisodes).with_columns(
         pl.Series("tags", [["tag"]], dtype=pl.List(pl.String))
     )
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID, fact_episodes=nested
-    )
+    root = _write_benchmark(tmp_path / "benchmarks" / RUN_ID, fact_episodes=nested)
     report = check_benchmark(root)
     nested_violations = [
-        violation for violation in report.violations if violation.check == "nested_dtype"
+        violation
+        for violation in report.violations
+        if violation.check == "nested_dtype"
     ]
     assert nested_violations
     assert nested_violations[0].table == "fact_episodes"
@@ -292,9 +319,7 @@ def test_a_parameterised_invalid_episode_reason_passes(
     assert is_known_null_reason(reason)
     root = _write_benchmark(
         tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame(
-            [_episode_row(null_reason=reason)], FactEpisodes
-        ),
+        fact_episodes=_frame([_episode_row(null_reason=reason)], FactEpisodes),
     )
     report = check_benchmark(root)
     assert not [
@@ -309,11 +334,7 @@ def test_a_window_that_does_not_move_forward_fails(tmp_path: pathlib.Path) -> No
         tmp_path / "benchmarks" / RUN_ID,
         fact_episodes=_frame([_episode_row()], FactEpisodes),
         fact_encounters=_frame(
-            [
-                _encounter_row(
-                    t_start_ns=1_000_000_000, t_end_ns=1_000_000_000
-                )
-            ],
+            [_encounter_row(t_start_ns=1_000_000_000, t_end_ns=1_000_000_000)],
             FactEncounters,
         ),
     )
@@ -330,14 +351,11 @@ def test_an_encounter_actor_paired_with_itself_fails(
     root = _write_benchmark(
         tmp_path / "benchmarks" / RUN_ID,
         fact_episodes=_frame([_episode_row()], FactEpisodes),
-        fact_encounters=_frame(
-            [_encounter_row(actor_2=ROBOT_ID)], FactEncounters
-        ),
+        fact_encounters=_frame([_encounter_row(actor_2=ROBOT_ID)], FactEncounters),
     )
     report = check_benchmark(root)
     assert any(
-        violation.check == "actor_self_pair"
-        and violation.table == "fact_encounters"
+        violation.check == "actor_self_pair" and violation.table == "fact_encounters"
         for violation in report.violations
     )
 
@@ -348,6 +366,7 @@ def test_a_robot_without_a_recorded_descriptor_fails(
     root = _write_benchmark(
         tmp_path / "benchmarks" / RUN_ID,
         fact_episodes=_frame([_episode_row()], FactEpisodes),
+        write_dimensions=False,
     )
     dimensions = _dimension_frames()
     dimensions["dim_robots"] = _frame(
@@ -358,7 +377,9 @@ def test_a_robot_without_a_recorded_descriptor_fails(
         ],
         DIMENSION_TABLES["dim_robots"],
     )
-    report = check_benchmark(root, dimensions=dimensions)
+    for name, frame in dimensions.items():
+        frame.write_parquet(root / f"{name}.parquet")
+    report = check_benchmark(root)
     missing = [
         violation
         for violation in report.violations

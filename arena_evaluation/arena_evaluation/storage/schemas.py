@@ -8,6 +8,8 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from arena_evaluation.storage.exceptions import ContractViolationError, MetricInputError
+from arena_evaluation.storage.registry.table import Table
+from arena_evaluation.storage.registry.telemetry import RobotDescriptor, RobotParamRows
 
 if TYPE_CHECKING:
     import pathlib
@@ -41,8 +43,9 @@ class RunMetadata(BaseModel):
     ros_distro: str
 
     task_layer: str = ""
-    modes: dict[str, list[str]] | None = None
-    params: dict[str, typing.Any] | None = None
+
+    modes: dict[str, list[str]]
+    params: dict[str, typing.Any]
 
     recording_ended_at: str | None = None
     episodes_recorded: int | None = None
@@ -62,86 +65,21 @@ class RunMetadata(BaseModel):
     parent_episode_id: int | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RobotParams:
-    """Robot physical parameters loaded at runtime."""
+    """Robot physical parameters recorded with the episode; no value is assumed."""
 
-    model: str = "unknown"
-    robot_radius: float = 0.25
-    laser_min_range: float = 0.0
-    laser_max_range: float = 30.0
-    base_mass: float = 0.0
-    component_masses: dict[str, float] = field(default_factory=dict)
+    model: str
+    robot_radius: float
+    laser_min_range: float | None
+    laser_max_range: float | None
+    base_mass: float
+    component_masses: dict[str, float]
 
     @property
     def mass(self) -> float:
-        """Total mass in kg, or 0.0 if undeclared."""
+        """Total mass in kg: the base plus every recorded component."""
         return self.base_mass + sum(self.component_masses.values())
-
-    @classmethod
-    def load(cls, model: str) -> RobotParams:
-        """Load parameters from the arena_robots share directory; raises when the package or a parameter file is missing."""
-        import os
-
-        import yaml
-        from ament_index_python.packages import get_package_share_directory
-
-        defaults = cls()
-        radius = defaults.robot_radius
-        base_mass = defaults.base_mass
-        component_masses: dict[str, float] = {}
-
-        try:
-            robot_dir = os.path.join(
-                get_package_share_directory("arena_robots"),
-                "robots",
-                model.partition("[")[0],
-            )
-        except (ImportError, OSError, KeyError) as error:
-            raise FileNotFoundError(
-                f"arena_robots is not installed, so the parameters of {model!r} are unknown"
-            ) from error
-
-        def _read(path: str) -> dict:
-            with open(path) as file:
-                return yaml.safe_load(file) or {}
-
-        radius = float(
-            _read(os.path.join(robot_dir, "caps", "mobile.yaml")).get("radius", radius)
-        )
-        base_mass = float(
-            _read(os.path.join(robot_dir, "model_params.yaml"))
-            .get("mass", {})
-            .get("base_kg", base_mass)
-        )
-        components_root = os.path.join(
-            os.path.dirname(os.path.dirname(robot_dir)), "components"
-        )
-        for kind, entries in (
-            _read(os.path.join(robot_dir, "assembly.yaml")).get("defaults", {}).items()
-        ):
-            for entry in entries or []:
-                variant = (entry or {}).get("variant")
-                if not variant:
-                    continue
-                kg = (
-                    _read(
-                        os.path.join(components_root, kind, variant, "component.yaml")
-                    )
-                    .get("mass", {})
-                    .get("kg")
-                )
-                if kg:
-                    component_masses[f"{kind}/{variant}"] = float(kg)
-
-        return cls(
-            model=model,
-            robot_radius=radius,
-            laser_min_range=defaults.laser_min_range,
-            laser_max_range=defaults.laser_max_range,
-            base_mass=base_mass,
-            component_masses=component_masses,
-        )
 
 
 #: The recorded parameter keys that fill a :class:`RobotParams` field.
@@ -161,23 +99,11 @@ _REQUIRED_RECORDED_FIELDS: typing.Final[dict[str, str]] = {
 
 
 def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams:
-    """The parameters of one robot from its recorded fleet rows.
-
-    ``rows`` are the recorded fleet rows of one episode: the descriptor row (``model`` and the
-    frame columns) plus one row per resolved parameter (``param_key``/``param_value``). The two
-    may be concatenated or joined. A robot without a descriptor row or a required parameter raises
-    ``MetricInputError``, which fails the benchmark; a parameter that cannot be parsed raises
-    ``ContractViolationError``. Nothing falls back to a default model, radius or mass.
-    """
-    if "robot_id" not in rows.columns:
-        raise MetricInputError(
-            "the recorded fleet rows carry no robot_id; the robot has no descriptor"
-        )
-    robot_rows = rows.filter(pl.col("robot_id") == robot_id)
-    if robot_rows.height == 0:
-        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
-    model = _descriptor_model(robot_rows, robot_id)
-    recorded = _recorded_parameters(robot_rows, robot_id)
+    """The recorded parameters of one robot from its descriptor and parameter rows, never a default."""
+    descriptor_rows = _declared_rows(rows, RobotDescriptor, robot_id)
+    parameter_rows = _declared_rows(rows, RobotParamRows, robot_id)
+    model = _descriptor_model(descriptor_rows, robot_id)
+    recorded = _recorded_parameters(parameter_rows, robot_id)
     missing = [
         key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded
     ]
@@ -185,50 +111,71 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
         raise MetricInputError(
             f"robot {robot_id!r} has no recorded parameter(s) {missing}"
         )
-    return RobotParams(model=model, **recorded)
+    return RobotParams(
+        model=model,
+        robot_radius=recorded["robot_radius"],
+        laser_min_range=recorded.get("laser_min_range"),
+        laser_max_range=recorded.get("laser_max_range"),
+        base_mass=recorded["base_mass"],
+        component_masses={},
+    )
+
+
+def _declared_rows(
+    rows: pl.DataFrame, table: type[Table], robot_id: str
+) -> pl.DataFrame:
+    """The robot's rows projected to one declared registry table; a frame without its columns names no such rows."""
+    try:
+        declared = rows.select(table.polars_schema().names())
+    except pl.exceptions.ColumnNotFoundError as error:
+        raise MetricInputError(
+            f"robot {robot_id!r} has no recorded {table.table_name} rows: {error}"
+        ) from error
+    return declared.filter(pl.col("robot_id") == robot_id)
 
 
 def _descriptor_model(rows: pl.DataFrame, robot_id: str) -> str:
-    """The model of the robot's descriptor row; a row that carries none is not a descriptor."""
-    if "model" not in rows.columns:
+    """The model of the robot's declared descriptor row; a row that carries none is not a descriptor."""
+    models = rows.get_column("model").drop_nulls().unique()
+    if models.len() == 0:
         raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
-    models = rows.get_column("model").drop_nulls().unique().to_list()
-    if not models:
-        raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
-    if len(models) > 1:
+    if models.len() > 1:
         raise ContractViolationError(
-            f"robot {robot_id!r} has conflicting recorded models {models}"
+            f"robot {robot_id!r} has conflicting recorded models"
         )
-    return str(models[0])
+    return str(models.item())
 
 
 def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
-    """The recorded values of the RobotParams fields, from the long parameter rows and then the wide columns."""
+    """The recorded values of the RobotParams fields, from the declared long parameter rows only."""
     values: dict[str, float] = {}
-    if {"param_key", "param_value"} <= set(rows.columns):
-        for key, value in (
-            rows.select("param_key", "param_value").drop_nulls("param_key").iter_rows()
-        ):
-            field = _RECORDED_PARAMETER_FIELDS.get(str(key))
-            if field is not None:
-                values[field] = _parameter_number(robot_id, str(key), value)
-    for field, key in _REQUIRED_RECORDED_FIELDS.items():
-        if field in values or field not in rows.columns:
-            continue
-        candidates = rows.get_column(field).drop_nulls().unique().to_list()
-        if len(candidates) > 1:
+    for parameter_field in dict.fromkeys(_RECORDED_PARAMETER_FIELDS.values()):
+        keys = [
+            key
+            for key, recorded_field in _RECORDED_PARAMETER_FIELDS.items()
+            if recorded_field == parameter_field
+        ]
+        recorded = (
+            rows.filter(pl.col("param_key").is_in(keys))
+            .get_column("param_value")
+            .drop_nulls()
+            .unique()
+        )
+        if recorded.len() > 1:
             raise ContractViolationError(
-                f"robot {robot_id!r} has conflicting values of {key!r}: {candidates}"
+                f"robot {robot_id!r} has conflicting recorded values of {parameter_field!r}"
             )
-        if candidates:
-            values[field] = _parameter_number(robot_id, key, candidates[0])
+        if recorded.len() == 1:
+            values[parameter_field] = _parameter_number(
+                robot_id, keys[0], recorded.item()
+            )
     return values
 
 
-def _parameter_number(robot_id: str, key: str, value: object) -> float:
+def _parameter_number(robot_id: str, key: str, value: str) -> float:
     """The numeric value of one recorded parameter; a value that is not a number is refused, never defaulted."""
     try:
-        return float(value)  # type: ignore[arg-type]
+        return float(value)
     except (TypeError, ValueError) as error:
         raise ContractViolationError(
             f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}"
@@ -260,7 +207,6 @@ class TopicBundle:
     robot_odom: pl.DataFrame | pl.LazyFrame | None = None
     robot_cmd_vel: pl.DataFrame | pl.LazyFrame | None = None
     robot_scan_summary: pl.DataFrame | pl.LazyFrame | None = None
-    robot_scan_rays: pl.DataFrame | pl.LazyFrame | None = None
     robot_joint_states: pl.DataFrame | pl.LazyFrame | None = None
     robot_power: pl.DataFrame | pl.LazyFrame | None = None
     robot_joint_power: pl.DataFrame | pl.LazyFrame | None = None
@@ -274,6 +220,7 @@ class TopicBundle:
     robot_characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
     robot_initialpose: pl.DataFrame | pl.LazyFrame | None = None
     robot_task_pose: pl.DataFrame | pl.LazyFrame | None = None
+    robot_goal_pose: pl.DataFrame | pl.LazyFrame | None = None
     robot_descriptor: pl.DataFrame | pl.LazyFrame | None = None
     robot_params: pl.DataFrame | pl.LazyFrame | None = None
     pedestrian_arena_peds: pl.DataFrame | pl.LazyFrame | None = None
@@ -285,6 +232,8 @@ class TopicBundle:
     pedestrian_interaction_events: pl.DataFrame | pl.LazyFrame | None = None
     episode_lifecycle: pl.DataFrame | pl.LazyFrame | None = None
     episode_integrity: pl.DataFrame | pl.LazyFrame | None = None
+    environment_map: pl.DataFrame | pl.LazyFrame | None = None
+    environment_map_cells: pl.DataFrame | pl.LazyFrame | None = None
 
     def available(self) -> set[str]:
         """Names of the topics this bundle carries."""

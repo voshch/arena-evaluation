@@ -190,7 +190,16 @@ def test_series_carry_no_null_reason_column(name: str) -> None:
 def test_every_series_table_has_a_producing_calculator_and_every_producer_a_table() -> (
     None
 ):
-    registry = MetricRegistry(RobotParams(robot_radius=0.25))
+    registry = MetricRegistry(
+        RobotParams(
+            model="test",
+            robot_radius=0.25,
+            laser_min_range=None,
+            laser_max_range=None,
+            base_mass=0.0,
+            component_masses={},
+        )
+    )
     produced = {stem for stem, _ in registry.series_calculators()}
 
     assert produced == set(SERIES_TABLES)

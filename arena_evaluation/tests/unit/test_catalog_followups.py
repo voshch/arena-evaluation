@@ -58,7 +58,6 @@ def _write_benchmark(
                 "planner": "dwb-standard",
                 "inter_planner": "none",
                 "dispatcher": "none",
-                "robot_model": "jackal",
                 "ped_policy_default": "sfm",
                 "crowd_size": 2,
                 "seed": 7,

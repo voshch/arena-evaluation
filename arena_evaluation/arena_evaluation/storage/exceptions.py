@@ -28,7 +28,19 @@ class ContractViolationError(ArenaEvaluationError):
     pass
 
 
+class StaleBenchmarkError(ContractViolationError):
+    """Raised when stored benchmark outputs predate the native layout and must be reprocessed with --force-process."""
+
+    pass
+
+
 class MetricInputError(ArenaEvaluationError):
     """Raised when a metric calculator's required input is missing; the registry re-raises it instead of recording a null."""
+
+    pass
+
+
+class UnmigratedMetadataError(ContractViolationError):
+    """Raised when episode metadata predates modes and params and must be migrated first."""
 
     pass

@@ -37,7 +37,7 @@ GLOBAL_TELEMETRY_NAMES: Final[frozenset[str]] = frozenset(
     {"tf", "tf_static", "world_semantics"}
 )
 _TELEMETRY_NAME: Final[re.Pattern[str]] = re.compile(
-    r"(robot|pedestrian|episode)_[a-z][a-z0-9_]*"
+    r"(robot|pedestrian|episode|environment)_[a-z][a-z0-9_]*"
 )
 _NESTED_DTYPES: Final[tuple[type[pl.DataType], ...]] = (
     pl.List,

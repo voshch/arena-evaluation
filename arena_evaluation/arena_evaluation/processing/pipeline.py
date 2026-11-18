@@ -23,6 +23,7 @@ if typing.TYPE_CHECKING:
     from arena_evaluation.processing.scoped_evaluator import ScopedFactTables
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
+from arena_evaluation.processing.metrics.registry import load_metric_definitions
 from arena_evaluation.processing.scoped_evaluator import (
     write_fact_tables,
     write_series_tables,
@@ -45,9 +46,16 @@ from arena_evaluation.processing.pose_segments import (
     consistent_segment,
     ride_arrival_times,
 )
-from arena_evaluation.storage.contracts import enforce_dimension_contract
-from arena_evaluation.storage.exceptions import ContractViolationError, MetricInputError
+from arena_evaluation.storage.contracts import enforce_benchmark_contract
+from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.folder_manager import FolderManager
+from arena_evaluation.storage.layout import (
+    check_benchmark_layout,
+    episode_is_complete,
+    retire_legacy_outputs,
+    write_benchmark_stamp,
+    write_episode_stamp,
+)
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.registry import FactTable
 from arena_evaluation.storage.registry.dimensions import DimMetrics, DimWorldGeometry
@@ -232,7 +240,9 @@ def _extract_worker(
 def _process_worker(
     data_root_str: str,
     ep: EpisodeDescriptor,
+    *,
     force_extract: bool,
+    force_process: bool,
     status_dict: _EpisodeStatus | None = None,
 ) -> tuple[int, EpisodeEvaluation]:
     import pathlib
@@ -261,7 +271,10 @@ def _process_worker(
     try:
         try:
             evaluation = pipeline.evaluate_episode(
-                ep, force_extract=force_extract, status_dict=status_dict
+                ep,
+                force_extract=force_extract,
+                status_dict=status_dict,
+                force_process=force_process,
             )
         except MetricInputError:
             # A required input is missing: the benchmark must refuse the episode, so the failure
@@ -883,8 +896,17 @@ def _process_job(
     data_root_str: str,
     ep: EpisodeDescriptor,
     status_dict: _EpisodeStatus,
+    *,
+    force_extract: bool,
+    force_process: bool,
 ) -> tuple[int, EpisodeEvaluation]:
-    return _process_worker(data_root_str, ep, False, status_dict)
+    return _process_worker(
+        data_root_str,
+        ep,
+        force_extract=force_extract,
+        force_process=force_process,
+        status_dict=status_dict,
+    )
 
 
 class RunProgress(typing.Protocol):
@@ -1004,6 +1026,7 @@ class ProcessingPipeline:
         workers: int | None = None,
         progress: RunProgressFactory = _silent_progress,
     ):
+        load_metric_definitions()
         self.folder_manager = folder_manager
         self.profiler = profiler
         self.progress = progress
@@ -1291,17 +1314,17 @@ class ProcessingPipeline:
         self,
         ep: EpisodeDescriptor,
         force_extract: bool = False,
+        *,
         status_dict: _EpisodeStatus | None = None,
+        force_process: bool = False,
     ) -> EpisodeEvaluation:
         """Extract and evaluate one episode, holding its fact tables for the publication step."""
         episode_dir = pathlib.Path(ep.episode_dir)
+        metrics_dir = episode_dir / "metrics"
 
-        if (
-            not force_extract
-            and (episode_dir / "metrics" / "fact_episodes.parquet").exists()
-        ):
+        if not (force_extract or force_process) and episode_is_complete(metrics_dir):
             return EpisodeEvaluation(
-                episode_id=ep.episode_id, rows=[], metrics_dir=episode_dir / "metrics"
+                episode_id=ep.episode_id, rows=[], metrics_dir=metrics_dir
             )
 
         metadata = self._read_episode_metadata(episode_dir, ep.episode_id)
@@ -1410,10 +1433,10 @@ class ProcessingPipeline:
 
     @staticmethod
     def publish_evaluation(evaluation: EpisodeEvaluation) -> None:
-        """Write one evaluation's fact tables next to its already published series; a failed write raises."""
-        if evaluation.facts is None:
-            return
-        write_fact_tables(evaluation.facts, evaluation.metrics_dir)
+        """Write one evaluation's fact tables, then stamp its metrics directory as complete."""
+        if evaluation.facts is not None:
+            write_fact_tables(evaluation.facts, evaluation.metrics_dir)
+        write_episode_stamp(evaluation.metrics_dir)
 
     def _publish_and_consolidate(
         self,
@@ -1421,15 +1444,12 @@ class ProcessingPipeline:
         episodes: list[EpisodeDescriptor],
         evaluations: list[EpisodeEvaluation],
     ) -> pathlib.Path | None:
-        """Publish every episode's fact tables once, then check the benchmark."""
-        from arena_evaluation.storage.contracts import check_benchmark
-
+        """Publish every episode's fact tables once, then validate and stamp the benchmark."""
         for evaluation in evaluations:
             self.publish_evaluation(evaluation)
         benchmark_dir = self.folder_manager.benchmark_dir(benchmark_id)
-        report = check_benchmark(benchmark_dir)
-        if not report.ok:
-            raise ContractViolationError(report.summary())
+        enforce_benchmark_contract(benchmark_dir)
+        write_benchmark_stamp(benchmark_dir)
         print(f"Done. {len(episodes)} episodes -> {benchmark_dir}")
         return benchmark_dir
 
@@ -1471,8 +1491,9 @@ class ProcessingPipeline:
         dimensions[DimWorldGeometry.table_name] = benchmark_world_geometry(
             _benchmark_worlds(episodes), benchmark_dir
         )
-        enforce_dimension_contract(dimensions)
+        enforce_benchmark_contract(benchmark_dir, dimensions=dimensions)
         write_benchmark_dimensions(dimensions, benchmark_dir)
+        write_benchmark_stamp(benchmark_dir)
 
     def _extract_episodes(
         self, benchmark_id: str, episodes: list[EpisodeDescriptor], force_extract: bool
@@ -1490,9 +1511,20 @@ class ProcessingPipeline:
         )
 
     def process_benchmark(
-        self, benchmark_id: str, force_extract: bool = False
+        self,
+        benchmark_id: str,
+        force_extract: bool = False,
+        *,
+        force_process: bool = False,
     ) -> pathlib.Path | None:
         """Process all episodes into their fact tables, returning the benchmark directory, None when nothing was found."""
+        benchmark_dir = self.folder_manager.benchmark_dir(benchmark_id)
+        if force_process:
+            for moved in retire_legacy_outputs(benchmark_dir):
+                print(f"Retired legacy output: {moved}")
+        else:
+            check_benchmark_layout(benchmark_dir)
+
         episodes = self.folder_manager.discover_episodes(benchmark_id)
 
         if not episodes:
@@ -1522,7 +1554,12 @@ class ProcessingPipeline:
                 f"Phase 2: Calculating metrics across {len(episodes)} episodes",
                 episodes,
                 self.workers,
-                functools.partial(_process_job, str(self.folder_manager.data_root)),
+                functools.partial(
+                    _process_job,
+                    str(self.folder_manager.data_root),
+                    force_extract=force_extract,
+                    force_process=force_process,
+                ),
                 progress=self.progress,
                 on_done=lambda _ep, result: evaluations.append(result[1]),
                 on_failed=on_failed,

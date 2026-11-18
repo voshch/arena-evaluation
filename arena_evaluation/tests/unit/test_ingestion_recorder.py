@@ -60,10 +60,14 @@ _TF_FRAMES = [
 ]
 
 
-def _transform(frame_id: str, child_frame_id: str, x: float = 0.0) -> TransformStamped:
+def _transform(
+    frame_id: str, child_frame_id: str, x: float = 0.0, stamp_ns: int = 0
+) -> TransformStamped:
     tf = TransformStamped()
     tf.header.frame_id = frame_id
     tf.child_frame_id = child_frame_id
+    tf.header.stamp.sec = stamp_ns // 1_000_000_000
+    tf.header.stamp.nanosec = stamp_ns % 1_000_000_000
     tf.transform.translation.x = x
     return tf
 
@@ -85,6 +89,8 @@ def _make_run_metadata(**overrides) -> RunMetadata:
         recording_started_at="2026-01-01T00:00:00+00:00",
         python_version="3.12",
         ros_distro="humble",
+        modes={},
+        params={},
     )
     kwargs.update(overrides)
     return RunMetadata(**kwargs)
@@ -104,22 +110,20 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.is_shutting_down = False
     node.recorded_topics = set()
     node.latched_topic_names = set()
-    node.last_recorded_times = {}
+    node._throttle_gates = {}
+    node.record_rates_hz = {}
     node._clock_received_count = 0
     node._write_success_count = 0
     node._write_drop_count = 0
     node.writer = None
     node.writer_lock = threading.Lock()
     node._tf_lock = threading.Lock()
-    node._tf_pending = {}
     node._tf_last_written = {}
-    node._tf_last_flush = 0
     node.tf_frames = list(_TF_FRAMES)
     node._topic_registry = {}
     node.topics_metadata = {}
     node._pre_episode_buffer = []
     node._pre_clock_buffer = []
-    node.freqs = {"default": 20.0}
     node.qos = object()
     node.tf_qos = object()
     node.latched_qos = object()
@@ -348,7 +352,7 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share):
 
 def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
-    assert len(full_node.subs) == 13
+    assert len(full_node.subs) == 14
     # /tf, humans/tf and /tf_static are subscribed once, at construction
     assert full_node.latched_topic_names == {
         "state/episode",
@@ -360,7 +364,7 @@ def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
         "door_mask",
         "tf_static",
     }
-    assert full_node.freqs == {"default": 20.0}
+    assert full_node.record_rates_hz == {}
 
 
 # ---------------------------------------------------------------------------
@@ -370,31 +374,26 @@ def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
 
 def test_read_config_falls_back_when_file_missing(tmp_path):
     node = _bare_node(base_dir=str(tmp_path / "missing"))
-    assert node.read_config() == {
-        "record_frequencies": {"default": 20.0},
-        "tf_frames": [],
-    }
+    assert node.read_config() == {"record_rates_hz": {}, "tf_frames": []}
 
 
 def test_read_config_parses_file(tmp_path):
     cfg_dir = tmp_path / "share" / "config"
     cfg_dir.mkdir(parents=True)
     (cfg_dir / "data_recorder_config.yaml").write_text(
-        "record_frequencies:\n  default: 50.0\n  odom: 5.0\n"
+        "record_rates_hz:\n  /env_0/scan: 5.0\n  /tf: 20.0\n"
     )
     node = _bare_node(base_dir=str(tmp_path / "share"))
-    assert node.read_config() == {"record_frequencies": {"default": 50.0, "odom": 5.0}}
+    assert node.read_config() == {"record_rates_hz": {"/env_0/scan": 5.0, "/tf": 20.0}}
 
 
-def test_read_config_falls_back_on_corrupt_yaml(tmp_path):
+def test_read_config_refuses_corrupt_yaml(tmp_path):
     cfg_dir = tmp_path / "share" / "config"
     cfg_dir.mkdir(parents=True)
     (cfg_dir / "data_recorder_config.yaml").write_text("{{{{ not yaml")
     node = _bare_node(base_dir=str(tmp_path / "share"))
-    assert node.read_config() == {
-        "record_frequencies": {"default": 20.0},
-        "tf_frames": [],
-    }
+    with pytest.raises(yaml.YAMLError):
+        node.read_config()
 
 
 # ---------------------------------------------------------------------------
@@ -402,40 +401,27 @@ def test_read_config_falls_back_on_corrupt_yaml(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_throttle_ms_matches_topic_substring():
-    node = _bare_node(freqs={"default": 20.0, "odom": 10.0, "power": 2.0})
-    assert node._resolve_throttle_ms("/env_0/odom") == 10.0
-    assert node._resolve_throttle_ms("/env_0/power_publisher/power") == 2.0
-    assert node._resolve_throttle_ms("/env_0/scan") == 20.0
+def test_resolve_rate_hz_matches_the_exact_topic_name_only():
+    overrides = {"/env_0/scan": 5.0}
+    assert recorder.resolve_rate_hz(overrides, "/env_0/scan", 10.0) == 5.0
+    assert recorder.resolve_rate_hz(overrides, "/env_0/scan_front", 10.0) == 10.0
 
 
-def test_resolve_throttle_ms_is_case_insensitive():
-    node = _bare_node(freqs={"default": 20.0, "odom": 10.0})
-    assert node._resolve_throttle_ms("/ENV_0/ODOM") == 10.0
-
-
-def test_resolve_throttle_ms_default_fallback_when_missing():
-    node = _bare_node(freqs={"odom": 5.0})
-    assert node._resolve_throttle_ms("/scan") == 20.0
-    node = _bare_node(freqs={})
-    assert node._resolve_throttle_ms("/scan") == 20.0
-
-
-def test_throttled_callback_respects_throttle_window(tmp_path):
-    node = _bare_node(freqs={"default": 10.0})
+def test_throttled_callback_respects_the_rate_gate(tmp_path):
+    node = _bare_node(record_rates_hz={"/cmd_vel": 20.0})
     read = _bag(node, tmp_path / "bag")
     node._register_topic("/cmd_vel", String)
     node.current_time = 0
     cb = node._create_throttled_callback("/cmd_vel")
-    cb(_string("m1"))  # (now - last) / 1e6 == 0 < 10
-    node.current_time = 5_000_000
+    cb(_string("m1"))
+    node.current_time = 49_999_999
     cb(_string("m2"))
-    node.current_time = 10_000_000
+    node.current_time = 50_000_000
     cb(_string("m3"))
     cb(_string("m4"))
-    node.current_time = 20_000_000
+    node.current_time = 100_000_000
     cb(_string("m5"))
-    assert _strings(read()) == [(10_000_000, "m3"), (20_000_000, "m5")]
+    assert _strings(read()) == [(0, "m1"), (50_000_000, "m3"), (100_000_000, "m5")]
 
 
 def test_throttled_callback_buffers_before_first_clock():
@@ -508,13 +494,14 @@ def test_clock_callback_computes_sim_time_ns():
     assert node._clock_received_count == 1
 
 
-def test_clock_callback_backward_jump_clears_throttle_timers():
-    node = _bare_node(current_time=10_000_000_000, last_recorded_times={"/t": 5})
+def test_clock_callback_backward_jump_clears_throttle_gates():
+    node = _bare_node(current_time=10_000_000_000)
+    node._throttle_gates["/t"] = recorder.RateGate(50_000_000, 5)
     msg = Clock()
     msg.clock.sec = 5
     node.clock_callback(msg)
     assert node.current_time == 5 * 10**9
-    assert node.last_recorded_times == {}
+    assert node._throttle_gates == {}
     assert any("Backward time jump" in w for w in _log(node, "WARN"))
 
 
@@ -534,60 +521,58 @@ def test_clock_callback_flushes_pre_clock_buffer_once(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# /tf merging: _tf_callback / _flush_tf
+# /tf: header-stamped writes, capped per frame family
 # ---------------------------------------------------------------------------
 
 
-def test_tf_callback_merges_pairs_of_one_window_into_a_single_message(tmp_path):
-    node = _bare_node(current_time=0)
+def test_tf_transforms_are_written_at_their_header_stamps(tmp_path):
+    node = _bare_node(current_time=1_000_000_000)
     read = _tf_bag(node, tmp_path)
-    node._tf_callback(_tf_message(("map", "odom", 1.0)))
-    node.current_time = 10_000_000
-    node._tf_callback(_tf_message(("odom", "base_link", 2.0)))
+    node._tf_callback(
+        _tf_message(
+            ("map", "odom", 1.0, 10_000_000),
+            ("odom", "base_link", 2.0, 30_000_000),
+        )
+    )
+    assert _tf_writes(read()) == [
+        (10_000_000, {"odom": 1.0}),
+        (30_000_000, {"base_link": 2.0}),
+    ]
 
-    node._flush_tf(10_000_000)  # inside the 20 ms window
-    assert node._write_success_count == 0
 
-    node._flush_tf(20_000_000)
-    assert _tf_writes(read()) == [(20_000_000, {"odom": 1.0, "base_link": 2.0})]
-    assert node._tf_pending == {}
-    assert node._tf_last_flush == 20_000_000
-
-
-def test_tf_callback_keeps_the_newest_transform_per_pair(tmp_path):
-    node = _bare_node(current_time=0)
+def test_tf_transforms_of_one_stamp_share_a_message(tmp_path):
+    node = _bare_node(current_time=1_000_000_000)
     read = _tf_bag(node, tmp_path)
-    node._tf_callback(_tf_message(("odom", "base_link", 1.0)))
-    node.current_time = 5_000_000
-    node._tf_callback(_tf_message(("odom", "base_link", 2.0)))
+    node._tf_callback(
+        _tf_message(
+            ("map", "odom", 1.0, 10_000_000),
+            ("odom", "base_link", 2.0, 10_000_000),
+        )
+    )
+    assert _tf_writes(read()) == [(10_000_000, {"odom": 1.0, "base_link": 2.0})]
 
-    node._flush_tf(20_000_000)
-    assert _tf_writes(read()) == [(20_000_000, {"base_link": 2.0})]
 
-
-def test_tf_bone_frames_are_capped_while_root_frames_flush_every_window(tmp_path):
-    node = _bare_node(current_time=0)
+def test_tf_bone_frames_are_capped_while_root_frames_pass_every_stamp(tmp_path):
+    node = _bare_node(current_time=1_000_000_000)
     read = _tf_bag(node, tmp_path)
     root = ("map", "body_env_0_agent_2", 0.0)
     bone = ("body_env_0_agent_2", "l_p_collar_env_0_agent_2", 0.0)
 
     for step in range(0, 400_000_001, 20_000_000):
-        node.current_time = step
-        node._tf_callback(_tf_message(root, bone))
-        node._flush_tf(step)
+        node._tf_callback(_tf_message((*root, step), (*bone, step)))
 
     writes = _tf_writes(read())
-    assert [ts for ts, _ in writes] == list(range(20_000_000, 400_000_001, 20_000_000))
+    assert [ts for ts, _ in writes] == list(range(0, 400_000_001, 20_000_000))
     assert all("body_env_0_agent_2" in frames for _, frames in writes)
     bone_stamps = [ts for ts, frames in writes if "l_p_collar_env_0_agent_2" in frames]
-    assert bone_stamps == [200_000_000, 400_000_000]
+    assert bone_stamps == [0, 200_000_000, 400_000_000]
 
 
-def test_tf_callback_buffers_before_first_clock_and_merges_on_first_tick(tmp_path):
+def test_tf_callback_buffers_before_first_clock_and_writes_at_header_stamps(tmp_path):
     node = _bare_node()
     read = _tf_bag(node, tmp_path)
-    node._tf_callback(_tf_message(("map", "odom", 1.0)))
-    node._tf_callback(_tf_message(("map", "odom", 2.0), ("odom", "base_link", 3.0)))
+    node._tf_callback(_tf_message(("map", "odom", 1.0, 5_000_000)))
+    node._tf_callback(_tf_message(("odom", "base_link", 3.0, 7_000_000)))
     assert [topic for topic, _ in node._pre_clock_buffer] == ["/tf", "/tf"]
     assert node._write_success_count == 0
 
@@ -595,58 +580,34 @@ def test_tf_callback_buffers_before_first_clock_and_merges_on_first_tick(tmp_pat
     msg.clock.sec = 1
     node.clock_callback(msg)
 
-    assert _tf_writes(read()) == [(10**9, {"odom": 2.0, "base_link": 3.0})]
+    assert _tf_writes(read()) == [
+        (5_000_000, {"odom": 1.0}),
+        (7_000_000, {"base_link": 3.0}),
+    ]
     assert node._pre_clock_buffer is None
 
 
-def test_stop_episode_flushes_pending_tf_before_closing(tmp_path):
+def test_stop_episode_keeps_the_transforms_already_written(tmp_path):
     node = _bare_node(current_sim_episode_id=3, current_time=50_000_000)
     read = _tf_bag(node, tmp_path)
-    node._tf_pending = {("map", "odom"): _transform("map", "odom", 1.0)}
-    node._tf_last_flush = (
-        45_000_000  # inside the window: the forced flush writes anyway
-    )
+    node._tf_callback(_tf_message(("map", "odom", 1.0, 50_000_000)))
 
     node._stop_episode(3, outcome_state=2)
 
     assert node.writer is None
     assert _tf_writes(read()) == [(50_000_000, {"odom": 1.0})]
-    assert node._tf_pending == {}
 
 
-def test_stop_episode_drops_pending_tf_when_no_clock_was_received(tmp_path):
-    node = _bare_node(current_sim_episode_id=3)
-    read = _tf_bag(node, tmp_path)
-    node._tf_pending = {("map", "odom"): _transform("map", "odom", 1.0)}
-
-    node._stop_episode(3, outcome_state=2)
-
-    assert read() == []
-    assert node._tf_pending == {}
-
-
-def test_clock_backward_jump_writes_pending_tf_at_the_pre_jump_time(tmp_path):
-    node = _bare_node(current_time=10_000_000_000, last_recorded_times={"/t": 5})
-    read = _tf_bag(node, tmp_path)
-    node._tf_pending = {("map", "odom"): _transform("map", "odom", 1.0)}
-    node._tf_last_written = {("map", "odom"): 9_000_000_000}
-    node._tf_last_flush = 10_000_000_000
+def test_clock_backward_jump_clears_the_tf_frame_state():
+    node = _bare_node(current_time=10_000_000_000)
+    node._tf_callback(_tf_message(("map", "odom", 1.0, 9_000_000_000)))
+    assert node._tf_last_written == {("map", "odom"): 9_000_000_000}
     msg = Clock()
     msg.clock.sec = 5
 
     node.clock_callback(msg)
 
-    assert _tf_writes(read()) == [(10_000_000_000, {"odom": 1.0})]
-    assert node._tf_pending == {}
     assert node._tf_last_written == {}
-
-
-def test_flush_tf_writes_nothing_when_nothing_is_pending():
-    node = _bare_node(current_time=100_000_000)
-    node._flush_tf(100_000_000)
-    node._flush_tf(100_000_000, force=True)
-    assert node._write_drop_count == 0
-    assert node._tf_last_flush == 0
 
 
 # ---------------------------------------------------------------------------

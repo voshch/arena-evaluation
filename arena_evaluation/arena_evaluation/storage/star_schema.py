@@ -8,6 +8,7 @@ from typing import Final
 
 import polars as pl
 
+from arena_evaluation.storage.atomic import staged_temp_path
 from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
 from arena_evaluation.storage.registry.facts import FACT_TABLES
 from arena_evaluation.storage.registry.series import SERIES_TABLES
@@ -63,12 +64,11 @@ def stack(episodes: Iterable[Mapping[str, pl.DataFrame]]) -> dict[str, pl.DataFr
 def write_benchmark_dimensions(
     dimensions: Mapping[str, pl.DataFrame], benchmark_dir: pathlib.Path
 ) -> None:
-    """Write each dimension table once, at the benchmark root."""
+    """Write each dimension table once, at the benchmark root, each in one rename."""
     benchmark_dir.mkdir(parents=True, exist_ok=True)
     for name, table in DIMENSION_TABLES.items():
-        dimensions[name].write_parquet(
-            benchmark_dir / table.relative_path(), compression="zstd"
-        )
+        with staged_temp_path(benchmark_dir / table.relative_path()) as temporary:
+            dimensions[name].write_parquet(temporary, compression="zstd")
 
 
 def episode_directories(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...]:

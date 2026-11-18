@@ -68,22 +68,28 @@ The `record_data_dir` parameter resolution order:
 2. CLI argument `--dir` / `-d`.
 3. Default `auto:/` (generates timestamped folder).
 
-**Benchmark run structure:**
+**Run structure:**
 ```
-data/<benchmark_id>/recordings/<planner>/<stage>/
-|-- metadata.yaml
-|-- params.yaml
-`-- recording/
-    `-- recording_0.mcap
-```
-
-**Ad-hoc run structure:**
-```
-data/recordings/<YYYYMMDD-HHMMSS>/
-|-- metadata.yaml
-|-- params.yaml
-`-- recording/
-    `-- recording_0.mcap
+<benchmark root>/
+|-- dim_episodes.parquet          benchmark dimension, one row per episode and robot
+|-- dim_robots.parquet
+|-- dim_pedestrians.parquet
+|-- dim_world_entities.parquet
+|-- dim_world_geometry.parquet
+|-- dim_metrics.parquet           the metric dictionary
+|-- worlds/                       world snapshots, one folder per world
+`-- episodes/
+    `-- episode_NNN/
+        |-- episode_NNN.mcap      the recording
+        |-- episode_NNN.yaml      RunMetadata of the episode
+        |-- topics/               one Parquet file per telemetry table
+        |   |-- robot_tracks.parquet
+        |   |-- robot_odom.parquet
+        |   `-- tf.parquet
+        `-- metrics/              one Parquet file per fact and series table
+            |-- fact_episodes.parquet
+            |-- fact_robots.parquet
+            `-- series_path_metrics.parquet
 ```
 
 ### World snapshot
@@ -105,21 +111,25 @@ the held messages of non-latched topics predate it and are dropped.
 
 | Topic | Message Type | Throttle |
 |---|---|---|
-| `/{ns}/cmd_vel` | `geometry_msgs/Twist` | 20 ms |
-| `/{ns}/lidar` | `sensor_msgs/LaserScan` | 100 ms |
-| `/{ns}/{robot}_velocity_controller/odom` | `nav_msgs/Odometry` | 20 ms |
-| `/{ns}/joint_states` | `sensor_msgs/JointState` | 20 ms |
+| `/{ns}/cmd_vel` | `geometry_msgs/Twist` | 20 Hz |
+| `/{ns}/scan`, `/{ns}/lidar` | `sensor_msgs/LaserScan` | 10 Hz |
+| `/{ns}/{robot}_velocity_controller/odom` | `nav_msgs/Odometry` | 50 Hz |
+| `/{ns}/joint_states` | `sensor_msgs/JointState` | 20 Hz |
 | `/{ns}/plan` | `nav_msgs/Path` | unthrottled |
 | `/{ns}/collision_events` | `arena_robots_msgs/CollisionEvents` | unthrottled |
 | `/{parent_ns}/goal_pose` | `geometry_msgs/PoseStamped` | unthrottled |
-| `/{parent_ns}/initialpose` | `geometry_msgs/PoseWithCovarianceStamped` | unthrottled |
-| `/{parent_ns}/arena_peds` | `arena_people_msgs/Pedestrians` | 20 ms |
+| `/{parent_ns}/initialpose` | `geometry_msgs/PoseWithCovarianceStamped` | unthrottled, one env subscription |
+| `/{parent_ns}/arena_peds` | `arena_people_msgs/Pedestrians` | 20 Hz |
 | `/{parent_ns}/interactions` | `arena_humansim_msgs/InteractionFrame` | latched |
 | `/{parent_ns}/state/episode` | `arena_runtime_msgs/EpisodeRecord` | unthrottled |
 | `/{parent_ns}/state/robots` | `arena_runtime_msgs/RobotFleet` | latched |
-| `/tf` | `tf2_msgs/TFMessage` | 20 ms, merged |
+| `/tf` | `tf2_msgs/TFMessage` | header-stamped, 20 Hz per frame pair |
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
+
+`initialpose` is subscribed once at the environment: the row is written under
+`/{parent_ns}/{robot}/initialpose` when the header frame names a robot (`env_N/<robot>/<frame>`),
+and stays at `/{parent_ns}/initialpose` when it names none.
 
 `/{parent_ns}/interactions` is humansim's latched `InteractionFrame`: the live interactions (type, outcome, anchor object,
 members with their participant or queued role, arrived, holding, hold duration) plus the ACTIVATED / HOLD_ONSET /
@@ -130,8 +140,8 @@ the env namespace, i.e. one level above the recorder) rather than from the fixed
 
 | Topic | Message Type | Throttle |
 |---|---|---|
-| `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 50 ms (per-ped clip, playhead, gesture phase, blend weight) |
-| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states`, `/{parent_ns}/interactions` | fallback if the fixed paths above miss them | 20 ms, interactions latched |
+| `/{env_ns}/animation_states` | `arena_people_msgs/AnimationStates` | 20 Hz (per-ped clip, playhead, gesture phase, blend weight) |
+| `/{env_ns}/arena_peds`, `/{parent_ns}/agent_states`, `/{parent_ns}/interactions` | fallback if the fixed paths above miss them | 20 Hz, interactions latched |
 
 The reader writes them to the `pedestrian_*` tables (interactions, interaction events, animations and gestures),
 and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine physics, engine frame) apart as
@@ -139,7 +149,7 @@ and keeps `arena_peds` (rendered, env frame) and `agent_states` (crowd-engine ph
 
 Simulator backends declare further topics on the latched `/{parent_ns}/state/recorded_topics` (`arena_runtime_msgs/RecordedTopics`), the acoustics backend its audio streams and heard-sound events among them. Each row names a topic template (`{tg}` is the task generator node, `{ns}` the robot namespace), a `pkg/msg/Type` string resolved by name, the throttle and default-recording flags, and its subscription QoS (reliable or best effort, transient-local or volatile, a depth where 0 keeps the recorder default of 10, or 100 when latched). Robot-scoped rows are subscribed per robot as robots join, rows published later are picked up when the latched message is republished, and a row whose type does not import is skipped with one warning. Rows with `recorded: false` are recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`.
 
-`/tf` is merged rather than throttled: the newest transform per `(frame_id, child_frame_id)` is kept and written as one `TFMessage` per 20 ms window, so no publisher can starve the others. `tf_frames` in `config/data_recorder_config.yaml` is an ordered `[regex, ms]` list matched against the child frame that caps frame families; by default skeleton bones go out at 5 Hz.
+`/tf` is written per transform at its `header.stamp`, one `TFMessage` per stamp, so a flush interval never collapses two stamps into one row. `tf_frames` in `config/data_recorder_config.yaml` is an ordered `[regex, ms]` list matched against the child frame that caps frame families; every other `(frame_id, child_frame_id)` pair is capped at the `/tf` rate of `record_rates_hz` (20 Hz by default). By default skeleton bones go out at 5 Hz.
 
 ### Shutdown
 
@@ -186,23 +196,37 @@ topics = get_topics(namespace="arena/env_0/arena_env_node/jackal")
 
 ## Migration: `arena evaluation migrate`
 
-`arena evaluation migrate <run dir>` converts a run recorded before the native layout, once and in place. It takes a run directory or a single episode folder.
+`arena evaluation migrate <benchmark dir>` converts a benchmark recorded before the native layout, in place. It recognises a benchmark by its `episodes/episode_*` layout and never mistakes `manifest.yaml` or `report_manifest.yaml` for episode metadata; a single episode folder still works. The command is idempotent: an episode whose metadata is migrated and whose `topics/` cache is current is left alone.
 
-- Metadata: the `tm_robots`, `tm_obstacles` and `tm_modules` fields become the `robots`, `obstacles` and `modules` axes of `modes`. The nested `robots_params` and `obstacles_params` become `params` under the full names `task.<mode>.<leaf>`. An episode with neither `modes` nor the `tm_*` fields is refused.
+Supported generations, detected from the MCAP channel and schema records:
+
+| Generation | EpisodeRecord | AgentMeta | Fleet |
+|---|---|---|---|
+| `native` | `arena_runtime_msgs` | carries the four `robot_*` settings | `RobotFleet` |
+| `legacy_2026_09` | `task_generator_msgs` (`tm_*` fields) | native or absent | `task_generator_msgs/RobotState[]` |
+| `legacy_2026_11` | `arena_runtime_msgs` | no `robot_*` fields | `RobotFleet` or absent |
+
+A present but unrecognised episode or fleet schema is `unknown` and is refused with its name. Genuinely missing constructs are reported, never invented: an absent `task_layer`, `modes` or `params` on the old EpisodeRecord is NULL (`not_recorded`); an old AgentMeta leaves `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain` and `robot_reaction_gain` NULL; a recording with no `/state/robots` fleet gets `robot_descriptor`/`robot_params` synthesised once from its recorded `RunMetadata.robot_model` and the installed `arena_robots` definition, and a missing model or definition is a hinted `MigrationError`, never a default radius or mass.
+
+- Metadata: the `tm_robots`, `tm_obstacles` and `tm_modules` fields become the `robots`, `obstacles` and `modules` axes of `modes`; the nested `robots_params` and `obstacles_params` become `params` under `task.<mode>.<leaf>`. An episode with neither `modes` nor the `tm_*` fields is refused, pointing at the migration.
 - Environment: taken from the topic names, then from the transform frames. A recording that names no environment, or several, is refused.
 - Telemetry: the MCAP is read again into the native tables under `topics/`, and the episode YAML is rewritten.
-- Failure: the first episode that cannot be mapped stops the run. Episodes before it are already migrated; the failing one keeps its topics and YAML as they were.
+- Old processed outputs: `metrics.parquet`, `combined_metrics.parquet` and incomplete per-episode fact files move to `legacy/` (never deleted); a fresh `process` recomputes the native tree.
+- Report: every run writes `migration_report.yaml` with the generation, mapped fields, fallbacks, unsupported constructs and error of each episode, plus the retired files.
+- Failure: an episode that cannot be mapped is recorded as failed and the remaining episodes still migrate. The command exits non-zero with the list of failed episodes; a failed episode keeps its topics and YAML as they were.
+- Flags (exposed by the CLI): `--dry-run` detects and reports without writing, `--force` re-extracts even when the cache is current, `--report <path>` writes the report elsewhere.
 
 ---
 
 ## Throttle Configuration
 
-Configured in `config/data_recorder_config.yaml`:
+Configured in Hz in `config/data_recorder_config.yaml`:
 
 ```yaml
-record_frequencies:
-  default: 20.0   # ms fallback
-  lidar:  100.0   # ms (10 Hz)
-  odom:    20.0   # ms (50 Hz)
+record_rates_hz:
+  /tf: 20.0                # default per-pair transform interval
+  /env_0/jackal/scan: 5.0  # exact topic name override
 ```
+
+`record_rates_hz` maps the exact topic name the recorder subscribes to a rate in Hz; a name that is not an exact key keeps the rate of its `TopicDefinition` (`scan`/`lidar` 10 Hz, `odom` 50 Hz, `joint_states`/`peds`/`tf` 20 Hz, `power`/`energy`/`acoustics` 10 Hz, default 20 Hz). A rate of `0` and a topic whose `TopicDefinition` is `throttled=False` are unthrottled, as are the latched and event-driven topics. The former millisecond `record_frequencies` key with substring keys is refused by the loader with an error naming `record_rates_hz`.
 

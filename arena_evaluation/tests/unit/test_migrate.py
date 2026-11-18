@@ -38,6 +38,7 @@ TF_MESSAGE = (
 _OLD_METADATA = {
     "benchmark_id": "bench",
     "planner": "dwa",
+    "robot_model": ["jackal"],
     "map": "hospital",
     "stage": "stage_1",
     "recording_started_at": "2026-01-01T00:00:00",

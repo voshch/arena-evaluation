@@ -11,6 +11,7 @@ from collections.abc import Sequence
 if typing.TYPE_CHECKING:
     from geometry_msgs.msg import Quaternion
     from mcap.records import Schema
+    from rcl_interfaces.msg import ParameterValue
     from std_msgs.msg import Header
 
 NS_PER_SECOND = 1_000_000_000
@@ -102,3 +103,28 @@ def env_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any]:
 def value_at(values: Sequence[float], index: int) -> float | None:
     """The value at an index of a parallel array, None when the array is shorter."""
     return float(values[index]) if index < len(values) else None
+
+
+_PARAM_EXTRACTORS: dict[int, typing.Callable[[ParameterValue], object]] = {
+    0: lambda _value: None,
+    1: lambda value: value.bool_value,
+    2: lambda value: value.integer_value,
+    3: lambda value: value.double_value,
+    4: lambda value: value.string_value,
+    5: lambda value: [
+        byte[0] if isinstance(byte, bytes) else int(byte)
+        for byte in value.byte_array_value
+    ],
+    6: lambda value: list(value.bool_array_value),
+    7: lambda value: list(value.integer_array_value),
+    8: lambda value: list(value.double_array_value),
+    9: lambda value: list(value.string_array_value),
+}
+
+
+def parameter_value(value: ParameterValue) -> object:
+    """The Python value of one recorded ROS parameter; an unknown type is refused, never guessed."""
+    extractor = _PARAM_EXTRACTORS.get(value.type)
+    if extractor is None:
+        raise ValueError(f"unsupported ROS parameter type {value.type}")
+    return extractor(value)

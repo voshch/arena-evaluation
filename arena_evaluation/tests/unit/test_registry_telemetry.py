@@ -1,6 +1,8 @@
 """Golden Arrow schemas of the recorded telemetry tables, as the writer stores them.
 
-Thirty-four tables are pinned: one native table per pedestrian topic (arena_peds, agent_states), and the engine table carries the four crowd settings of its agents.
+Thirty-six tables are pinned: one native table per pedestrian topic (arena_peds, agent_states),
+the engine table carries the four crowd settings of its agents, and the environment map and goal
+pose the recorder writes are extracted as flattened tables.
 """
 
 from __future__ import annotations
@@ -79,14 +81,6 @@ _EXPECTED: dict[str, tuple[tuple[str, pa.DataType, bool], ...]] = {
         ("range_min_m", pa.float64(), True),
         ("range_max_m", pa.float64(), True),
         ("n_valid_rays", pa.int64(), True),
-    ),
-    "robot_scan_rays": (
-        ("t_ns", pa.int64(), False),
-        ("env_id", pa.string(), True),
-        ("robot_id", pa.string(), True),
-        ("ray_idx", pa.int64(), True),
-        ("range_m", pa.float64(), True),
-        ("angle_rad", pa.float64(), True),
     ),
     "robot_joint_states": (
         ("t_ns", pa.int64(), False),
@@ -392,6 +386,36 @@ _EXPECTED: dict[str, tuple[tuple[str, pa.DataType, bool], ...]] = {
         ("param_key", pa.string(), True),
         ("param_value", pa.string(), True),
     ),
+    "robot_goal_pose": (
+        ("t_ns", pa.int64(), False),
+        ("env_id", pa.string(), True),
+        ("robot_id", pa.string(), True),
+        ("pos_x", pa.float64(), True),
+        ("pos_y", pa.float64(), True),
+        ("pos_z", pa.float64(), True),
+        ("yaw", pa.float64(), True),
+        ("frame_id", pa.string(), True),
+    ),
+    "environment_map": (
+        ("t_ns", pa.int64(), False),
+        ("env_id", pa.string(), True),
+        ("kind", pa.string(), True),
+        ("frame_id", pa.string(), True),
+        ("resolution_m", pa.float64(), True),
+        ("width_cells", pa.int64(), True),
+        ("height_cells", pa.int64(), True),
+        ("origin_x", pa.float64(), True),
+        ("origin_y", pa.float64(), True),
+        ("origin_yaw", pa.float64(), True),
+    ),
+    "environment_map_cells": (
+        ("t_ns", pa.int64(), False),
+        ("env_id", pa.string(), True),
+        ("kind", pa.string(), True),
+        ("row", pa.int64(), True),
+        ("col", pa.int64(), True),
+        ("occupancy", pa.int64(), True),
+    ),
 }
 
 
@@ -403,7 +427,7 @@ def _telemetry_tables() -> dict[str, type]:
     }
 
 
-def test_the_thirty_four_pinned_telemetry_tables_are_declared() -> None:
+def test_the_thirty_six_pinned_telemetry_tables_are_declared() -> None:
     assert set(_telemetry_tables()) == set(_EXPECTED)
 
 

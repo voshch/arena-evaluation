@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
+import os
 import pathlib
 from typing import Final
+
+_log = logging.getLogger(__name__)
 
 CONFIGS_DIR_NAME: Final[str] = "configs"
 ANALYSIS_DIR_NAME: Final[str] = "analysis"
@@ -38,13 +42,45 @@ def get_config_kind(kind: str) -> ConfigKind:
     return CONFIG_KINDS[kind]
 
 
-def share_dir() -> pathlib.Path | None:
-    """Return the installed share directory of arena_evaluation, or None."""
-    try:
-        from ament_index_python.packages import get_package_share_directory
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConfigAsset:
+    """A single configuration file at a config root, unlike a bundled ConfigKind."""
 
+    name: str
+    filename: str
+
+
+#: The flat configuration assets resolved through all_config_roots(). ``palette`` is the X-068
+#: legacy two-root asset: the presentation loader still reads it from the source ``config/``
+#: directory; it must resolve it here once FIX7/INT1 move the file under ``configs/``.
+CONFIG_ASSETS: Final[dict[str, ConfigAsset]] = {
+    "palette": ConfigAsset(name="palette", filename="color_palette.yaml"),
+}
+
+
+def get_config_asset(kind: str) -> ConfigAsset:
+    """Return the ConfigAsset spec for a registered flat config kind."""
+    if kind not in CONFIG_ASSETS:
+        valid = ", ".join(sorted(CONFIG_ASSETS))
+        raise KeyError(f"Unknown config asset {kind!r}. Valid assets: {valid}.")
+    return CONFIG_ASSETS[kind]
+
+
+def share_dir() -> pathlib.Path | None:
+    """Return the installed share directory of arena_evaluation, or None when it is not installed."""
+    # An unset AMENT_PREFIX_PATH is a source checkout without ROS, the same state as a missing package.
+    if not os.environ.get("AMENT_PREFIX_PATH"):
+        return None
+    try:
+        from ament_index_python.packages import (
+            PackageNotFoundError,
+            get_package_share_directory,
+        )
+    except ImportError:
+        return None
+    try:
         return pathlib.Path(get_package_share_directory("arena_evaluation"))
-    except Exception:
+    except PackageNotFoundError:
         return None
 
 
@@ -58,10 +94,17 @@ def source_tree_dir() -> pathlib.Path | None:
 
 
 def package_config_roots() -> list[pathlib.Path]:
-    """Return deduplicated package config roots in precedence order."""
+    """Return deduplicated package config roots: the installed share directory, then the source tree."""
+    installed = share_dir()
+    source = source_tree_dir()
+    if installed is None and source is not None:
+        _log.warning(
+            "arena_evaluation is not installed; reading package configs from the source tree at %s",
+            source,
+        )
     roots: list[pathlib.Path] = []
     seen: set[pathlib.Path] = set()
-    for base in (share_dir(), source_tree_dir()):
+    for base in (installed, source):
         if base is None:
             continue
         cfg_root = (base / CONFIGS_DIR_NAME).resolve()
@@ -82,6 +125,25 @@ def all_config_roots(
         if root not in roots:
             roots.append(root)
     return roots
+
+
+def find_config_asset(kind: str) -> pathlib.Path | None:
+    """Resolve a flat config asset through :func:`all_config_roots`, warning when no root carries it."""
+    spec = get_config_asset(kind)
+    roots = all_config_roots()
+    for root in roots:
+        candidate = root / spec.filename
+        if candidate.is_file():
+            return candidate
+    searched = ", ".join(str(root) for root in roots) or "(no config root)"
+    _log.warning(
+        "config asset %r (%s) is absent from every config root: %s; the consumer falls back "
+        "to its built-in default",
+        kind,
+        spec.filename,
+        searched,
+    )
+    return None
 
 
 def run_analysis_root(run_dir: pathlib.Path) -> pathlib.Path:

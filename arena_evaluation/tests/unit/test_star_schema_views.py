@@ -11,8 +11,10 @@ from arena_evaluation.analytics.catalog import CANONICAL_VIEW_NAMES, BenchmarkCa
 from arena_evaluation.storage.registry import FACT_TABLES, FactTable, dimensions, series
 from arena_evaluation.storage.registry.telemetry import RobotTracks
 from arena_evaluation.storage.star_schema import (
+    MERGE_MANIFEST_FILENAME,
     episode_directories,
     episode_directory_id,
+    has_star_schema,
     scan_series_tables,
     scan_star_schema,
     scan_telemetry_tables,
@@ -193,3 +195,19 @@ def test_v_contacts_closing_shares_and_null_planner(
 
     v_ep = catalog.get_table("v_episode_summary").collect().sort("episode_id")
     assert v_ep["local_planner"].to_list()[0] is None
+
+
+def test_has_star_schema_reports_a_dimension_root_and_a_merge_manifest(
+    tmp_path: pathlib.Path,
+) -> None:
+    root = tmp_path / "bench"
+    assert has_star_schema(root) is False
+
+    dim_path = root / dimensions.DIMENSION_TABLES["dim_episodes"].relative_path()
+    dim_path.parent.mkdir(parents=True)
+    dim_path.write_bytes(b"")
+    assert has_star_schema(root) is True
+
+    dim_path.unlink()
+    (root / MERGE_MANIFEST_FILENAME).write_text("", encoding="utf-8")
+    assert has_star_schema(root) is True

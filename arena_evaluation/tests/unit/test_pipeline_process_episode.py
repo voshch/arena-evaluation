@@ -193,6 +193,8 @@ def _episode(tmp_path: pathlib.Path) -> tuple[FolderManager, EpisodeDescriptor]:
             "params_yaml": ["", ""],
             "conditions_yaml": ["", ""],
             "human_params": ["", ""],
+            "start_t_ns": [0, 0],
+            "seed": [7, 7],
         }
     ).write_parquet(topics / "episode_lifecycle.parquet")
     _snapshot(
@@ -262,6 +264,8 @@ def test_process_benchmark_writes_fact_and_dimension_tables_passing_contracts(
             planner="nav2",
             local_planner="dwb",
             inter_planner="",
+            modes={},
+            params={},
             stage="s0",
             map=WORLD,
             outcome_state=2,

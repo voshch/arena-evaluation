@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
-
-import yaml
 
 from arena_evaluation.processing.telemetry.messages import (
     Envelope,
@@ -21,47 +19,46 @@ from arena_evaluation.processing.telemetry.messages import (
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
-    from arena_runtime_msgs.msg import EpisodeRecord, RobotFleet, SemanticSnapshot
+    from arena_evaluation.processing.legacy_schemas import EpisodeFields
+    from arena_runtime_msgs.msg import SemanticSnapshot
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
-    from nav_msgs.msg import Path
-    from rcl_interfaces.msg import ParameterValue
+    from nav_msgs.msg import OccupancyGrid, Path
     from std_msgs.msg import String as RosString
     from tf2_msgs.msg import TFMessage
 
 _log = logging.getLogger(__name__)
-_NOT_SET, _BOOL, _INTEGER, _DOUBLE, _STRING = 0, 1, 2, 3, 4
-_BYTE_ARRAY, _BOOL_ARRAY, _INTEGER_ARRAY, _DOUBLE_ARRAY, _STRING_ARRAY = 5, 6, 7, 8, 9
 
 
-def record_episode(sink: TableSink, envelope: Envelope[EpisodeRecord]) -> None:
-    record = envelope.body
+def record_episode(
+    sink: TableSink, envelope: Envelope[object], fields: EpisodeFields
+) -> None:
+    """One lifecycle row and its integrity flags from the generation-normalised episode record."""
     sink.append(
         "episode_lifecycle",
         env_row(
             envelope,
-            episode_id=int(record.episode_id),
-            outcome_state=int(record.outcome_state),
-            outcome_info=str(record.outcome_info),
-            goal_uuid=str(record.goal_uuid),
-            task_layer=str(record.task_layer),
-            modes_json=json.dumps({m.key: m.value for m in record.modes}),
-            robots_json=json.dumps(list(record.robots)),
-            goal_dist_start_m=float(record.goal_dist_start),
-            goal_dist_min_m=float(record.goal_dist_min),
-            path_length_m=float(record.path_length),
-            start_t_ns=int(record.start_time.sec) * 1_000_000_000
-            + int(record.start_time.nanosec),
-            phases_yaml=str(record.phases) or None,
-            params_yaml=_params_yaml(record),
-            conditions_yaml=str(record.conditions) or None,
-            world=str(record.world) if record.world else None,
-            seed=int(record.seed) if record.seed >= 0 else None,
-            human_params=_human_params_json(record),
+            episode_id=fields.episode_id,
+            outcome_state=fields.outcome_state,
+            outcome_info=fields.outcome_info,
+            goal_uuid=fields.goal_uuid,
+            task_layer=fields.task_layer,
+            modes_json=fields.modes_json,
+            robots_json=json.dumps(list(fields.robots)),
+            goal_dist_start_m=fields.goal_dist_start,
+            goal_dist_min_m=fields.goal_dist_min,
+            path_length_m=fields.path_length,
+            start_t_ns=fields.start_t_ns,
+            phases_yaml=fields.phases,
+            params_yaml=fields.params_yaml,
+            conditions_yaml=fields.conditions,
+            world=fields.world,
+            seed=fields.seed,
+            human_params=fields.human_params_json,
         ),
     )
-    for flag_idx, flag in enumerate(record.integrity):
+    for flag_idx, flag in enumerate(fields.integrity):
         sink.append(
-            "episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=str(flag))
+            "episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=flag)
         )
 
 
@@ -72,8 +69,8 @@ class FleetRecorder:
         self._sink = sink
         self._recorded: set[tuple[str, str]] = set()
 
-    def record(self, t_ns: int, env_id: str, fleet: RobotFleet) -> None:
-        for state in fleet.robots:
+    def record(self, t_ns: int, env_id: str, robots: Sequence[object]) -> None:
+        for state in robots:
             name = str(state.descriptor.name)
             if (env_id, name) in self._recorded:
                 continue
@@ -263,6 +260,59 @@ def record_task_pose(sink: TableSink, envelope: Envelope[PoseStamped]) -> None:
     )
 
 
+def record_goal_pose(sink: TableSink, envelope: Envelope[PoseStamped]) -> None:
+    message = envelope.body
+    sink.append(
+        "robot_goal_pose",
+        robot_row(
+            envelope,
+            pos_x=float(message.pose.position.x),
+            pos_y=float(message.pose.position.y),
+            pos_z=float(message.pose.position.z),
+            yaw=yaw_from_orientation(message.pose.orientation),
+            frame_id=str(message.header.frame_id),
+        ),
+    )
+
+
+def record_occupancy_grid(
+    sink: TableSink, envelope: Envelope[OccupancyGrid], kind: str
+) -> None:
+    """One metadata row and one row per non-free cell of a latched occupancy-grid snapshot."""
+    grid = envelope.body
+    info = grid.info
+    origin = info.origin
+    sink.append(
+        "environment_map",
+        env_row(
+            envelope,
+            kind=kind,
+            frame_id=str(grid.header.frame_id),
+            resolution_m=float(info.resolution),
+            width_cells=int(info.width),
+            height_cells=int(info.height),
+            origin_x=float(origin.position.x),
+            origin_y=float(origin.position.y),
+            origin_yaw=yaw_from_orientation(origin.orientation),
+        ),
+    )
+    width = int(info.width)
+    for index, value in enumerate(grid.data):
+        occupancy = int(value)
+        if occupancy == 0:
+            continue
+        sink.append(
+            "environment_map_cells",
+            env_row(
+                envelope,
+                kind=kind,
+                row=index // width,
+                col=index % width,
+                occupancy=occupancy,
+            ),
+        )
+
+
 def record_transforms(
     sink: TableSink, table: str, envelope: Envelope[TFMessage]
 ) -> None:
@@ -286,40 +336,6 @@ def record_transforms(
                 "qw": float(rotation.w),
             },
         )
-
-
-def _params_yaml(record: EpisodeRecord) -> str:
-    return yaml.dump({param.name: _param_value(param.value) for param in record.params})
-
-
-def _human_params_json(record: EpisodeRecord) -> str:
-    return json.dumps(
-        {param.name: _param_value(param.value) for param in record.human_params}
-    )
-
-
-_PARAM_EXTRACTORS: dict[int, Callable[[ParameterValue], object]] = {
-    _NOT_SET: lambda _value: None,
-    _BOOL: lambda value: value.bool_value,
-    _INTEGER: lambda value: value.integer_value,
-    _DOUBLE: lambda value: value.double_value,
-    _STRING: lambda value: value.string_value,
-    _BYTE_ARRAY: lambda value: [
-        byte[0] if isinstance(byte, bytes) else int(byte)
-        for byte in value.byte_array_value
-    ],
-    _BOOL_ARRAY: lambda value: list(value.bool_array_value),
-    _INTEGER_ARRAY: lambda value: list(value.integer_array_value),
-    _DOUBLE_ARRAY: lambda value: list(value.double_array_value),
-    _STRING_ARRAY: lambda value: list(value.string_array_value),
-}
-
-
-def _param_value(value: ParameterValue) -> object:
-    extractor = _PARAM_EXTRACTORS.get(value.type)
-    if extractor is None:
-        raise ValueError(f"unsupported ROS parameter type {value.type}")
-    return extractor(value)
 
 
 def _schedule_phases(payload: str) -> list[dict[str, Any]] | None:

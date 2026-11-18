@@ -159,7 +159,6 @@ def _star_tables() -> dict[str, pl.DataFrame]:
                 planner="dwb",
                 inter_planner="",
                 dispatcher="",
-                robot_model="jackal",
                 crowd_condition="blind",
                 crowd_size=2,
                 seed=7,

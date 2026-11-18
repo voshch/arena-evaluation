@@ -15,6 +15,7 @@ import polars as pl
 from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
+from arena_evaluation.processing import legacy_schemas
 from arena_evaluation.processing.telemetry import context, events, sensors, tracks
 from arena_evaluation.processing.telemetry.messages import (
     Envelope,
@@ -29,6 +30,8 @@ from arena_evaluation.processing.telemetry.peds import (
     ARENA_TABLE,
     ENGINE_TABLE,
     PedestrianRecorder,
+    agent_meta,
+    agent_meta_without_robot_fields,
 )
 from arena_evaluation.processing.telemetry.tracks import (
     _BASE_FRAME_MARKERS,
@@ -59,6 +62,16 @@ Decoder = Callable[[bytes], object]
 _AGENT_META_SCHEMA = "arena_humansim_msgs/msg/AgentMeta"
 _INTERACTION_FRAME_SCHEMA = "arena_humansim_msgs/msg/InteractionFrame"
 _ANIMATION_STATES_SCHEMA = "arena_people_msgs/msg/AnimationStates"
+_GOAL_POSE_SCHEMA = "geometry_msgs/msg/PoseStamped"
+_OCCUPANCY_GRID_SCHEMA = "nav_msgs/msg/OccupancyGrid"
+
+#: Topic fragments the native reader extracts nowhere on purpose: human skeleton transforms and backend audio.
+IGNORED_TOPIC_MARKERS: typing.Final[tuple[str, ...]] = (
+    "/humans/tf",
+    "/heard_sound_events",
+    "/continuous_heard_sounds",
+    "/audio/",
+)
 _STATIC_ANCHOR_CHILD = re.compile(r"(env_\d+)(?:/map)?")
 _MAP_ANCHOR_CHILD = re.compile(r"(env_\d+)/map")
 _UNMAPPED_FRAMES = ("", "map")
@@ -69,6 +82,8 @@ _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
     "pedestrian_arena_peds": ("x", "y"),
     "pedestrian_agent_states": ("x", "y"),
     "pedestrian_gestures": ("at_x", "at_y"),
+    "robot_goal_pose": ("pos_x", "pos_y"),
+    "environment_map": ("origin_x", "origin_y"),
 }
 
 
@@ -108,22 +123,19 @@ class MCAPReader:
         self,
         data_path: pathlib.Path,
         *,
-        include_scan_rays: bool = False,
         flush_rows: int = FLUSH_ROW_LIMIT,
         environment: str | None = None,
     ) -> None:
         self._flush_rows = flush_rows
         self._environment = environment
         self.data_path = data_path
-        self._include_scan_rays = include_scan_rays
 
     def read(self, out_dir: pathlib.Path) -> dict[str, TopicBundle]:
         """Stream every recording into flat tables under out_dir and return one TopicBundle per robot."""
         files = self._mcap_files()
         ingest = _Ingest(
             TableSink(out_dir, flush_rows=self._flush_rows),
-            self._include_scan_rays,
-            self._environment,
+            environment=self._environment,
         )
         try:
             for path in files:
@@ -185,14 +197,13 @@ def _decode(decoder: Decoder, topic: str, data: bytes) -> object | None:
 class _Ingest:
     """Routes decoded messages to their recorders and writes the tables that need the whole recording."""
 
-    def __init__(
-        self, sink: TableSink, include_scan_rays: bool, environment: str | None = None
-    ) -> None:
+    def __init__(self, sink: TableSink, *, environment: str | None = None) -> None:
         self._sink = sink
         self._environment = environment
+        self._warned_topics: set[str] = set()
         self._kinematics = tracks.KinematicsRecorder(sink)
         self._pedestrians = PedestrianRecorder(sink)
-        self._scans = sensors.ScanRecorder(sink, include_scan_rays)
+        self._scans = sensors.ScanRecorder(sink)
         self._plans = context.PlanRecorder(sink)
         self._fleet = context.FleetRecorder(sink)
         self._schedules = context.ScheduleRecorder()
@@ -205,7 +216,10 @@ class _Ingest:
                 _both(_ends_with("/agent_meta"), _has_schema(_AGENT_META_SCHEMA)),
                 self._agent_meta,
             ),
-            (_ends_with("/arena_peds", "/peds"), self._arena_peds_frame),
+            (
+                _ends_with("/arena_peds", "/peds", "/pedestrians"),
+                self._arena_peds_frame,
+            ),
             (_ends_with("/agent_states", "/agent_frame"), self._agent_states_frame),
             (
                 _both(
@@ -232,6 +246,18 @@ class _Ingest:
             (_ends_with("/power_publisher/energy"), self._energy),
             (_ends_with("/plan", "/global_plan"), self._plan),
             (_ends_with("/task_pose"), self._task_pose),
+            (
+                _both(_ends_with("/goal_pose"), _has_schema(_GOAL_POSE_SCHEMA)),
+                self._goal_pose,
+            ),
+            (
+                _both(_ends_with("/map"), _has_schema(_OCCUPANCY_GRID_SCHEMA)),
+                self._environment_map,
+            ),
+            (
+                _both(_ends_with("/door_mask"), _has_schema(_OCCUPANCY_GRID_SCHEMA)),
+                self._door_mask,
+            ),
             (_ends_with("/initialpose"), self._initial_pose),
             (_is_transform_topic, self._transforms),
         )
@@ -241,13 +267,21 @@ class _Ingest:
         return any(matches(topic, schema) for matches, _handle in self._routes)
 
     def route(self, topic: str, schema: Schema, body: object, t_ns: int) -> None:
+        """Dispatch a decoded message to the recorder that accepts its topic, or skip it."""
+        handler = next(
+            (handle for accepts, handle in self._routes if accepts(topic, schema)),
+            None,
+        )
+        if handler is None:
+            return
         env_id = env_id_in(topic) or self._environment
-        if env_id is None and not (
-            _is_transform_topic(topic, schema) or topic.endswith("/state/semantics")
+        if (
+            env_id is None
+            and not _is_transform_topic(topic, schema)
+            and not topic.endswith("/state/semantics")
         ):
-            raise ValueError(
-                f"topic {topic!r} names no environment; the native reader never guesses one"
-            )
+            self._warn_skipped(topic, "names no environment")
+            return
         ref = (
             None
             if env_id is None or _is_transform_topic(topic, schema)
@@ -255,11 +289,14 @@ class _Ingest:
                 env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id)
             )
         )
-        envelope = Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body)
-        for matches, handle in self._routes:
-            if matches(topic, schema):
-                handle(topic, envelope)
-                return
+        handler(topic, Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body))
+
+    def _warn_skipped(self, topic: str, reason: str) -> None:
+        """Log one warning per skipped topic, naming it and the reason."""
+        if topic in self._warned_topics:
+            return
+        self._warned_topics.add(topic)
+        _log.warning(f"{topic}: {reason}; skipped")
 
     def pedestrian_frames(self) -> dict[tuple[str, str], frozenset[str]]:
         return self._pedestrians.frames()
@@ -288,7 +325,13 @@ class _Ingest:
         sensors.record_joint_states(self._sink, envelope)
 
     def _agent_meta(self, _topic: str, envelope: Envelope) -> None:
-        self._pedestrians.record_meta(envelope)
+        schema_text = envelope.schema.data.decode("utf-8", "replace")
+        meta = (
+            agent_meta(envelope.body)
+            if legacy_schemas.agent_meta_has_crowd(schema_text)
+            else agent_meta_without_robot_fields(envelope.body)
+        )
+        self._pedestrians.record_meta(envelope, meta)
 
     def _arena_peds_frame(self, _topic: str, envelope: Envelope) -> None:
         self._pedestrians.record_frame(ARENA_TABLE, envelope)
@@ -313,7 +356,11 @@ class _Ingest:
         self._schedules.record(envelope)
 
     def _episode(self, _topic: str, envelope: Envelope) -> None:
-        context.record_episode(self._sink, envelope)
+        context.record_episode(
+            self._sink,
+            envelope,
+            legacy_schemas.episode_fields(envelope.body, envelope.schema.name),
+        )
 
     def _semantics(self, _topic: str, envelope: Envelope) -> None:
         context.record_semantics(self._sink, envelope)
@@ -322,7 +369,11 @@ class _Ingest:
         env_id = env_id_in(topic) or self._environment
         if env_id is None:
             raise ValueError(f"fleet topic {topic!r} names no environment")
-        self._fleet.record(envelope.t_ns, env_id, envelope.body)
+        self._fleet.record(
+            envelope.t_ns,
+            env_id,
+            legacy_schemas.fleet_robots(envelope.body, envelope.schema.name),
+        )
 
     def _collision_events(self, _topic: str, envelope: Envelope) -> None:
         events.record_collision_events(self._sink, envelope)
@@ -342,7 +393,22 @@ class _Ingest:
     def _task_pose(self, _topic: str, envelope: Envelope) -> None:
         context.record_task_pose(self._sink, envelope)
 
-    def _initial_pose(self, _topic: str, envelope: Envelope) -> None:
+    def _goal_pose(self, _topic: str, envelope: Envelope) -> None:
+        context.record_goal_pose(self._sink, envelope)
+
+    def _environment_map(self, _topic: str, envelope: Envelope) -> None:
+        context.record_occupancy_grid(self._sink, envelope, "map")
+
+    def _door_mask(self, _topic: str, envelope: Envelope) -> None:
+        context.record_occupancy_grid(self._sink, envelope, "door_mask")
+
+    def _initial_pose(self, topic: str, envelope: Envelope) -> None:
+        parts = topic_parts(topic)
+        if len(parts) >= 2 and parts[-2] == env_id_in(topic):
+            self._warn_skipped(
+                topic, "an environment-level initial pose names no robot"
+            )
+            return
         context.record_initial_pose(self._sink, envelope)
 
     def _transforms(self, topic: str, envelope: Envelope[TFMessage]) -> None:

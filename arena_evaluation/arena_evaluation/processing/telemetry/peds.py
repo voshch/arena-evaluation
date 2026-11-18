@@ -127,8 +127,9 @@ class PedestrianRecorder:
         self._meta: dict[str, AgentMeta] = {}
         self._frames: dict[tuple[str, str], set[str]] = defaultdict(set)
 
-    def record_meta(self, envelope: Envelope[RosAgentMeta]) -> None:
-        self._meta[envelope.ref.env_id] = _agent_meta(envelope)
+    def record_meta(self, envelope: Envelope[RosAgentMeta], meta: AgentMeta) -> None:
+        """Keep the normalised agent metadata of one environment."""
+        self._meta[envelope.ref.env_id] = meta
 
     def record_frame(
         self, table: str, envelope: Envelope[Pedestrians | AgentFrame | AgentStates]
@@ -147,8 +148,8 @@ class PedestrianRecorder:
         return {key: frozenset(frames) for key, frames in self._frames.items()}
 
 
-def _agent_meta(envelope: Envelope[RosAgentMeta]) -> AgentMeta:
-    meta = envelope.body
+def agent_meta(meta: RosAgentMeta) -> AgentMeta:
+    """The normalised metadata of a generation whose AgentMeta carries the four robot settings."""
     policies = tuple(str(policy) for policy in meta.policies)
     types = {
         int(agent_id): _text_or_none(agent_type)
@@ -168,6 +169,18 @@ def _agent_meta(envelope: Envelope[RosAgentMeta]) -> AgentMeta:
         )
     }
     return AgentMeta(policies=policies, types_by_id=types, crowd_by_id=crowd)
+
+
+def agent_meta_without_robot_fields(meta: RosAgentMeta) -> AgentMeta:
+    """The normalised metadata of a Nov-8 AgentMeta: the crowd settings are absent, never invented."""
+    return AgentMeta(
+        policies=tuple(str(policy) for policy in meta.policies),
+        types_by_id={
+            int(agent_id): _text_or_none(agent_type)
+            for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)
+        },
+        crowd_by_id={},
+    )
 
 
 def _agents(

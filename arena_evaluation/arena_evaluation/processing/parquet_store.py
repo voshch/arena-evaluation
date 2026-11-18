@@ -6,6 +6,8 @@ import pathlib
 import polars as pl
 
 from arena_evaluation.processing.mcap_reader import load_bundles
+from arena_evaluation.storage.atomic import atomic_write_text
+from arena_evaluation.storage.layout import NATIVE_LAYOUT_VERSION, registry_schema_hash
 from arena_evaluation.storage.schemas import TopicBundle
 
 _log = logging.getLogger(__name__)
@@ -14,23 +16,28 @@ _log = logging.getLogger(__name__)
 class TopicParquetStore:
     """Caches one episode's flat telemetry tables, written by the MCAP reader, and loads them back as TopicBundles."""
 
-    VERSION = 3
     VERSION_FILE = ".cache_version"
 
     @staticmethod
+    def _stamp() -> str:
+        """The extraction cache stamp: the native layout version and the registry schema hash."""
+        return f"{NATIVE_LAYOUT_VERSION}:{registry_schema_hash()}"
+
+    @staticmethod
     def is_current(source_dir: pathlib.Path) -> bool:
-        """True when source_dir holds a finished extraction written by this layout."""
+        """True when source_dir holds a finished extraction of this layout and registry schema."""
         try:
             stamp = (source_dir / TopicParquetStore.VERSION_FILE).read_text().strip()
         except OSError:
             return False
-        return stamp == str(TopicParquetStore.VERSION)
+        return stamp == TopicParquetStore._stamp()
 
     @staticmethod
     def mark_complete(source_dir: pathlib.Path) -> None:
-        """Stamp a finished extraction so later runs read it instead of extracting again."""
-        (source_dir / TopicParquetStore.VERSION_FILE).write_text(
-            f"{TopicParquetStore.VERSION}\n"
+        """Atomically stamp a finished extraction so later runs read it instead of extracting again."""
+        atomic_write_text(
+            source_dir / TopicParquetStore.VERSION_FILE,
+            f"{TopicParquetStore._stamp()}\n",
         )
 
     @staticmethod

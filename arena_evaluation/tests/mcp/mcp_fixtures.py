@@ -517,7 +517,6 @@ def build_query_run(
             "planner": "dwb",
             "inter_planner": "",
             "dispatcher": "",
-            "robot_model": "jackal",
             "crowd_condition": "visible",
             "ped_policy_default": "sfm",
             "crowd_size": 0,

@@ -12,15 +12,13 @@ if TYPE_CHECKING:
     from sensor_msgs.msg import JointState, LaserScan
 
 SCAN_SUMMARY_TABLE = "robot_scan_summary"
-SCAN_RAY_TABLE = "robot_scan_rays"
 
 
 class ScanRecorder:
-    """Splits each LaserScan into one summary row and, when requested, one row per ray."""
+    """Writes one summary row per laser scan."""
 
-    def __init__(self, sink: TableSink, include_rays: bool) -> None:
+    def __init__(self, sink: TableSink) -> None:
         self._sink = sink
-        self._include_rays = include_rays
 
     def record(self, envelope: Envelope[LaserScan]) -> None:
         scan = envelope.body
@@ -41,22 +39,6 @@ class ScanRecorder:
                 n_valid_rays=len(valid),
             ),
         )
-        if self._include_rays:
-            self._record_rays(envelope)
-
-    def _record_rays(self, envelope: Envelope[LaserScan]) -> None:
-        scan = envelope.body
-        for index, distance in enumerate(scan.ranges):
-            angle = scan.angle_min + index * scan.angle_increment
-            self._sink.append(
-                SCAN_RAY_TABLE,
-                robot_row(
-                    envelope,
-                    ray_idx=index,
-                    range_m=float(distance),
-                    angle_rad=float(angle),
-                ),
-            )
 
 
 def record_joint_states(sink: TableSink, envelope: Envelope[JointState]) -> None:

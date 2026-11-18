@@ -10,7 +10,9 @@ from typing import Final
 import polars as pl
 import yaml
 
+from arena_evaluation.storage.atomic import staged_temp_path
 from arena_evaluation.storage.exceptions import ContractViolationError
+from arena_evaluation.storage.layout import check_benchmark_layout
 from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
 from arena_evaluation.storage.registry.facts import FACT_TABLES
 from arena_evaluation.storage.registry.null_reasons import (
@@ -18,14 +20,22 @@ from arena_evaluation.storage.registry.null_reasons import (
     NULL_REASON_PARAMETERISED,
 )
 from arena_evaluation.storage.registry.scopes import FactTable
-from arena_evaluation.storage.registry.table import NULL_REASON_COLUMN, Table
+from arena_evaluation.storage.registry.table import (
+    NULL_REASON_COLUMN,
+    Table,
+    TableKind,
+    registered_tables,
+)
+from arena_evaluation.storage.registry.telemetry import (
+    duplicate_row_keys,
+    null_row_keys,
+)
 
 __all__ = [
     "ContractReport",
     "ContractViolation",
     "check_benchmark",
     "enforce_benchmark_contract",
-    "enforce_dimension_contract",
     "is_known_null_reason",
     "write_contract_report",
 ]
@@ -38,6 +48,22 @@ _NESTED_DTYPES: Final[tuple[type[pl.DataType], ...]] = (
     pl.Array,
 )
 _IDENTITY_KEYS: Final[tuple[str, ...]] = ("run_id", "episode_id", "robot_id")
+
+#: The recorded robot parameters a metric needs; a NULL one carries its own null reason.
+_REQUIRED_ROBOT_PARAMETERS: Final[tuple[str, ...]] = ("robot_radius", "robot_mass_kg")
+
+#: ``FactEpisodes`` stores its outcome in ``result``; the table declares no separate status column.
+_EPISODE_STATUS_COLUMN: Final[str] = "result"
+
+#: The terminal verdicts a recorded outcome can carry; any other value is a status token.
+_EVALUATED_EPISODE_RESULTS: Final[tuple[str, ...]] = (
+    "GOAL_REACHED",
+    "FAILED",
+    "CANCELLED",
+    "FATAL",
+    "COLLISION",
+    "UNRESOLVED",
+)
 
 #: The dimension a fact row must resolve against, and the columns the join uses.
 _FACT_PARENT: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
@@ -119,51 +145,6 @@ class ContractReport:
         }
 
 
-def enforce_dimension_contract(dimensions: Mapping[str, pl.DataFrame]) -> None:
-    """Raise ContractViolationError unless every dimension has the registry schema, unique non-NULL keys and a reason for each NULL."""
-    for name, table in DIMENSION_TABLES.items():
-        if name not in dimensions:
-            raise ContractViolationError(f"{name}: the benchmark has no such dimension")
-        frame = dimensions[name]
-        expected = table.polars_schema()
-        if frame.schema != expected:
-            raise ContractViolationError(
-                f"{name}: columns or dtypes differ from the registry: {dict(frame.schema)} != {dict(expected)}"
-            )
-        _check_dimension_keys(name, frame, table)
-        _check_dimension_null_reasons(name, frame, table)
-
-
-def _check_dimension_keys(name: str, frame: pl.DataFrame, table: type[Table]) -> None:
-    keys = list(table.key)
-    if (
-        frame.height
-        and frame.select(pl.any_horizontal(pl.col(keys).is_null()).any()).item()
-    ):
-        raise ContractViolationError(f"{name}: a key column is NULL")
-    duplicated = frame.group_by(keys).len().filter(pl.col("len") > 1)
-    if duplicated.height:
-        raise ContractViolationError(
-            f"{name}: {duplicated.height} duplicated key(s) on {keys}"
-        )
-
-
-def _check_dimension_null_reasons(
-    name: str, frame: pl.DataFrame, table: type[Table]
-) -> None:
-    for column in table.null_reason_columns():
-        reasoned = (
-            pl.col(NULL_REASON_COLUMN)
-            .fill_null("")
-            .str.contains(column + ":", literal=True)
-        )
-        unexplained = frame.filter(pl.col(column).is_null() & ~reasoned)
-        if unexplained.height:
-            raise ContractViolationError(
-                f"{name}.{column}: {unexplained.height} NULL value(s) without a reason"
-            )
-
-
 def _episode_directories(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...]:
     """The ``episodes/episode_*`` folders of a benchmark, sorted."""
     episodes = benchmark_dir / "episodes"
@@ -175,6 +156,11 @@ def _episode_directories(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...
 def _empty(table: type[Table]) -> pl.DataFrame:
     """A frame without rows, with the tables's declared columns and dtypes."""
     return pl.DataFrame(schema=table.polars_schema())
+
+
+def _named_first(values: pl.Series) -> str:
+    """The first three values of a scalar column, joined for a violation detail."""
+    return values.cast(pl.String).head(3).str.join(", ").item()
 
 
 def _fact_views(
@@ -352,9 +338,123 @@ def _check_missing_dimensions(
     ]
 
 
+def _check_episode_coverage(
+    views: Mapping[str, pl.LazyFrame],
+) -> list[ContractViolation]:
+    """Every dimension episode has a fact row, and every fact episode has an evaluated result."""
+    missing = (
+        views["dim_episodes"]
+        .select("run_id", "episode_id")
+        .unique()
+        .join(
+            views["fact_episodes"].select("run_id", "episode_id").unique(),
+            on=["run_id", "episode_id"],
+            how="anti",
+        )
+        .select("episode_id")
+        .unique()
+        .collect()
+    )
+    unevaluated = (
+        views["fact_episodes"]
+        .filter(
+            pl.col(_EPISODE_STATUS_COLUMN).is_not_null()
+            & ~pl.col(_EPISODE_STATUS_COLUMN).is_in(_EVALUATED_EPISODE_RESULTS)
+        )
+        .select(
+            pl.concat_str(
+                [
+                    pl.lit("episode "),
+                    pl.col("episode_id").cast(pl.String),
+                    pl.lit(" ("),
+                    pl.col(_EPISODE_STATUS_COLUMN),
+                    pl.lit(")"),
+                ]
+            ).alias("episode")
+        )
+        .unique()
+        .collect()
+    )
+    violations: list[ContractViolation] = []
+    if not missing.is_empty():
+        violations.append(
+            ContractViolation(
+                table="dim_episodes",
+                column="episode_id",
+                check="episode_uncovered",
+                detail=(
+                    f"{missing.height} episode(s) have no fact_episodes row; "
+                    f"first {_named_first(missing.get_column('episode_id'))}"
+                ),
+            )
+        )
+    if not unevaluated.is_empty():
+        violations.append(
+            ContractViolation(
+                table="fact_episodes",
+                column=_EPISODE_STATUS_COLUMN,
+                check="episode_not_evaluated",
+                detail=(
+                    f"{unevaluated.height} episode(s) have no evaluated result; "
+                    f"first {_named_first(unevaluated.get_column('episode'))}"
+                ),
+            )
+        )
+    return violations
+
+
 def _fact_key(table: type[Table]) -> str:
     """The name a fact table is stored and reported under: its file stem."""
     return f"fact_{table.table_name}"
+
+
+def _check_dimension_rules(
+    views: Mapping[str, pl.LazyFrame],
+) -> list[ContractViolation]:
+    """Every dimension row key is non-null and unique, and every NULL dimension value carries a reason."""
+    violations: list[ContractViolation] = []
+    for name, table in DIMENSION_TABLES.items():
+        frame = views[name].collect()
+        if frame.height == 0:
+            continue
+        keys = list(table.key)
+        null_keys = frame.select(pl.any_horizontal(pl.col(keys).is_null()).sum()).item()
+        if null_keys:
+            violations.append(
+                ContractViolation(
+                    table=name,
+                    column=",".join(keys),
+                    check="key_null",
+                    detail=f"{null_keys} row(s) with a NULL key",
+                )
+            )
+        duplicates = frame.group_by(keys).len().filter(pl.col("len") > 1)
+        if duplicates.height:
+            violations.append(
+                ContractViolation(
+                    table=name,
+                    column=",".join(keys),
+                    check="key_duplicate",
+                    detail=f"{duplicates.height} duplicated keys on {keys}",
+                )
+            )
+        for column in table.null_reason_columns():
+            reasoned = (
+                pl.col(NULL_REASON_COLUMN)
+                .fill_null("")
+                .str.contains(column + ":", literal=True)
+            )
+            unexplained = frame.filter(pl.col(column).is_null() & ~reasoned).height
+            if unexplained:
+                violations.append(
+                    ContractViolation(
+                        table=name,
+                        column=column,
+                        check="null_reason_missing",
+                        detail=f"{unexplained} NULL value(s) without a reason",
+                    )
+                )
+    return violations
 
 
 def _check_keys(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation]:
@@ -558,22 +658,171 @@ def _check_null_reason_vocabulary(
     return violations
 
 
+def _telemetry_robot_ids(
+    episodes: tuple[pathlib.Path, ...],
+) -> pl.LazyFrame | None:
+    """The robot id column of every stored robot telemetry file, None when none is stored."""
+    paths = [
+        path
+        for episode in episodes
+        for path in sorted((episode / "topics").glob("robot_*.parquet"))
+    ]
+    if not paths:
+        return None
+    return pl.concat(
+        [
+            pl.scan_parquet(path)
+            .select("robot_id")
+            .filter(pl.col("robot_id").is_not_null())
+            for path in paths
+        ]
+    ).unique()
+
+
 def _check_robot_descriptors(
     views: Mapping[str, pl.LazyFrame],
 ) -> list[ContractViolation]:
-    """Every robot a row names has a recorded descriptor: its model is not NULL."""
+    """Every dim_robots row records its model and the required recorded parameters."""
+    violations: list[ContractViolation] = []
     descriptors = views["dim_robots"].filter(pl.col("robot_model").is_null())
     count = descriptors.select(pl.len()).collect().item()
-    if not count:
+    if count:
+        violations.append(
+            ContractViolation(
+                table="dim_robots",
+                column="robot_model",
+                check="descriptor_missing",
+                detail=f"{count} robot(s) have no recorded robot_descriptor row",
+            )
+        )
+    robots = views["dim_robots"].select(
+        "robot_id", NULL_REASON_COLUMN, *_REQUIRED_ROBOT_PARAMETERS
+    )
+    reason = pl.col(NULL_REASON_COLUMN).fill_null("")
+    for parameter in _REQUIRED_ROBOT_PARAMETERS:
+        unexplained = robots.filter(
+            pl.col(parameter).is_null()
+            & ~reason.str.contains(f"{parameter}:", literal=True)
+        )
+        robots_missing = (
+            unexplained.select(pl.col("robot_id").n_unique()).collect().item()
+        )
+        if not robots_missing:
+            continue
+        names = _named_first(
+            unexplained.select("robot_id").unique().collect().get_column("robot_id")
+        )
+        violations.append(
+            ContractViolation(
+                table="dim_robots",
+                column=parameter,
+                check="descriptor_param_missing",
+                detail=(
+                    f"{robots_missing} robot(s) miss {parameter} without a null reason; "
+                    f"first {names}"
+                ),
+            )
+        )
+    return violations
+
+
+def _check_telemetry_descriptors(
+    views: Mapping[str, pl.LazyFrame],
+    *,
+    telemetry_robot_ids: pl.LazyFrame | None,
+) -> list[ContractViolation]:
+    """A robot id with robot telemetry also has a dim_robots row."""
+    if telemetry_robot_ids is None:
         return []
+    undescribed = (
+        telemetry_robot_ids.join(
+            views["dim_robots"].select("robot_id").unique(),
+            on="robot_id",
+            how="anti",
+        )
+        .select("robot_id")
+        .collect()
+    )
+    if undescribed.is_empty():
+        return []
+    names = _named_first(undescribed.get_column("robot_id"))
     return [
         ContractViolation(
             table="dim_robots",
-            column="robot_model",
-            check="descriptor_missing",
-            detail=f"{count} robot(s) have no recorded robot_descriptor row",
+            column="robot_id",
+            check="descriptor_missing_telemetry",
+            detail=(
+                f"{undescribed.height} robot id(s) have telemetry but no dim_robots row; "
+                f"first {names}"
+            ),
         )
     ]
+
+
+def _telemetry_table(file_name: str) -> type[Table] | None:
+    """The declared telemetry table a stored ``topics/<file>`` holds, None for a foreign file."""
+    for table in registered_tables():
+        if table.table_kind is TableKind.TELEMETRY and table.file_name() == file_name:
+            return table
+    return None
+
+
+def _check_telemetry_row_keys(
+    episodes: tuple[pathlib.Path, ...],
+) -> list[ContractViolation]:
+    """Every stored telemetry file has a non-null, unique row key; the detail names the episode and a sample."""
+    violations: list[ContractViolation] = []
+    for episode in episodes:
+        topics = episode / "topics"
+        if not topics.is_dir():
+            continue
+        for path in sorted(topics.glob("*.parquet")):
+            table = _telemetry_table(path.name)
+            if table is None:
+                continue
+            keys = list(table.row_key)
+            try:
+                frame = pl.read_parquet(path, columns=keys)
+            except pl.exceptions.ColumnNotFoundError as error:
+                violations.append(
+                    ContractViolation(
+                        table=path.stem,
+                        column=",".join(keys),
+                        check="row_key_missing",
+                        detail=f"{path} does not carry its declared row key: {error}",
+                    )
+                )
+                continue
+            nulls = null_row_keys(table, frame)
+            if nulls.height:
+                violations.append(
+                    ContractViolation(
+                        table=path.stem,
+                        column=",".join(keys),
+                        check="row_key_null",
+                        detail=(
+                            f"{nulls.height} row(s) in {episode.name} with a NULL key"
+                        ),
+                    )
+                )
+            duplicates = duplicate_row_keys(table, frame)
+            if duplicates.height:
+                sample = ", ".join(
+                    f"{key}={value!r}"
+                    for key, value in duplicates.row(0, named=True).items()
+                )
+                violations.append(
+                    ContractViolation(
+                        table=path.stem,
+                        column=",".join(keys),
+                        check="row_key_duplicate",
+                        detail=(
+                            f"{duplicates.height} duplicated row key(s) in "
+                            f"{episode.name}, first {sample}"
+                        ),
+                    )
+                )
+    return violations
 
 
 def check_benchmark(
@@ -583,13 +832,16 @@ def check_benchmark(
 ) -> ContractReport:
     """Run every publish-time check over the benchmark stored at ``path``.
 
+    A benchmark whose stored outputs predate the native layout is refused before any fact is read.
     ``dimensions`` lets the publish boundary validate the dimensions it is about to write,
     before any benchmark-level file exists; without it the stored ``dim_*.parquet`` are read.
     """
     benchmark_dir = pathlib.Path(path)
+    check_benchmark_layout(benchmark_dir)
     episode_dirs = _episode_directories(benchmark_dir)
     views = _fact_views(benchmark_dir, episode_dirs)
     views.update(_dimension_views(benchmark_dir, dimensions))
+    telemetry_robot_ids = _telemetry_robot_ids(episode_dirs)
     violations = [
         *_check_stored_schemas(
             benchmark_dir, episode_dirs, check_dimension_files=dimensions is None
@@ -601,12 +853,16 @@ def check_benchmark(
             else []
         ),
         *_check_keys(views),
+        *_check_dimension_rules(views),
         *_check_orphans(views),
+        *(_check_episode_coverage(views) if dimensions is None else []),
         *_check_windows(views),
         *_check_actor_pairs(views),
         *_check_null_reasons(views),
         *_check_null_reason_vocabulary(views),
-        *_check_robot_descriptors(views),
+        *(_check_robot_descriptors(views) if dimensions is None else []),
+        *_check_telemetry_descriptors(views, telemetry_robot_ids=telemetry_robot_ids),
+        *_check_telemetry_row_keys(episode_dirs),
     ]
     return ContractReport(
         benchmark_dir=benchmark_dir,
@@ -616,12 +872,12 @@ def check_benchmark(
 
 
 def write_contract_report(report: ContractReport, path: pathlib.Path) -> pathlib.Path:
-    """Write the report as YAML, creating its parent directory."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(report.as_dict(), sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    """Write the report as YAML in one rename, creating its parent directory."""
+    with staged_temp_path(path) as temporary:
+        temporary.write_text(
+            yaml.safe_dump(report.as_dict(), sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
     return path
 
 
@@ -634,8 +890,9 @@ def enforce_benchmark_contract(
 
     Called at the publish boundary with the dimensions still in memory: a failed check stops
     processing before any benchmark-level table is published, and the YAML report keeps every
-    table and column that broke.
+    table and column that broke. A benchmark of an older layout is refused before any read.
     """
+    check_benchmark_layout(benchmark_dir)
     report = check_benchmark(benchmark_dir, dimensions=dimensions)
     if report.ok:
         return report

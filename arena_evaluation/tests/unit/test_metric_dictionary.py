@@ -11,7 +11,7 @@ from arena_evaluation.processing.metrics.registry import (
     scope_producers,
     shipped_calculators,
 )
-from arena_evaluation.storage.contracts import enforce_dimension_contract
+from arena_evaluation.storage.contracts import enforce_benchmark_contract
 from arena_evaluation.storage.exceptions import SchemaViolationError
 from arena_evaluation.storage.registry import (
     FACT_TABLES,
@@ -148,14 +148,14 @@ def test_a_row_names_the_calculator_that_publishes_the_metric_at_its_scope() -> 
         assert row["producer"] == producers[(row["metric"], MetricScope(row["scope"]))]
 
 
-def test_the_dictionary_passes_the_dimension_contract() -> None:
+def test_the_dictionary_passes_the_dimension_contract(tmp_path) -> None:
     dimensions = {
         name: pl.DataFrame(schema=table.polars_schema())
         for name, table in DIMENSION_TABLES.items()
     }
     dimensions[DimMetrics.table_name] = metric_dictionary()
 
-    enforce_dimension_contract(dimensions)
+    enforce_benchmark_contract(tmp_path, dimensions=dimensions)
 
 
 def test_the_dictionary_describes_metrics_and_holds_no_metric_value() -> None:

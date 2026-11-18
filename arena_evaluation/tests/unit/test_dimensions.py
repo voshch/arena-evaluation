@@ -9,7 +9,7 @@ from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
-from arena_evaluation.storage.contracts import enforce_dimension_contract
+from arena_evaluation.storage.contracts import enforce_benchmark_contract
 from arena_evaluation.storage.exceptions import ContractViolationError
 from arena_evaluation.storage.registry.dimensions import (
     DIMENSION_TABLES,
@@ -25,12 +25,15 @@ SEC = 1_000_000_000
 def _metadata(world: str = "barn") -> RunMetadata:
     return RunMetadata(
         benchmark_id="bench",
-        planner="dwb",
+        planner="nav2",
+        local_planner="dwb",
         map=world,
         stage="s1",
         recording_started_at="2026-01-01T00:00:00",
         python_version="3.12",
         ros_distro="jazzy",
+        modes={},
+        params={},
     )
 
 
@@ -169,7 +172,7 @@ def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
         ]
     )
 
-    enforce_dimension_contract(stacked)
+    enforce_benchmark_contract(tmp_path, dimensions=stacked)
     write_benchmark_dimensions(stacked, tmp_path)
     back = {
         name: pl.read_parquet(tmp_path / table.relative_path())
@@ -181,22 +184,24 @@ def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
     assert back["dim_episodes"].height == 2
 
 
-def test_a_duplicated_key_breaks_the_contract():
+def test_a_duplicated_key_breaks_the_contract(tmp_path):
     episode = _episode(0, {"jackal": _bundle()})
     stacked = stack([episode, episode])
 
-    with pytest.raises(ContractViolationError, match="duplicated key"):
-        enforce_dimension_contract(stacked)
+    with pytest.raises(ContractViolationError):
+        enforce_benchmark_contract(tmp_path, dimensions=stacked)
+    assert "key_duplicate" in (tmp_path / "contract_report.yaml").read_text()
 
 
-def test_a_null_without_a_reason_breaks_the_contract():
+def test_a_null_without_a_reason_breaks_the_contract(tmp_path):
     stacked = stack([_episode(0, {"jackal": _bundle()})])
     stacked["dim_robots"] = stacked["dim_robots"].with_columns(
         null_reason=pl.lit(None, dtype=pl.String)
     )
 
-    with pytest.raises(ContractViolationError, match="without a reason"):
-        enforce_dimension_contract(stacked)
+    with pytest.raises(ContractViolationError):
+        enforce_benchmark_contract(tmp_path, dimensions=stacked)
+    assert "null_reason_missing" in (tmp_path / "contract_report.yaml").read_text()
 
 
 def test_extracting_a_benchmark_writes_its_dimensions_once_at_the_root(
@@ -318,10 +323,34 @@ def test_episode_dimensions_rejects_bundle_without_identity():
         )
 
 
-def test_non_numeric_robot_parameter_becomes_null():
-    robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "not_a_number"})})[
-        "dim_robots"
-    ]
+def test_non_numeric_robot_parameter_is_refused():
+    with pytest.raises(ContractViolationError, match="robot_radius"):
+        _episode(0, {"jackal": _bundle(params={"robot_radius": "not_a_number"})})
 
-    assert robots["robot_radius"].to_list() == [None]
-    assert "robot_radius:not_recorded" in robots["null_reason"][0]
+
+def test_the_episode_row_carries_seed_crowd_size_duration_and_local_planner():
+    bundle = _bundle(awareness=[1.0, 0.0])
+    bundle.episode_lifecycle = pl.DataFrame(
+        {
+            "t_ns": [SEC, 3 * SEC],
+            "env_id": ["env_0", "env_0"],
+            "start_t_ns": [SEC, SEC],
+            "seed": [7, 7],
+        }
+    )
+
+    episode = _episode(0, {"jackal": bundle})["dim_episodes"].row(0, named=True)
+
+    assert episode["seed"] == 7
+    assert episode["crowd_size"] == 2
+    assert episode["duration_s"] == pytest.approx(2.0)
+    assert episode["local_planner"] == "dwb"
+    assert episode["ped_policy_default"] == "orca"
+
+
+def test_the_episode_dimension_has_no_launch_robot_model() -> None:
+    """L1-026: the launch model list lives in RunMetadata; dim_robots is the per-robot authority."""
+    dims = _episode(0, {"jackal": _bundle()})
+
+    assert "robot_model" not in dims["dim_episodes"].columns
+    assert dims["dim_robots"]["robot_model"].to_list() == ["turtlebot3"]

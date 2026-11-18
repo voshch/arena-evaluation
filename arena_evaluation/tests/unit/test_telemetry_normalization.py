@@ -275,30 +275,54 @@ def test_laser_scan_summary_keeps_the_nearest_and_farthest_valid_return(
     )
 
 
-def test_ray_detail_is_not_written_by_default(tmp_path: pathlib.Path):
+def test_scan_topics_extract_without_a_scan_rays_table(tmp_path: pathlib.Path) -> None:
+    from arena_evaluation.storage.registry import registered_tables
+
     out = tmp_path / "telemetry"
     MCAPReader(_every_topic_bag(tmp_path / "run.mcap")).read(out)
 
+    assert "robot_scan_rays" not in {table.table_name for table in registered_tables()}
+    assert (out / "robot_scan_summary.parquet").exists()
     assert not (out / "robot_scan_rays.parquet").exists()
 
 
-def test_ray_detail_has_one_row_per_ray_when_requested(tmp_path: pathlib.Path):
-    out = tmp_path / "telemetry"
-    MCAPReader(_every_topic_bag(tmp_path / "run.mcap"), include_scan_rays=True).read(
-        out
+def _out_of_order_tf_bag(path: pathlib.Path) -> pathlib.Path:
+    return _write_bag(
+        path,
+        [
+            ("/env_0/jackal/odom", ODOMETRY, _odometry(0.0, 0.0), SEC),
+            (
+                "/tf",
+                TF_MESSAGE,
+                {"transforms": [_transform("map", "env_0/jackal/base_link", 2.0, 0.0)]},
+                2 * SEC,
+            ),
+            (
+                "/tf",
+                TF_MESSAGE,
+                {"transforms": [_transform("map", "env_0/jackal/base_link", 1.0, 0.0)]},
+                SEC,
+            ),
+        ],
     )
 
-    rays = pl.read_parquet(out / "robot_scan_rays.parquet").filter(
-        pl.col("robot_id") == ROBOT
+
+def test_tf_rows_are_sorted_by_native_time_when_log_times_arrive_out_of_order(
+    tmp_path: pathlib.Path,
+) -> None:
+    bundles = MCAPReader(_out_of_order_tf_bag(tmp_path / "run.mcap")).read(
+        tmp_path / "telemetry"
     )
 
-    assert rays.height == 5
+    assert bundles[ROBOT].tf.collect()["t_ns"].to_list() == [SEC, 2 * SEC]
 
 
 def test_param_value_decodes_byte_array_and_rejects_unknown_type() -> None:
     from rcl_interfaces.msg import ParameterValue
 
-    from arena_evaluation.processing.telemetry.context import _param_value
+    from arena_evaluation.processing.telemetry.messages import (
+        parameter_value as _param_value,
+    )
 
     assert _param_value(
         ParameterValue(type=5, byte_array_value=[b"\x01", b"\x02"])
@@ -333,8 +357,8 @@ def test_fleet_recorder_writes_descriptor_and_params_once_per_robot(
     out = tmp_path / "topics"
     sink = TableSink(out)
     recorder = FleetRecorder(sink)
-    recorder.record(100, "env_0", fleet)
-    recorder.record(200, "env_0", fleet)
+    recorder.record(100, "env_0", fleet.robots)
+    recorder.record(200, "env_0", fleet.robots)
     sink.close()
 
     descriptors = pl.read_parquet(out / "robot_descriptor.parquet")

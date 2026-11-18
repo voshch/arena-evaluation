@@ -17,6 +17,15 @@ _EXPERIMENTS_ROOT: pathlib.Path = pathlib.Path(experiments_package.__file__).par
 _PRESENTATION_ROOT: pathlib.Path = pathlib.Path(presentation_package.__file__).parent
 
 _STORAGE_ALLOWED: tuple[str, ...] = ("arena_evaluation.storage",)
+#: The one accepted L1->L2 edge (decision X-007): the fact schema self-loads the metric definitions
+#: (L1-019/X-001). The pin fixes the importing module and the exact symbol; any other
+#: storage -> processing import fails, and moving the registry into storage is post-PR work.
+_STORAGE_PINNED: dict[tuple[str, str], set[str]] = {
+    (
+        "layout.py",
+        "arena_evaluation.processing.metrics.registry",
+    ): {"load_metric_definitions"},
+}
 _ANALYTICS_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.storage",
     "arena_evaluation.analytics",
@@ -100,13 +109,22 @@ def _matches_allowed(module: str, allowed: tuple[str, ...]) -> bool:
 
 
 def test_storage_imports_only_storage() -> None:
-    violations = [
-        f"{path.relative_to(_STORAGE_ROOT)} imports {module}"
-        for path in sorted(_STORAGE_ROOT.rglob("*.py"))
-        for module, _ in _imports_of(path)
-        if _is_internal(module) and not _matches_allowed(module, _STORAGE_ALLOWED)
-    ]
+    violations: list[str] = []
+    seen_pinned: set[tuple[str, str]] = set()
+    for path in sorted(_STORAGE_ROOT.rglob("*.py")):
+        rel = path.relative_to(_STORAGE_ROOT).as_posix()
+        for module, names in _imports_of(path):
+            if not _is_internal(module) or _matches_allowed(module, _STORAGE_ALLOWED):
+                continue
+            key = (rel, module)
+            if key in _STORAGE_PINNED and set(names) == _STORAGE_PINNED[key]:
+                seen_pinned.add(key)
+            else:
+                violations.append(f"{rel} imports {module} ({list(names)})")
     assert not violations, f"storage imports outside allow-list: {violations}"
+    assert seen_pinned == set(_STORAGE_PINNED), (
+        f"pinned edge(s) missing: {set(_STORAGE_PINNED) - seen_pinned}"
+    )
 
 
 def test_analytics_imports_only_storage_and_analytics() -> None:
@@ -300,3 +318,133 @@ def test_non_mcp_packages_never_import_mcp() -> None:
         not in _NON_MCP_TO_MCP_PINNED
     ]
     assert not violations, f"non-mcp modules import mcp: {violations}"
+
+
+def _module_name(path: pathlib.Path) -> str:
+    """The dotted name of a package module, ``__init__`` included as its package."""
+    parts = list(path.relative_to(_PKG_ROOT).parts[:-1])
+    if path.stem != "__init__":
+        parts.append(path.stem)
+    return ".".join(("arena_evaluation", *parts))
+
+
+def _module_graph() -> dict[str, set[str]]:
+    """Internal imports between package modules, resolved to module names."""
+    modules = {_module_name(path): path for path in sorted(_PKG_ROOT.rglob("*.py"))}
+    known = set(modules)
+    graph: dict[str, set[str]] = {name: set() for name in known}
+    for name, path in modules.items():
+        for target, names in _imports_of(path):
+            for candidate in (target, *(f"{target}.{alias}" for alias in names)):
+                if not _is_internal(candidate):
+                    continue
+                resolved = candidate
+                while resolved not in known and "." in resolved:
+                    resolved = resolved.rsplit(".", 1)[0]
+                if resolved in known:
+                    graph[name].add(resolved)
+    return graph
+
+
+def _strongly_connected(graph: dict[str, set[str]]) -> list[list[str]]:
+    """Tarjan's strongly connected components of ``graph``, each component sorted."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    components: list[list[str]] = []
+    counter = 0
+
+    def visit(node: str) -> None:
+        nonlocal counter
+        index[node] = low[node] = counter
+        counter += 1
+        stack.append(node)
+        on_stack.add(node)
+        for neighbour in sorted(graph[node]):
+            if neighbour not in index:
+                visit(neighbour)
+                low[node] = min(low[node], low[neighbour])
+            elif neighbour in on_stack:
+                low[node] = min(low[node], index[neighbour])
+        if low[node] == index[node]:
+            component: list[str] = []
+            while True:
+                member = stack.pop()
+                on_stack.discard(member)
+                component.append(member)
+                if member == node:
+                    break
+            components.append(sorted(component))
+
+    for node in sorted(graph):
+        if node not in index:
+            visit(node)
+    return components
+
+
+#: The reviewed module import cycles. The presentation/benchmark one is X-005: it disappears once
+#: ``ManifestIdentifier`` leaves ``benchmark/tree.py`` for ``storage/config_layout.py`` (FIX7/FIX9,
+#: INT1), and this allow-list must then drop it. The metrics one is the type-only X-008 cycle.
+_ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
+    {
+        frozenset(
+            {
+                "arena_evaluation.processing.metrics.base",
+                "arena_evaluation.processing.metrics.ecological.mechanism_common",
+            }
+        ),
+        frozenset(
+            {
+                "arena_evaluation.analytics.analyses",
+                "arena_evaluation.analytics.analyses.procedures",
+                "arena_evaluation.analytics.catalog",
+                "arena_evaluation.analytics.computations",
+                "arena_evaluation.analytics.derived",
+                "arena_evaluation.analytics.sql_engine",
+                "arena_evaluation.analytics.stats",
+            }
+        ),
+        frozenset(
+            {
+                "arena_evaluation.benchmark.tree",
+                "arena_evaluation.presentation.manifest_registry",
+                "arena_evaluation.presentation.viz_manifest",
+            }
+        ),
+        frozenset(
+            {
+                "arena_evaluation.benchmark.cli",
+                "arena_evaluation.benchmark.dashboard",
+                "arena_evaluation.benchmark.dashboard_runtime",
+                "arena_evaluation.benchmark.runner",
+                "arena_evaluation.mcp.authoring",
+                "arena_evaluation.mcp.runs",
+            }
+        ),
+        frozenset(
+            {
+                "arena_evaluation.processing.metrics",
+                "arena_evaluation.processing.metrics.registry",
+            }
+        ),
+    }
+)
+
+
+def test_module_import_graph_has_only_reviewed_cycles() -> None:
+    """Pin every module-granularity cycle so a new one fails review before it becomes architecture."""
+    cycles = {
+        frozenset(component)
+        for component in _strongly_connected(_module_graph())
+        if len(component) > 1
+    }
+    unreviewed = cycles - _ALLOWED_CYCLES
+    assert not unreviewed, (
+        f"new module import cycle(s): {sorted(sorted(cycle) for cycle in unreviewed)}"
+    )
+    resolved = _ALLOWED_CYCLES - cycles
+    assert not resolved, (
+        "reviewed cycle(s) no longer present; update _ALLOWED_CYCLES: "
+        f"{sorted(sorted(cycle) for cycle in resolved)}"
+    )

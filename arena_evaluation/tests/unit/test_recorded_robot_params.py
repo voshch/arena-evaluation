@@ -83,3 +83,27 @@ def test_an_unparsable_parameter_is_refused():
 
     with pytest.raises(ContractViolationError, match="not a number"):
         robot_params_from_recorded(rows, "jackal")
+
+
+def test_a_laser_range_that_was_not_recorded_stays_none():
+    params = robot_params_from_recorded(
+        _rows(("robot_radius", "0.43"), ("robot_mass_kg", "18.4")),
+        "jackal",
+    )
+
+    assert params.laser_min_range is None
+    assert params.laser_max_range is None
+    assert params.component_masses == {}
+
+
+def test_a_wide_parameter_column_is_not_a_parameter_row():
+    rows = pl.DataFrame(
+        {
+            **DESCRIPTOR,
+            "robot_radius": [0.43],
+            "base_mass": [18.4],
+        }
+    )
+
+    with pytest.raises(MetricInputError, match="robot_params"):
+        robot_params_from_recorded(rows, "jackal")

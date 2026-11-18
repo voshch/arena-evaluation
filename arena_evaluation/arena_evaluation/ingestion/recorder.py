@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import dataclasses
+import math
 import os
 import pathlib
 import re
 import signal
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Final, TypedDict, Unpack
 
 import rclpy
 import rosbag2_py
@@ -20,7 +22,7 @@ from arena_rclpy_mixins.ROSParamServer import ROSParamServer
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.parameter import Parameter
@@ -31,14 +33,90 @@ from tf2_msgs.msg import TFMessage
 
 from .episode_writer import EpisodeWriter
 from .metadata import IngestionMetadata
+from .topics import DEFAULT_THROTTLE_RATE_HZ
 
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
     from arena_runtime_msgs.msg import RecordedTopic
+    from builtin_interfaces.msg import Time
     from rcl_interfaces.msg import ParameterValue
     from rclpy.context import Context
 
     from .topics import TopicDefinition
+
+_NS_PER_SECOND: Final[int] = 1_000_000_000
+_NS_PER_MILLISECOND: Final[int] = 1_000_000
+_ODOM_THROTTLE_RATE_HZ: Final[float] = 50.0
+_WORLD_FRAMES: Final[frozenset[str]] = frozenset({"map", "odom", "world"})
+
+
+def min_interval_ns(rate_hz: float) -> int:
+    """The smallest gap between two samples of a rate_hz stream in whole nanoseconds, 0 when unthrottled."""
+    if rate_hz <= 0.0:
+        return 0
+    return math.ceil(_NS_PER_SECOND / rate_hz)
+
+
+def resolve_rate_hz(
+    overrides: Mapping[str, float], topic_name: str, default_hz: float
+) -> float:
+    """The record_rates_hz entry of the exact topic name when present, else the topic's default rate."""
+    return float(overrides.get(topic_name, default_hz))
+
+
+def _checked_rates(rates: Mapping[str, object]) -> dict[str, float]:
+    """A record_rates_hz mapping as floats, refusing a rate below 0 Hz."""
+    checked: dict[str, float] = {}
+    for topic_name, rate in rates.items():
+        value = float(rate)
+        if value < 0.0:
+            raise ValueError(
+                f"record_rates_hz[{topic_name!r}] is {value}: a throttle rate is >= 0 Hz, 0 meaning unthrottled"
+            )
+        checked[topic_name] = value
+    return checked
+
+
+def robot_from_frame(frame_id: str, env_namespace: str) -> str | None:
+    """The robot segment before a frame name, None for a world frame or the environment itself."""
+    parts = [part for part in frame_id.strip("/").split("/") if part]
+    if len(parts) < 2:
+        return None
+    robot = parts[-2]
+    env = env_namespace.strip("/").rsplit("/", 1)[-1]
+    if robot in _WORLD_FRAMES or robot == env:
+        return None
+    return robot
+
+
+def initialpose_topic(frame_id: str, env_namespace: str) -> str:
+    """The topic an initial pose is recorded under: the robot its frame names, else the environment."""
+    env = env_namespace.strip("/")
+    env_root = f"/{env}" if env else ""
+    robot = robot_from_frame(frame_id, env)
+    return f"{env_root}/{robot}/initialpose" if robot else f"{env_root}/initialpose"
+
+
+def _stamp_ns(stamp: Time) -> int:
+    """A ROS time stamp in nanoseconds."""
+    return int(stamp.sec) * _NS_PER_SECOND + int(stamp.nanosec)
+
+
+@dataclasses.dataclass(slots=True)
+class RateGate:
+    """Accept a nanosecond timestamp stream at most once per interval, both boundaries included."""
+
+    interval_ns: int
+    last_ns: int | None = None
+
+    def accept(self, t_ns: int) -> bool:
+        """Whether the sample at t_ns passes, opening the next interval from its own stamp."""
+        if self.interval_ns <= 0:
+            return True
+        if self.last_ns is not None and t_ns - self.last_ns < self.interval_ns:
+            return False
+        self.last_ns = t_ns
+        return True
 
 
 def _state_types() -> dict[str, tuple[type, str, bool]]:
@@ -89,7 +167,7 @@ _TERMINAL_OUTCOMES = {
 }
 
 _DESERIALIZED_TOPIC_KEYS = frozenset(
-    {"episode_record", "robots_fleet", "tf", "tf_humans"}
+    {"episode_record", "robots_fleet", "tf", "tf_humans", "initialpose"}
 )
 _ENV_TOPIC_KEYS = frozenset(
     {
@@ -105,6 +183,7 @@ _ENV_TOPIC_KEYS = frozenset(
         "tf",
         "tf_humans",
         "tf_static",
+        "initialpose",
     }
 )
 
@@ -122,7 +201,7 @@ class _NodeKwargs(TypedDict, total=False):
 
 
 class _RecorderConfig(TypedDict, total=False):
-    record_frequencies: dict[str, float]
+    record_rates_hz: dict[str, float]
     tf_frames: list[tuple[str, float]]
     optional_topics: list[str]
 
@@ -259,7 +338,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._open_log_file()
 
         self.config = self.read_config()
-        self.freqs = self.config.get("record_frequencies", {"default": 20.0})
+        self.record_rates_hz = self.config.get("record_rates_hz", {})
         self.tf_frames = [
             (re.compile(pattern), float(ms))
             for pattern, ms in self.config.get("tf_frames", [])
@@ -273,13 +352,11 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self.current_time = None
         self._pre_clock_buffer = []
         self._clock_received_count = 0
-        self.last_recorded_times: dict[str, int] = {}
+        self._throttle_gates: dict[str, RateGate] = {}
         self.writer_lock = threading.Lock()
-        # guards the tf merge state against the start_episode service callback group
+        # guards the tf frame-family state against the start_episode service callback group
         self._tf_lock = threading.Lock()
-        self._tf_pending: dict[tuple[str, str], Any] = {}
         self._tf_last_written: dict[tuple[str, str], int] = {}
-        self._tf_last_flush = 0
         self.writer: rosbag2_py.SequentialWriter | None = None
         self.topics_metadata: dict[str, rosbag2_py.TopicMetadata] = {}
         self._topic_registry: dict[str, rosbag2_py.TopicMetadata] = {}
@@ -439,9 +516,8 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._close_current_writer()
 
         with self._tf_lock:
-            self._tf_pending = {}
             self._tf_last_written = {}
-            self._tf_last_flush = 0
+        self._throttle_gates.clear()
 
         ep_name = f"episode_{global_episode_id:03d}"
         buffered = self._pre_clock_buffer
@@ -542,11 +618,13 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             return qos_profile, self.robots_fleet_callback
         if key == "semantic_snapshot":
             return qos_profile, self.semantic_snapshot_callback
+        if key == "initialpose":
+            return qos_profile, self.initialpose_callback
         if key in ("tf", "tf_humans"):
             return self.tf_qos, self._tf_callback
         topic_name = t_def.name_template
         callback = (
-            self._create_throttled_callback(topic_name)
+            self._create_throttled_callback(topic_name, rate_hz=t_def.throttle_rate_hz)
             if t_def.throttled
             else self._create_unthrottled_callback(topic_name)
         )
@@ -595,7 +673,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                 self.latched_topic_names.add(topic_name.strip("/"))
 
             if t_def.throttled:
-                callback = self._create_throttled_callback(topic_name)
+                callback = self._create_throttled_callback(
+                    topic_name, rate_hz=t_def.throttle_rate_hz
+                )
             else:
                 callback = self._create_unthrottled_callback(topic_name)
 
@@ -623,7 +703,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             is_odom = "odom" in name_lower
 
             if is_odom and "nav_msgs/msg/Odometry" in types:
-                self._subscribe_discovered(name, Odometry)
+                self._subscribe_discovered(
+                    name, Odometry, rate_hz=_ODOM_THROTTLE_RATE_HZ
+                )
                 if self.robot_model in ("unknown", ""):
                     for part in reversed(name.split("/")):
                         if (
@@ -667,12 +749,15 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             )
             return
 
-    def _subscribe_discovered(self, topic_name: str, msg_type: type):
+    def _subscribe_discovered(
+        self, topic_name: str, msg_type: type, *, rate_hz: float
+    ) -> None:
+        """Subscribe a discovered topic, throttled at rate_hz."""
         self._register_topic(topic_name, msg_type)
         sub = self.create_subscription(
             msg_type,
             topic_name,
-            self._create_throttled_callback(topic_name),
+            self._create_throttled_callback(topic_name, rate_hz=rate_hz),
             self.qos,
             raw=True,
         )
@@ -691,8 +776,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             self._log_warn(
                 f"Backward time jump detected: {self.current_time} -> {new_time}"
             )
-            self._flush_tf(self.current_time, force=True)
-            self.last_recorded_times.clear()
+            self._throttle_gates.clear()
             with self._tf_lock:
                 self._tf_last_written.clear()
 
@@ -709,8 +793,6 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                     else:
                         self._write_to_bag_at(topic, buffered_msg, self.current_time)
             self._pre_clock_buffer = None
-
-        self._flush_tf(self.current_time)
 
     def _begin_episode(self, episode_id: int, source: str = "episode_record") -> bool:
         """Open a writer for a new episode unless one was already started for it."""
@@ -738,11 +820,6 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                 MetadataWriter.write(self.current_metadata, self.current_metadata_path)
             except Exception as e:
                 self._log_error(f"Failed to write outcome metadata: {e}")
-        if self.current_time is None:
-            with self._tf_lock:
-                self._tf_pending.clear()
-        else:
-            self._flush_tf(self.current_time, force=True)
         self._close_current_writer()
         self._pre_episode_buffer.clear()
 
@@ -806,6 +883,16 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         )
         self._write_to_bag_at(topic, msg, now)
 
+    def initialpose_callback(self, msg: PoseWithCovarianceStamped) -> None:
+        """Record the env-level initial pose under the robot its header frame names, else env-scoped."""
+        topic = initialpose_topic(msg.header.frame_id, self.env_ns_root)
+        self._register_topic(topic, PoseWithCovarianceStamped)
+        if self.current_time is None:
+            if self._pre_clock_buffer is not None:
+                self._pre_clock_buffer.append((topic, msg))
+            return
+        self._write_to_bag_at(topic, msg, self.current_time)
+
     def _records(self, key: str, t_def: TopicDefinition) -> bool:
         """Default topics always, the others only when listed under optional_topics in data_recorder_config.yaml."""
         return t_def.recorded or key in self.config.get("optional_topics", [])
@@ -859,7 +946,10 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._subscribe_recorded_rows(robot_ns)
         ns_prefix = f"/{robot_ns}" if robot_ns else ""
         cmd_vel_topic, odom_topic = self._control_topics(robot_model)
-        for rel, msg_type in ((odom_topic, Odometry), (cmd_vel_topic, TwistStamped)):
+        for rel, msg_type, rate_hz in (
+            (odom_topic, Odometry, _ODOM_THROTTLE_RATE_HZ),
+            (cmd_vel_topic, TwistStamped, DEFAULT_THROTTLE_RATE_HZ),
+        ):
             if rel and "/" in rel:
                 topic = f"{ns_prefix}/{rel}"
                 self._register_topic(topic, msg_type)
@@ -867,7 +957,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                     self.create_subscription(
                         msg_type,
                         topic,
-                        self._create_throttled_callback(topic),
+                        self._create_throttled_callback(topic, rate_hz=rate_hz),
                         self.qos,
                         raw=True,
                     )
@@ -907,17 +997,13 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             return "", ""
         return str(control.get("cmd_vel_topic", "")), str(control.get("odom_topic", ""))
 
-    def _resolve_throttle_ms(self, topic_name: str) -> float:
-        topic_lower = topic_name.lower()
-        for key, ms in self.freqs.items():
-            if key == "default":
-                continue
-            if key.lower() in topic_lower:
-                return float(ms)
-        return float(self.freqs.get("default", 20.0))
-
-    def _create_throttled_callback(self, topic_name: str) -> Callable[[object], None]:
-        throttle_ms = self._resolve_throttle_ms(topic_name)
+    def _create_throttled_callback(
+        self, topic_name: str, *, rate_hz: float = DEFAULT_THROTTLE_RATE_HZ
+    ) -> Callable[[object], None]:
+        """A callback through the topic's rate gate, overridden by record_rates_hz by exact name."""
+        interval_ns = min_interval_ns(
+            resolve_rate_hz(self.record_rates_hz, topic_name, rate_hz)
+        )
 
         def callback(msg: object) -> None:
             if self.current_time is None:
@@ -925,12 +1011,18 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                     self._pre_clock_buffer.append((topic_name, msg))
                 return
             now = self.current_time
-            last_time = self.last_recorded_times.get(topic_name, 0)
-            if (now - last_time) / 1e6 >= throttle_ms:
+            if self._throttle_gate(topic_name, interval_ns).accept(now):
                 self._write_to_bag_at(topic_name, msg, now)
-                self.last_recorded_times[topic_name] = now
 
         return callback
+
+    def _throttle_gate(self, topic_name: str, interval_ns: int) -> RateGate:
+        """The rate gate of a topic, created on its first message after the last reset."""
+        gate = self._throttle_gates.get(topic_name)
+        if gate is None:
+            gate = RateGate(interval_ns)
+            self._throttle_gates[topic_name] = gate
+        return gate
 
     def _create_unthrottled_callback(self, topic_name: str) -> Callable[[object], None]:
         def callback(msg: object) -> None:
@@ -943,39 +1035,42 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         return callback
 
-    def _tf_callback(self, msg: TFMessage):
-        """Merge the per-window transforms of /tf, newest wins per (frame, child) pair."""
+    def _tf_callback(self, msg: TFMessage) -> None:
+        """Write each transform at its header stamp, one TFMessage per stamp, capped per frame pair."""
         if self.current_time is None:
             if self._pre_clock_buffer is not None:
                 self._pre_clock_buffer.append(("/tf", msg))
             return
-        now = self.current_time
+        by_stamp: dict[int, list[TransformStamped]] = {}
         with self._tf_lock:
             for transform in msg.transforms:
-                child = transform.child_frame_id
-                interval_ms = 0.0
-                for pattern, ms in self.tf_frames:
-                    if pattern.search(child):
-                        interval_ms = ms
-                        break
-                key = (transform.header.frame_id, child)
-                if (now - self._tf_last_written.get(key, 0)) / 1e6 >= interval_ms:
-                    self._tf_pending[key] = transform
+                stamp_ns = _stamp_ns(transform.header.stamp)
+                if self._accept_transform(transform, stamp_ns):
+                    by_stamp.setdefault(stamp_ns, []).append(transform)
+        for stamp_ns in sorted(by_stamp):
+            self._write_to_bag_at(
+                "/tf", TFMessage(transforms=by_stamp[stamp_ns]), stamp_ns
+            )
 
-    def _flush_tf(self, now: int, force: bool = False):
-        """Write the merged transforms as one TFMessage. Never called under writer_lock."""
-        window_ms = self._resolve_throttle_ms("/tf")
-        with self._tf_lock:
-            if not self._tf_pending:
-                return
-            if not force and (now - self._tf_last_flush) / 1e6 < window_ms:
-                return
-            taken = self._tf_pending
-            self._tf_pending = {}
-            for key in taken:
-                self._tf_last_written[key] = now
-            self._tf_last_flush = now
-        self._write_to_bag_at("/tf", TFMessage(transforms=list(taken.values())), now)
+    def _accept_transform(self, transform: TransformStamped, stamp_ns: int) -> bool:
+        """Whether the transform passes its family interval, its stamp recorded when it does. Call under _tf_lock."""
+        key = (transform.header.frame_id, transform.child_frame_id)
+        last_ns = self._tf_last_written.get(key)
+        if last_ns is not None and stamp_ns - last_ns < self._tf_interval_ns(
+            transform.child_frame_id
+        ):
+            return False
+        self._tf_last_written[key] = stamp_ns
+        return True
+
+    def _tf_interval_ns(self, child_frame_id: str) -> int:
+        """The tf_frames cap of a child frame, the /tf rate when no family pattern matches."""
+        for pattern, ms in self.tf_frames:
+            if pattern.search(child_frame_id):
+                return math.ceil(float(ms) * _NS_PER_MILLISECOND)
+        return min_interval_ns(
+            resolve_rate_hz(self.record_rates_hz, "/tf", DEFAULT_THROTTLE_RATE_HZ)
+        )
 
     def _log_info(self, msg: str):
         full_msg = f"[DataRecorder] [INFO] {msg}"
@@ -1152,12 +1247,21 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         return mapping.get(val.type, lambda v: str(v))(val)
 
     def read_config(self) -> _RecorderConfig:
+        """The recorder config; a missing file keeps the defaults, a file still carrying record_frequencies is refused."""
         config_path = os.path.join(self.base_dir, "config", "data_recorder_config.yaml")
         try:
             with open(config_path) as f:
-                return yaml.safe_load(f)
-        except Exception:
-            return {"record_frequencies": {"default": 20.0}, "tf_frames": []}
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            return {"record_rates_hz": {}, "tf_frames": []}
+        if "record_frequencies" in config:
+            raise ValueError(
+                "data_recorder_config.yaml still sets record_frequencies, which the recorder no longer reads: "
+                "replace it with record_rates_hz (exact topic name -> rate in Hz, 0 = unthrottled) and rebuild "
+                "arena_evaluation so the installed share copy is refreshed"
+            )
+        config["record_rates_hz"] = _checked_rates(config.get("record_rates_hz") or {})
+        return config
 
     def finalize(self):
         """Close the current episode writer and write final metadata."""

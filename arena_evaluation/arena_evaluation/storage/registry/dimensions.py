@@ -54,12 +54,11 @@ class DimEpisodes(_Dimension, name="dim_episodes", kind=TableKind.DIMENSION):
     world = _optional(pl.String, "World the episode ran in.")
     scenario = _optional(pl.String, "Scenario the episode followed.")
     planner = _optional(pl.String, "Planner the robot ran.")
+    local_planner = _optional(
+        pl.String, "Local planner the episode recorded, from RunMetadata.local_planner."
+    )
     inter_planner = _optional(pl.String, "Inter-planner of the episode.")
     dispatcher = _optional(pl.String, "Dispatcher that assigned the robot.")
-    robot_model = _optional(
-        pl.String,
-        "Robot model as launched; launch provenance, not the per-robot model.",
-    )
     ped_policy_default = _optional(
         pl.String, "Default crowd policy the pedestrians were given."
     )
