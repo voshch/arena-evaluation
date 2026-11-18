@@ -122,3 +122,20 @@ def test_conflicting_descriptor_models_are_refused():
 
     with pytest.raises(ContractViolationError, match="conflicting"):
         robot_params_from_recorded(rows, "jackal")
+
+
+def test_a_robot_without_a_descriptor_row_is_refused():
+    rows = _rows(("robot_radius", "0.43"))
+
+    with pytest.raises(MetricInputError, match="has no descriptor row"):
+        robot_params_from_recorded(rows, "ghost")
+
+
+def test_a_descriptor_row_without_a_model_is_not_a_descriptor():
+    rows = _rows(
+        ("robot_radius", "0.43"),
+        ("robot_mass_kg", "18.4"),
+    ).with_columns(model=pl.lit(None, dtype=pl.String))
+
+    with pytest.raises(MetricInputError, match="has no descriptor row"):
+        robot_params_from_recorded(rows, "jackal")
