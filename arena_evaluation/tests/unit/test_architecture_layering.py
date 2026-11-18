@@ -261,7 +261,9 @@ def test_streams_are_aligned_only_in_the_alignment_module() -> None:
             continue
         violations.append(f"{rel}:{lines}")
 
-    assert not violations, f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
+    assert not violations, (
+        f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
+    )
     assert seen_known == set(_KNOWN_DIRECT_ALIGNMENT_SITES), (
         f"site(s) no longer aligning directly, delete their entry: {set(_KNOWN_DIRECT_ALIGNMENT_SITES) - seen_known}"
     )
@@ -317,7 +319,6 @@ _MCP_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.mcp",
 )
 _MCP_PINNED: dict[tuple[str, str], set[str]] = {
-    ("analysis.py", "arena_evaluation.processing.sensitivity"): {"rerun_sensitivity"},
     ("migration.py", "arena_evaluation.processing.metrics.dictionary"): {
         "metric_dictionary"
     },

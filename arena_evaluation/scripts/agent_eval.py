@@ -68,21 +68,30 @@ def verdict_for(direction: str, ci_low: float, ci_high: float) -> str:
     return "verified" if verified else "refuted"
 
 
+def _planner_value_column(planner: str, summary: dict[str, Any]) -> str:
+    """The derived-comparison column that carries ``planner``'s per-pair values."""
+    planner = _require_identifier(planner, "planner")
+    if planner == str(summary.get("planner_a")):
+        return "value_a"
+    if planner == str(summary.get("planner_b")):
+        return "value_b"
+    raise AssertionError(
+        f"planner {planner!r} is neither {summary.get('planner_a')!r} "
+        f"nor {summary.get('planner_b')!r}"
+    )
+
+
 async def _quoted_planner_mean(
     server: MCPServer,
     run_id: str,
     *,
     derived_table: str,
-    planner: str,
-    metric: str,
+    value_column: str,
     called: list[str],
 ) -> tuple[float, str]:
     """Quote the claim planner's mean from the comparison table and pin it as evidence."""
-    planner = _require_identifier(planner, "planner")
-    metric = _require_identifier(metric, "metric")
-    query = (
-        f"SELECT AVG({metric}) AS val FROM {derived_table} WHERE planner = '{planner}'"
-    )
+    column = _require_identifier(value_column, "value column")
+    query = f"SELECT AVG({column}) AS val FROM {derived_table}"
     result = await _call(
         server,
         "evaluation_query",
@@ -94,17 +103,15 @@ async def _quoted_planner_mean(
 
 
 def _recompute_from_evidence(
-    evidence_rows: list[dict[str, Any]], planner: str, metric: str
+    evidence_rows: list[dict[str, Any]], value_column: str
 ) -> tuple[float, float]:
     """Recompute the planner mean and the pooled mean from the pinned compare frame."""
     frame = pl.DataFrame(evidence_rows)
-    planner_rows = frame.filter(pl.col("planner") == planner)
-    if planner_rows.height == 0:
-        raise AssertionError(f"no evidence rows for planner {planner!r}")
-    return (
-        float(planner_rows[metric].mean()),
-        float(frame[metric].mean()),
-    )
+    if frame.height == 0:
+        raise AssertionError("the pinned compare evidence is empty")
+    values = frame.get_column(value_column)
+    pooled = pl.concat([frame.get_column("value_a"), frame.get_column("value_b")])
+    return float(values.mean()), float(pooled.mean())
 
 
 def _run_analysis_dir(run_id: str) -> pathlib.Path:
@@ -216,12 +223,12 @@ async def evaluate_hypotheses_async(
             )
             derived_table = cmp_res.get("derived_table")
             assert derived_table, f"{hyp['id']}: compare wrote no derived table"
+            value_column = _planner_value_column(str(hyp["planner_a"]), summary)
             quoted, q_ev_id = await _quoted_planner_mean(
                 server,
                 run_id,
                 derived_table=str(derived_table),
-                planner=str(hyp["planner_a"]),
-                metric=str(hyp["metric"]),
+                value_column=value_column,
                 called=called,
             )
             evidence = await _call(
@@ -231,7 +238,7 @@ async def evaluate_hypotheses_async(
                 called=called,
             )
             recomputed, pooled = _recompute_from_evidence(
-                evidence["data"], str(hyp["planner_a"]), str(hyp["metric"])
+                evidence["data"], value_column
             )
             assert abs(recomputed - quoted) <= NUMBER_TOLERANCE, (
                 f"{hyp['id']}: quoted {quoted} != evidence-recomputed {recomputed}"

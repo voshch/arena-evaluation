@@ -36,6 +36,7 @@ from .base import (
     run_path,
 )
 from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
+from arena_evaluation.storage.exceptions import ArenaEvaluationError
 
 _EXPORT_FORMATS = ("svg", "pdf")
 
@@ -272,16 +273,23 @@ def evaluation_report_plot(
         ValueError,
         OSError,
         RuntimeError,
+        ArenaEvaluationError,
         pydantic.ValidationError,
         polars.exceptions.PolarsError,
     ) as exc:
         status = "failed"
         error_message = str(exc)
+        checks_dict = {"issues": [str(exc)]}
 
     if diagnostics is not None:
         checks_dict = dataclasses.asdict(diagnostics)
-        if status == "failed" and diagnostics.issues:
-            error_message = "; ".join(diagnostics.issues)
+        if status == "failed":
+            issues = list(checks_dict.get("issues") or ())
+            if error_message and error_message not in issues:
+                issues.append(error_message)
+            checks_dict["issues"] = issues
+            if issues:
+                error_message = "; ".join(issues)
 
     with file_lock(ddir / "draft.yaml"):
         data = _load_draft(ddir)

@@ -164,7 +164,7 @@ def test_h3_sensitivity_leaves_published_files_byte_identical(
     res = analysis.evaluation_sensitivity(
         run_id="syn_sens",
         episodes=[0, 1],
-        detector_params={"encounter_distance_m": 2.5},
+        detector_params={"encounter_edge_distance_m": 2.5},
     )
     assert res["is_sensitivity"] is True
     assert res["n_rows"] >= 2
@@ -191,6 +191,9 @@ def test_h3_sensitivity_parameter_change_alters_rerun_encounters(
     (ep0 / "topics").mkdir(parents=True, exist_ok=True)
     pl.DataFrame(
         {
+            "run_id": ["synthetic_truth"] * 3,
+            "episode_id": [0, 0, 0],
+            "env_id": ["env_0"] * 3,
             "t_ns": [0, 1_000_000_000, 2_000_000_000],
             "robot_id": ["robot_0", "robot_0", "robot_0"],
             "x": [0.0, 1.0, 2.0],
@@ -219,10 +222,16 @@ def test_h3_sensitivity_parameter_change_alters_rerun_encounters(
     pl.DataFrame(
         [
             {col: None for col in dim_robots_schema.names()}
-            | {"robot_id": "robot_0", "robot_radius": 0.3}
+            | {
+                "run_id": "synthetic_truth",
+                "episode_id": 0,
+                "env_id": "env_0",
+                "robot_id": "robot_0",
+                "robot_radius": 0.3,
+            }
         ],
         schema=dim_robots_schema,
-    ).write_parquet(ep0 / DIMENSION_TABLES["dim_robots"].relative_path())
+    ).write_parquet(run_dir / DIMENSION_TABLES["dim_robots"].relative_path())
 
     cat = BenchmarkCatalog.open(run_dir, variant="sensitivity")
     assert cat.variant == "sensitivity"
@@ -259,6 +268,9 @@ def test_h3_sensitivity_missing_pedestrian_states_returns_null_with_reason(
     (ep0 / "topics").mkdir(parents=True, exist_ok=True)
     pl.DataFrame(
         {
+            "run_id": ["synthetic_truth"] * 2,
+            "episode_id": [0, 0],
+            "env_id": ["env_0"] * 2,
             "t_ns": [0, 1_000_000_000],
             "robot_id": ["robot_0", "robot_0"],
             "x": [0.0, 1.0],
@@ -273,4 +285,4 @@ def test_h3_sensitivity_missing_pedestrian_states_returns_null_with_reason(
     res = analysis.evaluation_sensitivity(run_id="synth_sens_missing_ped", episodes=[0])
     row = res["preview"][0]
     assert row["rerun_n_encounters"] is None
-    assert row["null_reason"] == "telemetry:no_pedestrian_states"
+    assert row["null_reason"] == "topic_missing:pedestrian_arena_peds"

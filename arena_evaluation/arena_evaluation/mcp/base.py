@@ -71,6 +71,7 @@ class EvaluationDomain(Domain):
 
     def install(self, server: MCPServer) -> None:
         """Register evaluation tools with structured output schemas for dicts and BaseModels."""
+        _load_metric_registry()
         for spec in self.tools:
             structured = _is_structured_return(spec.fn)
             raw_result = _returns_call_tool_result(spec.fn)
@@ -90,6 +91,16 @@ class EvaluationDomain(Domain):
             )(resource.fn)
         for prompt in self.prompts:
             server.prompt(name=prompt.name, description=prompt.description)(prompt.fn)
+
+
+def _load_metric_registry() -> None:
+    """Load the shared metric definitions before any fact schema is derived from them.
+
+    Decision X-007 makes ``storage.layout`` the one accepted storage -> processing edge,
+    because a fact schema grows from the shared metric store. Importing it here keeps the
+    registry populated in an MCP-only process, where no pipeline import triggers it.
+    """
+    from arena_evaluation.storage import layout as _layout  # noqa: F401
 
 
 domain = EvaluationDomain(

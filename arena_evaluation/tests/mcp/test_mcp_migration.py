@@ -122,10 +122,43 @@ def _legacy_file(tmp_path: pathlib.Path) -> pathlib.Path:
 def test_migrate_manifest_refuses_with_a_hint_when_the_converter_is_absent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
-    """Until the L4 converter ships, the tool must refuse loudly instead of inventing a migration."""
-    monkeypatch.delitem(sys.modules, _CONVERTER, raising=False)
+    """Without the merged L4 converter the tool refuses loudly instead of inventing a migration."""
+    monkeypatch.setitem(sys.modules, _CONVERTER, None)
     with pytest.raises(ToolError, match="legacy manifest converter"):
         migration.evaluation_migrate_manifest(str(_legacy_file(tmp_path)))
+
+
+def test_migrate_manifest_runs_the_merged_converter_on_the_legacy_social_manifest(
+    run_dir: pathlib.Path,
+) -> None:
+    """On the merged tree the real converter migrates the old social manifest, dry run and write."""
+    source = (
+        pathlib.Path(__file__).parents[1]
+        / "unit"
+        / "fixtures"
+        / "legacy"
+        / "social.yaml"
+    )
+
+    dry = migration.evaluation_migrate_manifest(str(source), dry_run=True)
+
+    assert dry["summary"]["total"] == 31
+    assert dry["summary"]["converted"] > 0
+    assert (
+        dry["summary"]["converted"] + dry["summary"]["dropped"] + dry["summary"]["todo"]
+        == 31
+    )
+    assert len(dry["migration_report"]["plots"]) == 31
+    assert dry["written"] is None
+
+    written = migration.evaluation_migrate_manifest(
+        str(source), target="social_legacy", run_id=run_dir.name, dry_run=False
+    )
+
+    report = pathlib.Path(written["written"]["report"])
+    assert report.is_file()
+    assert "name: social_legacy" in report.read_text(encoding="utf-8")
+    assert pathlib.Path(written["written"]["migration_report"]).is_file()
 
 
 def test_migrate_manifest_dry_run_returns_skeleton_and_report_without_writing(

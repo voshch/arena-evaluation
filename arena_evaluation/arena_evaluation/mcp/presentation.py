@@ -19,6 +19,7 @@ from arena_mcp.core import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
+from arena_evaluation.storage.exceptions import ArenaEvaluationError
 from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
@@ -299,6 +300,7 @@ def evaluation_render_plot(
         ValueError,
         OSError,
         RuntimeError,
+        ArenaEvaluationError,
         polars.exceptions.PolarsError,
     ) as exc:
         raise ToolError(
@@ -365,6 +367,7 @@ def evaluation_render_plot(
             ValueError,
             KeyError,
             RuntimeError,
+            ArenaEvaluationError,
             polars.exceptions.PolarsError,
         ) as exc:
             raise ToolError(

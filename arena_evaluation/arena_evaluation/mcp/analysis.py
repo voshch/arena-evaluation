@@ -7,6 +7,7 @@ from arena_mcp.core import ToolError
 from arena_mcp.core.msgs import jsonable
 
 from arena_evaluation.analytics.computations import run_computation
+from arena_evaluation.benchmark.sensitivity import rerun_sensitivity
 
 from .base import (
     OptionalRunId,
@@ -762,8 +763,6 @@ def evaluation_analysis(
 
 def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -> Any:
     """Rerun sensitivity telemetry from persisted evidence parameters."""
-    from arena_evaluation.processing.sensitivity import rerun_sensitivity
-
     raw_episodes = params.get("episodes")
     episodes = (
         [int(e) for e in raw_episodes] if isinstance(raw_episodes, list) else None
@@ -792,7 +791,6 @@ def evaluation_sensitivity(
     """Run an in-memory detector-level sensitivity rerun over telemetry; it writes no variant and no published file."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
     from arena_evaluation.analytics.evidence import EvidenceStore
-    from arena_evaluation.processing.sensitivity import rerun_sensitivity
 
     path = run_path(run_id)
     catalog = BenchmarkCatalog.open(path, variant="sensitivity")
