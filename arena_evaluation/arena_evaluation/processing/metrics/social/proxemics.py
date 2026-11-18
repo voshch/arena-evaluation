@@ -14,6 +14,7 @@ from typing import Final
 import numpy as np
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesProxemics
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.social.interaction_common import native_robot_frame
 from arena_evaluation.processing.pedestrian_frames import distances_to_pedestrians
@@ -25,16 +26,7 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 INTIMATE_CLEARANCE_M: Final[float] = 0.45
 PERSONAL_CLEARANCE_M: Final[float] = 1.20
 
-PERSONAL_SPACE_SERIES_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {
-        "run_id": pl.String,
-        "episode_id": pl.Int64,
-        "robot_id": pl.String,
-        "t_ns": pl.Int64,
-        "time_s": pl.Float64,
-        "peds_in_personal_space": pl.Int64,
-    }
-)
+PERSONAL_SPACE_SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemics.polars_schema()
 
 NUM_PEDESTRIANS = define_metric("num_pedestrians", pl.Int64, scopes=(MetricScope.EPISODE, MetricScope.ENCOUNTER), unit="", description="Pedestrians that took part in the episode or encounter window.", null_reason=True)
 TOTAL_TIME_IN_PERSONAL_SPACE = define_metric("total_time_in_personal_space", pl.Float64, scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER), unit="s", description="Seconds whose robot sample had at least one pedestrian inside 1.20 m edge clearance.", null_reason=True)

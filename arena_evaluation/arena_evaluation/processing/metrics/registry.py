@@ -42,6 +42,18 @@ def _leaf_calculator_classes(root: type[BaseMetricCalculator]) -> list[type[Base
     return leaves
 
 
+def scope_producers(calculators: Iterable[type[BaseMetricCalculator] | BaseMetricCalculator]) -> dict[tuple[str, MetricScope], str]:
+    """The calculator publishing each metric at each scope; two calculators publishing one pair are refused."""
+    producers: dict[tuple[str, MetricScope], str] = {}
+    for calc in calculators:
+        for metric in calc.OUTPUTS:
+            for scope in calc.scopes_of_output(metric):
+                owner = producers.setdefault((metric.name, scope), calc.NAME)
+                if owner != calc.NAME:
+                    raise SchemaViolationError(f"{metric.name!r} at {scope} is produced by both {owner} and {calc.NAME}")
+    return producers
+
+
 def _topic_row_count(table: pl.DataFrame | pl.LazyFrame | None) -> int:
     """Row count of a materialized or lazy topic table, 0 when None."""
     if table is None:
@@ -102,8 +114,7 @@ class MetricRegistry:
         self.execution_stages_by_scope: dict[MetricScope, list[list[str]]] = {scope: [] for scope in MetricScope}
         self.execution_stages: list[list[str]] = []
         if calculators is None:
-            self.discover_calculators_cls()
-            calculators = _leaf_calculator_classes(BaseMetricCalculator)
+            calculators = shipped_calculators()
         self._register_calculators(calculators)
         self._check_single_producer()
         for name, calc in self.calculators.items():
@@ -143,13 +154,7 @@ class MetricRegistry:
 
     def _check_single_producer(self) -> None:
         """Refuse two calculators publishing the same metric at the same scope."""
-        producers: dict[tuple[str, MetricScope], str] = {}
-        for calc in self.calculators.values():
-            for metric in calc.OUTPUTS:
-                for scope in calc.scopes_of_output(metric):
-                    owner = producers.setdefault((metric.name, scope), calc.NAME)
-                    if owner != calc.NAME:
-                        raise SchemaViolationError(f"{metric.name!r} at {scope} is produced by both {owner} and {calc.NAME}")
+        scope_producers(self.calculators.values())
 
     def register(self, calculator: type[BaseMetricCalculator] | BaseMetricCalculator) -> None:
         """Register a calculator class or instance across all of its effective scopes."""
@@ -360,6 +365,12 @@ class MetricRegistry:
             progress_callback=progress_callback,
         )
         return outcome.results
+
+
+def shipped_calculators() -> list[type[BaseMetricCalculator]]:
+    """Every concrete calculator class of the metrics package, found by importing the package's modules."""
+    MetricRegistry.discover_calculators_cls()
+    return _leaf_calculator_classes(BaseMetricCalculator)
 
 
 @functools.cache

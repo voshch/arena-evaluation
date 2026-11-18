@@ -172,6 +172,21 @@ class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIM
     initial_state = _optional(pl.String, "State the entity starts in.")
 
 
+class DimMetrics(_Dimension, name="dim_metrics", kind=TableKind.DIMENSION):
+    """The metric dictionary: one row per metric and scope, written by the metric layer and never from an episode."""
+
+    key = ("metric", "scope")
+
+    metric = _key(pl.String, "Name of the metric, which is also the name of its column in its fact table.")
+    scope = _key(pl.String, "Evaluation scope the metric is stored at: episodes, encounters, contacts, pedestrians or robots.")
+    fact_table = Column(pl.String, required=True, description="Fact table that stores the metric at this scope, for example fact_robots.")
+    dtype = Column(pl.String, required=True, description="Polars type of the metric's column: Float64, Int64, Boolean or String.")
+    unit = _optional(pl.String, "Unit of the metric's values; NULL for a count, a flag or a label.")
+    description = Column(pl.String, required=True, description="What the metric measures.")
+    direction = _optional(pl.String, "Better side of the metric, higher or lower; NULL when neither side is better.")
+    producer = Column(pl.String, required=True, description="Calculator that publishes the metric at this scope.")
+
+
 DIMENSION_TABLES: Final[dict[str, type[Table]]] = {
     table.table_name: table for table in registered_tables() if table.table_kind is TableKind.DIMENSION
 }

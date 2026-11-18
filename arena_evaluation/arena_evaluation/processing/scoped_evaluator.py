@@ -53,6 +53,7 @@ from arena_evaluation.storage.registry import (
     NullReason,
     defined_metrics,
 )
+from arena_evaluation.storage.registry.series import SERIES_TABLES
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 EVALUATOR_VERSION: Final[str] = "wp2-scoped-evaluator-v2"
@@ -134,13 +135,23 @@ def write_fact_tables(tables: ScopedFactTables, metrics_dir: pathlib.Path) -> No
         _conformed(named[member.value], table).write_parquet(metrics_dir / table.file_name(), compression="zstd")
 
 
+def write_series_tables(series: Mapping[str, pl.DataFrame], metrics_dir: pathlib.Path) -> None:
+    """Write the series frames of one episode, keyed by stem, each conformed to its registry declaration; an undeclared stem is refused."""
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    for stem, frame in series.items():
+        table = SERIES_TABLES.get(stem)
+        if table is None:
+            raise ContractViolationError(f"series {stem!r} is not declared in the registry")
+        _conformed(frame, table).write_parquet(metrics_dir / table.file_name(), compression="zstd")
+
+
 def _conformed(frame: pl.DataFrame, table: type) -> pl.DataFrame:
     """The frame in the registry table's column order and dtypes; a missing or undeclared column is refused."""
     schema = table.polars_schema()
     missing = [name for name in schema.names() if name not in frame.columns]
     undeclared = [name for name in frame.columns if name not in schema]
     if missing or undeclared:
-        raise ContractViolationError(f"{table.table_name}: fact frame does not match its declaration (missing {missing}, undeclared {undeclared})")
+        raise ContractViolationError(f"{table.table_name}: frame does not match its declaration (missing {missing}, undeclared {undeclared})")
     return frame.select([pl.col(name).cast(dtype) for name, dtype in schema.items()])
 
 

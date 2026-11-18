@@ -15,6 +15,7 @@ from typing import Final
 
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesGaze
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, ScopeSlice
 from arena_evaluation.processing.metrics.social.interaction_common import native_robot_frame
 from arena_evaluation.processing.pedestrian_frames import pedestrians_at
@@ -40,17 +41,7 @@ ROBOT_SAMPLE_SCHEMA: Final[pl.Schema] = pl.Schema(
     }
 )
 
-SERIES_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {
-        "run_id": pl.String,
-        "episode_id": pl.Int64,
-        "robot_id": pl.String,
-        "t_ns": pl.Int64,
-        "time_s": pl.Float64,
-        "looking_at_peds": pl.Int64,
-        "looked_at_by_peds": pl.Int64,
-    }
-)
+SERIES_SCHEMA: Final[pl.Schema] = SeriesGaze.polars_schema()
 
 TOTAL_TIME_LOOKING_AT_PEDESTRIANS = define_metric("total_time_looking_at_pedestrians", pl.Float64, scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER), unit="s", description="Seconds of robot time whose 5 degree gaze cone contained at least one pedestrian.", null_reason=True)
 TOTAL_TIME_LOOKED_AT_BY_PEDESTRIANS = define_metric("total_time_looked_at_by_pedestrians", pl.Float64, scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER), unit="s", description="Seconds of robot time at which at least one pedestrian's 5 degree gaze cone contained the robot.", null_reason=True)

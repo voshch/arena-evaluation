@@ -12,6 +12,7 @@ import typing
 
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesPedestrianPathMetrics
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
@@ -21,22 +22,7 @@ SERIES_TABLE_STEM = "pedestrian_path"
 SERIES_KEY = ("t_ns", "ped_id")
 SERIES_REQUIRED_TOPICS = ("pedestrian_tracks",)
 
-# One row per (episode, pedestrian, frame); no list or struct columns.
-SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "time_s": pl.Float64,
-    "ped_id": pl.String,
-    "x_m": pl.Float64,
-    "y_m": pl.Float64,
-    "z_m": pl.Float64,
-    "yaw_rad": pl.Float64,
-    "vx_mps": pl.Float64,
-    "vy_mps": pl.Float64,
-    "speed_mps": pl.Float64,
-}
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPedestrianPathMetrics.polars_schema()
 
 _REQUIRED_TRACK_COLUMNS: typing.Final[frozenset[str]] = frozenset({"t_ns", "ped_id", "x", "y"})
 

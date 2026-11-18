@@ -16,6 +16,7 @@ from typing import Final
 
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesProxemicsExtended
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS
 from arena_evaluation.processing.metrics.social.proxemics import (
@@ -42,16 +43,7 @@ TTI_MIN_REL_SPEED_MPS: Final[float] = 0.05
 ZONE_EVENT_MERGE_GAP_NS: Final[int] = 2 * 10**9
 ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social", "public")
 
-SERIES_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {
-        "run_id": pl.String,
-        "episode_id": pl.Int64,
-        "robot_id": pl.String,
-        "t_ns": pl.Int64,
-        "time_s": pl.Float64,
-        "min_ped_clearance_m": pl.Float64,
-    }
-)
+SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemicsExtended.polars_schema()
 
 ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
 

@@ -47,8 +47,11 @@ The benchmark step reads each episode's metadata YAML and its `topics/` bundles,
 | `dim_robots` | robot of an environment | `run_id`, `episode_id`, `env_id`, `robot_id` |
 | `dim_pedestrians` | pedestrian of an environment | `run_id`, `episode_id`, `env_id`, `ped_id` |
 | `dim_world_entities` | world entity of an environment | `run_id`, `episode_id`, `env_id`, `entity_name` |
+| `dim_metrics` | metric and scope | `metric`, `scope` |
 
 Pedestrians and world entities are read once per environment, not once per robot. Every NULL carries its reason in `null_reason`.
+
+`dim_metrics` is the metric dictionary: the fact table, dtype, unit, description, direction and producing calculator of every metric at every scope it is stored at. The pipeline adds it from the metric declarations (`metrics/dictionary.py`), not from the episodes, and it holds no metric value.
 
 ## Telemetry
 

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesCharacterization
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -131,33 +132,7 @@ def _leq_power(level_dba: pl.Series | pl.Expr) -> pl.Series | pl.Expr:
     return 10.0 ** (level_dba / 10.0)
 
 
-# One row per (episode, robot, sample) of the characterization run; no list or struct columns.
-SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "time_s": pl.Float64,
-    "power_total_w": pl.Float64,
-    "power_mech_w": pl.Float64,
-    "dba": pl.Float64,
-    "vx_achieved_mps": pl.Float64,
-    "vy_achieved_mps": pl.Float64,
-    "wz_achieved_radps": pl.Float64,
-    "speed_achieved_mps": pl.Float64,
-    "accel_achieved_mps2": pl.Float64,
-    "accel_target_mps2": pl.Float64,
-    "efficiency": pl.Float64,
-    "phase_kind": pl.String,
-    "vx_target_mps": pl.Float64,
-    "vy_target_mps": pl.Float64,
-    "wz_target_radps": pl.Float64,
-    "speed_target_mps": pl.Float64,
-    "turn_radius_m": pl.Float64,
-    "energy_intensity_j_m": pl.Float64,
-    "energy_per_rad_j_rad": pl.Float64,
-    "leq_power_w": pl.Float64,
-}
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesCharacterization.polars_schema()
 
 
 class CharacterizationCalculator(BaseMetricCalculator):

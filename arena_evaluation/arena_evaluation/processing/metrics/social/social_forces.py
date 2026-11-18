@@ -14,6 +14,7 @@ from typing import Final
 
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesSocialForces
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS
 from arena_evaluation.processing.pedestrian_frames import FrameGeometry, frame_geometry
@@ -32,17 +33,7 @@ CI_SIGMA_SIDE_M: Final[float] = 0.5
 CI_SIGMA_X_M: Final[float] = 0.28
 CI_SIGMA_Y_M: Final[float] = 0.28
 
-SERIES_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {
-        "run_id": pl.String,
-        "episode_id": pl.Int64,
-        "robot_id": pl.String,
-        "t_ns": pl.Int64,
-        "time_s": pl.Float64,
-        "sfm_force_n": pl.Float64,
-        "ci": pl.Float64,
-    }
-)
+SERIES_SCHEMA: Final[pl.Schema] = SeriesSocialForces.polars_schema()
 
 FORCE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
 

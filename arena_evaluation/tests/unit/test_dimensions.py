@@ -5,11 +5,13 @@ import pathlib
 
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
+from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.storage.contracts import enforce_dimension_contract
 from arena_evaluation.storage.exceptions import ContractViolationError
-from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
+from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES, DimMetrics
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 from arena_evaluation.storage.star_schema import stack, write_benchmark_dimensions
 
@@ -174,6 +176,22 @@ def test_extracting_a_benchmark_writes_its_dimensions_once_at_the_root(tmp_path:
     assert stored["dim_episodes"].height == 1
     assert stored["dim_episodes"]["env_id"].to_list() == ["env_0"]
     assert stored["dim_episodes"]["pose_source"].to_list() == ["absent"]
+
+
+def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimensions(tmp_path: pathlib.Path):
+    pytest.importorskip("mcap_ros2.writer")
+    from test_pipeline_extract_cache import _episode
+
+    from arena_evaluation.storage.manifest import MetadataWriter
+
+    pipeline, episode, _ = _episode(tmp_path)
+    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    pipeline.extract_benchmark("bench")
+
+    assert (tmp_path / "bench" / "dim_metrics.parquet").is_file()
+    stored = DimMetrics.scan(tmp_path / "bench").collect()
+    assert stored.schema == DimMetrics.polars_schema()
+    assert_frame_equal(stored, metric_dictionary())
 
 
 def test_an_episode_without_a_recording_warns_and_the_benchmark_still_writes_its_dimensions(

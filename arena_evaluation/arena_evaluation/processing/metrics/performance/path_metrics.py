@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesPathMetrics
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -24,24 +25,7 @@ MIN_CURVATURE_POINTS: typing.Final[int] = 3
 
 SERIES_TABLE_STEM = "path"
 
-# One row per (episode, robot, sample) of the teleport-free trajectory; no list or struct columns.
-SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "time_s": pl.Float64,
-    "x_m": pl.Float64,
-    "y_m": pl.Float64,
-    "yaw_rad": pl.Float64,
-    "odom_x_m": pl.Float64,
-    "odom_y_m": pl.Float64,
-    "odom_yaw_rad": pl.Float64,
-    "step_length_m": pl.Float64,
-    "curvature_inv_m": pl.Float64,
-    "normalized_curvature": pl.Float64,
-    "roughness": pl.Float64,
-}
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPathMetrics.polars_schema()
 
 _GEOMETRY_KEYS: typing.Final[tuple[str, ...]] = (
     "path_length_m",

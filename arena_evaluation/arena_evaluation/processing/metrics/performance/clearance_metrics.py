@@ -5,6 +5,7 @@ import typing
 import numpy as np
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesClearance
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
 from arena_evaluation.processing.metrics.common.series import null_float_series
@@ -15,15 +16,7 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _RANGE_EPSILON_M: typing.Final[float] = 1e-6
 
-SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "obstacle_clearance_m": pl.Float64,
-    "pedestrian_clearance_m": pl.Float64,
-    "combined_clearance_m": pl.Float64,
-}
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesClearance.polars_schema()
 
 MEAN_OBSTACLE_CLEARANCE = define_metric("mean_obstacle_clearance", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Mean edge-to-edge clearance to the nearest detected obstacle over the scope window.", null_reason=True)
 MEAN_PEDESTRIAN_CLEARANCE = define_metric("mean_pedestrian_clearance", pl.Float64, scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT), unit="m", description="Mean edge-to-edge clearance to the nearest pedestrian over the scope window, both recorded radii subtracted.", null_reason=True)

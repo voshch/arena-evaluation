@@ -14,6 +14,7 @@ from typing import Final
 import numpy as np
 import polars as pl
 
+from arena_evaluation.storage.registry.series import SeriesHhiContact
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.social.interaction_common import (
     ROBOT_TRACKS_TOPIC,
@@ -37,17 +38,7 @@ POST_S: Final[float] = 5.0
 
 WINDOWS: Final[tuple[str, ...]] = ("approach", "hold", "post", "rest")
 
-STALL_SERIES_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {
-        "run_id": pl.String,
-        "episode_id": pl.Int64,
-        "robot_id": pl.String,
-        "t_ns": pl.Int64,
-        "onset_s": pl.Float64,
-        "duration_s": pl.Float64,
-        "window": pl.String,
-    }
-)
+STALL_SERIES_SCHEMA: Final[pl.Schema] = SeriesHhiContact.polars_schema()
 
 HHI_INTERACTION = define_metric("hhi_interaction", pl.String, scopes=(MetricScope.CONTACT,), unit="", description="First two-person contact type of the contact window: hug or shake_hand.", null_reason=True)
 HHI_HOLD_ONSET_S = define_metric("hhi_hold_onset_s", pl.Float64, scopes=(MetricScope.CONTACT,), unit="s", description="Seconds from the contact window's start to the pair's hold onset.", null_reason=True)

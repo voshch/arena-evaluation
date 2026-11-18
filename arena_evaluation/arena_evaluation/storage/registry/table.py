@@ -31,6 +31,8 @@ __all__ = [
 TIME_COLUMN: Final[str] = "t_ns"
 NULL_REASON_COLUMN: Final[str] = "null_reason"
 DIMENSION_PREFIX: Final[str] = "dim_"
+SERIES_PREFIX: Final[str] = "series_"
+_SERIES_NAME: Final[re.Pattern[str]] = re.compile(r"series_[a-z][a-z0-9_]*")
 GLOBAL_TELEMETRY_NAMES: Final[frozenset[str]] = frozenset(
     {"tf", "tf_static", "world_semantics"}
 )
@@ -52,14 +54,22 @@ _ARROW_TYPES: Final[dict[type[pl.DataType], pa.DataType]] = {
     pl.String: pa.string(),
 }
 _REGISTERED: list[type[Table]] = []
+_TABLE_ATTRIBUTES: Final[frozenset[str]] = frozenset(
+    {"table_name", "table_kind", "table_scope", "key", "unique_key", "required_by_default", "_columns"}
+)
 
 
 class TableKind(StrEnum):
-    """Recorded telemetry, a benchmark dimension, or a per-episode fact table."""
+    """Recorded telemetry, a benchmark dimension, a per-episode fact table, or a per-episode series."""
 
     TELEMETRY = "telemetry"
     DIMENSION = "dimension"
     FACT = "fact"
+    SERIES = "series"
+
+
+#: The kinds whose tables end with a null_reason column; telemetry and series hold measured samples without one.
+_KINDS_WITH_NULL_REASON: Final[frozenset[TableKind]] = frozenset({TableKind.FACT, TableKind.DIMENSION})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -211,6 +221,7 @@ class Table:
         **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
+        _refuse_table_attribute_columns(cls)
         if abstract:
             return
         if kind is None:
@@ -219,7 +230,7 @@ class Table:
         cls.table_kind = kind
         cls.table_scope = scope
         cls._columns = _collect_columns(cls)
-        if cls.table_kind is not TableKind.TELEMETRY and NULL_REASON_COLUMN not in cls._columns:
+        if cls.table_kind in _KINDS_WITH_NULL_REASON and NULL_REASON_COLUMN not in cls._columns:
             cls._columns[NULL_REASON_COLUMN] = NULL_REASON
         _validate(cls)
         _REGISTERED.append(cls)
@@ -276,7 +287,7 @@ class Table:
         match cls.table_kind:
             case TableKind.TELEMETRY:
                 return pathlib.PurePosixPath("topics", cls.file_name())
-            case TableKind.FACT:
+            case TableKind.FACT | TableKind.SERIES:
                 return pathlib.PurePosixPath("metrics", cls.file_name())
             case TableKind.DIMENSION:
                 return pathlib.PurePosixPath(cls.file_name())
@@ -309,6 +320,13 @@ def registered_tables() -> tuple[type[Table], ...]:
     return tuple(_REGISTERED)
 
 
+def _refuse_table_attribute_columns(table: type[Table]) -> None:
+    """Refuse a column named like a table attribute: the class assignment would overwrite it and the column would vanish."""
+    shadowing = sorted(name for name, value in vars(table).items() if isinstance(value, Column) and name in _TABLE_ATTRIBUTES)
+    if shadowing:
+        raise SchemaViolationError(f"{table.__name__}: column(s) {shadowing} take the name of a table attribute")
+
+
 def _collect_columns(table: type[Table]) -> dict[str, Column]:
     """The columns of a table and its bases, base columns first; a name declared twice is refused."""
     columns: dict[str, Column] = {}
@@ -332,6 +350,9 @@ def _validate(table: type[Table]) -> None:
     _validate_no_metric_declarations(table)
     if table.table_kind is TableKind.TELEMETRY:
         _validate_time_column(table)
+    elif table.table_kind is TableKind.SERIES:
+        _validate_time_column(table)
+        _validate_documentation(table)
     else:
         _validate_documentation(table)
 
@@ -362,6 +383,10 @@ def _validate_name(table: type[Table]) -> None:
     }:
         raise SchemaViolationError(
             f"misnamed table {name!r}: a fact table carries the name of a FactTable member"
+        )
+    if table.table_kind is TableKind.SERIES and not _SERIES_NAME.fullmatch(name):
+        raise SchemaViolationError(
+            f"misnamed table {name!r}: series names carry the {SERIES_PREFIX} prefix and a stem"
         )
 
 

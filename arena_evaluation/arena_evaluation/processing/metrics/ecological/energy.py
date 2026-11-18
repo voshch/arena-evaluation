@@ -17,6 +17,7 @@ import numpy as np
 import polars as pl
 import yaml
 
+from arena_evaluation.storage.registry.series import SeriesEnergy
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_values
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -30,19 +31,7 @@ MIN_PATH_LENGTH_M: Final[float] = 0.1
 MIN_MEAN_POWER_W: Final[float] = 0.01
 GRAVITY_MPS2: Final[float] = 9.81
 
-SERIES_SCHEMA: Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "time_s": pl.Float64,
-    "power_total_w": pl.Float64,
-    "power_static_w": pl.Float64,
-    "power_mechanical_w": pl.Float64,
-    "power_thermal_w": pl.Float64,
-    "battery_soc_pct": pl.Float64,
-    "velocity_linear_mps": pl.Float64,
-}
+SERIES_SCHEMA: Final[pl.Schema] = SeriesEnergy.polars_schema()
 
 ENERGY_STATIC_WH = define_metric("energy_static_wh", pl.Float64, scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER), unit="Wh", description="Static (idle) electrical energy drawn over the scope.", null_reason=True)
 ENERGY_MECHANICAL_WH = define_metric("energy_mechanical_wh", pl.Float64, scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER), unit="Wh", description="Mechanical energy delivered to the drivetrain over the scope: the episode at robot scope, the window at encounter scope.", null_reason=True)

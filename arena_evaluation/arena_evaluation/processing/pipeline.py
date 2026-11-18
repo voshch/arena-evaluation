@@ -23,9 +23,10 @@ if typing.TYPE_CHECKING:
     from arena_evaluation.processing.scoped_evaluator import ScopedFactTables
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
-from arena_evaluation.processing.scoped_evaluator import write_fact_tables
+from arena_evaluation.processing.scoped_evaluator import write_fact_tables, write_series_tables
 from arena_evaluation.processing.mcap_reader import MCAPReader, load_bundles
 from arena_evaluation.processing.metrics.common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_join
+from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.processing.metrics.social.interaction_common import PEDESTRIAN_PHYSICS_TOPIC, PEDESTRIAN_TRACKS_TOPIC
 from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.processing.pose_anchor import pose_frame, resolve_pose_source
@@ -36,6 +37,7 @@ from arena_evaluation.storage.exceptions import ContractViolationError, MetricIn
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.registry import FactTable
+from arena_evaluation.storage.registry.dimensions import DimMetrics
 from arena_evaluation.storage.schemas import (
     AlignedEpisodeBundle,
     EpisodeDescriptor,
@@ -868,8 +870,7 @@ class ProcessingPipeline:
             """Fold the scoped fact tables into the evaluation and publish its series tables."""
             metrics_dir = episode_dir / "metrics"
             metrics_dir.mkdir(parents=True, exist_ok=True)
-            for stem, frame in _merge_series_frames(series or []).items():
-                frame.write_parquet(metrics_dir / f"series_{stem}.parquet")
+            write_series_tables(_merge_series_frames(series or []), metrics_dir)
             return EpisodeEvaluation(
                 episode_id=ep.episode_id,
                 rows=rows,
@@ -1061,7 +1062,7 @@ class ProcessingPipeline:
         self._write_benchmark_dimensions(benchmark_id, episodes)
 
     def _write_benchmark_dimensions(self, benchmark_id: str, episodes: list[EpisodeDescriptor]) -> None:
-        """Stack the dimension rows of every extracted episode and write each dimension once at the benchmark root."""
+        """Stack the dimension rows of every extracted episode, add the metric dictionary, and write each dimension once at the benchmark root."""
         contributions = []
         for ep in episodes:
             episode_dir = pathlib.Path(ep.episode_dir)
@@ -1073,6 +1074,7 @@ class ProcessingPipeline:
             bundles = load_bundles(topics, {})
             contributions.append(episode_dimensions(run_id=benchmark_id, episode_id=ep.episode_id, metadata=metadata, bundles=bundles))
         dimensions = stack(contributions)
+        dimensions[DimMetrics.table_name] = metric_dictionary()
         enforce_dimension_contract(dimensions)
         write_benchmark_dimensions(dimensions, self.folder_manager.benchmark_dir(benchmark_id))
 

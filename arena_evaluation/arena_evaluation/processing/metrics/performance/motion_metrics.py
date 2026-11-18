@@ -24,6 +24,7 @@ import numpy as np
 import polars as pl
 from scipy.signal import savgol_filter
 
+from arena_evaluation.storage.registry.series import SeriesMotionMetrics
 from arena_evaluation.processing.metrics.common.alignment import interpolate_values
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction, ScopeSlice
@@ -42,17 +43,7 @@ SMOOTHING_POLYORDER: Final[int] = 2
 KINEMATICS_GRID_HZ: Final[float] = 20.0
 MIN_SMOOTHING_SAMPLES: Final[int] = 5
 
-# One row per (episode, robot, sample) of the ground-truth kinematics; no list or struct columns.
-SERIES_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
-    "run_id": pl.String,
-    "episode_id": pl.Int64,
-    "robot_id": pl.String,
-    "t_ns": pl.Int64,
-    "time_s": pl.Float64,
-    "speed_mps": pl.Float64,
-    "acceleration_mps2": pl.Float64,
-    "jerk_mps3": pl.Float64,
-}
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesMotionMetrics.polars_schema()
 
 _EPISODE_KEYS: Final[tuple[str, ...]] = (
     "mean_velocity_mps",

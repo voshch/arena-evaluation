@@ -878,6 +878,29 @@ def test_every_robot_in_the_episode_gets_its_own_encounters(tmp_path: pathlib.Pa
     assert jackal_1.get_column("edge_case_pet_s").to_list() == [None, None]
 
 
+def test_every_published_series_is_read_back_with_its_declared_class_and_a_unique_key(tmp_path: pathlib.Path) -> None:
+    from arena_evaluation.storage.registry.series import SERIES_TABLES
+
+    run_dir = tmp_path / "run"
+    world = _world(run_dir, provenance=CASE)
+    descriptor = _record_case_episode(
+        run_dir,
+        world,
+        peds={"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)], "passerby": _standing(2.0, 0.0)},
+        robots={"env_0_jackal_0": ([i / 10 for i in range(101)], [0.0] * 101, 1.0), "env_0_jackal_1": ([2.0] * 101, [1.0] * 101, 0.0)},
+        contacts=_edge_contact("env_0_jackal_0"),
+    )
+    evaluation = ProcessingPipeline(FolderManager(data_root=tmp_path), workers=1).evaluate_episode(descriptor)
+    stored = sorted(evaluation.metrics_dir.glob("series_*.parquet"))
+
+    assert {path.stem.removeprefix("series_") for path in stored} >= {"motion_metrics", "path_metrics", "gaze"}
+    for path in stored:
+        table = SERIES_TABLES[path.stem.removeprefix("series_")]
+        frame = pl.read_parquet(path)
+        assert frame.schema == table.polars_schema()
+        assert not frame.select(list(table.key)).is_duplicated().any()
+
+
 def test_encounters_and_contacts_score_only_the_case_agent_they_name(tmp_path: pathlib.Path) -> None:
     world = _world(tmp_path, provenance=CASE)
     episode = _episode(tmp_path, world, _run(world), {"edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)], "passerby": _standing(2.0, 0.0)})
