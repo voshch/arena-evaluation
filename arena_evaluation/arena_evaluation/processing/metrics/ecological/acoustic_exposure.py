@@ -1,243 +1,470 @@
+"""Barrier-aware pedestrian acoustic exposure and encounter sound dose."""
+
 from __future__ import annotations
 
+import dataclasses
 import logging
-import pathlib
 import typing
+from typing import Final
 
 import numpy as np
 import polars as pl
-from PIL import Image
 
 from arena_evaluation.processing.acoustics.door_map import (
     _entity_matches_door,
+    barrier_door_tl,
     build_pixel_tl,
-    door_segments,
+    load_barrier_map,
 )
 from arena_evaluation.processing.acoustics.door_state import DoorStateTimeline
 from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
-from arena_evaluation.processing.map_registry import MapRegistry
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.characterization import _ACOUSTIC_DEFAULTS
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.base import (
+    BaseMetricCalculator,
+    Direction,
+    ScopeSlice,
+)
+from arena_evaluation.processing.metrics.common.alignment import (
+    TRACK_ALIGN_TOLERANCE_NS,
+    asof_index,
+    asof_values,
+)
+from arena_evaluation.storage.exceptions import MetricInputError
+from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 logger = logging.getLogger(__name__)
 
+POSITION_EVALUATION_THRESHOLD_M: Final[float] = 0.5
+WALL_TRANSMISSION_LOSS_DB: Final[float] = 47.0
+MIC_DISTANCE_M: Final[float] = 1.0
+NANOSECONDS_PER_SECOND: Final[float] = 1e9
+ACOUSTIC_REFERENCE_PRESSURE_PA: Final[float] = 20e-6
+ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2: Final[float] = (
+    ACOUSTIC_REFERENCE_PRESSURE_PA * ACOUSTIC_REFERENCE_PRESSURE_PA
+)
+
+PED_MAX_EXPOSURE_DBA = define_metric(
+    "ped_max_exposure_dba",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="dBA",
+    description="Maximum barrier-aware A-weighted exposure level experienced by this pedestrian.",
+    null_reason=True,
+)
+PED_LEQ_EXPOSURE_DBA = define_metric(
+    "ped_leq_exposure_dba",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="dBA",
+    description="Energy-equivalent A-weighted exposure level experienced by this pedestrian.",
+    null_reason=True,
+)
+PED_MAX_STARTLE_FACTOR = define_metric(
+    "ped_max_startle_factor",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="dBA/s",
+    description="Maximum positive rise rate of barrier-aware exposure experienced by this pedestrian.",
+    null_reason=True,
+)
+WORST_CASE_ACOUSTIC_T_NS = define_metric(
+    "worst_case_acoustic_t_ns",
+    pl.Int64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="ns",
+    description="Timestamp of the loudest exposure frame for this pedestrian in series_acoustic_exposure.",
+    null_reason=True,
+)
+SOUND_EXPOSURE_DOSE_PA2S = define_metric(
+    "sound_exposure_dose_pa2s",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="Pa²·s",
+    description="Barrier-aware acoustic exposure dose integrated over the encounter window.",
+    null_reason=True,
+)
+
+_METRICS: Final[tuple[Metric, ...]] = (
+    PED_MAX_EXPOSURE_DBA,
+    PED_LEQ_EXPOSURE_DBA,
+    PED_MAX_STARTLE_FACTOR,
+    WORST_CASE_ACOUSTIC_T_NS,
+    SOUND_EXPOSURE_DOSE_PA2S,
+)
+_PEDESTRIAN_KEYS: Final[tuple[str, ...]] = (
+    "ped_max_exposure_dba",
+    "ped_leq_exposure_dba",
+    "ped_max_startle_factor",
+    "worst_case_acoustic_t_ns",
+)
+
+SERIES_SCHEMA: Final[dict[str, pl.DataType]] = {
+    "run_id": pl.String,
+    "episode_id": pl.Int64,
+    "robot_id": pl.String,
+    "t_ns": pl.Int64,
+    "ped_id": pl.String,
+    "exposure_dba": pl.Float64,
+    "attenuation_db": pl.Float64,
+    "robot_x_m": pl.Float64,
+    "robot_y_m": pl.Float64,
+    "source_dba": pl.Float64,
+    "ped_x_m": pl.Float64,
+    "ped_y_m": pl.Float64,
+    "is_worst_frame": pl.Boolean,
+    "open_doors": pl.String,
+}
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class AcousticExposureResult:
+    """Scalar exposure summaries plus the per-frame series the long table is built from."""
+
+    scalars: dict[str, object]
+    frame_times_ns: np.ndarray
+    frame_robot_x_m: np.ndarray
+    frame_robot_y_m: np.ndarray
+    frame_source_dba: np.ndarray
+    frame_ped_ids: list[list[str]]
+    frame_ped_x_m: list[list[float]]
+    frame_ped_y_m: list[list[float]]
+    frame_exposure_dba: list[list[float]]
+    frame_attenuation_db: list[list[float]]
+    frame_open_doors: list[str]
+    worst_frame_index: int
+
 
 class AcousticExposureCalculator(BaseMetricCalculator):
-    """Computes pedestrian exposure to robotic ego-noise using a multi-criteria
-    Acoustic Dijkstra solver over the 2D impedance map."""
+    """Pedestrian and encounter exposure to robotic ego-noise from the barrier-map acoustic solver."""
 
     NAME = "acoustic_exposure"
+    SERIES_KEY = ("t_ns", "ped_id")
+    SERIES_REQUIRED_TOPICS = ("robot_tracks", "pedestrian_tracks", "robot_acoustics")
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = False
     DEPENDS_ON = ["proxemics"]
-    REQUIRED_TOPICS = ["tf_gt", "peds"]
+    REQUIRED_TOPICS = ["robot_tracks", "pedestrian_tracks", "robot_acoustics"]
+    PARAMS = ()
 
-    UNITS = {
-        "ped_max_exposure_dba": "dBA",
-        "ped_leq_exposure_dba": "dBA",
-        "timeseries_acoustic_exposure_dba": "dBA",
-        "timeseries_acoustic_attenuation_db": "dB",
+    OUTPUTS = _METRICS
+    DIRECTIONS = {
+        metric.name: Direction.LOWER
+        for metric in _METRICS
+        if metric.name != "worst_case_acoustic_t_ns"
     }
+    PRIMARY_OUTPUTS = [
+        "ped_max_exposure_dba",
+        "ped_leq_exposure_dba",
+        "sound_exposure_dose_pa2s",
+    ]
 
     world: str | None = None
-    maps_cache: pathlib.Path | None = None
 
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "ped_max_exposure_dba",
-            "ped_leq_exposure_dba",
-            "ped_max_startle_factor",
-            "timeseries_acoustic_exposure_dba",
-            "timeseries_acoustic_attenuation_db",
-            "worst_case_acoustic_frame",
-        ]
+    def __init__(self, robot_params: RobotParams) -> None:
+        """Memoise the per-episode frame solve for pedestrian rollups, encounter doses and series_table."""
+        super().__init__(robot_params)
+        self._episode_frame_cache: dict[
+            tuple[int, str, str, str], AcousticExposureResult
+        ] = {}
+
+    def _source_level(
+        self, episode: AlignedEpisodeBundle, t_ns: np.ndarray
+    ) -> np.ndarray | None:
+        """Emitted A-weighted level at the sample times from robot_acoustics, or None when absent."""
+        acoustics = self.native_topics(episode).get("robot_acoustics")
+        if acoustics is None or len(acoustics) == 0:
+            return None
+        reference = (
+            acoustics.select(
+                pl.col("t_ns").cast(pl.Int64),
+                pl.col("total_level_af_dba").cast(pl.Float64),
+            )
+            .drop_nulls()
+            .sort("t_ns")
+        )
+        if len(reference) == 0:
+            return None
+        aligned = asof_values(
+            reference["t_ns"].to_numpy(),
+            reference["total_level_af_dba"].to_numpy(),
+            t_ns.astype(np.int64),
+            tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
+        )
+        if np.all(np.isnan(aligned)):
+            return None
+        return aligned
+
+    def _time_base(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+        """Sample times, ground-truth robot x/y and validity on the scope's clock, None without ground truth."""
+        df = episode.data
+        if df is not None and len(df) > 0:
+            t_ns = df["t_ns"].to_numpy().astype(np.int64)
+            pos_x_native, pos_y_native, _yaw, native_times_ns = (
+                self.resolve_native_pose(episode)
+            )
+            if len(native_times_ns) == 0:
+                return None
+            rx_m = asof_values(
+                native_times_ns.astype(np.int64),
+                pos_x_native.astype(np.float64),
+                t_ns,
+                tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
+            )
+            ry_m = asof_values(
+                native_times_ns.astype(np.int64),
+                pos_y_native.astype(np.float64),
+                t_ns,
+                tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
+            )
+            return t_ns, rx_m, ry_m, ~np.isnan(rx_m) & ~np.isnan(ry_m)
+
+        pos_x, pos_y, _yaw, t_ns = self.resolve_native_pose(episode)
+        if len(t_ns) == 0:
+            return None
+        return (
+            t_ns,
+            pos_x.astype(np.float64),
+            pos_y.astype(np.float64),
+            np.ones(len(t_ns), dtype=bool),
+        )
 
     @staticmethod
-    def _parse_pedestrian_positions(row: object) -> list[tuple[float, float]]:
-        """Parse a single frame's pedestrian positions (flat or nested schema)."""
-        pts: list[tuple[float, float]] = []
-        if isinstance(row, str):
-            import json
+    def _null_result() -> AcousticExposureResult:
+        empty = np.array([], dtype=np.float64)
+        return AcousticExposureResult(
+            scalars=dict.fromkeys(_PEDESTRIAN_KEYS, None),
+            frame_times_ns=np.array([], dtype=np.int64),
+            frame_robot_x_m=empty,
+            frame_robot_y_m=empty.copy(),
+            frame_source_dba=empty.copy(),
+            frame_ped_ids=[],
+            frame_ped_x_m=[],
+            frame_ped_y_m=[],
+            frame_exposure_dba=[],
+            frame_attenuation_db=[],
+            frame_open_doors=[],
+            worst_frame_index=0,
+        )
 
-            try:
-                row = json.loads(row)
-            except Exception:
-                row = []
-        if not isinstance(row, (list, tuple, np.ndarray)) or len(row) == 0:
-            return pts
-        if isinstance(row[0], dict):
-            for item in row:
-                if isinstance(item, dict) and "x" in item and "y" in item:
-                    pts.append((float(item["x"]), float(item["y"])))
-        elif isinstance(row[0], (list, tuple, np.ndarray)):
-            for item in row:
-                if len(item) >= 2 and not np.isnan(item[0]) and not np.isnan(item[1]):
-                    pts.append((float(item[0]), float(item[1])))
-        else:
-            for j in range(0, len(row), 3):
-                if j + 1 < len(row):
-                    if not np.isnan(row[j]) and not np.isnan(row[j + 1]):
-                        pts.append((float(row[j]), float(row[j + 1])))
-        return pts
+    def _summarize(
+        self,
+        frame_times_ns: np.ndarray,
+        frame_robot_x_m: np.ndarray,
+        frame_robot_y_m: np.ndarray,
+        frame_source_dba: np.ndarray,
+        frame_ped_ids: list[list[str]],
+        frame_ped_x_m: list[list[float]],
+        frame_ped_y_m: list[list[float]],
+        frame_exposure_dba: list[list[float]],
+        frame_attenuation_db: list[list[float]],
+        frame_open_doors: list[str],
+    ) -> AcousticExposureResult:
+        """Reduce one frame series to the scalar summaries and worst-frame index."""
+        if not any(frame_exposure_dba):
+            logger.info("No acoustic exposure values produced")
+            return self._null_result()
 
-    def _get_map_occupancy(self, map_name: str, run_dir: pathlib.Path | None = None) -> tuple[np.ndarray, float, tuple[float, float, float]] | None:
-        """Load the map PNG as a binary occupancy grid, flipped so row 0 = bottom (y = origin_y)."""
-        meta = MapRegistry.get_map(map_name, cache_dir=self.maps_cache, run_dir=run_dir)
-        if not meta or "png_path" not in meta:
-            return None
-        try:
-            img = Image.open(meta["png_path"]).convert("L")
-            img_data = np.array(img)
-            grid = np.ascontiguousarray(np.flipud((img_data < 200).astype(np.uint8)))
-            return grid, meta["resolution"], meta["origin"]
-        except Exception as e:
-            logging.getLogger(__name__).warning(f"Failed to load map image for acoustics: {e}")
-            return None
+        all_exposure = np.concatenate(
+            [
+                np.asarray(frame, dtype=np.float64)
+                for frame in frame_exposure_dba
+                if frame
+            ]
+        )
+        max_exposure_dba = float(np.max(all_exposure))
+        leq_exposure_dba = float(
+            10.0 * np.log10(np.mean(10.0 ** (all_exposure / 10.0)))
+        )
 
-    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        nulls = {k: None for k in self.output_keys()}
+        time_s = frame_times_ns / NANOSECONDS_PER_SECOND
+        startle_rates: list[float] = []
+        for index in range(1, len(frame_exposure_dba)):
+            previous = frame_exposure_dba[index - 1]
+            current = frame_exposure_dba[index]
+            dt = time_s[index] - time_s[index - 1]
+            if dt > 0 and len(previous) == len(current) and len(current) > 0:
+                startle_rates.extend(
+                    ((np.asarray(current) - np.asarray(previous)) / dt).tolist()
+                )
+        max_startle = float(np.max(startle_rates)) if startle_rates else None
 
-        # Skip heavy calculation for reference runs
-        if episode.run is not None and episode.run.is_reference:
-            logger.info("Skipping acoustic calculation for reference episode %s", episode.episode_id)
-            return nulls
+        worst_index = 0
+        worst_value = -np.inf
+        for index, frame_exposure in enumerate(frame_exposure_dba):
+            if frame_exposure:
+                frame_max = max(frame_exposure)
+                if frame_max > worst_value:
+                    worst_value = frame_max
+                    worst_index = index
 
-        df = episode.data
-        if df is None or len(df) == 0:
-            logger.debug("No episode data for episode %s", episode.episode_id)
-            return nulls
+        return AcousticExposureResult(
+            scalars={
+                "ped_max_exposure_dba": max_exposure_dba,
+                "ped_leq_exposure_dba": leq_exposure_dba,
+                "ped_max_startle_factor": max_startle,
+                "worst_case_acoustic_t_ns": int(frame_times_ns[worst_index]),
+            },
+            frame_times_ns=frame_times_ns,
+            frame_robot_x_m=frame_robot_x_m,
+            frame_robot_y_m=frame_robot_y_m,
+            frame_source_dba=frame_source_dba,
+            frame_ped_ids=frame_ped_ids,
+            frame_ped_x_m=frame_ped_x_m,
+            frame_ped_y_m=frame_ped_y_m,
+            frame_exposure_dba=frame_exposure_dba,
+            frame_attenuation_db=frame_attenuation_db,
+            frame_open_doors=frame_open_doors,
+            worst_frame_index=worst_index,
+        )
 
-        map_val = episode.map
-
-        map_name = prior_results.get("map", map_val)
+    def _compute(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> AcousticExposureResult:
+        """Scalar summaries and per-frame pedestrian exposure series for the episode."""
+        map_name = prior_results.get("map") or episode.map or self.world
         if not map_name:
-            # registry seeds calc.world from the benchmark metadata
-            map_name = self.world
-        if not map_name:
-            logger.warning("No map name available for episode %s - skipping acoustics", episode.episode_id)
-            return nulls
-
-        run_dir = episode.run_dir
-        if run_dir is None and episode.folder_manager and episode.run is not None and episode.run.benchmark_id:
-            run_dir = episode.folder_manager.data_root / episode.run.benchmark_id
-
-        map_data = self._get_map_occupancy(map_name, run_dir=run_dir)
-        if not map_data:
-            logger.warning("Failed to load map occupancy for '%s' (episode %s)", map_name, episode.episode_id)
-            return nulls
-
-        grid, resolution, origin = map_data
-        ox, oy = origin[0], origin[1]
-
-        # Semantic door geometry + per-frame door state (PR #68 semantics)
-        # Doors are per-pixel entities: closed = door TL (25 dB), open = carved.
-        doors = door_segments(map_name, grid, resolution, origin, run_dir=run_dir)
-        tl_cache: dict[tuple, np.ndarray] = {}
-        state_timeline = DoorStateTimeline.from_semantic_frame(episode.semantic_snapshot)
-        if doors:
-            logger.info(
-                "AcousticExposureCalculator: %d semantic doors loaded; semantic timeline %s",
-                len(doors),
-                "present" if state_timeline is not None else "ABSENT (doors default closed)",
+            raise MetricInputError(
+                "AcousticExposureCalculator: missing world map name (checked prior_results['map'], episode.map, and calculator.world)"
             )
 
-        if "pos_x_gt" not in df.columns or "pos_y_gt" not in df.columns:
-            logger.warning("Ground-truth position columns missing for episode %s", episode.episode_id)
-            return nulls
+        time_base = self._time_base(episode)
+        if time_base is None:
+            return self._null_result()
 
-        # tf_gt publishes at ~10 Hz with jitter, so ~40% of aligned frames have
-        # null ground-truth pose (aligner tolerance = 100 ms == tf_gt period).
-        # Forward-fill so the solver never sees NaN positions (which caused
-        # all-inf fields / blank visualizations).
-        rx_m = df["pos_x_gt"].cast(pl.Float64).fill_null(strategy="forward").fill_null(0.0).to_numpy()
-        ry_m = df["pos_y_gt"].cast(pl.Float64).fill_null(strategy="forward").fill_null(0.0).to_numpy()
+        peds_df = self.native_ped_frame(episode)
+        if peds_df is None or len(peds_df) == 0:
+            return self._null_result()
 
-        # Source level (from acoustics topic, or fallback)
-        if "total_level_af_dba" in df.columns:
-            # Forward-fill source dropouts; leading nulls fall back to the idle
-            # baseline. fill_null(0.0) previously made gap frames "silent"
-            # (exposure ~= -attenuation), dragging Leq down.
-            source_dba = df["total_level_af_dba"].cast(pl.Float64).fill_null(strategy="forward").fill_null(_ACOUSTIC_DEFAULTS["L_base_0"]).to_numpy()
-        else:
-            # Fallback to constant idle noise if acoustics topic missing
-            source_dba = np.full(len(rx_m), _ACOUSTIC_DEFAULTS["L_base_0"])
+        run_dir = episode.run_dir
+        if (
+            run_dir is None
+            and episode.folder_manager
+            and episode.run is not None
+            and episode.run.benchmark_id
+        ):
+            run_dir = episode.folder_manager.data_root / episode.run.benchmark_id
 
-        # Pedestrian positions
-        if "peds_positions" not in df.columns:
-            logger.warning("Pedestrian position data missing for episode %s", episode.episode_id)
-            return nulls
+        barrier = load_barrier_map(map_name, run_dir=run_dir)
+        grid, resolution = barrier.occupancy, barrier.resolution
+        origin_x, origin_y = barrier.origin
 
-        peds_pos = df["peds_positions"].to_list()
+        doors = barrier_door_tl(barrier)
+        tl_cache: dict[tuple[str, ...], np.ndarray] = {}
+        state_timeline = DoorStateTimeline.from_semantic_frame(
+            episode.semantic_snapshot
+        )
+        if doors and state_timeline is None:
+            logger.info(
+                "AcousticExposureCalculator: %d doors but no door-state timeline for episode %s; returning NULL",
+                len(doors),
+                episode.episode_id,
+            )
+            return self._null_result()
 
+        t_ns, rx_m, ry_m, robot_valid = time_base
+        source_dba = self._source_level(episode, t_ns)
+        if source_dba is None:
+            return self._null_result()
+
+        peds_at_time = self._group_pedestrians_by_time(t_ns, peds_df)
+
+        frame_ped_ids: list[list[str]] = []
+        frame_ped_x_m: list[list[float]] = []
+        frame_ped_y_m: list[list[float]] = []
         ts_exposure: list[list[float]] = []
         ts_attenuation: list[list[float]] = []
+        frame_open_doors: list[str] = []
 
-        last_eval_rx = None
-        last_eval_ry = None
-        last_eval_peds = None
-        last_eval_source = None
-        last_eval_tl_key = None
-
-        POS_THRESHOLD = 0.5  # meters (attenuation changes < 0.3 dB over 0.5m)
-        total_frames = len(rx_m)
-        time_ns = df["time_ns"].to_numpy()
-
-        solver_evals = 0
-        scored_frames = 0
+        last_eval_rx: float | None = None
+        last_eval_ry: float | None = None
+        last_eval_peds: tuple[np.ndarray, np.ndarray] | None = None
+        last_eval_tl_key: tuple[str, ...] | None = None
         last_attenuations: np.ndarray | None = None
+        total_frames = len(t_ns)
 
-        for i in range(total_frames):
-            pts = self._parse_pedestrian_positions(peds_pos[i])
-
-            if not pts:
+        for index in range(total_frames):
+            frame = peds_at_time.get(int(t_ns[index]))
+            raw_open = (
+                state_timeline.open_doors_at(int(t_ns[index]))
+                if state_timeline is not None
+                else frozenset()
+            )
+            open_doors_here = tuple(
+                sorted(
+                    name
+                    for name in doors
+                    if any(_entity_matches_door(name, entity) for entity in raw_open)
+                )
+            )
+            frame_open_doors.append(",".join(open_doors_here))
+            current_source = source_dba[index]
+            if (
+                not robot_valid[index]
+                or np.isnan(current_source)
+                or frame is None
+                or len(frame) == 0
+            ):
+                frame_ped_ids.append([])
+                frame_ped_x_m.append([])
+                frame_ped_y_m.append([])
                 ts_exposure.append([])
                 ts_attenuation.append([])
                 continue
 
-            px_m = np.array([p[0] for p in pts], dtype=np.float32)
-            py_m = np.array([p[1] for p in pts], dtype=np.float32)
+            px_m = frame["x"].to_numpy().astype(np.float32)
+            py_m = frame["y"].to_numpy().astype(np.float32)
+            if len(px_m) == 0:
+                frame_ped_ids.append([])
+                frame_ped_x_m.append([])
+                frame_ped_y_m.append([])
+                ts_exposure.append([])
+                ts_attenuation.append([])
+                continue
 
-            current_source = source_dba[i]
+            should_eval = (
+                index == 0
+                or index == total_frames - 1
+                or last_eval_rx is None
+                or last_eval_ry is None
+                or last_eval_peds is None
+                or last_attenuations is None
+                or open_doors_here != last_eval_tl_key
+            )
+            if (
+                not should_eval
+                and last_eval_rx is not None
+                and last_eval_ry is not None
+                and last_eval_peds is not None
+            ):
+                robot_moved = (
+                    np.hypot(rx_m[index] - last_eval_rx, ry_m[index] - last_eval_ry)
+                    > POSITION_EVALUATION_THRESHOLD_M
+                )
+                pedestrians_changed = len(px_m) != len(last_eval_peds[0]) or np.any(
+                    np.hypot(px_m - last_eval_peds[0], py_m - last_eval_peds[1])
+                    > POSITION_EVALUATION_THRESHOLD_M
+                )
+                should_eval = bool(robot_moved or pedestrians_changed)
 
-            open_set = state_timeline.open_doors_at(int(time_ns[i])) if state_timeline is not None else frozenset()
-            tl_key = tuple(sorted(open_set))
-
-            # Check if we should re-evaluate geometric attenuation field
-            should_eval = False
-            if i == 0 or i == total_frames - 1:
-                should_eval = True
-            elif last_eval_rx is None or last_eval_peds is None or last_attenuations is None:
-                should_eval = True
-            elif tl_key != last_eval_tl_key:
-                should_eval = True
-            else:
-                if np.hypot(rx_m[i] - last_eval_rx, ry_m[i] - last_eval_ry) > POS_THRESHOLD:
-                    should_eval = True
-                elif len(px_m) != len(last_eval_peds[0]):
-                    should_eval = True
-                else:
-                    ped_dists = np.hypot(px_m - last_eval_peds[0], py_m - last_eval_peds[1])
-                    if np.any(ped_dists > POS_THRESHOLD):
-                        should_eval = True
-
-            if should_eval:
-                last_eval_rx = rx_m[i]
-                last_eval_ry = ry_m[i]
+            if should_eval or last_attenuations is None:
+                last_eval_rx = float(rx_m[index])
+                last_eval_ry = float(ry_m[index])
                 last_eval_peds = (px_m, py_m)
-                last_eval_tl_key = tl_key
+                last_eval_tl_key = open_doors_here
 
-                rx_px = (rx_m[i] - ox) / resolution
-                ry_px = (ry_m[i] - oy) / resolution
+                rx_px = (rx_m[index] - origin_x) / resolution
+                ry_px = (ry_m[index] - origin_y) / resolution
+                px_px = (px_m - origin_x) / resolution
+                py_px = (py_m - origin_y) / resolution
 
-                px_px = (px_m - ox) / resolution
-                py_px = (py_m - oy) / resolution
-
-                pixel_tl = tl_cache.get(tl_key)
+                pixel_tl = tl_cache.get(open_doors_here)
                 if pixel_tl is None:
-                    pixel_tl = build_pixel_tl(grid, doors, open_doors=set(open_set))
-                    tl_cache[tl_key] = pixel_tl
+                    pixel_tl = build_pixel_tl(
+                        grid, doors, open_doors=set(open_doors_here)
+                    )
+                    tl_cache[open_doors_here] = pixel_tl
 
                 attenuations = compute_attenuations(
                     occupancy_grid=grid,
@@ -246,118 +473,261 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                     start_y_px=ry_px,
                     target_xs_px=px_px,
                     target_ys_px=py_px,
-                    wall_tl=47.0,  # fallback TL when no pixel_tl (v1 path)
-                    mic_distance=1.0,
+                    wall_tl=WALL_TRANSMISSION_LOSS_DB,
+                    mic_distance=MIC_DISTANCE_M,
                     pixel_tl=pixel_tl,
                 )
                 last_attenuations = attenuations
-                solver_evals += 1
             else:
-                assert last_attenuations is not None
                 attenuations = last_attenuations
 
-            # Filter out infinity (unreachable)
             valid = ~np.isinf(attenuations)
             if not np.any(valid):
+                frame_ped_ids.append([])
+                frame_ped_x_m.append([])
+                frame_ped_y_m.append([])
                 ts_exposure.append([])
                 ts_attenuation.append([])
                 continue
 
-            att_valid = attenuations[valid]
-            # SPL received = instantaneous source level - geometric attenuation
-            exp_valid = current_source - att_valid
+            valid_attenuation = attenuations[valid]
+            valid_exposure = current_source - valid_attenuation
+            frame_ped_ids.append(
+                [str(name) for name in frame["ped_id"].to_numpy()[valid]]
+            )
+            frame_ped_x_m.append([float(value) for value in px_m[valid]])
+            frame_ped_y_m.append([float(value) for value in py_m[valid]])
+            ts_attenuation.append(valid_attenuation.tolist())
+            ts_exposure.append(valid_exposure.tolist())
 
-            ts_attenuation.append(att_valid.tolist())
-            ts_exposure.append(exp_valid.tolist())
-
-            scored_frames += 1
-            if scored_frames % 50 == 0:
-                logger.info(
-                    "AcousticExposureCalculator: Evaluated %d frames... (%d/%d total frames processed)",
-                    scored_frames,
-                    i + 1,
-                    total_frames,
-                )
-
-        logger.info(
-            "AcousticExposureCalculator: Finished episode %s with %d unique solver evaluations.",
-            episode.episode_id,
-            solver_evals,
+        return self._summarize(
+            t_ns,
+            rx_m,
+            ry_m,
+            source_dba,
+            frame_ped_ids,
+            frame_ped_x_m,
+            frame_ped_y_m,
+            ts_exposure,
+            ts_attenuation,
+            frame_open_doors,
         )
 
-        # Post-process for scalar metrics
-
-        all_exp: list[float] = []
-        for frame_exps in ts_exposure:
-            all_exp.extend(frame_exps)
-
-        if not all_exp:
-            logger.info("No acoustic exposure values produced for episode %s", episode.episode_id)
-            return {
-                "ped_max_exposure_dba": None,
-                "ped_leq_exposure_dba": None,
-                "ped_max_startle_factor": None,
-                "timeseries_acoustic_exposure_dba": ts_exposure,
-                "timeseries_acoustic_attenuation_db": ts_attenuation,
-                "worst_case_acoustic_frame": None,
-            }
-
-        exp_arr = np.array(all_exp)
-
-        max_exp = float(np.max(exp_arr))
-
-        # Leq (Equivalent Continuous Sound Level)
-        # L_eq = 10 * log10( (1/N) * sum(10^(L_i / 10)) )
-        lin_exp = 10 ** (exp_arr / 10.0)
-        leq_exp = float(10 * np.log10(np.mean(lin_exp)))
-
-        # Startle Factor: Max positive rate of change (dBA/s) for any pedestrian
-        time_s = df["time_ns"].to_numpy() / 1e9
-        startle_rates: list[float] = []
-        for i in range(1, len(ts_exposure)):
-            prev = ts_exposure[i - 1]
-            curr = ts_exposure[i]
-            dt = time_s[i] - time_s[i - 1]
-            if dt > 0 and len(prev) == len(curr) and len(curr) > 0:
-                diffs = np.array(curr) - np.array(prev)
-                rates = diffs / dt
-                startle_rates.extend(rates.tolist())
-
-        max_startle = float(np.max(startle_rates)) if startle_rates else 0.0
-
-        # Find worst-case frame (highest pedestrian exposure)
-        max_idx = 0
-        max_val = -1.0
-        for i, frame_exps in enumerate(ts_exposure):
-            if frame_exps:
-                fm = max(frame_exps)
-                if fm > max_val:
-                    max_val = fm
-                    max_idx = i
-
-        # Re-parse the pedestrians for the worst-case frame
-        worst_pts = self._parse_pedestrian_positions(peds_pos[max_idx])
-        worst_frame = {
-            "robot_x": float(rx_m[max_idx]),
-            "robot_y": float(ry_m[max_idx]),
-            "source_dba": float(source_dba[max_idx]),
-            "pedestrians": [[float(p[0]), float(p[1])] for p in worst_pts],
-            "door_states": {name: ("open" if state_timeline is not None and any(_entity_matches_door(name, e) for e in state_timeline.open_doors_at(int(df["time_ns"][max_idx]))) else "closed") for name in doors},
-        }
-
-        logger.info(
-            "AcousticExposureCalculator: episode %s, max_exp=%.1f dBA, leq=%.1f dBA, startle=%.2f dBA/s",
-            episode.episode_id,
-            max_exp,
-            leq_exp,
-            max_startle,
+    @staticmethod
+    def _group_pedestrians_by_time(
+        t_ns: np.ndarray, peds_df: pl.DataFrame
+    ) -> dict[int, pl.DataFrame]:
+        """Map each clock sample to the latest pedestrian frame within TRACK_ALIGN_TOLERANCE_NS."""
+        if len(peds_df) == 0 or len(t_ns) == 0:
+            return {}
+        clean = peds_df.drop_nulls(["t_ns", "x", "y"])
+        if len(clean) == 0:
+            return {}
+        grouped = clean.partition_by("t_ns", as_dict=True)
+        ped_times = np.sort(clean["t_ns"].unique().to_numpy().astype(np.int64))
+        query_times = np.unique(t_ns.astype(np.int64))
+        matched = asof_index(
+            ped_times, query_times, tolerance_ns=TRACK_ALIGN_TOLERANCE_NS
         )
-
         return {
-            "ped_max_exposure_dba": max_exp,
-            "ped_leq_exposure_dba": leq_exp,
-            "ped_max_startle_factor": max_startle,
-            "timeseries_acoustic_exposure_dba": ts_exposure,
-            "timeseries_acoustic_attenuation_db": ts_attenuation,
-            "worst_case_acoustic_frame": worst_frame,
+            int(query_t): grouped[(int(ped_times[idx]),)]
+            for query_t, idx in zip(query_times, matched, strict=True)
+            if idx >= 0 and (int(ped_times[idx]),) in grouped
         }
+
+    def _episode_result(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> AcousticExposureResult:
+        """The episode's exposure frame series, solved once and reused across scopes and series_table."""
+        map_token = str(prior_results.get("map") or episode.map or self.world or "")
+        key = (
+            int(episode.episode_id),
+            str(episode.robot_name or ""),
+            map_token,
+            str(episode.run_dir or ""),
+        )
+        cached = self._episode_frame_cache.get(key)
+        if cached is None:
+            cached = self._compute(episode, prior_results)
+            self._episode_frame_cache[key] = cached
+        return cached
+
+    def _restrict_to_pedestrian(
+        self, result: AcousticExposureResult, ped_id: str
+    ) -> AcousticExposureResult:
+        """The same solved frame series reduced to the rows of one pedestrian."""
+        frame_ped_ids: list[list[str]] = []
+        frame_ped_x_m: list[list[float]] = []
+        frame_ped_y_m: list[list[float]] = []
+        frame_exposure_dba: list[list[float]] = []
+        frame_attenuation_db: list[list[float]] = []
+        for index, ped_ids in enumerate(result.frame_ped_ids):
+            keep = [position for position, name in enumerate(ped_ids) if name == ped_id]
+            frame_ped_ids.append([ped_ids[position] for position in keep])
+            frame_ped_x_m.append(
+                [result.frame_ped_x_m[index][position] for position in keep]
+            )
+            frame_ped_y_m.append(
+                [result.frame_ped_y_m[index][position] for position in keep]
+            )
+            frame_exposure_dba.append(
+                [result.frame_exposure_dba[index][position] for position in keep]
+            )
+            frame_attenuation_db.append(
+                [result.frame_attenuation_db[index][position] for position in keep]
+            )
+        return self._summarize(
+            result.frame_times_ns,
+            result.frame_robot_x_m,
+            result.frame_robot_y_m,
+            result.frame_source_dba,
+            frame_ped_ids,
+            frame_ped_x_m,
+            frame_ped_y_m,
+            frame_exposure_dba,
+            frame_attenuation_db,
+            result.frame_open_doors,
+        )
+
+    @staticmethod
+    def _encounter_dose_pa2s(
+        result: AcousticExposureResult, ped_id: str, t_start_ns: int, t_end_ns: int
+    ) -> float | None:
+        """Integrate barrier-aware pressure-squared exposure over [t_start_ns, t_end_ns] for one pedestrian."""
+        times_ns: list[int] = []
+        exposures_dba: list[float] = []
+        for index, t_val in enumerate(result.frame_times_ns):
+            t_int = int(t_val)
+            if t_int < t_start_ns or t_int > t_end_ns:
+                continue
+            for pos, name in enumerate(result.frame_ped_ids[index]):
+                if name == ped_id:
+                    times_ns.append(t_int)
+                    exposures_dba.append(result.frame_exposure_dba[index][pos])
+                    break
+        if len(times_ns) < 2:
+            return None
+        dt_s = (
+            np.diff(np.asarray(times_ns, dtype=np.int64)).astype(np.float64)
+            / NANOSECONDS_PER_SECOND
+        )
+        p_sq = ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2 * np.power(
+            10.0, np.asarray(exposures_dba, dtype=np.float64) / 10.0
+        )
+        return float(np.sum(0.5 * (p_sq[:-1] + p_sq[1:]) * dt_s))
+
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        scalars = self._episode_result(episode, prior_results).scalars
+        return {key: scalars.get(key) for key in _PEDESTRIAN_KEYS}
+
+    def calculate_for_scope(
+        self,
+        episode: AlignedEpisodeBundle,
+        prior_results: dict[str, typing.Any],
+        scope_slice: ScopeSlice | None = None,
+    ) -> dict[str, typing.Any]:
+        if scope_slice is None:
+            return self.calculate(episode, prior_results)
+        if scope_slice.scope == MetricScope.PEDESTRIAN:
+            full_result = self._episode_result(scope_slice.full_episode, prior_results)
+            ped_id = str(scope_slice.identity.get("ped_id") or scope_slice.slice_id)
+            restricted = self._restrict_to_pedestrian(full_result, ped_id)
+            return {key: restricted.scalars.get(key) for key in _PEDESTRIAN_KEYS}
+        if scope_slice.scope == MetricScope.ENCOUNTER:
+            actor_2_kind = scope_slice.identity.get("actor_2_kind")
+            if actor_2_kind is not None and actor_2_kind != "pedestrian":
+                return {
+                    "sound_exposure_dose_pa2s": None,
+                    "sound_exposure_dose_pa2s_null_reason": "not_applicable",
+                }
+            full_result = self._episode_result(scope_slice.full_episode, prior_results)
+            ped_id = str(scope_slice.identity.get("actor_2") or scope_slice.slice_id)
+            dose = self._encounter_dose_pa2s(
+                full_result, ped_id, scope_slice.t_start_ns, scope_slice.t_end_ns
+            )
+            return {"sound_exposure_dose_pa2s": dose}
+        raise ValueError(
+            f"acoustic_exposure does not serve the {scope_slice.scope.value} scope"
+        )
+
+    def series_table(
+        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
+    ) -> pl.DataFrame:
+        """1NF flat pedestrian acoustic exposure series, one row per (sample, pedestrian)."""
+        result = self._episode_result(episode, {})
+        if not any(result.frame_exposure_dba):
+            return pl.DataFrame(schema=SERIES_SCHEMA)
+
+        t_ns: list[int] = []
+        ped_ids: list[str] = []
+        exposure: list[float] = []
+        attenuation: list[float] = []
+        robot_x: list[float] = []
+        robot_y: list[float] = []
+        source: list[float] = []
+        ped_x: list[float] = []
+        ped_y: list[float] = []
+        is_worst: list[bool] = []
+        open_doors: list[str] = []
+        for index, (
+            ped_id_row,
+            ped_x_row,
+            ped_y_row,
+            exposure_row,
+            attenuation_row,
+        ) in enumerate(
+            zip(
+                result.frame_ped_ids,
+                result.frame_ped_x_m,
+                result.frame_ped_y_m,
+                result.frame_exposure_dba,
+                result.frame_attenuation_db,
+                strict=True,
+            )
+        ):
+            for ped_id, x_m, y_m, exposure_dba, attenuation_db in zip(
+                ped_id_row,
+                ped_x_row,
+                ped_y_row,
+                exposure_row,
+                attenuation_row,
+                strict=True,
+            ):
+                t_ns.append(int(result.frame_times_ns[index]))
+                ped_ids.append(ped_id)
+                exposure.append(float(exposure_dba))
+                attenuation.append(float(attenuation_db))
+                robot_x.append(float(result.frame_robot_x_m[index]))
+                robot_y.append(float(result.frame_robot_y_m[index]))
+                source.append(float(result.frame_source_dba[index]))
+                ped_x.append(x_m)
+                ped_y.append(y_m)
+                is_worst.append(index == result.worst_frame_index)
+                open_doors.append(result.frame_open_doors[index])
+
+        frame = pl.DataFrame(
+            {
+                "run_id": [run_id] * len(t_ns),
+                "episode_id": [int(episode.episode_id)] * len(t_ns),
+                "robot_id": [robot_id or (episode.robot_name or "robot")] * len(t_ns),
+                "t_ns": t_ns,
+                "ped_id": ped_ids,
+                "exposure_dba": exposure,
+                "attenuation_db": attenuation,
+                "robot_x_m": robot_x,
+                "robot_y_m": robot_y,
+                "source_dba": source,
+                "ped_x_m": ped_x,
+                "ped_y_m": ped_y,
+                "is_worst_frame": is_worst,
+                "open_doors": open_doors,
+            },
+            schema=SERIES_SCHEMA,
+        )
+        return frame.sort(["t_ns", "ped_id", "exposure_dba"]).unique(
+            subset=["run_id", "episode_id", "robot_id", "t_ns", "ped_id"],
+            keep="last",
+            maintain_order=True,
+        )

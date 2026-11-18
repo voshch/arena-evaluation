@@ -1,62 +1,73 @@
-# Wrapper for the per-pixel TL solver.
+"""C++ acoustic attenuation solver wrapper."""
+
+from __future__ import annotations
+
 import ctypes
-import logging
-import subprocess
+import functools
+import os
 from pathlib import Path
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from arena_evaluation.storage.exceptions import MetricInputError
 
-# Find the C++ source file
 _SRC_DIR = Path(__file__).parent
-_CPP_FILE = _SRC_DIR / "solver.cpp"
-_SO_FILE = _SRC_DIR / "solver.so"
+_DEFAULT_SO_FILE = _SRC_DIR / "solver.so"
+_ENV_SO_VAR = "ARENA_ACOUSTIC_SOLVER_SO"
 
 
-def _compile_solver():
-    if _SO_FILE.exists():
-        if _CPP_FILE.stat().st_mtime <= _SO_FILE.stat().st_mtime:
-            return
-
-    logger.info("Compiling C++ acoustic solver: %s -> %s", _CPP_FILE, _SO_FILE)
-    cmd = [
-        "g++",
-        "-O3",
-        "-ffast-math",
-        "-fPIC",
-        "-shared",
-        "-std=c++11",
-        str(_CPP_FILE),
-        "-o",
-        str(_SO_FILE),
+@functools.cache
+def _solver_library() -> ctypes.CDLL:
+    """Load the pre-built C++17 acoustic solver shared library; never compiles at import."""
+    env_path = os.environ.get(_ENV_SO_VAR)
+    candidates = [Path(env_path)] if env_path else [_DEFAULT_SO_FILE]
+    so_path = next((path for path in candidates if path.is_file()), None)
+    if so_path is None:
+        searched = ", ".join(str(path) for path in candidates)
+        raise MetricInputError(
+            f"AcousticExposureCalculator: compiled acoustic solver library not found (searched {searched}); "
+            "run `arena build` (requires a C++17 compiler) to compile processing/acoustics/solver.cpp"
+        )
+    lib = ctypes.CDLL(str(so_path))
+    lib.solve_acoustic_field.argtypes = [
+        np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags="C_CONTIGUOUS"),  # grid
+        ctypes.c_int,  # width
+        ctypes.c_int,  # height
+        ctypes.c_float,  # resolution
+        ctypes.c_float,  # start_x
+        ctypes.c_float,  # start_y
+        np.ctypeslib.ndpointer(
+            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
+        ),  # target_xs
+        np.ctypeslib.ndpointer(
+            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
+        ),  # target_ys
+        ctypes.c_int,  # num_targets
+        ctypes.c_float,  # wall_tl
+        ctypes.c_float,  # mic_distance
+        ctypes.c_void_p,  # pixel_tl (NULL when None)
+        np.ctypeslib.ndpointer(
+            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
+        ),  # out_attenuations
     ]
+    lib.solve_acoustic_field.restype = None
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to compile C++ solver:\n{result.stderr}")
-
-
-# Compile on import
-_compile_solver()
-_lib = ctypes.CDLL(str(_SO_FILE))
-
-_lib.solve_acoustic_field.argtypes = [
-    np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags='C_CONTIGUOUS'),  # grid
-    ctypes.c_int,  # width
-    ctypes.c_int,  # height
-    ctypes.c_float,  # resolution
-    ctypes.c_float,  # start_x
-    ctypes.c_float,  # start_y
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_xs
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_ys
-    ctypes.c_int,  # num_targets
-    ctypes.c_float,  # wall_tl
-    ctypes.c_float,  # mic_distance
-    ctypes.c_void_p,  # pixel_tl (NULL when None)
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # out_attenuations
-]
-_lib.solve_acoustic_field.restype = None
+    lib.solve_acoustic_grid.argtypes = [
+        np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags="C_CONTIGUOUS"),  # grid
+        ctypes.c_int,  # width
+        ctypes.c_int,  # height
+        ctypes.c_float,  # resolution
+        ctypes.c_float,  # start_x
+        ctypes.c_float,  # start_y
+        ctypes.c_float,  # wall_tl
+        ctypes.c_float,  # mic_distance
+        ctypes.c_void_p,  # pixel_tl (NULL when None)
+        np.ctypeslib.ndpointer(
+            dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
+        ),  # out_field
+    ]
+    lib.solve_acoustic_grid.restype = None
+    return lib
 
 
 def compute_attenuations(
@@ -92,11 +103,13 @@ def compute_attenuations(
     tl_ptr = None
     if pixel_tl is not None:
         if pixel_tl.shape != (height, width):
-            raise ValueError(f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}")
+            raise ValueError(
+                f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}"
+            )
         pixel_tl = np.ascontiguousarray(pixel_tl, dtype=np.float32)
         tl_ptr = pixel_tl.ctypes.data_as(ctypes.c_void_p)
 
-    _lib.solve_acoustic_field(
+    _solver_library().solve_acoustic_field(
         occupancy_grid,
         width,
         height,
@@ -113,6 +126,46 @@ def compute_attenuations(
     )
 
     return out_attenuations
+
+
+def compute_acoustic_field(
+    occupancy_grid: np.ndarray,
+    resolution: float,
+    start_x_px: float,
+    start_y_px: float,
+    wall_tl: float = 47.0,
+    mic_distance: float = 1.0,
+    pixel_tl: np.ndarray | None = None,
+) -> np.ndarray:
+    """Compute the full 2D acoustic attenuation field (shape H, W) from start pixel."""
+    occupancy_grid = np.ascontiguousarray(occupancy_grid, dtype=np.uint8)
+
+    height, width = occupancy_grid.shape
+    out_field = np.empty((height, width), dtype=np.float32)
+
+    tl_ptr = None
+    if pixel_tl is not None:
+        if pixel_tl.shape != (height, width):
+            raise ValueError(
+                f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}"
+            )
+        pixel_tl = np.ascontiguousarray(pixel_tl, dtype=np.float32)
+        tl_ptr = pixel_tl.ctypes.data_as(ctypes.c_void_p)
+
+    _solver_library().solve_acoustic_grid(
+        occupancy_grid,
+        width,
+        height,
+        float(resolution),
+        float(start_x_px),
+        float(start_y_px),
+        float(wall_tl),
+        float(mic_distance),
+        tl_ptr,
+        out_field,
+    )
+
+    return out_field
 
 
 def downsample_occupancy(grid: np.ndarray, ds: int) -> np.ndarray:
