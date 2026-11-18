@@ -143,6 +143,16 @@ class BenchmarkCatalog:
         self._register_series_views()
 
     @property
+    def variant(self) -> str | None:
+        """Active catalog variant (``None`` for published or ``'sensitivity'``)."""
+        return self._variant
+
+    @property
+    def is_sensitivity(self) -> bool:
+        """True when opened in in-memory sensitivity mode."""
+        return self._variant == "sensitivity"
+
+    @property
     def snapshot_id(self) -> str:
         """Lazily computed, cached dataset and registry snapshot identifier."""
         if self._snapshot_id is not None:

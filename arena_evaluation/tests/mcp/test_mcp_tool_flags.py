@@ -21,6 +21,7 @@ from arena_evaluation.mcp.slices import evaluation_slice, evaluation_worst_encou
 TOOL_CLASSES: dict[str, str] = {
     "evaluation_acoustic": "overwrite",
     "evaluation_aggregate": "read",
+    "evaluation_analysis": "write",
     "evaluation_benchmark": "overwrite",
     "evaluation_compare_planners": "read",
     "evaluation_config_schema": "read",
@@ -63,6 +64,7 @@ TOOL_CLASSES: dict[str, str] = {
     "evaluation_runs": "read",
     "evaluation_save_plot_declaration": "overwrite",
     "evaluation_schema": "read",
+    "evaluation_sensitivity": "write",
     "evaluation_slice": "read",
     "evaluation_status": "read",
     "evaluation_stop": "overwrite",

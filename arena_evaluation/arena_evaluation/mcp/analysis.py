@@ -11,6 +11,9 @@ from arena_evaluation.analytics.computations import run_computation
 from .base import OptionalRunId, RunId, data_root, domain, run_path
 
 if TYPE_CHECKING:
+    import pathlib
+    from collections.abc import Mapping
+
     import polars as pl
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
@@ -669,4 +672,120 @@ def metrics_summary_resource(run_id: str) -> dict[str, Any]:
     summary = summary_of(_open_catalog(run_id))
     summary.pop("_snapshot_id", None)
     return {"run_id": run_id, **summary}
+
+
+@domain.tool(read_only=False, destructive=False, idempotent=True)
+def evaluation_analysis(
+    procedure: Annotated[
+        str | None,
+        pydantic.Field(
+            description="Named analysis procedure to run; omit to list all procedures and parameter schemas"
+        ),
+    ] = None,
+    params: Annotated[
+        dict[str, Any] | None,
+        pydantic.Field(description="Procedure parameter dictionary"),
+    ] = None,
+    run_id: OptionalRunId = None,
+) -> dict[str, Any]:
+    """List or run a named statistical analysis procedure over a run and pin its evidence."""
+    from arena_evaluation.analytics.analyses import list_procedures, run_procedure
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
+    from arena_evaluation.analytics.evidence import EvidenceStore
+    from arena_evaluation.storage.star_schema import has_star_schema
+
+    if procedure is None:
+        return {"procedures": list_procedures()}
+
+    path = run_path(run_id)
+    if not has_star_schema(path):
+        raise ToolError(
+            f"run {path.name!r} has no Star Schema tables",
+            hint="evaluation_process builds them",
+        )
+    catalog = BenchmarkCatalog.open(path)
+    store = EvidenceStore(path)
+    try:
+        result = run_procedure(
+            procedure,
+            catalog,
+            params,
+            evidence_store=store,
+        )
+    except (KeyError, ValueError, pydantic.ValidationError) as exc:
+        raise ToolError(
+            str(exc),
+            hint="call evaluation_analysis() without procedure to see valid procedures and schemas",
+        ) from exc
+
+    summary_rows = result.summary.to_dicts()
+    return {
+        "run_id": path.name,
+        "procedure": procedure,
+        "snapshot_id": result.snapshot_id,
+        "evidence_id": result.evidence_id,
+        "n_rows": result.frame.height,
+        "summary": summary_rows[0] if len(summary_rows) == 1 else summary_rows,
+        "preview": result.frame.head(20).to_dicts(),
+        "excluded_rows": dict(result.excluded_rows),
+        "seeds_used": list(result.seeds_used),
+    }
+
+
+def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -> Any:
+    """Rerun sensitivity telemetry from persisted evidence parameters."""
+    from arena_evaluation.processing.sensitivity import rerun_sensitivity
+
+    raw_episodes = params.get("episodes")
+    episodes = (
+        [int(e) for e in raw_episodes] if isinstance(raw_episodes, list) else None
+    )
+    raw_dp = params.get("detector_params")
+    dp = raw_dp if isinstance(raw_dp, dict) else None
+    return rerun_sensitivity(run_dir, episode_ids=episodes, detector_params=dp)
+
+
+@domain.tool(read_only=False, destructive=False, idempotent=True)
+def evaluation_sensitivity(
+    run_id: RunId,
+    episodes: Annotated[
+        list[int] | None,
+        pydantic.Field(description="Episode IDs to rerun in memory; omit for all"),
+    ] = None,
+    detector_params: Annotated[
+        dict[str, Any] | None,
+        pydantic.Field(description="Detector parameters for sensitivity rerun"),
+    ] = None,
+    save_as: Annotated[
+        str | None,
+        pydantic.Field(description="Optional label for pinned evidence"),
+    ] = None,
+) -> dict[str, Any]:
+    """Run an in-memory sensitivity rerun over telemetry without modifying published files."""
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
+    from arena_evaluation.analytics.evidence import EvidenceStore
+    from arena_evaluation.processing.sensitivity import rerun_sensitivity
+
+    path = run_path(run_id)
+    catalog = BenchmarkCatalog.open(path, variant="sensitivity")
+    frame = rerun_sensitivity(
+        path, episode_ids=episodes, detector_params=detector_params
+    )
+    store = EvidenceStore(path)
+    record = store.record(
+        frame,
+        kind="computation",
+        operation="evaluation_sensitivity",
+        snapshot_id=catalog.snapshot_id,
+        purpose=save_as or "sensitivity",
+        params={"episodes": episodes, "detector_params": detector_params or {}},
+    )
+    return {
+        "run_id": path.name,
+        "snapshot_id": catalog.snapshot_id,
+        "evidence_id": record.evidence_id,
+        "is_sensitivity": True,
+        "n_rows": frame.height,
+        "preview": frame.head(20).to_dicts(),
+    }
 

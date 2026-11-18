@@ -238,7 +238,9 @@ _MCP_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.benchmark",
     "arena_evaluation.mcp",
 )
-_MCP_PINNED: dict[tuple[str, str], set[str]] = {}
+_MCP_PINNED: dict[tuple[str, str], set[str]] = {
+    ("analysis.py", "arena_evaluation.processing.sensitivity"): {"rerun_sensitivity"},
+}
 
 
 def test_mcp_imports_only_allowed_layers() -> None:
