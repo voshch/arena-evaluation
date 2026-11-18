@@ -13,6 +13,7 @@ import os
 import pathlib
 
 from arena_evaluation.storage.config_layout import find_rendered_reports
+from arena_evaluation.storage.star_schema import has_star_schema
 import re
 import socket
 import subprocess
@@ -187,7 +188,7 @@ def run_status(
         "episodes_logged": None if light else len(progress_rows(path)),
         "lanes": lanes,
         "runner_pids": pids,
-        "has_combined_metrics": (path / "combined_metrics.parquet").is_file(),
+        "has_star_schema": has_star_schema(path),
         "has_report": bool(find_rendered_reports(path)),
     }
 

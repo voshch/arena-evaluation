@@ -45,6 +45,7 @@ def test_server_lists_every_tool_resource_and_template(tmp_path):
     assert all(
         tool.name.startswith("evaluation_") and tool.description for tool in tools
     )
+    assert "evaluation_append_insight" not in {tool.name for tool in tools}
     destructive = {tool.name for tool in tools if tool.annotations.destructive_hint}
     assert {
         "evaluation_benchmark",
@@ -67,7 +68,7 @@ def test_server_lists_every_tool_resource_and_template(tmp_path):
         "arena://evaluation/runs/{run_id}/metrics/schema",
         "arena://evaluation/runs/{run_id}/metrics/summary",
     }
-    assert [prompt.name for prompt in prompts] == ["evaluation_benchmark_workflow"]
+    assert "evaluation_benchmark_workflow" in {prompt.name for prompt in prompts}
 
 
 def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
@@ -75,9 +76,9 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
         calls = {
             "metric": (
                 "evaluation_describe_metric",
-                {"metric_name": "collision_metrics"},
+                {"metric_name": "energy_total_wh"},
             ),
-            "replay": ("evaluation_describe_metric", {"metric_name": "task_replay"}),
+            "replay": ("evaluation_describe_metric", {"metric_name": "contact_count"}),
             "metrics": ("evaluation_metrics", {}),
             "suites": ("evaluation_suites", {}),
             "contests": ("evaluation_contests", {}),
@@ -111,24 +112,24 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
         return out
 
     out = run_session(body, server_env(tmp_path), ("evaluation",))
-    assert out["metric"]["outputs"]["success"]["direction"] == "higher"
-    assert out["metric"]["outputs"]["collision_amount"]["lower_is_better"] is True
-    assert out["replay"]["outputs"]["judge_agrees"]["direction"] == "higher"
+    assert out["metric"]["name"] == "energy_total_wh"
+    assert out["metric"]["unit"] == "Wh"
+    assert out["replay"]["name"] == "contact_count"
     assert "no metric 'zz'" in out["bad_metric"]
-    assert {row["name"] for row in out["metrics"]["metrics"]} >= {
-        "collision_metrics",
-        "task_replay",
+    assert {row["metric"] for row in out["metrics"]["metrics"]} >= {
+        "energy_total_wh",
+        "contact_count",
     }
-    assert {
-        path.parent.name for path in (CONFIGS / "suites").glob("*/suite.yaml")
-    } <= set(out["suites"]["suites"])
+    assert {path.stem for path in (CONFIGS / "suites").glob("*.yaml")} <= set(
+        out["suites"]["suites"]
+    )
     assert out["suites_resource"] == out["suites"]["suites"]
-    assert {
-        path.parent.name for path in (CONFIGS / "contests").glob("*/contest.yaml")
-    } <= set(out["contests"]["contests"])
-    assert {
-        path.parent.name for path in (CONFIGS / "reports").glob("*/report.yaml")
-    } <= set(out["manifests"]["manifests"])
+    assert {path.stem for path in (CONFIGS / "contests").glob("*.yaml")} <= set(
+        out["contests"]["contests"]
+    )
+    assert {path.stem for path in (CONFIGS / "manifests").glob("*.yaml")} <= set(
+        out["manifests"]["manifests"]
+    )
     assert yaml.safe_load(out["template"]["content"]) == yaml.safe_load(
         (CONFIGS / "suites" / "basic" / "suite.yaml").read_text()
     )
@@ -297,13 +298,8 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
                 "evaluation_write_notes",
                 {"run_id": RUN_ID, "notes": [{"label": "a", "value": "1"}]},
             ),
-            (
-                "insight",
-                "evaluation_append_insight",
-                {"run_id": RUN_ID, "label": "b", "value": "2"},
-            ),
             ("notes", "evaluation_read_notes", {"run_id": RUN_ID}),
-            ("combined", "evaluation_read_combined_metrics", {"run_id": RUN_ID}),
+            ("metrics", "evaluation_read_metrics", {"run_id": RUN_ID}),
             (
                 "query",
                 "evaluation_query_metrics",
@@ -323,7 +319,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             (
                 "compare",
                 "evaluation_compare_planners",
-                {"run_id": RUN_ID, "metrics": ["success", "collision_amount"]},
+                {"run_id": RUN_ID, "metrics": ["success", "contact_count"]},
             ),
             ("compare_default", "evaluation_compare_planners", {"run_id": RUN_ID}),
             (
@@ -354,9 +350,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             await client.call_tool("evaluation_status", {"run_id": "nope"})
         )
         out["unprocessed"] = error_text(
-            await client.call_tool(
-                "evaluation_read_combined_metrics", {"run_id": EMPTY_RUN_ID}
-            )
+            await client.call_tool("evaluation_read_metrics", {"run_id": EMPTY_RUN_ID})
         )
         out["bad_column"] = error_text(
             await client.call_tool(
@@ -409,11 +403,8 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
         "runner.p2.log": ["lane p2 started", "lane p2 sim died"]
     }
     assert out["episode"]["metadata"]["planner"] == "dwb"
-    assert out["notes"]["notes"] == [
-        {"label": "a", "value": "1"},
-        {"label": "b", "value": "2"},
-    ]
-    assert out["combined"]["column_stats"]["path_speeds"]["dtype"].startswith("List")
+    assert out["notes"]["notes"] == [{"label": "a", "value": "1"}]
+    assert out["metrics"]["column_stats"]["success"]["dtype"] == "Boolean"
     assert [row["planner"] for row in out["query"]["data"]] == ["dwb_social", "dwb"]
     assert {row["stage"] for row in out["aggregate"]["data"]} == {"s1", "s2"}
     assert [row["planner"] for row in out["compare"]["rankings"]] == [
@@ -428,14 +419,12 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     assert out["summary"]["planners"] == ["dwb", "dwb_social"]
     assert out["summary"]["n_references"] == 2
     assert "dwb_social: 4 episodes" in out["summary"]["summary"]
-    assert (
-        pathlib.Path(out["manifest"]["path"]).parent.name == "my_report"
-        and pathlib.Path(out["manifest"]["path"]).name == "report.yaml"
-    )
+    assert pathlib.Path(out["manifest"]["path"]).parent.name == "my_report"
+    assert pathlib.Path(out["manifest"]["path"]).name == "report.yaml"
     assert out["run_manifests"]["run_manifests"] == ["my_report"]
     assert yaml.safe_load(out["custom_template"]["content"])["name"] == "my_report"
     assert "no run 'nope'" in out["missing_run"]
-    assert "evaluation_process computes it" in out["unprocessed"]
+    assert "evaluation_process builds them" in out["unprocessed"]
     assert "no metric column zz" in out["bad_column"]
     assert out[f"arena://evaluation/runs/{RUN_ID}/state"]["lanes"] == ["p2"]
     assert out[f"arena://evaluation/runs/{RUN_ID}/notes"][0]["label"] == "a"

@@ -228,3 +228,73 @@ def test_presentation_computes_no_statistics() -> None:
     assert not violations, (
         f"presentation must bind, not compute statistics: {violations}"
     )
+
+
+_MCP_ROOT: pathlib.Path = _PKG_ROOT / "mcp"
+_MCP_ALLOWED: tuple[str, ...] = (
+    "arena_evaluation.storage",
+    "arena_evaluation.analytics",
+    "arena_evaluation.presentation",
+    "arena_evaluation.benchmark",
+    "arena_evaluation.mcp",
+)
+_MCP_PINNED: dict[tuple[str, str], set[str]] = {}
+
+
+def test_mcp_imports_only_allowed_layers() -> None:
+    violations: list[str] = []
+    seen_pinned: set[tuple[str, str]] = set()
+    for path in sorted(_MCP_ROOT.rglob("*.py")):
+        rel = path.relative_to(_MCP_ROOT).as_posix()
+        for module, names in _imports_of(path):
+            if not _is_internal(module) or _matches_allowed(module, _MCP_ALLOWED):
+                continue
+            key = (rel, module)
+            if key in _MCP_PINNED and set(names) == _MCP_PINNED[key]:
+                seen_pinned.add(key)
+            else:
+                violations.append(f"{rel} imports {module} ({list(names)})")
+    assert not violations, f"mcp imports outside allow-list: {violations}"
+    assert seen_pinned == set(_MCP_PINNED), (
+        f"pinned edge(s) missing: {set(_MCP_PINNED) - seen_pinned}"
+    )
+
+
+def test_mcp_reads_no_parquet_directly() -> None:
+    violations: list[str] = []
+    for path in sorted(_MCP_ROOT.rglob("*.py")):
+        rel = path.relative_to(_MCP_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("read_parquet", "scan_parquet", "write_parquet")
+            ):
+                violations.append(f"{rel}:{node.lineno} calls .{node.func.attr}()")
+    assert not violations, (
+        f"mcp must use BenchmarkCatalog, not direct Parquet I/O: {violations}"
+    )
+
+
+_NON_MCP_TO_MCP_PINNED: set[tuple[str, str]] = {
+    ("benchmark/dashboard_runtime.py", "arena_evaluation.mcp.runs"),
+    ("benchmark/dashboard_runtime.py", "arena_evaluation.mcp.catalog"),
+    ("benchmark/dashboard_runtime.py", "arena_evaluation.mcp.authoring"),
+}
+
+
+def test_non_mcp_packages_never_import_mcp() -> None:
+    violations = [
+        f"{path.relative_to(_PKG_ROOT).as_posix()} imports {module}"
+        for path in sorted(_PKG_ROOT.rglob("*.py"))
+        if not path.is_relative_to(_MCP_ROOT)
+        for module, _ in _imports_of(path)
+        if (
+            module == "arena_evaluation.mcp"
+            or module.startswith("arena_evaluation.mcp.")
+        )
+        and (path.relative_to(_PKG_ROOT).as_posix(), module)
+        not in _NON_MCP_TO_MCP_PINNED
+    ]
+    assert not violations, f"non-mcp modules import mcp: {violations}"

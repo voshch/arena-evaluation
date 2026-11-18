@@ -5,19 +5,19 @@ import functools
 import importlib
 import os
 import pathlib
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import pydantic
-
 from arena_mcp.core import ToolError
 
-from .base import YamlText, config_stem, domain, parse_yaml, run_path
+from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
 if TYPE_CHECKING:
     from arena_rclpy_mixins.ROSParamServer import ROSParamServer
     from arena_runtime.env.task_layer import TaskLayer, TaskModes
     from arena_simulation_setup.tree import DomainAssetIdentifier
+
 
 Overwrite = Annotated[
     bool, pydantic.Field(description="replace an existing config of that name")
@@ -309,6 +309,9 @@ def check_contest(data: object) -> dict[str, Any]:
     }
 
 
+_DRL_DRIVERS: Final = frozenset({"drl", "vla", "rosnav_rl"})
+
+
 def check_manifest(data: object) -> dict[str, Any]:
     from arena_evaluation.presentation.viz_manifest import VizManifest
 
@@ -321,6 +324,12 @@ def check_manifest(data: object) -> dict[str, Any]:
         manifest = VizManifest.model_validate(data)
     except pydantic.ValidationError as exc:
         return {"valid": False, "problems": [str(exc)]}
+    for plot in manifest.plots:
+        if not plot.uses and plot.data is None:
+            return {
+                "valid": False,
+                "problems": [f"plot {plot.id!r} has no uses or data specification"],
+            }
     return {
         "valid": True,
         "n_plots": len(manifest.plots),
@@ -329,10 +338,10 @@ def check_manifest(data: object) -> dict[str, Any]:
     }
 
 
-def write_config(kind: str, name: str, text: str, overwrite: bool) -> pathlib.Path:
-    """Write a suite, contest or manifest to the write target its resolver chain names, as a bundle <name>/<kind>.yaml."""
-    from arena_evaluation.storage.config_layout import get_config_kind
-
+def write_config(
+    kind: str, name: str, text: str, *, overwrite: bool = False
+) -> pathlib.Path:
+    """Write a suite, contest or manifest to the write target its resolver chain names, as <name>/<kind>.yaml."""
     stem = config_stem(name)
     if stem in config_names(kind) and not overwrite:
         raise ToolError(
@@ -340,8 +349,7 @@ def write_config(kind: str, name: str, text: str, overwrite: bool) -> pathlib.Pa
             hint="pick another name or pass overwrite=true",
         )
     target = asyncio.run(config_identifier(kind)(name=stem).resolve_write_path())
-    layout_kind = "report" if kind == "manifest" else kind
-    path = target / get_config_kind(layout_kind).filename
+    path = target / f"{kind}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
@@ -365,7 +373,7 @@ def evaluation_validate_manifest(yaml_content: YamlText) -> dict[str, Any]:
     return check_manifest(parse_yaml(yaml_content, "manifest"))
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 def evaluation_create_suite(
     name: str, yaml_content: YamlText, overwrite: Overwrite = False
 ) -> dict[str, Any]:
@@ -377,12 +385,12 @@ def evaluation_create_suite(
             hint="evaluation_config_schema kind=suite shows the schema",
         )
     return {
-        "path": str(write_config("suite", name, yaml_content, overwrite)),
+        "path": str(write_config("suite", name, yaml_content, overwrite=overwrite)),
         **verdict,
     }
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 def evaluation_create_contest(
     name: str, yaml_content: YamlText, overwrite: Overwrite = False
 ) -> dict[str, Any]:
@@ -394,14 +402,15 @@ def evaluation_create_contest(
             hint="planners_list lists the planners",
         )
     return {
-        "path": str(write_config("contest", name, yaml_content, overwrite)),
+        "path": str(write_config("contest", name, yaml_content, overwrite=overwrite)),
         **verdict,
     }
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 def evaluation_create_manifest(
     name: str,
+    *,
     yaml_content: Annotated[
         str | None,
         pydantic.Field(
@@ -439,13 +448,21 @@ def evaluation_create_manifest(
             manifest.model_dump(exclude_none=True), sort_keys=False
         )
     elif yaml_content is None or template is not None:
-        raise ToolError("pass yaml_content or template")
+        raise ToolError(
+            "pass yaml_content or template",
+            hint="pass yaml_content, or template from evaluation_manifests",
+        )
     verdict = check_manifest(parse_yaml(yaml_content, "manifest"))
     if not verdict["valid"]:
-        raise ToolError("manifest does not validate: " + "; ".join(verdict["problems"]))
+        raise ToolError(
+            "manifest does not validate: " + "; ".join(verdict["problems"]),
+            hint="fix the listed problems, or start from a template in evaluation_manifests",
+        )
     if run_id is None:
         return {
-            "path": str(write_config("manifest", name, yaml_content, overwrite)),
+            "path": str(
+                write_config("manifest", name, yaml_content, overwrite=overwrite)
+            ),
             **verdict,
         }
     from arena_evaluation.storage.config_layout import bundle_path, run_analysis_root
@@ -455,6 +472,5 @@ def evaluation_create_manifest(
         raise ToolError(
             f"{path} exists", hint="pick another name or pass overwrite=true"
         )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml_content)
+    atomic_write_text(path, yaml_content)
     return {"path": str(path), **verdict}

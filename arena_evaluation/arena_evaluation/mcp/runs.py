@@ -6,25 +6,31 @@ import datetime
 import json
 import os
 import pathlib
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 
 import pydantic
-
 from arena_mcp.core import JOBS, ROS, Job, ToolError, cli, msgs, proc
 from arena_mcp.core.jobs import RUNNING, SUCCEEDED
+
+from arena_evaluation.benchmark.dashboard import find_rendered_reports
+from arena_evaluation.storage.config_layout import bundle_path, run_analysis_root
+from arena_evaluation.storage.star_schema import has_star_schema
 
 from .base import (
     OptionalRunId,
     RunId,
+    atomic_write_text,
     component,
     config_stem,
     data_root,
     domain,
+    file_lock,
     is_inline,
     run_path,
 )
 
 BENCHMARK_JOBS = ("benchmark", "preflight")
+FINDING_NOTE_PREFIX: Final[str] = "finding:"
 
 LaunchValue = str | int | float | bool
 LaunchArgs = Annotated[
@@ -70,7 +76,8 @@ def launch_tokens(
     clash = sorted(set(chosen) & set(launch_args or {}))
     if clash:
         raise ToolError(
-            f"{', '.join(clash)} given both as a parameter and in launch_args"
+            f"{', '.join(clash)} given both as a parameter and in launch_args",
+            hint="set each value once, either as its parameter or in launch_args",
         )
     return [
         f"{key}:={launch_value(value)}"
@@ -108,6 +115,7 @@ def benchmark_argv(
     scale_episodes: float | None = None,
     data_root: str | None = None,
     lanes: int | None = None,
+    ros_domain_id: int | None = None,
     sim: str | None = None,
     headless: bool | None = None,
     env_n: int | None = None,
@@ -120,7 +128,8 @@ def benchmark_argv(
     if resume:
         if suite is not None or contest is not None:
             raise ToolError(
-                "a resumed run replays its stored suite and contest, do not pass them"
+                "a resumed run replays its stored suite and contest, do not pass them",
+                hint="drop suite and contest; evaluation_benchmark resume=true replays the stored run",
             )
         argv = ["--resume", component(run_id, "run_id")]
     else:
@@ -156,6 +165,7 @@ def benchmark_argv(
         ("--scale-episodes", scale_episodes),
         ("--data-root", data_root),
         ("--lanes", lanes),
+        ("--ros-domain-id", ros_domain_id),
         ("--viz-port", viz_port),
     ):
         if value is not None:
@@ -192,7 +202,26 @@ def run_status(
             str(exc),
             hint="the runner writes it once the configs load, see evaluation_console",
         ) from exc
-    return status | {"jobs": [job.id for job in run_jobs(status["run_id"])]}
+    manifest_run_id = status["run_id"]
+    return status | {
+        "run_id": path.name,
+        "manifest_run_id": manifest_run_id,
+        "jobs": [job.id for job in run_jobs(path.name)],
+    }
+
+
+def _created_at_s(status: dict[str, Any]) -> float:
+    """The manifest's created_at as epoch seconds, 0.0 when it is missing or unparseable."""
+    try:
+        return datetime.datetime.fromisoformat(status["created_at"]).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _run_order(item: tuple[pathlib.Path, dict[str, Any]]) -> tuple[bool, float, str]:
+    """The folder a run id names first, then the newest created_at, then the folder name."""
+    path, status = item
+    return (path.name == status["manifest_run_id"], _created_at_s(status), path.name)
 
 
 def run_summary_after(path: pathlib.Path) -> dict[str, Any]:
@@ -244,7 +273,7 @@ def viz_url(job: Job) -> str | None:
     return None
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=False, idempotent=True)
 async def evaluation_dashboard(
     port: Annotated[
         int | None,
@@ -319,7 +348,7 @@ async def evaluation_dashboard(
     }
 
 
-@domain.tool(destructive=True)
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_benchmark(
     suite: ConfigArg = None,
     contest: ConfigArg = None,
@@ -393,6 +422,14 @@ async def evaluation_benchmark(
             ge=1,
         ),
     ] = None,
+    ros_domain_id: Annotated[
+        int | None,
+        pydantic.Field(
+            description="ROS domain for the runtime and its envs (GZ_PARTITION follows); omitted, an already-set ROS_DOMAIN_ID is kept and otherwise the runner picks the lowest domain with no arena runtime",
+            ge=0,
+            le=232,
+        ),
+    ] = None,
     sim: Annotated[
         str | None,
         pydantic.Field(
@@ -445,7 +482,10 @@ async def evaluation_benchmark(
         if run_id is None:
             run_id = await asyncio.to_thread(find_most_recent_resumable, root)
             if run_id is None:
-                raise ToolError(f"no resumable run in {root}")
+                raise ToolError(
+                    f"no resumable run in {root}",
+                    hint=f"evaluation_runs lists resumable runs in {root}, or start a fresh benchmark with suite and contest",
+                )
         elif not (root / component(run_id, "run_id") / "manifest.yaml").is_file():
             raise ToolError(
                 f"no run {run_id!r} to resume in {root}",
@@ -478,6 +518,7 @@ async def evaluation_benchmark(
         scale_episodes=scale_episodes,
         data_root=data_root_dir,
         lanes=lanes,
+        ros_domain_id=ros_domain_id,
         sim=sim,
         headless=headless,
         env_n=env_n,
@@ -506,7 +547,7 @@ async def evaluation_benchmark(
     }
 
 
-@domain.tool(destructive=True)
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_preflight(
     planners: Annotated[
         list[str] | None,
@@ -576,7 +617,7 @@ async def evaluation_preflight(
     }
 
 
-@domain.tool(destructive=True)
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_stop(
     run_id: RunId,
     grace_s: Annotated[
@@ -632,23 +673,19 @@ def evaluation_runs(
         pydantic.Field(description="case-insensitive substring of the run id"),
     ] = None,
 ) -> dict[str, Any]:
-    """Benchmark runs, newest first, with suite, contest, state and step counts, filtered by exact suite or contest, state or run id substring."""
+    """Benchmark runs, newest by created_at first, each addressed by its folder name, filtered by exact suite or contest, state or run id substring."""
     root = data_root()
     if not root.is_dir():
         return {"data_root": str(root), "runs": [], "more": False}
     from arena_evaluation.benchmark.debug import running_pids_by_run_id
 
     running = running_pids_by_run_id()
-    runs = []
+    candidates: list[tuple[pathlib.Path, dict[str, Any]]] = []
     unreadable = 0
-    more = False
-    for path in sorted(
-        (
-            entry
-            for entry in root.iterdir()
-            if entry.is_dir() and (entry / "manifest.yaml").is_file()
-        ),
-        reverse=True,
+    for path in (
+        entry
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / "manifest.yaml").is_file()
     ):
         if query and query.lower() not in path.name.lower():
             continue
@@ -657,30 +694,40 @@ def evaluation_runs(
         except ToolError:
             unreadable += 1
             continue
+        candidates.append((path, status))
+
+    runs = []
+    more = False
+    seen_manifest_ids: set[str] = set()
+    for path, status in sorted(candidates, key=_run_order, reverse=True):
         if (
             (suite and status["suite"] != suite)
             or (contest and status["contest"] != contest)
             or (state and status["state"] != state)
         ):
             continue
+        if status["manifest_run_id"] in seen_manifest_ids:
+            continue
+        seen_manifest_ids.add(status["manifest_run_id"])
         if len(runs) == limit:
             more = True
             break
         runs.append(
             {
-                key: status[key]
+                key: status.get(key)
                 for key in (
                     "run_id",
                     "suite",
                     "contest",
                     "simulator",
+                    "ros_domain_id",
                     "created_at",
                     "state",
                     "steps_total",
                     "steps",
                     "lanes",
                     "runner_pids",
-                    "has_combined_metrics",
+                    "has_star_schema",
                     "has_report",
                 )
             }
@@ -695,7 +742,7 @@ def evaluation_runs(
 
 @domain.tool(read_only=True)
 def evaluation_status(run_id: OptionalRunId = None) -> dict[str, Any]:
-    """One run's state, step counts against its manifest, active and failed steps, lanes, runner pids, jobs and artifacts."""
+    """One run's state, addressed by its folder name: step counts against its manifest, active and failed steps, lanes, runner pids, jobs and artifacts."""
     return run_status(run_path(run_id))
 
 
@@ -772,11 +819,12 @@ def evaluation_read_episode(run_id: RunId, episode_id: int) -> dict[str, Any]:
 
 
 def load_notes(path: pathlib.Path) -> list[dict[str, str]]:
+    """The notes.yaml rows as ``{label, value}``, empty when the document does not exist yet."""
     import yaml
 
     if not path.is_file():
         return []
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
         return [
             {"label": str(row.get("label", "")), "value": str(row.get("value", ""))}
@@ -788,19 +836,49 @@ def load_notes(path: pathlib.Path) -> list[dict[str, str]]:
     return []
 
 
+def _merged_rows(
+    existing: list[dict[str, str]], rows: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """existing then rows, one row per label with the incoming row winning."""
+    merged = {row["label"]: row for row in existing}
+    merged.update({row["label"]: row for row in rows})
+    return list(merged.values())
+
+
 def write_notes(
     path: pathlib.Path, notes: list[Note], mode: str
 ) -> list[dict[str, str]]:
+    """Write notes.yaml under its file lock: replace, append or merge by label.
+
+    A replace keeps the ``finding:<id>`` rows attached by evaluation_finding_attach, so a
+    later notes write never deletes a finding note.
+    """
     import yaml
 
     rows = [note.model_dump() for note in notes]
-    if mode == "append":
-        rows = load_notes(path) + rows
-    elif mode == "merge":
-        merged = {row["label"]: row for row in load_notes(path)}
-        merged.update({row["label"]: row for row in rows})
-        rows = list(merged.values())
-    path.write_text(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True))
+    with file_lock(path):
+        existing = load_notes(path)
+        match mode:
+            case "append":
+                rows = [*existing, *rows]
+            case "merge":
+                rows = _merged_rows(existing, rows)
+            case "replace":
+                rows = _merged_rows(
+                    [
+                        row
+                        for row in existing
+                        if row["label"].startswith(FINDING_NOTE_PREFIX)
+                    ],
+                    rows,
+                )
+            case _:
+                raise ToolError(
+                    f"unknown notes mode {mode!r}", hint="replace, append or merge"
+                )
+        atomic_write_text(
+            path, yaml.safe_dump(rows, sort_keys=False, allow_unicode=True)
+        )
     return rows
 
 
@@ -810,24 +888,15 @@ def evaluation_read_notes(run_id: RunId) -> dict[str, Any]:
     return {"run_id": run_id, "notes": load_notes(run_path(run_id) / "notes.yaml")}
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 def evaluation_write_notes(
     run_id: RunId,
     notes: list[Note],
     mode: Literal["replace", "append", "merge"] = "replace",
 ) -> dict[str, Any]:
-    """Write notes.yaml of a run: replace it, append rows, or merge rows by label."""
+    """Write notes.yaml of a run: replace it (the finding:<id> rows stay), append rows, or merge rows by label."""
     rows = write_notes(run_path(run_id) / "notes.yaml", notes, mode)
     return {"run_id": run_id, "mode": mode, "n_notes": len(rows)}
-
-
-@domain.tool()
-def evaluation_append_insight(run_id: RunId, label: str, value: str) -> dict[str, Any]:
-    """Append one {label, value} row to a run's notes.yaml."""
-    rows = write_notes(
-        run_path(run_id) / "notes.yaml", [Note(label=label, value=value)], "append"
-    )
-    return {"run_id": run_id, "n_notes": len(rows)}
 
 
 def pipeline_inputs(
@@ -835,7 +904,10 @@ def pipeline_inputs(
 ) -> tuple[str, list[pathlib.Path]]:
     """The input flag and directories of a processing verb: run directories, the latest run, or episode directories."""
     if run_ids and episode_dirs:
-        raise ToolError("pass run_ids or episode_dirs, not both")
+        raise ToolError(
+            "pass run_ids or episode_dirs, not both",
+            hint="pick one input: run_ids for whole runs, episode_dirs for single episode folders",
+        )
     if episode_dirs:
         root = data_root()
         paths = []
@@ -855,8 +927,6 @@ def manifest_ref(reference: str, first: pathlib.Path) -> str:
     """A report manifest reference, a custom manifest written into the run directory taking precedence over a name."""
     if is_inline(reference) or pathlib.Path(reference).is_absolute():
         return reference
-    from arena_evaluation.storage.config_layout import bundle_path, run_analysis_root
-
     local = bundle_path(run_analysis_root(first), "report", config_stem(reference))
     return str(local) if local.is_file() else reference
 
@@ -867,6 +937,7 @@ async def pipeline_job(
     episode_dirs: list[str] | None,
     *,
     output_dir: str | None = None,
+    generate_gifs: bool = False,
     profile: bool = False,
     workers: int | None = None,
     report_manifest: str | None = None,
@@ -876,6 +947,8 @@ async def pipeline_job(
     argv = [verb, flag, *map(str, paths)]
     if output_dir:
         argv += ["--output-dir", output_dir]
+    if generate_gifs:
+        argv.append("--generate-gifs")
     if profile:
         argv.append("--profile")
     if workers is not None:
@@ -889,29 +962,16 @@ async def pipeline_job(
     def outputs(_job: Job) -> dict[str, Any]:
         found: dict[str, Any] = {}
         if verb in ("process", "run") and flag == "--benchmark-dir":
-            found["combined_metrics"] = {
-                str(path): (path / "combined_metrics.parquet").is_file()
-                for path in paths
-            }
+            found["star_schema"] = {str(path): has_star_schema(path) for path in paths}
         if verb in ("report", "run"):
-            from arena_evaluation.storage.config_layout import (
-                find_rendered_reports,
-                run_report_output_dir,
-            )
-
-            target_name = (
-                pathlib.Path(report_manifest).stem if report_manifest else "standard"
-            )
-            target_report = run_report_output_dir(out_dir, target_name) / "report.html"
-            if target_report.is_file():
-                found["report"] = str(target_report)
-            else:
-                reports = find_rendered_reports(out_dir)
-                found["report"] = str(reports[0]) if reports else None
+            reports = find_rendered_reports(out_dir)
+            found["report"] = str(reports[0]) if reports else None
         if verb in ("report", "run", "plot"):
-            from arena_evaluation.storage.config_layout import find_rendered_plots
-
-            found["plots"] = [str(plot) for plot in find_rendered_plots(out_dir)][:200]
+            found["plots"] = (
+                sorted(str(plot) for plot in (out_dir / "plots").glob("*.png"))[:200]
+                if (out_dir / "plots").is_dir()
+                else []
+            )
         return found
 
     job = await cli.job(
@@ -960,7 +1020,7 @@ Profile = Annotated[
 ]
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_process(
     run_ids: RunIds = None,
     episode_dirs: EpisodeDirs = None,
@@ -968,7 +1028,7 @@ async def evaluation_process(
     workers: Workers = None,
     profile: Profile = False,
 ) -> dict[str, Any]:
-    """Start `arena evaluation process` as a job: extract MCAP topics and compute every metric into combined_metrics.parquet, failing when nothing was written."""
+    """Start `arena evaluation process` as a job: extract MCAP topics and compute every metric into the Star Schema tables, failing when nothing was written."""
     return await pipeline_job(
         "process",
         run_ids,
@@ -979,7 +1039,7 @@ async def evaluation_process(
     )
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_extract(
     run_ids: RunIds = None,
     episode_dirs: EpisodeDirs = None,
@@ -992,12 +1052,13 @@ async def evaluation_extract(
     )
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_report(
     run_ids: RunIds = None,
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
+    generate_gifs: Gifs = False,
     profile: Profile = False,
 ) -> dict[str, Any]:
     """Start `arena evaluation report` as a job: report.html and plots from existing metrics, several runs merged into one report."""
@@ -1006,17 +1067,19 @@ async def evaluation_report(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
+        generate_gifs=generate_gifs,
         profile=profile,
         report_manifest=report_manifest,
     )
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_plot(
     run_ids: RunIds = None,
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
+    generate_gifs: Gifs = False,
     profile: Profile = False,
 ) -> dict[str, Any]:
     """Start `arena evaluation plot` as a job: the manifest's static PNG plots only, no HTML."""
@@ -1025,17 +1088,19 @@ async def evaluation_plot(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
+        generate_gifs=generate_gifs,
         profile=profile,
         report_manifest=report_manifest,
     )
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_pipeline(
     run_ids: RunIds = None,
     episode_dirs: EpisodeDirs = None,
     report_manifest: ReportManifest = None,
     output_dir: OutputDir = None,
+    generate_gifs: Gifs = False,
     workers: Workers = None,
     profile: Profile = False,
 ) -> dict[str, Any]:
@@ -1045,13 +1110,14 @@ async def evaluation_pipeline(
         run_ids,
         episode_dirs,
         output_dir=output_dir,
+        generate_gifs=generate_gifs,
         profile=profile,
         workers=workers,
         report_manifest=report_manifest,
     )
 
 
-@domain.tool()
+@domain.tool(read_only=False, destructive=True, idempotent=True)
 async def evaluation_acoustic(
     run_id: RunId,
     action: Literal["list", "animate", "snapshot"],
@@ -1202,17 +1268,8 @@ def run_notes_resource(run_id: str) -> list[dict[str, str]]:
     description="Path of a run's report.html, null before evaluation_report ran",
 )
 def run_report_resource(run_id: str) -> dict[str, str | None]:
-    from arena_evaluation.storage.config_layout import find_rendered_reports
-
     reports = find_rendered_reports(run_path(run_id))
-    preferred = next(
-        (r for r in reports if r.parent.name == "standard"),
-        reports[0] if reports else None,
-    )
-    return {
-        "run_id": run_id,
-        "report": str(preferred) if preferred is not None else None,
-    }
+    return {"run_id": run_id, "report": str(reports[0]) if reports else None}
 
 
 @domain.prompt(description="Author, run, process and analyze a benchmark end to end")
@@ -1221,4 +1278,4 @@ def evaluation_benchmark_workflow(goal: str) -> str:
 1. Pick or author configs: evaluation_suites, evaluation_contests, evaluation_config_schema, episode_task_modes, planners_list, assets_ls kind=world; validate with evaluation_validate_suite and evaluation_validate_contest before evaluation_create_suite or evaluation_create_contest.
 2. Start it with evaluation_benchmark, then follow evaluation_status, evaluation_progress and evaluation_console; stop it with evaluation_stop.
 3. When the job ended, run evaluation_process and wait for its job, then evaluation_report.
-4. Analyze with evaluation_summarize, evaluation_compare_planners and evaluation_top_n, record findings with evaluation_append_insight."""
+4. Analyze with evaluation_summarize, evaluation_compare_planners and evaluation_top_n; evaluation_query returns a capped preview and pin_evidence=true keeps the full result as evidence. Record findings with evaluation_finding_create, review them with evaluation_finding_status and attach accepted ones with evaluation_finding_attach."""

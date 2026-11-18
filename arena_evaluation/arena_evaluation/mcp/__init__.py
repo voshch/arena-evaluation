@@ -1,4 +1,27 @@
-from . import analysis, authoring, catalog, processes, recording, runs
+from __future__ import annotations
+
+from . import (
+    analysis,
+    authoring,
+    catalog,
+    presentation,
+    processes,
+    query,
+    recording,
+    runs,
+    slices,
+)
 from .base import domain
 
-__all__ = ["analysis", "authoring", "catalog", "domain", "processes", "recording", "runs"]
+__all__ = [
+    "analysis",
+    "authoring",
+    "catalog",
+    "domain",
+    "presentation",
+    "processes",
+    "query",
+    "recording",
+    "runs",
+    "slices",
+]

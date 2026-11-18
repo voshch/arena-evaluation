@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 from collections.abc import Iterable, Mapping
+from typing import Final
 
 import polars as pl
 
@@ -17,6 +18,7 @@ __all__ = [
     "empty_dimension",
     "episode_directories",
     "episode_directory_id",
+    "has_star_schema",
     "scan_dimensions",
     "scan_fact_views",
     "scan_series_tables",
@@ -83,6 +85,16 @@ def episode_directory_id(episode_dir: pathlib.Path) -> int | None:
         return None
     suffix = episode_dir.name.removeprefix("episode_")
     return int(suffix) if suffix.isdigit() else None
+
+
+MERGE_MANIFEST_FILENAME: Final[str] = "merge.yaml"
+
+
+def has_star_schema(benchmark_dir: pathlib.Path) -> bool:
+    """True when ``benchmark_dir`` has its Star Schema root dimension table or merge manifest."""
+    return (
+        benchmark_dir / DIMENSION_TABLES["dim_episodes"].relative_path()
+    ).is_file() or (benchmark_dir / MERGE_MANIFEST_FILENAME).is_file()
 
 
 def scan_dimensions(benchmark_dir: pathlib.Path) -> dict[str, pl.LazyFrame]:
