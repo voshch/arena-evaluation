@@ -44,6 +44,9 @@ _PRESENTATION_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.presentation",
 )
 _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
+    # X-005: the one-way lazy import that registers the config asset chain; benchmark.tree does not
+    # import this module, so it is an edge and not a cycle.
+    ("manifest_registry.py", "arena_evaluation.benchmark.tree"): set(),
     (
         "plot_types/acoustic_field.py",
         "arena_evaluation.processing.acoustics.door_map",
