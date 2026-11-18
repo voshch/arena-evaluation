@@ -79,16 +79,3 @@ class MetadataWriter:
             raise ManifestGenerationError(
                 f"Failed to read metadata from {source}: {e}"
             ) from e
-
-    @staticmethod
-    def update(source: pathlib.Path, **kwargs: object) -> RunMetadata:
-        """Update existing metadata with new fields and save."""
-        metadata = MetadataWriter.read(source)
-
-        for key, value in kwargs.items():
-            if key not in RunMetadata.model_fields:
-                raise ManifestGenerationError(f"Invalid metadata field: {key}")
-            setattr(metadata, key, value)
-
-        MetadataWriter.write(metadata, source)
-        return metadata

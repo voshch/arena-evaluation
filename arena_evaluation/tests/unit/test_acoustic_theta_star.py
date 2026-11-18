@@ -39,9 +39,7 @@ import pytest
 from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 RES = 0.05  # 5 cm/px  (matches real maps)
 MIC = 0.01  # near-field floor, inactive at the tested distances
@@ -83,9 +81,7 @@ def _expected_db(dx_px, dy_px, *, res=RES, mic=MIC) -> float:
     return 20.0 * np.log10(max(d, mic))
 
 
-# ---------------------------------------------------------------------------
 # 1. Radial symmetry (circular wavefront)
-# ---------------------------------------------------------------------------
 
 
 class TestRadialSymmetry:
@@ -154,9 +150,7 @@ class TestRadialSymmetry:
         )
 
 
-# ---------------------------------------------------------------------------
 # 2. True Euclidean distance recovery (no staircase)
-# ---------------------------------------------------------------------------
 
 
 class TestEuclideanRecovery:
@@ -199,9 +193,7 @@ class TestEuclideanRecovery:
         )
 
 
-# ---------------------------------------------------------------------------
 # 3. Single wall crossing with Euclidean distance
-# ---------------------------------------------------------------------------
 
 
 class TestSingleWallCrossing:
@@ -264,9 +256,7 @@ class TestSingleWallCrossing:
         )
 
 
-# ---------------------------------------------------------------------------
 # 4. Around-wall routing (multi-path pruning)
-# ---------------------------------------------------------------------------
 
 
 class TestMultiPathRouting:
@@ -295,9 +285,7 @@ class TestMultiPathRouting:
         )
 
 
-# ---------------------------------------------------------------------------
 # 5. Searched targets are answered by the search, never by the pre-test
-# ---------------------------------------------------------------------------
 
 
 def test_two_walls_pay_two_wall_losses():
@@ -310,9 +298,7 @@ def test_two_walls_pay_two_wall_losses():
     assert np.isclose(att, expected, atol=0.5), f"{att:.2f} vs {expected:.2f} dB"
 
 
-# ---------------------------------------------------------------------------
 # 6. No staircase regression across multiple off-axis directions
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

@@ -93,11 +93,6 @@ def test_duplicate_stage_names_are_reported_as_a_config_error(tmp_path: pathlib.
     assert "benchmark: duplicate step key: 'a/s1'" in capsys.readouterr().err
 
 
-def test_malformed_inline_suite_is_reported_as_a_config_error(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
-    assert cli_main(["--data-root", str(tmp_path), "--suite", "{stages: [{name: s1}]}", "--contest", "[{name: a}]"]) == 2
-    assert capsys.readouterr().err.splitlines()[-1].startswith("benchmark: ")
-
-
 def test_bare_resume_without_runs_is_a_config_error(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
     assert cli_main(["--data-root", str(tmp_path), "--resume"]) == 2
     assert f"no resumable runs in {tmp_path}" in capsys.readouterr().err

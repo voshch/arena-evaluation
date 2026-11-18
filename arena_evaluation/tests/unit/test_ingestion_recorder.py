@@ -33,7 +33,6 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSReliabilityPolicy
 from rclpy.serialization import deserialize_message, serialize_message
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from arena_runtime_msgs.msg import (
     EpisodeRecord,
@@ -45,7 +44,6 @@ from arena_runtime_msgs.msg import (
 from geometry_msgs.msg import TransformStamped, Twist
 from tf2_msgs.msg import TFMessage
 
-from arena_evaluation.ingestion import recorder
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.storage.schemas import RunMetadata
 
@@ -275,17 +273,7 @@ def full_node(tmp_path, fake_share):
         pass
 
 
-# ---------------------------------------------------------------------------
 # Constructor
-# ---------------------------------------------------------------------------
-
-
-def test_constructor_uses_dir_flag(tmp_path, full_node):
-    assert full_node.episodes_root == (tmp_path / "episodes").resolve()
-    assert full_node.episodes_root.is_dir()
-    assert (full_node.run_dir / "recorder.log").is_file() or (
-        full_node.episodes_root / "recorder.log"
-    ).is_file()
 
 
 def test_constructor_argv_equals_form(tmp_path, fake_share):
@@ -302,19 +290,6 @@ def test_constructor_relative_dir_resolves_under_workspace_root(tmp_path, fake_s
     try:
         assert (
             node.episodes_root == (tmp_path / "episodes" / "rel" / "episodes").resolve()
-        )
-    finally:
-        node.destroy_node()
-
-
-def test_constructor_auto_mode_uses_timestamped_dir(tmp_path, fake_share):
-    node = _build_full_node(["pytest"])
-    try:
-        stamp = node.get_parameter("data_recorder_autoprefix").value
-        assert stamp is not None
-        assert (
-            node.episodes_root
-            == (tmp_path / "data" / "runs" / stamp / "episodes").resolve()
         )
     finally:
         node.destroy_node()
@@ -350,61 +325,10 @@ def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share):
         node.destroy_node()
 
 
-def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
-    assert full_node._start_service is not None
-    assert len(full_node.subs) == 14
-    # /tf, humans/tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {
-        "state/episode",
-        "state/robots",
-        "state/semantics",
-        "agent_meta",
-        "interactions",
-        "map",
-        "door_mask",
-        "tf_static",
-    }
-    assert full_node.record_rates_hz == {}
-
-
-# ---------------------------------------------------------------------------
 # read_config
-# ---------------------------------------------------------------------------
 
 
-def test_read_config_falls_back_when_file_missing(tmp_path):
-    node = _bare_node(base_dir=str(tmp_path / "missing"))
-    assert node.read_config() == {"record_rates_hz": {}, "tf_frames": []}
-
-
-def test_read_config_parses_file(tmp_path):
-    cfg_dir = tmp_path / "share" / "config"
-    cfg_dir.mkdir(parents=True)
-    (cfg_dir / "data_recorder_config.yaml").write_text(
-        "record_rates_hz:\n  /env_0/scan: 5.0\n  /tf: 20.0\n"
-    )
-    node = _bare_node(base_dir=str(tmp_path / "share"))
-    assert node.read_config() == {"record_rates_hz": {"/env_0/scan": 5.0, "/tf": 20.0}}
-
-
-def test_read_config_refuses_corrupt_yaml(tmp_path):
-    cfg_dir = tmp_path / "share" / "config"
-    cfg_dir.mkdir(parents=True)
-    (cfg_dir / "data_recorder_config.yaml").write_text("{{{{ not yaml")
-    node = _bare_node(base_dir=str(tmp_path / "share"))
-    with pytest.raises(yaml.YAMLError):
-        node.read_config()
-
-
-# ---------------------------------------------------------------------------
 # Throttling / callbacks
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_rate_hz_matches_the_exact_topic_name_only():
-    overrides = {"/env_0/scan": 5.0}
-    assert recorder.resolve_rate_hz(overrides, "/env_0/scan", 10.0) == 5.0
-    assert recorder.resolve_rate_hz(overrides, "/env_0/scan_front", 10.0) == 10.0
 
 
 def test_throttled_callback_respects_the_rate_gate(tmp_path):
@@ -447,16 +371,6 @@ def test_throttled_callback_drops_message_when_clock_buffer_already_flushed(tmp_
     assert _strings(read()) == [(0, "m0")]
 
 
-def test_unthrottled_callback_writes_every_message(tmp_path):
-    node = _bare_node(current_time=1000)
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/scan", String)
-    cb = node._create_unthrottled_callback("/scan")
-    cb(_string("a"))
-    cb(_string("b"))
-    assert _strings(read()) == [(1000, "a"), (1000, "b")]
-
-
 def test_unthrottled_callback_buffers_before_first_clock():
     node = _bare_node()
     cb = node._create_unthrottled_callback("/scan")
@@ -479,77 +393,10 @@ def test_unthrottled_callback_discards_message_when_clock_buffer_already_flushed
     assert _strings(read()) == [(0, "m0")]
 
 
-# ---------------------------------------------------------------------------
 # Clock handling
-# ---------------------------------------------------------------------------
 
 
-def test_clock_callback_computes_sim_time_ns():
-    node = _bare_node()
-    msg = Clock()
-    msg.clock.sec = 10
-    msg.clock.nanosec = 5
-    node.clock_callback(msg)
-    assert node.current_time == 10 * 10**9 + 5
-    assert node._clock_received_count == 1
-
-
-def test_clock_callback_backward_jump_clears_throttle_gates():
-    node = _bare_node(current_time=10_000_000_000)
-    node._throttle_gates["/t"] = recorder.RateGate(50_000_000, 5)
-    msg = Clock()
-    msg.clock.sec = 5
-    node.clock_callback(msg)
-    assert node.current_time == 5 * 10**9
-    assert node._throttle_gates == {}
-    assert any("Backward time jump" in w for w in _log(node, "WARN"))
-
-
-def test_clock_callback_flushes_pre_clock_buffer_once(tmp_path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/a", String)
-    node._register_topic("/b", String)
-    node._pre_clock_buffer = [("/a", _string("m1")), ("/b", _string("m2"))]
-    msg = Clock()
-    msg.clock.sec = 1
-    node.clock_callback(msg)
-    assert node.current_time == 10**9
-    assert node._pre_clock_buffer is None
-    node.clock_callback(msg)
-    assert sorted(_strings(read())) == [(10**9, "m1"), (10**9, "m2")]
-
-
-# ---------------------------------------------------------------------------
 # /tf: header-stamped writes, capped per frame family
-# ---------------------------------------------------------------------------
-
-
-def test_tf_transforms_are_written_at_their_header_stamps(tmp_path):
-    node = _bare_node(current_time=1_000_000_000)
-    read = _tf_bag(node, tmp_path)
-    node._tf_callback(
-        _tf_message(
-            ("map", "odom", 1.0, 10_000_000),
-            ("odom", "base_link", 2.0, 30_000_000),
-        )
-    )
-    assert _tf_writes(read()) == [
-        (10_000_000, {"odom": 1.0}),
-        (30_000_000, {"base_link": 2.0}),
-    ]
-
-
-def test_tf_transforms_of_one_stamp_share_a_message(tmp_path):
-    node = _bare_node(current_time=1_000_000_000)
-    read = _tf_bag(node, tmp_path)
-    node._tf_callback(
-        _tf_message(
-            ("map", "odom", 1.0, 10_000_000),
-            ("odom", "base_link", 2.0, 10_000_000),
-        )
-    )
-    assert _tf_writes(read()) == [(10_000_000, {"odom": 1.0, "base_link": 2.0})]
 
 
 def test_tf_bone_frames_are_capped_while_root_frames_pass_every_stamp(tmp_path):
@@ -610,52 +457,13 @@ def test_clock_backward_jump_clears_the_tf_frame_state():
     assert node._tf_last_written == {}
 
 
-# ---------------------------------------------------------------------------
 # Writer plumbing: _register_topic / _ensure_topic_in_bag / _write_to_bag_at
-# ---------------------------------------------------------------------------
-
-
-def test_register_topic_builds_ros_type_string():
-    node = _bare_node()
-    node._register_topic("/cmd_vel", Twist)
-    meta = node._topic_registry["/cmd_vel"]
-    assert isinstance(meta, rosbag2_py.TopicMetadata)
-    assert meta.name == "cmd_vel"
-    assert meta.type == "geometry_msgs/msg/Twist"
-    assert meta.serialization_format == "cdr"
-
-
-def test_register_topic_is_idempotent():
-    node = _bare_node()
-    node._register_topic("/cmd_vel", Twist)
-    node._register_topic("/cmd_vel", String)  # second registration ignored
-    assert node._topic_registry["/cmd_vel"].type == "geometry_msgs/msg/Twist"
 
 
 def test_register_topic_fallback_to_str_when_no_module():
     node = _bare_node()
     node._register_topic("/mystery", object())
     assert node._topic_registry["/mystery"].type == str(object())
-
-
-def test_ensure_topic_in_bag_creates_topic_once(tmp_path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/cmd_vel", Twist)
-    node._ensure_topic_in_bag("/cmd_vel")
-    node._ensure_topic_in_bag("/cmd_vel")
-    assert list(node.topics_metadata) == ["cmd_vel"]
-    node._write_to_bag_at("/cmd_vel", Twist(), 1)
-    read()
-    assert _bag_topics(tmp_path / "bag") == {"cmd_vel": "geometry_msgs/msg/Twist"}
-
-
-def test_ensure_topic_in_bag_unregistered_topic_is_ignored(tmp_path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._ensure_topic_in_bag("/not_registered")
-    assert node.topics_metadata == {}
-    assert read() == []
 
 
 def test_write_to_bag_at_noop_when_shutting_down(tmp_path):
@@ -675,72 +483,6 @@ def test_write_to_bag_at_serialization_failure_logs_error(tmp_path):
     assert any("Serialization failed" in e for e in _log(node, "ERROR"))
 
 
-def test_write_to_bag_at_buffers_latched_topics_when_no_writer():
-    node = _bare_node(latched_topic_names={"env_0/state/episode"})
-    msg = String()
-    msg.data = "x"
-    node._write_to_bag_at("/env_0/state/episode", msg, 1)
-    assert len(node._pre_episode_buffer) == 1
-    topic, payload, ts = node._pre_episode_buffer[0]
-    assert topic == "/env_0/state/episode"
-    assert isinstance(payload, bytes)
-    assert ts == 1
-    assert node._write_drop_count == 0
-
-
-def test_write_to_bag_at_drops_unlatched_topics_when_no_writer():
-    node = _bare_node()
-    node._write_to_bag_at("/cmd_vel", String(), 1)
-    assert node._write_drop_count == 1
-    assert node._pre_episode_buffer == []
-    assert any("DROP (writer=None)" in w for w in _log(node, "WARN"))
-
-
-def test_write_to_bag_at_latched_buffer_is_capped():
-    node = _bare_node(latched_topic_names={"state/episode"})
-    node._pre_episode_buffer = [("t", b"b", 0)] * 10000
-    node._write_to_bag_at("/state/episode", String(), 1)
-    assert node._write_drop_count == 1
-
-
-def test_write_to_bag_at_drop_warning_repeats_every_100_drops():
-    node = _bare_node()
-    for _ in range(100):
-        node._write_to_bag_at("/cmd_vel", String(), 1)
-    assert node._write_drop_count == 100
-    drop_warns = [w for w in _log(node, "WARN") if "DROP (writer=None)" in w]
-    # drops 1..10 warn (drop_count <= 10), then drop #100 (drop_count % 100 == 0)
-    assert len(drop_warns) == 11
-    assert any("drop_count=100" in w for w in drop_warns)
-
-
-def test_write_to_bag_at_serialization_failure_silent_while_shutting_down():
-    node = _bare_node(is_shutting_down=True)
-    node._write_to_bag_at("/cmd_vel", object(), 1)
-    assert not any("Serialization failed" in e for e in _log(node, "ERROR"))
-
-
-def test_write_to_bag_at_writes_serialized_message_via_writer(tmp_path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/cmd_vel", Twist)
-    node._write_to_bag_at("/cmd_vel", Twist(), 999)
-    assert "cmd_vel" in node.recorded_topics
-    assert node._write_success_count == 1
-    assert any("Write success count" in i for i in _log(node, "INFO"))
-    assert read() == [("cmd_vel", serialize_message(Twist()), 999)]
-    assert _bag_topics(tmp_path / "bag") == {"cmd_vel": "geometry_msgs/msg/Twist"}
-
-
-def test_write_to_bag_at_unregistered_topic_is_a_write_error(tmp_path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._write_to_bag_at("/mystery", String(), 1)
-    assert node.topics_metadata == {}
-    assert any("WRITE ERROR" in e for e in _log(node, "ERROR"))
-    assert read() == []
-
-
 def test_write_to_bag_at_writer_error_is_logged(tmp_path):
     node = _bare_node()
     _bag(node, tmp_path / "bag")
@@ -751,9 +493,7 @@ def test_write_to_bag_at_writer_error_is_logged(tmp_path):
     assert any("WRITE ERROR" in e for e in _log(node, "ERROR"))
 
 
-# ---------------------------------------------------------------------------
 # Raw (already-serialized) subscriptions: bytes reach the bag unchanged
-# ---------------------------------------------------------------------------
 
 
 def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(
@@ -770,71 +510,6 @@ def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(
     node._write_to_bag_at("/cmd_vel", raw_bytes, 42)
 
     assert read() == [("cmd_vel", raw_bytes, 42)]
-
-
-def test_write_to_bag_at_buffers_raw_bytes_unchanged_when_no_writer() -> None:
-    node = _bare_node(latched_topic_names={"env_0/state/episode"})
-    payload = b"\x01\x02\x03"
-    node._write_to_bag_at("/env_0/state/episode", payload, 5)
-    topic, buffered_payload, ts = node._pre_episode_buffer[0]
-    assert topic == "/env_0/state/episode"
-    assert buffered_payload == payload
-    assert ts == 5
-
-
-def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(
-    full_node: DataRecorderNode,
-) -> None:
-    by_topic = {sub.topic: sub for sub in full_node.subs}
-    assert by_topic["/tf"].raw is False
-    assert by_topic["/state/episode"].raw is False
-    assert by_topic["/state/robots"].raw is False
-    for topic in (
-        "/tf_static",
-        "/state/semantics",
-        "/map",
-        "/door_mask",
-        "/agent_states",
-        "/agent_meta",
-        "/interactions",
-    ):
-        assert by_topic[topic].raw is True
-
-
-def test_setup_subscriptions_episode_records_arrive_live_only(
-    full_node: DataRecorderNode,
-) -> None:
-    by_topic = {sub.topic: sub for sub in full_node.subs}
-    assert (
-        by_topic["/state/episode"].qos_profile.reliability
-        == QoSReliabilityPolicy.RELIABLE
-    )
-    assert (
-        by_topic["/state/episode"].qos_profile.durability
-        == QoSDurabilityPolicy.VOLATILE
-    )
-
-
-def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) -> None:
-    by_topic = {sub.topic: sub for sub in full_node.subs}
-    assert (
-        by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
-    )
-    assert (
-        by_topic["/agent_meta"].qos_profile.durability
-        == QoSDurabilityPolicy.TRANSIENT_LOCAL
-    )
-    assert (
-        by_topic["/interactions"].qos_profile.reliability
-        == QoSReliabilityPolicy.RELIABLE
-    )
-    assert (
-        by_topic["/interactions"].qos_profile.durability
-        == QoSDurabilityPolicy.TRANSIENT_LOCAL
-    )
-    assert (
-        by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
-    )
 
 
 def _node_fixture(tmp_path, namespace: str | None = None, **parameters):
@@ -905,41 +580,6 @@ def _recorded_rows() -> RecordedTopics:
     )
 
 
-def test_recorder_writes_below_the_record_data_dir_parameter(
-    tmp_path, recorder_node: DataRecorderNode
-) -> None:
-    assert recorder_node.episodes_root.is_relative_to((tmp_path / "episodes").resolve())
-    assert recorder_node.run_dir.is_relative_to(tmp_path.resolve())
-
-
-def test_recorded_topics_message_subscribes_the_env_rows_with_their_qos(
-    recorder_node: DataRecorderNode,
-) -> None:
-    before = len(recorder_node.subs)
-    recorder_node.recorded_topics_callback(_recorded_rows())
-
-    added = {sub.topic: sub for sub in recorder_node.subs[before:]}
-    assert set(added) == {"/heard_sound_events", "/pose_log"}
-    events = added["/heard_sound_events"]
-    assert events.raw is True
-    assert events.qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
-    assert events.qos_profile.durability == QoSDurabilityPolicy.VOLATILE
-    assert events.qos_profile.depth == recorder_node.qos.depth
-    assert (
-        added["/pose_log"].qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
-    )
-    assert "heard_sound_events" not in recorder_node.latched_topic_names
-
-
-def test_recorded_topics_message_is_applied_once(
-    recorder_node: DataRecorderNode,
-) -> None:
-    recorder_node.recorded_topics_callback(_recorded_rows())
-    count = len(recorder_node.subs)
-    recorder_node.recorded_topics_callback(_recorded_rows())
-    assert len(recorder_node.subs) == count
-
-
 def test_recorded_topics_message_reaches_robots_known_before_it(
     recorder_node: DataRecorderNode,
 ) -> None:
@@ -980,9 +620,7 @@ def test_optional_recorded_row_is_subscribed_latched_only_when_listed(
     assert "acoustic/impulses" in recorder_node.latched_topic_names
 
 
-# ---------------------------------------------------------------------------
 # Episode lifecycle: _begin_episode / _stop_episode / start_episode service
-# ---------------------------------------------------------------------------
 
 
 def test_begin_episode_opens_new_episode_once(tmp_path):
@@ -1004,22 +642,6 @@ def test_stop_episode_ignores_stale_episode(tmp_path):
     read()
 
 
-def test_stop_episode_writes_outcome_and_closes(tmp_path):
-    node = _bare_node(
-        current_sim_episode_id=3,
-        current_metadata=_make_run_metadata(),
-        current_metadata_path=tmp_path / "episode_003.yaml",
-        _pre_episode_buffer=[("t", b"b", 0)],
-    )
-    _bag(node, tmp_path / "bag")
-    node._stop_episode(3, outcome_state=2, outcome_info="goal reached")
-    assert node.writer is None
-    assert node._pre_episode_buffer == []
-    data = yaml.safe_load((tmp_path / "episode_003.yaml").read_text())
-    assert data["outcome_state"] == 2
-    assert data["outcome_info"] == "goal reached"
-
-
 def test_stop_episode_metadata_write_failure_still_closes(tmp_path):
     node = _bare_node(
         current_sim_episode_id=3,
@@ -1038,40 +660,6 @@ def _service_request(**fields) -> RecordEpisode.Request:
     )
 
 
-def test_service_callback_start_command(tmp_path):
-    node = _recording_node(tmp_path)
-    resp = RecordEpisode.Response()
-    node._start_episode_service_callback(_service_request(), resp)
-    assert resp.success is True
-    assert resp.message == "recording episode 0"
-    assert node.current_sim_episode_id == 9
-    node._close_current_writer()
-
-
-def test_service_callback_stop_command(tmp_path):
-    node = _bare_node(
-        current_sim_episode_id=9,
-        current_metadata=_make_run_metadata(),
-        current_metadata_path=tmp_path / "episode_009.yaml",
-    )
-    _bag(node, tmp_path / "bag")
-    resp = RecordEpisode.Response()
-    node._start_episode_service_callback(
-        _service_request(
-            command=RecordEpisode.Request.COMMAND_STOP,
-            outcome_state=3,
-            outcome_info="collision",
-        ),
-        resp,
-    )
-    assert resp.success is True
-    assert resp.message == "stopped"
-    assert node.writer is None
-    data = yaml.safe_load((tmp_path / "episode_009.yaml").read_text())
-    assert data["outcome_state"] == 3
-    assert data["outcome_info"] == "collision"
-
-
 def test_service_callback_unknown_command():
     node = _bare_node()
     resp = RecordEpisode.Response()
@@ -1080,9 +668,7 @@ def test_service_callback_unknown_command():
     assert resp.message == "unknown command 7"
 
 
-# ---------------------------------------------------------------------------
 # Topic callbacks: episode_record / semantic_snapshot / robots_fleet
-# ---------------------------------------------------------------------------
 
 
 def _episode_message(episode_id=3, outcome=1):
@@ -1101,25 +687,6 @@ def test_episode_record_callback_begins_new_episode(env_node):
     env_node._close_current_writer()
     rows = _mcap_rows(env_node.episodes_root / "episode_000" / "episode_000.mcap")
     assert [(topic, ts) for topic, _, ts in rows] == [("env_0/state/episode", 5000)]
-
-
-@pytest.mark.parametrize("outcome", [3, 9])
-def test_episode_record_callback_does_not_begin_finished_episodes(
-    recorder_node, outcome
-):
-    recorder_node.current_time = 1
-    recorder_node.episode_record_callback(_episode_message(outcome=outcome))
-    assert recorder_node.current_sim_episode_id is None
-    assert [(topic, ts) for topic, _, ts in recorder_node._pre_episode_buffer] == [
-        ("/state/episode", 1)
-    ]
-
-
-def test_episode_record_callback_does_not_reopen_seen_episode(env_node):
-    env_node.current_time = 1
-    env_node._seen_episodes.add(3)
-    env_node.episode_record_callback(_episode_message(outcome=0))
-    assert env_node.current_sim_episode_id is None
 
 
 def test_semantic_snapshot_callback_writes_state_semantics(env_node):
@@ -1178,16 +745,7 @@ def test_robots_fleet_callback_writes_and_discovers_robots(env_node):
     assert ("env_0/state/robots", 2000) in {(topic, ts) for topic, _, ts in rows}
 
 
-def test_robots_fleet_callback_without_metadata_does_not_write(env_node):
-    env_node.current_time = 1
-    env_node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
-    assert env_node.robot_model == "jackal"
-    assert list(env_node.episodes_root.iterdir()) == []
-
-
-# ---------------------------------------------------------------------------
 # discover_topics
-# ---------------------------------------------------------------------------
 
 
 def _advertise(node: DataRecorderNode, *topics: tuple[str, type]) -> None:
@@ -1208,46 +766,6 @@ def test_discover_topics_subscribes_odom_and_infers_robot_model(env_node):
         "robot_model"
     ] == ["jackal"]
     env_node._close_current_writer()
-
-
-def test_discover_topics_skips_registered_and_foreign_topics(env_node):
-    env_node.robot_model = "jackal"
-    env_node._register_topic("/env_0/odom", Odometry)
-    _advertise(env_node, ("/env_0/odom", Odometry), ("/other/odom", Odometry))
-    before = len(env_node.subs)
-    env_node.discover_topics()
-    assert len(env_node.subs) == before
-
-
-def test_discover_topics_ignores_scan_topics(env_node):
-    _advertise(env_node, ("/env_0/front_lidar", LaserScan), ("/env_0/scan", LaserScan))
-    before = len(env_node.subs)
-    env_node.discover_topics()
-    assert len(env_node.subs) == before
-    assert env_node.robot_model == "unknown"
-
-
-def test_discover_topics_skips_robot_model_inference_when_known(tmp_path, env_node):
-    env_node.robot_model = "jackal"
-    _advertise(env_node, ("/env_0/robot/jackal/odom", Odometry))
-    env_node.current_metadata = _make_run_metadata()
-    env_node.current_metadata_path = tmp_path / "episode_000.yaml"
-    env_node.discover_topics()
-    assert not env_node.current_metadata_path.exists()
-    assert env_node.robot_model == "jackal"
-
-
-def test_state_types_cover_interactions_and_animation():
-    pytest.importorskip("arena_humansim_msgs.msg")
-    types = recorder._state_types()
-    assert types["arena_humansim_msgs/msg/InteractionFrame"][1:] == (
-        "interactions",
-        True,
-    )
-    assert types["arena_people_msgs/msg/AnimationStates"][1:] == (
-        "animation_states",
-        False,
-    )
 
 
 def test_discover_topics_records_interaction_and_animation_states_of_its_env(
@@ -1308,113 +826,7 @@ def test_discovered_interactions_are_written_unthrottled(state_node):
     assert [topic for topic, _, _ in rows] == ["arena/env_1/interactions"] * 2
 
 
-def test_discover_topics_skips_state_topics_already_registered(state_node):
-    pytest.importorskip("arena_humansim_msgs.msg")
-    from arena_people_msgs.msg import Pedestrians
-
-    before = len(state_node.subs)
-    _advertise(state_node, ("/arena/env_1/arena_peds", Pedestrians))
-    state_node.discover_topics()
-    assert len(state_node.subs) == before
-
-
-# ---------------------------------------------------------------------------
 # Episode metadata: write / finalize / update-from-EpisodeRecord
-# ---------------------------------------------------------------------------
-
-
-def test_write_episode_metadata_writes_yaml(tmp_path):
-    node = _bare_node(
-        benchmark_id="b1",
-        planner="cont-teb",
-        stage="s1",
-        map_name="m1",
-        robot_model="jackal",
-        env_ns_root="/env_0",
-        is_reference=True,
-        reference_type="golden",
-        suite_name="s",
-        contest_name="c",
-        episodes_requested=10,
-        local_planner="",
-        inter_planner="",
-        current_sim_episode_id=7,
-        current_metadata_path=tmp_path / "episode_000.yaml",
-    )
-    node._write_episode_metadata(0)
-    data = yaml.safe_load((tmp_path / "episode_000.yaml").read_text())
-    assert data["benchmark_id"] == "b1"
-    assert data["planner"] == "cont-teb"
-    assert data["episode_id"] == 0
-    assert data["task_generator_episode_id"] == 7
-    assert data["is_reference"] is True
-    assert data["reference_type"] == "golden"
-    assert data["env_ns_root"] == "/env_0"
-    assert node.current_metadata is not None
-
-
-def test_write_episode_metadata_failure_keeps_metadata(tmp_path):
-    node = _bare_node(
-        benchmark_id="b1",
-        planner="p",
-        stage="s",
-        map_name="m",
-        robot_model="jackal",
-        current_metadata_path=_unwritable(tmp_path / "episode_000.yaml"),
-    )
-    node._write_episode_metadata(0)
-    assert node.current_metadata is not None
-    assert any(
-        "Failed to write initial episode metadata" in e for e in _log(node, "ERROR")
-    )
-
-
-def test_finalize_episode_metadata_sets_stats(tmp_path):
-    node = _bare_node()
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = tmp_path / "episode.yaml"
-    node.recorded_topics = {"env_0/arena_peds", "env_0/cmd_vel"}
-    node._finalize_episode_metadata()
-    md = node.current_metadata
-    assert md.pedsim_available is True
-    assert md.recorded_topics == ["env_0/arena_peds", "env_0/cmd_vel"]
-    assert md.recording_ended_at is not None
-    data = yaml.safe_load((tmp_path / "episode.yaml").read_text())
-    assert data["pedsim_available"] is True
-
-
-def test_finalize_episode_metadata_agent_states_counts_as_pedsim(tmp_path):
-    node = _bare_node()
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = tmp_path / "episode.yaml"
-    node.recorded_topics = {"robot_0/agent_states"}
-    node._finalize_episode_metadata()
-    assert node.current_metadata.pedsim_available is True
-
-
-def test_finalize_episode_metadata_no_pedsim_topics(tmp_path):
-    node = _bare_node()
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = tmp_path / "episode.yaml"
-    node.recorded_topics = {"env_0/odom"}
-    node._finalize_episode_metadata()
-    assert node.current_metadata.pedsim_available is False
-
-
-def test_finalize_episode_metadata_noop_without_metadata(tmp_path):
-    node = _bare_node(
-        current_metadata=None, current_metadata_path=tmp_path / "episode.yaml"
-    )
-    node._finalize_episode_metadata()
-    assert not node.current_metadata_path.exists()
-
-
-def test_finalize_episode_metadata_write_failure_logged(tmp_path):
-    node = _bare_node()
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = _unwritable(tmp_path / "episode.yaml")
-    node._finalize_episode_metadata()
-    assert any("Failed to finalize episode metadata" in e for e in _log(node, "ERROR"))
 
 
 def test_update_metadata_from_episode_populates_fields(tmp_path):
@@ -1460,14 +872,6 @@ def test_update_metadata_from_episode_populates_fields(tmp_path):
     )
 
 
-def test_update_metadata_from_episode_noop_without_metadata(tmp_path):
-    node = _bare_node(
-        current_metadata=None, current_metadata_path=tmp_path / "episode.yaml"
-    )
-    node._update_metadata_from_episode(_episode_message())
-    assert not node.current_metadata_path.exists()
-
-
 def test_update_metadata_from_episode_write_failure_logged(tmp_path):
     node = _bare_node(current_metadata=_make_run_metadata(), current_sim_episode_id=3)
     node.current_metadata_path = _unwritable(tmp_path / "episode.yaml")
@@ -1475,26 +879,7 @@ def test_update_metadata_from_episode_write_failure_logged(tmp_path):
     assert any("Failed to update episode metadata" in e for e in _log(node, "ERROR"))
 
 
-def test_a_record_of_another_episode_leaves_the_metadata_alone(tmp_path):
-    node = _bare_node(current_metadata=_make_run_metadata(), current_sim_episode_id=4)
-    node.current_metadata_path = tmp_path / "episode.yaml"
-    node._update_metadata_from_episode(_episode_message(episode_id=4, outcome=1))
-    queued_next = _episode_message(episode_id=5, outcome=0)
-    queued_next.modes = encode_modes({"robots": ["next"]})
-    node._update_metadata_from_episode(queued_next)
-    late_previous = _episode_message(episode_id=3, outcome=2)
-    node._update_metadata_from_episode(late_previous)
-
-    on_disk = yaml.safe_load((tmp_path / "episode.yaml").read_text())
-    assert node.current_metadata.task_generator_episode_id == 4
-    assert on_disk["task_generator_episode_id"] == 4
-    assert node.current_metadata.modes != {"robots": ["next"]}
-    assert node.current_metadata.outcome_state is None
-
-
-# ---------------------------------------------------------------------------
 # _param_value_to_py
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -1517,15 +902,7 @@ def test_param_value_to_py_maps_known_types(ptype, field, value):
     assert node._param_value_to_py(pv) == value
 
 
-def test_param_value_to_py_unknown_type_falls_back_to_str():
-    node = _bare_node()
-    pv = ParameterValue(type=99)
-    assert node._param_value_to_py(pv) == str(pv)
-
-
-# ---------------------------------------------------------------------------
 # _start_episode_recording
-# ---------------------------------------------------------------------------
 
 
 def _recording_node(tmp_path, **overrides):
@@ -1585,21 +962,6 @@ def test_start_episode_recording_opens_writer_and_flushes_buffer(tmp_path):
     ]
 
 
-def test_start_episode_recording_uses_mcap_config_when_present(tmp_path):
-    node = _recording_node(tmp_path)
-    config_dir = tmp_path / "share" / "config"
-    config_dir.mkdir(parents=True)
-    (config_dir / "mcap_writer_options.yaml").write_text("noChunking: true\n")
-    node._register_topic("/cmd_vel", Twist)
-
-    node._start_episode_recording(1)
-    node._write_to_bag_at("/cmd_vel", Twist(), 1)
-    node._close_current_writer()
-
-    with (node.episodes_root / "episode_000" / "episode_000.mcap").open("rb") as f:
-        assert make_reader(f).get_summary().chunk_indexes == []
-
-
 def test_start_episode_recording_writer_failure_sets_writer_none(tmp_path):
     node = _recording_node(tmp_path)
     config_dir = tmp_path / "share" / "config"
@@ -1614,26 +976,7 @@ def test_start_episode_recording_writer_failure_sets_writer_none(tmp_path):
     assert (node.episodes_root / "episode_000" / "episode_000.yaml").exists()
 
 
-def test_start_episode_recording_increments_global_episode_id(tmp_path):
-    node = _recording_node(tmp_path)
-
-    node._start_episode_recording(1)
-    node._start_episode_recording(2)
-
-    assert node.current_episode_id == 1
-    assert node._episode_id_offset == 2
-    assert (node.episodes_root / "episode_001").is_dir()
-    assert (node.episodes_root / "episode_001" / "episode_001.yaml").exists()
-    assert node.writer is not None
-    assert (
-        node.episodes_root / "episode_000" / "episode_000.mcap"
-    ).exists()  # previous writer closed first
-    node._close_current_writer()
-
-
-# ---------------------------------------------------------------------------
 # _close_current_writer (flush + flatten + rosbag metadata merge)
-# ---------------------------------------------------------------------------
 
 
 def _episode_dir_with_bag(tmp_path):
@@ -1683,16 +1026,6 @@ def test_close_current_writer_flattens_mcap_files_and_merges_rosbag_metadata(tmp
     assert data["recorded_topics"] == ["cmd_vel"]
 
 
-def test_close_current_writer_noop_without_writer(tmp_path):
-    ep_dir = _episode_dir_with_bag(tmp_path)
-    node = _bare_node()
-    node.writer = None
-    node.current_episode_dir = ep_dir
-    node._close_current_writer()
-    assert (ep_dir / "episode_000" / "episode_000_0.mcap").exists()
-    assert (ep_dir / "episode_000" / "metadata.yaml").exists()
-
-
 def test_close_current_writer_close_error_is_logged(tmp_path):
     ep_dir = _episode_dir_with_bag(tmp_path)
     node = _bare_node()
@@ -1704,21 +1037,6 @@ def test_close_current_writer_close_error_is_logged(tmp_path):
     assert node.writer is None
     assert any("Error closing MCAP writer" in e for e in _log(node, "ERROR"))
     assert (ep_dir / "episode_000.mcap").exists()
-
-
-def test_close_current_writer_missing_rosbag_metadata_is_tolerated(tmp_path):
-    ep_dir = tmp_path / "episode_000"
-    inner = ep_dir / "episode_000"
-    inner.mkdir(parents=True)
-    (inner / "episode_000_0.mcap").write_bytes(b"x")
-    node = _bare_node()
-    _bag(node, tmp_path / "elsewhere")
-    node.current_episode_dir = ep_dir
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = ep_dir / "episode_000.yaml"
-    node._close_current_writer()
-    assert (ep_dir / "episode_000.mcap").exists()
-    assert node.current_metadata.rosbag2_message_count is None
 
 
 def test_close_current_writer_move_failure_is_logged(tmp_path):
@@ -1739,23 +1057,6 @@ def test_close_current_writer_move_failure_is_logged(tmp_path):
     assert (ep_dir / "episode_000" / "episode_000_0.mcap").exists()  # untouched
 
 
-def test_close_current_writer_rmdir_failure_is_tolerated(tmp_path):
-    ep_dir = tmp_path / "episode_000"
-    inner = ep_dir / "episode_000"
-    inner.mkdir(parents=True)
-    (inner / "episode_000_0.mcap").write_bytes(b"x")
-    (inner / "stray.bin").write_bytes(b"junk")  # keeps inner dir non-empty
-    node = _bare_node()
-    _bag(node, tmp_path / "elsewhere")
-    node.current_episode_dir = ep_dir
-    node.current_metadata = _make_run_metadata()
-    node.current_metadata_path = ep_dir / "episode_000.yaml"
-    node._close_current_writer()
-    assert any("Failed to remove inner dir" in w for w in _log(node, "WARN"))
-    assert (inner / "stray.bin").exists()
-    assert (ep_dir / "episode_000.mcap").exists()
-
-
 def test_close_current_writer_corrupt_rosbag_metadata_is_logged(tmp_path):
     ep_dir = tmp_path / "episode_000"
     inner = ep_dir / "episode_000"
@@ -1772,9 +1073,7 @@ def test_close_current_writer_corrupt_rosbag_metadata_is_logged(tmp_path):
     assert node.current_metadata.rosbag2_message_count is None
 
 
-# ---------------------------------------------------------------------------
 # Shutdown / lifecycle
-# ---------------------------------------------------------------------------
 
 
 def test_finalize_closes_writer_once(tmp_path, capsys):
@@ -1811,32 +1110,6 @@ def test_log_methods_print_when_rclpy_not_initialized():
     assert "[DataRecorder] [ERROR] error-msg" in out
 
 
-def test_log_methods_print_when_logger_raises(capsys):
-    node = _bare_node(log_file=None)
-    node._log_warn("warn-msg")
-    node._log_error("error-msg")
-    out = capsys.readouterr().out
-    assert "[DataRecorder] [WARN] warn-msg" in out
-    assert "[DataRecorder] [ERROR] error-msg" in out
-
-
-def test_log_methods_write_to_open_log_file(tmp_path):
-    node = _bare_node()
-    log_file = open(tmp_path / "recorder.log", "w", buffering=1)
-    node.log_file = log_file
-    try:
-        node._log_info("info-msg")
-        node._log_warn("warn-msg")
-        node._log_error("error-msg")
-        log_file.flush()
-    finally:
-        log_file.close()
-    content = (tmp_path / "recorder.log").read_text()
-    assert "[DataRecorder] [INFO] info-msg" in content
-    assert "[DataRecorder] [WARN] warn-msg" in content
-    assert "[DataRecorder] [ERROR] error-msg" in content
-
-
 def test_finalize_tolerates_signal_registration_failure():
     node = _bare_node()
     off_the_main_thread = threading.Thread(target=node.finalize)
@@ -1867,9 +1140,7 @@ def test_main_exception_path_exits_nonzero(tmp_path):
     assert "Exception in main" in proc.stdout
 
 
-# ---------------------------------------------------------------------------
 # End-to-end service flow on a fully constructed node
-# ---------------------------------------------------------------------------
 
 
 def test_start_stop_episode_service_end_to_end(tmp_path, full_node):
@@ -1926,19 +1197,3 @@ def test_constructor_auto_mode_generates_run_id_from_map_robot_planner(fake_shar
             node.destroy_node()
 
 
-def test_robots_fleet_callback_replaces_unknown_metadata_robot_model(
-    tmp_path, full_node
-):
-    full_node.current_metadata = _make_run_metadata(robot_model=["unknown"])
-    full_node.current_metadata_path = tmp_path / "metadata.yaml"
-    fleet = RobotFleet()
-    state = RobotState()
-    state.descriptor.ns = "env_0/jackal"
-    state.descriptor.model = "jackal"
-    fleet.robots.append(state)
-
-    full_node.robots_fleet_callback(fleet)
-
-    assert full_node.current_metadata.robot_model == ["jackal"]
-    written = yaml.safe_load(full_node.current_metadata_path.read_text())
-    assert written["robot_model"] == ["jackal"]

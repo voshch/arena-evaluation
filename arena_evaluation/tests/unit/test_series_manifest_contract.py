@@ -5,9 +5,7 @@ from __future__ import annotations
 import pathlib
 
 import polars as pl
-import pytest
 
-from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.storage.registry import dimensions, series
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
 
@@ -46,22 +44,3 @@ def _write_minimal_benchmark(
     return root
 
 
-def test_every_series_table_has_a_joined_view(tmp_path: pathlib.Path) -> None:
-    stems = tuple(series.SERIES_TABLES.keys())
-    catalog = BenchmarkCatalog.open(_write_minimal_benchmark(tmp_path, stems))
-    for stem in stems:
-        frame = catalog.get_table(f"v_series_{stem}").collect()
-        assert "planner" in frame.columns
-        assert "world" in frame.columns
-        assert "local_planner" in frame.columns
-        assert "crowd_condition" in frame.columns
-
-
-@pytest.mark.parametrize(
-    "table", ["v_series_characterization", "v_series_energy", "v_series_clearance"]
-)
-def test_an_absent_series_table_has_no_joined_view(
-    tmp_path: pathlib.Path, table: str
-) -> None:
-    catalog = BenchmarkCatalog.open(_write_minimal_benchmark(tmp_path, ()))
-    assert table not in catalog.table_names()

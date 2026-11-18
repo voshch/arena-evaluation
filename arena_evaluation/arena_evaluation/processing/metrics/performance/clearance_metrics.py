@@ -59,26 +59,32 @@ MIN_PED_CLEARANCE_M = define_metric(
 )
 
 
+def _summary(values: np.ndarray) -> tuple[float | None, float | None]:
+    """Minimum and mean of the non-NaN values, (None, None) when every value is NaN."""
+    valid = values[~np.isnan(values)]
+    if len(valid) == 0:
+        return None, None
+    return float(np.min(valid)), float(np.mean(valid))
+
+
 def _summaries(
     obstacle_clearance_m: np.ndarray, pedestrian_clearance_m: np.ndarray
 ) -> dict[str, float | None]:
     """Minimum and mean of the valid obstacle and pedestrian clearances, None without a single valid sample."""
-    valid_obstacle = obstacle_clearance_m[~np.isnan(obstacle_clearance_m)]
-    valid_pedestrian = pedestrian_clearance_m[~np.isnan(pedestrian_clearance_m)]
+    min_obstacle, mean_obstacle = _summary(obstacle_clearance_m)
+    min_pedestrian, mean_pedestrian = _summary(pedestrian_clearance_m)
     return {
-        "min_obstacle_clearance_m": float(np.min(valid_obstacle))
-        if len(valid_obstacle)
-        else None,
-        "mean_obstacle_clearance": float(np.mean(valid_obstacle))
-        if len(valid_obstacle)
-        else None,
-        "min_ped_clearance_m": float(np.min(valid_pedestrian))
-        if len(valid_pedestrian)
-        else None,
-        "mean_pedestrian_clearance": float(np.mean(valid_pedestrian))
-        if len(valid_pedestrian)
-        else None,
+        "min_obstacle_clearance_m": min_obstacle,
+        "mean_obstacle_clearance": mean_obstacle,
+        "min_ped_clearance_m": min_pedestrian,
+        "mean_pedestrian_clearance": mean_pedestrian,
     }
+
+
+def _empty_clearance_arrays() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Empty times and combined, obstacle and pedestrian clearances for a window without a usable pose."""
+    empty = np.array([], dtype=np.float64)
+    return np.array([], dtype=np.int64), empty, empty.copy(), empty.copy()
 
 
 class ClearanceMetricsCalculator(BaseMetricCalculator):
@@ -214,37 +220,21 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
         obstacle_clearance_m: np.ndarray, pedestrian_clearance_m: np.ndarray
     ) -> np.ndarray:
         """Sample-wise minimum of both sources, whichever is valid, NaN without either."""
-        both_valid = ~np.isnan(obstacle_clearance_m) & ~np.isnan(pedestrian_clearance_m)
-        combined = np.full(len(obstacle_clearance_m), np.nan)
-        combined[both_valid] = np.minimum(
-            obstacle_clearance_m[both_valid], pedestrian_clearance_m[both_valid]
-        )
-        only_obstacle = ~np.isnan(obstacle_clearance_m) & ~both_valid
-        combined[only_obstacle] = obstacle_clearance_m[only_obstacle]
-        only_pedestrian = ~np.isnan(pedestrian_clearance_m) & ~both_valid
-        combined[only_pedestrian] = pedestrian_clearance_m[only_pedestrian]
-        return combined
+        return np.fmin(obstacle_clearance_m, pedestrian_clearance_m)
 
     def _episode_arrays(
         self, episode: AlignedEpisodeBundle
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Aligned sample times, ground-truth robot position and the two clearance series of the episode."""
         if episode.data is None or len(episode.data) == 0:
-            empty_int = np.array([], dtype=np.int64)
-            empty = np.array([], dtype=np.float64)
-            return empty_int, empty, empty.copy(), empty.copy()
+            return _empty_clearance_arrays()
 
         pos_x, pos_y, _yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(
             episode
         )
         frame = self.resolve_robot_frame(episode)
         if frame is None or len(frame) == 0 or len(pos_x) == 0:
-            return (
-                np.array([], dtype=np.int64),
-                np.array([], dtype=np.float64),
-                np.array([], dtype=np.float64),
-                np.array([], dtype=np.float64),
-            )
+            return _empty_clearance_arrays()
 
         aligned_times_ns = frame["t_ns"].to_numpy().astype(np.int64)
         topic_scan = self.native_topics(episode).get("robot_scan_summary")
@@ -272,8 +262,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
         """Native-clock sample times, ground-truth robot position and the two clearance series of a scope window."""
         pos_x, pos_y, _yaw, t_ns = self.resolve_native_pose(episode)
         if len(t_ns) == 0:
-            empty = np.array([], dtype=np.float64)
-            return np.array([], dtype=np.int64), empty, empty.copy(), empty.copy()
+            return _empty_clearance_arrays()
         topics = self.native_topics(episode)
         obstacle, pedestrian = self._clearance_arrays(
             t_ns,

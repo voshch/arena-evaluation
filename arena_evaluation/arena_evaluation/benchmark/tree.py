@@ -102,10 +102,6 @@ class ConfigPathResolver(SimplePathResolver):
             if entry.is_dir() and (entry / f"{kind}.yaml").is_file():
                 yield self._IdentifierT(name=entry.name)
 
-    async def listall_async(self, **kwargs: object) -> list[AssetIdentifier]:
-        # the inherited child-process walk would list raw filenames, not config names
-        return list(self.listall(**kwargs))
-
 
 def _bench_dirs() -> Iterator[Path]:
     """The imported assets root, then source-tree configs, then installed share configs."""

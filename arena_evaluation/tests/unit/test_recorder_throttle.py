@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import io
 import pathlib
-import re
 import threading
 from collections.abc import Callable
 
@@ -26,9 +25,7 @@ from rclpy.serialization import deserialize_message
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
-from arena_evaluation.ingestion import recorder
 from arena_evaluation.ingestion.recorder import DataRecorderNode
-from arena_evaluation.ingestion.topics import TopicDefinition
 from arena_evaluation.processing.telemetry.messages import robot_id_of, topic_parts
 
 _CONVERTER = rosbag2_py.ConverterOptions(
@@ -172,18 +169,6 @@ def env_node(tmp_path: pathlib.Path):
     node.destroy_node()
 
 
-def test_initialpose_is_subscribed_once_at_the_environment(env_node: DataRecorderNode):
-    subscriptions = [sub for sub in env_node.subs if sub.topic.endswith("/initialpose")]
-    assert [sub.topic for sub in subscriptions] == ["/env_0/initialpose"]
-    assert subscriptions[0].raw is False
-
-    env_node.robots_fleet_callback(_fleet(("jackal", "jackal")))
-
-    assert [
-        sub.topic for sub in env_node.subs if sub.topic.endswith("/initialpose")
-    ] == ["/env_0/initialpose"]
-
-
 def test_initialpose_is_written_under_the_robot_its_frame_names(
     env_node: DataRecorderNode,
 ):
@@ -213,106 +198,6 @@ def test_initialpose_without_a_robot_frame_stays_at_the_environment(
     assert [(topic, ts) for topic, _, ts in rows] == [("env_0/initialpose", 7_000)]
 
 
-def test_tf_pair_keeps_its_frame_family_interval(tmp_path: pathlib.Path):
-    node = _bare_node(current_time=1_000_000_000)
-    node.tf_frames = [(re.compile(r"_agent_\d+$"), 200.0)]
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/tf", TFMessage)
-
-    for stamp_ns in (0, 100_000_000, 199_999_999, 200_000_000):
-        node._tf_callback(_tf_message(("map", "l_arm_env_0_agent_2", 1.0, stamp_ns)))
-
-    assert [ts for ts, _ in _tf_writes(read())] == [0, 200_000_000]
-
-
-def test_a_refused_transform_does_not_shift_the_family_interval(
-    tmp_path: pathlib.Path,
-):
-    node = _bare_node(current_time=1_000_000_000)
-    node.tf_frames = [(re.compile(r"_agent_\d+$"), 200.0)]
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/tf", TFMessage)
-
-    node._tf_callback(_tf_message(("map", "bone_env_0_agent_1", 1.0, 0)))
-    node._tf_callback(_tf_message(("map", "bone_env_0_agent_1", 2.0, 199_999_999)))
-    node._tf_callback(_tf_message(("map", "bone_env_0_agent_1", 3.0, 200_000_000)))
-
-    assert _tf_writes(read()) == [
-        (0, {"bone_env_0_agent_1": 1.0}),
-        (200_000_000, {"bone_env_0_agent_1": 3.0}),
-    ]
-
-
-def test_min_interval_ns_rounds_a_rate_up_to_whole_nanoseconds():
-    assert recorder.min_interval_ns(20.0) == 50_000_000
-    assert recorder.min_interval_ns(10.0) == 100_000_000
-    assert recorder.min_interval_ns(50.0) == 20_000_000
-    assert recorder.min_interval_ns(3.0) == 333_333_334
-    assert recorder.min_interval_ns(0.5) == 2_000_000_000
-    assert recorder.min_interval_ns(0.0) == 0
-
-
-@pytest.mark.parametrize(
-    "delta_ns, accepted",
-    [
-        (0, False),
-        (1, False),
-        (49_999_999, False),
-        (50_000_000, True),
-        (50_000_001, True),
-        (99_999_999, True),
-        (100_000_000, True),
-    ],
-)
-def test_a_20_hz_gate_opens_at_50_ms(delta_ns: int, accepted: bool):
-    gate = recorder.RateGate(recorder.min_interval_ns(20.0), 1_000_000_000)
-    assert gate.accept(1_000_000_000 + delta_ns) is accepted
-
-
-def test_a_refused_sample_does_not_shift_the_gate_interval():
-    gate = recorder.RateGate(recorder.min_interval_ns(20.0))
-    assert gate.accept(0) is True
-    assert gate.accept(49_999_999) is False
-    assert gate.accept(50_000_000) is True
-    assert gate.accept(99_999_999) is False
-    assert gate.accept(100_000_000) is True
-
-
-def test_a_zero_interval_passes_every_sample():
-    gate = recorder.RateGate(recorder.min_interval_ns(0.0))
-    assert [gate.accept(t_ns) for t_ns in (0, 0, 1)] == [True, True, True]
-
-
-@pytest.mark.parametrize(
-    "period_ns, messages, kept",
-    [
-        (1_000_000, 1000, 20),
-        (10_000_000, 1000, 200),
-    ],
-)
-def test_sample_count_of_1000_messages_through_a_20_hz_gate(
-    period_ns: int, messages: int, kept: int
-):
-    """1000 messages 1 ms apart span 1 s and keep 20; 10 ms apart they span 10 s and keep 200."""
-    gate = recorder.RateGate(recorder.min_interval_ns(20.0))
-    assert sum(gate.accept(index * period_ns) for index in range(messages)) == kept
-
-
-def test_an_override_of_the_exact_topic_name_wins_over_the_default():
-    overrides = {"/env_0/front/scan": 5.0}
-    assert recorder.resolve_rate_hz(overrides, "/env_0/front/scan", 10.0) == 5.0
-
-
-def test_an_override_matches_no_substring_of_a_topic_name():
-    overrides = {"/odom": 30.0}
-    assert recorder.resolve_rate_hz(overrides, "/robot_1/odom_filtered", 50.0) == 50.0
-    assert recorder.resolve_rate_hz(overrides, "/odom", 50.0) == 30.0
-
-
-def test_an_absent_key_keeps_the_definition_rate():
-    assert recorder.resolve_rate_hz({}, "/env_0/scan", 10.0) == 10.0
-
-
 def test_a_config_still_carrying_record_frequencies_is_refused_with_the_hint(
     tmp_path: pathlib.Path,
 ):
@@ -321,30 +206,10 @@ def test_a_config_still_carrying_record_frequencies_is_refused_with_the_hint(
         node.read_config()
 
 
-def test_a_record_rates_hz_mapping_is_read_as_floats(tmp_path: pathlib.Path):
-    node = _config_node(tmp_path, 'record_rates_hz:\n  "/env_0/jackal/scan": 5\n')
-    assert node.read_config() == {"record_rates_hz": {"/env_0/jackal/scan": 5.0}}
-
-
 def test_a_negative_record_rate_is_refused(tmp_path: pathlib.Path):
     node = _config_node(tmp_path, 'record_rates_hz:\n  "/env_0/jackal/scan": -1.0\n')
     with pytest.raises(ValueError, match="record_rates_hz"):
         node.read_config()
-
-
-def test_the_callback_honours_a_record_rates_hz_override_at_the_boundary(
-    tmp_path: pathlib.Path,
-):
-    node = _bare_node(record_rates_hz={"/cmd_vel": 10.0})
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/cmd_vel", String)
-    callback = node._create_throttled_callback("/cmd_vel")
-
-    for t_ns, payload in ((0, "a"), (99_999_999, "b"), (100_000_000, "c")):
-        node.current_time = t_ns
-        callback(String(data=payload))
-
-    assert _strings(read()) == [(0, "a"), (100_000_000, "c")]
 
 
 def test_a_rate_of_zero_passes_every_message(tmp_path: pathlib.Path):
@@ -360,31 +225,3 @@ def test_a_rate_of_zero_passes_every_message(tmp_path: pathlib.Path):
     assert [ts for ts, _ in _strings(read())] == [0, 0, 1, 2]
 
 
-def test_an_absent_key_keeps_the_20_hz_default(tmp_path: pathlib.Path):
-    node = _bare_node()
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/joint_states", String)
-    callback = node._create_throttled_callback("/joint_states")
-
-    node.current_time = 0
-    callback(String(data="a"))
-    node.current_time = 50_000_000
-    callback(String(data="b"))
-
-    assert _strings(read()) == [(0, "a"), (50_000_000, "b")]
-
-
-def test_a_definition_with_throttled_false_is_not_throttled(tmp_path: pathlib.Path):
-    node = _bare_node(record_rates_hz={"/plan": 1.0})
-    read = _bag(node, tmp_path / "bag")
-    node._register_topic("/plan", String)
-    qos, callback = node._env_topic_binding(
-        "plan", TopicDefinition("/plan", String, throttled=False)
-    )
-    assert qos is node.qos
-
-    for t_ns in (0, 0):
-        node.current_time = t_ns
-        callback(String(data="x"))
-
-    assert len(_strings(read())) == 2

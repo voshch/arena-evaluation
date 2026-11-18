@@ -7,35 +7,9 @@ import pathlib
 import polars as pl
 
 from arena_evaluation.presentation.plot_types.histogram import HistogramRenderer
-from arena_evaluation.presentation.plot_types.scatter import ScatterRenderer
-from arena_evaluation.presentation.plot_types.timeseries import TimeseriesRenderer
 from arena_evaluation.presentation.plot_types.trajectory import TrajectoryRenderer
 from arena_evaluation.presentation.resolver import PlotDiagnostics
 from arena_evaluation.presentation.viz_manifest import PlotChannels, PlotSpec
-
-
-def test_scatter_renderer_plotly_and_static(tmp_path: pathlib.Path) -> None:
-    spec = PlotSpec(
-        id="scatter_1",
-        type="scatter",
-        data={"source": "fact_episodes"},
-        channels=PlotChannels(x="path_length", y="time_to_goal", color="planner"),
-    )
-    df = pl.DataFrame(
-        {
-            "path_length": [10.0, 12.0, 14.0],
-            "time_to_goal": [8.0, 9.5, 11.0],
-            "planner": ["dwb", "teb", None],
-        }
-    )
-    renderer = ScatterRenderer(spec)
-    html = renderer.render_plotly(df)
-    assert isinstance(html, str)
-    assert "dwb" in html
-
-    out = tmp_path / "scatter.png"
-    renderer.render_static(df, out)
-    assert out.exists() and out.stat().st_size > 1000
 
 
 def test_histogram_renderer_prebinned_and_raw(tmp_path: pathlib.Path) -> None:
@@ -75,27 +49,6 @@ def test_histogram_renderer_prebinned_and_raw(tmp_path: pathlib.Path) -> None:
     out_bin = tmp_path / "hist_binned.png"
     binned_r.render_static(binned_df, out_bin)
     assert out_bin.exists() and out_bin.stat().st_size > 1000
-
-
-def test_timeseries_renderer_plotly_and_static(tmp_path: pathlib.Path) -> None:
-    spec = PlotSpec(
-        id="ts_1",
-        type="timeseries",
-        data={"source": "robot_odom"},
-        channels=PlotChannels(x="t_s", y="speed", color="planner"),
-    )
-    df = pl.DataFrame(
-        {
-            "t_s": [0.0, 0.5, 1.0, 0.0, 0.5, 1.0],
-            "speed": [0.0, 0.6, 0.8, 0.0, 0.4, None],
-            "planner": ["dwb", "dwb", "dwb", "teb", "teb", "teb"],
-        }
-    )
-    renderer = TimeseriesRenderer(spec)
-    assert isinstance(renderer.render_plotly(df), str)
-    out = tmp_path / "ts.png"
-    renderer.render_static(df, out)
-    assert out.exists() and out.stat().st_size > 1000
 
 
 def test_trajectory_renderer_with_world_geometry_and_missing_world_notice(

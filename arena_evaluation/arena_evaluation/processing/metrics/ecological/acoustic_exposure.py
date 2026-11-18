@@ -189,41 +189,35 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             return None
         return aligned
 
-    def _time_base(
+    def _sample_grid(
         self, episode: AlignedEpisodeBundle
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
         """Sample times, ground-truth robot x/y and validity on the scope's clock, None without ground truth."""
-        df = episode.data
-        if df is not None and len(df) > 0:
-            t_ns = df["t_ns"].to_numpy().astype(np.int64)
-            pos_x_native, pos_y_native, _yaw, native_times_ns = (
-                self.resolve_native_pose(episode)
-            )
-            if len(native_times_ns) == 0:
-                return None
-            rx_m = asof_values(
-                native_times_ns.astype(np.int64),
-                pos_x_native.astype(np.float64),
-                t_ns,
-                tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
-            )
-            ry_m = asof_values(
-                native_times_ns.astype(np.int64),
-                pos_y_native.astype(np.float64),
-                t_ns,
-                tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
-            )
-            return t_ns, rx_m, ry_m, ~np.isnan(rx_m) & ~np.isnan(ry_m)
-
-        pos_x, pos_y, _yaw, t_ns = self.resolve_native_pose(episode)
-        if len(t_ns) == 0:
+        pos_x, pos_y, _yaw, native_t_ns = self.resolve_native_pose(episode)
+        if len(native_t_ns) == 0:
             return None
-        return (
-            t_ns,
+        df = episode.data
+        if df is None or len(df) == 0:
+            return (
+                native_t_ns,
+                pos_x.astype(np.float64),
+                pos_y.astype(np.float64),
+                np.ones(len(native_t_ns), dtype=bool),
+            )
+        t_ns = df["t_ns"].to_numpy().astype(np.int64)
+        rx_m = asof_values(
+            native_t_ns.astype(np.int64),
             pos_x.astype(np.float64),
-            pos_y.astype(np.float64),
-            np.ones(len(t_ns), dtype=bool),
+            t_ns,
+            tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
         )
+        ry_m = asof_values(
+            native_t_ns.astype(np.int64),
+            pos_y.astype(np.float64),
+            t_ns,
+            tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
+        )
+        return t_ns, rx_m, ry_m, ~np.isnan(rx_m) & ~np.isnan(ry_m)
 
     @staticmethod
     def _null_result() -> AcousticExposureResult:
@@ -263,8 +257,13 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             return self._null_result()
 
         samples: dict[str, list[tuple[int, float]]] = {}
+        worst_index, worst_value = 0, -np.inf
         for index, ped_ids in enumerate(frame_ped_ids):
             t_ns = int(frame_times_ns[index])
+            if frame_exposure_dba[index]:
+                frame_max = max(frame_exposure_dba[index])
+                if frame_max > worst_value:
+                    worst_value, worst_index = frame_max, index
             for ped_id, exposure_dba in zip(
                 ped_ids, frame_exposure_dba[index], strict=True
             ):
@@ -285,7 +284,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             frame_exposure_dba=frame_exposure_dba,
             frame_attenuation_db=frame_attenuation_db,
             frame_open_doors=frame_open_doors,
-            worst_frame_index=self._worst_frame_index(frame_exposure_dba),
+            worst_frame_index=worst_index,
         )
 
     @staticmethod
@@ -307,19 +306,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             "worst_case_acoustic_t_ns": int(times_ns[worst]),
         }
 
-    @staticmethod
-    def _worst_frame_index(frame_exposure_dba: list[list[float]]) -> int:
-        """Index of the frame holding the largest single pedestrian exposure, the episode's worst frame."""
-        worst_index = 0
-        worst_value = -np.inf
-        for index, frame_exposure in enumerate(frame_exposure_dba):
-            if frame_exposure:
-                frame_max = max(frame_exposure)
-                if frame_max > worst_value:
-                    worst_value = frame_max
-                    worst_index = index
-        return worst_index
-
     def _compute(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> AcousticExposureResult:
@@ -330,7 +316,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                 "AcousticExposureCalculator: missing world map name (checked prior_results['map'], episode.map, and calculator.world)"
             )
 
-        time_base = self._time_base(episode)
+        time_base = self._sample_grid(episode)
         if time_base is None:
             return self._null_result()
 
@@ -401,105 +387,90 @@ class AcousticExposureCalculator(BaseMetricCalculator):
             )
             frame_open_doors.append(",".join(open_doors_here))
             current_source = source_dba[index]
+
+            ped_ids_row: list[str] = []
+            ped_x_row: list[float] = []
+            ped_y_row: list[float] = []
+            exposure_row: list[float] = []
+            attenuation_row: list[float] = []
+
             if (
-                not robot_valid[index]
-                or np.isnan(current_source)
-                or frame is None
-                or len(frame) == 0
+                robot_valid[index]
+                and not np.isnan(current_source)
+                and frame is not None
+                and len(frame)
             ):
-                frame_ped_ids.append([])
-                frame_ped_x_m.append([])
-                frame_ped_y_m.append([])
-                ts_exposure.append([])
-                ts_attenuation.append([])
-                continue
-
-            px_m = frame["x"].to_numpy().astype(np.float32)
-            py_m = frame["y"].to_numpy().astype(np.float32)
-            if len(px_m) == 0:
-                frame_ped_ids.append([])
-                frame_ped_x_m.append([])
-                frame_ped_y_m.append([])
-                ts_exposure.append([])
-                ts_attenuation.append([])
-                continue
-
-            should_eval = (
-                index == 0
-                or index == total_frames - 1
-                or last_eval_rx is None
-                or last_eval_ry is None
-                or last_eval_peds is None
-                or last_attenuations is None
-                or open_doors_here != last_eval_tl_key
-            )
-            if (
-                not should_eval
-                and last_eval_rx is not None
-                and last_eval_ry is not None
-                and last_eval_peds is not None
-            ):
-                robot_moved = (
-                    np.hypot(rx_m[index] - last_eval_rx, ry_m[index] - last_eval_ry)
-                    > POSITION_EVALUATION_THRESHOLD_M
-                )
-                pedestrians_changed = len(px_m) != len(last_eval_peds[0]) or np.any(
-                    np.hypot(px_m - last_eval_peds[0], py_m - last_eval_peds[1])
-                    > POSITION_EVALUATION_THRESHOLD_M
-                )
-                should_eval = bool(robot_moved or pedestrians_changed)
-
-            if should_eval or last_attenuations is None:
-                last_eval_rx = float(rx_m[index])
-                last_eval_ry = float(ry_m[index])
-                last_eval_peds = (px_m, py_m)
-                last_eval_tl_key = open_doors_here
-
-                rx_px = (rx_m[index] - origin_x) / resolution
-                ry_px = (ry_m[index] - origin_y) / resolution
-                px_px = (px_m - origin_x) / resolution
-                py_px = (py_m - origin_y) / resolution
-
-                pixel_tl = tl_cache.get(open_doors_here)
-                if pixel_tl is None:
-                    pixel_tl = build_pixel_tl(
-                        grid, doors, open_doors=set(open_doors_here)
+                px_m = frame["x"].to_numpy().astype(np.float32)
+                py_m = frame["y"].to_numpy().astype(np.float32)
+                if len(px_m):
+                    should_eval = (
+                        index == 0
+                        or index == total_frames - 1
+                        or last_eval_rx is None
+                        or last_eval_ry is None
+                        or last_eval_peds is None
+                        or last_attenuations is None
+                        or open_doors_here != last_eval_tl_key
                     )
-                    tl_cache[open_doors_here] = pixel_tl
+                    if not should_eval and last_eval_peds is not None:
+                        robot_moved = (
+                            np.hypot(
+                                rx_m[index] - last_eval_rx, ry_m[index] - last_eval_ry
+                            )
+                            > POSITION_EVALUATION_THRESHOLD_M
+                        )
+                        pedestrians_changed = len(
+                            px_m
+                        ) != len(last_eval_peds[0]) or np.any(
+                            np.hypot(
+                                px_m - last_eval_peds[0], py_m - last_eval_peds[1]
+                            )
+                            > POSITION_EVALUATION_THRESHOLD_M
+                        )
+                        should_eval = bool(robot_moved or pedestrians_changed)
 
-                attenuations = compute_attenuations(
-                    occupancy_grid=grid,
-                    resolution=resolution,
-                    start_x_px=rx_px,
-                    start_y_px=ry_px,
-                    target_xs_px=px_px,
-                    target_ys_px=py_px,
-                    wall_tl=WALL_TRANSMISSION_LOSS_DB,
-                    mic_distance=MIC_DISTANCE_M,
-                    pixel_tl=pixel_tl,
-                )
-                last_attenuations = attenuations
-            else:
-                attenuations = last_attenuations
+                    if should_eval or last_attenuations is None:
+                        last_eval_rx = float(rx_m[index])
+                        last_eval_ry = float(ry_m[index])
+                        last_eval_peds = (px_m, py_m)
+                        last_eval_tl_key = open_doors_here
 
-            valid = ~np.isinf(attenuations)
-            if not np.any(valid):
-                frame_ped_ids.append([])
-                frame_ped_x_m.append([])
-                frame_ped_y_m.append([])
-                ts_exposure.append([])
-                ts_attenuation.append([])
-                continue
+                        pixel_tl = tl_cache.get(open_doors_here)
+                        if pixel_tl is None:
+                            pixel_tl = build_pixel_tl(
+                                grid, doors, open_doors=set(open_doors_here)
+                            )
+                            tl_cache[open_doors_here] = pixel_tl
 
-            valid_attenuation = attenuations[valid]
-            valid_exposure = current_source - valid_attenuation
-            frame_ped_ids.append(
-                [str(name) for name in frame["ped_id"].to_numpy()[valid]]
-            )
-            frame_ped_x_m.append([float(value) for value in px_m[valid]])
-            frame_ped_y_m.append([float(value) for value in py_m[valid]])
-            ts_attenuation.append(valid_attenuation.tolist())
-            ts_exposure.append(valid_exposure.tolist())
+                        last_attenuations = compute_attenuations(
+                            occupancy_grid=grid,
+                            resolution=resolution,
+                            start_x_px=(rx_m[index] - origin_x) / resolution,
+                            start_y_px=(ry_m[index] - origin_y) / resolution,
+                            target_xs_px=(px_m - origin_x) / resolution,
+                            target_ys_px=(py_m - origin_y) / resolution,
+                            wall_tl=WALL_TRANSMISSION_LOSS_DB,
+                            mic_distance=MIC_DISTANCE_M,
+                            pixel_tl=pixel_tl,
+                        )
+
+                    attenuations = last_attenuations
+                    assert attenuations is not None
+                    valid = ~np.isinf(attenuations)
+                    if np.any(valid):
+                        ped_ids_row = [
+                            str(name) for name in frame["ped_id"].to_numpy()[valid]
+                        ]
+                        ped_x_row = [float(value) for value in px_m[valid]]
+                        ped_y_row = [float(value) for value in py_m[valid]]
+                        attenuation_row = attenuations[valid].tolist()
+                        exposure_row = (current_source - attenuations[valid]).tolist()
+
+            frame_ped_ids.append(ped_ids_row)
+            frame_ped_x_m.append(ped_x_row)
+            frame_ped_y_m.append(ped_y_row)
+            ts_exposure.append(exposure_row)
+            ts_attenuation.append(attenuation_row)
 
         return self._summarize(
             t_ns,
@@ -599,7 +570,12 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         if scope_slice is None:
             return self.calculate(episode, prior_results)
         if scope_slice.scope == MetricScope.PEDESTRIAN:
-            return self._pedestrian_metrics(scope_slice, prior_results)
+            result = self._episode_result(scope_slice.full_episode, prior_results)
+            ped_id = str(scope_slice.identity.get("ped_id") or scope_slice.slice_id)
+            scalars = result.pedestrian_scalars.get(ped_id)
+            if scalars is None:
+                return dict.fromkeys(_PEDESTRIAN_KEYS)
+            return {key: scalars.get(key) for key in _PEDESTRIAN_KEYS}
         if scope_slice.scope == MetricScope.ENCOUNTER:
             actor_2_kind = scope_slice.identity.get("actor_2_kind")
             if actor_2_kind is not None and actor_2_kind != "pedestrian":
@@ -616,17 +592,6 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         raise ValueError(
             f"acoustic_exposure does not serve the {scope_slice.scope.value} scope"
         )
-
-    def _pedestrian_metrics(
-        self, scope_slice: ScopeSlice, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """This pedestrian's published scalars, all None when it never had a reachable sample."""
-        result = self._episode_result(scope_slice.full_episode, prior_results)
-        ped_id = str(scope_slice.identity.get("ped_id") or scope_slice.slice_id)
-        scalars = result.pedestrian_scalars.get(ped_id)
-        if scalars is None:
-            return dict.fromkeys(_PEDESTRIAN_KEYS)
-        return {key: scalars.get(key) for key in _PEDESTRIAN_KEYS}
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """The door state decides which doors transmit; a recording without it leaves exposure unknown."""
@@ -648,71 +613,38 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         if not any(result.frame_exposure_dba):
             return pl.DataFrame(schema=SERIES_SCHEMA)
 
-        t_ns: list[int] = []
-        ped_ids: list[str] = []
-        exposure: list[float] = []
-        attenuation: list[float] = []
-        robot_x: list[float] = []
-        robot_y: list[float] = []
-        source: list[float] = []
-        ped_x: list[float] = []
-        ped_y: list[float] = []
-        is_worst: list[bool] = []
-        open_doors: list[str] = []
-        for index, (
-            ped_id_row,
-            ped_x_row,
-            ped_y_row,
-            exposure_row,
-            attenuation_row,
-        ) in enumerate(
-            zip(
-                result.frame_ped_ids,
-                result.frame_ped_x_m,
-                result.frame_ped_y_m,
-                result.frame_exposure_dba,
-                result.frame_attenuation_db,
-                strict=True,
+        frame = (
+            pl.DataFrame(
+                {
+                    "frame_index": np.arange(len(result.frame_times_ns)),
+                    "t_ns": result.frame_times_ns,
+                    "robot_x_m": result.frame_robot_x_m,
+                    "robot_y_m": result.frame_robot_y_m,
+                    "source_dba": result.frame_source_dba,
+                    "ped_id": result.frame_ped_ids,
+                    "ped_x_m": result.frame_ped_x_m,
+                    "ped_y_m": result.frame_ped_y_m,
+                    "exposure_dba": result.frame_exposure_dba,
+                    "attenuation_db": result.frame_attenuation_db,
+                    "open_doors": result.frame_open_doors,
+                }
             )
-        ):
-            for ped_id, x_m, y_m, exposure_dba, attenuation_db in zip(
-                ped_id_row,
-                ped_x_row,
-                ped_y_row,
-                exposure_row,
-                attenuation_row,
-                strict=True,
-            ):
-                t_ns.append(int(result.frame_times_ns[index]))
-                ped_ids.append(ped_id)
-                exposure.append(float(exposure_dba))
-                attenuation.append(float(attenuation_db))
-                robot_x.append(float(result.frame_robot_x_m[index]))
-                robot_y.append(float(result.frame_robot_y_m[index]))
-                source.append(float(result.frame_source_dba[index]))
-                ped_x.append(x_m)
-                ped_y.append(y_m)
-                is_worst.append(index == result.worst_frame_index)
-                open_doors.append(result.frame_open_doors[index])
-
-        frame = pl.DataFrame(
-            {
-                "run_id": [run_id] * len(t_ns),
-                "episode_id": [int(episode.episode_id)] * len(t_ns),
-                "robot_id": [robot_id or (episode.robot_name or "robot")] * len(t_ns),
-                "t_ns": t_ns,
-                "ped_id": ped_ids,
-                "exposure_dba": exposure,
-                "attenuation_db": attenuation,
-                "robot_x_m": robot_x,
-                "robot_y_m": robot_y,
-                "source_dba": source,
-                "ped_x_m": ped_x,
-                "ped_y_m": ped_y,
-                "is_episode_worst_frame": is_worst,
-                "open_doors": open_doors,
-            },
-            schema=SERIES_SCHEMA,
+            .explode(
+                "ped_id",
+                "ped_x_m",
+                "ped_y_m",
+                "exposure_dba",
+                "attenuation_db",
+            )
+            .filter(pl.col("ped_id").is_not_null())
+            .with_columns(
+                run_id=pl.lit(run_id),
+                episode_id=pl.lit(int(episode.episode_id), dtype=pl.Int64),
+                robot_id=pl.lit(robot_id or (episode.robot_name or "robot")),
+                is_episode_worst_frame=pl.col("frame_index")
+                == result.worst_frame_index,
+            )
+            .select(SERIES_SCHEMA.names())
         )
         return frame.sort(["t_ns", "ped_id", "exposure_dba"]).unique(
             subset=["run_id", "episode_id", "robot_id", "t_ns", "ped_id"],

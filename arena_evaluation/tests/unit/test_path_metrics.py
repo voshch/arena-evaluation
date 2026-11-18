@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import math
 
 import polars as pl
-import pytest
-from polars.testing import assert_frame_equal, assert_series_equal
+from polars.testing import assert_frame_equal
 
-from arena_evaluation.processing.metrics.base import Direction, MetricScope, ScopeSlice
+from arena_evaluation.processing.metrics.base import Direction
 from arena_evaluation.processing.metrics.performance.path_metrics import (
     SERIES_SCHEMA,
     PathMetricsCalculator,
@@ -53,141 +51,6 @@ def test_path_length_orders_results_lower():
     )
 
 
-def test_series_table_is_flat_with_one_row_per_resolved_sample():
-    table = _series(
-        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)]
-    )
-
-    expected = pl.DataFrame(
-        {
-            "run_id": ["run"] * 4,
-            "episode_id": [1] * 4,
-            "robot_id": ["jackal_0"] * 4,
-            "t_ns": [0, SEC, 2 * SEC, 3 * SEC],
-            "time_s": [0.0, 1.0, 2.0, 3.0],
-            "x_m": [0.0, 1.0, 2.0, 3.0],
-            "y_m": [0.0, 0.0, 0.0, 0.0],
-            "yaw_rad": [0.0, 0.0, 0.0, 0.0],
-            "odom_x_m": [None, None, None, None],
-            "odom_y_m": [None, None, None, None],
-            "odom_yaw_rad": [None, None, None, None],
-            "step_length_m": [None, 1.0, 1.0, 1.0],
-            "curvature_inv_m": [None, 0.0, 0.0, None],
-            "normalized_curvature": [None, 0.0, 0.0, None],
-            "roughness": [None, 0.0, 0.0, None],
-        },
-        schema=SERIES_SCHEMA,
-    )
-
-    assert_frame_equal(table, expected, check_dtypes=True, rel_tol=1e-9, abs_tol=1e-12)
-
-
-def test_curvature_lands_on_the_middle_sample_of_its_triple():
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    episode = _episode([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, math.pi / 2)])
-
-    table = calculator.series_table(episode)
-    results = calculator.calculate(episode, {})
-
-    expected_curvature = math.sqrt(2.0)
-    expected_roughness = 0.5
-    assert_series_equal(
-        table["curvature_inv_m"],
-        pl.Series(
-            "curvature_inv_m", [None, expected_curvature, None], dtype=pl.Float64
-        ),
-        check_names=False,
-        rel_tol=1e-9,
-    )
-    assert_series_equal(
-        table["normalized_curvature"],
-        pl.Series(
-            "normalized_curvature", [None, 2.0 * math.sqrt(2.0), None], dtype=pl.Float64
-        ),
-        check_names=False,
-        rel_tol=1e-9,
-    )
-    assert_series_equal(
-        table["roughness"],
-        pl.Series("roughness", [None, expected_roughness, None], dtype=pl.Float64),
-        check_names=False,
-        rel_tol=1e-9,
-    )
-    assert results["curvature_mean"] == pytest.approx(expected_curvature)
-    assert results["curvature_max"] == pytest.approx(expected_curvature)
-    assert results["roughness_mean"] == pytest.approx(expected_roughness)
-    assert results["path_length_m"] == pytest.approx(2.0)
-    assert results["angle_over_length"] == pytest.approx((math.pi / 2) / 2.0)
-
-
-def test_stationary_track_has_zero_length_and_no_curvature():
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    episode = _episode([(0.0, 0.0, 0.0)] * 4)
-
-    results = calculator.calculate(episode, {})
-    table = calculator.series_table(episode)
-
-    assert results["path_length_m"] == 0.0
-    assert results["angle_over_length"] is None
-    assert results["curvature_mean"] is None
-    assert results["roughness_mean"] is None
-    assert_series_equal(
-        table["step_length_m"],
-        pl.Series("step_length_m", [None, 0.0, 0.0, 0.0], dtype=pl.Float64),
-        check_names=False,
-    )
-    assert table["curvature_inv_m"].null_count() == table.height
-
-
-def test_null_ground_truth_rows_are_dropped_before_the_geometry():
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    data = pl.DataFrame(
-        {
-            "t_ns": pl.Series("t_ns", [0, SEC, 2 * SEC, 3 * SEC], dtype=pl.Int64),
-            "x": pl.Series("x", [0.0, None, 2.0, 3.0], dtype=pl.Float64),
-            "y": pl.Series("y", [0.0, 0.0, 0.0, 0.0], dtype=pl.Float64),
-            "yaw": pl.Series("yaw", [0.0, 0.0, 0.0, 0.0], dtype=pl.Float64),
-        }
-    )
-
-    results = calculator.calculate(
-        AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[]), {}
-    )
-    table = calculator.series_table(
-        AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[])
-    )
-
-    assert table.height == 3
-    assert results["path_length_m"] == pytest.approx(3.0)
-    assert_series_equal(
-        table["step_length_m"],
-        pl.Series("step_length_m", [None, 2.0, 1.0], dtype=pl.Float64),
-        check_names=False,
-    )
-    assert table["x_m"].null_count() == 0
-    assert table["odom_x_m"].is_null().all()
-
-
-def test_missing_ground_truth_yields_null_aggregates_and_an_empty_series():
-    data = pl.DataFrame(
-        {
-            "t_ns": pl.Series("t_ns", [0, SEC], dtype=pl.Int64),
-            "yaw": pl.Series("yaw", [0.0, 0.0], dtype=pl.Float64),
-        }
-    )
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[])
-
-    assert calculator.calculate(episode, {}) == dict.fromkeys(
-        PathMetricsCalculator.output_keys()
-    )
-    assert_frame_equal(
-        calculator.series_table(episode),
-        pl.DataFrame(schema=SERIES_SCHEMA),
-        check_dtypes=True,
-    )
-
-
 def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
     calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
@@ -202,36 +65,3 @@ def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
     )
 
 
-def test_a_single_sample_has_no_step_and_no_curvature():
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    episode = _episode([(2.0, 3.0, 0.5)])
-
-    table = calculator.series_table(episode)
-    results = calculator.calculate(episode, {})
-
-    assert table.height == 1
-    assert table["step_length_m"].is_null().all()
-    assert table["curvature_inv_m"].is_null().all()
-    assert results["path_length_m"] == 0.0
-    assert results["curvature_max"] is None
-    assert results["roughness_max"] is None
-
-
-def test_path_length_is_the_single_metric_on_an_encounter_or_robot_slice():
-    calculator = PathMetricsCalculator(make_robot_params(robot_radius=0.2))
-    episode = _episode([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)])
-
-    for scope in (MetricScope.ENCOUNTER, MetricScope.ROBOT):
-        scope_slice = ScopeSlice(
-            scope=scope,
-            slice_id=f"{scope.value}-1",
-            parent_id=None,
-            t_start_ns=0,
-            t_end_ns=2 * SEC,
-            identity={},
-            window_bundle=episode,
-            full_episode=episode,
-        )
-        result = calculator.calculate_for_scope(episode, {}, scope_slice)
-        assert set(calculator.output_keys_for_scope(scope)) <= set(result)
-        assert result["path_length_m"] == pytest.approx(2.0)

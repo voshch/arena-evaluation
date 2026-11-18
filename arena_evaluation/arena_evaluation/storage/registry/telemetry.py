@@ -46,6 +46,73 @@ class _GlobalTelemetry(Table, abstract=True):
     t_ns = _TIME
 
 
+class _OdomColumns(Table, abstract=True):
+    """Odometry columns shared by a robot's odometry and the odometry its controller reports."""
+
+    odom_x = _FLOAT
+    odom_y = _FLOAT
+    odom_yaw = _FLOAT
+    odom_vx = _FLOAT
+    odom_wz = _FLOAT
+    drift_error_m = _FLOAT
+
+
+class _CmdVelColumns(Table, abstract=True):
+    """Velocity-command columns shared by a robot's commands and the commands its controller issues."""
+
+    linear_x = _FLOAT
+    linear_y = _FLOAT
+    linear_z = _FLOAT
+    angular_x = _FLOAT
+    angular_y = _FLOAT
+    angular_z = _FLOAT
+
+
+class _JointColumns(Table, abstract=True):
+    """One joint of a robot, the extra key of a per-joint row."""
+
+    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "joint_name")
+    joint_name = _TEXT
+
+
+class _PedestrianStateColumns(Table, abstract=True):
+    """Crowd-engine state columns shared by the arena_peds and agent_states topics."""
+
+    ped_id = _TEXT
+    ped_name = _TEXT
+    x = _FLOAT
+    y = _FLOAT
+    z = _FLOAT
+    yaw = _FLOAT
+    vx = _FLOAT
+    vy = _FLOAT
+    vz = _FLOAT
+    speed_mps = _FLOAT
+    radius_m = _FLOAT
+    desired_speed = _FLOAT
+    policy = _TEXT
+    agent_type = _TEXT
+    animation_state = _INT
+    interaction_id = _INT
+    interaction_type = _INT
+    gait_phase = _FLOAT
+    gait_cadence = _FLOAT
+
+
+class _TransformColumns(Table, abstract=True):
+    """A transform between two frames, shared by the dynamic and the static transform topics."""
+
+    parent_frame = _TEXT
+    child_frame = _TEXT
+    tx = _FLOAT
+    ty = _FLOAT
+    tz = _FLOAT
+    qx = _FLOAT
+    qy = _FLOAT
+    qz = _FLOAT
+    qw = _FLOAT
+
+
 class RobotTracks(
     _RobotTelemetry,
     name="robot_tracks",
@@ -67,6 +134,7 @@ class RobotTracks(
 
 
 class RobotOdom(
+    _OdomColumns,
     _RobotTelemetry,
     name="robot_odom",
     kind=TableKind.TELEMETRY,
@@ -74,15 +142,9 @@ class RobotOdom(
 ):
     """Odometry of a robot."""
 
-    odom_x = _FLOAT
-    odom_y = _FLOAT
-    odom_yaw = _FLOAT
-    odom_vx = _FLOAT
-    odom_wz = _FLOAT
-    drift_error_m = _FLOAT
-
 
 class RobotOdomController(
+    _OdomColumns,
     _RobotTelemetry,
     name="robot_odom_controller",
     kind=TableKind.TELEMETRY,
@@ -90,15 +152,9 @@ class RobotOdomController(
 ):
     """Odometry as the controller reported it."""
 
-    odom_x = _FLOAT
-    odom_y = _FLOAT
-    odom_yaw = _FLOAT
-    odom_vx = _FLOAT
-    odom_wz = _FLOAT
-    drift_error_m = _FLOAT
-
 
 class RobotCmdVel(
+    _CmdVelColumns,
     _RobotTelemetry,
     name="robot_cmd_vel",
     kind=TableKind.TELEMETRY,
@@ -106,28 +162,15 @@ class RobotCmdVel(
 ):
     """Velocity commands sent to a robot."""
 
-    linear_x = _FLOAT
-    linear_y = _FLOAT
-    linear_z = _FLOAT
-    angular_x = _FLOAT
-    angular_y = _FLOAT
-    angular_z = _FLOAT
-
 
 class RobotCmdVelController(
+    _CmdVelColumns,
     _RobotTelemetry,
     name="robot_cmd_vel_controller",
     kind=TableKind.TELEMETRY,
     scope=MetricScope.ROBOT,
 ):
     """Velocity commands as the controller issued them."""
-
-    linear_x = _FLOAT
-    linear_y = _FLOAT
-    linear_z = _FLOAT
-    angular_x = _FLOAT
-    angular_y = _FLOAT
-    angular_z = _FLOAT
 
 
 class RobotScanSummary(
@@ -161,6 +204,7 @@ class RobotGoalPose(
 
 
 class RobotJointStates(
+    _JointColumns,
     _RobotTelemetry,
     name="robot_joint_states",
     kind=TableKind.TELEMETRY,
@@ -168,8 +212,6 @@ class RobotJointStates(
 ):
     """Joint state of one joint of a robot."""
 
-    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "joint_name")
-    joint_name = _TEXT
     position = _FLOAT
     velocity = _FLOAT
     effort = _FLOAT
@@ -190,6 +232,7 @@ class RobotPower(
 
 
 class RobotJointPower(
+    _JointColumns,
     _RobotTelemetry,
     name="robot_joint_power",
     kind=TableKind.TELEMETRY,
@@ -197,8 +240,6 @@ class RobotJointPower(
 ):
     """Power of one joint of a robot."""
 
-    row_key: ClassVar[tuple[str, ...]] = ("env_id", "robot_id", "t_ns", "joint_name")
-    joint_name = _TEXT
     mechanical_power_w = _FLOAT
     thermal_power_w = _FLOAT
     total_power_w = _FLOAT
@@ -386,6 +427,7 @@ class RobotParamRows(
 
 
 class PedestrianArenaPeds(
+    _PedestrianStateColumns,
     _EnvironmentTelemetry,
     name="pedestrian_arena_peds",
     kind=TableKind.TELEMETRY,
@@ -394,28 +436,10 @@ class PedestrianArenaPeds(
     """Pedestrian poses and velocities as the arena_peds topic publishes them, one row per pedestrian and time."""
 
     row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id")
-    ped_id = _TEXT
-    ped_name = _TEXT
-    x = _FLOAT
-    y = _FLOAT
-    z = _FLOAT
-    yaw = _FLOAT
-    vx = _FLOAT
-    vy = _FLOAT
-    vz = _FLOAT
-    speed_mps = _FLOAT
-    radius_m = _FLOAT
-    desired_speed = _FLOAT
-    policy = _TEXT
-    agent_type = _TEXT
-    animation_state = _INT
-    interaction_id = _INT
-    interaction_type = _INT
-    gait_phase = _FLOAT
-    gait_cadence = _FLOAT
 
 
 class PedestrianAgentStates(
+    _PedestrianStateColumns,
     _EnvironmentTelemetry,
     name="pedestrian_agent_states",
     kind=TableKind.TELEMETRY,
@@ -424,25 +448,6 @@ class PedestrianAgentStates(
     """Crowd-engine state of each pedestrian, with the four robot-interaction settings of its agent."""
 
     row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id")
-    ped_id = _TEXT
-    ped_name = _TEXT
-    x = _FLOAT
-    y = _FLOAT
-    z = _FLOAT
-    yaw = _FLOAT
-    vx = _FLOAT
-    vy = _FLOAT
-    vz = _FLOAT
-    speed_mps = _FLOAT
-    radius_m = _FLOAT
-    desired_speed = _FLOAT
-    policy = _TEXT
-    agent_type = _TEXT
-    animation_state = _INT
-    interaction_id = _INT
-    interaction_type = _INT
-    gait_phase = _FLOAT
-    gait_cadence = _FLOAT
     robot_awareness = _FLOAT32
     robot_fov_gain = _FLOAT32
     robot_repulsion_gain = _FLOAT32
@@ -583,34 +588,26 @@ class EpisodeIntegrity(
     flag = _TEXT
 
 
-class Tf(_GlobalTelemetry, name="tf", kind=TableKind.TELEMETRY):
+class Tf(
+    _TransformColumns,
+    _GlobalTelemetry,
+    name="tf",
+    kind=TableKind.TELEMETRY,
+):
     """Dynamic transforms between frames."""
 
     row_key: ClassVar[tuple[str, ...]] = ("t_ns", "parent_frame", "child_frame")
-    parent_frame = _TEXT
-    child_frame = _TEXT
-    tx = _FLOAT
-    ty = _FLOAT
-    tz = _FLOAT
-    qx = _FLOAT
-    qy = _FLOAT
-    qz = _FLOAT
-    qw = _FLOAT
 
 
-class TfStatic(_GlobalTelemetry, name="tf_static", kind=TableKind.TELEMETRY):
+class TfStatic(
+    _TransformColumns,
+    _GlobalTelemetry,
+    name="tf_static",
+    kind=TableKind.TELEMETRY,
+):
     """Static transforms between frames."""
 
     row_key: ClassVar[tuple[str, ...]] = ("t_ns", "parent_frame", "child_frame")
-    parent_frame = _TEXT
-    child_frame = _TEXT
-    tx = _FLOAT
-    ty = _FLOAT
-    tz = _FLOAT
-    qx = _FLOAT
-    qy = _FLOAT
-    qz = _FLOAT
-    qw = _FLOAT
 
 
 class WorldSemantics(

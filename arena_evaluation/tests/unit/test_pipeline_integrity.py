@@ -13,7 +13,7 @@ import shapely
 from arena_evaluation.processing.metrics.common.caching import world_cache
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry
 from arena_evaluation.processing.parquet_store import TopicParquetStore
-from arena_evaluation.processing.pipeline import ProcessingPipeline, _record_integrity, _status_row
+from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
@@ -159,30 +159,6 @@ def _write_topics(topics: pathlib.Path, integrity: tuple[list[str], ...]) -> Non
     _records(*integrity).write_parquet(topics / "episode_lifecycle.parquet")
     _flags(*integrity).write_parquet(topics / "episode_integrity.parquet")
     TopicParquetStore.mark_complete(topics)
-
-
-def test_record_integrity_takes_the_flags_of_the_last_record_by_time() -> None:
-    integrity = ([], [MOVED], [MOVED, RETASKED])
-    assert _record_integrity(_records(*integrity).reverse(), _flags(*integrity), _meta()) == [MOVED, RETASKED]
-    assert _record_integrity(_records(*integrity).lazy(), _flags(*integrity).lazy(), None) == [MOVED, RETASKED]
-
-
-def test_record_integrity_falls_back_to_the_episode_yaml_when_no_record_carries_any() -> None:
-    without_flags = pl.DataFrame({"t_ns": [0], "outcome_state": [2]})
-    assert _record_integrity(None, None, _meta(MOVED)) == [MOVED]
-    assert _record_integrity(without_flags, None, _meta(MOVED)) == [MOVED]
-    assert _record_integrity(_records([]), _flags([]), _meta(MOVED)) == [MOVED]
-    assert _record_integrity(None, None, None) == []
-
-
-def test_status_rows_carry_integrity_of_the_records(tmp_path: pathlib.Path) -> None:
-    ep = _descriptor(tmp_path)
-    compromised = _status_row(ep, _meta(), "jackal", "no_trajectory", "no odom rows", _records([], [MOVED]), _flags([], [MOVED]))
-    from_yaml = _status_row(ep, _meta(RETASKED), "jackal", "no_recording", "no MCAP or empty extraction")
-    intact = _status_row(ep, _meta(), "jackal", "no_recording", "no MCAP or empty extraction")
-    assert compromised["integrity"] == [MOVED]
-    assert from_yaml["integrity"] == [RETASKED]
-    assert intact["integrity"] == []
 
 
 def test_metric_rows_carry_integrity_of_the_last_record(tmp_path: pathlib.Path) -> None:

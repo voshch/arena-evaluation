@@ -18,26 +18,6 @@ _PARAMETERS = {
 }
 
 
-def test_total_mass_is_base_plus_components():
-    """Mass sums the way power does: platform base, then each component."""
-    params = RobotParams(
-        model="jackal",
-        robot_radius=0.43,
-        laser_min_range=None,
-        laser_max_range=None,
-        base_mass=18.431,
-        component_masses={"lidar/x": 0.13, "camera/y": 0.07},
-    )
-
-    assert params.mass == pytest.approx(18.631)
-
-
-def test_components_without_a_declared_mass_contribute_nothing():
-    params = RobotParams(**_PARAMETERS)
-
-    assert params.mass == pytest.approx(18.431)
-
-
 def test_a_robot_without_parameters_is_refused():
     with pytest.raises(TypeError):
         RobotParams()

@@ -23,7 +23,10 @@ from arena_evaluation.processing.metrics.base import (
 from arena_evaluation.processing.metrics.social.interaction_common import (
     native_robot_frame,
 )
-from arena_evaluation.processing.pedestrian_frames import distances_to_pedestrians
+from arena_evaluation.processing.pedestrian_frames import (
+    NS_PER_S,
+    distances_to_pedestrians,
+)
 from arena_evaluation.processing.windows import (
     DEFAULT_DETECTOR_PARAMS,
     pedestrian_pairs_lf,
@@ -157,11 +160,10 @@ class ProxemicsCalculator(BaseMetricCalculator):
         "total_time_in_personal_space": Direction.LOWER,
     }
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """Dwell of the robot inside its personal space, and the mean velocity while inside."""
-        del prior_results
+    def _episode_inputs(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[pl.DataFrame, pl.DataFrame] | None:
+        """The episode's robot ground-truth frame and flat pedestrian rows, None when either is unusable."""
         robot_frame = self.resolve_robot_frame(episode)
         peds_df = self.native_ped_frame(episode)
         if (
@@ -170,16 +172,31 @@ class ProxemicsCalculator(BaseMetricCalculator):
             or peds_df is None
             or peds_df.height == 0
         ):
-            return dict.fromkeys(self.output_keys())
-        counts = personal_space_counts(
+            return None
+        return robot_frame, peds_df
+
+    def _occupancy_counts(
+        self, robot_frame: pl.DataFrame, peds_df: pl.DataFrame
+    ) -> pl.DataFrame:
+        """Personal-space occupancy counts against the calculator's own radius parameters."""
+        return personal_space_counts(
             robot_frame,
             peds_df,
             PERSONAL_ZONE_EDGE_CLEARANCE_M,
             float(self.robot_params.robot_radius),
         )
+
+    def _personal_space_metrics(
+        self,
+        robot_frame: pl.DataFrame,
+        peds_df: pl.DataFrame,
+        num_pedestrians: int | None,
+    ) -> dict[str, typing.Any]:
+        """Dwell, mean in-space speed and pedestrian count over the given robot frame and pedestrian set."""
+        counts = self._occupancy_counts(robot_frame, peds_df)
         t_ns = counts.get_column("t_ns").to_numpy()
         occupancy = counts.get_column("count").to_numpy()
-        step_s = np.append(np.diff(t_ns) / 1e9, 0.0)
+        step_s = np.append(np.diff(t_ns) / NS_PER_S, 0.0)
         inside = occupancy > 0
         speeds = self.speed_from_pose(
             robot_frame.get_column("x").to_numpy().astype(np.float64),
@@ -187,10 +204,23 @@ class ProxemicsCalculator(BaseMetricCalculator):
             t_ns,
         )
         return {
-            "num_pedestrians": episode.num_pedestrians,
+            "num_pedestrians": num_pedestrians,
             "total_time_in_personal_space": float(np.sum(step_s[inside])),
             "avg_velocity_in_personal_space": _masked_speed_mean(speeds, inside),
         }
+
+    def calculate(
+        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """Dwell of the robot inside its personal space, and the mean velocity while inside."""
+        del prior_results
+        inputs = self._episode_inputs(episode)
+        if inputs is None:
+            return dict.fromkeys(self.output_keys())
+        robot_frame, peds_df = inputs
+        return self._personal_space_metrics(
+            robot_frame, peds_df, episode.num_pedestrians
+        )
 
     def _window_metrics(self, window: AlignedEpisodeBundle) -> dict[str, typing.Any]:
         """Personal-space dwell over the window's own robot samples and pedestrian set."""
@@ -198,26 +228,9 @@ class ProxemicsCalculator(BaseMetricCalculator):
         peds = self.native_ped_frame(window)
         if robot is None or robot.height == 0 or peds is None or peds.height == 0:
             return dict.fromkeys(self.output_keys())
-        t_ns = robot.get_column("t_ns").to_numpy().astype(np.int64)
-        counts = personal_space_counts(
-            robot,
-            peds,
-            PERSONAL_ZONE_EDGE_CLEARANCE_M,
-            float(self.robot_params.robot_radius),
+        return self._personal_space_metrics(
+            robot, peds, int(peds.get_column("ped_id").n_unique())
         )
-        occupancy = counts.get_column("count").to_numpy()
-        step_s = np.append(np.diff(t_ns) / 1e9, 0.0)
-        inside = occupancy > 0
-        speed_mps = self.speed_from_pose(
-            robot.get_column("x").to_numpy().astype(np.float64),
-            robot.get_column("y").to_numpy().astype(np.float64),
-            t_ns,
-        )
-        return {
-            "num_pedestrians": int(peds.get_column("ped_id").n_unique()),
-            "total_time_in_personal_space": float(np.sum(step_s[inside])),
-            "avg_velocity_in_personal_space": _masked_speed_mean(speed_mps, inside),
-        }
 
     def calculate_for_scope(
         self,
@@ -243,21 +256,11 @@ class ProxemicsCalculator(BaseMetricCalculator):
         robot_id: str = "",
     ) -> pl.DataFrame:
         """1NF per-sample personal-space occupancy, one row per robot sample."""
-        robot_frame = self.resolve_robot_frame(episode)
-        peds_df = self.native_ped_frame(episode)
-        if (
-            robot_frame is None
-            or robot_frame.height == 0
-            or peds_df is None
-            or peds_df.height == 0
-        ):
+        inputs = self._episode_inputs(episode)
+        if inputs is None:
             return pl.DataFrame(schema=PERSONAL_SPACE_SERIES_SCHEMA)
-        counts = personal_space_counts(
-            robot_frame,
-            peds_df,
-            PERSONAL_ZONE_EDGE_CLEARANCE_M,
-            float(self.robot_params.robot_radius),
-        )
+        robot_frame, peds_df = inputs
+        counts = self._occupancy_counts(robot_frame, peds_df)
         first_t_ns = int(counts.select(pl.col("t_ns").min()).item())
         resolved_robot = robot_id or (episode.robot_name or "robot")
         return counts.select(
@@ -265,7 +268,7 @@ class ProxemicsCalculator(BaseMetricCalculator):
             episode_id=pl.lit(int(episode.episode_id), dtype=pl.Int64),
             robot_id=pl.lit(resolved_robot, dtype=pl.String),
             t_ns=pl.col("t_ns"),
-            time_s=(pl.col("t_ns") - first_t_ns).cast(pl.Float64) / 1e9,
+            time_s=(pl.col("t_ns") - first_t_ns).cast(pl.Float64) / NS_PER_S,
             peds_in_personal_space=pl.col("count"),
         )
 

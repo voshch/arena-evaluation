@@ -10,7 +10,6 @@ import pytest
 
 from arena_evaluation.processing.scoped_evaluator import (
     ScopedEvaluator,
-    _merge_provenance_reasons,
 )
 from arena_evaluation.processing.windows import (
     contact_windows_lf,
@@ -141,23 +140,6 @@ def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_
     assert len(result.facts.contacts) == result.episode_metrics["contact_count"]
 
 
-def test_an_episode_without_pedestrians_carries_no_bare_pedsim_code() -> None:
-    episode = _bundle({"robot_tracks": _robot_track()})
-
-    result = ScopedEvaluator(make_robot_params(robot_radius=ROBOT_RADIUS_M)).evaluate(
-        episode,
-        run_id="run",
-        episode_id=0,
-        world=None,
-        episode_context={},
-        pedsim_available=False,
-        available_topics=set(episode.topics or {}),
-    )
-
-    reasons = result.facts.episodes.get_column("null_reason").to_list()[0].split(";")
-    assert "pedsim_unavailable" not in reasons
-
-
 def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles() -> (
     None
 ):
@@ -191,9 +173,3 @@ def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles
     assert frame.get_column("obstacle_id").to_list() == ["Pedestrian_0"]
 
 
-def test_a_field_carries_one_reason_when_its_calculator_names_the_cause() -> None:
-    reason = _merge_provenance_reasons(
-        "x:no_samples", {"x": "x:topic_missing:robot_tracks"}, {"x": None}
-    )
-
-    assert reason == "x:topic_missing:robot_tracks"

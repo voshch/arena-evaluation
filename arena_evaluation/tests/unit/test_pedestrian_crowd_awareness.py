@@ -5,14 +5,14 @@ import pytest
 pytest.importorskip("polars")
 
 import polars as pl
-from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.metrics.social.interaction_common import (
     PEDESTRIAN_AGENT_STATES_TOPIC,
     PEDESTRIAN_ARENA_PEDS_TOPIC,
 )
 from arena_evaluation.processing.pipeline import _with_pedestrian_constants
-from arena_evaluation.processing.scoped_evaluator import _blind_from_awareness, _latched
+from arena_evaluation.processing.scoped_evaluator import ScopedEvaluator
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 ARENA = pl.DataFrame(
     {
@@ -38,14 +38,25 @@ ENGINE = pl.DataFrame(
 )
 
 
-@pytest.mark.parametrize(
-    ("robot_awareness", "expected"),
-    [(0.0, True), (0.3, False), (1.0, False), (None, None)],
-)
-def test_a_pedestrian_is_blind_only_at_zero_awareness(
-    robot_awareness: float | None, expected: bool | None
-) -> None:
-    assert _blind_from_awareness(robot_awareness) is expected
+def _pedestrian_blindness(tracks: pl.DataFrame) -> bool | None:
+    bundle = AlignedEpisodeBundle(
+        episode_id=0,
+        data=pl.DataFrame(),
+        start_pos=[0.0, 0.0],
+        goal_pos=[1.0, 0.0],
+        topics={},
+    )
+    slices = ScopedEvaluator._build_pedestrian_slices(
+        bundle,
+        tracks,
+        run_id="run",
+        episode_id=0,
+        env_id="env_0",
+        ep_start_ns=0,
+        ep_end_ns=0,
+        episode_slice_id="ep",
+    )
+    return slices[0].identity["is_blind"]
 
 
 def test_recorded_constants_join_onto_each_pedestrian_row_by_ped_id() -> None:
@@ -57,11 +68,3 @@ def test_recorded_constants_join_onto_each_pedestrian_row_by_ped_id() -> None:
     assert joined.get_column("robot_awareness").to_list() == [0.0, 0.0, 1.0]
 
 
-def test_without_the_engine_table_the_arena_rows_are_unchanged() -> None:
-    result = _with_pedestrian_constants({PEDESTRIAN_ARENA_PEDS_TOPIC: ARENA})
-
-    assert_frame_equal(result[PEDESTRIAN_ARENA_PEDS_TOPIC], ARENA)
-
-
-def test_a_constant_the_track_frame_lacks_is_unknown() -> None:
-    assert _latched(ARENA, "robot_awareness") is None

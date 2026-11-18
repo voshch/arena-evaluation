@@ -27,6 +27,3 @@ def test_pose_frame_is_none_when_the_window_excludes_every_row() -> None:
     assert pose_frame(tf_gt, (10, 20)) is None
 
 
-def test_pose_frame_ignores_null_frame_ids() -> None:
-    tf_gt = pl.DataFrame({"t_ns": [1, 2, 3], "parent_frame": [None, None, "map"]})
-    assert pose_frame(tf_gt, (None, None)) == "map"

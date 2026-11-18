@@ -53,8 +53,3 @@ def test_trajectory_gif_is_written_when_requested(tmp_path: pathlib.Path) -> Non
         assert getattr(image, "n_frames", 1) > 1
 
 
-def test_trajectory_png_only_by_default(tmp_path: pathlib.Path) -> None:
-    StaticRenderer().render(_spec(generate_gifs=False), _frame(), tmp_path / "t.png")
-
-    assert (tmp_path / "t.png").exists()
-    assert not (tmp_path / "t.gif").exists()

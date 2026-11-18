@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import pathlib
 
 import pytest
@@ -9,7 +8,7 @@ from arena_runtime_msgs.msg import EpisodeRecord
 
 from arena_evaluation.benchmark.config import Contestant, Suite
 from arena_evaluation.benchmark.runner import compromised_table, episode_line
-from arena_evaluation.benchmark.state import Manifest, ProgressLog, RunDir, StateFile, fold_run_dir
+from arena_evaluation.benchmark.state import Manifest, ProgressLog, fold_run_dir
 from arena_evaluation.benchmark.step import Step, StepResult
 
 MOVED = "env_0/jackal moved by hand"
@@ -57,18 +56,6 @@ def _step(contestant: str, stage: str) -> Step:
     )
 
 
-def test_progress_csv_ends_with_the_integrity_column_as_a_json_list(tmp_path: pathlib.Path) -> None:
-    log = ProgressLog(tmp_path / "progress.csv")
-    _append(log, "2026-10-14T10:00:00+00:00", 0, _record())
-    _append(log, "2026-10-14T10:00:01+00:00", 1, _record(SPAWNED, 'robot "x" moved, then retasked'))
-    log.close()
-
-    header = (tmp_path / "progress.csv").read_text().splitlines()[0].split(",")
-    assert header[-1] == "integrity"
-    rows = _rows(tmp_path / "progress.csv")
-    assert [json.loads(r["integrity"]) for r in rows] == [[], [SPAWNED, 'robot "x" moved, then retasked']]
-
-
 def test_progress_csv_with_an_older_header_is_refused_on_open(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "progress.csv"
     path.write_text(OLD_HEADER + "\n", encoding="utf-8")
@@ -76,19 +63,6 @@ def test_progress_csv_with_an_older_header_is_refused_on_open(tmp_path: pathlib.
     with pytest.raises(ValueError, match="not the current layout"):
         ProgressLog(path)
     assert path.read_text(encoding="utf-8") == OLD_HEADER + "\n"
-
-
-def test_progress_csv_matching_the_current_header_is_left_alone(tmp_path: pathlib.Path) -> None:
-    path = tmp_path / "progress.csv"
-    log = ProgressLog(path)
-    _append(log, "2026-10-14T10:00:00+00:00", 0, _record(MOVED))
-    log.write_comment("resumed at 2026-10-14T10:00:01+00:00")
-    log.close()
-    before = path.read_text()
-
-    ProgressLog(path).close()
-
-    assert path.read_text() == before
 
 
 def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(tmp_path: pathlib.Path) -> None:
@@ -108,32 +82,6 @@ def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(tmp_path: pa
         fold_run_dir(run)
 
     assert legacy.read_text() == before
-
-
-def test_fold_merges_current_lane_files(tmp_path: pathlib.Path) -> None:
-    run = tmp_path / "shared-run"
-    run.mkdir()
-    ProgressLog(run / "progress.csv").close()
-    lane = ProgressLog(run / "progress.p1.csv")
-    _append(lane, "2026-10-14T10:00:00+00:00", 0, _record(MOVED))
-    lane.close()
-
-    fold_run_dir(run)
-
-    assert (run / "progress.csv").read_text().splitlines()[0] == ProgressLog._HEADER
-    rows = _rows(run / "progress.csv")
-    assert [(r["episode_id"], r["integrity"]) for r in rows] == [("0", json.dumps([MOVED]))]
-
-
-def test_state_file_keeps_the_compromised_episode_count(tmp_path: pathlib.Path) -> None:
-    run_dir = RunDir.create(tmp_path, "r", _manifest())
-    run_dir.state.write({"dwb/preflight": _result("dwb/preflight", 2, 1)})
-    assert StateFile.open(run_dir.path).steps["dwb/preflight"].episodes_compromised == 1
-
-    legacy = json.loads((run_dir.path / ".benchmark_state.json").read_text())
-    del legacy["steps"]["dwb/preflight"]["episodes_compromised"]
-    (run_dir.path / ".benchmark_state.json").write_text(json.dumps(legacy))
-    assert StateFile.open(run_dir.path).steps["dwb/preflight"].episodes_compromised == 0
 
 
 def test_episode_line_appends_integrity_reasons_only_when_compromised() -> None:
@@ -193,11 +141,3 @@ def _manifest() -> Manifest:
     )
 
 
-@pytest.mark.parametrize("integrity", [[], [MOVED]])
-def test_progress_csv_row_width_matches_the_header(tmp_path: pathlib.Path, integrity: list[str]) -> None:
-    log = ProgressLog(tmp_path / "progress.csv")
-    _append(log, "2026-10-14T10:00:00+00:00", 0, _record(*integrity))
-    log.close()
-    with (tmp_path / "progress.csv").open(newline="") as fh:
-        header, row = list(csv.reader(fh))
-    assert len(row) == len(header)

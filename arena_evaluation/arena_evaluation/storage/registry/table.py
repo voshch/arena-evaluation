@@ -368,12 +368,9 @@ def _validate(table: type[Table]) -> None:
     _validate_keys(table)
     _validate_dtypes(table)
     _validate_no_metric_declarations(table)
-    if table.table_kind is TableKind.TELEMETRY:
+    if table.table_kind in (TableKind.TELEMETRY, TableKind.SERIES):
         _validate_time_column(table)
-    elif table.table_kind is TableKind.SERIES:
-        _validate_time_column(table)
-        _validate_documentation(table)
-    else:
+    if table.table_kind is not TableKind.TELEMETRY:
         _validate_documentation(table)
 
 

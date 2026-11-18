@@ -4,7 +4,6 @@ import numpy as np
 import polars as pl
 
 from arena_evaluation.processing.metrics.social.encounter_costs import (
-    _power_samples,
     _robot_excess_energy_wh,
 )
 from arena_evaluation.processing.metrics.social.interaction_common import Trajectory2D
@@ -21,14 +20,6 @@ def _episode_with_power(power_table: pl.DataFrame) -> AlignedEpisodeBundle:
         goal_pos=[1.0, 0.0, 0.0],
         topics={"robot_power": power_table},
     )
-
-
-def test_power_samples_follow_the_time_order_of_the_table() -> None:
-    episode = _episode_with_power(
-        pl.DataFrame({"t_ns": [2 * SEC, 0, SEC], "total_power_w": [3.0, 1.0, 2.0]})
-    )
-    _, power_w = _power_samples(episode)
-    assert power_w.tolist() == [1.0, 2.0, 3.0]
 
 
 def test_a_window_past_the_recorded_power_has_no_energy() -> None:

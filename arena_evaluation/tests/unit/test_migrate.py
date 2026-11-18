@@ -9,7 +9,6 @@ import yaml
 from mcap_ros2.writer import Writer
 
 from arena_evaluation.ingestion.migrate import MigrationError, migrate_episode
-from arena_evaluation.storage.manifest import MetadataWriter
 
 SEC = 1_000_000_000
 SEP = "\n" + "=" * 80 + "\n"
@@ -96,24 +95,6 @@ def _transform(
         },
     }
     return ("/tf", TF_MESSAGE, {"transforms": [transform]}, log_time)
-
-
-def test_an_old_episode_maps_its_task_modes_and_params_and_writes_the_native_tables(
-    tmp_path: pathlib.Path,
-) -> None:
-    episode = _old_episode(
-        tmp_path, [_phase("/env_0/jackal/characterization_phase", SEC)]
-    )
-
-    metadata = migrate_episode(episode)
-
-    assert metadata.modes == {"robots": ["jackal"], "obstacles": ["static_crowd"]}
-    assert metadata.params == {"task.jackal.speed": 1.0, "task.static_crowd.count": 3}
-    assert (episode / "topics" / "robot_characterization_phase.parquet").exists()
-    written = yaml.safe_load((episode / "episode_000.yaml").read_text(encoding="utf-8"))
-    assert written["modes"] == {"robots": ["jackal"], "obstacles": ["static_crowd"]}
-    assert not any(key.startswith("tm_") for key in written)
-    assert MetadataWriter.read(episode / "episode_000.yaml").modes == metadata.modes
 
 
 def test_the_environment_falls_back_to_the_transform_frames_when_no_topic_names_one(

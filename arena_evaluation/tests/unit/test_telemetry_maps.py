@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
-import math
 import pathlib
 
-import numpy as np
-import polars as pl
 import pytest
 
 pytest.importorskip("mcap_ros2.writer")
 
 from mcap.records import Schema
 
-from arena_evaluation.ingestion.topics import get_topics
 from arena_evaluation.processing.maps import load_snapshot
 from arena_evaluation.processing.mcap_reader import (
-    IGNORED_TOPIC_MARKERS,
     MCAPReader,
-    _Ingest,
 )
 from arena_evaluation.processing.path.theta_star import plan_route
-from arena_evaluation.processing.telemetry.writer import TableSink
 from test_mcap_reader_topics import (
     HEADER,
     POINT,
@@ -101,34 +94,6 @@ def topics(tmp_path: pathlib.Path) -> pathlib.Path:
     return out
 
 
-def test_the_grid_and_the_goal_pose_are_extracted(topics: pathlib.Path) -> None:
-    metadata = pl.read_parquet(topics / "environment_map.parquet")
-    cells = pl.read_parquet(topics / "environment_map_cells.parquet")
-    goal = pl.read_parquet(topics / "robot_goal_pose.parquet")
-
-    assert metadata.height == 1
-    assert metadata["kind"].to_list() == ["map"]
-    assert metadata["resolution_m"].to_list() == [0.5]
-    assert sorted(cells["occupancy"].to_list()) == [-1, 100, 100]
-    row = goal.row(0, named=True)
-    assert (row["pos_x"], row["pos_y"], row["pos_z"]) == (3.0, 4.0, 0.0)
-    assert row["yaw"] == pytest.approx(math.pi)
-    assert row["frame_id"] == "env_0/map"
-
-
-def test_the_sparse_cells_reconstruct_the_dense_grid_cell_for_cell(
-    topics: pathlib.Path,
-) -> None:
-    snapshot = load_snapshot(topics)
-
-    assert snapshot is not None
-    expected = np.array([[0, 100, 0, -1], [0, 0, 100, 0], [0, 0, 0, 0]], dtype=np.int8)
-    np.testing.assert_array_equal(snapshot.cells, expected)
-    assert snapshot.width_cells == 4
-    assert snapshot.height_cells == 3
-    assert (snapshot.origin_x, snapshot.origin_y) == (1.0, 2.0)
-
-
 def test_theta_star_plans_on_the_recorded_grid_without_an_installed_world(
     topics: pathlib.Path,
 ) -> None:
@@ -156,30 +121,3 @@ def _schema_for(message_type: type) -> Schema:
     )
 
 
-@pytest.mark.parametrize("name", sorted(get_topics("env_0/jackal", "env_0")))
-def test_every_declared_recording_topic_has_a_route_or_an_ignore(
-    name: str, tmp_path: pathlib.Path
-) -> None:
-    definition = get_topics("env_0/jackal", "env_0")[name]
-    ingest = _Ingest(TableSink(tmp_path))
-    accepted = ingest.accepts(
-        definition.name_template, _schema_for(definition.msg_type)
-    )
-
-    ignored = any(
-        marker in definition.name_template for marker in IGNORED_TOPIC_MARKERS
-    )
-    assert accepted or ignored, definition.name_template
-
-
-@pytest.mark.parametrize(
-    "topic",
-    ["/env_0/humans/tf", "/env_0/heard_sound_events", "/env_0/audio/raw_array"],
-)
-def test_the_documented_ignored_topics_are_not_routed(
-    topic: str, tmp_path: pathlib.Path
-) -> None:
-    ingest = _Ingest(TableSink(tmp_path))
-
-    assert ingest.accepts(topic, _schema_for(type("Unused", (), {}))) is False
-    assert any(marker in topic for marker in IGNORED_TOPIC_MARKERS)

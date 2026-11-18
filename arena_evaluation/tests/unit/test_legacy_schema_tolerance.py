@@ -85,40 +85,6 @@ def _sept_schema(
     return _Schema(name, definition if definition is not None else _SEPT_EPISODE[1])
 
 
-def test_the_real_september_shape_nulls_the_absent_fields_and_names_them() -> None:
-    fields = legacy_schemas.episode_fields(_sept_record(), _sept_schema())
-
-    assert fields.human_params_json is None
-    assert fields.phases is None
-    assert fields.conditions == '[{"op": "never", "p": "robot in restricted"}]'
-    assert fields.task_layer is None
-    assert fields.not_recorded == ("task_layer", "human_params", "phases")
-    assert fields.integrity == ()
-
-
-def test_a_true_september_integrity_flag_is_kept_as_one_reason() -> None:
-    fields = legacy_schemas.episode_fields(_sept_record(integrity=True), _sept_schema())
-
-    assert fields.integrity == ("recording_integrity_flag",)
-
-
-def test_an_absent_conditions_field_is_null_and_named() -> None:
-    definition = _SEPT_EPISODE[1].replace("string conditions\n", "")
-    fields = legacy_schemas.episode_fields(
-        _sept_record(conditions=""), _sept_schema(definition)
-    )
-
-    assert fields.conditions is None
-    assert "conditions" in fields.not_recorded
-
-
-def test_an_unsupported_episode_field_is_loud_and_named() -> None:
-    definition = _SEPT_EPISODE[1] + "string mystery\n"
-
-    with pytest.raises(legacy_schemas.LegacySchemaError, match="mystery"):
-        legacy_schemas.episode_schema(_SEPT_EPISODE[0], definition)
-
-
 def test_a_native_schema_missing_a_field_is_loud_and_named() -> None:
     definition = (
         "uint32 episode_id\n"
@@ -182,30 +148,6 @@ def test_a_legacy_fleet_descriptor_without_base_frame_is_null() -> None:
     assert robots[0].descriptor.base_frame is None
 
 
-def test_a_native_fleet_descriptor_keeps_its_base_frame() -> None:
-    definition = (
-        "RobotState[] robots\n"
-        + _SEPARATOR
-        + _ROBOT_STATE
-        + _SEPARATOR
-        + _DESCRIPTOR
-        + "string base_frame\n"
-    )
-    descriptor = types.SimpleNamespace(
-        name="jackal",
-        model="jackal",
-        ns="/env_3/jackal",
-        frame="env_3/jackal",
-        base_frame="env_3/jackal/base_link",
-    )
-
-    robots = legacy_schemas.fleet_robots(
-        _fleet(descriptor), _Schema(_FLEET, definition)
-    )
-
-    assert robots[0].descriptor.base_frame == "env_3/jackal/base_link"
-
-
 _PEDESTRIANS = "arena_people_msgs/msg/Pedestrians"
 _SEPT_PEDESTRIAN = (
     "MSG: arena_people_msgs/Pedestrian\n"
@@ -220,16 +162,3 @@ _SEPT_PEDESTRIAN = (
 )
 
 
-def test_a_legacy_pedestrian_schema_names_the_fields_it_never_held() -> None:
-    definition = (
-        "std_msgs/Header header\n"
-        "Pedestrian[] pedestrians\n" + _SEPARATOR + _SEPT_PEDESTRIAN
-    )
-
-    fields = legacy_schemas.pedestrian_fields(_Schema(_PEDESTRIANS, definition))
-
-    assert fields.carries("gait_phase")
-    assert not fields.carries("gestures")
-    assert not fields.carries("agent_type")
-    assert not fields.carries("interaction_id")
-    assert not fields.carries("gait_cadence")

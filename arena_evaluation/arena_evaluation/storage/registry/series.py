@@ -51,6 +51,12 @@ class _Series(Table, abstract=True):
     t_ns = _TIME
 
 
+class _TimedSeries(_Series, abstract=True):
+    """The base of the series tables whose samples carry their elapsed time since the first sample."""
+
+    time_s = _ELAPSED
+
+
 class SeriesAcousticExposure(
     _Series,
     name="series_acoustic_exposure",
@@ -108,14 +114,13 @@ class SeriesAcousticExposure(
 
 
 class SeriesCharacterization(
-    _Series,
+    _TimedSeries,
     name="series_characterization",
     kind=TableKind.SERIES,
     scope=MetricScope.ROBOT,
 ):
     """Characterization samples of the robot: power, sound level and achieved and commanded motion."""
 
-    time_s = _ELAPSED
     power_total_w = Column(
         pl.Float64,
         unit="W",
@@ -231,11 +236,10 @@ class SeriesClearance(
 
 
 class SeriesEnergy(
-    _Series, name="series_energy", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries, name="series_energy", kind=TableKind.SERIES, scope=MetricScope.ROBOT
 ):
     """Energy samples of the robot: electrical power by component, battery charge and linear velocity."""
 
-    time_s = _ELAPSED
     power_total_w = Column(
         pl.Float64,
         unit="W",
@@ -267,11 +271,10 @@ class SeriesEnergy(
 
 
 class SeriesGaze(
-    _Series, name="series_gaze", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries, name="series_gaze", kind=TableKind.SERIES, scope=MetricScope.ROBOT
 ):
     """Gaze samples: how many pedestrians the robot looks at and how many look back at it."""
 
-    time_s = _ELAPSED
     looking_at_peds = Column(
         pl.Int64,
         description="Pedestrians inside the robot's 5 degree gaze cone at the sample.",
@@ -300,14 +303,13 @@ class SeriesHhiContact(
 
 
 class SeriesMotionMetrics(
-    _Series,
+    _TimedSeries,
     name="series_motion_metrics",
     kind=TableKind.SERIES,
     scope=MetricScope.ROBOT,
 ):
     """Motion samples of the robot: ground-truth speed, smoothed acceleration and smoothed jerk."""
 
-    time_s = _ELAPSED
     speed_mps = Column(
         pl.Float64,
         unit="m/s",
@@ -326,11 +328,10 @@ class SeriesMotionMetrics(
 
 
 class SeriesPathMetrics(
-    _Series, name="series_path_metrics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries, name="series_path_metrics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
 ):
     """Path samples of the robot: its ground-truth and odometry trajectory with the geometry at each sample."""
 
-    time_s = _ELAPSED
     x_m = Column(
         pl.Float64,
         unit="m",
@@ -384,7 +385,7 @@ class SeriesPathMetrics(
 
 
 class SeriesPedestrianPathMetrics(
-    _Series,
+    _TimedSeries,
     name="series_pedestrian_path_metrics",
     kind=TableKind.SERIES,
     scope=MetricScope.ROBOT,
@@ -393,7 +394,6 @@ class SeriesPedestrianPathMetrics(
 
     key = ("run_id", "episode_id", "robot_id", "t_ns", "ped_id")
 
-    time_s = _ELAPSED
     ped_id = _PEDESTRIAN
     x_m = Column(
         pl.Float64,
@@ -433,11 +433,10 @@ class SeriesPedestrianPathMetrics(
 
 
 class SeriesProxemics(
-    _Series, name="series_proxemics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries, name="series_proxemics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
 ):
     """Personal-space samples: how many pedestrians sit inside the robot's personal space at each sample."""
 
-    time_s = _ELAPSED
     peds_in_personal_space = Column(
         pl.Int64,
         description="Pedestrians inside 1.20 m edge clearance of the robot at the sample.",
@@ -445,14 +444,13 @@ class SeriesProxemics(
 
 
 class SeriesProxemicsExtended(
-    _Series,
+    _TimedSeries,
     name="series_proxemics_extended",
     kind=TableKind.SERIES,
     scope=MetricScope.ROBOT,
 ):
     """Clearance samples to the nearest pedestrian, one row per frame of the robot's track."""
 
-    time_s = _ELAPSED
     min_ped_clearance_m = Column(
         pl.Float64,
         unit="m",
@@ -461,11 +459,10 @@ class SeriesProxemicsExtended(
 
 
 class SeriesSocialForces(
-    _Series, name="series_social_forces", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries, name="series_social_forces", kind=TableKind.SERIES, scope=MetricScope.ROBOT
 ):
     """Force samples: the social force of the robot on the pedestrians and their personal-space index, one row per frame."""
 
-    time_s = _ELAPSED
     sfm_force_n = Column(
         pl.Float64,
         unit="N",

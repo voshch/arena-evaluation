@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import contextlib
 import dataclasses
@@ -51,7 +52,6 @@ from arena_evaluation.storage.layout import (
     write_episode_stamp,
 )
 from arena_evaluation.storage.manifest import MetadataWriter
-from arena_evaluation.storage.registry import FactTable
 from arena_evaluation.storage.registry.dimensions import DimMetrics, DimWorldGeometry
 from arena_evaluation.storage.schemas import (
     AlignedEpisodeBundle,
@@ -64,6 +64,8 @@ from arena_evaluation.storage.star_schema import stack, write_benchmark_dimensio
 
 _log = logging.getLogger(__name__)
 
+_EpisodeStatus = MutableMapping[int, tuple[str, str, str, int, int, float]]
+
 # Frames shared across robots or scoped to the whole episode, never per-robot sample data.
 _SHARED_FRAMES = frozenset(
     {"tf", "tf_static", "world_semantics", "episode_lifecycle", "episode_integrity"}
@@ -71,16 +73,13 @@ _SHARED_FRAMES = frozenset(
 KEPT_EMPTY_TABLES = ("robot_collision_contacts", "pedestrian_gestures")
 
 # The robot track's registry columns that every episode-scope calculator reads off the aligned frame.
-_TRACK_COLUMNS: typing.Final[tuple[str, ...]] = (
-    "x",
-    "y",
-    "yaw",
-    "speed_mps",
-    "omega_z",
-)
+_TRACK_COLUMNS: typing.Final[tuple[str, ...]] = ("x", "y", "yaw", "speed_mps", "omega_z")
 
 # EpisodeRecord.outcome_state -> (result, success)
 _STATUS_EVALUATED = "evaluated"
+
+_RECORD_RUNNING = 1  # arena_runtime_msgs/msg/EpisodeRecord.RUNNING
+_RECORD_SUCCESS = 2  # arena_runtime_msgs/msg/EpisodeRecord.SUCCESS
 
 
 def _frame(table: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
@@ -90,20 +89,71 @@ def _frame(table: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
     return table.collect() if isinstance(table, pl.LazyFrame) else table
 
 
+def _report_status(
+    status: _EpisodeStatus | None,
+    ep: EpisodeDescriptor,
+    label: str,
+    index: int = 1,
+    total: int = 1,
+) -> None:
+    """Publish this episode's progress row; a vanished manager dict is not an error."""
+    if status is None:
+        return
+    try:
+        status[ep.episode_id] = (
+            ep.planner,
+            ep.stage,
+            label,
+            index,
+            total,
+            time.perf_counter(),
+        )
+    except Exception:
+        pass
+
+
+def _clear_status(status: _EpisodeStatus | None, episode_id: int) -> None:
+    if status is None:
+        return
+    try:
+        status.pop(episode_id, None)
+    except Exception:
+        pass
+
+
+def _clipped(
+    frame: pl.DataFrame,
+    start_ns: int | None,
+    end_ns: int | None,
+    pad: int = 0,
+) -> pl.DataFrame:
+    """The frame's rows inside the bounded window, padded by ``pad`` nanoseconds on both sides."""
+    if start_ns is not None:
+        frame = frame.filter(pl.col("t_ns") >= start_ns - pad)
+    if end_ns is not None:
+        frame = frame.filter(pl.col("t_ns") <= end_ns + pad)
+    return frame
+
+
+def _merge_frames(
+    groups: list[dict[str, pl.DataFrame]], how: str
+) -> dict[str, pl.DataFrame]:
+    """Concatenate per-robot frames by table stem."""
+    parts: dict[str, list[pl.DataFrame]] = collections.defaultdict(list)
+    for group in groups:
+        for stem, frame in group.items():
+            parts[stem].append(frame)
+    return {
+        stem: frames[0] if len(frames) == 1 else pl.concat(frames, how=how)
+        for stem, frames in parts.items()
+    }
+
+
 def _merge_series_frames(
     groups: list[dict[str, pl.DataFrame]],
 ) -> dict[str, pl.DataFrame]:
     """Concatenate per-robot series frames by table stem."""
-    parts: dict[str, list[pl.DataFrame]] = {}
-    for group in groups:
-        for stem, frame in group.items():
-            parts.setdefault(stem, []).append(frame)
-    return {
-        stem: frames[0]
-        if len(frames) == 1
-        else pl.concat(frames, how="vertical_relaxed")
-        for stem, frames in parts.items()
-    }
+    return _merge_frames(groups, "vertical_relaxed")
 
 
 def _merge_fact_tables(groups: list[ScopedFactTables]) -> ScopedFactTables | None:
@@ -112,17 +162,12 @@ def _merge_fact_tables(groups: list[ScopedFactTables]) -> ScopedFactTables | Non
         return None
     from arena_evaluation.processing.scoped_evaluator import ScopedFactTables
 
-    named: dict[str, pl.DataFrame] = {}
-    for member in FactTable:
-        frames = [group.by_name()[member.value] for group in groups]
-        named[member.value] = (
-            frames[0] if len(frames) == 1 else pl.concat(frames, how="vertical")
-        )
-    return ScopedFactTables(**named)
+    return ScopedFactTables(
+        **_merge_frames([group.by_name() for group in groups], "vertical")
+    )
 
 
 def _worker_init():
-    import os
     import signal
 
     os.environ["POLARS_MAX_THREADS"] = "1"
@@ -149,73 +194,45 @@ def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor)
         pass
 
 
-def _extract_worker(
-    data_root_str: str,
-    ep: EpisodeDescriptor,
-    force_extract: bool,
-    status_dict: _EpisodeStatus | None = None,
-) -> int:
-    import pathlib
-    import time
-
+def _episode_pipeline(data_root_str: str) -> ProcessingPipeline:
+    """A single-worker pipeline rooted at the worker's data root."""
     from arena_evaluation.processing.pipeline import ProcessingPipeline
-    from arena_evaluation.storage.folder_manager import FolderManager
 
-    if status_dict is not None:
-        try:
-            status_dict[ep.episode_id] = (
-                ep.planner,
-                ep.stage,
-                "Extracting MCAP / Topics",
-                1,
-                1,
-                time.perf_counter(),
-            )
-        except Exception:
-            pass
-    fm = FolderManager(data_root=pathlib.Path(data_root_str))
-    pipeline = ProcessingPipeline(fm, profiler=None, workers=1)
-    pipeline.extract_episode(ep, force_extract=force_extract)
-    if status_dict is not None:
-        try:
-            status_dict.pop(ep.episode_id, None)
-        except Exception:
-            pass
+    return ProcessingPipeline(
+        FolderManager(data_root=pathlib.Path(data_root_str)),
+        profiler=None,
+        workers=1,
+    )
+
+
+def _extract_job(
+    data_root_str: str,
+    force_extract: bool,
+    ep: EpisodeDescriptor,
+    status_dict: _EpisodeStatus,
+) -> int:
+    """Extract one episode's MCAP in a spawned worker."""
+    _report_status(status_dict, ep, "Extracting MCAP / Topics")
+    try:
+        _episode_pipeline(data_root_str).extract_episode(
+            ep, force_extract=force_extract
+        )
+    finally:
+        _clear_status(status_dict, ep.episode_id)
     return ep.episode_id
 
 
-def _process_worker(
+def _process_job(
     data_root_str: str,
-    ep: EpisodeDescriptor,
-    *,
     force_extract: bool,
     force_process: bool,
-    status_dict: _EpisodeStatus | None = None,
+    ep: EpisodeDescriptor,
+    status_dict: _EpisodeStatus,
 ) -> tuple[int, EpisodeEvaluation]:
-    import pathlib
-    import time
-
-    from arena_evaluation.processing.pipeline import (
-        EpisodeEvaluation,
-        ProcessingPipeline,
-    )
-    from arena_evaluation.storage.folder_manager import FolderManager
-
-    if status_dict is not None:
-        try:
-            status_dict[ep.episode_id] = (
-                ep.planner,
-                ep.stage,
-                "Loading Topics",
-                0,
-                18,
-                time.perf_counter(),
-            )
-        except Exception:
-            pass
-    fm = FolderManager(data_root=pathlib.Path(data_root_str))
-    pipeline = ProcessingPipeline(fm, profiler=None, workers=1)
+    """Evaluate one episode in a spawned worker, keeping a benchmark-refusing failure fatal."""
+    _report_status(status_dict, ep, "Loading Topics", 0, 18)
     try:
+        pipeline = _episode_pipeline(data_root_str)
         try:
             evaluation = pipeline.evaluate_episode(
                 ep,
@@ -232,32 +249,10 @@ def _process_worker(
             raise
         except Exception as e:
             _log.exception(f"episode_{ep.episode_id:03d}: metrics failed")
-            evaluation = EpisodeEvaluation(
-                episode_id=ep.episode_id,
-                rows=[_status_row(ep, None, "", "error", repr(e))],
-                metrics_dir=pathlib.Path(ep.episode_dir) / "metrics",
-            )
+            evaluation = _failed_evaluation(ep, e)
     finally:
-        if status_dict is not None:
-            try:
-                status_dict.pop(ep.episode_id, None)
-            except Exception:
-                pass
+        _clear_status(status_dict, ep.episode_id)
     return ep.episode_id, evaluation
-
-
-def _peak_pedestrian_count(
-    peds: pl.DataFrame | None, start_ns: int | None = None, end_ns: int | None = None
-) -> int:
-    """Largest number of pedestrians recorded in one frame between start_ns and end_ns, bounds inclusive."""
-    if peds is None or len(peds) == 0:
-        return 0
-    if start_ns is not None:
-        peds = peds.filter(pl.col("t_ns") >= start_ns)
-    if end_ns is not None:
-        peds = peds.filter(pl.col("t_ns") <= end_ns)
-    peak = peds.group_by("t_ns").len()["len"].max()
-    return int(peak) if peak is not None else 0
 
 
 def _align_bundle(
@@ -271,19 +266,11 @@ def _align_bundle(
     track = _frame(bundle.robot_tracks)
     if track is None or track.height == 0:
         return None
-    if start_t_ns is not None:
-        track = track.filter(pl.col("t_ns") >= start_t_ns)
-    if end_t_ns is not None:
-        track = track.filter(pl.col("t_ns") <= end_t_ns)
-    if track.height == 0:
-        return None
-    available = set(track.columns)
-    frame = track.select(
-        [
-            pl.col("t_ns"),
-            *(pl.col(column) for column in _TRACK_COLUMNS if column in available),
-        ]
-    )
+    frame = _clipped(track, start_t_ns, end_t_ns)
+    available = set(frame.columns)
+    frame = frame.select(
+        [pl.col("t_ns"), *(pl.col(c) for c in _TRACK_COLUMNS if c in available)]
+    ).sort("t_ns")
     # A recording can carry a null or NaN sample; no metric may read one as a pose.
     frame = frame.filter(
         pl.col("x").is_not_null()
@@ -296,9 +283,17 @@ def _align_bundle(
     if frame.height == 0:
         return None
     for field_name, columns in _SECONDARY_TABLES:
-        frame = _join_secondary(
-            frame, vars(bundle)[field_name], columns, start_t_ns, end_t_ns
-        )
+        table = _frame(vars(bundle)[field_name])
+        if table is None or table.height == 0:
+            continue
+        table = _clipped(table, start_t_ns, end_t_ns, TRACK_ALIGN_TOLERANCE_NS)
+        if table.height == 0:
+            continue
+        available = set(table.columns)
+        selected = table.select(
+            [pl.col("t_ns"), *(pl.col(c) for c in columns if c in available)]
+        ).sort("t_ns")
+        frame = asof_join(frame, selected, tolerance_ns=TRACK_ALIGN_TOLERANCE_NS)
     markers = _frame(bundle.robot_characterization_phase)
     if markers is not None and markers.height > 0:
         selected = markers.select(["t_ns", "label"]).sort("t_ns")
@@ -308,65 +303,13 @@ def _align_bundle(
 
 _SECONDARY_TABLES: typing.Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
     ("robot_scan_summary", ("scan_min_m", "range_max_m", "n_valid_rays")),
-    (
-        "robot_cmd_vel",
-        ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z"),
-    ),
-    (
-        "robot_collision_events",
-        ("event_count", "wall_count", "static_count", "ped_count"),
-    ),
+    ("robot_cmd_vel", ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z")),
+    ("robot_collision_events", ("event_count", "wall_count", "static_count", "ped_count")),
     ("robot_collision_monitor", ("action_type", "polygon_name")),
-    (
-        "robot_power",
-        (
-            "total_power_w",
-            "static_power_w",
-            "total_mech_power_w",
-            "total_thermal_power_w",
-        ),
-    ),
+    ("robot_power", ("total_power_w", "static_power_w", "total_mech_power_w", "total_thermal_power_w")),
     ("robot_energy", ("total_energy_consumed_wh", "battery_soc_percent")),
-    (
-        "robot_acoustics",
-        (
-            "total_level_af_dba",
-            "total_level_zf_db",
-            "baseline_level_dba",
-            "drivetrain_level_dba",
-            "uncertainty_1sigma_dba",
-            "validity_flags",
-        ),
-    ),
+    ("robot_acoustics", ("total_level_af_dba", "total_level_zf_db", "baseline_level_dba", "drivetrain_level_dba", "uncertainty_1sigma_dba", "validity_flags")),
 )
-
-
-def _join_secondary(
-    primary: pl.DataFrame,
-    table: pl.DataFrame | pl.LazyFrame | None,
-    columns: tuple[str, ...],
-    start_t_ns: int | None,
-    end_t_ns: int | None,
-) -> pl.DataFrame:
-    """As-of join one recorded stream onto the track, leaving its columns NULL where it has no sample."""
-    frame = _frame(table)
-    if frame is None or frame.height == 0:
-        return primary
-    tolerance = TRACK_ALIGN_TOLERANCE_NS
-    if start_t_ns is not None:
-        frame = frame.filter(pl.col("t_ns") >= start_t_ns - tolerance)
-    if end_t_ns is not None:
-        frame = frame.filter(pl.col("t_ns") <= end_t_ns + tolerance)
-    if frame.height == 0:
-        return primary
-    available = set(frame.columns)
-    selected = frame.select(
-        [
-            pl.col("t_ns"),
-            *(pl.col(column) for column in columns if column in available),
-        ]
-    ).sort("t_ns")
-    return asof_join(primary, selected, tolerance_ns=tolerance)
 
 
 def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | None:
@@ -378,26 +321,14 @@ def _metric_world(metadata: RunMetadata | None, ep: EpisodeDescriptor) -> str | 
     return None
 
 
-def _benchmark_worlds(episodes: list[EpisodeDescriptor]) -> list[str]:
-    """The distinct named worlds of a benchmark's episodes, sorted."""
-    named = (_metric_world(None, ep) for ep in episodes)
-    return sorted({world for world in named if world})
-
-
-_RECORD_RUNNING = 1  # arena_runtime_msgs/msg/EpisodeRecord.RUNNING
-_RECORD_SUCCESS = 2  # arena_runtime_msgs/msg/EpisodeRecord.SUCCESS
-
-
 def _episode_window(
     record: pl.DataFrame | pl.LazyFrame | None,
 ) -> tuple[int | None, int | None]:
     """[RUNNING stamp, terminal stamp] of the episode record, a bound is None when its row is missing."""
-    if record is None:
+    df = _frame(record)
+    if df is None or len(df) == 0:
         return None, None
-    df = record.collect() if isinstance(record, pl.LazyFrame) else record
-    if len(df) == 0:
-        return None, None
-    df = _episode_rows(df.sort("t_ns", maintain_order=True))
+    df = _episode_rows(df)
     states = df["outcome_state"].to_numpy()
     stamps = df["t_ns"].to_numpy()
     start = next(
@@ -417,50 +348,67 @@ def _episode_endpoints(
     first_row = aligned_df.row(0, named=True)
     last_row = aligned_df.row(-1, named=True)
     # The native /tf track is map frame.
-    x, y, yaw = ("x", "y", "yaw")
+    start_pos = (
+        [first_row["x"], first_row["y"], first_row.get("yaw", 0.0)]
+        if first_row.get("x") is not None and first_row.get("y") is not None
+        else []
+    )
+    goal_pos = (
+        [last_row["x"], last_row["y"], last_row.get("yaw", 0.0)]
+        if last_row.get("x") is not None and last_row.get("y") is not None
+        else []
+    )
 
-    start_pos: list[float] = []
-    goal_pos: list[float] = []
-    if x in first_row and y in first_row and first_row[x] is not None:
-        start_pos = [first_row[x], first_row[y], first_row.get(yaw, 0.0)]
-    if x in last_row and y in last_row and last_row[x] is not None:
-        goal_pos = [last_row[x], last_row[y], last_row.get(yaw, 0.0)]
-
-    plan_df = plan.collect() if isinstance(plan, pl.LazyFrame) else plan
+    plan_df = _frame(plan)
     if plan_df is not None and len(plan_df) > 0:
         # A recording can outlive its episode by a beat and catch the next episode's first plan.
         plan_df = plan_df.filter(pl.col("t_ns") <= aligned_df["t_ns"].max())
-    if plan_df is not None and len(plan_df) > 0:
-        latest_plan = plan_df.filter(
-            pl.col("plan_id") == plan_df["plan_id"].max()
-        ).sort("waypoint_idx")
-        goal_pos = [latest_plan["x"][-1], latest_plan["y"][-1], latest_plan["yaw"][-1]]
+        if len(plan_df) > 0:
+            latest_plan = plan_df.filter(
+                pl.col("plan_id") == plan_df["plan_id"].max()
+            ).sort("waypoint_idx")
+            goal_pos = [latest_plan["x"][-1], latest_plan["y"][-1], latest_plan["yaw"][-1]]
 
-    gotos = [pose for pose in phases["map_poses"] if pose is not None] if phases else []
+    gotos = [pose for pose in (phases or {}).get("map_poses", []) if pose is not None]
     if gotos:
         goal_pos = [float(v) for v in gotos[-1]]
     return start_pos, goal_pos
 
 
-def _robot_phases(record: pl.DataFrame, robot_dir: str) -> dict | None:
+def _record_json_values(
+    record: pl.DataFrame | pl.LazyFrame, column: str
+) -> typing.Iterator[typing.Any]:
+    """The parsed non-empty JSON values of the episode's own records, newest first."""
+    frame = _frame(record)
+    assert frame is not None
+    for raw in reversed(_episode_rows(frame)[column].to_numpy()):
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, AttributeError):
+            continue
+        if parsed:
+            yield parsed
+
+
+def _robot_phases(
+    record: pl.DataFrame | pl.LazyFrame, robot_dir: str
+) -> dict | None:
     """This robot's {phases, conditions, map_poses, goal_inputs, instructions} from the last EpisodeRecord row that carries any, None without."""
     from arena_evaluation.processing.metrics.ecological.condition_metrics import (
         bare_robot_name,
     )
 
     bare = bare_robot_name(robot_dir)
-    raw_values = record["phases_yaml"].to_numpy()
-    for i in range(len(raw_values) - 1, -1, -1):
-        raw = raw_values[i]
-        if not raw:
-            continue
-        try:
-            entry = json.loads(raw).get(bare)
-        except (ValueError, AttributeError):
-            return None
-        if entry is not None:
-            return entry
-    return None
+    return next(
+        (
+            entry
+            for value in _record_json_values(record, "phases_yaml")
+            if isinstance(value, dict) and (entry := value.get(bare)) is not None
+        ),
+        None,
+    )
 
 
 def _fleet_poses(
@@ -483,10 +431,7 @@ def _fleet_poses(
         frame = _frame(bundle.robot_task_pose)
         if frame is None:
             continue
-        if start_ns is not None:
-            frame = frame.filter(pl.col("t_ns") >= start_ns - TRACK_ALIGN_TOLERANCE_NS)
-        if end_ns is not None:
-            frame = frame.filter(pl.col("t_ns") <= end_ns + TRACK_ALIGN_TOLERANCE_NS)
+        frame = _clipped(frame, start_ns, end_ns, TRACK_ALIGN_TOLERANCE_NS)
         if len(frame) > 0:
             fleet[name] = frame.with_columns(
                 radius_m=pl.lit(
@@ -499,19 +444,6 @@ def _fleet_poses(
 def _calculator_topic_names(bundle: TopicBundle) -> set[str]:
     """The bundle's carried tables, already named as the calculators read them, so a topic gate sees what the bundle holds."""
     return set(bundle.available())
-
-
-def _collect_native_topics(bundle: TopicBundle) -> dict[str, pl.DataFrame]:
-    """Raw native-rate topic frames keyed by the name the calculators read (collected)."""
-    topics: dict[str, pl.DataFrame] = {}
-    for field_name in sorted(bundle.available() - _SHARED_FRAMES):
-        df = _frame(vars(bundle)[field_name])
-        if df is None:
-            continue
-        topic = field_name
-        if len(df) > 0 or topic in KEPT_EMPTY_TABLES:
-            topics[topic] = df
-    return _with_pedestrian_constants(topics)
 
 
 # Per-pedestrian constants only the engine table records; joined onto the arena rows by ped_id.
@@ -547,24 +479,24 @@ def _with_pedestrian_constants(
     }
 
 
-def _bundle_robot_id(bundle: TopicBundle) -> str:
-    """The recorded identity of the robot a bundle belongs to."""
-    for table in (bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom):
-        frame = _frame(table)
-        if frame is not None and frame.height:
-            return str(frame.get_column("robot_id")[0])
-    raise MetricInputError("a robot bundle has no recorded table that names its robot")
-
-
-def _robot_parameters(bundle: TopicBundle, robot_id: str) -> RobotParams:
-    """The parameters recorded for this robot, never the installed definition or a default."""
+def _robot_identity(bundle: TopicBundle) -> tuple[str, RobotParams]:
+    """This robot's recorded identity and parameters, never the installed definition or a default."""
     from arena_evaluation.storage.schemas import robot_params_from_recorded
 
-    descriptor = _frame(bundle.robot_descriptor)
-    params = _frame(bundle.robot_params)
-    recorded = [frame for frame in (descriptor, params) if frame is not None]
-    rows = pl.concat(recorded, how="diagonal") if recorded else pl.DataFrame()
-    return robot_params_from_recorded(rows, robot_id)
+    observed = [_frame(table) for table in (bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom)]
+    robot_id = next(
+        (str(frame.get_column("robot_id")[0]) for frame in observed if frame is not None and frame.height),
+        None,
+    )
+    if robot_id is None:
+        raise MetricInputError("a robot bundle has no recorded table that names its robot")
+    recorded = [_frame(table) for table in (bundle.robot_descriptor, bundle.robot_params)]
+    rows = (
+        pl.concat([frame for frame in recorded if frame is not None], how="diagonal")
+        if any(frame is not None for frame in recorded)
+        else pl.DataFrame()
+    )
+    return robot_id, robot_params_from_recorded(rows, robot_id)
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -602,18 +534,9 @@ def _episode_rows(record: pl.DataFrame) -> pl.DataFrame:
     return df if end is None else df.head(end + 1)
 
 
-def _record_conditions(record: pl.DataFrame) -> list[dict] | None:
+def _record_conditions(record: pl.DataFrame | pl.LazyFrame) -> list[dict] | None:
     """The episode's conditions: the last of its own records whose `conditions` JSON is a non-empty list."""
-    raw_values = _episode_rows(record)["conditions_yaml"].to_numpy()
-    for i in range(len(raw_values) - 1, -1, -1):
-        raw = raw_values[i]
-        try:
-            parsed = json.loads(raw) if raw else None
-        except ValueError:
-            continue
-        if parsed:
-            return parsed
-    return None
+    return next(_record_json_values(record, "conditions_yaml"), None)
 
 
 def _record_outcome(
@@ -656,19 +579,7 @@ def _record_integrity(
             .sort("flag_idx")["flag"]
             .to_numpy()
         ]
-    if metadata is not None:
-        return list(metadata.integrity)
-    return []
-
-
-def _planner_split(
-    ep: EpisodeDescriptor, metadata: RunMetadata | None
-) -> tuple[str, str]:
-    if metadata is not None and metadata.local_planner:
-        return metadata.local_planner, metadata.inter_planner or ""
-    from arena_evaluation.storage.planner_names import split_planner_name
-
-    return split_planner_name(ep.planner)
+    return list(metadata.integrity) if metadata is not None else []
 
 
 def _episode_identity(
@@ -680,7 +591,13 @@ def _episode_identity(
     goal: typing.Any,
 ) -> dict[str, typing.Any]:
     """The identity columns carried by every row of one episode, evaluated or not."""
-    local_planner, inter_planner = _planner_split(ep, metadata)
+    from arena_evaluation.storage.planner_names import split_planner_name
+
+    if metadata is not None and metadata.local_planner:
+        local_planner = metadata.local_planner
+        inter_planner = metadata.inter_planner or ""
+    else:
+        local_planner, inter_planner = split_planner_name(ep.planner)
     return {
         "episode": ep.episode_id,
         "planner": ep.planner,
@@ -724,20 +641,19 @@ def _status_row(
 
 def _print_status_summary(rows: list[dict]) -> None:
     """One line per status, then every row the pipeline could not fully evaluate."""
-    counts: dict[str, int] = {}
-    for row in rows:
-        counts[row.get("status") or "unknown"] = (
-            counts.get(row.get("status") or "unknown", 0) + 1
-        )
+    counts = collections.Counter(row.get("status") or "unknown" for row in rows)
     print(
         "Episode status: "
         + ", ".join(f"{n} {status}" for status, n in sorted(counts.items())),
         flush=True,
     )
-    flagged = [r for r in rows if r.get("status") != _STATUS_EVALUATED]
-    for r in sorted(flagged, key=lambda r: (str(r.get("stage")), r.get("episode", 0))):
+    flagged = sorted(
+        (row for row in rows if row.get("status") != _STATUS_EVALUATED),
+        key=lambda row: (str(row.get("stage")), row.get("episode", 0)),
+    )
+    for row in flagged:
         print(
-            f"  episode {r.get('episode')} {r.get('planner')}/{r.get('stage')} [{r.get('robot')}] {r.get('status')}: {r.get('status_reason')}",
+            f"  episode {row.get('episode')} {row.get('planner')}/{row.get('stage')} [{row.get('robot')}] {row.get('status')}: {row.get('status_reason')}",
             flush=True,
         )
 
@@ -746,19 +662,8 @@ def _metadata_robot(
     metadata: RunMetadata | None, bundles: dict[str, TopicBundle] | None = None
 ) -> str:
     """Bundle-style robot key (env_0_jackal) for a row without a robot bundle."""
-    model = (
-        metadata.robot_model[0].partition("[")[0]
-        if metadata is not None and metadata.robot_model
-        else ""
-    )
-    env = next(
-        (
-            match.group(0)
-            for name in (bundles or {})
-            if (match := re.match(r"env_\d+", name))
-        ),
-        None,
-    )
+    model = metadata.robot_model[0].partition("[")[0] if metadata is not None and metadata.robot_model else ""
+    env = next((m.group(0) for name in (bundles or {}) if (m := re.match(r"env_\d+", name))), None)
     return f"{env}_{model}" if env and model else model
 
 
@@ -788,8 +693,7 @@ def _suite_metrics(
                     _log.warning(
                         f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring"
                     )
-            barn = raw.get("barn")
-            if barn is not None:
+            if (barn := raw.get("barn")) is not None:
                 from .metrics.performance.barn_metrics import parse_reference
 
                 try:
@@ -804,39 +708,44 @@ def _suite_metrics(
 
 def _failed_evaluation(ep: EpisodeDescriptor, error: Exception) -> EpisodeEvaluation:
     """The evaluation row of an episode whose metrics could not be computed."""
-    return EpisodeEvaluation(
-        episode_id=ep.episode_id,
-        rows=[_status_row(ep, None, "", "error", repr(error))],
-        metrics_dir=pathlib.Path(ep.episode_dir) / "metrics",
+    return _status_evaluation(
+        ep, pathlib.Path(ep.episode_dir), None, "", "error", repr(error)
     )
 
 
-_EpisodeStatus = MutableMapping[int, tuple[str, str, str, int, int, float]]
+def _finish_evaluation(
+    episode_dir: pathlib.Path,
+    ep_id: int,
+    rows: list[dict],
+    facts: list[ScopedFactTables] | None = None,
+    series: list[dict[str, pl.DataFrame]] | None = None,
+) -> EpisodeEvaluation:
+    """Fold the scoped fact tables into the evaluation and publish its series tables."""
+    metrics_dir = episode_dir / "metrics"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    write_series_tables(_merge_series_frames(series or []), metrics_dir)
+    return EpisodeEvaluation(
+        episode_id=ep_id,
+        rows=rows,
+        metrics_dir=metrics_dir,
+        facts=_merge_fact_tables(facts or []),
+    )
 
 
-def _extract_job(
-    data_root_str: str,
-    force_extract: bool,
+def _status_evaluation(
     ep: EpisodeDescriptor,
-    status_dict: _EpisodeStatus,
-) -> int:
-    return _extract_worker(data_root_str, ep, force_extract, status_dict)
-
-
-def _process_job(
-    data_root_str: str,
-    ep: EpisodeDescriptor,
-    status_dict: _EpisodeStatus,
-    *,
-    force_extract: bool,
-    force_process: bool,
-) -> tuple[int, EpisodeEvaluation]:
-    return _process_worker(
-        data_root_str,
-        ep,
-        force_extract=force_extract,
-        force_process=force_process,
-        status_dict=status_dict,
+    episode_dir: pathlib.Path,
+    metadata: RunMetadata | None,
+    robot: str,
+    status: str,
+    reason: str,
+    record: pl.DataFrame | pl.LazyFrame | None = None,
+) -> EpisodeEvaluation:
+    """An episode's single status row, published without fact tables."""
+    return _finish_evaluation(
+        episode_dir,
+        ep.episode_id,
+        [_status_row(ep, metadata, robot, status, reason, record)],
     )
 
 
@@ -879,25 +788,39 @@ def _run_phase(
     on_failed: Callable[[EpisodeDescriptor, Exception], None],
 ) -> None:
     """Run ``job`` once per episode, inline for one worker and in a spawned process pool otherwise."""
+
+    def drain(
+        display: RunProgress,
+        pending: typing.Iterable[
+            tuple[EpisodeDescriptor, float, Callable[[], typing.Any]]
+        ],
+    ) -> None:
+        for ep, started, result_of in pending:
+            try:
+                result = result_of()
+            except MetricInputError:
+                raise
+            except Exception as error:
+                on_failed(ep, error)
+                display.log_error(ep.episode_id, str(error))
+                continue
+            on_done(ep, result)
+            display.log_completed(
+                ep.episode_id,
+                f"{ep.planner}/{ep.stage}",
+                time.perf_counter() - started,
+            )
+
     if workers <= 1:
         local_status: _EpisodeStatus = {}
         with progress(title, len(episodes), 1, local_status) as display:
-            for ep in episodes:
-                t_start = time.perf_counter()
-                try:
-                    result = job(ep, local_status)
-                except MetricInputError:
-                    raise
-                except Exception as error:
-                    on_failed(ep, error)
-                    display.log_error(ep.episode_id, str(error))
-                    continue
-                on_done(ep, result)
-                display.log_completed(
-                    ep.episode_id,
-                    f"{ep.planner}/{ep.stage}",
-                    time.perf_counter() - t_start,
-                )
+            drain(
+                display,
+                (
+                    (ep, time.perf_counter(), functools.partial(job, ep, local_status))
+                    for ep in episodes
+                ),
+            )
         return
 
     mp_context = multiprocessing.get_context("spawn")
@@ -912,22 +835,13 @@ def _run_phase(
                 executor.submit(job, ep, status_dict): (ep, time.perf_counter())
                 for ep in episodes
             }
-            for future in concurrent.futures.as_completed(futures):
-                ep, t_start = futures[future]
-                try:
-                    result = future.result()
-                except MetricInputError:
-                    raise
-                except Exception as error:
-                    on_failed(ep, error)
-                    display.log_error(ep.episode_id, str(error))
-                    continue
-                on_done(ep, result)
-                display.log_completed(
-                    ep.episode_id,
-                    f"{ep.planner}/{ep.stage}",
-                    time.perf_counter() - t_start,
-                )
+            drain(
+                display,
+                (
+                    (*futures[future], future.result)
+                    for future in concurrent.futures.as_completed(futures)
+                ),
+            )
         except KeyboardInterrupt:
             print(
                 f"\n[KeyboardInterrupt] {title} interrupted by user. Terminating workers...",
@@ -942,6 +856,13 @@ class PhaseProfiler(typing.Protocol):
     """Times the named phases of a run; benchmark.profiler.PipelineProfiler implements it."""
 
     def phase(self, name: str) -> contextlib.AbstractContextManager[None]: ...
+
+
+def _phase_context(
+    profiler: PhaseProfiler | None, name: str
+) -> contextlib.AbstractContextManager[None]:
+    """The profiler's phase, or a no-op context when the run carries no profiler."""
+    return profiler.phase(name) if profiler is not None else contextlib.nullcontext()
 
 
 class ProcessingPipeline:
@@ -985,12 +906,7 @@ class ProcessingPipeline:
             if bundles:
                 return bundles
 
-        _ctx = (
-            self.profiler.phase("extract")
-            if self.profiler
-            else contextlib.nullcontext()
-        )
-        with _ctx:
+        with _phase_context(self.profiler, "extract"):
             if topics_dir.exists():
                 shutil.rmtree(topics_dir)
             bundles = MCAPReader(mcap_path).read(topics_dir)
@@ -1031,43 +947,8 @@ class ProcessingPipeline:
         return out
 
     @staticmethod
-    def _read_episode_metadata(
-        episode_dir: pathlib.Path, episode_id: int
-    ) -> RunMetadata | None:
-        yaml_path = episode_dir / f"{episode_dir.name}.yaml"
-        if not yaml_path.exists():
-            yaml_path = episode_dir / "metadata.yaml"
-        if not yaml_path.exists():
-            return None
-        try:
-            return MetadataWriter.read(yaml_path)
-        except Exception as e:
-            _log.warning(f"episode_{episode_id:03d}: could not read metadata: {e}")
-            return None
-
-    @staticmethod
-    def _finish_episode_evaluation(
-        episode_dir: pathlib.Path,
-        ep_id: int,
-        rows: list[dict],
-        facts: list[ScopedFactTables] | None = None,
-        series: list[dict[str, pl.DataFrame]] | None = None,
-    ) -> EpisodeEvaluation:
-        """Fold the scoped fact tables into the evaluation and publish its series tables."""
-        metrics_dir = episode_dir / "metrics"
-        metrics_dir.mkdir(parents=True, exist_ok=True)
-        write_series_tables(_merge_series_frames(series or []), metrics_dir)
-        return EpisodeEvaluation(
-            episode_id=ep_id,
-            rows=rows,
-            metrics_dir=metrics_dir,
-            facts=_merge_fact_tables(facts or []),
-        )
-
-    @staticmethod
     def _evaluate_robot_bundle(
         ep: EpisodeDescriptor,
-        episode_dir: pathlib.Path,
         metadata: RunMetadata | None,
         suite_metrics_cfg: dict[str, typing.Any],
         robots: dict[str, TopicBundle],
@@ -1083,8 +964,18 @@ class ProcessingPipeline:
         robot_params = params_by_robot[robot_name]
         window = _episode_window(bundle.episode_lifecycle)
         tracks, pose_source = resolve_pose_source(bundle, window)
-        if tracks is None:
-            reason = "no tf ground-truth rows inside the episode window"
+        aligned_df = None if tracks is None else _align_bundle(bundle, *window)
+        row_count = 0 if aligned_df is None else len(aligned_df)
+        if tracks is None or row_count < 5:
+            reason = (
+                "no tf ground-truth rows inside the episode window"
+                if tracks is None
+                else f"{row_count} ground-truth rows inside the episode window"
+            )
+            if tracks is not None:
+                _log.warning(
+                    f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}"
+                )
             return (
                 _status_row(
                     ep,
@@ -1106,41 +997,35 @@ class ProcessingPipeline:
         )
         available_topics = _calculator_topic_names(bundle)
 
-        aligned_df = _align_bundle(bundle, *window)
-        if aligned_df is None or len(aligned_df) < 5:
-            reason = f"{0 if aligned_df is None else len(aligned_df)} ground-truth rows inside the episode window"
-            _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
-            return (
-                _status_row(
-                    ep,
-                    metadata,
-                    robot_name,
-                    "no_trajectory",
-                    reason,
-                    bundle.episode_lifecycle,
-                    bundle.episode_integrity,
-                ),
-                None,
-                None,
-            )
-
         t0 = int(aligned_df["t_ns"][0])
         t1 = int(aligned_df["t_ns"][-1])
+        native = {
+            name: frame
+            for name in sorted(bundle.available() - _SHARED_FRAMES)
+            if (frame := _frame(vars(bundle)[name])) is not None
+            and (len(frame) > 0 or name in KEPT_EMPTY_TABLES)
+        }
         topics = {
-            name: df.filter(
-                (pl.col("t_ns") >= t0 - TRACK_ALIGN_TOLERANCE_NS)
-                & (pl.col("t_ns") <= t1 + TRACK_ALIGN_TOLERANCE_NS)
-            )
-            for name, df in _collect_native_topics(bundle).items()
+            name: _clipped(df, t0, t1, TRACK_ALIGN_TOLERANCE_NS)
+            for name, df in _with_pedestrian_constants(native).items()
         }
 
         peds_df = _frame(bundle.pedestrian_arena_peds)
         if peds_df is None or peds_df.height == 0:
             peds_df = _frame(bundle.pedestrian_agent_states)
-        num_pedestrians = _peak_pedestrian_count(
-            peds_df,
-            None if window[0] is None else window[0] - TRACK_ALIGN_TOLERANCE_NS,
-            window[1],
+        peds_df = (
+            None
+            if peds_df is None
+            else _clipped(
+                peds_df,
+                None if window[0] is None else window[0] - TRACK_ALIGN_TOLERANCE_NS,
+                window[1],
+            )
+        )
+        num_pedestrians = (
+            0
+            if peds_df is None or len(peds_df) == 0
+            else int(peds_df.group_by("t_ns").len()["len"].max() or 0)
         )
 
         conditions = None
@@ -1150,7 +1035,7 @@ class ProcessingPipeline:
         er = _frame(bundle.episode_lifecycle)
         if er is not None and len(er) > 0:
             conditions = _record_conditions(er)
-            phases = _robot_phases(_episode_rows(er), robot_name)
+            phases = _robot_phases(er, robot_name)
             outcome_state, outcome_info = _record_outcome(er, metadata)
 
         integrity = _record_integrity(
@@ -1177,22 +1062,11 @@ class ProcessingPipeline:
             peds=peds_df,
             map=ep.map,
             topics=topics,
-            run_dir=episode_dir.parent.parent,
+            run_dir=pathlib.Path(ep.episode_dir).parent.parent,
         )
 
         def on_calc_progress(calc_name: str, calc_idx: int, total_calcs: int) -> None:
-            if status_dict is not None:
-                try:
-                    status_dict[ep.episode_id] = (
-                        ep.planner,
-                        ep.stage,
-                        calc_name,
-                        calc_idx,
-                        total_calcs,
-                        time.perf_counter(),
-                    )
-                except Exception:
-                    pass
+            _report_status(status_dict, ep, calc_name, calc_idx, total_calcs)
 
         evaluated = ScopedEvaluator(
             robot_params, metrics_config=suite_metrics_cfg
@@ -1239,29 +1113,26 @@ class ProcessingPipeline:
                 episode_id=ep.episode_id, rows=[], metrics_dir=metrics_dir
             )
 
-        metadata = self._read_episode_metadata(episode_dir, ep.episode_id)
+        yaml_path = episode_dir / f"{episode_dir.name}.yaml"
+        if not yaml_path.exists():
+            yaml_path = episode_dir / "metadata.yaml"
+        try:
+            metadata = MetadataWriter.read(yaml_path) if yaml_path.exists() else None
+        except Exception as e:
+            _log.warning(f"episode_{ep.episode_id:03d}: could not read metadata: {e}")
+            metadata = None
         bundles = self.extract_episode(ep, force_extract=force_extract)
         if not bundles:
-            return self._finish_episode_evaluation(
+            return _status_evaluation(
+                ep,
                 episode_dir,
-                ep.episode_id,
-                [
-                    _status_row(
-                        ep,
-                        metadata,
-                        _metadata_robot(metadata),
-                        "no_recording",
-                        "no MCAP or empty extraction",
-                    )
-                ],
+                metadata,
+                _metadata_robot(metadata),
+                "no_recording",
+                "no MCAP or empty extraction",
             )
 
-        _ctx = (
-            self.profiler.phase("process")
-            if self.profiler
-            else contextlib.nullcontext()
-        )
-        with _ctx:
+        with _phase_context(self.profiler, "process"):
             pedsim_avail = (
                 bool(metadata.pedsim_available) if metadata is not None else False
             )
@@ -1282,35 +1153,22 @@ class ProcessingPipeline:
                     ),
                     None,
                 )
-                return self._finish_episode_evaluation(
-                    episode_dir,
-                    ep.episode_id,
-                    [
-                        _status_row(
-                            ep,
-                            metadata,
-                            _metadata_robot(metadata, bundles),
-                            "no_trajectory",
-                            "no tf ground-truth or odometry rows",
-                            any_record,
-                        )
-                    ],
-                )
-
-            robot_ids = {
-                name: _bundle_robot_id(bundle) for name, bundle in robots.items()
-            }
-            params_by_robot = {
-                name: _robot_parameters(bundle, robot_ids[name])
-                for name, bundle in robots.items()
-            }
-            all_results: list[dict] = []
-            episode_facts: list[ScopedFactTables] = []
-            episode_series: list[dict[str, pl.DataFrame]] = []
-            for robot_name, bundle in robots.items():
-                row, facts, series = self._evaluate_robot_bundle(
+                return _status_evaluation(
                     ep,
                     episode_dir,
+                    metadata,
+                    _metadata_robot(metadata, bundles),
+                    "no_trajectory",
+                    "no tf ground-truth or odometry rows",
+                    any_record,
+                )
+
+            params_by_robot = {
+                name: _robot_identity(bundle)[1] for name, bundle in robots.items()
+            }
+            evaluated = [
+                self._evaluate_robot_bundle(
+                    ep,
                     metadata,
                     suite_metrics_cfg,
                     robots,
@@ -1320,14 +1178,14 @@ class ProcessingPipeline:
                     pedsim_avail,
                     status_dict,
                 )
-                all_results.append(row)
-                if facts is not None:
-                    episode_facts.append(facts)
-                if series is not None:
-                    episode_series.append(series)
-
-            return self._finish_episode_evaluation(
-                episode_dir, ep.episode_id, all_results, episode_facts, episode_series
+                for robot_name, bundle in robots.items()
+            ]
+            return _finish_evaluation(
+                episode_dir,
+                ep.episode_id,
+                [row for row, _facts, _series in evaluated],
+                [facts for _row, facts, _series in evaluated if facts is not None],
+                [series for _row, _facts, series in evaluated if series is not None],
             )
 
     def process_episode(
@@ -1355,28 +1213,23 @@ class ProcessingPipeline:
             write_fact_tables(evaluation.facts, evaluation.metrics_dir)
         write_episode_stamp(evaluation.metrics_dir)
 
-    def _publish_and_consolidate(
-        self,
-        benchmark_id: str,
-        episodes: list[EpisodeDescriptor],
-        evaluations: list[EpisodeEvaluation],
-    ) -> pathlib.Path | None:
-        """Publish every episode's fact tables once, then validate and stamp the benchmark."""
-        for evaluation in evaluations:
-            self.publish_evaluation(evaluation)
-        benchmark_dir = self.folder_manager.benchmark_dir(benchmark_id)
-        enforce_benchmark_contract(benchmark_dir)
-        write_benchmark_stamp(benchmark_dir)
-        print(f"Done. {len(episodes)} episodes -> {benchmark_dir}")
-        return benchmark_dir
-
     def extract_benchmark(self, benchmark_id: str, force_extract: bool = False) -> None:
         """Extract all episodes of a benchmark, then write its dimensions once."""
         episodes = self.folder_manager.discover_episodes(benchmark_id)
         if not episodes:
             print(f"No episodes found for benchmark '{benchmark_id}'")
             return
-        self._extract_episodes(benchmark_id, episodes, force_extract)
+        _run_phase(
+            f"Phase 1: Extracting MCAP topics for {benchmark_id}",
+            episodes,
+            self.workers,
+            functools.partial(
+                _extract_job, str(self.folder_manager.data_root), force_extract
+            ),
+            progress=self.progress,
+            on_done=lambda _ep, _episode_id: None,
+            on_failed=lambda _ep, _error: None,
+        )
         self._write_benchmark_dimensions(benchmark_id, episodes)
 
     def _write_benchmark_dimensions(
@@ -1406,26 +1259,18 @@ class ProcessingPipeline:
         dimensions = stack(contributions)
         dimensions[DimMetrics.table_name] = metric_dictionary()
         dimensions[DimWorldGeometry.table_name] = benchmark_world_geometry(
-            _benchmark_worlds(episodes), benchmark_dir
+            sorted(
+                {
+                    world
+                    for ep in episodes
+                    if (world := _metric_world(None, ep)) is not None
+                }
+            ),
+            benchmark_dir,
         )
         enforce_benchmark_contract(benchmark_dir, dimensions=dimensions)
         write_benchmark_dimensions(dimensions, benchmark_dir)
         write_benchmark_stamp(benchmark_dir)
-
-    def _extract_episodes(
-        self, benchmark_id: str, episodes: list[EpisodeDescriptor], force_extract: bool
-    ) -> None:
-        _run_phase(
-            f"Phase 1: Extracting MCAP topics for {benchmark_id}",
-            episodes,
-            self.workers,
-            functools.partial(
-                _extract_job, str(self.folder_manager.data_root), force_extract
-            ),
-            progress=self.progress,
-            on_done=lambda _ep, _episode_id: None,
-            on_failed=lambda _ep, _error: None,
-        )
 
     def process_benchmark(
         self,
@@ -1448,12 +1293,7 @@ class ProcessingPipeline:
             print(f"No episodes found for benchmark '{benchmark_id}'")
             return None
 
-        _ctx_extract = (
-            self.profiler.phase("extract")
-            if self.profiler
-            else contextlib.nullcontext()
-        )
-        with _ctx_extract:
+        with _phase_context(self.profiler, "extract"):
             self.extract_benchmark(benchmark_id, force_extract=force_extract)
 
         evaluations: list[EpisodeEvaluation] = []
@@ -1461,12 +1301,7 @@ class ProcessingPipeline:
         def on_failed(ep: EpisodeDescriptor, error: Exception) -> None:
             evaluations.append(_failed_evaluation(ep, error))
 
-        _ctx_process = (
-            self.profiler.phase("process")
-            if self.profiler
-            else contextlib.nullcontext()
-        )
-        with _ctx_process:
+        with _phase_context(self.profiler, "process"):
             _run_phase(
                 f"Phase 2: Calculating metrics across {len(episodes)} episodes",
                 episodes,
@@ -1474,8 +1309,8 @@ class ProcessingPipeline:
                 functools.partial(
                     _process_job,
                     str(self.folder_manager.data_root),
-                    force_extract=force_extract,
-                    force_process=force_process,
+                    force_extract,
+                    force_process,
                 ),
                 progress=self.progress,
                 on_done=lambda _ep, result: evaluations.append(result[1]),
@@ -1485,4 +1320,10 @@ class ProcessingPipeline:
         _print_status_summary(
             [row for evaluation in evaluations for row in evaluation.rows]
         )
-        return self._publish_and_consolidate(benchmark_id, episodes, evaluations)
+        for evaluation in evaluations:
+            self.publish_evaluation(evaluation)
+        benchmark_dir = self.folder_manager.benchmark_dir(benchmark_id)
+        enforce_benchmark_contract(benchmark_dir)
+        write_benchmark_stamp(benchmark_dir)
+        print(f"Done. {len(episodes)} episodes -> {benchmark_dir}")
+        return benchmark_dir

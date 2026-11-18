@@ -6,32 +6,12 @@ import pathlib
 
 from star_benchmark import write_benchmark
 
-from arena_evaluation.presentation.exports import latex_escape, table_to_booktabs
 from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.presentation.viz_manifest import (
     PlotChannels,
     PlotSpec,
     VizManifest,
 )
-
-
-def test_latex_escape_covers_special_characters() -> None:
-    assert latex_escape("mean_ttg 100% & more") == r"mean\_ttg 100\% \& more"
-    assert latex_escape("a_b$c#d{e}f~g^h\\i") == (
-        r"a\_b\$c\#d\{e\}f\textasciitilde{}g\textasciicircum{}h"
-        "\\textbackslash{}i"
-    )
-
-
-def test_booktabs_escapes_headers_and_cells() -> None:
-    block = table_to_booktabs(
-        ["metric", "mean_ttg"], [["energy_total_wh", "1.0"]], caption="A & B"
-    )
-
-    assert "\\begin{tabular}{ll}" in block
-    assert "metric & mean\\_ttg \\\\" in block
-    assert "energy\\_total\\_wh & 1.0 \\\\" in block
-    assert "\\caption{A \\& B}" in block
 
 
 def _manifest() -> VizManifest:

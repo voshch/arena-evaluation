@@ -98,17 +98,7 @@ def _robot_events(
 ) -> dict[str, tuple[np.ndarray, list[str]]]:
     """Stepwise series of the robot entity's fields (phase, met, failed, dropped, violated), keyed by field."""
     identity = RobotIdentity(robot)
-    robot_entities = (
-        events.lazy()
-        .filter(pl.col("kind") == "robot")
-        .select(pl.col("entity").unique())
-        .filter(identity.entity_match_expr())
-        .collect()
-        .get_column("entity")
-    )
-    rows = events.filter(
-        (pl.col("kind") == "robot") & pl.col("entity").is_in(robot_entities.implode())
-    )
+    rows = events.filter((pl.col("kind") == "robot") & identity.entity_match_expr())
     series: dict[str, tuple[np.ndarray, list[str]]] = {}
     for (field,), group in rows.group_by(["field"]):
         g = group.sort("t_ns")
@@ -193,9 +183,10 @@ class TaskReplayCalculator(BaseMetricCalculator):
         events = reconstruct_events(snapshot)
         robot_series = _robot_events(events, episode.robot_name or "")
 
-        met = set(_split_indices(_last(robot_series, "met")))
-        failed = set(_split_indices(_last(robot_series, "failed")))
-        dropped = set(_split_indices(_last(robot_series, "dropped")))
+        met, failed, dropped = (
+            set(_split_indices(_last(robot_series, field)))
+            for field in ("met", "failed", "dropped")
+        )
         violated = {v for v in _last(robot_series, "violated").split(",") if v}
 
         results: dict[str, typing.Any] = dict(empty)
@@ -282,7 +273,7 @@ def _replay_phase_step(
     dropped: set[int],
     replay_violated: set[str],
 ) -> list[str]:
-    """Replay a single phase across its [lo, hi) samples and return any disagreements."""
+    """Replay one phase across its [lo, hi) samples and compare the verdict with the recorded one."""
     monitor = PhaseMonitor(phase, "robot")
     replay_met = False
     for i in range(lo, hi):
@@ -301,7 +292,9 @@ def _replay_phase_step(
             else None
         )
         for cond, cmon in scoped:
-            if _covers(cond, index):
+            first = cond.get("from", 0) or 0
+            last = cond.get("to")
+            if index >= first and (last is None or index <= last):
                 cmon.update(sample, polygons)
         if monitor.step(sample, polygons, action_done, signal):
             replay_met = True
@@ -309,18 +302,9 @@ def _replay_phase_step(
     for j, verdict in enumerate(monitor.finish()):
         if verdict is False:
             replay_violated.add(f"{index}:{j}")
-    return _phase_disagreements(index, monitor, replay_met, met, failed, dropped)
 
-
-def _phase_disagreements(
-    index: int,
-    monitor: PhaseMonitor,
-    replay_met: bool,
-    met: set[int],
-    failed: set[int],
-    dropped: set[int],
-) -> list[str]:
-    """Compare the replayed verdict against the recorded one; only a contradiction is a disagreement."""
+    # Only a contradiction between the replayed and the recorded verdict is a disagreement; a
+    # recorded failure that the replay also does not meet agrees.
     if index in met:
         if monitor.misfire is not None:
             return [f"phase {index} recorded as met but {monitor.misfire} in replay"]
@@ -328,11 +312,8 @@ def _phase_disagreements(
             return [f"phase {index} recorded as met but not met in replay"]
         return []
     if index in failed:
-        # Both say the phase did not succeed: that is agreement, so nothing is reported.
         return (
-            [f"phase {index} recorded as failed but met in replay"]
-            if replay_met
-            else []
+            [f"phase {index} recorded as failed but met in replay"] if replay_met else []
         )
     if index not in dropped and replay_met:
         return [f"phase {index} met in replay but still pending in the record"]
@@ -395,12 +376,6 @@ def _replay_phases(
             f"violated conditions differ: replay {sorted(replay_violated)} vs recorded {sorted(violated)}"
         )
     return disagreements
-
-
-def _covers(cond: dict, index: int) -> bool:
-    first = cond.get("from", 0) or 0
-    last = cond.get("to")
-    return index >= first and (last is None or index <= last)
 
 
 __all__ = ["TaskReplayCalculator"]

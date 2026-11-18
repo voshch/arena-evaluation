@@ -150,6 +150,19 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             }
         )
 
+    @classmethod
+    def _collision_counts(cls, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
+        """Rising-edge collision counts of each kind plus the episode's hit obstacles."""
+        return {
+            "collision_amount": cls._column_rising_edges(episode, "event_count"),
+            "collision_amount_wall": cls._column_rising_edges(episode, "wall_count"),
+            "collision_amount_static": cls._column_rising_edges(episode, "static_count"),
+            "collision_amount_pedestrian": cls._column_rising_edges(
+                episode, "ped_count"
+            ),
+            "collision_obstacles": cls._hit_obstacles(episode),
+        }
+
     def _window_onset_count(
         self,
         episode: AlignedEpisodeBundle,
@@ -191,19 +204,6 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             "collisions": [],
         }
 
-    def _encounter_result(self, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
-        return {
-            "collision_amount": self._column_rising_edges(episode, "event_count"),
-            "collision_amount_wall": self._column_rising_edges(episode, "wall_count"),
-            "collision_amount_static": self._column_rising_edges(
-                episode, "static_count"
-            ),
-            "collision_amount_pedestrian": self._column_rising_edges(
-                episode, "ped_count"
-            ),
-            "collision_obstacles": self._hit_obstacles(episode),
-        }
-
     def calculate_for_scope(
         self,
         episode: AlignedEpisodeBundle,
@@ -214,7 +214,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
             return self.calculate(episode, {})
         if scope_slice.scope == MetricScope.ENCOUNTER:
-            return self._encounter_result(episode)
+            return self._collision_counts(episode)
         if scope_slice.scope == MetricScope.CONTACT:
             return self._contact_result(episode, scope_slice)
         raise ValueError(
@@ -226,7 +226,8 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         del prior_results
         result, success = outcome_verdict(episode.outcome_state, episode.outcome_info)
-        collision_amount = self._column_rising_edges(episode, "event_count")
+        counts = self._collision_counts(episode)
+        collision_amount = counts["collision_amount"]
         max_collisions = int(
             self.metrics_config.get("max_collisions", DEFAULT_MAX_COLLISIONS)
         )
@@ -240,16 +241,12 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
             success_value = success and collision_amount < max_collisions
             success_reason = None
         return {
-            "collision_amount": collision_amount,
-            "collision_amount_wall": self._column_rising_edges(episode, "wall_count"),
-            "collision_amount_static": self._column_rising_edges(
-                episode, "static_count"
-            ),
-            "collision_amount_pedestrian": self._column_rising_edges(
-                episode, "ped_count"
-            ),
+            "collision_amount": counts["collision_amount"],
+            "collision_amount_wall": counts["collision_amount_wall"],
+            "collision_amount_static": counts["collision_amount_static"],
+            "collision_amount_pedestrian": counts["collision_amount_pedestrian"],
             "success": success_value,
             f"success{NULL_REASON_SUFFIX}": success_reason,
-            "collision_obstacles": self._hit_obstacles(episode),
+            "collision_obstacles": counts["collision_obstacles"],
             "collisions": [],
         }

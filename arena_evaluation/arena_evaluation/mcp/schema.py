@@ -45,34 +45,36 @@ _VIEW_DESCRIPTIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 }
 
 
-def _registry_metadata() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
-    """Return table-level and column-level metadata from storage.registry."""
+def _schema_metadata(
+    catalog: Any,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
+    """Table and column metadata from storage.registry, overlaid with the catalog's dim_metrics."""
     from arena_evaluation.storage.registry import defined_metrics, registered_tables
 
     table_meta: dict[str, dict[str, Any]] = {}
     col_meta: dict[str, dict[str, str]] = {}
 
-    for tbl in registered_tables():
+    for table in registered_tables():
+        table_name = table.table_name
         catalog_name = (
-            f"fact_{tbl.table_name}"
-            if tbl.table_kind.value == "fact" and not tbl.table_name.startswith("fact_")
-            else tbl.table_name
+            f"fact_{table_name}"
+            if table.table_kind.value == "fact" and not table_name.startswith("fact_")
+            else table_name
         )
         table_meta[catalog_name] = {
-            "kind": tbl.table_kind.value,
-            "scope": tbl.table_scope.value
-            if tbl.table_scope is not None
-            else tbl.table_kind.value,
-            "keys": list(tbl.key),
-            "meaning": (tbl.__doc__ or "").strip().splitlines()[0]
-            if tbl.__doc__
+            "kind": table.table_kind.value,
+            "scope": table.table_scope.value
+            if table.table_scope is not None
+            else table.table_kind.value,
+            "keys": list(table.key),
+            "meaning": (table.__doc__ or "").strip().splitlines()[0]
+            if table.__doc__
             else "",
         }
-        for col_name in tbl.polars_schema().names():
-            col = tbl.column(col_name)
+        for column_name in table.polars_schema().names():
+            column = table.column(column_name)
             col_meta.setdefault(
-                col_name,
-                {"unit": col.unit, "meaning": col.description},
+                column_name, {"unit": column.unit, "meaning": column.description}
             )
 
     for metric in defined_metrics():
@@ -81,26 +83,40 @@ def _registry_metadata() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str,
             "meaning": metric.description,
         }
 
+    if "dim_metrics" in catalog.table_names():
+        for row in catalog.get_table("dim_metrics").collect().to_dicts():
+            name = str(row.get("metric") or "")
+            if not name:
+                continue
+            existing = col_meta.get(name, {})
+            col_meta[name] = {
+                "unit": str(row.get("unit") or "") or existing.get("unit", ""),
+                "meaning": str(row.get("description") or "")
+                or existing.get("meaning", ""),
+                "direction": str(row.get("direction") or ""),
+            }
     return table_meta, col_meta
 
 
-def _dim_metrics_metadata(catalog: Any) -> dict[str, dict[str, str]]:
-    """Read unit, description, and direction from the catalog's dim_metrics table."""
-    if "dim_metrics" not in catalog.table_names():
-        return {}
-    df = catalog.get_table("dim_metrics").collect()
-    out: dict[str, dict[str, str]] = {}
-    for row in df.to_dicts():
-        name = str(row.get("metric") or "")
-        if not name:
-            continue
-        out[name] = {
-            "unit": str(row.get("unit") or ""),
-            "meaning": str(row.get("description") or ""),
-            "direction": str(row.get("direction") or ""),
-            "scope": str(row.get("scope") or ""),
+def _table_metadata(name: str, table_meta: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """The registry metadata of ``name``, or its declared view/derived description."""
+    known = table_meta.get(name)
+    if known is not None:
+        return known
+    if name in _VIEW_DESCRIPTIONS:
+        scope, meaning, keys = _VIEW_DESCRIPTIONS[name]
+        return {
+            "kind": "view",
+            "scope": scope,
+            "keys": list(keys),
+            "meaning": meaning,
         }
-    return out
+    return {
+        "kind": "view" if name.startswith("v_") else "derived",
+        "scope": "derived",
+        "keys": [],
+        "meaning": "",
+    }
 
 
 def _open_catalog(run_id: str | None) -> tuple[pathlib.Path | None, Any]:
@@ -180,14 +196,7 @@ def evaluation_schema(
     import polars as pl
 
     path, catalog = _open_catalog(run_id)
-    table_meta, col_meta = _registry_metadata()
-    for name, meta in _dim_metrics_metadata(catalog).items():
-        existing = col_meta.get(name, {})
-        col_meta[name] = {
-            "unit": meta["unit"] or existing.get("unit", ""),
-            "meaning": meta["meaning"] or existing.get("meaning", ""),
-            "direction": meta.get("direction", ""),
-        }
+    table_meta, col_meta = _schema_metadata(catalog)
 
     available = list(catalog.table_names())
     if table is not None:
@@ -196,25 +205,11 @@ def evaluation_schema(
                 f"unknown table {table!r}",
                 hint=f"available tables: {', '.join(available)}",
             )
-        lf = catalog.get_table(table)
-        tmeta = table_meta.get(table)
-        if tmeta is None and table in _VIEW_DESCRIPTIONS:
-            scope, meaning, keys = _VIEW_DESCRIPTIONS[table]
-            tmeta = {
-                "kind": "view",
-                "scope": scope,
-                "keys": list(keys),
-                "meaning": meaning,
-            }
-        elif tmeta is None:
-            tmeta = {
-                "kind": "view" if table.startswith("v_") else "derived",
-                "scope": "derived",
-                "keys": [],
-                "meaning": "",
-            }
-        row_count, columns = _column_details(lf, col_meta, tmeta["keys"])
-        sample_cols = ", ".join(c["name"] for c in columns[:5]) or "*"
+        tmeta = _table_metadata(table, table_meta)
+        row_count, columns = _column_details(
+            catalog.get_table(table), col_meta, tmeta["keys"]
+        )
+        sample_cols = ", ".join(column["name"] for column in columns[:5]) or "*"
         return {
             "run_id": path.name if path is not None else None,
             "snapshot_id": catalog.snapshot_id,
@@ -236,22 +231,7 @@ def evaluation_schema(
             row_count: int | None = int(lf.select(pl.len()).collect().item())
         except pl.exceptions.PolarsError:
             row_count = None
-        tmeta = table_meta.get(name)
-        if tmeta is None and name in _VIEW_DESCRIPTIONS:
-            scope, meaning, keys = _VIEW_DESCRIPTIONS[name]
-            tmeta = {
-                "kind": "view",
-                "scope": scope,
-                "keys": list(keys),
-                "meaning": meaning,
-            }
-        elif tmeta is None:
-            tmeta = {
-                "kind": "view" if name.startswith("v_") else "derived",
-                "scope": "derived",
-                "keys": [],
-                "meaning": "",
-            }
+        tmeta = _table_metadata(name, table_meta)
         tables_out.append(
             {
                 "name": name,

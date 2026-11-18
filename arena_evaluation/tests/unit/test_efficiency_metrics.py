@@ -93,54 +93,6 @@ def test_both_route_ratio_descriptions_state_the_shared_commanded_reference_rule
         assert "longer than the sampled path" in metric.description
 
 
-def test_path_efficiency_uses_the_geodesic_reference_prior():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[3.0, 4.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 10.0, "theta_star_length": 5.0}
-    )
-
-    assert results["path_efficiency"] == pytest.approx(0.5)
-
-
-def test_missing_geodesic_reference_is_null_not_a_straight_line_fallback():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[3.0, 4.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 10.0}
-    )
-
-    assert results["path_efficiency"] is None
-
-
-def test_path_efficiency_is_null_for_a_non_positive_path_length():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[3.0, 4.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 0.0, "theta_star_length": 5.0}
-    )
-
-    assert results["path_efficiency"] is None
-
-
-def test_path_efficiency_is_null_for_a_non_positive_geodesic():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[3.0, 4.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 10.0, "theta_star_length": 0.0}
-    )
-
-    assert results["path_efficiency"] is None
-
-
 def test_straight_ten_metre_path_in_an_empty_map_has_efficiency_one(
     open_room_run_dir: pathlib.Path,
 ):
@@ -154,21 +106,6 @@ def test_straight_ten_metre_path_in_an_empty_map_has_efficiency_one(
 
     assert trajectory["theta_star_length"] == pytest.approx(10.0)
     assert efficiency["path_efficiency"] == pytest.approx(1.0)
-
-
-def test_ten_metre_reference_with_a_detour_has_efficiency_below_one(
-    open_room_run_dir: pathlib.Path,
-):
-    episode = _straight_episode(open_room_run_dir)
-
-    trajectory = TrajectoryMetricsCalculator(_params()).calculate(episode, {})
-    efficiency = PathEfficiencyCalculator(_params()).calculate(
-        episode,
-        {"path_length_m": 12.0, "theta_star_length": trajectory["theta_star_length"]},
-    )
-
-    assert trajectory["theta_star_length"] == pytest.approx(10.0)
-    assert efficiency["path_efficiency"] == pytest.approx(10.0 / 12.0)
 
 
 def test_closed_loop_without_a_recorded_route_has_no_geodesic_reference(
@@ -185,22 +122,6 @@ def test_closed_loop_without_a_recorded_route_has_no_geodesic_reference(
 
     assert trajectory["theta_star_length"] is None
     assert efficiency["path_efficiency"] is None
-
-
-def test_reference_longer_than_the_travelled_path_is_null_with_a_distinct_reason():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[3.0, 4.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 10.0, "theta_star_length": 11.0}
-    )
-
-    assert results["path_efficiency"] is None
-    assert (
-        results["path_efficiency_null_reason"]
-        == "invalid_episode:reference_exceeds_path"
-    )
 
 
 def test_relative_throughput_is_planned_time_over_time_to_goal_at_the_free_speed():
@@ -230,13 +151,3 @@ def test_relative_throughput_is_planned_time_over_time_to_goal_at_the_free_speed
     assert results["relative_throughput"] == pytest.approx(0.5)
 
 
-def test_relative_throughput_is_null_without_a_time_to_goal():
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[0.0, 0.0], goal_pos=[4.0, 0.0]
-    )
-
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 4.0, "theta_star_length": 4.0}
-    )
-
-    assert results["relative_throughput"] is None

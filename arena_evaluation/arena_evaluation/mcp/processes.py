@@ -79,18 +79,17 @@ def evaluation_console(
     from arena_evaluation.benchmark.debug import tail_console
 
     path = run_path(run_id)
-    lanes = (
-        [lane]
-        if lane is not None
-        else [
-            None,
-            *sorted(
-                log.name.removeprefix("runner.").removesuffix(".log")
-                for log in path.glob("runner.*.log")
-            ),
-        ]
-    )
-    tails = [tail_console(path.name, lines, lane=entry) for entry in lanes]
+    tails = [
+        tail_console(path.name, lines, lane=entry)
+        for entry in (
+            [lane]
+            if lane is not None
+            else [
+                None,
+                *sorted(log.stem.removeprefix("runner.") for log in path.glob("runner.*.log")),
+            ]
+        )
+    ]
     logs = {
         pathlib.Path(tail["path"]).name: tail["lines"]
         for tail in tails

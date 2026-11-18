@@ -31,6 +31,18 @@ __all__ = [
     "series_values",
 ]
 
+_CHANNEL_FIELDS: dict[str, str] = {
+    "x": "x",
+    "y": "y",
+    "color": "color",
+    "hue": "color",
+    "facet_col": "facet_col",
+    "facet_row": "facet_row",
+    "size": "size",
+    "symbol": "symbol",
+    "hierarchy": "hierarchy",
+}
+
 
 def series_values(frame: pl.DataFrame, column: str) -> np.ndarray:
     """Float64 values of one column, NaN where the value is null, length preserved."""
@@ -40,23 +52,12 @@ def series_values(frame: pl.DataFrame, column: str) -> np.ndarray:
 def label_values(frame: pl.DataFrame, column: str) -> np.ndarray:
     """String labels of one column, mapping NULL to its ``<column>_null_reason`` when present."""
     reason_col = f"{column}_null_reason"
+    labels = pl.col(column).cast(pl.Utf8)
     if (
         reason_col in frame.columns
     ):  # agent-contracts: ignore AC003 - optional companion null_reason column
-        return (
-            frame.select(
-                pl.coalesce(
-                    [
-                        pl.col(column).cast(pl.Utf8),
-                        pl.col(reason_col).cast(pl.Utf8),
-                        pl.lit("NULL"),
-                    ]
-                )
-            )
-            .to_series()
-            .to_numpy()
-        )
-    return frame[column].cast(pl.Utf8).fill_null("NULL").to_numpy()
+        labels = pl.coalesce([labels, pl.col(reason_col).cast(pl.Utf8)])
+    return frame.select(labels.fill_null("NULL")).to_series().to_numpy()
 
 
 def new_figure(
@@ -123,6 +124,11 @@ class BasePlotRenderer(ABC):
         self.world_geometry: pl.DataFrame | None = None
         self.diagnostics: PlotDiagnostics | None = None
 
+    def _channel_value(self, channel: str) -> str | list[str] | None:
+        """Declared value of a canonical channel name or its ``hue`` alias."""
+        field = _CHANNEL_FIELDS.get(channel)
+        return getattr(self.spec.channels, field) if field else None
+
     def validate_frame(self, df: pl.DataFrame) -> None:
         """Fail explicitly on unknown options or declared channels/columns missing from df."""
         for key in self.spec.options:
@@ -131,18 +137,17 @@ class BasePlotRenderer(ABC):
                     f"Plot {self.spec.id!r}: unknown option {key!r} for plot type {self.PLOT_TYPE or self.spec.type!r}."
                 )
         cols = set(df.columns)
-        ch = self.spec.channels
-        channel_fields = (
-            ("x", ch.x),
-            ("y", ch.y),
-            ("color", ch.color),
-            ("facet_col", ch.facet_col),
-            ("facet_row", ch.facet_row),
-            ("size", ch.size),
-            ("symbol", ch.symbol),
-            ("hierarchy", ch.hierarchy),
-        )
-        for ch_name, raw in channel_fields:
+        for ch_name in (
+            "x",
+            "y",
+            "color",
+            "facet_col",
+            "facet_row",
+            "size",
+            "symbol",
+            "hierarchy",
+        ):
+            raw = self._channel_value(ch_name)
             if raw is None:
                 continue
             names = [raw] if isinstance(raw, str) else list(raw)
@@ -193,58 +198,27 @@ class BasePlotRenderer(ABC):
 
     def resolve_channel(self, channel: str, fallback: str | None = None) -> str | None:
         """Resolve a channel string name (e.g. 'x', 'y', 'color', 'facet_col', 'size', 'symbol')."""
-        ch = self.spec.channels
-        val: str | list[str] | None = None
-        match channel:
-            case "x":
-                val = ch.x
-            case "y":
-                val = ch.y
-            case "color" | "hue":
-                val = ch.color
-            case "facet_col":
-                val = ch.facet_col
-            case "facet_row":
-                val = ch.facet_row
-            case "size":
-                val = ch.size
-            case "symbol":
-                val = ch.symbol
-            case "hierarchy":
-                val = ch.hierarchy
-            case _:
-                val = None
-
-        if val is not None:
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-            if (
-                isinstance(val, list)
-                and len(val) > 0
-                and isinstance(val[0], str)
-                and val[0].strip()
-            ):
-                return val[0].strip()
+        val = self._channel_value(channel)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if (
+            isinstance(val, list)
+            and len(val) > 0
+            and isinstance(val[0], str)
+            and val[0].strip()
+        ):
+            return val[0].strip()
         return fallback
 
     def resolve_channel_list(
         self, channel: str, fallback: list[str] | str | None = None
     ) -> list[str]:
         """Resolve a channel that can be a list of columns (e.g. multi-metric y)."""
-        ch = self.spec.channels
-        val: str | list[str] | None = None
-        match channel:
-            case "x":
-                val = ch.x
-            case "y":
-                val = ch.y
-            case "color" | "hue":
-                val = ch.color
-            case "hierarchy":
-                val = ch.hierarchy
-            case _:
-                val = None
-
+        val = (
+            self._channel_value(channel)
+            if channel in ("x", "y", "color", "hue", "hierarchy")
+            else None
+        )
         if isinstance(val, list):
             return [str(v).strip() for v in val if v]
         if isinstance(val, str) and val.strip():

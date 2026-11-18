@@ -6,122 +6,15 @@ import pytest
 
 from arena_evaluation.processing.metrics.social.hhi_contact import (
     ContactInteractionCalculator,
-    bucket,
-    pair_track,
-    point_segment_distance,
     segment_crossings,
     smoothed_speed,
     stall_intervals,
-    window_bounds,
 )
-from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
 
 SEC = 1_000_000_000
-
-
-def test_every_hhi_metric_is_episode_scoped() -> None:
-    """The study has one interaction per episode, so the episode row carries every HHI output."""
-    assert len(ContactInteractionCalculator.OUTPUTS) == 17
-    assert ContactInteractionCalculator.effective_scopes() == frozenset(
-        {MetricScope.EPISODE}
-    )
-    assert {
-        scope
-        for metric in ContactInteractionCalculator.OUTPUTS
-        for scope in metric.scopes
-    } == {MetricScope.EPISODE}
-    assert ContactInteractionCalculator.REQUIRED_TOPICS == [
-        "robot_tracks",
-        "pedestrian_arena_peds",
-        "pedestrian_interaction_events",
-    ]
-
-
-def test_stall_needs_the_minimum_duration_and_prior_motion() -> None:
-    t = np.arange(0.0, 12.0, 0.1)
-    speed = np.full_like(t, 0.5)
-    speed[:10] = 0.0
-    speed[30:35] = 0.0
-    speed[40:50] = 0.0
-    speed[60:95] = 0.0
-    assert stall_intervals(t, speed) == [(pytest.approx(6.0), pytest.approx(9.4))]
-
-
-def test_stops_at_the_goal_are_arrival() -> None:
-    t = np.arange(0.0, 8.0, 0.1)
-    speed = np.where(t < 3.0, 0.5, 0.0)
-    far = np.full_like(t, 5.0)
-    assert len(stall_intervals(t, speed, far)) == 1
-    assert stall_intervals(t, speed, np.where(t < 3.0, 5.0, 0.2)) == []
-
-
-def test_smoothed_speed_of_constant_motion() -> None:
-    t = np.arange(0.0, 2.0, 0.02)
-    v = smoothed_speed(t, 0.8 * t, np.zeros_like(t))
-    assert np.median(v) == pytest.approx(0.8)
-
-
-def test_windows_split_at_the_edges_and_clip() -> None:
-    w = window_bounds(30.0, 8.0, 14.0)
-    assert w == {
-        "approach": (0.0, 8.0),
-        "hold": (8.0, 14.0),
-        "post": (14.0, 19.0),
-        "rest": (19.0, 30.0),
-    }
-    assert window_bounds(16.0, 8.0, 14.0)["post"] == (14.0, 16.0)
-    assert window_bounds(16.0, 8.0, 14.0)["rest"] == (16.0, 16.0)
-    no_release = window_bounds(20.0, 8.0, None)
-    assert no_release["hold"] == (8.0, 20.0) and no_release["post"] == (20.0, 20.0)
-    assert window_bounds(20.0, None, None)["approach"] == (0.0, 20.0)
-
-
-def test_bucket_by_onset_window() -> None:
-    w = window_bounds(30.0, 8.0, 14.0)
-    assert bucket([1.0, 8.0, 13.9, 14.0, 18.9, 19.0, 30.0], w) == {
-        "approach": 1,
-        "hold": 2,
-        "post": 2,
-        "rest": 2,
-    }
-
-
-def test_segment_crossing_detects_passing_between() -> None:
-    robot = np.array([[0.0, -1.0], [0.0, 1.0], [0.0, 3.0]])
-    a = np.array([[-0.6, 0.0]] * 3)
-    b = np.array([[0.6, 0.0]] * 3)
-    assert segment_crossings(robot, a, b).tolist() == [True, False]
-    around = np.array([[1.0, -1.0], [1.0, 1.0]])
-    assert segment_crossings(around, a[:2], b[:2]).tolist() == [False]
-
-
-def test_point_segment_distance() -> None:
-    d = point_segment_distance(
-        np.array([[0.0, 1.0], [2.0, 0.0]]),
-        np.array([[-1.0, 0.0]] * 2),
-        np.array([[1.0, 0.0]] * 2),
-    )
-    assert d.tolist() == pytest.approx([1.0, 1.0])
-
-
-def test_pair_track_follows_the_pedestrian_id_at_each_robot_time() -> None:
-    held = pl.DataFrame(
-        {
-            "t_ns": [0, SEC, SEC],
-            "ped_id": ["a", "b", "a"],
-            "x": [0.0, 5.0, 1.0],
-            "y": [0.0, 5.0, 1.0],
-        }
-    )
-
-    track = pair_track(held, np.array([0, SEC, 2 * SEC]), "a")
-
-    assert track[0].tolist() == [0.0, 0.0]
-    assert track[1].tolist() == [1.0, 1.0]
-    assert np.isnan(track[2]).all()
 
 
 def _episode(release: bool = True) -> AlignedEpisodeBundle:

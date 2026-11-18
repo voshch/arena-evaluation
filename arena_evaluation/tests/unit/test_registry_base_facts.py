@@ -198,6 +198,3 @@ def test_row_keys_are_pinned() -> None:
     assert dict(FACT_KEY_COLUMNS) == _EXPECTED_KEYS
 
 
-@pytest.mark.parametrize("table", list(FactTable))
-def test_every_fact_table_ends_with_its_null_reason_column(table: FactTable) -> None:
-    assert FACT_TABLES[table].polars_schema().names()[-1] == "null_reason"

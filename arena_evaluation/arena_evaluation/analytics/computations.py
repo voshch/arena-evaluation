@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import math
 from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
@@ -62,7 +63,6 @@ class MetricDirection(StrEnum):
 
 _DIRECTIONS: tuple[str, ...] = tuple(direction.value for direction in MetricDirection)
 
-
 _FilterScalar = str | int | float | bool
 _FilterValue = _FilterScalar | tuple[_FilterScalar, ...]
 
@@ -93,47 +93,43 @@ class _BaseParams(BaseModel):
         return ()
 
 
-class GroupSummaryParams(_BaseParams):
+class _GroupedParams(_BaseParams):
     group_cols: tuple[str, ...] = ()
+
+    @property
+    def group_columns(self) -> tuple[str, ...]:
+        return self.group_cols
+
+
+class _SingleGroupParams(_BaseParams):
+    group_col: str = "planner"
+
+    @property
+    def group_columns(self) -> tuple[str, ...]:
+        return (self.group_col,)
+
+
+class GroupSummaryParams(_GroupedParams):
     metrics: tuple[str, ...] = Field(min_length=1)
     trim_percentile: float = Field(default=0.0, ge=0.0, lt=0.5)
     error_mode: Literal["std", "sem", "ci95"] = "std"
 
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return self.group_cols
 
-
-class DistributionBinsParams(_BaseParams):
+class DistributionBinsParams(_GroupedParams):
     metric: str = Field(min_length=1)
-    group_cols: tuple[str, ...] = ()
     nbins: int = Field(default=15, ge=1)
     density: bool = False
 
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return self.group_cols
 
-
-class RadarProfileParams(_BaseParams):
-    group_col: str = "planner"
+class RadarProfileParams(_SingleGroupParams):
     metrics: tuple[str, ...] = Field(min_length=1)
     log_scale: bool = False
 
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return (self.group_col,)
 
-
-class CompositeRankingParams(_BaseParams):
-    group_col: str = "planner"
+class CompositeRankingParams(_SingleGroupParams):
     metrics: tuple[str, ...] = Field(min_length=1)
     weights: dict[str, float] | None = None
     top_n: int | None = Field(default=None, ge=1)
-
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return (self.group_col,)
 
 
 class CorrelationMatrixParams(_BaseParams):
@@ -152,32 +148,26 @@ class PairedDiffParams(_BaseParams):
     seed: int = 42
 
 
-class ClusterBootstrapCIParams(_BaseParams):
-    metric: str = Field(min_length=1)
+class ClusterBootstrapCIParams(_GroupedParams):
     group_cols: tuple[str, ...] = ("planner",)
+    metric: str = Field(min_length=1)
     cluster_col: str = "seed"
     n_boot: int = Field(default=2000, ge=1)
     ci_level: float = Field(default=0.95, gt=0.0, lt=1.0)
     seed: int = 42
 
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return self.group_cols
 
-
-class SeriesProfileParams(_BaseParams):
+class SeriesProfileParams(_GroupedParams):
     x: str
     metric: str
-    group_cols: tuple[str, ...] = ()
     bin_x: float | None = Field(default=None, gt=0)
     reduce: Literal["mean", "max", "leq"] = "mean"
     error_mode: Literal["std", "sem", "ci95"] = "std"
     trim_percentile: float = Field(default=0.0, ge=0.0, lt=0.5)
     smooth_window: int | None = Field(default=None, ge=2)
 
-    @property
-    def group_columns(self) -> tuple[str, ...]:
-        return self.group_cols
+
+_ComputeFn = Callable[[BenchmarkCatalog, Any], AnalysisResult]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -188,7 +178,7 @@ class Computation:
     params: type[BaseModel]
     output: type[Table]
     description: str
-    fn: Callable[[BenchmarkCatalog, Any], AnalysisResult]
+    fn: _ComputeFn
 
 
 COMPUTATIONS: dict[str, Computation] = {}
@@ -200,21 +190,12 @@ def register_computation(
     params: type[BaseModel],
     output: type[Table],
     description: str = "",
-) -> Callable[
-    [Callable[[BenchmarkCatalog, Any], AnalysisResult]],
-    Callable[[BenchmarkCatalog, Any], AnalysisResult],
-]:
+) -> Callable[[_ComputeFn], _ComputeFn]:
     """Register a computation function under ``name`` with its param model and output table."""
 
-    def _decorator(
-        fn: Callable[[BenchmarkCatalog, Any], AnalysisResult],
-    ) -> Callable[[BenchmarkCatalog, Any], AnalysisResult]:
+    def _decorator(fn: _ComputeFn) -> _ComputeFn:
         COMPUTATIONS[name] = Computation(
-            name=name,
-            params=params,
-            output=output,
-            description=description,
-            fn=fn,
+            name=name, params=params, output=output, description=description, fn=fn
         )
         return fn
 
@@ -270,10 +251,8 @@ def resolve_metric_directions(
 ) -> MetricDirections:
     """Resolve each metric's ``higher``/``lower`` side from the caller override or ``dim_metrics``.
 
-    ``dim_metrics`` is the layer's published metric dictionary and therefore its direction source; a
-    partial dictionary must not silently decide a ranking, so every metric it does not list (or lists
-    without a direction) is reported in one error with its count. A caller that knows the direction --
-    the report layer, which may read the metric registry -- supplies it through ``declared``.
+    A partial dictionary must not silently decide a ranking, so unresolved metrics are reported in
+    one error; a caller that knows a direction supplies it through ``declared``.
     """
     rows = _dim_metrics_rows(catalog)
     overrides = dict(declared or {})
@@ -301,10 +280,7 @@ def resolve_metric_directions(
             f"{unresolved}. Publish them in the metric dictionary or pass them through the "
             "computation's directions parameter."
         )
-    return MetricDirections(
-        by_metric=by_metric,
-        from_override=tuple(from_override),
-    )
+    return MetricDirections(by_metric=by_metric, from_override=tuple(from_override))
 
 
 def resolve_metric_units(
@@ -317,20 +293,12 @@ def resolve_metric_units(
     }
 
 
-def _allowed_sources(catalog: BenchmarkCatalog) -> list[str]:
-    return [
-        _SOURCE_TABLE,
-        *(n for n in sorted(catalog.table_names()) if n.startswith("v_series_")),
-    ]
-
-
 def null_reason_counts(
     df: pl.DataFrame, columns: Sequence[str], reason_columns: Sequence[str]
 ) -> dict[str, int]:
-    """Count the NULL cells of every ``columns`` entry by the ``<column>:<code>`` reason its row carries.
+    """Count NULL cells of every ``columns`` entry by the ``<column>:<code>`` reason its row carries.
 
-    This is the one implementation of the per-reason breakdown; the computations and the analysis
-    procedures both report through it, so a missing value is attributed the same way everywhere.
+    The one per-reason breakdown shared by the computations and the analysis procedures.
     """
     if df.is_empty():
         return {}
@@ -358,12 +326,9 @@ def null_reason_counts(
         )
         attributed = 0
         # the per-reason counts are result metadata, not data rows
-        for (
-            code,
-            rows,
-        ) in codes.iter_rows():  # agent-contracts: ignore metadata dict boundary
-            counts[f"{column}:{code}"] = int(rows)
-            attributed += int(rows)
+        for row in codes.iter_rows(named=True):  # agent-contracts: ignore metadata dict boundary
+            counts[f"{column}:{row['code']}"] = int(row["rows"])
+            attributed += int(row["rows"])
         unreasoned = null_rows.height - attributed
         if unreasoned > 0:
             key = f"{column}:{NullReason.NOT_RECORDED}"
@@ -371,36 +336,33 @@ def null_reason_counts(
     return counts
 
 
-def _prepare_source_frame(
+def _prepare(
     catalog: BenchmarkCatalog,
-    *,
-    source: str = _SOURCE_TABLE,
-    row_filter: Mapping[str, _FilterValue] | None = None,
-    exclude_references: bool,
-    valid_only: bool,
+    params: _BaseParams,
     needed_cols: Sequence[str],
 ) -> tuple[pl.DataFrame, dict[str, int], tuple[int, ...]]:
-    """Project ``needed_cols`` from an allowed source view, apply ``row_filter``, and drop excluded rows.
+    """Project ``needed_cols`` from the params' source view and drop excluded rows.
 
-    Reference episodes (``exclude_references``) and episodes the benchmark flagged invalid for ranking
-    (``valid_only``) leave the frame. The returned mapping counts every excluded row by reason, including
-    the ``<metric>:<code>`` reason each NULL metric cell carries, so a metric missing for half the
-    episodes cannot look like a smaller n.
+    The returned mapping counts every exclusion by reason, including each NULL metric cell's
+    ``<metric>:<code>`` reason, so a metric missing for half the episodes cannot look like a smaller n.
     """
-    allowed = _allowed_sources(catalog)
-    if source not in allowed:
+    allowed = [
+        _SOURCE_TABLE,
+        *(n for n in sorted(catalog.table_names()) if n.startswith("v_series_")),
+    ]
+    if params.source not in allowed:
         raise ValueError(
-            f"Unsupported computation source {source!r}. Allowed: {allowed}"
+            f"Unsupported computation source {params.source!r}. Allowed: {allowed}"
         )
-    lf = catalog.get_table(source)
-    filter_cols = list(row_filter) if row_filter else []
+    lf = catalog.get_table(params.source)
+    row_filter = params.filter or {}
     available = lf.collect_schema().names()
     reason_cols = [name for name in _NULL_REASON_COLUMNS if name in available]
     select_cols = list(
         dict.fromkeys(
             [
                 *needed_cols,
-                *filter_cols,
+                *row_filter,
                 "is_reference",
                 _VALIDITY_COLUMN,
                 "seed",
@@ -409,25 +371,24 @@ def _prepare_source_frame(
         )
     )
     lf = lf.select(select_cols)
-    if row_filter:
-        for col, val in row_filter.items():
-            if isinstance(val, tuple):
-                lf = lf.filter(pl.col(col).is_in(list(val)))
-            else:
-                lf = lf.filter(pl.col(col) == val)
+    for col, val in row_filter.items():
+        lf = lf.filter(
+            pl.col(col).is_in(list(val)) if isinstance(val, tuple) else pl.col(col) == val
+        )
     df = lf.collect()
 
     excluded: dict[str, int] = {}
-    if exclude_references:
+    for enabled, column, reason, keep in (
+        (params.exclude_references, "is_reference", "references", False),
+        (params.valid_only, _VALIDITY_COLUMN, "invalid_for_ranking", True),
+    ):
+        if not enabled:
+            continue
         before = df.height
-        df = df.filter(~pl.col("is_reference").fill_null(False).cast(pl.Boolean))
+        valid = pl.col(column).fill_null(False).cast(pl.Boolean)
+        df = df.filter(valid if keep else ~valid)
         if before > df.height:
-            excluded["references"] = before - df.height
-    if valid_only:
-        before = df.height
-        df = df.filter(pl.col(_VALIDITY_COLUMN).fill_null(False).cast(pl.Boolean))
-        if before > df.height:
-            excluded["invalid_for_ranking"] = before - df.height
+            excluded[reason] = before - df.height
 
     if reason_cols:
         excluded.update(null_reason_counts(df, needed_cols, reason_cols))
@@ -456,46 +417,24 @@ def _validate_output_schema(
             )
 
 
-@register_computation(
-    "group_summary",
-    params=GroupSummaryParams,
-    output=GroupSummaryAnalysis,
-    description="Per-group summary statistics (Wilson CI for booleans; mean/std/sem/ci95 for numeric).",
-)
 def _compute_group_summary(
     catalog: BenchmarkCatalog, p: GroupSummaryParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[*p.group_cols, *p.metrics],
-    )
+    df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, *p.metrics])
     units = resolve_metric_units(catalog, p.metrics)
+    analysis_cols = GroupSummaryAnalysis.polars_schema().names()
     parts: list[pl.DataFrame] = []
     for metric in p.metrics:
         work = df
         if p.trim_percentile > 0.0 and work.height > 0:
             low_q = p.trim_percentile / 2.0
             high_q = 1.0 - low_q
+            bounds = [pl.col(metric).quantile(q) for q in (low_q, high_q)]
             if p.group_cols:
-                work = work.filter(
-                    (
-                        pl.col(metric)
-                        >= pl.col(metric).quantile(low_q).over(p.group_cols)
-                    )
-                    & (
-                        pl.col(metric)
-                        <= pl.col(metric).quantile(high_q).over(p.group_cols)
-                    )
-                )
-            else:
-                work = work.filter(
-                    (pl.col(metric) >= pl.col(metric).quantile(low_q))
-                    & (pl.col(metric) <= pl.col(metric).quantile(high_q))
-                )
+                bounds = [bound.over(p.group_cols) for bound in bounds]
+            work = work.filter(
+                (pl.col(metric) >= bounds[0]) & (pl.col(metric) <= bounds[1])
+            )
 
         if work.schema[metric] == pl.Boolean:
             prob = pl.col(metric).cast(pl.Float64).mean()
@@ -525,12 +464,9 @@ def _compute_group_summary(
             mean_expr = val.mean()
             raw_std = val.std()
             std_expr = pl.when(cnt >= 2).then(raw_std).otherwise(None).cast(pl.Float64)
-            sem_expr = (
-                pl.when(cnt >= 2)
-                .then(raw_std / cnt.cast(pl.Float64).sqrt())
-                .otherwise(None)
-                .cast(pl.Float64)
-            )
+            sem_expr = pl.when(cnt >= 2).then(
+                raw_std / cnt.cast(pl.Float64).sqrt()
+            ).otherwise(None).cast(pl.Float64)
             ci_half = _WILSON_Z * sem_expr
             err_expr = (
                 ci_half
@@ -557,7 +493,7 @@ def _compute_group_summary(
             grouped.with_columns(
                 pl.lit(metric).cast(pl.String).alias("metric"),
                 pl.lit(units[metric]).cast(pl.String).alias("unit"),
-            ).select([*p.group_cols, *GroupSummaryAnalysis.polars_schema().names()])
+            ).select([*p.group_cols, *analysis_cols])
         )
 
     out = pl.concat(parts).sort([*p.group_cols, "metric"])
@@ -566,37 +502,19 @@ def _compute_group_summary(
     )
 
 
-@register_computation(
-    "distribution_bins",
-    params=DistributionBinsParams,
-    output=DistributionBinsAnalysis,
-    description=(
-        "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); "
-        "the density column holds a probability mass per bin (count / total) unless density=True, "
-        "which divides by the bin width to give a probability density."
-    ),
-)
 def _compute_distribution_bins(
     catalog: BenchmarkCatalog, p: DistributionBinsParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[*p.group_cols, p.metric],
-    )
+    df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
+    schema = {
+        **{c: df.schema[c] for c in p.group_cols},
+        **DistributionBinsAnalysis.polars_schema(),
+    }
     metric_f64 = pl.col(p.metric).cast(pl.Float64)
     valid = df.filter(metric_f64.is_not_null() & ~metric_f64.is_nan())
     if valid.is_empty():
-        empty = pl.DataFrame(
-            schema={
-                **{c: df.schema[c] for c in p.group_cols},
-                **DistributionBinsAnalysis.polars_schema(),
-            }
-        )
+        empty = pl.DataFrame(schema=schema)
         return AnalysisResult(
             frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
         )
@@ -615,9 +533,11 @@ def _compute_distribution_bins(
         for keys, sub in valid.sort(list(p.group_cols)).group_by(
             list(p.group_cols), maintain_order=True
         ):
-            key_dict = dict(zip(p.group_cols, keys, strict=True))
             groups.append(
-                (key_dict, sub.get_column(p.metric).cast(pl.Float64).to_numpy())
+                (
+                    dict(zip(p.group_cols, keys, strict=True)),
+                    sub.get_column(p.metric).cast(pl.Float64).to_numpy(),
+                )
             )
     else:
         groups.append(({}, all_vals))
@@ -628,11 +548,10 @@ def _compute_distribution_bins(
         total = float(counts.sum())
         for idx in range(p.nbins):
             cnt = int(counts[idx])
-            dens = (
-                (cnt / (total * width))
-                if (p.density and total > 0.0 and width > 0.0)
-                else ((cnt / total) if total > 0.0 else 0.0)
+            scale = (
+                total * width if p.density and total > 0.0 and width > 0.0 else total
             )
+            density = cnt / scale if scale > 0.0 else 0.0
             rows.append(
                 {
                     **key_dict,
@@ -643,45 +562,51 @@ def _compute_distribution_bins(
                     "bin_high": float(edges[idx + 1]),
                     "bin_center": float(centers[idx]),
                     "count": cnt,
-                    "density": float(dens),
+                    "density": float(density),
                 }
             )
 
-    out = pl.DataFrame(
-        rows,
-        schema={
-            **{c: df.schema[c] for c in p.group_cols},
-            **DistributionBinsAnalysis.polars_schema(),
-        },
-    )
+    out = pl.DataFrame(rows, schema=schema)
     return AnalysisResult(
         frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
     )
 
 
-def _radar_normalize(
-    raw: np.ndarray,
-    metrics: Sequence[str],
-    directions: Sequence[MetricDirection],
-    *,
-    log_scale: bool,
-) -> tuple[np.ndarray, dict[str, int]]:
-    """Normalize each metric column onto the better side of [0, 1].
+def _compute_radar_profile(
+    catalog: BenchmarkCatalog, p: RadarProfileParams
+) -> AnalysisResult:
+    directions = resolve_metric_directions(catalog, p.metrics, declared=p.directions)
+    units = resolve_metric_units(catalog, p.metrics)
+    df, excluded, seeds = _prepare(catalog, p, [p.group_col, *p.metrics])
+    grouped = (
+        df.group_by(p.group_col)
+        .agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics])
+        .sort(p.group_col)
+    )
+    if grouped.is_empty():
+        empty = pl.DataFrame(
+            schema={
+                p.group_col: df.schema[p.group_col],
+                **RadarProfileAnalysis.polars_schema(),
+            }
+        )
+        return AnalysisResult(
+            frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
+        )
 
-    The formula mirrors ``RadarRenderer``: a ``higher`` metric is divided by its best value and a
-    ``lower`` one divides its best value by itself. A column whose scale cannot produce a share -- a
-    ``higher`` metric with no positive value, a log-scaled value at or below -1 -- becomes NULL and is
-    counted in the returned mapping, so an untransformable metric never reads as a plausible score.
-    Every resolved share is clipped into [0, 1], which a mixed-sign ``lower`` metric would otherwise leave.
-    """
+    raw = grouped.select(list(p.metrics)).to_numpy().astype(np.float64, copy=False)
+    norm = np.full_like(raw, np.nan, dtype=np.float64)
     untransformable: dict[str, int] = {}
-    matrix = np.full_like(raw, np.nan, dtype=np.float64)
     for col_idx, (metric, direction) in enumerate(
-        zip(metrics, directions, strict=True)
+        zip(
+            p.metrics,
+            (MetricDirection(directions.by_metric[m]) for m in p.metrics),
+            strict=True,
+        )
     ):
         col = raw[:, col_idx].astype(np.float64, copy=True)
         valid = ~np.isnan(col)
-        if log_scale:
+        if p.log_scale:
             loggable = valid & (col > -1.0)
             rejected = int(np.count_nonzero(valid & ~loggable))
             if rejected:
@@ -699,7 +624,6 @@ def _radar_normalize(
             case MetricDirection.HIGHER | MetricDirection.LOWER if (
                 high == 0.0 and low == 0.0
             ):
-                # A flat all-zero column is the best possible value on either side.
                 normalized = np.ones_like(col_valid)
             case MetricDirection.HIGHER if high > 0.0:
                 normalized = col_valid / high
@@ -721,52 +645,8 @@ def _radar_normalize(
                 )
         column = np.full(col.shape, np.nan, dtype=np.float64)
         column[valid] = np.clip(normalized, 0.0, 1.0)
-        matrix[:, col_idx] = column
-    return matrix, untransformable
+        norm[:, col_idx] = column
 
-
-@register_computation(
-    "radar_profile",
-    params=RadarProfileParams,
-    output=RadarProfileAnalysis,
-    description="Capability tradeoff radar profile matching RadarRenderer normalization (null means stay null).",
-)
-def _compute_radar_profile(
-    catalog: BenchmarkCatalog, p: RadarProfileParams
-) -> AnalysisResult:
-    directions = resolve_metric_directions(catalog, p.metrics, declared=p.directions)
-    units = resolve_metric_units(catalog, p.metrics)
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[p.group_col, *p.metrics],
-    )
-    grouped = (
-        df.group_by(p.group_col)
-        .agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics])
-        .sort(p.group_col)
-    )
-    if grouped.is_empty():
-        empty = pl.DataFrame(
-            schema={
-                p.group_col: df.schema[p.group_col],
-                **RadarProfileAnalysis.polars_schema(),
-            }
-        )
-        return AnalysisResult(
-            frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
-        )
-
-    raw = grouped.select(list(p.metrics)).to_numpy().astype(np.float64, copy=False)
-    norm, untransformable = _radar_normalize(
-        raw,
-        p.metrics,
-        [MetricDirection(directions.by_metric[m]) for m in p.metrics],
-        log_scale=p.log_scale,
-    )
     norm_df = pl.DataFrame(
         {
             p.group_col: grouped.get_column(p.group_col),
@@ -822,19 +702,12 @@ def _run_composite_ranking(
     catalog: BenchmarkCatalog,
     p: CompositeRankingParams,
     *,
-    default_top_n: int | None,
+    default_top_n: int | None = None,
 ) -> AnalysisResult:
     directions = resolve_metric_directions(catalog, p.metrics, declared=p.directions)
     units = resolve_metric_units(catalog, p.metrics)
     weights = {m: float(p.weights.get(m, 1.0)) if p.weights else 1.0 for m in p.metrics}
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[p.group_col, *p.metrics],
-    )
+    df, excluded, seeds = _prepare(catalog, p, [p.group_col, *p.metrics])
     grouped = (
         df.group_by(p.group_col)
         .agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics])
@@ -842,58 +715,64 @@ def _run_composite_ranking(
     )
     group_rows = grouped.to_dicts()
     norm_scores: dict[tuple[int, str], float | None] = {}
-    for m in p.metrics:
-        vals = [r[m] for r in group_rows if r[m] is not None]
+    for metric in p.metrics:
+        vals = [row[metric] for row in group_rows if row[metric] is not None]
         if not vals:
             continue
         low, high = min(vals), max(vals)
         higher_is_better = (
-            MetricDirection(directions.by_metric[m]) is MetricDirection.HIGHER
+            MetricDirection(directions.by_metric[metric]) is MetricDirection.HIGHER
         )
-        for idx, r in enumerate(group_rows):
-            v = r[m]
-            if v is None:
-                norm_scores[(idx, m)] = None
-            else:
-                norm = 0.5 if high == low else (v - low) / (high - low)
-                norm_scores[(idx, m)] = norm if higher_is_better else 1.0 - norm
+        for idx, row in enumerate(group_rows):
+            value = row[metric]
+            normalized = (
+                None if value is None else 0.5 if high == low else (value - low) / (high - low)
+            )
+            norm_scores[(idx, metric)] = (
+                normalized
+                if normalized is None or higher_is_better
+                else 1.0 - normalized
+            )
 
-    scored_groups: list[tuple[int, float | None]] = []
-    for idx, _ in enumerate(group_rows):
+    scored: list[tuple[int, float | None]] = []
+    for idx in range(len(group_rows)):
         pairs = [
-            (weights[m], norm_scores[(idx, m)])
-            for m in p.metrics
-            if norm_scores.get((idx, m)) is not None
+            (weights[metric], norm_scores[(idx, metric)])
+            for metric in p.metrics
+            if norm_scores.get((idx, metric)) is not None
         ]
-        total_w = sum(w for w, _ in pairs)
-        comp_score = (
-            sum(w * v for w, v in pairs if v is not None) / total_w
-            if pairs and total_w > 0.0
-            else None
+        total_w = sum(weight for weight, _ in pairs)
+        scored.append(
+            (
+                idx,
+                sum(weight * value for weight, value in pairs if value is not None)
+                / total_w
+                if pairs and total_w > 0.0
+                else None,
+            )
         )
-        scored_groups.append((idx, comp_score))
 
-    scored_groups.sort(key=lambda item: (item[1] is None, -(item[1] or 0.0)))
+    scored.sort(key=lambda item: (item[1] is None, -(item[1] or 0.0)))
     top_n = p.top_n if p.top_n is not None else default_top_n
     if top_n is not None:
-        scored_groups = scored_groups[:top_n]
+        scored = scored[:top_n]
 
     rows: list[dict[str, object]] = []
-    for rank_pos, (g_idx, comp_score) in enumerate(scored_groups, start=1):
+    for rank_pos, (group_idx, comp_score) in enumerate(scored, start=1):
         rank_val = rank_pos if comp_score is not None else None
-        g_val = group_rows[g_idx][p.group_col]
-        for m in p.metrics:
+        group_row = group_rows[group_idx]
+        for metric in p.metrics:
             rows.append(
                 {
-                    p.group_col: g_val,
+                    p.group_col: group_row[p.group_col],
                     "rank": rank_val,
                     "composite_score": comp_score,
-                    "metric": m,
-                    "unit": units[m],
-                    "direction": directions.by_metric[m],
-                    "raw_mean": group_rows[g_idx][m],
-                    "normalized_score": norm_scores.get((g_idx, m)),
-                    "weight": weights[m],
+                    "metric": metric,
+                    "unit": units[metric],
+                    "direction": directions.by_metric[metric],
+                    "raw_mean": group_row[metric],
+                    "normalized_score": norm_scores.get((group_idx, metric)),
+                    "weight": weights[metric],
                 }
             )
     out = pl.DataFrame(
@@ -912,47 +791,10 @@ def _run_composite_ranking(
     )
 
 
-@register_computation(
-    "composite_ranking",
-    params=CompositeRankingParams,
-    output=CompositeRankingAnalysis,
-    description="Weighted min-max normalized composite ranking (unrounded scores).",
-)
-def _compute_composite_ranking(
-    catalog: BenchmarkCatalog, p: CompositeRankingParams
-) -> AnalysisResult:
-    return _run_composite_ranking(catalog, p, default_top_n=None)
-
-
-@register_computation(
-    "top_n_ranking",
-    params=CompositeRankingParams,
-    output=CompositeRankingAnalysis,
-    description="Top-N contestants by weighted normalized composite score (unrounded scores).",
-)
-def _compute_top_n_ranking(
-    catalog: BenchmarkCatalog, p: CompositeRankingParams
-) -> AnalysisResult:
-    return _run_composite_ranking(catalog, p, default_top_n=3)
-
-
-@register_computation(
-    "correlation_matrix",
-    params=CorrelationMatrixParams,
-    output=CorrelationMatrixAnalysis,
-    description="Pairwise-complete Pearson correlation matrix using pl.corr.",
-)
 def _compute_correlation_matrix(
     catalog: BenchmarkCatalog, p: CorrelationMatrixParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=p.metrics,
-    )
+    df, excluded, seeds = _prepare(catalog, p, p.metrics)
     work = df.select([pl.col(m).cast(pl.Float64) for m in p.metrics])
     rows: list[dict[str, object]] = []
     for mx in p.metrics:
@@ -963,19 +805,17 @@ def _compute_correlation_matrix(
                 .cast(pl.Int64),
                 r=pl.corr(mx, my).cast(pl.Float64),
             )
-            n_pairs = int(pair["n_pairs"][0])
             raw_r = pair["r"][0]
-            pearson_r = (
-                float(raw_r)
-                if raw_r is not None and math.isfinite(float(raw_r))
-                else None
-            )
             rows.append(
                 {
                     "metric_x": mx,
                     "metric_y": my,
-                    "pearson_r": pearson_r,
-                    "n_pairs": n_pairs,
+                    "pearson_r": (
+                        float(raw_r)
+                        if raw_r is not None and math.isfinite(float(raw_r))
+                        else None
+                    ),
+                    "n_pairs": int(pair["n_pairs"][0]),
                 }
             )
     out = pl.DataFrame(rows, schema=CorrelationMatrixAnalysis.polars_schema()).sort(
@@ -986,22 +826,11 @@ def _compute_correlation_matrix(
     )
 
 
-@register_computation(
-    "paired_diff",
-    params=PairedDiffParams,
-    output=PairedDiffAnalysis,
-    description="Cluster-paired treatment minus control difference with bootstrap CI and p-value.",
-)
 def _compute_paired_diff(
     catalog: BenchmarkCatalog, p: PairedDiffParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[p.arm_col, *p.pair_cols, p.cluster_col, p.metric],
+    df, excluded, seeds = _prepare(
+        catalog, p, [p.arm_col, *p.pair_cols, p.cluster_col, p.metric]
     )
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     res = paired_treatment_diff(
@@ -1040,22 +869,11 @@ def _compute_paired_diff(
     )
 
 
-@register_computation(
-    "cluster_bootstrap_ci",
-    params=ClusterBootstrapCIParams,
-    output=ClusterBootstrapCIAnalysis,
-    description="Cluster-bootstrap confidence interval per group using Layer 3 stats.",
-)
 def _compute_cluster_bootstrap_ci(
     catalog: BenchmarkCatalog, p: ClusterBootstrapCIParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[*p.group_cols, p.cluster_col, p.metric],
+    df, excluded, seeds = _prepare(
+        catalog, p, [*p.group_cols, p.cluster_col, p.metric]
     )
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     raw = cluster_bootstrap_ci(
@@ -1086,78 +904,26 @@ def _compute_cluster_bootstrap_ci(
     )
 
 
-def _smooth_window_expr(col_name: str, width: int) -> pl.Expr:
-    pad_left = width // 2
-    terms = [
-        pl.when(pl.int_range(pl.len()) + offset < 0)
-        .then(pl.col(col_name).first())
-        .when(pl.int_range(pl.len()) + offset >= pl.len())
-        .then(pl.col(col_name).last())
-        .otherwise(pl.col(col_name).shift(-offset))
-        for offset in range(-pad_left, width - pad_left)
-    ]
-    total = terms[0]
-    for term in terms[1:]:
-        total = total + term
-    return total / float(width)
-
-
-def _apply_series_smoothing(
-    df: pl.DataFrame, group_cols: Sequence[str], smooth_window: int
-) -> pl.DataFrame:
-    if df.height < 3:
-        return df
-    max_w = min(smooth_window, df.height)
-    exprs: list[pl.Expr] = []
-    for col_name in ("value", "err_plus", "err_minus"):
-        branch: pl.Expr = _smooth_window_expr(col_name, max_w)
-        for width in range(max_w - 1, 2, -1):
-            branch = (
-                pl.when(pl.len() == width)
-                .then(_smooth_window_expr(col_name, width))
-                .otherwise(branch)
-            )
-        expr = pl.when(pl.len() < 3).then(pl.col(col_name)).otherwise(branch)
-        if group_cols:
-            expr = expr.over(list(group_cols))
-        exprs.append(expr.alias(col_name))
-    return df.with_columns(exprs)
-
-
-@register_computation(
-    "series_profile",
-    params=SeriesProfileParams,
-    output=SeriesProfileAnalysis,
-    description="Series-grain binned/trimmed/reduced profile along an x axis with optional smoothing.",
-)
 def _compute_series_profile(
     catalog: BenchmarkCatalog, p: SeriesProfileParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare_source_frame(
-        catalog,
-        source=p.source,
-        row_filter=p.filter,
-        exclude_references=p.exclude_references,
-        valid_only=p.valid_only,
-        needed_cols=[*p.group_cols, p.x, p.metric],
-    )
+    df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.x, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     out_cols = [*p.group_cols, *SeriesProfileAnalysis.polars_schema().names()]
     work = df.filter(pl.col(p.x).is_not_null())
     if work.is_empty():
-        empty_schema = {
-            **{col: df.schema[col] for col in p.group_cols},
-            **SeriesProfileAnalysis.polars_schema(),
-        }
-        empty = pl.DataFrame(schema=empty_schema).select(out_cols)
+        empty = pl.DataFrame(
+            schema={
+                **{col: df.schema[col] for col in p.group_cols},
+                **SeriesProfileAnalysis.polars_schema(),
+            }
+        ).select(out_cols)
         return AnalysisResult(
             frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
         )
 
     x_col = pl.col(p.x).cast(pl.Float64)
-    x_expr = (
-        (x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col
-    ).alias("x")
+    x_expr = ((x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col).alias("x")
     work = work.with_columns(x_expr, pl.col(p.metric).cast(pl.Float64).alias("_y"))
 
     cell_keys = [*p.group_cols, "x"]
@@ -1184,15 +950,14 @@ def _compute_series_profile(
     else:
         std_expr = pl.col("_y").std(ddof=1)
         count_f64 = pl.col("_y").count().cast(pl.Float64)
-        if p.error_mode == "std":
-            raw_err = std_expr
-        elif p.error_mode == "sem":
-            raw_err = std_expr / count_f64.sqrt()
-        else:
-            raw_err = _WILSON_Z * std_expr / count_f64.sqrt()
+        error_terms = {
+            "std": std_expr,
+            "sem": std_expr / count_f64.sqrt(),
+            "ci95": _WILSON_Z * std_expr / count_f64.sqrt(),
+        }
         err_expr = (
             pl.when(pl.col("_y").count() >= 2)
-            .then(raw_err)
+            .then(error_terms[p.error_mode])
             .otherwise(pl.lit(None, dtype=pl.Float64))
         )
 
@@ -1206,8 +971,35 @@ def _compute_series_profile(
         )
         .sort(cell_keys)
     )
-    if p.smooth_window is not None:
-        agg = _apply_series_smoothing(agg, p.group_cols, p.smooth_window)
+    if p.smooth_window is not None and agg.height >= 3:
+        max_w = min(p.smooth_window, agg.height)
+
+        def _smooth_window(col_name: str, width: int) -> pl.Expr:
+            pad_left = width // 2
+            terms = [
+                pl.when(pl.int_range(pl.len()) + offset < 0)
+                .then(pl.col(col_name).first())
+                .when(pl.int_range(pl.len()) + offset >= pl.len())
+                .then(pl.col(col_name).last())
+                .otherwise(pl.col(col_name).shift(-offset))
+                for offset in range(-pad_left, width - pad_left)
+            ]
+            return sum(terms[1:], terms[0]) / float(width)
+
+        exprs: list[pl.Expr] = []
+        for col_name in ("value", "err_plus", "err_minus"):
+            branch: pl.Expr = _smooth_window(col_name, max_w)
+            for width in range(max_w - 1, 2, -1):
+                branch = (
+                    pl.when(pl.len() == width)
+                    .then(_smooth_window(col_name, width))
+                    .otherwise(branch)
+                )
+            expr = pl.when(pl.len() < 3).then(pl.col(col_name)).otherwise(branch)
+            if p.group_cols:
+                expr = expr.over(list(p.group_cols))
+            exprs.append(expr.alias(col_name))
+        agg = agg.with_columns(exprs)
 
     out = agg.with_columns(
         pl.lit(p.metric, dtype=pl.String).alias("metric"),
@@ -1251,4 +1043,48 @@ def run_computation(
         snapshot_id=resolved_snapshot,
         evidence_id=evidence_id,
         diagnostics=result.diagnostics,
+    )
+
+
+_ComputationSpec = tuple[str, type[BaseModel], type[Table], _ComputeFn, str]
+
+_COMPUTATION_SPECS: tuple[_ComputationSpec, ...] = (
+    ("group_summary", GroupSummaryParams, GroupSummaryAnalysis,
+     _compute_group_summary,
+     "Per-group summary statistics (Wilson CI for booleans; mean/std/sem/ci95 for numeric)."),
+    ("distribution_bins", DistributionBinsParams, DistributionBinsAnalysis,
+     _compute_distribution_bins,
+     "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); "
+     "the density column holds a probability mass per bin (count / total) unless density=True, "
+     "which divides by the bin width to give a probability density."),
+    ("radar_profile", RadarProfileParams, RadarProfileAnalysis,
+     _compute_radar_profile,
+     "Capability tradeoff radar profile matching RadarRenderer normalization (null means stay null)."),
+    ("composite_ranking", CompositeRankingParams, CompositeRankingAnalysis,
+     _run_composite_ranking,
+     "Weighted min-max normalized composite ranking (unrounded scores)."),
+    ("top_n_ranking", CompositeRankingParams, CompositeRankingAnalysis,
+     functools.partial(_run_composite_ranking, default_top_n=3),
+     "Top-N contestants by weighted normalized composite score (unrounded scores)."),
+    ("correlation_matrix", CorrelationMatrixParams, CorrelationMatrixAnalysis,
+     _compute_correlation_matrix,
+     "Pairwise-complete Pearson correlation matrix using pl.corr."),
+    ("paired_diff", PairedDiffParams, PairedDiffAnalysis,
+     _compute_paired_diff,
+     "Cluster-paired treatment minus control difference with bootstrap CI and p-value."),
+    ("cluster_bootstrap_ci", ClusterBootstrapCIParams, ClusterBootstrapCIAnalysis,
+     _compute_cluster_bootstrap_ci,
+     "Cluster-bootstrap confidence interval per group using Layer 3 stats."),
+    ("series_profile", SeriesProfileParams, SeriesProfileAnalysis,
+     _compute_series_profile,
+     "Series-grain binned/trimmed/reduced profile along an x axis with optional smoothing."),
+)
+
+for _name, _params, _output, _fn, _description in _COMPUTATION_SPECS:
+    COMPUTATIONS[_name] = Computation(
+        name=_name,
+        params=_params,
+        output=_output,
+        description=_description,
+        fn=_fn,
     )

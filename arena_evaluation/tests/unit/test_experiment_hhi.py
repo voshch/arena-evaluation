@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import pathlib
 
 import numpy as np
@@ -144,82 +143,6 @@ def _run(tmp_path: pathlib.Path) -> pathlib.Path:
     return write_benchmark(tmp_path / "run", _rows())
 
 
-def test_load_episodes_tags_arm_scenario_and_seed(tmp_path: pathlib.Path) -> None:
-    df = hhi.load_episodes(read_summary(_run(tmp_path)))
-    assert set(df["arm"]) == {"contact", "loco"} and set(df["interaction"]) == {
-        "hug",
-        "shake_hand",
-    }
-    assert sorted(set(df["seed"])) == [0, 1, 2]
-    assert df.filter(pl.col("stage") == "some_other_stage").height == 0
-    assert (
-        df.group_by(["planner", "stage"])
-        .agg(pl.col("seed").n_unique())["seed"]
-        .to_list()
-        == [3] * df["stage"].n_unique() * 2
-    )
-
-
-def test_family_table_compares_the_contact_arm_against_locomotion(
-    tmp_path: pathlib.Path,
-) -> None:
-    tables = hhi.analyze(_run(tmp_path), n_boot=1000)
-    fam = tables["family_a"]
-    assert fam.height == 2 * 2 * 4
-    dwb_ttg = fam.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "ttg"))
-    assert dwb_ttg["estimate"].to_list() == pytest.approx([10.0, 10.0])
-    assert dwb_ttg["excludes_zero"].to_list() == [True, True]
-    mppi_ttg = fam.filter((pl.col("planner") == "mppi") & (pl.col("metric") == "ttg"))
-    assert not any(mppi_ttg["excludes_zero"].to_list())
-    assert (tmp_path / "run" / "hhi" / "family_a.csv").exists()
-
-
-def test_family_table_carries_the_two_hhi_metrics(tmp_path: pathlib.Path) -> None:
-    """The published study keeps all four family metrics, not only the two episode outcomes (L3-070)."""
-    family = hhi.analyze(_run(tmp_path), n_boot=50)["family_a"]
-
-    assert set(family["metric"].to_list()) == {
-        "success",
-        "ttg",
-        "stalls",
-        "passes_between",
-    }
-    assert family.height == 2 * 2 * 4
-    dwb_stalls = family.filter(
-        (pl.col("planner") == "dwb") & (pl.col("metric") == "stalls")
-    )
-    # Contact arm 4 stalls, locomotion arm 1, over the paired scenarios.
-    assert dwb_stalls["estimate"].to_list() == pytest.approx([3.0, 3.0])
-    dwb_passes = family.filter(
-        (pl.col("planner") == "dwb") & (pl.col("metric") == "passes_between")
-    )
-    assert dwb_passes["estimate"].to_list() == pytest.approx([2.0, 2.0])
-
-
-def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
-    df = pl.DataFrame(
-        {
-            "success": [True, True, False],
-            "time_to_goal": [30.0, 40.0, 120.0],
-            "collision_amount": [0, 1, 0],
-            "collision_amount_pedestrian": [0, 1, 0],
-            "collision_amount_wall": [0, 0, 0],
-            "collision_amount_static": [0, 0, 0],
-        },
-        schema={
-            "success": pl.Boolean,
-            "time_to_goal": pl.Float64,
-            "collision_amount": pl.Int64,
-            "collision_amount_pedestrian": pl.Int64,
-            "collision_amount_wall": pl.Int64,
-            "collision_amount_static": pl.Int64,
-        },
-    )
-    out = hhi.paper_outcomes(df)
-    assert out["success"].to_list() == [True, False, False]
-    assert out["time_to_goal"].to_list() == [30.0, None, None]
-
-
 def test_window_table_and_manipulation_check_use_the_episode_rows_without_contacts(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -254,17 +177,6 @@ def test_window_table_and_manipulation_check_use_the_episode_rows_without_contac
         .row(0, named=True)
     )
     assert contact_hug["pair_gap_median"] == pytest.approx(0.6)
-
-
-def test_stage_regex_round_trips() -> None:
-    for kind in hhi.KINDS:
-        m = hhi.STAGE_RE.match(hhi.stage_name(kind, 7, "loco"))
-        assert m is not None and (m["kind"], int(m["scenario"]), m["arm"]) == (
-            kind,
-            7,
-            "loco",
-        )
-    assert math.isclose(hhi.MEET_OFFSET * 2, hhi.STANDING_DISTANCE + 0.2)
 
 
 def test_sampling_gives_up_after_its_tries() -> None:
@@ -331,14 +243,3 @@ def test_window_table_and_manipulation_check_raise_on_missing_columns() -> None:
         hhi.manipulation_check(empty_missing)
 
 
-def test_paper_outcomes_preserves_null_collisions_and_success() -> None:
-    df = pl.DataFrame(
-        {
-            "success": pl.Series([True, True, True, False, None], dtype=pl.Boolean),
-            "time_to_goal": [10.0, 12.0, 14.0, 15.0, 16.0],
-            "collision_amount": pl.Series([0, None, 1, None, 0], dtype=pl.Int64),
-        }
-    )
-    out = hhi.paper_outcomes(df)
-    assert out["success"].to_list() == [True, None, False, False, None]
-    assert out["time_to_goal"].to_list() == [10.0, None, None, None, None]

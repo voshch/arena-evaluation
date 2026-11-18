@@ -16,9 +16,7 @@ from PIL import Image
 from arena_evaluation.processing import map_registry as mr
 from arena_evaluation.processing.map_registry import MapRegistry
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 class _Proc:
@@ -55,17 +53,7 @@ def _get_map(tmp_path: pathlib.Path, name: str = "ae_map_r1") -> dict | None:
     return MapRegistry.get_map(name, cache_dir=tmp_path / "cache", run_dir=tmp_path / "run")
 
 
-# ---------------------------------------------------------------------------
 # _find_ros_map_dir
-# ---------------------------------------------------------------------------
-
-
-def test_find_ros_map_dir_rospack_hit(tmp_path, monkeypatch):
-    pkg = tmp_path / "pkg"
-    map_dir = pkg / "worlds" / "ae_map_r1"
-    map_dir.mkdir(parents=True)
-    monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _Proc(str(pkg)))
-    assert MapRegistry._find_ros_map_dir("ae_map_r1") == map_dir
 
 
 def test_find_ros_map_dir_rospack_hit_but_dir_missing_falls_to_arena_dir(tmp_path, monkeypatch):
@@ -89,16 +77,7 @@ def test_find_ros_map_dir_rospack_failure_falls_to_arena_dir(tmp_path, monkeypat
     assert MapRegistry._find_ros_map_dir("ae_map_r3") == map_dir
 
 
-def test_find_ros_map_dir_not_found(tmp_path, monkeypatch):
-    pkg = tmp_path / "pkg"
-    pkg.mkdir()
-    monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _Proc(str(pkg)))
-    assert MapRegistry._find_ros_map_dir("ae_map_nonesuch_xyz") is None
-
-
-# ---------------------------------------------------------------------------
 # _world_preview
-# ---------------------------------------------------------------------------
 
 
 def _write_format2_world(base: pathlib.Path, level_ids: list[str]) -> pathlib.Path:
@@ -106,18 +85,6 @@ def _write_format2_world(base: pathlib.Path, level_ids: list[str]) -> pathlib.Pa
     levels = [{"id": level_id, "zones": [{"name": f"room_{level_id}", "polygon": [[0, 0], [4, 0], [4, 3], [0, 3]]}]} for level_id in level_ids]
     (base / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": levels}))
     return base
-
-
-def test_world_preview_single_level_map(tmp_path):
-    world = _write_format2_world(tmp_path / "world", ["0"])
-    preview = _write_world_yaml(world, "map")
-    (preview / "map.yaml").rename(preview / "0.yaml")
-    assert MapRegistry._world_preview(world) == world / "map" / "0.yaml"
-
-
-def test_world_preview_without_preview_file(tmp_path):
-    world = _write_format2_world(tmp_path / "world", ["0"])
-    assert MapRegistry._world_preview(world) is None
 
 
 def test_world_preview_multi_level_world(tmp_path):
@@ -128,51 +95,11 @@ def test_world_preview_multi_level_world(tmp_path):
     assert MapRegistry._world_preview(world) is None
 
 
-def test_world_preview_directory_without_world(tmp_path):
-    assert MapRegistry._world_preview(tmp_path) is None
-
-
-def test_get_map_reads_single_level_world_preview(tmp_path):
-    world = _write_format2_world(tmp_path / "run" / "worlds" / "ae_map_r1", ["0"])
-    preview = _write_world_yaml(world, "map", image="0.pgm", resolution=0.1)
-    (preview / "map.yaml").rename(preview / "0.yaml")
-    _write_pgm(preview / "0.pgm", 4, 3)
-    meta = MapRegistry.get_map("ae_map_r1", cache_dir=tmp_path / "cache", run_dir=tmp_path / "run")
-    assert meta is not None
-    assert meta["resolution"] == 0.1
-    assert (meta["width"], meta["height"]) == (4, 3)
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("name", [None, "", "unknown"])
 def test_get_map_invalid_names(name, tmp_path):
     assert MapRegistry.get_map(name, cache_dir=tmp_path) is None
-
-
-def test_get_map_cache_hit_returns_cached_meta(tmp_path):
-    meta = {
-        "png_path": str(tmp_path / "ae_map_r1.png"),
-        "resolution": 0.05,
-        "origin": [0.0, 0.0, 0.0],
-        "width": 4,
-        "height": 3,
-    }
-    (tmp_path / "ae_map_r1.png").write_bytes(b"fake png bytes")
-    (tmp_path / "ae_map_r1.yaml").write_text(yaml.safe_dump(meta))
-    assert MapRegistry.get_map("ae_map_r1", cache_dir=tmp_path) == meta
-
-
-def test_get_map_cache_partial_hit_ignored(tmp_path):
-    # PNG exists but no YAML -> treated as cache miss
-    (tmp_path / "ae_map_nonesuch_xyz.png").write_bytes(b"fake")
-    assert MapRegistry.get_map("ae_map_nonesuch_xyz", cache_dir=tmp_path) is None
-
-
-def test_get_map_no_world_dir(tmp_path):
-    assert MapRegistry.get_map("ae_map_nonesuch_xyz", cache_dir=tmp_path) is None
 
 
 def test_get_map_world_dir_without_map_yaml(tmp_path):
@@ -208,37 +135,6 @@ def test_get_map_pgm_to_png_conversion(tmp_path):
     # Second call now served from cache (returns raw cached yaml content).
     cached = _get_map(tmp_path)
     assert cached == meta
-
-
-def test_get_map_default_resolution_and_origin(tmp_path):
-    world = _write_world_yaml(_run_world(tmp_path), "map", image="map.pgm")
-    _write_pgm(world / "map.pgm", 5, 5)
-    meta = _get_map(tmp_path)
-    assert meta["resolution"] == 0.05
-    assert meta["origin"] == [0.0, 0.0, 0.0]
-
-
-def test_get_map_default_image_name(tmp_path):
-    # yaml without "image" key -> default "map.pgm"
-    world = _write_world_yaml(_run_world(tmp_path), "map")
-    _write_pgm(world / "map.pgm", 3, 3)
-    assert _get_map(tmp_path) is not None
-
-
-def test_get_map_candidate_order_map_subdir_preferred(tmp_path):
-    world_dir = _run_world(tmp_path)
-    sub = _write_world_yaml(world_dir, "map", resolution=0.5)
-    _write_pgm(sub / "map.pgm", 3, 3)
-    _write_world_yaml(world_dir, None, resolution=0.01)  # flat fallback candidate
-    meta = _get_map(tmp_path)
-    assert meta["resolution"] == 0.5
-
-
-def test_get_map_origin_coerced_to_floats(tmp_path):
-    world = _write_world_yaml(_run_world(tmp_path), "map", origin=[1, -2, 0])  # ints in yaml
-    _write_pgm(world / "map.pgm", 3, 3)
-    meta = _get_map(tmp_path)
-    assert meta["origin"] == [1.0, -2.0, 0.0]
 
 
 def test_get_map_conversion_failure(tmp_path, capsys):

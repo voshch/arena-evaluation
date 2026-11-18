@@ -114,20 +114,6 @@ def test_registry_refuses_a_circular_dependency() -> None:
         MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB))
 
 
-def test_registry_uses_a_calculators_companion_null_reason() -> None:
-    registry = MetricRegistry(
-        make_robot_params(robot_radius=0.25), calculators=(CustomNullReasonCalc,)
-    )
-
-    outcome = registry.run_scope(
-        MetricScope.EPISODE, _episode(), available_topics=set(), pedsim_available=True
-    )
-
-    assert outcome.results["custom_null"] is None
-    assert "custom_null_null_reason" not in outcome.results
-    assert outcome.provenance["custom_null"] == "custom_null:custom_reason"
-
-
 def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
     registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,))
 

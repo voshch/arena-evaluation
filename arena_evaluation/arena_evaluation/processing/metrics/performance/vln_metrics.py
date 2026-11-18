@@ -287,7 +287,7 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         "sdtw": Direction.HIGHER,
         "stuck": Direction.LOWER,
     }
-    PRIMARY_OUTPUTS = ["ne", "osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"]
+    PRIMARY_OUTPUTS = list(_ROUTE_OUTPUTS)
 
     NDTW_SPACING_M = 0.25
     STUCK_WINDOW_S = 10.0
@@ -391,7 +391,8 @@ class VlnMetricsCalculator(BaseMetricCalculator):
             )
         )
         euclid = np.hypot(pos_x[near] - goal_xy[0], pos_y[near] - goal_xy[1])
-        near = near[euclid <= threshold][np.argsort(euclid[euclid <= threshold])]
+        within_tolerance = euclid <= threshold
+        near = near[within_tolerance][np.argsort(euclid[within_tolerance])]
         results["osr"] = False
         refusal: str | None = None
         for i in near:

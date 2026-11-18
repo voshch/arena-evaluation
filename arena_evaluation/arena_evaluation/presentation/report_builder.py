@@ -162,6 +162,21 @@ def _status_table_data(df: pl.DataFrame) -> dict[str, Any] | None:
     }
 
 
+def _build_record(
+    diag: PlotDiagnostics, *, plot_id: str, passed: bool
+) -> PlotBuildRecord:
+    """One plot's provenance record, shared by the success and gate-failure paths."""
+    return PlotBuildRecord(
+        plot_id=plot_id,
+        evidence_id=diag.evidence_id,
+        snapshot_id=diag.snapshot_id,
+        evidence_ids=diag.evidence_ids,
+        snapshot_ids=diag.snapshot_ids,
+        row_count=diag.row_count,
+        passed=passed,
+    )
+
+
 def _plot_provenance(diagnostics: PlotDiagnostics) -> dict[str, str | int]:
     """The evidence and snapshot ids and the row count a figure was drawn from."""
     return {
@@ -241,38 +256,29 @@ def _render_markdown_light(text: str) -> markupsafe.Markup:
     return markupsafe.Markup(out.replace("\n", "<br>"))
 
 
+def _named(manifest: VizManifest, label: str) -> tuple[VizManifest, str]:
+    """Return a manifest and its output name, rejecting an unnamed manifest."""
+    name = (manifest.name or "").strip()
+    if not name:
+        raise ValueError(f"{label} must declare a non-empty 'name'.")
+    return manifest, name
+
+
 def _resolve_manifest_and_name(
     manifest: VizManifest | str | pathlib.Path | None,
     benchmark_dir: pathlib.Path,
 ) -> tuple[VizManifest, str]:
     """Resolve a report manifest and its output directory name."""
     if isinstance(manifest, VizManifest):
-        name = (manifest.name or "").strip()
-        if not name:
-            raise ValueError("Report manifest must declare a non-empty 'name'.")
-        return manifest, name
-
+        return _named(manifest, "Report manifest")
     if isinstance(manifest, pathlib.Path):
-        obj = VizManifest.load(manifest)
-        name = (obj.name or "").strip()
-        if not name:
-            raise ValueError(
-                f"Report manifest {manifest} must declare a non-empty 'name'."
-            )
-        return obj, name
-
+        return _named(VizManifest.load(manifest), f"Report manifest {manifest}")
     if isinstance(manifest, str):
         ref = manifest.strip()
         obj = resolve_manifest(ref, benchmark_dir=benchmark_dir)
         if is_inline(ref) or pathlib.Path(ref).exists():
-            name = (obj.name or "").strip()
-            if not name:
-                raise ValueError(
-                    "Inline or path report manifest must declare a non-empty 'name'."
-                )
-            return obj, name
+            return _named(obj, "Inline or path report manifest")
         return obj, ref.removesuffix(".yaml")
-
     return resolve_manifest(None, benchmark_dir=benchmark_dir), "standard"
 
 
@@ -518,7 +524,7 @@ class ReportBuilder:
                 )
             except Exception as exc:
                 record_failure(spec, CheckStage.LOAD, str(exc))
-                records.append(PlotBuildRecord(plot_id=spec.id, passed=False))
+                records.append(_build_record(diag, plot_id=spec.id, passed=False))
                 continue
 
             note_html = self._plot_note_markup(spec)
@@ -538,17 +544,7 @@ class ReportBuilder:
                         "provenance": _plot_provenance(diag),
                     }
                 )
-                records.append(
-                    PlotBuildRecord(
-                        plot_id=spec.id,
-                        evidence_id=diag.evidence_id,
-                        snapshot_id=diag.snapshot_id,
-                        evidence_ids=diag.evidence_ids,
-                        snapshot_ids=diag.snapshot_ids,
-                        row_count=diag.row_count,
-                        passed=False,
-                    )
-                )
+                records.append(_build_record(diag, plot_id=spec.id, passed=False))
                 continue
 
             png_path = self.plots_dir / f"{spec.id}.png"
@@ -648,15 +644,7 @@ class ReportBuilder:
                 )
 
             records.append(
-                PlotBuildRecord(
-                    plot_id=spec.id,
-                    evidence_id=diag.evidence_id,
-                    snapshot_id=diag.snapshot_id,
-                    evidence_ids=diag.evidence_ids,
-                    snapshot_ids=diag.snapshot_ids,
-                    row_count=diag.row_count,
-                    passed=not plot_failed,
-                )
+                _build_record(diag, plot_id=spec.id, passed=not plot_failed)
             )
 
         status_table, summary_table = self._build_summary_tables(manifest, failures)
@@ -697,43 +685,31 @@ class ReportBuilder:
         source_name = manifest.data_source or EPISODE_SUMMARY_VIEW
         source_df = self._sources.frame(source_name, tag_run=True)
         status_table = _status_table_data(source_df) if source_df is not None else None
-        if not manifest.summary:
-            return status_table, None
 
-        if source_df is None or source_df.is_empty():
+        def fail_summary(detail: str) -> tuple[dict[str, Any] | None, None]:
             failures.append(
                 PlotCheck(
                     plot_id="summary",
                     title="Performance Summary",
                     stage=CheckStage.LOAD,
-                    detail=f"Summary source {source_name!r} is missing or empty.",
+                    detail=detail,
                 )
             )
             return status_table, None
+
+        if not manifest.summary:
+            return status_table, None
+        if source_df is None or source_df.is_empty():
+            return fail_summary(f"Summary source {source_name!r} is missing or empty.")
 
         metrics = [item.metric for item in manifest.summary]
         missing_metrics = [m for m in metrics if source_df.schema.get(m) is None]
         if missing_metrics:
-            failures.append(
-                PlotCheck(
-                    plot_id="summary",
-                    title="Performance Summary",
-                    stage=CheckStage.LOAD,
-                    detail=f"Summary metric(s) {missing_metrics!r} missing from {source_name!r}.",
-                )
+            return fail_summary(
+                f"Summary metric(s) {missing_metrics!r} missing from {source_name!r}."
             )
-            return status_table, None
-
         if manifest.summary_group_by is None:
-            failures.append(
-                PlotCheck(
-                    plot_id="summary",
-                    title="Performance Summary",
-                    stage=CheckStage.LOAD,
-                    detail="Summary manifest must declare 'summary_group_by'.",
-                )
-            )
-            return status_table, None
+            return fail_summary("Summary manifest must declare 'summary_group_by'.")
 
         raw_groups = (
             [manifest.summary_group_by]
@@ -749,15 +725,9 @@ class ReportBuilder:
 
         missing_groups = [g for g in group_cols if source_df.schema.get(g) is None]
         if missing_groups:
-            failures.append(
-                PlotCheck(
-                    plot_id="summary",
-                    title="Performance Summary",
-                    stage=CheckStage.LOAD,
-                    detail=f"Summary group_by column(s) {missing_groups!r} missing from {source_name!r}.",
-                )
+            return fail_summary(
+                f"Summary group_by column(s) {missing_groups!r} missing from {source_name!r}."
             )
-            return status_table, None
 
         if not group_cols:
             return status_table, None

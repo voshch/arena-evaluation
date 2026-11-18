@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import re
 import typing
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Final
 
 import numpy as np
@@ -35,72 +36,11 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
     resolve_robot_trajectory,
 )
 from arena_evaluation.storage.exceptions import MetricInputError
-from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
+from arena_evaluation.storage.registry import Metric, MetricScope, NullReason, define_metric
 
 if typing.TYPE_CHECKING:
     from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-V_CLOSE_ROBOT = define_metric(
-    "v_close_robot_mps",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m/s",
-    description="Mean part of the robot's velocity pointing at the other body along the line of sight over the 0.5 s before contact; positive when the robot closes in.",
-    null_reason=True,
-)
-V_CLOSE_TARGET = define_metric(
-    "v_close_target_mps",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m/s",
-    description="Mean part of the other body's velocity pointing at the robot along the line of sight over the 0.5 s before contact; positive when the other body closes in.",
-    null_reason=True,
-)
-V_ROBOT_IMPACT = define_metric(
-    "v_robot_impact_mps",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m/s",
-    description="Robot speed at contact onset.",
-    null_reason=True,
-)
-V_TARGET_IMPACT = define_metric(
-    "v_target_impact_mps",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m/s",
-    description="Speed of the other body at contact onset; zero for a wall or static collider.",
-    null_reason=True,
-)
-RELATIVE_IMPACT_SPEED = define_metric(
-    "relative_impact_speed_mps",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m/s",
-    description="Relative speed of the robot and the other body at contact onset.",
-    null_reason=True,
-)
-FREEZE_CLEARANCE = define_metric(
-    "freeze_clearance_m",
-    pl.Float64,
-    scopes=(MetricScope.CONTACT,),
-    unit="m",
-    description="Closest approach of the pedestrian's recorded path to the robot frozen at t0 minus the pre-contact window, over [t0 - pre, t0 + post] (0.5 s each by default), minus both body radii; zero or negative means the contact would have happened anyway.",
-    null_reason=True,
-)
-CONTACT_COUNT = define_metric(
-    "contact_count",
-    pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="count",
-    description="Number of contacts detected in the episode; NULL when no collision stream was recorded and no contact could be detected.",
-    null_reason=True,
-)
-
-PRE_CONTACT_WINDOW_S: Final[float] = 0.5
-POST_CONTACT_WINDOW_S: Final[float] = 0.5
-#: Wall-clock gap, seconds, that still merges two recorded contact samples of the same target into one contact.
-CONTACT_MERGE_GAP_S: Final[float] = 0.25
 PEDESTRIAN_KIND: Final[str] = "pedestrian"
 ROBOT_KIND: Final[str] = "robot"
 #: Collider kinds that move on their own and whose speed is therefore recorded on a track.
@@ -108,45 +48,56 @@ TRACKED_KINDS: Final[frozenset[str]] = frozenset({PEDESTRIAN_KIND, ROBOT_KIND})
 PEDESTRIAN_KIND_PATTERN: Final[str] = "ped|human"
 ROBOT_COLLISION_CONTACTS_TOPIC: Final[str] = "robot_collision_contacts"
 ROBOT_COLLISION_EVENTS_TOPIC: Final[str] = "robot_collision_events"
+PRE_CONTACT_WINDOW_S: Final[float] = 0.5
+POST_CONTACT_WINDOW_S: Final[float] = 0.5
+#: Wall-clock gap, seconds, that still merges two recorded contact samples of the same target into one contact.
+CONTACT_MERGE_GAP_S: Final[float] = 0.25
 
-CONTACT_COUNT_PEDESTRIAN = define_metric(
-    "contact_count_pedestrian",
-    pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="count",
-    description="Contacts of the episode whose other body is a pedestrian; from the same detector as contact_count.",
-    null_reason=True,
-)
-CONTACT_COUNT_ROBOT = define_metric(
-    "contact_count_robot",
-    pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="count",
-    description="Contacts of the episode whose other body is another robot; from the same detector as contact_count.",
-    null_reason=True,
-)
-CONTACT_COUNT_WALL = define_metric(
-    "contact_count_wall",
-    pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="count",
-    description="Contacts of the episode with a wall; from the same detector as contact_count.",
-    null_reason=True,
-)
-CONTACT_COUNT_STATIC = define_metric(
-    "contact_count_static",
-    pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="count",
-    description="Contacts of the episode with a static obstacle; from the same detector as contact_count.",
-    null_reason=True,
-)
-CONTACT_COUNT_BY_KIND: Final[tuple[tuple[str, typing.Any], ...]] = (
+
+def _metric(
+    name: str, dtype: pl.DataType | type[pl.DataType], scope: MetricScope, unit: str, description: str
+) -> Metric:
+    return define_metric(name, dtype, scopes=(scope,), unit=unit, description=description, null_reason=True)
+
+
+V_CLOSE_ROBOT = _metric("v_close_robot_mps", pl.Float64, MetricScope.CONTACT, "m/s", "Mean part of the robot's velocity pointing at the other body along the line of sight over the 0.5 s before contact; positive when the robot closes in.")
+V_CLOSE_TARGET = _metric("v_close_target_mps", pl.Float64, MetricScope.CONTACT, "m/s", "Mean part of the other body's velocity pointing at the robot along the line of sight over the 0.5 s before contact; positive when the other body closes in.")
+V_ROBOT_IMPACT = _metric("v_robot_impact_mps", pl.Float64, MetricScope.CONTACT, "m/s", "Robot speed at contact onset.")
+V_TARGET_IMPACT = _metric("v_target_impact_mps", pl.Float64, MetricScope.CONTACT, "m/s", "Speed of the other body at contact onset; zero for a wall or static collider.")
+RELATIVE_IMPACT_SPEED = _metric("relative_impact_speed_mps", pl.Float64, MetricScope.CONTACT, "m/s", "Relative speed of the robot and the other body at contact onset.")
+FREEZE_CLEARANCE = _metric("freeze_clearance_m", pl.Float64, MetricScope.CONTACT, "m", "Closest approach of the pedestrian's recorded path to the robot frozen at t0 minus the pre-contact window, over [t0 - pre, t0 + post] (0.5 s each by default), minus both body radii; zero or negative means the contact would have happened anyway.")
+CONTACT_COUNT = _metric("contact_count", pl.Int64, MetricScope.EPISODE, "count", "Number of contacts detected in the episode; NULL when no collision stream was recorded and no contact could be detected.")
+CONTACT_COUNT_PEDESTRIAN = _metric("contact_count_pedestrian", pl.Int64, MetricScope.EPISODE, "count", "Contacts of the episode whose other body is a pedestrian; from the same detector as contact_count.")
+CONTACT_COUNT_ROBOT = _metric("contact_count_robot", pl.Int64, MetricScope.EPISODE, "count", "Contacts of the episode whose other body is another robot; from the same detector as contact_count.")
+CONTACT_COUNT_WALL = _metric("contact_count_wall", pl.Int64, MetricScope.EPISODE, "count", "Contacts of the episode with a wall; from the same detector as contact_count.")
+CONTACT_COUNT_STATIC = _metric("contact_count_static", pl.Int64, MetricScope.EPISODE, "count", "Contacts of the episode with a static obstacle; from the same detector as contact_count.")
+CONTACT_COUNT_BY_KIND: Final[tuple[tuple[str, Metric], ...]] = (
     (PEDESTRIAN_KIND, CONTACT_COUNT_PEDESTRIAN),
     (ROBOT_KIND, CONTACT_COUNT_ROBOT),
     ("wall", CONTACT_COUNT_WALL),
     ("static", CONTACT_COUNT_STATIC),
 )
+_SCALAR_METRICS: Final[tuple[Metric, ...]] = (
+    V_CLOSE_ROBOT,
+    V_CLOSE_TARGET,
+    V_ROBOT_IMPACT,
+    V_TARGET_IMPACT,
+    RELATIVE_IMPACT_SPEED,
+    FREEZE_CLEARANCE,
+)
+_COUNT_METRICS: Final[tuple[Metric, ...]] = (
+    CONTACT_COUNT,
+    *(metric for _, metric in CONTACT_COUNT_BY_KIND),
+)
+_SCALAR_NAMES: Final[tuple[str, ...]] = tuple(metric.name for metric in _SCALAR_METRICS)
+_COUNT_NAMES: Final[tuple[str, ...]] = tuple(metric.name for metric in _COUNT_METRICS)
+
+
+def _undefined_metrics(names: Iterable[str], reason: str) -> dict[str, typing.Any]:
+    """Every named metric NULL with one shared reason and its null-reason companion."""
+    undefined: dict[str, typing.Any] = dict.fromkeys(names)
+    undefined.update({f"{name}_null_reason": reason for name in undefined})
+    return undefined
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,14 +160,13 @@ def closing_shares(
     v_close_robot_mps: float | None,
     v_close_target_mps: float | None,
 ) -> tuple[float | None, float | None]:
-    """Robot and target closing shares in 0..1, computed from the two stored closing speeds.
-
-    Each speed is clipped at 0 and the two shares add to 1. When neither body closes there is no
-    denominator and both shares are None; when either speed is unmeasured both are None.
-    """
-    if v_close_robot_mps is None or v_close_target_mps is None:
-        return None, None
-    if not (np.isfinite(v_close_robot_mps) and np.isfinite(v_close_target_mps)):
+    """Robot and target closing shares in 0..1; both None when a speed is unmeasured or no body closes."""
+    if (
+        v_close_robot_mps is None
+        or v_close_target_mps is None
+        or not np.isfinite(v_close_robot_mps)
+        or not np.isfinite(v_close_target_mps)
+    ):
         return None, None
     closing_robot = max(0.0, float(v_close_robot_mps))
     closing_target = max(0.0, float(v_close_target_mps))
@@ -232,118 +182,72 @@ def _finite_or_none(value: float) -> float | None:
     return float(value) if np.isfinite(value) else None
 
 
-def _covers_onset(track: PedTrack, t0_ns: int) -> bool:
-    """Whether the contact onset lies inside the recorded span of the pedestrian track."""
-    return len(track.t_ns) > 0 and int(track.t_ns[0]) <= t0_ns <= int(track.t_ns[-1])
+def _sample_at(trajectory: Trajectory2D, t_ns: int) -> Trajectory2D:
+    """The trajectory linearly interpolated at one nanosecond stamp."""
+    return trajectory.resample_onto(np.asarray([t_ns], dtype=np.int64))
+
+
+def _closing_components(
+    dx: np.ndarray, dy: np.ndarray, robot: Trajectory2D,
+    other_vx: np.ndarray | None = None, other_vy: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Mean robot and other-body closing speed along the line of sight of each valid sample."""
+    distance = np.hypot(dx, dy)
+    valid = (
+        (distance > 1e-6)
+        & np.isfinite(distance)
+        & np.isfinite(robot.vx)
+        & np.isfinite(robot.vy)
+    )
+    if other_vx is not None and other_vy is not None:
+        valid &= np.isfinite(other_vx) & np.isfinite(other_vy)
+    if not np.any(valid):
+        return float("nan"), float("nan")
+    ux, uy = dx[valid] / distance[valid], dy[valid] / distance[valid]
+    robot_closing = float(np.mean(robot.vx[valid] * ux + robot.vy[valid] * uy))
+    target_closing = (
+        float(-np.mean(other_vx[valid] * ux + other_vy[valid] * uy))
+        if other_vx is not None and other_vy is not None
+        else 0.0
+    )
+    return robot_closing, target_closing
 
 
 def compute_closing_speeds(
     event: ContactEvent, context: ContactContext
 ) -> tuple[float, float]:
-    """Mean robot and target closing speeds (m/s) over [t0 - pre_window_s, t0].
-
-    A closing speed needs a line of sight and both velocity samples; where either is missing the
-    result is NaN, which the caller publishes as NULL.
-    """
+    """Mean robot and target closing speeds (m/s) over [t0 - pre_window_s, t0]; NaN when unmeasured."""
     win_start_ns = int(event.t0_ns - round(context.pre_window_s * NS_PER_S))
-    r_win = context.robot.slice_ns(win_start_ns, event.t0_ns)
-    if len(r_win.t_ns) == 0:
+    robot = context.robot.slice_ns(win_start_ns, event.t0_ns)
+    if len(robot.t_ns) == 0:
         return float("nan"), float("nan")
 
-    if event.track is not None and _covers_onset(event.track, event.t0_ns):
-        p_win = event.track.trajectory.resample_onto(r_win.t_ns)
-        dx = p_win.x - r_win.x
-        dy = p_win.y - r_win.y
-        dist = np.hypot(dx, dy)
-        inside_track = (r_win.t_ns >= event.track.t_ns[0]) & (
-            r_win.t_ns <= event.track.t_ns[-1]
-        )
-        valid = (
-            inside_track
-            & (dist > 1e-6)
-            & np.isfinite(dist)
-            & np.isfinite(r_win.vx)
-            & np.isfinite(r_win.vy)
-            & np.isfinite(p_win.vx)
-            & np.isfinite(p_win.vy)
-        )
-        if not np.any(valid):
-            return float("nan"), float("nan")
-        ux, uy = dx[valid] / dist[valid], dy[valid] / dist[valid]
-        v_close_r = r_win.vx[valid] * ux + r_win.vy[valid] * uy
-        v_close_t = -(p_win.vx[valid] * ux + p_win.vy[valid] * uy)
-        return float(np.mean(v_close_r)), float(np.mean(v_close_t))
-
-    if event.static_point is not None:
-        dx = float(event.static_point[0]) - r_win.x
-        dy = float(event.static_point[1]) - r_win.y
-        dist = np.hypot(dx, dy)
-        valid = (
-            (dist > 1e-6)
-            & np.isfinite(dist)
-            & np.isfinite(r_win.vx)
-            & np.isfinite(r_win.vy)
-        )
-        target_closing = (
-            0.0 if event.obstacle_kind not in TRACKED_KINDS else float("nan")
-        )
-        if np.any(valid):
-            ux, uy = dx[valid] / dist[valid], dy[valid] / dist[valid]
-            return float(
-                np.mean(r_win.vx[valid] * ux + r_win.vy[valid] * uy)
-            ), target_closing
-        return float("nan"), target_closing
-
-    # A wall or static body does not move, so its speed is measured zero; the robot's own closing
-    # speed needs a position to define the line of sight and stays undefined without one.
-    if event.obstacle_kind not in TRACKED_KINDS:
-        return float("nan"), 0.0
-    return float("nan"), float("nan")
-
-
-def frozen_robot_clearance(
-    event: ContactEvent, context: ContactContext
-) -> float | None:
-    """Frozen-robot clearance (m) over [t0 - pre_window_s, t0 + post_window_s].
-
-    The robot is held where it was ``pre_window_s`` before contact and the pedestrian's recorded
-    path is replayed against it; the result is the closest centre distance minus both body radii.
-    Only a pedestrian yields it: a wall does not move and another robot reacts to a stopped robot.
-    """
     track = event.track
-    if (
-        event.obstacle_kind != PEDESTRIAN_KIND
-        or track is None
-        or track.radius_m is None
-        or not np.isfinite(track.radius_m)
-        or track.radius_m <= 0.0
-        or len(track.t_ns) == 0
-        or len(context.robot.t_ns) == 0
-    ):
-        return None
-
-    win_start_ns = int(event.t0_ns - round(context.pre_window_s * NS_PER_S))
-    win_end_ns = int(event.t0_ns + round(context.post_window_s * NS_PER_S))
-    ped_in_win = (track.t_ns >= win_start_ns) & (track.t_ns <= win_end_ns)
-    if not np.any(ped_in_win):
-        return None
-
-    t_freeze_ns = max(int(context.robot.t_ns[0]), win_start_ns)
-    frozen_pose = context.robot.resample_onto(np.asarray([t_freeze_ns], dtype=np.int64))
-    freeze_x, freeze_y = float(frozen_pose.x[0]), float(frozen_pose.y[0])
-    if not (np.isfinite(freeze_x) and np.isfinite(freeze_y)):
-        return None
-
-    ped_x = track.x[ped_in_win]
-    ped_y = track.y[ped_in_win]
-    measured = np.isfinite(ped_x) & np.isfinite(ped_y)
-    if not np.any(measured):
-        return None
-    dists = np.hypot(ped_x[measured] - freeze_x, ped_y[measured] - freeze_y)
-
-    return float(np.min(dists)) - (
-        float(context.robot.radius_m) + float(track.radius_m)
+    covers_onset = (
+        track is not None
+        and len(track.t_ns) > 0
+        and int(track.t_ns[0]) <= event.t0_ns <= int(track.t_ns[-1])
     )
+    if covers_onset:
+        pedestrian = track.trajectory.resample_onto(robot.t_ns)
+        inside = (robot.t_ns >= track.t_ns[0]) & (robot.t_ns <= track.t_ns[-1])
+        return _closing_components(
+            np.where(inside, pedestrian.x - robot.x, np.nan),
+            np.where(inside, pedestrian.y - robot.y, np.nan),
+            robot,
+            pedestrian.vx,
+            pedestrian.vy,
+        )
+
+    target_closing = 0.0 if event.obstacle_kind not in TRACKED_KINDS else float("nan")
+    if event.static_point is None:
+        return float("nan"), target_closing
+    robot_closing, _ = _closing_components(
+        float(event.static_point[0]) - robot.x,
+        float(event.static_point[1]) - robot.y,
+        robot,
+    )
+    return robot_closing, target_closing
 
 
 def attribute_single_contact(
@@ -353,29 +257,53 @@ def attribute_single_contact(
 ) -> ContactAttributionRecord:
     """Compute the attribution scalars of a single ContactEvent."""
     v_close_r, v_close_t = compute_closing_speeds(event, context)
-
-    t0_arr = np.asarray([event.t0_ns], dtype=np.int64)
-    r_at_t0 = context.robot.resample_onto(t0_arr)
-    rvx_0, rvy_0 = float(r_at_t0.vx[0]), float(r_at_t0.vy[0])
+    at_t0 = _sample_at(context.robot, event.t0_ns)
+    rvx_0, rvy_0 = float(at_t0.vx[0]), float(at_t0.vy[0])
     v_robot_impact = float(np.hypot(rvx_0, rvy_0))
+    track = event.track
 
     if event.obstacle_kind in TRACKED_KINDS:
-        if event.track is not None and _covers_onset(event.track, event.t0_ns):
-            p_at_t0 = event.track.trajectory.resample_onto(t0_arr)
-            pvx_0, pvy_0 = float(p_at_t0.vx[0]), float(p_at_t0.vy[0])
+        v_target_impact = float("nan")
+        rel_impact = float("nan")
+        if track is not None and len(track.t_ns) > 0 and int(track.t_ns[0]) <= event.t0_ns <= int(track.t_ns[-1]):
+            ped_at_t0 = _sample_at(track.trajectory, event.t0_ns)
+            pvx_0, pvy_0 = float(ped_at_t0.vx[0]), float(ped_at_t0.vy[0])
             v_target_impact = float(np.hypot(pvx_0, pvy_0))
             rel_impact = float(np.hypot(rvx_0 - pvx_0, rvy_0 - pvy_0))
-        else:
-            v_target_impact = float("nan")
-            rel_impact = float("nan")
     else:
         # A wall or static collider is at rest by definition, so the relative speed is the robot's.
         v_target_impact = 0.0
         rel_impact = v_robot_impact
 
-    ep_start_ns = (
-        int(context.robot.t_ns[0]) if len(context.robot.t_ns) > 0 else event.t0_ns
-    )
+    freeze_clearance_m: float | None = None
+    if (
+        event.obstacle_kind == PEDESTRIAN_KIND
+        and track is not None
+        and track.radius_m is not None
+        and np.isfinite(track.radius_m)
+        and track.radius_m > 0.0
+        and len(track.t_ns) > 0
+        and len(context.robot.t_ns) > 0
+    ):
+        win_start_ns = int(event.t0_ns - round(context.pre_window_s * NS_PER_S))
+        win_end_ns = int(event.t0_ns + round(context.post_window_s * NS_PER_S))
+        frozen = _sample_at(context.robot, max(int(context.robot.t_ns[0]), win_start_ns))
+        freeze_x, freeze_y = float(frozen.x[0]), float(frozen.y[0])
+        measured = (
+            (track.t_ns >= win_start_ns)
+            & (track.t_ns <= win_end_ns)
+            & np.isfinite(track.x)
+            & np.isfinite(track.y)
+        )
+        if np.isfinite(freeze_x) and np.isfinite(freeze_y) and np.any(measured):
+            distances = np.hypot(
+                track.x[measured] - freeze_x, track.y[measured] - freeze_y
+            )
+            freeze_clearance_m = float(np.min(distances)) - (
+                float(context.robot.radius_m) + float(track.radius_m)
+            )
+
+    ep_start_ns = int(context.robot.t_ns[0]) if len(context.robot.t_ns) else event.t0_ns
     return ContactAttributionRecord(
         contact_id=contact_id,
         t0_ns=int(event.t0_ns),
@@ -391,7 +319,7 @@ def attribute_single_contact(
         v_robot_impact_mps=_finite_or_none(v_robot_impact),
         v_target_impact_mps=_finite_or_none(v_target_impact),
         relative_impact_speed_mps=_finite_or_none(rel_impact),
-        freeze_clearance_m=frozen_robot_clearance(event, context),
+        freeze_clearance_m=freeze_clearance_m,
     )
 
 
@@ -399,17 +327,22 @@ def contact_scalars(
     record: ContactAttributionRecord, event: ContactEvent
 ) -> dict[str, typing.Any]:
     """The six stored contact scalars plus a null reason beside each undefined one."""
-    scalars: dict[str, typing.Any] = {
-        V_CLOSE_ROBOT.name: record.v_close_robot_mps,
-        V_CLOSE_TARGET.name: record.v_close_target_mps,
-        V_ROBOT_IMPACT.name: record.v_robot_impact_mps,
-        V_TARGET_IMPACT.name: record.v_target_impact_mps,
-        RELATIVE_IMPACT_SPEED.name: record.relative_impact_speed_mps,
-        FREEZE_CLEARANCE.name: record.freeze_clearance_m,
-    }
-    for key, value in tuple(scalars.items()):
-        if value is None:
-            scalars[f"{key}_null_reason"] = _null_reason(key, event)
+    values = (
+        record.v_close_robot_mps,
+        record.v_close_target_mps,
+        record.v_robot_impact_mps,
+        record.v_target_impact_mps,
+        record.relative_impact_speed_mps,
+        record.freeze_clearance_m,
+    )
+    scalars: dict[str, typing.Any] = dict(zip(_SCALAR_NAMES, values, strict=True))
+    scalars.update(
+        {
+            f"{name}_null_reason": _null_reason(name, event)
+            for name, value in zip(_SCALAR_NAMES, values, strict=True)
+            if value is None
+        }
+    )
     return scalars
 
 
@@ -417,28 +350,12 @@ def _null_reason(key: str, event: ContactEvent) -> str:
     """Why a contact scalar is NULL: inapplicable to the collider kind, an unrecorded radius, or no usable sample in the window."""
     if event.obstacle_kind == ROBOT_KIND and key != V_ROBOT_IMPACT.name:
         return NullReason.NOT_APPLICABLE.value
-    if key == FREEZE_CLEARANCE.name and event.obstacle_kind != PEDESTRIAN_KIND:
-        return NullReason.NOT_APPLICABLE.value
-    if (
-        key == FREEZE_CLEARANCE.name
-        and event.track is not None
-        and event.track.radius_m is None
-    ):
-        return NullReason.NOT_RECORDED.value
+    if key == FREEZE_CLEARANCE.name:
+        if event.obstacle_kind != PEDESTRIAN_KIND:
+            return NullReason.NOT_APPLICABLE.value
+        if event.track is not None and event.track.radius_m is None:
+            return NullReason.NOT_RECORDED.value
     return NullReason.NO_SAMPLES.value
-
-
-def _recorded_ped_radius_m(track: PedTrack) -> float:
-    """The pedestrian's recorded body radius; a missing or non-positive one is refused, never replaced by a default."""
-    if (
-        track.radius_m is None
-        or not np.isfinite(track.radius_m)
-        or track.radius_m <= 0.0
-    ):
-        raise MetricInputError(
-            f"contact attribution needs the recorded radius_m of pedestrian {track.ped_id!r}"
-        )
-    return float(track.radius_m)
 
 
 def static_point_of(
@@ -455,59 +372,19 @@ def static_point_of(
     return None if point == (0.0, 0.0) else point
 
 
+def _as_point(static_point: Sequence[float] | None) -> tuple[float, float] | None:
+    """The two coordinates of a configured point, None when it carries fewer."""
+    return (
+        None
+        if static_point is None or len(static_point) < 2
+        else (float(static_point[0]), float(static_point[1]))
+    )
+
+
 def _numeric_suffix(name: str) -> str | None:
     """Trailing number of an entity name (``Pedestrian_7`` -> ``7``), None when it has none."""
     digits = re.findall(r"\d+", name)
     return digits[-1] if digits else None
-
-
-def _track_by_name_or_id(
-    obstacle_id: str, tracks: Mapping[str, PedTrack]
-) -> PedTrack | None:
-    """Track whose ped_id or ped_name equals the obstacle id or its env-stripped entity name."""
-    normalized = obstacle_id.strip()
-    if not normalized:
-        return None
-    base = entity_name(normalized)
-    for track in tracks.values():
-        if track.ped_id in (normalized, base) or track.ped_name in (normalized, base):
-            return track
-    return None
-
-
-def _track_by_numeric_suffix(
-    base: str, tracks: Mapping[str, PedTrack]
-) -> PedTrack | None:
-    """Track whose ped_id or ped_name ends in the same number as the obstacle id."""
-    suffix = _numeric_suffix(base)
-    if suffix is None:
-        return None
-    for key, track in tracks.items():
-        if _numeric_suffix(key) == suffix or _numeric_suffix(track.ped_name) == suffix:
-            return track
-    return None
-
-
-def _nearest_track(
-    tracks: Mapping[str, PedTrack], robot_at_t0: Trajectory2D
-) -> PedTrack | None:
-    """Pedestrian whose resampled position is nearest to the robot pose at t0."""
-    if len(robot_at_t0.t_ns) == 0:
-        return None
-    robot_x, robot_y = float(robot_at_t0.x[0]), float(robot_at_t0.y[0])
-    nearest: PedTrack | None = None
-    nearest_distance_m = float("inf")
-    for track in tracks.values():
-        if len(track.t_ns) == 0:
-            continue
-        pedestrian_at_t0 = track.trajectory.resample_onto(robot_at_t0.t_ns)
-        distance_m = float(
-            np.hypot(pedestrian_at_t0.x[0] - robot_x, pedestrian_at_t0.y[0] - robot_y)
-        )
-        if distance_m < nearest_distance_m:
-            nearest_distance_m = distance_m
-            nearest = track
-    return nearest
 
 
 def _match_track(
@@ -516,39 +393,91 @@ def _match_track(
     """Resolve the PedTrack of a contact: exact ped id/name, then numeric suffix, then nearest pose."""
     if not tracks:
         return None
-    track = _track_by_name_or_id(obstacle_id, tracks)
-    if track is not None:
-        return track
-    track = _track_by_numeric_suffix(entity_name(obstacle_id.strip()), tracks)
-    if track is not None:
-        return track
-    return _nearest_track(tracks, robot_at_t0)
+    normalized = obstacle_id.strip()
+    base = entity_name(normalized)
+    if normalized:
+        for track in tracks.values():
+            if track.ped_id in (normalized, base) or track.ped_name in (normalized, base):
+                return track
+        suffix = _numeric_suffix(base)
+        if suffix is not None:
+            for key, track in tracks.items():
+                if suffix in (_numeric_suffix(key), _numeric_suffix(track.ped_name)):
+                    return track
+    if len(robot_at_t0.t_ns) == 0:
+        return None
+    candidates = [track for track in tracks.values() if len(track.t_ns) > 0]
+    if not candidates:
+        return None
+    robot_x, robot_y = float(robot_at_t0.x[0]), float(robot_at_t0.y[0])
+
+    def distance(track: PedTrack) -> float:
+        pedestrian = track.trajectory.resample_onto(robot_at_t0.t_ns)
+        return float(np.hypot(pedestrian.x[0] - robot_x, pedestrian.y[0] - robot_y))
+
+    return min(candidates, key=distance)
 
 
-def _group_contact_rows(cc_df: pl.DataFrame, merge_gap_ns: int) -> pl.DataFrame:
-    """One row per contiguous contact run of the same resolved target, within the merge gap."""
-    contacts = (
-        cc_df.select(
-            pl.col("t_ns").cast(pl.Int64),
-            pl.col("obstacle_id"),
-            pl.col("obstacle_kind"),
-            pl.col("obstacle_x"),
-            pl.col("obstacle_y"),
+def _resolved_id(
+    row: Mapping[str, typing.Any], robot: Trajectory2D, tracks: Mapping[str, PedTrack]
+) -> str:
+    """Canonical ped_id of a contact row, or the raw id when no recorded track matches."""
+    raw_id = str(row["obstacle_id"])
+    if row["obstacle_kind"] != PEDESTRIAN_KIND:
+        return raw_id
+    track = _match_track(raw_id, tracks, _sample_at(robot, int(row["t_ns"])))
+    return track.ped_id if track is not None else (raw_id or PEDESTRIAN_KIND)
+
+
+def _contacts_from_table(
+    *,
+    cc_df: pl.DataFrame,
+    robot: Trajectory2D,
+    tracks: Mapping[str, PedTrack],
+    merge_gap_ns: int,
+) -> list[ContactEvent]:
+    """ContactEvent rows grouped per resolved target from a flat robot_collision_contacts table."""
+    raw_kind = pl.col("kind").fill_null("").str.to_lowercase()
+    frame = cc_df.with_columns(
+        pl.when(raw_kind == "")
+        .then(pl.lit("static"))
+        .when(raw_kind.str.contains(PEDESTRIAN_KIND_PATTERN))
+        .then(pl.lit(PEDESTRIAN_KIND))
+        .otherwise(raw_kind)
+        .alias("obstacle_kind"),
+        pl.col("t_ns").cast(pl.Int64),
+        pl.col("obstacle_id").fill_null("").alias("obstacle_id"),
+        pl.col("obstacle_x").cast(pl.Float64),
+        pl.col("obstacle_y").cast(pl.Float64),
+    ).select("t_ns", "obstacle_id", "obstacle_kind", "obstacle_x", "obstacle_y")
+    if not frame.is_empty() and tracks:
+        frame = frame.with_columns(
+            pl.Series(
+                "obstacle_id",
+                [
+                    _resolved_id(row, robot, tracks)
+                    for row in frame.iter_rows(named=True)
+                ],
+                dtype=pl.String,
+            )
         )
-        .with_columns(
-            (pl.col("obstacle_kind") + pl.lit("|") + pl.col("obstacle_id")).alias(
+    grouped = (
+        frame.with_columns(
+            (pl.col("obstacle_kind") + "|" + pl.col("obstacle_id")).alias(
                 "target_key"
             )
         )
         .sort("target_key", "t_ns")
-    )
-
-    same_target = pl.col("target_key").shift(1) == pl.col("target_key")
-    beyond_gap = pl.col("t_ns").diff() > merge_gap_ns
-    starts_group = ~same_target.fill_null(False) | beyond_gap.fill_null(True)
-
-    return (
-        contacts.with_columns(starts_group.cum_sum().alias("group_id"))
+        .with_columns(
+            (
+                ~(pl.col("target_key").shift(1) == pl.col("target_key")).fill_null(
+                    False
+                )
+                | (pl.col("t_ns").diff() > merge_gap_ns).fill_null(True)
+            )
+            .cum_sum()
+            .alias("group_id")
+        )
         .group_by("group_id")
         .agg(
             t0_ns=pl.col("t_ns").min(),
@@ -560,194 +489,22 @@ def _group_contact_rows(cc_df: pl.DataFrame, merge_gap_ns: int) -> pl.DataFrame:
         )
         .sort("t0_ns", "obstacle_kind", "obstacle_id")
     )
-
-
-def _resolve_contact_targets(
-    cc_df: pl.DataFrame, robot: Trajectory2D, tracks: Mapping[str, PedTrack]
-) -> pl.DataFrame:
-    """Raw contact rows whose pedestrian obstacle ids are canonical ``ped_id`` values, so later grouping never splits one track."""
-    frame = _groupable_contacts_frame(cc_df)
-    if frame.is_empty() or not tracks:
-        return frame
-    times_ns = frame.get_column("t_ns").to_numpy().astype(np.int64)
-    kinds = frame.get_column("obstacle_kind").to_numpy()
-    raw_ids = frame.get_column("obstacle_id").to_numpy()
-    pose_by_time = {
-        int(stamp): robot.resample_onto(np.asarray([stamp], dtype=np.int64))
-        for stamp in np.unique(times_ns)
-    }
-    resolved: list[str] = []
-    for stamp, kind, raw_id in zip(times_ns, kinds, raw_ids, strict=True):
-        if kind != PEDESTRIAN_KIND:
-            resolved.append(str(raw_id))
-            continue
-        track = _track_by_name_or_id(str(raw_id), tracks) or _track_by_numeric_suffix(
-            entity_name(str(raw_id).strip()), tracks
+    return [
+        ContactEvent(
+            t0_ns=int(row["t0_ns"]),
+            t_end_ns=int(row["t_end_ns"]),
+            obstacle_kind=row["obstacle_kind"],
+            obstacle_id=str(row["obstacle_id"])
+            or (PEDESTRIAN_KIND if row["obstacle_kind"] == PEDESTRIAN_KIND else ""),
+            track=tracks.get(str(row["obstacle_id"]))
+            if row["obstacle_kind"] == PEDESTRIAN_KIND
+            else None,
+            static_point=None
+            if row["obstacle_kind"] in TRACKED_KINDS
+            else static_point_of(row["obstacle_x"], row["obstacle_y"]),
         )
-        if track is None:
-            track = _nearest_track(tracks, pose_by_time[int(stamp)])
-        resolved.append(track.ped_id if track is not None else str(raw_id))
-    return frame.with_columns(
-        pl.Series("obstacle_id", resolved, dtype=pl.String)
-    ).select("t_ns", "obstacle_id", "obstacle_kind", "obstacle_x", "obstacle_y")
-
-
-def _groupable_contacts_frame(cc_df: pl.DataFrame) -> pl.DataFrame:
-    """Contact rows with the normalized obstacle kind and their grouping columns."""
-    raw_kind = pl.col("kind").fill_null("").str.to_lowercase()
-    obstacle_kind = (
-        pl.when(raw_kind == "")
-        .then(pl.lit("static"))
-        .when(raw_kind.str.contains(PEDESTRIAN_KIND_PATTERN))
-        .then(pl.lit(PEDESTRIAN_KIND))
-        .otherwise(raw_kind)
-        .alias("obstacle_kind")
-    )
-    return cc_df.with_columns(obstacle_kind).select(
-        pl.col("t_ns").cast(pl.Int64),
-        pl.col("obstacle_id").fill_null("").alias("obstacle_id"),
-        pl.col("obstacle_kind"),
-        pl.col("obstacle_x").cast(pl.Float64),
-        pl.col("obstacle_y").cast(pl.Float64),
-    )
-
-
-def _contacts_from_table(
-    *,
-    cc_df: pl.DataFrame,
-    robot: Trajectory2D,
-    tracks: Mapping[str, PedTrack],
-    merge_gap_ns: int,
-) -> list[ContactEvent]:
-    """ContactEvent rows grouped per resolved target from a flat robot_collision_contacts table."""
-    grouped = _group_contact_rows(
-        _resolve_contact_targets(cc_df, robot, tracks), merge_gap_ns
-    )
-    t0_values = grouped.get_column("t0_ns").to_numpy()
-    end_values = grouped.get_column("t_end_ns").to_numpy()
-    kind_values = grouped.get_column("obstacle_kind").to_numpy()
-    id_values = grouped.get_column("obstacle_id").to_numpy()
-    x_values = grouped.get_column("obstacle_x").to_numpy()
-    y_values = grouped.get_column("obstacle_y").to_numpy()
-    events: list[ContactEvent] = []
-    for t0_ns, t_end_ns, obstacle_kind, obstacle_id, obstacle_x, obstacle_y in zip(
-        t0_values, end_values, kind_values, id_values, x_values, y_values, strict=True
-    ):
-        robot_at_t0 = robot.resample_onto(np.asarray([int(t0_ns)], dtype=np.int64))
-        is_pedestrian = obstacle_kind == PEDESTRIAN_KIND
-        track = (
-            _match_track(str(obstacle_id), tracks, robot_at_t0)
-            if is_pedestrian
-            else None
-        )
-        resolved_id = str(obstacle_id) or (
-            track.ped_id if track is not None else PEDESTRIAN_KIND
-        )
-        events.append(
-            ContactEvent(
-                t0_ns=int(t0_ns),
-                t_end_ns=int(t_end_ns),
-                obstacle_kind=str(obstacle_kind),
-                obstacle_id=resolved_id,
-                track=track,
-                static_point=None
-                if obstacle_kind in TRACKED_KINDS
-                else static_point_of(obstacle_x, obstacle_y),
-            )
-        )
-    return events
-
-
-def _contacts_from_clearance(
-    *,
-    robot: Trajectory2D,
-    tracks: Mapping[str, PedTrack],
-    merge_gap_ns: int,
-) -> list[ContactEvent]:
-    """Detect pedestrian contacts from surface-to-surface clearance <= 0."""
-    events: list[ContactEvent] = []
-    for track in tracks.values():
-        if len(track.t_ns) == 0 or len(robot.t_ns) == 0:
-            continue
-        t_lo = max(int(robot.t_ns[0]), int(track.t_ns[0]))
-        t_hi = min(int(robot.t_ns[-1]), int(track.t_ns[-1]))
-        if t_hi < t_lo:
-            continue
-
-        robot_window = robot.slice_ns(t_lo, t_hi)
-        pedestrian_window = track.trajectory.resample_onto(robot_window.t_ns)
-        ped_radius_m = _recorded_ped_radius_m(track)
-        # Surface-to-surface (edge) clearance in metres: the centre distance minus both body radii.
-        edge_clearance_m = np.hypot(
-            pedestrian_window.x - robot_window.x, pedestrian_window.y - robot_window.y
-        ) - (robot.radius_m + ped_radius_m)
-        spans = contiguous_spans(
-            edge_clearance_m <= 0.0, robot_window.t_ns, merge_gap_ns
-        )
-        events.extend(
-            ContactEvent(
-                t0_ns=int(robot_window.t_ns[start]),
-                t_end_ns=int(robot_window.t_ns[end]),
-                obstacle_kind=PEDESTRIAN_KIND,
-                obstacle_id=track.ped_id,
-                track=track,
-            )
-            for start, end in spans
-        )
-    return events
-
-
-def _contacts_from_bumper_events(ce_df: pl.DataFrame | None) -> list[ContactEvent]:
-    """ContactEvent rows for wall and static counts in the flat robot_collision_events table."""
-    if ce_df is None or len(ce_df) == 0:
-        return []
-    bumper_rows = (
-        ce_df.select("t_ns", "wall_count", "static_count")
-        .filter((pl.col("wall_count") > 0) | (pl.col("static_count") > 0))
-        .sort("t_ns")
-    )
-    events: list[ContactEvent] = []
-    for t_ns, wall_count in zip(
-        bumper_rows["t_ns"].to_numpy(),
-        bumper_rows["wall_count"].to_numpy(),
-        strict=True,
-    ):
-        kind = "wall" if int(wall_count) > 0 else "static"
-        events.append(
-            ContactEvent(
-                t0_ns=int(t_ns),
-                t_end_ns=int(t_ns),
-                obstacle_kind=kind,
-                obstacle_id=kind,
-            )
-        )
-    return events
-
-
-def _merge_contact_events(events: Sequence[ContactEvent]) -> list[ContactEvent]:
-    """Union overlapping intervals of the same target across the clearance and bumper paths."""
-    by_target: dict[tuple[str, str], list[ContactEvent]] = {}
-    for event in events:
-        by_target.setdefault((event.obstacle_kind, event.obstacle_id), []).append(event)
-
-    merged: list[ContactEvent] = []
-    for target_events in by_target.values():
-        first = target_events[0]
-        for start_ns, end_ns in merge_intervals_ns(
-            [(event.t0_ns, event.t_end_ns) for event in target_events]
-        ):
-            merged.append(
-                ContactEvent(
-                    t0_ns=start_ns,
-                    t_end_ns=end_ns,
-                    obstacle_kind=first.obstacle_kind,
-                    obstacle_id=first.obstacle_id,
-                    track=first.track,
-                    static_point=first.static_point,
-                )
-            )
-    merged.sort(key=lambda event: (event.t0_ns, event.obstacle_kind, event.obstacle_id))
-    return merged
+        for row in grouped.iter_rows(named=True)
+    ]
 
 
 def detect_contact_events(
@@ -759,38 +516,101 @@ def detect_contact_events(
 ) -> list[ContactEvent]:
     """Contact intervals of the recorded collision stream; the clearance and bumper streams stand in when it is absent or empty."""
     contact_rows = episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC)
-    if contact_rows is not None and len(contact_rows) > 0:
+    if contact_rows is not None and not contact_rows.is_empty():
         return _contacts_from_table(
             cc_df=contact_rows, robot=robot, tracks=tracks, merge_gap_ns=merge_gap_ns
         )
 
-    events = _contacts_from_clearance(
-        robot=robot, tracks=tracks, merge_gap_ns=merge_gap_ns
-    )
-    events.extend(
-        _contacts_from_bumper_events(
-            episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC)
+    events: list[ContactEvent] = []
+    for track in tracks.values():
+        if len(track.t_ns) == 0 or len(robot.t_ns) == 0:
+            continue
+        t_lo = max(int(robot.t_ns[0]), int(track.t_ns[0]))
+        t_hi = min(int(robot.t_ns[-1]), int(track.t_ns[-1]))
+        if t_hi < t_lo:
+            continue
+        robot_window = robot.slice_ns(t_lo, t_hi)
+        pedestrian = track.trajectory.resample_onto(robot_window.t_ns)
+        radius_m = track.radius_m
+        if radius_m is None or not np.isfinite(radius_m) or radius_m <= 0.0:
+            raise MetricInputError(
+                f"contact attribution needs the recorded radius_m of pedestrian {track.ped_id!r}"
+            )
+        clearance = np.hypot(
+            pedestrian.x - robot_window.x, pedestrian.y - robot_window.y
+        ) - (robot.radius_m + radius_m)
+        events.extend(
+            ContactEvent(
+                t0_ns=int(robot_window.t_ns[start]),
+                t_end_ns=int(robot_window.t_ns[end]),
+                obstacle_kind=PEDESTRIAN_KIND,
+                obstacle_id=track.ped_id,
+                track=track,
+            )
+            for start, end in contiguous_spans(
+                clearance <= 0.0, robot_window.t_ns, merge_gap_ns
+            )
         )
+
+    bumper = episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC)
+    if bumper is not None and not bumper.is_empty():
+        for row in (
+            bumper.select("t_ns", "wall_count", "static_count")
+            .filter((pl.col("wall_count") > 0) | (pl.col("static_count") > 0))
+            .sort("t_ns")
+            .iter_rows(named=True)
+        ):
+            kind = "wall" if int(row["wall_count"]) > 0 else "static"
+            events.append(
+                ContactEvent(
+                    t0_ns=int(row["t_ns"]),
+                    t_end_ns=int(row["t_ns"]),
+                    obstacle_kind=kind,
+                    obstacle_id=kind,
+                )
+            )
+
+    by_target: dict[tuple[str, str], list[ContactEvent]] = {}
+    for event in events:
+        by_target.setdefault((event.obstacle_kind, event.obstacle_id), []).append(event)
+    merged = [
+        replace(target[0], t0_ns=start_ns, t_end_ns=end_ns)
+        for target in by_target.values()
+        for start_ns, end_ns in merge_intervals_ns(
+            [(event.t0_ns, event.t_end_ns) for event in target]
+        )
+    ]
+    return sorted(
+        merged, key=lambda event: (event.t0_ns, event.obstacle_kind, event.obstacle_id)
     )
-    events.sort(key=lambda event: (event.t0_ns, event.obstacle_kind, event.obstacle_id))
-    return _merge_contact_events(events)
 
 
-def contact_stream_recorded(episode: AlignedEpisodeBundle) -> bool:
-    """Whether the recording carries a collision stream: an empty stream means no contact, an absent one means unknown."""
-    return (
-        episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC) is not None
-        or episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC) is not None
+def _event_from_fields(
+    *,
+    t0_ns: int,
+    t_end_ns: int,
+    obstacle_kind: str,
+    obstacle_id: str,
+    tracks: Mapping[str, PedTrack],
+    robot: Trajectory2D,
+    static_point: tuple[float, float] | None = None,
+    target_agent_id: int | str | None = None,
+) -> ContactEvent:
+    """Build a ContactEvent from a configured or scoped target, resolving its pedestrian track."""
+    kind = obstacle_kind.lower()
+    track = (
+        resolve_ped_track(tracks, target_agent_id) if kind == PEDESTRIAN_KIND else None
     )
-
-
-def _configured_static_point(
-    static_point: Sequence[float] | None, obstacle_kind: str
-) -> tuple[float, float] | None:
-    """Static obstacle position of a configured wall or static contact."""
-    if obstacle_kind in TRACKED_KINDS or static_point is None or len(static_point) < 2:
-        return None
-    return (float(static_point[0]), float(static_point[1]))
+    if track is None and kind == PEDESTRIAN_KIND:
+        track = _match_track(obstacle_id, tracks, _sample_at(robot, t0_ns))
+    return ContactEvent(
+        t0_ns=t0_ns,
+        t_end_ns=t_end_ns,
+        obstacle_kind=kind,
+        obstacle_id=obstacle_id or (track.ped_id if track is not None else kind),
+        track=track,
+        static_point=None if kind in TRACKED_KINDS else static_point,
+    )
 
 
 class ContactAttributionCalculator(BaseMetricCalculator):
@@ -803,120 +623,59 @@ class ContactAttributionCalculator(BaseMetricCalculator):
     NAME = "contact_attribution"
     CATEGORY = "safety"
     REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC]
-    PARAMS = (
-        "contact_merge_gap_s",
-        "pre_contact_window_s",
-        "post_contact_window_s",
-    )
-    OUTPUTS = (
-        V_CLOSE_ROBOT,
-        V_CLOSE_TARGET,
-        V_ROBOT_IMPACT,
-        V_TARGET_IMPACT,
-        RELATIVE_IMPACT_SPEED,
-        FREEZE_CLEARANCE,
-        CONTACT_COUNT,
-        CONTACT_COUNT_PEDESTRIAN,
-        CONTACT_COUNT_ROBOT,
-        CONTACT_COUNT_WALL,
-        CONTACT_COUNT_STATIC,
-    )
-    DIRECTIONS = {
-        "contact_count": Direction.LOWER,
-        "contact_count_pedestrian": Direction.LOWER,
-        "contact_count_robot": Direction.LOWER,
-        "contact_count_wall": Direction.LOWER,
-        "contact_count_static": Direction.LOWER,
-    }
+    PARAMS = ("contact_merge_gap_s", "pre_contact_window_s", "post_contact_window_s")
+    OUTPUTS = (*_SCALAR_METRICS, *_COUNT_METRICS)
+    DIRECTIONS = {metric.name: Direction.LOWER for metric in _COUNT_METRICS}
     PRIMARY_OUTPUTS = [
-        "v_close_robot_mps",
-        "v_close_target_mps",
-        "freeze_clearance_m",
-        "contact_count",
+        "v_close_robot_mps", "v_close_target_mps", "freeze_clearance_m", "contact_count",
     ]
 
-    def _configured_contact(
-        self, robot: Trajectory2D, tracks: Mapping[str, PedTrack]
-    ) -> list[ContactEvent] | None:
+    def _window_s(self, key: str, default: float, override: float | None) -> float:
+        """Configured window length, or the contact-scope override when the slice supplies one."""
+        return float(override if override is not None else self.metrics_config.get(key, default))
+
+    def _configured_contact(self, robot: Trajectory2D, tracks: Mapping[str, PedTrack]) -> list[ContactEvent] | None:
         """Build a single ContactEvent if contact_t0_ns is explicitly set in metrics_config."""
         cfg_t0_ns = self.metrics_config.get("contact_t0_ns")
         if cfg_t0_ns is None:
             return None
         t0_ns = int(cfg_t0_ns)
-        t_end_ns = int(self.metrics_config.get("contact_t_end_ns", t0_ns))
-        obstacle_kind = str(
-            self.metrics_config.get("obstacle_kind", PEDESTRIAN_KIND)
-        ).lower()
-        obstacle_id = str(self.metrics_config.get("obstacle_id", ""))
-
-        track = (
-            resolve_ped_track(tracks, self.metrics_config.get("target_agent_id"))
-            if obstacle_kind == PEDESTRIAN_KIND
-            else None
-        )
-        if track is None and obstacle_kind == PEDESTRIAN_KIND:
-            robot_at_t0 = robot.resample_onto(np.asarray([t0_ns], dtype=np.int64))
-            track = _match_track(obstacle_id, tracks, robot_at_t0)
-        resolved_id = obstacle_id or (
-            track.ped_name if track is not None else obstacle_kind
-        )
         return [
-            ContactEvent(
+            _event_from_fields(
                 t0_ns=t0_ns,
-                t_end_ns=t_end_ns,
-                obstacle_kind=obstacle_kind,
-                obstacle_id=resolved_id,
-                track=track,
-                static_point=_configured_static_point(
-                    self.metrics_config.get("static_point"), obstacle_kind
-                ),
+                t_end_ns=int(self.metrics_config.get("contact_t_end_ns", t0_ns)),
+                obstacle_kind=str(self.metrics_config.get("obstacle_kind", PEDESTRIAN_KIND)),
+                obstacle_id=str(self.metrics_config.get("obstacle_id", "")),
+                tracks=tracks,
+                robot=robot,
+                static_point=_as_point(self.metrics_config.get("static_point")),
+                target_agent_id=self.metrics_config.get("target_agent_id"),
             )
         ]
 
     def _detect_contacts(
-        self,
-        episode: AlignedEpisodeBundle,
-        robot: Trajectory2D,
-        tracks: Mapping[str, PedTrack],
+        self, episode: AlignedEpisodeBundle, robot: Trajectory2D, tracks: Mapping[str, PedTrack]
     ) -> list[ContactEvent]:
         """Detect all contact intervals in the episode, or the one configured in metrics_config."""
         configured = self._configured_contact(robot, tracks)
         if configured is not None:
             return configured
-        merge_gap_ns = int(
-            round(
-                float(
-                    self.metrics_config.get("contact_merge_gap_s", CONTACT_MERGE_GAP_S)
-                )
-                * NS_PER_S
-            )
+        merge_gap_s = float(self.metrics_config.get("contact_merge_gap_s", CONTACT_MERGE_GAP_S))
+        return detect_contact_events(
+            episode, robot, tracks, merge_gap_ns=int(round(merge_gap_s * NS_PER_S))
         )
-        return detect_contact_events(episode, robot, tracks, merge_gap_ns=merge_gap_ns)
 
     def _context(
-        self,
-        robot: Trajectory2D,
-        pre_window_s: float | None = None,
-        post_window_s: float | None = None,
+        self, robot: Trajectory2D, pre_window_s: float | None = None, post_window_s: float | None = None
     ) -> ContactContext:
         """Attribution context of the episode, with the window lengths of the contact scope when given."""
         return ContactContext(
             robot=robot,
-            pre_window_s=float(
-                self.metrics_config.get("pre_contact_window_s", PRE_CONTACT_WINDOW_S)
-            )
-            if pre_window_s is None
-            else float(pre_window_s),
-            post_window_s=float(
-                self.metrics_config.get("post_contact_window_s", POST_CONTACT_WINDOW_S)
-            )
-            if post_window_s is None
-            else float(post_window_s),
+            pre_window_s=self._window_s("pre_contact_window_s", PRE_CONTACT_WINDOW_S, pre_window_s),
+            post_window_s=self._window_s("post_contact_window_s", POST_CONTACT_WINDOW_S, post_window_s),
         )
 
-    def _attribute_contacts(
-        self, episode: AlignedEpisodeBundle, robot: Trajectory2D
-    ) -> list[ContactAttributionRecord]:
+    def _attribute_contacts(self, episode: AlignedEpisodeBundle, robot: Trajectory2D) -> list[ContactAttributionRecord]:
         """Detect and attribute every contact of an episode whose robot track is known."""
         if len(robot.t_ns) == 0:
             return []
@@ -930,87 +689,55 @@ class ContactAttributionCalculator(BaseMetricCalculator):
             for contact_id, event in enumerate(detected)
         ]
 
-    def attribute_all_contacts(
-        self, episode: AlignedEpisodeBundle
-    ) -> list[ContactAttributionRecord]:
+    def attribute_all_contacts(self, episode: AlignedEpisodeBundle) -> list[ContactAttributionRecord]:
         """Detect and attribute every contact in the episode."""
         robot, _yaw = resolve_robot_trajectory(self, episode)
         return self._attribute_contacts(episode, robot)
 
-    @staticmethod
-    def _undefined_counts(reason: str) -> dict[str, typing.Any]:
-        """Every episode-scope count NULL with one shared reason."""
-        undefined: dict[str, typing.Any] = {
-            CONTACT_COUNT.name: None,
-            **{metric.name: None for _, metric in CONTACT_COUNT_BY_KIND},
-        }
-        undefined.update({f"{name}_null_reason": reason for name in undefined})
-        return undefined
-
     def calculate(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: Mapping[str, typing.Any],
+        self, episode: AlignedEpisodeBundle, prior_results: Mapping[str, typing.Any]
     ) -> dict[str, typing.Any]:
         """Episode scope: the number of detected contacts; NULL when no stream was recorded."""
         del prior_results
         robot, _yaw = resolve_robot_trajectory(self, episode)
         if len(robot.t_ns) == 0:
-            return self._undefined_counts(
-                f"{NullReason.TOPIC_MISSING.value}:{ROBOT_TRACKS_TOPIC}"
-            )
+            return _undefined_metrics(_COUNT_NAMES, f"{NullReason.TOPIC_MISSING.value}:{ROBOT_TRACKS_TOPIC}")
         records = self._attribute_contacts(episode, robot)
-        by_kind = {metric.name: 0 for _, metric in CONTACT_COUNT_BY_KIND}
-        for record in records:
-            for kind, metric in CONTACT_COUNT_BY_KIND:
-                if record.obstacle_kind == kind:
-                    by_kind[metric.name] += 1
-                    break
-        if records:
-            return {CONTACT_COUNT.name: len(records), **by_kind}
-        if contact_stream_recorded(episode):
-            return {CONTACT_COUNT.name: 0, **by_kind}
-        return self._undefined_counts(
-            f"{NullReason.TOPIC_MISSING.value}:{ROBOT_COLLISION_CONTACTS_TOPIC}"
+        counts = Counter(record.obstacle_kind for record in records)
+        stream_recorded = (
+            episode_table(episode, ROBOT_COLLISION_CONTACTS_TOPIC) is not None
+            or episode_table(episode, ROBOT_COLLISION_EVENTS_TOPIC) is not None
+        )
+        if records or stream_recorded:
+            return {
+                CONTACT_COUNT.name: len(records),
+                **{metric.name: counts[kind] for kind, metric in CONTACT_COUNT_BY_KIND},
+            }
+        return _undefined_metrics(
+            _COUNT_NAMES, f"{NullReason.TOPIC_MISSING.value}:{ROBOT_COLLISION_CONTACTS_TOPIC}"
         )
 
     def _event_from_slice(
-        self,
-        episode: AlignedEpisodeBundle,
-        scope_slice: ScopeSlice,
-        robot: Trajectory2D,
+        self, episode: AlignedEpisodeBundle, scope_slice: ScopeSlice, robot: Trajectory2D
     ) -> ContactEvent:
         """ContactEvent addressed by a contact scope slice; a slice without an identity raises."""
-        kind_value = scope_slice.identity.get("collider_kind")
+        identity = scope_slice.identity
+        kind_value = identity.get("collider_kind")
         if kind_value is None:
             raise MetricInputError("a contact scope slice carries no collider_kind")
-        obstacle_kind = str(kind_value).lower()
-        id_value = scope_slice.identity.get("obstacle_id")
+        id_value = identity.get("obstacle_id")
         if id_value is None:
             raise MetricInputError("a contact scope slice carries no obstacle_id")
         obstacle_id = str(id_value)
-
-        tracks = extract_episode_ped_tracks(episode)
-        pedestrian = obstacle_kind == PEDESTRIAN_KIND
-        track = resolve_ped_track(tracks, obstacle_id) if pedestrian else None
-        if track is None and pedestrian:
-            robot_at_t0 = robot.resample_onto(
-                np.asarray([int(scope_slice.t_start_ns)], dtype=np.int64)
-            )
-            track = _match_track(obstacle_id, tracks, robot_at_t0)
-
-        resolved_id = obstacle_id or (
-            track.ped_id if track is not None else obstacle_kind
-        )
-        return ContactEvent(
+        return _event_from_fields(
             t0_ns=int(scope_slice.t_start_ns),
             t_end_ns=int(scope_slice.t_end_ns),
-            obstacle_kind=obstacle_kind,
-            obstacle_id=resolved_id,
-            track=track,
-            static_point=_configured_static_point(
-                scope_slice.identity.get("static_point"), obstacle_kind
-            ),
+            obstacle_kind=str(kind_value),
+            obstacle_id=obstacle_id,
+            tracks=extract_episode_ped_tracks(episode),
+            robot=robot,
+            static_point=_as_point(identity.get("static_point")),
+            target_agent_id=obstacle_id,
         )
 
     def calculate_for_scope(
@@ -1022,28 +749,10 @@ class ContactAttributionCalculator(BaseMetricCalculator):
         """Compute the six contact scalars for a contact scope slice without mutating calculator state."""
         if scope_slice is None or scope_slice.scope is not MetricScope.CONTACT:
             return self.calculate(episode, prior_results)
-
         robot, _yaw = resolve_robot_trajectory(self, episode)
         event = self._event_from_slice(episode, scope_slice, robot)
         if len(robot.t_ns) == 0:
-            undefined = dict.fromkeys(
-                (
-                    V_CLOSE_ROBOT.name,
-                    V_CLOSE_TARGET.name,
-                    V_ROBOT_IMPACT.name,
-                    V_TARGET_IMPACT.name,
-                    RELATIVE_IMPACT_SPEED.name,
-                    FREEZE_CLEARANCE.name,
-                )
-            )
-            undefined.update(
-                {
-                    f"{key}_null_reason": f"{NullReason.TOPIC_MISSING.value}:{ROBOT_TRACKS_TOPIC}"
-                    for key in undefined
-                }
-            )
-            return undefined
-
+            return _undefined_metrics(_SCALAR_NAMES, f"{NullReason.TOPIC_MISSING.value}:{ROBOT_TRACKS_TOPIC}")
         context = self._context(
             robot,
             pre_window_s=scope_slice.identity.get("pre_contact_window_s"),

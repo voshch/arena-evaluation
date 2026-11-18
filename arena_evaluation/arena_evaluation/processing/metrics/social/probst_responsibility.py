@@ -27,7 +27,12 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
     resolve_robot_trajectory,
 )
 from arena_evaluation.storage.exceptions import MetricInputError
-from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
+from arena_evaluation.storage.registry import (
+    Metric,
+    MetricScope,
+    NullReason,
+    define_metric,
+)
 
 if typing.TYPE_CHECKING:
     from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -35,7 +40,6 @@ if typing.TYPE_CHECKING:
 NORMALIZATION_WINDOW_S: Final[float] = 12.0
 PRE_CONTACT_PROBST_WINDOW_S: Final[float] = 3.0
 PROBST_PERSONAL_SPACE_RADIUS_M: Final[float] = 1.0
-CONTACT_T0_CONFIG_KEYS: Final[tuple[str, ...]] = ("contact_t0_ns",)
 SHARE_KEYS: Final[tuple[str, ...]] = (
     "r_robot",
     "r_target",
@@ -45,58 +49,47 @@ SHARE_KEYS: Final[tuple[str, ...]] = (
     "e_time",
 )
 
-PROBST_R_ROBOT = define_metric(
+
+def _share_metric(name: str, description: str) -> Metric:
+    """Encounter-scope ratio output whose null carries a reason."""
+    return define_metric(
+        name,
+        pl.Float64,
+        scopes=(MetricScope.ENCOUNTER,),
+        unit="ratio",
+        description=description,
+        null_reason=True,
+    )
+
+
+PROBST_R_ROBOT = _share_metric(
     "probst_R_robot",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst responsibility of the robot for the encounter conflict, 0 to 1: the share of the conflict its velocity changes resolved.",
-    null_reason=True,
+    "Probst responsibility of the robot for the encounter conflict, 0 to 1: the share of the conflict its velocity changes resolved.",
 )
 
-PROBST_R_ACTOR2 = define_metric(
+PROBST_R_ACTOR2 = _share_metric(
     "probst_R_actor2",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst responsibility of the encounter's other party, 0 to 1: the share of the conflict its velocity changes resolved.",
-    null_reason=True,
+    "Probst responsibility of the encounter's other party, 0 to 1: the share of the conflict its velocity changes resolved.",
 )
 
-PROBST_R_TIME = define_metric(
+PROBST_R_TIME = _share_metric(
     "probst_R_time",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst responsibility attributed to time rather than to either party's velocity change, 0 to 1; 1 when neither party acted. Time is the signed residual of the conflict change, a deviation from Eqs. 8-9 as printed, which do not close.",
-    null_reason=True,
+    "Probst responsibility attributed to time rather than to either party's velocity change, 0 to 1; 1 when neither party acted. Time is the signed residual of the conflict change, a deviation from Eqs. 8-9 as printed, which do not close.",
 )
 
-PROBST_E_ROBOT = define_metric(
+PROBST_E_ROBOT = _share_metric(
     "probst_E_robot",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst engagement of the robot, 0 to 1: the share of the conflict its velocity changes intensified.",
-    null_reason=True,
+    "Probst engagement of the robot, 0 to 1: the share of the conflict its velocity changes intensified.",
 )
 
-PROBST_E_ACTOR2 = define_metric(
+PROBST_E_ACTOR2 = _share_metric(
     "probst_E_actor2",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst engagement of the encounter's other party, 0 to 1: the share of the conflict its velocity changes intensified.",
-    null_reason=True,
+    "Probst engagement of the encounter's other party, 0 to 1: the share of the conflict its velocity changes intensified.",
 )
 
-PROBST_E_TIME = define_metric(
+PROBST_E_TIME = _share_metric(
     "probst_E_time",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="ratio",
-    description="Probst engagement attributed to time rather than to either party's velocity change, 0 to 1; with the two agent shares it sums to 1 (Eq. 12).",
-    null_reason=True,
+    "Probst engagement attributed to time rather than to either party's velocity change, 0 to 1; with the two agent shares it sums to 1 (Eq. 12).",
 )
 
 
@@ -144,28 +137,16 @@ class ProbstPair:
     window_size_s: float = NORMALIZATION_WINDOW_S
 
 
-def distance_to_closest_encounter(
-    state_robot: tuple[np.ndarray, np.ndarray] | np.ndarray,
-    state_target: tuple[np.ndarray, np.ndarray] | np.ndarray,
-) -> float:
-    """Projected Distance of Closest Encounter (pDCE, Eq. 1) for a single state pair (pos, vel)."""
-    pos_r, vel_r = (
-        (state_robot[0], state_robot[1])
-        if isinstance(state_robot, tuple)
-        else (state_robot[:2], state_robot[2:4])
-    )
-    pos_t, vel_t = (
-        (state_target[0], state_target[1])
-        if isinstance(state_target, tuple)
-        else (state_target[:2], state_target[2:4])
-    )
-    rel_pos = np.asarray(pos_t, dtype=np.float64) - np.asarray(pos_r, dtype=np.float64)
-    rel_vel = np.asarray(vel_t, dtype=np.float64) - np.asarray(vel_r, dtype=np.float64)
-    denom = float(np.dot(rel_vel, rel_vel))
-    t_min = (
-        0.0 if denom <= 1e-12 else max(0.0, -float(np.dot(rel_pos, rel_vel)) / denom)
-    )
-    return float(np.linalg.norm(rel_pos + t_min * rel_vel))
+def _pos_vel(
+    state: tuple[np.ndarray, np.ndarray] | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(position, velocity) of a state given as a (pos, vel) pair or a flat (x, y, vx, vy) array."""
+    if isinstance(state, tuple):
+        return np.asarray(state[0], dtype=np.float64), np.asarray(
+            state[1], dtype=np.float64
+        )
+    array = np.asarray(state, dtype=np.float64)
+    return array[:2], array[2:4]
 
 
 def compute_pdce_series(
@@ -187,6 +168,21 @@ def compute_pdce_series(
         0.0,
     )
     return np.linalg.norm(r_vec + t_min[:, np.newaxis] * v_vec, axis=1)
+
+
+def distance_to_closest_encounter(
+    state_robot: tuple[np.ndarray, np.ndarray] | np.ndarray,
+    state_target: tuple[np.ndarray, np.ndarray] | np.ndarray,
+) -> float:
+    """Projected Distance of Closest Encounter (pDCE, Eq. 1) for a single state pair (pos, vel)."""
+    pos_r, vel_r = _pos_vel(state_robot)
+    pos_t, vel_t = _pos_vel(state_target)
+    return float(
+        compute_pdce_series(
+            (pos_r[np.newaxis], vel_r[np.newaxis]),
+            (pos_t[np.newaxis], vel_t[np.newaxis]),
+        )[0]
+    )
 
 
 def compute_normalization(pair: ProbstPair, idx_tce: int) -> np.ndarray | None:
@@ -214,6 +210,11 @@ def compute_normalization(pair: ProbstPair, idx_tce: int) -> np.ndarray | None:
     return normalization
 
 
+def _conflict(pdce: np.ndarray, norm: np.ndarray, radius_sum_m: float) -> np.ndarray:
+    """Conflict potential CP(t) (Eq. 2): the share of the personal-space overlap left, normalized."""
+    return np.maximum(0.0, 1.0 - pdce / radius_sum_m) * norm
+
+
 def derive_probst_shares(parts: ProbstParts | None) -> dict[str, float | None]:
     """Compute R_* and E_* shares from additive conflict parts (Eqs. 11-12)."""
     if parts is None or parts.c_total <= 0.0:
@@ -227,6 +228,37 @@ def derive_probst_shares(parts: ProbstParts | None) -> dict[str, float | None]:
         "e_target": float(parts.cc_plus_target / parts.c_total),
         "e_time": float(parts.cc_plus_time / parts.c_total),
     }
+
+
+def _result_from_parts(
+    parts: ProbstParts | None,
+    *,
+    cp_max: float | None = None,
+    pdce_min_m: float | None = None,
+    tce_s: float | None = None,
+) -> ProbstResult:
+    """ProbstResult of additive parts and derived shares, with the non-additive extrema carried over."""
+    if parts is None:
+        return ProbstResult(cp_max=cp_max, pdce_min_m=pdce_min_m, tce_s=tce_s)
+    shares = derive_probst_shares(parts)
+    return ProbstResult(
+        c_total=parts.c_total,
+        cc_minus_robot=parts.cc_minus_robot,
+        cc_minus_target=parts.cc_minus_target,
+        cc_minus_time=parts.cc_minus_time,
+        cc_plus_robot=parts.cc_plus_robot,
+        cc_plus_target=parts.cc_plus_target,
+        cc_plus_time=parts.cc_plus_time,
+        r_robot=shares["r_robot"],
+        r_target=shares["r_target"],
+        r_time=shares["r_time"],
+        e_robot=shares["e_robot"],
+        e_target=shares["e_target"],
+        e_time=shares["e_time"],
+        cp_max=cp_max,
+        pdce_min_m=pdce_min_m,
+        tce_s=tce_s,
+    )
 
 
 def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
@@ -256,9 +288,8 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     pdce_t_no_change = compute_pdce_series(
         (pos_r[1:], vel_r[1:]), (pos_t[1:], vel_t[:-1])
     )
-
-    conflict_r_no_change = np.maximum(0.0, 1.0 - pdce_r_no_change / r_sum) * norm[1:]
-    conflict_t_no_change = np.maximum(0.0, 1.0 - pdce_t_no_change / r_sum) * norm[1:]
+    conflict_r_no_change = _conflict(pdce_r_no_change, norm[1:], r_sum)
+    conflict_t_no_change = _conflict(pdce_t_no_change, norm[1:], r_sum)
 
     cc_robot = conflict[1:] - conflict_r_no_change
     cc_target = conflict[1:] - conflict_t_no_change
@@ -276,12 +307,9 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     cc_plus_time = np.maximum(conflict_diff_time, 0.0)
     cc_minus_time = -np.minimum(conflict_diff_time, 0.0)
 
-    # Endpoint accounting of the discretised Eq. 10, not a heuristic: the conflict that exists at
-    # the first sample and the conflict that remains at the last sample were not caused by either
-    # party's velocity change, so they belong to the time share. The normalisation returns to zero
-    # after the TCE, so the conflict at the TCE leaves the sum through the difference, and the last
-    # sample adds only what is left at the end of the window. They close the sums
-    # (sum CC^- = sum CC^+ = C) and they are what make the no-action case read R_Time = 100 %.
+    # Endpoint accounting closes the discretised Eq. 10: the conflict present at the first sample and
+    # the conflict left at the last sample were caused by neither party's velocity change, so they
+    # belong to the time share. They are what make the no-action case read R_Time = 100 %.
     parts = ProbstParts(
         c_total=float(
             np.sum(cc_plus_r) + np.sum(cc_plus_t) + np.sum(cc_plus_time) + conflict[0]
@@ -293,29 +321,20 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
         cc_plus_target=float(np.sum(cc_plus_t)),
         cc_plus_time=float(np.sum(cc_plus_time) + conflict[0]),
     )
-    shares = derive_probst_shares(parts)
     active = norm > 0.0
     times_s = pair.robot.times_s
-    return ProbstResult(
-        c_total=parts.c_total,
-        cc_minus_robot=parts.cc_minus_robot,
-        cc_minus_target=parts.cc_minus_target,
-        cc_minus_time=parts.cc_minus_time,
-        cc_plus_robot=parts.cc_plus_robot,
-        cc_plus_target=parts.cc_plus_target,
-        cc_plus_time=parts.cc_plus_time,
-        r_robot=shares["r_robot"],
-        r_target=shares["r_target"],
-        r_time=shares["r_time"],
-        e_robot=shares["e_robot"],
-        e_target=shares["e_target"],
-        e_time=shares["e_time"],
-        cp_max=float(np.max(cp[active]))
-        if np.any(active)
-        else float(np.max(cp[: idx_tce + 1])),
-        pdce_min_m=float(np.min(pdce[active]))
-        if np.any(active)
-        else float(np.min(pdce[: idx_tce + 1])),
+    return _result_from_parts(
+        parts,
+        cp_max=(
+            float(np.max(cp[active]))
+            if np.any(active)
+            else float(np.max(cp[: idx_tce + 1]))
+        ),
+        pdce_min_m=(
+            float(np.min(pdce[active]))
+            if np.any(active)
+            else float(np.min(pdce[: idx_tce + 1]))
+        ),
         tce_s=float(times_s[idx_tce] - times_s[0]),
     )
 
@@ -335,6 +354,11 @@ def evaluate_pre_contact_probst(pair: ProbstPair) -> ProbstResult:
     return _evaluate_pair_at_tce(pair, len(pair.robot.t_ns) - 1)
 
 
+def _sum_values(values: typing.Iterable[float | None]) -> float:
+    """Sum of the defined values; a missing additive part contributes nothing."""
+    return float(sum(value for value in values if value is not None))
+
+
 def rollup_probst_results(results: Sequence[ProbstResult]) -> ProbstResult:
     """Aggregate multiple ProbstResult rows by summing additive parts and rebuilding shares."""
     valid = [result for result in results if result.c_total is not None]
@@ -342,84 +366,23 @@ def rollup_probst_results(results: Sequence[ProbstResult]) -> ProbstResult:
         return ProbstResult()
 
     parts = ProbstParts(
-        c_total=float(
-            sum(result.c_total for result in valid if result.c_total is not None)
-        ),
-        cc_minus_robot=float(
-            sum(
-                result.cc_minus_robot
-                for result in valid
-                if result.cc_minus_robot is not None
-            )
-        ),
-        cc_minus_target=float(
-            sum(
-                result.cc_minus_target
-                for result in valid
-                if result.cc_minus_target is not None
-            )
-        ),
-        cc_minus_time=float(
-            sum(
-                result.cc_minus_time
-                for result in valid
-                if result.cc_minus_time is not None
-            )
-        ),
-        cc_plus_robot=float(
-            sum(
-                result.cc_plus_robot
-                for result in valid
-                if result.cc_plus_robot is not None
-            )
-        ),
-        cc_plus_target=float(
-            sum(
-                result.cc_plus_target
-                for result in valid
-                if result.cc_plus_target is not None
-            )
-        ),
-        cc_plus_time=float(
-            sum(
-                result.cc_plus_time
-                for result in valid
-                if result.cc_plus_time is not None
-            )
-        ),
+        c_total=_sum_values(result.c_total for result in valid),
+        cc_minus_robot=_sum_values(result.cc_minus_robot for result in valid),
+        cc_minus_target=_sum_values(result.cc_minus_target for result in valid),
+        cc_minus_time=_sum_values(result.cc_minus_time for result in valid),
+        cc_plus_robot=_sum_values(result.cc_plus_robot for result in valid),
+        cc_plus_target=_sum_values(result.cc_plus_target for result in valid),
+        cc_plus_time=_sum_values(result.cc_plus_time for result in valid),
     )
-    shares = derive_probst_shares(parts)
     cp_vals = [result.cp_max for result in valid if result.cp_max is not None]
     pdce_vals = [result.pdce_min_m for result in valid if result.pdce_min_m is not None]
     tce_vals = [result.tce_s for result in valid if result.tce_s is not None]
-
-    return ProbstResult(
-        c_total=parts.c_total,
-        cc_minus_robot=parts.cc_minus_robot,
-        cc_minus_target=parts.cc_minus_target,
-        cc_minus_time=parts.cc_minus_time,
-        cc_plus_robot=parts.cc_plus_robot,
-        cc_plus_target=parts.cc_plus_target,
-        cc_plus_time=parts.cc_plus_time,
-        r_robot=shares["r_robot"],
-        r_target=shares["r_target"],
-        r_time=shares["r_time"],
-        e_robot=shares["e_robot"],
-        e_target=shares["e_target"],
-        e_time=shares["e_time"],
+    return _result_from_parts(
+        parts,
         cp_max=max(cp_vals) if cp_vals else None,
         pdce_min_m=min(pdce_vals) if pdce_vals else None,
         tce_s=min(tce_vals) if tce_vals else None,
     )
-
-
-def _contact_t0_ns(metrics_config: Mapping[str, typing.Any]) -> int | None:
-    """Configured contact timestamp in nanoseconds."""
-    for key in CONTACT_T0_CONFIG_KEYS:
-        value = metrics_config.get(key)
-        if value is not None:
-            return int(value)
-    return None
 
 
 class ProbstResponsibilityCalculator(BaseMetricCalculator):
@@ -465,7 +428,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
 
     @staticmethod
     def _format_output(coll: ProbstResult, ps: ProbstResult) -> dict[str, typing.Any]:
-        """Format the collision ProbstResult into the five published encounter shares."""
+        """Format the collision ProbstResult into the published encounter shares."""
         del ps
         return {
             "probst_R_robot": coll.r_robot,
@@ -475,6 +438,13 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
             "probst_E_actor2": coll.e_target,
             "probst_E_time": coll.e_time,
         }
+
+    def _episode_inputs(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[Trajectory2D, dict[str, PedTrack]]:
+        """Resolved robot trajectory and pedestrian tracks the encounter evaluation reads."""
+        robot, _ = resolve_robot_trajectory(self, episode)
+        return robot, extract_episode_ped_tracks(episode)
 
     def _build_pair(
         self,
@@ -535,8 +505,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         target_ped_id: str,
     ) -> dict[str, typing.Any]:
         """Compute Probst responsibility over the pre-contact window [t0 - pre_window_s, t0]."""
-        robot, _ = resolve_robot_trajectory(self, episode)
-        tracks = extract_episode_ped_tracks(episode)
+        robot, tracks = self._episode_inputs(episode)
         target = tracks.get(target_ped_id)
         if len(robot.t_ns) < 2 or target is None:
             return self._null_output()
@@ -559,15 +528,14 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         """Compute Probst responsibility for an encounter/contact window or rolled up across episode encounters."""
         del prior_results
-        robot, _ = resolve_robot_trajectory(self, episode)
-        tracks = extract_episode_ped_tracks(episode)
+        robot, tracks = self._episode_inputs(episode)
         if len(robot.t_ns) < 2 or not tracks:
             return self._null_output()
 
         target = resolve_ped_track(tracks, self.metrics_config.get("target_agent_id"))
-        contact_t0_ns = _contact_t0_ns(self.metrics_config)
-        if target is not None and contact_t0_ns is not None:
-            return self.calculate_pre_contact(episode, contact_t0_ns, target.ped_id)
+        contact_t0 = self.metrics_config.get("contact_t0_ns")
+        if target is not None and contact_t0 is not None:
+            return self.calculate_pre_contact(episode, int(contact_t0), target.ped_id)
 
         if target is not None:
             bounds = (
@@ -611,8 +579,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         if actor_2 is None or actor_2_kind != "pedestrian":
             return self._null_output(NullReason.NOT_APPLICABLE.value)
 
-        robot, _ = resolve_robot_trajectory(self, episode)
-        tracks = extract_episode_ped_tracks(episode)
+        robot, tracks = self._episode_inputs(episode)
         if len(robot.t_ns) < 2 or not tracks:
             return self._null_output()
         target = resolve_ped_track(tracks, actor_2)

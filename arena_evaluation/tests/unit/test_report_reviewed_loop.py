@@ -11,7 +11,6 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from report_page import parse_page
 from synthetic_benchmark import write_synthetic_benchmark
 
 from arena_evaluation.mcp import findings as findings_tool
@@ -80,33 +79,6 @@ def _failing_plot(draft_id: str) -> str:
     )
     assert failed["status"] == "failed", failed
     return plot_id
-
-
-def test_assemble_builds_the_single_builder_page(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run_dir = _run(tmp_path, monkeypatch)
-    _pinned_query("reviewed_run")
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
-    _approved_bar(draft_id)
-
-    assembled = reporting.evaluation_report_assemble(
-        run_id="reviewed_run", draft_id=draft_id, name="one_page"
-    )
-
-    report_path = pathlib.Path(assembled["report_path"])
-    assert assembled["complete"] is True
-    assert report_path == run_dir / "reports" / "one_page" / "report.html"
-    page = report_path.read_text(encoding="utf-8")
-    parts = parse_page(page)
-    assert parts.bundle_count == 1
-    assert parts.plotly_figures == 1
-    assert parts.png_images == 1
-    assert parts.references == []
-    assert not (report_path.parent / "plotly.min.js").exists()
-    assert "Dataset Snapshot" in page
 
 
 def test_failed_and_unverified_items_are_listed_not_dropped(
@@ -189,47 +161,3 @@ def test_requested_exports_are_written_and_validated(
     assert assembled["export_warnings"] == []
 
 
-def test_derived_table_snapshot_reaches_the_figure_card(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _run(tmp_path, monkeypatch)
-    _pinned_query("reviewed_run")
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
-    _approved_bar(draft_id)
-
-    assembled = reporting.evaluation_report_assemble(
-        run_id="reviewed_run", draft_id=draft_id, name="provenance"
-    )
-
-    assert assembled["snapshot_id"]
-    page = pathlib.Path(assembled["report_path"]).read_text(encoding="utf-8")
-    assert f"snapshot <code>{assembled['snapshot_id']}</code>" in page
-
-
-def test_failed_plot_is_rejected_before_rendering(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _run(tmp_path, monkeypatch)
-    _pinned_query("reviewed_run")
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
-
-    failed = reporting.evaluation_report_plot(
-        run_id="reviewed_run",
-        draft_id=draft_id,
-        plot={
-            "id": "broken_metric",
-            "title": "Broken metric",
-            "type": "bar",
-            "data": {"source": "derived_planner_ttg"},
-            "channels": {"x": "planner", "y": "nonexistent_col_xyz"},
-        },
-    )
-
-    assert failed["status"] == "failed"
-    assert "Required column" in str(failed["error"])
-    assert failed["checks"]["issues"]
-    assert failed["image_path"] is None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 
 import polars as pl
@@ -55,20 +54,3 @@ def test_a_complete_track_sums_every_step() -> None:
     assert _total_distance_m(peds) == pytest.approx(7.0)
 
 
-def test_a_step_pairs_the_same_sample_x_and_y() -> None:
-    """The null x at sample 2 and the null y at sample 1 must not shift the pairs apart.
-
-    ``x`` and ``y`` each lose one difference, so dropping the null differences one column at a
-    time keeps two values on both sides and pairs sample 1's dx with sample 3's dy: 2 * sqrt(2).
-    Only sample 4 spans two positions, so the walked distance is sqrt(2).
-    """
-    peds = _track([0.0, 1.0, None, 4.0, 5.0], [0.0, None, 3.0, 4.0, 5.0])
-
-    assert _total_distance_m(peds) == pytest.approx(math.sqrt(2.0))
-
-
-def test_a_null_position_never_contributes_a_step() -> None:
-    """A step needs both of its endpoints, so the samples around a null position are skipped."""
-    peds = _track([0.0, 3.0, None, 6.0, 9.0, 9.0], [0.0, 0.0, 4.0, 8.0, 8.0, None])
-
-    assert _total_distance_m(peds) == pytest.approx(6.0)

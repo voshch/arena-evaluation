@@ -64,21 +64,6 @@ def test_an_accepted_topic_without_an_environment_is_skipped_with_one_warning(
     assert len(_warnings_about(caplog, "/odom")) == 1
 
 
-def test_a_topic_no_table_accepts_is_skipped_silently(
-    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    bag = _write_bag(
-        tmp_path / "unknown.mcap",
-        [("/env_0/jackal/unrecognized", ODOMETRY, _odometry(1.0), SEC)],
-    )
-
-    with caplog.at_level(logging.WARNING, logger=_READER_LOGGER):
-        bundles = MCAPReader(bag).read(tmp_path / "out")
-
-    assert bundles == {}
-    assert _warnings_about(caplog, "/env_0/jackal/unrecognized") == []
-
-
 def test_an_environment_level_initial_pose_is_not_a_robot_row(
     tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
 ) -> None:

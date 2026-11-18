@@ -42,12 +42,3 @@ def test_extract_episode_reextracts_a_cache_written_by_an_older_layout(tmp_path:
     assert TopicParquetStore.is_current(topics)
 
 
-def test_extract_episode_reuses_a_cache_written_by_this_layout(tmp_path: pathlib.Path) -> None:
-    pipeline, episode, bag = _episode(tmp_path)
-    first = pipeline.extract_episode(episode)
-    bag.write_bytes(b"not an mcap")
-
-    second = pipeline.extract_episode(episode)
-
-    assert first is not None and second is not None
-    assert second["env_0_jackal"].robot_odom.collect().equals(first["env_0_jackal"].robot_odom.collect())

@@ -26,7 +26,6 @@ class EvidenceIndex(Table, name="evidence_index", kind=TableKind.ANALYSIS):
     """Flat index of content-addressed evidence records stored at ``analysis/evidence_index.parquet``."""
 
     key = ("evidence_id",)
-    required_by_default = False
 
     evidence_id = Column(
         pl.String,
@@ -80,7 +79,6 @@ class GroupSummaryAnalysis(Table, name="group_summary", kind=TableKind.ANALYSIS)
 
     key = ("metric",)
     unique_key = False
-    required_by_default = False
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
@@ -113,7 +111,6 @@ class DistributionBinsAnalysis(
 
     key = ("metric", "bin_index")
     unique_key = False
-    required_by_default = False
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
@@ -138,7 +135,6 @@ class RadarProfileAnalysis(Table, name="radar_profile", kind=TableKind.ANALYSIS)
 
     key = ("metric",)
     unique_key = False
-    required_by_default = False
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
@@ -162,7 +158,6 @@ class CompositeRankingAnalysis(
 
     key = ("metric",)
     unique_key = False
-    required_by_default = False
 
     rank = Column(pl.Int64, description="1-based composite rank (1 is best).")
     composite_score = Column(
@@ -189,7 +184,6 @@ class CorrelationMatrixAnalysis(
 
     key = ("metric_x", "metric_y")
     unique_key = False
-    required_by_default = False
 
     metric_x = Column(pl.String, required=True, description="First metric name.")
     metric_y = Column(pl.String, required=True, description="Second metric name.")
@@ -204,7 +198,6 @@ class PairedDiffAnalysis(Table, name="paired_diff", kind=TableKind.ANALYSIS):
 
     key = ("metric",)
     unique_key = False
-    required_by_default = False
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
@@ -268,7 +261,6 @@ class ClusterBootstrapCIAnalysis(
 
     key = ("metric",)
     unique_key = False
-    required_by_default = False
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")

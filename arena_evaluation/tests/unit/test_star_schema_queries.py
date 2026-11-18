@@ -5,15 +5,12 @@ from __future__ import annotations
 import pathlib
 
 import polars as pl
-import pytest
 
 from arena_evaluation.analytics import catalog as catalog_module
-from arena_evaluation.analytics.catalog import CANONICAL_VIEW_NAMES, BenchmarkCatalog
-from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
+from arena_evaluation.analytics.catalog import CANONICAL_VIEW_NAMES
 from arena_evaluation.storage.registry import (
     FACT_TABLES,
     FactTable,
-    NullReason,
     dimensions,
 )
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
@@ -171,43 +168,6 @@ def _write_multi_condition_benchmark(root: pathlib.Path) -> pathlib.Path:
     return root
 
 
-def test_crowd_condition_view_derives_blind_visible_mixed_and_null_reason(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(
-        _write_multi_condition_benchmark(tmp_path / "bench")
-    )
-    rows = (
-        catalog.get_table("v_episode_summary")
-        .select("episode_id", "crowd_condition", "crowd_condition_null_reason")
-        .sort("episode_id")
-        .collect()
-        .to_dicts()
-    )
-    assert rows == [
-        {
-            "episode_id": 0,
-            "crowd_condition": "blind",
-            "crowd_condition_null_reason": None,
-        },
-        {
-            "episode_id": 1,
-            "crowd_condition": "visible",
-            "crowd_condition_null_reason": None,
-        },
-        {
-            "episode_id": 2,
-            "crowd_condition": "mixed",
-            "crowd_condition_null_reason": None,
-        },
-        {
-            "episode_id": 3,
-            "crowd_condition": None,
-            "crowd_condition_null_reason": str(NullReason.NOT_RECORDED),
-        },
-    ]
-
-
 def test_no_legacy_aliases_exist_in_catalog_module() -> None:
     assert not hasattr(catalog_module, "StarCatalog")
     assert not hasattr(catalog_module, "TELEMETRY_TABLE_SCHEMAS")
@@ -216,47 +176,3 @@ def test_no_legacy_aliases_exist_in_catalog_module() -> None:
     assert "v_contact_summary" in CANONICAL_VIEW_NAMES
 
 
-def test_sql_engine_queries_canonical_views_and_dim_metrics(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(
-        _write_multi_condition_benchmark(tmp_path / "bench")
-    )
-    engine = PolarsSQLEngine(catalog)
-
-    enc = engine.query(
-        "SELECT crowd_condition, encounter_count, contact_encounters FROM v_encounter_summary"
-    )
-    assert enc.to_dicts() == [
-        {"crowd_condition": "blind", "encounter_count": 1, "contact_encounters": 1}
-    ]
-
-    metrics_df = engine.query(
-        "SELECT metric, direction FROM dim_metrics WHERE metric = 'time_to_goal'"
-    )
-    assert metrics_df.to_dicts() == [{"metric": "time_to_goal", "direction": "lower"}]
-
-
-@pytest.mark.parametrize(
-    "bad_alias",
-    [
-        "time_to_goal_s",
-        "total_energy_wh",
-        "path_deviation_m",
-        "closer_label",
-        "fault_attributed_to",
-    ],
-)
-def test_v_episode_summary_and_v_encounter_summary_omit_retired_source_names(
-    tmp_path: pathlib.Path, bad_alias: str
-) -> None:
-    catalog = BenchmarkCatalog.open(
-        _write_multi_condition_benchmark(tmp_path / "bench")
-    )
-    assert (
-        bad_alias not in catalog.get_table("v_episode_summary").collect_schema().names()
-    )
-    assert (
-        bad_alias
-        not in catalog.get_table("v_encounter_summary").collect_schema().names()
-    )

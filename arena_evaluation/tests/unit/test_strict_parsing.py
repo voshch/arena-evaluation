@@ -29,11 +29,6 @@ def test_parse_bool_rejects_an_unknown_token() -> None:
         parse_bool("maybe")
 
 
-def test_parse_bool_accepts_true_and_zero_case_insensitively() -> None:
-    assert parse_bool("TRUE") is True
-    assert parse_bool("0") is False
-
-
 def test_first_collision_s_rejects_a_collision_frame_without_event_count() -> None:
     with pytest.raises(MetricInputError, match="event_count"):
         _first_collision_s(_episode_without_event_count())

@@ -74,6 +74,39 @@ def _plot_bundle_files(root: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
     return entries
 
 
+def _plot_name(name: str, what: str) -> str:
+    """One safe plot bundle name, without a YAML filename suffix."""
+    return component(name.removesuffix(".yaml").removesuffix(".yml"), what)
+
+
+def _as_mapping(parsed: object, message: str, hint: str) -> dict[str, Any]:
+    """``parsed`` as a mapping, a ToolError carrying ``message`` and ``hint`` otherwise."""
+    if not isinstance(parsed, dict):
+        raise ToolError(message, hint=hint)
+    return parsed
+
+
+def _not_found(name: str, hint: str) -> ToolError:
+    """The typed error for a plot declaration absent from every search root."""
+    return ToolError(f"Plot declaration {name!r} not found", hint=hint)
+
+
+def _validated_spec(parsed: dict[str, Any], label: str, hint: str) -> PlotSpec:
+    """Validate ``parsed`` as a PlotSpec, naming its origin by ``label`` in the error."""
+    try:
+        return PlotSpec.model_validate(parsed)
+    except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
+        raise ToolError(f"Invalid PlotSpec schema{label}: {exc}", hint=hint) from exc
+
+
+def _render_error(plot_id: Any, exc: Exception) -> ToolError:
+    """The typed error wrapping a renderer failure for plot ``plot_id``."""
+    return ToolError(
+        f"Cannot render plot {plot_id!r}: {exc}",
+        hint="check PlotSpec type, channels, and data source; raw-row bindings require valid aggregation or x/y columns",
+    )
+
+
 @domain.tool(read_only=True)
 def evaluation_plot_declarations() -> dict[str, Any]:
     """List all registered declarative plot declarations and recipes with encodings and data sources."""
@@ -87,24 +120,20 @@ def evaluation_plot_declarations() -> dict[str, Any]:
                 if not isinstance(raw, dict) or "type" not in raw:
                     continue
                 spec = PlotSpec.model_validate(raw)
-                source_val = spec.data.source if spec.data else None
-                stored_query_val = (
-                    spec.data.stored_query
-                    if (spec.data and spec.data.stored_query)
-                    else None
-                )
                 results[name] = {
                     "id": spec.id or name,
                     "title": spec.title,
                     "type": spec.type,
-                    "source": source_val,
-                    "stored_query": stored_query_val,
+                    "source": spec.data.source if spec.data else None,
+                    "stored_query": (spec.data.stored_query or None)
+                    if spec.data
+                    else None,
                     "encodings": spec.channels.model_dump(exclude_unset=True),
                     "options": dict(spec.options),
                 }
             except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError):
                 continue
-    return {"declarations": [results[k] for k in sorted(results)]}
+    return {"declarations": [results[name] for name in sorted(results)]}
 
 
 @domain.tool(read_only=True)
@@ -116,36 +145,26 @@ def evaluation_read_plot_declaration(
     run_id: OptionalRunId = None,
 ) -> dict[str, Any]:
     """Read a registered plot declaration YAML document and its validated specification."""
-    safe_name = component(name.removesuffix(".yaml").removesuffix(".yml"), "name")
+    safe_name = _plot_name(name, "name")
     extra = (run_analysis_root(run_path(run_id)),) if run_id is not None else ()
     path = find_recipe_path(safe_name, extra_dirs=extra)
     if path is None:
-        raise ToolError(
-            f"Plot declaration {name!r} not found",
-            hint="evaluation_plot_declarations lists available declarations",
+        raise _not_found(
+            name, "evaluation_plot_declarations lists available declarations"
         )
 
     text = path.read_text(encoding="utf-8")
-    parsed = parse_yaml(text, f"plot declaration '{safe_name}'")
-    if not isinstance(parsed, dict):
-        raise ToolError(
-            f"Plot declaration '{safe_name}' must be a YAML mapping",
-            hint="make the declaration a YAML mapping with id, type and data",
-        )
-
-    try:
-        spec = PlotSpec.model_validate(parsed)
-    except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
-        raise ToolError(
-            f"Invalid PlotSpec schema in declaration '{safe_name}': {exc}",
-            hint="fix the PlotSpec fields; evaluation_plot_declarations shows a valid declaration",
-        ) from exc
-
-    return {
-        "name": safe_name,
-        "yaml": text,
-        "spec": spec.model_dump(),
-    }
+    parsed = _as_mapping(
+        parse_yaml(text, f"plot declaration '{safe_name}'"),
+        f"Plot declaration '{safe_name}' must be a YAML mapping",
+        "make the declaration a YAML mapping with id, type and data",
+    )
+    spec = _validated_spec(
+        parsed,
+        f" in declaration '{safe_name}'",
+        "fix the PlotSpec fields; evaluation_plot_declarations shows a valid declaration",
+    )
+    return {"name": safe_name, "yaml": text, "spec": spec.model_dump()}
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=True)
@@ -159,21 +178,17 @@ def evaluation_save_plot_declaration(
     run_id: OptionalRunId = None,
 ) -> dict[str, Any]:
     """Validate against PlotSpec and save a plot declaration recipe to the run's analysis/plots or package catalog."""
-    safe_name = component(name.removesuffix(".yaml").removesuffix(".yml"), "name")
-    parsed = parse_yaml(yaml_text, "yaml_text")
-    if not isinstance(parsed, dict):
-        raise ToolError(
-            "Plot declaration YAML must be a mapping",
-            hint="make yaml_text a YAML mapping with id, type and data",
-        )
-
-    try:
-        spec = PlotSpec.model_validate(parsed)
-    except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
-        raise ToolError(
-            f"Invalid PlotSpec schema: {exc}",
-            hint="fix the PlotSpec fields; evaluation_plot_declarations shows a valid document",
-        ) from exc
+    safe_name = _plot_name(name, "name")
+    parsed = _as_mapping(
+        parse_yaml(yaml_text, "yaml_text"),
+        "Plot declaration YAML must be a mapping",
+        "make yaml_text a YAML mapping with id, type and data",
+    )
+    spec = _validated_spec(
+        parsed,
+        "",
+        "fix the PlotSpec fields; evaluation_plot_declarations shows a valid document",
+    )
 
     if run_id is not None:
         file_path = bundle_path(run_analysis_root(run_path(run_id)), "plot", safe_name)
@@ -239,46 +254,30 @@ def evaluation_render_plot(
         )
 
     if declaration is not None:
-        safe_decl = component(
-            declaration.removesuffix(".yaml").removesuffix(".yml"), "declaration"
-        )
+        safe_decl = _plot_name(declaration, "declaration")
         recipe_path = find_recipe_path(
             safe_decl, extra_dirs=(run_analysis_root(benchmark_path),)
         )
         if recipe_path is None:
-            raise ToolError(
-                f"Plot declaration {declaration!r} not found",
-                hint="evaluation_plot_declarations lists available recipes",
+            raise _not_found(
+                declaration, "evaluation_plot_declarations lists available recipes"
             )
-        raw_recipe = yaml.safe_load(recipe_path.read_text(encoding="utf-8"))
-        if not isinstance(raw_recipe, dict):
-            raise ToolError(
-                f"Recipe '{safe_decl}' is not a valid YAML mapping",
-                hint="make the recipe a YAML mapping with id, type and data",
-            )
-        merged = deep_merge(raw_recipe, overrides or {})
-        try:
-            spec = PlotSpec.model_validate(merged)
-        except (yaml.YAMLError, pydantic.ValidationError, ValueError) as exc:
-            raise ToolError(
-                f"Invalid PlotSpec schema in recipe '{safe_decl}': {exc}",
-                hint="fix the recipe's PlotSpec fields; evaluation_plot_declarations shows a valid recipe",
-            ) from exc
+        raw = _as_mapping(
+            yaml.safe_load(recipe_path.read_text(encoding="utf-8")),
+            f"Recipe '{safe_decl}' is not a valid YAML mapping",
+            "make the recipe a YAML mapping with id, type and data",
+        )
+        spec_label = f" in recipe '{safe_decl}'"
+        spec_hint = "fix the recipe's PlotSpec fields; evaluation_plot_declarations shows a valid recipe"
     else:
-        parsed = parse_yaml(spec_yaml or "", "spec_yaml")
-        if not isinstance(parsed, dict):
-            raise ToolError(
-                "spec_yaml must be a YAML mapping",
-                hint="make spec_yaml a YAML mapping with id, type and data",
-            )
-        merged = deep_merge(parsed, overrides or {})
-        try:
-            spec = PlotSpec.model_validate(merged)
-        except (yaml.YAMLError, pydantic.ValidationError, ValueError) as exc:
-            raise ToolError(
-                f"Invalid PlotSpec schema: {exc}",
-                hint="fix the PlotSpec fields; evaluation_plot_declarations shows a valid document",
-            ) from exc
+        raw = _as_mapping(
+            parse_yaml(spec_yaml or "", "spec_yaml"),
+            "spec_yaml must be a YAML mapping",
+            "make spec_yaml a YAML mapping with id, type and data",
+        )
+        spec_label = ""
+        spec_hint = "fix the PlotSpec fields; evaluation_plot_declarations shows a valid document"
+    spec = _validated_spec(deep_merge(raw, overrides or {}), spec_label, spec_hint)
 
     catalog = BenchmarkCatalog.open(benchmark_path)
     sql_engine = PolarsSQLEngine(catalog)
@@ -324,19 +323,17 @@ def evaluation_render_plot(
     if output_format == "html":
         import plotly.offline
 
-        plotly_renderer = PlotlyRenderer(units={})
         try:
-            html_body = plotly_renderer.render(spec, df, run_dir=benchmark_path)
+            html_body = PlotlyRenderer(units={}).render(
+                spec, df, run_dir=benchmark_path
+            )
         except (
             ValueError,
             KeyError,
             RuntimeError,
             polars.exceptions.PolarsError,
         ) as exc:
-            raise ToolError(
-                f"Cannot render plot {spec.id!r}: {exc}",
-                hint="check PlotSpec type, channels, and data source; raw-row bindings require valid aggregation or x/y columns",
-            ) from exc
+            raise _render_error(spec.id, exc) from exc
         if html_body is None:
             raise ToolError(
                 f"Plotly renderer failed to produce output for '{spec.id}'",
@@ -354,9 +351,8 @@ def evaluation_render_plot(
         )
         atomic_write_text(out_file, full_html)
     else:
-        static_renderer = StaticRenderer(units={})
         try:
-            static_renderer.render(
+            StaticRenderer(units={}).render(
                 spec,
                 df,
                 out_path=out_file,
@@ -370,10 +366,7 @@ def evaluation_render_plot(
             ArenaEvaluationError,
             polars.exceptions.PolarsError,
         ) as exc:
-            raise ToolError(
-                f"Cannot render plot {spec.id!r}: {exc}",
-                hint="check PlotSpec type, channels, and data source; raw-row bindings require valid aggregation or x/y columns",
-            ) from exc
+            raise _render_error(spec.id, exc) from exc
         if not out_file.is_file() or out_file.stat().st_size == 0:
             detail = f": {'; '.join(diagnostics.issues)}" if diagnostics.issues else ""
             raise ToolError(

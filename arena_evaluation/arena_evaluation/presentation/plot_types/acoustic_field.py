@@ -6,7 +6,7 @@ import dataclasses
 import logging
 import pathlib
 import typing
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
 import numpy as np
@@ -51,6 +51,10 @@ _CELL_DPI = 150
 # Colour-scale floor only; a missing measurement is never replaced by it.
 _FIELD_VMIN_DBA = 20.0
 
+_FieldFrame = tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]
+_DoorMap = dict[str, tuple[np.ndarray, float]]
+_ValidFrame = tuple[int, _FieldFrame]
+
 
 def _cell_extent(
     origin_m: float, cells: int, cell_m: float, source_res_m: float
@@ -63,6 +67,117 @@ def _cell_extent(
 def _cell_centres(lower_m: float, cells: int, cell_m: float) -> np.ndarray:
     """Centres of the cells along one axis for wall and door contours."""
     return lower_m + (np.arange(cells) + 0.5) * cell_m
+
+
+def _ceil_color_scale(value_dba: float, vmin_dba: float) -> float:
+    """Round the upper colour bound up to the next 10 dBA, never at or below the floor."""
+    vmax_dba = float(np.ceil(value_dba / 10.0) * 10.0)
+    if vmax_dba <= vmin_dba:
+        vmax_dba = vmin_dba + 20.0
+    return vmax_dba
+
+
+def _first_xy(
+    df: pl.DataFrame,
+    schema: Mapping[str, typing.Any],
+    primary: str,
+    fallback: str,
+) -> tuple[float, float] | None:
+    """First recorded (x, y) endpoint from the primary column, else its fallback."""
+    if primary in schema:
+        value = df[primary][0]
+    elif fallback in schema:
+        value = df[fallback][0]
+    else:
+        return None
+    if isinstance(value, (list, tuple, np.ndarray)) and len(value) >= 2:
+        return (float(value[0]), float(value[1]))
+    return None
+
+
+def _sampled_indices(total_rows: int, stride: int, max_frames: int) -> list[int]:
+    """Row indices sampled every stride rows, thinned evenly to max_frames."""
+    indices = list(range(0, total_rows, stride))
+    if len(indices) > max_frames:
+        step = len(indices) / max_frames
+        indices = [indices[int(i * step)] for i in range(max_frames)]
+    return indices
+
+
+def _downsample_scene(
+    grid: np.ndarray,
+    resolution_m: float,
+    doors: _DoorMap | None,
+    downsample: int,
+) -> tuple[np.ndarray, float, _DoorMap]:
+    """Downsample occupancy and door masks together, keeping the effective cell size."""
+    grid_ds = downsample_occupancy(grid, downsample) if downsample > 1 else grid
+    eff_res_m = resolution_m * downsample if downsample > 1 else resolution_m
+    doors_ds = (
+        {
+            name: (downsample_mask(mask, downsample), tl_db)
+            for name, (mask, tl_db) in doors.items()
+        }
+        if doors
+        else {}
+    )
+    return grid_ds, eff_res_m, doors_ds
+
+
+def _masked_render_grid(
+    grid: np.ndarray, field_dba: np.ndarray, open_door_mask: np.ndarray
+) -> np.ndarray:
+    """Field with walls and unmeasured cells blanked, flipped for origin="upper"."""
+    wall_or_closed = (grid == 1) & ~open_door_mask
+    return np.flipud(np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba))
+
+
+def _draw_wall_contour(
+    ax: typing.Any, cx: np.ndarray, cy: np.ndarray, wall_outline: np.ndarray
+) -> None:
+    """Outline the occupancy walls on a field axes."""
+    ax.contour(
+        cx,
+        cy,
+        wall_outline,
+        levels=[0.5],
+        colors=["#ffffff"],
+        linewidths=0.3,
+        alpha=0.25,
+    )
+
+
+def _draw_door_contours(
+    ax: typing.Any,
+    cx: np.ndarray,
+    cy: np.ndarray,
+    door_mask: np.ndarray,
+    open_door_mask: np.ndarray,
+) -> typing.Any:
+    """Outline closed doors dashed and open doors green; return the open-door contour."""
+    if not np.any(door_mask):
+        return None
+    ax.contour(
+        cx,
+        cy,
+        door_mask.astype(np.uint8),
+        levels=[0.5],
+        colors=["#64748b"],
+        linewidths=0.9,
+        alpha=0.6,
+        linestyles="dashed",
+    )
+    if not np.any(open_door_mask):
+        return None
+    return ax.contour(
+        cx,
+        cy,
+        open_door_mask.astype(np.uint8),
+        levels=[0.5],
+        colors=["#10b981"],
+        linewidths=1.4,
+        alpha=0.75,
+    )
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -84,6 +199,18 @@ class CellRenderRequest:
     doors: dict[str, tuple[np.ndarray, float]] | None = None
     overlay_trajectories: bool = False
     trajectory_data: dict[str, typing.Any] | None = None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _FieldScene:
+    """Grid and field options shared by the static, Plotly and animation entry points."""
+
+    grid: np.ndarray
+    resolution_m: float
+    origin_m: tuple[float, float]
+    doors: _DoorMap
+    downsample: int
+    vmin_dba: float
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -163,37 +290,64 @@ class AcousticFieldRenderer(BasePlotRenderer):
         }
         return barrier.occupancy, meta
 
-    def _compute_full_field(
-        self,
-        grid: np.ndarray,
-        resolution: float,
-        ox: float,
-        oy: float,
-        rx_m: float,
-        ry_m: float,
-        source_dba: float,
-        downsample: int = 1,
-        pixel_tl: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float, tuple[int, int]]:
-        if downsample > 1:
-            grid = downsample_occupancy(grid, downsample)
-            resolution = resolution * downsample
-
-        h, w = grid.shape
-        rx_px = (rx_m - ox) / resolution
-        ry_px = (ry_m - oy) / resolution
-
-        att_grid = compute_acoustic_field(
-            grid,
-            resolution,
-            rx_px,
-            ry_px,
-            wall_tl=WALL_TRANSMISSION_LOSS_DB,
-            mic_distance=MIC_DISTANCE_M,
-            pixel_tl=pixel_tl,
+    def _load_scene(
+        self, work_df: pl.DataFrame, *, default_downsample: int = 1
+    ) -> _FieldScene | None:
+        """World grid plus parsed field options; None when the frame declares no world."""
+        world_name = work_df["world"][0] if "world" in work_df.schema else None
+        if not world_name:
+            return None
+        grid, meta = self.load_grid_and_meta(str(world_name), run_dir=self.run_dir)
+        return _FieldScene(
+            grid=grid,
+            resolution_m=float(meta["resolution"]),
+            origin_m=(float(meta["origin"][0]), float(meta["origin"][1])),
+            doors=meta["doors"],
+            downsample=int(self.spec.options.get("downsample", default_downsample)),
+            vmin_dba=float(self.spec.options.get("vmin", _FIELD_VMIN_DBA)),
         )
-        field_dba = source_dba - att_grid
-        return field_dba, resolution, (h, w)
+
+    def _render_worst_cell(
+        self,
+        scene: _FieldScene,
+        worst: dict[str, typing.Any],
+        work_df: pl.DataFrame,
+        *,
+        out_path: pathlib.Path,
+        vmax_dba: float,
+        title: str,
+    ) -> bool:
+        """Render one worst-exposure row through the shared cell request."""
+        door_states = worst.get("door_states") or {}
+        open_doors = (
+            frozenset(name for name, state in door_states.items() if state == "open")
+            if scene.doors
+            else None
+        )
+        overlay_trajectories = self._overlay_trajectories()
+        return self.render_cell_png(
+            CellRenderRequest(
+                grid=scene.grid,
+                resolution_m=scene.resolution_m,
+                origin_m=scene.origin_m,
+                robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
+                source_dba=float(worst["source_dba"]),
+                peds=worst["pedestrians"],
+                title=title,
+                out_path=out_path,
+                downsample=scene.downsample,
+                vmin_dba=scene.vmin_dba,
+                vmax_dba=vmax_dba,
+                open_doors=open_doors,
+                doors=scene.doors,
+                overlay_trajectories=overlay_trajectories,
+                trajectory_data=(
+                    self._cell_trajectories(worst, work_df)
+                    if overlay_trajectories
+                    else None
+                ),
+            )
+        )
 
     def render_cell_png(self, request: CellRenderRequest) -> bool:
         """Draw one acoustic cell: the field, its walls and doors, the robot and the pedestrians."""
@@ -204,35 +358,26 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         ox, oy = request.origin_m
         rx_m, ry_m = request.robot_xy_m
-        eff_res = request.resolution_m
-        grid_eval = request.grid
-        doors_eval = request.doors
-
-        if request.downsample > 1:
-            grid_eval = downsample_occupancy(request.grid, request.downsample)
-            eff_res = request.resolution_m * request.downsample
-            if doors_eval:
-                doors_eval = {
-                    name: (downsample_mask(mask, request.downsample), tl_db)
-                    for name, (mask, tl_db) in doors_eval.items()
-                }
+        grid_eval, eff_res, doors_eval = _downsample_scene(
+            request.grid, request.resolution_m, request.doors, request.downsample
+        )
 
         pixel_tl = (
             build_pixel_tl(grid_eval, doors_eval, open_doors=request.open_doors)
             if doors_eval
             else None
         )
-        field_dba, _, (h, w) = self._compute_full_field(
+        h, w = grid_eval.shape
+        att_grid = compute_acoustic_field(
             grid_eval,
             eff_res,
-            ox,
-            oy,
-            rx_m,
-            ry_m,
-            request.source_dba,
-            downsample=1,
+            (rx_m - ox) / eff_res,
+            (ry_m - oy) / eff_res,
+            wall_tl=WALL_TRANSMISSION_LOSS_DB,
+            mic_distance=MIC_DISTANCE_M,
             pixel_tl=pixel_tl,
         )
+        field_dba = request.source_dba - att_grid
 
         door_mask = np.zeros_like(grid_eval, dtype=bool)
         open_door_mask = np.zeros_like(grid_eval, dtype=bool)
@@ -243,11 +388,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 if any(_entity_matches_door(name, e) for e in open_set):
                     open_door_mask |= mask
 
-        wall_or_closed = (grid_eval == 1) & ~open_door_mask
-        render_grid = np.flipud(
-            np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba)
-        )
-        door_overlay = door_mask if door_mask.any() else None
+        render_grid = _masked_render_grid(grid_eval, field_dba, open_door_mask)
 
         plt.figure(figsize=_CELL_FIGSIZE)
         ax = plt.gca()
@@ -267,37 +408,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         )
         cy = _cell_centres(bottom, h, eff_res)
         cx = _cell_centres(left, w, eff_res)
-        wall_outline = (grid_eval == 1).astype(np.uint8)
-        ax.contour(
-            cx,
-            cy,
-            wall_outline,
-            levels=[0.5],
-            colors=["#ffffff"],
-            linewidths=0.3,
-            alpha=0.25,
-        )
-        if door_overlay is not None:
-            ax.contour(
-                cx,
-                cy,
-                door_overlay.astype(np.uint8),
-                levels=[0.5],
-                colors=["#64748b"],
-                linewidths=0.9,
-                alpha=0.6,
-                linestyles="dashed",
-            )
-            if open_door_mask.any():
-                ax.contour(
-                    cx,
-                    cy,
-                    open_door_mask.astype(np.uint8),
-                    levels=[0.5],
-                    colors=["#10b981"],
-                    linewidths=1.4,
-                    alpha=0.75,
-                )
+        _draw_wall_contour(ax, cx, cy, (grid_eval == 1).astype(np.uint8))
+        _draw_door_contours(ax, cx, cy, door_mask, open_door_mask)
         plt.colorbar(im, label="dBA", fraction=0.046, pad=0.04)
 
         if request.overlay_trajectories and request.trajectory_data:
@@ -436,9 +548,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
             )
         return df
 
-    def _facet_axes(
+    def _facet_cells(
         self, work_df: pl.DataFrame
-    ) -> tuple[str | None, str | None, list[str], list[str]]:
+    ) -> tuple[list[tuple[dict[str, typing.Any], str, str]], int]:
+        """Worst row per non-empty facet cell plus the facet grid's column count."""
         row_col = self.resolve_channel("facet_row")
         col_col = self.resolve_channel("facet_col")
         row_values = (
@@ -451,22 +564,24 @@ class AcousticFieldRenderer(BasePlotRenderer):
             if col_col is not None
             else [""]
         )
-        return row_col, col_col, row_values, col_values
-
-    def _filter_facet(
-        self,
-        work_df: pl.DataFrame,
-        row_col: str | None,
-        col_col: str | None,
-        rv: str,
-        cv: str,
-    ) -> pl.DataFrame:
-        pdf = work_df
-        if row_col is not None:
-            pdf = pdf.filter(pl.col(row_col).cast(pl.Utf8) == rv)
-        if col_col is not None:
-            pdf = pdf.filter(pl.col(col_col).cast(pl.Utf8) == cv)
-        return pdf
+        entries: list[tuple[dict[str, typing.Any], str, str]] = []
+        for row_value in row_values:
+            for col_value in col_values:
+                cell_df = work_df
+                if row_col is not None:
+                    cell_df = cell_df.filter(
+                        pl.col(row_col).cast(pl.Utf8) == row_value
+                    )
+                if col_col is not None:
+                    cell_df = cell_df.filter(
+                        pl.col(col_col).cast(pl.Utf8) == col_value
+                    )
+                if len(cell_df) == 0:
+                    continue
+                worst = self.pick_worst_row(cell_df)
+                if worst is not None:
+                    entries.append((worst, str(row_value), str(col_value)))
+        return entries, len(col_values)
 
     def render_plotly(self, df: pl.DataFrame) -> str | list[str]:
         """Return an HTML string embedding the acoustic-field image(s)."""
@@ -475,22 +590,15 @@ class AcousticFieldRenderer(BasePlotRenderer):
         if len(work_df) == 0:
             return ""
 
-        world_name = work_df["world"][0] if "world" in work_df.schema else None
-        if not world_name:
-            return ""
-
         try:
-            grid, meta = self.load_grid_and_meta(str(world_name), run_dir=self.run_dir)
+            scene = self._load_scene(work_df)
         except MetricInputError as exc:
             self.add_notice(str(exc))
             return ""
+        if scene is None:
+            return ""
 
-        resolution = float(meta["resolution"])
-        ox, oy = float(meta["origin"][0]), float(meta["origin"][1])
-        downsample = int(self.spec.options.get("downsample", 1))
-        vmin = float(self.spec.options.get("vmin", _FIELD_VMIN_DBA))
         mode = str(self.spec.options.get("mode", "grid")).lower()
-        doors = meta["doors"]
         plots_dir = (
             pathlib.Path(self.run_dir) / "plots"
             if self.run_dir
@@ -505,40 +613,14 @@ class AcousticFieldRenderer(BasePlotRenderer):
             col_label = str(worst["stage"])
             safe = self.spec.id.replace("/", "_").replace(" ", "_")
             png_path = plots_dir / f"{safe}.png"
-            src_dba = float(worst["source_dba"])
-            vmax = float(np.ceil(src_dba / 10.0) * 10.0)
-            if vmax <= vmin:
-                vmax = vmin + 20.0
-            door_states = worst.get("door_states") or {}
-            open_doors = (
-                frozenset(n for n, st in door_states.items() if st == "open")
-                if doors
-                else None
-            )
-            overlay_trajectories = self._overlay_trajectories()
-            traj_data = (
-                self._cell_trajectories(worst, work_df)
-                if overlay_trajectories
-                else None
-            )
-            ok = self.render_cell_png(
-                CellRenderRequest(
-                    grid=grid,
-                    resolution_m=resolution,
-                    origin_m=(ox, oy),
-                    robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
-                    source_dba=src_dba,
-                    peds=worst["pedestrians"],
-                    title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
-                    out_path=png_path,
-                    downsample=downsample,
-                    vmin_dba=vmin,
-                    vmax_dba=vmax,
-                    open_doors=open_doors,
-                    doors=doors,
-                    overlay_trajectories=overlay_trajectories,
-                    trajectory_data=traj_data,
-                )
+            exposure = worst["ped_max_exposure_dba"]
+            ok = self._render_worst_cell(
+                scene,
+                worst,
+                work_df,
+                out_path=png_path,
+                vmax_dba=_ceil_color_scale(float(worst["source_dba"]), scene.vmin_dba),
+                title=f"{row_label} / {col_label}  |  {exposure:.0f} dBA",
             )
             if not ok:
                 return ""
@@ -546,30 +628,17 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 f'<div style="text-align:center;">'
                 f'<img src="plots/{png_path.name}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}">'
                 f'<br><span style="font-size:0.78em;color:#475569;">'
-                f"{row_label} / {col_label} &mdash; {worst['ped_max_exposure_dba']:.0f} dBA</span></div>"
+                f"{row_label} / {col_label} &mdash; {exposure:.0f} dBA</span></div>"
             )
 
-        row_col, col_col, row_values, col_values = self._facet_axes(work_df)
-        entries: list[tuple[dict[str, typing.Any], str, str]] = []
-        for rv in row_values:
-            for cv in col_values:
-                pdf = self._filter_facet(work_df, row_col, col_col, rv, cv)
-                if len(pdf) == 0:
-                    continue
-                worst = self.pick_worst_row(pdf)
-                if worst is None:
-                    continue
-                entries.append((worst, str(rv), str(cv)))
-
+        entries, ncols = self._facet_cells(work_df)
         if not entries:
             return ""
 
-        global_max = max((float(w["source_dba"]) for w, _, _ in entries), default=80.0)
-        global_max = float(np.ceil(global_max / 10.0) * 10.0)
-        if global_max <= vmin:
-            global_max = vmin + 20.0
-
-        overlay_trajectories = self._overlay_trajectories()
+        global_max = _ceil_color_scale(
+            max((float(w["source_dba"]) for w, _, _ in entries), default=80.0),
+            scene.vmin_dba,
+        )
         cells = []
         for worst, row_label, col_label in entries:
             safe = self.spec.id
@@ -579,35 +648,14 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 safe += f"_{col_label}"
             safe = safe.replace("/", "_").replace(" ", "_")
             png_path = plots_dir / f"{safe}.png"
-            door_states = worst.get("door_states") or {}
-            open_doors = (
-                frozenset(n for n, st in door_states.items() if st == "open")
-                if doors
-                else None
-            )
-            traj_data = (
-                self._cell_trajectories(worst, work_df)
-                if overlay_trajectories
-                else None
-            )
-            ok = self.render_cell_png(
-                CellRenderRequest(
-                    grid=grid,
-                    resolution_m=resolution,
-                    origin_m=(ox, oy),
-                    robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
-                    source_dba=float(worst["source_dba"]),
-                    peds=worst["pedestrians"],
-                    title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
-                    out_path=png_path,
-                    downsample=downsample,
-                    vmin_dba=vmin,
-                    vmax_dba=global_max,
-                    open_doors=open_doors,
-                    doors=doors,
-                    overlay_trajectories=overlay_trajectories,
-                    trajectory_data=traj_data,
-                )
+            exposure = worst["ped_max_exposure_dba"]
+            ok = self._render_worst_cell(
+                scene,
+                worst,
+                work_df,
+                out_path=png_path,
+                vmax_dba=global_max,
+                title=f"{row_label} / {col_label}  |  {exposure:.0f} dBA",
             )
             if ok:
                 cells.append(
@@ -615,14 +663,14 @@ class AcousticFieldRenderer(BasePlotRenderer):
                         "row_val": row_label,
                         "col_label": col_label,
                         "img_rel_path": f"plots/{png_path.name}",
-                        "exposure": worst["ped_max_exposure_dba"],
+                        "exposure": exposure,
                     }
                 )
 
         if not cells:
             return ""
 
-        ncols = max(len(col_values), 1)
+        ncols = max(ncols, 1)
         html = f'<div style="display:grid;grid-template-columns:repeat({ncols},1fr);gap:12px;margin-top:8px;">'
         for c in cells:
             html += (
@@ -644,57 +692,24 @@ class AcousticFieldRenderer(BasePlotRenderer):
         if len(work_df) == 0:
             return
 
-        world_name = work_df["world"][0] if "world" in work_df.schema else None
-        if not world_name:
+        scene = self._load_scene(work_df)
+        if scene is None:
             raise MetricInputError(
                 f"{self.PLOT_TYPE}: the plot frame declares no world."
             )
-
-        grid, meta = self.load_grid_and_meta(str(world_name), run_dir=self.run_dir)
-        resolution = float(meta["resolution"])
-        ox, oy = float(meta["origin"][0]), float(meta["origin"][1])
-        downsample = int(self.spec.options.get("downsample", 1))
-        vmin = float(self.spec.options.get("vmin", _FIELD_VMIN_DBA))
-        doors = meta["doors"]
 
         worst = self.pick_worst_row(work_df)
         if worst is None:
             return
 
         src_dba = float(worst["source_dba"])
-        vmax = float(np.ceil(src_dba / 10.0) * 10.0)
-        if vmax <= vmin:
-            vmax = vmin + 20.0
-
-        door_states = worst.get("door_states") or {}
-        open_doors = (
-            frozenset(n for n, st in door_states.items() if st == "open")
-            if doors
-            else None
-        )
-        overlay_trajectories = self._overlay_trajectories()
-        traj_data = (
-            self._cell_trajectories(worst, work_df) if overlay_trajectories else None
-        )
-
-        self.render_cell_png(
-            CellRenderRequest(
-                grid=grid,
-                resolution_m=resolution,
-                origin_m=(ox, oy),
-                robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
-                source_dba=src_dba,
-                peds=worst["pedestrians"],
-                title=f"{self.spec.title} (Robot: {src_dba:.0f} dBA)",
-                out_path=out_path,
-                downsample=downsample,
-                vmin_dba=vmin,
-                vmax_dba=vmax,
-                open_doors=open_doors,
-                doors=doors,
-                overlay_trajectories=overlay_trajectories,
-                trajectory_data=traj_data,
-            )
+        self._render_worst_cell(
+            scene,
+            worst,
+            work_df,
+            out_path=out_path,
+            vmax_dba=_ceil_color_scale(src_dba, scene.vmin_dba),
+            title=f"{self.spec.title} (Robot: {src_dba:.0f} dBA)",
         )
 
     @staticmethod
@@ -755,42 +770,12 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 rx_clean = rx[valid]
                 ry_clean = ry[valid]
                 traj_data["robot_path"] = (rx_clean, ry_clean)
-                start_val = (
-                    df["start"][0]
-                    if "start" in schema
-                    else (df["start_pos"][0] if "start_pos" in schema else None)
-                )
-                if (
-                    isinstance(start_val, (list, tuple, np.ndarray))
-                    and len(start_val) >= 2
-                ):
-                    traj_data["robot_start"] = (
-                        float(start_val[0]),
-                        float(start_val[1]),
-                    )
-                elif len(rx_clean) > 0:
-                    traj_data["robot_start"] = (
-                        float(rx_clean[0]),
-                        float(ry_clean[0]),
-                    )
-                goal_val = (
-                    df["goal"][0]
-                    if "goal" in schema
-                    else (df["goal_pos"][0] if "goal_pos" in schema else None)
-                )
-                if (
-                    isinstance(goal_val, (list, tuple, np.ndarray))
-                    and len(goal_val) >= 2
-                ):
-                    traj_data["robot_goal"] = (
-                        float(goal_val[0]),
-                        float(goal_val[1]),
-                    )
-                elif len(rx_clean) > 0:
-                    traj_data["robot_goal"] = (
-                        float(rx_clean[-1]),
-                        float(ry_clean[-1]),
-                    )
+                traj_data["robot_start"] = _first_xy(
+                    df, schema, "start", "start_pos"
+                ) or (float(rx_clean[0]), float(ry_clean[0]))
+                traj_data["robot_goal"] = _first_xy(
+                    df, schema, "goal", "goal_pos"
+                ) or (float(rx_clean[-1]), float(ry_clean[-1]))
 
         if "has_collision" in schema and rx_col and ry_col and df is not None:
             coll_df = df.filter(pl.col("has_collision"))
@@ -1079,32 +1064,16 @@ class AcousticFieldRenderer(BasePlotRenderer):
         downsample: int = 1,
         stride: int = 1,
         max_frames: int = 120,
-    ) -> list[tuple[np.ndarray, float, tuple[int, int], frozenset[str], float] | None]:
+    ) -> list[_FieldFrame | None]:
         """Compute the 2D acoustic field for a sequence of episode frames."""
-        if downsample > 1:
-            grid = downsample_occupancy(grid, downsample)
-            resolution = resolution * downsample
-
-        h, w = grid.shape
-        doors_ds = (
-            {
-                name: (downsample_mask(mask, downsample), tl_db)
-                for name, (mask, tl_db) in doors.items()
-            }
-            if doors
-            else {}
+        grid, resolution, doors_ds = _downsample_scene(
+            grid, resolution, doors, downsample
         )
-
-        total_rows = len(df)
-        indices = list(range(0, total_rows, stride))
-        if len(indices) > max_frames:
-            step = len(indices) / max_frames
-            indices = [indices[int(i * step)] for i in range(max_frames)]
+        h, w = grid.shape
+        indices = _sampled_indices(len(df), stride, max_frames)
 
         tl_cache: dict[tuple[str, ...], np.ndarray] = {}
-        results: list[
-            tuple[np.ndarray, float, tuple[int, int], frozenset[str], float] | None
-        ] = []
+        results: list[_FieldFrame | None] = []
         # agent-contracts: ignore AC004 - Matplotlib rendering boundary
         rows = df.rows(named=True)
         missing_source = False
@@ -1180,67 +1149,6 @@ class AcousticFieldRenderer(BasePlotRenderer):
         first_frame_path: pathlib.Path | None = None,
     ) -> pathlib.Path | None:
         """Render an animated GIF/MP4/PNG sequence, plus the first frame when asked."""
-        valid = self._animation_fields(
-            df,
-            grid,
-            resolution,
-            ox,
-            oy,
-            doors,
-            state_timeline=state_timeline,
-            downsample=downsample,
-            stride=stride,
-            max_frames=max_frames,
-        )
-        if not valid:
-            return None
-        vmin, vmax = self._animation_color_scale(valid, vmin, vmax)
-        layers = self._animation_layers(
-            df,
-            valid,
-            grid,
-            resolution,
-            ox,
-            oy,
-            doors,
-            downsample,
-            vmin,
-            vmax,
-            show_doors,
-            overlay_trajectories,
-            robot_trail,
-        )
-        frames = self._animation_metadata(df, valid, stride, max_frames)
-        anim = self._build_animation(layers, frames, valid, fps, robot_trail)
-        return self._write_animation(
-            anim,
-            layers,
-            frames,
-            valid,
-            out_path,
-            format,
-            fps,
-            dpi,
-            first_frame_path,
-        )
-
-    def _animation_fields(
-        self,
-        df: pl.DataFrame,
-        grid: np.ndarray,
-        resolution: float,
-        ox: float,
-        oy: float,
-        doors: dict[str, tuple[np.ndarray, float]],
-        *,
-        state_timeline: DoorStateTimeline | None,
-        downsample: int,
-        stride: int,
-        max_frames: int,
-    ) -> list[
-        tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-    ]:
-        """Compute each sampled frame's field, dropping frames with no recorded source level."""
         fields = self.compute_field_timeseries(
             df,
             grid,
@@ -1253,19 +1161,11 @@ class AcousticFieldRenderer(BasePlotRenderer):
             stride=stride,
             max_frames=max_frames,
         )
-        return [
+        valid = [
             (index, field) for index, field in enumerate(fields) if field is not None
         ]
-
-    def _animation_color_scale(
-        self,
-        valid: list[
-            tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-        ],
-        vmin: float | None,
-        vmax: float | None,
-    ) -> tuple[float, float]:
-        """Resolve the documented colour scale, the measured level range when unset."""
+        if not valid:
+            return None
         if vmin is None:
             vmin = _FIELD_VMIN_DBA
         if vmax is None:
@@ -1274,17 +1174,39 @@ class AcousticFieldRenderer(BasePlotRenderer):
             )
             p99_idx = int(0.99 * (len(field_maxima) - 1))
             all_max = float(field_maxima[p99_idx]) if len(field_maxima) > 0 else vmin
-            vmax = float(np.ceil(all_max / 10.0) * 10.0)
-            if vmax <= vmin:
-                vmax = vmin + 20.0
-        return float(vmin), float(vmax)
+            vmax = _ceil_color_scale(all_max, vmin)
+        layers = self._animation_layers(
+            df,
+            valid,
+            grid,
+            resolution,
+            ox,
+            oy,
+            doors,
+            downsample,
+            float(vmin),
+            float(vmax),
+            show_doors,
+            overlay_trajectories,
+            robot_trail,
+        )
+        frames = self._animation_metadata(df, valid, stride, max_frames)
+        return self._render_animation_artefact(
+            layers,
+            frames,
+            valid,
+            out_path,
+            format,
+            fps,
+            dpi,
+            robot_trail,
+            first_frame_path,
+        )
 
     def _animation_layers(
         self,
         df: pl.DataFrame,
-        valid: list[
-            tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-        ],
+        valid: list[_ValidFrame],
         grid: np.ndarray,
         resolution: float,
         ox: float,
@@ -1304,14 +1226,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
         import matplotlib.pyplot as plt
 
         _, eff_res, (h, w), _, _ = valid[0][1]
-        grid_ds = downsample_occupancy(grid, downsample) if downsample > 1 else grid
-        doors_ds: dict[str, tuple[np.ndarray, float]] = {}
+        grid_ds, _, doors_ds = _downsample_scene(grid, resolution, doors, downsample)
         door_mask_all = np.zeros((h, w), dtype=bool)
-        if doors:
-            for name, (mask, tl_db) in doors.items():
-                mask_ds = downsample_mask(mask, downsample)
-                doors_ds[name] = (mask_ds, tl_db)
-                door_mask_all |= mask_ds
+        for mask_ds, _tl_db in doors_ds.values():
+            door_mask_all |= mask_ds
 
         fig, ax = plt.subplots(figsize=_CELL_FIGSIZE)
         ax.set_facecolor("black")
@@ -1327,14 +1245,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
             open_dm = np.zeros((h, w), dtype=bool)
             if doors_ds:
                 pixel_tl = build_pixel_tl(grid_ds, doors_ds, open_doors=set(open_set))
-                for _name, (mask_ds, _tl) in doors_ds.items():
+                for mask_ds, _tl_db in doors_ds.values():
                     open_dm |= mask_ds & (pixel_tl == 0.0)
-            wall_or_closed = (grid_ds == 1) & ~open_dm
-            render_grids.append(
-                np.flipud(
-                    np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba)
-                )
-            )
+            render_grids.append(_masked_render_grid(grid_ds, field_dba, open_dm))
             open_door_masks.append(open_dm)
 
         im = ax.imshow(
@@ -1350,38 +1263,13 @@ class AcousticFieldRenderer(BasePlotRenderer):
         cy = _cell_centres(bottom, h, eff_res)
         cx = _cell_centres(left, w, eff_res)
         wall_outline = (grid_ds == 1).astype(np.uint8)
-        ax.contour(
-            cx,
-            cy,
-            wall_outline,
-            levels=[0.5],
-            colors=["#ffffff"],
-            linewidths=0.3,
-            alpha=0.25,
-        )
+        _draw_wall_contour(ax, cx, cy, wall_outline)
 
-        open_door_contour = None
-        if show_doors and door_mask_all.any():
-            ax.contour(
-                cx,
-                cy,
-                door_mask_all.astype(np.uint8),
-                levels=[0.5],
-                colors=["#64748b"],
-                linewidths=0.9,
-                alpha=0.6,
-                linestyles="dashed",
-            )
-            if open_door_masks[0].any():
-                open_door_contour = ax.contour(
-                    cx,
-                    cy,
-                    open_door_masks[0].astype(np.uint8),
-                    levels=[0.5],
-                    colors=["#10b981"],
-                    linewidths=1.4,
-                    alpha=0.75,
-                )
+        open_door_contour = (
+            _draw_door_contours(ax, cx, cy, door_mask_all, open_door_masks[0])
+            if show_doors
+            else None
+        )
 
         if overlay_trajectories:
             self._draw_trajectories_overlay(
@@ -1457,9 +1345,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
     def _animation_metadata(
         self,
         df: pl.DataFrame,
-        valid: list[
-            tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-        ],
+        valid: list[_ValidFrame],
         stride: int,
         max_frames: int,
     ) -> _AnimationFrames:
@@ -1467,10 +1353,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         # agent-contracts: ignore AC004 - Matplotlib rendering boundary
         rows = df.rows(named=True)
         total_rows = len(df)
-        indices = list(range(0, total_rows, stride))
-        if len(indices) > max_frames:
-            step = len(indices) / max_frames
-            indices = [indices[int(i * step)] for i in range(max_frames)]
+        indices = _sampled_indices(total_rows, stride, max_frames)
 
         peds_per_frame: list[list[tuple[float, float]]] = []
         collision_per_frame: list[bool] = []
@@ -1488,17 +1371,19 @@ class AcousticFieldRenderer(BasePlotRenderer):
             collision_per_frame=collision_per_frame,
         )
 
-    def _build_animation(
+    def _render_animation_artefact(
         self,
         layers: _AnimationLayers,
         frames: _AnimationFrames,
-        valid: list[
-            tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-        ],
+        valid: list[_ValidFrame],
+        out_path: pathlib.Path | None,
+        output_format: str,
         fps: int,
+        dpi: int,
         robot_trail: int,
-    ) -> typing.Any:
-        """Wire the per-frame artist updates into a blitting ``FuncAnimation``."""
+        first_frame_path: pathlib.Path | None,
+    ) -> pathlib.Path:
+        """Build the blitting animation and write the requested artefact and first-frame PNG."""
         import matplotlib.animation as animation
         import matplotlib.pyplot as plt
 
@@ -1581,31 +1466,13 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 artists.append(layers.trail_line)
             return artists
 
-        return animation.FuncAnimation(
+        anim = animation.FuncAnimation(
             layers.fig,
             update,
             frames=list(enumerate(valid)),
             interval=max(1, 1000 // fps),
             blit=True,
         )
-
-    def _write_animation(
-        self,
-        anim: typing.Any,
-        layers: _AnimationLayers,
-        frames: _AnimationFrames,
-        valid: list[
-            tuple[int, tuple[np.ndarray, float, tuple[int, int], frozenset[str], float]]
-        ],
-        out_path: pathlib.Path | None,
-        output_format: str,
-        fps: int,
-        dpi: int,
-        first_frame_path: pathlib.Path | None,
-    ) -> pathlib.Path:
-        """Write the requested animation artefact and, when asked, the first frame PNG."""
-        import matplotlib.animation as animation
-        import matplotlib.pyplot as plt
 
         if out_path is None:
             out_path = pathlib.Path("plots") / "acoustic_animation.gif"
@@ -1657,7 +1524,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         frames: _AnimationFrames,
         orig_idx: int,
         frame_index: int,
-        field_data: tuple[np.ndarray, float, tuple[int, int], frozenset[str], float],
+        field_data: _FieldFrame,
         path: pathlib.Path,
         show_doors: bool,
         dpi: int,
@@ -1674,10 +1541,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             if show_doors
             else np.zeros((layers.h, layers.w), dtype=bool)
         )
-        wall_or_closed = (layers.grid_ds == 1) & ~open_dm
-        rg = np.flipud(
-            np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba)
-        )
+        rg = _masked_render_grid(layers.grid_ds, field_dba, open_dm)
 
         fig_frame, ax_frame = plt.subplots(figsize=_CELL_FIGSIZE)
         ax_frame.set_facecolor("black")
@@ -1691,15 +1555,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             vmax=layers.vmax,
         )
         plt.colorbar(im_frame, ax=ax_frame, label="dBA", fraction=0.046, pad=0.04)
-        ax_frame.contour(
-            layers.cx,
-            layers.cy,
-            layers.wall_outline,
-            levels=[0.5],
-            colors=["#ffffff"],
-            linewidths=0.3,
-            alpha=0.25,
-        )
+        _draw_wall_contour(ax_frame, layers.cx, layers.cy, layers.wall_outline)
         row = frames.rows[min(frames.indices[orig_idx], frames.total_rows - 1)]
         ax_frame.plot(
             float(row.get("x", 0) or 0),
@@ -1726,27 +1582,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 zorder=10,
                 label="Peds",
             )
-        if show_doors and layers.door_mask_all.any():
-            ax_frame.contour(
-                layers.cx,
-                layers.cy,
-                layers.door_mask_all.astype(np.uint8),
-                levels=[0.5],
-                colors=["#64748b"],
-                linewidths=0.9,
-                alpha=0.6,
-                linestyles="dashed",
-            )
-            if open_dm.any():
-                ax_frame.contour(
-                    layers.cx,
-                    layers.cy,
-                    open_dm.astype(np.uint8),
-                    levels=[0.5],
-                    colors=["#10b981"],
-                    linewidths=1.4,
-                    alpha=0.75,
-                )
+        if show_doors:
+            _draw_door_contours(ax_frame, layers.cx, layers.cy, layers.door_mask_all, open_dm)
         collision_label = (
             "  COLLISION!" if frames.collision_per_frame[frame_index] else ""
         )
@@ -1769,34 +1606,23 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
 
     PLOT_TYPE = "acoustic_field_animation"
 
-    def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        """Dispatch the static artifact to the seaborn renderer (D-06)."""
-        self.render_seaborn(df, out_path)
-
     def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Write the first animation frame to the static path and the animation beside it."""
         self.validate_frame(df)
         work_df = self._prepared_df(df)
         if work_df.is_empty():
             return
-        world_name = work_df["world"][0] if "world" in work_df.schema else None
-        if not world_name:
+        scene = self._load_scene(work_df, default_downsample=2)
+        if scene is None:
             raise MetricInputError(
                 "acoustic_field_animation: the plot frame declares no world."
             )
 
-        grid, meta = self.load_grid_and_meta(str(world_name), run_dir=self.run_dir)
-        resolution = float(meta["resolution"])
-        ox = float(meta["origin"][0])
-        oy = float(meta["origin"][1])
-        downsample = int(self.spec.options.get("downsample", 2))
         fps = int(self.spec.options.get("fps", 10))
         max_frames = int(self.spec.options.get("max_frames", 120))
         stride = int(self.spec.options.get("stride", 1))
         dpi = int(self.spec.options.get("dpi", 150))
         output_format = str(self.spec.options.get("format", "gif"))
-        vmin = float(self.spec.options.get("vmin", _FIELD_VMIN_DBA))
-        doors = meta["doors"]
         per_episode = bool(self.spec.options.get("per_episode", False))
         static_image = out_path.suffix.lower() in {".png", ".svg"}
         artefact_path = self._animation_artefact_path(out_path, output_format)
@@ -1823,21 +1649,21 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             )
             result = self.render_animation(
                 episode_df,
-                grid,
-                resolution,
-                ox,
-                oy,
-                doors,
+                scene.grid,
+                scene.resolution_m,
+                scene.origin_m[0],
+                scene.origin_m[1],
+                scene.doors,
                 state_timeline=state_timeline,
                 out_path=target,
-                downsample=downsample,
+                downsample=scene.downsample,
                 stride=stride,
                 max_frames=max_frames,
                 fps=fps,
                 dpi=dpi,
-                vmin=vmin,
+                vmin=scene.vmin_dba,
                 vmax=None,
-                show_doors=bool(doors),
+                show_doors=bool(scene.doors),
                 format=output_format,
                 overlay_trajectories=self._overlay_trajectories(),
                 first_frame_path=(
@@ -1850,7 +1676,7 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
         if static_image and not static_written:
             raise MetricInputError(
                 "acoustic_field_animation: no recorded acoustic field frame for "
-                f"{world_name}; the static report image cannot be rendered."
+                f"{work_df['world'][0]}; the static report image cannot be rendered."
             )
 
     @staticmethod

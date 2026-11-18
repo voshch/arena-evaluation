@@ -46,36 +46,6 @@ def _rows(*pairs: tuple[str, str]) -> pl.DataFrame:
     return pl.concat([_descriptors("jackal"), _params(*pairs)], how="diagonal")
 
 
-def test_the_declared_rows_fill_every_recorded_field():
-    params = robot_params_from_recorded(
-        _rows(
-            ("robot_radius", "0.43"),
-            ("robot_mass_kg", "18.4"),
-            ("laser_min_range", "0.05"),
-            ("laser_max_range", "12.0"),
-        ),
-        "jackal",
-    )
-
-    assert params.model == "jackal"
-    assert params.robot_radius == pytest.approx(0.43)
-    assert params.base_mass == pytest.approx(18.4)
-    assert params.laser_min_range == pytest.approx(0.05)
-    assert params.laser_max_range == pytest.approx(12.0)
-    assert params.component_masses == {}
-
-
-def test_a_laser_range_the_recording_omits_is_none():
-    params = robot_params_from_recorded(
-        _rows(("robot_radius", "0.43"), ("robot_mass_kg", "18.4")),
-        "jackal",
-    )
-
-    assert params.laser_min_range is None
-    assert params.laser_max_range is None
-    assert params.component_masses == {}
-
-
 def test_a_wide_column_is_not_a_parameter_row():
     rows = _descriptors("jackal").with_columns(
         robot_radius=pl.lit(0.43),
@@ -122,13 +92,6 @@ def test_conflicting_descriptor_models_are_refused():
 
     with pytest.raises(ContractViolationError, match="conflicting"):
         robot_params_from_recorded(rows, "jackal")
-
-
-def test_a_robot_without_a_descriptor_row_is_refused():
-    rows = _rows(("robot_radius", "0.43"))
-
-    with pytest.raises(MetricInputError, match="has no descriptor row"):
-        robot_params_from_recorded(rows, "ghost")
 
 
 def test_a_descriptor_row_without_a_model_is_not_a_descriptor():

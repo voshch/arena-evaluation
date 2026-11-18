@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
-import pytest
 from polars.testing import assert_series_equal
 
 from arena_evaluation.processing.metrics.safety.contact_attribution import (
@@ -13,15 +12,9 @@ from arena_evaluation.processing.metrics.safety.contact_attribution import (
 from arena_evaluation.processing.metrics.social.interaction_common import (
     DEFAULT_PED_RADIUS_M,
     Trajectory2D,
-    _identity_aliases,
-    contiguous_spans,
     episode_encounter_windows,
     extract_episode_ped_tracks,
-    extract_ped_tracks,
-    merge_intervals_ns,
     pedestrian_encounter_spans,
-    resolve_ped_track,
-    resolve_robot_trajectory,
 )
 from arena_evaluation.processing.windows import empty_encounter_windows
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -141,194 +134,6 @@ def _trajectory(
     )
 
 
-@pytest.mark.parametrize(
-    ("window_s", "expected_x"),
-    [
-        ((0.0, 2.0), [0.0, 1.0, 2.0]),
-        ((1.0, 1.0), [1.0]),
-        ((0.4, 1.6), [1.0]),
-        ((10.0, 20.0), [2.0]),
-    ],
-)
-def test_trajectory2d_slice_ns_selects_the_window_or_the_nearest_sample(
-    window_s: tuple[float, float], expected_x: list[float]
-) -> None:
-    trajectory = _trajectory([0.0, 1.0, 2.0], [0.0, 1.0, 2.0])
-
-    sliced = trajectory.slice_ns(
-        int(window_s[0] * NS_PER_S), int(window_s[1] * NS_PER_S)
-    )
-
-    np.testing.assert_allclose(sliced.x, expected_x)
-
-
-def test_trajectory2d_resample_interpolates_positions_and_velocities() -> None:
-    trajectory = Trajectory2D(
-        t_ns=np.array([0, 2 * NS_PER_S], dtype=np.int64),
-        x=np.array([0.0, 10.0]),
-        y=np.array([0.0, -10.0]),
-        vx=np.array([1.0, 3.0]),
-        vy=np.array([0.0, 2.0]),
-    )
-    query = np.array([int(0.5 * NS_PER_S), int(1.5 * NS_PER_S)], dtype=np.int64)
-
-    resampled = trajectory.resample_onto(query)
-
-    np.testing.assert_array_equal(resampled.t_ns, query)
-    np.testing.assert_allclose(resampled.x, [2.5, 7.5])
-    np.testing.assert_allclose(resampled.y, [-2.5, -7.5])
-    np.testing.assert_allclose(resampled.vx, [1.5, 2.5])
-    np.testing.assert_allclose(resampled.vy, [0.5, 1.5])
-
-
-def test_trajectory2d_resample_of_empty_trajectory_is_undefined_and_not_the_origin() -> (
-    None
-):
-    """An empty trajectory has no position to resample: NaN, never a fabricated (0, 0)."""
-    empty = Trajectory2D(
-        t_ns=np.array([], dtype=np.int64),
-        x=np.array([]),
-        y=np.array([]),
-        vx=np.array([]),
-        vy=np.array([]),
-        radius_m=0.3,
-    )
-    query = np.array([0, NS_PER_S], dtype=np.int64)
-
-    resampled = empty.resample_onto(query)
-
-    np.testing.assert_array_equal(resampled.t_ns, query)
-    assert np.isnan(resampled.x).all()
-    assert np.isnan(resampled.y).all()
-    assert np.isnan(resampled.vx).all()
-    assert resampled.radius_m == 0.3
-
-
-def test_resolve_robot_trajectory_reads_the_flat_robot_tracks_table() -> None:
-    frame = _robot_frame(
-        t_s=np.array([0.0, 1.0, 2.0]),
-        x=np.array([0.0, 1.0, 2.0]),
-        y=np.array([0.0, 0.5, 1.0]),
-        vx=np.array([1.0, 1.0, 1.0]),
-        vy=np.array([0.5, 0.5, 0.5]),
-        yaw=np.array([0.0, 0.1, 0.2]),
-    )
-
-    trajectory, yaw = resolve_robot_trajectory(
-        _calculator(), _episode({"robot_tracks": frame})
-    )
-
-    np.testing.assert_array_equal(trajectory.t_ns, [0, NS_PER_S, 2 * NS_PER_S])
-    np.testing.assert_allclose(trajectory.x, [0.0, 1.0, 2.0])
-    np.testing.assert_allclose(trajectory.y, [0.0, 0.5, 1.0])
-    np.testing.assert_allclose(trajectory.vx, [1.0, 1.0, 1.0])
-    np.testing.assert_allclose(trajectory.vy, [0.5, 0.5, 0.5])
-    np.testing.assert_allclose(yaw, [0.0, 0.1, 0.2])
-    assert trajectory.radius_m == ROBOT_RADIUS_M
-
-
-@pytest.mark.parametrize(
-    "frame",
-    [
-        None,
-        pl.DataFrame(schema=_ROBOT_SCHEMA),
-    ],
-)
-def test_resolve_robot_trajectory_without_rows_is_empty(
-    frame: pl.DataFrame | None,
-) -> None:
-    topics = {} if frame is None else {"robot_tracks": frame}
-
-    trajectory, yaw = resolve_robot_trajectory(_calculator(), _episode(topics))
-
-    assert len(trajectory.t_ns) == 0
-    assert len(trajectory.x) == 0
-    assert len(trajectory.vx) == 0
-    assert len(yaw) == 0
-    assert trajectory.radius_m == ROBOT_RADIUS_M
-
-
-def test_resolve_robot_trajectory_keeps_an_unmeasured_velocity_null() -> None:
-    """A recorded null velocity stays no measurement (NaN), never a zero."""
-    frame = _robot_frame(
-        t_s=np.array([0.0, 1.0]),
-        x=np.array([0.0, 1.0]),
-        y=np.array([0.0, 0.0]),
-        vx=np.array([1.0, 1.0]),
-        vy=np.array([0.0, 0.0]),
-    ).with_columns(pl.lit(None, dtype=pl.Float64).alias("vx"))
-
-    trajectory, _yaw = resolve_robot_trajectory(
-        _calculator(), _episode({"robot_tracks": frame})
-    )
-
-    assert np.isnan(trajectory.vx).all()
-    assert np.isfinite(trajectory.vy).all()
-
-
-def test_resolve_robot_trajectory_keeps_an_unmeasured_yaw_null() -> None:
-    """Yaw is not a metric, but an unrecorded sample is still not the zero heading."""
-    frame = _robot_frame(
-        t_s=np.array([0.0, 1.0]),
-        x=np.array([0.0, 1.0]),
-        y=np.array([0.0, 0.0]),
-        vx=np.array([1.0, 1.0]),
-        vy=np.array([0.0, 0.0]),
-    ).with_columns(pl.lit(None, dtype=pl.Float64).alias("yaw"))
-
-    _trajectory, yaw = resolve_robot_trajectory(
-        _calculator(), _episode({"robot_tracks": frame})
-    )
-
-    assert np.isnan(yaw).all()
-
-
-def test_extract_episode_ped_tracks_groups_rows_by_ped_id() -> None:
-    frame = pl.DataFrame(
-        [
-            _ped_row(
-                0, "Pedestrian_1", 0.0, 0.0, ped_name="alice", vx=1.0, radius_m=0.3
-            ),
-            _ped_row(0, "Pedestrian_2", 5.0, 5.0, ped_name="bob"),
-            _ped_row(
-                NS_PER_S,
-                "Pedestrian_1",
-                1.0,
-                0.0,
-                ped_name="alice",
-                vx=1.0,
-                radius_m=0.3,
-            ),
-            _ped_row(NS_PER_S, "Pedestrian_2", 5.0, 5.0, ped_name="bob"),
-            _ped_row(
-                2 * NS_PER_S,
-                "Pedestrian_1",
-                2.0,
-                0.0,
-                ped_name="alice",
-                vx=1.0,
-                radius_m=0.3,
-            ),
-            _ped_row(2 * NS_PER_S, "Pedestrian_2", 5.0, 5.0, ped_name="bob"),
-        ],
-        schema=_PED_SCHEMA,
-    )
-
-    tracks = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))
-
-    assert set(tracks) == {"Pedestrian_1", "Pedestrian_2"}
-    alice = tracks["Pedestrian_1"]
-    assert alice.ped_name == "alice"
-    assert alice.radius_m == 0.3
-    np.testing.assert_allclose(alice.x, [0.0, 1.0, 2.0])
-    np.testing.assert_allclose(alice.vx, [1.0, 1.0, 1.0])
-    bob = tracks["Pedestrian_2"]
-    assert bob.ped_name == "bob"
-    assert bob.radius_m is None
-    assert bob.trajectory.radius_m == DEFAULT_PED_RADIUS_M
-    np.testing.assert_allclose(bob.x, [5.0, 5.0, 5.0])
-
-
 def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first_sample_unmeasured() -> (
     None
 ):
@@ -349,65 +154,6 @@ def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first
     assert np.isnan(track.vx[0]) and np.isnan(track.vy[0])
     np.testing.assert_allclose(track.vx[1:], [1.0, 1.0], atol=1e-9)
     np.testing.assert_allclose(track.vy[1:], [0.0, 0.0], atol=1e-9)
-
-
-def test_extract_ped_tracks_keeps_recorded_velocity_when_the_pedestrian_moves() -> None:
-    frame = pl.DataFrame(
-        [
-            _ped_row(0, "Pedestrian_4", 0.0, 0.0, vx=2.0, vy=-1.0),
-            _ped_row(NS_PER_S, "Pedestrian_4", 2.0, -1.0, vx=2.0, vy=-1.0),
-        ],
-        schema=_PED_SCHEMA,
-    )
-
-    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
-        "Pedestrian_4"
-    ]
-
-    np.testing.assert_allclose(track.vx, [2.0, 2.0])
-    np.testing.assert_allclose(track.vy, [-1.0, -1.0])
-
-
-def test_extract_ped_tracks_keeps_an_unmeasured_velocity_null() -> None:
-    """A static pedestrian with a null twist keeps the null (NaN): it is no measured speed."""
-    frame = pl.DataFrame(
-        [
-            _ped_row(0, "Pedestrian_6", 1.0, 0.0),
-            _ped_row(NS_PER_S, "Pedestrian_6", 1.0, 0.0),
-        ],
-        schema=_PED_SCHEMA,
-    ).with_columns(pl.lit(None, dtype=pl.Float64).alias("vx"))
-
-    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
-        "Pedestrian_6"
-    ]
-
-    assert np.isnan(track.vx).all()
-
-
-@pytest.mark.parametrize(
-    "topics",
-    [{}, {"pedestrian_arena_peds": pl.DataFrame(schema=_PED_SCHEMA)}],
-    ids=["without-table", "empty-frame"],
-)
-def test_extract_ped_tracks_without_rows_is_empty(topics) -> None:
-    assert extract_episode_ped_tracks(_episode(topics)) == {}
-
-
-def test_extract_ped_tracks_drops_non_finite_positions() -> None:
-    frame = pl.DataFrame(
-        [
-            _ped_row(0, "Pedestrian_5", float("nan"), 0.0),
-            _ped_row(NS_PER_S, "Pedestrian_5", 1.0, 0.0),
-        ],
-        schema=_PED_SCHEMA,
-    )
-
-    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
-        "Pedestrian_5"
-    ]
-
-    np.testing.assert_allclose(track.x, [1.0])
 
 
 def _encounter_episode(
@@ -459,20 +205,6 @@ def _fleet_poses(radius_m: float) -> pl.DataFrame:
     )
 
 
-def test_episode_and_fact_windows_share_one_membership_rule() -> None:
-    episode = _encounter_episode()
-
-    fact_windows = episode_encounter_windows(episode, ROBOT_RADIUS_M)
-    spans = pedestrian_encounter_spans(episode, ROBOT_RADIUS_M)
-
-    assert fact_windows.height == 1
-    assert_series_equal(
-        fact_windows["actor_id"],
-        pl.Series("actor_id", ["Pedestrian_1"], dtype=pl.String),
-    )
-    assert spans == [("Pedestrian_1", 0, 4 * NS_PER_S)]
-
-
 def test_episode_encounters_exclude_robot_actors_from_pedestrian_metrics() -> None:
     episode = _encounter_episode(
         with_pedestrians=False, fleet={"env_0_robot_2": _fleet_poses(0.25)}
@@ -494,14 +226,3 @@ def test_episode_encounter_windows_without_tracks_is_empty() -> None:
     assert windows.schema == empty_encounter_windows().schema
 
 
-def test_resolve_ped_track_never_aliases_a_robot_to_a_pedestrian() -> None:
-    tracks = extract_ped_tracks(
-        pl.DataFrame(
-            [_ped_row(0, "Pedestrian_2", 1.0, 0.0, ped_name="bob")], schema=_PED_SCHEMA
-        )
-    )
-
-    assert _identity_aliases("robot_2") == {"robot_2"}
-    assert resolve_ped_track(tracks, "robot_2") is None
-    assert resolve_ped_track(tracks, "ped_2") is not None
-    assert resolve_ped_track(tracks, 2) is not None

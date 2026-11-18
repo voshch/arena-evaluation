@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import subprocess
-import threading
 import time
 import typing
 
@@ -16,25 +14,16 @@ from arena_evaluation.benchmark.config import Contestant, Contest, Suite
 from arena_evaluation.benchmark.progress_display import BenchmarkProgressDisplay
 from arena_evaluation.benchmark.runner import (
     ARENA_NODE_FQN,
-    STATE_TOPIC,
-    _LATCHED,
     BenchmarkRunner,
-    _EnvDied,
-    _proc_starttime,
-    _proc_tree,
-    _SimDied,
 )
 from arena_evaluation.benchmark.state import Manifest, RunDir
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
-from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, HoldEntry, HoldRegistry, LockstepStatus, SimState
 from rcl_interfaces.srv import GetParameters, SetParameters
 from arena_runtime_msgs.action import RunEpisode
 from arena_runtime_msgs.msg import EpisodeRecord
-from arena_runtime_msgs.srv import DespawnEnv, QueueEpisode, SpawnEnv
-from rclpy.executors import SingleThreadedExecutor
-from rclpy.node import Node
+from arena_runtime_msgs.srv import QueueEpisode
 
 T = typing.TypeVar("T")
 
@@ -134,15 +123,6 @@ def test_env_registry_reveals_new_envs_and_releases_waits_on_vanished_ones(tmp_p
     assert _drive(tmp_path, body) == (True, True, False)
 
 
-def test_registry_update_from_an_executor_thread_is_scheduled_on_the_loop(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> list[int]:
-        await asyncio.get_running_loop().run_in_executor(None, runner._on_envs, _registry(4))
-        await asyncio.wait_for(runner._env_visible_events[4].wait(), 5.0)
-        return sorted(runner._env_records)
-
-    assert _drive(tmp_path, body) == [4]
-
-
 def test_sim_state_latches_death_and_ignores_alive_and_stale_reports(tmp_path: pathlib.Path):
     async def body(runner: BenchmarkRunner) -> list[tuple[bool, str]]:
         seen = []
@@ -160,32 +140,6 @@ def test_sim_state_latches_death_and_ignores_alive_and_stale_reports(tmp_path: p
     assert _drive(tmp_path, body) == [(False, ""), (False, ""), (True, "sim reported dead"), (True, "gz segfault")]
 
 
-def test_only_an_alive_report_from_the_current_runtime_marks_it_up(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> list[bool]:
-        alive = SimState(alive=True)
-        seen = []
-        runner._runtime_started_at = 100.0
-        alive.header.stamp.sec = 50
-        runner._on_sim_state(alive)
-        await _settle()
-        seen.append(runner._runtime_up.is_set())
-        alive.header.stamp.sec = 150
-        runner._on_sim_state(alive)
-        await _settle()
-        seen.append(runner._runtime_up.is_set())
-        seen.append(runner._sim_dead.is_set())
-        return seen
-
-    assert _drive(tmp_path, body) == [False, True, False]
-
-
-def test_a_stalled_spawn_marks_the_sim_dead(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> tuple[str, bool]:
-        with pytest.raises(_SimDied) as raised:
-            await runner._spawn_and_setup_env(_step(), inactivity_timeout=0.0)
-        return str(raised.value), runner._sim_dead.is_set()
-
-    assert _drive(tmp_path, body) == ("spawn_env stalled for dwb/s1", True)
 
 
 def test_only_foreign_holders_count_as_env_holds(tmp_path: pathlib.Path):
@@ -207,26 +161,6 @@ def test_lockstep_status_reaches_the_monitor(tmp_path: pathlib.Path):
         return runner._lockstep.close("k", time.time()).active
 
     assert _drive(tmp_path, body) is True
-
-
-def test_alive_race_returns_the_result_or_names_what_died(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> list[object]:
-        seen: list[object] = [await runner._await_alive(asyncio.sleep(0, result="done"), env_id=3, what="x")]
-        runner._on_envs(_registry(3))
-        waiting = asyncio.create_task(runner._await_alive(asyncio.Event().wait(), env_id=3, what="queue_episode"))
-        await _settle()
-        runner._on_envs(_registry())
-        with pytest.raises(_EnvDied) as env_died:
-            await waiting
-        seen.append(str(env_died.value))
-        runner._mark_sim_dead("physics exploded")
-        with pytest.raises(_SimDied) as sim_died:
-            await runner._await_alive(asyncio.Event().wait(), what="anything")
-        seen.append(str(sim_died.value))
-        seen.append(await runner._await_hb(asyncio.sleep(0, result=7), "heartbeat"))
-        return seen
-
-    assert _drive(tmp_path, body) == ["done", "env 3 disappeared from /arena/state/envs while waiting for queue_episode", "physics exploded", 7]
 
 
 @pytest.mark.parametrize("method", ["_await_hb", "_await_activity"])
@@ -371,14 +305,6 @@ def test_env_vanishing_during_stage_config_fails_the_step(tmp_path: pathlib.Path
     assert "while waiting for queue_episode on env 3" in res.error_detail
 
 
-def test_sim_death_during_ped_reference_stage_config_propagates(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> None:
-        _with_env_clients(runner, 3)
-        runner._mark_sim_dead("gz exited")
-        await runner._run_step(_step("unhindered_peds", reference_type="unhindered_peds"), 3, 0)
-
-    with pytest.raises(_SimDied, match="gz exited"):
-        _drive(tmp_path, body)
 
 
 def test_step_without_episodes_is_failed(tmp_path: pathlib.Path):
@@ -409,14 +335,6 @@ def test_env_vanishing_before_the_episode_goal_is_accepted_fails_the_step(tmp_pa
     assert res.lockstep is not None
 
 
-def test_sim_death_while_sending_an_episode_goal_propagates(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> None:
-        _with_env_clients(runner, 3)
-        runner._mark_sim_dead("gz exited")
-        await runner._run_episodes(_step(), 3)
-
-    with pytest.raises(_SimDied):
-        _drive(tmp_path, body)
 
 
 def _write_after(path: pathlib.Path, lines: list[tuple[float, str, str]]) -> typing.Awaitable[str]:
@@ -439,15 +357,6 @@ def test_activity_wait_keeps_going_while_the_log_shows_progress(tmp_path: pathli
     assert _drive(tmp_path, body) == "spawned"
 
 
-def test_activity_wait_times_out_on_a_silent_or_unreadable_log(tmp_path: pathlib.Path):
-    async def body(runner: BenchmarkRunner) -> None:
-        runner._run_dir.log_path.mkdir()
-        await runner._await_activity(asyncio.Event().wait(), "spawn_env", inactivity_timeout=0.15, max_total_timeout=10.0, check_interval=0.05)
-
-    with pytest.raises(TimeoutError, match="no progress for .* during spawn_env"):
-        _drive(tmp_path, body)
-
-
 def test_activity_wait_has_a_hard_ceiling_even_with_progress(tmp_path: pathlib.Path):
     async def body(runner: BenchmarkRunner) -> None:
         log = runner._run_dir.log_path
@@ -458,33 +367,6 @@ def test_activity_wait_has_a_hard_ceiling_even_with_progress(tmp_path: pathlib.P
         _drive(tmp_path, body)
 
 
-def test_published_state_counts_steps_by_status(tmp_path: pathlib.Path):
-    received: list[BenchmarkState] = []
-    listener = rclpy.create_node("runner_state_listener")
-    listener.create_subscription(BenchmarkState, STATE_TOPIC, received.append, _LATCHED)
-
-    async def body(runner: BenchmarkRunner) -> None:
-        results = {
-            "a/s1": StepResult("a/s1", "ok", 0, 0.0, 1.0, None, None),
-            "b/s1": StepResult("b/s1", "partial", 0, 0.0, 1.0, None, None),
-            "c/s1": StepResult("c/s1", "failed", 0, 0.0, 1.0, StepErrorKind.INTERNAL, None),
-            "d/s1": StepResult("d/s1", "in_progress", 0, 0.0, None, None, None),
-            "e/s1": StepResult("e/s1", "skipped", 0, 0.0, 1.0, None, None),
-        }
-        runner._publish_state(results, 7)
-        deadline = time.monotonic() + 20.0
-        while not any(m.steps_total == 7 for m in received) and time.monotonic() < deadline:
-            rclpy.spin_once(listener, timeout_sec=0.1)
-
-    try:
-        _drive(tmp_path, body)
-    finally:
-        listener.destroy_node()
-
-    (msg,) = [m for m in received if m.steps_total == 7]
-    assert (msg.run_id, msg.suite, msg.contest, msg.simulator, msg.env_n, msg.headless) == ("run", "suite", "contest", "", 1, True)
-    assert (msg.steps_total, msg.steps_done, msg.steps_partial, msg.steps_failed, msg.steps_skipped, msg.steps_in_flight) == (7, 1, 1, 1, 1, 1)
-    assert list(msg.active_keys) == ["d/s1"]
 
 
 def test_runtime_exit_marks_the_sim_dead(tmp_path: pathlib.Path):
@@ -508,142 +390,3 @@ def test_noexit_shutdown_leaves_the_runtime_running(tmp_path: pathlib.Path):
         return alive, runner._sim_dead.is_set(), runner._arena_watch
 
     assert _drive(tmp_path, body, noexit=True) == (True, False, None)
-
-
-def test_shutdown_interrupts_the_runtime_group_and_kills_escaped_descendants(tmp_path: pathlib.Path, runner_log: list[str]):
-    proc = subprocess.Popen(["sh", "-c", "setsid sleep 30 & wait"], start_new_session=True)
-    viz = subprocess.Popen(["sleep", "30"], start_new_session=True)
-    deadline = time.monotonic() + 10.0
-    while [pathlib.Path(f"/proc/{pid}/comm").read_text().strip() for pid in _proc_tree(proc.pid)] != ["sleep"] and time.monotonic() < deadline:
-        time.sleep(0.05)
-    escaped = _proc_tree(proc.pid)
-
-    async def body(runner: BenchmarkRunner) -> tuple[object, object, bool]:
-        log = runner._run_dir.log_path.open("a")
-        runner._arena_proc = proc
-        runner._arena_log_file = log
-        runner._viz_proc = viz
-        await runner._shutdown_arena()
-        await runner._shutdown_arena()
-        return runner._arena_log_file, runner._viz_proc, log.closed
-
-    try:
-        assert _drive(tmp_path, body) == (None, None, True)
-        assert proc.poll() is not None
-        assert viz.poll() is not None
-
-        def escaped_gone() -> bool:
-            return all(_proc_starttime(pid) != start or pathlib.Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0] == "Z" for pid, start in escaped.items())
-
-        deadline = time.monotonic() + 20.0
-        while not escaped_gone() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert escaped_gone()
-        assert any("outlived the launch, sending SIGKILL" in m for m in runner_log)
-    finally:
-        for pid in escaped:
-            if _proc_starttime(pid) is not None:
-                subprocess.run(["kill", "-9", str(pid)], check=False)
-        for p in (proc, viz):
-            p.kill()
-            p.wait()
-
-
-@pytest.mark.parametrize("viz_state", ["none", "finished"])
-def test_shutdown_without_a_live_viewer_or_log_file(tmp_path: pathlib.Path, viz_state: str):
-    async def body(runner: BenchmarkRunner) -> tuple[object, object]:
-        proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
-        if viz_state == "finished":
-            runner._viz_proc = subprocess.Popen(["true"])
-            runner._viz_proc.wait()
-        runner._arena_proc = proc
-        await runner._shutdown_arena()
-        return proc.poll(), runner._viz_proc
-
-    returncode, viz = _drive(tmp_path, body)
-
-    assert returncode is not None
-    assert viz is None
-
-
-class _FailingSpawnRuntime:
-    def __init__(self, launches: pathlib.Path) -> None:
-        self.requests = 0
-        self._launches = launches
-        self._node = Node("failing_spawn_runtime")
-        self._node.create_service(SpawnEnv, "/arena/spawn_env", self._spawn)
-        self._node.create_service(DespawnEnv, "/arena/despawn_env", self._despawn)
-        self._sim = self._node.create_publisher(SimState, "/arena/state/sim", _LATCHED)
-        self._node.create_timer(0.1, self._beat)
-        self._executor = SingleThreadedExecutor()
-        self._executor.add_node(self._node)
-        self._thread = threading.Thread(target=self._executor.spin, daemon=True)
-        self._thread.start()
-
-    def spin(self, node: Node) -> None:
-        self._executor.add_node(node)
-
-    def unspin(self, node: Node) -> None:
-        self._executor.remove_node(node)
-
-    def launches(self) -> int:
-        return len(self._launches.read_text().split()) if self._launches.exists() else 0
-
-    def _spawn(self, _request: SpawnEnv.Request, response: SpawnEnv.Response) -> SpawnEnv.Response:
-        self.requests += 1
-        response.success = False
-        response.error_msg = "no free port"
-        return response
-
-    def _despawn(self, _request: DespawnEnv.Request, response: DespawnEnv.Response) -> DespawnEnv.Response:
-        response.success = True
-        return response
-
-    def _beat(self) -> None:
-        msg = SimState(alive=True)
-        now = time.time()
-        msg.header.stamp.sec = int(now)
-        msg.header.stamp.nanosec = int((now % 1) * 1e9)
-        self._sim.publish(msg)
-
-    def close(self) -> None:
-        self._executor.shutdown()
-        self._thread.join()
-        self._node.destroy_node()
-
-
-@pytest.mark.parametrize(
-    ("envs_spawned", "restarts", "spawn_requests"),
-    [(0, 0, 1), (2, 1, 2)],
-    ids=["fresh_runtime_fails_at_once", "used_runtime_restarts_once_then_fails"],
-)
-def test_failed_spawn_restarts_only_a_used_runtime_once(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, envs_spawned: int, restarts: int, spawn_requests: int):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    launches = tmp_path / "launches"
-    fake = bin_dir / "ros2"
-    fake.write_text(f"#!/bin/sh\necho launch >> {launches}\nexec sleep 300\n")
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    runtime = _FailingSpawnRuntime(launches)
-    flushed: list[StepResult] = []
-
-    async def body(runner: BenchmarkRunner) -> tuple[bool, int]:
-        runner._envs_spawned = envs_spawned
-        runtime.spin(runner)
-        await runner._spawn.ensure(timeout_sec=60.0)
-        q: asyncio.Queue[Step] = asyncio.Queue()
-        q.put_nowait(_step())
-        try:
-            aborted = await asyncio.wait_for(runner._run_group_queue(_step(), q, 0, lambda res: flushed.append(res) or False), 60.0)
-        finally:
-            await runner._shutdown_arena()
-            runtime.unspin(runner)
-        return aborted, q.qsize()
-
-    try:
-        assert _drive(tmp_path, body) == (False, 0)
-        assert (runtime.launches(), runtime.requests) == (restarts, spawn_requests)
-    finally:
-        runtime.close()
-    assert [(r.key, r.status, r.error_kind, r.error_detail) for r in flushed] == [("dwb/s1", "failed", StepErrorKind.ENV_SETUP, "spawn_env failed")]

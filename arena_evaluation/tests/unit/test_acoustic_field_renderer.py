@@ -14,25 +14,10 @@ from arena_evaluation.presentation.plot_types.acoustic_field import (
     CellRenderRequest,
 )
 from arena_evaluation.presentation.viz_manifest import PlotSpec
-from arena_evaluation.processing.acoustics.impedance_grid import (
-    downsample_mask,
-    downsample_occupancy,
-)
 
 
 def _spec(ptype: str, **options: object) -> PlotSpec:
     return PlotSpec(id="anim", type=ptype, title="Field", options=dict(options))
-
-
-def test_downsample_mask_keeps_a_band_between_strided_rows() -> None:
-    mask = np.zeros((50, 50), dtype=bool)
-    mask[21:24, 16:32] = True
-    pooled = downsample_mask(mask, 4)
-    assert (
-        pooled.shape == downsample_occupancy(mask.astype(np.uint8), 4).shape == (12, 12)
-    )
-    assert pooled[5, 4:8].all()
-    assert pooled.sum() == 4
 
 
 def test_downsampled_field_keeps_closed_door_in_doorway() -> None:

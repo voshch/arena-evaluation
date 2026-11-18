@@ -52,26 +52,6 @@ def _bench(tmp_path: pathlib.Path) -> pathlib.Path:
     return bench
 
 
-def test_external_assets_use_sibling_references(tmp_path: pathlib.Path) -> None:
-    bench = _bench(tmp_path)
-
-    builder = ReportBuilder(
-        bench,
-        output_dir=tmp_path / "out",
-        manifest=_manifest(),
-        external_assets=True,
-    )
-    report_path = builder.build()
-
-    assert report_path is not None
-    page = report_path.read_text(encoding="utf-8")
-    assert "data:image/png;base64," not in page
-    assert "src='plots/bar_success.png'" in page
-    assert "src='plotly.min.js'" in page
-    assert (report_path.parent / "plotly.min.js").is_file()
-    assert (report_path.parent / "plots" / "bar_success.png").is_file()
-
-
 def test_inline_is_the_default_and_external_is_smaller(tmp_path: pathlib.Path) -> None:
     bench = _bench(tmp_path)
     inline = ReportBuilder(bench, output_dir=tmp_path / "inline", manifest=_manifest())

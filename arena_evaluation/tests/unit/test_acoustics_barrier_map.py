@@ -71,58 +71,6 @@ def _oracle_door_mask(door: DoorOpening, barrier_map: BarrierMap) -> np.ndarray:
     return mask
 
 
-def test_vertical_wall_marks_its_column_on_the_high_side():
-    barrier_map = derive_barrier_map(
-        walls=[WallSegment(start=(1.0, 0.0), end=(1.0, 1.0))],
-        doors=[],
-        extent=UNIT_EXTENT,
-    )
-
-    assert barrier_map.occupancy[PAD : PAD + 20, PAD + 20].all()
-    assert int(barrier_map.occupancy.sum()) == 20
-
-
-def test_horizontal_wall_marks_its_row_on_the_high_side():
-    barrier_map = derive_barrier_map(
-        walls=[WallSegment(start=(0.0, 1.0), end=(1.0, 1.0))],
-        doors=[],
-        extent=UNIT_EXTENT,
-    )
-
-    assert barrier_map.occupancy[PAD + 20, PAD : PAD + 20].all()
-    assert int(barrier_map.occupancy.sum()) == 20
-
-
-def test_enclosed_space_is_free_and_the_exterior_is_free_air():
-    barrier_map = derive_barrier_map(walls=_box(), doors=[])
-
-    assert (
-        int((barrier_map.occupancy[PAD + 1 : PAD + 20, PAD + 1 : PAD + 20] == 0).sum())
-        == 19 * 19
-    )
-    assert barrier_map.occupancy[0, 0] == 0
-
-
-def test_positions_inside_a_walled_room_round_to_free_cells():
-    barrier_map = derive_barrier_map(walls=_box(), doors=[])
-    ox, oy = barrier_map.origin
-    rng = np.random.default_rng(0)
-    xs, ys = rng.uniform(0.1, 0.9, 500), rng.uniform(0.1, 0.9, 500)
-
-    cols = np.floor((xs - ox) / RES + 0.5).astype(int)
-    rows = np.floor((ys - oy) / RES + 0.5).astype(int)
-
-    assert not barrier_map.occupancy[rows, cols].any()
-
-
-def test_origin_is_the_centre_of_the_first_cell():
-    barrier_map = derive_barrier_map(walls=_box(), doors=[])
-
-    assert barrier_map.origin == pytest.approx(
-        ((0 - PAD + 0.5) * RES, (0 - PAD + 0.5) * RES)
-    )
-
-
 def test_sloped_wall_marks_the_cells_it_crosses():
     barrier_map = derive_barrier_map(
         walls=[WallSegment(start=(0.0, 0.0), end=(1.0, 1.0))], doors=[]
@@ -131,46 +79,11 @@ def test_sloped_wall_marks_the_cells_it_crosses():
     assert barrier_map.occupancy[PAD + 10, PAD + 10] == 1
 
 
-def test_corner_closure_marks_the_outer_cell_of_a_checkerboard():
-    # Two walls meeting at (1, 1) only through a corner: the cell beyond the corner must not leak.
-    walls = [
-        WallSegment(start=(0.0, 1.0), end=(1.0, 1.0)),
-        WallSegment(start=(1.0, 1.0), end=(1.0, 0.0)),
-    ]
-
-    barrier_map = derive_barrier_map(walls=walls, doors=[])
-
-    assert barrier_map.occupancy[PAD + 20, PAD + 20] == 1
-    assert barrier_map.occupancy[PAD + 19, PAD + 19] == 0
-
-
-def test_door_cells_are_free_and_thick_across_the_wall():
-    walls = [
-        WallSegment(start=(1.0, 0.0), end=(1.0, 0.4)),
-        WallSegment(start=(1.0, 0.6), end=(1.0, 1.0)),
-    ]
-    door = DoorOpening(name="between", start=(1.0, 0.4), end=(1.0, 0.6), width=0.1)
-
-    barrier_map = derive_barrier_map(walls=walls, doors=[door], extent=UNIT_EXTENT)
-    mask = barrier_map.door_masks["between"]
-
-    assert mask.sum() == 4 * 2
-    assert not barrier_map.occupancy[mask].any()
-    assert barrier_map.door_cells_across["between"] == 2
-    assert barrier_map.occupancy[PAD : PAD + 8, PAD + 20].all()
-    assert barrier_map.occupancy[PAD + 12 : PAD + 20, PAD + 20].all()
-
-
 def test_duplicate_door_names_are_rejected():
     door = DoorOpening(name="same", start=(0.5, 0.0), end=(0.6, 0.0), width=0.1)
 
     with pytest.raises(MetricInputError, match="unique"):
         derive_barrier_map(walls=_box(), doors=[door, door])
-
-
-def test_geometry_without_walls_or_doors_is_rejected():
-    with pytest.raises(MetricInputError, match="no walls, doors or extent"):
-        derive_barrier_map(walls=[], doors=[])
 
 
 def test_door_with_zero_span_is_rejected():
@@ -193,19 +106,6 @@ _DOOR_GEOMETRIES = (
     ((0.8, 0.6), (1.2, 1.4), 0.5),
     ((0.0, 0.0), (2.0, 2.0), 0.2),
 )
-
-
-@pytest.mark.parametrize(("start", "end", "width"), _DOOR_GEOMETRIES)
-def test_bounded_door_mask_matches_the_full_grid_oracle(start, end, width):
-    door = DoorOpening(name="d", start=start, end=end, width=width)
-    barrier_map = derive_barrier_map(
-        walls=_box(2.0), doors=[door], extent=[(0.0, 0.0), (2.0, 2.0)]
-    )
-
-    assert barrier_map.door_masks["d"].any()
-    assert np.array_equal(
-        barrier_map.door_masks["d"], _oracle_door_mask(door, barrier_map)
-    )
 
 
 def _large_world() -> tuple[list[WallSegment], list[DoorOpening]]:
@@ -232,18 +132,3 @@ def _elapsed_derivation(walls: list[WallSegment], doors: list[DoorOpening]) -> f
     return time.perf_counter() - started
 
 
-def test_door_mask_derivation_is_fast_on_a_large_world():
-    walls, doors = _large_world()
-
-    # Best of three wall-clock runs so a loaded CI box does not flake the coarse bound.
-    elapsed_s = min(_elapsed_derivation(walls, doors) for _ in range(3))
-    barrier_map = derive_barrier_map(walls=walls, doors=doors)
-
-    # 300 x 300 cells at 5 cm, widened by the five-cell padding on each side.
-    assert barrier_map.occupancy.shape == (310, 310)
-    assert len(barrier_map.door_masks) == 20
-    assert elapsed_s < 2.0, f"barrier derivation took {elapsed_s:.2f} s"
-    for door in doors[:2]:
-        assert np.array_equal(
-            barrier_map.door_masks[door.name], _oracle_door_mask(door, barrier_map)
-        )

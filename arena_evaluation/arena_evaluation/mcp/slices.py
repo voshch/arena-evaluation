@@ -38,7 +38,17 @@ SERIES_IDENTITY_COLUMNS: Final[tuple[str, ...]] = (
     "robot_id",
     "t_ns",
 )
+SERIES_TABLE_NAMES: Final[frozenset[str]] = frozenset(
+    table.table_name for table in SERIES_TABLES.values()
+)
 PEDESTRIAN_ACTOR_KIND: Final[str] = "pedestrian"
+SLICE_FACT_KEYS: Final[tuple[str, ...]] = (
+    "episodes",
+    "encounters",
+    "contacts",
+    "pedestrians",
+    "collisions",
+)
 
 PreviewLimit = Annotated[
     int,
@@ -109,10 +119,12 @@ def _catalog(run_id: str) -> BenchmarkCatalog:
     return BenchmarkCatalog.open(path)
 
 
-def _fact(catalog: BenchmarkCatalog, table_key: str) -> pl.DataFrame:
-    """One declared fact table; the catalog supplies its canonical schema when the file is absent."""
-    table = FACT_TABLES[table_key]
-    return catalog.get_table(f"fact_{table.table_name}").collect()
+def _facts(catalog: BenchmarkCatalog, *keys: str) -> tuple[pl.DataFrame, ...]:
+    """The declared fact tables named by ``keys``, in order; absent files use the canonical schema."""
+    return tuple(
+        catalog.get_table(f"fact_{FACT_TABLES[key].table_name}").collect()
+        for key in keys
+    )
 
 
 def _preview(table: str, frame: pl.DataFrame, limit: int) -> TablePreview:
@@ -131,13 +143,15 @@ def _null_reasons(frames: list[pl.DataFrame]) -> list[str]:
     A fact row carries its missing fields as one ``field:code;field:code`` string; the slice
     reports the individual tokens so an analyst can filter and count them.
     """
-    reasons: set[str] = set()
-    for frame in frames:
-        if len(frame) == 0:
-            continue
-        for value in frame.get_column("null_reason").drop_nulls():
-            reasons.update(token for token in str(value).split(";") if token)
-    return sorted(reasons)
+    tokens = (
+        token
+        for frame in frames
+        if len(frame) > 0
+        for value in frame.get_column("null_reason").drop_nulls()
+        for token in str(value).split(";")
+        if token
+    )
+    return sorted(set(tokens))
 
 
 def _identity_row(
@@ -153,77 +167,17 @@ def _identity_row(
     return rows.row(0, named=True)
 
 
-def _pedestrian_ids(
-    encounter_rows: pl.DataFrame, contact_rows: pl.DataFrame, pedestrian_id: str | None
-) -> list[str]:
-    """Every pedestrian identity a slice names: the encounter actor, contact obstacles and the explicit one."""
-    ids: set[str] = set()
-    if pedestrian_id is not None:
-        ids.add(pedestrian_id)
-    if len(encounter_rows) > 0:
-        ids.update(
-            str(value)
-            for kind, value in zip(
-                encounter_rows.get_column("actor_2_kind"),
-                encounter_rows.get_column("actor_2"),
-                strict=True,
-            )
-            if kind == PEDESTRIAN_ACTOR_KIND and value
+def _pedestrian_refs(frame: pl.DataFrame, kind_column: str, id_column: str) -> set[str]:
+    """Pedestrian identities named by one ``(kind, id)`` column pair."""
+    if len(frame) == 0:
+        return set()
+    return {
+        str(value)
+        for kind, value in zip(
+            frame.get_column(kind_column), frame.get_column(id_column), strict=True
         )
-    if len(contact_rows) > 0:
-        ids.update(
-            str(value)
-            for kind, value in zip(
-                contact_rows.get_column("collider_kind"),
-                contact_rows.get_column("obstacle_id"),
-                strict=True,
-            )
-            if kind == PEDESTRIAN_ACTOR_KIND and value
-        )
-    return sorted(ids)
-
-
-def _pedestrian_rows(
-    pedestrians: pl.DataFrame, episode_id: int, pedestrian_ids: list[str]
-) -> pl.DataFrame:
-    """The pedestrian fact rows of these identities inside this episode."""
-    if not pedestrian_ids:
-        return pedestrians.head(0)
-    identity_rows = pedestrians.filter(
-        (pl.col("episode_id") == episode_id)
-        & (
-            pl.col("ped_id").is_in(pedestrian_ids)
-            | pl.col("ped_name").is_in(pedestrian_ids)
-        )
-    )
-    return identity_rows.sort("ped_id")
-
-
-def _slice_series(
-    catalog: BenchmarkCatalog,
-    episode_id: int,
-    t_start_ns: int | None,
-    t_end_ns: int | None,
-    limit: int,
-) -> list[TablePreview]:
-    """The 1NF series rows inside the interaction window, every published ``series_*`` table in turn."""
-    previews: list[TablePreview] = []
-    for name in sorted(catalog.table_names()):
-        if name not in {t.table_name for t in SERIES_TABLES.values()}:
-            continue
-        frame = catalog.get_table(name).collect()
-        window = frame.filter(pl.col("episode_id") == episode_id)
-        if t_start_ns is not None and t_end_ns is not None:
-            window = window.filter(
-                pl.col("t_ns").is_between(
-                    t_start_ns - SERIES_WINDOW_MARGIN_NS,
-                    t_end_ns + SERIES_WINDOW_MARGIN_NS,
-                )
-            )
-        if len(window) == 0:
-            continue
-        previews.append(_preview(name, window.sort(*SERIES_IDENTITY_COLUMNS), limit))
-    return previews
+        if kind == PEDESTRIAN_ACTOR_KIND and value
+    }
 
 
 @domain.tool(read_only=True)
@@ -259,13 +213,12 @@ def evaluation_slice(
             hint="evaluation_worst_encounters lists encounter ids; evaluation_query reads fact_contacts",
         )
     catalog = _catalog(run_id)
-    encounters = _fact(catalog, "encounters")
-    contacts = _fact(catalog, "contacts")
-    pedestrians = _fact(catalog, "pedestrians")
-    collisions = _fact(catalog, "collisions")
-    episodes = _fact(catalog, "episodes")
+    episodes, encounters, contacts, pedestrians, collisions = _facts(
+        catalog, *SLICE_FACT_KEYS
+    )
 
     contact_row: dict[str, Any] | None = None
+    encounter_row: dict[str, Any] | None = None
     if contact_id is not None:
         contact_row = _identity_row(contacts, "contact_id", contact_id, "contact")
         episode_id = int(contact_row["episode_id"])
@@ -281,14 +234,11 @@ def evaluation_slice(
             )
         if encounter_id is None:
             encounter_id = linked_encounter
-
-    encounter_row: dict[str, Any] | None = None
     if encounter_id is not None:
         encounter_row = _identity_row(
             encounters, "encounter_id", encounter_id, "encounter"
         )
         episode_id = int(encounter_row["episode_id"])
-
     if episode_id is None:
         raise ToolError(
             "no episode resolved from the given ids",
@@ -314,80 +264,90 @@ def evaluation_slice(
             hint="evaluation_progress lists the recorded episodes",
         )
 
-    pedestrian_ids = _pedestrian_ids(encounter_rows, contact_rows, pedestrian_id)
-    pedestrian_rows = _pedestrian_rows(pedestrians, episode_id, pedestrian_ids)
+    pedestrian_ids = sorted(
+        (set() if pedestrian_id is None else {pedestrian_id})
+        | _pedestrian_refs(encounter_rows, "actor_2_kind", "actor_2")
+        | _pedestrian_refs(contact_rows, "collider_kind", "obstacle_id")
+    )
+    pedestrian_rows = (
+        pedestrians.filter(
+            (pl.col("episode_id") == episode_id)
+            & (
+                pl.col("ped_id").is_in(pedestrian_ids)
+                | pl.col("ped_name").is_in(pedestrian_ids)
+            )
+        ).sort("ped_id")
+        if pedestrian_ids
+        else pedestrians.head(0)
+    )
     collision_rows = collisions.filter(pl.col("episode_id") == episode_id).sort(
         "collision_idx"
     )
 
-    if contact_row is not None:
-        t_start_ns = int(contact_row["t_onset_ns"])
-        t_end_ns = int(contact_row["t_end_ns"])
-    elif encounter_row is not None:
-        t_start_ns = int(encounter_row["t_start_ns"])
-        t_end_ns = int(encounter_row["t_end_ns"])
-    else:
-        t_start_ns = None
-        t_end_ns = None
-
-    if contact_row is not None:
-        robot_id: str | None = str(contact_row["robot_id"])
-    elif encounter_row is not None:
-        robot_id = str(encounter_row["robot_id"])
+    anchor, start_column = (
+        (contact_row, "t_onset_ns")
+        if contact_row is not None
+        else (encounter_row, "t_start_ns")
+    )
+    t_start_ns = int(anchor[start_column]) if anchor is not None else None
+    t_end_ns = int(anchor["t_end_ns"]) if anchor is not None else None
+    if anchor is not None:
+        robot_id: str | None = str(anchor["robot_id"])
     else:
         episode_robots = episode_rows.get_column("robot_id").unique()
         robot_id = str(episode_robots[0]) if len(episode_robots) == 1 else None
-    identity = SliceIdentity(
-        run_id=run_id,
-        episode_id=episode_id,
-        encounter_id=encounter_id,
-        contact_id=contact_id,
-        pedestrian_ids=pedestrian_ids,
-        robot_id=robot_id,
-        t_start_ns=t_start_ns,
-        t_end_ns=t_end_ns,
-    )
+
+    series: list[TablePreview] = []
+    for name in sorted(catalog.table_names()):
+        if name not in SERIES_TABLE_NAMES:
+            continue
+        window = catalog.get_table(name).collect().filter(
+            pl.col("episode_id") == episode_id
+        )
+        if t_start_ns is not None and t_end_ns is not None:
+            window = window.filter(
+                pl.col("t_ns").is_between(
+                    t_start_ns - SERIES_WINDOW_MARGIN_NS,
+                    t_end_ns + SERIES_WINDOW_MARGIN_NS,
+                )
+            )
+        if len(window) > 0:
+            series.append(
+                _preview(name, window.sort(*SERIES_IDENTITY_COLUMNS), preview_limit)
+            )
+
+    sliced = {
+        "fact_episodes": episode_rows,
+        "fact_encounters": encounter_rows,
+        "fact_contacts": contact_rows,
+        "fact_pedestrians": pedestrian_rows,
+        "fact_collisions": collision_rows,
+    }
+    previews = {
+        name: _preview(name, frame, preview_limit) for name, frame in sliced.items()
+    }
+    encounter_visible = encounter_row is not None or contact_row is None
     return SliceResponse(
-        identity=identity,
-        snapshot_id=catalog.snapshot_id,
-        episode=_preview("fact_episodes", episode_rows, preview_limit),
-        encounter=None
-        if len(encounter_rows) == 0
-        or (encounter_row is None and contact_row is not None)
-        else _preview("fact_encounters", encounter_rows, preview_limit),
-        contacts=_preview("fact_contacts", contact_rows, preview_limit),
-        pedestrians=_preview("fact_pedestrians", pedestrian_rows, preview_limit),
-        collisions=_preview("fact_collisions", collision_rows, preview_limit),
-        series=_slice_series(catalog, episode_id, t_start_ns, t_end_ns, preview_limit),
-        null_reasons=_null_reasons(
-            [
-                episode_rows,
-                encounter_rows,
-                contact_rows,
-                pedestrian_rows,
-                collision_rows,
-            ]
+        identity=SliceIdentity(
+            run_id=run_id,
+            episode_id=episode_id,
+            encounter_id=encounter_id,
+            contact_id=contact_id,
+            pedestrian_ids=pedestrian_ids,
+            robot_id=robot_id,
+            t_start_ns=t_start_ns,
+            t_end_ns=t_end_ns,
         ),
-    )
-
-
-def _encounter_direction(
-    catalog: BenchmarkCatalog, metric: str
-) -> Literal["higher", "lower"]:
-    """Resolve ``metric``'s better direction from ``dim_metrics``, raising ToolError when NULL/absent."""
-    dm = catalog.get_table("dim_metrics").collect()
-    rows = dm.filter(pl.col("metric") == metric).to_dicts()
-    direction = next(
-        (r.get("direction") for r in rows if r.get("direction") in ("higher", "lower")),
-        None,
-    )
-    if direction == "higher":
-        return "higher"
-    if direction == "lower":
-        return "lower"
-    raise ToolError(
-        f"encounter metric {metric!r} has no declared direction in dim_metrics",
-        hint="pass direction='higher' or direction='lower', or inspect evaluation_metrics",
+        snapshot_id=catalog.snapshot_id,
+        episode=previews["fact_episodes"],
+        encounter=previews["fact_encounters"]
+        if encounter_visible and len(encounter_rows) > 0
+        else None,
+        contacts=previews["fact_contacts"],
+        pedestrians=previews["fact_pedestrians"],
+        collisions=previews["fact_collisions"],
+        series=series,
+        null_reasons=_null_reasons(list(sliced.values())),
     )
 
 
@@ -423,10 +383,25 @@ def evaluation_worst_encounters(
             hint=f"declared columns: {', '.join(declared.names())}",
         )
     catalog = _catalog(run_id)
-    resolved_direction = (
-        direction if direction is not None else _encounter_direction(catalog, metric)
-    )
-    encounters = _fact(catalog, "encounters")
+    resolved_direction = direction
+    if resolved_direction is None:
+        declared_directions = (
+            catalog.get_table("dim_metrics")
+            .collect()
+            .filter(pl.col("metric") == metric)
+            .get_column("direction")
+            .to_list()
+        )
+        resolved_direction = next(
+            (value for value in declared_directions if value in ("higher", "lower")),
+            None,
+        )
+        if resolved_direction is None:
+            raise ToolError(
+                f"encounter metric {metric!r} has no declared direction in dim_metrics",
+                hint="pass direction='higher' or direction='lower', or inspect evaluation_metrics",
+            )
+    (encounters,) = _facts(catalog, "encounters")
     if episode_id is not None:
         encounters = encounters.filter(pl.col("episode_id") == episode_id)
     if len(encounters) == 0:

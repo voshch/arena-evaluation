@@ -74,14 +74,11 @@ def asof_join(
     right_on: str | None = None,
 ) -> _FrameT:
     """Each query row joined to the last source row at or before its time, null where none lies within tolerance_ns (no bound when None)."""
-    if left_on is None:
-        return query.join_asof(
-            source, on=on, strategy="backward", tolerance=tolerance_ns
-        )
+    keys = (
+        {"on": on}
+        if left_on is None
+        else {"left_on": left_on, "right_on": right_on or on}
+    )
     return query.join_asof(
-        source,
-        left_on=left_on,
-        right_on=right_on or on,
-        strategy="backward",
-        tolerance=tolerance_ns,
+        source, strategy="backward", tolerance=tolerance_ns, **keys
     )

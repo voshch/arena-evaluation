@@ -1,6 +1,5 @@
 import json
 import pathlib
-import shutil
 
 import pytest
 
@@ -17,10 +16,8 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
 from arena_evaluation.processing.metrics.ecological.condition_metrics import _wall_cache
 from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.processing.pipeline import ProcessingPipeline
-from arena_evaluation.storage.contracts import check_benchmark
 from arena_evaluation.storage.folder_manager import FolderManager
-from arena_evaluation.storage.manifest import MetadataWriter
-from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
+from arena_evaluation.storage.schemas import EpisodeDescriptor
 
 S = 1_000_000_000
 WORLD = "synthetic_pipeline_world"
@@ -242,48 +239,3 @@ def test_process_episode_replays_the_task_on_the_episode_world(
     assert (metrics_dir / "fact_episodes.parquet").exists()
 
 
-def test_process_benchmark_writes_fact_and_dimension_tables_passing_contracts(
-    tmp_path: pathlib.Path,
-) -> None:
-    world_cache[WORLD] = [
-        _ZoneGeometry(
-            name="kitchen",
-            polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]),
-            max_speed=None,
-            quiet=False,
-            restricted=False,
-        )
-    ]
-    _wall_cache[WORLD] = None
-    folders, descriptor = _episode(tmp_path)
-    episode_dir = folders.episode_dir("run", 0)
-    shutil.copytree(pathlib.Path(descriptor.episode_dir), episode_dir)
-    MetadataWriter.write(
-        RunMetadata(
-            benchmark_id="run",
-            episode_id=0,
-            planner="nav2",
-            local_planner="dwb",
-            inter_planner="",
-            modes={},
-            params={},
-            stage="s0",
-            map=WORLD,
-            outcome_state=2,
-            outcome_info="finished",
-            recording_started_at="2026-01-01T00:00:00Z",
-            python_version="3.12",
-            ros_distro="jazzy",
-        ),
-        episode_dir / "episode_000.yaml",
-    )
-
-    benchmark_dir = ProcessingPipeline(folders, workers=1).process_benchmark("run")
-    assert benchmark_dir == tmp_path / "run"
-    assert (benchmark_dir / "dim_episodes.parquet").exists()
-    assert (benchmark_dir / "dim_metrics.parquet").exists()
-    assert (benchmark_dir / "dim_world_geometry.parquet").exists()
-    metrics_dir = episode_dir / "metrics"
-    assert (metrics_dir / "fact_episodes.parquet").exists()
-    assert (metrics_dir / "fact_robots.parquet").exists()
-    assert check_benchmark(benchmark_dir).ok

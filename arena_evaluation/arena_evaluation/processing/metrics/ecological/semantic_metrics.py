@@ -20,6 +20,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     episode_end_t_ns,
     parse_members,
     robot_env_snapshot,
+    robot_identity,
 )
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -89,6 +90,13 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
         "elevator_rides_robot",
     ]
 
+    @staticmethod
+    def _events(episode: AlignedEpisodeBundle) -> pl.DataFrame:
+        """Semantic events reconstructed from the robot's env snapshot."""
+        return _reconstruct_events(
+            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
+        )
+
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
@@ -99,9 +107,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
                 "time_waiting_at_doors_anyone": None,
                 "elevator_rides_anyone": None,
             }
-        events = _reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        events = self._events(episode)
         return {
             "time_waiting_at_doors_anyone": self._time_waiting_at_doors(
                 events, episode_end_t_ns(episode), None
@@ -117,15 +123,13 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         if scope_slice is None or scope_slice.scope != MetricScope.ROBOT:
             return self.calculate(episode, prior_results)
-        identity = RobotIdentity(episode.robot_name) if episode.robot_name else None
+        identity = robot_identity(episode)
         if episode.semantic_snapshot is None or identity is None:
             return {
                 "time_waiting_at_doors_robot": None,
                 "elevator_rides_robot": None,
             }
-        events = _reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        events = self._events(episode)
         end_t_ns = episode_end_t_ns(episode)
         anyone_waiting = self._time_waiting_at_doors(events, end_t_ns, None)
         anyone_rides = self._elevator_rides(events)

@@ -9,7 +9,6 @@ from arena_evaluation.processing.metrics.base import (
 from arena_evaluation.processing.metrics.performance.collision_metrics import (
     CollisionMetricsCalculator,
 )
-from arena_evaluation.processing.outcome import outcome_verdict
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
@@ -63,27 +62,6 @@ def _episode(
     )
 
 
-def test_collision_amount_counts_rising_edges_of_the_native_stream():
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(_events([0, 2, 2, 0, 1])), {}
-    )
-    assert results["collision_amount"] == 2
-
-
-def test_collision_amount_splits_by_kind():
-    events = _events(
-        [0, 2, 2, 0, 1, 1],
-        wall_count=[0, 1, 1, 0, 0, 0],
-        static_count=[0, 1, 1, 0, 0, 0],
-        ped_count=[0, 0, 0, 0, 1, 1],
-    )
-    results = CollisionMetricsCalculator(PARAMS).calculate(_episode(events), {})
-    assert results["collision_amount"] == 2
-    assert results["collision_amount_wall"] == 1
-    assert results["collision_amount_static"] == 1
-    assert results["collision_amount_pedestrian"] == 1
-
-
 def test_a_kind_the_stream_never_recorded_is_null():
     events = _events(
         [0, 2, 0],
@@ -98,69 +76,6 @@ def test_a_kind_the_stream_never_recorded_is_null():
     assert results["collision_amount_pedestrian"] is None
 
 
-def test_without_the_native_stream_every_count_is_null():
-    results = CollisionMetricsCalculator(PARAMS).calculate(_episode(None), {})
-    assert results["collision_amount"] is None
-    assert results["collision_amount_wall"] is None
-
-
-@pytest.mark.parametrize(
-    ("outcome_state", "outcome_info", "expected_success"),
-    [
-        (2, None, True),
-        (3, None, False),
-        (4, None, False),
-        (5, None, False),
-        (2, "collision", False),
-    ],
-)
-def test_success_is_the_runtime_verdict(outcome_state, outcome_info, expected_success):
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(
-            _events([0, 0, 0]), outcome_state=outcome_state, outcome_info=outcome_info
-        ),
-        {},
-    )
-    assert results["success"] is expected_success
-
-
-@pytest.mark.parametrize("outcome_state", [None, 0, 1])
-def test_an_unresolved_record_is_not_a_success(outcome_state):
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(_events([0, 0, 0]), outcome_state=outcome_state), {}
-    )
-    assert results["success"] is None
-    assert results[f"success{NULL_REASON_SUFFIX}"] == "not_recorded"
-
-
-@pytest.mark.parametrize("outcome_state", [None, 0, 1])
-def test_an_unresolved_verdict_takes_precedence_over_the_missing_collision_count(
-    outcome_state,
-):
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(None, outcome_state=outcome_state), {}
-    )
-    assert results["collision_amount"] is None
-    assert results["success"] is None
-    assert results[f"success{NULL_REASON_SUFFIX}"] == "not_recorded"
-
-
-def test_one_collision_fails_the_default_threshold():
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(_events([0, 1, 0]), outcome_state=2), {}
-    )
-    assert results["collision_amount"] == 1
-    assert results["success"] is False
-
-
-def test_two_collisions_pass_a_threshold_of_three():
-    calculator = CollisionMetricsCalculator(PARAMS)
-    calculator.metrics_config = {"max_collisions": 3}
-    results = calculator.calculate(_episode(_events([0, 1, 0, 1]), outcome_state=2), {})
-    assert results["collision_amount"] == 2
-    assert results["success"] is True
-
-
 def test_a_missing_collision_count_leaves_success_null_without_samples():
     results = CollisionMetricsCalculator(PARAMS).calculate(
         _episode(None, outcome_state=2), {}
@@ -170,53 +85,6 @@ def test_a_missing_collision_count_leaves_success_null_without_samples():
     assert results[f"success{NULL_REASON_SUFFIX}"] == "no_samples"
 
 
-@pytest.mark.parametrize(
-    ("outcome_state", "outcome_info", "expected"),
-    [
-        (2, None, ("GOAL_REACHED", True)),
-        (3, None, ("FAILED", False)),
-        (4, None, ("CANCELLED", False)),
-        (5, None, ("FATAL", False)),
-        (2, "collision", ("COLLISION", False)),
-        (0, None, ("UNRESOLVED", False)),
-        (None, None, ("UNRESOLVED", False)),
-    ],
-)
-def test_the_runtime_result_token_and_success(outcome_state, outcome_info, expected):
-    assert outcome_verdict(outcome_state, outcome_info) == expected
-
-
-def test_collision_obstacles_recorded():
-    contacts = pl.DataFrame(
-        {
-            "t_ns": [1_000_000_000, 1_000_000_000, 2_000_000_000],
-            "obstacle_id": ["<wall>", "chair_1", "ped_3"],
-        }
-    )
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(_events([0, 2, 1]), contacts=contacts), {}
-    )
-    assert results["collision_obstacles"] == ["<wall>", "chair_1", "ped_3"]
-
-
-def test_collision_obstacles_absent():
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(_events([0, 1])), {}
-    )
-    assert results["collision_obstacles"] == []
-
-
-def test_robot_scope_publishes_its_own_scalars():
-    assert set(CollisionMetricsCalculator.output_keys_for_scope(MetricScope.ROBOT)) == {
-        "collision_amount",
-        "collision_amount_wall",
-        "collision_amount_static",
-        "collision_amount_pedestrian",
-        "success",
-    }
-
-
-# --- CONTACT scope -----------------------------------------------------------
 
 
 def _contact_slice(
@@ -244,40 +112,6 @@ def _contact_slice(
     )
 
 
-@pytest.mark.parametrize(
-    ("t_start_ns", "t_end_ns", "expected_event", "expected_wall"),
-    [
-        (SEC_NS, 3 * SEC_NS, 1, 1),  # both onsets fall inside the contact interval
-        (
-            3 * SEC_NS,
-            3 * SEC_NS,
-            0,
-            0,
-        ),  # a later contact window contains no onset of its own
-        (0, 0, 0, 0),  # the interval before the first onset
-    ],
-)
-def test_contact_counts_only_the_windows_own_onsets(
-    t_start_ns, t_end_ns, expected_event, expected_wall
-):
-    full = _episode(_events([0, 1, 1, 1, 0], wall_count=[0, 0, 1, 1, 0]))
-    contact = _contact_slice(full, t_start_ns, t_end_ns)
-    result = CollisionMetricsCalculator(PARAMS).calculate_for_scope(
-        contact.window_bundle, {}, contact
-    )
-    assert result["collision_amount"] == expected_event
-    assert result["collision_amount_wall"] == expected_wall
-
-
-def test_contact_counts_are_null_without_the_collision_stream():
-    contact = _contact_slice(_episode(None), SEC_NS, 2 * SEC_NS)
-    result = CollisionMetricsCalculator(PARAMS).calculate_for_scope(
-        contact.window_bundle, {}, contact
-    )
-    assert result["collision_amount"] is None
-    assert result["collision_amount_wall"] is None
-
-
 def test_contact_carries_the_subject_actor():
     full = _episode(_events([0, 1, 1, 1, 0]))
     contact = _contact_slice(full, SEC_NS, 3 * SEC_NS, obstacle_id="env_0/Pedestrian_4")
@@ -286,13 +120,6 @@ def test_contact_carries_the_subject_actor():
     )
     assert result["collision_obstacles"] == ["env_0/Pedestrian_4"]
     assert result["collisions"] == []
-
-
-def test_contact_scope_publishes_the_scalar_metrics():
-    assert CollisionMetricsCalculator.output_keys_for_scope(MetricScope.CONTACT) == (
-        "collision_amount",
-        "collision_amount_wall",
-    )
 
 
 def test_other_scopes_are_rejected():

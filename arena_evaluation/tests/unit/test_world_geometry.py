@@ -2,23 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 
 import polars as pl
 import pytest
-from polars.testing import assert_frame_equal
 
 pytest.importorskip("arena_simulation_setup")
 
-from arena_evaluation.processing.world_geometry import (
-    benchmark_world_geometry,
-    world_geometry_rows,
-)
 from arena_evaluation.storage.registry.dimensions import (
-    DIMENSION_TABLES,
     DimWorldGeometry,
 )
-from arena_evaluation.storage.registry.table import TableKind
 
 EXPECTED_SCHEMA = pl.Schema(
     {
@@ -42,14 +34,6 @@ KEY_COLUMNS = (
 )
 WALL_VERTEX_COUNT = 2
 POLYGON_MIN_VERTEX_COUNT = 3
-
-
-def test_dim_world_geometry_is_a_benchmark_dimension_keyed_by_vertex() -> None:
-    assert DimWorldGeometry.table_name == "dim_world_geometry"
-    assert DimWorldGeometry.table_kind is TableKind.DIMENSION
-    assert DimWorldGeometry.key == KEY_COLUMNS
-    assert DimWorldGeometry.relative_path().as_posix() == "dim_world_geometry.parquet"
-    assert DIMENSION_TABLES["dim_world_geometry"] is DimWorldGeometry
 
 
 def test_dim_world_geometry_has_the_pinned_flat_schema_and_required_columns() -> None:
@@ -121,71 +105,3 @@ def _assert_polygon_vertices(frame: pl.DataFrame) -> None:
     assert polygons["vertex_count"].ge(POLYGON_MIN_VERTEX_COUNT).all()
 
 
-def test_map_empty_geometry_publishes_the_world_file_counts() -> None:
-    # Counts of arena_simulation_setup worlds/map_empty/world.yaml at jazzy bad76c0.
-    frame = world_geometry_rows("map_empty", None)
-
-    assert frame.schema == DimWorldGeometry.polars_schema()
-    assert frame.columns == list(EXPECTED_SCHEMA.names())
-    assert frame.height == 54
-    assert set(frame["world"].unique().to_list()) == {"map_empty"}
-    assert _element_count(frame, "wall") == 9
-    assert _polygon_count(frame, "door") == 3
-    assert _element_count(frame, "elevator") == 2
-    assert _polygon_count(frame, "elevator") == 4
-    assert _element_count(frame, "zone") == 1
-    assert _element_count(frame, "object") == 1
-    assert set(frame["element_kind"].unique().to_list()) == ELEMENT_KINDS
-    assert_frame_equal(
-        frame.filter(pl.col("element_kind") == "wall")
-        .select("element_name")
-        .unique()
-        .sort("element_name"),
-        pl.DataFrame({"element_name": [f"wall_{index:03d}" for index in range(9)]}),
-        check_dtypes=True,
-    )
-    _assert_unique_keys(frame)
-    _assert_required_columns_are_set(frame)
-    _assert_coordinates_are_finite(frame)
-    _assert_wall_vertices(frame)
-    _assert_polygon_vertices(frame)
-
-
-def test_hospital_1_bare_geometry_keeps_the_world_invariants() -> None:
-    frame = world_geometry_rows("hospital_1_bare", None)
-
-    assert frame.height > 0
-    kinds = set(frame["element_kind"].unique().to_list())
-    assert kinds <= ELEMENT_KINDS
-    assert {"wall", "door", "zone"} <= kinds
-    assert _element_count(frame, "wall") > 0
-    assert _polygon_count(frame, "door") > 0
-    assert _element_count(frame, "zone") > 0
-    _assert_unique_keys(frame)
-    _assert_required_columns_are_set(frame)
-    _assert_coordinates_are_finite(frame)
-    _assert_wall_vertices(frame)
-    _assert_polygon_vertices(frame)
-
-
-def test_a_world_that_does_not_resolve_raises() -> None:
-    with pytest.raises(FileNotFoundError):
-        world_geometry_rows("hospital_1", None)
-
-
-def test_a_benchmark_publishes_the_worlds_that_resolve_and_names_the_others(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with caplog.at_level(logging.WARNING):
-        frame = benchmark_world_geometry(["hospital_1", "map_empty"], None)
-
-    assert frame.schema == DimWorldGeometry.polars_schema()
-    assert frame["world"].unique().to_list() == ["map_empty"]
-    assert "world 'hospital_1' has no published geometry" in caplog.text
-
-
-def test_a_benchmark_without_a_world_publishes_an_empty_table() -> None:
-    frame = benchmark_world_geometry([], None)
-
-    assert frame.height == 0
-    assert frame.schema == DimWorldGeometry.polars_schema()

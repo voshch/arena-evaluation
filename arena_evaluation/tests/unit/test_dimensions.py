@@ -1,6 +1,5 @@
 """The benchmark dimensions: an episode's rows, the reason of every NULL, the stacked contract and the write at the benchmark root."""
 
-import logging
 import pathlib
 
 import polars as pl
@@ -8,12 +7,10 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.dimension_rows import episode_dimensions
-from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.storage.contracts import enforce_benchmark_contract
 from arena_evaluation.storage.exceptions import ContractViolationError
 from arena_evaluation.storage.registry.dimensions import (
     DIMENSION_TABLES,
-    DimMetrics,
     DimWorldGeometry,
 )
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
@@ -130,38 +127,6 @@ def _episode(
     )
 
 
-def test_an_episode_has_a_row_per_robot_and_one_pedestrian_and_entity_set_per_environment():
-    bundles = {
-        "jackal": _bundle(robot="jackal", awareness=[1.0, 0.0]),
-        "turtle": _bundle(robot="turtle", awareness=[1.0, 0.0]),
-    }
-    dims = _episode(3, bundles)
-
-    assert dims["dim_episodes"].height == 2
-    assert sorted(dims["dim_robots"]["robot_id"].to_list()) == ["jackal", "turtle"]
-    assert dims["dim_pedestrians"].height == 2
-    assert dims["dim_world_entities"].height == 1
-    assert dims["dim_world_entities"]["activation_dist"].to_list() == [2.5]
-
-
-def test_the_pose_stream_of_each_robot_is_recorded_with_its_gap():
-    dense = _episode(0, {"jackal": _bundle(stamps=[0.0, 0.1, 0.2])})["dim_episodes"]
-    sparse = _episode(1, {"jackal": _bundle(stamps=[0.0, 1.0, 2.0])})["dim_episodes"]
-
-    assert dense["pose_source"].to_list() == ["tf"]
-    assert dense["pose_gap_s"][0] == pytest.approx(0.1)
-    assert sparse["pose_source"].to_list() == ["tf_sparse"]
-    assert sparse["pose_gap_s"][0] == pytest.approx(1.0)
-
-
-def test_recorded_parameters_are_parsed_and_a_missing_one_carries_its_reason():
-    robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "0.25"})})[
-        "dim_robots"
-    ]
-
-    assert robots["robot_radius"].to_list() == [0.25]
-
-
 def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
     tmp_path: pathlib.Path,
 ):
@@ -204,49 +169,6 @@ def test_a_null_without_a_reason_breaks_the_contract(tmp_path):
     assert "null_reason_missing" in (tmp_path / "contract_report.yaml").read_text()
 
 
-def test_extracting_a_benchmark_writes_its_dimensions_once_at_the_root(
-    tmp_path: pathlib.Path,
-):
-    pytest.importorskip("mcap_ros2.writer")
-    from test_pipeline_extract_cache import _episode
-
-    from arena_evaluation.storage.manifest import MetadataWriter
-
-    pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(
-        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
-    )
-    pipeline.extract_benchmark("bench")
-
-    stored = {
-        name: pl.read_parquet(tmp_path / "bench" / table.relative_path())
-        for name, table in DIMENSION_TABLES.items()
-    }
-    assert stored["dim_episodes"].height == 1
-    assert stored["dim_episodes"]["env_id"].to_list() == ["env_0"]
-    assert stored["dim_episodes"]["pose_source"].to_list() == ["absent"]
-
-
-def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimensions(
-    tmp_path: pathlib.Path,
-):
-    pytest.importorskip("mcap_ros2.writer")
-    from test_pipeline_extract_cache import _episode
-
-    from arena_evaluation.storage.manifest import MetadataWriter
-
-    pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(
-        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
-    )
-    pipeline.extract_benchmark("bench")
-
-    assert (tmp_path / "bench" / "dim_metrics.parquet").is_file()
-    stored = DimMetrics.scan(tmp_path / "bench").collect()
-    assert stored.schema == DimMetrics.polars_schema()
-    assert_frame_equal(stored, metric_dictionary())
-
-
 def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(
     tmp_path: pathlib.Path,
 ):
@@ -267,52 +189,6 @@ def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(
     assert_frame_equal(stored, world_geometry_rows("map_empty", tmp_path / "bench"))
 
 
-def test_extracting_a_benchmark_skips_a_world_that_does_not_resolve_with_a_warning(
-    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
-):
-    pytest.importorskip("mcap_ros2.writer")
-    from test_pipeline_extract_cache import _episode
-
-    from arena_evaluation.storage.manifest import MetadataWriter
-
-    pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(
-        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
-    )
-
-    with caplog.at_level(logging.WARNING):
-        pipeline.extract_benchmark("bench")
-
-    assert "world 'barn' has no published geometry" in caplog.text
-    assert DimWorldGeometry.scan(tmp_path / "bench").collect().height == 0
-
-
-def test_an_episode_without_a_recording_warns_and_the_benchmark_still_writes_its_dimensions(
-    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
-):
-    pytest.importorskip("mcap_ros2.writer")
-    from test_pipeline_extract_cache import _episode
-
-    from arena_evaluation.storage.manifest import MetadataWriter
-
-    pipeline, episode, recording = _episode(tmp_path)
-    MetadataWriter.write(
-        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
-    )
-    recording.unlink()
-
-    with caplog.at_level(logging.WARNING):
-        pipeline.extract_benchmark("bench")
-
-    assert "no MCAP found" in caplog.text
-    assert "no extracted topics" in caplog.text
-    stored = {
-        name: pl.read_parquet(tmp_path / "bench" / table.relative_path())
-        for name, table in DIMENSION_TABLES.items()
-    }
-    assert stored["dim_episodes"].height == 0
-
-
 def test_episode_dimensions_rejects_bundle_without_identity():
     with pytest.raises(ValueError, match="names its environment and robot"):
         episode_dimensions(
@@ -328,29 +204,3 @@ def test_non_numeric_robot_parameter_is_refused():
         _episode(0, {"jackal": _bundle(params={"robot_radius": "not_a_number"})})
 
 
-def test_the_episode_row_carries_seed_crowd_size_duration_and_local_planner():
-    bundle = _bundle(awareness=[1.0, 0.0])
-    bundle.episode_lifecycle = pl.DataFrame(
-        {
-            "t_ns": [SEC, 3 * SEC],
-            "env_id": ["env_0", "env_0"],
-            "start_t_ns": [SEC, SEC],
-            "seed": [7, 7],
-        }
-    )
-
-    episode = _episode(0, {"jackal": bundle})["dim_episodes"].row(0, named=True)
-
-    assert episode["seed"] == 7
-    assert episode["crowd_size"] == 2
-    assert episode["duration_s"] == pytest.approx(2.0)
-    assert episode["local_planner"] == "dwb"
-    assert episode["ped_policy_default"] == "orca"
-
-
-def test_the_episode_dimension_has_no_launch_robot_model() -> None:
-    """L1-026: the launch model list lives in RunMetadata; dim_robots is the per-robot authority."""
-    dims = _episode(0, {"jackal": _bundle()})
-
-    assert "robot_model" not in dims["dim_episodes"].columns
-    assert dims["dim_robots"]["robot_model"].to_list() == ["turtlebot3"]

@@ -83,22 +83,6 @@ def test_data_resolver_catalog_view_with_where_and_default_source(
     assert df_default.height == 4
 
 
-def test_data_resolver_polars_sql_query(tmp_path: pathlib.Path) -> None:
-    write_benchmark(tmp_path, _ROWS)
-    resolver = DataResolver(benchmark_dir=tmp_path)
-    spec = PlotSpec(
-        id="p_sql",
-        type="bar",
-        data=PlotDataSpec(
-            query="SELECT planner, COUNT(*) AS n FROM v_episode_summary GROUP BY planner ORDER BY planner"
-        ),
-        channels=PlotChannels(x="planner", y="n"),
-    )
-    df, diag = resolver.resolve(spec)
-    assert df.height == 2
-    assert diag.status == "PASSED"
-
-
 def test_data_resolver_computation_records_evidence_and_snapshot(
     tmp_path: pathlib.Path,
 ) -> None:

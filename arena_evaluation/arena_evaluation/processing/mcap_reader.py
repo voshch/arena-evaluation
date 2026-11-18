@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import pathlib
@@ -56,7 +55,7 @@ if typing.TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 Anchor = tuple[int, float, float]
 Predicate = Callable[[str, "Schema"], bool]
-Handler = Callable[[str, Envelope], None]
+Handler = Callable[["_Ingest", str, Envelope], None]
 Decoder = Callable[[bytes], object]
 
 _AGENT_META_SCHEMA = "arena_humansim_msgs/msg/AgentMeta"
@@ -64,26 +63,14 @@ _INTERACTION_FRAME_SCHEMA = "arena_humansim_msgs/msg/InteractionFrame"
 _ANIMATION_STATES_SCHEMA = "arena_people_msgs/msg/AnimationStates"
 _GOAL_POSE_SCHEMA = "geometry_msgs/msg/PoseStamped"
 _OCCUPANCY_GRID_SCHEMA = "nav_msgs/msg/OccupancyGrid"
-
-#: Topic fragments the native reader extracts nowhere on purpose: human skeleton transforms and backend audio.
-IGNORED_TOPIC_MARKERS: typing.Final[tuple[str, ...]] = (
-    "/humans/tf",
-    "/heard_sound_events",
-    "/continuous_heard_sounds",
-    "/audio/",
-)
 _STATIC_ANCHOR_CHILD = re.compile(r"(env_\d+)(?:/map)?")
 _MAP_ANCHOR_CHILD = re.compile(r"(env_\d+)/map")
 _UNMAPPED_FRAMES = ("", "map")
 _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
-    "robot_tracks": ("x", "y"),
-    "robot_initialpose": ("pos_x", "pos_y"),
-    "robot_plans": ("x", "y"),
-    "pedestrian_arena_peds": ("x", "y"),
-    "pedestrian_agent_states": ("x", "y"),
-    "pedestrian_gestures": ("at_x", "at_y"),
-    "robot_goal_pose": ("pos_x", "pos_y"),
-    "environment_map": ("origin_x", "origin_y"),
+    "robot_tracks": ("x", "y"), "robot_initialpose": ("pos_x", "pos_y"),
+    "robot_plans": ("x", "y"), "pedestrian_arena_peds": ("x", "y"),
+    "pedestrian_agent_states": ("x", "y"), "pedestrian_gestures": ("at_x", "at_y"),
+    "robot_goal_pose": ("pos_x", "pos_y"), "environment_map": ("origin_x", "origin_y"),
 }
 
 
@@ -116,6 +103,20 @@ def by_anchor(
     return chain.otherwise(value(ox, oy))
 
 
+def _topic(*suffixes: str, schema: str | None = None) -> Predicate:
+    """Match a topic suffix, and optionally the schema name that the recorder understands."""
+    return lambda topic, message_schema: topic.endswith(suffixes) and (
+        schema is None or message_schema.name == schema
+    )
+
+
+def _is_transform_topic(topic: str, _schema: Schema) -> bool:
+    """The global and per-environment /tf and /tf_static topics; human skeleton transforms are never robot ground truth."""
+    return topic in ("tf", "tf_static") or (
+        topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic
+    )
+
+
 class MCAPReader:
     """Streams MCAP recordings into flat, episode-wide telemetry tables and loads one TopicBundle per robot."""
 
@@ -132,10 +133,17 @@ class MCAPReader:
 
     def read(self, out_dir: pathlib.Path) -> dict[str, TopicBundle]:
         """Stream every recording into flat tables under out_dir and return one TopicBundle per robot."""
-        files = self._mcap_files()
+        if self.data_path.is_dir():
+            files = sorted(self.data_path.glob("*.mcap"))
+            if not files:
+                raise FileNotFoundError(f"No MCAP file found in directory: {self.data_path}")
+        else:
+            files = [self.data_path]
+        for path in files:
+            if not path.exists():
+                raise FileNotFoundError(f"MCAP file not found: {path}")
         ingest = _Ingest(
-            TableSink(out_dir, flush_rows=self._flush_rows),
-            environment=self._environment,
+            TableSink(out_dir, flush_rows=self._flush_rows), environment=self._environment
         )
         try:
             for path in files:
@@ -143,20 +151,6 @@ class MCAPReader:
         finally:
             ingest.finish()
         return load_bundles(out_dir, ingest.pedestrian_frames())
-
-    def _mcap_files(self) -> list[pathlib.Path]:
-        if self.data_path.is_dir():
-            files = sorted(self.data_path.glob("*.mcap"))
-            if not files:
-                raise FileNotFoundError(
-                    f"No MCAP file found in directory: {self.data_path}"
-                )
-        else:
-            files = [self.data_path]
-        for path in files:
-            if not path.exists():
-                raise FileNotFoundError(f"MCAP file not found: {path}")
-        return files
 
     def _stream(self, path: pathlib.Path, ingest: _Ingest) -> None:
         factory = DecoderFactory()
@@ -180,18 +174,149 @@ class MCAPReader:
                 decoder = decoders[message.channel_id]
                 if decoder is None:
                     continue
-                body = _decode(decoder, channel.topic, message.data)
-                if body is not None:
-                    ingest.route(channel.topic, schema, body, message.log_time)
+                try:
+                    body = decoder(message.data)
+                except Exception as error:
+                    _log.warning(f"Error reading MCAP message on {channel.topic}: {error}")
+                    continue
+                ingest.route(channel.topic, schema, body, message.log_time)
 
 
-def _decode(decoder: Decoder, topic: str, data: bytes) -> object | None:
-    """The decoded body of a recorded message, or None when its bytes are corrupt, so the message is skipped."""
-    try:
-        return decoder(data)
-    except Exception as error:
-        _log.warning(f"Error reading MCAP message on {topic}: {error}")
-        return None
+def _sink(record: Callable[..., None]) -> Handler:
+    """Route a message to a module-level recorder that takes the episode sink first."""
+    return lambda ingest, _topic, envelope: record(ingest._sink, envelope)
+
+
+def _recorder(attribute: str) -> Handler:
+    """Route a message to one ingest recorder's ``record`` method."""
+    return lambda ingest, _topic, envelope: getattr(ingest, attribute).record(envelope)
+
+
+def _frame(table: str) -> Handler:
+    """Route an agent frame to a pedestrian table."""
+    return lambda ingest, _topic, envelope: ingest._pedestrians.record_frame(table, envelope)
+
+
+def _grid(kind: str) -> Handler:
+    """Route an occupancy grid to its table."""
+    return lambda ingest, _topic, envelope: context.record_occupancy_grid(
+        ingest._sink, envelope, kind
+    )
+
+
+def _both_events(first: Callable[..., None], second: Callable[..., None]) -> Handler:
+    """Route one interaction frame to both of its recorders."""
+    return lambda ingest, _topic, envelope: (
+        first(ingest._sink, envelope), second(ingest._sink, envelope)
+    )
+
+
+def _odometry(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    table = "robot_odom_controller" if is_controller_topic(topic) else "robot_odom"
+    ingest._kinematics.record_odometry(table, envelope)
+
+
+def _command(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    table = "robot_cmd_vel_controller" if is_controller_topic(topic) else "robot_cmd_vel"
+    ingest._kinematics.record_command(table, envelope)
+
+
+def _agent_meta(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+    schema_text = envelope.schema.data.decode("utf-8", "replace")
+    meta = (
+        agent_meta(envelope.body)
+        if legacy_schemas.agent_meta_has_crowd(schema_text)
+        else agent_meta_without_robot_fields(envelope.body)
+    )
+    ingest._pedestrians.record_meta(envelope, meta)
+
+
+def _episode(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+    context.record_episode(
+        ingest._sink, envelope, legacy_schemas.episode_fields(envelope.body, envelope.schema)
+    )
+
+
+def _fleet_snapshot(ingest: _Ingest, topic: str, envelope: Envelope[RobotFleet]) -> None:
+    env_id = env_id_in(topic) or ingest._environment
+    if env_id is None:
+        raise ValueError(f"fleet topic {topic!r} names no environment")
+    ingest._fleet.record(
+        envelope.t_ns, env_id, legacy_schemas.fleet_robots(envelope.body, envelope.schema)
+    )
+
+
+def _initial_pose(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    parts = topic_parts(topic)
+    if len(parts) >= 2 and parts[-2] == env_id_in(topic):
+        ingest._warn_skipped(topic, "an environment-level initial pose names no robot")
+        return
+    context.record_initial_pose(ingest._sink, envelope)
+
+
+def _transforms(ingest: _Ingest, topic: str, envelope: Envelope[TFMessage]) -> None:
+    context.record_transforms(
+        ingest._sink, "tf_static" if "static" in topic else "tf", envelope
+    )
+    for transform in envelope.body.transforms:
+        parent, child = transform.header.frame_id, transform.child_frame_id
+        if not is_ground_truth(parent, child):
+            continue
+        child_env = env_id_in(child)
+        if child_env is None:
+            raise ValueError(f"ground-truth frame {child!r} names no environment")
+        translation, rotation = transform.transform.translation, transform.transform.rotation
+        ingest._kinematics.record_ground_truth(
+            Envelope(
+                t_ns=envelope.t_ns,
+                ref=RobotRef(
+                    env_id=child_env,
+                    robot_id=robot_id_of(child.strip("/").split("/"), child_env),
+                ),
+                schema=envelope.schema,
+                body=transform,
+            ),
+            Pose3(
+                x=float(translation.x), y=float(translation.y), z=float(translation.z),
+                yaw=yaw_from_orientation(rotation),
+            ),
+        )
+
+
+_ROUTES: tuple[tuple[Predicate, Handler], ...] = (
+    (_topic("/odom"), _odometry),
+    (_topic("/scan", "/lidar"), _recorder("_scans")),
+    (_topic("/cmd_vel"), _command),
+    (_topic("/joint_states"), _sink(sensors.record_joint_states)),
+    (_topic("/agent_meta", schema=_AGENT_META_SCHEMA), _agent_meta),
+    (_topic("/arena_peds", "/peds", "/pedestrians"), _frame(ARENA_TABLE)),
+    (_topic("/agent_states", "/agent_frame"), _frame(ENGINE_TABLE)),
+    (
+        _topic("/interactions", schema=_INTERACTION_FRAME_SCHEMA),
+        _both_events(events.record_interactions, events.record_interaction_events),
+    ),
+    (
+        _topic("/animation_states", schema=_ANIMATION_STATES_SCHEMA),
+        _sink(events.record_animations),
+    ),
+    (_topic("/acoustics"), _sink(sensors.record_acoustics)),
+    (_topic("/characterization_phase"), _sink(context.record_characterization_phase)),
+    (_topic("/characterization_schedule"), _recorder("_schedules")),
+    (_topic("/state/episode"), _episode),
+    (_topic("/state/semantics"), _sink(context.record_semantics)),
+    (_topic("/state/robots"), _fleet_snapshot),
+    (_topic("/collision_events"), _sink(events.record_collision_events)),
+    (_topic("/collision_monitor_state"), _sink(events.record_collision_monitor)),
+    (_topic("/power_publisher/power"), _sink(sensors.record_power)),
+    (_topic("/power_publisher/energy"), _sink(sensors.record_energy)),
+    (_topic("/plan", "/global_plan"), _recorder("_plans")),
+    (_topic("/task_pose"), _sink(context.record_task_pose)),
+    (_topic("/goal_pose", schema=_GOAL_POSE_SCHEMA), _sink(context.record_goal_pose)),
+    (_topic("/map", schema=_OCCUPANCY_GRID_SCHEMA), _grid("map")),
+    (_topic("/door_mask", schema=_OCCUPANCY_GRID_SCHEMA), _grid("door_mask")),
+    (_topic("/initialpose"), _initial_pose),
+    (_is_transform_topic, _transforms),
+)
 
 
 class _Ingest:
@@ -207,71 +332,17 @@ class _Ingest:
         self._plans = context.PlanRecorder(sink)
         self._fleet = context.FleetRecorder(sink)
         self._schedules = context.ScheduleRecorder()
-        self._routes: tuple[tuple[Predicate, Handler], ...] = (
-            (_ends_with("/odom"), self._odometry),
-            (_ends_with("/scan", "/lidar"), self._scan),
-            (_ends_with("/cmd_vel"), self._command),
-            (_ends_with("/joint_states"), self._joint_states),
-            (
-                _both(_ends_with("/agent_meta"), _has_schema(_AGENT_META_SCHEMA)),
-                self._agent_meta,
-            ),
-            (
-                _ends_with("/arena_peds", "/peds", "/pedestrians"),
-                self._arena_peds_frame,
-            ),
-            (_ends_with("/agent_states", "/agent_frame"), self._agent_states_frame),
-            (
-                _both(
-                    _ends_with("/interactions"), _has_schema(_INTERACTION_FRAME_SCHEMA)
-                ),
-                self._interactions,
-            ),
-            (
-                _both(
-                    _ends_with("/animation_states"),
-                    _has_schema(_ANIMATION_STATES_SCHEMA),
-                ),
-                self._animations,
-            ),
-            (_ends_with("/acoustics"), self._acoustics),
-            (_ends_with("/characterization_phase"), self._characterization_phase),
-            (_ends_with("/characterization_schedule"), self._characterization_schedule),
-            (_ends_with("/state/episode"), self._episode),
-            (_ends_with("/state/semantics"), self._semantics),
-            (_ends_with("/state/robots"), self._fleet_snapshot),
-            (_ends_with("/collision_events"), self._collision_events),
-            (_ends_with("/collision_monitor_state"), self._collision_monitor),
-            (_ends_with("/power_publisher/power"), self._power),
-            (_ends_with("/power_publisher/energy"), self._energy),
-            (_ends_with("/plan", "/global_plan"), self._plan),
-            (_ends_with("/task_pose"), self._task_pose),
-            (
-                _both(_ends_with("/goal_pose"), _has_schema(_GOAL_POSE_SCHEMA)),
-                self._goal_pose,
-            ),
-            (
-                _both(_ends_with("/map"), _has_schema(_OCCUPANCY_GRID_SCHEMA)),
-                self._environment_map,
-            ),
-            (
-                _both(_ends_with("/door_mask"), _has_schema(_OCCUPANCY_GRID_SCHEMA)),
-                self._door_mask,
-            ),
-            (_ends_with("/initialpose"), self._initial_pose),
-            (_is_transform_topic, self._transforms),
-        )
 
     def accepts(self, topic: str, schema: Schema) -> bool:
         """Whether the reader routes this recorded topic to a recorder."""
-        return any(matches(topic, schema) for matches, _handle in self._routes)
+        return self._handler(topic, schema) is not None
+
+    def _handler(self, topic: str, schema: Schema) -> Handler | None:
+        return next((handle for accepts, handle in _ROUTES if accepts(topic, schema)), None)
 
     def route(self, topic: str, schema: Schema, body: object, t_ns: int) -> None:
         """Dispatch a decoded message to the recorder that accepts its topic, or skip it."""
-        handler = next(
-            (handle for accepts, handle in self._routes if accepts(topic, schema)),
-            None,
-        )
+        handler = self._handler(topic, schema)
         if handler is None:
             return
         env_id = env_id_in(topic) or self._environment
@@ -282,14 +353,10 @@ class _Ingest:
         ):
             self._warn_skipped(topic, "names no environment")
             return
-        ref = (
-            None
-            if env_id is None or _is_transform_topic(topic, schema)
-            else RobotRef(
-                env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id)
-            )
+        ref = None if env_id is None or _is_transform_topic(topic, schema) else RobotRef(
+            env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id)
         )
-        handler(topic, Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body))
+        handler(self, topic, Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body))
 
     def _warn_skipped(self, topic: str, reason: str) -> None:
         """Log one warning per skipped topic, naming it and the reason."""
@@ -306,217 +373,60 @@ class _Ingest:
         self._schedules.write(self._sink)
         self._sink.close()
 
-    def _odometry(self, topic: str, envelope: Envelope) -> None:
-        table = "robot_odom_controller" if is_controller_topic(topic) else "robot_odom"
-        self._kinematics.record_odometry(table, envelope)
 
-    def _scan(self, _topic: str, envelope: Envelope) -> None:
-        self._scans.record(envelope)
-
-    def _command(self, topic: str, envelope: Envelope) -> None:
-        table = (
-            "robot_cmd_vel_controller"
-            if is_controller_topic(topic)
-            else "robot_cmd_vel"
-        )
-        self._kinematics.record_command(table, envelope)
-
-    def _joint_states(self, _topic: str, envelope: Envelope) -> None:
-        sensors.record_joint_states(self._sink, envelope)
-
-    def _agent_meta(self, _topic: str, envelope: Envelope) -> None:
-        schema_text = envelope.schema.data.decode("utf-8", "replace")
-        meta = (
-            agent_meta(envelope.body)
-            if legacy_schemas.agent_meta_has_crowd(schema_text)
-            else agent_meta_without_robot_fields(envelope.body)
-        )
-        self._pedestrians.record_meta(envelope, meta)
-
-    def _arena_peds_frame(self, _topic: str, envelope: Envelope) -> None:
-        self._pedestrians.record_frame(ARENA_TABLE, envelope)
-
-    def _agent_states_frame(self, _topic: str, envelope: Envelope) -> None:
-        self._pedestrians.record_frame(ENGINE_TABLE, envelope)
-
-    def _interactions(self, _topic: str, envelope: Envelope) -> None:
-        events.record_interactions(self._sink, envelope)
-        events.record_interaction_events(self._sink, envelope)
-
-    def _animations(self, _topic: str, envelope: Envelope) -> None:
-        events.record_animations(self._sink, envelope)
-
-    def _acoustics(self, _topic: str, envelope: Envelope) -> None:
-        sensors.record_acoustics(self._sink, envelope)
-
-    def _characterization_phase(self, _topic: str, envelope: Envelope) -> None:
-        context.record_characterization_phase(self._sink, envelope)
-
-    def _characterization_schedule(self, _topic: str, envelope: Envelope) -> None:
-        self._schedules.record(envelope)
-
-    def _episode(self, _topic: str, envelope: Envelope) -> None:
-        context.record_episode(
-            self._sink,
-            envelope,
-            legacy_schemas.episode_fields(envelope.body, envelope.schema),
-        )
-
-    def _semantics(self, _topic: str, envelope: Envelope) -> None:
-        context.record_semantics(self._sink, envelope)
-
-    def _fleet_snapshot(self, topic: str, envelope: Envelope[RobotFleet]) -> None:
-        env_id = env_id_in(topic) or self._environment
-        if env_id is None:
-            raise ValueError(f"fleet topic {topic!r} names no environment")
-        self._fleet.record(
-            envelope.t_ns,
-            env_id,
-            legacy_schemas.fleet_robots(envelope.body, envelope.schema),
-        )
-
-    def _collision_events(self, _topic: str, envelope: Envelope) -> None:
-        events.record_collision_events(self._sink, envelope)
-
-    def _collision_monitor(self, _topic: str, envelope: Envelope) -> None:
-        events.record_collision_monitor(self._sink, envelope)
-
-    def _power(self, _topic: str, envelope: Envelope) -> None:
-        sensors.record_power(self._sink, envelope)
-
-    def _energy(self, _topic: str, envelope: Envelope) -> None:
-        sensors.record_energy(self._sink, envelope)
-
-    def _plan(self, _topic: str, envelope: Envelope) -> None:
-        self._plans.record(envelope)
-
-    def _task_pose(self, _topic: str, envelope: Envelope) -> None:
-        context.record_task_pose(self._sink, envelope)
-
-    def _goal_pose(self, _topic: str, envelope: Envelope) -> None:
-        context.record_goal_pose(self._sink, envelope)
-
-    def _environment_map(self, _topic: str, envelope: Envelope) -> None:
-        context.record_occupancy_grid(self._sink, envelope, "map")
-
-    def _door_mask(self, _topic: str, envelope: Envelope) -> None:
-        context.record_occupancy_grid(self._sink, envelope, "door_mask")
-
-    def _initial_pose(self, topic: str, envelope: Envelope) -> None:
-        parts = topic_parts(topic)
-        if len(parts) >= 2 and parts[-2] == env_id_in(topic):
-            self._warn_skipped(
-                topic, "an environment-level initial pose names no robot"
-            )
-            return
-        context.record_initial_pose(self._sink, envelope)
-
-    def _transforms(self, topic: str, envelope: Envelope[TFMessage]) -> None:
-        context.record_transforms(
-            self._sink, "tf_static" if "static" in topic else "tf", envelope
-        )
-        for transform in envelope.body.transforms:
-            parent, child = transform.header.frame_id, transform.child_frame_id
-            if not is_ground_truth(parent, child):
-                continue
-            child_env = env_id_in(child)
-            if child_env is None:
-                raise ValueError(f"ground-truth frame {child!r} names no environment")
-            ref = RobotRef(
-                env_id=child_env,
-                robot_id=robot_id_of(child.strip("/").split("/"), child_env),
-            )
-            translation, rotation = (
-                transform.transform.translation,
-                transform.transform.rotation,
-            )
-            pose = Pose3(
-                x=float(translation.x),
-                y=float(translation.y),
-                z=float(translation.z),
-                yaw=yaw_from_orientation(rotation),
-            )
-            self._kinematics.record_ground_truth(
-                Envelope(
-                    t_ns=envelope.t_ns, ref=ref, schema=envelope.schema, body=transform
-                ),
-                pose,
-            )
-
-
-def _ends_with(*suffixes: str) -> Predicate:
-    return lambda topic, _schema: topic.endswith(suffixes)
-
-
-def _has_schema(name: str) -> Predicate:
-    return lambda _topic, schema: schema.name == name
-
-
-def _both(first: Predicate, second: Predicate) -> Predicate:
-    return lambda topic, schema: first(topic, schema) and second(topic, schema)
-
-
-def _is_transform_topic(topic: str, _schema: Schema) -> bool:
-    """The global and per-environment /tf and /tf_static topics; human skeleton transforms are never robot ground truth."""
-    return topic in ("tf", "tf_static") or (
-        topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic
-    )
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class _Tables:
-    """The flat tables of one episode directory, the map anchors per environment, and the pedestrian frames seen."""
-
-    out_dir: pathlib.Path
-    global_frames: Mapping[str, pl.LazyFrame | None]
-    anchors: Mapping[str, list[Anchor]]
-    pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
-
-    def scoped(self, name: str, column: str, value: str) -> pl.LazyFrame | None:
-        path = self.out_dir / f"{name}.parquet"
-        if not path.exists():
-            return None
-        frame = pl.scan_parquet(path).filter(pl.col(column) == value)
-        return frame if frame.head(1).collect().height else None
+def _scoped(
+    out_dir: pathlib.Path, name: str, column: str, value: str
+) -> pl.LazyFrame | None:
+    """The table when it exists and holds a row for this scope value."""
+    path = out_dir / f"{name}.parquet"
+    if not path.exists():
+        return None
+    frame = pl.scan_parquet(path).filter(pl.col(column) == value)
+    return frame if frame.head(1).collect().height else None
 
 
 def load_bundles(
     out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
 ) -> dict[str, TopicBundle]:
     """One TopicBundle per robot: the episode's flat tables filtered to that robot and its environment."""
-    global_frames = {name: _whole_table(out_dir, name) for name in GLOBAL_TABLES}
-    tables = _Tables(
-        out_dir,
-        global_frames,
-        _env_anchors(global_frames["tf"], global_frames["tf_static"]),
-        pedestrian_frames,
-    )
+    global_frames = {
+        name: pl.scan_parquet(path) if (path := out_dir / f"{name}.parquet").exists() else None
+        for name in GLOBAL_TABLES
+    }
+    anchors = _env_anchors(global_frames["tf"], global_frames["tf_static"])
     return {
-        robot_id: _robot_bundle(tables, env_id, robot_id)
+        robot_id: _robot_bundle(
+            out_dir, global_frames, anchors, pedestrian_frames, env_id, robot_id
+        )
         for env_id, robot_id in _robot_refs(out_dir)
     }
 
 
-def _robot_bundle(tables: _Tables, env_id: str, robot_id: str) -> TopicBundle:
-    if tables.anchors and env_id not in tables.anchors:
+def _robot_bundle(
+    out_dir: pathlib.Path,
+    global_frames: Mapping[str, pl.LazyFrame | None],
+    anchors: Mapping[str, list[Anchor]],
+    pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
+    env_id: str,
+    robot_id: str,
+) -> TopicBundle:
+    if anchors and env_id not in anchors:
         raise ValueError(
-            f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(tables.anchors.items()))}"
+            f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}"
         )
-    shifts = tables.anchors.get(env_id, [])
+    shifts = anchors.get(env_id, [])
     frames: dict[str, pl.LazyFrame | None] = {
-        name: tables.scoped(name, "robot_id", robot_id) for name in ROBOT_TABLES
+        name: _scoped(out_dir, name, "robot_id", robot_id) for name in ROBOT_TABLES
     }
-    frames |= {name: tables.scoped(name, "env_id", env_id) for name in ENV_TABLES}
+    frames |= {name: _scoped(out_dir, name, "env_id", env_id) for name in ENV_TABLES}
     if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
-        _check_map_frames(env_id, shifts, tables.pedestrian_frames)
+        _check_map_frames(env_id, shifts, pedestrian_frames)
         _shift_to_map(frames, shifts)
     odom_controller = frames.pop("robot_odom_controller")
     cmd_vel_controller = frames.pop("robot_cmd_vel_controller")
     frames["robot_odom"] = _first_present(odom_controller, frames["robot_odom"])
-    frames["robot_cmd_vel"] = _first_present(
-        frames["robot_cmd_vel"], cmd_vel_controller
-    )
-    return TopicBundle(**tables.global_frames, **frames)
+    frames["robot_cmd_vel"] = _first_present(frames["robot_cmd_vel"], cmd_vel_controller)
+    return TopicBundle(**global_frames, **frames)
 
 
 def _check_map_frames(
@@ -526,8 +436,7 @@ def _check_map_frames(
 ) -> None:
     for table in (ARENA_TABLE, ENGINE_TABLE):
         unmapped = sorted(
-            frame
-            for frame in pedestrian_frames.get((env_id, table), frozenset())
+            frame for frame in pedestrian_frames.get((env_id, table), frozenset())
             if frame not in _UNMAPPED_FRAMES
         )
         if unmapped:
@@ -538,23 +447,16 @@ def _check_map_frames(
 
 
 def _shift_to_map(frames: dict[str, pl.LazyFrame | None], shifts: list[Anchor]) -> None:
-    for name, columns in _POSITION_COLUMNS.items():
+    for name, (x_column, y_column) in _POSITION_COLUMNS.items():
         frame = frames[name]
         if frame is not None:
-            frames[name] = _shift_positions(frame, shifts, columns)
+            frames[name] = frame.with_columns(
+                by_anchor(shifts, lambda ox, _: pl.col(x_column) - ox).alias(x_column),
+                by_anchor(shifts, lambda _, oy: pl.col(y_column) - oy).alias(y_column),
+            )
     lifecycle = frames.get("episode_lifecycle")
     if lifecycle is not None:
         frames["episode_lifecycle"] = _shift_episode_phases(lifecycle, shifts)
-
-
-def _shift_positions(
-    frame: pl.LazyFrame, anchors: list[Anchor], columns: tuple[str, str]
-) -> pl.LazyFrame:
-    x_column, y_column = columns
-    return frame.with_columns(
-        by_anchor(anchors, lambda ox, _: pl.col(x_column) - ox).alias(x_column),
-        by_anchor(anchors, lambda _, oy: pl.col(y_column) - oy).alias(y_column),
-    )
 
 
 def _shift_episode_phases(frame: pl.LazyFrame, anchors: list[Anchor]) -> pl.LazyFrame:
@@ -593,7 +495,13 @@ def _env_anchors(
     anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD)
     for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD).items():
         anchors.setdefault(env_id, dynamic)
-    return {env_id: _without_repeats(values) for env_id, values in anchors.items()}
+    return {
+        env_id: [
+            anchor for index, anchor in enumerate(values)
+            if index == 0 or anchor[1:] != values[index - 1][1:]
+        ]
+        for env_id, values in anchors.items()
+    }
 
 
 def _anchors_by_env(
@@ -607,55 +515,34 @@ def _anchors_by_env(
     env = child.str.extract(f"^{child_pattern.pattern}$", 1)
     world_re = "|".join(re.escape(name) for name in _WORLD_FRAMES)
     base_re = "|".join(re.escape(marker) for marker in _BASE_FRAME_MARKERS)
-    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(
-        rf"/(?:{world_re})$"
-    )
-    not_base = ~child.str.contains(base_re)
+    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(rf"/(?:{world_re})$")
     filtered = (
-        frame.with_columns(
-            parent.alias("_parent"), child.alias("_child"), env.alias("_env")
-        )
+        frame.with_columns(parent.alias("_parent"), child.alias("_child"), env.alias("_env"))
         .filter(
             pl.col("_env").is_not_null()
             & ((pl.col("_parent") == "") | world_match)
-            & not_base
+            & ~child.str.contains(base_re)
         )
         .select("_env", "t_ns", "tx", "ty")
         .collect()
     )
     # agent-contracts: ignore materialize anchor tuples from filtered tf frame
-    rows = filtered.iter_rows()
-    for env_id, t_ns, tx, ty in rows:
+    for env_id, t_ns, tx, ty in filtered.iter_rows():
         anchors[env_id].append((t_ns, tx, ty))
     return dict(anchors)
 
 
-def _without_repeats(anchors: list[Anchor]) -> list[Anchor]:
-    return [
-        anchor
-        for index, anchor in enumerate(anchors)
-        if index == 0 or anchor[1:] != anchors[index - 1][1:]
-    ]
-
-
 def _robot_refs(out_dir: pathlib.Path) -> list[tuple[str, str]]:
-    paths = [out_dir / f"{name}.parquet" for name in ROBOT_TABLES]
     frames = [
-        pl.scan_parquet(path).select("env_id", "robot_id")
-        for path in paths
-        if path.exists()
+        pl.scan_parquet(out_dir / f"{name}.parquet").select("env_id", "robot_id")
+        for name in ROBOT_TABLES
+        if (out_dir / f"{name}.parquet").exists()
     ]
     if not frames:
         return []
     refs = pl.concat(frames).unique().sort("robot_id").collect()
     # agent-contracts: ignore materialize (env_id, robot_id) keys for bundle dict
-    rows = refs.iter_rows()
-    return [(env_id, robot_id) for env_id, robot_id in rows]
-
-
-def _whole_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
-    path = out_dir / f"{name}.parquet"
-    return pl.scan_parquet(path) if path.exists() else None
+    return [(env_id, robot_id) for env_id, robot_id in refs.iter_rows()]
 
 
 def _first_present(*frames: pl.LazyFrame | None) -> pl.LazyFrame | None:

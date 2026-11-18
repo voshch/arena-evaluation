@@ -90,12 +90,10 @@ def run_manifests(path: pathlib.Path) -> list[str]:
     if not reports_dir.is_dir():
         return []
     found: list[str] = []
-    report_filename = get_config_kind("report").filename
+    filename = get_config_kind("report").filename
     for entry in sorted(reports_dir.iterdir()):
-        if not entry.is_dir():
-            continue
-        candidate = entry / report_filename
-        if not candidate.is_file():
+        candidate = entry / filename
+        if not entry.is_dir() or not candidate.is_file():
             continue
         try:
             data = yaml.safe_load(candidate.read_text(encoding="utf-8"))
@@ -124,6 +122,16 @@ def evaluation_manifests(
     return out
 
 
+def _template(kind: str, name: str, path: pathlib.Path) -> dict[str, Any]:
+    """The published template payload for one resolved config file."""
+    return {
+        "kind": kind,
+        "name": name,
+        "path": str(path),
+        "content": path.read_text(encoding="utf-8"),
+    }
+
+
 @domain.tool(read_only=True)
 def evaluation_config_template(
     kind: ConfigKind,
@@ -140,34 +148,23 @@ def evaluation_config_template(
     if kind == "manifest" and run_id is not None:
         local = bundle_path(run_analysis_root(run_path(run_id)), "report", stem)
         if local.is_file():
-            return {
-                "kind": kind,
-                "name": stem,
-                "path": str(local),
-                "content": local.read_text(encoding="utf-8"),
-            }
-    path = config_file(kind, name)
-    return {
-        "kind": kind,
-        "name": stem,
-        "path": str(path),
-        "content": path.read_text(encoding="utf-8"),
-    }
+            return _template(kind, stem, local)
+    return _template(kind, stem, config_file(kind, name))
 
 
 def _readme_section(word: str) -> str:
     """Return matching sections from ``configs/README.md``."""
     for base in (share_dir(), source_tree_dir()):
-        if base is None:
+        if base is None or not (
+            readme := base / CONFIGS_DIR_NAME / "README.md"
+        ).is_file():
             continue
-        readme = base / CONFIGS_DIR_NAME / "README.md"
-        if readme.is_file():
-            sections = readme.read_text(encoding="utf-8").split("\n## ")
-            return "\n\n".join(
-                f"## {section}"
-                for section in sections[1:]
-                if word.lower() in section.splitlines()[0].lower()
-            )
+        sections = readme.read_text(encoding="utf-8").split("\n## ")
+        return "\n\n".join(
+            f"## {section}"
+            for section in sections[1:]
+            if word.lower() in section.splitlines()[0].lower()
+        )
     return ""
 
 

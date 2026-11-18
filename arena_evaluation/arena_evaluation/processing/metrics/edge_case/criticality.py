@@ -84,10 +84,6 @@ def time_to_collision(
     return None
 
 
-def _speed(v: Point) -> float:
-    return math.hypot(v[0], v[1])
-
-
 def post_encroachment_time(
     samples: Sequence[Sample], encounter: Point, agent: str
 ) -> float | None:
@@ -106,18 +102,6 @@ def post_encroachment_time(
     if t_robot is None or t_agent is None:
         return None
     return abs(t_agent - t_robot)
-
-
-def _min_pet(
-    samples: Sequence[Sample], encounters: Sequence[tuple[str, Point]]
-) -> tuple[float | None, str]:
-    pet: float | None = None
-    pet_with = ""
-    for agent, point in encounters:
-        gap = post_encroachment_time(samples, point, agent)
-        if gap is not None and (pet is None or gap < pet):
-            pet, pet_with = gap, agent
-    return pet, pet_with
 
 
 def _first_collision(
@@ -188,7 +172,10 @@ def score(
 
     for i, s in enumerate(samples):
         dt = max(0.0, (samples[i + 1].t - s.t) if i + 1 < len(samples) else 0.0)
-        if s.t - t0 >= settle_s and _speed(s.robot_vel) < FREEZE_SPEED:
+        if (
+            s.t - t0 >= settle_s
+            and math.hypot(s.robot_vel[0], s.robot_vel[1]) < FREEZE_SPEED
+        ):
             freeze += dt
 
         sample_clear, sample_ttc, sample_collision, intruding = _sample_ped_stats(
@@ -206,7 +193,13 @@ def score(
         if intruding:
             intrusion += dt
 
-    pet, pet_with = _min_pet(samples, encounters)
+    pet: float | None = None
+    pet_with = ""
+    for agent, point in encounters:
+        gap = post_encroachment_time(samples, point, agent)
+        if gap is not None and (pet is None or gap < pet):
+            pet, pet_with = gap, agent
+
     return Criticality(
         min_ttc_s=min_ttc,
         min_ttc_with=ttc_with,

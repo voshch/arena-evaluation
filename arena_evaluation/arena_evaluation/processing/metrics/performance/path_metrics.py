@@ -29,8 +29,6 @@ MIN_STEP_M: typing.Final[float] = (
 )
 MIN_CURVATURE_POINTS: typing.Final[int] = 3
 
-SERIES_TABLE_STEM = "path"
-
 SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPathMetrics.polars_schema()
 
 _GEOMETRY_KEYS: typing.Final[tuple[str, ...]] = (
@@ -119,6 +117,14 @@ def _nan_array(length: int) -> np.ndarray:
     return np.full(length, np.nan, dtype=np.float64)
 
 
+def _mean_max(values: np.ndarray) -> tuple[float | None, float | None]:
+    """Mean and maximum of the defined samples, both None when there is no defined sample."""
+    defined = values[~np.isnan(values)]
+    if len(defined) == 0:
+        return None, None
+    return float(np.mean(defined)), float(np.max(defined))
+
+
 def _angle_difference_rad(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     """Signed shortest rotation between two headings, in radians."""
     return np.pi - np.abs(np.abs(first - second) - np.pi)
@@ -187,12 +193,11 @@ def _build_geometry(
 
     path_length_m = float(np.nansum(step_length_m)) if sample_count > 0 else None
     angle_over_length_rad_m = None
-    if sample_count >= 2 and path_length_m is not None and path_length_m > 0.0:
+    if sample_count >= 2 and path_length_m > 0.0:
         turn_rad = _angle_difference_rad(yaw_rad[:-1], yaw_rad[1:])
         angle_over_length_rad_m = float(np.abs(np.sum(turn_rad)) / path_length_m)
-
-    valid_curvature = curvature_inv_m[~np.isnan(curvature_inv_m)]
-    valid_roughness = roughness[~np.isnan(roughness)]
+    curvature_mean_inv_m, curvature_max_inv_m = _mean_max(curvature_inv_m)
+    roughness_mean, roughness_max = _mean_max(roughness)
     return _PathGeometry(
         t_ns=t_ns,
         pos_x_m=pos_x_m,
@@ -206,18 +211,10 @@ def _build_geometry(
         normalized_curvature=normalized_curvature,
         roughness=roughness,
         path_length_m=path_length_m,
-        curvature_mean_inv_m=float(np.mean(valid_curvature))
-        if len(valid_curvature) > 0
-        else None,
-        curvature_max_inv_m=float(np.max(valid_curvature))
-        if len(valid_curvature) > 0
-        else None,
-        roughness_mean=float(np.mean(valid_roughness))
-        if len(valid_roughness) > 0
-        else None,
-        roughness_max=float(np.max(valid_roughness))
-        if len(valid_roughness) > 0
-        else None,
+        curvature_mean_inv_m=curvature_mean_inv_m,
+        curvature_max_inv_m=curvature_max_inv_m,
+        roughness_mean=roughness_mean,
+        roughness_max=roughness_max,
         angle_over_length_rad_m=angle_over_length_rad_m,
     )
 

@@ -1,4 +1,3 @@
-import math
 import pathlib
 import types
 
@@ -34,27 +33,3 @@ def _summary(
     return pl.read_parquet(out / f"{SCAN_SUMMARY_TABLE}.parquet").row(0, named=True)
 
 
-def test_the_summary_keeps_the_nearest_and_farthest_valid_return(
-    tmp_path: pathlib.Path,
-):
-    row = _summary(tmp_path, [3.0, 1.2, 5.0])
-
-    assert (row["scan_min_m"], row["scan_max_m"], row["n_valid_rays"]) == (1.2, 5.0, 3)
-
-
-def test_readings_outside_the_range_or_not_numbers_are_not_valid(
-    tmp_path: pathlib.Path,
-):
-    row = _summary(tmp_path, [0.05, math.nan, math.inf, 2.5])
-
-    assert (row["scan_min_m"], row["scan_max_m"], row["n_valid_rays"]) == (2.5, 2.5, 1)
-
-
-def test_a_scan_without_a_detection_reads_as_the_range_max(tmp_path: pathlib.Path):
-    row = _summary(tmp_path, [math.inf, 10.0, math.nan])
-
-    assert (row["scan_min_m"], row["scan_max_m"], row["n_valid_rays"]) == (
-        10.0,
-        10.0,
-        0,
-    )

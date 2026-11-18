@@ -1,9 +1,4 @@
-"""Content-Addressed Evidence Store and AnalysisResult (Layer 3).
-
-Records analytical SQL and computation results under ``analysis/evidence/`` with
-deterministic ``ev-<sha256[:12]>`` identifiers, snapshot identity, and a single flat
-Parquet index at ``analysis/evidence_index.parquet`` (no JSON sidecars).
-"""
+"""Content-addressed evidence store with ``ev-<sha256[:12]>`` ids and a flat Parquet index."""
 
 from __future__ import annotations
 
@@ -18,91 +13,56 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.atomic import file_lock, staged_temp_path
-from arena_evaluation.storage.registry import registered_tables
 from arena_evaluation.storage.config_layout import run_evidence_dir
+from arena_evaluation.storage.registry import registered_tables
 from arena_evaluation.storage.registry.analysis import EvidenceIndex
 
-__all__ = [
-    "EVIDENCE_INDEX_SCHEMA",
-    "VALID_EVIDENCE_KINDS",
-    "AnalysisResult",
-    "EvidenceRecord",
-    "EvidenceStore",
-    "compute_frame_hash",
-    "compute_schema_signature",
-    "compute_snapshot_id",
-]
+__all__ = ["EVIDENCE_INDEX_SCHEMA", "VALID_EVIDENCE_KINDS", "AnalysisResult", "EvidenceRecord", "EvidenceStore", "compute_frame_hash", "compute_schema_signature", "compute_snapshot_id"]
 
 VALID_EVIDENCE_KINDS: Final[frozenset[str]] = frozenset({"sql", "computation"})
-
 EVIDENCE_INDEX_SCHEMA: Final[pl.Schema] = EvidenceIndex.polars_schema()
-
-#: Directories under a benchmark that hold analysis outputs, not recorded inputs.
-_SNAPSHOT_EXCLUDED_DIRS: Final[frozenset[str]] = frozenset(
-    {"analysis", "reports", "plots", "hhi"}
-)
-
-
-def compute_schema_signature(frame: pl.DataFrame | pl.LazyFrame) -> str:
-    """Compute a canonical string signature ``col1:Type1,col2:Type2,...`` for a frame schema."""
-    schema = frame.collect_schema() if isinstance(frame, pl.LazyFrame) else frame.schema
-    return ",".join(f"{name}:{dtype}" for name, dtype in schema.items())
-
-
-def compute_frame_hash(frame: pl.DataFrame) -> str:
-    """Compute a row-order-insensitive, Polars-version-independent SHA-256 hex digest of a DataFrame."""
-    hasher = hashlib.sha256()
-    hasher.update(compute_schema_signature(frame).encode())
-    hasher.update(f"|rows:{frame.height}|".encode())
-    if frame.height > 0 and frame.width > 0:
-        sorted_frame = frame.sort(frame.columns, nulls_last=True)
-        hasher.update(sorted_frame.write_csv().encode("utf-8"))
-    return hasher.hexdigest()
+_SNAPSHOT_EXCLUDED_DIRS: Final[frozenset[str]] = frozenset({"analysis", "reports", "plots", "hhi"})
 
 
 def _canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _registry_signature() -> str:
-    parts = [
-        f"{tbl.table_name}:{','.join(f'{c}:{d}' for c, d in tbl.polars_schema().items())}"
-        for tbl in sorted(registered_tables(), key=lambda t: t.table_name)
-    ]
-    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+def _digest(*chunks: str) -> str:
+    return hashlib.sha256("".join(chunks).encode()).hexdigest()
 
 
-def _file_fingerprint(path: pathlib.Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(65536):
-            hasher.update(chunk)
-    return hasher.hexdigest()[:16]
+def compute_schema_signature(frame: pl.DataFrame | pl.LazyFrame) -> str:
+    """Compute a canonical ``col1:Type1,col2:Type2,...`` frame-schema signature."""
+    schema = frame.collect_schema() if isinstance(frame, pl.LazyFrame) else frame.schema
+    return ",".join(f"{name}:{dtype}" for name, dtype in schema.items())
+
+
+def compute_frame_hash(frame: pl.DataFrame) -> str:
+    """Compute a row-order-insensitive, Polars-version-independent SHA-256 digest of a DataFrame."""
+    csv = frame.sort(frame.columns, nulls_last=True).write_csv() if frame.height and frame.width else ""
+    return _digest(compute_schema_signature(frame), f"|rows:{frame.height}|", csv)
 
 
 def compute_snapshot_id(benchmark_dir: pathlib.Path) -> str:
-    """Compute a deterministic ``snap-<sha256[:12]>`` dataset and registry snapshot identifier.
-
-    Every recorded Parquet input participates: dimensions and series at the root, and each episode's
-    facts, series and telemetry, so a changed telemetry or series input changes the id. The analysis
-    outputs the store writes (evidence, derived tables, reports, plots) are the products of the inputs,
-    so they are excluded. The detector identity recorded in ``fact_encounters`` is covered by those
-    fingerprints; the evaluator version is not recorded in the data (see the report's coordination note).
-    """
+    """Compute a deterministic ``snap-<sha256[:12]>`` dataset and registry snapshot identifier."""
     file_fps: dict[str, str] = {}
     if benchmark_dir.is_dir():
         for path in sorted(benchmark_dir.rglob("*.parquet")):
             relative = path.relative_to(benchmark_dir)
             if relative.parts and relative.parts[0] in _SNAPSHOT_EXCLUDED_DIRS:
                 continue
-            file_fps[relative.as_posix()] = _file_fingerprint(path)
-
-    payload = {
-        "registry_signature": _registry_signature(),
-        "files": dict(sorted(file_fps.items())),
-    }
-    digest = hashlib.sha256(_canonical_json(payload).encode()).hexdigest()
-    return f"snap-{digest[:12]}"
+            hasher = hashlib.sha256()
+            with path.open("rb") as handle:
+                while chunk := handle.read(65536):
+                    hasher.update(chunk)
+            file_fps[relative.as_posix()] = hasher.hexdigest()[:16]
+    registry = _digest("|".join(
+        f"{table.table_name}:{','.join(f'{column}:{dtype}' for column, dtype in table.polars_schema().items())}"
+        for table in sorted(registered_tables(), key=lambda table: table.table_name)
+    ))[:16]
+    payload = {"registry_signature": registry, "files": dict(sorted(file_fps.items()))}
+    return f"snap-{_digest(_canonical_json(payload))[:12]}"
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -136,43 +96,26 @@ class EvidenceRecord:
 
     def to_dict(self) -> dict[str, object]:
         """Serialize record metadata to a JSON-compatible dictionary."""
-        return {
-            "evidence_id": self.evidence_id,
-            "kind": self.kind,
-            "operation": self.operation,
-            "purpose": self.purpose,
-            "sql_text": self.sql_text,
-            "snapshot_id": self.snapshot_id,
-            "params": dict(self.params),
+        return dataclasses.asdict(self) | {
             "params_json": _canonical_json(self.params),
-            "row_count": self.row_count,
-            "schema_signature": self.schema_signature,
-            "created_at_ns": self.created_at_ns,
             "artifact_path": self.artifact_path.as_posix(),
         }
 
     @classmethod
     def from_index_row(cls, row: Mapping[str, object]) -> EvidenceRecord:
         """Construct an ``EvidenceRecord`` from a row of ``evidence_index.parquet``."""
-        raw_params = row.get("params_json") or "{}"
-        parsed_params = (
-            json.loads(str(raw_params)) if isinstance(raw_params, str) else {}
-        )
-        raw_artifact = row.get("artifact_path")
-        if not raw_artifact:
+        artifact = row.get("artifact_path")
+        if not artifact:
             raise ValueError("Evidence index row is missing artifact_path.")
+        raw = row.get("params_json") or "{}"
+        parsed = json.loads(raw) if isinstance(raw, str) else {}
         return cls(
-            evidence_id=str(row["evidence_id"]),
-            kind=str(row["kind"]),
-            operation=str(row["operation"]),
-            purpose=str(row.get("purpose") or ""),
-            sql_text=str(row.get("sql_text") or ""),
-            snapshot_id=str(row["snapshot_id"]),
-            params=parsed_params if isinstance(parsed_params, dict) else {},
-            row_count=int(str(row["row_count"])),
-            schema_signature=str(row["schema_signature"]),
-            created_at_ns=int(str(row["created_at_ns"])),
-            artifact_path=pathlib.Path(str(raw_artifact)),
+            evidence_id=str(row["evidence_id"]), kind=str(row["kind"]),
+            operation=str(row["operation"]), purpose=str(row.get("purpose") or ""),
+            sql_text=str(row.get("sql_text") or ""), snapshot_id=str(row["snapshot_id"]),
+            params=parsed if isinstance(parsed, dict) else {},
+            row_count=int(str(row["row_count"])), schema_signature=str(row["schema_signature"]),
+            created_at_ns=int(str(row["created_at_ns"])), artifact_path=pathlib.Path(str(artifact)),
         )
 
 
@@ -212,113 +155,66 @@ class EvidenceStore:
             raise ValueError("snapshot_id must be a non-empty string.")
 
         df = frame.collect() if isinstance(frame, pl.LazyFrame) else frame
-        nested = [
-            name
-            for name, dtype in df.schema.items()
-            if isinstance(dtype, (pl.List, pl.Struct, pl.Array))
-        ]
+        nested = [name for name, dtype in df.schema.items() if isinstance(dtype, (pl.List, pl.Struct, pl.Array))]
         if nested:
             raise ValueError(
                 f"EvidenceStore only accepts flat frames; nested column(s) {nested} are not supported."
             )
         normalized_params = dict(params or {})
-        schema_sig = compute_schema_signature(df)
-        data_hash = compute_frame_hash(df)
+        schema_signature = compute_schema_signature(df)
+        fingerprint = _canonical_json({
+            "kind": kind, "operation": operation.strip(), "params": normalized_params,
+            "snapshot_id": snapshot_id, "sql_text": sql_text.strip(),
+            "schema_signature": schema_signature, "data_hash": compute_frame_hash(df),
+        })
+        evidence_id = f"ev-{_digest(fingerprint)[:12]}"
 
-        fingerprint_payload: dict[str, object] = {
-            "kind": kind,
-            "operation": operation.strip(),
-            "params": normalized_params,
-            "snapshot_id": snapshot_id,
-            "sql_text": sql_text.strip(),
-            "schema_signature": schema_sig,
-            "data_hash": data_hash,
-        }
-        digest = hashlib.sha256(
-            _canonical_json(fingerprint_payload).encode()
-        ).hexdigest()
-        evidence_id = f"ev-{digest[:12]}"
-
+        artifact = self.evidence_dir / f"{evidence_id}.parquet"
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
-        abs_artifact = self.evidence_dir / f"{evidence_id}.parquet"
-        with staged_temp_path(abs_artifact) as temporary:
+        with staged_temp_path(artifact) as temporary:
             df.write_parquet(temporary)
-        rel_artifact = abs_artifact.relative_to(self.benchmark_dir)
 
-        stamp_ns = int(created_at_ns) if created_at_ns is not None else time.time_ns()
-        rec = EvidenceRecord(
-            evidence_id=evidence_id,
-            kind=kind,
-            operation=operation.strip(),
-            purpose=purpose.strip(),
-            sql_text=sql_text.strip(),
-            snapshot_id=snapshot_id,
-            params=normalized_params,
-            row_count=df.height,
-            schema_signature=schema_sig,
-            created_at_ns=stamp_ns,
-            artifact_path=rel_artifact,
+        record = EvidenceRecord(
+            evidence_id=evidence_id, kind=kind, operation=operation.strip(),
+            purpose=purpose.strip(), sql_text=sql_text.strip(), snapshot_id=snapshot_id,
+            params=normalized_params, row_count=df.height, schema_signature=schema_signature,
+            created_at_ns=int(created_at_ns) if created_at_ns is not None else time.time_ns(),
+            artifact_path=artifact.relative_to(self.benchmark_dir),
         )
-
-        self._upsert_index(rec)
-        return rec
-
-    def _row_dict(self, record: EvidenceRecord) -> dict[str, object]:
-        return {
-            "evidence_id": record.evidence_id,
-            "kind": record.kind,
-            "operation": record.operation,
-            "purpose": record.purpose,
-            "sql_text": record.sql_text,
-            "snapshot_id": record.snapshot_id,
-            "params_json": _canonical_json(record.params),
-            "row_count": record.row_count,
-            "schema_signature": record.schema_signature,
-            "created_at_ns": record.created_at_ns,
-            "artifact_path": record.artifact_path.as_posix(),
-        }
-
-    def _upsert_index(self, record: EvidenceRecord) -> None:
-        """Upsert a single record into the authoritative ``analysis/evidence_index.parquet``."""
-        index_path = self.index_path
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        row = pl.DataFrame([self._row_dict(record)], schema=EVIDENCE_INDEX_SCHEMA)
-        with file_lock(index_path):
-            if index_path.is_file():
-                existing = pl.read_parquet(index_path)
-                filtered = existing.filter(pl.col("evidence_id") != record.evidence_id)
-                updated = pl.concat([filtered, row], how="vertical_relaxed")
-            else:
-                updated = row
-
-            with staged_temp_path(index_path) as temporary:
-                updated.write_parquet(temporary)
+        record_dict = record.to_dict()
+        row = pl.DataFrame(
+            [{name: record_dict[name] for name in EVIDENCE_INDEX_SCHEMA.names()}],
+            schema=EVIDENCE_INDEX_SCHEMA,
+        )
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        with file_lock(self.index_path):
+            if self.index_path.is_file():
+                existing = pl.read_parquet(self.index_path)
+                row = pl.concat(
+                    [existing.filter(pl.col("evidence_id") != evidence_id), row],
+                    how="vertical_relaxed",
+                )
+            with staged_temp_path(self.index_path) as temporary:
+                row.write_parquet(temporary)
+        return record
 
     def load_index(self) -> pl.DataFrame:
         """Load the evidence index as a DataFrame, or an empty index frame if none exists."""
-        if self.index_path.is_file():
-            return pl.read_parquet(self.index_path)
-        return pl.DataFrame(schema=EVIDENCE_INDEX_SCHEMA)
+        return pl.read_parquet(self.index_path) if self.index_path.is_file() else pl.DataFrame(schema=EVIDENCE_INDEX_SCHEMA)
 
     def get(self, evidence_id: str) -> EvidenceRecord:
         """Retrieve an ``EvidenceRecord`` by ID from ``evidence_index.parquet``."""
-        matched = self.load_index().filter(pl.col("evidence_id") == evidence_id)
-        if matched.is_empty():
+        if (matched := self.load_index().filter(pl.col("evidence_id") == evidence_id)).is_empty():
             raise KeyError(f"Evidence record '{evidence_id}' not found.")
         return EvidenceRecord.from_index_row(matched.row(0, named=True))
 
     def read_frame(self, evidence_id: str) -> pl.DataFrame:
         """Read the persisted Parquet frame for ``evidence_id`` directly from disk."""
-        rec = self.get(evidence_id)
-        abs_path = self.benchmark_dir / rec.artifact_path
-        if abs_path.is_file():
-            return pl.read_parquet(abs_path)
-        raise KeyError(f"Evidence frame '{evidence_id}' not found at {abs_path}.")
+        absolute = self.benchmark_dir / self.get(evidence_id).artifact_path
+        if not absolute.is_file():
+            raise KeyError(f"Evidence frame '{evidence_id}' not found at {absolute}.")
+        return pl.read_parquet(absolute)
 
     def list_records(self) -> tuple[EvidenceRecord, ...]:
         """Return all registered ``EvidenceRecord`` entries from the index sorted by ID."""
-        df = self.load_index()
-        if df.is_empty():
-            return ()
-        rows = df.sort("evidence_id").to_dicts()
-        return tuple(EvidenceRecord.from_index_row(row) for row in rows)
+        return tuple(EvidenceRecord.from_index_row(row) for row in self.load_index().sort("evidence_id").to_dicts())

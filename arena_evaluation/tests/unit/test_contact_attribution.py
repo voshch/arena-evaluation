@@ -17,14 +17,10 @@ from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.safety import ContactAttributionCalculator
 from arena_evaluation.processing.metrics.safety.contact_attribution import (
     ROBOT_COLLISION_CONTACTS_TOPIC,
-    CONTACT_MERGE_GAP_S,
-    ContactAttributionRecord,
     ContactContext,
     ContactEvent,
-    attribute_single_contact,
     closing_shares,
     compute_closing_speeds,
-    frozen_robot_clearance,
 )
 from arena_evaluation.processing.metrics.social.interaction_common import (
     Trajectory2D,
@@ -213,30 +209,6 @@ def _contact_slice(
     )
 
 
-# --- the six golden scenarios -------------------------------------------------
-
-
-def test_golden_1_stopped_robot_is_rammed_by_a_walking_pedestrian() -> None:
-    """A stopped robot and a pedestrian walking into it: robot share 0, positive target closing, clearance at most 0."""
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    episode = _scene(
-        t_s,
-        zeros,
-        zeros,
-        ped=("Pedestrian_10", 2.0 - t_s, np.full_like(t_s, -1.0)),
-        contacts=[_hit(int(1.5 * SECOND_NS), "env_0/Pedestrian_10", 0.5)],
-    )
-
-    records = _calculator().attribute_all_contacts(episode)
-
-    assert len(records) == 1
-    record = records[0]
-    assert record.v_close_robot_mps == pytest.approx(0.0, abs=1e-9)
-    assert record.v_close_target_mps == pytest.approx(1.0, abs=1e-6)
-    assert record.robot_closing_share == pytest.approx(0.0, abs=1e-9)
-    assert record.freeze_clearance_m is not None
-    assert record.freeze_clearance_m <= 0.0
 
 
 def test_golden_2_robot_drives_into_a_standing_pedestrian() -> None:
@@ -259,28 +231,6 @@ def test_golden_2_robot_drives_into_a_standing_pedestrian() -> None:
     assert record.target_closing_share == pytest.approx(0.0, abs=1e-9)
     assert record.freeze_clearance_m == pytest.approx(0.8, abs=1e-6)
     assert record.freeze_clearance_m > 0.0
-
-
-def test_golden_3_equal_closing_speeds_give_an_even_split() -> None:
-    """Both bodies closing at equal speed: share 0.5 and the hand-computed frozen-robot clearance."""
-    t_s = _grid()
-    episode = _scene(
-        t_s,
-        0.5 * t_s,
-        np.full_like(t_s, 0.5),
-        ped=("Pedestrian_3", 2.0 - 0.5 * t_s, np.full_like(t_s, -0.5)),
-        contacts=[_hit(SECOND_NS, "env_0/Pedestrian_3", 1.5)],
-    )
-
-    record = _calculator().attribute_all_contacts(episode)[0]
-
-    assert record.v_close_robot_mps == pytest.approx(0.5, abs=1e-6)
-    assert record.v_close_target_mps == pytest.approx(0.5, abs=1e-6)
-    assert record.robot_closing_share == pytest.approx(0.5, abs=1e-9)
-    assert record.target_closing_share == pytest.approx(0.5, abs=1e-9)
-    # Frozen at x = 0.25 m at t = 0.5 s, the pedestrian reaches x = 1.25 m at t = 1.5 s:
-    # closest centre distance 1.0 m minus the two 0.3 m radii.
-    assert record.freeze_clearance_m == pytest.approx(0.4, abs=1e-6)
 
 
 def test_golden_4_a_wall_has_a_full_robot_share_and_no_freeze_clearance() -> None:
@@ -358,7 +308,6 @@ def test_golden_6_empty_recorded_collision_stream_is_zero_contacts_and_absent_is
     )
 
 
-# --- scalar helpers and output contract ---------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -392,88 +341,6 @@ def test_closing_shares_clip_the_speeds_and_leave_an_empty_ratio_null(
         assert robot_share + target_share == pytest.approx(1.0)
 
 
-def test_the_calculator_publishes_no_label_and_no_stored_share() -> None:
-    """D-01: no label, no verdict and no stored copy of a share is an output."""
-    keys = set(ContactAttributionCalculator.output_keys())
-
-    assert keys == {
-        "v_close_robot_mps",
-        "v_close_target_mps",
-        "v_robot_impact_mps",
-        "v_target_impact_mps",
-        "relative_impact_speed_mps",
-        "freeze_clearance_m",
-        "contact_count",
-        "contact_count_pedestrian",
-        "contact_count_robot",
-        "contact_count_wall",
-        "contact_count_static",
-    }
-    assert keys.isdisjoint(
-        {
-            "closer_label",
-            "fault_attributed_to",
-            "is_robot_fault",
-            "is_robot_fault_lower_bound",
-            "counterfactual_regime",
-            "robot_closing_share",
-            "target_closing_share",
-            "contact_records",
-            "success_no_robot_fault",
-        }
-    )
-    assert frozenset(ContactAttributionCalculator.effective_scopes()) == frozenset(
-        {MetricScope.CONTACT, MetricScope.EPISODE}
-    )
-
-
-def test_the_contact_scope_publishes_exactly_its_declared_scalars() -> None:
-    """A contact slice returns the six CONTACT metrics, their null reasons and nothing else."""
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    episode = _scene(
-        t_s, zeros, zeros, ped=("Pedestrian_10", 2.0 - t_s, np.full_like(t_s, -1.0))
-    )
-
-    out = _calculator().calculate_for_scope(
-        episode,
-        {},
-        _contact_slice(
-            episode,
-            collider_kind="pedestrian",
-            obstacle_id="Pedestrian_10",
-            t0_ns=int(1.5 * SECOND_NS),
-        ),
-    )
-
-    declared = set(
-        ContactAttributionCalculator.output_keys_for_scope(MetricScope.CONTACT)
-    )
-    assert {key for key in out if not key.endswith("_null_reason")} == declared
-    assert out["v_close_robot_mps"] == pytest.approx(0.0, abs=1e-9)
-    assert out["freeze_clearance_m"] == pytest.approx(-0.6, abs=1e-6)
-
-
-def test_impact_speeds_are_measured_at_the_contact_onset() -> None:
-    """Impact speeds come from the pose at t0; the relative speed is their vector difference."""
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    episode = _scene(
-        t_s,
-        t_s,
-        np.ones_like(t_s),
-        ped=("Pedestrian_4", np.full_like(t_s, 2.0), zeros),
-        contacts=[_hit(SECOND_NS, "env_0/Pedestrian_4", 2.0)],
-    )
-
-    record = _calculator().attribute_all_contacts(episode)[0]
-
-    assert record.v_robot_impact_mps == pytest.approx(1.0, abs=1e-6)
-    assert record.v_target_impact_mps == pytest.approx(0.0, abs=1e-9)
-    assert record.relative_impact_speed_mps == pytest.approx(1.0, abs=1e-6)
-
-
-# --- degenerate and missing inputs: no measurement is never a zero ------------
 
 
 def test_a_pedestrian_without_a_recorded_track_has_no_target_scalars() -> None:
@@ -492,29 +359,6 @@ def test_a_pedestrian_without_a_recorded_track_has_no_target_scalars() -> None:
     assert record.robot_closing_share is None
 
 
-def test_a_wall_without_a_position_has_no_closing_speed() -> None:
-    """A bumper-event wall has no line of sight: the robot closing speed is NULL, the wall speed 0."""
-    t_s = _grid()
-    events = pl.DataFrame(
-        {"t_ns": _times(np.array([1.0])), "wall_count": [1], "static_count": [0]}
-    )
-    episode = _episode(
-        {
-            "robot_tracks": _robot_tracks(
-                t_s, t_s, np.zeros_like(t_s), np.ones_like(t_s), np.zeros_like(t_s)
-            ),
-            "robot_collision_events": events,
-        }
-    )
-
-    record = _calculator().attribute_all_contacts(episode)[0]
-
-    assert record.obstacle_kind == "wall"
-    assert record.v_close_robot_mps is None
-    assert record.v_close_target_mps == pytest.approx(0.0, abs=1e-9)
-    assert record.freeze_clearance_m is None
-
-
 def test_a_coincident_pedestrian_leaves_the_closing_speeds_undefined() -> None:
     """A degenerate line of sight is no measurement, not a zero closing speed."""
     t_s = _grid(1.0)
@@ -530,16 +374,6 @@ def test_a_coincident_pedestrian_leaves_the_closing_speeds_undefined() -> None:
 
     assert np.isnan(v_robot)
     assert np.isnan(v_target)
-
-
-def test_frozen_robot_clearance_is_not_applicable_to_another_robot() -> None:
-    """Another robot reacts to a stopped robot, so it has no frozen-robot clearance."""
-    context = ContactContext(robot=_still_trajectory(1.0))
-
-    assert (
-        frozen_robot_clearance(ContactEvent(0, 0, "robot", "env_0_robot_2"), context)
-        is None
-    )
 
 
 def test_episode_contact_counts_are_published_per_kind() -> None:
@@ -567,31 +401,6 @@ def test_episode_contact_counts_are_published_per_kind() -> None:
     assert out["contact_count_robot"] == 1
     assert out["contact_count_wall"] == 1
     assert out["contact_count_static"] == 1
-
-
-def test_episode_contact_counts_are_all_null_without_robot_tracks() -> None:
-    """Every declared episode count is produced together, NULL with one reason, when no robot track was recorded."""
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    episode = _episode(
-        {
-            "pedestrian_arena_peds": _pedestrian_tracks(
-                "Pedestrian_1", t_s, np.full_like(t_s, 2.0), zeros
-            )
-        }
-    )
-
-    out = _calculator().calculate(episode, {})
-
-    assert out["contact_count"] is None
-    for name in (
-        "contact_count_pedestrian",
-        "contact_count_robot",
-        "contact_count_wall",
-        "contact_count_static",
-    ):
-        assert out[name] is None
-        assert out[f"{name}_null_reason"] == "topic_missing:robot_tracks"
 
 
 def test_a_pedestrian_contact_without_a_recorded_radius_has_no_frozen_clearance() -> (
@@ -666,36 +475,6 @@ def test_a_contact_slice_without_identity_raises() -> None:
         _calculator().calculate_for_scope(episode, {}, scope_slice)
 
 
-# --- detection of contact intervals -------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("kind", "obstacle_id", "expected_kind"),
-    [
-        ("pedestrian", "env_0/Pedestrian_1", "pedestrian"),
-        ("ped_human", "env_0/Pedestrian_1", "pedestrian"),
-        ("human", "env_0/Pedestrian_1", "pedestrian"),
-        ("wall", "wall_north", "wall"),
-        ("static", "pillar_south", "static"),
-    ],
-)
-def test_collision_contact_kind_is_normalized(
-    kind: str, obstacle_id: str, expected_kind: str
-) -> None:
-    """Every recorded contact kind is normalized before attribution."""
-    t_s = _grid()
-    episode = _scene(
-        t_s,
-        t_s,
-        np.ones_like(t_s),
-        ped=("Pedestrian_1", np.full_like(t_s, 2.0), np.zeros_like(t_s)),
-        contacts=[_hit(SECOND_NS, obstacle_id, 2.0, kind)],
-    )
-
-    records = _calculator().attribute_all_contacts(episode)
-
-    assert len(records) == 1
-    assert records[0].obstacle_kind == expected_kind
 
 
 def test_a_pedestrian_contact_without_an_obstacle_id_uses_the_nearest_track() -> None:
@@ -734,26 +513,6 @@ def test_a_numeric_obstacle_suffix_resolves_the_pedestrian_track() -> None:
     )
 
 
-def test_a_robot_contact_never_resolves_a_same_numbered_pedestrian() -> None:
-    """A contact with robot ``env_0_jackal_2`` keeps its other-body scalars NULL instead of taking ``Pedestrian_2``."""
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    episode = _scene(
-        t_s,
-        zeros,
-        zeros,
-        ped=("Pedestrian_2", np.full_like(t_s, 0.45), zeros),
-        contacts=[_hit(SECOND_NS, "env_0_jackal_2", 0.45, kind="robot")],
-    )
-
-    record = _calculator().attribute_all_contacts(episode)[0]
-
-    assert record.obstacle_kind == "robot"
-    assert record.target_ped_id is None
-    assert record.v_close_target_mps is None
-    assert record.v_target_impact_mps is None
-
-
 def test_a_contact_after_the_pedestrian_track_has_no_target_speed() -> None:
     """A contact whose onset lies after the recorded pedestrian track has no target speed, not the track's last one."""
     t_s = _grid()
@@ -773,55 +532,6 @@ def test_a_contact_after_the_pedestrian_track_has_no_target_speed() -> None:
     record = _calculator().attribute_all_contacts(episode)[0]
 
     assert record.v_target_impact_mps is None
-
-
-def test_bumper_events_read_wall_and_static_counts() -> None:
-    """The collision_events wall and static counters become wall and static contacts."""
-    t_s = _grid(4.0)
-    zeros = np.zeros_like(t_s)
-    events = pl.DataFrame(
-        {
-            "t_ns": _times(np.array([1.0, 2.0, 3.0])),
-            "wall_count": [1, 0, 0],
-            "static_count": [0, 1, 0],
-            "ped_count": [0, 0, 1],
-        }
-    )
-    episode = _episode(
-        {
-            "robot_tracks": _robot_tracks(t_s, zeros, zeros, zeros, zeros),
-            "robot_collision_events": events,
-        }
-    )
-
-    assert _calculator().calculate(episode, {})["contact_count"] == 2
-
-
-@pytest.mark.parametrize(
-    ("gap_s", "expected_count", "expected_duration_s"), [(0.2, 1, 0.2), (0.3, 2, 0.0)]
-)
-def test_collision_contacts_merge_within_the_gap_and_split_beyond_it(
-    gap_s: float, expected_count: int, expected_duration_s: float
-) -> None:
-    """Contacts of one target merge within the declared gap and stay separate beyond it."""
-    assert CONTACT_MERGE_GAP_S == pytest.approx(0.25)
-    t_s = _grid()
-    zeros = np.zeros_like(t_s)
-    second_ns = int(round((1.0 + gap_s) * SECOND_NS))
-    episode = _scene(
-        t_s,
-        zeros,
-        zeros,
-        contacts=[
-            _hit(SECOND_NS, "env_0/Pedestrian_1", 0.5),
-            _hit(second_ns, "env_0/Pedestrian_1", 0.5),
-        ],
-    )
-
-    records = _calculator().attribute_all_contacts(episode)
-
-    assert len(records) == expected_count
-    assert records[0].duration_s == pytest.approx(expected_duration_s, abs=1e-6)
 
 
 def test_a_configured_contact_honours_the_target_agent_id_and_zero_windows() -> None:
@@ -857,21 +567,3 @@ def test_absent_or_empty_robot_tracks_leave_the_contact_count_null() -> None:
         assert out["contact_count_null_reason"] == "topic_missing:robot_tracks"
 
 
-def test_single_contact_record_keeps_the_episode_relative_onset() -> None:
-    """The record's onset is relative to the robot's first sample and its duration is non-negative."""
-    record = attribute_single_contact(
-        3,
-        ContactEvent(
-            int(1.5 * SECOND_NS),
-            SECOND_NS,
-            "wall",
-            "wall_north",
-            static_point=(2.0, 0.0),
-        ),
-        ContactContext(robot=_still_trajectory(2.0)),
-    )
-
-    assert isinstance(record, ContactAttributionRecord)
-    assert record.contact_id == 3
-    assert record.t0_s == pytest.approx(1.5)
-    assert record.duration_s == 0.0

@@ -655,21 +655,6 @@ def test_semantic_timeline_for_another_door_keeps_door_closed(tmp_path, calc):
     assert table["attenuation_db"][0] == pytest.approx(_att(3.0) + 25.0, abs=0.5)
 
 
-def test_acoustic_exposure_registers_the_pedestrian_and_encounter_scopes():
-    assert AcousticExposureCalculator.effective_scopes() == frozenset(
-        {MetricScope.PEDESTRIAN, MetricScope.ENCOUNTER}
-    )
-    assert AcousticExposureCalculator.output_keys_for_scope(MetricScope.PEDESTRIAN) == (
-        "ped_max_exposure_dba",
-        "ped_leq_exposure_dba",
-        "ped_max_startle_factor",
-        "worst_case_acoustic_t_ns",
-    )
-    assert AcousticExposureCalculator.output_keys_for_scope(MetricScope.ENCOUNTER) == (
-        "sound_exposure_dose_pa2s",
-    )
-
-
 def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_run_dir):
     map_name = derived_map()
     frames = _frames(

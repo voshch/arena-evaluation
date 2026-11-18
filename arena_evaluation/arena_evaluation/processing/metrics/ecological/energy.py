@@ -1,11 +1,7 @@
 """Electrical energy, power and efficiency of the robot over an episode, a robot run or an encounter window.
 
-Each scope slice is reduced to one series of power, battery and speed samples, and every output is read
-from that series, so each quantity is integrated once. The outputs are the static, mechanical, thermal and
-total energy integrals, the battery change, the cost of transport and energy per meter, the peak-to-mean
-power ratio, the standstill penalty, the kinetic and friction terms, the mean and peak power, and the
-encounter surge ratio. Energies are integrated in watt-hours; JOULES_PER_WH is the only Wh-to-joule
-conversion, used by the cost of transport.
+Each scope slice is reduced to one series of power, battery and speed samples and every output is read from
+that series. Energies are integrated in watt-hours; JOULES_PER_WH is the only Wh-to-joule conversion.
 """
 
 from __future__ import annotations
@@ -46,142 +42,45 @@ MAX_FILL_GAP_S: Final[float] = 1.0
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesEnergy.polars_schema()
 
-ENERGY_STATIC_WH = define_metric(
-    "energy_static_wh",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="Wh",
-    description="Static (idle) electrical energy drawn over the scope.",
-    null_reason=True,
-)
-ENERGY_MECHANICAL_WH = define_metric(
-    "energy_mechanical_wh",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="Wh",
-    description="Mechanical energy delivered to the drivetrain over the scope: the episode at robot scope, the window at encounter scope.",
-    null_reason=True,
-)
-ENERGY_THERMAL_WH = define_metric(
-    "energy_thermal_wh",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="Wh",
-    description="Thermal energy dissipated in the drivetrain over the scope: the episode at robot scope, the window at encounter scope.",
-    null_reason=True,
-)
-ENERGY_TOTAL_WH = define_metric(
-    "energy_total_wh",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="Wh",
-    description="Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power (D-15), not the device energy counter, which is kept only as a cross-check in a test.",
-    null_reason=True,
-)
-BATTERY_SOC_FINAL = define_metric(
-    "battery_soc_final",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="%",
-    description="Battery state of charge at the end of the scope, as recorded: not validated against 0-100 % and not normalised to 100 at the start.",
-    null_reason=True,
-)
-BATTERY_SOC_DROP_PCT = define_metric(
-    "battery_soc_drop_pct",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="%",
-    description="Battery state-of-charge drop over the scope, floored at zero.",
-    null_reason=True,
-)
-SPECIFIC_COST_OF_TRANSPORT = define_metric(
-    "specific_cost_of_transport",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="1",
-    description="Energy per unit weight and distance over the scope's own path; NULL without a declared mass.",
-    null_reason=True,
-)
-ENERGY_PER_METER = define_metric(
-    "energy_per_meter",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="Wh/m",
-    description="Energy per metre of the window's own path.",
-    null_reason=True,
-)
-PEAK_TO_MEAN_POWER_RATIO = define_metric(
-    "peak_to_mean_power_ratio",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="1",
-    description="Peak over mean total power of the scope, after a three-sample median filter.",
-    null_reason=True,
-)
-STANDSTILL_ENERGY_PENALTY_WH = define_metric(
-    "standstill_energy_penalty_wh",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="Wh",
-    description="Energy drawn while standing still, in blocks of at least half a second.",
-    null_reason=True,
-)
-KINETIC_ENERGY_DEMAND_J = define_metric(
-    "kinetic_energy_demand_j",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="J",
-    description="Sum of the absolute changes in kinetic energy over the scope; NULL without angular velocity.",
-    null_reason=True,
-)
-FRICTION_DISSIPATION_J = define_metric(
-    "friction_dissipation_j",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="J",
-    description="Energy dissipated by rolling friction over the scope; NULL without a declared rolling-resistance coefficient.",
-    null_reason=True,
-)
-MEAN_POWER_W = define_metric(
-    "mean_power_w",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT,),
-    unit="W",
-    description="Mean electrical power of the robot over the episode.",
-    null_reason=True,
-)
-POWER_PEAK_W = define_metric(
-    "power_peak_w",
-    pl.Float64,
-    scopes=(MetricScope.ROBOT, MetricScope.ENCOUNTER),
-    unit="W",
-    description="Peak total electrical power over the scope: the episode at robot scope, the window at encounter scope.",
-    null_reason=True,
-)
-ENERGY_SURGE_RATIO = define_metric(
-    "energy_surge_ratio",
-    pl.Float64,
-    scopes=(MetricScope.ENCOUNTER,),
-    unit="1",
-    description="Mean power of the encounter window over the mean power of the episode.",
-    null_reason=True,
-)
+
+def _metric(
+    name: str,
+    dtype: pl.DataType,
+    unit: str,
+    description: str,
+    *scopes: MetricScope,
+) -> typing.Any:
+    return define_metric(
+        name,
+        dtype,
+        scopes=scopes or (MetricScope.ROBOT,),
+        unit=unit,
+        description=description,
+        null_reason=True,
+    )
+
+
+ENERGY_STATIC_WH = _metric("energy_static_wh", pl.Float64, "Wh", "Static (idle) electrical energy drawn over the scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ENERGY_MECHANICAL_WH = _metric("energy_mechanical_wh", pl.Float64, "Wh", "Mechanical energy delivered to the drivetrain over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ENERGY_THERMAL_WH = _metric("energy_thermal_wh", pl.Float64, "Wh", "Thermal energy dissipated in the drivetrain over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ENERGY_TOTAL_WH = _metric("energy_total_wh", pl.Float64, "Wh", "Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power (D-15), not the device energy counter, which is kept only as a cross-check in a test.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+BATTERY_SOC_FINAL = _metric("battery_soc_final", pl.Float64, "%", "Battery state of charge at the end of the scope, as recorded: not validated against 0-100 % and not normalised to 100 at the start.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+BATTERY_SOC_DROP_PCT = _metric("battery_soc_drop_pct", pl.Float64, "%", "Battery state-of-charge drop over the scope, floored at zero.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+SPECIFIC_COST_OF_TRANSPORT = _metric("specific_cost_of_transport", pl.Float64, "1", "Energy per unit weight and distance over the scope's own path; NULL without a declared mass.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ENERGY_PER_METER = _metric("energy_per_meter", pl.Float64, "Wh/m", "Energy per metre of the window's own path.", MetricScope.ENCOUNTER)
+PEAK_TO_MEAN_POWER_RATIO = _metric("peak_to_mean_power_ratio", pl.Float64, "1", "Peak over mean total power of the scope, after a three-sample median filter.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+STANDSTILL_ENERGY_PENALTY_WH = _metric("standstill_energy_penalty_wh", pl.Float64, "Wh", "Energy drawn while standing still, in blocks of at least half a second.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+KINETIC_ENERGY_DEMAND_J = _metric("kinetic_energy_demand_j", pl.Float64, "J", "Sum of the absolute changes in kinetic energy over the scope; NULL without angular velocity.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+FRICTION_DISSIPATION_J = _metric("friction_dissipation_j", pl.Float64, "J", "Energy dissipated by rolling friction over the scope; NULL without a declared rolling-resistance coefficient.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+MEAN_POWER_W = _metric("mean_power_w", pl.Float64, "W", "Mean electrical power of the robot over the episode.")
+POWER_PEAK_W = _metric("power_peak_w", pl.Float64, "W", "Peak total electrical power over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ENERGY_SURGE_RATIO = _metric("energy_surge_ratio", pl.Float64, "1", "Mean power of the encounter window over the mean power of the episode.", MetricScope.ENCOUNTER)
 
 _METRICS: Final[tuple[typing.Any, ...]] = (
-    ENERGY_STATIC_WH,
-    ENERGY_MECHANICAL_WH,
-    ENERGY_THERMAL_WH,
-    ENERGY_TOTAL_WH,
-    BATTERY_SOC_FINAL,
-    BATTERY_SOC_DROP_PCT,
-    SPECIFIC_COST_OF_TRANSPORT,
-    ENERGY_PER_METER,
-    PEAK_TO_MEAN_POWER_RATIO,
-    STANDSTILL_ENERGY_PENALTY_WH,
-    KINETIC_ENERGY_DEMAND_J,
-    FRICTION_DISSIPATION_J,
-    MEAN_POWER_W,
-    POWER_PEAK_W,
+    ENERGY_STATIC_WH, ENERGY_MECHANICAL_WH, ENERGY_THERMAL_WH, ENERGY_TOTAL_WH,
+    BATTERY_SOC_FINAL, BATTERY_SOC_DROP_PCT, SPECIFIC_COST_OF_TRANSPORT,
+    ENERGY_PER_METER, PEAK_TO_MEAN_POWER_RATIO, STANDSTILL_ENERGY_PENALTY_WH,
+    KINETIC_ENERGY_DEMAND_J, FRICTION_DISSIPATION_J, MEAN_POWER_W, POWER_PEAK_W,
     ENERGY_SURGE_RATIO,
 )
 _NOT_LOWER_IS_BETTER: Final[frozenset[str]] = frozenset(
@@ -329,7 +228,9 @@ class EnergyCalculator(BaseMetricCalculator):
             # A direct call has no ROBOT-scope prior; read the episode through the same series path.
             full_series = _window_series(self.native_topics(full_episode))
             episode_mean_w = (
-                _mean_or_none(full_series.total_w) if full_series is not None else None
+                _reduce_or_none(full_series.total_w, np.nanmean)
+                if full_series is not None
+                else None
             )
         return self._outputs(
             series,
@@ -348,11 +249,12 @@ class EnergyCalculator(BaseMetricCalculator):
         duration_s: float | None,
         episode_mean_w: float | None,
     ) -> dict[str, typing.Any]:
-        dt_s = _step_seconds(series.time_s)
+        dt_s = np.diff(series.time_s, prepend=series.time_s[0])
+        dt_s[dt_s < 0.0] = 0.0
         energy_wh = _integral_wh(series.total_w, dt_s)
         mechanical_wh = _integral_wh(series.mechanical_w, dt_s)
         thermal_wh = _integral_wh(series.thermal_w, dt_s)
-        mean_w = _mean_or_none(series.total_w)
+        mean_w = _reduce_or_none(series.total_w, np.nanmean)
         friction_j = self._friction_dissipation_j(series.velocity_mps, dt_s)
         battery_final, battery_drop = _battery_soc(series.battery_pct)
         return {
@@ -363,7 +265,14 @@ class EnergyCalculator(BaseMetricCalculator):
             "battery_soc_final": battery_final,
             "battery_soc_drop_pct": battery_drop,
             "specific_cost_of_transport": self._cost_of_transport(energy_wh, path_m),
-            "energy_per_meter": _energy_per_meter(energy_wh, path_m),
+            "energy_per_meter": (
+                energy_wh / path_m
+                if energy_wh is not None
+                and path_m is not None
+                and path_m > MIN_PATH_LENGTH_M
+                and energy_wh > 0.0
+                else None
+            ),
             "peak_to_mean_power_ratio": _peak_to_mean_ratio(series.total_w),
             "standstill_energy_penalty_wh": _standstill_energy_wh(
                 series.velocity_mps, series.total_w, dt_s
@@ -372,9 +281,21 @@ class EnergyCalculator(BaseMetricCalculator):
                 series.velocity_mps, series.angular_velocity_radps
             ),
             "friction_dissipation_j": friction_j,
-            "mean_power_w": _mean_power_w(energy_wh, duration_s, mean_w),
-            "power_peak_w": _max_or_none(series.total_w),
-            "energy_surge_ratio": _ratio(mean_w, episode_mean_w),
+            "mean_power_w": (
+                energy_wh * JOULES_PER_WH / float(duration_s)
+                if energy_wh is not None
+                and duration_s is not None
+                and float(duration_s) > 0.0
+                else mean_w
+            ),
+            "power_peak_w": _reduce_or_none(series.total_w, np.nanmax),
+            "energy_surge_ratio": (
+                mean_w / episode_mean_w
+                if mean_w is not None
+                and episode_mean_w is not None
+                and episode_mean_w > 0.0
+                else None
+            ),
         }
 
     def _cost_of_transport(
@@ -385,7 +306,7 @@ class EnergyCalculator(BaseMetricCalculator):
             energy_wh is None
             or path_m is None
             or mass_kg <= 0.0
-            or not _travels(path_m)
+            or path_m <= MIN_PATH_LENGTH_M
             or energy_wh <= 0.0
         ):
             return None
@@ -436,16 +357,14 @@ def _load_rolling_resistance(model: str) -> float | None:
         data = yaml.safe_load(power_path.read_text())
     except (OSError, ImportError, KeyError, yaml.YAMLError):
         return None
-    if not isinstance(data, dict):
-        return None
-    power_system = data.get("power_system")
-    if not isinstance(power_system, dict):
-        return None
-    coefficient = power_system.get("rolling_resistance_crr")
-    if coefficient is None:
-        return None
+    power_system = data.get("power_system") if isinstance(data, dict) else None
+    coefficient = (
+        power_system.get("rolling_resistance_crr")
+        if isinstance(power_system, dict)
+        else None
+    )
     try:
-        return float(coefficient)
+        return float(coefficient) if coefficient is not None else None
     except (TypeError, ValueError):
         return None
 
@@ -537,12 +456,6 @@ def _window_series(topics: Mapping[str, pl.DataFrame | None]) -> _Series | None:
     )
 
 
-def _step_seconds(time_s: np.ndarray) -> np.ndarray:
-    steps = np.diff(time_s, prepend=time_s[0])
-    steps[steps < 0.0] = 0.0
-    return steps
-
-
 def _bounded_fill(values: np.ndarray, time_s: np.ndarray) -> np.ndarray:
     """Fill a NaN gap only when the samples bracketing it are at most MAX_FILL_GAP_S apart.
 
@@ -593,12 +506,10 @@ def _integral_wh(values: np.ndarray, dt_s: np.ndarray) -> float | None:
     return float(np.sum(values * dt_s) / JOULES_PER_WH)
 
 
-def _mean_or_none(values: np.ndarray) -> float | None:
-    return None if np.isnan(values).all() else float(np.nanmean(values))
-
-
-def _max_or_none(values: np.ndarray) -> float | None:
-    return None if np.isnan(values).all() else float(np.nanmax(values))
+def _reduce_or_none(
+    values: np.ndarray, reducer: typing.Callable[[np.ndarray], typing.Any]
+) -> float | None:
+    return None if np.isnan(values).all() else float(reducer(values))
 
 
 def _battery_soc(battery_pct: np.ndarray) -> tuple[float | None, float | None]:
@@ -609,30 +520,6 @@ def _battery_soc(battery_pct: np.ndarray) -> tuple[float | None, float | None]:
     ):
         return None, None
     return float(battery_pct[-1]), max(float(battery_pct[0] - battery_pct[-1]), 0.0)
-
-
-def _ratio(value: float | None, reference: float | None) -> float | None:
-    if value is None or reference is None or reference <= 0.0:
-        return None
-    return value / reference
-
-
-def _mean_power_w(
-    energy_wh: float | None, duration_s: float | None, mean_w: float | None
-) -> float | None:
-    if energy_wh is not None and duration_s is not None and float(duration_s) > 0.0:
-        return energy_wh * JOULES_PER_WH / float(duration_s)
-    return mean_w
-
-
-def _travels(path_m: float) -> bool:
-    return path_m > MIN_PATH_LENGTH_M
-
-
-def _energy_per_meter(energy_wh: float | None, path_m: float | None) -> float | None:
-    if energy_wh is None or path_m is None or not _travels(path_m) or energy_wh <= 0.0:
-        return None
-    return energy_wh / path_m
 
 
 def _peak_to_mean_ratio(total_w: np.ndarray) -> float | None:

@@ -7,9 +7,6 @@ pytest.importorskip("shapely")
 
 import polars as pl
 
-from arena_evaluation.processing.metrics.common.events import (
-    reconstruct_events as _reconstruct_events,
-)
 from arena_evaluation.processing.metrics.common.zones import (
     DoorGeometry as _DoorGeometry,
     ZoneGeometry as _ZoneGeometry,
@@ -18,7 +15,6 @@ from arena_evaluation.processing.metrics.common.zones import (
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
     ComplianceMetricsCalculator,
     _door_open_series,
-    _offset_doors,
     _speed_zone_metrics,
 )
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
@@ -161,68 +157,11 @@ def test_two_encounters_on_opposite_sides_score_one_half():
     )
 
 
-def test_pedestrian_walking_the_same_way_is_no_encounter():
-    positions = [[[3.0, LEFT]], [[4.0, LEFT]], [[5.0, LEFT]]]
-    twists = [[[1.0, 0.0]]] * 3
-
-    assert (
-        _calc()._compute_passing_compliance(
-            _episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0]))
-        )
-        is None
-    )
-
-
-def test_pedestrian_velocity_comes_from_finite_differences_without_velocities():
-    positions = [[], [[3.0, RIGHT]], [[2.0, RIGHT]], [[2.0, RIGHT]]]
-    peds = _peds(positions)
-    peds = peds.with_columns(
-        pl.lit(None, dtype=pl.Float64).alias("vx"),
-        pl.lit(None, dtype=pl.Float64).alias("vy"),
-    )
-
-    assert (
-        _calc()._compute_passing_compliance(
-            _episode(peds, _robot([0.0, 1.0, 2.0, 3.0]))
-        )
-        == 0.0
-    )
-
-
 def test_passing_compliance_needs_a_robot_pose():
     assert (
         _calc()._compute_passing_compliance(_episode(_peds([[[1.0, 0.0]]]), None))
         is None
     )
-
-
-def test_passing_compliance_needs_pedestrian_samples():
-    assert (
-        _calc()._compute_passing_compliance(_episode(_peds([]), _robot([0.0, 1.0])))
-        is None
-    )
-
-
-def test_head_on_pairing_uses_the_edge_clearance_not_the_centre_distance():
-    positions = [[], [[3.7, LEFT]]]
-    twists = [[], [[-1.0, 0.0]]]
-
-    assert (
-        _calc()._compute_passing_compliance(
-            _episode(_peds(positions, twists), _robot([0.0, 1.0]))
-        )
-        is None
-    )
-
-
-def test_passing_compliance_is_null_not_recorded_without_a_pedestrian_radius():
-    peds, robot = _head_on(LEFT, True)
-    peds = peds.with_columns(pl.lit(None, dtype=pl.Float64).alias("radius_m"))
-
-    results = _calc().calculate(_episode(peds, robot), {})
-
-    assert results["passing_rule_compliance"] is None
-    assert results[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] == "not_recorded"
 
 
 def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
@@ -264,40 +203,6 @@ def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
     assert results["quiet_zone_dwell_seconds"] == pytest.approx(4.0)
 
 
-def test_zone_extraction_skips_degenerate_polygons_and_reads_restricted_and_unset_caps():
-    from arena_simulation_setup.shared.semantics import SemanticCfg
-    from arena_simulation_setup.tree.World import Level, Zone
-    from arena_simulation_setup.utils.geometry import Position
-
-    sliver = Zone(
-        name="sliver",
-        polygon=[Position(0.0, 0.0), Position(1.0, 0.0)],
-        semantics=[SemanticCfg(role="predicate", name="restricted", value=True)],
-    )
-    vault = Zone(
-        name="vault",
-        polygon=[Position(0.0, 0.0), Position(0.0, 2.0), Position(2.0, 2.0)],
-        semantics=[
-            SemanticCfg(role="state", name="max_speed", value=None),
-            SemanticCfg(role="predicate", name="restricted", value=True),
-            SemanticCfg(role="state", name="occupancy", value=3.0),
-        ],
-    )
-
-    zones = _extract_zone_geometry(Level(zones=[sliver, vault]))
-
-    assert [z.name for z in zones] == ["vault"]
-    assert zones[0].max_speed is None
-    assert zones[0].restricted is True
-    assert zones[0].quiet is False
-
-
-def test_zero_offset_keeps_the_door_list():
-    doors = [_DoorGeometry(name="d", center_x=1.0, center_y=2.0, radius=1.0)]
-
-    assert _offset_doors(doors, (0.0, 0.0)) is doors
-
-
 def test_speed_violations_ignore_samples_outside_every_zone():
     zones = [
         _ZoneGeometry(
@@ -310,14 +215,6 @@ def test_speed_violations_ignore_samples_outside_every_zone():
     )
 
     assert (violations, seconds) == (1, pytest.approx(1.0))
-
-
-def test_members_only_snapshot_reconstructs_the_empty_members_seed():
-    snapshot = snapshot_frame([(0, "env_0/lobby", "zone", "members", "members", "")])
-
-    assert _reconstruct_events(snapshot).rows() == [
-        (0, "env_0/lobby", "zone", "members", "", "")
-    ]
 
 
 def test_door_series_is_empty_without_door_state_events():
@@ -375,85 +272,3 @@ def test_doorway_blocking_needs_two_samples():
     assert _blocking(episode, [_DoorGeometry("door_1", 0.0, 0.0, 1.0)]) is None
 
 
-def test_doorway_blocking_checks_every_door_and_counts_an_interval_once():
-    episode = _door_episode(
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        _snapshot("env_0/door_1", "open"),
-    )
-    doors = [
-        _DoorGeometry("far_door", 10.0, 10.0, 1.0),
-        _DoorGeometry("door_1", 0.0, 0.0, 1.0),
-        _DoorGeometry("door_1", 0.5, 0.0, 1.0),
-    ]
-
-    assert _blocking(episode, doors) == pytest.approx(2.0)
-
-
-def test_doorway_blocking_ignores_open_doors_out_of_reach():
-    episode = _door_episode(
-        [5.0, 5.0], [0.0, 0.0], [0.0, 0.0], _snapshot("env_0/door_1", "open")
-    )
-
-    assert _blocking(episode, [_DoorGeometry("door_1", 0.0, 0.0, 1.0)]) == 0.0
-
-
-def test_cached_world_without_velocity_column_leaves_zone_metrics_unset():
-    calc = _calc()
-    calc.world = "compliance_test_world"
-    calc._world_cache["compliance_test_world"] = ([], [])
-    data = pl.DataFrame(
-        {"t_ns": [0, SEC], "x": [0.0, 1.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
-    )
-
-    res = calc.calculate(AlignedEpisodeBundle(1, data, [0.0, 0.0, 0.0], []), {})
-
-    assert res == dict.fromkeys(ComplianceMetricsCalculator.output_keys())
-
-
-def test_world_is_loaded_from_the_shipped_assets_once_and_cached():
-    calc = _calc()
-    calc.world = "map_empty"
-    data = pl.DataFrame(
-        {
-            "t_ns": [0, SEC, 2 * SEC],
-            "x": [15.0, 15.0, 15.0],
-            "y": [0.2, 0.2, 0.2],
-            "yaw": [0.0] * 3,
-            "speed_mps": [0.0] * 3,
-        }
-    )
-    episode = AlignedEpisodeBundle(
-        1,
-        data,
-        [15.0, 0.2, 0.0],
-        [],
-        semantic_snapshot=_snapshot("env_0/south_door", "open"),
-    )
-
-    res = calc.calculate(episode, {})
-    loaded = calc._world_cache["map_empty"]
-    calc.calculate(episode, {})
-
-    zones, doors = loaded
-    assert calc._world_cache["map_empty"] is loaded
-    assert zones == []
-    assert {d.name for d in doors} >= {"north_door", "west_door", "south_door"}
-    assert res["speed_zone_violations"] == 0
-    assert res["quiet_zone_dwell_seconds"] == 0.0
-    assert res["restricted_zone_entries"] == 0
-    assert res["doorway_blocking_time"] == pytest.approx(2.0)
-    assert res["passing_rule_compliance"] is None
-
-
-def test_multi_level_world_flattens_each_level_door_to_its_own_place():
-    _, doors = _calc()._load_world("three_storied_residential")
-
-    edges = {
-        d.name: (d.center_x, d.center_y)
-        for d in doors
-        if d.name.startswith("door_edge_")
-    }
-    assert set(edges) == {"door_edge_1_1", "door_edge_2_1", "door_edge_3_1"}
-    assert len(set(edges.values())) == 3

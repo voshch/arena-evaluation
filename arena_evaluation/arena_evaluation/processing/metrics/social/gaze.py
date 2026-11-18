@@ -193,9 +193,8 @@ class GazeMetricsCalculator(BaseMetricCalculator):
             self._robot_rows(episode), self.native_ped_frame(episode)
         )
 
-    def _episode_metrics(self, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
-        """Total gaze dwell of both directions over the given episode view."""
-        samples = self._samples(episode)
+    def _metrics_from_samples(self, samples: pl.DataFrame) -> dict[str, typing.Any]:
+        """Both gaze dwell totals over one per-sample count frame; empty samples stay null."""
         if samples.height == 0:
             return dict.fromkeys(self.output_keys())
         return {
@@ -212,23 +211,7 @@ class GazeMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         """Compute the episode-scope gaze dwell over the bundle's own pedestrian frames."""
         del prior_results
-        return self._episode_metrics(episode)
-
-    def _window_metrics(self, window: AlignedEpisodeBundle) -> dict[str, typing.Any]:
-        """Gaze dwell over the window's own samples; null when the window carries no robot sample."""
-        samples = self._samples_on_robot_axis(
-            self._native_robot_rows(window), self.native_ped_frame(window)
-        )
-        if samples.height == 0:
-            return dict.fromkeys(self.output_keys())
-        return {
-            "total_time_looking_at_pedestrians": time_with_cone_contact_s(
-                samples, "looking_at_peds"
-            ),
-            "total_time_looked_at_by_pedestrians": time_with_cone_contact_s(
-                samples, "looked_at_by_peds"
-            ),
-        }
+        return self._metrics_from_samples(self._samples(episode))
 
     def calculate_for_scope(
         self,
@@ -241,9 +224,14 @@ class GazeMetricsCalculator(BaseMetricCalculator):
         scope = MetricScope.EPISODE if scope_slice is None else scope_slice.scope
         match scope:
             case MetricScope.EPISODE | MetricScope.ROBOT:
-                return self._episode_metrics(episode)
+                return self._metrics_from_samples(self._samples(episode))
             case MetricScope.ENCOUNTER:
-                return self._window_metrics(scope_slice.window_bundle)
+                window = scope_slice.window_bundle
+                return self._metrics_from_samples(
+                    self._samples_on_robot_axis(
+                        self._native_robot_rows(window), self.native_ped_frame(window)
+                    )
+                )
             case _:
                 return dict.fromkeys(self.output_keys())
 

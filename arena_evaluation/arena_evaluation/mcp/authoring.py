@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import pathlib
 from typing import Annotated, Any
 
@@ -12,15 +13,25 @@ from arena_evaluation.storage.config_layout import get_config_kind
 from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
-Overwrite = Annotated[
-    bool, pydantic.Field(description="replace an existing config of that name")
-]
+
+def _described(kind: Any, description: str) -> Any:
+    """Annotate a tool parameter with its published description."""
+    return Annotated[kind, pydantic.Field(description=description)]
+
+
+Overwrite = _described(bool, "replace an existing config of that name")
+
+
+def _invalid(problems: list[str], *, warnings: bool = True) -> dict[str, Any]:
+    """A failed validation verdict; suite and contest verdicts also carry a warnings list."""
+    verdict: dict[str, Any] = {"valid": False, "problems": problems}
+    if warnings:
+        verdict["warnings"] = []
+    return verdict
 
 
 def _parser(module: str, attribute: str, what: str) -> Any:
     """Import a parser lazily; a missing dependency becomes a hinted ToolError instead of ImportError."""
-    import importlib
-
     try:
         return getattr(importlib.import_module(module), attribute)
     except (ImportError, AttributeError) as exc:
@@ -43,65 +54,43 @@ def world_names() -> list[str]:
     )
 
 
-def check_suite(data: object) -> dict[str, Any]:
-    """Suite.parse verdict; mode, world, robot and model availability runs on the side stream."""
-    Suite = _parser("arena_evaluation.benchmark.config", "Suite", "suite")
-    if not isinstance(data, dict):
-        return {
-            "valid": False,
-            "problems": [
-                f"a suite is a mapping with stages, got {type(data).__name__}"
-            ],
-            "warnings": [],
-        }
+def _check(kind: str, data: object) -> dict[str, Any]:
+    """Validate a suite or contest with the runner's own parser and report its shape."""
+    accepted: type | tuple[type, ...] = dict if kind == "suite" else (list, dict)
+    expected = "a mapping with stages" if kind == "suite" else "a list or a mapping"
+    errors: tuple[type[Exception], ...] = (
+        (LookupError, ValueError, TypeError)
+        if kind == "suite"
+        else (KeyError, ValueError, TypeError)
+    )
+    if not isinstance(data, accepted):
+        return _invalid([f"a {kind} is {expected}, got {type(data).__name__}"])
     try:
-        suite = Suite.parse("_validate", data)
-    except (LookupError, ValueError, TypeError) as exc:
+        parsed = _parser(
+            "arena_evaluation.benchmark.config", kind.capitalize(), kind
+        ).parse("_validate", data)
+    except errors as exc:
+        return _invalid([f"{type(exc).__name__}: {exc}"])
+    if kind == "suite":
         return {
-            "valid": False,
-            "problems": [f"{type(exc).__name__}: {exc}"],
+            "valid": True,
+            "n_stages": len(parsed.stages),
+            "stages": [stage.name for stage in parsed.stages],
+            "references": parsed.references,
+            "launch": parsed.launch_args,
+            "problems": [],
             "warnings": [],
+            "side_stream": (
+                "task-mode, world, robot, model and driver availability is checked by "
+                "evaluation_preflight, episode_task_modes and the robots/worlds/planners tools"
+            ),
         }
     return {
         "valid": True,
-        "n_stages": len(suite.stages),
-        "stages": [stage.name for stage in suite.stages],
-        "references": suite.references,
-        "launch": suite.launch_args,
-        "problems": [],
-        "warnings": [],
-        "side_stream": (
-            "task-mode, world, robot, model and driver availability is checked by "
-            "evaluation_preflight, episode_task_modes and the robots/worlds/planners tools"
-        ),
-    }
-
-
-def check_contest(data: object) -> dict[str, Any]:
-    """Contest.parse verdict; the planner preflight and driver registration run on the side stream."""
-    Contest = _parser("arena_evaluation.benchmark.config", "Contest", "contest")
-    if not isinstance(data, list | dict):
-        return {
-            "valid": False,
-            "problems": [
-                f"a contest is a list or a mapping, got {type(data).__name__}"
-            ],
-            "warnings": [],
-        }
-    try:
-        contest = Contest.parse("_validate", data)
-    except (KeyError, ValueError, TypeError) as exc:
-        return {
-            "valid": False,
-            "problems": [f"{type(exc).__name__}: {exc}"],
-            "warnings": [],
-        }
-    return {
-        "valid": True,
-        "n_contestants": len(contest.contestants),
+        "n_contestants": len(parsed.contestants),
         "contestants": [
             {"name": entry.name, "args": entry.args, "parts": entry.parts}
-            for entry in contest.contestants
+            for entry in parsed.contestants
         ],
         "problems": [],
         "warnings": [],
@@ -112,24 +101,33 @@ def check_contest(data: object) -> dict[str, Any]:
     }
 
 
+def check_suite(data: object) -> dict[str, Any]:
+    """Suite.parse verdict; mode, world, robot and model availability runs on the side stream."""
+    return _check("suite", data)
+
+
+def check_contest(data: object) -> dict[str, Any]:
+    """Contest.parse verdict; the planner preflight and driver registration run on the side stream."""
+    return _check("contest", data)
+
+
 def check_manifest(data: object) -> dict[str, Any]:
     from arena_evaluation.presentation.viz_manifest import VizManifest
 
     if not isinstance(data, dict):
-        return {
-            "valid": False,
-            "problems": [f"a manifest is a mapping, got {type(data).__name__}"],
-        }
+        return _invalid(
+            [f"a manifest is a mapping, got {type(data).__name__}"], warnings=False
+        )
     try:
         manifest = VizManifest.model_validate(data)
     except pydantic.ValidationError as exc:
-        return {"valid": False, "problems": [str(exc)]}
+        return _invalid([str(exc)], warnings=False)
     for plot in manifest.plots:
         if not plot.uses and plot.data is None:
-            return {
-                "valid": False,
-                "problems": [f"plot {plot.id!r} has no uses or data specification"],
-            }
+            return _invalid(
+                [f"plot {plot.id!r} has no uses or data specification"],
+                warnings=False,
+            )
     return {
         "valid": True,
         "n_plots": len(manifest.plots),
@@ -156,6 +154,29 @@ def write_config(
     return path
 
 
+_CHECKS = {"suite": check_suite, "contest": check_contest}
+_CREATE_HINTS = {
+    "suite": "evaluation_config_schema kind=suite shows the schema",
+    "contest": "planners_list lists the planners",
+}
+
+
+def _create(
+    kind: str, name: str, yaml_content: str, *, overwrite: bool
+) -> dict[str, Any]:
+    """Validate and write one suite or contest, returning its path and verdict."""
+    verdict = _CHECKS[kind](parse_yaml(yaml_content, kind))
+    if not verdict["valid"]:
+        raise ToolError(
+            f"{kind} does not validate: " + "; ".join(verdict["problems"]),
+            hint=_CREATE_HINTS[kind],
+        )
+    return {
+        "path": str(write_config(kind, name, yaml_content, overwrite=overwrite)),
+        **verdict,
+    }
+
+
 @domain.tool(read_only=True)
 def evaluation_validate_suite(yaml_content: YamlText) -> dict[str, Any]:
     """Check a suite with the runner's Suite parser; task-mode, world, robot and model availability is a side-stream check."""
@@ -179,16 +200,7 @@ def evaluation_create_suite(
     name: str, yaml_content: YamlText, overwrite: Overwrite = False
 ) -> dict[str, Any]:
     """Validate a suite (evaluation_config_schema and episode_task_modes give its keys) and write it where the runner resolves it by name."""
-    verdict = check_suite(parse_yaml(yaml_content, "suite"))
-    if not verdict["valid"]:
-        raise ToolError(
-            "suite does not validate: " + "; ".join(verdict["problems"]),
-            hint="evaluation_config_schema kind=suite shows the schema",
-        )
-    return {
-        "path": str(write_config("suite", name, yaml_content, overwrite=overwrite)),
-        **verdict,
-    }
+    return _create("suite", name, yaml_content, overwrite=overwrite)
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=False)
@@ -196,40 +208,23 @@ def evaluation_create_contest(
     name: str, yaml_content: YamlText, overwrite: Overwrite = False
 ) -> dict[str, Any]:
     """Validate a contest (planners_list gives the planner names) and write it where the runner resolves it by name."""
-    verdict = check_contest(parse_yaml(yaml_content, "contest"))
-    if not verdict["valid"]:
-        raise ToolError(
-            "contest does not validate: " + "; ".join(verdict["problems"]),
-            hint="planners_list lists the planners",
-        )
-    return {
-        "path": str(write_config("contest", name, yaml_content, overwrite=overwrite)),
-        **verdict,
-    }
+    return _create("contest", name, yaml_content, overwrite=overwrite)
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=False)
 def evaluation_create_manifest(
     name: str,
     *,
-    yaml_content: Annotated[
+    yaml_content: _described(
+        str | None, "complete manifest YAML, or omit and give a template"
+    ) = None,
+    template: _described(
+        str | None, "a resolvable manifest to start from (evaluation_manifests)"
+    ) = None,
+    run_id: _described(
         str | None,
-        pydantic.Field(
-            description="complete manifest YAML, or omit and give a template"
-        ),
-    ] = None,
-    template: Annotated[
-        str | None,
-        pydantic.Field(
-            description="a resolvable manifest to start from (evaluation_manifests)"
-        ),
-    ] = None,
-    run_id: Annotated[
-        str | None,
-        pydantic.Field(
-            description="write into this run's directory instead of the shared manifest root"
-        ),
-    ] = None,
+        "write into this run's directory instead of the shared manifest root",
+    ) = None,
     overwrite: Overwrite = False,
 ) -> dict[str, Any]:
     """Write a report manifest, from YAML or a copy of a template, into a run directory or the shared manifest root (table notes: options.notes, options.rows, options.note, options.notes_key)."""

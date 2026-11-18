@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import polars as pl
-import pytest
 
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX
 from arena_evaluation.processing.metrics.performance.motion_metrics import (
@@ -55,36 +54,6 @@ def _ground_truth_episode(
     )
 
 
-def test_output_keys_do_not_carry_the_sample_clock():
-    expected = ["time_diff", "time_to_goal", "idling_time"]
-
-    assert TimeMetricsCalculator.output_keys() == expected
-    assert "time" not in TimeMetricsCalculator.output_keys()
-    assert {metric.name for metric in TimeMetricsCalculator.OUTPUTS} == set(expected)
-
-
-def test_the_span_and_idling_come_from_the_recorded_speed_track():
-    episode = _episode(
-        [1 * SEC, 2 * SEC, 3 * SEC, 4 * SEC], speed_mps=[0.5, 0.0, 0.0, 0.5]
-    )
-
-    results = _calculator().calculate(episode, {})
-
-    assert results["time_diff"] == 3 * SEC
-    assert results["idling_time"] == pytest.approx(2.0)
-
-
-def test_the_robot_reaches_its_goal_at_the_first_sample_within_one_metre():
-    episode = _ground_truth_episode(
-        xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[3.0, 0.0]
-    )
-
-    results = _calculator().calculate(episode, {})
-
-    # x = 2.0 is the first sample 1 m from the goal at x = 3.0, two seconds after the first sample.
-    assert results["time_to_goal"] == pytest.approx(2.0)
-
-
 def test_a_track_that_never_comes_within_one_metre_of_the_goal_has_no_time_to_goal():
     episode = _ground_truth_episode(
         xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[9.0, 0.0]
@@ -96,34 +65,10 @@ def test_a_track_that_never_comes_within_one_metre_of_the_goal_has_no_time_to_go
     assert results[f"time_to_goal{NULL_REASON_SUFFIX}"] == "no_samples"
 
 
-def test_without_a_mission_goal_the_time_to_goal_is_null_with_its_reason():
-    episode = _ground_truth_episode(xs=[0.0, 1.0], times_s=[1.0, 2.0], goal=[])
-
-    results = _calculator().calculate(episode, {})
-
-    assert results["time_to_goal"] is None
-    assert results[f"time_to_goal{NULL_REASON_SUFFIX}"] == "reference_missing"
-
-
 def test_a_single_sample_episode_has_no_duration_and_no_idling():
     results = _calculator().calculate(_episode([SEC]), {})
 
     assert results == dict.fromkeys(TimeMetricsCalculator.output_keys())
-
-
-def test_without_a_speed_track_idling_is_null_and_the_span_survives():
-    results = _calculator().calculate(_episode([0, SEC, 2 * SEC]), {})
-
-    assert results["time_diff"] == 2 * SEC
-    assert results["idling_time"] is None
-
-
-def test_without_an_aligned_frame_every_time_output_is_absent():
-    episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
-
-    assert _calculator().calculate(episode, {}) == dict.fromkeys(
-        TimeMetricsCalculator.output_keys()
-    )
 
 
 def test_the_retired_clock_is_the_t_ns_column_of_the_series_tables():

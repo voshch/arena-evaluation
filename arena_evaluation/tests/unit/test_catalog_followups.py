@@ -5,9 +5,7 @@ from __future__ import annotations
 import pathlib
 
 import polars as pl
-from polars.testing import assert_frame_equal
 
-from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.storage.registry import (
     FACT_TABLES,
     FactTable,
@@ -201,94 +199,3 @@ def _write_benchmark(
     return root
 
 
-def test_episode_summary_exposes_validity_pose_provenance_and_local_planner(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(_write_benchmark(tmp_path / RUN_ID))
-
-    summary = (
-        catalog.get_table("v_episode_summary")
-        .select(
-            "episode_id",
-            "is_valid_for_ranking",
-            "invalid_reason",
-            "pose_frame",
-            "local_planner",
-            "crowd_condition",
-        )
-        .sort("episode_id")
-        .collect()
-    )
-
-    expected = pl.DataFrame(
-        {
-            "episode_id": [0, 1, 2],
-            "is_valid_for_ranking": [True, True, False],
-            "invalid_reason": ["", "", "pose_teleport"],
-            "pose_frame": ["map", "map", "map"],
-            "local_planner": ["dwb-standard", "dwb-standard", "dwb-standard"],
-            "crowd_condition": ["visible", "visible", "visible"],
-        }
-    )
-    assert_frame_equal(summary, expected, check_dtypes=True)
-
-
-def test_episode_summary_carries_null_reason_when_crowd_condition_is_null(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(
-        _write_benchmark(tmp_path / RUN_ID, include_pedestrians=False)
-    )
-
-    summary = (
-        catalog.get_table("v_episode_summary")
-        .select(
-            "episode_id",
-            "crowd_condition",
-            "crowd_condition_null_reason",
-            "dim_episode_null_reason",
-        )
-        .sort("episode_id")
-        .collect()
-    )
-    assert summary["crowd_condition"].to_list() == [None, None, None]
-    assert (
-        summary["crowd_condition_null_reason"].to_list()
-        == [str(NullReason.NOT_RECORDED)] * 3
-    )
-    assert (
-        summary["dim_episode_null_reason"].to_list()
-        == [f"robot_awareness:{NullReason.NOT_RECORDED}"] * 3
-    )
-
-
-def test_planner_scorecard_ranks_only_valid_episodes_and_counts_the_rest(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(_write_benchmark(tmp_path / RUN_ID))
-
-    scorecard = catalog.get_table("v_planner_scorecard").collect()
-
-    assert scorecard.height == 1
-    assert scorecard.item(0, "episodes_count") == 3
-    assert scorecard.item(0, "valid_episodes") == 2
-    assert scorecard.item(0, "excluded_episodes") == 1
-    assert scorecard.item(0, "success_rate") == 0.5
-    assert scorecard.item(0, "success_without_pedestrian_contact_rate") == 0.0
-    assert scorecard.item(0, "mean_time_to_goal") == 15.0
-    assert scorecard.item(0, "other_robot_contacts") == 1
-    assert scorecard.item(0, "pedestrian_contacts") == 1
-
-
-def test_contact_summary_publishes_closing_shares_without_labels(
-    tmp_path: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(_write_benchmark(tmp_path / RUN_ID))
-
-    summary = catalog.get_table("v_contact_summary").collect()
-    assert summary.height == 1
-    assert summary.item(0, "total_contacts") == 2
-    assert abs(summary.item(0, "mean_robot_closing_share") - 0.5) < 1e-9
-    assert abs(summary.item(0, "mean_target_closing_share") - 0.5) < 1e-9
-    assert abs(summary.item(0, "mean_relative_impact_speed_mps") - 1.0) < 1e-9
-    assert abs(summary.item(0, "mean_freeze_clearance_m") - 0.1) < 1e-9

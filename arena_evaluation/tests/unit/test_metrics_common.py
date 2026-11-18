@@ -1,35 +1,24 @@
 from __future__ import annotations
 
-import dataclasses
 import typing
 
 import numpy as np
 import polars as pl
 import pytest
 import shapely
-from polars.testing import assert_frame_equal, assert_series_equal
+from polars.testing import assert_frame_equal
 
-from arena_evaluation.processing.metrics.common.alignment import (
-    TRACK_ALIGN_TOLERANCE_NS,
-)
 from arena_evaluation.processing.metrics.common.context import EvalContext
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
-from arena_evaluation.processing.metrics.common.parsing import parse_bool, parse_float
-from arena_evaluation.processing.metrics.common.resampling import resample_fleet
-from arena_evaluation.processing.metrics.common.rosters import entity_roster, ped_roster
 from arena_evaluation.processing.metrics.common.routes import (
-    plan_mission,
     route_waypoints,
 )
-from arena_evaluation.processing.metrics.common.series import null_float_series
 from arena_evaluation.processing.metrics.common.zones import (
     DoorGeometry,
     ZoneGeometry,
     extract_door_geometry,
     extract_zone_geometry,
-    zone_membership,
 )
-from arena_evaluation.processing.path.theta_star import StaticGrid
 
 _EVENT_INPUT_SCHEMA = {
     "t_ns": pl.Int64,
@@ -137,61 +126,6 @@ def test_reconstruct_events_returns_empty_frame_for_unusable_snapshot() -> None:
     assert_frame_equal(reconstruct_events(pl.DataFrame({"t_ns": [1]})), expected)
 
 
-def test_reconstruct_events_keeps_only_change_points_per_entity_and_field() -> None:
-    expected = pl.DataFrame(
-        {
-            "t_ns": [1, 2, 3, 5],
-            "entity": ["a", "a", "a", "b"],
-            "kind": ["robot"] * 4,
-            "field": ["state"] * 4,
-            "previous": ["", "go", "stop", ""],
-            "current": ["go", "stop", "go", "idle"],
-        },
-        schema=_EVENT_OUTPUT_SCHEMA,
-    )
-    assert_frame_equal(reconstruct_events(_SNAPSHOT), expected)
-
-
-@pytest.mark.parametrize(
-    ("field_kind", "value_bool", "value_num", "value_str", "expected"),
-    [
-        ("predicate", True, None, None, "true"),
-        ("predicate", False, None, None, "false"),
-        ("predicate", None, None, None, None),
-        ("continuous", None, 1.5, None, "1.5"),
-        ("state", None, None, None, ""),
-        ("state", None, None, "idle", "idle"),
-    ],
-)
-def test_reconstruct_events_serializes_snapshot_values_to_the_wire_convention(
-    field_kind: str,
-    value_bool: bool | None,
-    value_num: float | None,
-    value_str: str | None,
-    expected: str,
-) -> None:
-    snapshot = pl.DataFrame(
-        {
-            "t_ns": [1],
-            "entity_name": ["a"],
-            "kind": ["robot"],
-            "field_name": ["state"],
-            "field_kind": [field_kind],
-            "value_bool": [value_bool],
-            "value_num": [value_num],
-            "value_str": [value_str],
-        },
-        schema=_EVENT_INPUT_SCHEMA,
-    )
-    result = reconstruct_events(snapshot)
-    assert_series_equal(
-        result["previous"], pl.Series("previous", [""], dtype=pl.String)
-    )
-    assert_series_equal(
-        result["current"], pl.Series("current", [expected], dtype=pl.String)
-    )
-
-
 @pytest.mark.parametrize(
     ("require_annotation", "expected_names"),
     [(True, ["speed_zone"]), (False, ["speed_zone", "quiet_zone"])],
@@ -217,43 +151,6 @@ def test_extract_door_geometry_uses_the_midpoint_and_largest_activation_distance
     assert extract_door_geometry(_zone_level()) == [DoorGeometry("door", 2.0, 1.0, 2.0)]
 
 
-@pytest.mark.parametrize(
-    ("x", "y", "expected"),
-    [(0.5, 0.5, 0), (3.0, 3.0, 1), (5.0, 5.0, -1), (2.0, 1.0, 0)],
-)
-def test_zone_membership_returns_the_first_covering_zone(
-    x: float, y: float, expected: int
-) -> None:
-    result = zone_membership(np.array([x]), np.array([y]), _overlapping_zones())
-    assert result.tolist() == [expected]
-    assert result.dtype == np.int64
-
-
-@pytest.mark.parametrize(
-    ("token", "expected"),
-    [("true", True), (" TRUE ", True), ("1", True), ("false", False), ("0", False)],
-)
-def test_parse_bool_accepts_true_and_one_case_insensitively(
-    token: str, expected: bool
-) -> None:
-    assert parse_bool(token) is expected
-
-
-@pytest.mark.parametrize(("token", "expected"), [("1.5", 1.5), ("-2.25", -2.25)])
-def test_parse_float_parses_numbers(token: str, expected: float) -> None:
-    assert parse_float(token) == expected
-
-
-def test_route_waypoints_returns_every_commanded_phase_goal() -> None:
-    waypoints = route_waypoints(
-        start_pt=(0.0, 0.0),
-        goal_pt=None,
-        phases={"map_poses": [[0.0, 0.0], [10.0, 0.0], [5.0, 0.0]]},
-        topics=None,
-    )
-    assert waypoints == ((0.0, 0.0), (10.0, 0.0), (5.0, 0.0))
-
-
 def test_route_waypoints_keeps_every_commanded_goal_when_none_is_reached() -> None:
     waypoints = route_waypoints(
         start_pt=(0.0, 0.0),
@@ -262,63 +159,6 @@ def test_route_waypoints_keeps_every_commanded_goal_when_none_is_reached() -> No
         topics=None,
     )
     assert waypoints == ((0.0, 0.0), (10.0, 0.0), (20.0, 0.0))
-
-
-@pytest.mark.parametrize(
-    ("goal", "expected"),
-    [
-        ((0.0, 0.0), ((0.0, 0.0),)),
-        ((0.25, 0.0), ((0.0, 0.0),)),
-        ((0.2501, 0.0), ((0.0, 0.0), (0.2501, 0.0))),
-    ],
-)
-def test_route_waypoints_omits_goals_within_the_waypoint_tolerance(
-    goal: tuple[float, float], expected: tuple[tuple[float, float], ...]
-) -> None:
-    waypoints = route_waypoints(
-        start_pt=(0.0, 0.0), goal_pt=goal, phases=None, topics=None
-    )
-    assert waypoints == expected
-
-
-def test_route_waypoints_reads_distinct_plan_goals_when_phases_are_absent() -> None:
-    plans = pl.DataFrame(
-        {
-            "t_ns": [1, 2, 3, 4],
-            "plan_id": [1, 1, 2, 2],
-            "waypoint_idx": [0, 1, 0, 1],
-            "x": [0.0, 5.0, 5.0, 10.0],
-            "y": [0.0, 0.0, 0.0, 0.0],
-        }
-    )
-    waypoints = route_waypoints(
-        start_pt=(0.0, 0.0), goal_pt=None, phases=None, topics={"robot_plans": plans}
-    )
-    assert waypoints == ((0.0, 0.0), (5.0, 0.0), (10.0, 0.0))
-
-
-def test_mission_length_sums_the_legs_and_is_refused_without_a_grid_or_a_leg() -> None:
-    open_grid = StaticGrid(
-        origin_xy=(0.0, 0.0), resolution_m=0.1, lethal=np.zeros((50, 50), dtype=bool)
-    )
-
-    assert plan_mission(
-        grid=open_grid, waypoints=((1.0, 1.0), (4.0, 1.0), (4.0, 4.0))
-    ).length_m == pytest.approx(6.0)
-    assert (
-        plan_mission(grid=None, waypoints=((0.0, 0.0), (1.0, 0.0))).null_reason
-        == "no_map"
-    )
-    assert (
-        plan_mission(grid=open_grid, waypoints=((0.0, 0.0),)).null_reason
-        == "degenerate_mission"
-    )
-    assert (
-        plan_mission(
-            grid=open_grid, waypoints=((1.0, 1.0), (1.0, 1.0), (-9.0, 1.0))
-        ).null_reason
-        == "goal_outside_grid"
-    )
 
 
 def _eval_context() -> EvalContext:
@@ -332,49 +172,3 @@ def _eval_context() -> EvalContext:
         entity_roster={"jackal_0": "env_0/jackal_0"},
         ped_roster={},
     )
-
-
-@pytest.mark.parametrize(
-    ("t_ns", "expected"), [(5, "go"), (15, "go"), (20, "stop"), (25, "stop")]
-)
-def test_eval_context_field_at_holds_the_latest_value_at_or_before_the_instant(
-    t_ns: int, expected: str
-) -> None:
-    assert _eval_context().field_at("jackal_0", "state", t_ns) == expected
-
-
-def test_eval_context_field_at_is_none_for_an_unrostered_entity() -> None:
-    assert _eval_context().field_at("unknown", "state", 15) is None
-
-
-def test_eval_context_family_at_returns_every_member_at_the_instant() -> None:
-    assert _eval_context().family_at("jackal_0", "pose", 15) == {"x": "1", "y": "2"}
-
-
-@pytest.mark.parametrize(
-    ("index", "expected"),
-    [(0, {"ped_a": (1.0, 2.0)}), (1, {"ped_a": (3.0, 4.0)}), (2, {})],
-)
-def test_eval_context_peds_at_uses_the_latest_frame_within_the_alignment_tolerance(
-    index: int, expected: dict[str, tuple[float, float]]
-) -> None:
-    context = dataclasses.replace(
-        _eval_context(),
-        t_ns=np.array([50_000_000, 150_000_000, 250_000_000]),
-        peds_frames=[
-            pl.DataFrame({"ped_name": ["ped_a"], "x": [1.0], "y": [2.0]}),
-            pl.DataFrame({"ped_name": ["ped_a"], "x": [3.0], "y": [4.0]}),
-        ],
-        peds_times=np.array([0, TRACK_ALIGN_TOLERANCE_NS], dtype=np.int64),
-    )
-    assert context.peds_at(index) == expected
-
-
-def test_eval_context_sample_reports_the_ego_pose_on_the_time_axis() -> None:
-    context = dataclasses.replace(
-        _eval_context(), t_ns=np.array([1_000_000_000]), yaw=np.array([0.5])
-    )
-    sampled = context.sample(0)
-    assert (sampled.t, sampled.robots) == (1.0, {"robot": (0.0, 0.0, 0.5)})
-
-

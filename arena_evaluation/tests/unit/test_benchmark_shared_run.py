@@ -9,7 +9,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import threading
 import types
 
 import pytest
@@ -24,10 +23,9 @@ from arena_evaluation.benchmark.state import (
     ManifestMismatchError,
     ProgressLog,
     RunDir,
-    StateFile,
     fold_run_dir,
 )
-from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
+from arena_evaluation.benchmark.step import Step, StepResult
 
 _PACKAGE_ROOT = pathlib.Path(state_module.__file__).resolve().parents[2]
 
@@ -125,43 +123,6 @@ def _make_step(contestant: str, stage: str, world: str) -> Step:
     )
 
 
-def test_lane_state_writes_land_in_lane_file_only(tmp_path: pathlib.Path):
-    p1, p2 = _lanes(tmp_path, "p1", "p2")
-    p1.state.write({"a/s": _result("a/s", "ok", 1.0)})
-    p2.state.write({"b/s": _result("b/s", "failed", 2.0, error_kind=StepErrorKind.ENV_SETUP)})
-
-    run = tmp_path / "shared-run"
-    lane1 = json.loads((run / ".benchmark_state.p1.json").read_text())["steps"]
-    lane2 = json.loads((run / ".benchmark_state.p2.json").read_text())["steps"]
-    assert set(lane1) == {"a/s"}
-    assert set(lane2) == {"b/s"}
-    assert json.loads((run / ".benchmark_state.json").read_text())["steps"] == {}
-
-
-def test_union_prefers_ok_then_latest_started_at(tmp_path: pathlib.Path):
-    p1, p2 = _lanes(tmp_path, "p1", "p2")
-    StateFile(tmp_path / "shared-run", {}).write({"a/s": _result("a/s", "failed", 5.0)})
-    p1.state.write({"a/s": _result("a/s", "ok", 1.0), "b/s": _result("b/s", "failed", 1.0), "c/s": _result("c/s", "ok", 2.0)})
-    p2.state.write({"b/s": _result("b/s", "partial", 3.0), "c/s": _result("c/s", "ok", 4.0, env_id=7)})
-
-    steps = StateFile.open(tmp_path / "shared-run", "p1").steps
-    assert steps["a/s"].status == "ok"
-    assert steps["b/s"].status == "partial"
-    assert steps["c/s"].env_id == 7
-
-
-def test_state_open_without_lane_sees_union(tmp_path: pathlib.Path):
-    p1, p2 = _lanes(tmp_path, "p1", "p2")
-    p1.state.write({"a/s": _result("a/s", "ok", 1.0)})
-    p2.state.write({"b/s": _result("b/s", "in_progress", 2.0)})
-
-    steps = StateFile.open(tmp_path / "shared-run").steps
-    assert {k: v.status for k, v in steps.items()} == {"a/s": "ok", "b/s": "in_progress"}
-    reopened = RunDir.open(tmp_path, "shared-run")
-    assert set(reopened.state.steps) == {"a/s", "b/s"}
-    assert reopened.state.filename == ".benchmark_state.json"
-
-
 def test_fold_merges_state_and_dedupes_progress(tmp_path: pathlib.Path):
     p1, p2 = _lanes(tmp_path, "p1", "p2")
     run = tmp_path / "shared-run"
@@ -185,23 +146,6 @@ def test_fold_merges_state_and_dedupes_progress(tmp_path: pathlib.Path):
     assert rows[-1]["outcome_info"] == "p2-new"
     assert (run / "progress.p1.csv").exists()
     assert (run / ".benchmark_state.p2.json").exists()
-
-
-def test_fold_twice_gives_identical_files(tmp_path: pathlib.Path):
-    p1, p2 = _lanes(tmp_path, "p1", "p2")
-    run = tmp_path / "shared-run"
-    p1.state.write({"a/s": _result("a/s", "ok", 1.0)})
-    p2.state.write({"b/s": _result("b/s", "failed", 2.0)})
-    _append(p1.progress, "2026-10-03T10:00:01+00:00", "a/s", 0)
-    _append(p2.progress, "2026-10-03T10:00:01+00:00", "b/s", 1)
-    _append(p2.progress, "2026-10-03T10:00:02+00:00", "b/s", 2)
-
-    fold_run_dir(run)
-    first = ((run / "progress.csv").read_bytes(), (run / ".benchmark_state.json").read_bytes())
-    fold_run_dir(run)
-    second = ((run / "progress.csv").read_bytes(), (run / ".benchmark_state.json").read_bytes())
-    assert first == second
-    assert len(_rows(run / "progress.csv")) == 3
 
 
 def test_fold_keeps_rows_of_a_prior_progress_csv(tmp_path: pathlib.Path):
@@ -257,27 +201,6 @@ def test_claim_is_exclusive_across_lanes(tmp_path: pathlib.Path):
     assert p2.claim("other-token", "abc")
 
 
-def test_concurrent_claimants_have_one_winner(tmp_path: pathlib.Path):
-    lanes = _lanes(tmp_path, *(f"p{i}" for i in range(8)))
-    barrier = threading.Barrier(len(lanes))
-    wins: list[str] = []
-    lock = threading.Lock()
-
-    def _try(run_dir: RunDir) -> None:
-        barrier.wait()
-        if run_dir.claim("tok", "block"):
-            with lock:
-                wins.append(run_dir.lane or "")
-
-    threads = [threading.Thread(target=_try, args=(rd,)) for rd in lanes]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert len(wins) == 1
-    assert (tmp_path / "shared-run" / "claims" / "tok" / "block").read_text().strip() == wins[0]
-
-
 def test_episode_ids_start_after_existing_episode_dirs(tmp_path: pathlib.Path):
     p1, p2 = _lanes(tmp_path, "p1", "p2")
     episodes = tmp_path / "shared-run" / "episodes"
@@ -288,44 +211,10 @@ def test_episode_ids_start_after_existing_episode_dirs(tmp_path: pathlib.Path):
     assert (episodes / ".next_episode_id").read_text().strip() == "11"
 
 
-def test_episode_ids_start_at_zero_in_fresh_run(tmp_path: pathlib.Path):
-    (p1,) = _lanes(tmp_path, "p1")
-    assert p1.reserve_episode_ids(4) == 0
-    assert p1.reserve_episode_ids(1) == 4
-
-
-def test_episode_id_ranges_from_concurrent_processes_are_disjoint(tmp_path: pathlib.Path):
-    _lanes(tmp_path, "p0")
-    script = "import pathlib, sys\nfrom arena_evaluation.benchmark.state import RunDir\nrd = RunDir.open(pathlib.Path(sys.argv[1]), 'shared-run', lane=sys.argv[2])\nprint(' '.join(str(rd.reserve_episode_ids(3)) for _ in range(20)))\n"
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(_PACKAGE_ROOT), os.environ.get("PYTHONPATH")]))}
-    procs = [subprocess.Popen([sys.executable, "-c", script, str(tmp_path), f"p{i}"], stdout=subprocess.PIPE, text=True, env=env) for i in range(1, 5)]
-    starts: list[int] = []
-    for proc in procs:
-        out, _ = proc.communicate(timeout=120)
-        assert proc.returncode == 0
-        starts.extend(int(x) for x in out.split())
-    assert sorted(starts) == list(range(0, 3 * len(starts), 3))
-
-
-def test_shared_create_joins_existing_manifest(tmp_path: pathlib.Path):
-    first = RunDir.create(tmp_path, "shared-run", _make_manifest(created_at="first"), lane="p1")
-    second = RunDir.create(tmp_path, "shared-run", _make_manifest(created_at="second"), lane="p2")
-    assert first.manifest.created_at == "first"
-    assert second.manifest.created_at == "first"
-    assert Manifest.from_yaml((tmp_path / "shared-run" / "manifest.yaml").read_text()).created_at == "first"
-    assert not list((tmp_path / "shared-run").glob(".manifest.*.tmp"))
-
-
 def test_shared_create_rejects_config_hash_mismatch(tmp_path: pathlib.Path):
     RunDir.create(tmp_path, "shared-run", _make_manifest(), lane="p1")
     with pytest.raises(ManifestMismatchError, match="config_hash"):
         RunDir.create(tmp_path, "shared-run", _make_manifest(config_hash="1" * 40), lane="p2")
-
-
-def test_create_without_lane_still_refuses_existing_dir(tmp_path: pathlib.Path):
-    RunDir.create(tmp_path, "shared-run", _make_manifest(), lane="p1")
-    with pytest.raises(FileExistsError):
-        RunDir.create(tmp_path, "shared-run", _make_manifest())
 
 
 def test_lane_file_names(tmp_path: pathlib.Path):

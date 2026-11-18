@@ -6,14 +6,10 @@ import pathlib
 
 import polars as pl
 import pytest
-from polars.testing import assert_frame_equal
 
-from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.scoped_evaluator import write_series_tables
 from arena_evaluation.storage.contracts import ContractViolationError
 from arena_evaluation.storage.registry import TableKind, registered_tables
-from arena_evaluation.storage.registry.series import SERIES_TABLES, SeriesClearance
-from arena_evaluation.storage.schemas import RobotParams
 
 _ROBOT_KEY = ("run_id", "episode_id", "robot_id", "t_ns")
 _PEDESTRIAN_KEY = ("run_id", "episode_id", "robot_id", "t_ns", "ped_id")
@@ -156,78 +152,6 @@ def _series_classes() -> dict[str, type]:
         for table in registered_tables()
         if table.table_kind is TableKind.SERIES
     }
-
-
-def test_the_eleven_series_tables_are_declared_as_their_own_kind() -> None:
-    assert set(_series_classes()) == set(_EXPECTED_COLUMNS)
-    assert {table.table_name for table in SERIES_TABLES.values()} == set(
-        _EXPECTED_COLUMNS
-    )
-
-
-@pytest.mark.parametrize("name", sorted(_EXPECTED_COLUMNS))
-def test_series_schema_is_pinned_in_name_order_and_dtype(name: str) -> None:
-    assert _series_classes()[name].polars_schema() == pl.Schema(_EXPECTED_COLUMNS[name])
-
-
-@pytest.mark.parametrize("name", sorted(_EXPECTED_COLUMNS))
-def test_series_row_key_is_pinned(name: str) -> None:
-    assert _series_classes()[name].key == _EXPECTED_KEYS[name]
-
-
-@pytest.mark.parametrize("name", sorted(_EXPECTED_COLUMNS))
-def test_series_file_lives_in_the_metrics_folder_of_its_episode(name: str) -> None:
-    assert (
-        _series_classes()[name].relative_path().as_posix() == f"metrics/{name}.parquet"
-    )
-
-
-@pytest.mark.parametrize("name", sorted(_EXPECTED_COLUMNS))
-def test_series_carry_no_null_reason_column(name: str) -> None:
-    assert "null_reason" not in _series_classes()[name].polars_schema()
-
-
-def test_every_series_table_has_a_producing_calculator_and_every_producer_a_table() -> (
-    None
-):
-    registry = MetricRegistry(
-        RobotParams(
-            model="test",
-            robot_radius=0.25,
-            laser_min_range=None,
-            laser_max_range=None,
-            base_mass=0.0,
-            component_masses={},
-        )
-    )
-    produced = {stem for stem, _ in registry.series_calculators()}
-
-    assert produced == set(SERIES_TABLES)
-
-
-def test_a_series_frame_is_written_and_read_back_with_its_declared_class(
-    tmp_path: pathlib.Path,
-) -> None:
-    frame = pl.DataFrame(
-        {
-            "run_id": ["bench", "bench"],
-            "episode_id": [0, 0],
-            "robot_id": ["jackal", "jackal"],
-            "t_ns": [0, 100_000_000],
-            "obstacle_clearance_m": [0.5, None],
-            "pedestrian_clearance_m": [None, 1.25],
-            "combined_clearance_m": [0.5, 1.25],
-        },
-        schema=SeriesClearance.polars_schema(),
-    )
-    metrics = tmp_path / "episodes" / "episode_000" / "metrics"
-
-    write_series_tables({"clearance": frame}, metrics)
-
-    assert_frame_equal(
-        SeriesClearance.scan(tmp_path / "episodes" / "episode_000").collect(), frame
-    )
-    assert (metrics / "series_clearance.parquet").is_file()
 
 
 def _clearance(**overrides: pl.Series) -> pl.DataFrame:

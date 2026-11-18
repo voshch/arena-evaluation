@@ -19,10 +19,6 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
 
-SERIES_TABLE_STEM = "pedestrian_path"
-SERIES_KEY = ("t_ns", "ped_id")
-SERIES_REQUIRED_TOPICS = ("pedestrian_arena_peds",)
-
 SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPedestrianPathMetrics.polars_schema()
 
 _REQUIRED_TRACK_COLUMNS: typing.Final[frozenset[str]] = frozenset(

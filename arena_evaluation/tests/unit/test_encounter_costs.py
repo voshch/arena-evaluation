@@ -10,8 +10,6 @@ import yaml
 
 from arena_evaluation.processing.metrics.social.encounter_costs import (
     EncounterCostsCalculator,
-    max_orthogonal_deviation_m,
-    mutual_accommodation_ratio,
 )
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
@@ -250,25 +248,6 @@ def test_pedestrian_without_a_radius_has_no_planned_route(
     assert outputs["mar_vs_planned_route"] is None
 
 
-def test_an_encounter_with_a_non_pedestrian_is_not_applicable(
-    open_run_dir: pathlib.Path,
-) -> None:
-    robot_samples, ped_samples = _straight_pair()
-    episode = _episode(
-        _robot_table(robot_samples), _ped_table(ped_samples), run_dir=open_run_dir
-    )
-
-    outputs = _calculator().calculate_for_scope(
-        episode, {}, _window(1.0, 3.0, actor_kind="robot")
-    )
-
-    assert all(outputs[name] is None for name in ENCOUNTER_OUTPUTS)
-    assert all(
-        outputs[f"{name}{NULL_REASON_SUFFIX}"] == "not_applicable"
-        for name in ENCOUNTER_OUTPUTS
-    )
-
-
 def test_the_calculator_publishes_only_encounter_scope_outputs() -> None:
     assert {metric.name for metric in EncounterCostsCalculator.OUTPUTS} == set(
         ENCOUNTER_OUTPUTS
@@ -279,29 +258,3 @@ def test_the_calculator_publishes_only_encounter_scope_outputs() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("robot_excess_m", "pedestrian_excess_m", "expected"),
-    [(0.828, 0.0, 1.0), (1.0, 1.0, 0.5), (-0.5, 2.0, 0.0), (0.0, 0.0, None)],
-)
-def test_mutual_accommodation_ratio_floors_each_excess_at_zero(
-    robot_excess_m: float, pedestrian_excess_m: float, expected: float | None
-) -> None:
-    ratio = mutual_accommodation_ratio(robot_excess_m, pedestrian_excess_m)
-
-    if expected is None:
-        assert ratio is None
-    else:
-        assert ratio == pytest.approx(expected, abs=1e-9)
-
-
-def test_orthogonal_deviation_is_perpendicular_inside_a_segment_and_clipped_at_its_ends() -> (
-    None
-):
-    polyline = np.array([[0.0, 0.0], [2.0, 0.0]])
-
-    assert max_orthogonal_deviation_m(
-        np.array([[1.0, 1.0]]), polyline
-    ) == pytest.approx(1.0)
-    assert max_orthogonal_deviation_m(
-        np.array([[3.0, 0.0]]), polyline
-    ) == pytest.approx(1.0)

@@ -7,6 +7,17 @@ from typing import Any, Final
 
 from .base import domain
 
+_METRIC_PAIR = ("evaluation_metrics", "evaluation_describe_metric")
+_QUERY_PAIR = ("evaluation_query", "evaluation_queries")
+_MANIFEST_MIGRATION = ("evaluation_migrate_manifest", "evaluation_manifest_mappings")
+_REPORT_FLOW = (
+    "evaluation_report_draft",
+    "evaluation_report_plot",
+    "evaluation_report_view",
+    "evaluation_report_review",
+    "evaluation_report_assemble",
+)
+
 ROLES: Final[dict[str, dict[str, Any]]] = {
     "lead": {
         "purpose": "Coordinate investigation, inspect run status/schema, and review findings.",
@@ -14,13 +25,11 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
             "evaluation_runs",
             "evaluation_status",
             "evaluation_schema",
-            "evaluation_metrics",
-            "evaluation_describe_metric",
+            *_METRIC_PAIR,
             "evaluation_findings",
             "evaluation_tables",
             "evaluation_lint_declarations",
-            "evaluation_migrate_manifest",
-            "evaluation_manifest_mappings",
+            *_MANIFEST_MIGRATION,
             "evaluation_validate_manifest",
         ],
     },
@@ -39,8 +48,7 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
         "purpose": "Run statistical queries, named analyses, sensitivity reruns, and propose findings.",
         "tools": [
             "evaluation_schema",
-            "evaluation_query",
-            "evaluation_queries",
+            *_QUERY_PAIR,
             "evaluation_analysis",
             "evaluation_sensitivity",
             "evaluation_tables",
@@ -82,38 +90,26 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
             "evaluation_read_plot_declaration",
             "evaluation_render_plot",
             "evaluation_manifests",
-            "evaluation_report_draft",
-            "evaluation_report_plot",
-            "evaluation_report_view",
-            "evaluation_report_review",
-            "evaluation_report_assemble",
+            *_REPORT_FLOW,
             "evaluation_evidence",
             "evaluation_save_plot_declaration",
-            "evaluation_migrate_manifest",
-            "evaluation_manifest_mappings",
+            *_MANIFEST_MIGRATION,
             "evaluation_lint_declarations",
         ],
     },
     "migration": {
         "purpose": "Port a pre-overhaul report manifest to the current grammar and prove every binding.",
         "tools": [
-            "evaluation_migrate_manifest",
-            "evaluation_manifest_mappings",
-            "evaluation_metrics",
-            "evaluation_describe_metric",
+            *_MANIFEST_MIGRATION,
+            *_METRIC_PAIR,
             "evaluation_schema",
             "evaluation_tables",
-            "evaluation_query",
-            "evaluation_queries",
+            *_QUERY_PAIR,
             "evaluation_query_save",
             "evaluation_validate_manifest",
             "evaluation_lint_declarations",
             "evaluation_render_plot",
-            "evaluation_report_draft",
-            "evaluation_report_plot",
-            "evaluation_report_view",
-            "evaluation_report_review",
-            "evaluation_report_assemble",
+            *_REPORT_FLOW,
             "evaluation_evidence",
             "evaluation_findings",
             "evaluation_finding_create",

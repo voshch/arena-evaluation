@@ -40,10 +40,14 @@ _REJECTED_MANIFEST_FILENAMES: Final[frozenset[str]] = frozenset(
 )
 
 
-class PlotDataSpec(BaseModel):
-    """Data binding for a plot: catalog source, SQL query, stored query, computation, or evidence."""
+class _ForbidExtraModel(BaseModel):
+    """Base declaration model that rejects undeclared fields."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class PlotDataSpec(_ForbidExtraModel):
+    """Data binding for a plot: catalog source, SQL query, stored query, computation, or evidence."""
 
     source: str | None = None
     query: str | None = None
@@ -83,10 +87,8 @@ class PlotDataSpec(BaseModel):
         return self
 
 
-class PlotChannels(BaseModel):
+class PlotChannels(_ForbidExtraModel):
     """Visual channel mappings for grammar-of-graphics plot declarations."""
-
-    model_config = ConfigDict(extra="forbid")
 
     x: str | list[str] | None = None
     y: str | list[str] | None = None
@@ -109,20 +111,16 @@ class PlotChannels(BaseModel):
         return data
 
 
-class PlotSliceSpec(BaseModel):
+class PlotSliceSpec(_ForbidExtraModel):
     """Entity or window slice for targeted episode, encounter, or contact plots."""
-
-    model_config = ConfigDict(extra="forbid")
 
     episode_id: int | None = None
     encounter_id: str | None = None
     contact_id: str | None = None
 
 
-class PlotChecks(BaseModel):
+class PlotChecks(_ForbidExtraModel):
     """Declared per-plot build checks; an unknown key is rejected instead of ignored."""
-
-    model_config = ConfigDict(extra="forbid")
 
     require_columns: list[str] = Field(default_factory=list)
     min_rows: int | None = None
@@ -131,10 +129,8 @@ class PlotChecks(BaseModel):
     allow_all_null: list[str] = Field(default_factory=list)
 
 
-class PlotSpec(BaseModel):
+class PlotSpec(_ForbidExtraModel):
     """Single plot declaration in a report manifest or recipe."""
-
-    model_config = ConfigDict(extra="forbid")
 
     id: str = ""
     type: str = ""
@@ -173,29 +169,23 @@ class PlotSpec(BaseModel):
         return self
 
 
-class ManifestGroup(BaseModel):
+class ManifestGroup(_ForbidExtraModel):
     """Report section grouping plots under a rendered heading."""
-
-    model_config = ConfigDict(extra="forbid")
 
     id: str
     title: str
 
 
-class SummarySpec(BaseModel):
+class SummarySpec(_ForbidExtraModel):
     """One metric column of the report summary table."""
-
-    model_config = ConfigDict(extra="forbid")
 
     metric: str
     label: str
     format: str = "{:.2f}"
 
 
-class VizManifest(BaseModel):
+class VizManifest(_ForbidExtraModel):
     """Declarative specification of plots and summary tables for a benchmark report."""
-
-    model_config = ConfigDict(extra="forbid")
 
     manifest_version: str = "1.0"
     name: str | None = None

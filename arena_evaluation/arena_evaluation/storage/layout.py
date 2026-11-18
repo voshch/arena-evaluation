@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import pathlib
+from collections.abc import Callable
 from typing import Final
 
 import yaml
@@ -99,33 +100,35 @@ def write_episode_stamp(metrics_dir: pathlib.Path) -> None:
     )
 
 
-def _yaml_stamp(path: pathlib.Path) -> dict[str, object] | None:
-    """The YAML stamp payload, or None when the file is absent, undecodable or not a mapping."""
+def _stamp(
+    path: pathlib.Path,
+    load: Callable[[str], object],
+    errors: tuple[type[Exception], ...],
+) -> dict[str, object] | None:
+    """The stamp payload, or None when the file is absent, undecodable or not a mapping."""
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        payload = load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) + errors:
         return None
     return payload if isinstance(payload, dict) else None
 
 
-def _json_stamp(path: pathlib.Path) -> dict[str, object] | None:
-    """The JSON stamp payload, or None when the file is absent, undecodable or not a mapping."""
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def episode_is_complete(metrics_dir: pathlib.Path) -> bool:
-    """Whether the episode metrics directory carries the current completion stamp; unreadable is incomplete."""
-    payload = _json_stamp(metrics_dir / _EPISODE_STAMP_FILE)
-    if payload is None:
-        return False
+def _is_current_stamp(payload: dict[str, object]) -> bool:
+    """Whether a stamp payload carries the native layout version and the current schema hash."""
     return (
         payload.get("layout_version") == NATIVE_LAYOUT_VERSION
         and payload.get("schema_hash") == registry_schema_hash()
     )
+
+
+def episode_is_complete(metrics_dir: pathlib.Path) -> bool:
+    """Whether the episode metrics directory carries the current completion stamp; unreadable is incomplete."""
+    payload = _stamp(
+        metrics_dir / _EPISODE_STAMP_FILE, json.loads, (json.JSONDecodeError,)
+    )
+    if payload is None:
+        return False
+    return _is_current_stamp(payload)
 
 
 def _episode_directories(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...]:
@@ -171,11 +174,8 @@ def check_benchmark_layout(benchmark_dir: pathlib.Path) -> None:
         if facts:
             raise _stale(root, f"{_BENCHMARK_STAMP_FILE} is absent")
         return
-    payload = _yaml_stamp(stamp_path)
-    if payload is None or (
-        payload.get("layout_version") != NATIVE_LAYOUT_VERSION
-        or payload.get("schema_hash") != registry_schema_hash()
-    ):
+    payload = _stamp(stamp_path, yaml.safe_load, (yaml.YAMLError,))
+    if payload is None or not _is_current_stamp(payload):
         raise _stale(root, f"{_BENCHMARK_STAMP_FILE} does not match the native layout")
 
 
@@ -207,8 +207,7 @@ def retire_legacy_outputs(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ..
     ]
     sources.extend(
         path
-        for episode in _episode_directories(root)
-        for path in sorted((episode / "metrics").glob("fact_*.parquet"))
-        if not episode_is_complete(episode / "metrics")
+        for path in _episode_fact_files(_episode_directories(root))
+        if not episode_is_complete(path.parent)
     )
     return tuple(_move_to_legacy(root, source) for source in sources)

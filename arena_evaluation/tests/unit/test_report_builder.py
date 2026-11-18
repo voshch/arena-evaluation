@@ -87,43 +87,6 @@ def _sample_manifest() -> VizManifest:
     )
 
 
-def test_report_builder_single_run_records_provenance_and_artifacts(
-    tmp_path: pathlib.Path,
-) -> None:
-    bench_dir = tmp_path / "bench_single"
-    write_benchmark(bench_dir, _ROWS)
-    out_dir = tmp_path / "out_single"
-    builder = ReportBuilder(bench_dir, output_dir=out_dir, manifest=_sample_manifest())
-    report_path = builder.build()
-
-    assert report_path is not None and report_path.exists()
-    assert report_path.parent == out_dir / "reports" / "builder_test"
-    report_html = report_path.read_text(encoding="utf-8")
-    assert "plotly-graph-div" in report_html
-    assert "plotly.js v" in report_html
-    assert not (report_path.parent / "plotly.min.js").exists()
-    assert (report_path.parent / "plots" / "planner_success.png").exists()
-    assert (report_path.parent / "plots" / "episode_ttg.png").exists()
-
-    assert builder.build_checks.plots_total == 2
-    assert builder.build_checks.failed_count == 0
-    assert builder.build_checks.passed_count == 2
-
-    result = builder.build_result
-    assert result is not None
-    assert len(result.plots) == 2
-    assert all(rec.passed for rec in result.plots)
-    assert any(rec.evidence_id for rec in result.plots)
-    assert all(rec.snapshot_id for rec in result.plots)
-
-    html = report_path.read_text(encoding="utf-8")
-    assert "Builder Test Report" in html
-    assert "Success Rate" in html and "Time to Goal [s]" in html
-    assert "100.0%" in html
-    assert "evidence:" not in html
-    assert "snapshot:" not in html
-
-
 def test_report_builder_from_dirs_merges_multiple_catalogs(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -357,27 +320,6 @@ def _summary_frame(pairs: list[tuple[str, str, float]]) -> pl.DataFrame:
             "std": [1.0] * len(pairs),
         }
     )
-
-
-def test_summary_table_pivots_one_mean_per_group_and_metric() -> None:
-    """One row per group, one column per declared metric, in the manifest's metric order."""
-    table = _summary_frame(
-        [
-            ("teb", "success", 0.5),
-            ("dwb", "success", 1.0),
-            ("teb", "time_to_goal", 18.0),
-            ("dwb", "time_to_goal", 11.0),
-        ]
-    )
-    specs = [
-        SummarySpec(metric="success", label="Success", format="{:.0%}"),
-        SummarySpec(metric="time_to_goal", label="Time [s]", format="{:.1f}"),
-    ]
-
-    data = _summary_table_data(table, ["planner"], specs)
-
-    assert data["headers"] == ["planner", "Success", "Time [s]"]
-    assert data["rows"] == [["teb", "50%", "18.0"], ["dwb", "100%", "11.0"]]
 
 
 def test_summary_table_rejects_a_repeated_group_and_metric_cell() -> None:

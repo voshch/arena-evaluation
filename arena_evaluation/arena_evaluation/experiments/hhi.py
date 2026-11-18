@@ -71,7 +71,6 @@ def _default_suite_path() -> pathlib.Path:
     return _ROOT.parents[2] / "configs" / "suites" / "hhi_contact" / "suite.yaml"
 
 
-# -- generation --------------------------------------------------------------------------------
 
 
 class Geometry(typing.NamedTuple):
@@ -301,7 +300,6 @@ def generate(
     return suite
 
 
-# -- analysis ----------------------------------------------------------------------------------
 
 FAMILY_METRICS = {
     "success": "success",

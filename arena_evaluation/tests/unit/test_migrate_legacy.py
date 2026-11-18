@@ -246,22 +246,6 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
     )
 
 
-def test_a_fleet_less_recording_synthesises_its_descriptor(
-    tmp_path: pathlib.Path,
-) -> None:
-    episode = _episode(tmp_path / "episode_000", _sept_records())
-
-    migrate_episode(episode)
-
-    descriptor = pl.read_parquet(episode / "topics" / "robot_descriptor.parquet")
-    params = pl.read_parquet(episode / "topics" / "robot_params.parquet")
-    assert descriptor.height == 1
-    assert descriptor["model"].to_list() == ["jackal"]
-    recorded = dict(zip(params["param_key"], params["param_value"], strict=True))
-    assert float(recorded["robot_radius"]) > 0.0
-    assert float(recorded["robot_mass_kg"]) > 0.0
-
-
 def test_a_missing_robot_definition_is_a_loud_migration_error(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -270,25 +254,6 @@ def test_a_missing_robot_definition_is_a_loud_migration_error(
 
     with pytest.raises(MigrationError, match="definitely_not_a_robot"):
         migrate_episode(episode)
-
-
-def test_a_migrated_episode_still_resolves_its_edge_case_scenario(
-    tmp_path: pathlib.Path,
-) -> None:
-    from arena_evaluation.processing.metrics.edge_case.provenance import scenario_name
-
-    metadata = {
-        **_METADATA,
-        "tm_robots": "scenario",
-        "robots_params": {"file": "s.yaml"},
-    }
-    episode = _episode(tmp_path / "episode_000", _sept_records(), metadata)
-
-    migrated = migrate_episode(episode)
-
-    assert migrated.modes["robots"] == ["scenario"]
-    assert migrated.params["task.scenario.file"] == "s.yaml"
-    assert scenario_name(migrated) == "s.yaml"
 
 
 def test_a_benchmark_root_migrates_only_its_episodes_and_writes_the_report(

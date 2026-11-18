@@ -9,12 +9,13 @@ writes the converted bundle only when the caller explicitly asks for it.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import pathlib
-from typing import Annotated, Any, Final
+from typing import Annotated, Any
 
-import pydantic
 import yaml
 from arena_mcp.core import ToolError
+from pydantic import Field
 
 from arena_evaluation.storage.config_layout import run_analysis_root
 
@@ -33,15 +34,16 @@ __all__ = [
     "evaluation_migrate_manifest",
 ]
 
-_CONVERTER_MODULE: Final[str] = "arena_evaluation.presentation.legacy_manifest"
+
+def _described(kind: Any, description: str) -> Any:
+    """Annotate a tool parameter with its published description."""
+    return Annotated[kind, Field(description=description)]
 
 
 def _converter() -> Any:
     """Import the L4 legacy converter lazily and fail with a hint when it is not installed."""
-    import importlib
-
     try:
-        return importlib.import_module(_CONVERTER_MODULE)
+        return importlib.import_module("arena_evaluation.presentation.legacy_manifest")
     except ImportError as exc:
         raise ToolError(
             "the legacy manifest converter is not available in this build",
@@ -53,37 +55,30 @@ def _converter() -> Any:
         ) from exc
 
 
-def _manifest_path(source: str) -> pathlib.Path:
-    """Return the existing pre-overhaul manifest file for ``source``."""
+def _convert(source: str) -> tuple[Any, Any]:
+    """Run the L4 converter on one legacy manifest: its module and the migration object."""
+    converter = _converter()
     path = pathlib.Path(source).expanduser()
     if not path.is_file():
         raise ToolError(
             f"no legacy manifest file at {path}",
             hint="pass the path to a pre-overhaul configs/benchmark/manifests/<name>.yaml file",
         )
-    return path.resolve()
-
-
-def _convert(source: str) -> Any:
-    """Run the L4 converter on one legacy manifest and return its migration object."""
-    converter = _converter()
-    path = _manifest_path(source)
+    path = path.resolve()
     from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 
     dictionary = metric_dictionary()
     # The L4 converter takes in-memory metric maps, so this is the explicit boundary
     # where the columnar dictionary becomes the converter's inputs.
-    metric_names = dictionary.get_column("metric")
-    fact_table_names = dictionary.get_column("fact_table")
-    names = metric_names.to_list()  # agent-contracts: ignore AC004
-    fact_tables = fact_table_names.to_list()  # agent-contracts: ignore AC004
-    known = frozenset(str(name) for name in names)
-    metric_tables = {
-        str(name): str(table or "")
-        for name, table in zip(names, fact_tables, strict=True)
-    }
+    names = dictionary.get_column("metric").to_list()  # agent-contracts: ignore AC004
+    fact_tables = dictionary.get_column(
+        "fact_table"
+    ).to_list()  # agent-contracts: ignore AC004
+    metrics = list(zip(names, fact_tables, strict=True))
+    known = frozenset(str(name) for name, _ in metrics)
+    metric_tables = {str(name): str(table or "") for name, table in metrics}
     try:
-        return converter.convert_legacy_file(
+        migration = converter.convert_legacy_file(
             path,
             metric_map=converter.load_metric_map(None),
             known_metrics=known,
@@ -94,44 +89,28 @@ def _convert(source: str) -> Any:
             f"cannot convert legacy manifest {path.name!r}: {exc}",
             hint="the converter accepts the pre-overhaul manifest grammar; fix the manifest or migrate it by hand",
         ) from exc
-
-
-def _renamed(migration: Any, target: str) -> Any:
-    """Return ``migration`` with its manifest name replaced by ``target`` when they differ."""
-    if migration.manifest.name == target:
-        return migration
-    manifest = migration.manifest.model_copy(update={"name": target})
-    return dataclasses.replace(migration, manifest=manifest)
+    return converter, migration
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_migrate_manifest(
-    source: Annotated[
-        str,
-        pydantic.Field(
-            description="path to a pre-overhaul report manifest YAML file to convert"
-        ),
-    ],
-    target: Annotated[
+    source: _described(
+        str, "path to a pre-overhaul report manifest YAML file to convert"
+    ),
+    target: _described(
         str | None,
-        pydantic.Field(
-            description="report bundle name to write under <run>/analysis/reports; defaults to the legacy name"
-        ),
-    ] = None,
+        "report bundle name to write under <run>/analysis/reports; defaults to the legacy name",
+    ) = None,
     *,
     run_id: OptionalRunId = None,
-    dry_run: Annotated[
+    dry_run: _described(
         bool,
-        pydantic.Field(
-            description="when true only return the skeleton and the conversion report; nothing is written"
-        ),
-    ] = True,
-    overwrite: Annotated[
+        "when true only return the skeleton and the conversion report; nothing is written",
+    ) = True,
+    overwrite: _described(
         bool,
-        pydantic.Field(
-            description="replace an existing report.yaml in the target bundle"
-        ),
-    ] = False,
+        "replace an existing report.yaml in the target bundle",
+    ) = False,
 ) -> dict[str, Any]:
     """Convert a legacy manifest into the current grammar, reporting every unresolved plot.
 
@@ -142,14 +121,15 @@ def evaluation_migrate_manifest(
     editing the skeleton blindly. The target bundle is written only with ``dry_run=False``
     and a run id, under ``<run>/analysis/reports/<target>/``.
     """
-    migration = _convert(source)
+    converter, migration = _convert(source)
     target_name = component(
         target or str(migration.manifest.name), "target report name"
     )
-    converted = _renamed(migration, target_name)
-    converter = _converter()
-    skeleton = converter.render_manifest_yaml(converted)
-    migration_report = converter.render_migration_report(converted)
+    if migration.manifest.name != target_name:
+        manifest = migration.manifest.model_copy(update={"name": target_name})
+        migration = dataclasses.replace(migration, manifest=manifest)
+    skeleton = converter.render_manifest_yaml(migration)
+    migration_report = converter.render_migration_report(migration)
 
     written: dict[str, str] | None = None
     if not dry_run:
@@ -208,16 +188,12 @@ def evaluation_migrate_manifest(
 
 @domain.tool(read_only=True)
 def evaluation_manifest_mappings(
-    manifest: Annotated[
-        str,
-        pydantic.Field(
-            description="path to a pre-overhaul report manifest YAML file to map"
-        ),
-    ],
+    manifest: _described(
+        str, "path to a pre-overhaul report manifest YAML file to map"
+    ),
 ) -> dict[str, Any]:
     """The old->new metric and plot mapping table for one legacy manifest, without writing."""
-    migration = _convert(manifest)
-    converter = _converter()
+    converter, migration = _convert(manifest)
     migration_report = converter.render_migration_report(migration)
     plots = [
         {

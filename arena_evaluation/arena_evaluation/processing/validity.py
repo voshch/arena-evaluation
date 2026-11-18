@@ -41,10 +41,7 @@ FATAL_OUTCOME_STATE: Final[int] = 5
 def invalid_episode(why: str) -> str:
     """``invalid_episode:<why>`` token, rejected when ``why`` is outside the declared vocabulary."""
     base = why.partition(":")[0]
-    known = (
-        why in INVALID_EPISODE_REASONS or f"{base}:<topic>" in INVALID_EPISODE_REASONS
-    )
-    if not known:
+    if why not in INVALID_EPISODE_REASONS and f"{base}:<topic>" not in INVALID_EPISODE_REASONS:
         raise ValueError(
             f"unknown invalid_episode reason {why!r}; declare it in INVALID_EPISODE_REASONS"
         )
@@ -53,21 +50,20 @@ def invalid_episode(why: str) -> str:
 
 def teleport_reason(tracks: pl.DataFrame | None) -> str | None:
     """``invalid_episode:pose_teleport`` when consecutive ground-truth samples jump more than a robot can travel."""
-    if (
-        tracks is None
-        or len(tracks) < 2
-        or not {"t_ns", "x", "y"} <= set(tracks.columns)
-    ):
+    if tracks is None or not {"t_ns", "x", "y"} <= set(tracks.columns):
         return None
     rows = tracks.select("t_ns", "x", "y").drop_nulls().sort("t_ns")
     if len(rows) < 2:
         return None
     steps_m = np.hypot(
-        np.diff(rows.get_column("x").to_numpy().astype(np.float64)),
-        np.diff(rows.get_column("y").to_numpy().astype(np.float64)),
+        np.diff(rows["x"].to_numpy().astype(np.float64)),
+        np.diff(rows["y"].to_numpy().astype(np.float64)),
     )
-    impossible = steps_m > TELEPORT_STEP_M
-    return None if not bool(np.any(impossible)) else invalid_episode("pose_teleport")
+    return (
+        invalid_episode("pose_teleport")
+        if np.any(steps_m > TELEPORT_STEP_M)
+        else None
+    )
 
 
 def episode_validity(
@@ -77,22 +73,15 @@ def episode_validity(
     integrity: Sequence[str],
 ) -> tuple[bool, str | None]:
     """``(is_valid_for_ranking, invalid_reason)``: every defect found, None when the episode is rankable."""
-    defects: list[str] = []
-    if robot_tracks is None or len(robot_tracks) == 0:
-        defects.append(invalid_episode(f"missing_stream:{ROBOT_TRACKS_TOPIC}"))
-    else:
-        jump = teleport_reason(robot_tracks)
-        if jump is not None:
-            defects.append(jump)
-    if outcome_state is None or outcome_state not in RANKABLE_OUTCOME_STATES:
-        defects.append(
-            invalid_episode(
-                "simulator_error"
-                if outcome_state == FATAL_OUTCOME_STATE
-                else "incomplete_recording"
-            )
-        )
+    defects: dict[str, None] = {}
+    if robot_tracks is None or robot_tracks.is_empty():
+        defects[invalid_episode(f"missing_stream:{ROBOT_TRACKS_TOPIC}")] = None
+    elif (jump := teleport_reason(robot_tracks)) is not None:
+        defects[jump] = None
+    if outcome_state not in RANKABLE_OUTCOME_STATES:
+        why = "simulator_error" if outcome_state == FATAL_OUTCOME_STATE else "incomplete_recording"
+        defects[invalid_episode(why)] = None
     if integrity:
-        defects.append(invalid_episode("incomplete_recording"))
-    reasons = tuple(dict.fromkeys(defects))
-    return not reasons, ";".join(reasons) or None
+        defects[invalid_episode("incomplete_recording")] = None
+    reason = ";".join(defects) or None
+    return not reason, reason

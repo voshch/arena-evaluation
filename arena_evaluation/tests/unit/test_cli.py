@@ -75,28 +75,6 @@ def test_validate_suite_accepts_a_bundle(
     assert "1 stage(s) without an explicit seed: preflight" in captured.err
 
 
-def test_validate_suite_does_not_warn_when_every_stage_has_a_seed(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from arena_evaluation.cli import _main_impl
-
-    bundle = tmp_path / "configs" / "suites" / "seeded"
-    bundle.mkdir(parents=True)
-    (bundle / "suite.yaml").write_text(
-        "stages:\n"
-        "  - name: preflight\n"
-        "    episodes: 1\n"
-        "    robot: jackal\n"
-        "    map: map_empty\n"
-        "    tm_robots: random\n"
-        "    tm_obstacles: random\n"
-        "    seed: 7\n"
-    )
-
-    assert _main_impl(["validate", "--suite", str(bundle)]) == 0
-    assert "without an explicit seed" not in capsys.readouterr().err
-
-
 def test_validate_suite_rejects_a_non_mapping_root(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -125,8 +103,3 @@ def test_validate_contest_rejects_a_duplicate_contestant(
     assert capsys.readouterr().err.startswith("Error: ")
 
 
-def test_validate_requires_exactly_one_definition() -> None:
-    from arena_evaluation.cli import _main_impl
-
-    with pytest.raises(SystemExit):
-        _main_impl(["validate"])

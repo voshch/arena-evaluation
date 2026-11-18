@@ -11,9 +11,7 @@ def _ros_gate():
         pytest.skip("ROS2 not available")
 
 
-# ---------------------------------------------------------------------------
 # Suite.parse
-# ---------------------------------------------------------------------------
 
 
 def _make_stage_dict(**overrides: object) -> dict:
@@ -95,9 +93,7 @@ def test_suite_parse_launch_rejects_a_non_scalar_value():
         )
 
 
-# ---------------------------------------------------------------------------
 # Suite.Stage.parse
-# ---------------------------------------------------------------------------
 
 
 def test_stage_parse_happy_path():
@@ -303,9 +299,7 @@ def test_suite_parse_accepts_the_name_key_without_warning(caplog):
     assert "unknown top-level keys" not in caplog.text
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - list form
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_list_happy_path():
@@ -385,9 +379,7 @@ def test_contest_parse_list_all_keys_except_name_go_to_args():
     }
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - list form (dict-cap)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_list_dict_cap():
@@ -429,9 +421,7 @@ def test_contest_parse_list_dict_cap_no_driver():
     assert cap["local_planner"] == "teb"
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - dict-wrapped list form (name + contestants)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_dict_with_contestants_list():
@@ -487,9 +477,7 @@ def test_contest_parse_dict_with_contestants_list_and_description():
     assert result.contestants[0].name == "p1"
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - sweep form
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_sweep_one_axis():
@@ -588,9 +576,7 @@ def test_contest_parse_invalid_type_raises():
         Contest.parse("c", "not_a_valid_type")  # type: ignore[arg-type]
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - sweep form (dict-cap)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_sweep_dict_cap_one_inner_axis():
@@ -871,9 +857,7 @@ def test_robot_with_parts_replaces_items_of_the_same_key():
     )
 
 
-# ---------------------------------------------------------------------------
 # _parse_duration
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

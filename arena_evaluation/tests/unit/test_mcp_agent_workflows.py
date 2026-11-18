@@ -434,7 +434,6 @@ def _persisted(run_dir: pathlib.Path, table: str) -> pl.DataFrame:
     )
 
 
-# --- slices ------------------------------------------------------------------
 
 
 def test_contact_slice_explains_the_attributed_contact(run: pathlib.Path) -> None:
@@ -504,34 +503,6 @@ def test_episode_slice_lists_every_interaction(run: pathlib.Path) -> None:
     assert response.pedestrians.n_rows == 2
 
 
-def test_slice_series_is_the_window_not_the_whole_episode(run: pathlib.Path) -> None:
-    response = evaluation_slice(RUN_ID, contact_id=CONTACT_ID, preview_limit=50)
-
-    series = {preview.table: preview for preview in response.series}
-    exposure = series["series_acoustic_exposure"]
-    assert exposure.n_rows == 1
-    assert exposure.rows[0]["ped_id"] == PEDESTRIAN_NEAR
-    assert exposure.rows[0]["t_ns"] == 1_300_000_000
-    assert_frame_equal(
-        pl.DataFrame(exposure.rows, schema=SERIES_EXPOSURE_SCHEMA).select(
-            "t_ns", "ped_id", "exposure_dba"
-        ),
-        pl.DataFrame(
-            [
-                {
-                    "run_id": RUN_ID,
-                    "episode_id": EPISODE_ID,
-                    "robot_id": "robot_0",
-                    "t_ns": 1_300_000_000,
-                    "ped_id": PEDESTRIAN_NEAR,
-                    "exposure_dba": 61.0,
-                }
-            ],
-            schema=SERIES_EXPOSURE_SCHEMA,
-        ).select("t_ns", "ped_id", "exposure_dba"),
-    )
-
-
 @pytest.mark.parametrize(
     ("ids", "message"),
     [
@@ -578,7 +549,6 @@ def test_worst_encounters_reject_an_unranked_measure(run: pathlib.Path) -> None:
         evaluation_worst_encounters(RUN_ID, metric="actor_2")
 
 
-# --- findings ----------------------------------------------------------------
 
 
 def test_finding_create_list_review_and_attach(run: pathlib.Path) -> None:

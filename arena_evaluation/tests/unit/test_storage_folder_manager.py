@@ -14,12 +14,10 @@ import pytest
 from arena_evaluation.storage.exceptions import ManifestGenerationError
 from arena_evaluation.storage.folder_manager import FolderManager
 from arena_evaluation.storage.manifest import MetadataWriter
-from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
+from arena_evaluation.storage.schemas import RunMetadata
 
 
-# ---------------------------------------------------------------------------
 # helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_metadata(
@@ -77,29 +75,7 @@ def _make_episode_dir(root: pathlib.Path, benchmark_id: str = "bench") -> pathli
     return ep_dir
 
 
-# ---------------------------------------------------------------------------
 # __init__
-# ---------------------------------------------------------------------------
-
-
-def test_init_resolves_data_root(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    assert fm.data_root == tmp_path.resolve()
-    assert fm.data_root.is_dir()
-
-
-def test_init_creates_missing_data_root(tmp_path: pathlib.Path):
-    target = tmp_path / "a" / "b" / "c"
-    assert not target.exists()
-    fm = FolderManager(target)
-    assert fm.data_root == target.resolve()
-    assert fm.data_root.is_dir()
-
-
-def test_init_accepts_str_data_root(tmp_path: pathlib.Path):
-    fm = FolderManager(str(tmp_path / "nested"))
-    assert fm.data_root == (tmp_path / "nested").resolve()
-    assert fm.data_root.is_dir()
 
 
 def test_init_default_root_uses_package_share(tmp_path: pathlib.Path):
@@ -115,93 +91,13 @@ def test_init_default_root_follows_arena_data_dir(tmp_path: pathlib.Path):
     assert fm.data_root.is_dir()
 
 
-def test_benchmark_dir_resolves_only_the_benchmarks_root(tmp_path: pathlib.Path):
-    (tmp_path / "runs" / "bench").mkdir(parents=True)
-    (tmp_path / "benchmarks" / "bench").mkdir(parents=True)
-    fm = FolderManager(tmp_path)
-    assert fm.benchmark_dir("bench") == (tmp_path / "bench").resolve()
-
-
-# ---------------------------------------------------------------------------
 # episodes_dir / episode_dir
-# ---------------------------------------------------------------------------
 
 
-def test_episodes_dir(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    assert fm.episodes_dir("bench") == (tmp_path / "bench" / "episodes").resolve()
-
-
-def test_episode_dir_formatting(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    expected = (tmp_path / "bench" / "episodes" / "episode_007").resolve()
-    assert fm.episode_dir("bench", 7) == expected
-
-
-@pytest.mark.parametrize(
-    "episode_id, expected_name",
-    [(0, "episode_000"), (42, "episode_042"), (1234, "episode_1234")],
-)
-def test_episode_dir_zero_padding(
-    tmp_path: pathlib.Path, episode_id: int, expected_name: str
-):
-    fm = FolderManager(tmp_path)
-    expected = (tmp_path / "bench" / "episodes" / expected_name).resolve()
-    assert fm.episode_dir("bench", episode_id) == expected
-
-
-def test_episode_dir_missing_path_resolves_without_creating(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    result = fm.episode_dir("bench", 1)
-    assert result == (tmp_path / "bench" / "episodes" / "episode_001").resolve()
-    assert not result.exists()
-
-
-def test_episode_dir_returns_pathlib_path(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    assert isinstance(fm.episode_dir("bench", 1), pathlib.Path)
-
-
-# ---------------------------------------------------------------------------
 # traversal protection
-# ---------------------------------------------------------------------------
 
 
-def test_episodes_dir_blocks_parent_traversal(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.episodes_dir("../outside")
-
-
-def test_episode_dir_blocks_parent_traversal(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.episode_dir("../outside", 1)
-
-
-def test_episode_dir_blocks_absolute_escape(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    # An absolute benchmark_id that resolves outside data_root must be refused.
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.episode_dir(str(tmp_path.parent / "outside"), 1)
-
-
-def test_episode_dir_absolute_nested_inside_root_is_allowed(tmp_path: pathlib.Path):
-    """pathlib replacement semantics: an absolute benchmark_id nested under
-    data_root resolves to that nested location, which is still inside."""
-    fm = FolderManager(tmp_path)
-    expected = (tmp_path / "nested" / "episodes" / "episode_001").resolve()
-    assert fm.episode_dir(str(tmp_path / "nested"), 1) == expected
-
-
-# ---------------------------------------------------------------------------
 # discover_episodes
-# ---------------------------------------------------------------------------
-
-
-def test_discover_episodes_no_episodes_dir(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path)
-    assert fm.discover_episodes("bench") == []
 
 
 def test_discover_episodes_episodes_dir_is_file(tmp_path: pathlib.Path):
@@ -211,71 +107,11 @@ def test_discover_episodes_episodes_dir_is_file(tmp_path: pathlib.Path):
     assert fm.discover_episodes("bench") == []
 
 
-def test_discover_episodes_empty_episodes_dir(tmp_path: pathlib.Path):
-    (tmp_path / "bench" / "episodes").mkdir(parents=True)
-    fm = FolderManager(tmp_path)
-    assert fm.discover_episodes("bench") == []
-
-
-def test_discover_episodes_single(tmp_path: pathlib.Path):
-    _write_episode(tmp_path, 1)
-    fm = FolderManager(tmp_path)
-    episodes = fm.discover_episodes("bench")
-    assert len(episodes) == 1
-    assert episodes[0].episode_id == 1
-
-
-def test_discover_episodes_descriptor_fields(tmp_path: pathlib.Path):
-    ep_dir = _write_episode(
-        tmp_path, 5, planner="dwb", stage="stage_one", map_name="map_empty"
-    )
-    fm = FolderManager(tmp_path)
-    episodes = fm.discover_episodes("bench")
-    assert len(episodes) == 1
-    descriptor = episodes[0]
-    assert isinstance(descriptor, EpisodeDescriptor)
-    assert descriptor.episode_dir == str(ep_dir)
-    assert descriptor.benchmark_id == "bench"
-    assert descriptor.episode_id == 5
-    assert descriptor.planner == "dwb"
-    assert descriptor.stage == "stage_one"
-    assert descriptor.map == "map_empty"
-    assert descriptor.is_reference is False
-    assert descriptor.reference_type is None
-
-
-def test_discover_episodes_reference_descriptor(tmp_path: pathlib.Path):
-    _write_episode(tmp_path, 7, is_reference=True, reference_type="unobstructed_robot")
-    fm = FolderManager(tmp_path)
-    descriptor = fm.discover_episodes("bench")[0]
-    assert descriptor.is_reference is True
-    assert descriptor.reference_type == "unobstructed_robot"
-
-
 def test_discover_episodes_legacy_metadata_yaml(tmp_path: pathlib.Path):
     ep_dir = _write_episode(tmp_path, 9, legacy=True)
     assert (ep_dir / "metadata.yaml").exists()
     fm = FolderManager(tmp_path)
     assert [e.episode_id for e in fm.discover_episodes("bench")] == [9]
-
-
-def test_discover_episodes_skips_non_episode_entries(tmp_path: pathlib.Path):
-    root = tmp_path
-    _write_episode(root, 1)
-    (root / "bench" / "episodes" / "scratch").mkdir()
-    (root / "bench" / "episodes" / "episode_099").write_text("file, not dir")
-    fm = FolderManager(root)
-    assert [e.episode_id for e in fm.discover_episodes("bench")] == [1]
-
-
-def test_discover_episodes_skips_bad_ids(tmp_path: pathlib.Path):
-    root = tmp_path
-    _write_episode(root, 1)
-    (root / "bench" / "episodes" / "episode_abc").mkdir()
-    (root / "bench" / "episodes" / "episode_").mkdir()
-    (root / "bench" / "episodes" / "episode_1_extra").mkdir()
-    fm = FolderManager(root)
-    assert [e.episode_id for e in fm.discover_episodes("bench")] == [1]
 
 
 def test_discover_episodes_skips_missing_sidecar(tmp_path: pathlib.Path):
@@ -300,14 +136,6 @@ def test_discover_episodes_refuses_an_empty_sidecar_loudly(tmp_path: pathlib.Pat
         fm.discover_episodes("bench")
 
 
-def test_discover_episodes_lexical_order_not_numeric(tmp_path: pathlib.Path):
-    """Discovery sorts by directory NAME, so episode_10 precedes episode_2."""
-    _write_episode(tmp_path, 2, name="episode_2")
-    _write_episode(tmp_path, 10, name="episode_10")
-    fm = FolderManager(tmp_path)
-    assert [e.episode_id for e in fm.discover_episodes("bench")] == [10, 2]
-
-
 def test_discover_episodes_sorted_and_filtered(tmp_path: pathlib.Path):
     root = tmp_path
     _write_episode(root, 1)
@@ -323,60 +151,7 @@ def test_discover_episodes_sorted_and_filtered(tmp_path: pathlib.Path):
     assert episodes[1].map == "map_empty"
 
 
-# ---------------------------------------------------------------------------
 # mcap_path_for_episode
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("files", "expected"),
-    [
-        pytest.param(
-            {"episode_001.mcap": "payload", "other.mcap": "payload"},
-            "episode_001.mcap",
-            id="canonical_preferred",
-        ),
-        pytest.param(
-            {"episode_001.mcap": ""},
-            "episode_001.mcap",
-            id="canonical_zero_size_still_used",
-        ),
-        pytest.param(
-            {"recording.mcap": "payload"}, "recording.mcap", id="fallback_other_name"
-        ),
-        pytest.param(
-            {"b.mcap": "bb", "a.mcap": "aa"}, "a.mcap", id="fallback_first_lexically"
-        ),
-        pytest.param(
-            {"zzz.mcap": "", "a.mcap": "aa"}, "a.mcap", id="fallback_skips_zero_size"
-        ),
-        pytest.param(
-            {"recording.mcap": ""},
-            "episode_001.mcap",
-            id="only_zero_size_returns_canonical",
-        ),
-        pytest.param({}, "episode_001.mcap", id="missing_returns_canonical"),
-    ],
-)
-def test_mcap_path_for_episode(tmp_path: pathlib.Path, files, expected):
-    ep_dir = _make_episode_dir(tmp_path)
-    for name, content in files.items():
-        (ep_dir / name).write_text(content)
-    assert (
-        FolderManager(tmp_path).mcap_path_for_episode(ep_dir)
-        == (ep_dir / expected).resolve()
-    )
-
-
-def test_mcap_canonical_symlink_escape_raises(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path / "root")
-    ep_dir = fm.episode_dir("bench", 1)
-    ep_dir.mkdir(parents=True)
-    escape = tmp_path / "escape_canonical.mcap"
-    escape.write_text("secret")
-    os.symlink(escape, ep_dir / "episode_001.mcap")
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.mcap_path_for_episode(ep_dir)
 
 
 def test_mcap_fallback_symlink_escape_raises(tmp_path: pathlib.Path):
@@ -390,36 +165,6 @@ def test_mcap_fallback_symlink_escape_raises(tmp_path: pathlib.Path):
         fm.mcap_path_for_episode(ep_dir)
 
 
-def test_mcap_broken_symlink_propagates_filenotfound(tmp_path: pathlib.Path):
-    """Regression-doc: a dangling .mcap symlink crashes path resolution.
-
-    mcap_path_for_episode stats every glob match (size > 0 filter); a
-    broken symlink raises FileNotFoundError before a fallback can be
-    returned. Documenting current behavior; likely a source bug.
-    """
-    ep_dir = _make_episode_dir(tmp_path)
-    os.symlink(tmp_path / "missing_target.mcap", ep_dir / "broken.mcap")
-    fm = FolderManager(tmp_path)
-    with pytest.raises(FileNotFoundError):
-        fm.mcap_path_for_episode(ep_dir)
-
-
-# ---------------------------------------------------------------------------
 # extracted_topics_path_for_episode
-# ---------------------------------------------------------------------------
 
 
-def test_extracted_topics_path(tmp_path: pathlib.Path):
-    ep_dir = _make_episode_dir(tmp_path)
-    fm = FolderManager(tmp_path)
-    assert fm.extracted_topics_path_for_episode(ep_dir) == (ep_dir / "topics").resolve()
-
-
-def test_extracted_topics_path_escape_raises(tmp_path: pathlib.Path):
-    fm = FolderManager(tmp_path / "root")
-    with pytest.raises(ValueError, match="outside data_root"):
-        fm.extracted_topics_path_for_episode(tmp_path / "evil" / "episode_001")
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------

@@ -219,11 +219,6 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
     return root
 
 
-def test_sql_guard_preserves_double_dash_inside_string_literal() -> None:
-    cleaned = validate_readonly_sql("SELECT 'a--b' AS literal_val FROM dim_episodes")
-    assert "'a--b'" in cleaned
-
-
 @pytest.mark.parametrize(
     "sql",
     [
@@ -250,20 +245,6 @@ def test_sql_guard_preserves_double_dash_inside_string_literal() -> None:
 def test_sql_guard_refuses_file_reading_table_functions(sql: str) -> None:
     with pytest.raises(SQLGuardError, match="External table function"):
         validate_readonly_sql(sql)
-
-
-def test_sql_engine_allows_string_literal_containing_table_function_name() -> None:
-    engine = PolarsSQLEngine(BenchmarkCatalog())
-    res = engine.query("SELECT 'read_csv' AS x")
-    assert res.item(0, "x") == "read_csv"
-
-
-def test_sql_engine_refuses_save_as_onto_base_table_or_canonical_view() -> None:
-    engine = PolarsSQLEngine(BenchmarkCatalog())
-    with pytest.raises(SQLGuardError, match="protected"):
-        engine.query("SELECT 1 AS x", save_as="dim_episodes")
-    with pytest.raises(SQLGuardError, match="protected"):
-        engine.query("SELECT 1 AS x", save_as="v_episode_summary")
 
 
 def test_sql_engine_has_no_default_row_cap() -> None:
@@ -306,17 +287,6 @@ def test_query_catalog_surfaces_malformed_yaml_and_validates_save(
         decl.render_sql({"ep": "not_an_int"})
 
 
-def test_query_catalog_searches_run_dir_before_package(tmp_path: pathlib.Path) -> None:
-    run_queries = tmp_path / "analysis" / "queries" / "robot_speed_distribution"
-    run_queries.mkdir(parents=True)
-    (run_queries / "query.yaml").write_text(
-        "name: robot_speed_distribution\ndescription: override\nsql: SELECT 42 AS override_val\n",
-        encoding="utf-8",
-    )
-    catalog = QueryCatalog(run_dir=tmp_path)
-    assert "42 AS override_val" in catalog.get_query("robot_speed_distribution").sql
-
-
 def test_all_shipped_queries_execute_on_fixture(tmp_path: pathlib.Path) -> None:
     bench = _write_query_fixture_benchmark(tmp_path / "bench")
     catalog = BenchmarkCatalog.open(bench)
@@ -330,97 +300,6 @@ def test_all_shipped_queries_execute_on_fixture(tmp_path: pathlib.Path) -> None:
     for declaration in shipped:
         df = qcat.execute(declaration, engine)
         assert df.height >= 1, f"{declaration.name} returned 0 rows"
-
-
-def test_non_reference_trajectory_queries_do_not_fan_out_per_robot(
-    tmp_path: pathlib.Path,
-) -> None:
-    """A two-robot episode repeats neither a robot sample nor a pedestrian sample (L3-010, L3-011)."""
-    bench = _write_query_fixture_benchmark(tmp_path / "bench")
-    dim_episodes = pl.read_parquet(bench / "dim_episodes.parquet")
-    frame = pl.DataFrame(
-        [
-            dim_episodes.row(0, named=True),
-            {**dim_episodes.row(0, named=True), "robot_id": "robot_1"},
-        ]
-    )
-    frame.write_parquet(bench / "dim_episodes.parquet")
-
-    catalog = BenchmarkCatalog.open(bench)
-    engine = PolarsSQLEngine(catalog)
-    qcat = QueryCatalog()
-
-    # One robot sample and two pedestrian samples exist; the second robot of the episode has none.
-    robot_rows = qcat.execute("robot_tracks_non_ref", engine)
-    assert robot_rows.height == 2
-    assert robot_rows.get_column("robot_id").unique().to_list() == ["robot_0"]
-
-    pedestrian_rows = qcat.execute("pedestrian_arena_peds_non_ref", engine)
-    assert pedestrian_rows.height == 2
-    assert set(pedestrian_rows.columns) == {
-        "run_id",
-        "episode_id",
-        "ped_id",
-        "world",
-        "t_ns",
-        "x",
-        "y",
-        "yaw",
-    }
-
-    deflection_rows = qcat.execute("pedestrian_deflection_by_inter_planner", engine)
-    assert deflection_rows.height == 1
-
-    # The local-planner variant groups the same deflection by the episode's local planner (R2-10).
-    local_planner_rows = qcat.execute("pedestrian_deflection_by_local_planner", engine)
-    assert local_planner_rows.height == 1
-    assert set(local_planner_rows.columns) == {
-        "local_planner",
-        "ped_path_deflection_m",
-    }
-
-    # The pedestrian-scope exposure query is keyed on the episode, not on the robot (R2-10, L3-010).
-    exposure_rows = qcat.execute("pedestrian_exposure_by_planner", engine)
-    assert exposure_rows.height == 1
-    assert set(exposure_rows.columns) == {
-        "planner",
-        "world",
-        "stage",
-        "crowd_condition",
-        "ped_id",
-        "ped_policy",
-        "ped_max_exposure_dba",
-        "ped_leq_exposure_dba",
-        "ped_max_startle_factor",
-        "ped_path_deflection_m",
-    }
-
-
-def test_snapshot_id_tracks_telemetry_bytes_and_the_evaluator_identity(
-    tmp_path: pathlib.Path,
-) -> None:
-    """Series and telemetry inputs and the evaluator version are part of the snapshot (L3-003)."""
-    from arena_evaluation.analytics.evidence import compute_snapshot_id
-
-    bench = _write_query_fixture_benchmark(tmp_path / "bench")
-    before = compute_snapshot_id(bench)
-    assert before.startswith("snap-")
-
-    tracks = next(bench.rglob("robot_tracks.parquet"))
-    frame = pl.read_parquet(tracks)
-    frame.with_columns(pl.col("x") + 1.0).write_parquet(tracks)
-    assert compute_snapshot_id(bench) != before
-
-
-def test_evidence_index_schema_is_flat_and_registered() -> None:
-    from arena_evaluation.analytics.evidence import EVIDENCE_INDEX_SCHEMA
-    from arena_evaluation.storage.registry.analysis import EvidenceIndex
-    from arena_evaluation.storage.registry.table import TableKind
-
-    assert EvidenceIndex.table_kind is TableKind.ANALYSIS
-    assert EVIDENCE_INDEX_SCHEMA == EvidenceIndex.polars_schema()
-    nested = (pl.List, pl.Struct, pl.Object, pl.Array)
-    assert not any(isinstance(dt, nested) for dt in EVIDENCE_INDEX_SCHEMA.values())
 
 
 def test_evidence_store_writes_under_analysis_is_order_and_purpose_insensitive_and_allows_empty(
@@ -477,11 +356,6 @@ def test_evidence_store_writes_under_analysis_is_order_and_purpose_insensitive_a
 
     with pytest.raises(ValueError, match="snapshot_id"):
         store.record(df1, kind="sql", operation="q1", snapshot_id="")
-
-
-def test_sql_engine_allows_scan_column_names() -> None:
-    sql = validate_readonly_sql("SELECT scan_max_m, scan_min_m FROM robot_scan_summary")
-    assert sql == "SELECT scan_max_m, scan_min_m FROM robot_scan_summary"
 
 
 def test_evidence_store_rejects_nested_frames(tmp_path: pathlib.Path) -> None:

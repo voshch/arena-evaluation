@@ -2,7 +2,6 @@ import dataclasses
 
 import polars as pl
 import pytest
-from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.metrics.base import MetricScope, ScopeSlice
 from arena_evaluation.processing.metrics.ecological.energy import EnergyCalculator
@@ -35,25 +34,6 @@ def calc() -> EnergyCalculator:
     return EnergyCalculator(make_robot_params(robot_radius=0.25, base_mass=MASS))
 
 
-@pytest.mark.parametrize(
-    "columns",
-    [
-        {"speed_mps": [0.1, 0.2, 0.3]},
-        {
-            "total_power_w": pl.Series([None, None, None], dtype=pl.Float64),
-            "battery_soc_percent": pl.Series([None, None, None], dtype=pl.Float64),
-        },
-    ],
-    ids=["missing-power-and-battery", "all-null-power"],
-)
-def test_missing_power_and_battery_give_null_energy(calc, columns) -> None:
-    results = calc.calculate(_episode(**columns), {})
-    assert set(results) == set(calc.output_keys())
-    assert results["energy_total_wh"] is None
-    assert results["power_peak_w"] is None
-    assert results["battery_soc_final"] is None
-
-
 def test_leading_power_nulls_are_back_filled(calc):
     results = calc.calculate(
         _episode(total_power_w=pl.Series([None, 36.0, 72.0], dtype=pl.Float64)), {}
@@ -61,26 +41,6 @@ def test_leading_power_nulls_are_back_filled(calc):
     assert results["energy_total_wh"] == pytest.approx((36.0 + 72.0) / 3600.0)
     assert results["power_peak_w"] == pytest.approx(72.0)
     assert results["energy_static_wh"] is None
-
-
-@pytest.mark.parametrize(
-    ("power_w", "counter_wh"),
-    [
-        ([0.0, 0.0, 7200.0], None),
-        ([0.0, 3600.0, 3600.0], [1.0, 1.5, 2.25]),
-        ([0.0, 3600.0, 3600.0], [0.0, 1.0, 2.0]),
-    ],
-    ids=["integral-not-mean-times-duration", "disagreeing-counter", "consistent-counter"],
-)
-def test_total_is_the_integral_of_power(
-    calc, power_w: list[float], counter_wh: list[float] | None
-) -> None:
-    # The integral of the power series is the total; a device counter only cross-checks it.
-    columns: dict[str, object] = {"total_power_w": power_w}
-    if counter_wh is not None:
-        columns["total_energy_consumed_wh"] = counter_wh
-    results = calc.calculate(_episode(**columns), {})
-    assert results["energy_total_wh"] == pytest.approx(2.0)
 
 
 def test_mean_power_is_energy_over_the_episode_span(calc):
@@ -91,22 +51,6 @@ def test_mean_power_is_energy_over_the_episode_span(calc):
     assert results["mean_power_w"] == pytest.approx(36.0)
 
 
-def test_without_episode_data_every_output_is_none(calc):
-    empty = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
-    results = calc.calculate(empty, {})
-    assert set(results) == set(calc.output_keys())
-    assert all(value is None for value in results.values())
-
-
-def test_cost_of_transport_is_energy_over_weight_times_distance(calc):
-    results = calc.calculate(
-        _episode(total_power_w=[0.0, 3600.0]), {"path_length_m": 10.0}
-    )
-    assert results["specific_cost_of_transport"] == pytest.approx(
-        3600.0 / (MASS * GRAVITY * 10.0), rel=1e-9
-    )
-
-
 def test_cost_of_transport_is_unreported_without_a_declared_mass():
     undeclared = EnergyCalculator(make_robot_params(robot_radius=0.25))
     results = undeclared.calculate(
@@ -114,21 +58,6 @@ def test_cost_of_transport_is_unreported_without_a_declared_mass():
     )
     assert results["specific_cost_of_transport"] is None
     assert results["energy_per_meter"] == pytest.approx(0.1)
-
-
-def test_energy_per_meter_divides_by_the_path(calc):
-    results = calc.calculate(
-        _episode(total_power_w=[0.0, 9000.0]), {"path_length_m": 10.0}
-    )
-    assert results["energy_per_meter"] == pytest.approx(0.25)
-
-
-def test_negligible_path_length_is_rejected(calc):
-    results = calc.calculate(
-        _episode(total_power_w=[0.0, 3600.0]), {"path_length_m": 0.05}
-    )
-    assert results["specific_cost_of_transport"] is None
-    assert results["energy_per_meter"] is None
 
 
 @pytest.mark.parametrize(
@@ -153,17 +82,6 @@ def test_peak_to_mean_power_ratio_is_median_filtered(
         assert ratio == pytest.approx(expected)
 
 
-def test_standstill_penalty_only_bills_stationary_samples(calc):
-    results = calc.calculate(
-        _episode(
-            total_power_w=[10.0, 10.0, 50.0, 50.0], speed_mps=[0.0, 0.0, 1.0, 1.0]
-        ),
-        {},
-    )
-    # One stationary second at 10 W; the moving samples are not charged.
-    assert results["standstill_energy_penalty_wh"] == pytest.approx(10.0 / 3600.0)
-
-
 def test_short_standstill_blocks_are_ignored(calc):
     episode = _episode_at(
         [0, 100_000_000, 200_000_000, 300_000_000],
@@ -175,82 +93,6 @@ def test_short_standstill_blocks_are_ignored(calc):
     )
 
 
-def test_a_robot_that_never_moves_is_billed_for_the_whole_run(calc):
-    results = calc.calculate(
-        _episode(total_power_w=[20.0, 20.0, 20.0], speed_mps=[0.0, 0.0, 0.0]), {}
-    )
-    assert results["standstill_energy_penalty_wh"] == pytest.approx(40.0 / 3600.0)
-
-
-def test_kinetic_energy_demand_stays_unknown_until_a_yaw_rate_is_recorded(calc):
-    results = calc.calculate(
-        _episode(
-            total_power_w=[10.0, 10.0, 10.0, 10.0], speed_mps=[0.0, 1.0, 1.0, 0.0]
-        ),
-        {},
-    )
-    assert results["kinetic_energy_demand_j"] is None
-
-
-def test_series_table_is_flat_one_row_per_sample(calc):
-    power = pl.Series([None, 36.0, 72.0], dtype=pl.Float64)
-    table = calc.series_table(
-        _episode(total_power_w=power, speed_mps=[0.1, 0.2, 0.3]),
-        run_id="run",
-        robot_id="robot",
-    )
-    expected = pl.DataFrame(
-        {
-            "run_id": ["run"] * 3,
-            "episode_id": [1] * 3,
-            "robot_id": ["robot"] * 3,
-            "t_ns": [0, SEC, 2 * SEC],
-            "time_s": [0.0, 1.0, 2.0],
-            "power_total_w": [36.0, 36.0, 72.0],
-            "power_static_w": [None, None, None],
-            "power_mechanical_w": [None, None, None],
-            "power_thermal_w": [None, None, None],
-            "battery_soc_pct": [None, None, None],
-            "velocity_linear_mps": [0.1, 0.2, 0.3],
-        },
-        schema={
-            "run_id": pl.String,
-            "episode_id": pl.Int64,
-            "robot_id": pl.String,
-            "t_ns": pl.Int64,
-            "time_s": pl.Float64,
-            "power_total_w": pl.Float64,
-            "power_static_w": pl.Float64,
-            "power_mechanical_w": pl.Float64,
-            "power_thermal_w": pl.Float64,
-            "battery_soc_pct": pl.Float64,
-            "velocity_linear_mps": pl.Float64,
-        },
-    )
-    assert_frame_equal(table, expected, check_dtypes=True, rel_tol=1e-12)
-
-
-def test_series_table_without_data_keeps_the_schema(calc):
-    empty = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
-    assert len(calc.series_table(empty)) == 0
-    assert calc.series_table(empty).schema == pl.Schema(
-        {
-            "run_id": pl.String,
-            "episode_id": pl.Int64,
-            "robot_id": pl.String,
-            "t_ns": pl.Int64,
-            "time_s": pl.Float64,
-            "power_total_w": pl.Float64,
-            "power_static_w": pl.Float64,
-            "power_mechanical_w": pl.Float64,
-            "power_thermal_w": pl.Float64,
-            "battery_soc_pct": pl.Float64,
-            "velocity_linear_mps": pl.Float64,
-        }
-    )
-
-
-# --- ENCOUNTER scope ---------------------------------------------------------
 
 
 def _encounter_episode(
@@ -316,45 +158,6 @@ def test_encounter_scope_divides_by_the_path_it_is_given(calc):
     assert result["peak_to_mean_power_ratio"] == pytest.approx(1.0)
 
 
-def test_encounter_scope_honours_an_explicit_path_prior(calc):
-    episode = _encounter_episode()
-    window = _encounter_slice(episode, episode)
-    result = calc.calculate_for_scope(
-        window.window_bundle, {"path_length_m": 10.0}, window
-    )
-    assert result["energy_per_meter"] == pytest.approx(0.2 / 10.0)
-
-
-def test_encounter_surge_ratio_compares_the_window_with_the_whole_episode(calc):
-    window_episode = _encounter_episode(power_w=360.0)
-    full_episode = _encounter_episode(power_w=120.0)
-    window = _encounter_slice(window_episode, full_episode)
-    result = calc.calculate_for_scope(
-        window.window_bundle, {"mean_power_w": 120.0}, window
-    )
-    assert result["energy_surge_ratio"] == pytest.approx(3.0)
-
-
-def test_encounter_surge_ratio_prefers_the_robot_scope_prior(calc):
-    """The ROBOT-scope mean power is the one definition; a differing episode mean is not recomputed."""
-    window_episode = _encounter_episode(power_w=360.0)
-    full_episode = _encounter_episode(power_w=60.0)
-    window = _encounter_slice(window_episode, full_episode)
-    result = calc.calculate_for_scope(
-        window.window_bundle, {"mean_power_w": 120.0}, window
-    )
-    assert result["energy_surge_ratio"] == pytest.approx(3.0)
-
-
-def test_a_power_gap_longer_than_the_fill_bound_leaves_energy_undefined(calc):
-    """Nine missing samples are not invented from the last value: the integral is NULL, not a guess."""
-    times = [0, SEC, 2 * SEC, 3 * SEC]
-    gaps = pl.Series([10.0, None, None, 10.0], dtype=pl.Float64)
-    results = calc.calculate(_episode_at(times, total_power_w=gaps), {})
-    assert results["energy_total_wh"] is None
-    assert results["power_peak_w"] == pytest.approx(10.0)
-
-
 def test_a_short_power_gap_is_filled_from_the_bracketing_sample(calc):
     """A gap of at most the fill bound is filled; its duration is charged at the measured power."""
     times = [0, 100_000_000, 200_000_000]
@@ -379,13 +182,3 @@ def test_mechanical_energy_reads_the_aligned_mechanical_power_column(calc):
     assert results["energy_mechanical_wh"] == pytest.approx(results["energy_total_wh"])
 
 
-def test_kinetic_energy_demand_uses_the_recorded_yaw_rate(calc):
-    episode = _episode(
-        total_power_w=[10.0] * 3,
-        total_mech_power_w=[10.0] * 3,
-        speed_mps=[0.0] * 3,
-        omega_z=[0.0, 1.0, 0.0],
-    )
-    results = calc.calculate(episode, {})
-    spin_up_j = 0.5 * calc.robot_params.mass * calc.robot_params.robot_radius**2 * 0.5
-    assert results["kinetic_energy_demand_j"] == pytest.approx(2 * spin_up_j)

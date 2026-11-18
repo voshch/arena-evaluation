@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 import typing
 from collections import defaultdict
@@ -30,6 +29,7 @@ from arena_evaluation.processing.metrics.common.resampling import (
 from arena_evaluation.processing.metrics.common.rosters import (
     entity_roster as _entity_roster,
     ped_roster as _ped_roster,
+    strip_env,
 )
 from arena_evaluation.processing.metrics.common.zones import (
     ZoneGeometry,
@@ -38,12 +38,9 @@ from arena_evaluation.processing.metrics.common.zones import (
 from arena_evaluation.processing.pedestrian_frames import frames_of
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
-from arena_evaluation.processing.metrics.common.rosters import strip_env
 
 if typing.TYPE_CHECKING:
     from arena_simulation_setup.tree.World import Level
-
-logger = logging.getLogger(__name__)
 
 CLAUSES_FAILED = define_metric(
     "clauses_failed",
@@ -178,16 +175,6 @@ def _node_series(node: Node, ctx: _EvalContext) -> tuple[np.ndarray | None, bool
     return series, True
 
 
-def _operator_verdict(
-    op: str,
-    p_series: np.ndarray | None,
-    p_ok: bool,
-    q_series: np.ndarray | None,
-    q_ok: bool,
-) -> bool | None:
-    return operator_verdict(op, p_series, p_ok, q_series, q_ok)
-
-
 def _clause_verdict(clause: dict, ctx: _EvalContext) -> bool | None:
     """Score one clause dict, returning UNKNOWN (None) on any malformed or unresolvable input."""
     try:
@@ -198,9 +185,9 @@ def _clause_verdict(clause: dict, ctx: _EvalContext) -> bool | None:
 
     p_series, p_ok = _node_series(cond.p_node, ctx)
     if cond.q_node is None:
-        return _operator_verdict(cond.op, p_series, p_ok, None, False)
+        return operator_verdict(cond.op, p_series, p_ok, None, False)
     q_series, q_ok = _node_series(cond.q_node, ctx)
-    return _operator_verdict(cond.op, p_series, p_ok, q_series, q_ok)
+    return operator_verdict(cond.op, p_series, p_ok, q_series, q_ok)
 
 
 class ConditionComplianceCalculator(BaseMetricCalculator):

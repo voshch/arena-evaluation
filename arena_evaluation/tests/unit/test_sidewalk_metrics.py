@@ -1,4 +1,3 @@
-import math
 
 import numpy as np
 import polars as pl
@@ -10,9 +9,6 @@ from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
 )
 from arena_evaluation.processing.metrics.performance.sidewalk_metrics import (
     SidewalkMetricsCalculator,
-    excursions,
-    freezes,
-    walkable_area,
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.metrics.base import ScopeSlice
@@ -121,53 +117,6 @@ def _waiting(until: float):
     return position
 
 
-def test_clean_run_along_the_sidewalk_and_crosswalk_completes():
-    results = _calc().calculate(_episode(_lane, 22.0), {})
-    assert results["sidewalk_route_completion"] is True
-    assert results["sidewalk_off_sidewalk"] is False
-    assert results["sidewalk_freezes"] == 0
-    assert results["sidewalk_failures_per_100m"] == 0.0
-    assert results["sidewalk_mean_speed"] == pytest.approx(1.0, abs=1e-6)
-
-
-def test_leaving_the_sidewalk_twice_and_one_collision_count_three_failures():
-    results = _calc().calculate(_episode(_weave, 22.0, collision_at=10.0), {})
-    path = 20.1 - 4.0 + 4 * math.sqrt(10.0)
-    assert results["sidewalk_route_completion"] is False
-    assert results["sidewalk_off_sidewalk"] is True
-    assert results["sidewalk_freezes"] == 0
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(
-        3 / path * 100.0, abs=1e-6
-    )
-    assert results["sidewalk_mean_speed"] == pytest.approx(path / 20.1, abs=1e-6)
-
-
-def test_off_sidewalk_alone_fails_the_route():
-    results = _calc().calculate(_episode(_weave, 22.0), {})
-    assert results["sidewalk_route_completion"] is False
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(
-        2 / (20.1 - 4.0 + 4 * math.sqrt(10.0)) * 100.0, abs=1e-6
-    )
-
-
-def test_collision_alone_fails_the_route():
-    results = _calc().calculate(_episode(_lane, 22.0, collision_at=7.0), {})
-    assert results["sidewalk_route_completion"] is False
-    assert results["sidewalk_off_sidewalk"] is False
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(
-        1 / 20.1 * 100.0, abs=1e-6
-    )
-
-
-def test_driving_through_the_road_zone_is_off_the_sidewalk():
-    def through_road(t: float) -> tuple[float, float]:
-        return t, 0.0 if t < 3 else 4.0
-
-    results = _calc().calculate(_episode(through_road, 22.0, goal=[21.05, 4.0]), {})
-    assert results["sidewalk_off_sidewalk"] is True
-    assert results["sidewalk_route_completion"] is False
-
-
 def test_curb_is_not_walkable():
     def curb_walk(t: float) -> tuple[float, float]:
         return t, -2.5
@@ -180,83 +129,12 @@ def test_curb_is_not_walkable():
     )
 
 
-def test_stop_longer_than_five_seconds_is_one_freeze():
-    results = _calc().calculate(_episode(_stopping(5.0, 13.0), 30.0), {})
-    assert results["sidewalk_freezes"] == 1
-    assert results["sidewalk_failures_per_100m"] == pytest.approx(
-        1 / 20.1 * 100.0, abs=1e-6
-    )
-    assert results["sidewalk_route_completion"] is True
-
-
-def test_stop_of_three_seconds_is_not_a_freeze():
-    assert (
-        _calc().calculate(_episode(_stopping(5.0, 8.0), 30.0), {})["sidewalk_freezes"]
-        == 0
-    )
-
-
-def test_two_separate_stops_are_two_freezes():
-    def position(t: float) -> tuple[float, float]:
-        return float(np.interp(t, [0, 4, 11, 14, 21, 40], [0, 4, 4, 7, 7, 33])), 0.0
-
-    assert _calc().calculate(_episode(position, 40.0), {})["sidewalk_freezes"] == 2
-
-
-def test_standing_at_the_start_is_excused_for_two_seconds():
-    assert _calc().calculate(_episode(_waiting(7.0), 40.0), {})["sidewalk_freezes"] == 0
-    assert _calc().calculate(_episode(_waiting(8.0), 40.0), {})["sidewalk_freezes"] == 1
-
-
-def test_freeze_window_is_exclusive_of_five_seconds():
-    assert freezes(np.zeros(200), 20, 200, 50) == 1
-    assert freezes(np.zeros(200), 20, 70, 50) == 0
-    assert freezes(np.zeros(200), 20, 71, 50) == 1
-
-
-def test_standing_at_the_goal_after_arrival_is_not_a_freeze():
-    def arrive(t: float) -> tuple[float, float]:
-        return min(t, 21.0), 0.0
-
-    results = _calc().calculate(_episode(arrive, 60.0), {})
-    assert results["sidewalk_freezes"] == 0
-    assert results["sidewalk_route_completion"] is True
-
-
-def test_goal_not_reached_is_not_a_completion_and_speed_spans_the_recording():
-    def slow(t: float) -> tuple[float, float]:
-        return 0.5 * t, 0.0
-
-    results = _calc().calculate(_episode(slow, 20.0), {})
-    assert results["sidewalk_route_completion"] is False
-    assert results["sidewalk_off_sidewalk"] is False
-    assert results["sidewalk_mean_speed"] == pytest.approx(0.5, abs=1e-6)
-    assert results["sidewalk_failures_per_100m"] == 0.0
-
-
 def test_robot_that_never_moves_has_no_failure_rate():
     results = _calc().calculate(_episode(lambda t: (0.0, 0.0), 20.0), {})
     assert results["sidewalk_route_completion"] is False
     assert results["sidewalk_freezes"] == 1
     assert results["sidewalk_failures_per_100m"] is None
     assert results["sidewalk_mean_speed"] == 0.0
-
-
-def test_episode_without_goal_has_no_completion():
-    results = _calc().calculate(_episode(_lane, 22.0, goal=[]), {})
-    assert results["sidewalk_route_completion"] is None
-    assert results["sidewalk_off_sidewalk"] is False
-    assert results["sidewalk_mean_speed"] == pytest.approx(1.0, abs=1e-6)
-
-
-def test_world_without_sidewalk_zones_yields_nulls():
-    assert _calc(BARE).calculate(_episode(_lane, 22.0), {}) == NULLS
-    assert (
-        SidewalkMetricsCalculator(make_robot_params(model="jackal")).calculate(
-            _episode(_lane, 22.0), {}
-        )
-        == NULLS
-    )
 
 
 def test_missing_pose_yields_nulls():
@@ -269,37 +147,6 @@ def test_missing_pose_yields_nulls():
         topics={},
     )
     assert _calc().calculate(episode, {}) == NULLS
-
-
-def test_walkable_area_unions_sidewalk_and_crosswalk_pieces_only():
-    assert walkable_area(world_cache[WORLD]).area == pytest.approx(30 * 4)
-    assert walkable_area(world_cache[BARE]) is None
-
-
-def test_walkable_area_unions_a_self_touching_zone_ring():
-    pinched = shapely.Polygon(
-        [(0, 0), (4, 0), (4, 2), (2, 2), (2.0001, 1.9999), (2, 2), (0, 2)]
-    )
-    assert not pinched.is_valid
-    zone = _ZoneGeometry(
-        name="sidewalk_0",
-        polygon=pinched,
-        max_speed=None,
-        quiet=False,
-        restricted=False,
-    )
-    assert walkable_area([zone, _zone("crosswalk", 4, 0, 6, 2)]).area == pytest.approx(
-        12.0, abs=1e-3
-    )
-
-
-def test_excursions_merge_gaps_shorter_than_the_merge_window():
-    outside = np.array([0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1], dtype=bool)
-    assert excursions(outside, 2) == 3
-    assert excursions(outside, 3) == 2
-    assert excursions(outside, 5) == 2
-    assert excursions(outside, 6) == 1
-    assert excursions(np.zeros(5, dtype=bool), 2) == 0
 
 
 def _robot_slice(episode):

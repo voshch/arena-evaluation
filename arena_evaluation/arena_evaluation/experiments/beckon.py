@@ -78,7 +78,6 @@ def _world_dir() -> pathlib.Path:
     )
 
 
-# -- generation ---------------------------------------------------------------------------------
 
 
 class _Map:
@@ -308,7 +307,6 @@ def generate(
     return suite
 
 
-# -- analysis -----------------------------------------------------------------------------------
 
 
 def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:

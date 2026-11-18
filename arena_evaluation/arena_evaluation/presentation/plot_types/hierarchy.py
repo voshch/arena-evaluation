@@ -18,6 +18,8 @@ from arena_evaluation.presentation.plot_types.base import (
     palette_color,
 )
 
+_TREEMAP_MODE: str = "treemap"
+
 
 def _split_treemap(
     nodes: list[tuple[str, float, int]],
@@ -30,36 +32,30 @@ def _split_treemap(
     if not nodes:
         return []
     if len(nodes) == 1:
-        label, val, color_idx = nodes[0]
-        return [(x, y, w, h, label, val, color_idx)]
-
-    total = sum(v for _, v, _ in nodes)
+        label, value, color_index = nodes[0]
+        return [(x, y, w, h, label, value, color_index)]
+    total = sum(value for _, value, _ in nodes)
     if total <= 0.0:
         return []
-
     half = total / 2.0
-    acc = 0.0
-    split_idx = 1
-    for i, (_, val, _) in enumerate(nodes[:-1], start=1):
-        acc += val
-        split_idx = i
-        if acc >= half:
+    accumulated = 0.0
+    split_index = 1
+    for index, (_, value, _) in enumerate(nodes[:-1], start=1):
+        accumulated += value
+        split_index = index
+        if accumulated >= half:
             break
-
-    left = nodes[:split_idx]
-    right = nodes[split_idx:]
-    left_sum = sum(v for _, v, _ in left)
-    frac = left_sum / total
-
+    left, right = nodes[:split_index], nodes[split_index:]
+    fraction = sum(value for _, value, _ in left) / total
     if w >= h:
-        lw = w * frac
-        return _split_treemap(left, x, y, lw, h) + _split_treemap(
-            right, x + lw, y, w - lw, h
-        )
-    lh = h * frac
-    return _split_treemap(left, x, y, w, lh) + _split_treemap(
-        right, x, y + lh, w, h - lh
-    )
+        left_width = w * fraction
+        left_rects = _split_treemap(left, x, y, left_width, h)
+        right_rects = _split_treemap(right, x + left_width, y, w - left_width, h)
+    else:
+        left_height = h * fraction
+        left_rects = _split_treemap(left, x, y, w, left_height)
+        right_rects = _split_treemap(right, x, y + left_height, w, h - left_height)
+    return left_rects + right_rects
 
 
 class HierarchyRenderer(BasePlotRenderer):
@@ -71,7 +67,12 @@ class HierarchyRenderer(BasePlotRenderer):
         "variant",
     }
 
-    def _prepare_frame(self, df: pl.DataFrame) -> tuple[list[str], str, pl.DataFrame]:
+    def _drawable_frame(
+        self, df: pl.DataFrame
+    ) -> tuple[list[str], str, pl.DataFrame] | None:
+        """Resolve the hierarchy columns and keep only positive finite tiles."""
+        if df.is_empty():
+            return None
         path_cols = self.resolve_channel_list("hierarchy")
         if not path_cols:
             raise ValueError(
@@ -83,62 +84,43 @@ class HierarchyRenderer(BasePlotRenderer):
                 f"Plot {self.spec.id!r}: hierarchy plot requires channel 'y' for tile values."
             )
         self.validate_unique_cells(df, path_cols)
-        work = df
-        for col in path_cols:
-            work = work.with_columns(pl.Series(col, label_values(work, col)))
-        neg = work.filter(pl.col(values_col).cast(pl.Float64) < 0)
-        if not neg.is_empty():
-            raise ValueError(
-                f"Plot {self.spec.id!r}: hierarchy value column {values_col!r} contains negative values."
-            )
-        work = work.filter(
-            pl.col(values_col).cast(pl.Float64).is_not_null()
-            & pl.col(values_col).cast(pl.Float64).is_finite()
-            & (pl.col(values_col).cast(pl.Float64) > 0)
+        work = df.with_columns(
+            [pl.Series(column, label_values(df, column)) for column in path_cols]
         )
+        numeric = work[values_col].cast(pl.Float64)
+        if (numeric < 0).any():
+            raise ValueError(
+                f"Plot {self.spec.id!r}: hierarchy value column {values_col!r} "
+                "contains negative values."
+            )
+        work = work.filter(numeric.is_not_null() & numeric.is_finite() & (numeric > 0))
+        if work.is_empty():
+            return None
         return path_cols, values_col, work
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly treemap or sunburst."""
-        # differs from overhaul/source:plot_types/hierarchy.py:29-66: dendrogram/clustermap dropped; binds channels directly
-        if df.is_empty():
+        prepared = self._drawable_frame(df)
+        if prepared is None:
             return None
-        path_cols, values_col, work = self._prepare_frame(df)
-        if work.is_empty():
-            return None
+        path_cols, values_col, work = prepared
         color_col = self.resolve_channel("color")
-
         selected = list(
-            dict.fromkeys(
-                [
-                    *path_cols,
-                    values_col,
-                    *([color_col] if color_col else []),
-                ]
-            )
+            dict.fromkeys([*path_cols, values_col, *([color_col] if color_col else [])])
         )
-        pdf = work.select(selected).to_pandas()
         mode = str(
             self.spec.options.get("mode")
             or self.spec.options.get("variant")
-            or "treemap"
+            or _TREEMAP_MODE
         ).lower()
-        if mode == "sunburst":
-            fig = px.sunburst(
-                pdf,
-                path=path_cols,
-                values=values_col,
-                color=color_col,
-                title=self.spec.title or None,
-            )
-        else:
-            fig = px.treemap(
-                pdf,
-                path=path_cols,
-                values=values_col,
-                color=color_col,
-                title=self.spec.title or None,
-            )
+        draw = {"sunburst": px.sunburst}.get(mode, px.treemap)
+        fig = draw(
+            work.select(selected).to_pandas(),
+            path=path_cols,
+            values=values_col,
+            color=color_col,
+            title=self.spec.title or None,
+        )
         fig.update_layout(
             template="plotly_white",
             margin=dict(t=50 if self.spec.title else 30, b=30, l=30, r=30),
@@ -147,12 +129,10 @@ class HierarchyRenderer(BasePlotRenderer):
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Render a static Matplotlib treemap breakdown for the hierarchy levels."""
-        if df.is_empty():
+        prepared = self._drawable_frame(df)
+        if prepared is None:
             return
-        path_cols, values_col, work = self._prepare_frame(df)
-        if work.is_empty():
-            return
-
+        path_cols, values_col, work = prepared
         palette = get_color_palette()
         top_col = path_cols[0]
         top_groups = sorted(
@@ -166,54 +146,60 @@ class HierarchyRenderer(BasePlotRenderer):
             key=lambda item: item[1],
             reverse=True,
         )
-        top_nodes = [(label, val, idx) for idx, (label, val) in enumerate(top_groups)]
-        top_rects = _split_treemap(top_nodes, 0.0, 0.0, 1.0, 1.0)
-
-        leaf_rects: list[tuple[float, float, float, float, str, float, int]] = []
+        top_rects = _split_treemap(
+            [
+                (label, value, color_index)
+                for color_index, (label, value) in enumerate(top_groups)
+            ],
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+        )
         if len(path_cols) == 1:
-            leaf_rects = top_rects
+            rects = top_rects
         else:
-            for rx, ry, rw, rh, top_label, _, color_idx in top_rects:
+            rects = []
+            for rx, ry, rw, rh, top_label, _, color_index in top_rects:
                 sub = work.filter(pl.col(top_col) == top_label)
                 sub_nodes = [
                     (
-                        " / ".join(str(row[c]) for c in path_cols[1:]),
+                        " / ".join(str(row[column]) for column in path_cols[1:]),
                         float(row[values_col]),
-                        color_idx,
+                        color_index,
                     )
                     for row in sub.sort(values_col, descending=True).to_dicts()
                 ]
-                for lx, ly, lw, lh, child_label, val, cidx in _split_treemap(
-                    sub_nodes, rx, ry, rw, rh
-                ):
-                    leaf_rects.append(
-                        (lx, ly, lw, lh, f"{top_label}\n{child_label}", val, cidx)
+                rects.extend(
+                    (lx, ly, lw, lh, f"{top_label}\n{child_label}", value, index)
+                    for lx, ly, lw, lh, child_label, value, index in _split_treemap(
+                        sub_nodes, rx, ry, rw, rh
                     )
-
+                )
         fig, ax = new_figure(width_in=10.0, height_in=6.5)
-        for rx, ry, rw, rh, label, val, color_idx in leaf_rects:
-            rect = mpatches.Rectangle(
-                (rx, ry),
-                rw,
-                rh,
-                facecolor=palette_color(palette, color_idx),
-                edgecolor="white",
-                linewidth=1.5,
-                alpha=0.88,
+        for rx, ry, rw, rh, label, value, color_index in rects:
+            ax.add_patch(
+                mpatches.Rectangle(
+                    (rx, ry),
+                    rw,
+                    rh,
+                    facecolor=palette_color(palette, color_index),
+                    edgecolor="white",
+                    linewidth=1.5,
+                    alpha=0.88,
+                )
             )
-            ax.add_patch(rect)
             if rw >= 0.08 and rh >= 0.07:
                 ax.text(
                     rx + rw / 2.0,
                     ry + rh / 2.0,
-                    f"{label}\n{val:.2g}",
+                    f"{label}\n{value:.2g}",
                     ha="center",
                     va="center",
                     fontsize=8,
                     color="white",
                     fontweight="bold",
                 )
-
         ax.set_xlim(0.0, 1.0)
         ax.set_ylim(0.0, 1.0)
         ax.axis("off")

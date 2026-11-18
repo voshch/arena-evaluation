@@ -103,31 +103,34 @@ class DataResolver:
         if self.benchmark_dir is not None:
             self.recipe_dirs.append(run_analysis_root(self.benchmark_dir))
 
-        if catalog is not None:
-            self.catalog: BenchmarkCatalog | None = catalog
-        elif self.benchmark_dir is not None:
-            self.catalog = BenchmarkCatalog.open(self.benchmark_dir)
-        else:
-            self.catalog = None
-
-        if sql_engine is not None:
-            self.sql_engine: PolarsSQLEngine | None = sql_engine
-        elif self.catalog is not None:
-            self.sql_engine = PolarsSQLEngine(self.catalog)
-        else:
-            self.sql_engine = None
-
-        if evidence_store is not None:
-            self.evidence_store: EvidenceStore | None = evidence_store
-        elif self.benchmark_dir is not None:
-            self.evidence_store = EvidenceStore(self.benchmark_dir)
-        else:
-            self.evidence_store = None
-
-        if query_catalog is not None:
-            self.query_catalog = query_catalog
-        else:
-            self.query_catalog = QueryCatalog(run_dir=self.benchmark_dir)
+        self.catalog = (
+            catalog
+            if catalog is not None
+            else (
+                BenchmarkCatalog.open(self.benchmark_dir)
+                if self.benchmark_dir is not None
+                else None
+            )
+        )
+        self.sql_engine = (
+            sql_engine
+            if sql_engine is not None
+            else (PolarsSQLEngine(self.catalog) if self.catalog is not None else None)
+        )
+        self.evidence_store = (
+            evidence_store
+            if evidence_store is not None
+            else (
+                EvidenceStore(self.benchmark_dir)
+                if self.benchmark_dir is not None
+                else None
+            )
+        )
+        self.query_catalog = (
+            query_catalog
+            if query_catalog is not None
+            else QueryCatalog(run_dir=self.benchmark_dir)
+        )
 
     def resolve_spec(self, spec: PlotSpec) -> PlotSpec:
         """Resolve ``uses: <recipe>`` reference and return the merged PlotSpec."""
@@ -174,6 +177,7 @@ class DataResolver:
     ) -> tuple[pl.DataFrame, str, str]:
         data_spec = spec.data
         snapshot_id = self.catalog.snapshot_id if self.catalog is not None else ""
+        evidence_id = ""
 
         if data_spec is not None and data_spec.computation:
             if self.catalog is None:
@@ -190,10 +194,10 @@ class DataResolver:
                 evidence_store=self.evidence_store,
                 purpose=spec.id,
             )
-            df = self._apply_where_eager(result.summary, data_spec.where)
-            return df, result.evidence_id, result.snapshot_id
-
-        if data_spec is not None and data_spec.stored_query:
+            df = result.summary
+            evidence_id = result.evidence_id
+            snapshot_id = result.snapshot_id
+        elif data_spec is not None and data_spec.stored_query:
             if self.sql_engine is None:
                 raise RuntimeError(
                     f"Cannot execute stored query for plot '{spec.id}': SQL engine not initialized."
@@ -201,46 +205,39 @@ class DataResolver:
             df = self.query_catalog.execute(
                 data_spec.stored_query, self.sql_engine, params=data_spec.params
             )
-            df = self._apply_where_eager(df, data_spec.where)
-            return df, "", snapshot_id
-
-        if data_spec is not None and data_spec.query:
+        elif data_spec is not None and data_spec.query:
             if self.sql_engine is None:
                 raise RuntimeError(
                     f"Cannot execute SQL query for plot '{spec.id}': SQL engine not initialized."
                 )
             df = self.sql_engine.query(data_spec.query)
-            df = self._apply_where_eager(df, data_spec.where)
-            return df, "", snapshot_id
-
-        if data_spec is not None and data_spec.evidence_id:
+        elif data_spec is not None and data_spec.evidence_id:
             if self.evidence_store is None:
                 raise RuntimeError(
                     f"Cannot fetch evidence '{data_spec.evidence_id}' for plot '{spec.id}': EvidenceStore not initialized."
                 )
             df = self.evidence_store.read_frame(data_spec.evidence_id)
-            df = self._apply_where_eager(df, data_spec.where)
-            return df, data_spec.evidence_id, snapshot_id
-
-        table_source = (
-            data_spec.source
-            if (data_spec is not None and data_spec.source)
-            else default_source
-        )
-        if table_source:
+            evidence_id = data_spec.evidence_id
+        else:
+            table_source = (
+                data_spec.source
+                if (data_spec is not None and data_spec.source)
+                else default_source
+            )
+            if not table_source:
+                raise ValueError(
+                    f"Cannot resolve data for plot '{spec.id}': no source, query, stored_query, computation, or evidence_id provided."
+                )
             if self.catalog is None:
                 raise RuntimeError(
                     f"Cannot fetch table '{table_source}' for plot '{spec.id}': catalog not initialized."
                 )
-            lf = self.catalog.get_table(table_source)
-            if data_spec is not None and data_spec.where:
-                lf = lf.filter(
-                    compile_where_predicate(data_spec.where, lf.collect_schema())
-                )
-            return lf.collect(), "", snapshot_id
+            df = self.catalog.get_table(table_source).collect()
 
-        raise ValueError(
-            f"Cannot resolve data for plot '{spec.id}': no source, query, stored_query, computation, or evidence_id provided."
+        return (
+            self._apply_where_eager(df, data_spec.where if data_spec is not None else None),
+            evidence_id,
+            snapshot_id,
         )
 
     @staticmethod

@@ -65,11 +65,6 @@ def _named_frame(frame: str, names: tuple[str, ...]) -> bool:
     return frame in names or frame.endswith(tuple(f"/{name}" for name in names))
 
 
-def is_world_frame(frame: str) -> bool:
-    """Whether a frame name is a world-fixed frame such as map, world or odom, possibly namespaced."""
-    return _named_frame(frame, _WORLD_FRAMES)
-
-
 def is_base_frame(frame: str) -> bool:
     """Whether a frame name is a robot base frame."""
     return any(marker in frame for marker in _BASE_FRAME_MARKERS)

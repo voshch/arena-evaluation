@@ -53,17 +53,14 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
 
     OUTPUTS = (TOTAL_DISTANCE_M, MEAN_SPEED_MPS, ROUND_TRIPS_COMPLETED)
     PRIMARY_OUTPUTS = ["total_distance_m", "mean_speed_mps"]
-    OUTPUT_SCOPES = {"mean_speed_mps": (MetricScope.PEDESTRIAN,)}
 
     def _calculate_for_target(
         self,
         episode: AlignedEpisodeBundle,
-        prior_results: dict[str, typing.Any],
         target_id: str | None = None,
     ) -> dict[str, typing.Any]:
-        del prior_results
         ped_tracks = self.native_topics(episode).get("pedestrian_arena_peds")
-        if ped_tracks is not None and isinstance(ped_tracks, pl.LazyFrame):
+        if isinstance(ped_tracks, pl.LazyFrame):
             ped_tracks = ped_tracks.collect()
 
         if ped_tracks is None or len(ped_tracks) == 0:
@@ -101,7 +98,7 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         x_arr = tracks.get_column("x").to_numpy().astype(np.float64)
         y_arr = tracks.get_column("y").to_numpy().astype(np.float64)
         displacements = np.hypot(x_arr - spawn_x, y_arr - spawn_y)
-        max_disp = float(np.max(displacements)) if len(displacements) > 0 else 0.0
+        max_disp = float(np.max(displacements))
 
         round_trips = 0
         if max_disp > ROUND_TRIP_MIN_DISPLACEMENT_M:
@@ -127,7 +124,8 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        return self._calculate_for_target(episode, prior_results)
+        del prior_results
+        return self._calculate_for_target(episode)
 
     def calculate_for_scope(
         self,
@@ -140,4 +138,5 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
             if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN
             else None
         )
-        return self._calculate_for_target(episode, prior_results, target_id=target_id)
+        del prior_results
+        return self._calculate_for_target(episode, target_id=target_id)

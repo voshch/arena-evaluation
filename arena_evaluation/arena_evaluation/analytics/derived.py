@@ -11,12 +11,7 @@ from typing import Any, Final
 import polars as pl
 import yaml
 
-from arena_evaluation.storage.atomic import (
-    atomic_write_text,
-    file_lock,
-    staged_temp_path,
-)
-
+from arena_evaluation.storage import atomic
 from arena_evaluation.storage.config_layout import run_analysis_root
 
 DERIVED_DIR_NAME: Final[str] = "derived"
@@ -29,24 +24,39 @@ def derived_dir(benchmark_dir: pathlib.Path) -> pathlib.Path:
     return run_analysis_root(benchmark_dir) / DERIVED_DIR_NAME
 
 
-def _validate_name(name: str) -> str:
+def _table_paths(
+    benchmark_dir: pathlib.Path, name: str
+) -> tuple[str, pathlib.Path, pathlib.Path, pathlib.Path]:
     clean = name.strip()
     if not _SAFE_NAME.match(clean):
         raise ValueError(f"Invalid derived table name {name!r}")
-    return clean
+    root = derived_dir(benchmark_dir)
+    return clean, root, root / f"{clean}.parquet", root / f"{clean}.yaml"
+
+
+def _load_sidecar(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Corrupt derived table sidecar {path}: {exc}") from exc
+    if isinstance(raw, dict):
+        return raw
+    raise ValueError(
+        f"Derived table sidecar {path} is not a YAML mapping; fix or remove {path}"
+    )
+
+
+def _discovered(root: pathlib.Path, pattern: str) -> list[pathlib.Path]:
+    return sorted(root.glob(pattern)) if root.is_dir() else []
 
 
 def scan_derived_tables(benchmark_dir: pathlib.Path) -> dict[str, pl.LazyFrame]:
     """Lazily scan all active derived tables in ``benchmark_dir`` as ``derived_<name>``."""
-    root = derived_dir(benchmark_dir)
-    if not root.is_dir():
-        return {}
-    tables: dict[str, pl.LazyFrame] = {}
-    for path in sorted(root.glob("*.parquet")):
-        if _VERSIONED_PARQUET.search(path.name):
-            continue
-        tables[f"derived_{path.stem}"] = pl.scan_parquet(path)
-    return tables
+    return {
+        f"derived_{path.stem}": pl.scan_parquet(path)
+        for path in _discovered(derived_dir(benchmark_dir), "*.parquet")
+        if not _VERSIONED_PARQUET.search(path.name)
+    }
 
 
 def save_derived_table(
@@ -61,12 +71,10 @@ def save_derived_table(
 ) -> dict[str, Any]:
     """Persist a derived table and its YAML sidecar, archiving the version it replaces.
 
-    One lock path guards one table: ``<name>.yaml`` is taken for the whole read-archive-write, so a
-    concurrent writer cannot interleave a parquet and a sidecar of different versions. Every superseded
-    table is archived as ``<name>.v<version>.parquet`` where the version is the one the sidecar carried,
-    so the counter names exactly what is on disk and no replaced version is lost.
+    The sidecar lock spans the read-archive-write, so each archived ``<name>.v<n>.parquet``
+    is named by the version the replaced sidecar carried.
     """
-    clean = _validate_name(name)
+    clean, root, parquet_path, sidecar_path = _table_paths(benchmark_dir, name)
     nested = [
         column
         for column, dtype in frame.schema.items()
@@ -80,32 +88,18 @@ def save_derived_table(
     author_clean = author.strip()
     if not author_clean:
         raise ValueError(f"Derived table {clean!r} requires a non-empty author")
-    root = derived_dir(benchmark_dir)
     root.mkdir(parents=True, exist_ok=True)
-    parquet_path = root / f"{clean}.parquet"
-    sidecar_path = root / f"{clean}.yaml"
-
-    with file_lock(sidecar_path):
+    with atomic.file_lock(sidecar_path):
         version = 1
         if sidecar_path.is_file():
-            try:
-                existing = yaml.safe_load(sidecar_path.read_text(encoding="utf-8"))
-            except yaml.YAMLError as exc:
-                raise ValueError(
-                    f"Corrupt derived table sidecar {sidecar_path}: {exc}"
-                ) from exc
-            if not isinstance(existing, dict):
-                raise ValueError(
-                    f"Derived table sidecar {sidecar_path} is not a YAML mapping; fix or remove {sidecar_path}"
-                )
-            version = int(existing.get("version", 1)) + 1
+            version = int(_load_sidecar(sidecar_path).get("version", 1)) + 1
         if parquet_path.is_file():
             archived = root / f"{clean}.v{max(version - 1, 1)}.parquet"
-            with staged_temp_path(archived) as tmp_archive:
+            with atomic.staged_temp_path(archived) as tmp_archive:
                 shutil.copy2(parquet_path, tmp_archive)
-
-        with staged_temp_path(parquet_path) as tmp_parquet:
+        with atomic.staged_temp_path(parquet_path) as tmp_parquet:
             frame.write_parquet(tmp_parquet)
+        updated_at = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
         sidecar = {
             "name": clean,
             "table_name": f"derived_{clean}",
@@ -113,23 +107,20 @@ def save_derived_table(
             "snapshot_id": snapshot_id,
             "purpose": purpose,
             "author": author_clean,
-            "updated_at": datetime.datetime.now(datetime.UTC).isoformat(
-                timespec="seconds"
-            ),
+            "updated_at": updated_at,
             "columns": [
-                {"name": col, "dtype": str(dtype)}
-                for col, dtype in frame.schema.items()
+                {"name": column, "dtype": str(dtype)}
+                for column, dtype in frame.schema.items()
             ],
             "n_rows": frame.height,
             "definition": definition,
         }
-        atomic_write_text(sidecar_path, yaml.safe_dump(sidecar, sort_keys=False))
+        atomic.atomic_write_text(sidecar_path, yaml.safe_dump(sidecar, sort_keys=False))
     return {
-        "name": clean,
-        "table_name": f"derived_{clean}",
-        "version": version,
-        "snapshot_id": snapshot_id,
-        "n_rows": frame.height,
+        **{
+            key: sidecar[key]
+            for key in ("name", "table_name", "version", "snapshot_id", "n_rows")
+        },
         "path": str(parquet_path),
         "status": "fresh",
     }
@@ -139,27 +130,18 @@ def list_derived_tables(
     benchmark_dir: pathlib.Path, *, current_snapshot_id: str
 ) -> list[dict[str, Any]]:
     """List all derived tables with ``fresh`` or ``stale`` status against ``current_snapshot_id``."""
-    root = derived_dir(benchmark_dir)
-    if not root.is_dir():
-        return []
     entries: list[dict[str, Any]] = []
-    for sidecar_path in sorted(root.glob("*.yaml")):
-        raw = yaml.safe_load(sidecar_path.read_text(encoding="utf-8")) or {}
-        if not isinstance(raw, dict):
-            raise ValueError(
-                f"Derived table sidecar {sidecar_path} is not a YAML mapping; "
-                f"fix or remove {sidecar_path}"
-            )
-        snap = str(raw.get("snapshot_id") or "")
+    for sidecar_path in _discovered(derived_dir(benchmark_dir), "*.yaml"):
+        raw = _load_sidecar(sidecar_path)
+        stem = sidecar_path.stem
+        snapshot_id = str(raw.get("snapshot_id") or "")
         entries.append(
             {
-                "name": str(raw.get("name") or sidecar_path.stem),
-                "table_name": str(
-                    raw.get("table_name") or f"derived_{sidecar_path.stem}"
-                ),
+                "name": str(raw.get("name") or stem),
+                "table_name": str(raw.get("table_name") or f"derived_{stem}"),
                 "version": int(raw.get("version") or 1),
-                "snapshot_id": snap,
-                "status": "fresh" if snap == current_snapshot_id else "stale",
+                "snapshot_id": snapshot_id,
+                "status": "fresh" if snapshot_id == current_snapshot_id else "stale",
                 "n_rows": int(raw.get("n_rows") or 0),
                 "purpose": str(raw.get("purpose") or ""),
                 "author": str(raw.get("author") or ""),
@@ -174,31 +156,24 @@ def refresh_derived_table(benchmark_dir: pathlib.Path, name: str) -> dict[str, A
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
     from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
 
-    clean = _validate_name(name)
-    sidecar_path = derived_dir(benchmark_dir) / f"{clean}.yaml"
+    clean, _root, _parquet_path, sidecar_path = _table_paths(benchmark_dir, name)
     if not sidecar_path.is_file():
         raise FileNotFoundError(f"Derived table {clean!r} not found")
-    raw = yaml.safe_load(sidecar_path.read_text(encoding="utf-8")) or {}
+    raw = _load_sidecar(sidecar_path)
     definition = raw.get("definition") or {}
     kind = str(definition.get("kind") or "")
     catalog = BenchmarkCatalog.open(benchmark_dir)
-
     summary_frame: pl.DataFrame | None = None
-    if kind == "sql":
-        sql_text = str(definition.get("sql") or "")
-        frame = PolarsSQLEngine(catalog).query(sql_text)
-    elif kind in {"procedure", "procedure_summary"}:
-        proc = str(definition.get("procedure") or "")
-        params = definition.get("params") or {}
-        result = run_procedure(proc, catalog, params)
-        if kind == "procedure_summary":
-            frame = result.summary
-        else:
-            frame = result.frame
-            summary_frame = result.summary
-    else:
-        raise ValueError(f"Cannot refresh derived table {clean!r} of kind {kind!r}")
-
+    match kind:
+        case "sql":
+            frame = PolarsSQLEngine(catalog).query(str(definition.get("sql") or ""))
+        case "procedure" | "procedure_summary":
+            procedure = str(definition.get("procedure") or "")
+            result = run_procedure(procedure, catalog, definition.get("params") or {})
+            frame = result.summary if kind == "procedure_summary" else result.frame
+            summary_frame = result.summary if kind == "procedure" else None
+        case _:
+            raise ValueError(f"Cannot refresh derived table {clean!r} of kind {kind!r}")
     author_val = str(raw.get("author") or "").strip()
     if not author_val:
         raise ValueError(f"Derived table sidecar {sidecar_path} is missing 'author'")
@@ -212,8 +187,6 @@ def refresh_derived_table(benchmark_dir: pathlib.Path, name: str) -> dict[str, A
         purpose=purpose,
         author=author_val,
     )
-    # One analysis owns one table plus its optional ``<name>_summary``: both are derived tables with
-    # their own sidecar and lock, never a second copy of the same rows under the same name.
     summary_sidecar = derived_dir(benchmark_dir) / f"{clean}_summary.yaml"
     if summary_frame is not None and summary_sidecar.is_file():
         save_derived_table(

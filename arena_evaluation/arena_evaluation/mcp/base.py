@@ -17,51 +17,47 @@ from mcp.types import CallToolResult
 from arena_evaluation.storage.atomic import atomic_write_text as atomic_write_text
 from arena_evaluation.storage.atomic import file_lock as file_lock
 
+_ANALYSIS_HINT = "agent writes belong under <run>/analysis/"
 
-def _return_hint(fn: Callable[..., object]) -> object:
-    """Return the resolved return type annotation of ``fn``, or None."""
+
+def _result_mode(
+    fn: Callable[..., object],
+) -> typing.Literal["structured", "raw", "packed"]:
+    """Classify how ``fn``'s result reaches MCP: a dict/BaseModel schema, a raw CallToolResult, or packed JSON."""
     try:
-        return typing.get_type_hints(fn).get("return")
+        ret = typing.get_type_hints(fn).get("return")
     except (NameError, TypeError, AttributeError):
-        return fn.__annotations__.get("return")
-
-
-def _is_structured_return(fn: Callable[..., object]) -> bool:
-    """Return True when ``fn`` returns a dict or Pydantic BaseModel subclass."""
-    ret = _return_hint(fn)
+        ret = fn.__annotations__.get("return")
+    if isinstance(ret, type) and issubclass(ret, CallToolResult):
+        return "raw"
     if ret is dict or typing.get_origin(ret) is dict:
-        return True
-    return isinstance(ret, type) and issubclass(ret, pydantic.BaseModel)
-
-
-def _returns_call_tool_result(fn: Callable[..., object]) -> bool:
-    """Return True when ``fn`` returns a raw MCP CallToolResult."""
-    ret = _return_hint(fn)
-    return isinstance(ret, type) and issubclass(ret, CallToolResult)
-
-
-def _pack_result(result: object) -> object:
-    """Serialize list/tuple results without media blocks into one JSON text block."""
-    if isinstance(result, list | tuple) and not any(
-        isinstance(item, Image | Audio) for item in result
-    ):
-        return json.dumps(result, indent=2, default=str)
-    return result
+        return "structured"
+    if isinstance(ret, type) and issubclass(ret, pydantic.BaseModel):
+        return "structured"
+    return "packed"
 
 
 def _packed_tool(fn: Callable[..., object]) -> Callable[..., object]:
     """Wrap ``fn`` so list results serialize as JSON while preserving metadata."""
+
+    def pack(result: object) -> object:
+        if isinstance(result, list | tuple) and not any(
+            isinstance(item, Image | Audio) for item in result
+        ):
+            return json.dumps(result, indent=2, default=str)
+        return result
+
     if inspect.iscoroutinefunction(fn):
 
         @functools.wraps(fn)
         async def run_async(*args: object, **kwargs: object) -> object:
-            return _pack_result(await fn(*args, **kwargs))
+            return pack(await fn(*args, **kwargs))
 
         return run_async
 
     @functools.wraps(fn)
     def run(*args: object, **kwargs: object) -> object:
-        return _pack_result(fn(*args, **kwargs))
+        return pack(fn(*args, **kwargs))
 
     return run
 
@@ -71,17 +67,19 @@ class EvaluationDomain(Domain):
 
     def install(self, server: MCPServer) -> None:
         """Register evaluation tools with structured output schemas for dicts and BaseModels."""
-        _load_metric_registry()
+        # Decision X-007 makes ``storage.layout`` the one accepted storage -> processing edge:
+        # importing it here populates the shared metric registry in an MCP-only process, where
+        # no pipeline import triggers it before a fact schema is derived.
+        from arena_evaluation.storage import layout as _layout  # noqa: F401
+
         for spec in self.tools:
-            structured = _is_structured_return(spec.fn)
-            raw_result = _returns_call_tool_result(spec.fn)
-            fn = spec.fn if (structured or raw_result) else _packed_tool(spec.fn)
+            mode = _result_mode(spec.fn)
             server.add_tool(
-                fn,
+                _packed_tool(spec.fn) if mode == "packed" else spec.fn,
                 name=spec.name,
                 title=spec.title,
                 annotations=spec.annotations,
-                structured_output=True if structured else False,
+                structured_output=mode == "structured",
             )
         for resource in self.resources:
             server.resource(
@@ -93,16 +91,6 @@ class EvaluationDomain(Domain):
             server.prompt(name=prompt.name, description=prompt.description)(prompt.fn)
 
 
-def _load_metric_registry() -> None:
-    """Load the shared metric definitions before any fact schema is derived from them.
-
-    Decision X-007 makes ``storage.layout`` the one accepted storage -> processing edge,
-    because a fact schema grows from the shared metric store. Importing it here keeps the
-    registry populated in an MCP-only process, where no pipeline import triggers it.
-    """
-    from arena_evaluation.storage import layout as _layout  # noqa: F401
-
-
 domain = EvaluationDomain(
     "evaluation",
     """Benchmarks and their analysis: suites, contests and report manifests, `arena evaluation benchmark` runs and `arena planners test` preflights, processing, reports, plots, recording control and metrics analysis.
@@ -112,12 +100,8 @@ domain = EvaluationDomain(
     requires=("polars", "yaml", "arena_simulation_setup", "arena_runtime"),
 )
 
-RunId = Annotated[
-    str,
-    pydantic.Field(
-        description="benchmark run id, a directory under $ARENA_DATA_DIR/benchmarks, evaluation_runs lists them"
-    ),
-]
+_RUN_ID_DESCRIPTION = "benchmark run id, a directory under $ARENA_DATA_DIR/benchmarks, evaluation_runs lists them"
+RunId = Annotated[str, pydantic.Field(description=_RUN_ID_DESCRIPTION)]
 OptionalRunId = Annotated[
     str | None,
     pydantic.Field(description="benchmark run id, the most recent run when omitted"),
@@ -196,26 +180,26 @@ def assert_safe_analysis_write(
     run_dir: pathlib.Path, target: pathlib.Path
 ) -> pathlib.Path:
     """Refuse writes aimed at ``episodes/`` or published root tables; allow ``analysis/`` and ``reports/``."""
-    resolved_run = run_dir.resolve()
     resolved_target = target.resolve()
     try:
-        rel = resolved_target.relative_to(resolved_run)
+        rel = resolved_target.relative_to(run_dir.resolve())
     except ValueError as exc:
         raise ToolError(
             f"refusing write outside run directory: {target}",
-            hint="agent writes belong under <run>/analysis/",
+            hint=_ANALYSIS_HINT,
         ) from exc
-    if not rel.parts or rel.parts[0] == "episodes":
-        raise ToolError(
-            f"refusing write to protected published data under episodes/: {rel}",
-            hint="agent writes belong under <run>/analysis/",
-        )
-    if rel.parts[0] not in ("analysis", "reports"):
-        raise ToolError(
-            f"refusing write to protected published file: {rel}",
-            hint="agent writes belong under <run>/analysis/ or <run>/reports/",
-        )
-    return resolved_target
+    if rel.parts and rel.parts[0] in ("analysis", "reports"):
+        return resolved_target
+    protected = not rel.parts or rel.parts[0] == "episodes"
+    detail = (
+        f"protected published data under episodes/: {rel}"
+        if protected
+        else f"protected published file: {rel}"
+    )
+    raise ToolError(
+        f"refusing write to {detail}",
+        hint=_ANALYSIS_HINT if protected else f"{_ANALYSIS_HINT} or <run>/reports/",
+    )
 
 
 def append_audit_event(
@@ -229,23 +213,22 @@ def append_audit_event(
     """Append one JSONL audit entry to ``<run>/analysis/audit.jsonl`` under a file lock."""
     import datetime
     import hashlib
-    import json
 
     audit_path = run_dir / "analysis" / "audit.jsonl"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    args_hash = hashlib.sha256(
-        json.dumps(args, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:12]
     entry = {
         "timestamp": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         "role": role,
         "tool": tool,
-        "args_hash": args_hash,
+        "args_hash": hashlib.sha256(
+            json.dumps(args, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:12],
         "produced_ids": produced_ids or [],
     }
-    with file_lock(audit_path.with_suffix(".jsonl.lock")):
-        with audit_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    with file_lock(audit_path.with_suffix(".jsonl.lock")), audit_path.open(
+        "a", encoding="utf-8"
+    ) as fh:
+        fh.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
 __all__ = [

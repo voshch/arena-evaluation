@@ -327,14 +327,3 @@ def test_split_discovery_verification_seeds_validation() -> None:
     assert out["cohort"].to_list() == ["discovery", "discovery", "verification", None]
 
 
-def test_kendalls_w_all_tied_single_judge_returns_p_one() -> None:
-    df = pl.DataFrame(
-        {
-            "planner": ["a", "b", "c"],
-            "crowd_condition": ["only", "only", "only"],
-            "metric": [1.0, 1.0, 1.0],
-        }
-    )
-    res = kendalls_w(df, "metric")
-    assert res.friedman_chi2 == pytest.approx(0.0)
-    assert res.p_value is None

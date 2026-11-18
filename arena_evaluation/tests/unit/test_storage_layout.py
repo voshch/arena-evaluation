@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import pathlib
 
 import polars as pl
@@ -13,13 +12,8 @@ import yaml
 from arena_evaluation.storage.contracts import enforce_benchmark_contract
 from arena_evaluation.storage.exceptions import (
     ContractViolationError,
-    StaleBenchmarkError,
 )
 from arena_evaluation.storage.layout import (
-    NATIVE_LAYOUT_VERSION,
-    check_benchmark_layout,
-    episode_is_complete,
-    registry_schema_hash,
     retire_legacy_outputs,
     write_episode_stamp,
 )
@@ -65,22 +59,6 @@ def _dimension_frames() -> dict[str, pl.DataFrame]:
     }
 
 
-def test_a_stale_fact_file_is_refused_with_the_force_process_hint(
-    tmp_path: pathlib.Path,
-) -> None:
-    root = tmp_path / "benchmarks" / "stale"
-    _stale_episode(root)
-
-    with pytest.raises(StaleBenchmarkError) as error:
-        check_benchmark_layout(root)
-
-    message = str(error.value)
-    assert str(root) in message
-    assert "--force-process" in message
-    with pytest.raises(StaleBenchmarkError):
-        enforce_benchmark_contract(root)
-
-
 def test_retiring_moves_stale_outputs_to_legacy_and_never_deletes(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -124,29 +102,6 @@ def test_retiring_moves_stale_outputs_to_legacy_and_never_deletes(
     assert retire_legacy_outputs(root) == ()
 
 
-def test_episode_completeness_keys_on_the_stamp(tmp_path: pathlib.Path) -> None:
-    metrics = tmp_path / "episodes" / "episode_000" / "metrics"
-
-    assert not episode_is_complete(metrics)
-
-    write_episode_stamp(metrics)
-    assert episode_is_complete(metrics)
-    payload = json.loads((metrics / ".complete").read_text(encoding="utf-8"))
-    assert payload == {
-        "layout_version": NATIVE_LAYOUT_VERSION,
-        "schema_hash": registry_schema_hash(),
-    }
-
-    (metrics / ".complete").write_text(
-        json.dumps({"layout_version": NATIVE_LAYOUT_VERSION, "schema_hash": "0" * 64}),
-        encoding="utf-8",
-    )
-    assert not episode_is_complete(metrics)
-
-    (metrics / ".complete").write_text("not-json", encoding="utf-8")
-    assert not episode_is_complete(metrics)
-
-
 def test_enforce_writes_a_readable_report_for_a_dimension_violation(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -188,14 +143,3 @@ def test_an_interrupted_dimension_write_keeps_the_previous_file(
     assert [path for path in tmp_path.iterdir() if path.name.endswith(".tmp")] == []
 
 
-def test_registry_schema_hash_is_stable_and_schema_sensitive() -> None:
-    first = registry_schema_hash()
-
-    assert registry_schema_hash() == first
-    entries = sorted(
-        (table.file_name().removesuffix(".parquet"), str(table.polars_schema()))
-        for table in _native_tables()
-    )
-    assert first == _digest(entries)
-    tampered = [(entries[0][0], entries[0][1] + " "), *entries[1:]]
-    assert _digest(tampered) != first

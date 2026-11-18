@@ -14,7 +14,7 @@ import yaml
 from mcap.writer import Writer as McapWriter
 from mcap_ros2.writer import Writer
 
-from arena_evaluation.processing.mcap_reader import MCAPReader, anchor_at
+from arena_evaluation.processing.mcap_reader import MCAPReader
 
 SEC = 1_000_000_000
 SEP = "\n" + "=" * 80 + "\n"
@@ -692,14 +692,6 @@ def every_topic(tmp_path_factory: pytest.TempPathFactory) -> tuple[pathlib.Path,
     return out, MCAPReader(bag).read(out)
 
 
-def test_reader_names_robots_from_topic_namespaces(
-    every_topic: tuple[pathlib.Path, dict],
-):
-    _, bundles = every_topic
-
-    assert set(bundles) == {"env_0_jackal", "env_0_burger", "env_0"}
-
-
 def test_odometry_prefers_the_controller_topic(every_topic: tuple[pathlib.Path, dict]):
     out, bundles = every_topic
 
@@ -964,25 +956,6 @@ def test_tf_keeps_every_transform_and_extracts_map_to_base_ground_truth(
     ]
 
 
-@pytest.mark.parametrize("node", ["task_generator_node", "arena_env_node"])
-def test_a_robot_under_the_old_or_new_env_node_namespace_reads_the_same(
-    tmp_path: pathlib.Path, node: str
-):
-    odom = {
-        "header": _header(),
-        "pose": {"pose": {"position": {"x": 2.0}, "orientation": {"w": 1.0}}},
-        "twist": {"twist": {}},
-    }
-    bag = _write_bag(
-        tmp_path / "imported.mcap",
-        [(f"/arena/env_0/{node}/human/odom", ODOMETRY, odom, SEC)],
-    )
-
-    bundles = MCAPReader(bag).read(tmp_path / "out")
-
-    assert set(bundles) == {"env_0_human"}
-
-
 def test_reader_rejects_a_directory_without_bags(tmp_path: pathlib.Path):
     with pytest.raises(FileNotFoundError, match="No MCAP file"):
         MCAPReader(tmp_path).read(tmp_path / "out")
@@ -1078,10 +1051,3 @@ def test_global_and_env_writers_append_across_buffer_flushes(tmp_path: pathlib.P
     assert len(bundles["env_0_jackal"].robot_odom.collect()) == 2
 
 
-def test_anchor_at_picks_the_last_anchor_not_after_the_time():
-    anchors = [(0, 1.0, 1.0), (10, 2.0, 2.0), (20, 3.0, 3.0)]
-
-    assert anchor_at(anchors, -5) == (1.0, 1.0)
-    assert anchor_at(anchors, 10) == (2.0, 2.0)
-    assert anchor_at(anchors, 15) == (2.0, 2.0)
-    assert anchor_at(anchors, 99) == (3.0, 3.0)

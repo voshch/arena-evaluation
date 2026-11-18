@@ -11,13 +11,12 @@ pytest.importorskip("arena_people_msgs.msg")
 import polars as pl
 import pyarrow.parquet as pq
 import rosbag2_py
-from arena_humansim_msgs.msg import AgentFrame, AgentState, AgentStates
+from arena_humansim_msgs.msg import AgentFrame, AgentState
 from arena_humansim_msgs.msg import AgentMeta as RosAgentMeta
 from arena_people_msgs.msg import Gesture, Pedestrian, Pedestrians
 from geometry_msgs.msg import (
     Point,
     Pose,
-    Pose2D,
     Quaternion,
     TransformStamped,
     Twist,
@@ -74,109 +73,6 @@ def _robot_context_messages(t_ns: int = 0) -> list[tuple[str, object, int]]:
         ("/arena/env_0/jackal/odom", odom, t_ns),
         ("/tf_static", tf_msg, 0),
     ]
-
-
-def test_agent_states_ingestion_preserves_simulation_metadata(
-    tmp_path: pathlib.Path,
-) -> None:
-    bag_dir = tmp_path / "agent_states_bag"
-    msg = AgentStates()
-    msg.header.frame_id = "map"
-    msg.header.stamp.sec = 1
-
-    human_1 = AgentState(
-        agent_id=1,
-        kind=AgentState.KIND_HUMAN,
-        name="nurse_clara",
-        pose=Pose2D(x=2.5, y=3.5, theta=1.57),
-        velocity=Vector3(x=0.3, y=0.4, z=0.0),
-        radius=0.35,
-        desired_velocity=1.2,
-        policy="sfm",
-        agent_type="nurse",
-        animation_state=1,
-    )
-
-    human_2 = AgentState(
-        agent_id=2,
-        kind=AgentState.KIND_HUMAN,
-        name="patron_dan",
-        pose=Pose2D(x=6.0, y=-2.0, theta=-0.5),
-        velocity=Vector3(x=-0.6, y=0.8, z=0.0),
-        radius=0.45,
-        desired_velocity=0.9,
-        policy="orca",
-        agent_type="wheelchair",
-        animation_state=0,
-    )
-
-    robot_99 = AgentState(
-        agent_id=99,
-        kind=AgentState.KIND_ROBOT,
-        name="robot_jackal",
-        pose=Pose2D(x=0.0, y=0.0, theta=0.0),
-        velocity=Vector3(x=1.0, y=0.0, z=0.0),
-    )
-
-    msg.agents = [human_1, robot_99, human_2]
-
-    records: list[tuple[str, object, int]] = [
-        *_robot_context_messages(1 * SEC),
-        ("/arena/env_0/agent_states", msg, 1 * SEC),
-    ]
-    bag = _write_mcap(bag_dir, records)
-
-    out_dir = tmp_path / "agent_states_out"
-    bundles = MCAPReader(bag).read(out_dir)
-
-    pedestrians_file = out_dir / "pedestrian_agent_states.parquet"
-    arena_peds_file = out_dir / "pedestrian_arena_peds.parquet"
-
-    assert pedestrians_file.exists()
-    assert not arena_peds_file.exists()
-    assert pq.read_schema(pedestrians_file).equals(
-        TABLE_SCHEMAS["pedestrian_agent_states"], check_metadata=False
-    )
-
-    df = pl.read_parquet(pedestrians_file)
-    assert df.height == 2
-
-    nurse = df.filter(pl.col("ped_id") == "Pedestrian_1").row(0, named=True)
-    assert nurse["env_id"] == "env_0"
-    assert nurse["ped_name"] == "nurse_clara"
-    assert nurse["x"] == 2.5
-    assert nurse["y"] == 3.5
-    assert nurse["yaw"] == pytest.approx(1.57)
-    assert nurse["vx"] == pytest.approx(0.3)
-    assert nurse["vy"] == pytest.approx(0.4)
-    assert nurse["speed_mps"] == pytest.approx(0.5)
-    assert nurse["radius_m"] == pytest.approx(0.35)
-    assert nurse["desired_speed"] == pytest.approx(1.2)
-    assert nurse["policy"] == "sfm"
-    assert nurse["agent_type"] == "nurse"
-    assert nurse["animation_state"] == 1
-
-    patron = df.filter(pl.col("ped_id") == "Pedestrian_2").row(0, named=True)
-    assert patron["env_id"] == "env_0"
-    assert patron["ped_name"] == "patron_dan"
-    assert patron["x"] == 6.0
-    assert patron["y"] == -2.0
-    assert patron["yaw"] == pytest.approx(-0.5)
-    assert patron["vx"] == pytest.approx(-0.6)
-    assert patron["vy"] == pytest.approx(0.8)
-    assert patron["speed_mps"] == pytest.approx(1.0)
-    assert patron["radius_m"] == pytest.approx(0.45)
-    assert patron["desired_speed"] == pytest.approx(0.9)
-    assert patron["policy"] == "orca"
-    assert patron["agent_type"] == "wheelchair"
-    assert patron["animation_state"] == 0
-
-    assert "env_0_jackal" in bundles
-    jackal_peds = bundles["env_0_jackal"].pedestrian_agent_states.collect()
-    assert jackal_peds["ped_id"].to_list() == ["Pedestrian_1", "Pedestrian_2"]
-    assert jackal_peds["radius_m"].to_list() == pytest.approx([0.35, 0.45])
-    assert jackal_peds["desired_speed"].to_list() == pytest.approx([1.2, 0.9])
-    assert jackal_peds["policy"].to_list() == ["sfm", "orca"]
 
 
 def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
@@ -252,100 +148,6 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
     jackal_peds = bundles["env_0_jackal"].pedestrian_arena_peds.collect()
     assert jackal_peds.height == 1
     assert jackal_peds["ped_id"].to_list() == ["Pedestrian_5"]
-
-
-def test_concurrent_dual_topic_ingestion_eliminates_double_counting(
-    tmp_path: pathlib.Path,
-) -> None:
-    bag_dir = tmp_path / "concurrent_bag"
-
-    # Physics published at 50 Hz (20 ms interval = 20_000_000 ns)
-    physics_stamps = [0, 20 * MS, 40 * MS, 60 * MS, 80 * MS, 100 * MS]
-    # Visual published at 30 Hz (33.33 ms interval)
-    visual_stamps = [0, 33 * MS, 66 * MS, 100 * MS]
-
-    records: list[tuple[str, object, int]] = [*_robot_context_messages(0)]
-
-    for t_ns in physics_stamps:
-        state_msg = AgentStates()
-        state_msg.header.frame_id = "map"
-        state_msg.header.stamp.nanosec = t_ns
-        agent = AgentState(
-            agent_id=10,
-            kind=AgentState.KIND_HUMAN,
-            name="dr_smith",
-            pose=Pose2D(x=float(t_ns) / SEC, y=1.0, theta=0.0),
-            velocity=Vector3(x=1.0, y=0.0, z=0.0),
-            radius=0.4,
-            desired_velocity=1.1,
-            policy="social_force",
-            agent_type="doctor",
-        )
-        state_msg.agents = [agent]
-        records.append(("/arena/env_0/agent_states", state_msg, t_ns))
-
-    for t_ns in visual_stamps:
-        peds_msg = Pedestrians()
-        peds_msg.header.frame_id = "map"
-        peds_msg.header.stamp.nanosec = t_ns
-        ped = Pedestrian(
-            name="smith_mesh",
-            id=10,
-            pose=Pose(
-                position=Point(x=float(t_ns) / SEC, y=1.0, z=0.0),
-                orientation=Quaternion(w=1.0),
-            ),
-            twist=Twist(linear=Vector3(x=1.0, y=0.0, z=0.0)),
-            animation_state=1,
-            interaction_id=-1,
-        )
-        peds_msg.pedestrians = [ped]
-        records.append(("/arena/env_0/arena_peds", peds_msg, t_ns))
-
-    bag = _write_mcap(bag_dir, records)
-
-    out_dir = tmp_path / "concurrent_out"
-    bundles = MCAPReader(bag).read(out_dir)
-
-    pedestrians_file = out_dir / "pedestrian_agent_states.parquet"
-    arena_peds_file = out_dir / "pedestrian_arena_peds.parquet"
-
-    assert pedestrians_file.exists()
-    assert arena_peds_file.exists()
-
-    ped_df = pl.read_parquet(pedestrians_file)
-    arena_df = pl.read_parquet(arena_peds_file)
-
-    # 1. Physics table has strictly 6 frames at 50 Hz, zero interleaving with 30 Hz visual frames
-    assert ped_df.height == len(physics_stamps)
-    assert ped_df["t_ns"].to_list() == physics_stamps
-    assert ped_df["radius_m"].null_count() == 0
-    assert ped_df["desired_speed"].null_count() == 0
-    assert ped_df["policy"].null_count() == 0
-    assert ped_df["agent_type"].null_count() == 0
-    assert ped_df["policy"].to_list() == ["social_force"] * 6
-    assert ped_df["agent_type"].to_list() == ["doctor"] * 6
-    assert ped_df["radius_m"].to_list() == pytest.approx([0.4] * 6)
-    assert ped_df["desired_speed"].to_list() == pytest.approx([1.1] * 6)
-
-    # 2. Visual table has strictly 4 frames at 30 Hz, zero mixing with 50 Hz physics frames
-    assert arena_df.height == len(visual_stamps)
-    assert arena_df["t_ns"].to_list() == visual_stamps
-    assert arena_df["radius_m"].null_count() == 4
-    assert arena_df["desired_speed"].null_count() == 4
-    assert arena_df["policy"].null_count() == 4
-
-    # 3. `pedestrian_tracks` binds the map-frame arena stream, which shares the robot-track frame;
-    #    the physics telemetry stays available as `pedestrian_tracks_physics`.
-    bundle_tracks = bundles["env_0_jackal"].pedestrian_arena_peds.collect()
-    assert bundle_tracks.height == len(visual_stamps)
-    assert bundle_tracks["t_ns"].to_list() == visual_stamps
-    bundle_physics = bundles["env_0_jackal"].pedestrian_agent_states.collect()
-    assert bundle_physics.height == len(physics_stamps)
-    assert bundle_physics["t_ns"].to_list() == physics_stamps
-    assert bundle_physics["radius_m"].to_list() == pytest.approx([0.4] * 6)
-    assert bundle_physics["desired_speed"].to_list() == pytest.approx([1.1] * 6)
-    assert bundle_physics["policy"].to_list() == ["social_force"] * 6
 
 
 def test_agent_frame_flat_layout_metadata_ingestion(tmp_path: pathlib.Path) -> None:

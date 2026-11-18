@@ -189,6 +189,25 @@ class MetricMap:
         )
 
 
+def _spec(
+    plot: LegacyPlot,
+    plot_type: str,
+    data: Mapping[str, object],
+    channels: Mapping[str, str] | PlotChannels,
+    options: Mapping[str, object] | None = None,
+) -> PlotSpec:
+    """Build a plot spec from a legacy declaration plus its converted binding."""
+    return PlotSpec(
+        id=plot.id,
+        type=plot_type,
+        title=plot.title,
+        layout_group=plot.layout_group,
+        data=dict(data),
+        channels=channels,
+        options=dict(options or {}),
+    )
+
+
 def _metric_map_path(candidate: pathlib.Path | None) -> pathlib.Path | None:
     """An explicit map file, or one found in a config root, or None for the built-in map."""
     if candidate is not None:
@@ -433,6 +452,17 @@ def _series_source(name: str) -> tuple[str, str] | None:
     return f"v_series_{binding.stem}", binding.column
 
 
+def _primary_source(
+    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
+) -> tuple[str, str, str | None, str]:
+    """Resolve the first data binding: (view, metric, series stem, problem)."""
+    series = _series_source(plot.data_key)
+    if series is not None:
+        return series[0], series[1], series[0].removeprefix("v_series_"), ""
+    metric, problem = _metric_or_todo(plot.data_key, metric_map, known)
+    return EPISODE_SUMMARY_VIEW, metric or "", None, problem or ""
+
+
 def _metric_or_todo(
     name: str, metric_map: MetricMap, known: AbstractSet[str]
 ) -> tuple[str | None, str | None]:
@@ -444,6 +474,30 @@ def _metric_or_todo(
             return None, f"removed: {name} ({resolution.note})"
         return None, f"TODO: unknown metric {name!r} ({resolution.note})"
     return resolution.new, None
+
+
+def _resolve_option_metrics(
+    raw: object,
+    *,
+    minimum: int,
+    label: str,
+    metric_map: MetricMap,
+    known: AbstractSet[str],
+) -> tuple[list[str], str, str]:
+    """Resolve an ``options.metrics`` list; return (metrics, note, problem)."""
+    if not isinstance(raw, list) or len(raw) < minimum:
+        return [], "", f"TODO: {label} without at least {minimum} options.metrics"
+    metrics: list[str] = []
+    dropped: list[str] = []
+    for metric in raw:
+        new, problem = _metric_or_todo(str(metric), metric_map, known)
+        if problem:
+            dropped.append(f"{metric}: {problem}")
+            continue
+        metrics.append(str(new))
+    if len(metrics) < minimum:
+        return [], "", f"TODO: {label} without {minimum} resolvable metrics"
+    return metrics, f"converted; dropped {dropped}" if dropped else "", ""
 
 
 def _convert_table(
@@ -477,17 +531,9 @@ def _convert_table(
         if problem:
             return None, f"unresolved table metric {metric!r}: {problem}"
         resolved.append(str(new))
-    group_cols = _group_columns(plot) or list(
-        str(_dimension(str(v)) or "") for v in options.get("group_by") or ()
-    )
-    group_cols = [name for name in group_cols if name]
+    group_cols = _group_columns(plot)
     if not resolved or not group_cols:
         return None, "TODO: table without resolvable metrics or without a group column"
-    channels = PlotChannels(
-        x=group_cols[0],
-        y=["metric", "n", "mean", "std"],
-        color=group_cols[1] if len(group_cols) > 1 else None,
-    )
     options_new: dict[str, object] = {}
     if labels:
         options_new["labels"] = {
@@ -498,17 +544,19 @@ def _convert_table(
             metric_map.renamed.get(k, k): v for k, v in formats.items()
         }
     return (
-        PlotSpec(
-            id=plot.id,
-            type="table",
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={
+        _spec(
+            plot,
+            "table",
+            {
                 "computation": "group_summary",
                 "params": {"metrics": resolved, "group_cols": group_cols},
             },
-            channels=channels,
-            options=options_new,
+            PlotChannels(
+                x=group_cols[0],
+                y=["metric", "n", "mean", "std"],
+                color=group_cols[1] if len(group_cols) > 1 else None,
+            ),
+            options_new,
         ),
         "",
     )
@@ -517,15 +565,9 @@ def _convert_table(
 def _convert_bar(
     plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
 ) -> tuple[PlotSpec | None, str]:
-    series = _series_source(plot.data_key)
-    prefer_stem = series[0].removeprefix("v_series_") if series else None
-    if series is not None:
-        source, metric = series
-    else:
-        source = EPISODE_SUMMARY_VIEW
-        metric, problem = _metric_or_todo(plot.data_key, metric_map, known)
-        if problem:
-            return None, problem
+    source, metric, prefer_stem, problem = _primary_source(plot, metric_map, known)
+    if problem:
+        return None, problem
     group_cols = _group_columns(plot)
     if not group_cols:
         return None, "TODO: bar without a group/differentiate column"
@@ -540,14 +582,12 @@ def _convert_bar(
     if filter_map:
         params["filter"] = filter_map
     return (
-        PlotSpec(
-            id=plot.id,
-            type="bar",
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={"computation": "group_summary", "params": params},
-            channels={"x": group_cols[0], "y": "mean"},
-            options={"err_plus": "err_plus", "err_minus": "err_minus"},
+        _spec(
+            plot,
+            "bar",
+            {"computation": "group_summary", "params": params},
+            {"x": group_cols[0], "y": "mean"},
+            {"err_plus": "err_plus", "err_minus": "err_minus"},
         ),
         "",
     )
@@ -568,18 +608,15 @@ def _convert_distribution(
         params["group_cols"] = group_cols
     if filter_map:
         params["filter"] = filter_map
-    channels = PlotChannels(
-        x="bin_center", y="count", color=group_cols[0] if group_cols else None
-    )
     return (
-        PlotSpec(
-            id=plot.id,
-            type="histogram",
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={"computation": "distribution_bins", "params": params},
-            channels=channels,
-            options={"bin_low": "bin_low", "bin_high": "bin_high"},
+        _spec(
+            plot,
+            "histogram",
+            {"computation": "distribution_bins", "params": params},
+            PlotChannels(
+                x="bin_center", y="count", color=group_cols[0] if group_cols else None
+            ),
+            {"bin_low": "bin_low", "bin_high": "bin_high"},
         ),
         "",
     )
@@ -592,15 +629,9 @@ def _convert_direct(
     metric_tables: Mapping[str, str] | None = None,
 ) -> tuple[PlotSpec | None, str]:
     """Box/violin/scatter: one metric (or two) bound directly to a view."""
-    series = _series_source(plot.data_key)
-    prefer_stem = series[0].removeprefix("v_series_") if series else None
-    if series is not None:
-        source, metric = series
-    else:
-        source = EPISODE_SUMMARY_VIEW
-        metric, problem = _metric_or_todo(plot.data_key, metric_map, known)
-        if problem:
-            return None, problem
+    source, metric, prefer_stem, problem = _primary_source(plot, metric_map, known)
+    if problem:
+        return None, problem
     secondary_raw = str(plot.options.get("y") or plot.secondary_data_key or "")
     secondary = None
     if secondary_raw:
@@ -615,15 +646,16 @@ def _convert_direct(
     if unresolved:
         return None, f"TODO: unresolved filter key {unresolved!r}"
     color = _color(plot)
-    channels: PlotChannels
     if plot.type == "scatter":
         if secondary is None:
             return None, "TODO: scatter without options.y (the second axis metric)"
-        channels = PlotChannels(x=metric, y=secondary, color=color)
+        channels: PlotChannels | dict[str, str] = PlotChannels(
+            x=metric, y=secondary, color=color
+        )
     else:
         channels = PlotChannels(x=color, y=metric)
     note = ""
-    if not series and metric_tables is not None:
+    if prefer_stem is None and metric_tables is not None:
         fact_table = metric_tables.get(str(metric))
         if fact_table == "fact_pedestrians" and plot.type != "scatter":
             source = "fact_pedestrians"
@@ -648,49 +680,31 @@ def _convert_direct(
         for key, value in plot.options.items()
         if key in ("show_points", "barmode", "show_markers")
     }
-    return (
-        PlotSpec(
-            id=plot.id,
-            type=plot.type,
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data=data,
-            channels=channels,
-            options=options,
-        ),
-        note,
-    )
+    return _spec(plot, plot.type, data, channels, options), note
 
 
 def _convert_radar(
     plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
 ) -> tuple[PlotSpec | None, str]:
-    raw_metrics = plot.options.get("metrics") or []
-    if not isinstance(raw_metrics, list) or len(raw_metrics) < 3:
-        return None, "TODO: radar without at least three options.metrics"
-    metrics: list[str] = []
-    dropped: list[str] = []
-    for metric in raw_metrics:
-        new, problem = _metric_or_todo(str(metric), metric_map, known)
-        if problem:
-            dropped.append(f"{metric}: {problem}")
-            continue
-        metrics.append(str(new))
-    if len(metrics) < 3:
-        return None, "TODO: radar without three resolvable metrics"
-    note = f"converted; dropped {dropped}" if dropped else ""
+    metrics, note, problem = _resolve_option_metrics(
+        plot.options.get("metrics") or [],
+        minimum=3,
+        label="radar",
+        metric_map=metric_map,
+        known=known,
+    )
+    if problem:
+        return None, problem
     group_col = _color(plot) or "planner"
     return (
-        PlotSpec(
-            id=plot.id,
-            type="radar",
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={
+        _spec(
+            plot,
+            "radar",
+            {
                 "computation": "radar_profile",
                 "params": {"group_col": group_col, "metrics": metrics},
             },
-            channels={"x": "metric", "y": "normalized_score", "color": group_col},
+            {"x": "metric", "y": "normalized_score", "color": group_col},
         ),
         note,
     )
@@ -701,28 +715,24 @@ def _convert_heatmap(
 ) -> tuple[PlotSpec | None, str]:
     raw_metrics = plot.options.get("metrics") or []
     if isinstance(raw_metrics, list) and len(raw_metrics) >= 2:
-        metrics: list[str] = []
-        dropped: list[str] = []
-        for metric in raw_metrics:
-            new, problem = _metric_or_todo(str(metric), metric_map, known)
-            if problem:
-                dropped.append(f"{metric}: {problem}")
-                continue
-            metrics.append(str(new))
-        if len(metrics) < 2:
-            return None, "TODO: correlation heatmap without two resolvable metrics"
-        note = f"converted; dropped {dropped}" if dropped else ""
+        metrics, note, problem = _resolve_option_metrics(
+            raw_metrics,
+            minimum=2,
+            label="correlation heatmap",
+            metric_map=metric_map,
+            known=known,
+        )
+        if problem:
+            return None, problem
         return (
-            PlotSpec(
-                id=plot.id,
-                type="heatmap",
-                title=plot.title,
-                layout_group=plot.layout_group,
-                data={
+            _spec(
+                plot,
+                "heatmap",
+                {
                     "computation": "correlation_matrix",
                     "params": {"metrics": metrics},
                 },
-                channels={"x": "metric_x", "y": "metric_y", "color": "pearson_r"},
+                {"x": "metric_x", "y": "metric_y", "color": "pearson_r"},
             ),
             note,
         )
@@ -735,16 +745,14 @@ def _convert_heatmap(
         if problem:
             return None, problem
         return (
-            PlotSpec(
-                id=plot.id,
-                type="heatmap",
-                title=plot.title,
-                layout_group=plot.layout_group,
-                data={
+            _spec(
+                plot,
+                "heatmap",
+                {
                     "computation": "group_summary",
                     "params": {"metrics": [metric], "group_cols": [x_dim, y_dim]},
                 },
-                channels={"x": x_dim, "y": y_dim, "color": "mean"},
+                {"x": x_dim, "y": y_dim, "color": "mean"},
             ),
             "",
         )
@@ -795,18 +803,15 @@ def _convert_series(
         params["bin_x"] = plot.options["bin_x"]
     if filter_map:
         params["filter"] = filter_map
-    channels = PlotChannels(
-        x="x", y="value", color=group_cols[0] if group_cols else None
-    )
     return (
-        PlotSpec(
-            id=plot.id,
-            type=plot.type,
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={"computation": "series_profile", "params": params},
-            channels=channels,
-            options={"show_markers": True} if plot.type == "line" else {},
+        _spec(
+            plot,
+            plot.type,
+            {"computation": "series_profile", "params": params},
+            PlotChannels(
+                x="x", y="value", color=group_cols[0] if group_cols else None
+            ),
+            {"show_markers": True} if plot.type == "line" else {},
         ),
         "",
     )
@@ -829,13 +834,11 @@ def _convert_trajectory(
     )
     color = "robot_id" if subject == "robot" else "ped_id"
     return (
-        PlotSpec(
-            id=plot.id,
-            type="trajectory",
-            title=plot.title,
-            layout_group=plot.layout_group,
-            data={"stored_query": query},
-            channels={"x": "x", "y": "y", "color": color},
+        _spec(
+            plot,
+            "trajectory",
+            {"stored_query": query},
+            {"x": "x", "y": "y", "color": color},
         ),
         "",
     )
@@ -868,44 +871,34 @@ def _convert_plot(
     known: AbstractSet[str],
     metric_tables: Mapping[str, str] | None = None,
 ) -> tuple[PlotSpec | None, MigrationEntry]:
-    if plot.type in ("acoustic_field", "acoustic_field_animation"):
-        entry = MigrationEntry(
-            plot_id=plot.id,
-            legacy_type=plot.type,
-            status=DROPPED,
-            new_id=None,
-            reason=_ACOUSTIC_DROP,
-        )
-        return None, entry
     converter = _CONVERTERS.get(plot.type)
-    if converter is None:
-        entry = MigrationEntry(
-            plot_id=plot.id,
-            legacy_type=plot.type,
-            status=TODO,
-            new_id=None,
-            reason=f"TODO: no conversion rule for legacy plot type {plot.type!r}.",
-        )
-        return None, entry
-    if converter is _convert_direct:
-        spec, problem = converter(plot, metric_map, known, metric_tables)
+    if plot.type in ("acoustic_field", "acoustic_field_animation"):
+        problem = _ACOUSTIC_DROP
+        status = DROPPED
+    elif converter is None:
+        problem = f"TODO: no conversion rule for legacy plot type {plot.type!r}."
+        status = TODO
     else:
-        spec, problem = converter(plot, metric_map, known)
-    if spec is None:
-        status = TODO if problem.startswith("TODO") else DROPPED
-        return None, MigrationEntry(
-            plot_id=plot.id,
-            legacy_type=plot.type,
-            status=status,
-            new_id=None,
-            reason=problem,
+        spec, problem = (
+            converter(plot, metric_map, known, metric_tables)
+            if converter is _convert_direct
+            else converter(plot, metric_map, known)
         )
-    return spec, MigrationEntry(
+        if spec is not None:
+            return spec, MigrationEntry(
+                plot_id=plot.id,
+                legacy_type=plot.type,
+                status=CONVERTED,
+                new_id=spec.id,
+                reason=problem or "converted",
+            )
+        status = TODO if problem.startswith("TODO") else DROPPED
+    return None, MigrationEntry(
         plot_id=plot.id,
         legacy_type=plot.type,
-        status=CONVERTED,
-        new_id=spec.id,
-        reason=problem or "converted",
+        status=status,
+        new_id=None,
+        reason=problem,
     )
 
 
@@ -1075,15 +1068,7 @@ def render_migration_report(migration: LegacyMigration) -> dict[str, object]:
             }
             for entry in migration.entries
         ],
-        "metrics": [
-            {
-                "legacy": resolution.legacy,
-                "new": resolution.new,
-                "status": resolution.status,
-                "note": resolution.note,
-            }
-            for resolution in migration.metrics
-        ],
+        "metrics": [dataclasses.asdict(item) for item in migration.metrics],
         "carried_notes": list(migration.carried_notes),
     }
 

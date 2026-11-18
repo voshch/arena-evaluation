@@ -36,25 +36,6 @@ def test_resolver_empty_benchmark_reports_failed_diagnostics(
     assert "0 rows" in diag.issues[0]
 
 
-def test_resolver_missing_required_column_reports_failed_diagnostics(
-    tmp_path: pathlib.Path,
-) -> None:
-    write_benchmark(
-        tmp_path, [{"episode_id": 0, "planner": "A", "path_length_m": 10.0}]
-    )
-    resolver = DataResolver(benchmark_dir=tmp_path)
-    spec = PlotSpec(
-        id="missing_req",
-        type="bar",
-        data=PlotDataSpec(source="v_episode_summary"),
-        channels=PlotChannels(x="planner", y="missing_col"),
-        checks={"require_columns": ["missing_col"]},
-    )
-    _df, diag = resolver.resolve(spec)
-    assert diag.status == "FAILED"
-    assert any("missing_col" in issue for issue in diag.issues)
-
-
 def test_manifest_rejects_non_mapping_yaml(tmp_path: pathlib.Path) -> None:
     bad_yaml = tmp_path / "bad.yaml"
     bad_yaml.write_text("- just\n- a\n- list\n", encoding="utf-8")

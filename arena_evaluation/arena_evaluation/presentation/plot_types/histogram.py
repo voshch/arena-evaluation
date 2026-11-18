@@ -31,9 +31,7 @@ class HistogramRenderer(BasePlotRenderer):
     }
     COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset({"bin_low", "bin_high"})
 
-    def _resolve_columns(
-        self, df: pl.DataFrame
-    ) -> tuple[str | None, str | None, str | None]:
+    def _resolve_columns(self, df: pl.DataFrame) -> tuple[str, str, str | None]:
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if not x_col or not y_col:
@@ -45,9 +43,7 @@ class HistogramRenderer(BasePlotRenderer):
         self.validate_unique_cells(df, cell_keys)
         return x_col, y_col, color_col
 
-    def _bar_geometry(
-        self, sub: pl.DataFrame, x_col: str
-    ) -> tuple[np.ndarray, np.ndarray | None]:
+    def _bin_columns(self) -> tuple[str, str] | None:
         low_col = self.spec.options.get("bin_low")
         high_col = self.spec.options.get("bin_high")
         if (
@@ -56,10 +52,31 @@ class HistogramRenderer(BasePlotRenderer):
             and isinstance(high_col, str)
             and high_col.strip()
         ):
-            lo = series_values(sub, low_col.strip())
-            hi = series_values(sub, high_col.strip())
-            return 0.5 * (lo + hi), hi - lo
-        return series_values(sub, x_col), None
+            return low_col.strip(), high_col.strip()
+        return None
+
+    def _bar_geometry(
+        self, sub: pl.DataFrame, x_col: str
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        bins = self._bin_columns()
+        if bins is None:
+            return series_values(sub, x_col), None
+        low_edges, high_edges = (series_values(sub, column) for column in bins)
+        return 0.5 * (low_edges + high_edges), high_edges - low_edges
+
+    def _bar_groups(
+        self, df: pl.DataFrame, color_col: str | None
+    ) -> list[tuple[str | None, pl.DataFrame]]:
+        if color_col is None:
+            return [(None, df)]
+        labels = label_values(df, color_col)
+        return [
+            (label, df.filter(pl.Series(labels == label)))
+            for label in sorted(set(labels.tolist()))
+        ]
+
+    def _label(self, column: str) -> str:
+        return self.format_label(column.replace("_", " ").title(), column)
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly histogram from pre-binned counts."""
@@ -67,42 +84,26 @@ class HistogramRenderer(BasePlotRenderer):
         if df.is_empty():
             return None
         x_col, y_col, color_col = self._resolve_columns(df)
-        assert x_col and y_col
-
         palette = get_color_palette()
         fig = go.Figure()
 
-        if color_col:
-            labels = label_values(df, color_col)
-            for idx, label in enumerate(sorted(set(labels.tolist()))):
-                mask = labels == label
-                sub = df.filter(pl.Series(mask))
-                centers, widths = self._bar_geometry(sub, x_col)
-                fig.add_trace(
-                    go.Bar(
-                        x=centers.tolist(),
-                        y=series_values(sub, y_col).tolist(),
-                        width=widths.tolist() if widths is not None else None,
-                        name=label,
-                        marker_color=palette_color(palette, idx),
-                        opacity=0.75,
-                    )
-                )
-        else:
-            centers, widths = self._bar_geometry(df, x_col)
-            fig.add_trace(
-                go.Bar(
-                    x=centers.tolist(),
-                    y=series_values(df, y_col).tolist(),
-                    width=widths.tolist() if widths is not None else None,
-                    name=y_col,
-                    marker_color=palette_color(palette, 0),
-                )
-            )
-        fig.update_layout(barmode="overlay")
+        for idx, (label, sub) in enumerate(self._bar_groups(df, color_col)):
+            centers, widths = self._bar_geometry(sub, x_col)
+            bar: dict[str, object] = {
+                "x": centers.tolist(),
+                "y": series_values(sub, y_col).tolist(),
+                "name": label if label is not None else y_col,
+                "marker_color": palette_color(palette, idx),
+            }
+            if widths is not None:
+                bar["width"] = widths.tolist()
+            if color_col is not None:
+                bar["opacity"] = 0.75
+            fig.add_trace(go.Bar(**bar))
 
-        x_title = self.format_label(x_col.replace("_", " ").title(), x_col)
-        y_title = self.format_label(y_col.replace("_", " ").title(), y_col)
+        x_title = self._label(x_col)
+        y_title = self._label(y_col)
+        fig.update_layout(barmode="overlay")
         fig.update_layout(
             template="plotly_white",
             title=self.spec.title or x_title,
@@ -117,39 +118,23 @@ class HistogramRenderer(BasePlotRenderer):
         if df.is_empty():
             return
         x_col, y_col, color_col = self._resolve_columns(df)
-        assert x_col and y_col
-
         palette = get_color_palette()
         fig, ax = new_figure()
 
-        if color_col:
-            labels = label_values(df, color_col)
-            for idx, label in enumerate(sorted(set(labels.tolist()))):
-                mask = labels == label
-                sub = df.filter(pl.Series(mask))
-                centers, widths = self._bar_geometry(sub, x_col)
-                w = widths if widths is not None else 0.8
-                ax.bar(
-                    centers,
-                    series_values(sub, y_col),
-                    width=w,
-                    alpha=0.65,
-                    label=label,
-                    color=palette_color(palette, idx),
-                )
+        for idx, (label, sub) in enumerate(self._bar_groups(df, color_col)):
+            centers, widths = self._bar_geometry(sub, x_col)
+            bar: dict[str, object] = {
+                "width": widths if widths is not None else 0.8,
+                "color": palette_color(palette, idx),
+            }
+            if color_col is not None:
+                bar.update(alpha=0.65, label=label)
+            ax.bar(centers, series_values(sub, y_col), **bar)
+        if color_col is not None:
             ax.legend(title=color_col)
-        else:
-            centers, widths = self._bar_geometry(df, x_col)
-            w = widths if widths is not None else 0.8
-            ax.bar(
-                centers,
-                series_values(df, y_col),
-                width=w,
-                color=palette_color(palette, 0),
-            )
 
-        x_title = self.format_label(x_col.replace("_", " ").title(), x_col)
-        y_title = self.format_label(y_col.replace("_", " ").title(), y_col)
+        x_title = self._label(x_col)
+        y_title = self._label(y_col)
         finish_axes(
             ax,
             title=self.spec.title or x_title,

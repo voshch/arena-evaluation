@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import typing
 
 import polars as pl
@@ -70,37 +69,20 @@ def episode_dimensions(
     environments: set[str] = set()
     for bundle in bundles.values():
         env_id, robot_id = _identity(bundle)
-        model = _robot_model(bundle)
-        statistics = _episode_statistics(bundle)
         _, pose = resolve_pose_source(bundle, (None, None))
         episodes.append(
             _episode_row(
-                run_id,
-                episode_id,
-                metadata,
-                env_id,
-                robot_id,
-                pose,
-                statistics,
+                run_id, episode_id, metadata, env_id, robot_id, pose, bundle
             )
         )
         robots.append(
-            _robot_frame(run_id, episode_id, metadata, env_id, robot_id, model, bundle)
+            _robot_frame(run_id, episode_id, metadata, env_id, robot_id, bundle)
         )
-        if env_id not in environments:
-            environments.add(env_id)
-            entities.append(
-                conform(
-                    _entity_frame(run_id, episode_id, env_id, bundle),
-                    DIMENSION_TABLES["dim_world_entities"],
-                )
-            )
-            pedestrians.append(
-                conform(
-                    _pedestrian_rows(run_id, episode_id, env_id, bundle),
-                    DIMENSION_TABLES["dim_pedestrians"],
-                )
-            )
+        if env_id in environments:
+            continue
+        environments.add(env_id)
+        entities.append(_entity_frame(run_id, episode_id, env_id, bundle))
+        pedestrians.append(_pedestrian_rows(run_id, episode_id, env_id, bundle))
     frames = {
         "dim_episodes": pl.DataFrame(episodes),
         "dim_robots": pl.concat(robots) if robots else pl.DataFrame(),
@@ -131,31 +113,36 @@ def _episode_row(
     env_id: str,
     robot_id: str,
     pose: PoseSource,
-    statistics: _EpisodeStatistics,
+    bundle: TopicBundle,
 ) -> dict[str, typing.Any]:
+    lifecycle = _frame(bundle.episode_lifecycle)
+    peds = _first_frame(
+        bundle, bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds
+    )
+    seed, duration_s = _seed_and_duration(lifecycle)
     return {
         "run_id": run_id,
         "episode_id": episode_id,
         "env_id": env_id,
         "robot_id": robot_id,
         "benchmark_id": metadata.benchmark_id,
-        "suite_name": _text(metadata.suite_name),
-        "contest_name": _text(metadata.contest_name),
+        "suite_name": metadata.suite_name or None,
+        "contest_name": metadata.contest_name or None,
         "stage": metadata.stage,
         "world": metadata.map,
         "planner": metadata.planner,
-        "inter_planner": _text(metadata.inter_planner),
-        "local_planner": _text(metadata.local_planner),
+        "inter_planner": metadata.inter_planner or None,
+        "local_planner": metadata.local_planner or None,
         "is_reference": metadata.is_reference,
         "reference_type": metadata.reference_type,
         "outcome_state": metadata.outcome_state,
-        "outcome_info": _text(metadata.outcome_info),
+        "outcome_info": metadata.outcome_info or None,
         "pose_source": pose.kind,
         "pose_gap_s": pose.median_gap_s,
-        "seed": statistics.seed,
-        "crowd_size": statistics.crowd_size,
-        "duration_s": statistics.duration_s,
-        "ped_policy_default": statistics.ped_policy_default,
+        "seed": seed,
+        "crowd_size": _crowd_size(peds),
+        "duration_s": duration_s,
+        "ped_policy_default": _shared_policy(peds),
     }
 
 
@@ -165,176 +152,149 @@ def _robot_frame(
     metadata: RunMetadata,
     env_id: str,
     robot_id: str,
-    model: str | None,
     bundle: TopicBundle,
 ) -> pl.DataFrame:
+    descriptor = _frame(bundle.robot_descriptor)
     base = pl.DataFrame(
         {
             "run_id": [run_id],
             "episode_id": [episode_id],
             "env_id": [env_id],
             "robot_id": [robot_id],
-            "robot_model": [model],
+            "robot_model": [
+                descriptor.get_column("model")[0]
+                if descriptor is not None and descriptor.height
+                else None
+            ],
             "planner": [metadata.planner],
-            "inter_planner": [_text(metadata.inter_planner)],
+            "inter_planner": [metadata.inter_planner or None],
         }
     )
+    table = DIMENSION_TABLES["dim_robots"]
     params = _frame(bundle.robot_params)
     if params is None or params.height == 0:
-        return conform(base, DIMENSION_TABLES["dim_robots"])
+        return conform(base, table)
     _refuse_non_numeric_parameters(params, robot_id)
-    param_exprs = [
-        (
-            pl.col("param_value").filter(pl.col("param_key") == col).first()
-            if col in _TEXT_PARAMETERS
-            else pl.col("param_value")
-            .filter(pl.col("param_key") == col)
-            .first()
-            .cast(pl.Float64, strict=True)
-        ).alias(col)
-        for col in _ROBOT_PARAMETERS
-    ]
     return conform(
-        base.hstack(params.select(param_exprs)), DIMENSION_TABLES["dim_robots"]
+        base.hstack(
+            params.select(
+                *(
+                    _parameter(name).alias(name)
+                    for name in _ROBOT_PARAMETERS
+                )
+            )
+        ),
+        table,
     )
+
+
+def _parameter(name: str) -> pl.Expr:
+    held = pl.col("param_value").filter(pl.col("param_key") == name).first()
+    return (
+        held if name in _TEXT_PARAMETERS else held.cast(pl.Float64, strict=True)
+    ).alias(name)
+
+
+def _refuse_non_numeric_parameters(params: pl.DataFrame, robot_id: str) -> None:
+    """Refuse a recorded numeric parameter that does not parse, instead of casting it to a silent NULL."""
+    for key in _NUMERIC_PARAMETERS:
+        recorded = (
+            params.filter(pl.col("param_key") == key)
+            .get_column("param_value")
+            .drop_nulls()
+        )
+        invalid = recorded.filter(recorded.cast(pl.Float64, strict=False).is_null())
+        if invalid.len():
+            raise ContractViolationError(
+                f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {invalid[0]!r}"
+            )
 
 
 def _identity(bundle: TopicBundle) -> tuple[str, str]:
-    for table in (bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom):
-        frame = _frame(table)
-        if frame is not None and frame.height:
-            env_id, robot_id = frame.select("env_id", "robot_id").row(0)
-            return str(env_id), str(robot_id)
-    raise ValueError("a robot bundle has no table that names its environment and robot")
-
-
-def _robot_model(bundle: TopicBundle) -> str | None:
-    descriptor = _frame(bundle.robot_descriptor)
-    if descriptor is None or descriptor.height == 0:
-        return None
-    return descriptor.get_column("model")[0]
+    frame = _first_frame(
+        bundle, bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom
+    )
+    if frame is None:
+        raise ValueError("a robot bundle has no table that names its environment and robot")
+    env_id, robot_id = frame.select("env_id", "robot_id").row(0)
+    return str(env_id), str(robot_id)
 
 
 def _entity_frame(
     run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
 ) -> pl.DataFrame:
-    frame = _frame(bundle.world_semantics)
-    if frame is None or frame.height == 0:
+    frame = _first_frame(bundle, bundle.world_semantics)
+    if frame is None:
         return pl.DataFrame()
-    filtered = frame.filter(pl.col("env_id") == env_id)
-    if filtered.height == 0:
+    frame = frame.filter(pl.col("env_id") == env_id)
+    if frame.height == 0:
         return pl.DataFrame()
     value = pl.coalesce(pl.col("value_num").cast(pl.String), pl.col("value_str"))
-    return (
-        filtered.group_by("entity_name", maintain_order=True)
-        .agg(
+    return _stamped(
+        frame.group_by("entity_name", maintain_order=True).agg(
             pl.col("kind").first().alias("entity_kind"),
             *(
                 value.filter(pl.col("field_name") == field).first().alias(field)
                 for field in _ENTITY_FIELDS
             ),
-        )
-        .with_columns(
-            run_id=pl.lit(run_id),
-            episode_id=pl.lit(episode_id),
-            env_id=pl.lit(env_id),
-        )
+        ),
+        run_id,
+        episode_id,
+        env_id,
     )
 
 
 def _pedestrian_rows(
     run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
 ) -> pl.DataFrame:
-    frame = _frame(bundle.pedestrian_agent_states)
-    fields = _PEDESTRIAN_FIELDS
-    if frame is None or frame.height == 0:
-        frame = _frame(bundle.pedestrian_arena_peds)
-        fields = _PEDESTRIAN_CORE_FIELDS
-    if frame is None or frame.height == 0:
+    frame = _first_frame(
+        bundle, bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds
+    )
+    if frame is None:
         return pl.DataFrame()
+    fields = (
+        _PEDESTRIAN_FIELDS
+        if "robot_awareness" in frame.columns
+        else _PEDESTRIAN_CORE_FIELDS
+    )
     first_values = [
         pl.col(source).drop_nulls().first().alias(dimension)
         for dimension, source in fields.items()
     ]
-    per_pedestrian = (
-        frame.sort("t_ns").group_by("ped_id", maintain_order=True).agg(first_values)
+    return _stamped(
+        frame.sort("t_ns").group_by("ped_id", maintain_order=True).agg(first_values),
+        run_id,
+        episode_id,
+        env_id,
     )
-    return per_pedestrian.with_columns(
+
+
+def _stamped(
+    frame: pl.DataFrame, run_id: str, episode_id: int, env_id: str
+) -> pl.DataFrame:
+    return frame.with_columns(
         run_id=pl.lit(run_id), episode_id=pl.lit(episode_id), env_id=pl.lit(env_id)
     )
 
 
-def _refuse_non_numeric_parameters(params: pl.DataFrame, robot_id: str) -> None:
-    """Refuse a recorded numeric parameter that does not parse, instead of casting it to a silent NULL."""
-    for key in _NUMERIC_PARAMETERS:
-        values = (
-            params.filter(pl.col("param_key") == key)
-            .get_column("param_value")
-            .drop_nulls()
-            .unique()
-        )
-        for value in values:
-            try:
-                float(value)
-            except (TypeError, ValueError) as error:
-                raise ContractViolationError(
-                    f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}"
-                ) from error
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class _EpisodeStatistics:
-    """The episode-level values the recorded lifecycle and pedestrian tables carry."""
-
-    seed: int | None
-    crowd_size: int | None
-    duration_s: float | None
-    ped_policy_default: str | None
-
-
-def _episode_statistics(bundle: TopicBundle) -> _EpisodeStatistics:
-    """Seed, crowd size, duration and the shared pedestrian policy, from the recorded tables only."""
-    lifecycle = _frame(bundle.episode_lifecycle)
-    peds = _pedestrian_frame(bundle)
-    return _EpisodeStatistics(
-        seed=_single_int(lifecycle, "seed"),
-        crowd_size=(
-            int(peds.get_column("ped_id").n_unique())
-            if peds is not None and peds.height
-            else None
-        ),
-        duration_s=_duration_s(lifecycle),
-        ped_policy_default=_shared_policy(peds),
-    )
-
-
-def _single_int(frame: pl.DataFrame | None, column: str) -> int | None:
-    """The one non-null integer a column carries, None when it carries none or several."""
-    if frame is None or frame.height == 0:
-        return None
-    values = frame.get_column(column).drop_nulls().unique()
-    return int(values.item()) if values.len() == 1 else None
-
-
-def _duration_s(lifecycle: pl.DataFrame | None) -> float | None:
-    """The recorded episode window: its start stamp to its last lifecycle stamp, in seconds."""
+def _seed_and_duration(
+    lifecycle: pl.DataFrame | None,
+) -> tuple[int | None, float | None]:
+    """The one recorded seed and the episode window from its first start stamp to its last lifecycle stamp."""
     if lifecycle is None or lifecycle.height == 0:
-        return None
+        return None, None
+    seeds = lifecycle.get_column("seed").drop_nulls().unique()
+    seed = int(seeds.item()) if seeds.len() == 1 else None
     starts = lifecycle.get_column("start_t_ns").drop_nulls()
     if starts.len() == 0:
-        return None
+        return seed, None
     start_ns = int(starts.min())
     end_ns = int(lifecycle.get_column("t_ns").max())
-    return (end_ns - start_ns) / _NS_PER_SECOND if end_ns > start_ns else None
+    return seed, (end_ns - start_ns) / _NS_PER_SECOND if end_ns > start_ns else None
 
 
-def _pedestrian_frame(bundle: TopicBundle) -> pl.DataFrame | None:
-    """The pedestrian table the episode recorded, the engine states first, then the arena peds."""
-    for table in (bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds):
-        frame = _frame(table)
-        if frame is not None and frame.height:
-            return frame
-    return None
+def _crowd_size(peds: pl.DataFrame | None) -> int | None:
+    return int(peds.get_column("ped_id").n_unique()) if peds is not None else None
 
 
 def _shared_policy(peds: pl.DataFrame | None) -> str | None:
@@ -345,11 +305,19 @@ def _shared_policy(peds: pl.DataFrame | None) -> str | None:
     return str(policies.item()) if policies.len() == 1 else None
 
 
+def _first_frame(
+    bundle: TopicBundle,
+    *tables: pl.DataFrame | pl.LazyFrame | None,
+) -> pl.DataFrame | None:
+    """The first recorded table of the bundle that carries a row."""
+    for table in tables:
+        frame = _frame(table)
+        if frame is not None and frame.height:
+            return frame
+    return None
+
+
 def _frame(table: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
     if table is None:
         return None
     return table.collect() if isinstance(table, pl.LazyFrame) else table
-
-
-def _text(value: str | None) -> str | None:
-    return value or None

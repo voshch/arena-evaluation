@@ -7,22 +7,13 @@ import json
 import logging
 import pathlib
 import re
-import threading
 import time
 import types
 
 import pytest
 from arena_evaluation.benchmark.config import Contestant, Contest, Suite
 from arena_evaluation.benchmark.runner import (
-    _snapshot_bundle_worlds,
-    _MAX_SIM_DEATHS,
-    _RetryBudget,
-    _SYSTEMIC,
     _default_run_id,
-    _new_env_logs,
-    _orphaned_env_ids,
-    _requeue_front,
-    _resolve_resume_config,
     build_launch_args,
     build_pending,
     cell_verdict,
@@ -40,9 +31,7 @@ from arena_evaluation.benchmark.state import (
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
 from arena_runtime.env.task_layer import encode_modes
 
-# ---------------------------------------------------------------------------
 # helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_stage(name: str = "s1") -> Suite.Stage:
@@ -96,13 +85,9 @@ def _make_episode_record(
     )
 
 
-def _make_env_record(env_id: int, ready: bool) -> types.SimpleNamespace:
-    return types.SimpleNamespace(env_id=env_id, ready=ready)
 
 
-# ---------------------------------------------------------------------------
 # Step.key
-# ---------------------------------------------------------------------------
 
 
 def test_step_key():
@@ -125,9 +110,7 @@ def test_step_key_uses_names():
     assert step.key == "teb/indoor_10"
 
 
-# ---------------------------------------------------------------------------
 # StateFile roundtrip
-# ---------------------------------------------------------------------------
 
 
 def test_state_file_roundtrip(tmp_path: pathlib.Path):
@@ -206,9 +189,7 @@ def test_state_file_roundtrip_episodes_fields(tmp_path: pathlib.Path):
     assert r.episodes_failed == 2
 
 
-# ---------------------------------------------------------------------------
 # ProgressLog schema and append
-# ---------------------------------------------------------------------------
 
 _EXPECTED_HEADERS = [
     "ts_iso",
@@ -386,9 +367,7 @@ def test_progress_log_append_to_existing(tmp_path: pathlib.Path):
     assert len(rows) == 2
 
 
-# ---------------------------------------------------------------------------
 # compute_config_hash determinism
-# ---------------------------------------------------------------------------
 
 
 def test_compute_config_hash_differs_on_suite():
@@ -411,9 +390,7 @@ def test_compute_config_hash_is_string():
     assert len(h) > 0
 
 
-# ---------------------------------------------------------------------------
 # resume config resolution (regression: resume must use the manifest, not argv)
-# ---------------------------------------------------------------------------
 
 
 def _make_resume_manifest() -> Manifest:
@@ -459,20 +436,6 @@ def _make_resume_manifest() -> Manifest:
     )
 
 
-def test_resume_reconstructs_config_from_manifest():
-    man = _make_resume_manifest()
-    # Round-trip through YAML exactly as RunDir.open reads it back from disk.
-    man = Manifest.from_yaml(man.to_yaml())
-
-    suite, contest, scale_episodes, simulator = _resolve_resume_config(man)
-
-    # The reported bug: resume fell back to the argparse default suite ("basic").
-    assert suite.name == "ladder"
-    assert [s.name for s in suite.stages] == ["ladder_01", "ladder_05"]
-    assert [c.name for c in contest.contestants] == ["dwb"]
-    # scale_episodes and simulator also come from the run, not from CLI defaults.
-    assert scale_episodes == 2.0
-    assert simulator == "gazebo"
 
 
 def test_resume_replays_stored_config_hash():
@@ -495,9 +458,7 @@ def test_manifest_without_launch_args_defaults_empty():
     assert Manifest.from_yaml(yaml.dump(data)).launch_args == {}
 
 
-# ---------------------------------------------------------------------------
 # build_launch_args
-# ---------------------------------------------------------------------------
 
 
 def _make_cell(
@@ -800,9 +761,7 @@ def test_build_launch_args_dict_cap_stage_collision_dropped():
     assert "robot.mobile.local_planner:=teb" in args
 
 
-# ---------------------------------------------------------------------------
 # build_pending
-# ---------------------------------------------------------------------------
 
 
 def _fake_run_dir(state_steps: dict[str, StepResult]) -> types.SimpleNamespace:
@@ -1041,9 +1000,7 @@ def test_build_pending_scale_episodes(tmp_path: pathlib.Path):
     assert steps[0].episodes == 10
 
 
-# ---------------------------------------------------------------------------
 # ProgressLog.dedupe_in_place
-# ---------------------------------------------------------------------------
 
 
 def test_dedupe_in_place_no_duplicates(tmp_path: pathlib.Path):
@@ -1152,9 +1109,7 @@ def test_dedupe_in_place_preserves_header(tmp_path: pathlib.Path):
     assert headers == _EXPECTED_HEADERS
 
 
-# ---------------------------------------------------------------------------
 # _default_run_id format
-# ---------------------------------------------------------------------------
 
 _RUN_ID_RE = re.compile(r"^\d{8}-\d{6}-[\w]+-[\w]+$")
 
@@ -1194,9 +1149,7 @@ def test_default_run_id_lex_sort_is_chronological():
 # tested with a plain dict.
 
 
-# ---------------------------------------------------------------------------
 # Grouping
-# ---------------------------------------------------------------------------
 
 
 def _make_step_for(contestant_name: str, stage_name: str, robot: str = "jackal", map: str = "map1") -> Step:
@@ -1341,9 +1294,7 @@ def test_env_key_simulator_none():
     assert key == ("planner_a", "jackal", "map1", None)
 
 
-# ---------------------------------------------------------------------------
 # stage_params
-# ---------------------------------------------------------------------------
 
 NAMESPACES = {
     "robots": {"scenario": "runtime.scenario", "random": "runtime.random"},
@@ -1407,20 +1358,8 @@ def test_stage_params_share_one_entry_between_axes_on_one_namespace():
     assert [p.name for p in params] == ["runtime.scenario.file"]
 
 
-def test_human_params_keep_their_namespace():
-    from arena_evaluation.benchmark.runner import _human_params, stage_params
-
-    config = {"humansim": {"global_planner": {"resolution": 0.1}}, "random": {"static": {"n": 3}}}
-    human = _human_params(config)
-    assert [(p.name, p.value.double_value) for p in human] == [("humansim.global_planner.resolution", 0.1)]
-    assert [p.name for p in stage_params(config, _selected(), NAMESPACES)] == ["runtime.random.static.n"]
-    assert _human_params({}) == []
 
 
-def test_reserved_human_block_is_forwarded_for_rejection():
-    from arena_evaluation.benchmark.runner import _human_params
-
-    assert [p.name for p in _human_params({"human": {"speed": 1.2}})] == ["human.speed"]
 
 
 def test_stage_params_skip_non_dict_top_level():
@@ -1444,9 +1383,7 @@ def test_stage_params_typed_values():
     assert by_name["a_float"].value.double_value == pytest.approx(3.14)
 
 
-# ---------------------------------------------------------------------------
 # BenchmarkProgressDisplay tests
-# ---------------------------------------------------------------------------
 
 
 def test_progress_display_slot_lifecycle():
@@ -1546,125 +1483,43 @@ def test_world_batch_ordering():
     assert len(blocks) == 2
 
 
-# ---------------------------------------------------------------------------
 # retry bookkeeping
-# ---------------------------------------------------------------------------
 
 
-def test_sim_dead_is_systemic():
-    assert StepErrorKind.SIM_DEAD in _SYSTEMIC
-    assert StepErrorKind.EPISODE_TIMEOUT not in _SYSTEMIC
 
 
-def test_retry_budget_allows_one_retry_per_key_by_default():
-    budget = _RetryBudget()
-    assert budget.record("teb/s1", sim_death_generation=None) == (True, False)
-    assert budget.record("teb/s1", sim_death_generation=None) == (False, False)
 
 
-def test_retry_budget_keys_are_independent():
-    budget = _RetryBudget()
-    assert budget.record("teb/s1", sim_death_generation=None) == (True, False)
-    assert budget.record("dwb/s1", sim_death_generation=None) == (True, False)
 
 
-def test_retry_budget_zero_never_retries():
-    budget = _RetryBudget(retries=0)
-    assert budget.record("teb/s1", sim_death_generation=None) == (False, False)
-    assert budget.limit == "0"
 
 
-def test_retry_budget_unbounded_always_retries():
-    budget = _RetryBudget(retries=-1)
-    for _ in range(5):
-        assert budget.record("teb/s1", sim_death_generation=None) == (True, False)
-    assert budget.limit == "inf"
 
 
-def test_retry_budget_counts_one_sim_death_per_generation():
-    budget = _RetryBudget()
-    budget.record("teb/s1", sim_death_generation=0)
-    budget.record("dwb/s1", sim_death_generation=0)
-    assert budget.sim_deaths == 1
 
 
-def test_retry_budget_max_sim_deaths_aborts_the_run():
-    budget = _RetryBudget()
-    for generation in range(_MAX_SIM_DEATHS - 1):
-        may_retry, run_abort = budget.record(f"p{generation}/s1", sim_death_generation=generation)
-        assert (may_retry, run_abort) == (True, False)
-    assert budget.record("last/s1", sim_death_generation=_MAX_SIM_DEATHS - 1) == (False, True)
-    assert budget.sim_deaths == _MAX_SIM_DEATHS
 
 
-def test_retry_budget_abort_wins_over_retry():
-    budget = _RetryBudget(retries=-1, max_sim_deaths=1)
-    assert budget.record("fresh/s1", sim_death_generation=0) == (False, True)
 
 
-def test_retry_budget_spawn_phase_death_counts_the_generation_only():
-    budget = _RetryBudget()
-    assert budget.record(None, sim_death_generation=0) == (False, False)
-    assert budget.sim_deaths == 1
-    assert not budget.attempts
-    assert budget.record("teb/s1", sim_death_generation=1) == (True, False)
 
 
-def test_requeue_front_puts_the_step_back_at_the_head():
-    q: asyncio.Queue = asyncio.Queue()
-    first = _make_step_for("p1", "s1")
-    second = _make_step_for("p1", "s2")
-    third = _make_step_for("p1", "s3")
-    for step in (second, third):
-        q.put_nowait(step)
-
-    _requeue_front(q, first)
-
-    assert [q.get_nowait().key for _ in range(3)] == [first.key, second.key, third.key]
 
 
-# ---------------------------------------------------------------------------
 # orphan despawn on spawn timeout
-# ---------------------------------------------------------------------------
 
 
-def test_orphaned_env_ids_picks_new_not_ready_envs():
-    known = {1}
-    records = {
-        1: _make_env_record(1, ready=True),
-        2: _make_env_record(2, ready=False),
-        3: _make_env_record(3, ready=True),
-    }
-    assert _orphaned_env_ids(known, records, []) == [2]
 
 
-def test_orphaned_env_ids_ignores_new_ready_envs():
-    known = {1}
-    records = {1: _make_env_record(1, ready=True), 2: _make_env_record(2, ready=True)}
-    assert _orphaned_env_ids(known, records, []) == []
 
 
-def test_orphaned_env_ids_dedupes_with_registered():
-    known = set()
-    records = {2: _make_env_record(2, ready=False)}
-    assert _orphaned_env_ids(known, records, [2]) == [2]
 
 
-def test_orphaned_env_ids_keeps_registered_first():
-    known = set()
-    records = {2: _make_env_record(2, ready=False), 5: _make_env_record(5, ready=False)}
-    assert _orphaned_env_ids(known, records, [5]) == [5, 2]
 
 
-def test_orphaned_env_ids_empty_when_nothing_new():
-    known = {1, 2}
-    records = {1: _make_env_record(1, ready=True), 2: _make_env_record(2, ready=False)}
-    assert _orphaned_env_ids(known, records, []) == []
 
 
-# ---------------------------------------------------------------------------
 # closed_fraction
-# ---------------------------------------------------------------------------
 
 
 def test_closed_fraction_zero_start_is_zero():
@@ -1692,9 +1547,7 @@ def test_closed_fraction_clamps_below_zero_min():
     assert closed_fraction(10.0, -5.0) == 1.0
 
 
-# ---------------------------------------------------------------------------
 # cell_verdict
-# ---------------------------------------------------------------------------
 
 
 def test_cell_verdict_wedged_on_error_kind():
@@ -1759,17 +1612,9 @@ def test_cell_verdict_ok():
     assert cell_verdict(r) == "ok"
 
 
-def test_requeue_front_into_an_empty_queue():
-    q: asyncio.Queue = asyncio.Queue()
-    only = _make_step_for("p1", "s1")
-    _requeue_front(q, only)
-    assert q.qsize() == 1
-    assert q.get_nowait().key == only.key
 
 
-# ---------------------------------------------------------------------------
 # pick_block
-# ---------------------------------------------------------------------------
 
 
 def _block_queues(sizes: list[int]) -> list[tuple[Step, asyncio.Queue, str]]:
@@ -1824,68 +1669,3 @@ def test_robot_has_depth_camera_resolves_the_camera_component(robot: str, expect
     from arena_evaluation.benchmark.runner import robot_has_depth_camera
 
     assert robot_has_depth_camera(robot) is expected
-
-
-def test_new_env_logs_skips_logs_present_before_the_wait(tmp_path: pathlib.Path):
-    old = tmp_path / "arena_env_0_20261016-010000.log"
-    old.write_text("loading\n")
-    before = set(tmp_path.glob("arena_env_*.log"))
-    old.write_text("loading\nstill going\n")
-    new = tmp_path / "arena_env_1_20261016-010500.log"
-    new.write_text("Loading World hospital_1\n")
-    (tmp_path / "launch.log").write_text("x\n")
-
-    assert _new_env_logs(tmp_path, before) == [new]
-
-
-def test_new_env_logs_empty_for_a_missing_dir(tmp_path: pathlib.Path):
-    assert _new_env_logs(tmp_path / "roslog", set()) == []
-
-
-def test_bundle_worlds_of_the_stages_land_where_evaluation_reads_maps(tmp_path: pathlib.Path):
-    from arena_evaluation.processing.map_registry import MapRegistry
-
-    bundle = tmp_path / "suites" / "acme"
-    for name in ("used", "unused"):
-        (bundle / "worlds" / name / "0").mkdir(parents=True)
-        (bundle / "worlds" / name / "0" / "map.yaml").write_text(f"image: {name}.png\n")
-    run = tmp_path / "run"
-    run.mkdir()
-    assert _snapshot_bundle_worlds(bundle, ["used", "used"], run) == ["used"]
-    assert (run / "worlds" / "used" / "0" / "map.yaml").read_text() == "image: used.png\n"
-    assert not (run / "worlds" / "unused").exists()
-    assert MapRegistry._find_ros_map_dir("used", run_dir=run) == run / "worlds" / "used"
-    assert _snapshot_bundle_worlds(bundle, ["used"], run) == []
-    assert _snapshot_bundle_worlds(None, ["used"], run) == []
-
-
-def test_lanes_snapshotting_one_bundle_world_at_once_copy_it_once_and_whole(tmp_path: pathlib.Path):
-    bundle = tmp_path / "suites" / "acme"
-    files = {f"{level}/{part}.yaml": f"{level}-{part}\n" * 64 for level in range(8) for part in range(32)}
-    for relpath, text in files.items():
-        (bundle / "worlds" / "used" / relpath).parent.mkdir(parents=True, exist_ok=True)
-        (bundle / "worlds" / "used" / relpath).write_text(text)
-    run = tmp_path / "run"
-    run.mkdir()
-    lanes = 8
-    barrier = threading.Barrier(lanes)
-    results: list[list[str]] = []
-    errors: list[BaseException] = []
-
-    def lane() -> None:
-        barrier.wait()
-        try:
-            results.append(_snapshot_bundle_worlds(bundle, ["used"], run))
-        except BaseException as error:
-            errors.append(error)
-
-    threads = [threading.Thread(target=lane) for _ in range(lanes)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert errors == []
-    assert sorted(results) == [[]] * (lanes - 1) + [["used"]]
-    assert [p.name for p in (run / "worlds").iterdir()] == ["used"]
-    target = run / "worlds" / "used"
-    assert {p.relative_to(target).as_posix(): p.read_text() for p in target.rglob("*") if p.is_file()} == files

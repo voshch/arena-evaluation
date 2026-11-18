@@ -23,12 +23,15 @@ from arena_evaluation.processing.metrics.base import (
 from arena_evaluation.processing.metrics.common.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,
 )
-from arena_evaluation.processing.pedestrian_frames import FrameGeometry, frame_geometry
+from arena_evaluation.processing.pedestrian_frames import (
+    NS_PER_S,
+    FrameGeometry,
+    frame_geometry,
+)
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-NS_PER_S: Final[float] = 1e9
 SFM_INTERACTION_STRENGTH_N: Final[float] = 2.1
 SFM_INTERACTION_RANGE_M: Final[float] = 0.3
 SFM_CUTOFF_M: Final[float] = 5.0
@@ -199,13 +202,8 @@ def _frame_value(column: str, resolved: str) -> pl.Expr:
     )
 
 
-def _integral_expression(value: str) -> pl.Expr:
-    """Time integral of a per-frame value over the integration steps, null frames skipped."""
-    return (pl.col(value) * pl.col("dt_s")).drop_nulls().sum()
-
-
-def _summary_expression(value: str) -> pl.Expr:
-    """Aggregate of a per-frame value over the frames that observed it, null when no frame did."""
+def _observed(value: str) -> pl.Expr:
+    """Per-frame value over the frames that observed it, null frames skipped."""
     return pl.col(value).drop_nulls()
 
 
@@ -312,22 +310,9 @@ class SocialForcesCalculator(BaseMetricCalculator):
             .sort("t_ns")
         )
 
-    @staticmethod
-    def _aggregate(frame_forces: pl.DataFrame) -> dict[str, float | None]:
+    def _aggregate(self, frame_forces: pl.DataFrame) -> dict[str, float | None]:
         """Force and index summaries over the frames that observed a resolved robot-pedestrian pair."""
-        keys: Final[tuple[str, ...]] = (
-            "sfm_cumulative_force",
-            "esfm_cumulative_force",
-            "esfm_ped_cumulative_force",
-            "sfm_peak_force",
-            "sfm_mean_force",
-            "esfm_peak_force",
-            "esfm_mean_force",
-            "esfm_ped_peak_force",
-            "esfm_ped_mean_force",
-            "ci_max",
-            "ci_mean",
-        )
+        keys: Final[tuple[str, ...]] = tuple(self.output_keys())
         if (
             frame_forces.height == 0
             or frame_forces.select(pl.col("sfm_force_n").is_not_null().any()).item()
@@ -335,15 +320,17 @@ class SocialForcesCalculator(BaseMetricCalculator):
         ):
             return dict.fromkeys(keys)
         row = frame_forces.select(
-            sfm_cumulative_force=_integral_expression("sfm_force_n"),
-            esfm_cumulative_force=_integral_expression("esfm_force_n"),
-            esfm_ped_cumulative_force=_integral_expression("esfm_ped_force_n"),
-            sfm_peak_force=_summary_expression("sfm_force_n").max(),
-            sfm_mean_force=_summary_expression("sfm_force_n").mean(),
-            esfm_peak_force=_summary_expression("esfm_force_n").max(),
-            esfm_mean_force=_summary_expression("esfm_force_n").mean(),
-            esfm_ped_peak_force=_summary_expression("esfm_ped_force_n").max(),
-            esfm_ped_mean_force=_summary_expression("esfm_ped_force_n").mean(),
+            sfm_cumulative_force=(_observed("sfm_force_n") * pl.col("dt_s")).sum(),
+            esfm_cumulative_force=(_observed("esfm_force_n") * pl.col("dt_s")).sum(),
+            esfm_ped_cumulative_force=(
+                _observed("esfm_ped_force_n") * pl.col("dt_s")
+            ).sum(),
+            sfm_peak_force=_observed("sfm_force_n").max(),
+            sfm_mean_force=_observed("sfm_force_n").mean(),
+            esfm_peak_force=_observed("esfm_force_n").max(),
+            esfm_mean_force=_observed("esfm_force_n").mean(),
+            esfm_ped_peak_force=_observed("esfm_ped_force_n").max(),
+            esfm_ped_mean_force=_observed("esfm_ped_force_n").mean(),
             ci_max=pl.col("ci").drop_nulls().max(),
             ci_mean=pl.col("ci").drop_nulls().mean(),
         ).row(0, named=True)
@@ -356,10 +343,7 @@ class SocialForcesCalculator(BaseMetricCalculator):
         geometry = self._geometry(episode)
         if not geometry.observed:
             return dict.fromkeys(self.output_keys())
-        aggregate = self._aggregate(self._frame_forces(geometry))
-        return {
-            **aggregate,
-        }
+        return self._aggregate(self._frame_forces(geometry))
 
     def calculate(
         self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]

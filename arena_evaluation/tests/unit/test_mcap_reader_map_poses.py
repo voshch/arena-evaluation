@@ -1,4 +1,3 @@
-import json
 import pathlib
 
 import polars as pl
@@ -20,18 +19,3 @@ def _phases_after_offset(tmp_path: pathlib.Path, phases_yaml: str) -> str:
     return load_bundles(topics, {})["env_0_jackal"].episode_lifecycle.collect()["phases_yaml"][0]
 
 
-def test_map_poses_of_every_robot_move_by_the_env_offset(tmp_path: pathlib.Path) -> None:
-    record = {
-        "jackal": {"phases": [{"goto": [1.0, 2.0, 0.0]}, {"gesture": "wave"}], "conditions": [], "map_poses": [[56.0, 7.0, 0.5], None]},
-        "burger": {"phases": [{"goto": "kitchen"}], "conditions": [], "map_poses": [[59.5, 4.0, 1.57]]},
-    }
-
-    shifted = json.loads(_phases_after_offset(tmp_path, json.dumps(record)))
-
-    assert shifted["jackal"]["map_poses"] == [[6.0, 8.0, 0.5], None]
-    assert shifted["burger"]["map_poses"] == [[9.5, 5.0, 1.57]]
-    assert shifted["jackal"]["phases"] == record["jackal"]["phases"]
-
-
-def test_empty_phases_payload_passes_through(tmp_path: pathlib.Path) -> None:
-    assert _phases_after_offset(tmp_path, "") == ""

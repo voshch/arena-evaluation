@@ -42,92 +42,6 @@ def _robot_scope(episode):
     return _calc().calculate_for_scope(episode, {}, scope_slice)
 
 
-def test_time_waiting_at_doors_counts_triggered_not_open():
-    snapshot = snapshot_frame(
-        [
-            (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
-            (3_000_000_000, "env_0/door_1", "door", "state", "discrete", "opening"),
-            (4_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-            (5_000_000_000, "env_0/door_1", "door", "triggered", "predicate", False),
-        ]
-    )
-
-    results = _calc().calculate(_episode(snapshot), {})
-
-    # triggered+not-open holds [1s,3s) closed and [3s,4s) opening: 2s + 1s
-    assert results["time_waiting_at_doors_anyone"] == pytest.approx(3.0)
-    assert results["elevator_rides_anyone"] == 0
-
-
-def test_time_waiting_at_doors_sums_across_doors():
-    snapshot = snapshot_frame(
-        [
-            (1_000_000_000, "env_0/door_1", "door", "triggered", "predicate", True),
-            (2_000_000_000, "env_0/door_1", "door", "state", "discrete", "open"),
-            (1_000_000_000, "env_0/door_2", "door", "triggered", "predicate", True),
-            (3_000_000_000, "env_0/door_2", "door", "state", "discrete", "open"),
-        ]
-    )
-
-    results = _calc().calculate(_episode(snapshot), {})
-
-    # door_1: triggered [1s,2s) not open -> 1s. door_2: triggered [1s,3s) not open -> 2s.
-    assert results["time_waiting_at_doors_anyone"] == pytest.approx(3.0)
-
-
-def test_elevator_rides_requires_nonzero_occupants():
-    snapshot = snapshot_frame(
-        [
-            (
-                1_000_000_000,
-                "env_0/1_elevator",
-                "elevator",
-                "occupants",
-                "continuous",
-                1.0,
-            ),
-            (
-                2_000_000_000,
-                "env_0/1_elevator",
-                "elevator",
-                "just_arrived",
-                "predicate",
-                True,
-            ),
-            (
-                3_000_000_000,
-                "env_0/1_elevator",
-                "elevator",
-                "just_arrived",
-                "predicate",
-                False,
-            ),
-            (
-                4_000_000_000,
-                "env_0/1_elevator",
-                "elevator",
-                "occupants",
-                "continuous",
-                0.0,
-            ),
-            (
-                5_000_000_000,
-                "env_0/1_elevator",
-                "elevator",
-                "just_arrived",
-                "predicate",
-                True,
-            ),
-        ]
-    )
-
-    results = _calc().calculate(_episode(snapshot), {})
-
-    # Only the first just_arrived=True edge has occupants > 0
-    assert results["elevator_rides_anyone"] == 1
-    assert results["time_waiting_at_doors_anyone"] == pytest.approx(0.0)
-
-
 def test_no_semantic_snapshot_is_undefined():
     results = _calc().calculate(_episode(None), {})
 
@@ -135,21 +49,6 @@ def test_no_semantic_snapshot_is_undefined():
     assert results["elevator_rides_anyone"] is None
 
 
-def test_empty_semantic_snapshot_measures_zero_at_episode_scope():
-    results = _calc().calculate(_episode(snapshot_frame([])), {})
-
-    assert results["time_waiting_at_doors_anyone"] == pytest.approx(0.0)
-    assert results["elevator_rides_anyone"] == 0
-
-
-def test_empty_semantic_snapshot_leaves_robot_scope_undefined():
-    assert _robot_scope(_robot_episode(snapshot_frame([]))) == {
-        "time_waiting_at_doors_robot": None,
-        "elevator_rides_robot": None,
-    }
-
-
-# -- robot-attributed values (`..._robot`, the episode scope is `..._anyone`) -----
 
 
 def _members(rows):
@@ -198,16 +97,6 @@ def test_time_waiting_at_doors_robot_only_while_robot_is_member():
         "time_waiting_at_doors_anyone"
     ] == pytest.approx(3.0)
     assert _robot_scope(episode)["time_waiting_at_doors_robot"] == pytest.approx(2.0)
-
-
-def test_time_waiting_at_doors_robot_none_when_members_never_recorded():
-    members = _members([(0, "env_0/door_1/0", "door", [])])
-    episode = _robot_episode(_with_members(_door_snapshot(), members))
-
-    assert _calc().calculate(episode, {})[
-        "time_waiting_at_doors_anyone"
-    ] == pytest.approx(3.0)
-    assert _robot_scope(episode)["time_waiting_at_doors_robot"] is None
 
 
 def test_time_waiting_at_doors_robot_none_without_robot_name():

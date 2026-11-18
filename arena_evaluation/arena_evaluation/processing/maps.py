@@ -32,10 +32,6 @@ class DenseGrid:
     origin_yaw: float
     cells: np.ndarray
 
-    def lethal(self) -> np.ndarray:
-        """The cells that are not free: occupied and unknown cells both block a route."""
-        return self.cells != 0
-
     def static_grid(self, robot_radius_m: float = 0.0) -> StaticGrid:
         """The lethal mask inflated by a robot radius, as theta* consumes it; a rotated snapshot is refused."""
         if abs(self.origin_yaw) > _UNROTATED_TOLERANCE_RAD:
@@ -43,7 +39,8 @@ class DenseGrid:
                 f"the recorded {self.kind} snapshot is rotated by {self.origin_yaw} rad; "
                 "a StaticGrid is axis-aligned"
             )
-        lethal = self.lethal()
+        # Free is 0; occupied and unknown cells both block a route.
+        lethal = self.cells != 0
         if robot_radius_m > 0.0:
             clearance_m = distance_transform_edt(~lethal) * self.resolution_m
             lethal = clearance_m <= robot_radius_m
@@ -65,7 +62,7 @@ def load_snapshot(
     metadata = pl.read_parquet(metadata_path).filter(pl.col("kind") == kind)
     if t_ns is not None:
         metadata = metadata.filter(pl.col("t_ns") <= t_ns)
-    if metadata.height == 0:
+    if metadata.is_empty():
         return None
     row = metadata.sort("t_ns").row(-1, named=True)
     width = int(row["width_cells"])

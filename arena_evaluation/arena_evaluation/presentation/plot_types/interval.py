@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+from dataclasses import dataclass
 from typing import ClassVar
 
 import matplotlib.pyplot as plt
@@ -27,12 +28,34 @@ _CAP_HALF_WIDTH: float = 0.12
 _DODGE_WIDTH: float = 0.36
 
 
+@dataclass(frozen=True, slots=True)
+class _IntervalData:
+    """Resolved interval cells with their bounds, groups and axis titles."""
+
+    labels: list[str]
+    values: np.ndarray
+    low: np.ndarray
+    high: np.ndarray
+    groups: list[str] | None
+    color_col: str | None
+    x_title: str
+    y_title: str
+
+    def groups_with_indices(self) -> list[tuple[str, list[int]]]:
+        """One ``(group, row indices)`` pair per group in first-seen order."""
+        if self.groups is None:
+            return [("", list(range(len(self.labels))))]
+        indices: dict[str, list[int]] = {group: [] for group in self.groups}
+        for index, group in enumerate(self.groups):
+            indices[group].append(index)
+        return list(indices.items())
+
+
 class IntervalRenderer(BasePlotRenderer):
     """Draw point estimates with the interval stored in two bound columns.
 
-    A declared ``color`` channel groups the estimates (e.g. one interval per planner and
-    crowd condition); the bounds are named by the ``low`` and ``high`` options. A spec
-    without both options is refused with a hint.
+    A declared ``color`` channel groups the estimates; the ``low`` and ``high``
+    options name the bound columns. A spec without both options is refused.
     """
 
     PLOT_TYPE = "interval"
@@ -49,10 +72,14 @@ class IntervalRenderer(BasePlotRenderer):
 
     def _bound_columns(self) -> tuple[str, str]:
         options = self.spec.options
-        low = options.get(_LOW_OPTION)
-        high = options.get(_HIGH_OPTION)
-        low_col = low.strip() if isinstance(low, str) and low.strip() else ""
-        high_col = high.strip() if isinstance(high, str) and high.strip() else ""
+        raw_low = options.get(_LOW_OPTION)
+        raw_high = options.get(_HIGH_OPTION)
+        low_col = (
+            raw_low.strip() if isinstance(raw_low, str) and raw_low.strip() else ""
+        )
+        high_col = (
+            raw_high.strip() if isinstance(raw_high, str) and raw_high.strip() else ""
+        )
         if not low_col or not high_col:
             raise ValueError(
                 f"Plot {self.spec.id!r}: interval plot requires options "
@@ -62,7 +89,8 @@ class IntervalRenderer(BasePlotRenderer):
             )
         return low_col, high_col
 
-    def _channel_columns(self) -> tuple[str, str, str | None]:
+    def _plot_data(self, df: pl.DataFrame) -> _IntervalData:
+        """Resolve channels and bound columns once, with the shared axis titles."""
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if x_col is None:
@@ -73,99 +101,61 @@ class IntervalRenderer(BasePlotRenderer):
             raise ValueError(
                 f"Plot {self.spec.id!r}: interval plot requires channel 'y'."
             )
-        return x_col, y_col, self.resolve_channel("color")
-
-    def _cell_key(self, x_col: str, color_col: str | None) -> list[str]:
-        return [x_col, color_col] if color_col else [x_col]
-
-    def _plot_data(
-        self, df: pl.DataFrame
-    ) -> tuple[
-        list[str], np.ndarray, np.ndarray, np.ndarray, list[str] | None, str | None
-    ]:
-        x_col, y_col, color_col = self._channel_columns()
+        color_col = self.resolve_channel("color")
         low_col, high_col = self._bound_columns()
-        self.validate_unique_cells(df, self._cell_key(x_col, color_col))
-        return (
-            label_values(df, x_col).tolist(),
-            series_values(df, y_col),
-            series_values(df, low_col),
-            series_values(df, high_col),
-            label_values(df, color_col).tolist() if color_col else None,
-            color_col,
+        self.validate_unique_cells(df, [x_col, color_col] if color_col else [x_col])
+        return _IntervalData(
+            labels=label_values(df, x_col).tolist(),
+            values=series_values(df, y_col),
+            low=series_values(df, low_col),
+            high=series_values(df, high_col),
+            groups=label_values(df, color_col).tolist() if color_col else None,
+            color_col=color_col,
+            x_title=x_col.replace("_", " ").title(),
+            y_title=self.format_label(y_col.replace("_", " ").title(), y_col),
         )
-
-    def _group_order(self, groups: list[str] | None) -> list[str]:
-        return list(dict.fromkeys(groups)) if groups else [""]
 
     def build_plotly_figure(self, df: pl.DataFrame) -> go.Figure | None:
         """Build the interactive interval figure without serializing it."""
         if df.is_empty():
             return None
-        labels, values, low, high, groups, color_col = self._plot_data(df)
-        x_col, y_col, _ = self._channel_columns()
+        data = self._plot_data(df)
         palette = get_color_palette()
         fig = go.Figure()
-        for group_index, group in enumerate(self._group_order(groups)):
-            keep = (
-                [value == group for value in groups]
-                if groups is not None
-                else [True] * len(labels)
-            )
-            xs = [label for label, drawn in zip(labels, keep, strict=True) if drawn]
-            if not xs:
-                continue
-            ys = [
-                float(value)
-                for value, drawn in zip(values.tolist(), keep, strict=True)
-                if drawn
-            ]
-            ups = [
-                float(upper) - value
-                for upper, value, drawn in zip(
-                    high.tolist(), values.tolist(), keep, strict=True
-                )
-                if drawn
-            ]
-            downs = [
-                value - float(lower)
-                for lower, value, drawn in zip(
-                    low.tolist(), values.tolist(), keep, strict=True
-                )
-                if drawn
-            ]
+        for group_index, (group, indices) in enumerate(data.groups_with_indices()):
+            values = data.values[indices].astype(float)
             fig.add_trace(
                 go.Scatter(
-                    x=xs,
-                    y=ys,
+                    x=[data.labels[index] for index in indices],
+                    y=values.tolist(),
                     mode="markers",
                     name=group or None,
-                    showlegend=groups is not None,
+                    showlegend=data.groups is not None,
                     marker={"color": palette_color(palette, group_index)},
                     error_y={
                         "type": "data",
                         "symmetric": False,
-                        "array": ups,
-                        "arrayminus": downs,
+                        "array": (data.high[indices] - values).tolist(),
+                        "arrayminus": (values - data.low[indices]).tolist(),
                     },
                 )
             )
         fig.update_layout(
             template="plotly_white",
             title=self.spec.title,
-            xaxis_title=x_col.replace("_", " ").title(),
-            yaxis_title=self.format_label(y_col.replace("_", " ").title(), y_col),
+            xaxis_title=data.x_title,
+            yaxis_title=data.y_title,
         )
-        if color_col:
-            fig.update_layout(legend_title_text=color_col.replace("_", " ").title())
+        if data.color_col:
+            fig.update_layout(
+                legend_title_text=data.color_col.replace("_", " ").title()
+            )
         return fig
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly interval chart with error bars."""
         fig = self.build_plotly_figure(df)
-        if fig is None:
-            return None
-        return fig.to_html(include_plotlyjs=False, full_html=False)
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static interval figure without writing it."""
@@ -175,41 +165,23 @@ class IntervalRenderer(BasePlotRenderer):
             plot_id=self.spec.id,
             plot_type=self.PLOT_TYPE,
         )
-        labels, values, low, high, groups, color_col = self._plot_data(df)
-        x_col, y_col, _ = self._channel_columns()
+        data = self._plot_data(df)
         positions_by_label = {
-            label: index for index, label in enumerate(dict.fromkeys(labels))
+            label: index for index, label in enumerate(dict.fromkeys(data.labels))
         }
-        group_order = self._group_order(groups)
-        dodge = _DODGE_WIDTH if groups is not None and len(group_order) > 1 else 0.0
+        groups = data.groups_with_indices()
+        dodge = _DODGE_WIDTH if len(groups) > 1 else 0.0
         palette = get_color_palette()
         fig, ax = new_figure()
-        for group_index, group in enumerate(group_order):
-            offset = (group_index - (len(group_order) - 1) / 2.0) * dodge
+        for group_index, (group, indices) in enumerate(groups):
+            offset = (group_index - (len(groups) - 1) / 2.0) * dodge
             colour = palette_color(palette, group_index)
-            rows = [
-                (
-                    positions_by_label[label] + offset,
-                    value,
-                    lower,
-                    upper,
-                )
-                for label, value, lower, upper, row_group in zip(
-                    labels,
-                    values.tolist(),
-                    low.tolist(),
-                    high.tolist(),
-                    groups if groups is not None else [""] * len(labels),
-                    strict=True,
-                )
-                if row_group == group
+            positions = [
+                positions_by_label[data.labels[index]] + offset for index in indices
             ]
-            if not rows:
-                continue
-            positions = [row[0] for row in rows]
-            values = [row[1] for row in rows]
-            lowers = [row[2] for row in rows]
-            uppers = [row[3] for row in rows]
+            values = data.values[indices].astype(float)
+            lowers = data.low[indices].astype(float)
+            uppers = data.high[indices].astype(float)
             ax.vlines(positions, lowers, uppers, color=colour, linewidth=1.5)
             caps_left = [position - _CAP_HALF_WIDTH for position in positions]
             caps_right = [position + _CAP_HALF_WIDTH for position in positions]
@@ -222,17 +194,17 @@ class IntervalRenderer(BasePlotRenderer):
                     linewidth=1.5,
                 )
             ax.plot(positions, values, "o", color=colour)
-            if groups is not None:
+            if data.groups is not None:
                 ax.plot([], [], "o", color=colour, label=group)
         ax.set_xticks(np.arange(len(positions_by_label)))
         ax.set_xticklabels(list(positions_by_label), rotation=20, ha="right")
-        if groups is not None and len(group_order) > 1 and color_col:
-            ax.legend(title=color_col.replace("_", " ").title())
+        if data.groups is not None and len(groups) > 1 and data.color_col:
+            ax.legend(title=data.color_col.replace("_", " ").title())
         finish_axes(
             ax,
             title=self.spec.title,
-            x_label=x_col.replace("_", " ").title(),
-            y_label=self.format_label(y_col.replace("_", " ").title(), y_col),
+            x_label=data.x_title,
+            y_label=data.y_title,
         )
         return fig
 

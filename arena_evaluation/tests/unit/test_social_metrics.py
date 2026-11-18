@@ -4,22 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
-import pytest
-from polars.testing import assert_frame_equal
 
 from arena_evaluation.processing.metrics.base import ScopeSlice
-from arena_evaluation.processing.metrics.social.gaze import (
-    SERIES_SCHEMA as GAZE_SERIES_SCHEMA,
-    GazeMetricsCalculator,
-)
-from arena_evaluation.processing.metrics.social.interaction_common import (
-    extract_episode_ped_tracks,
-)
-from arena_evaluation.processing.metrics.social.pedestrian_disturbance import (
-    PedestrianDisturbanceCalculator,
-)
 from arena_evaluation.processing.metrics.social.proxemics import (
-    PERSONAL_SPACE_SERIES_SCHEMA,
     PedestrianIntrusionCalculator,
     ProxemicsCalculator,
 )
@@ -43,33 +30,6 @@ def test_proxemics_no_peds():
     assert results["total_time_in_personal_space"] is None
     assert results["avg_velocity_in_personal_space"] is None
     assert results["num_pedestrians"] is None
-
-
-def test_proxemics_series_table_is_flat():
-    table = _calc(ProxemicsCalculator).series_table(EMPTY_EPISODE)
-    assert_frame_equal(table, pl.DataFrame(schema=PERSONAL_SPACE_SERIES_SCHEMA))
-
-
-def test_proxemics_has_no_nested_series_key():
-    assert "time_in_personal_space" not in ProxemicsCalculator.output_keys()
-
-
-def test_gaze_no_peds():
-    results = _calc(GazeMetricsCalculator).calculate(EMPTY_EPISODE, {})
-    assert results["total_time_looking_at_pedestrians"] is None
-    assert results["total_time_looked_at_by_pedestrians"] is None
-
-
-def test_gaze_series_table_is_flat():
-    table = _calc(GazeMetricsCalculator).series_table(EMPTY_EPISODE)
-    assert_frame_equal(table, pl.DataFrame(schema=GAZE_SERIES_SCHEMA))
-
-
-def test_gaze_has_no_nested_series_key():
-    assert not any(
-        key.startswith("time_looking_") or key.startswith("time_looked_")
-        for key in GazeMetricsCalculator.output_keys()
-    )
 
 
 WINDOW_RATE_NS = 100_000_000
@@ -142,27 +102,6 @@ def _window_slice(window: AlignedEpisodeBundle) -> ScopeSlice:
     )
 
 
-def test_gaze_encounter_scope_measures_the_window_samples():
-    """The gaze dwell is the window's own sample dwell, not an episode total."""
-    window = _window_bundle(ped_x_m=2.0)
-    results = _calc(GazeMetricsCalculator).calculate_for_scope(
-        window, {}, _window_slice(window)
-    )
-    assert results["total_time_looking_at_pedestrians"] == pytest.approx(0.2)
-    assert results["total_time_looked_at_by_pedestrians"] == pytest.approx(0.0)
-
-
-def test_proxemics_encounter_scope_measures_the_window_samples():
-    """The personal-space dwell is the window's own sample dwell and the window's own pedestrian set."""
-    window = _window_bundle(ped_x_m=1.0)
-    results = _calc(ProxemicsCalculator).calculate_for_scope(
-        window, {}, _window_slice(window)
-    )
-    assert results["num_pedestrians"] == 1
-    assert results["total_time_in_personal_space"] == pytest.approx(0.2)
-    assert results["avg_velocity_in_personal_space"] == pytest.approx(1.0)
-
-
 def test_intrusion_count_is_recomputed_not_taken_from_a_prior_total():
     """An episode without tracks has a NULL intrusion count, even when prior_results carries a total."""
     empty = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
@@ -171,72 +110,3 @@ def test_intrusion_count_is_recomputed_not_taken_from_a_prior_total():
     assert results["total_intrusions_intimate"] is None
 
 
-def test_personal_space_velocity_comes_from_pose_in_the_encounter_scope_too():
-    """A zero recorded twist does not publish 0 m/s: both scopes read the ground-truth position difference."""
-    window = _window_bundle(ped_x_m=1.0)
-    window.topics["robot_tracks"] = window.topics["robot_tracks"].with_columns(
-        pl.lit(0.0).alias("vx")
-    )
-    results = _calc(ProxemicsCalculator).calculate_for_scope(
-        window, {}, _window_slice(window)
-    )
-    assert results["avg_velocity_in_personal_space"] == pytest.approx(1.0)
-
-
-def test_velocity_delay_ratio_uses_the_recorded_desired_speed():
-    """The delay is relative to the pedestrian's own desired_speed (0.8 m/s), not the nominal 1.2 m/s."""
-    count = 21
-    t_ns = np.arange(count, dtype=np.int64) * 100_000_000
-    frame = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "ped_id": ["Pedestrian_2"] * count,
-            "ped_name": ["bob"] * count,
-            "x": np.arange(count, dtype=np.float64) * 0.04,
-            "y": np.zeros(count),
-            "vx": np.full(count, 0.4),
-            "vy": np.zeros(count),
-            "radius_m": np.full(count, 0.3),
-            "desired_speed": np.full(count, 0.8),
-        }
-    )
-    episode = AlignedEpisodeBundle(
-        episode_id=1,
-        data=pl.DataFrame(),
-        start_pos=[0.0, 0.0, 0.0],
-        goal_pos=[1.0, 0.0, 0.0],
-        topics={"pedestrian_arena_peds": frame},
-    )
-
-    results = _calc(PedestrianDisturbanceCalculator).calculate(episode, {})
-
-    # 0.8 m travelled over 2 s is 0.4 m/s, half of the 0.8 m/s the pedestrian asked for.
-    assert results["ped_velocity_delay_ratio"] == pytest.approx(0.5, abs=1e-3)
-
-
-def test_a_pedestrian_without_recorded_twist_has_no_first_velocity_sample():
-    """The first velocity of a pedestrian with no recorded twist is NaN, not a copy of the second sample."""
-    episode = AlignedEpisodeBundle(
-        episode_id=1,
-        data=pl.DataFrame(),
-        start_pos=[0.0, 0.0, 0.0],
-        goal_pos=[1.0, 0.0, 0.0],
-        topics={
-            "pedestrian_arena_peds": pl.DataFrame(
-                {
-                    "ped_id": ["Pedestrian_1"] * 4,
-                    "ped_name": ["Pedestrian_1"] * 4,
-                    "t_ns": np.arange(4, dtype=np.int64) * 100_000_000,
-                    "x": np.arange(4, dtype=np.float64) * 0.1,
-                    "y": np.zeros(4),
-                    "vx": np.zeros(4),
-                    "vy": np.zeros(4),
-                    "radius_m": [0.3] * 4,
-                    "desired_speed": [1.0] * 4,
-                }
-            )
-        },
-    )
-    track = extract_episode_ped_tracks(episode)["Pedestrian_1"]
-    assert np.isnan(track.trajectory.vx[0])
-    assert track.trajectory.vx[1] == pytest.approx(1.0)

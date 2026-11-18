@@ -33,37 +33,6 @@ NATIVE_STAGE_KEYS = {
     "config",
 }
 
-_RUNNER = """
-import json
-import attrs
-from arena_runtime.env.task_layer import registered_modes, task_layer
-from arena_evaluation.benchmark import runner
-from arena_evaluation.benchmark.config import stage_modes
-from arena_evaluation.benchmark.state import Manifest, compute_config_hash
-from arena_evaluation.benchmark.tree import ContestIdentifier, SuiteIdentifier
-
-verdicts = [identifier.resolve_source_sync() for identifier in (SuiteIdentifier(name="barn"), ContestIdentifier(name="barn"))]
-suite, contest, suite_dict, contest_dict, bundle_dir, suite_provenance, contest_provenance = runner._load_suite_contest("barn", "barn")
-steps = runner._all_steps(contest, suite, 1.0)
-stage = steps[0].stage
-layer = task_layer()
-params = runner.stage_params(stage.config, stage_modes(stage, registered_modes(layer)), layer.mode_namespaces())
-records = [{"key": step.key, "contestant": attrs.asdict(step.contestant), "stage": step.stage._asdict()} for step in steps]
-manifest = Manifest(run_id="barn", created_at="", arena_git_sha=None, arena_git_dirty=False, cli_args=[], env_n=1, headless=True, config_hash=compute_config_hash(suite_dict, contest_dict), simulator="gazebo", scale_episodes=1.0, suite_name=suite.name, contest_name=contest.name, suite=suite_dict, contest=contest_dict, steps=records, suite_provenance=suite_provenance, contest_provenance=contest_provenance)
-assert Manifest.from_yaml(manifest.to_yaml()) == manifest
-print(json.dumps({
-    "resolvers": [repr(verdict.resolver) for verdict in verdicts],
-    "verdicts": [verdict.verdict.name for verdict in verdicts],
-    "bundle_dir": str(bundle_dir),
-    "keys": [step.key for step in steps],
-    "launch": runner.build_launch_args(steps[0], "gazebo"),
-    "preflight": runner._preflight_contest(contest),
-    "budget": runner.BenchmarkRunner._episode_budget(steps[0]),
-    "params": [[p.name, p.value.string_value] for p in params],
-    "namespace": layer.mode_namespaces()["obstacles"]["scenario"],
-    "manifest": manifest.to_yaml(),
-}))
-"""
 
 _REPORT = """
 import json
@@ -334,57 +303,6 @@ def test_convert_rejects_empty_source(tmp_path: Path):
         )
 
 
-def test_runner_loads_the_import_through_the_registered_resolvers(
-    assets: Path, out: Path, tmp_path: Path
-):
-    from arena_runtime.env.constants.runtime import EPISODE_PARAMS
-
-    from arena_evaluation.processing.pipeline import _suite_metrics
-
-    seen = _subprocess(
-        _RUNNER, ARENA_ASSETS_DIR=str(assets), ARENA_ASSETS_DIR_IMPORTED=str(out)
-    )
-    assert all(
-        "ConfigPathResolver" in resolver and str(out) in resolver
-        for resolver in seen["resolvers"]
-    )
-    assert seen["verdicts"] == ["HIT", "HIT"]
-    assert seen["bundle_dir"] == str(out / "suites" / "barn")
-    assert seen["keys"] == ["dwb/barn_0"]
-    assert seen["preflight"] == []
-    assert seen["budget"] == 110.0
-    assert seen["params"] == [[f"{seen['namespace']}.file", "barn"]]
-    launch = dict(arg.split(":=", 1) for arg in seen["launch"])
-    assert launch["world"] == "barn_0"
-    assert launch["robot"] == "jackal"
-    assert launch["task.robots"] == "scenario"
-    assert launch["task.obstacles"] == "scenario"
-    assert launch["robot.mobile"] == "nav2"
-    assert launch["robot.mobile.local_planner"] == "dwb"
-    assert launch["robot.mobile.inter_planner"] == "navigate_w_replanning_time"
-    episode = {
-        key: yaml.safe_load(value)
-        for key, value in launch.items()
-        if key in EPISODE_PARAMS
-    }
-    assert episode == {
-        "task.episode.auto_reset": False,
-        "task.episode.fail_on_collision": True,
-        "task.episode.goto_pose.tolerance.radius": 1.0,
-        "task.episode.goto_pose.tolerance.angle": 0.0,
-    }
-    consumed = {"name", "mobile", *episode}
-    assert set(barn.CONTESTANT) <= consumed
-    manifest = yaml.safe_load(seen["manifest"])
-    assert manifest["steps"][0]["stage"]["map"] == "barn_0"
-    assert "generator" not in manifest["steps"][0]["stage"]
-    episode_dir = tmp_path / "barn" / "episodes" / "episode_000"
-    episode_dir.mkdir(parents=True)
-    (tmp_path / "barn" / "manifest.yaml").write_text(seen["manifest"])
-    assert _suite_metrics(episode_dir, tmp_path) == {
-        "max_collisions": 1,
-        "barn": manifest["suite"]["metrics"]["barn"],
-    }
 
 
 def test_report_manifest_loads_through_the_manifest_identifier(out: Path):

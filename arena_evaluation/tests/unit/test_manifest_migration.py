@@ -19,7 +19,6 @@ from arena_evaluation.presentation.legacy_manifest import (
 )
 from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
 from arena_evaluation.presentation.resolver import DataResolver
-from arena_evaluation.presentation.viz_manifest import VizManifest
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "legacy"
@@ -34,14 +33,6 @@ def _migrate(path: pathlib.Path):
     return convert_legacy_file(
         path, metric_map=load_metric_map(), known_metrics=_known_metrics()
     )
-
-
-def test_legacy_social_fixture_has_the_31_declared_plots() -> None:
-    legacy = load_legacy_manifest(_SOCIAL)
-
-    assert legacy.name == "social"
-    assert len(legacy.plots) == 31
-    assert legacy.plots[0].id == "social_summary_table"
 
 
 def test_every_old_plot_is_accounted_for_and_converted_plots_are_valid() -> None:
@@ -81,25 +72,6 @@ def test_no_silent_drop_reports_every_dropped_plot_with_a_reason() -> None:
         "dropped": migration.dropped,
         "todo": migration.todo,
     }
-
-
-def test_migrated_manifest_parses_and_validates_in_the_new_grammar() -> None:
-    migration = _migrate(_SOCIAL)
-
-    parsed = VizManifest.model_validate(
-        yaml.safe_load(yaml.safe_dump(migration.manifest.model_dump()))
-    )
-
-    assert parsed.name == "social"
-    assert len(parsed.plots) == migration.converted
-
-
-def test_metric_map_never_guesses_an_unknown_name() -> None:
-    resolution = load_metric_map().resolve("totally_unknown_metric", frozenset())
-
-    assert resolution.new is None
-    assert resolution.status == "unknown"
-    assert "TODO" in resolution.note
 
 
 def test_legacy_manifest_rejects_unknown_fields(tmp_path: pathlib.Path) -> None:

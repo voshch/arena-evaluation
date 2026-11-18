@@ -19,6 +19,8 @@ from arena_evaluation.presentation.plot_types.base import (
     series_values,
 )
 
+_BreakdownStack = tuple[list[str], list[str], dict[str, np.ndarray], str, str, str]
+
 
 class BreakdownRenderer(BasePlotRenderer):
     """Draw one stacked bar per x, one segment and legend entry per component."""
@@ -34,66 +36,62 @@ class BreakdownRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         color_col = self.resolve_channel("color")
-        if x_col is None:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: breakdown plot requires channel 'x'."
+        missing = [
+            name
+            for name, column in (("x", x_col), ("y", y_col), ("color", color_col))
+            if column is None
+        ]
+        if missing:
+            hint = (
+                " naming the component column to stack, e.g. {'color': 'component'}."
+                if missing[0] == "color"
+                else "."
             )
-        if y_col is None:
             raise ValueError(
-                f"Plot {self.spec.id!r}: breakdown plot requires channel 'y'."
-            )
-        if color_col is None:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: breakdown plot requires channel "
-                "'color' naming the component column to stack, e.g. "
-                "{'color': 'component'}."
+                f"Plot {self.spec.id!r}: breakdown plot requires "
+                f"channel {missing[0]!r}{hint}"
             )
         self.validate_unique_cells(df, [x_col, color_col])
         return x_col, y_col, color_col
 
-    def _breakdown_data(
-        self, df: pl.DataFrame
-    ) -> tuple[list[str], list[str], dict[tuple[str, str], float]]:
+    def _prepare(self, df: pl.DataFrame) -> _BreakdownStack | None:
+        """Resolve the stack once, or ``None`` for an empty frame."""
+        if df.is_empty():
+            return None
         x_col, y_col, color_col = self._resolve_columns(df)
         x_values = label_values(df, x_col).tolist()
         component_values = label_values(df, color_col).tolist()
         x_labels = list(dict.fromkeys(x_values))
         components = list(dict.fromkeys(component_values))
-        value_map = {
-            (x_label, component): float(value)
-            for x_label, component, value in zip(
-                x_values,
-                component_values,
-                series_values(df, y_col),
-                strict=True,
-            )
-            if not np.isnan(value)
-        }
-        return x_labels, components, value_map
-
-    def _component_values(
-        self,
-        x_labels: list[str],
-        component: str,
-        value_map: dict[tuple[str, str], float],
-    ) -> np.ndarray:
-        return np.array(
-            [value_map.get((x_label, component), 0.0) for x_label in x_labels],
-            dtype=float,
+        positions = {label: index for index, label in enumerate(x_labels)}
+        rows = {component: np.zeros(len(x_labels)) for component in components}
+        for x_label, component, value in zip(
+            x_values, component_values, series_values(df, y_col), strict=True
+        ):
+            if not np.isnan(value):
+                rows[component][positions[x_label]] = float(value)
+        return (
+            x_labels,
+            components,
+            rows,
+            color_col,
+            x_col.replace("_", " ").title(),
+            self.format_label(y_col.replace("_", " ").title(), y_col),
         )
 
     def build_plotly_figure(self, df: pl.DataFrame) -> go.Figure | None:
         """Build the stacked Plotly figure without serializing it."""
-        if df.is_empty():
+        prepared = self._prepare(df)
+        if prepared is None:
             return None
-        x_labels, components, value_map = self._breakdown_data(df)
+        x_labels, components, rows, _, _, _ = prepared
         palette = get_color_palette()
         fig = go.Figure(
             data=[
                 go.Bar(
                     name=component,
                     x=x_labels,
-                    y=self._component_values(x_labels, component, value_map).tolist(),
+                    y=rows[component].tolist(),
                     marker_color=palette_color(palette, index),
                 )
                 for index, component in enumerate(components)
@@ -109,21 +107,20 @@ class BreakdownRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive stacked Plotly breakdown chart."""
         fig = self.build_plotly_figure(df)
-        if fig is None:
-            return None
-        return fig.to_html(include_plotlyjs=False, full_html=False)
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the stacked static figure without writing it."""
-        if df.is_empty():
+        prepared = self._prepare(df)
+        if prepared is None:
             return None
-        x_labels, components, value_map = self._breakdown_data(df)
+        x_labels, components, rows, color_col, x_title, y_title = prepared
         palette = get_color_palette()
         positions = np.arange(len(x_labels))
         bottom = np.zeros(len(x_labels))
         fig, ax = new_figure()
         for index, component in enumerate(components):
-            values = self._component_values(x_labels, component, value_map)
+            values = rows[component]
             ax.bar(
                 positions,
                 values,
@@ -134,15 +131,12 @@ class BreakdownRenderer(BasePlotRenderer):
             bottom = bottom + values
         ax.set_xticks(positions)
         ax.set_xticklabels(x_labels, rotation=20, ha="right")
-        color_col = self.resolve_channel("color") or ""
         ax.legend(title=color_col)
-        x_col = self.resolve_channel("x") or ""
-        y_col = self.resolve_channel("y") or ""
         finish_axes(
             ax,
             title=self.spec.title,
-            x_label=x_col.replace("_", " ").title(),
-            y_label=self.format_label(y_col.replace("_", " ").title(), y_col),
+            x_label=x_title,
+            y_label=y_title,
         )
         return fig
 

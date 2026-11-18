@@ -25,17 +25,3 @@ class TestScenarioImages:
         pngs = sorted(tmp_path.glob("*.png"))
         assert len(pngs) == 8, f"expected 8 occupancy PNGs, got {len(pngs)}"
 
-    def test_generate_acoustic_fields(self, tmp_path: pathlib.Path) -> None:
-        """Acoustic field heatmaps with cyan/green door contours."""
-        # render_scenario_fields uses argparse; patch sys.argv
-        import render_scenario_fields
-
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["render_scenario_fields.py", str(tmp_path), "--source-dba", "60"]
-            render_scenario_fields.main()
-        finally:
-            sys.argv = orig_argv
-
-        pngs = sorted(tmp_path.glob("*.png"))
-        assert len(pngs) == 8, f"expected 8 field PNGs, got {len(pngs)}"

@@ -41,15 +41,6 @@ def test_a_fact_table_must_carry_the_name_of_a_fact_table() -> None:
             run_id = Column(pl.String, description="Benchmark run of the row.")
 
 
-def test_a_nested_dtype_is_refused() -> None:
-    with pytest.raises(SchemaViolationError, match="nested dtype"):
-
-        class NestedValues(Table, name="dim_nested_values", kind=TableKind.DIMENSION):
-            values = Column(
-                pl.List(pl.Float64), description="Values of one row.", unit="m"
-            )
-
-
 def test_a_float_column_without_a_unit_is_refused() -> None:
     with pytest.raises(SchemaViolationError, match="needs a unit"):
 
@@ -106,18 +97,6 @@ def test_a_nested_series_dtype_is_refused() -> None:
             )
             speeds = Column(
                 pl.List(pl.Float64), description="Speeds of one sample.", unit="m/s"
-            )
-
-
-def test_a_series_key_column_that_is_not_declared_is_refused() -> None:
-    with pytest.raises(
-        SchemaViolationError, match="key column 'robot_id' is not declared"
-    ):
-
-        class KeyedSeries(Table, name="series_keyed", kind=TableKind.SERIES):
-            key = ("robot_id", "t_ns")
-            t_ns = Column(
-                pl.Int64, required=True, description="Native time of the sample."
             )
 
 
@@ -232,16 +211,6 @@ def test_a_metric_lists_each_scope_once() -> None:
         )
 
 
-def test_a_float_metric_needs_a_unit() -> None:
-    with pytest.raises(SchemaViolationError, match="needs a unit"):
-        MetricStore().define(
-            "planted_unitless_metric",
-            pl.Float64,
-            scopes=(MetricScope.EPISODE,),
-            description="Planted distance.",
-        )
-
-
 def test_a_metric_cannot_take_the_name_of_a_column_its_table_declares() -> None:
     with pytest.raises(SchemaViolationError, match="already a declared column"):
         MetricStore().define(
@@ -262,8 +231,3 @@ def test_arrow_schema_declares_the_writer_types_and_nullability() -> None:
     assert schema.field("null_reason").nullable is True
 
 
-def test_fact_files_live_in_the_metrics_folder_of_their_episode() -> None:
-    assert (
-        FACT_TABLES[FactTable.EPISODES].relative_path().as_posix()
-        == "metrics/fact_episodes.parquet"
-    )

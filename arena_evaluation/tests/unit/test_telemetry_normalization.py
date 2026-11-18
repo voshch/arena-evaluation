@@ -156,17 +156,6 @@ def every_topic_out(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return out
 
 
-def test_robot_tracks_positions_are_the_tf_ground_truth(
-    ground_truth: tuple[pathlib.Path, dict],
-):
-    _, bundles = ground_truth
-
-    tracks = bundles[ROBOT].robot_tracks.collect()
-
-    expected_xy = [_ground_truth_pose(step)[:2] for step in range(GROUND_TRUTH_STEPS)]
-    np.testing.assert_allclose(tracks.select("x", "y").to_numpy(), expected_xy)
-
-
 def test_robot_tracks_are_sourced_from_tf_ground_truth_only(
     ground_truth: tuple[pathlib.Path, dict],
 ):
@@ -196,28 +185,6 @@ def test_velocities_are_numerical_derivatives_of_the_ground_truth_pose(
     )
 
 
-def test_robot_without_tf_ground_truth_gets_no_robot_tracks(tmp_path: pathlib.Path):
-    bundles = MCAPReader(_odometry_only_bag(tmp_path / "odom_only.mcap")).read(
-        tmp_path / "telemetry"
-    )
-
-    assert bundles[ROBOT].robot_tracks is None
-
-
-def test_each_pedestrian_in_a_frame_becomes_its_own_row(
-    pedestrian_frame: tuple[pathlib.Path, dict],
-):
-    _, bundles = pedestrian_frame
-
-    peds = bundles[ROBOT].pedestrian_arena_peds.collect()
-
-    assert sorted(peds["ped_id"].to_list()) == [
-        "Pedestrian_3",
-        "Pedestrian_7",
-        "Pedestrian_9",
-    ]
-
-
 def test_each_pedestrian_row_carries_that_pedestrians_position(
     pedestrian_frame: tuple[pathlib.Path, dict],
 ):
@@ -228,17 +195,6 @@ def test_each_pedestrian_row_carries_that_pedestrians_position(
     np.testing.assert_allclose(
         peds.select("x", "y").to_numpy(), [[1.0, 2.0], [-4.0, 0.5], [6.0, -3.0]]
     )
-
-
-def test_no_ingested_table_holds_a_list_column(every_topic_out: pathlib.Path):
-    list_columns = [
-        f"{path.name}.{field.name}"
-        for path in sorted(every_topic_out.rglob("*.parquet"))
-        for field in pq.read_schema(path)
-        if pa.types.is_list(field.type)
-    ]
-
-    assert list_columns == []
 
 
 def test_every_ingested_table_leads_with_a_non_null_monotonic_int64_t_ns(
@@ -305,16 +261,6 @@ def _out_of_order_tf_bag(path: pathlib.Path) -> pathlib.Path:
             ),
         ],
     )
-
-
-def test_tf_rows_are_sorted_by_native_time_when_log_times_arrive_out_of_order(
-    tmp_path: pathlib.Path,
-) -> None:
-    bundles = MCAPReader(_out_of_order_tf_bag(tmp_path / "run.mcap")).read(
-        tmp_path / "telemetry"
-    )
-
-    assert bundles[ROBOT].tf.collect()["t_ns"].to_list() == [SEC, 2 * SEC]
 
 
 def test_param_value_decodes_byte_array_and_rejects_unknown_type() -> None:

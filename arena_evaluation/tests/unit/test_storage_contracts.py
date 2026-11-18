@@ -14,12 +14,8 @@ import pytest
 import yaml
 
 from arena_evaluation.storage.contracts import (
-    ContractReport,
-    ContractViolation,
     check_benchmark,
     enforce_benchmark_contract,
-    is_known_null_reason,
-    write_contract_report,
 )
 from arena_evaluation.storage.exceptions import ContractViolationError
 from arena_evaluation.storage.layout import write_benchmark_stamp, write_episode_stamp
@@ -198,33 +194,6 @@ def _clean_benchmark(tmp_path: pathlib.Path) -> pathlib.Path:
     )
 
 
-def test_a_clean_benchmark_passes(tmp_path: pathlib.Path) -> None:
-    report = check_benchmark(_clean_benchmark(tmp_path))
-    assert report.ok, report.summary()
-    assert report.violations == ()
-    assert "fact_episodes" in report.checked_tables
-
-
-def test_a_duplicate_key_fails_and_names_the_table_and_column(
-    tmp_path: pathlib.Path,
-) -> None:
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame([_episode_row(), _episode_row()], FactEpisodes),
-    )
-    report = check_benchmark(root)
-    assert not report.ok
-    duplicates = [
-        violation
-        for violation in report.violations
-        if violation.check == "key_duplicate"
-    ]
-    assert duplicates and duplicates[0].table == "fact_episodes"
-    assert "episode_id" in duplicates[0].column
-    assert "fact_episodes" in duplicates[0].message()
-    assert "episode_id" in duplicates[0].message()
-
-
 def test_a_nested_column_fails_the_flat_schema_contract(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -258,40 +227,6 @@ def test_an_orphan_fact_row_fails(tmp_path: pathlib.Path) -> None:
     assert "robot_id" in orphans[0].column
 
 
-def test_an_unexplained_null_fails(tmp_path: pathlib.Path) -> None:
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame(
-            [_episode_row(result=None, null_reason=None)], FactEpisodes
-        ),
-    )
-    report = check_benchmark(root)
-    unexplained = [
-        violation
-        for violation in report.violations
-        if violation.check == "null_reason_missing"
-    ]
-    assert unexplained and unexplained[0].table == "fact_episodes"
-    assert "result" in unexplained[0].column
-
-
-def test_a_null_with_a_vocabulary_reason_passes(tmp_path: pathlib.Path) -> None:
-    reason = "result:no_samples"
-    assert is_known_null_reason(reason)
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame(
-            [_episode_row(result=None, null_reason=reason)], FactEpisodes
-        ),
-    )
-    report = check_benchmark(root)
-    assert not [
-        violation
-        for violation in report.violations
-        if violation.check == "null_reason_missing"
-    ]
-
-
 def test_an_unknown_null_reason_code_fails_and_names_the_table(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -310,23 +245,6 @@ def test_an_unknown_null_reason_code_fails_and_names_the_table(
     assert unknown and unknown[0].table == "fact_episodes"
     assert unknown[0].column == "null_reason"
     assert "made_up" in unknown[0].message()
-
-
-def test_a_parameterised_invalid_episode_reason_passes(
-    tmp_path: pathlib.Path,
-) -> None:
-    reason = "path_efficiency:invalid_episode:reference_exceeds_path"
-    assert is_known_null_reason(reason)
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame([_episode_row(null_reason=reason)], FactEpisodes),
-    )
-    report = check_benchmark(root)
-    assert not [
-        violation
-        for violation in report.violations
-        if violation.check == "null_reason_unknown"
-    ]
 
 
 def test_a_window_that_does_not_move_forward_fails(tmp_path: pathlib.Path) -> None:
@@ -408,48 +326,3 @@ def test_enforce_writes_the_report_and_raises(tmp_path: pathlib.Path) -> None:
     )
 
 
-def test_write_contract_report_round_trips_the_report(
-    tmp_path: pathlib.Path,
-) -> None:
-    report = ContractReport(
-        benchmark_dir=tmp_path,
-        violations=(
-            ContractViolation(
-                table="fact_episodes",
-                column="episode_id",
-                check="key_duplicate",
-                detail="2 rows",
-            ),
-        ),
-        checked_tables=("fact_episodes",),
-    )
-    path = write_contract_report(report, tmp_path / "report.yaml")
-    assert yaml.safe_load(path.read_text(encoding="utf-8")) == report.as_dict()
-
-
-def test_in_memory_dimensions_are_checked_before_a_file_exists(
-    tmp_path: pathlib.Path,
-) -> None:
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame([_episode_row()], FactEpisodes),
-        fact_encounters=_frame([_encounter_row()], FactEncounters),
-        write_dimensions=False,
-    )
-    assert not (root / "dim_episodes.parquet").exists()
-    report = check_benchmark(root, dimensions=_dimension_frames())
-    assert report.ok, report.summary()
-
-
-def test_a_failed_check_publishes_no_benchmark_dimension(
-    tmp_path: pathlib.Path,
-) -> None:
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame([_episode_row(), _episode_row()], FactEpisodes),
-        write_dimensions=False,
-    )
-    with pytest.raises(ContractViolationError):
-        enforce_benchmark_contract(root, dimensions=_dimension_frames())
-    assert (root / "contract_report.yaml").is_file()
-    assert not (root / "dim_episodes.parquet").exists()

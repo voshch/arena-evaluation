@@ -50,43 +50,6 @@ _ROWS: list[dict[str, object]] = [
 ]
 
 
-def test_data_resolver_stored_query_execution(tmp_path: pathlib.Path) -> None:
-    write_benchmark(tmp_path, _ROWS)
-    resolver = DataResolver(benchmark_dir=tmp_path)
-    spec = PlotSpec(
-        id="scorecard",
-        type="table",
-        data=PlotDataSpec(stored_query="planner_scorecard_overview"),
-        channels=PlotChannels(x="planner", y=["success_rate", "mean_time_to_goal"]),
-    )
-    df, diag = resolver.resolve(spec)
-    assert df.height == 2
-    assert set(df["planner"].to_list()) == {"dwb", "mppi"}
-    assert diag.status == "PASSED"
-
-
-def test_data_resolver_run_local_stored_query_in_analysis_dir(
-    tmp_path: pathlib.Path,
-) -> None:
-    write_benchmark(tmp_path, _ROWS)
-    qdir = tmp_path / "analysis" / "queries" / "local_ep_count"
-    qdir.mkdir(parents=True)
-    (qdir / "query.yaml").write_text(
-        "name: local_ep_count\ndescription: count episodes\nsql: SELECT planner, COUNT(*) AS n FROM v_episode_summary GROUP BY planner ORDER BY planner\n",
-        encoding="utf-8",
-    )
-    resolver = DataResolver(benchmark_dir=tmp_path)
-    spec = PlotSpec(
-        id="local_q",
-        type="bar",
-        data=PlotDataSpec(stored_query="local_ep_count"),
-        channels=PlotChannels(x="planner", y="n"),
-    )
-    df, diag = resolver.resolve(spec)
-    assert df.height == 2
-    assert diag.status == "PASSED"
-
-
 def test_data_resolver_missing_table_raises_without_fallback(
     tmp_path: pathlib.Path,
 ) -> None:

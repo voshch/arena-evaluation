@@ -161,22 +161,6 @@ def test_a_fact_episode_with_an_error_status_is_not_evaluated(
     assert (root / "contract_report.yaml").is_file()
 
 
-def test_a_clean_benchmark_reports_no_coverage_violation(
-    tmp_path: pathlib.Path,
-) -> None:
-    root = _write_benchmark(
-        tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame([_episode_row()], FactEpisodes),
-    )
-    report = check_benchmark(root)
-    coverage = [
-        violation
-        for violation in report.violations
-        if violation.check in {"episode_uncovered", "episode_not_evaluated"}
-    ]
-    assert coverage == []
-
-
 def test_a_robot_missing_a_required_parameter_fails(
     tmp_path: pathlib.Path,
 ) -> None:

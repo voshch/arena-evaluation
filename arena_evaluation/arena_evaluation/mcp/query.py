@@ -39,21 +39,25 @@ __all__ = [
 ]
 
 PREVIEW_ROWS: Final[int] = 200
+_SHOWN_LIMIT: Final[int] = 20
+# The engine, the validator and the declaration renderer all raise from this family.
+_QUERY_FAILURES: Final[tuple[type[BaseException], ...]] = (
+    ValueError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    polars.exceptions.PolarsError,
+)
 _TABLE_MISS = re.compile(r"relation '([^']+)' was not found")
 _COLUMN_MISS = re.compile(r'unable to find column "([^"]+)"')
 _VALID_COLUMNS = re.compile(r"valid columns: \[(.*?)\]", re.DOTALL)
 _FROM_TABLE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 
 
-def _closest(missing: str, candidates: tuple[str, ...] | list[str]) -> list[str]:
-    return difflib.get_close_matches(missing, candidates, n=5, cutoff=0.5)
-
-
-def _named(names: list[str]) -> str:
-    return f"; closest: {', '.join(names)}" if names else ""
-
-
-_SHOWN_LIMIT: Final[int] = 20
+def _closest(missing: str, candidates: tuple[str, ...] | list[str]) -> str:
+    """A ``; closest: ...`` suffix naming the near-miss candidates for a missing name."""
+    matches = difflib.get_close_matches(missing, candidates, n=5, cutoff=0.5)
+    return f"; closest: {', '.join(matches)}" if matches else ""
 
 
 def _shown(names: tuple[str, ...] | list[str]) -> str:
@@ -87,20 +91,30 @@ def _query_error(exc: Exception, catalog: BenchmarkCatalog, sql: str) -> ToolErr
     if table is not None:
         missing = table.group(1)
         return ToolError(
-            f"unknown table {missing!r}{_named(_closest(missing, catalog.table_names()))}",
+            f"unknown table {missing!r}{_closest(missing, catalog.table_names())}",
             hint=f"tables: {_shown(catalog.table_names())}; evaluation_summarize shows the episode summary columns",
         )
     column = _COLUMN_MISS.search(message)
     if column is not None:
         missing = column.group(1)
         return ToolError(
-            f"unknown column {missing!r}{_named(_closest(missing, _column_candidates(catalog, message, sql)))}",
+            f"unknown column {missing!r}{_closest(missing, _column_candidates(catalog, message, sql))}",
             hint="evaluation_summarize lists the episode summary columns; evaluation_slice previews one table's rows",
         )
     return ToolError(
         f"Query execution failed: {exc}",
         hint="evaluation_summarize lists the run's summary columns",
     )
+
+
+def _render(
+    decl: QueryDeclaration, params: dict[str, Any] | None, error: str, hint: str
+) -> str:
+    """Render one stored or ad-hoc declaration, mapping parameter failures to a hinted ToolError."""
+    try:
+        return decl.render_sql(params)
+    except ValueError as exc:
+        raise ToolError(f"{error}: {exc}", hint=hint) from exc
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
@@ -165,84 +179,64 @@ def evaluation_query(
     catalog = BenchmarkCatalog.open(benchmark_path)
     engine = PolarsSQLEngine(catalog)
 
+    decl: QueryDeclaration | None
     if stored_query is not None:
-        q_catalog = QueryCatalog(run_dir=benchmark_path)
         try:
-            decl = q_catalog.get_query(stored_query)
+            decl = QueryCatalog(run_dir=benchmark_path).get_query(stored_query)
         except KeyError as exc:
             raise ToolError(
                 f"Stored query {stored_query!r} not found",
                 hint="evaluation_queries lists available queries",
             ) from exc
-        try:
-            sql_to_run = decl.render_sql(params)
-        except ValueError as exc:
-            raise ToolError(
-                f"Invalid parameters for {stored_query!r}: {exc}",
-                hint="evaluation_queries shows the declaration's parameters and defaults",
-            ) from exc
         operation = f"stored_query:{stored_query}"
+        render_error = f"Invalid parameters for {stored_query!r}"
+        render_hint = "evaluation_queries shows the declaration's parameters and defaults"
     else:
         clean_query = query.strip() if query is not None else ""
+        operation = f"sql:{clean_query}"
+        render_error = "Invalid query parameters"
+        render_hint = (
+            "pass :placeholder names as params, or drop params for SQL without placeholders"
+        )
         if params:
             decl = QueryDeclaration(
                 name="ad_hoc", description="", sql=clean_query, parameters=params
             )
-            try:
-                sql_to_run = decl.render_sql(params)
-            except ValueError as exc:
-                raise ToolError(
-                    f"Invalid query parameters: {exc}",
-                    hint="pass :placeholder names as params, or drop params for SQL without placeholders",
-                ) from exc
         else:
+            decl = None
             try:
                 sql_to_run = validate_readonly_sql(clean_query)
-            except (
-                ValueError,
-                KeyError,
-                OSError,
-                RuntimeError,
-                polars.exceptions.PolarsError,
-            ) as exc:
+            except _QUERY_FAILURES as exc:
                 raise ToolError(
                     f"Invalid SQL query: {exc}",
                     hint="only one read-only SELECT or WITH ... SELECT statement is accepted",
                 ) from exc
-        operation = f"sql:{clean_query}"
+
+    if decl is not None:
+        sql_to_run = _render(decl, params, render_error, render_hint)
 
     try:
         plan = engine.query_lazy(sql_to_run)
         row_count = plan.select(pl.len()).collect().item()
         preview = plan.head(limit).collect()
-    except (
-        ValueError,
-        KeyError,
-        OSError,
-        RuntimeError,
-        polars.exceptions.PolarsError,
-    ) as exc:
+    except _QUERY_FAILURES as exc:
         raise _query_error(exc, catalog, sql_to_run) from exc
 
     returned_rows = preview.height
     truncated = row_count > returned_rows
     should_pin = (pin_evidence or bool(purpose.strip())) and row_count > 0
+    frame: pl.DataFrame | None = None
     if should_pin:
         try:
             frame = plan.collect()
-        except (
-            ValueError,
-            KeyError,
-            OSError,
-            RuntimeError,
-            polars.exceptions.PolarsError,
-        ) as exc:
+        except _QUERY_FAILURES as exc:
             raise _query_error(exc, catalog, sql_to_run) from exc
+
     derived_info: dict[str, Any] | None = None
     if save_as is not None:
         from arena_evaluation.analytics.derived import save_derived_table
 
-        full_df = frame if should_pin else plan.collect()
+        full_df = frame if frame is not None else plan.collect()
         try:
             derived_info = save_derived_table(
                 benchmark_path,
@@ -259,9 +253,8 @@ def evaluation_query(
                 hint="use a save_as of letters, digits, '_' or '-', not starting with '-'",
             ) from exc
 
-    rec = None
-    if should_pin:
-        rec = EvidenceStore(benchmark_path).record(
+    rec = (
+        EvidenceStore(benchmark_path).record(
             frame,
             kind="sql",
             operation=operation,
@@ -270,13 +263,15 @@ def evaluation_query(
             params=params or {},
             sql_text=sql_to_run,
         )
+        if frame is not None
+        else None
+    )
 
-    if save_as is not None or rec is not None:
-        produced: list[str] = []
-        if derived_info is not None:
-            produced.append(derived_info["table_name"])
-        if rec is not None:
-            produced.append(rec.evidence_id)
+    if derived_info is not None or rec is not None:
+        produced = [
+            *([derived_info["table_name"]] if derived_info is not None else []),
+            *([rec.evidence_id] if rec is not None else []),
+        ]
         append_audit_event(
             benchmark_path,
             role="analyst",
@@ -289,37 +284,20 @@ def evaluation_query(
             produced_ids=produced,
         )
 
-    if rec is not None:
-        return {
-            "run_id": benchmark_path.name,
-            "snapshot_id": catalog.snapshot_id,
-            "pin_status": "pinned",
-            "evidence_id": rec.evidence_id,
-            "purpose": rec.purpose,
-            "row_count": row_count,
-            "returned_rows": returned_rows,
-            "truncated": truncated,
-            "limit": limit,
-            "columns": list(preview.columns),
-            "artifact_path": str(rec.artifact_path)
-            if rec.artifact_path is not None
-            else None,
-            "data": preview.to_dicts(),
-            **({"derived_table": derived_info["table_name"]} if derived_info else {}),
-        }
-
     return {
         "run_id": benchmark_path.name,
         "snapshot_id": catalog.snapshot_id,
-        "pin_status": "transient",
-        "evidence_id": None,
-        "purpose": "",
+        "pin_status": "pinned" if rec is not None else "transient",
+        "evidence_id": rec.evidence_id if rec is not None else None,
+        "purpose": rec.purpose if rec is not None else "",
         "row_count": row_count,
         "returned_rows": returned_rows,
         "truncated": truncated,
         "limit": limit,
         "columns": list(preview.columns),
-        "artifact_path": None,
+        "artifact_path": str(rec.artifact_path)
+        if rec is not None and rec.artifact_path is not None
+        else None,
         "data": preview.to_dicts(),
         **({"derived_table": derived_info["table_name"]} if derived_info else {}),
     }
@@ -369,14 +347,8 @@ def evaluation_query_save(
         title=title or safe_name,
     )
     try:
-        _ = decl.render_sql(decl.default_parameters())
-    except (
-        ValueError,
-        KeyError,
-        OSError,
-        RuntimeError,
-        polars.exceptions.PolarsError,
-    ) as exc:
+        decl.render_sql(decl.default_parameters())
+    except _QUERY_FAILURES as exc:
         raise ToolError(
             f"Query declaration validation failed: {exc}",
             hint="fix the SQL or the parameter declarations and save it again",
@@ -420,8 +392,6 @@ def evaluation_evidence(
     ] = 200,
 ) -> dict[str, Any]:
     """Query evidence index or load specific pinned evidence DataFrame for a benchmark run."""
-    import polars as pl
-
     benchmark_path = run_path(run_id)
     store = EvidenceStore(benchmark_path)
 
@@ -461,8 +431,6 @@ def evaluation_evidence(
         index_df = index_df.filter(
             pl.col("purpose").str.to_lowercase().str.contains(pat)
         )
-
-    from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
     return {
         "run_id": benchmark_path.name,

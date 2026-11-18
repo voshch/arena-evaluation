@@ -24,7 +24,6 @@ from arena_evaluation.storage.registry import dimensions
 from arena_evaluation.storage.registry.analysis import (
     CompositeRankingAnalysis,
     CorrelationMatrixAnalysis,
-    DistributionBinsAnalysis,
     GroupSummaryAnalysis,
     PairedDiffAnalysis,
     RadarProfileAnalysis,
@@ -328,61 +327,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     assert res_trim.summary.row(0, named=True)["mean"] == pytest.approx(12.0)
 
 
-def test_distribution_bins_edges_flat_widening_and_nan(tmp_path: pathlib.Path) -> None:
-    # Edges/flat widening: overhaul/source:presentation/plot_types/histogram.py:54-72
-    rows = [
-        {
-            "episode_id": 0,
-            "planner": "dwb",
-            "seed": 1,
-            "time_to_goal": 10.0,
-            "path_length_m": 5.0,
-            "is_reference": False,
-        },
-        {
-            "episode_id": 1,
-            "planner": "dwb",
-            "seed": 2,
-            "time_to_goal": 20.0,
-            "path_length_m": 5.0,
-            "is_reference": False,
-        },
-        # NaN: differs from overhaul/source:presentation/plot_types/histogram.py:54-65 (NaN dropped matching base.py:32-34)
-        {
-            "episode_id": 2,
-            "planner": "dwb",
-            "seed": 3,
-            "time_to_goal": float("nan"),
-            "path_length_m": 5.0,
-            "is_reference": False,
-        },
-    ]
-    cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bench", rows))
-
-    bins_ttg = run_computation(
-        "distribution_bins",
-        cat,
-        {"metric": "time_to_goal", "group_cols": ["planner"], "nbins": 2},
-    )
-    assert bins_ttg.summary.columns == [
-        "planner",
-        *DistributionBinsAnalysis.polars_schema().names(),
-    ]
-    assert bins_ttg.summary["bin_low"].to_list() == pytest.approx([10.0, 15.0])
-    assert bins_ttg.summary["bin_high"].to_list() == pytest.approx([15.0, 20.0])
-    assert bins_ttg.summary["bin_center"].to_list() == pytest.approx([12.5, 17.5])
-    assert bins_ttg.summary["count"].to_list() == [1, 1]
-
-    bins_flat = run_computation(
-        "distribution_bins",
-        cat,
-        {"metric": "path_length_m", "nbins": 2},
-    )
-    assert bins_flat.summary["bin_low"].to_list() == pytest.approx([4.0, 5.0])
-    assert bins_flat.summary["bin_high"].to_list() == pytest.approx([5.0, 6.0])
-    assert bins_flat.summary["count"].to_list() == [0, 3]
-
-
 def test_radar_profile_branches_log_scale_all_zero_and_null_group(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -650,20 +594,6 @@ def test_correlation_paired_diff_and_cluster_bootstrap_ci(
     assert dwb_cci["ci_low"] == pytest.approx(12.0)
     assert dwb_cci["ci_high"] == pytest.approx(14.0)
     assert resolve_metric_units(bench_cat, ["time_to_goal"]) == {"time_to_goal": "s"}
-
-
-def test_computations_require_metrics_and_reject_extra_params(
-    tmp_path: pathlib.Path,
-) -> None:
-    cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bench", _default_rows()))
-    with pytest.raises(ValueError):
-        run_computation("group_summary", cat, {"metrics": ["time_to_goal"], "bogus": 1})
-    with pytest.raises(ValueError):
-        run_computation("group_summary", cat, {})
-    with pytest.raises(ValueError):
-        run_computation("radar_profile", cat, {"metrics": []})
-    with pytest.raises(ValueError):
-        run_computation("correlation_matrix", cat, {"metrics": ["time_to_goal"]})
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,6 @@ from __future__ import annotations
 import pathlib
 
 
-from arena_evaluation.processing.pipeline import _status_row
 from arena_evaluation.storage.schemas import EpisodeDescriptor
 
 _CROWD_FIELDS = frozenset(
@@ -35,20 +34,3 @@ def _episode(tmp_path: pathlib.Path, manifest: str | None = None) -> EpisodeDesc
     )
 
 
-def test_status_row_carries_the_pose_frame_column(tmp_path: pathlib.Path) -> None:
-    row = _status_row(
-        _episode(
-            tmp_path, "run_id: run_a\ncli_args: ['human.robots.visible:=false']\n"
-        ),
-        None,
-        "robot",
-        "no_recording",
-        "no MCAP",
-    )
-    assert "pose_frame" in row
-    assert row["pose_frame"] is None
-
-
-def test_status_row_publishes_no_explicit_crowd_label(tmp_path: pathlib.Path) -> None:
-    row = _status_row(_episode(tmp_path), None, "robot", "error", "processing failed")
-    assert _CROWD_FIELDS.isdisjoint(row)

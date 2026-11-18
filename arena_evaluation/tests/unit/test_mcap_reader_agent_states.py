@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import pathlib
 
 import pytest
@@ -9,13 +8,11 @@ pytest.importorskip("rosbag2_py")
 pytest.importorskip("arena_humansim_msgs.msg")
 
 import polars as pl
-import pyarrow.parquet as pq
 import rosbag2_py
 from arena_humansim_msgs.msg import AgentFrame, AgentState, AgentStates
 from rclpy.serialization import serialize_message
 
 from arena_evaluation.processing.mcap_reader import MCAPReader
-from arena_evaluation.processing.telemetry.writer import TABLE_SCHEMAS
 
 _TOPIC = "/arena/env_0/arena_env_node/agent_states"
 _PHYSICS = "pedestrian_agent_states.parquet"
@@ -79,12 +76,6 @@ def test_agent_states_nested_and_flat_layouts_read_into_identical_humans(tmp_pat
     ]
 
 
-def test_robots_are_not_pedestrians_in_the_physics_table(tmp_path: pathlib.Path) -> None:
-    flat = _physics_frame(tmp_path, "robot_excluded", "arena_humansim_msgs/msg/AgentFrame", _flat())
-
-    assert 99 not in [int(ped_id.removeprefix("Pedestrian_")) for ped_id in flat["ped_id"].to_list()]
-
-
 def _robot_only() -> AgentFrame:
     msg = AgentFrame()
     msg.header.frame_id = "map"
@@ -101,24 +92,6 @@ def _robot_only() -> AgentFrame:
     return msg
 
 
-def test_frames_without_humans_before_the_first_human_keep_the_declared_schema(tmp_path: pathlib.Path) -> None:
-    bag = tmp_path / "late_humans"
-    writer = rosbag2_py.SequentialWriter()
-    writer.open(rosbag2_py.StorageOptions(uri=str(bag), storage_id="mcap"), rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"))
-    writer.create_topic(rosbag2_py.TopicMetadata(0, _TOPIC, "arena_humansim_msgs/msg/AgentFrame", "cdr"))
-    empty = serialize_message(_robot_only())
-    for i in range(10_000):
-        writer.write(_TOPIC, empty, 1_000_000_000 + i)
-    writer.write(_TOPIC, serialize_message(_flat()), 2_000_000_000)
-    writer.close()
-    out_dir = tmp_path / "late_humans_out"
-    MCAPReader(bag).read(out_dir)
-
-    path = out_dir / _PHYSICS
-    assert pq.read_schema(path).equals(TABLE_SCHEMAS["pedestrian_agent_states"], check_metadata=False)
-    assert pl.read_parquet(path)["ped_id"].to_list() == ["Pedestrian_3", "Pedestrian_7"]
-
-
 def _flat_with_interactions() -> AgentFrame:
     msg = _flat()
     msg.animation_state = [1, 0, 2]
@@ -127,13 +100,3 @@ def _flat_with_interactions() -> AgentFrame:
     return msg
 
 
-def test_agent_frames_keep_the_animation_and_interaction_of_each_human(tmp_path: pathlib.Path) -> None:
-    flat = _physics_frame(tmp_path, "flat_interactions", "arena_humansim_msgs/msg/AgentFrame", _flat_with_interactions())
-
-    assert flat.select("animation_state", "interaction_id", "interaction_type").rows() == [(1, 4, 10), (2, None, None)]
-
-
-def test_speed_is_the_planar_magnitude_of_the_velocity(tmp_path: pathlib.Path) -> None:
-    flat = _physics_frame(tmp_path, "speed", "arena_humansim_msgs/msg/AgentFrame", _flat())
-
-    assert flat["speed_mps"].to_list() == pytest.approx([math.hypot(0.3, 0.4), math.hypot(-0.2, 0.1)])

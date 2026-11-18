@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
-import logging
 import typing
 
 import numpy as np
@@ -29,8 +27,6 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
 from arena_evaluation.processing.windows import ENCOUNTER_EDGE_DISTANCE_M
 from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
-
-logger = logging.getLogger(__name__)
 
 # Test modules of another group import this alias; delete it once they import ZoneGeometry from common.zones.
 _ZoneGeometry = ZoneGeometry
@@ -81,36 +77,6 @@ PASSING_RULE_COMPLIANCE = define_metric(
     description="Share of head-on pedestrian encounters passed on the configured side; NULL without an encounter or a recorded pedestrian radius.",
     null_reason=True,
 )
-
-
-def _offset_zones(
-    zones: list[ZoneGeometry], offset: tuple[float, float]
-) -> list[ZoneGeometry]:
-    """World-frame zones translated into the recorded map frame by the env packing offset."""
-    if offset == (0.0, 0.0):
-        return zones
-    import shapely.affinity
-
-    return [
-        dataclasses.replace(
-            zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1])
-        )
-        for zone in zones
-    ]
-
-
-def _offset_doors(
-    doors: list[DoorGeometry], offset: tuple[float, float]
-) -> list[DoorGeometry]:
-    """World-frame door centers translated into the recorded map frame."""
-    if offset == (0.0, 0.0):
-        return doors
-    return [
-        dataclasses.replace(
-            door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]
-        )
-        for door in doors
-    ]
 
 
 _ZONE_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
@@ -333,33 +299,31 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         except pl.exceptions.ColumnNotFoundError:
             return None
 
-    @staticmethod
-    def _recorded_pedestrian_radii(peds_df: pl.DataFrame) -> np.ndarray | None:
-        """Recorded pedestrian radii (m) in frame order, None when a sample has no usable radius."""
+    def _passing_inputs(
+        self, episode: AlignedEpisodeBundle
+    ) -> tuple[pl.DataFrame | None, np.ndarray | None]:
+        """Pedestrian frame and recorded radii in frame order, radii None when a sample has no usable radius."""
+        peds_df = self.native_ped_frame(episode)
+        if peds_df is None or len(peds_df) == 0:
+            return None, None
         try:
             radii = peds_df["radius_m"].to_numpy().astype(np.float64)
         except pl.exceptions.ColumnNotFoundError:
-            return None
-        return radii if np.isfinite(radii).all() else None
+            return peds_df, None
+        return peds_df, radii if np.isfinite(radii).all() else None
 
     def _passing_null_reason(self, episode: AlignedEpisodeBundle) -> str | None:
         """NOT_RECORDED when a pedestrian the head-on pairing reads has no recorded radius."""
-        peds_df = self.native_ped_frame(episode)
-        if peds_df is None or len(peds_df) == 0:
+        peds_df, radii = self._passing_inputs(episode)
+        if peds_df is None:
             return None
-        return (
-            None
-            if self._recorded_pedestrian_radii(peds_df) is not None
-            else NullReason.NOT_RECORDED.value
-        )
+        return None if radii is not None else NullReason.NOT_RECORDED.value
 
     def _compute_passing_compliance(
         self, episode: AlignedEpisodeBundle
     ) -> float | None:
-        peds_df = self.native_ped_frame(episode)
-        if peds_df is None or len(peds_df) == 0:
-            return None
-        if self._recorded_pedestrian_radii(peds_df) is None:
+        peds_df, radii = self._passing_inputs(episode)
+        if peds_df is None or radii is None:
             return None
 
         pos_x, pos_y, yaw, t_odom = self.resolve_native_pose(episode)
@@ -473,9 +437,13 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
         return float(encounters_compliant) / encounters_total
 
+    @staticmethod
+    def _world_semantics_recorded(episode: AlignedEpisodeBundle) -> bool:
+        return episode.semantic_snapshot is not None and episode.semantic_snapshot.height > 0
+
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Zone and door compliance needs the recorded world semantics; without it the values are unknown."""
-        if episode.semantic_snapshot is None or episode.semantic_snapshot.height == 0:
+        if not self._world_semantics_recorded(episode):
             return {
                 key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS
             }
@@ -499,10 +467,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         # 2. Zone/Door Metrics (Requires the world and its recorded semantic snapshot). The world file
         # alone is not enough: without the recorded world semantics the zone/door occupancy is unknown,
         # so the values stay null instead of collapsing to a fabricated zero.
-        has_semantics = (
-            episode.semantic_snapshot is not None
-            and episode.semantic_snapshot.height > 0
-        )
+        has_semantics = self._world_semantics_recorded(episode)
         if self.world is not None and episode.start_pos:
             loaded = self._load_world(self.world)
             if loaded is not None and has_semantics:

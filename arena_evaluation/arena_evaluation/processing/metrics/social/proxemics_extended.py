@@ -47,7 +47,6 @@ TTI_MIN_REL_SPEED_MPS: Final[float] = 0.05
 #: Wall-clock gap, nanoseconds, that still merges two stays in one zone into a single entry event.
 #: A time gap, never a distance: the zone bounds above are the distances.
 ZONE_EVENT_MERGE_GAP_NS: Final[int] = 2 * 10**9
-ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social", "public")
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemicsExtended.polars_schema()
 
@@ -55,6 +54,10 @@ ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (
     MetricScope.EPISODE,
     MetricScope.ENCOUNTER,
 )
+
+#: Hall zones in boundary order, from the tightest to the public outside.
+_ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social", "public")
+_ZONE_ENTRY_ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social")
 
 TIME_IN_INTIMATE_ZONE = define_metric(
     "time_in_intimate_zone",
@@ -194,25 +197,13 @@ def _zone_expression() -> pl.Expr:
     )
 
 
-def _dwell_expression(zone: str) -> pl.Expr:
-    """Seconds whose closest pedestrian sat in ``zone``."""
+def _zone_value_expression(zone: str, value: str, alias: str) -> pl.Expr:
+    """``value`` on the frames whose closest pedestrian sat in ``zone``, null elsewhere; the caller reduces it."""
     return (
         pl.when(pl.col("zone") == zone)
-        .then(pl.col("dt_s"))
-        .otherwise(0.0)
-        .sum()
-        .alias(f"time_in_{zone}_zone_s")
-    )
-
-
-def _zone_top_speed_expression(zone: str) -> pl.Expr:
-    """Fastest robot speed while the closest pedestrian sat in ``zone``, null when never."""
-    return (
-        pl.when(pl.col("zone") == zone)
-        .then(pl.col("robot_speed_mps"))
+        .then(pl.col(value))
         .otherwise(None)
-        .max()
-        .alias(f"max_speed_{zone}_zone_mps")
+        .alias(alias)
     )
 
 
@@ -304,12 +295,7 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
         )
         if peds is None or peds.height == 0:
-            return FrameGeometry(
-                frames=geometry.frames,
-                pedestrians=geometry.pedestrians.with_columns(
-                    radius_m=pl.lit(None, dtype=pl.Float64)
-                ),
-            )
+            return geometry
         invalid = peds.filter(
             pl.col("radius_m").is_null()
             | pl.col("radius_m").is_nan()
@@ -384,14 +370,16 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             return dict.fromkeys(self.output_keys())
 
         summary = cleared.select(
-            _dwell_expression("intimate"),
-            _dwell_expression("personal"),
-            _dwell_expression("social"),
-            _dwell_expression("public"),
-            _zone_top_speed_expression("intimate"),
-            _zone_top_speed_expression("personal"),
-            _zone_top_speed_expression("social"),
-            _zone_top_speed_expression("public"),
+            *(
+                _zone_value_expression(zone, "dt_s", f"time_in_{zone}_zone_s").sum()
+                for zone in _ZONES
+            ),
+            *(
+                _zone_value_expression(
+                    zone, "robot_speed_mps", f"max_speed_{zone}_zone_mps"
+                ).max()
+                for zone in _ZONES
+            ),
             personal_space_intrusion_integral_m_s=(
                 pl.when(pl.col("clearance_m") < PERSONAL_ZONE_EDGE_CLEARANCE_M)
                 .then(
@@ -421,17 +409,18 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
         approaching_frames = int(summary["approaching_frames"])
 
         return {
-            "time_in_intimate_zone": float(summary["time_in_intimate_zone_s"]),
-            "time_in_personal_zone": float(summary["time_in_personal_zone_s"]),
-            "time_in_social_zone": float(summary["time_in_social_zone_s"]),
-            "time_in_public_zone": float(summary["time_in_public_zone_s"]),
-            "psi_intimate_events": zone_entry_events(cleared, "intimate"),
-            "psi_personal_events": zone_entry_events(cleared, "personal"),
-            "psi_social_events": zone_entry_events(cleared, "social"),
-            "max_speed_intimate_zone": summary["max_speed_intimate_zone_mps"],
-            "max_speed_personal_zone": summary["max_speed_personal_zone_mps"],
-            "max_speed_social_zone": summary["max_speed_social_zone_mps"],
-            "max_speed_public_zone": summary["max_speed_public_zone_mps"],
+            **{
+                f"time_in_{zone}_zone": float(summary[f"time_in_{zone}_zone_s"])
+                for zone in _ZONES
+            },
+            **{
+                f"psi_{zone}_events": zone_entry_events(cleared, zone)
+                for zone in _ZONE_ENTRY_ZONES
+            },
+            **{
+                f"max_speed_{zone}_zone": summary[f"max_speed_{zone}_zone_mps"]
+                for zone in _ZONES
+            },
             "movement_towards_peds_ratio": approaching_frames / sampled_frames
             if sampled_frames > 0
             else None,

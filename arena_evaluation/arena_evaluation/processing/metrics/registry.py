@@ -25,7 +25,7 @@ from arena_evaluation.storage.exceptions import (
     MetricInputError,
     SchemaViolationError,
 )
-from arena_evaluation.storage.registry import MetricScope, defined_metrics
+from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 _METRICS_PACKAGE: typing.Final[str] = "arena_evaluation.processing.metrics."
@@ -309,12 +309,6 @@ class MetricRegistry:
             key=lambda item: item[0],
         )
 
-    @classmethod
-    def get_all_units(cls) -> dict[str, str]:
-        """Unit of every defined metric, read from the shared metric store."""
-        cls.discover_calculators_cls()
-        return {metric.name: metric.unit for metric in defined_metrics()}
-
     def _compute_execution_order(
         self, scope: MetricScope = MetricScope.EPISODE
     ) -> list[list[str]]:
@@ -359,25 +353,6 @@ class MetricRegistry:
     def get_execution_order_for_scope(self, scope: MetricScope) -> list[list[str]]:
         """Return topological execution stages of calculators registered for `scope`."""
         return self.execution_stages_by_scope[scope]
-
-    def list_metrics(self) -> list[dict[str, typing.Any]]:
-        """Returns metadata about all registered metrics."""
-        return [
-            {
-                "name": name,
-                "category": calc.CATEGORY,
-                "scopes": sorted(s.value for s in calc.effective_scopes()),
-                "requires_pedsim": calc.REQUIRES_PEDSIM,
-                "depends_on": calc.DEPENDS_ON,
-                "required_topics": calc.REQUIRED_TOPICS,
-                "outputs": calc.output_keys(),
-                "primary_outputs": list(calc.PRIMARY_OUTPUTS),
-                "output_directions": {
-                    name: str(direction) for name, direction in calc.DIRECTIONS.items()
-                },
-            }
-            for name, calc in self.calculators.items()
-        ]
 
     def execution_order(self) -> list[list[str]]:
         """Returns the ordered stages of calculation."""

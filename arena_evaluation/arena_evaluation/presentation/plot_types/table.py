@@ -27,17 +27,16 @@ def _format_cell(
     return str(value)
 
 
-def _column_formats(raw_format: object) -> tuple[str | None, dict[str, str]]:
-    if isinstance(raw_format, str):
-        return raw_format, {}
-    if isinstance(raw_format, dict):
-        return None, {str(k): str(v) for k, v in raw_format.items()}
-    return None, {}
+def _metric_label(value: object, reason: object, labels: dict[str, str]) -> str:
+    missing = value is None or (isinstance(value, float) and math.isnan(value))
+    if missing and reason is not None:
+        return str(reason)
+    return "NULL" if value is None else labels.get(str(value), str(value))
 
 
-def _label_map(raw_labels: object) -> dict[str, str]:
-    if isinstance(raw_labels, dict):
-        return {str(k): str(v) for k, v in raw_labels.items()}
+def _string_map(raw: object) -> dict[str, str]:
+    if isinstance(raw, dict):
+        return {str(key): str(value) for key, value in raw.items()}
     return {}
 
 
@@ -45,15 +44,16 @@ def _formatted_cells(
     df: pl.DataFrame,
     cols: list[str],
     raw_format: object,
-    raw_labels: object = None,
+    labels: dict[str, str],
 ) -> list[list[str]]:
-    default_fmt, per_col_fmt = _column_formats(raw_format)
-    labels = _label_map(raw_labels)
-    metric_names: list[str] | None = None
-    if "metric" in cols:
-        raw_m = df["metric"].to_list()  # agent-contracts: ignore AC004 - cell export
-        metric_names = [str(m) for m in raw_m]
-    result: list[list[str]] = []
+    default_fmt = raw_format if isinstance(raw_format, str) else None
+    per_col_fmt = _string_map(raw_format)
+    metric_names = (
+        [str(metric) for metric in df["metric"].to_list()]  # agent-contracts: ignore AC004 - cell export
+        if "metric" in cols
+        else None
+    )
+    cells_by_col: list[list[str]] = []
     for col in cols:
         col_fmt = per_col_fmt.get(col, default_fmt)
         reason_col = f"{col}_null_reason"
@@ -66,32 +66,21 @@ def _formatted_cells(
             ].to_list()  # agent-contracts: ignore AC004 - explicit table cell serialization boundary
         else:
             reasons = [None] * len(values)
-        if col == "metric" and labels:
-            result.append(
-                [
-                    str(r)
-                    if (v is None or (isinstance(v, float) and math.isnan(v)))
-                    and r is not None
-                    else ("NULL" if v is None else labels.get(str(v), str(v)))
-                    for v, r in zip(values, reasons, strict=True)
-                ]
-            )
-            continue
         if metric_names is not None and col in _STAT_VALUE_COLS:
-            result.append(
-                [
-                    _format_cell(v, reason=r, fmt=per_col_fmt.get(m, col_fmt))
-                    for v, r, m in zip(values, reasons, metric_names, strict=True)
-                ]
-            )
-            continue
-        result.append(
+            fmts = [per_col_fmt.get(metric, col_fmt) for metric in metric_names]
+        else:
+            fmts = [col_fmt] * len(values)
+        cells_by_col.append(
             [
-                _format_cell(v, reason=r, fmt=col_fmt)
-                for v, r in zip(values, reasons, strict=True)
+                (
+                    _metric_label(value, reason, labels)
+                    if col == "metric" and labels
+                    else _format_cell(value, reason=reason, fmt=fmt)
+                )
+                for value, reason, fmt in zip(values, reasons, fmts, strict=True)
             ]
         )
-    return result
+    return cells_by_col
 
 
 class TableRenderer(BasePlotRenderer):
@@ -103,45 +92,38 @@ class TableRenderer(BasePlotRenderer):
         "labels",
     }
 
-    def _resolve_columns(self, df: pl.DataFrame) -> list[str]:
-        y_cols = self.resolve_channel_list("y")
-        x_col = self.resolve_channel("x")
-        color_col = self.resolve_channel("color")
-        chosen = list(dict.fromkeys([c for c in (x_col, color_col, *y_cols) if c]))
-        if not chosen:
+    def _columns(self, df: pl.DataFrame) -> tuple[list[str], list[list[str]]]:
+        """Resolve the rendered columns once, with their headers and formatted cells."""
+        cols = list(
+            dict.fromkeys(
+                column
+                for column in (
+                    self.resolve_channel("x"),
+                    self.resolve_channel("color"),
+                    *self.resolve_channel_list("y"),
+                )
+                if column
+            )
+        )
+        if not cols:
             raise ValueError(
                 f"Plot {self.spec.id!r}: table plot requires declared 'x'/'y'/'color' channels."
             )
-        return chosen
-
-    def _headers(self, cols: list[str]) -> list[str]:
-        labels = _label_map(self.spec.options.get("labels"))
-        return [labels.get(c, c.replace("_", " ").title()) for c in cols]
+        labels = _string_map(self.spec.options.get("labels"))
+        headers = [labels.get(col, col.replace("_", " ").title()) for col in cols]
+        cells = _formatted_cells(df, cols, self.spec.options.get("format"), labels)
+        return headers, cells
 
     def tableau(self, df: pl.DataFrame) -> tuple[list[str], list[list[str]]]:
         """Headers and formatted cell rows of this table, the same cells the report draws."""
-        cols = self._resolve_columns(df)
-        if not cols:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: table plot resolved no drawable column."
-            )
-        cells_by_col = _formatted_cells(
-            df,
-            cols,
-            self.spec.options.get("format"),
-            self.spec.options.get("labels"),
-        )
-        return self._headers(cols), [
-            list(row) for row in zip(*cells_by_col, strict=True)
-        ]
+        headers, cells = self._columns(df)
+        return headers, [list(row) for row in zip(*cells, strict=True)]
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly table."""
         if df.is_empty():
             return None
-        headers, rows = self.tableau(df)
-        cells = [list(column) for column in zip(*rows, strict=True)]
-
+        headers, cells = self._columns(df)
         fig = go.Figure(
             data=[
                 go.Table(

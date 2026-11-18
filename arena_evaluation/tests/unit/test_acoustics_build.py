@@ -8,7 +8,6 @@ library names the step that builds it, and the Pareto truncation is bounded.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -83,20 +82,6 @@ def test_the_default_library_sits_next_to_the_module() -> None:
     )
 
 
-def test_the_env_var_overrides_the_library_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """ARENA_ACOUSTIC_SOLVER_SO keeps working as an override for an externally built library."""
-    override = tmp_path / "elsewhere" / "solver.so"
-    monkeypatch.setenv(ENV_SO_VAR, str(override))
-    assert impedance_grid.solver_library_path() == override
-
-
-def test_the_unit_suite_finds_a_solver_library() -> None:
-    """`pytest tests/unit` with no environment variable must find the built artefact."""
-    assert impedance_grid.solver_library_path().is_file() or os.environ.get(ENV_SO_VAR)
-
-
 def test_the_loaded_library_exports_the_wrappers_abi() -> None:
     """The library in the package tree is the one this wrapper binds."""
     assert (
@@ -109,19 +94,6 @@ def test_the_solver_source_declares_the_wrappers_abi() -> None:
     """The C++ ABI constant and the Python one cannot drift apart."""
     source = SOLVER_SOURCE.read_text(encoding="utf-8")
     assert f"#define ARENA_ACOUSTIC_SOLVER_ABI {ACOUSTIC_SOLVER_ABI}" in source
-
-
-def test_a_library_without_the_abi_symbol_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A pre-ABI library (what the pre-overhaul import-time build left in this path) raises instead of binding."""
-    exports = "".join(
-        f'extern "C" void {symbol}() {{}}\n' for symbol in ACOUSTIC_SOLVER_SYMBOLS
-    )
-    stale = _compile(tmp_path, "stale", exports)
-    _use_library(monkeypatch, stale)
-    with pytest.raises(MetricInputError, match=ACOUSTIC_SOLVER_ABI_SYMBOL):
-        impedance_grid._solver_library()
 
 
 def test_a_library_with_another_abi_version_is_refused(
@@ -152,19 +124,6 @@ def test_a_library_missing_a_solver_symbol_is_refused(
     _use_library(monkeypatch, partial)
     with pytest.raises(MetricInputError, match="solve_acoustic_grid"):
         impedance_grid._solver_library()
-
-
-def test_a_missing_library_names_the_build_step(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The error points at a step that builds the library, and at the override."""
-    _use_library(monkeypatch, tmp_path / "absent.so")
-    with pytest.raises(MetricInputError) as raised:
-        _attenuations(47.0)
-    message = str(raised.value)
-    assert "arena build" in message
-    assert "cmake" in message
-    assert ENV_SO_VAR in message
 
 
 def test_cmake_declares_a_target_for_both_solvers() -> None:

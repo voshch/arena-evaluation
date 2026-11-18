@@ -40,8 +40,6 @@ from arena_evaluation.processing.metrics.common.series import null_float_series
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
 MIN_DT_S: typing.Final[float] = 1e-6
 
-SERIES_TABLE_STEM = "motion"
-
 # Declared smoothing of the derivative estimator: what the reported acceleration and jerk peaks measure.
 SMOOTHING_WINDOW_S: Final[float] = 1.0
 SMOOTHING_POLYORDER: Final[int] = 2
@@ -193,53 +191,66 @@ def _speed_from_pose(x_m: np.ndarray, y_m: np.ndarray, t_ns: np.ndarray) -> np.n
     return speed
 
 
+def _smoothing_grid(t_ns: np.ndarray) -> tuple[np.ndarray, int, float] | None:
+    """Uniform grid, odd smoothing window and sample step, None when the declared window does not fit.
+
+    Never interpolate finer than the recorded samples: a coarser recording keeps its own step,
+    a finer one is thinned to ``KINEMATICS_GRID_HZ``.
+    """
+    step_s = max(
+        1.0 / KINEMATICS_GRID_HZ,
+        float(np.median(np.diff(t_ns))) / NANOSECONDS_PER_SECOND,
+    )
+    step_ns = max(1, int(round(step_s * NANOSECONDS_PER_SECOND)))
+    grid = np.arange(t_ns[0], t_ns[-1] + 1, step_ns, dtype=np.int64)
+    sample_step_s = step_ns / NANOSECONDS_PER_SECOND
+    window = int(round(SMOOTHING_WINDOW_S / sample_step_s)) | 1
+    window = min(window, (len(grid) // 2) * 2 - 1)
+    if len(grid) < MIN_SMOOTHING_SAMPLES or window < MIN_SMOOTHING_SAMPLES:
+        return None
+    return grid, window, sample_step_s
+
+
+def _kinematics_on_grid(
+    grid: np.ndarray, speed_mps: np.ndarray, window: int, sample_step_s: float
+) -> Kinematics:
+    """Acceleration and jerk as the first and second smoothed derivative of a gridded speed signal."""
+    return Kinematics(
+        t_ns=grid,
+        speed_mps=speed_mps,
+        acceleration_mps2=savgol_filter(
+            speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
+        ),
+        jerk_mps3=savgol_filter(
+            speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
+        ),
+    )
+
+
 def _smooth_position_kinematics(
     t_ns: np.ndarray,
     x_m: np.ndarray,
     y_m: np.ndarray,
 ) -> Kinematics | None:
-    """Savitzky-Golay kinematics of a position track on a uniform grid, None when the window does not fit.
+    """Savitzky-Golay kinematics of an ascending, unique position track, None when the window does not fit.
 
     Used where the recording has no speed stream: fitting the positions first keeps sample noise
     out of the derived speed instead of amplifying it through finite differences.
     """
-    unique = _unique_track(t_ns, x_m, y_m)
-    if unique is None:
+    gridded = _smoothing_grid(t_ns)
+    if gridded is None:
         return None
-    grid_time_ns, grid_x_m, grid_y_m = unique
-    step_s = max(
-        1.0 / KINEMATICS_GRID_HZ,
-        float(np.median(np.diff(grid_time_ns))) / NANOSECONDS_PER_SECOND,
-    )
-    step_ns = max(1, int(round(step_s * NANOSECONDS_PER_SECOND)))
-    grid = np.arange(grid_time_ns[0], grid_time_ns[-1] + 1, step_ns, dtype=np.int64)
-    if len(grid) < MIN_SMOOTHING_SAMPLES:
-        return None
-    sample_step_s = step_ns / NANOSECONDS_PER_SECOND
-    window = int(round(SMOOTHING_WINDOW_S / sample_step_s)) | 1
-    window = min(window, (len(grid) // 2) * 2 - 1)
-    if window < MIN_SMOOTHING_SAMPLES:
-        return None
-    grid_x = interpolate_values(grid_time_ns, grid_x_m, grid)
-    grid_y = interpolate_values(grid_time_ns, grid_y_m, grid)
+    grid, window, sample_step_s = gridded
+    grid_x = interpolate_values(t_ns, x_m, grid)
+    grid_y = interpolate_values(t_ns, y_m, grid)
     velocity_x = savgol_filter(
         grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
     )
     velocity_y = savgol_filter(
         grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
     )
-    speed_mps = np.hypot(velocity_x, velocity_y)
-    acceleration_mps2 = savgol_filter(
-        speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
-    )
-    jerk_mps3 = savgol_filter(
-        speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
-    )
-    return Kinematics(
-        t_ns=grid,
-        speed_mps=speed_mps,
-        acceleration_mps2=acceleration_mps2,
-        jerk_mps3=jerk_mps3,
+    return _kinematics_on_grid(
+        grid, np.hypot(velocity_x, velocity_y), window, sample_step_s
     )
 
 
@@ -257,33 +268,15 @@ def _smooth_speed_kinematics(
     time_sorted, speed_sorted = time_sorted[keep], speed_sorted[keep]
     if len(time_sorted) < 2:
         return None
-    # Never interpolate finer than the recorded samples: a coarser recording keeps its own step,
-    # a finer one is thinned to the declared grid rate.
-    step_s = max(
-        1.0 / KINEMATICS_GRID_HZ,
-        float(np.median(np.diff(time_sorted))) / NANOSECONDS_PER_SECOND,
-    )
-    step_ns = max(1, int(round(step_s * NANOSECONDS_PER_SECOND)))
-    grid = np.arange(time_sorted[0], time_sorted[-1] + 1, step_ns, dtype=np.int64)
-    if len(grid) < MIN_SMOOTHING_SAMPLES:
+    gridded = _smoothing_grid(time_sorted)
+    if gridded is None:
         return None
-    sample_step_s = step_ns / NANOSECONDS_PER_SECOND
-    window = int(round(SMOOTHING_WINDOW_S / sample_step_s)) | 1
-    window = min(window, (len(grid) // 2) * 2 - 1)
-    if window < MIN_SMOOTHING_SAMPLES:
-        return None
-    grid_speed_mps = interpolate_values(time_sorted, speed_sorted, grid)
-    acceleration_mps2 = savgol_filter(
-        grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
-    )
-    jerk_mps3 = savgol_filter(
-        grid_speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
-    )
-    return Kinematics(
-        t_ns=grid,
-        speed_mps=grid_speed_mps,
-        acceleration_mps2=acceleration_mps2,
-        jerk_mps3=jerk_mps3,
+    grid, window, sample_step_s = gridded
+    return _kinematics_on_grid(
+        grid,
+        interpolate_values(time_sorted, speed_sorted, grid),
+        window,
+        sample_step_s,
     )
 
 

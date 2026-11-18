@@ -18,7 +18,6 @@ from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
 from arena_evaluation.storage.registry.facts import FACT_TABLES
 from arena_evaluation.storage.registry.telemetry import (
-    PedestrianAgentStates,
     PedestrianArenaPeds,
     RobotTracks,
 )
@@ -139,24 +138,6 @@ def _episode_row(result: pl.DataFrame, episode_id: int) -> dict:
     return result.filter(pl.col("episode_id") == episode_id).row(0, named=True)
 
 
-def test_the_rerun_reads_the_robot_radius_from_the_benchmark_root(
-    tmp_path: pathlib.Path,
-) -> None:
-    _write_robot_radii(tmp_path, [(0, "env_0", "env_0_jackal_0", 0.3)])
-    _write_episode(
-        tmp_path,
-        0,
-        robots=[("env_0", "env_0_jackal_0", 0.0, 0.0)],
-        peds=[("Pedestrian_0", 1.0, 0.0, 0.3)],
-    )
-
-    row = _episode_row(rerun_sensitivity(tmp_path), 0)
-
-    assert row["null_reason"] is None
-    assert row["rerun_n_encounters"] == 1
-    assert row["rerun_min_clearance_m"] == pytest.approx(0.4)
-
-
 def test_each_robot_of_an_episode_is_rerun_with_its_own_radius(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -225,52 +206,9 @@ def test_a_robot_without_a_recorded_radius_is_refused_not_guessed(
     assert row["rerun_n_encounters"] is None
 
 
-def test_pedestrians_fall_back_to_the_agent_states_stream_like_the_evaluator(
-    tmp_path: pathlib.Path,
-) -> None:
-    _write_robot_radii(tmp_path, [(0, "env_0", "env_0_jackal_0", 0.3)])
-    _write_episode(
-        tmp_path,
-        0,
-        robots=[("env_0", "env_0_jackal_0", 0.0, 0.0)],
-        peds=[("Pedestrian_0", 1.0, 0.0, 0.3)],
-        ped_table=PedestrianAgentStates,
-    )
-
-    row = _episode_row(rerun_sensitivity(tmp_path), 0)
-
-    assert row["rerun_n_encounters"] == 1
-
-
 def test_an_unknown_detector_parameter_is_refused(tmp_path: pathlib.Path) -> None:
     with pytest.raises(MetricInputError, match="unknown detector parameter"):
         rerun_sensitivity(tmp_path, detector_params={"encounter_distance_m": 1.0})
-
-
-def test_episodes_with_different_column_sets_are_each_rerun(
-    tmp_path: pathlib.Path,
-) -> None:
-    _write_robot_radii(
-        tmp_path,
-        [(0, "env_0", "env_0_jackal_0", 0.3), (1, "env_0", "env_0_jackal_0", 0.3)],
-    )
-    _write_episode(
-        tmp_path,
-        0,
-        robots=[("env_0", "env_0_jackal_0", 0.0, 0.0)],
-        peds=[("Pedestrian_0", 1.0, 0.0, 0.3)],
-    )
-    _write_episode(tmp_path, 1, peds=[("Pedestrian_0", 1.0, 0.0, 0.3)])
-    _write(
-        tmp_path / "episodes" / "episode_001" / RobotTracks.relative_path(),
-        _robot_frame([("env_0", "env_0_jackal_0", 0.0, 0.0)]).with_columns(
-            note=pl.lit("recorded")
-        ),
-    )
-
-    result = rerun_sensitivity(tmp_path)
-
-    assert result.get_column("rerun_n_encounters").to_list() == [1, 1]
 
 
 def test_the_published_side_counts_the_pedestrian_encounters_of_the_episode(

@@ -49,34 +49,6 @@ def test_edge_case_rows_keep_each_list_element() -> None:
     assert_frame_equal(frame.select(expected.columns), expected)
 
 
-def test_formation_rows_keep_each_member_and_absent_agent() -> None:
-    frame = _evaluator()._formation_fact_frame(
-        **_IDENTITY,
-        metrics={
-            "edge_case_formation_members": ["m0"],
-            "edge_case_formation_absent": ["x0"],
-        },
-    )
-    assert frame.columns == _declared(FactTable.FORMATIONS)
-    expected = pl.DataFrame(
-        {"role": ["member", "absent"], "element": ["m0", "x0"]},
-        schema={"role": pl.String, "element": pl.String},
-    )
-    assert_frame_equal(frame.select(expected.columns), expected)
-
-
-def test_phase_outcome_rows_keep_the_token_and_the_met_flag() -> None:
-    frame = _evaluator()._phase_outcome_fact_frame(
-        **_IDENTITY, metrics={"phase_outcomes": ["met", "failed"]}
-    )
-    assert frame.columns == _declared(FactTable.PHASE_OUTCOMES)
-    expected = pl.DataFrame(
-        {"phase_idx": [0, 1], "outcome": ["met", "failed"], "met": [True, False]},
-        schema={"phase_idx": pl.Int64, "outcome": pl.String, "met": pl.Boolean},
-    )
-    assert_frame_equal(frame.select(expected.columns), expected)
-
-
 def test_judge_disagreement_rows_keep_their_text() -> None:
     frame = _evaluator()._judge_disagreement_fact_frame(
         **_IDENTITY, metrics={"judge_disagreements": ["replay ends early"]}

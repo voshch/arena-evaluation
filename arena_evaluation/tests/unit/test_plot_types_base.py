@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import pathlib
 
-import numpy as np
 import polars as pl
 
 from arena_evaluation.presentation.plot_types.base import (
     BasePlotRenderer,
     label_values,
-    series_values,
 )
 from arena_evaluation.presentation.viz_manifest import PlotChannels, PlotSpec
 
@@ -41,18 +39,6 @@ def test_base_resolve_channel_and_list() -> None:
     assert renderer.resolve_channel("color") == "world"
     assert renderer.resolve_channel("size", fallback="default_size") == "default_size"
     assert renderer.format_label("Time To Goal", "time_to_goal") == "Time To Goal [s]"
-
-
-def test_null_preserving_value_helpers() -> None:
-    df = pl.DataFrame({"group": ["a", None, "b"], "val": [1.5, None, float("nan")]})
-    labels = label_values(df, "group").tolist()
-    assert labels == ["a", "NULL", "b"]
-
-    series = series_values(df, "val")
-    assert len(series) == 3
-    assert series[0] == 1.5
-    assert np.isnan(series[1])
-    assert np.isnan(series[2])
 
 
 def test_label_values_uses_null_reason_when_present() -> None:

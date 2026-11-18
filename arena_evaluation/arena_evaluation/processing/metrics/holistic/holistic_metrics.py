@@ -31,7 +31,6 @@ PERSONAL_SPACE_CLEARANCE_M: Final[float] = 1.2
 COLLISION_PENALTY: Final[float] = 2.0
 INTRUSION_WEIGHT: Final[float] = 0.5
 COT_DECIMALS: Final[int] = 6
-MIN_EPISODE_TIME_S: Final[float] = 0.01
 # The registry refuses an empty unit for a float metric and defines no dimensionless marker;
 # "1" is the UCUM code for a dimensionless ratio.
 DIMENSIONLESS_UNIT: Final[str] = "1"

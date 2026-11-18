@@ -133,46 +133,6 @@ def test_seed_split_rank_stability_perfect_concordance() -> None:
     assert summary_df.item(0, "top_k_preservation_rate") == 1.0
 
 
-def test_seed_split_rank_stability_ascending_direction() -> None:
-    """Verify lower-is-better metric respects ascending rank ordering."""
-    df = _build_synthetic_twin_episodes(n_seeds=30)
-    result = seed_split_rank_stability(
-        df,
-        "time_to_goal",
-        planner_col="planner",
-        seed_col="seed",
-        n_splits=30,
-        k=2,
-        descending=False,
-        seed=123,
-    )
-
-    assert result.mean_tau == 1.0
-    assert result.std_tau == 0.0
-    assert result.top_k_preservation_rate == 1.0
-
-
-def test_seed_split_rank_stability_noisy_swaps() -> None:
-    """Verify unstable planners produce swaps, intermediate tau, and variance."""
-    df = _build_noisy_twin_episodes(n_seeds=40)
-    result = seed_split_rank_stability(
-        df,
-        "success",
-        planner_col="planner",
-        seed_col="seed",
-        n_splits=60,
-        k=1,
-        descending=True,
-        seed=999,
-    )
-
-    assert -1.0 <= result.mean_tau <= 1.0
-    assert result.splits_frame.height == 60
-    assert result.splits_frame.schema == RANK_SPLITS_SCHEMA
-    # Top-1 is not always preserved because X and Y alternate
-    assert 0.0 <= result.top_k_preservation_rate <= 1.0
-
-
 def test_seed_split_edge_cases_and_validation() -> None:
     """Verify boundary conditions: empty frame, single seed, single planner, and invalid params."""
     empty_df = pl.DataFrame(

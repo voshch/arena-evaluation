@@ -62,11 +62,35 @@ class LineRenderer(BasePlotRenderer):
         self.validate_unique_cells(df, cell_keys)
         return x_col, y_col, color_col
 
-    def _error_bounds(
+    def _titles(self, x_col: str, y_col: str) -> tuple[str, str]:
+        return (
+            self.format_label(x_col.replace("_", " ").title(), x_col),
+            self.format_label(y_col.replace("_", " ").title(), y_col),
+        )
+
+    def _grouped(
+        self,
+        df: pl.DataFrame,
+        x_col: str,
+        y_col: str,
+        color_col: str | None,
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """One x-sorted frame per colour level, or one frame when uncoloured."""
+        if color_col is None:
+            return [(y_col, df.sort(x_col))]
+        tagged = df.with_columns(pl.Series("_line_group", label_values(df, color_col)))
+        return [
+            (str(sub["_line_group"][0]), sub.sort(x_col))
+            for sub in tagged.sort("_line_group").partition_by(
+                "_line_group", maintain_order=True
+            )
+        ]
+
+    def _band(
         self, frame: pl.DataFrame, y_vals: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray] | None:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Mask and bounds of the finite error band, or ``None`` when nothing is drawable."""
         opts = self.spec.options
-        clamp_zero = bool(opts.get("clamp_zero", False))
         low_col = opts.get("ci_low")
         high_col = opts.get("ci_high")
         lo: np.ndarray | None = None
@@ -90,59 +114,44 @@ class LineRenderer(BasePlotRenderer):
                 lo, hi = y_vals - err, y_vals + err
         if lo is None or hi is None:
             return None
-        if clamp_zero:
+        if bool(opts.get("clamp_zero", False)):
             lo = np.maximum(lo, 0.0)
-        return lo, hi
+        valid = np.isfinite(y_vals) & np.isfinite(lo) & np.isfinite(hi)
+        if not np.any(valid):
+            return None
+        return valid, lo, hi
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly line plot from bound columns."""
-        # differs from overhaul/source:plot_types/line.py:84-116: no binning, quantile filtering, or group_by mean/std; NULLs stay NaN
         if df.is_empty():
             return None
         x_col, y_col, color_col = self._resolve_columns(df)
-        if not x_col or not y_col:
-            return None
-
         palette = get_color_palette()
         fig = go.Figure()
         show_markers = bool(self.spec.options.get("show_markers", True))
         trace_mode = "lines+markers" if show_markers else "lines"
-        groups: list[tuple[str, pl.DataFrame]]
-        if color_col:
-            tagged = df.with_columns(
-                pl.Series("_line_group", label_values(df, color_col))
-            )
-            groups = [
-                (str(sub["_line_group"][0]), sub.sort(x_col))
-                for sub in tagged.sort("_line_group").partition_by(
-                    "_line_group", maintain_order=True
-                )
-            ]
-        else:
-            groups = [(y_col, df.sort(x_col))]
-
-        for idx, (label, sub) in enumerate(groups):
-            color = palette_color(palette, idx)
+        for index, (label, sub) in enumerate(
+            self._grouped(df, x_col, y_col, color_col)
+        ):
+            color = palette_color(palette, index)
             x_vals = sub[x_col].to_numpy().tolist()
             y_vals = series_values(sub, y_col)
-            bounds = self._error_bounds(sub, y_vals)
-            if bounds is not None:
-                lo, hi = bounds
-                valid = np.isfinite(y_vals) & np.isfinite(lo) & np.isfinite(hi)
-                if np.any(valid):
-                    vx = [x_vals[i] for i, ok in enumerate(valid) if ok]
-                    fig.add_trace(
-                        go.Scatter(
-                            x=vx + vx[::-1],
-                            y=hi[valid].tolist() + lo[valid][::-1].tolist(),
-                            fill="toself",
-                            fillcolor=_rgba(color, 0.18),
-                            line={"color": "rgba(255,255,255,0)"},
-                            hoverinfo="skip",
-                            showlegend=False,
-                            name=f"{label}_band",
-                        )
+            band = self._band(sub, y_vals)
+            if band is not None:
+                valid, lower, upper = band
+                vx = [x for x, keep in zip(x_vals, valid, strict=True) if keep]
+                fig.add_trace(
+                    go.Scatter(
+                        x=vx + vx[::-1],
+                        y=upper[valid].tolist() + lower[valid][::-1].tolist(),
+                        fill="toself",
+                        fillcolor=_rgba(color, 0.18),
+                        line={"color": "rgba(255,255,255,0)"},
+                        hoverinfo="skip",
+                        showlegend=False,
+                        name=f"{label}_band",
                     )
+                )
             fig.add_trace(
                 go.Scatter(
                     x=x_vals,
@@ -153,9 +162,7 @@ class LineRenderer(BasePlotRenderer):
                     connectgaps=False,
                 )
             )
-
-        x_title = self.format_label(x_col.replace("_", " ").title(), x_col)
-        y_title = self.format_label(y_col.replace("_", " ").title(), y_col)
+        x_title, y_title = self._titles(x_col, y_col)
         fig.update_layout(
             template="plotly_white",
             title=self.spec.title or f"{y_title} vs {x_title}",
@@ -170,80 +177,44 @@ class LineRenderer(BasePlotRenderer):
         if df.is_empty():
             return
         x_col, y_col, color_col = self._resolve_columns(df)
-        if not x_col or not y_col:
-            return
-
         sorted_df = df.sort(x_col)
         cols = [c for c in dict.fromkeys([x_col, y_col, color_col]) if c]
         pdf = sorted_df.select(cols).to_pandas()
         if color_col:
             pdf[color_col] = pd.Series(label_values(sorted_df, color_col))
-
         palette = get_color_palette()
         fig, ax = new_figure()
         marker = "o" if bool(self.spec.options.get("show_markers", True)) else None
+        common = {
+            "data": pdf,
+            "x": x_col,
+            "y": y_col,
+            "estimator": None,
+            "errorbar": None,
+            "marker": marker,
+            "ax": ax,
+        }
         if color_col:
-            sns.lineplot(
-                data=pdf,
-                x=x_col,
-                y=y_col,
-                hue=color_col,
-                palette=palette,
-                estimator=None,
-                errorbar=None,
-                marker=marker,
-                ax=ax,
-            )
-            tagged = sorted_df.with_columns(
-                pl.Series("_line_group", label_values(sorted_df, color_col))
-            )
-            for idx, sub in enumerate(
-                tagged.sort("_line_group").partition_by(
-                    "_line_group", maintain_order=True
-                )
-            ):
-                y_vals = series_values(sub, y_col)
-                bounds = self._error_bounds(sub, y_vals)
-                if bounds is not None:
-                    lo, hi = bounds
-                    valid = np.isfinite(y_vals) & np.isfinite(lo) & np.isfinite(hi)
-                    if np.any(valid):
-                        xs = series_values(sub, x_col)
-                        ax.fill_between(
-                            xs[valid],
-                            lo[valid],
-                            hi[valid],
-                            color=palette_color(palette, idx),
-                            alpha=0.18,
-                        )
+            sns.lineplot(**common, hue=color_col, palette=palette)
         else:
-            sns.lineplot(
-                data=pdf,
-                x=x_col,
-                y=y_col,
-                color=palette_color(palette, 0),
-                estimator=None,
-                errorbar=None,
-                marker=marker,
-                ax=ax,
+            sns.lineplot(**common, color=palette_color(palette, 0))
+        for index, (_, sub) in enumerate(
+            self._grouped(sorted_df, x_col, y_col, color_col)
+        ):
+            y_vals = series_values(sub, y_col)
+            band = self._band(sub, y_vals)
+            if band is None:
+                continue
+            valid, lower, upper = band
+            xs = series_values(sub, x_col)
+            ax.fill_between(
+                xs[valid],
+                lower[valid],
+                upper[valid],
+                color=palette_color(palette, index),
+                alpha=0.18,
             )
-            y_vals = series_values(sorted_df, y_col)
-            bounds = self._error_bounds(sorted_df, y_vals)
-            if bounds is not None:
-                lo, hi = bounds
-                valid = np.isfinite(y_vals) & np.isfinite(lo) & np.isfinite(hi)
-                if np.any(valid):
-                    xs = series_values(sorted_df, x_col)
-                    ax.fill_between(
-                        xs[valid],
-                        lo[valid],
-                        hi[valid],
-                        color=palette_color(palette, 0),
-                        alpha=0.18,
-                    )
-
-        x_title = self.format_label(x_col.replace("_", " ").title(), x_col)
-        y_title = self.format_label(y_col.replace("_", " ").title(), y_col)
+        x_title, y_title = self._titles(x_col, y_col)
         finish_axes(
             ax,
             title=self.spec.title or f"{y_title} vs {x_title}",

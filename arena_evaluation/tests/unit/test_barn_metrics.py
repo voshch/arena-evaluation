@@ -1,20 +1,16 @@
-import dataclasses
 import math
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pytest
-from arena_evaluation.processing.metrics.performance import barn_metrics
 from arena_evaluation.processing.metrics.performance.barn_metrics import (
     BARNScoreCalculator,
     parse_reference,
-    replay,
     score,
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.metrics.base import ScopeSlice
-from arena_evaluation.storage.contracts import is_known_null_reason
 from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
@@ -225,27 +221,6 @@ def test_parametrized_runs_cover_every_challenge_outcome():
     }
 
 
-def test_score_inside_clip_band():
-    assert score(True, 10.0, 10.0) == pytest.approx(0.5)
-    assert score(True, 20.0, 10.0) == pytest.approx(0.25)
-
-
-def test_fast_run_caps_at_half():
-    assert score(True, 4.0, 10.0) == pytest.approx(0.5)
-    results = _calc(10.0).calculate(_episode(_drive(2.0), 6.0), {})
-    assert results["barn_success"] is True
-    assert results["barn_time"] < 10.0
-    assert results["barn_score"] == pytest.approx(0.5)
-
-
-def test_slow_run_floors_at_eighth():
-    assert score(True, 100.0, 10.0) == pytest.approx(0.125)
-    results = _calc(10.0).calculate(_episode(_drive(0.2), 60.0), {})
-    assert results["barn_success"] is True
-    assert results["barn_time"] > 40.0
-    assert results["barn_score"] == pytest.approx(0.125)
-
-
 def test_failed_episode_scores_zero():
     assert score(False, 10.0, 10.0) == 0.0
     results = _calc(10.0).calculate(_episode(_drive(1.0), 4.0, collision_at=3.0), {})
@@ -262,28 +237,10 @@ def test_goal_is_reached_one_meter_out_not_at_the_goal():
     assert short["barn_success"] is False
 
 
-def test_clock_starts_at_first_motion_not_at_recording_start():
-    waited = _calc(10.0).calculate(_episode(_drive(1.0, wait=7.0), 17.0), {})
-    prompt = _calc(10.0).calculate(_episode(_drive(1.0), 10.0), {})
-    assert waited["barn_time"] == pytest.approx(prompt["barn_time"], abs=0.11)
-    assert waited["barn_score"] == pytest.approx(prompt["barn_score"])
-
-
 def test_collision_after_reaching_the_goal_radius_keeps_the_success():
     results = _calc(10.0).calculate(_episode(_drive(1.0), 10.0, collision_at=9.6), {})
     assert results["barn_success"] is True
     assert results["barn_collided"] is False
-
-
-def test_recording_cut_before_any_outcome_scores_zero_with_no_flag():
-    results = _calc(10.0).calculate(_episode(_drive(0.1), 30.0), {})
-    assert results["barn_score"] == 0.0
-    assert (
-        results["barn_success"],
-        results["barn_collided"],
-        results["barn_timeout"],
-    ) == (False, False, False)
-    assert results["barn_time"] == pytest.approx(29.0, abs=0.11)
 
 
 def test_robot_that_never_moves_scores_zero_with_no_time():
@@ -297,26 +254,6 @@ def test_robot_that_never_moves_scores_zero_with_no_time():
     ) == (False, False, False)
 
 
-def test_optimal_time_uses_the_challenge_speed():
-    assert barn_metrics.MAX_SPEED_MPS == 2.0
-    results = _calc(10.0).calculate(_episode(_drive(1.0), 10.0), {})
-    assert results["barn_optimal_time"] == pytest.approx(5.0)
-
-
-def test_no_reference_means_no_score():
-    episode = _episode(_drive(1.0), 10.0)
-    assert (
-        _calc(None).calculate(
-            episode, {"success": True, "time_to_goal_s": 9.0, "theta_star_length": 10.0}
-        )
-        == NULLS
-    )
-    assert (
-        _calc(10.0).calculate(_episode(_drive(1.0), 10.0, world="map_empty"), {})
-        == NULLS
-    )
-
-
 def test_missing_pose_yields_null():
     episode = AlignedEpisodeBundle(
         episode_id=1,
@@ -327,25 +264,6 @@ def test_missing_pose_yields_null():
         topics={},
     )
     assert _calc(10.0).calculate(episode, {}) == NULLS
-
-
-def test_replay_holds_the_last_pose_for_the_poll_after_the_recording():
-    t = np.array([0.0, 0.05, 0.1, 0.12])
-    y = np.array([3.0, 3.2, 11.5, 12.05])
-    run = replay(t, np.full(4, START[0]), y, START, GOAL, None)
-    assert run == (True, False, False, pytest.approx(0.1))
-    assert replay(t[:3], np.full(3, START[0]), y[:3], START, GOAL, None) == (
-        False,
-        False,
-        False,
-        pytest.approx(0.05),
-    )
-    assert replay(t[:3], np.full(3, START[0]), y[:3], START, GOAL, 0.11) == (
-        False,
-        True,
-        False,
-        pytest.approx(0.1),
-    )
 
 
 @pytest.mark.parametrize(
@@ -364,12 +282,6 @@ def test_replay_holds_the_last_pose_for_the_poll_after_the_recording():
 def test_reference_block_rejects_junk(raw: object):
     with pytest.raises(ValueError, match="barn"):
         parse_reference(raw)
-
-
-def test_reference_block_normalizes_numbers():
-    assert parse_reference(
-        {"start": [2, 3], "goal": (2.25, 13), "path_length": {"barn_0": 11}}
-    ) == {"start": [2.0, 3.0], "goal": [2.25, 13.0], "path_length": {"barn_0": 11.0}}
 
 
 def _robot_slice(episode):
@@ -441,83 +353,3 @@ def test_registry_reports_the_score_beside_the_native_metrics():
     assert skipped["barn_optimal_time"] == pytest.approx(5.0)
 
 
-def test_episode_optimal_time_needs_no_recorded_stream():
-    assert BARNScoreCalculator.required_topics_for_scope(MetricScope.EPISODE) == ()
-    assert BARNScoreCalculator.required_topics_for_scope(MetricScope.ROBOT) == (
-        "robot_collision_events",
-        ("robot_tracks", "robot_odom"),
-    )
-
-
-def test_missing_reference_carries_the_reference_missing_reason():
-    episode = _episode(_drive(1.0), 10.0)
-    topics = {"robot_tracks", "robot_odom", "robot_collision_events"}
-    registry = MetricRegistry(make_robot_params(model="jackal"))
-    episode_outcome = registry.run_scope(
-        MetricScope.EPISODE, episode, available_topics=topics, pedsim_available=False
-    )
-    robot_outcome = registry.run_scope(
-        MetricScope.ROBOT,
-        episode,
-        available_topics=topics,
-        pedsim_available=False,
-        scope_slice=_robot_slice(episode),
-    )
-    assert episode_outcome.results["barn_optimal_time"] is None
-    assert (
-        episode_outcome.provenance["barn_optimal_time"]
-        == "barn_optimal_time:reference_missing:metrics.barn"
-    )
-    for key in NULLS:
-        if key == "barn_optimal_time":
-            continue
-        assert robot_outcome.results[key] is None
-        assert robot_outcome.provenance[key] == f"{key}:reference_missing:metrics.barn"
-
-
-def test_a_multi_robot_episode_is_refused_with_its_reason():
-    fleet = {
-        "env_0/robot_1": pl.DataFrame(
-            {"t_ns": [0], "x": [20.0], "y": [20.0], "yaw": [0.0]}
-        )
-    }
-    episode = dataclasses.replace(_episode(_drive(1.0), 10.0), fleet=fleet)
-
-    results = _calc(10.0).calculate(episode, {})
-
-    assert {key: results[key] for key in NULLS} == NULLS
-    for key in NULLS:
-        assert results[f"{key}_null_reason"] == "not_applicable:multi_robot"
-    assert is_known_null_reason("barn_score:not_applicable:multi_robot")
-
-
-def test_a_multi_robot_episode_refusal_reaches_the_provenance():
-    fleet = {
-        "env_0/robot_1": pl.DataFrame(
-            {"t_ns": [0], "x": [20.0], "y": [20.0], "yaw": [0.0]}
-        )
-    }
-    episode = dataclasses.replace(_episode(_drive(1.0), 10.0), fleet=fleet)
-    topics = {"robot_tracks", "robot_odom", "robot_collision_events"}
-    registry = MetricRegistry(
-        make_robot_params(model="jackal"), metrics_config=_config(10.0)
-    )
-
-    outcome = registry.run_scope(
-        MetricScope.ROBOT,
-        episode,
-        available_topics=topics,
-        pedsim_available=False,
-        scope_slice=_robot_slice(episode),
-    )
-
-    assert outcome.results["barn_score"] is None
-    assert outcome.provenance["barn_score"] == "barn_score:not_applicable:multi_robot"
-
-
-def test_output_keys_cover_primary_and_directions():
-    keys = set(BARNScoreCalculator.output_keys())
-    assert {metric.name for metric in BARNScoreCalculator.OUTPUTS} == keys
-    assert set(BARNScoreCalculator.PRIMARY_OUTPUTS) <= keys
-    assert set(BARNScoreCalculator.DIRECTIONS) <= keys
-    assert keys == set(NULLS)

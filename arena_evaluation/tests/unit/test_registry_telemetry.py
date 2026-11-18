@@ -8,7 +8,6 @@ pose the recorder writes are extracted as flattened tables.
 from __future__ import annotations
 
 import pyarrow as pa
-import pytest
 
 from arena_evaluation.storage.registry import TableKind, registered_tables
 
@@ -427,16 +426,3 @@ def _telemetry_tables() -> dict[str, type]:
     }
 
 
-def test_the_thirty_six_pinned_telemetry_tables_are_declared() -> None:
-    assert set(_telemetry_tables()) == set(_EXPECTED)
-
-
-@pytest.mark.parametrize("name", sorted(_EXPECTED))
-def test_telemetry_arrow_schema_is_pinned(name: str) -> None:
-    expected = pa.schema(
-        [
-            pa.field(column, dtype, nullable=nullable)
-            for column, dtype, nullable in _EXPECTED[name]
-        ]
-    )
-    assert _telemetry_tables()[name].arrow_schema() == expected

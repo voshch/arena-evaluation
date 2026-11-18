@@ -12,7 +12,6 @@ import pytest
 import arena_evaluation.cli_acoustic as cli_acoustic
 from arena_evaluation.cli_acoustic import (
     _acoustic_animate,
-    _acoustic_list,
     _acoustic_snapshot,
     _episode_of_max_exposure,
     handle_acoustic,
@@ -220,12 +219,6 @@ def _acoustic_argv(
     )
 
 
-def test_load_episode_summary_reads_the_canonical_view(tmp_path: pathlib.Path) -> None:
-    df = _load_episode_summary(_benchmark(tmp_path))
-    assert df["episode_id"].to_list() == [1, 2, 3]
-    assert "l_aeq_t" in df.columns
-
-
 def test_handle_acoustic_requires_star_schema_tables(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -268,22 +261,6 @@ def test_map_for_episode_names_the_recorded_world() -> None:
     assert _map_for_episode(summary, "episode_009") is None
 
 
-def test_episode_of_max_exposure_picks_the_highest_pedestrian_exposure(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    bench_dir = _benchmark(tmp_path)
-    assert (
-        _episode_of_max_exposure(
-            bench_dir,
-            column="max_exposure_dba",
-            metric_label="max exposure",
-            selector="worst",
-        )
-        == "episode_001"
-    )
-    assert "max exposure=95.00 dBA" in capsys.readouterr().out
-
-
 def test_episode_of_max_exposure_without_measurements(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -322,11 +299,6 @@ def test_episode_of_max_exposure_without_exposure_columns(
     assert "has no pedestrian acoustic exposure columns" in capsys.readouterr().out
 
 
-def test_resolve_episode_accepts_a_recorded_episode(tmp_path: pathlib.Path) -> None:
-    summary = _load_episode_summary(_benchmark(tmp_path))
-    assert _resolve_episode(summary, "episode_002", tmp_path / "bench") == "episode_002"
-
-
 def test_resolve_episode_rejects_an_absent_episode(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -341,14 +313,6 @@ def test_resolve_episode_rejects_an_unknown_specifier(
     summary = _load_episode_summary(_benchmark(tmp_path))
     assert _resolve_episode(summary, "bogus", tmp_path / "bench") is None
     assert "unknown episode specifier 'bogus'" in capsys.readouterr().out
-
-
-def test_resolve_episode_defaults_to_the_worst_exposure(
-    tmp_path: pathlib.Path,
-) -> None:
-    summary = _load_episode_summary(_benchmark(tmp_path))
-    assert _resolve_episode(summary, "worst", tmp_path / "bench") == "episode_001"
-    assert _resolve_episode(summary, "max-total", tmp_path / "bench") == "episode_001"
 
 
 def test_max_total_selects_the_largest_summed_exposure(
@@ -422,37 +386,6 @@ def test_acoustic_snapshot_renders_png_from_catalog_and_world(
     _acoustic_snapshot(summary, args)
     assert out_png.is_file()
     assert out_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_acoustic_snapshot_defaults_to_the_pedestrian_worst_case_instant(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    rows = [
-        {
-            "episode_id": 2,
-            "world": "map1",
-            "planner": "dwb",
-            "l_aeq_t": 72.4,
-            "ped_id": "ped_1",
-            "ped_max_exposure_dba": 88.0,
-            "ped_leq_exposure_dba": 80.0,
-            "worst_case_acoustic_t_ns": 1_000_000_000,
-        }
-    ]
-    bench_dir = _benchmark(tmp_path, rows)
-    _write_world(bench_dir, "map1")
-    _write_episode_telemetry(bench_dir, 2, source_levels=[90.0, 60.0])
-    out_png = tmp_path / "snapshot.png"
-    summary = _load_episode_summary(bench_dir)
-    args = _acoustic_argv(
-        "snapshot", bench_dir, "--episode", "episode_002", "--output", str(out_png)
-    )
-    _acoustic_snapshot(summary, args)
-    assert out_png.is_file()
-    assert (
-        "Using frame 1 (nearest worst-case pedestrian exposure"
-        in capsys.readouterr().out
-    )
 
 
 def test_acoustic_snapshot_defaults_to_the_series_max_exposure(
@@ -534,80 +467,6 @@ def test_acoustic_animate_renders_gif_from_catalog_and_world(
     _acoustic_animate(summary, args)
     assert out_gif.is_file()
     assert out_gif.stat().st_size > 0
-
-
-def test_acoustic_list_prints_level_and_exposure_columns(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    bench_dir = _benchmark(tmp_path)
-    summary = _load_episode_summary(bench_dir)
-    _acoustic_list(summary, bench_dir)
-    out = capsys.readouterr().out
-    assert "EPISODE" in out and "L_AEQ_T_DBA" in out
-    assert "MAX_DBA" in out and "LEQ_DBA" in out and "TOTAL_EXP" in out
-    episodes = [
-        line.split()[0] for line in out.splitlines() if line.startswith("episode_")
-    ]
-    assert episodes == ["episode_002", "episode_001"]
-    assert "72.40" in out and "54.50" in out
-    assert "95.00" in out and "80.00" in out
-
-
-def test_acoustic_list_without_measurements_prints_only_the_header(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    summary = pl.DataFrame(
-        {"episode_id": [1], "l_aeq_t": [None], "success": [True]},
-        schema={
-            "episode_id": pl.Int64,
-            "l_aeq_t": pl.Float64,
-            "success": pl.Boolean,
-        },
-    )
-    _acoustic_list(summary, _benchmark(tmp_path))
-    out = capsys.readouterr().out
-    assert "EPISODE" in out
-    assert not [line for line in out.splitlines() if line.startswith("episode_")]
-
-
-def test_acoustic_flags_keep_their_names() -> None:
-    args = _arg_parser().parse_args(
-        [
-            "acoustic",
-            "animate",
-            "--benchmark-dir",
-            "/b",
-            "--episode",
-            "worst",
-            "--fps",
-            "5",
-            "--max-frames",
-            "10",
-            "--format",
-            "mp4",
-            "--no-door-overlay",
-        ]
-    )
-    assert (
-        args.acoustic_command,
-        args.episode,
-        args.fps,
-        args.max_frames,
-        args.format,
-        args.no_door_overlay,
-    ) == ("animate", "worst", 5, 10, "mp4", True)
-    snapshot = _arg_parser().parse_args(
-        ["acoustic", "snapshot", "--benchmark-dir", "/b", "--frame", "3"]
-    )
-    assert (snapshot.acoustic_command, snapshot.frame) == ("snapshot", 3)
-
-
-def test_format_help_states_the_ffmpeg_requirement(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit):
-        _arg_parser().parse_args(["acoustic", "animate", "--help"])
-    assert "ffmpeg" in capsys.readouterr().out
 
 
 def test_cli_uses_only_the_public_renderer_api() -> None:

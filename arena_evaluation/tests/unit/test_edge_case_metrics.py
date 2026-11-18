@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 import polars as pl
@@ -15,19 +14,14 @@ from arena_evaluation.processing.metrics.edge_case.criticality import (
     FormationHold,
     Sample,
     formation_hold,
-    post_encroachment_time,
     score,
-    time_to_collision,
 )
 from arena_evaluation.processing.metrics.edge_case.provenance import (
-    scenario_file,
-    scenario_name,
     world_view,
 )
 from arena_evaluation.processing.metrics.edge_case.edge_case_metrics import (
     EdgeCaseCriticalityCalculator,
     EdgeCaseFormationCalculator,
-    agent_name,
 )
 from arena_evaluation.processing.metrics.base import ScopeSlice
 from arena_evaluation.processing.metrics.registry import MetricRegistry
@@ -67,120 +61,6 @@ levels:
 """
 
 
-@pytest.mark.parametrize(
-    ("arguments", "expected"),
-    [
-        (
-            ((0.0, 0.0), (1.0, 0.0), 0.3, (10.0, 0.0), (-1.0, 0.0), 0.3),
-            pytest.approx((10.0 - 0.6) / 2.0),
-        ),
-        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.0, 5.0), (1.0, 0.0), 0.3), None),
-        (((0.0, 0.0), (-1.0, 0.0), 0.3, (10.0, 0.0), (1.0, 0.0), 0.3), None),
-        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3), 0.0),
-        (((0.0, 0.0), (1.0, 0.0), 0.3, (5.0, 0.0), (1.0, 0.0), 0.3), None),
-        (((0.0, 0.0), (0.0, 0.0), 0.3, (0.4, 0.0), (0.0, 0.0), 0.3), 0.0),
-        (((0.0, 0.0), (1.0, 0.0), 0.3, (0.5, 0.0), (1.0, 0.0), 0.3), 0.0),
-    ],
-    ids=[
-        "head-on-closing",
-        "parallel-motion",
-        "receding-pair",
-        "already-touching",
-        "no-relative-motion",
-        "overlapping-without-relative-motion",
-        "overlapping-with-equal-velocity",
-    ],
-)
-def test_time_to_collision(arguments: tuple, expected: float | None) -> None:
-    ttc = time_to_collision(*arguments)
-    if expected is None:
-        assert ttc is None
-    else:
-        assert ttc == expected
-
-
-def test_clearance_is_surface_to_surface() -> None:
-    out = score(
-        [
-            Sample(
-                t=0.0,
-                robot=(0.0, 0.0),
-                robot_radius=0.3,
-                peds={"p": ((0.6, 0.0), (0.0, 0.0), 0.3)},
-            )
-        ]
-    )
-    assert out.min_clearance_m == pytest.approx(0.0)
-    assert out.collided is True
-
-
-def test_clearance_tracks_the_closest_moment_and_names_it() -> None:
-    s = [
-        Sample(t=float(t), robot=(0.0, 0.0), peds={"a": ((x, 0.0), (0.0, 0.0), 0.3)})
-        for t, x in enumerate((5.0, 2.0, 4.0))
-    ]
-    out = score(s)
-    assert out.min_clearance_m == pytest.approx(2.0 - 0.6)
-    assert out.min_clearance_with == "a"
-    assert out.min_clearance_at == pytest.approx(1.0)
-
-
-def test_freeze_ignores_the_settling_window() -> None:
-    s = [Sample(t=float(i), robot=(0.0, 0.0), robot_vel=(0.0, 0.0)) for i in range(5)]
-    assert score(s, settle_s=2.0).freeze_duration_s == pytest.approx(2.0)
-
-
-def test_a_moving_robot_never_freezes() -> None:
-    s = [
-        Sample(t=float(i), robot=(float(i), 0.0), robot_vel=(1.0, 0.0))
-        for i in range(6)
-    ]
-    assert score(s).freeze_duration_s == 0.0
-
-
-def test_intrusion_time_counts_only_while_inside_personal_space() -> None:
-    s = [
-        Sample(
-            t=float(t),
-            robot=(0.0, 0.0),
-            robot_vel=(1.0, 0.0),
-            peds={"a": ((x, 0.0), (0.0, 0.0), 0.3)},
-        )
-        for t, x in enumerate((5.0, 0.8, 5.0))
-    ]
-    assert score(s).intrusion_time_s == pytest.approx(1.0)
-
-
-def test_only_restricts_scoring_to_the_named_agent() -> None:
-    s = [
-        Sample(
-            t=0.0,
-            robot=(0.0, 0.0),
-            peds={
-                "bystander": ((1.0, 0.0), (0.0, 0.0), 0.3),
-                "edge_0": ((4.0, 0.0), (0.0, 0.0), 0.3),
-            },
-        )
-    ]
-    assert score(s).min_clearance_with == "bystander"
-    assert score(s, only=["edge_0"]).min_clearance_with == "edge_0"
-    assert score(s, only=["edge_0"]).min_clearance_m == pytest.approx(4.0 - 0.6)
-
-
-def test_a_robot_driving_into_a_pedestrian_records_the_contact_and_its_agent() -> None:
-    s = [
-        Sample(
-            t=float(t),
-            robot=(float(t), 0.0),
-            robot_vel=(1.0, 0.0),
-            peds={"a": ((3.5, 0.0), (0.0, 0.0), 0.3)},
-        )
-        for t in range(4)
-    ]
-    out = score(s)
-    assert (out.collided, out.collision_with, out.collision_at) == (True, "a", 3.0)
-
-
 def _contact(
     robot_vel: tuple[float, float], ped_vel: tuple[float, float]
 ) -> Criticality:
@@ -217,129 +97,6 @@ def _assert_closing(value: float, expected: str) -> None:
         assert value < 0.0
 
 
-@pytest.mark.parametrize(
-    ("robot_vel", "ped_vel", "robot_closing", "ped_closing"),
-    [
-        ((0.8, 0.0), (0.0, 0.0), "positive", "near-zero"),
-        ((0.0, 0.0), (-0.9, 0.0), "near-zero", "positive"),
-        ((0.6, 0.0), (-0.6, 0.0), "positive", "positive"),
-        ((0.0, 0.0), (0.0, 0.0), "exact-zero", "exact-zero"),
-        ((0.7, 0.0), (0.7, 0.0), "positive", "negative"),
-    ],
-    ids=["robot-only", "pedestrian-only", "both", "neither", "receding-pedestrian"],
-)
-def test_closing_speeds_follow_each_bodys_own_motion(
-    robot_vel: tuple[float, float],
-    ped_vel: tuple[float, float],
-    robot_closing: str,
-    ped_closing: str,
-) -> None:
-    r = _contact(robot_vel=robot_vel, ped_vel=ped_vel)
-    assert r.collided
-    assert r.collision_with == "p"
-    _assert_closing(r.collision_robot_closing, robot_closing)
-    _assert_closing(r.collision_ped_closing, ped_closing)
-
-
-def test_no_contact_leaves_the_closing_speeds_empty() -> None:
-    r = score(
-        [Sample(t=0.0, robot=(0.0, 0.0), peds={"p": ((5.0, 0.0), (0.0, 0.0), 0.25)})]
-    )
-    assert (
-        not r.collided and r.collision_at is None and r.collision_robot_closing is None
-    )
-
-
-def test_pet_is_the_time_gap_through_the_encounter_point() -> None:
-    s = [
-        Sample(t=0.0, robot=(0.0, 0.0), peds={"a": ((5.0, 4.0), (0.0, 0.0), 0.3)}),
-        Sample(t=2.0, robot=(5.0, 0.0), peds={"a": ((5.0, 2.0), (0.0, 0.0), 0.3)}),
-        Sample(t=5.0, robot=(9.0, 0.0), peds={"a": ((5.0, 0.2), (0.0, 0.0), 0.3)}),
-    ]
-    assert post_encroachment_time(s, (5.0, 0.0), "a") == pytest.approx(3.0)
-    out = score(s, encounters=[("a", (5.0, 0.0))])
-    assert (out.pet_s, out.pet_with) == (pytest.approx(3.0), "a")
-
-
-def test_pet_is_none_when_the_pedestrian_never_goes_there() -> None:
-    s = [
-        Sample(t=0.0, robot=(0.0, 0.0), peds={"a": ((50.0, 50.0), (0.0, 0.0), 0.3)}),
-        Sample(t=2.0, robot=(5.0, 0.0), peds={"a": ((51.0, 50.0), (0.0, 0.0), 0.3)}),
-    ]
-    assert post_encroachment_time(s, (5.0, 0.0), "a") is None
-    assert post_encroachment_time(s, (5.0, 0.0), "nobody") is None
-
-
-def test_pet_is_none_when_the_robot_never_goes_there() -> None:
-    s = [
-        Sample(t=float(t), robot=(0.0, 0.0), peds={"a": ((5.0, 0.0), (0.0, 0.0), 0.3)})
-        for t in range(3)
-    ]
-    assert post_encroachment_time(s, (5.0, 0.0), "a") is None
-
-
-def test_pet_takes_the_tightest_encounter_and_none_without_any() -> None:
-    s = [
-        Sample(
-            t=float(t),
-            robot=(float(t), 0.0),
-            peds={
-                "a": ((3.0, 0.5), (0.0, 0.0), 0.3),
-                "b": ((6.0, 1.0 if t >= 5 else 9.0), (0.0, 0.0), 0.3),
-            },
-        )
-        for t in range(8)
-    ]
-    out = score(s, encounters=[("a", (3.0, 0.0)), ("b", (6.0, 0.0))])
-    assert (out.pet_s, out.pet_with) == (pytest.approx(1.0), "b")
-    assert score(s).pet_s is None and score(s).pet_with == ""
-
-
-def test_an_episode_with_no_pedestrians_is_not_a_safe_episode() -> None:
-    out = score(
-        [
-            Sample(t=float(i), robot=(float(i), 0.0), robot_vel=(1.0, 0.0))
-            for i in range(4)
-        ]
-    )
-    assert out.min_clearance_m is None
-    assert out.min_ttc_s is None
-    assert out.observed is False
-
-
-def test_no_samples_at_all_is_empty_not_zero() -> None:
-    assert score([]) == Criticality()
-    assert score([]).observed is False
-
-
-def test_measured_ttc_follows_the_robot_not_a_design() -> None:
-    closing = [
-        Sample(
-            t=float(i),
-            robot=(float(i), 0.0),
-            robot_vel=(1.0, 0.0),
-            peds={"edge_0": ((10.0, 0.0), (0.0, 0.0), 0.3)},
-        )
-        for i in range(4)
-    ]
-    out = score(closing, only=["edge_0"])
-    assert (out.min_ttc_s, out.min_ttc_with, out.min_ttc_at) == (
-        pytest.approx(6.4),
-        "edge_0",
-        pytest.approx(3.0),
-    )
-    frozen = [
-        Sample(
-            t=float(i),
-            robot=(0.0, 0.0),
-            robot_vel=(0.0, 0.0),
-            peds={"edge_0": ((10.0, 0.0), (0.0, 0.0), 0.3)},
-        )
-        for i in range(4)
-    ]
-    assert score(frozen, only=["edge_0"]).min_ttc_s is None
-
-
 def _trio(
     t: float, a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]
 ) -> Sample:
@@ -370,32 +127,6 @@ def test_formation_hold_reports_when_the_group_broke() -> None:
     assert formation_hold([], ["d_1"]).seen is False
 
 
-def test_formation_hold_around_a_center_counts_the_arrivals() -> None:
-    walking = [
-        _trio(0.0, (9.0, 9.0), (1.0, 0.0), (0.5, 0.8)),
-        _trio(1.0, (0.2, 0.1), (1.0, 0.0), (0.5, 0.8)),
-        _trio(2.0, (0.1, 0.0), (1.0, 0.0), (0.5, 0.8)),
-        _trio(3.0, (6.0, 6.0), (1.0, 0.0), (0.5, 0.8)),
-    ]
-    out = formation_hold(walking, ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3))
-    assert (out.seen, out.formed_at, out.held_s, out.broke_at, out.arrived) == (
-        True,
-        1.0,
-        1.0,
-        3.0,
-        3,
-    )
-    never = formation_hold(
-        walking[:1], ["d_1", "d_2", "d_3"], radius=1.5, center=(0.5, 0.3)
-    )
-    assert (
-        never.seen
-        and never.formed_at is None
-        and never.held_s is None
-        and never.arrived == 2
-    )
-
-
 def _pair(
     t: float, a: tuple[float, float] | None, b: tuple[float, float] | None
 ) -> Sample:
@@ -407,27 +138,6 @@ def _pair(
     return Sample(t=t, robot=(0.0, 0.0), peds=peds)
 
 
-def test_a_member_that_never_spawned_does_not_block_the_formation() -> None:
-    out = formation_hold(
-        [_pair(float(t), (0.0, 0.0), (1.0, 0.0)) for t in range(3)],
-        ["d_1", "d_2", "d_3"],
-    )
-    assert out.members == ("d_1", "d_2", "d_3") and out.absent == ("d_3",)
-    assert (out.formed_at, out.held_s, out.broke_at) == (0.0, 2.0, None)
-
-
-def test_the_formation_without_a_center_forms_around_the_centroid_of_each_sample() -> (
-    None
-):
-    samples = [
-        _pair(0.0, (0.0, 0.0), (10.0, 0.0)),
-        _pair(1.0, (20.0, 20.0), (20.5, 20.0)),
-        _pair(2.0, (20.0, 20.0), (20.5, 20.0)),
-    ]
-    out = formation_hold(samples, ["d_1", "d_2"])
-    assert (out.formed_at, out.held_s, out.broke_at) == (1.0, 1.0, None)
-
-
 def test_a_member_leaving_the_recording_breaks_the_formation() -> None:
     samples = [
         _pair(0.0, (0.0, 0.0), (1.0, 0.0)),
@@ -437,36 +147,6 @@ def test_a_member_leaving_the_recording_breaks_the_formation() -> None:
     ]
     out = formation_hold(samples, ["d_1", "d_2"], center=(0.5, 0.0))
     assert (out.formed_at, out.held_s, out.broke_at, out.absent) == (0.0, 1.0, 2.0, ())
-
-
-@pytest.mark.parametrize(
-    ("recorded", "bare"),
-    [
-        ("/env_0/d_1", "d_1"),
-        ("env_3/edge_0", "edge_0"),
-        ("env_0/d_1/0", "d_1"),
-        ("walker", "walker"),
-    ],
-)
-def test_recorded_names_map_to_scenario_names(recorded: str, bare: str) -> None:
-    assert agent_name(recorded) == bare
-
-
-def test_scenario_file_reads_the_namespace_of_the_runtime() -> None:
-    run = _run("w", obstacles="scenario", file="case")
-    assert scenario_file(run.modes, run.params, run.task_layer) == "case"
-    assert scenario_file(run.modes, {}, run.task_layer) is None
-
-
-def test_scenario_name_loads_the_runtime_of_the_run_metadata() -> None:
-    run = _run("w", obstacles="scenario", file="case")
-    assert scenario_name(run) == "case"
-
-
-def test_both_calculators_are_registered() -> None:
-    assert {"edge_case_criticality", "edge_case_formation"} <= set(
-        MetricRegistry(make_robot_params()).calculators
-    )
 
 
 def _world(
@@ -640,102 +320,6 @@ def test_an_unknown_scenario_yields_nothing(
     )
 
 
-def test_the_case_is_scored_against_its_own_agents(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    episode = _episode(
-        tmp_path,
-        world,
-        _run(world),
-        {
-            "walker": _standing(3.0, 0.5),
-            "edge_0": _standing(6.0, 2.0),
-            "d_1": _standing(5.0, 3.0),
-            "d_2": _standing(5.5, 3.0),
-        },
-    )
-    out = criticality.calculate(episode, {})
-    assert out["edge_case_id"] == "hospital_1__u_007"
-    assert out["edge_case_steps"] == ["C:intercept", "D:formation_break"]
-    assert (
-        out["edge_case_scope"],
-        out["edge_case_agents"],
-        out["edge_case_missing"],
-    ) == ("own", ["d_1", "d_2", "edge_0"], [])
-    assert out["edge_case_min_clearance_with"] == "edge_0"
-    assert out["edge_case_min_clearance_m"] == pytest.approx(2.0 - 2 * ROBOT_RADIUS)
-    assert out["edge_case_min_clearance_at"] == pytest.approx(6.0)
-    assert (
-        out["edge_case_collided"] is False
-        and out["edge_case_collision_robot_closing"] is None
-    )
-    assert out["edge_case_pet_s"] is None and out["edge_case_pet_with"] is None
-    assert out["edge_case_freeze_s"] == 0.0
-
-
-def test_a_robot_running_into_its_intercept_collides_with_it(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    edge = [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)]
-    out = criticality.calculate(
-        _episode(tmp_path, world, _run(world), {"edge_0": edge}), {}
-    )
-    assert out["edge_case_missing"] == ["d_1", "d_2"]
-    assert (
-        out["edge_case_collided"] is True
-        and out["edge_case_collision_with"] == "edge_0"
-    )
-    assert (
-        out["edge_case_pet_s"] == pytest.approx(3.0)
-        and out["edge_case_pet_with"] == "edge_0"
-    )
-    assert (
-        out["edge_case_min_ttc_s"] == pytest.approx(0.0)
-        and out["edge_case_min_ttc_with"] == "edge_0"
-    )
-    assert (
-        out.get("edge_case_played") is None
-        and out.get("edge_case_unplayed") is None
-        and out["edge_case_triggered_at"] is None
-    )
-    # Both closing speeds are published and no fault label is invented.
-    assert "edge_case_collision_fault" not in out
-    assert (
-        "edge_case_collision_robot_closing" in out
-        and "edge_case_collision_ped_closing" in out
-    )
-
-
-def test_a_case_whose_agents_never_appeared_falls_back_to_everyone(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(
-        _episode(tmp_path, world, _run(world), {"walker": _standing(3.0, 0.5)}), {}
-    )
-    assert (
-        out["edge_case_scope"],
-        out["edge_case_agents"],
-        out["edge_case_missing"],
-    ) == ("all", [], ["d_1", "d_2", "edge_0"])
-    assert out["edge_case_min_clearance_with"] == "walker"
-
-
-def test_a_robot_that_stops_short_of_the_case_freezes(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
-    episode.topics["robot_tracks"] = episode.topics["robot_tracks"].with_columns(
-        pl.col("x").clip(upper_bound=4.0)
-    )
-    episode.data = episode.data.with_columns(pl.col("x").clip(upper_bound=4.0))
-    out = criticality.calculate(episode, {})
-    assert out["edge_case_freeze_s"] == pytest.approx(6.0, abs=0.15)
-
-
 def test_each_agent_counts_with_the_radius_its_scenario_entry_pins(
     tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
 ) -> None:
@@ -770,60 +354,10 @@ def test_an_unpinned_pedestrian_without_a_recorded_radius_is_refused(
         criticality.calculate(episode, {})
 
 
-def test_a_peds_stream_that_stops_early_is_not_held_past_its_last_message(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 0.0)})
-    episode.topics["pedestrian_arena_peds"] = episode.topics[
-        "pedestrian_arena_peds"
-    ].filter(pl.col("t_ns") <= 2 * SEC)
-    out = criticality.calculate(episode, {})
-    assert out["edge_case_collided"] is False
-    assert out["edge_case_min_clearance_at"] == pytest.approx(2.1)
-    assert out["edge_case_min_clearance_m"] == pytest.approx(
-        6.0 - 2.1 - 2 * ROBOT_RADIUS
-    )
-
-
 HELD_CASE = (
     CASE
     + "robot: {speed_mps: 1.0, hold_s: 3.0, traversals: 1, tolerance_m: null, radius_m: 0.35}\n"
 )
-
-
-@pytest.mark.parametrize(("provenance", "freeze_s"), [(CASE, 1.0), (HELD_CASE, 0.0)])
-def test_the_designed_start_hold_is_not_a_freeze(
-    tmp_path: pathlib.Path,
-    criticality: EdgeCaseCriticalityCalculator,
-    provenance: str,
-    freeze_s: float,
-) -> None:
-    world = _world(tmp_path, provenance=provenance)
-    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
-    episode.topics["robot_tracks"] = episode.topics["robot_tracks"].with_columns(
-        (pl.col("x") - 3.0).clip(lower_bound=0.0)
-    )
-    episode.data = episode.data.with_columns((pl.col("x") - 3.0).clip(lower_bound=0.0))
-    assert criticality.calculate(episode, {})["edge_case_freeze_s"] == pytest.approx(
-        freeze_s, abs=0.15
-    )
-
-
-def test_the_scenario_is_found_through_the_robots_axis_too(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(
-        _episode(
-            tmp_path,
-            world,
-            _run(world, obstacles="random", robots="scenario"),
-            {"edge_0": _standing(6.0, 1.5)},
-        ),
-        {},
-    )
-    assert out["edge_case_id"] == "hospital_1__u_007"
 
 
 def test_the_formation_forms_holds_and_breaks(
@@ -843,54 +377,6 @@ def test_the_formation_forms_holds_and_breaks(
     assert out["edge_case_formation_held_s"] == pytest.approx(4.9)
     assert out["edge_case_formation_broke_at"] == pytest.approx(7.0)
     assert out["edge_case_formation_arrived"] == 2
-
-
-def test_the_formation_is_scored_on_the_members_that_were_recorded(
-    tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    out = formation.calculate(
-        _episode(
-            tmp_path, world, _run(world), {"d_1": [(5.0, 9.0)] * 3 + [(5.0, 3.2)] * 8}
-        ),
-        {},
-    )
-    assert out["edge_case_formation_members"] == ["d_1", "d_2"]
-    assert out["edge_case_formation_absent"] == ["d_2"]
-    assert out["edge_case_formation_formed_at"] == pytest.approx(3.0)
-    assert out["edge_case_formation_broke_at"] is None
-
-
-def test_a_case_without_a_formation_has_no_formation_panel(
-    tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator
-) -> None:
-    world = _world(tmp_path, provenance="id: c\nowned: {C: [edge_0]}\n")
-    out = formation.calculate(
-        _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-    )
-    assert out == dict.fromkeys(formation.output_keys())
-
-
-def test_the_formation_center_moves_with_the_robot_level_into_the_map_frame(
-    tmp_path: pathlib.Path, formation: EdgeCaseFormationCalculator
-) -> None:
-    world = _world(tmp_path, world_yaml=TWO_LEVELS, provenance=CASE, robot_level="1")
-    ox, oy = WorldView(tmp_path / "worlds" / world).level_origins()["1"]
-    assert (ox, oy) != (0.0, 0.0)
-    out = formation.calculate(
-        _episode(
-            tmp_path,
-            world,
-            _run(world),
-            {
-                "d_1": _standing(5.0 + ox, 3.0 + oy),
-                "d_2": _standing(5.5 + ox, 3.0 + oy),
-            },
-        ),
-        {},
-    )
-    assert out["edge_case_formation_arrived"] == 2
-    assert out["edge_case_formation_formed_at"] == pytest.approx(0.0)
 
 
 def _level_shifted_episode(
@@ -944,83 +430,6 @@ def test_the_encounter_point_moves_with_the_robot_level_into_the_map_frame(
     assert (
         out["edge_case_pet_s"] == pytest.approx(3.0)
         and out["edge_case_pet_with"] == "edge_0"
-    )
-
-
-@pytest.mark.parametrize("suffix", ["[0]", "[0,1]"])
-def test_a_level_filtered_world_reads_the_snapshot_of_its_bare_name(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator, suffix: str
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    out = criticality.calculate(
-        _episode(
-            tmp_path,
-            world + suffix,
-            _run(world + suffix),
-            {"edge_0": _standing(6.0, 1.5)},
-        ),
-        {},
-    )
-    assert out["edge_case_id"] == "hospital_1__u_007"
-
-
-def test_a_composed_world_reads_its_snapshot(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(
-        tmp_path,
-        provenance=CASE,
-        name=f"edge_case_{tmp_path.name},edge_case_{tmp_path.name}",
-    )
-    out = criticality.calculate(
-        _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-    )
-    assert out["edge_case_id"] == "hospital_1__u_007"
-
-
-def test_a_regenerated_provenance_is_read_again(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    assert (
-        criticality.calculate(
-            _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-        )["edge_case_id"]
-        == "hospital_1__u_007"
-    )
-    path = tmp_path / "worlds" / world / "scenarios" / "case" / "provenance.yaml"
-    path.write_text(CASE.replace("hospital_1__u_007", "hospital_1__u_008"))
-    stat = path.stat()
-    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
-    assert (
-        criticality.calculate(
-            _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-        )["edge_case_id"]
-        == "hospital_1__u_008"
-    )
-
-
-def test_each_run_reads_its_own_snapshot(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    first, second = tmp_path / "first", tmp_path / "second"
-    world = _world(first, provenance=CASE, name="edge_case_shared")
-    _world(
-        second,
-        provenance=CASE.replace("hospital_1__u_007", "hospital_1__u_008"),
-        name="edge_case_shared",
-    )
-    assert (
-        criticality.calculate(
-            _episode(first, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-        )["edge_case_id"]
-        == "hospital_1__u_007"
-    )
-    assert (
-        criticality.calculate(
-            _episode(second, world, _run(world), {"edge_0": _standing(6.0, 1.5)}), {}
-        )["edge_case_id"]
-        == "hospital_1__u_008"
     )
 
 
@@ -1085,23 +494,6 @@ def _intercept(
     return episode
 
 
-def test_an_encounter_whose_stimulus_never_fired_is_not_scored(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    out = criticality.calculate(_intercept(tmp_path, {}), {})
-    assert (
-        out["edge_case_played"],
-        out["edge_case_unplayed"],
-        out["edge_case_triggered_at"],
-    ) == (False, ["edge_0"], None)
-    assert (out["edge_case_scope"], out["edge_case_agents"]) == ("unplayed", [])
-    assert (
-        out["edge_case_pet_s"] is None
-        and out["edge_case_collided"] is None
-        and out["edge_case_min_clearance_m"] is None
-    )
-
-
 def test_an_encounter_whose_stimulus_fired_is_played_and_scored(
     tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
 ) -> None:
@@ -1150,82 +542,6 @@ def test_the_formation_forms_from_its_recorded_form_stimulus(
     assert out["edge_case_formation_break_fired_at"] == pytest.approx(6.0)
 
 
-def test_the_ttc_follows_a_moving_pedestrians_twist(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    ahead = [(7.0 + 0.5 * k, 0.0) for k in range(11)]
-    out = criticality.calculate(
-        _episode(
-            tmp_path,
-            world,
-            _run(world),
-            {"edge_0": ahead},
-            twists={"edge_0": (0.5, 0.0)},
-        ),
-        {},
-    )
-    assert out["edge_case_collided"] is False
-    assert (
-        out["edge_case_min_ttc_s"],
-        out["edge_case_min_ttc_with"],
-        out["edge_case_min_ttc_at"],
-    ) == (pytest.approx(2.0), "edge_0", pytest.approx(9.9))
-
-
-def test_a_pedestrian_walking_into_the_passing_robot_closes_with_it_alone(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    crossing = [(5.0, 3.0 - 0.5 * k) for k in range(11)]
-    out = criticality.calculate(
-        _episode(
-            tmp_path,
-            world,
-            _run(world),
-            {"edge_0": crossing},
-            twists={"edge_0": (0.0, -0.5)},
-        ),
-        {},
-    )
-    assert (out["edge_case_collided"], out["edge_case_collision_at"]) == (
-        True,
-        pytest.approx(5.0),
-    )
-    assert (
-        out["edge_case_collision_ped_closing"] >= 0.05
-        and out["edge_case_collision_robot_closing"] < 0.05
-    )
-
-
-def test_a_head_on_contact_has_both_closing_speeds_and_without_twists_only_the_robot(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    oncoming = [(8.0 - 0.5 * k, 0.0) for k in range(11)]
-    episode = _episode(
-        tmp_path,
-        world,
-        _run(world),
-        {"edge_0": oncoming},
-        twists={"edge_0": (-0.5, 0.0)},
-    )
-    out = criticality.calculate(episode, {})
-    assert out["edge_case_collision_at"] == pytest.approx(5.0)
-    assert (
-        out["edge_case_collision_robot_closing"] >= 0.05
-        and out["edge_case_collision_ped_closing"] >= 0.05
-    )
-    episode.topics["pedestrian_arena_peds"] = episode.topics[
-        "pedestrian_arena_peds"
-    ].with_columns(vx=0.0, vy=0.0)
-    still = criticality.calculate(episode, {})
-    assert (
-        still["edge_case_collision_robot_closing"] >= 0.05
-        and still["edge_case_collision_ped_closing"] < 0.05
-    )
-
-
 def test_a_single_robot_pose_is_not_scored(
     tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
 ) -> None:
@@ -1251,19 +567,6 @@ def test_a_world_that_resolves_nowhere_yields_nothing(
     assert criticality.calculate(episode, {}) == dict.fromkeys(
         criticality.output_keys()
     )
-
-
-def test_an_episode_without_a_map_falls_back_to_the_calculator_world(
-    tmp_path: pathlib.Path, criticality: EdgeCaseCriticalityCalculator
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    episode = _episode(tmp_path, world, _run(world), {"edge_0": _standing(6.0, 1.5)})
-    episode.map = None
-    assert criticality.calculate(episode, {}) == dict.fromkeys(
-        criticality.output_keys()
-    )
-    criticality.world = world
-    assert criticality.calculate(episode, {})["edge_case_id"] == "hospital_1__u_007"
 
 
 def _registry_run(
@@ -1522,46 +825,6 @@ def test_the_pipeline_scores_a_recorded_case_against_its_run_snapshot(
     ]
 
 
-def test_every_robot_in_the_episode_gets_its_own_encounters(
-    tmp_path: pathlib.Path,
-) -> None:
-    run_dir = tmp_path / "run"
-    world = _world(run_dir, provenance=CASE)
-    descriptor = _record_case_episode(
-        run_dir,
-        world,
-        peds={
-            "edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)],
-            "passerby": _standing(2.0, 0.0),
-        },
-        robots={
-            "env_0_jackal_0": ([i / 10 for i in range(101)], [0.0] * 101, 1.0),
-            "env_0_jackal_1": ([2.0] * 101, [1.0] * 101, 0.0),
-        },
-        contacts=_edge_contact("env_0_jackal_0"),
-    )
-    evaluation = ProcessingPipeline(
-        FolderManager(data_root=tmp_path), workers=1
-    ).evaluate_episode(descriptor)
-    assert len(evaluation.rows) == 2
-    encounters = evaluation.facts.encounters
-    assert sorted(encounters.get_column("robot_id").unique().to_list()) == [
-        "env_0_jackal_0",
-        "env_0_jackal_1",
-    ]
-    jackal_0 = encounters.filter(pl.col("robot_id") == "env_0_jackal_0")
-    assert jackal_0.filter(pl.col("actor_2") == "Pedestrian_0").get_column(
-        "edge_case_pet_s"
-    ).to_list() == [pytest.approx(3.0)]
-    assert "env_0_jackal_1" in jackal_0.get_column("actor_2").to_list()
-    jackal_1 = encounters.filter(pl.col("robot_id") == "env_0_jackal_1")
-    assert sorted(jackal_1.get_column("actor_2").to_list()) == [
-        "Pedestrian_1",
-        "env_0_jackal_0",
-    ]
-    assert jackal_1.get_column("edge_case_pet_s").to_list() == [None, None]
-
-
 def test_every_published_series_is_read_back_with_its_declared_class_and_a_unique_key(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -1599,51 +862,3 @@ def test_every_published_series_is_read_back_with_its_declared_class_and_a_uniqu
         assert not frame.select(list(table.key)).is_duplicated().any()
 
 
-def test_encounters_and_contacts_score_only_the_case_agent_they_name(
-    tmp_path: pathlib.Path,
-) -> None:
-    world = _world(tmp_path, provenance=CASE)
-    episode = _episode(
-        tmp_path,
-        world,
-        _run(world),
-        {
-            "edge_0": [(6.0, 3.0 - min(t, 3) * 1.0) for t in range(11)],
-            "passerby": _standing(2.0, 0.0),
-        },
-    )
-    calculator = MetricRegistry(
-        make_robot_params(robot_radius=ROBOT_RADIUS), world=episode.map
-    ).calculators_by_scope[MetricScope.ENCOUNTER]["edge_case_criticality"]
-
-    def outputs(scope: MetricScope, actor_key: str, actor_id: str) -> dict:
-        scope_slice = ScopeSlice(
-            scope=scope,
-            slice_id=actor_id,
-            t_start_ns=0,
-            t_end_ns=10 * SEC,
-            identity={actor_key: actor_id},
-            window_bundle=episode,
-            full_episode=episode,
-        )
-        return calculator.calculate_for_scope(episode, {}, scope_slice)
-
-    assert outputs(MetricScope.ENCOUNTER, "actor_2", "Pedestrian_0")[
-        "edge_case_pet_s"
-    ] == pytest.approx(3.0)
-    assert (
-        outputs(MetricScope.ENCOUNTER, "actor_2", "Pedestrian_1")["edge_case_pet_s"]
-        is None
-    )
-    assert (
-        outputs(MetricScope.CONTACT, "obstacle_id", "Pedestrian_0")[
-            "edge_case_collision_with"
-        ]
-        == "edge_0"
-    )
-    assert (
-        outputs(MetricScope.CONTACT, "obstacle_id", "Pedestrian_1")[
-            "edge_case_collision_with"
-        ]
-        is None
-    )

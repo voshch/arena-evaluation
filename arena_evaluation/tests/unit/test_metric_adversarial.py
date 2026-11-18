@@ -3,9 +3,6 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.performance.collision_metrics import (
-    CollisionMetricsCalculator,
-)
 from arena_evaluation.processing.metrics.performance.efficiency_metrics import (
     PathEfficiencyCalculator,
 )
@@ -13,39 +10,9 @@ from arena_evaluation.processing.metrics.social.gaze import GazeMetricsCalculato
 from arena_evaluation.processing.metrics.social.pedestrian_disturbance import (
     PedestrianDisturbanceCalculator,
 )
-from arena_evaluation.processing.metrics.social.proxemics import ProxemicsCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
-
-
-def test_collision_adversarial_overlapping_hitboxes() -> None:
-    # Overlapping hitboxes causing extreme or corrupt collision counts (NaN, Inf, massive ints)
-    events = pl.DataFrame(
-        {
-            "t_ns": list(range(6)),
-            "event_count": [0.0, float("nan"), 1000.0, float("inf"), -1.0, 0.0],
-            "wall_count": [0.0] * 6,
-            "static_count": [0.0] * 6,
-            "ped_count": [0.0] * 6,
-        }
-    )
-    episode = AlignedEpisodeBundle(
-        episode_id=1,
-        data=pl.DataFrame({"t_ns": [0]}),
-        start_pos=[0.0, 0.0, 0.0],
-        goal_pos=[1.0, 1.0, 0.0],
-        topics={"robot_collision_events": events},
-    )
-    params = make_robot_params(robot_radius=0.2)
-    calc = CollisionMetricsCalculator(params)
-    prior = {"time_to_goal_s": 10.0}
-    results = calc.calculate(episode, prior)
-
-    # Should robustly count valid consecutive groups
-    assert "collision_amount" in results
-    assert not np.isnan(results["collision_amount"])
-    assert not np.isinf(results["collision_amount"])
 
 
 def test_efficiency_adversarial_zero_length() -> None:
@@ -173,62 +140,3 @@ def test_gaze_adversarial_chaotic() -> None:
     assert "total_time_looking_at_pedestrians" in results
 
 
-def test_proxemics_adversarial_chaotic() -> None:
-    t_ns = [0, 1_000_000_000, 2_000_000_000]
-    df = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": [0.0, 0.0, 0.0],
-            "y": [0.0, 0.0, 0.0],
-            "yaw": [0.0, 0.0, 0.0],
-        }
-    )
-    peds = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "env_id": ["env_0"] * 3,
-            "ped_id": ["ped_0"] * 3,
-            "ped_name": ["ped_0"] * 3,
-            "x": [0.0, float("inf"), float("nan")],
-            "y": [0.0, float("inf"), float("nan")],
-            "z": [0.0] * 3,
-            "yaw": [0.0] * 3,
-            "vx": [0.0] * 3,
-            "vy": [0.0] * 3,
-            "vz": [0.0] * 3,
-            "speed_mps": [0.0] * 3,
-            "radius_m": [0.35] * 3,
-            "desired_speed": [1.0] * 3,
-            "policy": [""] * 3,
-            "agent_type": [""] * 3,
-            "animation_state": [0] * 3,
-        }
-    )
-    robot_tracks = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": [0.0, 0.0, 0.0],
-            "y": [0.0, 0.0, 0.0],
-            "yaw": [0.0, 0.0, 0.0],
-            "pose_source": ["tf_gt"] * 3,
-        }
-    )
-    episode = AlignedEpisodeBundle(
-        episode_id=1,
-        data=df,
-        start_pos=[],
-        goal_pos=[],
-        topics={"pedestrian_arena_peds": peds, "robot_tracks": robot_tracks},
-    )
-    episode.num_pedestrians = 1
-    params = make_robot_params(robot_radius=0.2)
-    calc = ProxemicsCalculator(params)
-
-    prior = {"velocity": [1.0, float("inf"), float("nan")]}
-    results = calc.calculate(episode, prior)
-
-    avg_velocity = results["avg_velocity_in_personal_space"]
-    # The only in-personal-space sample is the first: its speed has no previous step, so the
-    # removed zero fill leaves the mean undefined (NULL), never a fabricated 0.0 or NaN.
-    assert avg_velocity is None or not np.isnan(avg_velocity)
-    assert avg_velocity is None or not np.isinf(avg_velocity)

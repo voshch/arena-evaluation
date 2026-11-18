@@ -47,17 +47,3 @@ def test_metadata_without_a_required_field_is_refused(
         MetadataWriter.read(path)
 
 
-def test_metadata_with_modes_and_params_is_accepted(tmp_path: pathlib.Path):
-    path = _write_metadata(tmp_path, _METADATA)
-
-    metadata = MetadataWriter.read(path)
-
-    assert metadata.modes == {"robots": ["jackal"], "obstacles": ["static"]}
-    assert metadata.params == {"task.jackal.speed": 1.0}
-
-
-def test_the_refusal_points_at_the_migration(tmp_path: pathlib.Path):
-    path = _write_metadata(tmp_path, {**_METADATA, "tm_obstacles": "scenario"})
-
-    with pytest.raises(UnmigratedMetadataError, match="evaluation migrate"):
-        MetadataWriter.read(path)

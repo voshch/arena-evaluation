@@ -191,12 +191,13 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         )
         return float(np.mean(np.min(dense, axis=1)))
 
-    def _pedestrian_outputs(
+    def calculate(
         self,
         episode: AlignedEpisodeBundle,
         prior_results: typing.Mapping[str, typing.Any],
     ) -> dict[str, typing.Any]:
-        """Deflection, delay ratio and rounds of the single pedestrian of a PEDESTRIAN slice."""
+        """Deflection and delay ratio of the single pedestrian of the PEDESTRIAN slice this bundle carries."""
+        del prior_results
         peds = self.native_ped_frame(episode)
         if peds is None or peds.height == 0:
             return dict.fromkeys(self.output_keys())
@@ -206,9 +207,9 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
                 "ped_path_deflection_m": UNDEFINED,
                 "ped_velocity_delay_ratio": UNDEFINED,
             }
-        span_ns = int(geometry.select(pl.col("last_t_ns").max()).item()) - int(
-            geometry.select(pl.col("first_t_ns").min()).item()
-        )
+        first_ns, last_ns = geometry.select(
+            pl.col("first_t_ns").min(), pl.col("last_t_ns").max()
+        ).row(0)
         measured = geometry.filter(
             (pl.col("n_points") >= PEDESTRIAN_MIN_POINTS)
             & pl.col("lateral_deviation_m").is_not_null()
@@ -218,15 +219,9 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
             if measured.height == 1
             else None,
             "ped_velocity_delay_ratio": round(
-                velocity_delay_value(geometry, span_ns / 1e9, desired_speed_mps(peds)),
+                velocity_delay_value(
+                    geometry, (int(last_ns) - int(first_ns)) / 1e9, desired_speed_mps(peds)
+                ),
                 SUMMED_VALUE_DECIMALS,
             ),
         }
-
-    def calculate(
-        self,
-        episode: AlignedEpisodeBundle,
-        prior_results: typing.Mapping[str, typing.Any],
-    ) -> dict[str, typing.Any]:
-        """The pedestrian of the PEDESTRIAN slice this bundle carries; the episode holds no pedestrian value of its own."""
-        return self._pedestrian_outputs(episode, prior_results)

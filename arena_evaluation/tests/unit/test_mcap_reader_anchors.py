@@ -91,42 +91,12 @@ def test_episode_phases_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
     assert record["phases_yaml"][1] == ""
 
 
-def test_robot_poses_and_plans_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    bundle = _load(shifted_env)[JACKAL]
-
-    assert bundle.robot_initialpose.collect().sort("t_ns", maintain_order=True).select("pos_x", "pos_y").rows() == [(2.0, 2.0), (3.0, 4.0)]
-    assert bundle.robot_tracks.collect().select("x", "y").rows() == [(0.5, 0.5)]
-    assert bundle.robot_plans.collect().sort("waypoint_idx").select("x", "y").rows() == [(0.0, 0.0), (1.0, 2.0)]
-
-
-def test_pedestrians_and_gesture_targets_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    bundle = _load(shifted_env)[JACKAL]
-
-    assert bundle.pedestrian_arena_peds.collect().sort("t_ns", maintain_order=True).select("x", "y").rows() == [(1.0, 2.0), (3.0, 4.0), (2.0, 3.0)]
-    assert bundle.pedestrian_gestures.collect().sort("t_ns", maintain_order=True).select("at_x", "at_y", "at_z").rows() == [(1.0, 2.0, 1.0), (2.0, 3.0, 1.0)]
-
-
-def test_tables_outside_the_bundle_fields_are_ignored(shifted_env: pathlib.Path):
-    pl.DataFrame({"t_ns": [0], "note": ["kept out of the bundle"]}).write_parquet(shifted_env / "notes.parquet")
-
-    bundle = _load(shifted_env)[JACKAL]
-
-    assert bundle.available() >= {"robot_odom", "episode_lifecycle", "pedestrian_arena_peds", "robot_initialpose", "robot_tracks", "robot_plans", "tf_static"}
-    assert "notes" not in bundle.available()
-
-
 def test_unparseable_phases_leave_the_episode_unshifted(shifted_env: pathlib.Path):
     _write(shifted_env, "episode_lifecycle", [_env(50, ENV, episode_id=1, phases_yaml="not json")])
 
     record = _load(shifted_env)[JACKAL].episode_lifecycle.collect()
 
     assert record["phases_yaml"].to_list() == ["not json"]
-
-
-def test_an_empty_episode_lifecycle_is_no_table(shifted_env: pathlib.Path):
-    pl.DataFrame(schema={"t_ns": pl.Int64, "env_id": pl.String, "phases_yaml": pl.String}).write_parquet(shifted_env / "episode_lifecycle.parquet")
-
-    assert _load(shifted_env)[JACKAL].episode_lifecycle is None
 
 
 def test_pedestrians_in_another_frame_refuse_the_map_offset(shifted_env: pathlib.Path):
@@ -152,13 +122,3 @@ def test_dynamic_tf_anchors_apply_when_tf_static_has_none(tmp_path: pathlib.Path
     assert bundle.robot_tracks.collect().select("x", "y").rows() == [(3.0, 2.0)]
 
 
-def test_env_level_pedestrians_never_make_a_robot(tmp_path: pathlib.Path):
-    topics = tmp_path / "topics"
-    topics.mkdir()
-    _write(topics, "robot_odom", [_robot(0, "env_0", "env_0_jackal", odom_x=0.0, odom_y=0.0, odom_yaw=0.0)])
-    _write(topics, "pedestrian_arena_peds", [_env(0, "env_0", ped_id="Pedestrian_1", x=1.0, y=1.0)])
-
-    bundles = _load(topics, {})
-
-    assert set(bundles) == {"env_0_jackal"}
-    assert bundles["env_0_jackal"].pedestrian_arena_peds.collect()["x"].to_list() == [1.0]

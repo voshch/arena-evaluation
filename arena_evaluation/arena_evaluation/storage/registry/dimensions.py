@@ -38,14 +38,19 @@ class _Dimension(Table, abstract=True):
     required_by_default = False
 
 
-class DimEpisodes(_Dimension, name="dim_episodes", kind=TableKind.DIMENSION):
-    """Episode settings as recorded: one row per episode and robot."""
-
-    key = ("run_id", "episode_id", "robot_id")
+class _EpisodeKey(_Dimension, abstract=True):
+    """The run, episode and environment identity of a dimension row."""
 
     run_id = _RUN
     episode_id = _EPISODE
     env_id = _ENV
+
+
+class DimEpisodes(_EpisodeKey, name="dim_episodes", kind=TableKind.DIMENSION):
+    """Episode settings as recorded: one row per episode and robot."""
+
+    key = ("run_id", "episode_id", "robot_id")
+
     robot_id = _ROBOT
     benchmark_id = _optional(pl.String, "Benchmark the run was evaluated in.")
     suite_name = _optional(pl.String, "Suite the benchmark belongs to.")
@@ -86,14 +91,11 @@ class DimEpisodes(_Dimension, name="dim_episodes", kind=TableKind.DIMENSION):
     )
 
 
-class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
+class DimRobots(_EpisodeKey, name="dim_robots", kind=TableKind.DIMENSION):
     """One row per robot of each episode, from the recorded fleet tables."""
 
     key = ("run_id", "episode_id", "env_id", "robot_id")
 
-    run_id = _RUN
-    episode_id = _EPISODE
-    env_id = _ENV
     robot_id = _ROBOT
     robot_model = _optional(
         pl.String, "Model of this robot, from its recorded descriptor."
@@ -120,14 +122,11 @@ class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
     goal_y = _optional(pl.Float64, "Goal position of the robot, y.", unit="m")
 
 
-class DimPedestrians(_Dimension, name="dim_pedestrians", kind=TableKind.DIMENSION):
+class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSION):
     """One row per pedestrian of each episode: its recorded attributes and its four crowd settings."""
 
     key = ("run_id", "episode_id", "env_id", "ped_id")
 
-    run_id = _RUN
-    episode_id = _EPISODE
-    env_id = _ENV
     ped_id = _key(pl.String, "Pedestrian the row describes.")
     ped_name = _optional(pl.String, "Name of the pedestrian agent.")
     agent_type = _optional(
@@ -162,14 +161,11 @@ class DimPedestrians(_Dimension, name="dim_pedestrians", kind=TableKind.DIMENSIO
     )
 
 
-class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIMENSION):
+class DimWorldEntities(_EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION):
     """One row per world entity of each episode, as the world declares it."""
 
     key = ("run_id", "episode_id", "env_id", "entity_name")
 
-    run_id = _RUN
-    episode_id = _EPISODE
-    env_id = _ENV
     entity_name = _key(pl.String, "Name of the world entity.")
     entity_kind = _optional(pl.String, "Kind of the world entity.")
     zone = _optional(pl.String, "Zone the entity belongs to.")

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import pathlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Annotated, Any, Final, Literal
 
 import polars as pl
-import pydantic
 from arena_mcp.core import ToolError
+from pydantic import Field
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.computations import COMPUTATIONS, run_computation
@@ -62,7 +63,21 @@ DEFAULT_REPORT: Final[str] = (
 )
 
 
-def _note_text(finding: Finding) -> str:
+def _described(kind: Any, description: str) -> Any:
+    """Annotate a tool parameter with its published description."""
+    return Annotated[kind, Field(description=description)]
+
+
+@contextlib.contextmanager
+def _finding_errors(hint: str) -> Iterator[None]:
+    """Translate a finding-domain error into the tool error contract."""
+    try:
+        yield
+    except FindingError as exc:
+        raise ToolError(str(exc), hint=exc.hint or hint) from exc
+
+
+def _attach_note(finding: Finding) -> Note:
     """One self-contained notes.yaml entry for a finding attached to a report."""
     parts = [finding.claim]
     if finding.structured_numbers:
@@ -77,23 +92,23 @@ def _note_text(finding: Finding) -> str:
         parts.append(f"query: {finding.stored_query}")
     if finding.figure_path:
         parts.append(f"figure: {finding.figure_path}")
-    return "; ".join(parts)
+    return Note(
+        label=f"{FINDING_NOTE_PREFIX}{finding.finding_id}", value="; ".join(parts)
+    )
 
 
 def _report_token(run_dir: pathlib.Path, report: str) -> str:
     """Resolve the report file or run-local/package manifest name."""
     stem = component(report.removesuffix(".yaml"), "report")
-    if (run_dir / "reports" / stem / "report.html").is_file():
-        return stem
-    report_file = run_dir / report
-    manifest = run_dir / f"{stem}.yaml"
-    run_bundle = bundle_path(run_analysis_root(run_dir), "report", stem)
-    if report_file.is_file():
-        return report_file.name
-    if manifest.is_file():
-        return manifest.name
-    if run_bundle.is_file():
-        return stem
+    named = (
+        (run_dir / "reports" / stem / "report.html", stem),
+        (run_dir / report, pathlib.Path(report).name),
+        (run_dir / f"{stem}.yaml", f"{stem}.yaml"),
+        (bundle_path(run_analysis_root(run_dir), "report", stem), stem),
+    )
+    for candidate, token in named:
+        if candidate.is_file():
+            return token
     for root in package_config_roots():
         if bundle_path(root, "report", stem).is_file():
             return stem
@@ -116,72 +131,48 @@ def _computation_runners() -> dict[str, ComputationRunner]:
 
         return rerun
 
-    runners: dict[str, ComputationRunner] = {
-        name: runner_for(name) for name in COMPUTATIONS
+    return {
+        **{name: runner_for(name) for name in COMPUTATIONS},
+        "evaluation_sensitivity": rerun_sensitivity_params,
     }
-    runners["evaluation_sensitivity"] = rerun_sensitivity_params
-    return runners
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_finding_create(
     run_id: RunId,
-    claim: Annotated[
-        str, pydantic.Field(description="empirical claim in one sentence")
-    ],
-    episode_id: Annotated[
-        int | None, pydantic.Field(description="episode the claim is about")
-    ] = None,
-    encounter_id: Annotated[
-        str | None, pydantic.Field(description="encounter id from fact_encounters")
-    ] = None,
-    contact_id: Annotated[
-        str | None, pydantic.Field(description="contact id from fact_contacts")
-    ] = None,
-    pedestrian_id: Annotated[
-        str | None, pydantic.Field(description="pedestrian id the claim is about")
-    ] = None,
-    query: Annotated[
-        str | None,
-        pydantic.Field(description="SELECT query that establishes the claim"),
-    ] = None,
-    stored_query: Annotated[
-        str | None,
-        pydantic.Field(description="stored query name from evaluation_queries"),
-    ] = None,
-    evidence_id: Annotated[
-        str | None,
-        pydantic.Field(description="pinned evidence id from evaluation_query"),
-    ] = None,
-    evidence_ids: Annotated[
-        list[str] | None,
-        pydantic.Field(description="pinned evidence ids supporting the claim"),
-    ] = None,
-    numbers: Annotated[
+    claim: _described(str, "empirical claim in one sentence"),
+    episode_id: _described(int | None, "episode the claim is about") = None,
+    encounter_id: _described(str | None, "encounter id from fact_encounters") = None,
+    contact_id: _described(str | None, "contact id from fact_contacts") = None,
+    pedestrian_id: _described(str | None, "pedestrian id the claim is about") = None,
+    query: _described(str | None, "SELECT query that establishes the claim") = None,
+    stored_query: _described(
+        str | None, "stored query name from evaluation_queries"
+    ) = None,
+    evidence_id: _described(
+        str | None, "pinned evidence id from evaluation_query"
+    ) = None,
+    evidence_ids: _described(
+        list[str] | None, "pinned evidence ids supporting the claim"
+    ) = None,
+    numbers: _described(
         dict[str, float] | None,
-        pydantic.Field(
-            description="refused: free-form numbers are not checked against evidence; quote them in structured_numbers"
-        ),
-    ] = None,
-    structured_numbers: Annotated[
+        "refused: free-form numbers are not checked against evidence; quote them in structured_numbers",
+    ) = None,
+    structured_numbers: _described(
         list[dict[str, Any]] | None,
-        pydantic.Field(
-            description="structured numeric assertions verified against EvidenceStore: [{evidence_id, column, value, tolerance}]"
-        ),
-    ] = None,
-    author: Annotated[
-        str, pydantic.Field(description="role authoring the finding")
-    ] = "analyst",
-    figure_path: Annotated[
-        str | None,
-        pydantic.Field(description="path to a plot artifact supporting the claim"),
-    ] = None,
+        "structured numeric assertions verified against EvidenceStore: [{evidence_id, column, value, tolerance}]",
+    ) = None,
+    author: _described(str, "role authoring the finding") = "analyst",
+    figure_path: _described(
+        str | None, "path to a plot artifact supporting the claim"
+    ) = None,
 ) -> Finding:
     """Record one empirical claim as a ``proposed`` finding under ``analysis/findings/<id>.yaml``."""
     run_dir = run_path(run_id)
     fdir = findings_dir(run_dir)
     assert_safe_analysis_write(run_dir, fdir / "finding.yaml")
-    try:
+    with _finding_errors("check finding parameters"):
         finding = create_finding(
             run_dir,
             claim,
@@ -198,8 +189,6 @@ def evaluation_finding_create(
             author=author,
             figure_path=figure_path,
         )
-    except FindingError as exc:
-        raise ToolError(str(exc), hint=exc.hint or "check finding parameters") from exc
     append_audit_event(
         run_dir,
         role=author or "analyst",
@@ -214,12 +203,8 @@ def evaluation_finding_create(
 def evaluation_findings(run_id: RunId) -> FindingsResponse:
     """Every finding recorded for a run under ``analysis/findings/``."""
     run_dir = run_path(run_id)
-    try:
+    with _finding_errors("fix or remove corrupt finding YAML"):
         findings = load_findings(run_dir)
-    except FindingError as exc:
-        raise ToolError(
-            str(exc), hint=exc.hint or "fix or remove corrupt finding YAML"
-        ) from exc
     return FindingsResponse(run_id=run_id, n_findings=len(findings), findings=findings)
 
 
@@ -227,16 +212,12 @@ def evaluation_findings(run_id: RunId) -> FindingsResponse:
 def evaluation_finding_verify(run_id: RunId, finding_id: str) -> dict[str, Any]:
     """Mechanically verify a finding's evidence IDs and structured numbers against EvidenceStore."""
     run_dir = run_path(run_id)
-    try:
+    with _finding_errors("evaluation_findings lists findings"):
         result = verify_finding(
             run_dir,
             finding_id,
             computation_runners=_computation_runners(),
         )
-    except FindingError as exc:
-        raise ToolError(
-            str(exc), hint=exc.hint or "evaluation_findings lists findings"
-        ) from exc
     append_audit_event(
         run_dir,
         role="verifier",
@@ -260,30 +241,19 @@ def evaluation_finding_verify(run_id: RunId, finding_id: str) -> dict[str, Any]:
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_finding_status(
     run_id: RunId,
-    finding_id: Annotated[
-        str, pydantic.Field(description="finding to review, from evaluation_findings")
-    ],
-    status: Annotated[
-        Literal["proposed", "verified", "refuted", "needs_work"],
-        pydantic.Field(description="new review state"),
-    ],
-    by: Annotated[
-        str, pydantic.Field(description="role adjudicating the finding status")
-    ] = "verifier",
-    note: Annotated[
-        str | None, pydantic.Field(description="optional review note")
-    ] = None,
+    finding_id: _described(str, "finding to review, from evaluation_findings"),
+    status: _described(
+        Literal["proposed", "verified", "refuted", "needs_work"], "new review state"
+    ),
+    by: _described(str, "role adjudicating the finding status") = "verifier",
+    note: _described(str | None, "optional review note") = None,
 ) -> Finding:
     """Move one finding between review states with mechanical and author-separation gates."""
     run_dir = run_path(run_id)
-    try:
+    with _finding_errors("check finding status transition"):
         reviewed = transition_finding_status(
             run_dir, finding_id, status, by=by, note=note
         )
-    except FindingError as exc:
-        raise ToolError(
-            str(exc), hint=exc.hint or "check finding status transition"
-        ) from exc
     append_audit_event(
         run_dir,
         role=by,
@@ -297,28 +267,20 @@ def evaluation_finding_status(
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_finding_attach(
     run_id: RunId,
-    finding_id: Annotated[
-        str, pydantic.Field(description="finding to attach, from evaluation_findings")
-    ],
-    report: Annotated[
+    finding_id: _described(str, "finding to attach, from evaluation_findings"),
+    report: _described(
         str,
-        pydantic.Field(
-            description="assembled report name: reports/<name>/report.html written by evaluation_report_assemble"
-        ),
-    ] = DEFAULT_REPORT,
+        "assembled report name: reports/<name>/report.html written by evaluation_report_assemble",
+    ) = DEFAULT_REPORT,
 ) -> FindingAttachResponse:
     """Attach a verified finding to a report, locking findings and notes together."""
     run_dir = run_path(run_id)
     notes_path = run_dir / "notes.yaml"
-    note_label = f"{FINDING_NOTE_PREFIX}{finding_id}"
-
-    with file_lock(findings_lock_path(run_dir)):
-        try:
-            finding = load_finding(run_dir, finding_id)
-        except FindingError as exc:
-            raise ToolError(
-                str(exc), hint=exc.hint or "evaluation_findings lists them"
-            ) from exc
+    with (
+        file_lock(findings_lock_path(run_dir)),
+        _finding_errors("evaluation_findings lists them"),
+    ):
+        finding = load_finding(run_dir, finding_id)
         if finding.status is not FindingStatus.VERIFIED:
             raise ToolError(
                 f"finding {finding_id} is {finding.status.value}, only a verified finding can be attached",
@@ -338,11 +300,8 @@ def evaluation_finding_attach(
         report_token = _report_token(run_dir, report)
         attached = finding.model_copy(update={"report": report_token})
         save_finding(run_dir, attached)
-        write_notes(
-            notes_path,
-            [Note(label=note_label, value=_note_text(attached))],
-            mode="merge",
-        )
+        note = _attach_note(attached)
+        write_notes(notes_path, [note], mode="merge")
 
     append_audit_event(
         run_dir,
@@ -355,5 +314,5 @@ def evaluation_finding_attach(
         run_id=run_id,
         finding=attached,
         report=report_token,
-        note_label=note_label,
+        note_label=note.label,
     )

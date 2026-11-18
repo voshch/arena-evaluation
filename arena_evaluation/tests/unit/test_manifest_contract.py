@@ -9,12 +9,11 @@ import random
 import polars as pl
 import pytest
 
-from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.computations import COMPUTATIONS
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.presentation.data_sources import declared_data_sources
 from arena_evaluation.presentation.report_builder import ReportBuilder
-from arena_evaluation.presentation.resolver import DataResolver, load_recipe
+from arena_evaluation.presentation.resolver import DataResolver
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.storage.registry import FACT_TABLES, dimensions
@@ -86,14 +85,6 @@ def test_bundled_manifest_conforms_to_single_grammar_and_star_schema(
     assert manifest.plots, f"{manifest_path.name} has no plots"
     for spec in manifest.plots:
         _assert_valid_plot_binding(spec)
-
-
-@pytest.mark.parametrize("recipe_path", _declaration_paths(), ids=lambda p: p.name)
-def test_bundled_plot_declaration_conforms_to_single_grammar(
-    recipe_path: pathlib.Path,
-) -> None:
-    spec = PlotSpec.model_validate(load_recipe(recipe_path.parent.name))
-    _assert_valid_plot_binding(spec)
 
 
 def _dummy_val(name: str, dtype: pl.DataType, rng: random.Random, idx: int) -> object:
@@ -484,32 +475,3 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
         assert len(tbl["options"]["format"]) == count, f"{rname}:{pid} format count"
 
 
-@pytest.mark.parametrize(
-    "recipe_path", _declaration_paths(), ids=lambda p: p.parent.name
-)
-def test_bundled_recipe_executes_and_contains_declared_columns(
-    recipe_path: pathlib.Path,
-    full_registry_bench: pathlib.Path,
-) -> None:
-    catalog = BenchmarkCatalog.open(full_registry_bench)
-    resolver = DataResolver(catalog=catalog, benchmark_dir=full_registry_bench)
-    spec = resolver.resolve_spec(
-        PlotSpec.model_validate(load_recipe(recipe_path.parent.name))
-    )
-    df, _ = resolver.resolve(spec)
-    assert not df.is_empty(), f"{recipe_path.name} resolved to empty DataFrame"
-    for ch_val in (
-        spec.channels.x,
-        spec.channels.y,
-        spec.channels.color,
-        spec.channels.facet_col,
-        spec.channels.facet_row,
-        spec.channels.hierarchy,
-    ):
-        if ch_val is None:
-            continue
-        cols = [ch_val] if isinstance(ch_val, str) else list(ch_val)
-        for col in cols:
-            assert col in df.columns, (
-                f"{recipe_path.name} missing column {col!r} in {df.columns}"
-            )

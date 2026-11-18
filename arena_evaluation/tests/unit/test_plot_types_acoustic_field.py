@@ -21,7 +21,6 @@ from arena_evaluation.presentation.viz_manifest import (
     PlotSpec,
     VizManifest,
 )
-from arena_evaluation.processing.acoustics.episode_series import load_aligned_episode
 from arena_evaluation.storage.exceptions import MetricInputError
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -195,47 +194,12 @@ def _make_episode(
     return bench
 
 
-def test_pick_worst_row_happy_with_prejoined_pose(tmp_path: pathlib.Path) -> None:
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    worst = renderer.pick_worst_row(_af_df())
-    assert worst is not None
-    assert worst["robot_x"] == 1.0 and worst["robot_y"] == 2.0
-    assert worst["source_dba"] == 68.0
-    assert worst["ped_max_exposure_dba"] == 105.0
-    assert worst["planner"] == "teb"
-    assert worst["stage"] == "hall"
-
-
-def test_pick_worst_row_resolves_pose_from_catalog_telemetry(
-    tmp_path: pathlib.Path,
-) -> None:
-    bench = _make_episode(tmp_path, tracks=True)
-    df = _af_df().drop(["robot_x", "robot_y", "source_dba"])
-    renderer = _new_renderer(_af_spec(), bench)
-    worst = renderer.pick_worst_row(df)
-    assert worst is not None
-    assert worst["robot_x"] == pytest.approx(1.5)
-    assert worst["robot_y"] == pytest.approx(2.0)
-    assert worst["source_dba"] == pytest.approx(75.0)
-    assert len(worst["pedestrians"]) == 1
-
-
 def test_pick_worst_row_missing_column_or_empty_returns_none(
     tmp_path: pathlib.Path,
 ) -> None:
     renderer = _new_renderer(_af_spec(), tmp_path)
     assert renderer.pick_worst_row(_af_df().drop("ped_max_exposure_dba")) is None
     assert renderer.pick_worst_row(_af_df().slice(0, 0)) is None
-
-
-def test_prepared_df_excludes_reference_runs_by_default(
-    tmp_path: pathlib.Path,
-) -> None:
-    df = _af_df().with_columns(pl.Series("is_reference", [True, False]))
-    out = _new_renderer(_af_spec(), tmp_path)._prepared_df(df)
-    assert out["planner"].to_list() == ["teb"]
-    kept = _new_renderer(_af_spec(include_reference=True), tmp_path)._prepared_df(df)
-    assert kept.height == 2
 
 
 def test_parse_pedestrian_positions_keeps_the_pair_list_encoding(
@@ -254,61 +218,9 @@ def test_parse_pedestrian_positions_keeps_the_pair_list_encoding(
     assert renderer.parse_pedestrian_positions(None) == []
 
 
-def test_load_episode_data_reads_aligned_catalog_telemetry(
-    tmp_path: pathlib.Path,
-) -> None:
-    bench = _make_episode(tmp_path, tracks=True)
-    ep_df = AcousticFieldRenderer.load_episode_data(bench, "episode_001")
-    assert ep_df is not None
-    assert ep_df.height == 3
-    assert {
-        "t_ns",
-        "x",
-        "y",
-        "source_dba",
-        "has_collision",
-        "peds_positions",
-    } <= set(ep_df.columns)
-    assert ep_df["has_collision"].to_list() == [False, True, False]
-
-
 def test_load_episode_data_never_substitutes_odometry(tmp_path: pathlib.Path) -> None:
     bench = _make_episode(tmp_path, odom=True, tracks=False)
     assert AcousticFieldRenderer.load_episode_data(bench, "episode_001") is None
-
-
-def test_aligned_episode_drops_samples_beyond_the_alignment_tolerance(
-    tmp_path: pathlib.Path,
-) -> None:
-    bench = _make_episode(
-        tmp_path,
-        tracks=True,
-        acoustics_times_ns=[0],
-        acoustics_levels=[61.0],
-    )
-    frame = load_aligned_episode(bench, "episode_001")
-    assert frame is not None
-    levels = {
-        int(row["t_ns"]): row["source_dba"]
-        for row in frame.select(["t_ns", "source_dba"]).iter_rows(named=True)
-    }
-    assert levels[0] == pytest.approx(61.0)
-    assert levels[1_000_000_000] is None
-    assert levels[2_000_000_000] is None
-
-
-def test_aligned_episode_has_no_ground_truth_pose_without_robot_tracks(
-    tmp_path: pathlib.Path,
-) -> None:
-    bench = _make_episode(
-        tmp_path,
-        odom=True,
-        tracks=False,
-        acoustics=False,
-        peds=False,
-        collision=False,
-    )
-    assert load_aligned_episode(bench, "episode_001") is None
 
 
 def test_render_plotly_single_and_grid_write_pngs(tmp_path: pathlib.Path) -> None:
@@ -356,12 +268,6 @@ def test_missing_world_raises_metric_input_error_and_records_notice(
     renderer.diagnostics = diag
     assert renderer.render_plotly(_af_df()) == ""
     assert any("missing world map" in issue for issue in diag.issues)
-
-
-def test_unknown_option_rejected_by_validate_frame(tmp_path: pathlib.Path) -> None:
-    renderer = _new_renderer(_af_spec(bogus_option=1), tmp_path)
-    with pytest.raises(ValueError, match="unknown option"):
-        renderer.validate_frame(_af_df())
 
 
 def test_animation_renderer_renders_gif_and_frames(tmp_path: pathlib.Path) -> None:

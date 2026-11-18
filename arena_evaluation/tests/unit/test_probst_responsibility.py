@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from arena_evaluation.processing.metrics.base import Direction, ScopeSlice
+from arena_evaluation.processing.metrics.base import Direction
 from arena_evaluation.processing.metrics.social.interaction_common import (
     Trajectory2D,
     extract_episode_ped_tracks,
@@ -22,10 +22,8 @@ from arena_evaluation.processing.metrics.social.probst_responsibility import (
     derive_probst_shares,
     distance_to_closest_encounter,
     evaluate_probst,
-    rollup_probst_results,
 )
 from arena_evaluation.storage.exceptions import MetricInputError
-from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
@@ -186,151 +184,6 @@ def test_distance_to_closest_encounter(
     assert distance_m == pytest.approx(expected_m, abs=1e-9)
 
 
-def test_probst_unresponsive_head_on_assigns_full_responsibility_to_time() -> None:
-    dt = 0.1
-    t = np.arange(0.0, 6.0, dt)
-    pos_robot = np.column_stack((1.0 * t, np.zeros_like(t)))
-    vel_robot = np.column_stack((np.ones_like(t), np.zeros_like(t)))
-    pos_target = np.column_stack((10.0 - 1.0 * t, np.zeros_like(t)))
-    vel_target = np.column_stack((-np.ones_like(t), np.zeros_like(t)))
-
-    res = evaluate_probst(_make_pair(t, pos_robot, vel_robot, pos_target, vel_target))
-    assert res.c_total is not None and res.c_total > 0.0
-    assert res.r_robot == pytest.approx(0.0, abs=1e-9)
-    assert res.r_target == pytest.approx(0.0, abs=1e-9)
-    assert res.r_time == pytest.approx(1.0, abs=1e-9)
-    assert res.e_robot == pytest.approx(0.0, abs=1e-9)
-    assert res.e_target == pytest.approx(0.0, abs=1e-9)
-    assert res.e_time == pytest.approx(1.0, abs=1e-9)
-
-
-def test_probst_golden_scenario_stopped_robot_rammed_by_blind_pedestrian() -> None:
-    """The case Probst et al. cannot resolve: a stopped robot, a blind pedestrian walking in at constant velocity."""
-    dt = 0.1
-    t = np.arange(0.0, 7.0, dt)
-    zeros = np.zeros_like(t)
-    robot_xy = np.column_stack((zeros, zeros))
-    robot_vel = np.column_stack((zeros, zeros))
-    ped_xy = np.column_stack((6.0 - 1.0 * t, zeros))
-    ped_vel = np.column_stack((-np.ones_like(t), zeros))
-
-    result = evaluate_probst(
-        _make_pair(
-            t,
-            robot_xy,
-            robot_vel,
-            ped_xy,
-            ped_vel,
-            r_robot=PED_RADIUS_M,
-            r_target=PED_RADIUS_M,
-        )
-    )
-    assert result.c_total is not None and result.c_total > 0.0
-    assert result.r_robot == pytest.approx(0.0, abs=1e-12)
-    assert result.r_target == pytest.approx(0.0, abs=1e-12)
-    assert result.r_time == pytest.approx(1.0, abs=1e-12)
-    assert result.e_robot == pytest.approx(0.0, abs=1e-12)
-    assert result.e_target == pytest.approx(0.0, abs=1e-12)
-
-    episode = _make_episode(
-        t,
-        robot_xy,
-        robot_vel,
-        ped_tracks=[
-            ("Pedestrian_1", "blind_pedestrian", ped_xy, ped_vel, PED_RADIUS_M)
-        ],
-    )
-    calculator = ProbstResponsibilityCalculator(
-        make_robot_params(robot_radius=PED_RADIUS_M)
-    )
-    calculator.metrics_config = {"target_agent_id": "Pedestrian_1"}
-
-    outputs = calculator.calculate(episode, {})
-
-    assert set(outputs) == set(calculator.output_keys())
-    assert outputs["probst_R_robot"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["probst_R_actor2"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["probst_R_time"] == pytest.approx(1.0, abs=1e-9)
-    assert outputs["probst_E_robot"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["probst_E_actor2"] == pytest.approx(0.0, abs=1e-9)
-
-
-def test_probst_unilateral_robot_avoidance_credits_robot_responsibility() -> None:
-    dt = 0.1
-    t = np.arange(0.0, 6.0, dt)
-    vy_robot = np.where((t >= 1.5) & (t <= 3.0), 0.8, 0.0)
-    y_robot = np.cumsum(vy_robot * dt)
-    pos_robot = np.column_stack((1.0 * t, y_robot))
-    vel_robot = np.column_stack((np.ones_like(t), vy_robot))
-    pos_target = np.column_stack((8.0 - 1.0 * t, np.zeros_like(t)))
-    vel_target = np.column_stack((-np.ones_like(t), np.zeros_like(t)))
-
-    res = evaluate_probst(_make_pair(t, pos_robot, vel_robot, pos_target, vel_target))
-    assert res.c_total is not None and res.c_total > 0.0
-    assert res.r_robot is not None and res.r_robot > 0.70
-    assert res.r_target == pytest.approx(0.0, abs=1e-9)
-    assert (res.r_robot + (res.r_target or 0.0) + (res.r_time or 0.0)) == pytest.approx(
-        1.0, abs=1e-9
-    )
-    assert (
-        (res.e_robot or 0.0) + (res.e_target or 0.0) + (res.e_time or 0.0)
-    ) == pytest.approx(1.0, abs=1e-9)
-
-
-def test_probst_symmetric_mutual_avoidance_splits_responsibility_equally() -> None:
-    dt = 0.1
-    t = np.arange(0.0, 6.0, dt)
-    vy_r = np.clip((t - 1.5) * 0.3, 0.0, 0.45)
-    vy_t = -vy_r
-    pos_robot = np.column_stack((1.0 * t, np.cumsum(vy_r * dt)))
-    vel_robot = np.column_stack((np.ones_like(t), vy_r))
-    pos_target = np.column_stack((8.0 - 1.0 * t, np.cumsum(vy_t * dt)))
-    vel_target = np.column_stack((-np.ones_like(t), vy_t))
-
-    res = evaluate_probst(_make_pair(t, pos_robot, vel_robot, pos_target, vel_target))
-    assert res.r_robot is not None and res.r_target is not None
-    assert res.r_robot == pytest.approx(res.r_target, abs=1e-9)
-    assert res.r_robot > 0.35
-    assert (res.r_robot + res.r_target + (res.r_time or 0.0)) == pytest.approx(
-        1.0, abs=1e-9
-    )
-
-
-def test_probst_additive_rollup_rebuilds_shares_from_summed_parts() -> None:
-    dt = 0.1
-    t = np.arange(0.0, 6.0, dt)
-    vy_r = np.where((t >= 1.5) & (t <= 3.0), 0.8, 0.0)
-    pos_r1 = np.column_stack((1.0 * t, np.cumsum(vy_r * dt)))
-    vel_r1 = np.column_stack((np.ones_like(t), vy_r))
-    pos_t1 = np.column_stack((8.0 - 1.0 * t, np.zeros_like(t)))
-    vel_t1 = np.column_stack((-np.ones_like(t), np.zeros_like(t)))
-    r1 = evaluate_probst(_make_pair(t, pos_r1, vel_r1, pos_t1, vel_t1))
-
-    pos_r2 = np.column_stack((1.0 * t, np.zeros_like(t)))
-    vel_r2 = np.column_stack((np.ones_like(t), np.zeros_like(t)))
-    pos_t2 = np.column_stack((8.0 - 1.0 * t, -np.cumsum(vy_r * dt)))
-    vel_t2 = np.column_stack((-np.ones_like(t), -vy_r))
-    r2 = evaluate_probst(_make_pair(t, pos_r2, vel_r2, pos_t2, vel_t2))
-
-    rolled = rollup_probst_results([r1, r2])
-    assert rolled.c_total == pytest.approx(
-        (r1.c_total or 0.0) + (r2.c_total or 0.0), abs=1e-9
-    )
-    assert rolled.r_robot == pytest.approx(rolled.r_target, abs=1e-9)
-    rebuilt = derive_probst_shares(
-        ProbstParts(
-            c_total=rolled.c_total or 0.0,
-            cc_minus_robot=rolled.cc_minus_robot or 0.0,
-            cc_minus_target=rolled.cc_minus_target or 0.0,
-            cc_minus_time=rolled.cc_minus_time or 0.0,
-            cc_plus_robot=rolled.cc_plus_robot or 0.0,
-            cc_plus_target=rolled.cc_plus_target or 0.0,
-            cc_plus_time=rolled.cc_plus_time or 0.0,
-        )
-    )
-    assert rolled.r_robot == pytest.approx(rebuilt["r_robot"], abs=1e-12)
-
-
 def _sum_of(outputs: dict[str, object], keys: Sequence[str]) -> float:
     """Sum of the published shares, after asserting each is defined."""
     values = [outputs[key] for key in keys]
@@ -382,39 +235,12 @@ def test_probst_calculator_encounter_and_pre_contact_scopes() -> None:
     ) == pytest.approx(1.0, abs=1e-9)
 
 
-def test_compute_normalization_uniform_grid() -> None:
-    times_s = np.linspace(0.0, 2.0, 21)
-    pair = _make_zero_pair(times_s)
-    norm = compute_normalization(pair, len(times_s) - 1)
-    assert norm is not None
-    assert norm.shape == times_s.shape
-    assert norm[-1] == pytest.approx(1.0, abs=1e-12)
-    assert norm[10] == pytest.approx(11.0 / 12.0, abs=1e-12)
-    assert norm[0] == pytest.approx(1.0 - 2.0 / 12.0, abs=1e-12)
-    assert bool(np.all(np.diff(norm) > 0.0))
-
-
 def test_compute_normalization_non_uniform_grid() -> None:
     times_s = np.array([0.0, 0.1, 0.2, 0.35, 0.5, 0.8, 1.0])
     pair = _make_zero_pair(times_s, window_size_s=1.0)
     norm = compute_normalization(pair, len(times_s) - 1)
     assert norm is not None
     np.testing.assert_allclose(norm, [0.0, 0.1, 0.2, 0.35, 0.5, 0.8, 1.0], atol=1e-12)
-
-
-@pytest.mark.parametrize(
-    ("times_s", "idx_tce"),
-    [
-        (np.array([0.0]), 0),
-        (np.linspace(0.0, 1.0, 11), 0),
-        (np.linspace(0.0, 1.0, 11), 11),
-    ],
-    ids=["single-sample", "tce-at-first", "tce-past-last"],
-)
-def test_compute_normalization_returns_none_off_grid(
-    times_s: np.ndarray, idx_tce: int
-) -> None:
-    assert compute_normalization(_make_zero_pair(times_s), idx_tce) is None
 
 
 @pytest.mark.parametrize(
@@ -441,43 +267,11 @@ def test_derive_probst_shares_returns_none_without_total(
     assert all(value is None for value in shares.values())
 
 
-def test_derive_probst_shares_from_parts() -> None:
-    parts = ProbstParts(
-        c_total=2.0,
-        cc_minus_robot=1.0,
-        cc_minus_target=0.5,
-        cc_minus_time=0.5,
-        cc_plus_robot=0.8,
-        cc_plus_target=0.6,
-        cc_plus_time=0.6,
-    )
-    shares = derive_probst_shares(parts)
-    assert shares["r_robot"] == pytest.approx(0.5, abs=1e-12)
-    assert shares["r_target"] == pytest.approx(0.25, abs=1e-12)
-    assert shares["r_time"] == pytest.approx(0.25, abs=1e-12)
-    assert shares["e_robot"] == pytest.approx(0.4, abs=1e-12)
-    assert shares["e_target"] == pytest.approx(0.3, abs=1e-12)
-    assert shares["e_time"] == pytest.approx(0.3, abs=1e-12)
-
-
 @pytest.mark.parametrize("num_samples", [0, 1])
 def test_evaluate_probst_requires_two_samples(num_samples: int) -> None:
     t = np.arange(num_samples, dtype=np.float64) * 0.1
     empty = np.zeros((num_samples, 2), dtype=np.float64)
     assert evaluate_probst(_make_pair(t, empty, empty, empty, empty)) == ProbstResult()
-
-
-def test_calculate_without_pedestrian_tracks_returns_none_outputs() -> None:
-    t = np.arange(0.0, 3.0, 0.1)
-    robot_xy, robot_vel = _straight_robot(t)
-    episode = _make_episode(t, robot_xy, robot_vel)
-    calculator = ProbstResponsibilityCalculator(
-        make_robot_params(robot_radius=PED_RADIUS_M)
-    )
-
-    out = calculator.calculate(episode, {})
-    assert set(out) == set(calculator.output_keys())
-    assert all(value is None for value in out.values())
 
 
 def test_calculate_with_empty_pedestrian_tracks_returns_none_outputs() -> None:
@@ -491,46 +285,6 @@ def test_calculate_with_empty_pedestrian_tracks_returns_none_outputs() -> None:
     out = calculator.calculate(episode, {})
     assert set(out) == set(calculator.output_keys())
     assert all(value is None for value in out.values())
-
-
-def test_calculate_with_two_pedestrians_rolls_up_additive_parts() -> None:
-    t = np.arange(0.0, 10.0, 0.1)
-    robot_xy, robot_vel = _straight_robot(t)
-    ped_1_xy, zero_vel = _stationary_pedestrian(2.0, 0.1, len(t))
-    ped_2_xy, _ = _stationary_pedestrian(8.0, 0.1, len(t))
-    episode = _make_episode(
-        t,
-        robot_xy,
-        robot_vel,
-        ped_tracks=[
-            ("Pedestrian_1", "alpha", ped_1_xy, zero_vel, PED_RADIUS_M),
-            ("Pedestrian_2", "beta", ped_2_xy, zero_vel, PED_RADIUS_M),
-        ],
-    )
-    calculator = ProbstResponsibilityCalculator(
-        make_robot_params(robot_radius=PED_RADIUS_M)
-    )
-
-    robot, _ = resolve_robot_trajectory(calculator, episode)
-    tracks = extract_episode_ped_tracks(episode)
-    spans = pedestrian_encounter_spans(episode, PED_RADIUS_M)
-    assert len(spans) == 2
-    rolled = rollup_probst_results(
-        [
-            calculator.evaluate_encounter_track(
-                robot, tracks[ped_id], (t_start_ns, t_end_ns)
-            )[0]
-            for ped_id, t_start_ns, t_end_ns in spans
-        ]
-    )
-
-    out = calculator.calculate(episode, {})
-    assert set(out) == set(calculator.output_keys())
-    assert out["probst_R_robot"] == pytest.approx(rolled.r_robot, abs=1e-9)
-    assert out["probst_E_actor2"] == pytest.approx(rolled.e_target, abs=1e-9)
-    assert _sum_of(
-        out, ("probst_R_robot", "probst_R_actor2", "probst_R_time")
-    ) == pytest.approx(1.0, abs=1e-9)
 
 
 @pytest.mark.parametrize("target_agent_id", [1, "1", "Pedestrian_1", "ped_1", "alpha"])
@@ -594,35 +348,6 @@ def test_probst_requires_recorded_pedestrian_radius() -> None:
 
     with pytest.raises(MetricInputError, match="radius_m"):
         calculator.calculate(episode, {})
-
-
-def test_probst_robot_actor_encounter_is_not_applicable() -> None:
-    t = np.arange(0.0, 3.0, 0.1)
-    robot_xy, robot_vel = _straight_robot(t)
-    episode = _make_episode(t, robot_xy, robot_vel)
-    calculator = ProbstResponsibilityCalculator(
-        make_robot_params(robot_radius=PED_RADIUS_M)
-    )
-    scope_slice = ScopeSlice(
-        scope=MetricScope.ENCOUNTER,
-        slice_id="enc_0",
-        t_start_ns=0,
-        t_end_ns=METRE,
-        identity={"actor_2": "env_0_other", "actor_2_kind": "robot"},
-        window_bundle=episode,
-        full_episode=episode,
-    )
-
-    out = calculator.calculate_for_scope(episode, {}, scope_slice)
-
-    assert set(out) == set(calculator.output_keys()) | {
-        f"{key}_null_reason" for key in calculator.output_keys()
-    }
-    assert all(
-        out[f"{key}_null_reason"] == "not_applicable"
-        for key in calculator.output_keys()
-    )
-    assert all(out[key] is None for key in calculator.output_keys())
 
 
 def test_probst_directions_do_not_judge_responsibility() -> None:

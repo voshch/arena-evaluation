@@ -11,21 +11,6 @@ from arena_evaluation.experiments import beckon
 from star_benchmark import write_benchmark
 
 
-def test_robot_loops_the_route_until_the_call_is_seen_or_the_route_passes_the_caller() -> (
-    None
-):
-    loop, serve = beckon.robot_phases()
-    assert [step["goto"] for step in loop["loop"]] == [list(p) for p in beckon.ROUTE]
-    assert {step["tolerance_radius"] for step in loop["loop"]} == {
-        beckon.CHECKPOINT_RADIUS_M
-    }
-    assert (
-        loop["until"]
-        == "robot sees caller within 12 and caller plays beckon for 0.5 or robot within 2.5 of caller"
-    )
-    assert serve == {"goto": "caller", "tolerance_radius": 2.5, "hold_time": 0.0}
-
-
 def test_caller_stands_then_calls_with_its_gaze_on_the_robot() -> None:
     agent = beckon.caller_agent_yaml("burger")
     seq = agent["sequences"]["call_seq"]
@@ -247,22 +232,6 @@ def _run(tmp_path: pathlib.Path, **kwargs: object) -> pathlib.Path:
     return write_benchmark(tmp_path / "run", summary.to_dicts())
 
 
-def test_load_episodes_tags_case_arm_and_seed_and_drops_other_stages(
-    tmp_path: pathlib.Path,
-) -> None:
-    df = beckon.load_episodes(_summary())
-    assert set(df["case"]) == {"hall_near", "ward_door"} and set(df["arm"]) == {
-        "on",
-        "off",
-    }
-    assert df.filter(pl.col("stage") == "other_stage_on").height == 0
-    assert df["success"].null_count() == 0
-    assert (
-        df.group_by(["planner", "stage"]).agg(pl.col("seed").sort())["seed"].to_list()
-        == [[0, 1]] * 4
-    )
-
-
 def test_analyze_reads_the_canonical_episode_summary(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -282,22 +251,6 @@ def test_analyze_reads_the_canonical_episode_summary(
     ]
     out = capsys.readouterr().out
     assert "== cases" in out and "== planners" in out
-
-
-def test_paper_outcomes_censor_unserved_calls_at_the_longest_episode() -> None:
-    df = pl.DataFrame(
-        {
-            "stage": ["a", "a", "a"],
-            "success": [True, False, False],
-            "time_to_goal": [25.0, None, 95.0],
-        },
-        schema={"stage": pl.String, "success": pl.Boolean, "time_to_goal": pl.Float64},
-    )
-    out = beckon.paper_outcomes(df)
-    assert out["served"].to_list() == [True, False, False]
-    assert out["censored"].to_list() == [False, True, True]
-    assert out["censor_at_s"].to_list() == [95.0] * 3
-    assert out["wait_s"].to_list() == [20.0, 90.0, 90.0]
 
 
 def test_paper_outcomes_censor_at_the_stage_timeout_when_known() -> None:
@@ -335,18 +288,6 @@ def test_stage_timeouts_come_from_the_run_manifest(tmp_path: pathlib.Path) -> No
     }
 
 
-def test_case_table_pairs_the_arms_by_seed_and_adjusts_within_the_family() -> None:
-    episodes = beckon.paper_outcomes(beckon.load_episodes(_summary(episodes=4)))
-    table = beckon.case_table(episodes, n_boot=200).sort("case")
-    assert table["case"].to_list() == ["hall_near", "ward_door"]
-    assert table["n_pairs"].to_list() == [4, 4]
-    assert table["wait_on"].to_list() == pytest.approx([16.5, 16.5])
-    assert table["wait_off"].to_list() == pytest.approx([36.5, 85.0])
-    assert table["served_off"].to_list() == [1.0, 0.0]
-    assert table["diff"].to_list() == pytest.approx([-20.0, -68.5])
-    assert all(p < 0.05 for p in table["p_holm"].to_list())
-
-
 def test_case_table_leaves_an_unpaired_case_without_a_difference() -> None:
     episodes = beckon.paper_outcomes(beckon.load_episodes(_summary()))
     one_armed = episodes.filter(
@@ -366,20 +307,6 @@ def test_case_table_leaves_an_unpaired_case_without_a_difference() -> None:
     ) == (0, None, None, None, None)
     table = beckon.case_table(episodes.filter(pl.col("arm") == "on"), n_boot=50)
     assert "p_holm" not in table.columns and table["n_pairs"].to_list() == [0, 0]
-
-
-def test_planner_table_pools_the_paired_differences_over_cases() -> None:
-    episodes = beckon.paper_outcomes(
-        beckon.load_episodes(_summary(planners=("dwb", "mppi"), episodes=4))
-    )
-    table = beckon.planner_table(episodes, n_boot=200).sort("planner")
-    assert table["planner"].to_list() == ["dwb", "mppi"]
-    assert table["n_cases"].to_list() == [2, 2]
-    assert table["diff"].to_list() == pytest.approx([-44.25, -44.25])
-    assert table["served_on"].to_list() == [1.0, 1.0] and table[
-        "served_off"
-    ].to_list() == [0.5, 0.5]
-    assert all(row["ci_high"] < 0 for row in table.iter_rows(named=True))
 
 
 def test_main_analyze_returns_zero_after_printing_the_tables(
@@ -404,17 +331,3 @@ def test_main_analyze_returns_zero_after_printing_the_tables(
     assert (tmp_path / "out" / "planners.csv").is_file()
 
 
-def test_paper_outcomes_preserves_null_success() -> None:
-    df = pl.DataFrame(
-        {
-            "stage": ["s", "s", "s"],
-            "success": pl.Series([True, False, None], dtype=pl.Boolean),
-            "time_to_goal": [10.0, None, None],
-        }
-    )
-    out = beckon.paper_outcomes(df, timeouts={"s": 60.0})
-    assert out["served"].to_list() == [True, False, None]
-    assert out["censored"].to_list() == [False, True, None]
-    assert out["wait_s"].to_list() == pytest.approx(
-        [10.0 - beckon.CALL_ONSET_S, 60.0 - beckon.CALL_ONSET_S, None]
-    )

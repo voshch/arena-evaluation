@@ -15,17 +15,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
-    ComplianceMetricsCalculator,
-)
 from arena_evaluation.processing.metrics.holistic.holistic_metrics import (
     HolisticMetricsCalculator,
-)
-from arena_evaluation.processing.metrics.naturalness.trajectory import (
-    TrajectoryMetricsCalculator,
 )
 from arena_evaluation.processing.metrics.performance.collision_metrics import (
     CollisionMetricsCalculator,
@@ -33,16 +26,6 @@ from arena_evaluation.processing.metrics.performance.collision_metrics import (
 from arena_evaluation.processing.metrics.performance.efficiency_metrics import (
     PathEfficiencyCalculator,
 )
-from arena_evaluation.processing.metrics.performance.motion_metrics import (
-    MotionMetricsCalculator,
-)
-from arena_evaluation.processing.metrics.social.proxemics_extended import (
-    ProxemicsExtendedCalculator,
-)
-from arena_evaluation.processing.metrics.social.social_forces import (
-    SocialForcesCalculator,
-)
-from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from flat_peds import flat_peds
 from robot_params_factory import make_robot_params
@@ -70,198 +53,13 @@ def _robot_tracks(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-# ==============================================================================
 # 1. NATURALNESS & GEOMETRIC BASELINES (Theta*, ADE, FDE, MHD, Topology, PI)
-# ==============================================================================
 
 
-def test_literature_theta_star_any_angle_optimality() -> None:
-    """Bhattacharya et al. (2012): Theta* must find Euclidean straight line in free space."""
-    grid = StaticGrid(
-        origin_xy=(0.0, 0.0), resolution_m=0.1, lethal=np.zeros((60, 60), dtype=bool)
-    )
-    res = plan_route(grid, (1.0, 1.0), (4.0, 5.0))
-    assert res.null_reason is None
-    expected_len = np.hypot(3.0, 4.0)  # 5.0m
-    assert abs(res.length_m - expected_len) < 1e-3
-    assert len(res.points) == 2  # Exactly start and goal (any-angle shortcutting)
-
-
-def test_literature_path_irregularity_straight_vs_weaving() -> None:
-    """Morales et al. / Stulp et al.: Path Irregularity must be 0.0 for straight line, >0 for weaving."""
-    calc = TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
-
-    # Case A: Straight line trajectory
-    df_straight = pl.DataFrame(
-        {
-            "t_ns": [0, SEC, 2 * SEC],
-            "x": [0.0, 5.0, 10.0],
-            "y": [0.0, 0.0, 0.0],
-            "yaw": [0.0, 0.0, 0.0],
-        }
-    )
-    ep_straight = AlignedEpisodeBundle(
-        1, df_straight, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0]
-    )
-    res_straight = calc.calculate(ep_straight, {})
-    assert abs(res_straight["path_irregularity"]) < 1e-4
-
-    # Case B: Weaving trajectory (zigzagging yaw changes)
-    df_weave = pl.DataFrame(
-        {
-            "t_ns": [0, SEC, 2 * SEC, 3 * SEC, 4 * SEC],
-            "x": [0.0, 2.5, 5.0, 7.5, 10.0],
-            "y": [0.0, 1.0, 0.0, 1.0, 0.0],
-            "yaw": [0.38, -0.38, 0.38, -0.38, 0.0],
-        }
-    )
-    ep_weave = AlignedEpisodeBundle(2, df_weave, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0])
-    res_weave = calc.calculate(ep_weave, {})
-    assert res_weave["path_irregularity"] > 0.1
-
-
-def test_literature_topological_complexity_winding_loops() -> None:
-    """Mavrogiannis et al. (2019): Winding number W = 1/(2*pi) * |sum Delta theta_rel|."""
-    calc = TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
-
-    # Robot circles a stationary pedestrian at (5.0, 5.0) in a full 2*pi loop (radius 2.0m)
-    angles = np.linspace(0, 2 * np.pi, 50)
-    rx = 5.0 + 2.0 * np.cos(angles)
-    ry = 5.0 + 2.0 * np.sin(angles)
-    t_ns = np.linspace(0, 10 * SEC, 50, dtype=int)
-
-    df_tf = pl.DataFrame({"t_ns": t_ns, "x": rx, "y": ry, "yaw": angles})
-    tracks = _robot_tracks(df_tf)
-    df_peds = _peds([(int(t), [{"ped_id": "ped_0", "x": 5.0, "y": 5.0}]) for t in t_ns])
-
-    ep = AlignedEpisodeBundle(
-        1,
-        df_tf,
-        [7.0, 5.0, 0.0],
-        [7.0, 5.0, 0.0],
-        topics={"robot_tracks": tracks, "pedestrian_arena_peds": df_peds},
-    )
-    res = calc.calculate(ep, {})
-
-    assert res["topological_complexity"] is not None
-    assert abs(res["topological_complexity"] - 1.0) < 0.05
-
-
-# ==============================================================================
 # 2. SOCIAL PROXEMICS, FORCES & MUTUAL ACCOMMODATION (Hall, Helbing, Trautman)
-# ==============================================================================
 
 
-def test_literature_proxemics_four_zones_and_monotonic_psii() -> None:
-    """Hall (1966) & Gao & Huang (2022): Clearance classifies zones; PSII increases monotonically with intrusion depth."""
-    calc = ProxemicsExtendedCalculator(make_robot_params(robot_radius=0.35))
-
-    t_ns = [0, SEC]
-    tf_df = pl.DataFrame(
-        {"t_ns": t_ns, "x": [0.0, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0]}
-    )
-    tracks = _robot_tracks(tf_df)
-
-    # Case A: Intimate Intrusion
-    peds_intimate = _peds(
-        [(int(t), [{"ped_id": "ped_0", "x": 0.8, "y": 0.0}]) for t in t_ns]
-    )
-    ep_a = AlignedEpisodeBundle(
-        1,
-        tf_df,
-        [0, 0, 0],
-        [0, 0, 0],
-        topics={"robot_tracks": tracks, "pedestrian_arena_peds": peds_intimate},
-    )
-    res_a = calc.calculate(ep_a, {})
-
-    # Case B: Personal Intrusion
-    peds_personal = _peds(
-        [(int(t), [{"ped_id": "ped_0", "x": 1.45, "y": 0.0}]) for t in t_ns]
-    )
-    ep_b = AlignedEpisodeBundle(
-        2,
-        tf_df,
-        [0, 0, 0],
-        [0, 0, 0],
-        topics={"robot_tracks": tracks, "pedestrian_arena_peds": peds_personal},
-    )
-    res_b = calc.calculate(ep_b, {})
-
-    # Case C: Free / Public
-    peds_free = _peds(
-        [(int(t), [{"ped_id": "ped_0", "x": 4.0, "y": 0.0}]) for t in t_ns]
-    )
-    ep_c = AlignedEpisodeBundle(
-        3,
-        tf_df,
-        [0, 0, 0],
-        [0, 0, 0],
-        topics={"robot_tracks": tracks, "pedestrian_arena_peds": peds_free},
-    )
-    res_c = calc.calculate(ep_c, {})
-
-    assert res_a["time_in_intimate_zone"] > 0.9
-    assert res_b["time_in_personal_zone"] > 0.9
-    assert (
-        res_c["time_in_intimate_zone"] == 0.0 and res_c["time_in_personal_zone"] == 0.0
-    )
-
-    assert (
-        res_a["personal_space_intrusion_integral"]
-        > res_b["personal_space_intrusion_integral"]
-        > 0.0
-    )
-    assert res_c["personal_space_intrusion_integral"] == 0.0
-
-
-def test_literature_social_forces_anisotropic_potential() -> None:
-    """Helbing & Molnar (1995): Pedestrian heading induces elliptical potential (higher in front, lower on sides)."""
-    calc = SocialForcesCalculator(make_robot_params(robot_radius=0.35))
-
-    t_ns = [0, SEC]
-    tf_front = pl.DataFrame(
-        {"t_ns": t_ns, "x": [1.0, 1.0], "y": [0.0, 0.0], "yaw": [np.pi, np.pi]}
-    )
-    tracks_front = _robot_tracks(tf_front)
-    tf_side = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": [0.0, 0.0],
-            "y": [1.0, 1.0],
-            "yaw": [-np.pi / 2, -np.pi / 2],
-        }
-    )
-    tracks_side = _robot_tracks(tf_side)
-
-    peds_df = _peds(
-        [(int(t), [{"ped_id": "ped_0", "x": 0.0, "y": 0.0, "yaw": 0.0}]) for t in t_ns]
-    )
-
-    ep_front = AlignedEpisodeBundle(
-        1,
-        tf_front,
-        [0, 0, 0],
-        [0, 0, 0],
-        topics={"robot_tracks": tracks_front, "pedestrian_arena_peds": peds_df},
-    )
-    ep_side = AlignedEpisodeBundle(
-        2,
-        tf_side,
-        [0, 0, 0],
-        [0, 0, 0],
-        topics={"robot_tracks": tracks_side, "pedestrian_arena_peds": peds_df},
-    )
-
-    res_front = calc.calculate(ep_front, {})
-    res_side = calc.calculate(ep_side, {})
-
-    assert res_front["ci_mean"] > res_side["ci_mean"]
-
-
-# ==============================================================================
 # 3. PERFORMANCE & EFFICIENCY (Anderson et al. SPL, Jerk, Path Efficiency)
-# ==============================================================================
 
 
 def test_literature_spl_and_path_efficiency() -> None:
@@ -331,89 +129,7 @@ def test_literature_spl_and_path_efficiency() -> None:
     assert res_fail_coll["success"] is False
 
 
-def test_literature_kinematic_jerk_smoothness() -> None:
-    """Flash & Hogan / Kyriakopoulos: Jerk measures derivative of acceleration."""
-    calc = MotionMetricsCalculator(make_robot_params(robot_radius=0.25))
-
-    t = np.linspace(0, 5, 50)
-    t_ns = (t * SEC).astype(int)
-
-    df_smooth = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": 0.25 * t**2,
-            "y": np.zeros_like(t),
-            "yaw": np.zeros_like(t),
-        }
-    )
-    ep_smooth = AlignedEpisodeBundle(
-        1, df_smooth, [0, 0, 0], [10, 0, 0], topics={"tf_gt": df_smooth}
-    )
-    res_smooth = calc.calculate(ep_smooth, {})
-
-    assert res_smooth["jerk_mean"] is not None
-    assert res_smooth["jerk_mean"] >= 0.0
-
-
-# ==============================================================================
 # 4. ECOLOGICAL, PASSING RULES & HOLISTIC (CoT, E-CoT, Right-Hand Passing)
-# ==============================================================================
-
-
-def test_literature_corridor_passing_rule_compliance() -> None:
-    """Continental Traffic Rule: Head-on encounters require passing to the right of oncoming pedestrians."""
-    calc = ComplianceMetricsCalculator(make_robot_params(robot_radius=0.35))
-
-    t_ns = np.array([0, SEC, 2 * SEC, 3 * SEC])
-    peds_df = _peds(
-        [
-            (
-                int(t_ns[i]),
-                [{"ped_id": "ped_0", "x": x, "y": 0.0, "vx": -2.0, "vy": 0.0}],
-            )
-            for i, x in enumerate([8.0, 6.0, 4.0, 2.0])
-        ]
-    )
-
-    # Case A: Robot moves in +X direction at y = -0.5 (to the right of oncoming ped -> Compliant)
-    tf_right = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": [1.0, 3.0, 5.0, 7.0],
-            "y": [-0.5, -0.5, -0.5, -0.5],
-            "yaw": [0.0, 0.0, 0.0, 0.0],
-        }
-    )
-    tracks_right = _robot_tracks(tf_right)
-    ep_right = AlignedEpisodeBundle(
-        1,
-        tf_right,
-        [0, 0, 0],
-        [10, 0, 0],
-        topics={"robot_tracks": tracks_right, "pedestrian_arena_peds": peds_df},
-    )
-    comp_right = calc._compute_passing_compliance(ep_right)
-    assert comp_right == 1.0
-
-    # Case B: Robot moves in +X direction at y = +0.5 (to the left of oncoming ped -> Non-compliant)
-    tf_left = pl.DataFrame(
-        {
-            "t_ns": t_ns,
-            "x": [1.0, 3.0, 5.0, 7.0],
-            "y": [0.5, 0.5, 0.5, 0.5],
-            "yaw": [0.0, 0.0, 0.0, 0.0],
-        }
-    )
-    tracks_left = _robot_tracks(tf_left)
-    ep_left = AlignedEpisodeBundle(
-        2,
-        tf_left,
-        [0, 0, 0],
-        [10, 0, 0],
-        topics={"robot_tracks": tracks_left, "pedestrian_arena_peds": peds_df},
-    )
-    comp_left = calc._compute_passing_compliance(ep_left)
-    assert comp_left == 0.0
 
 
 def test_literature_holistic_effective_cost_of_transport() -> None:

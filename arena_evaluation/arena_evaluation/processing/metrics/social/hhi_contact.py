@@ -22,7 +22,7 @@ from arena_evaluation.processing.metrics.base import (
     Direction,
 )
 from arena_evaluation.processing.pedestrian_frames import pedestrians_at
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 CONTACT_TYPES: Final[dict[int, str]] = {10: "hug", 11: "shake_hand"}
@@ -41,141 +41,122 @@ WINDOWS: Final[tuple[str, ...]] = ("approach", "hold", "post", "rest")
 
 STALL_SERIES_SCHEMA: Final[pl.Schema] = SeriesHhiContact.polars_schema()
 
-HHI_INTERACTION = define_metric(
+
+def _episode_metric(
+    name: str, dtype: pl.DataType, unit: str, description: str
+) -> Metric:
+    """Episode-scope output of the two-person interaction, with a null reason."""
+    return define_metric(
+        name,
+        dtype,
+        scopes=(MetricScope.EPISODE,),
+        unit=unit,
+        description=description,
+        null_reason=True,
+    )
+
+
+HHI_INTERACTION = _episode_metric(
     "hhi_interaction",
     pl.String,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="First two-person contact type of the interaction episode: hug or shake_hand.",
-    null_reason=True,
+    "",
+    "First two-person contact type of the interaction episode: hug or shake_hand.",
 )
-HHI_HOLD_ONSET_S = define_metric(
+HHI_HOLD_ONSET_S = _episode_metric(
     "hhi_hold_onset_s",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="s",
-    description="Seconds from the episode's start to the pair's hold onset.",
-    null_reason=True,
+    "s",
+    "Seconds from the episode's start to the pair's hold onset.",
 )
-HHI_RELEASE_S = define_metric(
+HHI_RELEASE_S = _episode_metric(
     "hhi_release_s",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="s",
-    description="Seconds from the episode's start to the pair's release.",
-    null_reason=True,
+    "s",
+    "Seconds from the episode's start to the pair's release.",
 )
-HHI_EPISODE_S = define_metric(
+HHI_EPISODE_S = _episode_metric(
     "hhi_episode_s",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="s",
-    description="Seconds of the episode's robot time axis the interaction windows are measured over.",
-    null_reason=True,
+    "s",
+    "Seconds of the episode's robot time axis the interaction windows are measured over.",
 )
-HHI_STALL_COUNT = define_metric(
+HHI_STALL_COUNT = _episode_metric(
     "hhi_stall_count",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Number of robot stalls of at least 3 s after first motion and away from the goal.",
-    null_reason=True,
+    "",
+    "Number of robot stalls of at least 3 s after first motion and away from the goal.",
 )
-HHI_STALL_TIME_S = define_metric(
+HHI_STALL_TIME_S = _episode_metric(
     "hhi_stall_time_s",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="s",
-    description="Total seconds the robot spent in those stalls.",
-    null_reason=True,
+    "s",
+    "Total seconds the robot spent in those stalls.",
 )
-HHI_STALLS_APPROACH = define_metric(
+HHI_STALLS_APPROACH = _episode_metric(
     "hhi_stalls_approach",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Stalls whose onset fell in the approach window.",
-    null_reason=True,
+    "",
+    "Stalls whose onset fell in the approach window.",
 )
-HHI_STALLS_HOLD = define_metric(
+HHI_STALLS_HOLD = _episode_metric(
     "hhi_stalls_hold",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Stalls whose onset fell in the hold window.",
-    null_reason=True,
+    "",
+    "Stalls whose onset fell in the hold window.",
 )
-HHI_STALLS_POST = define_metric(
+HHI_STALLS_POST = _episode_metric(
     "hhi_stalls_post",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Stalls whose onset fell in the post-release window.",
-    null_reason=True,
+    "",
+    "Stalls whose onset fell in the post-release window.",
 )
-HHI_STALLS_REST = define_metric(
+HHI_STALLS_REST = _episode_metric(
     "hhi_stalls_rest",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Stalls whose onset fell in the rest window.",
-    null_reason=True,
+    "",
+    "Stalls whose onset fell in the rest window.",
 )
-HHI_SHARE_APPROACH = define_metric(
+HHI_SHARE_APPROACH = _episode_metric(
     "hhi_share_approach",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="1",
-    description="Share of the episode's time covered by the approach window.",
-    null_reason=True,
+    "1",
+    "Share of the episode's time covered by the approach window.",
 )
-HHI_SHARE_HOLD = define_metric(
+HHI_SHARE_HOLD = _episode_metric(
     "hhi_share_hold",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="1",
-    description="Share of the episode's time covered by the hold window.",
-    null_reason=True,
+    "1",
+    "Share of the episode's time covered by the hold window.",
 )
-HHI_SHARE_POST = define_metric(
+HHI_SHARE_POST = _episode_metric(
     "hhi_share_post",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="1",
-    description="Share of the episode's time covered by the post-release window.",
-    null_reason=True,
+    "1",
+    "Share of the episode's time covered by the post-release window.",
 )
-HHI_SHARE_REST = define_metric(
+HHI_SHARE_REST = _episode_metric(
     "hhi_share_rest",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="1",
-    description="Share of the episode's time covered by the rest window.",
-    null_reason=True,
+    "1",
+    "Share of the episode's time covered by the rest window.",
 )
-HHI_PASSES_BETWEEN = define_metric(
+HHI_PASSES_BETWEEN = _episode_metric(
     "hhi_passes_between",
     pl.Int64,
-    scopes=(MetricScope.EPISODE,),
-    unit="",
-    description="Number of robot steps that passed between the two interacting pedestrians during the hold.",
-    null_reason=True,
+    "",
+    "Number of robot steps that passed between the two interacting pedestrians during the hold.",
 )
-HHI_MIN_PAIR_CLEARANCE = define_metric(
+HHI_MIN_PAIR_CLEARANCE = _episode_metric(
     "hhi_min_pair_clearance",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="m",
-    description="Minimum distance of the robot to the segment between the two interacting pedestrians during the hold.",
-    null_reason=True,
+    "m",
+    "Minimum distance of the robot to the segment between the two interacting pedestrians during the hold.",
 )
-HHI_PAIR_GAP_HOLD = define_metric(
+HHI_PAIR_GAP_HOLD = _episode_metric(
     "hhi_pair_gap_hold",
     pl.Float64,
-    scopes=(MetricScope.EPISODE,),
-    unit="m",
-    description="Median distance between the two interacting pedestrians during the hold.",
-    null_reason=True,
+    "m",
+    "Median distance between the two interacting pedestrians during the hold.",
 )
 
 
@@ -239,11 +220,8 @@ def window_bounds(
         return (a, max(a, b))
 
     if hold_onset is None:
-        return {
-            "approach": clip(0.0, t_end),
-            "hold": clip(t_end, t_end),
-            "post": clip(t_end, t_end),
-            "rest": clip(t_end, t_end),
+        return dict.fromkeys(WINDOWS, clip(t_end, t_end)) | {
+            "approach": clip(0.0, t_end)
         }
     hold_end = t_end if release is None else release
     post_end = hold_end if release is None else release + post_s
@@ -255,22 +233,36 @@ def window_bounds(
     }
 
 
+def _last_window(windows: dict[str, tuple[float, float]]) -> str | None:
+    """Last window with a non-zero extent; its end also takes an onset exactly on the boundary."""
+    return max(
+        (window for window in WINDOWS if windows[window][1] > windows[window][0]),
+        key=lambda window: windows[window][1],
+        default=None,
+    )
+
+
+def _window_containing(
+    onset: float, windows: dict[str, tuple[float, float]], last: str | None
+) -> str | None:
+    """The window whose [start, end) holds the onset, or the last window's closed end."""
+    for window in WINDOWS:
+        start, end = windows[window]
+        if start <= onset < end or (window == last and onset == end):
+            return window
+    return None
+
+
 def bucket(
     onsets: typing.Iterable[float], windows: dict[str, tuple[float, float]]
 ) -> dict[str, int]:
     """Count onsets per window, [start, end) except the last non-empty window which also takes its end."""
     counts: dict[str, int] = dict.fromkeys(WINDOWS, 0)
-    last = max(
-        (w for w in WINDOWS if windows[w][1] > windows[w][0]),
-        key=lambda w: windows[w][1],
-        default=None,
-    )
+    last = _last_window(windows)
     for onset in onsets:
-        for window in WINDOWS:
-            start, end = windows[window]
-            if start <= onset < end or (window == last and onset == end):
-                counts[window] += 1
-                break
+        window = _window_containing(onset, windows, last)
+        if window is not None:
+            counts[window] += 1
     return counts
 
 
@@ -455,9 +447,8 @@ class ContactInteractionCalculator(BaseMetricCalculator):
             # Without the human-human interaction stream no hold/release window exists: the stall
             # counters and window shares are unknown, not zero. A recorded stream with no contact
             # event is different and keeps its honest zeros.
-            without_stream = dict.fromkeys(self.output_keys())
-            without_stream["hhi_episode_s"] = t_end
-            return without_stream
+            out["hhi_episode_s"] = t_end
+            return out
         interaction_type, participants, hold_onset, release = self._contact_edges(
             events, int(t0_ns)
         )
@@ -565,29 +556,16 @@ class ContactInteractionCalculator(BaseMetricCalculator):
             events, int(t0_ns)
         )
         windows = window_bounds(t_end, hold_onset, release)
-        last_window = max(
-            (window for window in WINDOWS if windows[window][1] > windows[window][0]),
-            key=lambda window: windows[window][1],
-            default=None,
-        )
-        resolved_robot = robot_id or (episode.robot_name or "robot")
+        last_window = _last_window(windows)
         window_of = {
-            onset: next(
-                (
-                    window
-                    for window in WINDOWS
-                    if windows[window][0] <= onset < windows[window][1]
-                    or (window == last_window and onset == windows[window][1])
-                ),
-                None,
-            )
+            onset: _window_containing(onset, windows, last_window)
             for onset, _end in stalls
         }
         rows = [
             {
                 "run_id": run_id,
                 "episode_id": int(episode.episode_id),
-                "robot_id": resolved_robot,
+                "robot_id": robot_id or (episode.robot_name or "robot"),
                 "t_ns": int(t0_ns + round(onset * 1e9)),
                 "onset_s": onset,
                 "duration_s": end - onset,

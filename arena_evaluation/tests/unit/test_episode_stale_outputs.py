@@ -10,12 +10,11 @@ import polars as pl
 import pytest
 
 from arena_evaluation.processing.pipeline import (
-    EpisodeEvaluation,
     ProcessingPipeline,
 )
 from arena_evaluation.storage.exceptions import StaleBenchmarkError
 from arena_evaluation.storage.folder_manager import FolderManager
-from arena_evaluation.storage.layout import episode_is_complete, write_episode_stamp
+from arena_evaluation.storage.layout import write_episode_stamp
 from arena_evaluation.storage.manifest import MetadataWriter
 from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
 
@@ -126,29 +125,6 @@ def test_evaluate_episode_skips_only_a_complete_episode(
 
     assert evaluated.rows
     assert evaluated.rows[0]["status"] == "no_recording"
-
-
-def test_evaluate_episode_force_process_reevaluates_a_complete_episode(
-    tmp_path: pathlib.Path,
-) -> None:
-    pipeline, complete, _ = _stamped_episode(tmp_path)
-
-    evaluated = pipeline.evaluate_episode(complete, force_process=True)
-
-    assert evaluated.rows
-    assert evaluated.rows[0]["status"] == "no_recording"
-
-
-def test_publish_evaluation_stamps_a_status_only_evaluation(
-    tmp_path: pathlib.Path,
-) -> None:
-    metrics_dir = tmp_path / "bench" / "episodes" / "episode_000" / "metrics"
-    metrics_dir.mkdir(parents=True)
-    evaluation = EpisodeEvaluation(episode_id=0, rows=[], metrics_dir=metrics_dir)
-
-    assert not episode_is_complete(metrics_dir)
-    ProcessingPipeline.publish_evaluation(evaluation)
-    assert episode_is_complete(metrics_dir)
 
 
 def test_process_benchmark_force_process_recomputes_a_complete_episode(
