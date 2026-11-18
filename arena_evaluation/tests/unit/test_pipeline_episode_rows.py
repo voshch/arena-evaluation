@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import pytest
 
-pl = pytest.importorskip("polars")
+import polars as pl
 
-from arena_evaluation.processing.pipeline import (  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.processing.pipeline import (
     _episode_rows,
     _episode_window,
     _record_conditions,

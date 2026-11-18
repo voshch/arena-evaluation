@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import pathlib
 
-import pytest
 
-pl = pytest.importorskip("polars")
-
-from arena_evaluation.processing.pipeline import _status_row  # noqa: E402  # follows pytest.importorskip
-from arena_evaluation.storage.schemas import EpisodeDescriptor  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.processing.pipeline import _status_row
+from arena_evaluation.storage.schemas import EpisodeDescriptor
 
 _CROWD_FIELDS = frozenset(
     {"crowd_visible", "crowd_condition", "crowd_visibility_source"}

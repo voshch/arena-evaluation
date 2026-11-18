@@ -4,7 +4,8 @@ import shutil
 
 import pytest
 
-pl = pytest.importorskip("polars")
+import polars as pl
+
 pytest.importorskip("arena_simulation_setup.shared.judge")
 
 import shapely
@@ -17,9 +18,9 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import _wa
 from arena_evaluation.processing.parquet_store import TopicParquetStore
 from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.contracts import check_benchmark
-from arena_evaluation.storage.folder_manager import FolderManager  # noqa: E402  # follows pytest.importorskip
-from arena_evaluation.storage.manifest import MetadataWriter  # noqa: E402  # follows pytest.importorskip
-from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.storage.folder_manager import FolderManager
+from arena_evaluation.storage.manifest import MetadataWriter
+from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
 
 S = 1_000_000_000
 WORLD = "synthetic_pipeline_world"

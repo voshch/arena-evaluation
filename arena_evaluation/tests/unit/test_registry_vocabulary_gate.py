@@ -12,15 +12,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
-pl = pytest.importorskip("polars")
+import polars as pl
 
-from arena_evaluation.processing.pipeline import (  # noqa: E402
+from arena_evaluation.processing.pipeline import (
     _align_bundle,
     _calculator_topic_names,
 )
-from arena_evaluation.storage.schemas import TopicBundle  # noqa: E402
+from arena_evaluation.storage.schemas import TopicBundle
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATE_FILE = Path(__file__).resolve()

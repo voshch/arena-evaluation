@@ -13,7 +13,6 @@ respects the expected free-field / barrier physics:
 
 from __future__ import annotations
 
-import pathlib
 import numpy as np
 import pytest
 
@@ -22,15 +21,7 @@ from arena_evaluation.processing.acoustics.impedance_grid import (
     compute_attenuations,
 )
 
-sys_path = (
-    pathlib.Path(__file__).resolve().parents[1] / "unit"
-)  # allow local import in-tree
-import sys  # noqa: E402
-
-if str(sys_path) not in sys.path:
-    sys.path.insert(0, str(sys_path))
-
-from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST  # noqa: E402
+from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST
 
 DOOR_TL = 25.0  # closed-door transmission loss (lighter than the 47 dB wall)
 

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from robot_params_factory import make_robot_params
 
-pl = pytest.importorskip("polars")
+import polars as pl
 
 from arena_evaluation.processing.metrics.base import Direction, ScopeSlice
 from arena_evaluation.processing.metrics.common.zones import (
@@ -22,8 +22,8 @@ from arena_evaluation.processing.metrics.ecological.regime_metrics import (
     _used_elevator_during_alarm,
     _windows,
 )
-from arena_evaluation.storage.registry import MetricScope  # noqa: E402  # follows pytest.importorskip
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.storage.registry import MetricScope
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from snapshot_rows import snapshot_frame
 
 

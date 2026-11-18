@@ -23,47 +23,45 @@ import time
 import types
 import typing
 
-_T = typing.TypeVar("_T")
-
 import attrs
 import rclpy
 import yaml
-from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 from arena_bringup.defaults import default_sim
 from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
 from arena_rclpy_mixins import ActionClientWrapper, ArenaMixinNode, ClientWrapper
 from arena_rclpy_mixins.spin import start_loop_watchdog
 from arena_runtime.env.constants import Constants
-from arena_runtime.env.task_layer import TM_AXES, TaskLayer, TaskModes, decode_modes, encode_modes, registered_modes, selection_args, task_layer, task_layer_name
+from arena_runtime.env.task_layer import (
+    TM_AXES,
+    TaskLayer,
+    TaskModes,
+    decode_modes,
+    encode_modes,
+    registered_modes,
+    selection_args,
+    task_layer,
+    task_layer_name,
+)
 from arena_runtime_msgs.action import RunEpisode
-from arena_runtime_msgs.msg import EnvRecord, EnvRegistry, EpisodeRecord, HoldRegistry, LockstepStatus, SimState
+from arena_runtime_msgs.msg import (
+    EnvRecord,
+    EnvRegistry,
+    EpisodeRecord,
+    HoldRegistry,
+    LockstepStatus,
+    SimState,
+)
 from arena_runtime_msgs.srv import DespawnEnv, QueueEpisode, SpawnEnv
 from arena_simulation_setup.tree import ResolverVerdict
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action.client import ClientGoalHandle
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
-
-STATE_TOPIC = "/arena/benchmark/state"
-PREPARED = "benchmark: prepared run_id="
-SIM_STATE_TOPIC = "/arena/state/sim"
-ARENA_NODE_FQN = "/arena"
-
-_CANCEL_SETTLE_S = 30.0
-_HEARTBEAT_S = 30.0
-_ARENA_SIGINT_GRACE_S = 15.0
-_ARENA_SIGTERM_GRACE_S = 5.0
-_ARENA_ORPHAN_GRACE_S = 1.0
-_SIM_STALL_S = 60.0
-_MAX_SIM_DEATHS = 3
-_LOOP_DEADLINE_S = 120.0
-_HUNG_EXIT_CODE = 4
-_SHUTDOWN_DEADLINE_S = _ARENA_SIGINT_GRACE_S + _ARENA_SIGTERM_GRACE_S + _ARENA_ORPHAN_GRACE_S + 60.0
-
-# EpisodeRecord.outcome_state labels (arena_runtime_msgs/msg/EpisodeRecord.msg)
-_EPISODE_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
-
 
 from ..ingestion.metadata import IngestionMetadata
 from ..storage.planner_names import split_planner_name
@@ -79,7 +77,37 @@ from .state import (
     find_most_recent_resumable,
 )
 from .step import Step, StepErrorKind, StepResult
-from .tree import ContestIdentifier, SuiteIdentifier, _config_file  # noqa: E402  # imported after the sys.path/ROS bootstrap
+from .tree import ContestIdentifier, SuiteIdentifier, _config_file
+
+_T = typing.TypeVar("_T")
+
+STATE_TOPIC = "/arena/benchmark/state"
+PREPARED = "benchmark: prepared run_id="
+SIM_STATE_TOPIC = "/arena/state/sim"
+ARENA_NODE_FQN = "/arena"
+
+_CANCEL_SETTLE_S = 30.0
+_HEARTBEAT_S = 30.0
+_ARENA_SIGINT_GRACE_S = 15.0
+_ARENA_SIGTERM_GRACE_S = 5.0
+_ARENA_ORPHAN_GRACE_S = 1.0
+_SIM_STALL_S = 60.0
+_MAX_SIM_DEATHS = 3
+_LOOP_DEADLINE_S = 120.0
+_HUNG_EXIT_CODE = 4
+_SHUTDOWN_DEADLINE_S = (
+    _ARENA_SIGINT_GRACE_S + _ARENA_SIGTERM_GRACE_S + _ARENA_ORPHAN_GRACE_S + 60.0
+)
+
+# EpisodeRecord.outcome_state labels (arena_runtime_msgs/msg/EpisodeRecord.msg)
+_EPISODE_OUTCOME_LABELS = {
+    0: "QUEUED",
+    1: "RUNNING",
+    2: "SUCCESS",
+    3: "FAILED",
+    4: "SKIPPED",
+    5: "FATAL",
+}
 
 
 def _arena_git_provenance(share: pathlib.Path) -> tuple[str | None, bool]:
@@ -125,7 +153,11 @@ def _proc_tree(root: int) -> dict[int, int]:
     return tree
 
 
-def _orphaned_env_ids(known: set[int], records: typing.Mapping[int, EnvRecord], registered: typing.Sequence[int]) -> list[int]:
+def _orphaned_env_ids(
+    known: set[int],
+    records: typing.Mapping[int, EnvRecord],
+    registered: typing.Sequence[int],
+) -> list[int]:
     """Env ids to despawn after a stalled spawn: registered first, then any env reserved during the wait that never went ready."""
     ids = list(dict.fromkeys(registered))
     for env_id, rec in records.items():
@@ -143,32 +175,51 @@ def closed_fraction(goal_dist_start: float, goal_dist_min: float) -> float:
     return max(0.0, min(1.0, (goal_dist_start - goal_dist_min) / goal_dist_start))
 
 
-_STATE_LABELS = {EpisodeRecord.SUCCESS: "SUCCESS", EpisodeRecord.FAILED: "FAILED", EpisodeRecord.SKIPPED: "SKIPPED"}
+_STATE_LABELS = {
+    EpisodeRecord.SUCCESS: "SUCCESS",
+    EpisodeRecord.FAILED: "FAILED",
+    EpisodeRecord.SKIPPED: "SKIPPED",
+}
 
 
 def episode_line(head: str, rec: EpisodeRecord, sim_s: float, wall_s: float) -> str:
     """Per-episode log line, ending in the integrity reasons when the episode is compromised."""
     label = _STATE_LABELS.get(rec.outcome_state, str(rec.outcome_state))
-    progress = f" progress={closed_fraction(rec.goal_dist_start, rec.goal_dist_min) * 100:.0f}% path={rec.path_length:.1f}m" if rec.goal_dist_start > 0.0 else ""
+    progress = (
+        f" progress={closed_fraction(rec.goal_dist_start, rec.goal_dist_min) * 100:.0f}% path={rec.path_length:.1f}m"
+        if rec.goal_dist_start > 0.0
+        else ""
+    )
     integrity = f" integrity={list(rec.integrity)!r}" if rec.integrity else ""
     return f"{head} {label} info={rec.outcome_info!r} sim={sim_s:.1f}s wall={wall_s:.1f}s{progress}{integrity}"
 
 
-def compromised_table(results: typing.Mapping[str, StepResult], step_map: typing.Mapping[str, Step]) -> str | None:
+def compromised_table(
+    results: typing.Mapping[str, StepResult], step_map: typing.Mapping[str, Step]
+) -> str | None:
     """Compromised and run episode counts per contestant, None when every episode was intact."""
     counts: dict[str, tuple[int, int]] = {}
     for key, result in sorted(results.items()):
         step = step_map.get(key)
         name = step.contestant.name if step else key
         compromised, run = counts.get(name, (0, 0))
-        counts[name] = (compromised + result.episodes_compromised, run + result.episodes_run)
-    table = [(name, str(compromised), str(run)) for name, (compromised, run) in counts.items() if compromised]
+        counts[name] = (
+            compromised + result.episodes_compromised,
+            run + result.episodes_run,
+        )
+    table = [
+        (name, str(compromised), str(run))
+        for name, (compromised, run) in counts.items()
+        if compromised
+    ]
     if not table:
         return None
     return format_table(("contestant", "compromised", "episodes"), table)
 
 
-def step_status(episodes_run: int, episodes_total: int) -> typing.Literal["ok", "partial", "failed"]:
+def step_status(
+    episodes_run: int, episodes_total: int
+) -> typing.Literal["ok", "partial", "failed"]:
     """How completely a step recorded its episodes, whatever their outcomes."""
     if episodes_run == 0:
         return "failed"
@@ -216,7 +267,9 @@ def _launch_key(k: str) -> str:
     return f"robot.{k}" if head in _CAP_KEYS else k
 
 
-def runtime_launch_args(suite_args: dict[str, str], passthrough: dict[str, str]) -> dict[str, str]:
+def runtime_launch_args(
+    suite_args: dict[str, str], passthrough: dict[str, str]
+) -> dict[str, str]:
     """Suite launch args under the CLI passthrough, an autostarted lockstep stepping from bringup unless `lockstep.paused` is set."""
     merged = {**suite_args, **passthrough}
     if merged.get("lockstep", "false").lower() in ("true", "1"):
@@ -224,7 +277,9 @@ def runtime_launch_args(suite_args: dict[str, str], passthrough: dict[str, str])
     return merged
 
 
-def build_launch_args(step: Step, simulator: str | None, passthrough: dict[str, str] | None = None) -> list[str]:
+def build_launch_args(
+    step: Step, simulator: str | None, passthrough: dict[str, str] | None = None
+) -> list[str]:
     """Return the arena launch argument list for a step, given the simulator name."""
     s = step.stage
     args = [
@@ -375,7 +430,12 @@ def build_pending(
         if existing.status == "ok":
             continue
         lost = existing.error_kind is None and existing.episodes_run == 0
-        if existing.status == "failed" and not retry_failed and not lost and existing.error_kind not in _RETRY_ON_RESUME:
+        if (
+            existing.status == "failed"
+            and not retry_failed
+            and not lost
+            and existing.error_kind not in _RETRY_ON_RESUME
+        ):
             continue
         pending.append(step)
     return pending
@@ -396,7 +456,11 @@ def _preflight_contest(contest: Contest) -> list[str]:
     """Check nav2 contestants reference a local_planner/inter_planner that actually exists."""
     problems: list[str] = []
     try:
-        share = pathlib.Path(get_package_share_directory("arena_robots")) / "config" / "nav2"
+        share = (
+            pathlib.Path(get_package_share_directory("arena_robots"))
+            / "config"
+            / "nav2"
+        )
     except PackageNotFoundError:
         return ["arena_robots is not installed, cannot validate nav2 contestants"]
 
@@ -409,15 +473,23 @@ def _preflight_contest(contest: Contest) -> list[str]:
         if lp:
             path = share / "controllers" / lp / "controller_config.yaml"
             if not path.is_file():
-                available = sorted(d.name for d in (share / "controllers").iterdir() if d.is_dir())
-                problems.append(f"{contestant.name}: local_planner {lp!r} has no {path} (available: {available})")
+                available = sorted(
+                    d.name for d in (share / "controllers").iterdir() if d.is_dir()
+                )
+                problems.append(
+                    f"{contestant.name}: local_planner {lp!r} has no {path} (available: {available})"
+                )
 
         ip = mobile.get("inter_planner")
         if ip and ip != "none":
             path = share / "interplanners" / ip / "interplanner_config.yaml"
             if not path.is_file():
-                available = sorted(d.name for d in (share / "interplanners").iterdir() if d.is_dir())
-                problems.append(f"{contestant.name}: inter_planner {ip!r} has no {path} (available: {available})")
+                available = sorted(
+                    d.name for d in (share / "interplanners").iterdir() if d.is_dir()
+                )
+                problems.append(
+                    f"{contestant.name}: inter_planner {ip!r} has no {path} (available: {available})"
+                )
 
     return problems
 
@@ -429,13 +501,24 @@ def env_key(step: Step, simulator: str | None, world_swap: bool = False) -> tupl
     return (step.contestant.name, step.robot, step.stage.map, simulator)
 
 
-def block_claim_key(block: list[Step], world_map: str | None, simulator: str | None, world_swap: bool = False) -> str:
+def block_claim_key(
+    block: list[Step],
+    world_map: str | None,
+    simulator: str | None,
+    world_swap: bool = False,
+) -> str:
     """Claim file name of an env block, identical across the lanes of a shared run."""
-    blob = json.dumps([list(env_key(block[0], simulator, world_swap)), world_map], default=str)
+    blob = json.dumps(
+        [list(env_key(block[0], simulator, world_swap)), world_map], default=str
+    )
     return hashlib.sha1(blob.encode()).hexdigest()
 
 
-def pick_block(block_queues: typing.Sequence[tuple[Step, asyncio.Queue[Step], str]], attached: typing.Mapping[int, int], claim: typing.Callable[[str], bool]) -> int | None:
+def pick_block(
+    block_queues: typing.Sequence[tuple[Step, asyncio.Queue[Step], str]],
+    attached: typing.Mapping[int, int],
+    claim: typing.Callable[[str], bool],
+) -> int | None:
     """Index of the first block with more queued steps than workers already on it, claimed, or None."""
     for index, (_, q, claim_key) in enumerate(block_queues):
         if q.qsize() <= attached.get(id(q), 0):
@@ -452,7 +535,10 @@ def robot_has_depth_camera(robot: str) -> bool:
     from arena_robots.Robot import RobotIdentifier  # noqa: PLC0415
     from arena_robots.Sensor import SensorType  # noqa: PLC0415
     from arena_robots.SetupFile import Config  # noqa: PLC0415
-    from arena_runtime.env.robot_manager.robots_manager import desugar_robot_entry, split_robot_arg  # noqa: PLC0415
+    from arena_runtime.env.robot_manager.robots_manager import (
+        desugar_robot_entry,
+        split_robot_arg,
+    )  # noqa: PLC0415
 
     for entry in split_robot_arg(robot):
         try:
@@ -461,7 +547,9 @@ def robot_has_depth_camera(robot: str) -> bool:
                 if view.assembly is None:
                     sensors = view.model_params.sensors
                 else:
-                    request, _, _ = arena_assembly.build_request(view.assembly, config.parts)
+                    request, _, _ = arena_assembly.build_request(
+                        view.assembly, config.parts
+                    )
                     sensors = view.effective_sensors(request, frames=config.frames)
                 if any(sensor.type == SensorType.DEPTH for sensor in sensors):
                     return True
@@ -470,7 +558,9 @@ def robot_has_depth_camera(robot: str) -> bool:
     return False
 
 
-def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = False) -> list[list[Step]]:
+def group_pending(
+    steps: list[Step], simulator: str | None, world_swap: bool = False
+) -> list[list[Step]]:
     groups = collections.defaultdict(list)
     peds_steps = []
 
@@ -485,7 +575,10 @@ def group_pending(steps: list[Step], simulator: str | None, world_swap: bool = F
     for step in peds_steps:
         placed = False
         for g in sorted_groups:
-            if g[0].stage.robot == step.stage.robot and g[0].stage.map == step.stage.map:
+            if (
+                g[0].stage.robot == step.stage.robot
+                and g[0].stage.map == step.stage.map
+            ):
                 g.append(step)
                 placed = True
                 break
@@ -563,7 +656,9 @@ def _walk_dict(d: dict, prefix: str = "") -> list[Parameter]:
     return out
 
 
-def stage_params(stage_config: dict, modes: TaskModes, namespaces: dict[str, dict[str, str]]) -> list[Parameter]:
+def stage_params(
+    stage_config: dict, modes: TaskModes, namespaces: dict[str, dict[str, str]]
+) -> list[Parameter]:
     """Route stage.config blocks of the selected modes to Parameter[] under the full names of the mode's namespace."""
     out: dict[str, Parameter] = {}
     for axis, names in modes.items():
@@ -573,7 +668,14 @@ def stage_params(stage_config: dict, modes: TaskModes, namespaces: dict[str, dic
             if namespace is None or not isinstance(block, dict):
                 continue
             is_scenario = mode == "scenario"
-            patched = {k: (pathlib.Path(val).stem if is_scenario and k == "file" and isinstance(val, str) else val) for k, val in block.items()}
+            patched = {
+                k: (
+                    pathlib.Path(val).stem
+                    if is_scenario and k == "file" and isinstance(val, str)
+                    else val
+                )
+                for k, val in block.items()
+            }
             out.update((p.name, p) for p in _walk_dict(patched, namespace))
     return list(out.values())
 
@@ -581,7 +683,10 @@ def stage_params(stage_config: dict, modes: TaskModes, namespaces: dict[str, dic
 def _human_params(stage_config: dict) -> list[Parameter]:
     """The stage.config human backend blocks as namespaced Parameter[]."""
     out: list[Parameter] = []
-    for namespace in (*Constants.HUMAN_PARAM_NAMESPACES.values(), Constants.HUMAN_PARAM_RESERVED):
+    for namespace in (
+        *Constants.HUMAN_PARAM_NAMESPACES.values(),
+        Constants.HUMAN_PARAM_RESERVED,
+    ):
         block = (stage_config or {}).get(namespace)
         if isinstance(block, dict):
             out.extend(_walk_dict(block, namespace))
@@ -589,7 +694,15 @@ def _human_params(stage_config: dict) -> list[Parameter]:
 
 
 def _stationary_pins(namespaces: dict[str, dict[str, str]]) -> list[Parameter]:
-    return [Parameter(name=f"{namespaces[_ROBOTS]['stationary']}.{leaf}", value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0)) for leaf in ("pos_x", "pos_y")]
+    return [
+        Parameter(
+            name=f"{namespaces[_ROBOTS]['stationary']}.{leaf}",
+            value=ParameterValue(
+                type=ParameterType.PARAMETER_DOUBLE, double_value=1000.0
+            ),
+        )
+        for leaf in ("pos_x", "pos_y")
+    ]
 
 
 def _accepts_empty_selection(layer: TaskLayer, axis: str) -> bool:
@@ -604,7 +717,11 @@ def _accepts_empty_selection(layer: TaskLayer, axis: str) -> bool:
 def stage_request(step: Step) -> QueueEpisode.Request:
     """The QueueEpisode request that sets a step's stage: its set modes and its config blocks under the namespaces of the selected modes."""
     layer = task_layer(step.task_layer)
-    modes = {axis: names for axis, names in stage_modes(step.stage, registered_modes(layer)).items() if names or _accepts_empty_selection(layer, axis)}
+    modes = {
+        axis: names
+        for axis, names in stage_modes(step.stage, registered_modes(layer)).items()
+        if names or _accepts_empty_selection(layer, axis)
+    }
     namespaces = layer.mode_namespaces()
     stage_config = step.stage.config or {}
     pinned: list[Parameter] = []
@@ -617,7 +734,11 @@ def stage_request(step: Step) -> QueueEpisode.Request:
                 if isinstance(mode_block, dict):
                     mode_block["dynamic"] = {"min": 0, "max": 0}
         else:
-            pinned = [p for namespace in namespaces.get(_OBSTACLES, {}).values() for p in _walk_dict({"dynamic": {"min": 0, "max": 0}}, namespace)]
+            pinned = [
+                p
+                for namespace in namespaces.get(_OBSTACLES, {}).values()
+                for p in _walk_dict({"dynamic": {"min": 0, "max": 0}}, namespace)
+            ]
     elif step.is_reference and step.reference_type == "unhindered_peds":
         modes[_ROBOTS] = ["stationary"]
         pinned = _stationary_pins(namespaces)
@@ -625,7 +746,11 @@ def stage_request(step: Step) -> QueueEpisode.Request:
     req.action = QueueEpisode.Request.MERGE
     req.world = step.stage.map
     req.modes = encode_modes(modes)
-    req.params = list({p.name: p for p in [*stage_params(stage_config, modes, namespaces), *pinned]}.values())
+    req.params = list(
+        {
+            p.name: p for p in [*stage_params(stage_config, modes, namespaces), *pinned]
+        }.values()
+    )
     req.human_params = _human_params(stage_config)
     return req
 
@@ -652,7 +777,9 @@ _SPAWN_CHATTER_PATTERNS = (
 )
 
 
-def _new_env_logs(log_dir: pathlib.Path, before: set[pathlib.Path]) -> list[pathlib.Path]:
+def _new_env_logs(
+    log_dir: pathlib.Path, before: set[pathlib.Path]
+) -> list[pathlib.Path]:
     """Env logs in the runtime's own log directory that appeared after `before` was taken."""
     return sorted(p for p in log_dir.glob("arena_env_*.log") if p not in before)
 
@@ -707,7 +834,9 @@ class _RetryBudget:
         """The retry cap as it is logged."""
         return "inf" if self.retries < 0 else str(self.retries)
 
-    def record(self, step_key: str | None, *, sim_death_generation: int | None) -> tuple[bool, bool]:
+    def record(
+        self, step_key: str | None, *, sim_death_generation: int | None
+    ) -> tuple[bool, bool]:
         """Count one systemic failure. Returns (may_retry, run_must_abort)."""
         if sim_death_generation is not None:
             self.generations.add(sim_death_generation)
@@ -725,7 +854,9 @@ class BenchmarkRunner(ArenaMixinNode):
     shutdown_deadline_s: typing.ClassVar[float] = _SHUTDOWN_DEADLINE_S
 
     @classmethod
-    def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
+    def run_main(
+        cls, *args: object, aiomonitor: bool = False, **kwargs: object
+    ) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         import rclpy
         from arena_rclpy_mixins.spin import create_executor
@@ -761,7 +892,9 @@ class BenchmarkRunner(ArenaMixinNode):
             nonlocal node, watchdog_stop
             node = factory(*args, **kwargs)
             node.event_loop = loop
-            watchdog_stop = start_loop_watchdog(loop, node, deadline_s=_LOOP_DEADLINE_S, on_deadline=node._deadman)
+            watchdog_stop = start_loop_watchdog(
+                loop, node, deadline_s=_LOOP_DEADLINE_S, on_deadline=node._deadman
+            )
             executor.add_node(node)
             try:
                 await node.setup()
@@ -792,7 +925,9 @@ class BenchmarkRunner(ArenaMixinNode):
                 t.cancel()
             if pending:
                 with contextlib.suppress(Exception):
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
             executor.shutdown()
             with contextlib.suppress(Exception):
                 loop.run_until_complete(spin_future)
@@ -842,7 +977,9 @@ class BenchmarkRunner(ArenaMixinNode):
         self._run_dir = run_dir
         self._retry_failed = retry_failed
         self._arena_passthrough: dict[str, str] = dict(arena_passthrough or {})
-        self._viz = self._arena_passthrough.get("viz", str(not self._headless)).lower() in ("true", "1")
+        self._viz = self._arena_passthrough.get(
+            "viz", str(not self._headless)
+        ).lower() in ("true", "1")
         self._viz_proc: subprocess.Popen | None = None
         self._noexit = noexit
         self._lockstep_verdict = lockstep_verdict
@@ -883,15 +1020,25 @@ class BenchmarkRunner(ArenaMixinNode):
         self._sim_generation = 0
         self._envs_spawned = 0
         self._sim_recover_lock = asyncio.Lock()
-        self._retry_budget = _RetryBudget(retries=self._retries, max_sim_deaths=self._max_sim_deaths)
+        self._retry_budget = _RetryBudget(
+            retries=self._retries, max_sim_deaths=self._max_sim_deaths
+        )
         self._runtime_started_at = 0.0
         self._runtime_up = asyncio.Event()
         self._arena_watch: asyncio.Task | None = None
 
-        self.create_subscription(EnvRegistry, "/arena/state/envs", self._on_envs, _LATCHED)
-        self.create_subscription(SimState, SIM_STATE_TOPIC, self._on_sim_state, _LATCHED)
-        self.create_subscription(LockstepStatus, "/arena/state/lockstep", self._on_lockstep, _LATCHED)
-        self.create_subscription(HoldRegistry, "/arena/state/holders", self._on_holders, _LATCHED)
+        self.create_subscription(
+            EnvRegistry, "/arena/state/envs", self._on_envs, _LATCHED
+        )
+        self.create_subscription(
+            SimState, SIM_STATE_TOPIC, self._on_sim_state, _LATCHED
+        )
+        self.create_subscription(
+            LockstepStatus, "/arena/state/lockstep", self._on_lockstep, _LATCHED
+        )
+        self.create_subscription(
+            HoldRegistry, "/arena/state/holders", self._on_holders, _LATCHED
+        )
         self._state_pub = self.create_publisher(BenchmarkState, STATE_TOPIC, _LATCHED)
 
         self._arena_proc = None
@@ -922,7 +1069,9 @@ class BenchmarkRunner(ArenaMixinNode):
     def _on_envs(self, msg: EnvRegistry) -> None:
         new_ids = {e.env_id for e in msg.envs}
         for env_id in new_ids:
-            self._set_event(self._env_visible_events.setdefault(env_id, asyncio.Event()))
+            self._set_event(
+                self._env_visible_events.setdefault(env_id, asyncio.Event())
+            )
         for env_id in list(self._env_gone_events):
             if env_id not in new_ids:
                 self._set_event(self._env_gone_events[env_id])
@@ -932,7 +1081,9 @@ class BenchmarkRunner(ArenaMixinNode):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if stamp < self._runtime_started_at:
             if not msg.alive:
-                _log.debug(f"ignoring stale sim death stamped {stamp:.3f}, this runtime started at {self._runtime_started_at:.3f}")
+                _log.debug(
+                    f"ignoring stale sim death stamped {stamp:.3f}, this runtime started at {self._runtime_started_at:.3f}"
+                )
             return
         if msg.alive:
             self._set_event(self._runtime_up)
@@ -950,7 +1101,9 @@ class BenchmarkRunner(ArenaMixinNode):
         """Loop-watchdog callback: the event loop is hung, take the runtime down and exit."""
         with contextlib.suppress(OSError):
             with self._run_dir.log_path.open("a") as fh:
-                fh.write(f"benchmark: runner event loop hung for {_LOOP_DEADLINE_S:.0f}s, killing arena runtime and exiting {_HUNG_EXIT_CODE}\n")
+                fh.write(
+                    f"benchmark: runner event loop hung for {_LOOP_DEADLINE_S:.0f}s, killing arena runtime and exiting {_HUNG_EXIT_CODE}\n"
+                )
         if self._shared is not None:
             with contextlib.suppress(Exception):
                 self._run_dir.fold()
@@ -969,13 +1122,18 @@ class BenchmarkRunner(ArenaMixinNode):
         self._lockstep.observe(msg, time.time())
 
     def _build_launch_args(self, step: Step) -> list[str]:
-        return build_launch_args(step, self._simulator, passthrough=self._arena_passthrough)
+        return build_launch_args(
+            step, self._simulator, passthrough=self._arena_passthrough
+        )
 
     async def _await_env_visible(self, env_id: int) -> None:
         """Wait for env_id to appear on /arena/state/envs."""
         if env_id in self._env_records:
             return
-        await self._await_hb(self._env_visible_events.setdefault(env_id, asyncio.Event()).wait(), f"env {env_id} to appear on /arena/state/envs")
+        await self._await_hb(
+            self._env_visible_events.setdefault(env_id, asyncio.Event()).wait(),
+            f"env {env_id} to appear on /arena/state/envs",
+        )
 
     async def _await_activity(
         self,
@@ -991,7 +1149,9 @@ class BenchmarkRunner(ArenaMixinNode):
         or if `max_total_timeout` is exceeded."""
         task = asyncio.ensure_future(awaitable)
         log_path = self._run_dir.log_path
-        last_positions: dict[pathlib.Path, int] = {log_path: log_path.stat().st_size} if log_path.exists() else {}
+        last_positions: dict[pathlib.Path, int] = (
+            {log_path: log_path.stat().st_size} if log_path.exists() else {}
+        )
         last_activity = time.monotonic()
         total_waited = 0.0
         ros_log_dir = self._run_dir.ros_log_dir
@@ -1005,9 +1165,13 @@ class BenchmarkRunner(ArenaMixinNode):
 
                 total_waited += check_interval
                 if total_waited >= max_total_timeout:
-                    _log.error(f"{what} exceeded max timeout of {max_total_timeout:.0f}s")
+                    _log.error(
+                        f"{what} exceeded max timeout of {max_total_timeout:.0f}s"
+                    )
                     task.cancel()
-                    raise TimeoutError(f"{what} exceeded max timeout of {max_total_timeout:.0f}s")
+                    raise TimeoutError(
+                        f"{what} exceeded max timeout of {max_total_timeout:.0f}s"
+                    )
 
                 has_progress = False
                 sample_line = ""
@@ -1036,14 +1200,22 @@ class BenchmarkRunner(ArenaMixinNode):
 
                 if has_progress:
                     last_activity = time.monotonic()
-                    _log.info(f"still loading {what} ({total_waited:.0f}s elapsed, active: {sample_line})")
+                    _log.info(
+                        f"still loading {what} ({total_waited:.0f}s elapsed, active: {sample_line})"
+                    )
                 else:
                     silent_s = time.monotonic() - last_activity
                     if silent_s >= inactivity_timeout:
-                        _log.error(f"{what} stalled: no progress for {silent_s:.0f}s (total: {total_waited:.0f}s)")
+                        _log.error(
+                            f"{what} stalled: no progress for {silent_s:.0f}s (total: {total_waited:.0f}s)"
+                        )
                         task.cancel()
-                        raise TimeoutError(f"no progress for {silent_s:.0f}s during {what}")
-                    _log.warning(f"waiting on {what} ({total_waited:.0f}s elapsed, no progress for {silent_s:.0f}s)")
+                        raise TimeoutError(
+                            f"no progress for {silent_s:.0f}s during {what}"
+                        )
+                    _log.warning(
+                        f"waiting on {what} ({total_waited:.0f}s elapsed, no progress for {silent_s:.0f}s)"
+                    )
         except asyncio.CancelledError:
             task.cancel()
             raise
@@ -1063,20 +1235,30 @@ class BenchmarkRunner(ArenaMixinNode):
             task.cancel()
             raise
 
-    async def _await_alive(self, awaitable: typing.Awaitable[_T], *, env_id: int | None = None, what: str) -> _T:
+    async def _await_alive(
+        self, awaitable: typing.Awaitable[_T], *, env_id: int | None = None, what: str
+    ) -> _T:
         """Race awaitable against sim death and, when env_id is given, that env disappearing."""
         op_task = asyncio.ensure_future(awaitable)
         sim_task = asyncio.ensure_future(self._sim_dead.wait())
         watch = [sim_task]
         if env_id is not None:
-            watch.append(asyncio.ensure_future(self._env_gone_events.setdefault(env_id, asyncio.Event()).wait()))
+            watch.append(
+                asyncio.ensure_future(
+                    self._env_gone_events.setdefault(env_id, asyncio.Event()).wait()
+                )
+            )
         try:
-            done, _ = await asyncio.wait({op_task, *watch}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {op_task, *watch}, return_when=asyncio.FIRST_COMPLETED
+            )
             if op_task in done:
                 return op_task.result()
             if sim_task in done:
                 raise _SimDied(self._sim_dead_reason)
-            raise _EnvDied(f"env {env_id} disappeared from /arena/state/envs while waiting for {what}")
+            raise _EnvDied(
+                f"env {env_id} disappeared from /arena/state/envs while waiting for {what}"
+            )
         finally:
             for t in (op_task, *watch):
                 t.cancel()
@@ -1096,47 +1278,90 @@ class BenchmarkRunner(ArenaMixinNode):
         finally:
             self._env_gone_events.pop(env_id, None)
 
-    async def _setup_env_clients(self, env_id: int, env_ns_root: str, robot_name: str) -> None:
+    async def _setup_env_clients(
+        self, env_id: int, env_ns_root: str, robot_name: str
+    ) -> None:
         """Create per-env action client, queue_episode client, and subscriptions. Idempotent."""
         if env_id in self._episode_action_clients:
             return
 
         action_name = f"{env_ns_root}/lifecycle/run_episode"
-        self._episode_action_clients[env_id] = self.create_action_client_wrapper(RunEpisode, action_name)
+        self._episode_action_clients[env_id] = self.create_action_client_wrapper(
+            RunEpisode, action_name
+        )
         self._episode_records[env_id] = {}
 
-        queue_client = self.create_client_wrapper(QueueEpisode, f"{env_ns_root}/config/queue_episode")
+        queue_client = self.create_client_wrapper(
+            QueueEpisode, f"{env_ns_root}/config/queue_episode"
+        )
         what = f"queue_episode service on env {env_id}"
-        await self._await_alive(self._await_hb(queue_client.ensure(timeout_sec=None), what), env_id=env_id, what=what)
+        await self._await_alive(
+            self._await_hb(queue_client.ensure(timeout_sec=None), what),
+            env_id=env_id,
+            what=what,
+        )
         self._queue_clients[env_id] = queue_client
-        self._param_clients[env_id] = self.create_client_wrapper(SetParameters, f"{env_ns_root}/set_parameters")
-        self._param_get_clients[env_id] = self.create_client_wrapper(GetParameters, f"{env_ns_root}/get_parameters")
+        self._param_clients[env_id] = self.create_client_wrapper(
+            SetParameters, f"{env_ns_root}/set_parameters"
+        )
+        self._param_get_clients[env_id] = self.create_client_wrapper(
+            GetParameters, f"{env_ns_root}/get_parameters"
+        )
         what = f"tf_namespace param on env {env_id}"
         tf_req = GetParameters.Request(names=["tf_namespace"])
-        tf_resp = await self._await_alive(self._await_hb(self.await_ros(self._param_get_clients[env_id].client.call_async(tf_req)), what), env_id=env_id, what=what)
-        self._tf_namespaces[env_id] = tf_resp.values[0].string_value if tf_resp.values else ""
+        tf_resp = await self._await_alive(
+            self._await_hb(
+                self.await_ros(
+                    self._param_get_clients[env_id].client.call_async(tf_req)
+                ),
+                what,
+            ),
+            env_id=env_id,
+            what=what,
+        )
+        self._tf_namespaces[env_id] = (
+            tf_resp.values[0].string_value if tf_resp.values else ""
+        )
 
-        self._recorder_clients[env_id] = self.create_client_wrapper(RecordEpisode, f"{env_ns_root}/start_episode")
+        self._recorder_clients[env_id] = self.create_client_wrapper(
+            RecordEpisode, f"{env_ns_root}/start_episode"
+        )
         self._triggered_episodes[env_id] = set()
 
         def _on_episode_record(msg: EpisodeRecord) -> None:
             recs = self._episode_records.get(env_id)
             if recs is not None:
                 recs[msg.episode_id] = msg
-            label = _EPISODE_OUTCOME_LABELS.get(msg.outcome_state, f"UNKNOWN({msg.outcome_state})")
-            _log.info(f"[env {env_id}] episode record: id={msg.episode_id} outcome={msg.outcome_state} ({label}) info={msg.outcome_info!r}")
+            label = _EPISODE_OUTCOME_LABELS.get(
+                msg.outcome_state, f"UNKNOWN({msg.outcome_state})"
+            )
+            _log.info(
+                f"[env {env_id}] episode record: id={msg.episode_id} outcome={msg.outcome_state} ({label}) info={msg.outcome_info!r}"
+            )
             if msg.outcome_state == EpisodeRecord.RUNNING:
                 triggered = self._triggered_episodes.get(env_id)
                 if triggered is not None and msg.episode_id not in triggered:
                     triggered.add(msg.episode_id)
                     rc = self._recorder_clients.get(env_id)
                     if rc is not None:
-                        _log.info(f"[env {env_id}] signalling recorder to start episode {msg.episode_id}")
+                        _log.info(
+                            f"[env {env_id}] signalling recorder to start episode {msg.episode_id}"
+                        )
                         req = RecordEpisode.Request()
                         req.command = RecordEpisode.Request.COMMAND_START
                         req.episode_id = msg.episode_id
                         fut = rc.client.call_async(req)
-                        fut.add_done_callback(lambda f, eid=msg.episode_id: _log.warning(f"[env {env_id}] recorder start_episode({eid}) failed: {f.exception()}") if f.exception() else _log.info(f"[env {env_id}] recorder confirmed start of episode {eid}"))
+                        fut.add_done_callback(
+                            lambda f, eid=msg.episode_id: (
+                                _log.warning(
+                                    f"[env {env_id}] recorder start_episode({eid}) failed: {f.exception()}"
+                                )
+                                if f.exception()
+                                else _log.info(
+                                    f"[env {env_id}] recorder confirmed start of episode {eid}"
+                                )
+                            )
+                        )
 
         sub_ep = self.create_subscription(
             EpisodeRecord,
@@ -1174,7 +1399,11 @@ class BenchmarkRunner(ArenaMixinNode):
     @staticmethod
     def _episode_budget(step: Step) -> float:
         """Sim-second budget the task generator enforces for one episode of step."""
-        if step.is_reference and step.reference_type == "unhindered_peds" and step.stage.timeout_peds is not None:
+        if (
+            step.is_reference
+            and step.reference_type == "unhindered_peds"
+            and step.stage.timeout_peds is not None
+        ):
             return step.stage.timeout_peds
         return step.stage.timeout
 
@@ -1183,39 +1412,81 @@ class BenchmarkRunner(ArenaMixinNode):
         req = stage_request(step)
         if step.is_reference and step.reference_type == "unhindered_peds":
             set_req = SetParameters.Request()
-            set_req.parameters = _stationary_pins(task_layer(step.task_layer).mode_namespaces())
+            set_req.parameters = _stationary_pins(
+                task_layer(step.task_layer).mode_namespaces()
+            )
             try:
-                await self._await_alive(self._param_clients[env_id].call_timeout(set_req, timeout_sec=5.0), env_id=env_id, what=f"stationary params on env {env_id}")
+                await self._await_alive(
+                    self._param_clients[env_id].call_timeout(set_req, timeout_sec=5.0),
+                    env_id=env_id,
+                    what=f"stationary params on env {env_id}",
+                )
             except (_SimDied, _EnvDied, asyncio.CancelledError):
                 raise
             except Exception as exc:
-                _log.warning(f"[env {env_id}] stationary params for {step.key} failed: {exc}")
+                _log.warning(
+                    f"[env {env_id}] stationary params for {step.key} failed: {exc}"
+                )
 
-        _log.info(f"[env {env_id}] pushing stage config for {step.key} (map={step.stage.map}, modes={decode_modes(req.modes)})")
-        resp = await self._await_alive(queue.call_timeout(req, timeout_sec=10.0), env_id=env_id, what=f"queue_episode on env {env_id}")
+        _log.info(
+            f"[env {env_id}] pushing stage config for {step.key} (map={step.stage.map}, modes={decode_modes(req.modes)})"
+        )
+        resp = await self._await_alive(
+            queue.call_timeout(req, timeout_sec=10.0),
+            env_id=env_id,
+            what=f"queue_episode on env {env_id}",
+        )
         if resp is None:
-            raise RuntimeError(f"queue_episode service call timed out after 10s on env {env_id} for {step.key}")
+            raise RuntimeError(
+                f"queue_episode service call timed out after 10s on env {env_id} for {step.key}"
+            )
         if not resp.success:
             raise RuntimeError(f"queue_episode failed for {step.key}: {resp.error_msg}")
 
         budget = self._episode_budget(step)
-        get_resp = await self._await_alive(self._param_get_clients[env_id].call_timeout(GetParameters.Request(names=["task.episode.timeout"]), timeout_sec=10.0), env_id=env_id, what=f"episode timeout param type on env {env_id}")
+        get_resp = await self._await_alive(
+            self._param_get_clients[env_id].call_timeout(
+                GetParameters.Request(names=["task.episode.timeout"]), timeout_sec=10.0
+            ),
+            env_id=env_id,
+            what=f"episode timeout param type on env {env_id}",
+        )
         if get_resp is None or not get_resp.values:
-            raise RuntimeError(f"get_parameters(task.episode.timeout) failed on env {env_id} for {step.key}")
+            raise RuntimeError(
+                f"get_parameters(task.episode.timeout) failed on env {env_id} for {step.key}"
+            )
         if get_resp.values[0].type == ParameterType.PARAMETER_INTEGER:
-            budget_value = ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=round(budget))
+            budget_value = ParameterValue(
+                type=ParameterType.PARAMETER_INTEGER, integer_value=round(budget)
+            )
         else:
-            budget_value = ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=float(budget))
+            budget_value = ParameterValue(
+                type=ParameterType.PARAMETER_DOUBLE, double_value=float(budget)
+            )
         timeout_client = self._param_clients[env_id]
         timeout_req = SetParameters.Request()
-        timeout_req.parameters = [Parameter(name="task.episode.timeout", value=budget_value)]
-        timeout_resp = await self._await_alive(timeout_client.call_timeout(timeout_req, timeout_sec=10.0), env_id=env_id, what=f"episode timeout param on env {env_id}")
+        timeout_req.parameters = [
+            Parameter(name="task.episode.timeout", value=budget_value)
+        ]
+        timeout_resp = await self._await_alive(
+            timeout_client.call_timeout(timeout_req, timeout_sec=10.0),
+            env_id=env_id,
+            what=f"episode timeout param on env {env_id}",
+        )
         if timeout_resp is None:
-            raise RuntimeError(f"set_parameters(task.episode.timeout) timed out after 10s on env {env_id} for {step.key}")
+            raise RuntimeError(
+                f"set_parameters(task.episode.timeout) timed out after 10s on env {env_id} for {step.key}"
+            )
         if not all(r.successful for r in timeout_resp.results):
-            reasons = "; ".join(r.reason for r in timeout_resp.results if not r.successful)
-            raise RuntimeError(f"set_parameters(task.episode.timeout={budget}s) rejected on env {env_id} for {step.key}: {reasons}")
-        _log.info(f"[env {env_id}] stage config applied for {step.key} (episode budget {budget:.0f}s sim)")
+            reasons = "; ".join(
+                r.reason for r in timeout_resp.results if not r.successful
+            )
+            raise RuntimeError(
+                f"set_parameters(task.episode.timeout={budget}s) rejected on env {env_id} for {step.key}: {reasons}"
+            )
+        _log.info(
+            f"[env {env_id}] stage config applied for {step.key} (episode budget {budget:.0f}s sim)"
+        )
 
     async def _run_episodes(
         self,
@@ -1246,7 +1517,11 @@ class BenchmarkRunner(ArenaMixinNode):
             lockstep = summary if lockstep is None else lockstep.merge(summary)
             return summary
 
-        def _result(status: typing.Literal["ok", "failed", "skipped", "partial", "in_progress"], error_kind: StepErrorKind | None = None, error_detail: str | None = None) -> StepResult:
+        def _result(
+            status: typing.Literal["ok", "failed", "skipped", "partial", "in_progress"],
+            error_kind: StepErrorKind | None = None,
+            error_detail: str | None = None,
+        ) -> StepResult:
             _fold_window()
             return StepResult(
                 step.key,
@@ -1282,7 +1557,11 @@ class BenchmarkRunner(ArenaMixinNode):
                     )
                 goal = RunEpisode.Goal()
                 goal.world = step.stage.map
-                goal.seed = (step.stage.seed + ep_idx) if step.stage.seed is not None else ep_idx
+                goal.seed = (
+                    (step.stage.seed + ep_idx)
+                    if step.stage.seed is not None
+                    else ep_idx
+                )
 
                 window.append((step.key, ep_idx))
                 self._lockstep.open(window[-1], time.time(), env=env_fqn)
@@ -1296,32 +1575,60 @@ class BenchmarkRunner(ArenaMixinNode):
                         what=f"run_episode goal on env {env_id}",
                     )
                 except TimeoutError:
-                    _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} send_goal timed out after 15s; abandoning env")
-                    return _result("failed", StepErrorKind.ENV_SETUP, f"send_goal timed out after 15s on env {env_id}")
+                    _log.error(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} send_goal timed out after 15s; abandoning env"
+                    )
+                    return _result(
+                        "failed",
+                        StepErrorKind.ENV_SETUP,
+                        f"send_goal timed out after 15s on env {env_id}",
+                    )
                 except (_SimDied, _EnvDied, asyncio.CancelledError):
                     raise
                 except Exception as exc:
-                    _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} goal rejected ({exc}); env action server is wedged, abandoning env")
-                    return _result("failed", StepErrorKind.ENV_SETUP, f"run_episode goal rejected: {exc}")
+                    _log.error(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} goal rejected ({exc}); env action server is wedged, abandoning env"
+                    )
+                    return _result(
+                        "failed",
+                        StepErrorKind.ENV_SETUP,
+                        f"run_episode goal rejected: {exc}",
+                    )
 
                 try:
-                    result_obj = await self._await_episode_result(ac, goal_handle, env_id)
+                    result_obj = await self._await_episode_result(
+                        ac, goal_handle, env_id
+                    )
                 except _SimStalled:
                     stalled = True
-                    _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} SIM STALLED for {_SIM_STALL_S:.0f}s; cancelling and advancing")
+                    _log.warning(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} SIM STALLED for {_SIM_STALL_S:.0f}s; cancelling and advancing"
+                    )
                     try:
                         await self.await_ros(goal_handle.cancel_goal_async())
                         await asyncio.wait_for(
-                            self._await_alive(ac.await_result(goal_handle), env_id=env_id, what=f"run_episode cancel on env {env_id}"),
+                            self._await_alive(
+                                ac.await_result(goal_handle),
+                                env_id=env_id,
+                                what=f"run_episode cancel on env {env_id}",
+                            ),
                             timeout=_CANCEL_SETTLE_S,
                         )
                     except (_SimDied, _EnvDied):
                         raise
                     except TimeoutError:
-                        _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} cancel did not settle in {_CANCEL_SETTLE_S}s; env is wedged, abandoning env")
-                        return _result("failed", StepErrorKind.ENV_SETUP, "run_episode cancel did not settle; env wedged")
+                        _log.error(
+                            f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} cancel did not settle in {_CANCEL_SETTLE_S}s; env is wedged, abandoning env"
+                        )
+                        return _result(
+                            "failed",
+                            StepErrorKind.ENV_SETUP,
+                            "run_episode cancel did not settle; env wedged",
+                        )
                     except Exception as exc:
-                        _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} error awaiting cancel ({exc}); advancing")
+                        _log.warning(
+                            f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} error awaiting cancel ({exc}); advancing"
+                        )
                     _fold_window()
                     continue
                 ep_ended_sim = self.sim_time.to_seconds()
@@ -1332,16 +1639,33 @@ class BenchmarkRunner(ArenaMixinNode):
                 episode_id = result.episode_id
 
                 if result.state == RunEpisode.Result.FATAL:
-                    _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} FATAL: {result.info} -- aborting step")
-                    return _result("failed", StepErrorKind.ROBOT_SETUP, f"env reported FATAL: {result.info}")
-                if result.state == RunEpisode.Result.FAILED and _ADAPTER_RESET_FAILED in result.info:
-                    _log.error(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} robot reset failed: {result.info} -- aborting step")
-                    return _result("failed", StepErrorKind.ROBOT_SETUP, f"robot reset failed: {result.info}")
+                    _log.error(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} FATAL: {result.info} -- aborting step"
+                    )
+                    return _result(
+                        "failed",
+                        StepErrorKind.ROBOT_SETUP,
+                        f"env reported FATAL: {result.info}",
+                    )
+                if (
+                    result.state == RunEpisode.Result.FAILED
+                    and _ADAPTER_RESET_FAILED in result.info
+                ):
+                    _log.error(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} robot reset failed: {result.info} -- aborting step"
+                    )
+                    return _result(
+                        "failed",
+                        StepErrorKind.ROBOT_SETUP,
+                        f"robot reset failed: {result.info}",
+                    )
 
                 recs = self._episode_records.get(env_id, {})
                 rec = recs.get(episode_id)
                 if rec is None:
-                    _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} no EpisodeRecord for episode_id={episode_id}; counted as lost")
+                    _log.warning(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} no EpisodeRecord for episode_id={episode_id}; counted as lost"
+                    )
                     _fold_window()
                     continue
 
@@ -1352,12 +1676,27 @@ class BenchmarkRunner(ArenaMixinNode):
                     episodes_compromised += 1
                 frac = closed_fraction(rec.goal_dist_start, rec.goal_dist_min)
                 if rec.goal_dist_start > 0.0:
-                    worst_progress = frac if worst_progress is None else min(worst_progress, frac)
-                if self._efficacy is not None and rec.outcome_state != EpisodeRecord.SUCCESS and frac < self._efficacy:
+                    worst_progress = (
+                        frac if worst_progress is None else min(worst_progress, frac)
+                    )
+                if (
+                    self._efficacy is not None
+                    and rec.outcome_state != EpisodeRecord.SUCCESS
+                    and frac < self._efficacy
+                ):
                     episodes_weak += 1
 
-                state_label = _STATE_LABELS.get(rec.outcome_state, str(rec.outcome_state))
-                _log.info(episode_line(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id}", rec, ep_ended_sim - ep_started_sim, ep_ended_wall - ep_started_wall))
+                state_label = _STATE_LABELS.get(
+                    rec.outcome_state, str(rec.outcome_state)
+                )
+                _log.info(
+                    episode_line(
+                        f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id}",
+                        rec,
+                        ep_ended_sim - ep_started_sim,
+                        ep_ended_wall - ep_started_wall,
+                    )
+                )
 
                 if rec.outcome_state in (
                     EpisodeRecord.SUCCESS,
@@ -1375,21 +1714,35 @@ class BenchmarkRunner(ArenaMixinNode):
                         try:
                             resp = await rc.call_timeout(req, timeout_sec=5.0)
                             if resp is None:
-                                _log.warning(f"[env {env_id}] recorder stop_episode({episode_id}) timed out")
+                                _log.warning(
+                                    f"[env {env_id}] recorder stop_episode({episode_id}) timed out"
+                                )
                             else:
-                                _log.info(f"[env {env_id}] recorder stopped episode {episode_id} ({state_label})")
+                                _log.info(
+                                    f"[env {env_id}] recorder stopped episode {episode_id} ({state_label})"
+                                )
                         except Exception as exc:
-                            _log.warning(f"[env {env_id}] recorder stop_episode({episode_id}) failed: {exc}")
+                            _log.warning(
+                                f"[env {env_id}] recorder stop_episode({episode_id}) failed: {exc}"
+                            )
 
                 parent_ep_id = None
                 if not step.is_reference:
-                    self._parent_episode_map[(step.contestant.name, step.stage.name, ep_idx)] = episode_id
-                    self._parent_episode_map[("__stage__", step.stage.name, ep_idx)] = episode_id
+                    self._parent_episode_map[
+                        (step.contestant.name, step.stage.name, ep_idx)
+                    ] = episode_id
+                    self._parent_episode_map[("__stage__", step.stage.name, ep_idx)] = (
+                        episode_id
+                    )
                 else:
                     if step.reference_type == "unobstructed_robot":
-                        parent_ep_id = self._parent_episode_map.get((step.contestant.name, step.stage.name, ep_idx))
+                        parent_ep_id = self._parent_episode_map.get(
+                            (step.contestant.name, step.stage.name, ep_idx)
+                        )
                     else:
-                        parent_ep_id = self._parent_episode_map.get(("__stage__", step.stage.name, ep_idx))
+                        parent_ep_id = self._parent_episode_map.get(
+                            ("__stage__", step.stage.name, ep_idx)
+                        )
 
                 ep_lockstep = _fold_window()
                 ts_iso = datetime.datetime.now(tz=datetime.UTC).isoformat()
@@ -1412,21 +1765,37 @@ class BenchmarkRunner(ArenaMixinNode):
         except (_SimDied, asyncio.CancelledError):
             raise
         except _EnvDied as exc:
-            _log.warning(f"{step.key} env={env_id} env died mid-step after run={episodes_run}, failed={episodes_failed}: {exc}")
+            _log.warning(
+                f"{step.key} env={env_id} env died mid-step after run={episodes_run}, failed={episodes_failed}: {exc}"
+            )
             return _result("failed", StepErrorKind.ENV_SETUP, repr(exc))
         except Exception as exc:
-            _log.exception(f"{step.key} env={env_id} unexpected error mid-step after run={episodes_run}, failed={episodes_failed}")
+            _log.exception(
+                f"{step.key} env={env_id} unexpected error mid-step after run={episodes_run}, failed={episodes_failed}"
+            )
             return _result("failed", StepErrorKind.INTERNAL, repr(exc))
 
         status = step_status(episodes_run, step.episodes)
 
         if stalled and status != "ok":
-            return _result(status, StepErrorKind.EPISODE_TIMEOUT, f"sim stalled {_SIM_STALL_S:.0f}s")
+            return _result(
+                status,
+                StepErrorKind.EPISODE_TIMEOUT,
+                f"sim stalled {_SIM_STALL_S:.0f}s",
+            )
         return _result(status)
 
-    async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: ClientGoalHandle, env_id: int) -> RunEpisode.Impl.GetResultService.Response:
+    async def _await_episode_result(
+        self, ac: ActionClientWrapper, goal_handle: ClientGoalHandle, env_id: int
+    ) -> RunEpisode.Impl.GetResultService.Response:
         """Await an episode result with no wall ceiling, raising _SimStalled if the sim clock freezes while no env holds the sim."""
-        result_task = asyncio.ensure_future(self._await_alive(ac.await_result(goal_handle), env_id=env_id, what=f"run_episode result on env {env_id}"))
+        result_task = asyncio.ensure_future(
+            self._await_alive(
+                ac.await_result(goal_handle),
+                env_id=env_id,
+                what=f"run_episode result on env {env_id}",
+            )
+        )
         last_sim = self.sim_time.to_seconds()
         last_move = time.monotonic()
         try:
@@ -1434,7 +1803,9 @@ class BenchmarkRunner(ArenaMixinNode):
                 done, _ = await asyncio.wait({result_task}, timeout=1.0)
                 if result_task in done:
                     response = result_task.result()
-                    assert isinstance(response, RunEpisode.Impl.GetResultService.Response)
+                    assert isinstance(
+                        response, RunEpisode.Impl.GetResultService.Response
+                    )
                     return response
                 now_sim = self.sim_time.to_seconds()
                 if now_sim > last_sim or self._env_holds:
@@ -1442,14 +1813,18 @@ class BenchmarkRunner(ArenaMixinNode):
                     last_move = time.monotonic()
                     continue
                 if time.monotonic() - last_move >= _SIM_STALL_S:
-                    raise _SimStalled(f"sim clock frozen for {_SIM_STALL_S:.0f}s on env {env_id}")
+                    raise _SimStalled(
+                        f"sim clock frozen for {_SIM_STALL_S:.0f}s on env {env_id}"
+                    )
         finally:
             if not result_task.done():
                 result_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.gather(result_task, return_exceptions=True)
 
-    async def _spawn_and_setup_env(self, launch_step: Step, *, inactivity_timeout: float = 120.0) -> tuple[int, str] | None:
+    async def _spawn_and_setup_env(
+        self, launch_step: Step, *, inactivity_timeout: float = 120.0
+    ) -> tuple[int, str] | None:
         """Spawn one env booting launch_step's world and set up its clients.
         Tracks active progress (log growth) and only times out if completely stalled."""
         registered: list[int] = []
@@ -1463,20 +1838,26 @@ class BenchmarkRunner(ArenaMixinNode):
             )
         except TimeoutError:
             orphans = _orphaned_env_ids(known, self._env_records, registered)
-            _log.error(f"spawn_env stalled for {launch_step.key} (no progress/output for {inactivity_timeout:.0f}s); despawning orphaned env(s) {orphans}")
+            _log.error(
+                f"spawn_env stalled for {launch_step.key} (no progress/output for {inactivity_timeout:.0f}s); despawning orphaned env(s) {orphans}"
+            )
             for env_id in orphans:
                 await self._despawn_env(env_id)
             self._mark_sim_dead(f"spawn_env stalled for {launch_step.key}")
             raise _SimDied(self._sim_dead_reason) from None
 
-    async def _spawn_and_setup_env_impl(self, launch_step: Step, registered: list[int]) -> tuple[int, str] | None:
+    async def _spawn_and_setup_env_impl(
+        self, launch_step: Step, registered: list[int]
+    ) -> tuple[int, str] | None:
         """Inner impl without timeout, called by _spawn_and_setup_env. Appends the spawned env_id to registered."""
         req = SpawnEnv.Request()
         req.ns = ""
         req.headless = self._headless
         req.launch_args = self._build_launch_args(launch_step)
         what = f"spawn_env for {launch_step.key}"
-        resp = await self._await_alive(self.await_ros(self._spawn.client.call_async(req)), what=what)
+        resp = await self._await_alive(
+            self.await_ros(self._spawn.client.call_async(req)), what=what
+        )
         if resp is None or not resp.success:
             msg = resp.error_msg if resp is not None else "no response"
             if msg.startswith("sim dead:"):
@@ -1487,7 +1868,10 @@ class BenchmarkRunner(ArenaMixinNode):
         env_id = resp.env_id
         registered.append(env_id)
         self._envs_spawned += 1
-        await self._await_alive(self._await_env_visible(env_id), what=f"env {env_id} to appear on /arena/state/envs")
+        await self._await_alive(
+            self._await_env_visible(env_id),
+            what=f"env {env_id} to appear on /arena/state/envs",
+        )
         env_ns_root = self._env_records[env_id].fqn
         await self._setup_env_clients(env_id, env_ns_root, launch_step.robot)
         if self._viz and (self._viz_proc is None or self._viz_proc.poll() is not None):
@@ -1522,8 +1906,14 @@ class BenchmarkRunner(ArenaMixinNode):
             dreq = DespawnEnv.Request()
             dreq.env_id = env_id
             try:
-                await self._await_alive(asyncio.wait_for(self._despawn.call_forever(dreq), timeout=30.0), what=f"despawn_env {env_id}")
-                gone = await self._await_alive(self._wait_env_gone(env_id, timeout=15.0), what=f"env {env_id} to leave /arena/state/envs")
+                await self._await_alive(
+                    asyncio.wait_for(self._despawn.call_forever(dreq), timeout=30.0),
+                    what=f"despawn_env {env_id}",
+                )
+                gone = await self._await_alive(
+                    self._wait_env_gone(env_id, timeout=15.0),
+                    what=f"env {env_id} to leave /arena/state/envs",
+                )
                 if not gone:
                     self._mark_sim_dead("despawn timed out")
                     return
@@ -1544,13 +1934,37 @@ class BenchmarkRunner(ArenaMixinNode):
         except (_SimDied, asyncio.CancelledError):
             raise
         except _EnvDied as exc:
-            return StepResult(step.key, "failed", env_id, started, time.time(), StepErrorKind.ENV_SETUP, repr(exc), episodes_total=step.episodes)
+            return StepResult(
+                step.key,
+                "failed",
+                env_id,
+                started,
+                time.time(),
+                StepErrorKind.ENV_SETUP,
+                repr(exc),
+                episodes_total=step.episodes,
+            )
         except Exception as exc:
             _log.error(f"[env {env_id}] stage config failed for {step.key}: {exc}")
-            return StepResult(step.key, "failed", env_id, started, time.time(), StepErrorKind.ENV_SETUP, f"stage config failed: {exc}", episodes_total=step.episodes)
+            return StepResult(
+                step.key,
+                "failed",
+                env_id,
+                started,
+                time.time(),
+                StepErrorKind.ENV_SETUP,
+                f"stage config failed: {exc}",
+                episodes_total=step.episodes,
+            )
         return await self._run_episodes(step, env_id, slot_index)
 
-    def _fail_remaining(self, q: asyncio.Queue[Step], env_id: int | None, detail: str, flush_cb: typing.Callable[[StepResult], bool]) -> bool:
+    def _fail_remaining(
+        self,
+        q: asyncio.Queue[Step],
+        env_id: int | None,
+        detail: str,
+        flush_cb: typing.Callable[[StepResult], bool],
+    ) -> bool:
         """Fail every step still queued. Returns True when the run must abort."""
         abort = False
         while not q.empty():
@@ -1572,12 +1986,18 @@ class BenchmarkRunner(ArenaMixinNode):
                 abort = True
         return abort
 
-    async def _spend_sim_death(self, reason: str, step_key: str | None) -> tuple[bool, bool]:
+    async def _spend_sim_death(
+        self, reason: str, step_key: str | None
+    ) -> tuple[bool, bool]:
         """Charge one sim death to the retry budget and recover the runtime. Returns (may_retry, run_must_abort)."""
         generation = self._sim_generation
-        may_retry, run_abort = self._retry_budget.record(step_key, sim_death_generation=generation)
+        may_retry, run_abort = self._retry_budget.record(
+            step_key, sim_death_generation=generation
+        )
         if run_abort:
-            _log.error(f"benchmark: {self._retry_budget.sim_deaths} sim deaths in this run (last: {reason}), aborting")
+            _log.error(
+                f"benchmark: {self._retry_budget.sim_deaths} sim deaths in this run (last: {reason}), aborting"
+            )
             return False, True
         await self._recover_sim(reason, generation)
         return may_retry, False
@@ -1591,7 +2011,13 @@ class BenchmarkRunner(ArenaMixinNode):
             await self._restart_arena()
             self._sim_generation += 1
 
-    async def _run_group_queue(self, rep_step: Step, q: asyncio.Queue[Step], slot_index: int, flush_cb: typing.Callable[[StepResult], bool]) -> bool:
+    async def _run_group_queue(
+        self,
+        rep_step: Step,
+        q: asyncio.Queue[Step],
+        slot_index: int,
+        flush_cb: typing.Callable[[StepResult], bool],
+    ) -> bool:
         env_id: int | None = None
         env_ns_root = ""
         spawned_once = False
@@ -1619,10 +2045,20 @@ class BenchmarkRunner(ArenaMixinNode):
                         continue
                     if spawned is None and self._envs_spawned and not restarted:
                         restarted = True
-                        await self._recover_sim(f"spawn_env failed for {rep_step.key} on a used runtime", self._sim_generation)
+                        await self._recover_sim(
+                            f"spawn_env failed for {rep_step.key} on a used runtime",
+                            self._sim_generation,
+                        )
                         continue
                     if spawned is None:
-                        return self._fail_remaining(q, None, "env respawn failed after a wedged env" if spawned_once else "spawn_env failed", flush_cb)
+                        return self._fail_remaining(
+                            q,
+                            None,
+                            "env respawn failed after a wedged env"
+                            if spawned_once
+                            else "spawn_env failed",
+                            flush_cb,
+                        )
                     env_id, env_ns_root = spawned
                     spawned_once = True
 
@@ -1637,7 +2073,9 @@ class BenchmarkRunner(ArenaMixinNode):
                         episode_id_offset = self._global_episode_id_offset
                         self._global_episode_id_offset += step.episodes
                     else:
-                        episode_id_offset = self._run_dir.reserve_episode_ids(step.episodes)
+                        episode_id_offset = self._run_dir.reserve_episode_ids(
+                            step.episodes
+                        )
 
                     lp, ip = resolve_planner_identity(step.contestant)
                     recorder_args = [
@@ -1673,7 +2111,9 @@ class BenchmarkRunner(ArenaMixinNode):
                         f"is_reference:={str(step.is_reference).lower()}",
                     ]
                     if step.reference_type:
-                        recorder_args.extend(["-p", f"reference_type:={_yaml_str(step.reference_type)}"])
+                        recorder_args.extend(
+                            ["-p", f"reference_type:={_yaml_str(step.reference_type)}"]
+                        )
 
                     recorder_args.extend(
                         [
@@ -1685,7 +2125,14 @@ class BenchmarkRunner(ArenaMixinNode):
                     )
                     tf_namespace = self._tf_namespaces.get(env_id, "")
                     if tf_namespace:
-                        recorder_args.extend(["-r", f"/tf:={tf_namespace}/tf", "-r", f"/tf_static:={tf_namespace}/tf_static"])
+                        recorder_args.extend(
+                            [
+                                "-r",
+                                f"/tf:={tf_namespace}/tf",
+                                "-r",
+                                f"/tf_static:={tf_namespace}/tf_static",
+                            ]
+                        )
 
                     recorder_proc = await asyncio.create_subprocess_exec(
                         "ros2",
@@ -1694,7 +2141,9 @@ class BenchmarkRunner(ArenaMixinNode):
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
                     )
-                    rc = self.create_client_wrapper(RecordEpisode, f"{env_ns_root}/start_episode")
+                    rc = self.create_client_wrapper(
+                        RecordEpisode, f"{env_ns_root}/start_episode"
+                    )
                     self._recorder_clients[env_id] = rc
                     with contextlib.suppress(Exception):
                         await rc.ensure(timeout_sec=5.0)
@@ -1709,7 +2158,9 @@ class BenchmarkRunner(ArenaMixinNode):
                         ep_total=step.episodes,
                         state="SETTING_UP",
                     )
-                _log.info(f"Starting step {step.key} (env={env_id}, {step.episodes} episodes)")
+                _log.info(
+                    f"Starting step {step.key} (env={env_id}, {step.episodes} episodes)"
+                )
 
                 sim_death_reason: str | None = None
                 try:
@@ -1764,7 +2215,10 @@ class BenchmarkRunner(ArenaMixinNode):
                             with contextlib.suppress(Exception):
                                 os.killpg(os.getpgid(recorder_proc.pid), signal.SIGKILL)
 
-                if step_result.status != "failed" or step_result.error_kind not in _SYSTEMIC:
+                if (
+                    step_result.status != "failed"
+                    or step_result.error_kind not in _SYSTEMIC
+                ):
                     if flush_cb(step_result):
                         return True
                     continue
@@ -1772,14 +2226,20 @@ class BenchmarkRunner(ArenaMixinNode):
                 if sim_death_reason is not None:
                     self._teardown_env_clients(env_id)
                     env_id = None
-                    may_retry, run_abort = await self._spend_sim_death(sim_death_reason, step.key)
+                    may_retry, run_abort = await self._spend_sim_death(
+                        sim_death_reason, step.key
+                    )
                     if run_abort:
                         return True
                 else:
-                    may_retry, _ = self._retry_budget.record(step.key, sim_death_generation=None)
+                    may_retry, _ = self._retry_budget.record(
+                        step.key, sim_death_generation=None
+                    )
 
                 if may_retry:
-                    _log.warning(f"retrying {step.key} (attempt {self._retry_budget.attempts[step.key]}/{self._retry_budget.limit}, {step_result.error_kind}: {step_result.error_detail})")
+                    _log.warning(
+                        f"retrying {step.key} (attempt {self._retry_budget.attempts[step.key]}/{self._retry_budget.limit}, {step_result.error_kind}: {step_result.error_detail})"
+                    )
                     _requeue_front(q, step)
                 elif flush_cb(step_result):
                     return True
@@ -1790,18 +2250,32 @@ class BenchmarkRunner(ArenaMixinNode):
 
         finally:
             self._completed_groups += 1
-            keep_alive = self._noexit and self._completed_groups == self._total_groups and env_id is not None
+            keep_alive = (
+                self._noexit
+                and self._completed_groups == self._total_groups
+                and env_id is not None
+            )
             if env_id is not None:
                 self._teardown_env_clients(env_id)
-                if env_id in self._env_records and not keep_alive and not self._sim_dead.is_set():
+                if (
+                    env_id in self._env_records
+                    and not keep_alive
+                    and not self._sim_dead.is_set()
+                ):
                     with contextlib.suppress(Exception):
                         dreq = DespawnEnv.Request()
                         dreq.env_id = env_id
-                        await asyncio.wait_for(self._despawn.call_forever(dreq), timeout=2.0)
+                        await asyncio.wait_for(
+                            self._despawn.call_forever(dreq), timeout=2.0
+                        )
                     with contextlib.suppress(Exception):
-                        await asyncio.wait_for(self._wait_env_gone(env_id, timeout=2.0), timeout=2.0)
+                        await asyncio.wait_for(
+                            self._wait_env_gone(env_id, timeout=2.0), timeout=2.0
+                        )
                 if keep_alive:
-                    _log.info(f"--noexit: keeping env {env_id} alive after last group {rep_step.key}")
+                    _log.info(
+                        f"--noexit: keeping env {env_id} alive after last group {rep_step.key}"
+                    )
 
         return False
 
@@ -1825,7 +2299,9 @@ class BenchmarkRunner(ArenaMixinNode):
         msg.steps_partial = sum(1 for r in results.values() if r.status == "partial")
         msg.steps_failed = sum(1 for r in results.values() if r.status == "failed")
         msg.steps_skipped = sum(1 for r in results.values() if r.status == "skipped")
-        msg.steps_in_flight = sum(1 for r in results.values() if r.status == "in_progress")
+        msg.steps_in_flight = sum(
+            1 for r in results.values() if r.status == "in_progress"
+        )
         msg.active_keys = [k for k, r in results.items() if r.status == "in_progress"]
         self._state_pub.publish(msg)
 
@@ -1855,7 +2331,9 @@ class BenchmarkRunner(ArenaMixinNode):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await watch
         if self._noexit:
-            _log.info("--noexit: leaving arena_runtime.launch.py running; Ctrl+C its terminal to stop")
+            _log.info(
+                "--noexit: leaving arena_runtime.launch.py running; Ctrl+C its terminal to stop"
+            )
             return
         p = self._arena_proc
         if p is None or p.poll() is not None:
@@ -1873,7 +2351,10 @@ class BenchmarkRunner(ArenaMixinNode):
 
         descendants = _proc_tree(p.pid)
 
-        for sig, grace in ((signal.SIGINT, _ARENA_SIGINT_GRACE_S), (signal.SIGTERM, _ARENA_SIGTERM_GRACE_S)):
+        for sig, grace in (
+            (signal.SIGINT, _ARENA_SIGINT_GRACE_S),
+            (signal.SIGTERM, _ARENA_SIGTERM_GRACE_S),
+        ):
             try:
                 os.killpg(pgid, sig)
             except (ProcessLookupError, OSError):
@@ -1907,17 +2388,25 @@ class BenchmarkRunner(ArenaMixinNode):
                 try:
                     self._viz_proc.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
-                    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                    with contextlib.suppress(
+                        ProcessLookupError, PermissionError, OSError
+                    ):
                         os.killpg(os.getpgid(self._viz_proc.pid), signal.SIGKILL)
             self._viz_proc = None
         deadline = time.time() + _ARENA_ORPHAN_GRACE_S
         while time.time() < deadline:
-            if not any(_proc_starttime(pid) == start for pid, start in descendants.items()):
+            if not any(
+                _proc_starttime(pid) == start for pid, start in descendants.items()
+            ):
                 break
             await asyncio.sleep(0.1)
-        survivors = [pid for pid, start in descendants.items() if _proc_starttime(pid) == start]
+        survivors = [
+            pid for pid, start in descendants.items() if _proc_starttime(pid) == start
+        ]
         if survivors:
-            _log.warning(f"{len(survivors)} arena process(es) outlived the launch, sending SIGKILL: {survivors}")
+            _log.warning(
+                f"{len(survivors)} arena process(es) outlived the launch, sending SIGKILL: {survivors}"
+            )
             for pid in survivors:
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.kill(pid, signal.SIGKILL)
@@ -1949,7 +2438,9 @@ class BenchmarkRunner(ArenaMixinNode):
             worlds_dir = self._suite_bundle_dir / "worlds"
             if worlds_dir.is_dir():
                 outer = proc_env.get("ARENA_WORLD_PATH")
-                proc_env["ARENA_WORLD_PATH"] = f"{outer}:{worlds_dir}" if outer else str(worlds_dir)
+                proc_env["ARENA_WORLD_PATH"] = (
+                    f"{outer}:{worlds_dir}" if outer else str(worlds_dir)
+                )
 
         self._runtime_up.clear()
         self._runtime_started_at = time.time()
@@ -1960,11 +2451,23 @@ class BenchmarkRunner(ArenaMixinNode):
             start_new_session=True,
             env=proc_env,
         )
-        self._arena_watch = asyncio.create_task(self._watch_arena_proc(self._arena_proc), name="arena_proc_watch")
+        self._arena_watch = asyncio.create_task(
+            self._watch_arena_proc(self._arena_proc), name="arena_proc_watch"
+        )
 
-        await self._await_alive(self._await_hb(self._runtime_up.wait(), "the new arena_runtime_node to report the sim alive"), what="arena_runtime_node startup")
-        await self._await_alive(self._spawn.ensure(timeout_sec=300.0), what="spawn_env service")
-        await self._await_alive(self._despawn.ensure(timeout_sec=300.0), what="despawn_env service")
+        await self._await_alive(
+            self._await_hb(
+                self._runtime_up.wait(),
+                "the new arena_runtime_node to report the sim alive",
+            ),
+            what="arena_runtime_node startup",
+        )
+        await self._await_alive(
+            self._spawn.ensure(timeout_sec=300.0), what="spawn_env service"
+        )
+        await self._await_alive(
+            self._despawn.ensure(timeout_sec=300.0), what="despawn_env service"
+        )
 
     async def _restart_arena(self) -> None:
         """Restart arena_runtime for a fresh simulator session between world switches."""
@@ -1996,14 +2499,24 @@ class BenchmarkRunner(ArenaMixinNode):
             for d in episodes_dir.glob("episode_*"):
                 try:
                     idx = int(d.name.split("_")[1])
-                    self._global_episode_id_offset = max(self._global_episode_id_offset, idx + 1)
+                    self._global_episode_id_offset = max(
+                        self._global_episode_id_offset, idx + 1
+                    )
                 except Exception:
                     pass
 
         all_blocks = group_pending(pending, self._simulator, self._world_swap)
         self._total_groups = len(all_blocks)
 
-        step_map: dict[str, Step] = {s.key: s for s in (*_all_steps_grid(self._suite, self._contest, self._scale_episodes, self._run_dir.path), *pending)}
+        step_map: dict[str, Step] = {
+            s.key: s
+            for s in (
+                *_all_steps_grid(
+                    self._suite, self._contest, self._scale_episodes, self._run_dir.path
+                ),
+                *pending,
+            )
+        }
 
         self._progress = BenchmarkProgressDisplay(
             title=f"Arena Benchmark: {self._suite.name} • {self._contest.name}",
@@ -2018,7 +2531,9 @@ class BenchmarkRunner(ArenaMixinNode):
         owned: set[str] = set()
 
         def _write_state() -> None:
-            self._run_dir.state.write(results if self._shared is None else {k: results[k] for k in owned})
+            self._run_dir.state.write(
+                results if self._shared is None else {k: results[k] for k in owned}
+            )
 
         def _mark_step_in_progress(step: Step) -> None:
             results[step.key] = StepResult(
@@ -2038,8 +2553,14 @@ class BenchmarkRunner(ArenaMixinNode):
         def _flush_step_result(res: StepResult) -> bool:
             results[res.key] = res
             elapsed = (res.ended_at or time.time()) - res.started_at
-            lockstep_note = f" {res.lockstep.short()}" if res.lockstep is not None and res.lockstep.active else ""
-            _log.info(f"[{res.status}] {res.key} env={res.env_id} episodes={res.episodes_run}/{res.episodes_total} (failed={res.episodes_failed}) t={elapsed:.1f}s{lockstep_note}")
+            lockstep_note = (
+                f" {res.lockstep.short()}"
+                if res.lockstep is not None and res.lockstep.active
+                else ""
+            )
+            _log.info(
+                f"[{res.status}] {res.key} env={res.env_id} episodes={res.episodes_run}/{res.episodes_total} (failed={res.episodes_failed}) t={elapsed:.1f}s{lockstep_note}"
+            )
             owned.add(res.key)
             _write_state()
             self._publish_state(results, steps_total)
@@ -2066,36 +2587,67 @@ class BenchmarkRunner(ArenaMixinNode):
                 return False
             return res.status == "failed" and res.error_kind in _SYSTEMIC
 
-        world_maps: list[str | None] = [None] if self._world_swap else list(dict.fromkeys(s.stage.map for s in pending))
+        world_maps: list[str | None] = (
+            [None]
+            if self._world_swap
+            else list(dict.fromkeys(s.stage.map for s in pending))
+        )
         in_flight: set[asyncio.Task[bool]] = set()
         sim_used = False
 
         with self._progress:
             try:
                 for world_idx, world_map in enumerate(world_maps):
-                    world_steps = [s for s in pending if world_map is None or s.stage.map == world_map]
+                    world_steps = [
+                        s
+                        for s in pending
+                        if world_map is None or s.stage.map == world_map
+                    ]
                     if not world_steps:
                         continue
 
-                    all_blocks = group_pending(world_steps, self._simulator, self._world_swap)
-                    all_claim_keys = [block_claim_key(block, world_map, self._simulator, self._world_swap) for block in all_blocks]
-                    if self._shared is not None and all(self._run_dir.claimed(self._shared, k) for k in all_claim_keys):
-                        _log.info(f"benchmark: every block of world {world_map} is claimed by other lanes, skipping it")
+                    all_blocks = group_pending(
+                        world_steps, self._simulator, self._world_swap
+                    )
+                    all_claim_keys = [
+                        block_claim_key(
+                            block, world_map, self._simulator, self._world_swap
+                        )
+                        for block in all_blocks
+                    ]
+                    if self._shared is not None and all(
+                        self._run_dir.claimed(self._shared, k) for k in all_claim_keys
+                    ):
+                        _log.info(
+                            f"benchmark: every block of world {world_map} is claimed by other lanes, skipping it"
+                        )
                         continue
 
                     # gz-sim 8 stops answering world control once a robot with a depth camera was deleted and another
                     # spawned in the same session, so such robots get a fresh runtime per block
-                    fresh_per_block = self._simulator == "gazebo" and any(robot_has_depth_camera(s.robot) for s in world_steps)
-                    batches = [[i] for i in range(len(all_blocks))] if fresh_per_block else [list(range(len(all_blocks)))]
+                    fresh_per_block = self._simulator == "gazebo" and any(
+                        robot_has_depth_camera(s.robot) for s in world_steps
+                    )
+                    batches = (
+                        [[i] for i in range(len(all_blocks))]
+                        if fresh_per_block
+                        else [list(range(len(all_blocks)))]
+                    )
                     for batch_idx, batch in enumerate(batches):
                         blocks = [all_blocks[i] for i in batch]
                         claim_keys = [all_claim_keys[i] for i in batch]
 
                         # If switching to a new world map in Gazebo, restart arena_runtime now that
                         # all previous workers are completely finished and 0 tasks are running
-                        if (world_idx > 0 or batch_idx > 0) and self._simulator == "gazebo" and (self._shared is None or sim_used):
+                        if (
+                            (world_idx > 0 or batch_idx > 0)
+                            and self._simulator == "gazebo"
+                            and (self._shared is None or sim_used)
+                        ):
                             if batch_idx > 0:
-                                _log.info("benchmark: restarting arena_runtime for the next contestant, the robot carries a depth camera")
+                                _log.info(
+                                    "benchmark: restarting arena_runtime for the next contestant, the robot carries a depth camera"
+                                )
                             await self._restart_arena()
                             sim_used = False
 
@@ -2110,9 +2662,16 @@ class BenchmarkRunner(ArenaMixinNode):
                         attached: collections.Counter[int] = collections.Counter()
 
                         def _claim(claim_key: str) -> bool:
-                            return self._shared is None or self._run_dir.claim(self._shared, claim_key)
+                            return self._shared is None or self._run_dir.claim(
+                                self._shared, claim_key
+                            )
 
-                        async def _worker(slot_index: int, block_queues: list[tuple[Step, asyncio.Queue[Step], str]], attached: collections.Counter[int], claim: typing.Callable[[str], bool]) -> bool:
+                        async def _worker(
+                            slot_index: int,
+                            block_queues: list[tuple[Step, asyncio.Queue[Step], str]],
+                            attached: collections.Counter[int],
+                            claim: typing.Callable[[str], bool],
+                        ) -> bool:
                             nonlocal sim_used
                             try:
                                 while True:
@@ -2124,7 +2683,12 @@ class BenchmarkRunner(ArenaMixinNode):
 
                                     attached[id(target_q)] += 1
                                     try:
-                                        abort = await self._run_group_queue(rep_step, target_q, slot_index, _flush_step_result)
+                                        abort = await self._run_group_queue(
+                                            rep_step,
+                                            target_q,
+                                            slot_index,
+                                            _flush_step_result,
+                                        )
                                     finally:
                                         attached[id(target_q)] -= 1
                                     if abort:
@@ -2135,19 +2699,30 @@ class BenchmarkRunner(ArenaMixinNode):
                                     self._progress.clear_slot(slot_index)
 
                         for slot in range(cap):
-                            in_flight.add(asyncio.create_task(_worker(slot, block_queues, attached, _claim), name=f"worker_{slot}"))
+                            in_flight.add(
+                                asyncio.create_task(
+                                    _worker(slot, block_queues, attached, _claim),
+                                    name=f"worker_{slot}",
+                                )
+                            )
 
                         while in_flight:
-                            done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+                            done, in_flight = await asyncio.wait(
+                                in_flight, return_when=asyncio.FIRST_COMPLETED
+                            )
                             for t in done:
                                 abort = t.result()
                                 if abort:
                                     aborted_systemic = True
-                                    _log.error("benchmark: worker hit a systemic setup failure; aborting run")
+                                    _log.error(
+                                        "benchmark: worker hit a systemic setup failure; aborting run"
+                                    )
                                     for t2 in in_flight:
                                         t2.cancel()
                                     with contextlib.suppress(Exception):
-                                        await asyncio.gather(*in_flight, return_exceptions=True)
+                                        await asyncio.gather(
+                                            *in_flight, return_exceptions=True
+                                        )
                                     in_flight.clear()
                                     break
                             if aborted_systemic:
@@ -2165,10 +2740,20 @@ class BenchmarkRunner(ArenaMixinNode):
                 await asyncio.gather(*in_flight, return_exceptions=True)
                 raise
             finally:
-                self._run_dir.progress.dedupe_in_place({key: result.started_at for key, result in results.items()})
+                self._run_dir.progress.dedupe_in_place(
+                    {key: result.started_at for key, result in results.items()}
+                )
                 self._publish_state(results, steps_total)
 
-        rows = [(step_map[k].contestant.name if k in step_map else k, step_map[k].stage.name if k in step_map else "", r.lockstep) for k, r in results.items() if r.lockstep is not None and r.lockstep.active]
+        rows = [
+            (
+                step_map[k].contestant.name if k in step_map else k,
+                step_map[k].stage.name if k in step_map else "",
+                r.lockstep,
+            )
+            for k, r in results.items()
+            if r.lockstep is not None and r.lockstep.active
+        ]
         lockstep_failed = False
         if rows:
             print(f"\nbenchmark: lockstep report\n{format_report(rows)}", flush=True)
@@ -2176,26 +2761,62 @@ class BenchmarkRunner(ArenaMixinNode):
         compromised = compromised_table(results, step_map)
         if compromised is not None:
             print(f"\nbenchmark: compromised episodes\n{compromised}", flush=True)
-        strict_failed = sorted(k for k, r in results.items() if r.error_kind is not None or r.episodes_run < r.episodes_total)
+        strict_failed = sorted(
+            k
+            for k, r in results.items()
+            if r.error_kind is not None or r.episodes_run < r.episodes_total
+        )
         if self._strict and strict_failed:
-            print(f"\nbenchmark: strict verdict: {len(strict_failed)} cell(s) did not complete cleanly: {', '.join(strict_failed)}", flush=True)
+            print(
+                f"\nbenchmark: strict verdict: {len(strict_failed)} cell(s) did not complete cleanly: {', '.join(strict_failed)}",
+                flush=True,
+            )
 
         efficacy_failed = False
         if self._efficacy is not None:
-            header = ("contestant", "stage", "verdict", "episodes", "weak", "worst_progress")
+            header = (
+                "contestant",
+                "stage",
+                "verdict",
+                "episodes",
+                "weak",
+                "worst_progress",
+            )
             table = []
             for k, r in sorted(results.items()):
                 st = step_map.get(k)
                 c_name = st.contestant.name if st else k
                 s_name = st.stage.name if st else ""
-                worst = f"{r.episodes_worst_progress * 100:.0f}%" if r.episodes_worst_progress is not None else "-"
-                table.append((c_name, s_name, cell_verdict(r), f"{r.episodes_run}/{r.episodes_total}", str(r.episodes_weak), worst))
-            print(f"\nbenchmark: preflight verdict\n{format_table(header, table)}", flush=True)
-            efficacy_failed = any(cell_verdict(r) in ("wedged", "weak") for r in results.values())
+                worst = (
+                    f"{r.episodes_worst_progress * 100:.0f}%"
+                    if r.episodes_worst_progress is not None
+                    else "-"
+                )
+                table.append(
+                    (
+                        c_name,
+                        s_name,
+                        cell_verdict(r),
+                        f"{r.episodes_run}/{r.episodes_total}",
+                        str(r.episodes_weak),
+                        worst,
+                    )
+                )
+            print(
+                f"\nbenchmark: preflight verdict\n{format_table(header, table)}",
+                flush=True,
+            )
+            efficacy_failed = any(
+                cell_verdict(r) in ("wedged", "weak") for r in results.values()
+            )
 
         if aborted_systemic:
             return 1
-        if (self._lockstep_verdict and lockstep_failed) or (self._strict and strict_failed) or efficacy_failed:
+        if (
+            (self._lockstep_verdict and lockstep_failed)
+            or (self._strict and strict_failed)
+            or efficacy_failed
+        ):
             return 3
         return 0
 
@@ -2218,10 +2839,14 @@ def _provenance(verdict: ResolverVerdict) -> dict:
     return {"resolver": repr(verdict.resolver), "path": str(verdict.path)}
 
 
-def _resolve_suite_source(suite_name: str) -> tuple[pathlib.Path, pathlib.Path | None, dict | None]:
+def _resolve_suite_source(
+    suite_name: str,
+) -> tuple[pathlib.Path, pathlib.Path | None, dict | None]:
     """Resolve a suite name to (yaml path, bundle dir, provenance). Flat `<stem>.yaml`
     wins over the directory-bundle form `<stem>/suite.yaml`, whose parent is the bundle dir."""
-    verdict = SuiteIdentifier(name=suite_name.removesuffix(".yaml")).resolve_source_sync()
+    verdict = SuiteIdentifier(
+        name=suite_name.removesuffix(".yaml")
+    ).resolve_source_sync()
     assert verdict.path is not None
     path = _config_file(verdict.path, SuiteIdentifier._asset_type)
     bundle_dir = path.parent if path.name == "suite.yaml" else None
@@ -2230,12 +2855,18 @@ def _resolve_suite_source(suite_name: str) -> tuple[pathlib.Path, pathlib.Path |
 
 def _resolve_contest_source(contest_name: str) -> tuple[pathlib.Path, dict | None]:
     """Resolve a contest name to (yaml path, provenance)."""
-    verdict = ContestIdentifier(name=contest_name.removesuffix(".yaml")).resolve_source_sync()
+    verdict = ContestIdentifier(
+        name=contest_name.removesuffix(".yaml")
+    ).resolve_source_sync()
     assert verdict.path is not None
-    return _config_file(verdict.path, ContestIdentifier._asset_type), _provenance(verdict)
+    return _config_file(verdict.path, ContestIdentifier._asset_type), _provenance(
+        verdict
+    )
 
 
-def _snapshot_bundle_worlds(bundle_dir: pathlib.Path | None, maps: typing.Iterable[str], run_path: pathlib.Path) -> list[str]:
+def _snapshot_bundle_worlds(
+    bundle_dir: pathlib.Path | None, maps: typing.Iterable[str], run_path: pathlib.Path
+) -> list[str]:
     """Copy the bundle worlds the stages use into <run>/worlds, where evaluation looks maps up."""
     copied: list[str] = []
     if bundle_dir is None:
@@ -2246,7 +2877,9 @@ def _snapshot_bundle_worlds(bundle_dir: pathlib.Path | None, maps: typing.Iterab
         if not source.is_dir() or target.exists():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        part = pathlib.Path(tempfile.mkdtemp(prefix=f".{name}.", suffix=".part", dir=target.parent))
+        part = pathlib.Path(
+            tempfile.mkdtemp(prefix=f".{name}.", suffix=".part", dir=target.parent)
+        )
         try:
             shutil.copytree(source, part, dirs_exist_ok=True)
             part.rename(target)
@@ -2270,15 +2903,25 @@ def _suite_bundle_dir(suite_name: str) -> pathlib.Path | None:
     return bundle_dir
 
 
-def _load_suite_contest(suite_name: str, contest_name: str) -> tuple[Suite, Contest, dict, list | dict, pathlib.Path | None, dict | None, dict | None]:
+def _load_suite_contest(
+    suite_name: str, contest_name: str
+) -> tuple[
+    Suite, Contest, dict, list | dict, pathlib.Path | None, dict | None, dict | None
+]:
     suite_bundle_dir = None
     suite_provenance = None
     if _is_inline_suite(suite_name):
         suite_dict = yaml.safe_load(suite_name)
         suite = Suite.parse("inline", suite_dict)
     else:
-        suite_path, suite_bundle_dir, suite_provenance = _resolve_suite_source(suite_name)
-        suite_stem = suite_name.removesuffix(".yaml") if suite_provenance is not None else suite_path.stem
+        suite_path, suite_bundle_dir, suite_provenance = _resolve_suite_source(
+            suite_name
+        )
+        suite_stem = (
+            suite_name.removesuffix(".yaml")
+            if suite_provenance is not None
+            else suite_path.stem
+        )
         suite_dict = yaml.safe_load(suite_path.read_text())
         suite = Suite.parse(suite_stem, suite_dict)
 
@@ -2288,22 +2931,38 @@ def _load_suite_contest(suite_name: str, contest_name: str) -> tuple[Suite, Cont
         contest = Contest.parse("inline", contest_dict)
     else:
         contest_path, contest_provenance = _resolve_contest_source(contest_name)
-        contest_stem = contest_name.removesuffix(".yaml") if contest_provenance is not None else contest_path.stem
+        contest_stem = (
+            contest_name.removesuffix(".yaml")
+            if contest_provenance is not None
+            else contest_path.stem
+        )
         contest_dict = yaml.safe_load(contest_path.read_text())
         contest = Contest.parse(contest_stem, contest_dict)
 
-    return suite, contest, suite_dict, contest_dict, suite_bundle_dir, suite_provenance, contest_provenance
+    return (
+        suite,
+        contest,
+        suite_dict,
+        contest_dict,
+        suite_bundle_dir,
+        suite_provenance,
+        contest_provenance,
+    )
 
 
 def _warn_config_drift(manifest: Manifest) -> None:
     """Non-fatal: note when the on-disk suite/contest for this run's names has drifted
     from the config the run was created with. Resume always replays the stored config."""
     try:
-        _, _, suite_dict, contest_dict, _, _, _ = _load_suite_contest(manifest.suite_name, manifest.contest_name)
+        _, _, suite_dict, contest_dict, _, _, _ = _load_suite_contest(
+            manifest.suite_name, manifest.contest_name
+        )
     except FileNotFoundError:
         return
     if compute_config_hash(suite_dict, contest_dict) != manifest.config_hash:
-        _log.warning(f"on-disk config for suite={manifest.suite_name!r} contest={manifest.contest_name!r} differs from this run's stored config, resuming with the stored config")
+        _log.warning(
+            f"on-disk config for suite={manifest.suite_name!r} contest={manifest.contest_name!r} differs from this run's stored config, resuming with the stored config"
+        )
 
 
 def _resolve_resume_config(
@@ -2338,34 +2997,58 @@ _KV_RE = re.compile(r"^[\w\.\-]+:=.*$")
 _SHARED_NAME_RE = re.compile(r"^[\w\-][\w\.\-]*$")
 
 
-def _shared_lane(shared: str | None, run_id: str | None, resume: str | None) -> tuple[str | None, str | None]:
+def _shared_lane(
+    shared: str | None, run_id: str | None, resume: str | None
+) -> tuple[str | None, str | None]:
     """Validate --shared arguments, returning (lane, error message)."""
     if shared is None:
         return None, None
     if not _SHARED_NAME_RE.match(shared):
-        return None, f"--shared token {shared!r} must be a plain file name (letters, digits, '_', '-', '.')"
+        return (
+            None,
+            f"--shared token {shared!r} must be a plain file name (letters, digits, '_', '-', '.')",
+        )
     lane = os.environ.get("ARENA_LANE", "")
     if not lane:
-        return None, "--shared needs ARENA_LANE set to this runner's lane name (e.g. ARENA_LANE=p1)"
+        return (
+            None,
+            "--shared needs ARENA_LANE set to this runner's lane name (e.g. ARENA_LANE=p1)",
+        )
     if not _SHARED_NAME_RE.match(lane):
-        return None, f"ARENA_LANE {lane!r} must be a plain file name (letters, digits, '_', '-', '.')"
+        return (
+            None,
+            f"ARENA_LANE {lane!r} must be a plain file name (letters, digits, '_', '-', '.')",
+        )
     if resume == "__auto__":
-        return None, "--shared refuses bare --resume, pass --resume <run_id> so every lane opens the same run"
+        return (
+            None,
+            "--shared refuses bare --resume, pass --resume <run_id> so every lane opens the same run",
+        )
     if resume is None and run_id is None:
-        return None, "--shared needs --run-id <id> for a fresh run or --resume <run_id>, shared by every lane"
+        return (
+            None,
+            "--shared needs --run-id <id> for a fresh run or --resume <run_id>, shared by every lane",
+        )
     return lane, None
 
 
 def cli_main(argv: list[str] | None = None) -> int:
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.WARNING if sys.stderr.isatty() else logging.INFO)
-    console_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s", datefmt="%H:%M:%S"))
+    console_handler.setFormatter(
+        logging.Formatter(
+            "[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s", datefmt="%H:%M:%S"
+        )
+    )
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.handlers = [console_handler]
     _log.setLevel(logging.INFO)
     _log.propagate = True
-    p = argparse.ArgumentParser(prog="benchmark", epilog="exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted")
+    p = argparse.ArgumentParser(
+        prog="benchmark",
+        epilog="exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted",
+    )
     p.add_argument("--suite", default="basic")
     p.add_argument("--contest", default="basic")
     p.add_argument("--scale-episodes", type=float, default=1.0)
@@ -2472,16 +3155,23 @@ def cli_main(argv: list[str] | None = None) -> int:
 
         if args.data_root:
             data_root = pathlib.Path(args.data_root)
-            print(f"benchmark: data_root from --data-root: {data_root}", file=sys.stderr)
+            print(
+                f"benchmark: data_root from --data-root: {data_root}", file=sys.stderr
+            )
         elif os.environ.get("ARENA_DATA_DIR"):
             data_root = pathlib.Path(os.environ["ARENA_DATA_DIR"]) / "benchmarks"
-            print(f"benchmark: data_root from ARENA_DATA_DIR: {data_root}", file=sys.stderr)
+            print(
+                f"benchmark: data_root from ARENA_DATA_DIR: {data_root}",
+                file=sys.stderr,
+            )
         else:
             data_root = share / "data"
             print(f"benchmark: data_root from default: {data_root}", file=sys.stderr)
 
         if args.viz:
-            problem = dashboard.port_problem(dashboard.DEFAULT_HOST, args.viz_port, data_root)
+            problem = dashboard.port_problem(
+                dashboard.DEFAULT_HOST, args.viz_port, data_root
+            )
             if problem is not None:
                 print(f"benchmark: --viz: {problem}", file=sys.stderr)
                 return 2
@@ -2508,12 +3198,28 @@ def cli_main(argv: list[str] | None = None) -> int:
             if simulator is not None:
                 arena_passthrough["sim"] = simulator
             _warn_config_drift(man)
-            run_dir.progress.write_comment(f"resumed at {datetime.datetime.now(tz=datetime.UTC).isoformat()}")
+            run_dir.progress.write_comment(
+                f"resumed at {datetime.datetime.now(tz=datetime.UTC).isoformat()}"
+            )
             fresh = None
         else:
-            suite, contest, suite_dict, contest_dict, suite_bundle_dir, suite_provenance, contest_provenance = _load_suite_contest(args.suite, args.contest)
+            (
+                suite,
+                contest,
+                suite_dict,
+                contest_dict,
+                suite_bundle_dir,
+                suite_provenance,
+                contest_provenance,
+            ) = _load_suite_contest(args.suite, args.contest)
             scale_episodes = args.scale_episodes
-            fresh = (suite_dict, contest_dict, suite_provenance, contest_provenance, compute_config_hash(suite_dict, contest_dict))
+            fresh = (
+                suite_dict,
+                contest_dict,
+                suite_provenance,
+                contest_provenance,
+                compute_config_hash(suite_dict, contest_dict),
+            )
 
         arena_passthrough = runtime_launch_args(suite.launch_args, arena_passthrough)
         env_n = int(arena_passthrough.get("env.n", "1"))
@@ -2541,8 +3247,12 @@ def cli_main(argv: list[str] | None = None) -> int:
             seen.add(c.key)
 
         if fresh is not None:
-            suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = fresh
-            run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
+            suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = (
+                fresh
+            )
+            run_id = args.run_id or _default_run_id(
+                args.suite, args.contest, os.environ.get("ARENA_LANE")
+            )
             sha, dirty = _arena_git_provenance(share)
             steps_list = [
                 {
@@ -2589,19 +3299,28 @@ def cli_main(argv: list[str] | None = None) -> int:
     viz = None
     if args.viz:
         try:
-            viz_url, viz = dashboard.start_child(dashboard.DEFAULT_HOST, args.viz_port, data_root, run_dir.manifest.run_id)
+            viz_url, viz = dashboard.start_child(
+                dashboard.DEFAULT_HOST,
+                args.viz_port,
+                data_root,
+                run_dir.manifest.run_id,
+            )
         except dashboard.DashboardError as exc:
             print(f"benchmark: --viz: {exc}", file=sys.stderr)
             return 2
         print(f"{dashboard.VIZ_PREFIX}{viz_url}", file=sys.stderr, flush=True)
         with run_dir.log_path.open("a") as fh:
-            fh.write(f"{datetime.datetime.now(tz=datetime.UTC).isoformat()} INFO benchmark: {dashboard.VIZ_PREFIX}{viz_url}\n")
+            fh.write(
+                f"{datetime.datetime.now(tz=datetime.UTC).isoformat()} INFO benchmark: {dashboard.VIZ_PREFIX}{viz_url}\n"
+            )
 
     print(
         f"{PREPARED}{run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
         file=sys.stderr,
     )
-    _snapshot_bundle_worlds(suite_bundle_dir, (step.stage.map for step in steps), run_dir.path)
+    _snapshot_bundle_worlds(
+        suite_bundle_dir, (step.stage.map for step in steps), run_dir.path
+    )
 
     run_dir.attach_log_handler(logging.getLogger())
     if lane is not None:

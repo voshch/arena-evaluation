@@ -1,7 +1,8 @@
 import pytest
 from robot_params_factory import make_robot_params
 
-pl = pytest.importorskip("polars")
+import polars as pl
+
 pytest.importorskip("arena_simulation_setup.shared.judge")
 
 import shapely
@@ -10,12 +11,12 @@ from arena_evaluation.processing.metrics.common.caching import world_cache
 from arena_evaluation.processing.metrics.common.events import reconstruct_events
 from arena_evaluation.processing.metrics.common.zones import ZoneGeometry
 from arena_evaluation.processing.metrics.ecological.condition_metrics import _wall_cache
-from arena_evaluation.processing.metrics.performance.task_metrics import (  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.processing.metrics.performance.task_metrics import (
     TaskReplayCalculator,
     _active_phase_spans,
     _robot_events,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle  # noqa: E402  # follows pytest.importorskip
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 S = 1_000_000_000
 
