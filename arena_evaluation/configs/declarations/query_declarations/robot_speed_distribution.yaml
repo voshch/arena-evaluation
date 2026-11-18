@@ -1,0 +1,18 @@
+name: robot_speed_distribution
+title: Robot Speed Distribution and Extremes
+description: Aggregates sample counts, mean speed, max speed, and duration for robots across episodes
+parameters:
+  robot_id:
+    default: all
+    description: Filter by robot_id or all
+    type: string
+sql: |
+  SELECT
+      robot_id,
+      COUNT(*) AS sample_count,
+      (MAX(t_ns) - MIN(t_ns)) / 1000000000.0 AS duration_s,
+      AVG(speed_mps) AS mean_speed,
+      MAX(speed_mps) AS max_speed
+  FROM robot_tracks
+  WHERE (:robot_id = 'all' OR robot_id = :robot_id)
+  GROUP BY robot_id

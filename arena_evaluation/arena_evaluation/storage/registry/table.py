@@ -55,21 +55,32 @@ _ARROW_TYPES: Final[dict[type[pl.DataType], pa.DataType]] = {
 }
 _REGISTERED: list[type[Table]] = []
 _TABLE_ATTRIBUTES: Final[frozenset[str]] = frozenset(
-    {"table_name", "table_kind", "table_scope", "key", "unique_key", "required_by_default", "_columns"}
+    {
+        "table_name",
+        "table_kind",
+        "table_scope",
+        "key",
+        "unique_key",
+        "required_by_default",
+        "_columns",
+    }
 )
 
 
 class TableKind(StrEnum):
-    """Recorded telemetry, a benchmark dimension, a per-episode fact table, or a per-episode series."""
+    """Recorded telemetry, a benchmark dimension, a per-episode fact table, a per-episode series, or analysis output."""
 
     TELEMETRY = "telemetry"
     DIMENSION = "dimension"
     FACT = "fact"
     SERIES = "series"
+    ANALYSIS = "analysis"
 
 
 #: The kinds whose tables end with a null_reason column; telemetry and series hold measured samples without one.
-_KINDS_WITH_NULL_REASON: Final[frozenset[TableKind]] = frozenset({TableKind.FACT, TableKind.DIMENSION})
+_KINDS_WITH_NULL_REASON: Final[frozenset[TableKind]] = frozenset(
+    {TableKind.FACT, TableKind.DIMENSION}
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -230,11 +241,13 @@ class Table:
         cls.table_kind = kind
         cls.table_scope = scope
         cls._columns = _collect_columns(cls)
-        if cls.table_kind in _KINDS_WITH_NULL_REASON and NULL_REASON_COLUMN not in cls._columns:
+        if (
+            cls.table_kind in _KINDS_WITH_NULL_REASON
+            and NULL_REASON_COLUMN not in cls._columns
+        ):
             cls._columns[NULL_REASON_COLUMN] = NULL_REASON
         _validate(cls)
         _REGISTERED.append(cls)
-
 
     @classmethod
     def column(cls, name: str) -> Column:
@@ -291,12 +304,13 @@ class Table:
                 return pathlib.PurePosixPath("metrics", cls.file_name())
             case TableKind.DIMENSION:
                 return pathlib.PurePosixPath(cls.file_name())
+            case TableKind.ANALYSIS:
+                return pathlib.PurePosixPath("analysis", cls.file_name())
 
     @classmethod
     def scan(cls, directory: pathlib.Path) -> pl.LazyFrame:
         """Scan the table lazily under ``directory``: an episode folder, or the benchmark root for a dimension."""
         return pl.scan_parquet(directory / cls.relative_path())
-
 
     @classmethod
     def _all_columns(cls) -> dict[str, Column]:
@@ -322,9 +336,15 @@ def registered_tables() -> tuple[type[Table], ...]:
 
 def _refuse_table_attribute_columns(table: type[Table]) -> None:
     """Refuse a column named like a table attribute: the class assignment would overwrite it and the column would vanish."""
-    shadowing = sorted(name for name, value in vars(table).items() if isinstance(value, Column) and name in _TABLE_ATTRIBUTES)
+    shadowing = sorted(
+        name
+        for name, value in vars(table).items()
+        if isinstance(value, Column) and name in _TABLE_ATTRIBUTES
+    )
     if shadowing:
-        raise SchemaViolationError(f"{table.__name__}: column(s) {shadowing} take the name of a table attribute")
+        raise SchemaViolationError(
+            f"{table.__name__}: column(s) {shadowing} take the name of a table attribute"
+        )
 
 
 def _collect_columns(table: type[Table]) -> dict[str, Column]:

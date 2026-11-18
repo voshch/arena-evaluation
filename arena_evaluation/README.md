@@ -48,6 +48,8 @@ carries none from `arena_robots.characterization`, the module the
 +-------------------------+-------------------------------------------+
 ```
 
+**Layer 3 — Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, and `v_series_*`). Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
+
 ---
 
 ## Directory Structure
@@ -63,7 +65,7 @@ arena_evaluation/
 |   |   `-- topics.py          <- Topic definitions and type registry
 |   |-- storage/               <- Layer 1: Registry, dimensions and path management
 |   |   |-- registry/          <- One Table class per stored table (telemetry, dimensions, facts)
-|   |   |-- star_schema.py     <- Dimension tables: conform, stack, write once at the benchmark root
+|   |   |-- star_schema.py     <- Dimension tables and benchmark-wide lazy scans from the registry
 |   |   |-- contracts.py       <- Dimension contract (schema, keys, reasons of NULL)
 |   |   |-- schemas.py         <- RunMetadata, EpisodeDescriptor, RobotParams, TopicBundle
 |   |   |-- folder_manager.py  <- Path resolution and episode discovery
@@ -84,6 +86,7 @@ arena_evaluation/
 |   |   |-- acoustics/         <- Acoustic propagation solver and door geometry (layer 2)
 |   |   |-- path/              <- Reference path solver (layer 2)
 |   |   `-- pose_segments.py   <- Teleport detection (layer 2)
+|   |-- analytics/             <- Layer 3: BenchmarkCatalog, canonical views, guarded SQL, query store
 |   |-- presentation/          <- Layer 5: Report and plot generation
 |   |   |-- report_builder.py  <- Generates report.html and plots
 |   |   |-- manifest_registry.py <- Resolves report manifests
@@ -109,6 +112,7 @@ arena_evaluation/
 |   |-- data_recorder_config.yaml  <- Topic throttle frequencies
 |   |-- mcap_writer_options.yaml   <- MCAP writer tuning
 |   `-- color_palette.yaml         <- Color palette
+|-- configs/declarations/query_declarations/ <- Named read-only SQL query declarations
 |-- configs/benchmark/
 |   |-- suites/                <- Suite definitions
 |   |-- contests/              <- Contest definitions

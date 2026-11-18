@@ -6,7 +6,12 @@ import numpy as np
 import polars as pl
 import pytest
 
-from arena_evaluation.experiments.stats import cluster_bootstrap, holm, paired_differences, summarize_family
+from arena_evaluation.experiments.stats import (
+    cluster_bootstrap,
+    holm,
+    paired_differences,
+    summarize_family,
+)
 
 
 def test_holm_matches_the_textbook_example() -> None:
@@ -43,7 +48,9 @@ def test_bootstrap_resamples_whole_scenarios() -> None:
 def test_p_below_alpha_iff_interval_excludes_zero() -> None:
     rng = np.random.default_rng(3)
     for shift in (0.0, 0.2, 0.5, 1.0):
-        res = cluster_bootstrap([rng.normal(shift, 1.0, size=3) for _ in range(12)], n_boot=1000, rng=rng)
+        res = cluster_bootstrap(
+            [rng.normal(shift, 1.0, size=3) for _ in range(12)], n_boot=1000, rng=rng
+        )
         assert (res.p < 0.05) == (res.ci_low > 0 or res.ci_high < 0)
 
 
@@ -52,11 +59,36 @@ def test_paired_differences_and_family_summary() -> None:
     for planner in ("dwb", "mppi"):
         for scenario in range(6):
             for seed in range(3):
-                rows.append({"planner": planner, "scenario": scenario, "seed": seed, "arm": "contact", "stalls": 3.0 if planner == "dwb" else 1.0})
-                rows.append({"planner": planner, "scenario": scenario, "seed": seed, "arm": "locomotion", "stalls": 1.0})
-    rows.append({"planner": "dwb", "scenario": 0, "seed": 9, "arm": "contact", "stalls": 5.0})
+                rows.append(
+                    {
+                        "planner": planner,
+                        "scenario": scenario,
+                        "seed": seed,
+                        "arm": "contact",
+                        "stalls": 3.0 if planner == "dwb" else 1.0,
+                    }
+                )
+                rows.append(
+                    {
+                        "planner": planner,
+                        "scenario": scenario,
+                        "seed": seed,
+                        "arm": "locomotion",
+                        "stalls": 1.0,
+                    }
+                )
+    rows.append(
+        {"planner": "dwb", "scenario": 0, "seed": 9, "arm": "contact", "stalls": 5.0}
+    )
     df = pl.DataFrame(rows)
-    diffs = paired_differences(df, cell=["planner"], metric="stalls", arm="arm", treatment="contact", control="locomotion")
+    diffs = paired_differences(
+        df,
+        cell=["planner"],
+        metric="stalls",
+        arm="arm",
+        treatment="contact",
+        control="locomotion",
+    )
     assert diffs.height == 36
     summary = summarize_family(diffs, cell=["planner"], n_boot=500).sort("planner")
     assert summary["estimate"].to_list() == pytest.approx([2.0, 0.0])
@@ -85,8 +117,28 @@ def test_bootstrap_keeps_the_estimate_when_every_draw_is_undefined() -> None:
 
 
 def test_paired_differences_without_both_arms_keeps_the_key_schema() -> None:
-    df = pl.DataFrame({"planner": ["dwb"], "scenario": [0], "seed": [0], "arm": ["contact"], "stalls": [1.0]})
-    diffs = paired_differences(df, cell=["planner"], metric="stalls", arm="arm", treatment="contact", control="locomotion")
+    df = pl.DataFrame(
+        {
+            "planner": ["dwb"],
+            "scenario": [0],
+            "seed": [0],
+            "arm": ["contact"],
+            "stalls": [1.0],
+        }
+    )
+    diffs = paired_differences(
+        df,
+        cell=["planner"],
+        metric="stalls",
+        arm="arm",
+        treatment="contact",
+        control="locomotion",
+    )
     assert diffs.height == 0
-    assert dict(diffs.schema) == {"planner": pl.String, "scenario": pl.Int64, "seed": pl.Int64, "diff": pl.Float64}
+    assert dict(diffs.schema) == {
+        "planner": pl.String,
+        "scenario": pl.Int64,
+        "seed": pl.Int64,
+        "diff": pl.Float64,
+    }
     assert summarize_family(diffs, cell=["planner"], n_boot=10).height == 0

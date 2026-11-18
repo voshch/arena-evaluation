@@ -21,7 +21,7 @@ from arena_evaluation.storage.registry.table import (
     defined_metrics,
     registered_tables,
 )
-from arena_evaluation.storage.registry import dimensions, series, telemetry
+from arena_evaluation.storage.registry import analysis, dimensions, series, telemetry
 
 __all__ = [
     "FACT_KEY_COLUMNS",
@@ -39,6 +39,7 @@ __all__ = [
     "Table",
     "TableKind",
     "define_metric",
+    "analysis",
     "defined_metrics",
     "dimensions",
     "registered_tables",

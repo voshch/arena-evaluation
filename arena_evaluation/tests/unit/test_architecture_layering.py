@@ -1,45 +1,108 @@
-"""The storage layer imports nothing above it, in any of its subpackages."""
+"""Architecture layering guards with strict allow-lists and pinned cross-layer edges."""
 
 from __future__ import annotations
 
 import ast
 import pathlib
 
+import arena_evaluation.analytics as analytics_package
+import arena_evaluation.experiments as experiments_package
 import arena_evaluation.storage as storage_package
 
+_PKG_ROOT: pathlib.Path = pathlib.Path(storage_package.__file__).parents[1]
 _STORAGE_ROOT: pathlib.Path = pathlib.Path(storage_package.__file__).parent
-_HIGHER_LAYERS: tuple[str, ...] = (
-    "processing",
-    "presentation",
-    "analytics",
-    "metrics",
-    "benchmark",
-    "mcp",
+_ANALYTICS_ROOT: pathlib.Path = pathlib.Path(analytics_package.__file__).parent
+_EXPERIMENTS_ROOT: pathlib.Path = pathlib.Path(experiments_package.__file__).parent
+
+_STORAGE_ALLOWED: tuple[str, ...] = ("arena_evaluation.storage",)
+_ANALYTICS_ALLOWED: tuple[str, ...] = (
+    "arena_evaluation.storage",
+    "arena_evaluation.analytics",
 )
-_HIGHER_MODULES: tuple[str, ...] = tuple(
-    f"arena_evaluation.{layer}" for layer in _HIGHER_LAYERS
+_EXPERIMENTS_ALLOWED: tuple[str, ...] = (
+    "arena_evaluation.storage",
+    "arena_evaluation.analytics",
+    "arena_evaluation.experiments",
 )
+_EXPERIMENTS_PINNED: dict[tuple[str, str], set[str]] = {
+    ("beckon.py", "arena_evaluation.benchmark.config"): {"_parse_duration"},
+}
 
 
-def _imports_of(path: pathlib.Path) -> list[str]:
-    """Every module a file names, relative imports that climb out of storage as their absolute name."""
+def _resolve_package(path: pathlib.Path, level: int) -> str:
+    rel = path.relative_to(_PKG_ROOT)
+    parts = rel.parts[:-1]
+    if level > 1:
+        parts = parts[: max(0, len(parts) - (level - 1))]
+    return ".".join(("arena_evaluation", *parts))
+
+
+def _imports_of(path: pathlib.Path) -> list[tuple[str, tuple[str, ...]]]:
+    """Return ``(module_name, imported_names)`` for every import in ``path``."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    modules: list[str] = []
+    imports: list[tuple[str, tuple[str, ...]]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            modules.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            modules.append(node.module)
-        elif isinstance(node, ast.ImportFrom) and node.level >= 2 and node.module:
-            modules.append(f"arena_evaluation.{node.module}")
-    return modules
+            for alias in node.names:
+                imports.append((alias.name, ()))
+        elif isinstance(node, ast.ImportFrom):
+            names = tuple(alias.name for alias in node.names)
+            if node.level == 0 and node.module:
+                imports.append((node.module, names))
+            elif node.level >= 1:
+                pkg = _resolve_package(path, node.level)
+                target = f"{pkg}.{node.module}" if node.module else pkg
+                imports.append((target, names))
+    return imports
 
 
-def test_storage_imports_no_higher_layer_in_any_subpackage() -> None:
+def _is_internal(module: str) -> bool:
+    return module == "arena_evaluation" or module.startswith("arena_evaluation.")
+
+
+def _matches_allowed(module: str, allowed: tuple[str, ...]) -> bool:
+    return any(
+        module == prefix or module.startswith(f"{prefix}.") for prefix in allowed
+    )
+
+
+def test_storage_imports_only_storage() -> None:
     violations = [
         f"{path.relative_to(_STORAGE_ROOT)} imports {module}"
         for path in sorted(_STORAGE_ROOT.rglob("*.py"))
-        for module in _imports_of(path)
-        if module.startswith(_HIGHER_MODULES)
+        for module, _ in _imports_of(path)
+        if _is_internal(module) and not _matches_allowed(module, _STORAGE_ALLOWED)
     ]
-    assert not violations, f"storage imports from a higher layer: {violations}"
+    assert not violations, f"storage imports outside allow-list: {violations}"
+
+
+def test_analytics_imports_only_storage_and_analytics() -> None:
+    violations = [
+        f"{path.relative_to(_ANALYTICS_ROOT)} imports {module}"
+        for path in sorted(_ANALYTICS_ROOT.rglob("*.py"))
+        for module, _ in _imports_of(path)
+        if _is_internal(module) and not _matches_allowed(module, _ANALYTICS_ALLOWED)
+    ]
+    assert not violations, f"analytics imports outside allow-list: {violations}"
+
+
+def test_experiments_imports_only_allowed_layers_and_pinned_edge() -> None:
+    violations: list[str] = []
+    seen_pinned: set[tuple[str, str]] = set()
+    for path in sorted(_EXPERIMENTS_ROOT.rglob("*.py")):
+        rel = path.relative_to(_EXPERIMENTS_ROOT).as_posix()
+        for module, names in _imports_of(path):
+            if not _is_internal(module) or _matches_allowed(
+                module, _EXPERIMENTS_ALLOWED
+            ):
+                continue
+            key = (rel, module)
+            if key in _EXPERIMENTS_PINNED and set(names) == _EXPERIMENTS_PINNED[key]:
+                seen_pinned.add(key)
+            else:
+                violations.append(f"{rel} imports {module} ({list(names)})")
+
+    assert not violations, f"experiments imports outside allow-list: {violations}"
+    assert seen_pinned == set(_EXPERIMENTS_PINNED), (
+        f"pinned edge(s) missing: {set(_EXPERIMENTS_PINNED) - seen_pinned}"
+    )
