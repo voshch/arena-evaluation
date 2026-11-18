@@ -47,21 +47,40 @@ def _state_types() -> dict[str, tuple[type, str, bool]]:
     try:
         from arena_humansim_msgs.msg import AgentStates, InteractionFrame
 
-        types["arena_humansim_msgs/msg/InteractionFrame"] = (InteractionFrame, "interactions", True)
-        types["arena_humansim_msgs/msg/AgentStates"] = (AgentStates, "agent_states", False)
+        types["arena_humansim_msgs/msg/InteractionFrame"] = (
+            InteractionFrame,
+            "interactions",
+            True,
+        )
+        types["arena_humansim_msgs/msg/AgentStates"] = (
+            AgentStates,
+            "agent_states",
+            False,
+        )
     except ImportError:
         pass
     try:
         from arena_people_msgs.msg import AnimationStates, Pedestrians
 
-        types["arena_people_msgs/msg/AnimationStates"] = (AnimationStates, "animation_states", False)
+        types["arena_people_msgs/msg/AnimationStates"] = (
+            AnimationStates,
+            "animation_states",
+            False,
+        )
         types["arena_people_msgs/msg/Pedestrians"] = (Pedestrians, "arena_peds", False)
     except ImportError:
         pass
     return types
 
 
-_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
+_OUTCOME_LABELS = {
+    0: "QUEUED",
+    1: "RUNNING",
+    2: "SUCCESS",
+    3: "FAILED",
+    4: "SKIPPED",
+    5: "FATAL",
+}
 _TERMINAL_OUTCOMES = {
     EpisodeRecord.SUCCESS,
     EpisodeRecord.FAILED,
@@ -69,8 +88,25 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.FATAL,
 }
 
-_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "interactions", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
+_DESERIALIZED_TOPIC_KEYS = frozenset(
+    {"episode_record", "robots_fleet", "tf", "tf_humans"}
+)
+_ENV_TOPIC_KEYS = frozenset(
+    {
+        "episode_record",
+        "robots_fleet",
+        "peds",
+        "agent_states",
+        "agent_meta",
+        "interactions",
+        "semantic_snapshot",
+        "map",
+        "door_mask",
+        "tf",
+        "tf_humans",
+        "tf_static",
+    }
+)
 
 
 class _NodeKwargs(TypedDict, total=False):
@@ -92,10 +128,22 @@ class _RecorderConfig(TypedDict, total=False):
 
 
 _RECORDER_PARAMS = (
-    Param[str]("record_data_dir", "", description="Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
-    Param[str]("benchmark_id", "unknown", description="Benchmark run id the recording belongs to."),
-    Param[str]("contestant", "unknown", description="Contestant name of the recorded planner."),
-    Param[str]("stage", "unknown", description="Benchmark stage the recording belongs to."),
+    Param[str](
+        "record_data_dir",
+        "",
+        description="Directory the run is recorded into (empty or auto:/ = a new timestamped run).",
+    ),
+    Param[str](
+        "benchmark_id",
+        "unknown",
+        description="Benchmark run id the recording belongs to.",
+    ),
+    Param[str](
+        "contestant", "unknown", description="Contestant name of the recorded planner."
+    ),
+    Param[str](
+        "stage", "unknown", description="Benchmark stage the recording belongs to."
+    ),
     Param[str]("map", "unknown", description="Map the episodes run on."),
     Param[str]("world", "unknown", description="World the episodes run in."),
     Param[str]("suite_name", "", description="Benchmark suite the run belongs to."),
@@ -103,106 +151,77 @@ _RECORDER_PARAMS = (
     Param[str]("local_planner", "", description="Local planner under test."),
     Param[str]("inter_planner", "", description="Intermediate planner under test."),
     Param[str]("robot", "", description="Robot model of the run."),
-    Param[int]("episodes_requested", 0, parse=count, description="Number of episodes the run asked for (0 = unspecified)."),
-    Param[bool]("is_reference", False, description="Mark the recording as a reference run."),
-    Param[str]("reference_type", "", description="Kind of reference the recording is (empty = none)."),
-    Param[int]("episode_id_offset", 0, description="Offset added to the recorded episode ids."),
-    Param[str]("workspace_dir", "", description="Workspace directory the run was started from."),
-    Param[str]("world.lighting", "authored", description="Lighting mode of the world the episodes run in."),
-    Param[str]("kg.derive", "auto", description="Mode in which the knowledge graph of the world is derived."),
-    Param[str]("data_recorder_autoprefix", "", description="Run id chosen for an automatic run directory (empty = generated at start)."),
+    Param[int](
+        "episodes_requested",
+        0,
+        parse=count,
+        description="Number of episodes the run asked for (0 = unspecified).",
+    ),
+    Param[bool](
+        "is_reference", False, description="Mark the recording as a reference run."
+    ),
+    Param[str](
+        "reference_type",
+        "",
+        description="Kind of reference the recording is (empty = none).",
+    ),
+    Param[int](
+        "episode_id_offset", 0, description="Offset added to the recorded episode ids."
+    ),
+    Param[str](
+        "workspace_dir", "", description="Workspace directory the run was started from."
+    ),
+    Param[str](
+        "world.lighting",
+        "authored",
+        description="Lighting mode of the world the episodes run in.",
+    ),
+    Param[str](
+        "kg.derive",
+        "auto",
+        description="Mode in which the knowledge graph of the world is derived.",
+    ),
+    Param[str](
+        "data_recorder_autoprefix",
+        "",
+        description="Run id chosen for an automatic run directory (empty = generated at start).",
+    ),
 )
 
 
 class DataRecorderNode(ROSParamServer, EpisodeWriter):
     def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
-        super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
+        super().__init__(
+            "arena_evaluation_data_recorder",
+            automatically_declare_parameters_from_overrides=True,
+            **node_kwargs,
+        )
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
-        handles = {param.name: self.ROSParam(param.name, param.default, parse=param.parse) for param in _RECORDER_PARAMS}
+        handles = {
+            param.name: self.ROSParam(param.name, param.default, parse=param.parse)
+            for param in _RECORDER_PARAMS
+        }
 
-        record_data_dir = str(handles["record_data_dir"].value or "")
-
-        if not record_data_dir:
-            for idx, arg in enumerate(sys.argv):
-                if arg in ("--dir", "-d") and idx + 1 < len(sys.argv):
-                    record_data_dir = sys.argv[idx + 1]
-                    break
-                elif arg.startswith("--dir="):
-                    record_data_dir = arg[6:].strip()
-                    break
-
-        if not record_data_dir:
-            record_data_dir = "auto:/"
-
+        record_data_dir = (
+            str(handles["record_data_dir"].value or "")
+            or self._parse_cli_dir()
+            or "auto:/"
+        )
         workspace_root = pathlib.Path(self.base_dir).parents[3]
-        ws_data = (workspace_root / "data").resolve()
-        ws_runs = (workspace_root / "data" / "runs").resolve()
-
-        map_val = str(handles["map"].value or handles["world"].value or "")
-        robot_val = str(handles["robot"].value or "")
-        planner_val = str(handles["local_planner"].value or handles["contestant"].value or "")
-        bench_id_val = str(handles["benchmark_id"].value or "")
-
-        def _generate_run_id() -> str:
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            if bench_id_val and bench_id_val != "unknown":
-                return f"{ts}-{bench_id_val}" if not bench_id_val.startswith(ts) else bench_id_val
-            details = []
-            if map_val and map_val != "unknown":
-                details.append(pathlib.Path(map_val).stem)
-            if robot_val and robot_val != "unknown":
-                details.append(robot_val)
-            if planner_val and planner_val != "unknown":
-                details.append(planner_val)
-            if details:
-                return f"{ts}-{'-'.join(details)}"
-            return f"{ts}-run"
-
-        if record_data_dir.startswith("auto:/"):
-            param_value = handles["data_recorder_autoprefix"].value
-            if not param_value:
-                run_id = _generate_run_id()
-                self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
-            else:
-                run_id = str(param_value)
-            self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
-            record_data_dir_path = self.run_dir / "episodes"
-        else:
-            p = pathlib.Path(record_data_dir)
-            if not p.is_absolute():
-                p = workspace_root / p
-            p_resolved = p.resolve()
-
-            # If pointing to base "data", "data/runs", or "runs", generate data/runs/<run_id>/episodes
-            if p_resolved == ws_data or p_resolved == ws_runs or (p.name in ("data", "runs") and (p_resolved.parent in (workspace_root.resolve(), ws_data))):
-                param_value = handles["data_recorder_autoprefix"].value
-                if not param_value:
-                    run_id = _generate_run_id()
-                    self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
-                else:
-                    run_id = str(param_value)
-                self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
-                record_data_dir_path = self.run_dir / "episodes"
-            elif p.name == "episodes":
-                record_data_dir_path = p_resolved
-                self.run_dir = record_data_dir_path.parent
-            else:
-                self.run_dir = p_resolved
-                record_data_dir_path = p_resolved / "episodes"
+        self.run_dir, record_data_dir_path = self._resolve_run_dirs(
+            handles, record_data_dir, workspace_root
+        )
 
         self.episodes_root = record_data_dir_path.resolve()
         self.episodes_root.mkdir(parents=True, exist_ok=True)
-        if self.run_dir.exists():
-            try:
-                self.run_dir.chmod(0o777)
-            except Exception:
-                pass
-        try:
-            self.episodes_root.chmod(0o777)
-        except Exception:
-            pass
+        for directory in (self.run_dir, self.episodes_root):
+            if directory.exists():
+                try:
+                    directory.chmod(0o777)
+                except OSError:
+                    pass
 
         self.benchmark_id = str(handles["benchmark_id"].value or "unknown")
         self.planner = str(handles["contestant"].value or "unknown")
@@ -223,7 +242,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self.kg_derive = str(handles["kg.derive"].value)
         self._snapshot_worlds: set[str] = set()
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
 
         self.robot_model = str(handles["robot"].value or "unknown")
@@ -241,10 +260,15 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         self.config = self.read_config()
         self.freqs = self.config.get("record_frequencies", {"default": 20.0})
-        self.tf_frames = [(re.compile(pattern), float(ms)) for pattern, ms in self.config.get("tf_frames", [])]
+        self.tf_frames = [
+            (re.compile(pattern), float(ms))
+            for pattern, ms in self.config.get("tf_frames", [])
+        ]
 
         self._log_info(f"Recorder ready. Episodes root: {self.episodes_root}")
-        self._log_info(f"planner={self.planner!r} stage={self.stage!r} map={self.map_name!r} benchmark_id={self.benchmark_id!r}")
+        self._log_info(
+            f"planner={self.planner!r} stage={self.stage!r} map={self.map_name!r} benchmark_id={self.benchmark_id!r}"
+        )
 
         self.current_time = None
         self._pre_clock_buffer = []
@@ -288,7 +312,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._unresolved_types: set[str] = set()
 
         self._log_info("Subscribing to /clock for sim time")
-        self.clock_sub = self.create_subscription(Clock, "/clock", self.clock_callback, self.qos)
+        self.clock_sub = self.create_subscription(
+            Clock, "/clock", self.clock_callback, self.qos
+        )
 
         self._log_info("Setting up topic subscriptions")
         self._setup_subscriptions()
@@ -299,17 +325,24 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             RecordEpisode = None
         if RecordEpisode is not None:
             self.service_cb_group = MutuallyExclusiveCallbackGroup()
-            self._start_service = self.create_service(RecordEpisode, "start_episode", self._start_episode_service_callback, callback_group=self.service_cb_group)
+            self._start_service = self.create_service(
+                RecordEpisode,
+                "start_episode",
+                self._start_episode_service_callback,
+                callback_group=self.service_cb_group,
+            )
             self._log_info("start_episode service ready")
         else:
             self._start_service = None
-        self._log_info("Topic subscriptions ready. Waiting for first episode to open MCAP writer...")
+        self._log_info(
+            "Topic subscriptions ready. Waiting for first episode to open MCAP writer..."
+        )
 
     def _open_log_file(self):
         if self.log_file is not None and not self.log_file.closed:
             try:
                 self.log_file.close()
-            except Exception:
+            except OSError:
                 pass
         if self.run_dir != self.episodes_root:
             self.log_file_path = self.run_dir / "recorder.log"
@@ -317,9 +350,84 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             self.log_file_path = self.episodes_root / "recorder.log"
         try:
             self.log_file = open(self.log_file_path, "a", buffering=1)
-        except Exception as e:
-            print(f"[DataRecorder] Failed to open log file at {self.log_file_path}: {e}", flush=True)
+        except OSError as e:
+            print(
+                f"[DataRecorder] Failed to open log file at {self.log_file_path}: {e}",
+                flush=True,
+            )
             self.log_file = None
+
+    @staticmethod
+    def _parse_cli_dir() -> str:
+        for idx, arg in enumerate(sys.argv):
+            if arg in ("--dir", "-d") and idx + 1 < len(sys.argv):
+                return sys.argv[idx + 1]
+            if arg.startswith("--dir="):
+                return arg[6:].strip()
+        return ""
+
+    @staticmethod
+    def _generate_run_id(handles: dict[str, Any]) -> str:
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        bench_id_val = str(handles["benchmark_id"].value or "")
+        if bench_id_val and bench_id_val != "unknown":
+            return (
+                f"{ts}-{bench_id_val}"
+                if not bench_id_val.startswith(ts)
+                else bench_id_val
+            )
+        map_val = str(handles["map"].value or handles["world"].value or "")
+        robot_val = str(handles["robot"].value or "")
+        planner_val = str(
+            handles["local_planner"].value or handles["contestant"].value or ""
+        )
+        details = [
+            pathlib.Path(map_val).stem if map_val and map_val != "unknown" else "",
+            robot_val if robot_val and robot_val != "unknown" else "",
+            planner_val if planner_val and planner_val != "unknown" else "",
+        ]
+        parts = [item for item in details if item]
+        return f"{ts}-{'-'.join(parts)}" if parts else f"{ts}-run"
+
+    def _resolve_run_dirs(
+        self,
+        handles: dict[str, Any],
+        record_data_dir: str,
+        workspace_root: pathlib.Path,
+    ) -> tuple[pathlib.Path, pathlib.Path]:
+        ws_data = (workspace_root / "data").resolve()
+        ws_runs = (workspace_root / "data" / "runs").resolve()
+
+        def _auto_dirs() -> tuple[pathlib.Path, pathlib.Path]:
+            param_value = handles["data_recorder_autoprefix"].value
+            if not param_value:
+                run_id = self._generate_run_id(handles)
+                self.set_parameters(
+                    [
+                        Parameter(
+                            "data_recorder_autoprefix", Parameter.Type.STRING, run_id
+                        )
+                    ]
+                )
+            else:
+                run_id = str(param_value)
+            run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
+            return run_dir, run_dir / "episodes"
+
+        if record_data_dir.startswith("auto:/"):
+            return _auto_dirs()
+        p = pathlib.Path(record_data_dir)
+        if not p.is_absolute():
+            p = workspace_root / p
+        p_resolved = p.resolve()
+        if p_resolved in (ws_data, ws_runs) or (
+            p.name in ("data", "runs")
+            and p_resolved.parent in (workspace_root.resolve(), ws_data)
+        ):
+            return _auto_dirs()
+        if p.name == "episodes":
+            return p_resolved.parent, p_resolved
+        return p_resolved, p_resolved / "episodes"
 
     def _start_episode_recording(self, episode_id: int):
         """Close any current writer and open a fresh one for this episode."""
@@ -338,8 +446,14 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         ep_name = f"episode_{global_episode_id:03d}"
         buffered = self._pre_clock_buffer
         if buffered:
-            kept = [entry for entry in buffered if entry[0].strip('/') in self.latched_topic_names]
-            self._log_info(f"Dropping {len(buffered) - len(kept)} pre-clock messages that arrived before {ep_name}")
+            kept = [
+                entry
+                for entry in buffered
+                if entry[0].strip("/") in self.latched_topic_names
+            ]
+            self._log_info(
+                f"Dropping {len(buffered) - len(kept)} pre-clock messages that arrived before {ep_name}"
+            )
             buffered[:] = kept
 
         self._enter_episode_dir(self.episodes_root / ep_name)
@@ -350,7 +464,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._open_writer()
 
     def _setup_subscriptions(self):
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         env_prefix = f"/{env_namespace}" if env_namespace else ""
 
         self.subs = []
@@ -362,41 +476,33 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         for key, t_def in topics_dict.items():
             if key not in _ENV_TOPIC_KEYS or not self._records(key, t_def):
                 continue
-
-            topic_name = t_def.name_template
             msg_type = t_def.msg_type
-
-            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "InteractionFrame", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
+            if (
+                isinstance(msg_type, type)
+                and msg_type.__name__
+                in (
+                    "Pedestrians",
+                    "AgentFrame",
+                    "AgentMeta",
+                    "InteractionFrame",
+                    "EpisodeRecord",
+                    "RobotFleet",
+                )
+                and not msg_type.__module__.startswith(("arena_", "task_generator_"))
+            ):
                 continue
 
+            topic_name = t_def.name_template
             if key != "tf_humans":
                 self._register_topic(topic_name, msg_type)
-
-            qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
             if t_def.qos_transient_local:
-                self.latched_topic_names.add(topic_name.strip('/'))
+                self.latched_topic_names.add(topic_name.strip("/"))
 
-            if key == "episode_record":
-                qos_profile = QoSProfile(
-                    reliability=QoSReliabilityPolicy.RELIABLE,
-                    durability=QoSDurabilityPolicy.VOLATILE,
-                    depth=1,
-                )
-                callback = self.episode_record_callback
-            elif key == "robots_fleet":
-                callback = self.robots_fleet_callback
-            elif key == "semantic_snapshot":
-                callback = self.semantic_snapshot_callback
-            elif key in ("tf", "tf_humans"):
-                qos_profile = self.tf_qos
-                callback = self._tf_callback
-            elif t_def.throttled:
-                callback = self._create_throttled_callback(topic_name)
-            else:
-                callback = self._create_unthrottled_callback(topic_name)
-
+            qos_profile, callback = self._env_topic_binding(key, t_def)
             raw = key not in _DESERIALIZED_TOPIC_KEYS
-            sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)  # pyright: ignore[reportArgumentType]
+            sub = self.create_subscription(
+                msg_type, topic_name, callback, qos_profile, raw=raw
+            )  # pyright: ignore[reportArgumentType]
             self.subs.append(sub)
             if key == "episode_record":
                 self.get_logger().info(f"Subscribed to EpisodeRecord on {topic_name}")
@@ -410,10 +516,41 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             depth=1,
         )
         topic_name = f"{env_prefix}/state/recorded_topics"
-        self.subs.append(self.create_subscription(RecordedTopics, topic_name, self.recorded_topics_callback, recorded_topics_qos))
+        self.subs.append(
+            self.create_subscription(
+                RecordedTopics,
+                topic_name,
+                self.recorded_topics_callback,
+                recorded_topics_qos,
+            )
+        )
         self.get_logger().info(f"Subscribed to RecordedTopics on {topic_name}")
 
         self.create_timer(1.0, self.discover_topics)
+
+    def _env_topic_binding(
+        self, key: str, t_def: Any
+    ) -> tuple[QoSProfile, Callable[..., Any]]:
+        qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
+        if key == "episode_record":
+            return QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.VOLATILE,
+                depth=1,
+            ), self.episode_record_callback
+        if key == "robots_fleet":
+            return qos_profile, self.robots_fleet_callback
+        if key == "semantic_snapshot":
+            return qos_profile, self.semantic_snapshot_callback
+        if key in ("tf", "tf_humans"):
+            return self.tf_qos, self._tf_callback
+        topic_name = t_def.name_template
+        callback = (
+            self._create_throttled_callback(topic_name)
+            if t_def.throttled
+            else self._create_unthrottled_callback(topic_name)
+        )
+        return qos_profile, callback
 
     def recorded_topics_callback(self, msg: RecordedTopics):
         for row in msg.topics:
@@ -426,7 +563,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         """Subscribe the env rows (robot_ns None) or one robot's rows of the backend-declared recorded topics."""
         from .topics import recorded_topic_definition
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         for key, row in self._recorded_rows.items():
             if row.robot_scoped != (robot_ns is not None):
                 continue
@@ -434,7 +571,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             if t_def is None:
                 if row.msg_type not in self._unresolved_types:
                     self._unresolved_types.add(row.msg_type)
-                    self._log_warn(f"Not recording {key}: message type {row.msg_type!r} does not import")
+                    self._log_warn(
+                        f"Not recording {key}: message type {row.msg_type!r} does not import"
+                    )
                 continue
             topic_name = t_def.name_template
             if topic_name in self._topic_registry or not self._records(key, t_def):
@@ -444,23 +583,31 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
             default_qos = self.latched_qos if t_def.qos_transient_local else self.qos
             qos_profile = QoSProfile(
-                reliability=QoSReliabilityPolicy.RELIABLE if t_def.reliable else QoSReliabilityPolicy.BEST_EFFORT,
-                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL if t_def.qos_transient_local else QoSDurabilityPolicy.VOLATILE,
+                reliability=QoSReliabilityPolicy.RELIABLE
+                if t_def.reliable
+                else QoSReliabilityPolicy.BEST_EFFORT,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL
+                if t_def.qos_transient_local
+                else QoSDurabilityPolicy.VOLATILE,
                 depth=t_def.depth or default_qos.depth,
             )
             if t_def.qos_transient_local:
-                self.latched_topic_names.add(topic_name.strip('/'))
+                self.latched_topic_names.add(topic_name.strip("/"))
 
             if t_def.throttled:
                 callback = self._create_throttled_callback(topic_name)
             else:
                 callback = self._create_unthrottled_callback(topic_name)
 
-            self.subs.append(self.create_subscription(t_def.msg_type, topic_name, callback, qos_profile, raw=True))
+            self.subs.append(
+                self.create_subscription(
+                    t_def.msg_type, topic_name, callback, qos_profile, raw=True
+                )
+            )
             self.get_logger().info(f"Subscribed to recorded topic: {topic_name}")
 
     def discover_topics(self):
-        namespace = self.get_namespace().strip('/')
+        namespace = self.get_namespace().strip("/")
         ns_prefix = f"/{namespace}" if namespace else ""
         env_prefix = ns_prefix.rsplit("/", 1)[0] + "/"
 
@@ -479,11 +626,15 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                 self._subscribe_discovered(name, Odometry)
                 if self.robot_model in ("unknown", ""):
                     for part in reversed(name.split("/")):
-                        if part and part not in ("odom", "eval_sim", "arena_env_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
+                        if (
+                            part
+                            and part
+                            not in ("odom", "eval_sim", "arena_env_node", "arena")
+                            and "velocity_controller" not in part
+                            and not part.startswith("env_")
+                        ):
                             self.robot_model = part
-                            if self.current_metadata is not None and self.current_metadata_path is not None:
-                                self.current_metadata.robot_model = [part]
-                                MetadataWriter.write(self.current_metadata, self.current_metadata_path)
+                            self._record_robot_model_metadata(part, replace=True)
                             break
 
     def _discover_state_topic(self, topic_name: str, types: list[str]) -> None:
@@ -496,17 +647,35 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
                 continue
             self._register_topic(topic_name, msg_type)
             if latched:
-                self.latched_topic_names.add(topic_name.strip('/'))
-                sub = self.create_subscription(msg_type, topic_name, self._create_unthrottled_callback(topic_name), self.latched_qos)
+                self.latched_topic_names.add(topic_name.strip("/"))
+                sub = self.create_subscription(
+                    msg_type,
+                    topic_name,
+                    self._create_unthrottled_callback(topic_name),
+                    self.latched_qos,
+                )
             else:
-                sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
+                sub = self.create_subscription(
+                    msg_type,
+                    topic_name,
+                    self._create_throttled_callback(topic_name),
+                    self.qos,
+                )
             self.subs.append(sub)
-            self._log_info(f"Discovered state topic: {topic_name} [{type_name}]{' latched' if latched else ''}")
+            self._log_info(
+                f"Discovered state topic: {topic_name} [{type_name}]{' latched' if latched else ''}"
+            )
             return
 
     def _subscribe_discovered(self, topic_name: str, msg_type: type):
         self._register_topic(topic_name, msg_type)
-        sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos, raw=True)
+        sub = self.create_subscription(
+            msg_type,
+            topic_name,
+            self._create_throttled_callback(topic_name),
+            self.qos,
+            raw=True,
+        )
         self.subs.append(sub)
         self.get_logger().info(f"Dynamically subscribed to: {topic_name}")
 
@@ -514,10 +683,14 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         new_time = msg.clock.sec * int(1e9) + msg.clock.nanosec
         self._clock_received_count += 1
         if self._clock_received_count <= 5:
-            self._log_info(f"/clock tick #{self._clock_received_count}: sim_time_ns={new_time} ({new_time / 1e9:.3f}s)")
+            self._log_info(
+                f"/clock tick #{self._clock_received_count}: sim_time_ns={new_time} ({new_time / 1e9:.3f}s)"
+            )
 
         if self.current_time is not None and new_time < self.current_time:
-            self._log_warn(f"Backward time jump detected: {self.current_time} -> {new_time}")
+            self._log_warn(
+                f"Backward time jump detected: {self.current_time} -> {new_time}"
+            )
             self._flush_tf(self.current_time, force=True)
             self.last_recorded_times.clear()
             with self._tf_lock:
@@ -527,7 +700,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         if self._pre_clock_buffer is not None:
             if self._pre_clock_buffer:
-                self._log_info(f"Flushing {len(self._pre_clock_buffer)} pre-clock buffered messages")
+                self._log_info(
+                    f"Flushing {len(self._pre_clock_buffer)} pre-clock buffered messages"
+                )
                 for topic, buffered_msg in self._pre_clock_buffer:
                     if topic == "/tf":
                         self._tf_callback(buffered_msg)
@@ -547,10 +722,14 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._start_episode_recording(episode_id)
         return True
 
-    def _stop_episode(self, episode_id: int, outcome_state: int = 0, outcome_info: str = "") -> None:
+    def _stop_episode(
+        self, episode_id: int, outcome_state: int = 0, outcome_info: str = ""
+    ) -> None:
         """Close the current episode writer and record its outcome."""
         if self.current_sim_episode_id != episode_id:
-            self._log_info(f"stop_episode ignored for episode_id={episode_id} (current is {self.current_sim_episode_id})")
+            self._log_info(
+                f"stop_episode ignored for episode_id={episode_id} (current is {self.current_sim_episode_id})"
+            )
             return
         if self.current_metadata is not None and self.current_metadata_path is not None:
             try:
@@ -567,7 +746,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._close_current_writer()
         self._pre_episode_buffer.clear()
 
-    def _start_episode_service_callback(self, request: RecordEpisode.Request, response: RecordEpisode.Response) -> RecordEpisode.Response:
+    def _start_episode_service_callback(
+        self, request: RecordEpisode.Request, response: RecordEpisode.Response
+    ) -> RecordEpisode.Response:
         """Authoritative episode lifecycle: START opens the writer, STOP closes it."""
         episode_id = int(request.episode_id)
         command = request.command
@@ -577,8 +758,14 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             response.success = True
             response.message = f"recording episode {self.current_episode_id}"
         elif command == request.COMMAND_STOP:  # pyright: ignore[reportAttributeAccessIssue]
-            self._log_info(f"stop_episode service called: episode_id={episode_id} outcome={request.outcome_state}")
-            self._stop_episode(episode_id, outcome_state=int(request.outcome_state), outcome_info=str(request.outcome_info))
+            self._log_info(
+                f"stop_episode service called: episode_id={episode_id} outcome={request.outcome_state}"
+            )
+            self._stop_episode(
+                episode_id,
+                outcome_state=int(request.outcome_state),
+                outcome_info=str(request.outcome_info),
+            )
             response.success = True
             response.message = "stopped"
         else:
@@ -589,16 +776,21 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
     def episode_record_callback(self, msg: EpisodeRecord):
         outcome_state = msg.outcome_state
         outcome_label = _OUTCOME_LABELS.get(outcome_state, f"UNKNOWN({outcome_state})")
-        self._log_info(f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}")
+        self._log_info(
+            f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}"
+        )
 
-        if msg.episode_id not in self._seen_episodes and outcome_state == EpisodeRecord.RUNNING:
+        if (
+            msg.episode_id not in self._seen_episodes
+            and outcome_state == EpisodeRecord.RUNNING
+        ):
             self._begin_episode(msg.episode_id, source="episode_record")
 
         self._update_metadata_from_episode(msg)
         if msg.world:
             self._snapshot_world(msg.world)
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
         if self.current_time is None:
             if self._pre_clock_buffer is not None:
@@ -607,9 +799,11 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self._write_to_bag_at(topic, msg, self.current_time)
 
     def semantic_snapshot_callback(self, msg: bytes):
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         now = self.current_time or self.get_clock().now().nanoseconds
-        topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
+        topic = (
+            f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
+        )
         self._write_to_bag_at(topic, msg, now)
 
     def _records(self, key: str, t_def: TopicDefinition) -> bool:
@@ -617,78 +811,96 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         return t_def.recorded or key in self.config.get("optional_topics", [])
 
     def robots_fleet_callback(self, msg: RobotFleet):
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         now = self.current_time or self.get_clock().now().nanoseconds
         topic = f"/{env_namespace}/state/robots" if env_namespace else "/state/robots"
         self._write_to_bag_at(topic, msg, now)
 
-        from .topics import get_topics
-
         for state in msg.robots:
             robot = state.descriptor
-            robot_ns = robot.ns.strip('/')
-
+            robot_ns = robot.ns.strip("/")
             if robot_ns not in self.known_robots:
-                self.get_logger().info(f"Discovered new robot from RobotFleet: {robot_ns} (Model: {robot.model})")
-                self.known_robots.add(robot_ns)
+                self._subscribe_new_robot(robot_ns, robot.model, env_namespace)
 
-                topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
+    def _subscribe_new_robot(
+        self, robot_ns: str, robot_model: str, env_namespace: str
+    ) -> None:
+        from .topics import get_topics
 
-                for key, t_def in topics_dict.items():
-                    if key in _ENV_TOPIC_KEYS or not self._records(key, t_def):
-                        continue
+        self.get_logger().info(
+            f"Discovered new robot from RobotFleet: {robot_ns} (Model: {robot_model})"
+        )
+        self.known_robots.add(robot_ns)
 
-                    topic_name = t_def.name_template
-                    msg_type = t_def.msg_type
+        for key, t_def in get_topics(
+            namespace=robot_ns, parent_namespace=env_namespace
+        ).items():
+            if key in _ENV_TOPIC_KEYS or not self._records(key, t_def):
+                continue
+            msg_type = t_def.msg_type
+            if (
+                isinstance(msg_type, type)
+                and msg_type.__name__ == "CollisionEvents"
+                and not msg_type.__module__.startswith(("arena_", "task_generator_"))
+            ):
+                continue
+            topic_name = t_def.name_template
+            self._register_topic(topic_name, msg_type)
+            if t_def.qos_transient_local:
+                self.latched_topic_names.add(topic_name.strip("/"))
+            qos_profile, callback = self._env_topic_binding(key, t_def)
+            self.subs.append(
+                self.create_subscription(
+                    msg_type, topic_name, callback, qos_profile, raw=True
+                )
+            )
+            self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
 
-                    if isinstance(msg_type, type) and msg_type.__name__ in ("CollisionEvents") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
-                        continue
+        self._subscribe_recorded_rows(robot_ns)
+        ns_prefix = f"/{robot_ns}" if robot_ns else ""
+        cmd_vel_topic, odom_topic = self._control_topics(robot_model)
+        for rel, msg_type in ((odom_topic, Odometry), (cmd_vel_topic, TwistStamped)):
+            if rel and "/" in rel:
+                topic = f"{ns_prefix}/{rel}"
+                self._register_topic(topic, msg_type)
+                self.subs.append(
+                    self.create_subscription(
+                        msg_type,
+                        topic,
+                        self._create_throttled_callback(topic),
+                        self.qos,
+                        raw=True,
+                    )
+                )
 
-                    self._register_topic(topic_name, msg_type)
+        if self.robot_model == "unknown":
+            self.robot_model = robot_model
+        self._record_robot_model_metadata(robot_model)
 
-                    qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
-                    if t_def.qos_transient_local:
-                        self.latched_topic_names.add(topic_name.strip('/'))
-
-                    if t_def.throttled:
-                        callback = self._create_throttled_callback(topic_name)
-                    else:
-                        callback = self._create_unthrottled_callback(topic_name)
-
-                    sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=True)
-                    self.subs.append(sub)
-                    self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
-
-                self._subscribe_recorded_rows(robot_ns)
-
-                ns_prefix = f"/{robot_ns}" if robot_ns else ""
-                cmd_vel_topic, odom_topic = self._control_topics(robot.model)
-                for rel, msg_type in ((odom_topic, Odometry), (cmd_vel_topic, TwistStamped)):
-                    if rel and "/" in rel:
-                        topic = f"{ns_prefix}/{rel}"
-                        self._register_topic(topic, msg_type)
-                        self.subs.append(self.create_subscription(msg_type, topic, self._create_throttled_callback(topic), self.qos, raw=True))
-
-                if self.robot_model == "unknown":
-                    self.robot_model = robot.model
-
-                if self.current_metadata is not None and self.current_metadata_path is not None:
-                    if "unknown" in self.current_metadata.robot_model:
-                        self.current_metadata.robot_model = []
-
-                    if robot.model not in self.current_metadata.robot_model:
-                        self.current_metadata.robot_model.append(robot.model)
-
-                    try:
-                        MetadataWriter.write(self.current_metadata, self.current_metadata_path)
-                    except Exception as e:
-                        self.get_logger().warn(f"Failed to write episode metadata: {e}")
+    def _record_robot_model_metadata(
+        self, robot_model: str, *, replace: bool = False
+    ) -> None:
+        if self.current_metadata is None or self.current_metadata_path is None:
+            return
+        if replace or "unknown" in self.current_metadata.robot_model:
+            self.current_metadata.robot_model = []
+        if robot_model not in self.current_metadata.robot_model:
+            self.current_metadata.robot_model.append(robot_model)
+        try:
+            MetadataWriter.write(self.current_metadata, self.current_metadata_path)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to write episode metadata: {e}")
 
     @staticmethod
     def _control_topics(model: str) -> tuple[str, str]:
         """The model's controller-side (cmd_vel_topic, odom_topic), relative to the robot namespace."""
         try:
-            path = os.path.join(get_package_share_directory("arena_robots"), "robots", model.partition("[")[0], "model_params.yaml")
+            path = os.path.join(
+                get_package_share_directory("arena_robots"),
+                "robots",
+                model.partition("[")[0],
+                "model_params.yaml",
+            )
             with open(path) as f:
                 control = (yaml.safe_load(f) or {}).get("control", {})
         except Exception:
@@ -837,7 +1049,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             inter_planner=self.inter_planner,
             task_generator_episode_id=self.current_sim_episode_id,
             agent_name=self.robot_model,
-            workspace_dir=str(self.workspace_dir or self.episodes_root or "/opt/arena_ws"),
+            workspace_dir=str(
+                self.workspace_dir or self.episodes_root or "/opt/arena_ws"
+            ),
         )
         try:
             MetadataWriter.write(metadata, self.current_metadata_path)
@@ -855,7 +1069,12 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         if name in self._snapshot_worlds:
             return
         self._snapshot_worlds.add(name)
-        threading.Thread(target=self._write_world_snapshot, args=(name, level_filter), name=f"world_snapshot_{name}", daemon=True).start()
+        threading.Thread(
+            target=self._write_world_snapshot,
+            args=(name, level_filter),
+            name=f"world_snapshot_{name}",
+            daemon=True,
+        ).start()
 
     def _write_world_snapshot(self, name: str, level_filter: set[str] | None) -> None:
         from arena_simulation_setup.tree.World import WorldIdentifier, save_snapshot
@@ -865,18 +1084,32 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             return
         try:
             view = WorldIdentifier(name).resolve_sync()
-            world = view.load(validate=False, level_filter=level_filter, derive=self.kg_derive)
-            save_snapshot(world, directory, self.world_lighting, level_origins=view.level_origins())
+            world = view.load(
+                validate=False, level_filter=level_filter, derive=self.kg_derive
+            )
+            save_snapshot(
+                world,
+                directory,
+                self.world_lighting,
+                level_origins=view.level_origins(),
+            )
             self._log_info(f"Wrote world snapshot: {directory}")
         except Exception as e:
             self._log_error(f"Failed to write the world snapshot of {name}: {e}")
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""
-        if self.current_metadata is None or self.current_metadata_path is None or int(msg.episode_id) != self.current_sim_episode_id:
+        if (
+            self.current_metadata is None
+            or self.current_metadata_path is None
+            or int(msg.episode_id) != self.current_sim_episode_id
+        ):
             return
         try:
-            if not self.current_metadata.robot_model or self.current_metadata.robot_model == ["unknown"]:
+            if (
+                not self.current_metadata.robot_model
+                or self.current_metadata.robot_model == ["unknown"]
+            ):
                 self.current_metadata.robot_model = list(msg.robots)
             if not self.current_metadata.map or self.current_metadata.map == "unknown":
                 self.current_metadata.map = msg.world
@@ -898,7 +1131,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
     def _record_params(self, msg: EpisodeRecord) -> dict[str, Any]:
         return {p.name: self._param_value_to_py(p.value) for p in msg.params}
 
-    def _param_value_to_py(self, val: ParameterValue) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
+    def _param_value_to_py(
+        self, val: ParameterValue
+    ) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
         from rcl_interfaces.msg import ParameterType
 
         mapping = {
@@ -908,7 +1143,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             ParameterType.PARAMETER_STRING: lambda v: v.string_value,
             ParameterType.PARAMETER_BYTE_ARRAY: lambda v: list(v.byte_array_value),
             ParameterType.PARAMETER_BOOL_ARRAY: lambda v: list(v.bool_array_value),
-            ParameterType.PARAMETER_INTEGER_ARRAY: lambda v: list(v.integer_array_value),
+            ParameterType.PARAMETER_INTEGER_ARRAY: lambda v: list(
+                v.integer_array_value
+            ),
             ParameterType.PARAMETER_DOUBLE_ARRAY: lambda v: list(v.double_array_value),
             ParameterType.PARAMETER_STRING_ARRAY: lambda v: list(v.string_array_value),
         }
@@ -942,7 +1179,9 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         self._close_current_writer()
 
-        self._log_info(f"Recording finished. {self.episodes_recorded} episodes recorded to {self.episodes_root}")
+        self._log_info(
+            f"Recording finished. {self.episodes_recorded} episodes recorded to {self.episodes_root}"
+        )
 
     def destroy_node(self):
         self.finalize()
@@ -986,5 +1225,5 @@ def main(args: list[str] | None = None):
     os._exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

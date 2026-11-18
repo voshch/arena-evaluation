@@ -25,7 +25,11 @@ class ScanRecorder:
     def record(self, envelope: Envelope[LaserScan]) -> None:
         scan = envelope.body
         out_of_range = float(scan.range_max)
-        valid = [float(distance) for distance in scan.ranges if scan.range_min <= distance < scan.range_max]
+        valid = [
+            float(distance)
+            for distance in scan.ranges
+            if scan.range_min <= distance < scan.range_max
+        ]
         self._sink.append(
             SCAN_SUMMARY_TABLE,
             robot_row(
@@ -44,7 +48,15 @@ class ScanRecorder:
         scan = envelope.body
         for index, distance in enumerate(scan.ranges):
             angle = scan.angle_min + index * scan.angle_increment
-            self._sink.append(SCAN_RAY_TABLE, robot_row(envelope, ray_idx=index, range_m=float(distance), angle_rad=float(angle)))
+            self._sink.append(
+                SCAN_RAY_TABLE,
+                robot_row(
+                    envelope,
+                    ray_idx=index,
+                    range_m=float(distance),
+                    angle_rad=float(angle),
+                ),
+            )
 
 
 def record_joint_states(sink: TableSink, envelope: Envelope[JointState]) -> None:

@@ -5,11 +5,19 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from arena_evaluation.processing.telemetry.messages import Envelope, RobotRef, env_row, robot_row, stamp_ns, yaw_from_orientation
+from arena_evaluation.processing.telemetry.messages import (
+    Envelope,
+    RobotRef,
+    env_row,
+    robot_row,
+    stamp_ns,
+    yaw_from_orientation,
+)
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
@@ -41,7 +49,8 @@ def record_episode(sink: TableSink, envelope: Envelope[EpisodeRecord]) -> None:
             goal_dist_start_m=float(record.goal_dist_start),
             goal_dist_min_m=float(record.goal_dist_min),
             path_length_m=float(record.path_length),
-            start_t_ns=int(record.start_time.sec) * 1_000_000_000 + int(record.start_time.nanosec),
+            start_t_ns=int(record.start_time.sec) * 1_000_000_000
+            + int(record.start_time.nanosec),
             phases_yaml=str(record.phases) or None,
             params_yaml=_params_yaml(record),
             conditions_yaml=str(record.conditions) or None,
@@ -51,7 +60,9 @@ def record_episode(sink: TableSink, envelope: Envelope[EpisodeRecord]) -> None:
         ),
     )
     for flag_idx, flag in enumerate(record.integrity):
-        sink.append("episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=str(flag)))
+        sink.append(
+            "episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=str(flag))
+        )
 
 
 class FleetRecorder:
@@ -67,7 +78,9 @@ class FleetRecorder:
             if (env_id, name) in self._recorded:
                 continue
             self._recorded.add((env_id, name))
-            robot_id = f"{env_id}_{name}"  # the name robot_id_of gives this robot's own topics
+            robot_id = (
+                f"{env_id}_{name}"  # the name robot_id_of gives this robot's own topics
+            )
             self._sink.append(
                 "robot_descriptor",
                 {
@@ -84,7 +97,13 @@ class FleetRecorder:
             for param in state.params:
                 self._sink.append(
                     "robot_params",
-                    {"t_ns": t_ns, "env_id": env_id, "robot_id": robot_id, "param_key": str(param.key), "param_value": str(param.value)},
+                    {
+                        "t_ns": t_ns,
+                        "env_id": env_id,
+                        "robot_id": robot_id,
+                        "param_key": str(param.key),
+                        "param_value": str(param.value),
+                    },
                 )
 
 
@@ -92,15 +111,67 @@ def record_semantics(sink: TableSink, envelope: Envelope[SemanticSnapshot]) -> N
     snapshot = envelope.body
     env_id = f"env_{int(snapshot.env_id)}"
     for entity in snapshot.entities:
-        base = {"t_ns": envelope.t_ns, "env_id": env_id, "world": str(snapshot.world), "entity_name": str(entity.entity), "kind": str(entity.kind)}
-        for name, value in zip(entity.discrete_names, entity.discrete_values, strict=True):
-            sink.append("world_semantics", {**base, "field_name": str(name), "field_kind": "discrete", "value_str": str(value), "value_num": None, "value_bool": None})
-        for name, value in zip(entity.continuous_names, entity.continuous_values, strict=True):
-            sink.append("world_semantics", {**base, "field_name": str(name), "field_kind": "continuous", "value_str": None, "value_num": float(value), "value_bool": None})
-        for name, value in zip(entity.predicate_names, entity.predicate_values, strict=True):
-            sink.append("world_semantics", {**base, "field_name": str(name), "field_kind": "predicate", "value_str": None, "value_num": None, "value_bool": bool(value)})
+        base = {
+            "t_ns": envelope.t_ns,
+            "env_id": env_id,
+            "world": str(snapshot.world),
+            "entity_name": str(entity.entity),
+            "kind": str(entity.kind),
+        }
+        for name, value in zip(
+            entity.discrete_names, entity.discrete_values, strict=True
+        ):
+            sink.append(
+                "world_semantics",
+                {
+                    **base,
+                    "field_name": str(name),
+                    "field_kind": "discrete",
+                    "value_str": str(value),
+                    "value_num": None,
+                    "value_bool": None,
+                },
+            )
+        for name, value in zip(
+            entity.continuous_names, entity.continuous_values, strict=True
+        ):
+            sink.append(
+                "world_semantics",
+                {
+                    **base,
+                    "field_name": str(name),
+                    "field_kind": "continuous",
+                    "value_str": None,
+                    "value_num": float(value),
+                    "value_bool": None,
+                },
+            )
+        for name, value in zip(
+            entity.predicate_names, entity.predicate_values, strict=True
+        ):
+            sink.append(
+                "world_semantics",
+                {
+                    **base,
+                    "field_name": str(name),
+                    "field_kind": "predicate",
+                    "value_str": None,
+                    "value_num": None,
+                    "value_bool": bool(value),
+                },
+            )
         members = ",".join(sorted(str(member) for member in entity.members))
-        sink.append("world_semantics", {**base, "field_name": "members", "field_kind": "members", "value_str": members, "value_num": None, "value_bool": None})
+        sink.append(
+            "world_semantics",
+            {
+                **base,
+                "field_name": "members",
+                "field_kind": "members",
+                "value_str": members,
+                "value_num": None,
+                "value_bool": None,
+            },
+        )
 
 
 class PlanRecorder:
@@ -128,8 +199,13 @@ class PlanRecorder:
             )
 
 
-def record_characterization_phase(sink: TableSink, envelope: Envelope[RosString]) -> None:
-    sink.append("robot_characterization_phase", robot_row(envelope, label=str(envelope.body.data)))
+def record_characterization_phase(
+    sink: TableSink, envelope: Envelope[RosString]
+) -> None:
+    sink.append(
+        "robot_characterization_phase",
+        robot_row(envelope, label=str(envelope.body.data)),
+    )
 
 
 class ScheduleRecorder:
@@ -148,15 +224,28 @@ class ScheduleRecorder:
             for phase_idx, phase in enumerate(phases):
                 sink.append(
                     "robot_characterization_schedule",
-                    {"t_ns": t_ns, "env_id": ref.env_id, "robot_id": ref.robot_id, "phase_idx": phase_idx, **phase},
+                    {
+                        "t_ns": t_ns,
+                        "env_id": ref.env_id,
+                        "robot_id": ref.robot_id,
+                        "phase_idx": phase_idx,
+                        **phase,
+                    },
                 )
 
 
-def record_initial_pose(sink: TableSink, envelope: Envelope[PoseWithCovarianceStamped]) -> None:
+def record_initial_pose(
+    sink: TableSink, envelope: Envelope[PoseWithCovarianceStamped]
+) -> None:
     pose = envelope.body.pose.pose
     sink.append(
         "robot_initialpose",
-        robot_row(envelope, pos_x=float(pose.position.x), pos_y=float(pose.position.y), yaw=yaw_from_orientation(pose.orientation)),
+        robot_row(
+            envelope,
+            pos_x=float(pose.position.x),
+            pos_y=float(pose.position.y),
+            yaw=yaw_from_orientation(pose.orientation),
+        ),
     )
 
 
@@ -174,9 +263,14 @@ def record_task_pose(sink: TableSink, envelope: Envelope[PoseStamped]) -> None:
     )
 
 
-def record_transforms(sink: TableSink, table: str, envelope: Envelope[TFMessage]) -> None:
+def record_transforms(
+    sink: TableSink, table: str, envelope: Envelope[TFMessage]
+) -> None:
     for transform in envelope.body.transforms:
-        translation, rotation = transform.transform.translation, transform.transform.rotation
+        translation, rotation = (
+            transform.transform.translation,
+            transform.transform.rotation,
+        )
         sink.append(
             table,
             {
@@ -199,32 +293,33 @@ def _params_yaml(record: EpisodeRecord) -> str:
 
 
 def _human_params_json(record: EpisodeRecord) -> str:
-    return json.dumps({param.name: _param_value(param.value) for param in record.human_params})
+    return json.dumps(
+        {param.name: _param_value(param.value) for param in record.human_params}
+    )
+
+
+_PARAM_EXTRACTORS: dict[int, Callable[[ParameterValue], object]] = {
+    _NOT_SET: lambda _value: None,
+    _BOOL: lambda value: value.bool_value,
+    _INTEGER: lambda value: value.integer_value,
+    _DOUBLE: lambda value: value.double_value,
+    _STRING: lambda value: value.string_value,
+    _BYTE_ARRAY: lambda value: [
+        byte[0] if isinstance(byte, bytes) else int(byte)
+        for byte in value.byte_array_value
+    ],
+    _BOOL_ARRAY: lambda value: list(value.bool_array_value),
+    _INTEGER_ARRAY: lambda value: list(value.integer_array_value),
+    _DOUBLE_ARRAY: lambda value: list(value.double_array_value),
+    _STRING_ARRAY: lambda value: list(value.string_array_value),
+}
 
 
 def _param_value(value: ParameterValue) -> object:
-    kind = value.type
-    if kind == _NOT_SET:
-        return None
-    if kind == _BOOL:
-        return value.bool_value
-    if kind == _INTEGER:
-        return value.integer_value
-    if kind == _DOUBLE:
-        return value.double_value
-    if kind == _STRING:
-        return value.string_value
-    if kind == _BYTE_ARRAY:
-        return [byte[0] if isinstance(byte, bytes) else int(byte) for byte in value.byte_array_value]
-    if kind == _BOOL_ARRAY:
-        return list(value.bool_array_value)
-    if kind == _INTEGER_ARRAY:
-        return list(value.integer_array_value)
-    if kind == _DOUBLE_ARRAY:
-        return list(value.double_array_value)
-    if kind == _STRING_ARRAY:
-        return list(value.string_array_value)
-    raise ValueError(f"unsupported ROS parameter type {kind}")
+    extractor = _PARAM_EXTRACTORS.get(value.type)
+    if extractor is None:
+        raise ValueError(f"unsupported ROS parameter type {value.type}")
+    return extractor(value)
 
 
 def _schedule_phases(payload: str) -> list[dict[str, Any]] | None:

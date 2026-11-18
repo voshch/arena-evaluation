@@ -7,7 +7,13 @@ from typing import Final
 import polars as pl
 
 from arena_evaluation.storage.registry.scopes import FactTable, MetricScope
-from arena_evaluation.storage.registry.table import Column, Table, TableKind, registered_tables
+from arena_evaluation.storage.registry.table import (
+    Column,
+    Table,
+    TableKind,
+    registered_tables,
+)
+
 
 class _FactRow(Table, abstract=True):
     """The base of every fact table: its columns are non-null unless a column says otherwise."""
@@ -96,10 +102,13 @@ class FactEncounters(
         description="Smallest edge-to-edge clearance of the robot and the actor inside the window.",
     )
     duration_s = Column(
-        pl.Float64, unit="s", description="Length of the window from its start to its end."
+        pl.Float64,
+        unit="s",
+        description="Length of the window from its start to its end.",
     )
     detector_version = Column(
-        pl.String, description="Version of the encounter detector that found the window."
+        pl.String,
+        description="Version of the encounter detector that found the window.",
     )
     detector_params_hash = Column(
         pl.String,
@@ -203,7 +212,10 @@ class FactEdgeCases(_RunEpisodeRobot, name="edge_cases", kind=TableKind.FACT):
     case_idx = Column(
         pl.Int64, description="Index of the edge case within the episode."
     )
-    kind = Column(pl.String, description="Edge-case list the row came from: step, agent, missing or unplayed.")
+    kind = Column(
+        pl.String,
+        description="Edge-case list the row came from: step, agent, missing or unplayed.",
+    )
     ordinal = Column(pl.Int64, description="Position of the row within its edge case.")
     element = Column(pl.String, description="The step, agent or actor the row names.")
 
@@ -217,7 +229,9 @@ class FactFormations(_RunEpisodeRobot, name="formations", kind=TableKind.FACT):
     formation_idx = Column(
         pl.Int64, description="Index of the formation within the episode."
     )
-    role = Column(pl.String, description="Role of the row in the formation: member or absent.")
+    role = Column(
+        pl.String, description="Role of the row in the formation: member or absent."
+    )
     element = Column(pl.String, description="The formation agent the row names.")
 
 
@@ -227,7 +241,10 @@ class FactPhaseOutcomes(_RunEpisodeRobot, name="phase_outcomes", kind=TableKind.
     key = ("run_id", "episode_id", "robot_id", "phase_idx")
 
     phase_idx = Column(pl.Int64, description="Index of the replayed phase.")
-    outcome = Column(pl.String, description="Outcome token of the phase: met, failed, dropped or pending.")
+    outcome = Column(
+        pl.String,
+        description="Outcome token of the phase: met, failed, dropped or pending.",
+    )
     met = Column(pl.Boolean, description="Whether the replay marks the phase met.")
 
 
@@ -242,7 +259,8 @@ class FactJudgeDisagreements(
         pl.Int64, description="Index of the disagreement within the episode."
     )
     disagreement = Column(
-        pl.String, description="Text of the disagreement between the replay judge and the record."
+        pl.String,
+        description="Text of the disagreement between the replay judge and the record.",
     )
 
 
@@ -308,6 +326,10 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
 
 
 FACT_TABLES: Final[dict[FactTable, type[Table]]] = {
-    FactTable(table.table_name): table for table in registered_tables() if table.table_kind is TableKind.FACT
+    FactTable(table.table_name): table
+    for table in registered_tables()
+    if table.table_kind is TableKind.FACT
 }
-FACT_KEY_COLUMNS: Final[dict[str, tuple[str, ...]]] = {table.table_name: table.key for table in FACT_TABLES.values()}
+FACT_KEY_COLUMNS: Final[dict[str, tuple[str, ...]]] = {
+    table.table_name: table.key for table in FACT_TABLES.values()
+}

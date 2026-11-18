@@ -62,7 +62,9 @@ def topic_parts(topic: str) -> list[str]:
 def robot_id_of(parts: Sequence[str], env_id: str) -> str:
     """Robot named by the segment before the topic name; controller and power-publisher segments name their robot's parent."""
     if len(parts) < 2:
-        raise ValueError(f"{'/'.join(parts)!r} names no robot; a robot topic has a robot segment before its name")
+        raise ValueError(
+            f"{'/'.join(parts)!r} names no robot; a robot topic has a robot segment before its name"
+        )
     segment = parts[-2]
     if segment == env_id:
         return env_id
@@ -84,7 +86,12 @@ def pedestrian_id(number: int) -> str:
 
 def robot_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any]:
     """A row of a robot-scoped table."""
-    return {"t_ns": envelope.t_ns, "env_id": envelope.ref.env_id, "robot_id": envelope.ref.robot_id, **columns}
+    return {
+        "t_ns": envelope.t_ns,
+        "env_id": envelope.ref.env_id,
+        "robot_id": envelope.ref.robot_id,
+        **columns,
+    }
 
 
 def env_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any]:

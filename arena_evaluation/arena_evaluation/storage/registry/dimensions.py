@@ -6,7 +6,13 @@ from typing import Final
 
 import polars as pl
 
-from arena_evaluation.storage.registry.table import Column, Table, TableKind, registered_tables
+from arena_evaluation.storage.registry.table import (
+    Column,
+    Table,
+    TableKind,
+    registered_tables,
+)
+
 
 def _key(dtype: pl.DataType | type[pl.DataType], description: str) -> Column:
     """A row-key column: never NULL."""
@@ -71,9 +77,14 @@ class DimEpisodes(_Dimension, name="dim_episodes", kind=TableKind.DIMENSION):
         pl.String, "Outcome information of the episode as the runner recorded it."
     )
     pose_source = _optional(
-        pl.String, "Ground-truth pose stream of the episode: tf (dense), tf_sparse (raw sparse samples) or absent."
+        pl.String,
+        "Ground-truth pose stream of the episode: tf (dense), tf_sparse (raw sparse samples) or absent.",
     )
-    pose_gap_s = _optional(pl.Float64, "Median gap between the ground-truth samples of the episode.", unit="s")
+    pose_gap_s = _optional(
+        pl.Float64,
+        "Median gap between the ground-truth samples of the episode.",
+        unit="s",
+    )
 
 
 class DimRobots(_Dimension, name="dim_robots", kind=TableKind.DIMENSION):
@@ -172,9 +183,7 @@ class DimWorldEntities(_Dimension, name="dim_world_entities", kind=TableKind.DIM
     initial_state = _optional(pl.String, "State the entity starts in.")
 
 
-class DimWorldGeometry(
-    _Dimension, name="dim_world_geometry", kind=TableKind.DIMENSION
-):
+class DimWorldGeometry(_Dimension, name="dim_world_geometry", kind=TableKind.DIMENSION):
     """One row per vertex of the world geometry of a benchmark, written once per world."""
 
     key = ("world", "element_kind", "element_name", "part_idx", "vertex_idx")
@@ -216,16 +225,43 @@ class DimMetrics(_Dimension, name="dim_metrics", kind=TableKind.DIMENSION):
 
     key = ("metric", "scope")
 
-    metric = _key(pl.String, "Name of the metric, which is also the name of its column in its fact table.")
-    scope = _key(pl.String, "Evaluation scope the metric is stored at: episodes, encounters, contacts, pedestrians or robots.")
-    fact_table = Column(pl.String, required=True, description="Fact table that stores the metric at this scope, for example fact_robots.")
-    dtype = Column(pl.String, required=True, description="Polars type of the metric's column: Float64, Int64, Boolean or String.")
-    unit = _optional(pl.String, "Unit of the metric's values; NULL for a count, a flag or a label.")
-    description = Column(pl.String, required=True, description="What the metric measures.")
-    direction = _optional(pl.String, "Better side of the metric, higher or lower; NULL when neither side is better.")
-    producer = Column(pl.String, required=True, description="Calculator that publishes the metric at this scope.")
+    metric = _key(
+        pl.String,
+        "Name of the metric, which is also the name of its column in its fact table.",
+    )
+    scope = _key(
+        pl.String,
+        "Evaluation scope the metric is stored at: episodes, encounters, contacts, pedestrians or robots.",
+    )
+    fact_table = Column(
+        pl.String,
+        required=True,
+        description="Fact table that stores the metric at this scope, for example fact_robots.",
+    )
+    dtype = Column(
+        pl.String,
+        required=True,
+        description="Polars type of the metric's column: Float64, Int64, Boolean or String.",
+    )
+    unit = _optional(
+        pl.String, "Unit of the metric's values; NULL for a count, a flag or a label."
+    )
+    description = Column(
+        pl.String, required=True, description="What the metric measures."
+    )
+    direction = _optional(
+        pl.String,
+        "Better side of the metric, higher or lower; NULL when neither side is better.",
+    )
+    producer = Column(
+        pl.String,
+        required=True,
+        description="Calculator that publishes the metric at this scope.",
+    )
 
 
 DIMENSION_TABLES: Final[dict[str, type[Table]]] = {
-    table.table_name: table for table in registered_tables() if table.table_kind is TableKind.DIMENSION
+    table.table_name: table
+    for table in registered_tables()
+    if table.table_kind is TableKind.DIMENSION
 }

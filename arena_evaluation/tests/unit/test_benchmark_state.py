@@ -206,6 +206,14 @@ def test_find_resumable_corrupt_state_is_candidate(tmp_path: pathlib.Path):
     assert find_most_recent_resumable(tmp_path) == "r1"
 
 
+def test_find_resumable_non_utf8_state_is_candidate(tmp_path: pathlib.Path):
+    run_path = tmp_path / "r1"
+    run_path.mkdir()
+    (run_path / "manifest.yaml").write_text(_make_manifest(run_id="r1").to_yaml())
+    (run_path / ".benchmark_state.json").write_bytes(b"\xff\xfe{bad")
+    assert find_most_recent_resumable(tmp_path) == "r1"
+
+
 def test_find_resumable_no_state_file_is_candidate(tmp_path: pathlib.Path):
     _make_resumable_run(tmp_path, "r1", with_state=False)
     assert find_most_recent_resumable(tmp_path) == "r1"
@@ -226,56 +234,65 @@ def test_find_resumable_returns_most_recent(tmp_path: pathlib.Path):
 # ---------------------------------------------------------------------------
 
 
-def _install_fake_git(
-    monkeypatch, results: list[subprocess.CompletedProcess]
-) -> list[list[str]]:
-    calls: list[list[str]] = []
+def _init_git_repo(repo: pathlib.Path) -> str:
+    subprocess.run(
+        ["git", "init", str(repo)], check=True, capture_output=True, text=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "Test"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked = repo / "file.txt"
+    tracked.write_text("v1\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "add", "file.txt"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", "init"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
-    def _run(cmd, capture_output, text, timeout):  # noqa: ARG001
-        calls.append(list(cmd))
-        return results.pop(0)
 
-    monkeypatch.setattr("arena_evaluation.benchmark.state.subprocess.run", _run)
-    return calls
-
-
-def test_capture_git_sha_clean(monkeypatch):
-    results = [
-        subprocess.CompletedProcess([], 0, stdout="abc123\n", stderr=""),
-        subprocess.CompletedProcess([], 0, stdout="", stderr=""),
-    ]
-    calls = _install_fake_git(monkeypatch, results)
-    sha, dirty = capture_git_sha(pathlib.Path("/ws"))
-    assert sha == "abc123"
+def test_capture_git_sha_clean(tmp_path):
+    expected_sha = _init_git_repo(tmp_path)
+    sha, dirty = capture_git_sha(tmp_path)
+    assert sha == expected_sha
     assert dirty is False
-    assert calls[0][0] == "git" and calls[0][1] == "-C"
 
 
-def test_capture_git_sha_dirty(monkeypatch):
-    results = [
-        subprocess.CompletedProcess([], 0, stdout="abc123\n", stderr=""),
-        subprocess.CompletedProcess([], 0, stdout=" M src/x.py\n", stderr=""),
-    ]
-    _install_fake_git(monkeypatch, results)
-    sha, dirty = capture_git_sha(pathlib.Path("/ws"))
-    assert sha == "abc123"
+def test_capture_git_sha_dirty(tmp_path):
+    expected_sha = _init_git_repo(tmp_path)
+    (tmp_path / "file.txt").write_text("v2\n")
+    sha, dirty = capture_git_sha(tmp_path)
+    assert sha == expected_sha
     assert dirty is True
 
 
-def test_capture_git_sha_nonzero_returncode(monkeypatch):
-    results = [
-        subprocess.CompletedProcess([], 1, stdout="", stderr="fatal: not a git repo")
-    ]
-    _install_fake_git(monkeypatch, results)
-    assert capture_git_sha(pathlib.Path("/ws")) == (None, False)
+def test_capture_git_sha_nonzero_returncode(tmp_path):
+    assert capture_git_sha(tmp_path) == (None, False)
 
 
-def test_capture_git_sha_raises_returns_none(monkeypatch):
-    def _boom(cmd, capture_output, text, timeout):  # noqa: ARG001
-        raise RuntimeError("git missing")
-
-    monkeypatch.setattr("arena_evaluation.benchmark.state.subprocess.run", _boom)
-    assert capture_git_sha(pathlib.Path("/ws")) == (None, False)
+def test_capture_git_sha_missing_dir_returns_none(tmp_path):
+    assert capture_git_sha(tmp_path / "does_not_exist") == (None, False)
 
 
 # ---------------------------------------------------------------------------

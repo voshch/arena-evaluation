@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from arena_evaluation.processing.telemetry.messages import Envelope, env_row, pedestrian_id, robot_row
+from arena_evaluation.processing.telemetry.messages import (
+    Envelope,
+    env_row,
+    pedestrian_id,
+    robot_row,
+)
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
@@ -18,10 +23,18 @@ WALL_KIND = "wall"
 STATIC_KIND = "static"
 PEDESTRIAN_KIND = "pedestrian"
 MEMBER_ROLE_NAMES = {0: "participant", 1: "queue"}
-INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
+INTERACTION_EVENT_NAMES = {
+    0: "ACTIVATED",
+    1: "HOLD_ONSET",
+    2: "RELEASED",
+    3: "INTERRUPTED",
+    4: "CANCELED",
+}
 
 
-def record_collision_events(sink: TableSink, envelope: Envelope[CollisionEvents]) -> None:
+def record_collision_events(
+    sink: TableSink, envelope: Envelope[CollisionEvents]
+) -> None:
     events = envelope.body.events
     sink.append(
         "robot_collision_events",
@@ -49,11 +62,17 @@ def record_collision_events(sink: TableSink, envelope: Envelope[CollisionEvents]
         )
 
 
-def record_collision_monitor(sink: TableSink, envelope: Envelope[CollisionMonitorState]) -> None:
+def record_collision_monitor(
+    sink: TableSink, envelope: Envelope[CollisionMonitorState]
+) -> None:
     monitor = envelope.body
     sink.append(
         "robot_collision_monitor",
-        robot_row(envelope, action_type=int(monitor.action_type), polygon_name=str(monitor.polygon_name)),
+        robot_row(
+            envelope,
+            action_type=int(monitor.action_type),
+            polygon_name=str(monitor.polygon_name),
+        ),
     )
 
 
@@ -84,19 +103,30 @@ def record_interactions(sink: TableSink, envelope: Envelope[InteractionFrame]) -
             ),
         )
         start, end = offsets[index], offsets[index + 1]
-        for member, role in zip(member_ids[start:end], member_roles[start:end], strict=True):
+        for member, role in zip(
+            member_ids[start:end], member_roles[start:end], strict=True
+        ):
             role_name = MEMBER_ROLE_NAMES.get(role)
             if role_name is not None:
                 sink.append(
                     "pedestrian_interaction_members",
-                    env_row(envelope, interaction_id=interaction, ped_id=pedestrian_id(member), member_role=role_name),
+                    env_row(
+                        envelope,
+                        interaction_id=interaction,
+                        ped_id=pedestrian_id(member),
+                        member_role=role_name,
+                    ),
                 )
 
 
-def record_interaction_events(sink: TableSink, envelope: Envelope[InteractionFrame]) -> None:
+def record_interaction_events(
+    sink: TableSink, envelope: Envelope[InteractionFrame]
+) -> None:
     for event in envelope.body.events:
         event_code = int(event.event)
-        participants: list[int | None] = [int(participant) for participant in event.participants] or [None]
+        participants: list[int | None] = [
+            int(participant) for participant in event.participants
+        ] or [None]
         for participant in participants:
             sink.append(
                 "pedestrian_interaction_events",
@@ -115,7 +145,9 @@ def record_animations(sink: TableSink, envelope: Envelope[AnimationStates]) -> N
     for ped in envelope.body.peds:
         ped_id = pedestrian_id(int(ped.id))
         for slot in list(ped.slots) or [None]:
-            sink.append("pedestrian_animations", _animation_row(envelope, ped_id, ped, slot))
+            sink.append(
+                "pedestrian_animations", _animation_row(envelope, ped_id, ped, slot)
+            )
 
 
 def _count_kind(events: Iterable[CollisionEvent], kind: str) -> int:
@@ -127,10 +159,26 @@ def _position(event: CollisionEvent) -> tuple[float, float, float]:
     return float(position.x), float(position.y), float(position.z)
 
 
-def _animation_row(envelope: Envelope, ped_id: str, ped: AnimationState, slot: AnimationSlot | None) -> dict[str, object]:
-    base = {"ped_id": ped_id, "ped_name": str(ped.name), "base": str(ped.base), "base_phase": float(ped.base_phase)}
+def _animation_row(
+    envelope: Envelope, ped_id: str, ped: AnimationState, slot: AnimationSlot | None
+) -> dict[str, object]:
+    base = {
+        "ped_id": ped_id,
+        "ped_name": str(ped.name),
+        "base": str(ped.base),
+        "base_phase": float(ped.base_phase),
+    }
     if slot is None:
-        return env_row(envelope, **base, slot="", clip="", playhead=None, duration=None, weight=None, loop=None)
+        return env_row(
+            envelope,
+            **base,
+            slot="",
+            clip="",
+            playhead=None,
+            duration=None,
+            weight=None,
+            loop=None,
+        )
     return env_row(
         envelope,
         **base,

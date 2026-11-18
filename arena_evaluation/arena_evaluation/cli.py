@@ -32,7 +32,9 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        pkg_data = pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
+        pkg_data = (
+            pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
+        )
         if pkg_data.is_dir():
             search_roots.append(pkg_data)
     except Exception:
@@ -180,7 +182,11 @@ Examples:
         "migrate",
         help="Convert a run recorded before the native layout (old metadata and MCAP) to the current layout, in place.",
     )
-    migrate_parser.add_argument("run_dir", type=pathlib.Path, help="Run directory, or one episode folder, to migrate.")
+    migrate_parser.add_argument(
+        "run_dir",
+        type=pathlib.Path,
+        help="Run directory, or one episode folder, to migrate.",
+    )
 
     from arena_evaluation.cli_acoustic import setup_acoustic_subparsers
 
@@ -246,7 +252,9 @@ Examples:
         if args.run_dir:
             for run_dir in args.run_dir:
                 fm = FolderManager(data_root=run_dir.parent)
-                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
+                pipeline = ProcessingPipeline(
+                    fm, profiler=profiler, workers=args.workers
+                )
 
                 if args.command == "extract":
                     print(f"Extracting single run: {run_dir}")
@@ -263,15 +271,24 @@ Examples:
         else:
             for benchmark_dir in target_dirs:
                 fm = FolderManager(data_root=benchmark_dir.parent)
-                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
+                pipeline = ProcessingPipeline(
+                    fm, profiler=profiler, workers=args.workers
+                )
 
                 if args.command == "extract":
                     print(f"Extracting benchmark: {benchmark_dir.name}")
                     pipeline.extract_benchmark(benchmark_dir.name)
                 else:
                     print(f"Processing benchmark: {benchmark_dir.name}")
-                    if pipeline.process_benchmark(benchmark_dir.name, force_extract=force_extract) is None:
-                        print(f"Processing failed for {benchmark_dir} - no combined metrics written.")
+                    if (
+                        pipeline.process_benchmark(
+                            benchmark_dir.name, force_extract=force_extract
+                        )
+                        is None
+                    ):
+                        print(
+                            f"Processing failed for {benchmark_dir} - no combined metrics written."
+                        )
                         failed.append(benchmark_dir)
 
     if args.command in ("run", "report", "plot"):
@@ -282,9 +299,13 @@ Examples:
         from arena_evaluation.presentation.manifest_registry import resolve_manifest
         from arena_evaluation.presentation.report_builder import ReportBuilder
 
-        manifest_obj = resolve_manifest(args.report_manifest, benchmark_dir=target_dirs[0])
+        manifest_obj = resolve_manifest(
+            args.report_manifest, benchmark_dir=target_dirs[0]
+        )
 
-        print(f"Building report/plots from {len(target_dirs)} sources into: {output_dir}")
+        print(
+            f"Building report/plots from {len(target_dirs)} sources into: {output_dir}"
+        )
         generate_gifs = args.generate_gifs
         _ctx = profiler.phase("report") if profiler else contextlib.nullcontext()
         with _ctx:

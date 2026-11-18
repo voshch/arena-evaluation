@@ -30,7 +30,7 @@ _ROBOT_PARAMETERS = (
 )
 _TEXT_PARAMETERS = frozenset({"lidar_variant"})
 _ENTITY_FIELDS = ("zone", "activation_dist", "acoustic_tl_db", "initial_state")
-_PEDESTRIAN_FIELDS = {
+_PEDESTRIAN_CORE_FIELDS = {
     "ped_name": "ped_name",
     "agent_type": "agent_type",
     "ped_policy": "policy",
@@ -39,37 +39,62 @@ _PEDESTRIAN_FIELDS = {
     "spawn_x": "x",
     "spawn_y": "y",
     "spawn_yaw": "yaw",
+}
+_PEDESTRIAN_ENGINE_FIELDS = {
     "robot_awareness": "robot_awareness",
     "robot_fov_gain": "robot_fov_gain",
     "robot_repulsion_gain": "robot_repulsion_gain",
     "robot_reaction_gain": "robot_reaction_gain",
 }
+_PEDESTRIAN_FIELDS = {**_PEDESTRIAN_CORE_FIELDS, **_PEDESTRIAN_ENGINE_FIELDS}
 
 
-def episode_dimensions(*, run_id: str, episode_id: int, metadata: RunMetadata, bundles: typing.Mapping[str, TopicBundle]) -> dict[str, pl.DataFrame]:
+def episode_dimensions(
+    *,
+    run_id: str,
+    episode_id: int,
+    metadata: RunMetadata,
+    bundles: typing.Mapping[str, TopicBundle],
+) -> dict[str, pl.DataFrame]:
     """The four dimension tables of one episode: one episode and robot row per robot, pedestrian and entity rows once per environment."""
     episodes: list[dict[str, typing.Any]] = []
-    robots: list[dict[str, typing.Any]] = []
-    entities: list[dict[str, typing.Any]] = []
+    robots: list[pl.DataFrame] = []
+    entities: list[pl.DataFrame] = []
     pedestrians: list[pl.DataFrame] = []
     environments: set[str] = set()
     for bundle in bundles.values():
         env_id, robot_id = _identity(bundle)
         model = _robot_model(bundle)
         _, pose = resolve_pose_source(bundle, (None, None))
-        episodes.append(_episode_row(run_id, episode_id, metadata, env_id, robot_id, model, pose))
-        robots.append(_robot_row(run_id, episode_id, metadata, env_id, robot_id, model, bundle))
+        episodes.append(
+            _episode_row(run_id, episode_id, metadata, env_id, robot_id, model, pose)
+        )
+        robots.append(
+            _robot_frame(run_id, episode_id, metadata, env_id, robot_id, model, bundle)
+        )
         if env_id not in environments:
             environments.add(env_id)
-            entities.extend(_entity_rows(run_id, episode_id, env_id, bundle))
-            pedestrians.append(conform(_pedestrian_rows(run_id, episode_id, env_id, bundle), DIMENSION_TABLES["dim_pedestrians"]))
+            entities.append(
+                conform(
+                    _entity_frame(run_id, episode_id, env_id, bundle),
+                    DIMENSION_TABLES["dim_world_entities"],
+                )
+            )
+            pedestrians.append(
+                conform(
+                    _pedestrian_rows(run_id, episode_id, env_id, bundle),
+                    DIMENSION_TABLES["dim_pedestrians"],
+                )
+            )
     frames = {
         "dim_episodes": pl.DataFrame(episodes),
-        "dim_robots": pl.DataFrame(robots),
+        "dim_robots": pl.concat(robots) if robots else pl.DataFrame(),
         "dim_pedestrians": pl.concat(pedestrians) if pedestrians else pl.DataFrame(),
-        "dim_world_entities": pl.DataFrame(entities),
+        "dim_world_entities": pl.concat(entities) if entities else pl.DataFrame(),
     }
-    return {name: _finish(frame, DIMENSION_TABLES[name]) for name, frame in frames.items()}
+    return {
+        name: _finish(frame, DIMENSION_TABLES[name]) for name, frame in frames.items()
+    }
 
 
 def _finish(frame: pl.DataFrame, table: type[Table]) -> pl.DataFrame:
@@ -115,7 +140,7 @@ def _episode_row(
     }
 
 
-def _robot_row(
+def _robot_frame(
     run_id: str,
     episode_id: int,
     metadata: RunMetadata,
@@ -123,20 +148,35 @@ def _robot_row(
     robot_id: str,
     model: str | None,
     bundle: TopicBundle,
-) -> dict[str, typing.Any]:
-    parameters = _parameters(bundle)
-    row: dict[str, typing.Any] = {
-        "run_id": run_id,
-        "episode_id": episode_id,
-        "env_id": env_id,
-        "robot_id": robot_id,
-        "robot_model": model,
-        "planner": metadata.planner,
-        "inter_planner": _text(metadata.inter_planner),
-    }
-    for column in _ROBOT_PARAMETERS:
-        row[column] = parameters.get(column) if column in _TEXT_PARAMETERS else _number(parameters.get(column))
-    return row
+) -> pl.DataFrame:
+    base = pl.DataFrame(
+        {
+            "run_id": [run_id],
+            "episode_id": [episode_id],
+            "env_id": [env_id],
+            "robot_id": [robot_id],
+            "robot_model": [model],
+            "planner": [metadata.planner],
+            "inter_planner": [_text(metadata.inter_planner)],
+        }
+    )
+    params = _frame(bundle.robot_params)
+    if params is None or params.height == 0:
+        return conform(base, DIMENSION_TABLES["dim_robots"])
+    param_exprs = [
+        (
+            pl.col("param_value").filter(pl.col("param_key") == col).first()
+            if col in _TEXT_PARAMETERS
+            else pl.col("param_value")
+            .filter(pl.col("param_key") == col)
+            .first()
+            .cast(pl.Float64, strict=False)
+        ).alias(col)
+        for col in _ROBOT_PARAMETERS
+    ]
+    return conform(
+        base.hstack(params.select(param_exprs)), DIMENSION_TABLES["dim_robots"]
+    )
 
 
 def _identity(bundle: TopicBundle) -> tuple[str, str]:
@@ -155,41 +195,53 @@ def _robot_model(bundle: TopicBundle) -> str | None:
     return descriptor.get_column("model")[0]
 
 
-def _parameters(bundle: TopicBundle) -> dict[str, str | None]:
-    frame = _frame(bundle.robot_params)
-    if frame is None or frame.height == 0:
-        return {}
-    return dict(zip(frame.get_column("param_key").to_list(), frame.get_column("param_value").to_list()))
-
-
-def _entity_rows(run_id: str, episode_id: int, env_id: str, bundle: TopicBundle) -> list[dict[str, typing.Any]]:
+def _entity_frame(
+    run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
+) -> pl.DataFrame:
     frame = _frame(bundle.world_semantics)
     if frame is None or frame.height == 0:
-        return []
-    entities: dict[str, dict[str, typing.Any]] = {}
-    for row in frame.filter(pl.col("env_id") == env_id).iter_rows(named=True):
-        entry = entities.setdefault(
-            row["entity_name"],
-            {"run_id": run_id, "episode_id": episode_id, "env_id": env_id, "entity_name": row["entity_name"], "entity_kind": row["kind"]},
+        return pl.DataFrame()
+    filtered = frame.filter(pl.col("env_id") == env_id)
+    if filtered.height == 0:
+        return pl.DataFrame()
+    value = pl.coalesce(pl.col("value_num").cast(pl.String), pl.col("value_str"))
+    return (
+        filtered.group_by("entity_name", maintain_order=True)
+        .agg(
+            pl.col("kind").first().alias("entity_kind"),
+            *(
+                value.filter(pl.col("field_name") == field).first().alias(field)
+                for field in _ENTITY_FIELDS
+            ),
         )
-        if row["field_name"] in _ENTITY_FIELDS:
-            entry.setdefault(row["field_name"], row["value_num"] if row["value_num"] is not None else row["value_str"])
-    return list(entities.values())
+        .with_columns(
+            run_id=pl.lit(run_id),
+            episode_id=pl.lit(episode_id),
+            env_id=pl.lit(env_id),
+        )
+    )
 
 
-def _pedestrian_rows(run_id: str, episode_id: int, env_id: str, bundle: TopicBundle) -> pl.DataFrame:
+def _pedestrian_rows(
+    run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
+) -> pl.DataFrame:
     frame = _frame(bundle.pedestrian_agent_states)
+    fields = _PEDESTRIAN_FIELDS
     if frame is None or frame.height == 0:
         frame = _frame(bundle.pedestrian_arena_peds)
+        fields = _PEDESTRIAN_CORE_FIELDS
     if frame is None or frame.height == 0:
         return pl.DataFrame()
     first_values = [
         pl.col(source).drop_nulls().first().alias(dimension)
-        for dimension, source in _PEDESTRIAN_FIELDS.items()
-        if source in frame.columns
+        for dimension, source in fields.items()
     ]
-    per_pedestrian = frame.sort("t_ns").group_by("ped_id", maintain_order=True).agg(first_values)
-    return per_pedestrian.with_columns(run_id=pl.lit(run_id), episode_id=pl.lit(episode_id), env_id=pl.lit(env_id))
+    per_pedestrian = (
+        frame.sort("t_ns").group_by("ped_id", maintain_order=True).agg(first_values)
+    )
+    return per_pedestrian.with_columns(
+        run_id=pl.lit(run_id), episode_id=pl.lit(episode_id), env_id=pl.lit(env_id)
+    )
 
 
 def _frame(table: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
@@ -200,12 +252,3 @@ def _frame(table: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
 
 def _text(value: str | None) -> str | None:
     return value or None
-
-
-def _number(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None

@@ -35,17 +35,24 @@ def classify(track: pl.DataFrame | pl.LazyFrame | None) -> str:
     return "dense" if _median_gap_ns(frame) <= DENSE_GAP_NS else "sparse"
 
 
-def resolve_pose_source(bundle: TopicBundle, window: tuple[int | None, int | None]) -> tuple[pl.DataFrame | None, PoseSource]:
+def resolve_pose_source(
+    bundle: TopicBundle, window: tuple[int | None, int | None]
+) -> tuple[pl.DataFrame | None, PoseSource]:
     """The ground-truth track inside the window, kept as recorded, with how it was classified."""
     track = _windowed(_collect(bundle.robot_tracks), window)
     kind = classify(track)
     if track is None or kind == "absent":
         return None, PoseSource("absent", 0, None)
     median_gap_s = None if track.height < 2 else _median_gap_ns(track) / NS_PER_S
-    return track, PoseSource("tf" if kind == "dense" else "tf_sparse", track.height, median_gap_s)
+    return track, PoseSource(
+        "tf" if kind == "dense" else "tf_sparse", track.height, median_gap_s
+    )
 
 
-def pose_frame(transforms: pl.DataFrame | pl.LazyFrame | None, window: tuple[int | None, int | None]) -> str | None:
+def pose_frame(
+    transforms: pl.DataFrame | pl.LazyFrame | None,
+    window: tuple[int | None, int | None],
+) -> str | None:
     """The TF parent the robot pose came from: the most frequent parent_frame inside the episode window."""
     frame = _windowed(_collect(transforms), window)
     if frame is None:
@@ -67,7 +74,9 @@ def _collect(frame: pl.DataFrame | pl.LazyFrame | None) -> pl.DataFrame | None:
     return frame.collect() if isinstance(frame, pl.LazyFrame) else frame
 
 
-def _windowed(frame: pl.DataFrame | None, window: tuple[int | None, int | None]) -> pl.DataFrame | None:
+def _windowed(
+    frame: pl.DataFrame | None, window: tuple[int | None, int | None]
+) -> pl.DataFrame | None:
     if frame is None:
         return None
     start_ns, end_ns = window

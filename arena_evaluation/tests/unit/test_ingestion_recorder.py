@@ -35,7 +35,13 @@ from rclpy.serialization import deserialize_message, serialize_message
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopic, RecordedTopics, RobotFleet, RobotState
+from arena_runtime_msgs.msg import (
+    EpisodeRecord,
+    RecordedTopic,
+    RecordedTopics,
+    RobotFleet,
+    RobotState,
+)
 from geometry_msgs.msg import TransformStamped, Twist
 from tf2_msgs.msg import TFMessage
 
@@ -43,7 +49,9 @@ from arena_evaluation.ingestion import recorder
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.storage.schemas import RunMetadata
 
-_CONVERTER = rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr")
+_CONVERTER = rosbag2_py.ConverterOptions(
+    input_serialization_format="cdr", output_serialization_format="cdr"
+)
 
 
 _TF_FRAMES = [
@@ -145,7 +153,9 @@ def _bare_node(**overrides) -> DataRecorderNode:
 
 
 def _log(node: DataRecorderNode, level: str) -> list[str]:
-    return [line for line in node.log_file.getvalue().splitlines() if f"[{level}]" in line]
+    return [
+        line for line in node.log_file.getvalue().splitlines() if f"[{level}]" in line
+    ]
 
 
 def _string(data: str) -> String:
@@ -159,10 +169,15 @@ def _unwritable(path: pathlib.Path) -> pathlib.Path:
 
 def _mcap_rows(path: pathlib.Path) -> list[tuple[str, bytes, int]]:
     with path.open("rb") as f:
-        return [(channel.topic, message.data, message.log_time) for _, channel, message in make_reader(f).iter_messages()]
+        return [
+            (channel.topic, message.data, message.log_time)
+            for _, channel, message in make_reader(f).iter_messages()
+        ]
 
 
-def _bag(node: DataRecorderNode, uri: pathlib.Path) -> Callable[[], list[tuple[str, bytes, int]]]:
+def _bag(
+    node: DataRecorderNode, uri: pathlib.Path
+) -> Callable[[], list[tuple[str, bytes, int]]]:
     """Point the node at a real writer on uri, returning a closure that closes it and reads the bag back."""
     writer = rosbag2_py.SequentialWriter()
     writer.open(rosbag2_py.StorageOptions(uri=str(uri), storage_id="mcap"), _CONVERTER)
@@ -180,30 +195,45 @@ def _bag(node: DataRecorderNode, uri: pathlib.Path) -> Callable[[], list[tuple[s
 def _bag_topics(uri: pathlib.Path) -> dict[str, str]:
     with next(uri.glob("*.mcap")).open("rb") as f:
         summary = make_reader(f).get_summary()
-    return {channel.topic: summary.schemas[channel.schema_id].name for channel in summary.channels.values()}
+    return {
+        channel.topic: summary.schemas[channel.schema_id].name
+        for channel in summary.channels.values()
+    }
 
 
 def _strings(rows: list[tuple[str, bytes, int]]) -> list[tuple[int, str]]:
     return [(ts, deserialize_message(data, String).data) for _, data, ts in rows]
 
 
-def _tf_bag(node: DataRecorderNode, tmp_path: pathlib.Path) -> Callable[[], list[tuple[str, bytes, int]]]:
+def _tf_bag(
+    node: DataRecorderNode, tmp_path: pathlib.Path
+) -> Callable[[], list[tuple[str, bytes, int]]]:
     read = _bag(node, tmp_path / "bag")
     node._register_topic("/tf", TFMessage)
     return read
 
 
-def _tf_writes(rows: list[tuple[str, bytes, int]]) -> list[tuple[int, dict[str, float]]]:
+def _tf_writes(
+    rows: list[tuple[str, bytes, int]],
+) -> list[tuple[int, dict[str, float]]]:
     """(timestamp, {child_frame: x}) for every /tf message in the bag."""
     out = []
     for topic, data, ts in rows:
         assert topic == "tf"
-        out.append((ts, {t.child_frame_id: t.transform.translation.x for t in deserialize_message(data, TFMessage).transforms}))
+        out.append(
+            (
+                ts,
+                {
+                    t.child_frame_id: t.transform.translation.x
+                    for t in deserialize_message(data, TFMessage).transforms
+                },
+            )
+        )
     return out
 
 
 @pytest.fixture
-def fake_share(tmp_path, monkeypatch):
+def fake_share(tmp_path):
     """An arena_evaluation share dir on the ament prefix path, so workspace_root (= share.parents[3]) is tmp_path."""
     prefix = tmp_path / "w" / "install"
     share = prefix / "share" / "arena_evaluation"
@@ -211,18 +241,29 @@ def fake_share(tmp_path, monkeypatch):
     index = prefix / "share" / "ament_index" / "resource_index" / "packages"
     index.mkdir(parents=True)
     (index / "arena_evaluation").touch()
-    monkeypatch.setenv("AMENT_PREFIX_PATH", os.pathsep.join([str(prefix), os.environ.get("AMENT_PREFIX_PATH", "")]))
-    return share
+    old_prefix = os.environ.get("AMENT_PREFIX_PATH")
+    os.environ["AMENT_PREFIX_PATH"] = os.pathsep.join([str(prefix), old_prefix or ""])
+    try:
+        yield share
+    finally:
+        if old_prefix is None:
+            os.environ.pop("AMENT_PREFIX_PATH", None)
+        else:
+            os.environ["AMENT_PREFIX_PATH"] = old_prefix
 
 
-def _build_full_node(monkeypatch, argv, **node_kwargs):
-    monkeypatch.setattr(sys, "argv", argv)
-    return DataRecorderNode(**node_kwargs)
+def _build_full_node(argv, **node_kwargs):
+    old_argv = sys.argv
+    sys.argv = argv
+    try:
+        return DataRecorderNode(**node_kwargs)
+    finally:
+        sys.argv = old_argv
 
 
 @pytest.fixture
-def full_node(tmp_path, fake_share, monkeypatch):
-    node = _build_full_node(monkeypatch, ["pytest", "--dir", str(tmp_path / "episodes")])
+def full_node(tmp_path, fake_share):
+    node = _build_full_node(["pytest", "--dir", str(tmp_path / "episodes")])
     yield node
     try:
         node.destroy_node()
@@ -238,48 +279,67 @@ def full_node(tmp_path, fake_share, monkeypatch):
 def test_constructor_uses_dir_flag(tmp_path, full_node):
     assert full_node.episodes_root == (tmp_path / "episodes").resolve()
     assert full_node.episodes_root.is_dir()
-    assert (full_node.run_dir / "recorder.log").is_file() or (full_node.episodes_root / "recorder.log").is_file()
+    assert (full_node.run_dir / "recorder.log").is_file() or (
+        full_node.episodes_root / "recorder.log"
+    ).is_file()
 
 
-def test_constructor_argv_equals_form(tmp_path, fake_share, monkeypatch):
+def test_constructor_argv_equals_form(tmp_path, fake_share):
     target = tmp_path / "eq"
-    node = _build_full_node(monkeypatch, ["pytest", f"--dir={target}"])
+    node = _build_full_node(["pytest", f"--dir={target}"])
     try:
         assert node.episodes_root == (target / "episodes").resolve()
     finally:
         node.destroy_node()
 
 
-def test_constructor_relative_dir_resolves_under_workspace_root(tmp_path, fake_share, monkeypatch):
-    node = _build_full_node(monkeypatch, ["pytest", "--dir", "episodes/rel"])
+def test_constructor_relative_dir_resolves_under_workspace_root(tmp_path, fake_share):
+    node = _build_full_node(["pytest", "--dir", "episodes/rel"])
     try:
-        assert node.episodes_root == (tmp_path / "episodes" / "rel" / "episodes").resolve()
+        assert (
+            node.episodes_root == (tmp_path / "episodes" / "rel" / "episodes").resolve()
+        )
     finally:
         node.destroy_node()
 
 
-def test_constructor_auto_mode_uses_timestamped_dir(tmp_path, fake_share, monkeypatch):
-    node = _build_full_node(monkeypatch, ["pytest"])
+def test_constructor_auto_mode_uses_timestamped_dir(tmp_path, fake_share):
+    node = _build_full_node(["pytest"])
     try:
         stamp = node.get_parameter("data_recorder_autoprefix").value
         assert stamp is not None
-        assert node.episodes_root == (tmp_path / "data" / "runs" / stamp / "episodes").resolve()
+        assert (
+            node.episodes_root
+            == (tmp_path / "data" / "runs" / stamp / "episodes").resolve()
+        )
     finally:
         node.destroy_node()
 
 
-def test_constructor_auto_mode_reuses_existing_autoprefix(tmp_path, fake_share, monkeypatch):
-    node = _build_full_node(monkeypatch, ["pytest"], parameter_overrides=[Parameter("data_recorder_autoprefix", Parameter.Type.STRING, "20240101-000000")])
+def test_constructor_auto_mode_reuses_existing_autoprefix(tmp_path, fake_share):
+    node = _build_full_node(
+        ["pytest"],
+        parameter_overrides=[
+            Parameter(
+                "data_recorder_autoprefix", Parameter.Type.STRING, "20240101-000000"
+            )
+        ],
+    )
     try:
-        assert node.episodes_root == (tmp_path / "data" / "runs" / "20240101-000000" / "episodes").resolve()
+        assert (
+            node.episodes_root
+            == (tmp_path / "data" / "runs" / "20240101-000000" / "episodes").resolve()
+        )
     finally:
         node.destroy_node()
 
 
-def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share, monkeypatch):
-    node = _build_full_node(monkeypatch, ["pytest", "--dir", "data"])
+def test_constructor_data_root_creates_runs_uuid(tmp_path, fake_share):
+    node = _build_full_node(["pytest", "--dir", "data"])
     try:
-        assert node.episodes_root.parent.parent == (tmp_path / "data" / "runs").resolve()
+        assert (
+            node.episodes_root.parent.parent == (tmp_path / "data" / "runs").resolve()
+        )
         assert node.episodes_root.name == "episodes"
         assert (node.run_dir / "recorder.log").is_file()
     finally:
@@ -290,7 +350,16 @@ def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
     assert full_node._start_service is not None
     assert len(full_node.subs) == 13
     # /tf, humans/tf and /tf_static are subscribed once, at construction
-    assert full_node.latched_topic_names == {"state/episode", "state/robots", "state/semantics", "agent_meta", "interactions", "map", "door_mask", "tf_static"}
+    assert full_node.latched_topic_names == {
+        "state/episode",
+        "state/robots",
+        "state/semantics",
+        "agent_meta",
+        "interactions",
+        "map",
+        "door_mask",
+        "tf_static",
+    }
     assert full_node.freqs == {"default": 20.0}
 
 
@@ -301,13 +370,18 @@ def test_constructor_registers_subscriptions_and_service(tmp_path, full_node):
 
 def test_read_config_falls_back_when_file_missing(tmp_path):
     node = _bare_node(base_dir=str(tmp_path / "missing"))
-    assert node.read_config() == {"record_frequencies": {"default": 20.0}, "tf_frames": []}
+    assert node.read_config() == {
+        "record_frequencies": {"default": 20.0},
+        "tf_frames": [],
+    }
 
 
 def test_read_config_parses_file(tmp_path):
     cfg_dir = tmp_path / "share" / "config"
     cfg_dir.mkdir(parents=True)
-    (cfg_dir / "data_recorder_config.yaml").write_text("record_frequencies:\n  default: 50.0\n  odom: 5.0\n")
+    (cfg_dir / "data_recorder_config.yaml").write_text(
+        "record_frequencies:\n  default: 50.0\n  odom: 5.0\n"
+    )
     node = _bare_node(base_dir=str(tmp_path / "share"))
     assert node.read_config() == {"record_frequencies": {"default": 50.0, "odom": 5.0}}
 
@@ -317,7 +391,10 @@ def test_read_config_falls_back_on_corrupt_yaml(tmp_path):
     cfg_dir.mkdir(parents=True)
     (cfg_dir / "data_recorder_config.yaml").write_text("{{{{ not yaml")
     node = _bare_node(base_dir=str(tmp_path / "share"))
-    assert node.read_config() == {"record_frequencies": {"default": 20.0}, "tf_frames": []}
+    assert node.read_config() == {
+        "record_frequencies": {"default": 20.0},
+        "tf_frames": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +479,9 @@ def test_unthrottled_callback_buffers_before_first_clock():
     assert node._write_drop_count == 0
 
 
-def test_unthrottled_callback_discards_message_when_clock_buffer_already_flushed(tmp_path):
+def test_unthrottled_callback_discards_message_when_clock_buffer_already_flushed(
+    tmp_path,
+):
     node = _bare_node()
     read = _bag(node, tmp_path / "bag")
     node._register_topic("/a", String)
@@ -524,7 +603,9 @@ def test_stop_episode_flushes_pending_tf_before_closing(tmp_path):
     node = _bare_node(current_sim_episode_id=3, current_time=50_000_000)
     read = _tf_bag(node, tmp_path)
     node._tf_pending = {("map", "odom"): _transform("map", "odom", 1.0)}
-    node._tf_last_flush = 45_000_000  # inside the window: the forced flush writes anyway
+    node._tf_last_flush = (
+        45_000_000  # inside the window: the forced flush writes anyway
+    )
 
     node._stop_episode(3, outcome_state=2)
 
@@ -714,7 +795,9 @@ def test_write_to_bag_at_writer_error_is_logged(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(tmp_path: pathlib.Path) -> None:
+def test_write_to_bag_at_raw_bytes_reach_the_bag_unchanged(
+    tmp_path: pathlib.Path,
+) -> None:
     node = _bare_node()
     read = _bag(node, tmp_path / "bag")
     node._register_topic("/cmd_vel", Twist)
@@ -738,32 +821,66 @@ def test_write_to_bag_at_buffers_raw_bytes_unchanged_when_no_writer() -> None:
     assert ts == 5
 
 
-def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(full_node: DataRecorderNode) -> None:
+def test_setup_subscriptions_content_inspecting_topics_stay_deserialized(
+    full_node: DataRecorderNode,
+) -> None:
     by_topic = {sub.topic: sub for sub in full_node.subs}
     assert by_topic["/tf"].raw is False
     assert by_topic["/state/episode"].raw is False
     assert by_topic["/state/robots"].raw is False
-    for topic in ("/tf_static", "/state/semantics", "/map", "/door_mask", "/agent_states", "/agent_meta", "/interactions"):
+    for topic in (
+        "/tf_static",
+        "/state/semantics",
+        "/map",
+        "/door_mask",
+        "/agent_states",
+        "/agent_meta",
+        "/interactions",
+    ):
         assert by_topic[topic].raw is True
 
 
-def test_setup_subscriptions_episode_records_arrive_live_only(full_node: DataRecorderNode) -> None:
+def test_setup_subscriptions_episode_records_arrive_live_only(
+    full_node: DataRecorderNode,
+) -> None:
     by_topic = {sub.topic: sub for sub in full_node.subs}
-    assert by_topic["/state/episode"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
-    assert by_topic["/state/episode"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+    assert (
+        by_topic["/state/episode"].qos_profile.reliability
+        == QoSReliabilityPolicy.RELIABLE
+    )
+    assert (
+        by_topic["/state/episode"].qos_profile.durability
+        == QoSDurabilityPolicy.VOLATILE
+    )
 
 
 def test_setup_subscriptions_agent_meta_is_latched(full_node: DataRecorderNode) -> None:
     by_topic = {sub.topic: sub for sub in full_node.subs}
-    assert by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
-    assert by_topic["/agent_meta"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
-    assert by_topic["/interactions"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
-    assert by_topic["/interactions"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
-    assert by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+    assert (
+        by_topic["/agent_meta"].qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
+    )
+    assert (
+        by_topic["/agent_meta"].qos_profile.durability
+        == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    )
+    assert (
+        by_topic["/interactions"].qos_profile.reliability
+        == QoSReliabilityPolicy.RELIABLE
+    )
+    assert (
+        by_topic["/interactions"].qos_profile.durability
+        == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    )
+    assert (
+        by_topic["/agent_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+    )
 
 
 def _node_fixture(tmp_path, namespace: str | None = None, **parameters):
-    overrides = [Parameter("record_data_dir", value=str(tmp_path / "episodes")), *(Parameter(name, value=value) for name, value in parameters.items())]
+    overrides = [
+        Parameter("record_data_dir", value=str(tmp_path / "episodes")),
+        *(Parameter(name, value=value) for name, value in parameters.items()),
+    ]
     node = DataRecorderNode(namespace=namespace, parameter_overrides=overrides)
     yield node
     node.destroy_node()
@@ -788,21 +905,55 @@ def _recorded_rows() -> RecordedTopics:
     string = "std_msgs/msg/String"
     return RecordedTopics(
         topics=[
-            RecordedTopic(key="audio_raw", topic="{ns}/audio/raw_array", msg_type=string, robot_scoped=True, depth=1000, recorded=True),
-            RecordedTopic(key="heard_sound_events", topic="{tg}/heard_sound_events", msg_type=string, reliable=True, recorded=True),
-            RecordedTopic(key="pose_log", topic="{tg}/pose_log", msg_type=string, throttled=True, recorded=True),
-            RecordedTopic(key="room_impulses", topic="{tg}/acoustic/impulses", msg_type=string, qos_transient_local=True, reliable=True),
-            RecordedTopic(key="unknown_type", topic="{tg}/unknown", msg_type="no_such_package_msgs/msg/Nothing", recorded=True),
+            RecordedTopic(
+                key="audio_raw",
+                topic="{ns}/audio/raw_array",
+                msg_type=string,
+                robot_scoped=True,
+                depth=1000,
+                recorded=True,
+            ),
+            RecordedTopic(
+                key="heard_sound_events",
+                topic="{tg}/heard_sound_events",
+                msg_type=string,
+                reliable=True,
+                recorded=True,
+            ),
+            RecordedTopic(
+                key="pose_log",
+                topic="{tg}/pose_log",
+                msg_type=string,
+                throttled=True,
+                recorded=True,
+            ),
+            RecordedTopic(
+                key="room_impulses",
+                topic="{tg}/acoustic/impulses",
+                msg_type=string,
+                qos_transient_local=True,
+                reliable=True,
+            ),
+            RecordedTopic(
+                key="unknown_type",
+                topic="{tg}/unknown",
+                msg_type="no_such_package_msgs/msg/Nothing",
+                recorded=True,
+            ),
         ]
     )
 
 
-def test_recorder_writes_below_the_record_data_dir_parameter(tmp_path, recorder_node: DataRecorderNode) -> None:
+def test_recorder_writes_below_the_record_data_dir_parameter(
+    tmp_path, recorder_node: DataRecorderNode
+) -> None:
     assert recorder_node.episodes_root.is_relative_to((tmp_path / "episodes").resolve())
     assert recorder_node.run_dir.is_relative_to(tmp_path.resolve())
 
 
-def test_recorded_topics_message_subscribes_the_env_rows_with_their_qos(recorder_node: DataRecorderNode) -> None:
+def test_recorded_topics_message_subscribes_the_env_rows_with_their_qos(
+    recorder_node: DataRecorderNode,
+) -> None:
     before = len(recorder_node.subs)
     recorder_node.recorded_topics_callback(_recorded_rows())
 
@@ -813,35 +964,49 @@ def test_recorded_topics_message_subscribes_the_env_rows_with_their_qos(recorder
     assert events.qos_profile.reliability == QoSReliabilityPolicy.RELIABLE
     assert events.qos_profile.durability == QoSDurabilityPolicy.VOLATILE
     assert events.qos_profile.depth == recorder_node.qos.depth
-    assert added["/pose_log"].qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
+    assert (
+        added["/pose_log"].qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
+    )
     assert "heard_sound_events" not in recorder_node.latched_topic_names
 
 
-def test_recorded_topics_message_is_applied_once(recorder_node: DataRecorderNode) -> None:
+def test_recorded_topics_message_is_applied_once(
+    recorder_node: DataRecorderNode,
+) -> None:
     recorder_node.recorded_topics_callback(_recorded_rows())
     count = len(recorder_node.subs)
     recorder_node.recorded_topics_callback(_recorded_rows())
     assert len(recorder_node.subs) == count
 
 
-def test_recorded_topics_message_reaches_robots_known_before_it(recorder_node: DataRecorderNode) -> None:
+def test_recorded_topics_message_reaches_robots_known_before_it(
+    recorder_node: DataRecorderNode,
+) -> None:
     recorder_node.known_robots.add("robot_0")
     before = len(recorder_node.subs)
     recorder_node.recorded_topics_callback(_recorded_rows())
 
-    audio = {sub.topic: sub for sub in recorder_node.subs[before:]}["/robot_0/audio/raw_array"]
+    audio = {sub.topic: sub for sub in recorder_node.subs[before:]}[
+        "/robot_0/audio/raw_array"
+    ]
     assert audio.qos_profile.reliability == QoSReliabilityPolicy.BEST_EFFORT
     assert audio.qos_profile.depth == 1000
 
 
-def test_robot_seen_after_the_recorded_topics_message_gets_its_rows(recorder_node: DataRecorderNode) -> None:
+def test_robot_seen_after_the_recorded_topics_message_gets_its_rows(
+    recorder_node: DataRecorderNode,
+) -> None:
     recorder_node.recorded_topics_callback(_recorded_rows())
     before = len(recorder_node.subs)
     recorder_node.robots_fleet_callback(_fleet_message([("robot_1", "jackal")]))
-    assert "/robot_1/audio/raw_array" in {sub.topic for sub in recorder_node.subs[before:]}
+    assert "/robot_1/audio/raw_array" in {
+        sub.topic for sub in recorder_node.subs[before:]
+    }
 
 
-def test_optional_recorded_row_is_subscribed_latched_only_when_listed(recorder_node: DataRecorderNode) -> None:
+def test_optional_recorded_row_is_subscribed_latched_only_when_listed(
+    recorder_node: DataRecorderNode,
+) -> None:
     recorder_node.recorded_topics_callback(_recorded_rows())
     assert "/acoustic/impulses" not in {sub.topic for sub in recorder_node.subs}
 
@@ -907,7 +1072,9 @@ def test_stop_episode_metadata_write_failure_still_closes(tmp_path):
 
 
 def _service_request(**fields) -> RecordEpisode.Request:
-    return RecordEpisode.Request(**{"episode_id": 9, "command": RecordEpisode.Request.COMMAND_START, **fields})
+    return RecordEpisode.Request(
+        **{"episode_id": 9, "command": RecordEpisode.Request.COMMAND_START, **fields}
+    )
 
 
 def test_service_callback_start_command(tmp_path):
@@ -928,7 +1095,14 @@ def test_service_callback_stop_command(tmp_path):
     )
     _bag(node, tmp_path / "bag")
     resp = RecordEpisode.Response()
-    node._start_episode_service_callback(_service_request(command=RecordEpisode.Request.COMMAND_STOP, outcome_state=3, outcome_info="collision"), resp)
+    node._start_episode_service_callback(
+        _service_request(
+            command=RecordEpisode.Request.COMMAND_STOP,
+            outcome_state=3,
+            outcome_info="collision",
+        ),
+        resp,
+    )
     assert resp.success is True
     assert resp.message == "stopped"
     assert node.writer is None
@@ -969,11 +1143,15 @@ def test_episode_record_callback_begins_new_episode(env_node):
 
 
 @pytest.mark.parametrize("outcome", [3, 9])
-def test_episode_record_callback_does_not_begin_finished_episodes(recorder_node, outcome):
+def test_episode_record_callback_does_not_begin_finished_episodes(
+    recorder_node, outcome
+):
     recorder_node.current_time = 1
     recorder_node.episode_record_callback(_episode_message(outcome=outcome))
     assert recorder_node.current_sim_episode_id is None
-    assert [(topic, ts) for topic, _, ts in recorder_node._pre_episode_buffer] == [("/state/episode", 1)]
+    assert [(topic, ts) for topic, _, ts in recorder_node._pre_episode_buffer] == [
+        ("/state/episode", 1)
+    ]
 
 
 def test_episode_record_callback_does_not_reopen_seen_episode(env_node):
@@ -1014,7 +1192,9 @@ def test_robots_fleet_callback_writes_and_discovers_robots(env_node):
     assert {"/robot_0/cmd_vel", "/robot_0/scan", "/robot_0/plan"} <= first_wave
     assert "robot_0" in node.known_robots
     assert node.robot_model == "jackal"
-    assert yaml.safe_load(node.current_metadata_path.read_text())["robot_model"] == ["jackal"]
+    assert yaml.safe_load(node.current_metadata_path.read_text())["robot_model"] == [
+        "jackal"
+    ]
 
     # second sighting of the same robot: no re-subscription
     count = len(node.subs)
@@ -1027,7 +1207,10 @@ def test_robots_fleet_callback_writes_and_discovers_robots(env_node):
     assert "/robot_1/cmd_vel" in second_wave
     assert len(second_wave) == len(first_wave) - 2
     assert "robot_1" in node.known_robots
-    assert yaml.safe_load(node.current_metadata_path.read_text())["robot_model"] == ["jackal", "turtlebot3"]
+    assert yaml.safe_load(node.current_metadata_path.read_text())["robot_model"] == [
+        "jackal",
+        "turtlebot3",
+    ]
 
     node._close_current_writer()
     rows = _mcap_rows(node.episodes_root / "episode_000" / "episode_000.mcap")
@@ -1060,7 +1243,9 @@ def test_discover_topics_subscribes_odom_and_infers_robot_model(env_node):
     assert "/env_0/robot/jackal/odom" in {sub.topic for sub in env_node.subs}
     assert env_node.robot_model == "jackal"
     assert env_node.current_metadata.robot_model == ["jackal"]
-    assert yaml.safe_load(env_node.current_metadata_path.read_text())["robot_model"] == ["jackal"]
+    assert yaml.safe_load(env_node.current_metadata_path.read_text())[
+        "robot_model"
+    ] == ["jackal"]
     env_node._close_current_writer()
 
 
@@ -1094,11 +1279,19 @@ def test_discover_topics_skips_robot_model_inference_when_known(tmp_path, env_no
 def test_state_types_cover_interactions_and_animation():
     pytest.importorskip("arena_humansim_msgs.msg")
     types = recorder._state_types()
-    assert types["arena_humansim_msgs/msg/InteractionFrame"][1:] == ("interactions", True)
-    assert types["arena_people_msgs/msg/AnimationStates"][1:] == ("animation_states", False)
+    assert types["arena_humansim_msgs/msg/InteractionFrame"][1:] == (
+        "interactions",
+        True,
+    )
+    assert types["arena_people_msgs/msg/AnimationStates"][1:] == (
+        "animation_states",
+        False,
+    )
 
 
-def test_discover_topics_records_interaction_and_animation_states_of_its_env(state_node):
+def test_discover_topics_records_interaction_and_animation_states_of_its_env(
+    state_node,
+):
     pytest.importorskip("arena_humansim_msgs.msg")
     from arena_humansim_msgs.msg import InteractionFrame
     from arena_people_msgs.msg import AnimationStates, Pedestrians
@@ -1113,13 +1306,28 @@ def test_discover_topics_records_interaction_and_animation_states_of_its_env(sta
     )
     state_node.discover_topics()
     subscribed = {sub.topic: sub for sub in state_node.subs[before:]}
-    assert set(subscribed) == {"/arena/env_1/interactions", "/arena/env_1/animation_states"}
-    assert subscribed["/arena/env_1/interactions"].qos_profile.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
-    assert subscribed["/arena/env_1/animation_states"].qos_profile.durability == QoSDurabilityPolicy.VOLATILE
+    assert set(subscribed) == {
+        "/arena/env_1/interactions",
+        "/arena/env_1/animation_states",
+    }
+    assert (
+        subscribed["/arena/env_1/interactions"].qos_profile.durability
+        == QoSDurabilityPolicy.TRANSIENT_LOCAL
+    )
+    assert (
+        subscribed["/arena/env_1/animation_states"].qos_profile.durability
+        == QoSDurabilityPolicy.VOLATILE
+    )
     assert "arena/env_1/interactions" in state_node.latched_topic_names
     assert "arena/env_1/animation_states" not in state_node.latched_topic_names
-    assert state_node._topic_registry["/arena/env_1/interactions"].type == "arena_humansim_msgs/msg/InteractionFrame"
-    assert state_node._topic_registry["/arena/env_1/animation_states"].type == "arena_people_msgs/msg/AnimationStates"
+    assert (
+        state_node._topic_registry["/arena/env_1/interactions"].type
+        == "arena_humansim_msgs/msg/InteractionFrame"
+    )
+    assert (
+        state_node._topic_registry["/arena/env_1/animation_states"].type
+        == "arena_people_msgs/msg/AnimationStates"
+    )
 
 
 def test_discovered_interactions_are_written_unthrottled(state_node):
@@ -1195,7 +1403,9 @@ def test_write_episode_metadata_failure_keeps_metadata(tmp_path):
     )
     node._write_episode_metadata(0)
     assert node.current_metadata is not None
-    assert any("Failed to write initial episode metadata" in e for e in _log(node, "ERROR"))
+    assert any(
+        "Failed to write initial episode metadata" in e for e in _log(node, "ERROR")
+    )
 
 
 def test_finalize_episode_metadata_sets_stats(tmp_path):
@@ -1231,7 +1441,9 @@ def test_finalize_episode_metadata_no_pedsim_topics(tmp_path):
 
 
 def test_finalize_episode_metadata_noop_without_metadata(tmp_path):
-    node = _bare_node(current_metadata=None, current_metadata_path=tmp_path / "episode.yaml")
+    node = _bare_node(
+        current_metadata=None, current_metadata_path=tmp_path / "episode.yaml"
+    )
     node._finalize_episode_metadata()
     assert not node.current_metadata_path.exists()
 
@@ -1245,17 +1457,27 @@ def test_finalize_episode_metadata_write_failure_logged(tmp_path):
 
 
 def test_update_metadata_from_episode_populates_fields(tmp_path):
-    node = _bare_node(current_metadata=_make_run_metadata(robot_model=["unknown"], map="unknown"), current_sim_episode_id=7)
+    node = _bare_node(
+        current_metadata=_make_run_metadata(robot_model=["unknown"], map="unknown"),
+        current_sim_episode_id=7,
+    )
     node.current_metadata_path = tmp_path / "episode.yaml"
     pv_double = ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=0.4)
-    pv_string = ParameterValue(type=ParameterType.PARAMETER_STRING, string_value="turtlebot3")
+    pv_string = ParameterValue(
+        type=ParameterType.PARAMETER_STRING, string_value="turtlebot3"
+    )
     msg = EpisodeRecord()
     msg.episode_id = 7
     msg.world = "hospital_1"
     msg.robots = ["jackal"]
     msg.task_layer = "generated_runtime"
-    msg.modes = encode_modes({"robots": ["explore"], "fleet": ["convoy", "wedge"], "modules": []})
-    msg.params = [RclParameter(name="task.random.robot.radius", value=pv_double), RclParameter(name="task.explore.model", value=pv_string)]
+    msg.modes = encode_modes(
+        {"robots": ["explore"], "fleet": ["convoy", "wedge"], "modules": []}
+    )
+    msg.params = [
+        RclParameter(name="task.random.robot.radius", value=pv_double),
+        RclParameter(name="task.explore.model", value=pv_string),
+    ]
 
     node._update_metadata_from_episode(msg)
 
@@ -1263,13 +1485,24 @@ def test_update_metadata_from_episode_populates_fields(tmp_path):
     assert md.robot_model == ["jackal"]
     assert md.map == "hospital_1"
     assert md.task_layer == "generated_runtime"
-    assert md.modes == {"robots": ["explore"], "fleet": ["convoy", "wedge"], "modules": []}
-    assert md.params == {"task.random.robot.radius": 0.4, "task.explore.model": "turtlebot3"}
-    assert yaml.safe_load((tmp_path / "episode.yaml").read_text())["map"] == "hospital_1"
+    assert md.modes == {
+        "robots": ["explore"],
+        "fleet": ["convoy", "wedge"],
+        "modules": [],
+    }
+    assert md.params == {
+        "task.random.robot.radius": 0.4,
+        "task.explore.model": "turtlebot3",
+    }
+    assert (
+        yaml.safe_load((tmp_path / "episode.yaml").read_text())["map"] == "hospital_1"
+    )
 
 
 def test_update_metadata_from_episode_noop_without_metadata(tmp_path):
-    node = _bare_node(current_metadata=None, current_metadata_path=tmp_path / "episode.yaml")
+    node = _bare_node(
+        current_metadata=None, current_metadata_path=tmp_path / "episode.yaml"
+    )
     node._update_metadata_from_episode(_episode_message())
     assert not node.current_metadata_path.exists()
 
@@ -1369,7 +1602,10 @@ def test_start_episode_recording_opens_writer_and_flushes_buffer(tmp_path):
     assert node.current_sim_episode_id == 7
     assert node._episode_id_offset == 1
     assert node.current_episode_dir == node.episodes_root / "episode_000"
-    assert node.current_metadata_path == node.episodes_root / "episode_000" / "episode_000.yaml"
+    assert (
+        node.current_metadata_path
+        == node.episodes_root / "episode_000" / "episode_000.yaml"
+    )
 
     ep_dir = node.episodes_root / "episode_000"
     assert (ep_dir / "episode_000.yaml").exists()
@@ -1383,7 +1619,9 @@ def test_start_episode_recording_opens_writer_and_flushes_buffer(tmp_path):
     assert node._write_success_count == 0
 
     node._close_current_writer()
-    assert _mcap_rows(ep_dir / "episode_000.mcap") == [("env_0/state/episode", b"\x01\x02", 12345)]
+    assert _mcap_rows(ep_dir / "episode_000.mcap") == [
+        ("env_0/state/episode", b"\x01\x02", 12345)
+    ]
 
 
 def test_start_episode_recording_uses_mcap_config_when_present(tmp_path):
@@ -1399,18 +1637,6 @@ def test_start_episode_recording_uses_mcap_config_when_present(tmp_path):
 
     with (node.episodes_root / "episode_000" / "episode_000.mcap").open("rb") as f:
         assert make_reader(f).get_summary().chunk_indexes == []
-
-
-def test_constructor_tolerates_chmod_failure(tmp_path, fake_share, monkeypatch):
-    def _chmod_denied(self, mode):
-        raise OSError("chmod denied")
-
-    monkeypatch.setattr(pathlib.Path, "chmod", _chmod_denied)
-    node = _build_full_node(monkeypatch, ["pytest", "--dir", str(tmp_path / "ep")])
-    try:
-        assert node.episodes_root == (tmp_path / "ep" / "episodes").resolve()
-    finally:
-        node.destroy_node()
 
 
 def test_start_episode_recording_writer_failure_sets_writer_none(tmp_path):
@@ -1438,7 +1664,9 @@ def test_start_episode_recording_increments_global_episode_id(tmp_path):
     assert (node.episodes_root / "episode_001").is_dir()
     assert (node.episodes_root / "episode_001" / "episode_001.yaml").exists()
     assert node.writer is not None
-    assert (node.episodes_root / "episode_000" / "episode_000.mcap").exists()  # previous writer closed first
+    assert (
+        node.episodes_root / "episode_000" / "episode_000.mcap"
+    ).exists()  # previous writer closed first
     node._close_current_writer()
 
 
@@ -1453,7 +1681,9 @@ def _episode_dir_with_bag(tmp_path):
     inner.mkdir(parents=True)
     (inner / "episode_000_0.mcap").write_bytes(b"mcap-bytes")
     (inner / "episode_000_1.mcap").write_bytes(b"mcap-bytes")
-    (inner / "metadata.yaml").write_text("rosbag2_bagfile_information:\n  message_count: 42\n  topics_with_message_count:\n    - topic_metadata:\n        name: /cmd_vel\n      message_count: 42\n")
+    (inner / "metadata.yaml").write_text(
+        "rosbag2_bagfile_information:\n  message_count: 42\n  topics_with_message_count:\n    - topic_metadata:\n        name: /cmd_vel\n      message_count: 42\n"
+    )
     return ep_dir
 
 
@@ -1461,7 +1691,11 @@ def _recorded_episode(tmp_path):
     """A node mid-episode with a real bag of three messages under episode_000."""
     ep_dir = tmp_path / "episode_000"
     ep_dir.mkdir()
-    node = _bare_node(current_episode_dir=ep_dir, current_metadata=_make_run_metadata(), current_metadata_path=ep_dir / "episode_000.yaml")
+    node = _bare_node(
+        current_episode_dir=ep_dir,
+        current_metadata=_make_run_metadata(),
+        current_metadata_path=ep_dir / "episode_000.yaml",
+    )
     _bag(node, ep_dir / "episode_000")
     node._register_topic("/cmd_vel", Twist)
     for stamp in range(3):
@@ -1593,14 +1827,24 @@ def test_finalize_closes_writer_once(tmp_path, capsys):
 
 
 def test_destroy_node_calls_finalize(tmp_path):
-    node = DataRecorderNode(parameter_overrides=[Parameter("record_data_dir", value=str(tmp_path / "episodes"))])
+    node = DataRecorderNode(
+        parameter_overrides=[
+            Parameter("record_data_dir", value=str(tmp_path / "episodes"))
+        ]
+    )
     node.destroy_node()
     assert node.is_shutting_down is True
 
 
 def test_log_methods_print_when_rclpy_not_initialized():
     script = "from arena_evaluation.ingestion.recorder import DataRecorderNode\nnode = DataRecorderNode.__new__(DataRecorderNode)\nnode.log_file = None\nnode._log_info('info-msg')\nnode._log_warn('warn-msg')\nnode._log_error('error-msg')\n"
-    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60, check=True).stdout
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    ).stdout
     assert "[DataRecorder] [INFO] info-msg" in out
     assert "[DataRecorder] [WARN] warn-msg" in out
     assert "[DataRecorder] [ERROR] error-msg" in out
@@ -1645,31 +1889,21 @@ def test_main_exception_path_exits_nonzero(tmp_path):
     blocked = tmp_path / "blocked"
     blocked.write_text("")
     script = "import sys\nfrom arena_evaluation.ingestion.recorder import main\nmain(args=sys.argv)\n"
-    proc = subprocess.run([sys.executable, "-c", script, "--ros-args", "-p", f"record_data_dir:={blocked}/episodes"], capture_output=True, text=True, timeout=120)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            "--ros-args",
+            "-p",
+            f"record_data_dir:={blocked}/episodes",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     assert proc.returncode == 1
     assert "Exception in main" in proc.stdout
-
-
-def test_bind_to_parent_exits_when_orphaned(monkeypatch):
-    exits = []
-    monkeypatch.setattr(recorder.os, "_exit", exits.append)
-    monkeypatch.setattr(recorder.os, "getppid", lambda: 1)
-    recorder._bind_to_parent()
-    assert exits == [0]
-
-
-def test_bind_to_parent_tolerates_ctypes_failure(monkeypatch):
-    import ctypes as _real_ctypes
-
-    def _no_libc(*_args, **_kwargs):
-        raise OSError("no libc")
-
-    exits = []
-    monkeypatch.setattr(_real_ctypes, "CDLL", _no_libc)
-    monkeypatch.setattr(recorder.os, "_exit", exits.append)
-    monkeypatch.setattr(recorder.os, "getppid", lambda: 42)
-    recorder._bind_to_parent()
-    assert exits == []
 
 
 # ---------------------------------------------------------------------------
@@ -1679,7 +1913,9 @@ def test_bind_to_parent_tolerates_ctypes_failure(monkeypatch):
 
 def test_start_stop_episode_service_end_to_end(tmp_path, full_node):
     start_resp = RecordEpisode.Response()
-    full_node._start_episode_service_callback(_service_request(episode_id=11), start_resp)
+    full_node._start_episode_service_callback(
+        _service_request(episode_id=11), start_resp
+    )
 
     assert start_resp.success is True
     assert start_resp.message == "recording episode 0"
@@ -1690,7 +1926,15 @@ def test_start_stop_episode_service_end_to_end(tmp_path, full_node):
     assert full_node.writer is not None
 
     stop_resp = RecordEpisode.Response()
-    full_node._start_episode_service_callback(_service_request(episode_id=11, command=RecordEpisode.Request.COMMAND_STOP, outcome_state=2, outcome_info="ok"), stop_resp)
+    full_node._start_episode_service_callback(
+        _service_request(
+            episode_id=11,
+            command=RecordEpisode.Request.COMMAND_STOP,
+            outcome_state=2,
+            outcome_info="ok",
+        ),
+        stop_resp,
+    )
 
     assert stop_resp.success is True
     assert stop_resp.message == "stopped"
@@ -1700,3 +1944,40 @@ def test_start_stop_episode_service_end_to_end(tmp_path, full_node):
     assert data["outcome_state"] == 2
     assert data["outcome_info"] == "ok"
     assert data["recording_ended_at"] is not None
+
+
+def test_constructor_auto_mode_generates_run_id_from_map_robot_planner(fake_share):
+    old_argv = sys.argv
+    sys.argv = ["pytest"]
+    node = None
+    try:
+        node = DataRecorderNode(
+            parameter_overrides=[
+                Parameter("map", Parameter.Type.STRING, "/tmp/hospital_1.world"),
+                Parameter("robot", Parameter.Type.STRING, "jackal"),
+                Parameter("local_planner", Parameter.Type.STRING, "dwb"),
+            ]
+        )
+        assert node.run_dir.name.endswith("-hospital_1-jackal-dwb")
+    finally:
+        sys.argv = old_argv
+        if node is not None:
+            node.destroy_node()
+
+
+def test_robots_fleet_callback_replaces_unknown_metadata_robot_model(
+    tmp_path, full_node
+):
+    full_node.current_metadata = _make_run_metadata(robot_model=["unknown"])
+    full_node.current_metadata_path = tmp_path / "metadata.yaml"
+    fleet = RobotFleet()
+    state = RobotState()
+    state.descriptor.ns = "env_0/jackal"
+    state.descriptor.model = "jackal"
+    fleet.robots.append(state)
+
+    full_node.robots_fleet_callback(fleet)
+
+    assert full_node.current_metadata.robot_model == ["jackal"]
+    written = yaml.safe_load(full_node.current_metadata_path.read_text())
+    assert written["robot_model"] == ["jackal"]

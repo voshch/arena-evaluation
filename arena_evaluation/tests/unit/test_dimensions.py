@@ -11,7 +11,11 @@ from arena_evaluation.processing.dimension_rows import episode_dimensions
 from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 from arena_evaluation.storage.contracts import enforce_dimension_contract
 from arena_evaluation.storage.exceptions import ContractViolationError
-from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES, DimMetrics, DimWorldGeometry
+from arena_evaluation.storage.registry.dimensions import (
+    DIMENSION_TABLES,
+    DimMetrics,
+    DimWorldGeometry,
+)
 from arena_evaluation.storage.schemas import RunMetadata, TopicBundle
 from arena_evaluation.storage.star_schema import stack, write_benchmark_dimensions
 
@@ -84,10 +88,23 @@ def _entities(env: str) -> pl.DataFrame:
     )
 
 
-def _bundle(*, env: str = "env_0", robot: str = "jackal", stamps: list[float] | None = None, params: dict[str, str] | None = None, awareness: list[float | None] | None = None) -> TopicBundle:
+def _bundle(
+    *,
+    env: str = "env_0",
+    robot: str = "jackal",
+    stamps: list[float] | None = None,
+    params: dict[str, str] | None = None,
+    awareness: list[float | None] | None = None,
+) -> TopicBundle:
     stamps = [0.0, 0.1, 0.2] if stamps is None else stamps
-    descriptor = pl.DataFrame({"env_id": [env], "robot_id": [robot], "name": [robot], "model": ["turtlebot3"]})
-    bundle = TopicBundle(robot_tracks=_track(stamps, env, robot), robot_descriptor=descriptor, world_semantics=_entities(env))
+    descriptor = pl.DataFrame(
+        {"env_id": [env], "robot_id": [robot], "name": [robot], "model": ["turtlebot3"]}
+    )
+    bundle = TopicBundle(
+        robot_tracks=_track(stamps, env, robot),
+        robot_descriptor=descriptor,
+        world_semantics=_entities(env),
+    )
     if params:
         bundle.robot_params = pl.DataFrame(
             {
@@ -102,8 +119,12 @@ def _bundle(*, env: str = "env_0", robot: str = "jackal", stamps: list[float] | 
     return bundle
 
 
-def _episode(episode_id: int, bundles: dict[str, TopicBundle]) -> dict[str, pl.DataFrame]:
-    return episode_dimensions(run_id="bench", episode_id=episode_id, metadata=_metadata(), bundles=bundles)
+def _episode(
+    episode_id: int, bundles: dict[str, TopicBundle]
+) -> dict[str, pl.DataFrame]:
+    return episode_dimensions(
+        run_id="bench", episode_id=episode_id, metadata=_metadata(), bundles=bundles
+    )
 
 
 def test_an_episode_has_a_row_per_robot_and_one_pedestrian_and_entity_set_per_environment():
@@ -131,18 +152,32 @@ def test_the_pose_stream_of_each_robot_is_recorded_with_its_gap():
 
 
 def test_recorded_parameters_are_parsed_and_a_missing_one_carries_its_reason():
-    robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "0.25"})})["dim_robots"]
+    robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "0.25"})})[
+        "dim_robots"
+    ]
 
     assert robots["robot_radius"].to_list() == [0.25]
 
 
-def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(tmp_path: pathlib.Path):
-    stacked = stack([_episode(0, {"jackal": _bundle(awareness=[1.0])}), _episode(1, {"jackal": _bundle(awareness=[0.0])})])
+def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
+    tmp_path: pathlib.Path,
+):
+    stacked = stack(
+        [
+            _episode(0, {"jackal": _bundle(awareness=[1.0])}),
+            _episode(1, {"jackal": _bundle(awareness=[0.0])}),
+        ]
+    )
 
     enforce_dimension_contract(stacked)
     write_benchmark_dimensions(stacked, tmp_path)
-    back = {name: pl.read_parquet(tmp_path / table.relative_path()) for name, table in DIMENSION_TABLES.items()}
-    assert {name: frame.schema for name, frame in back.items()} == {name: table.polars_schema() for name, table in DIMENSION_TABLES.items()}
+    back = {
+        name: pl.read_parquet(tmp_path / table.relative_path())
+        for name, table in DIMENSION_TABLES.items()
+    }
+    assert {name: frame.schema for name, frame in back.items()} == {
+        name: table.polars_schema() for name, table in DIMENSION_TABLES.items()
+    }
     assert back["dim_episodes"].height == 2
 
 
@@ -156,36 +191,49 @@ def test_a_duplicated_key_breaks_the_contract():
 
 def test_a_null_without_a_reason_breaks_the_contract():
     stacked = stack([_episode(0, {"jackal": _bundle()})])
-    stacked["dim_robots"] = stacked["dim_robots"].with_columns(null_reason=pl.lit(None, dtype=pl.String))
+    stacked["dim_robots"] = stacked["dim_robots"].with_columns(
+        null_reason=pl.lit(None, dtype=pl.String)
+    )
 
     with pytest.raises(ContractViolationError, match="without a reason"):
         enforce_dimension_contract(stacked)
 
 
-def test_extracting_a_benchmark_writes_its_dimensions_once_at_the_root(tmp_path: pathlib.Path):
+def test_extracting_a_benchmark_writes_its_dimensions_once_at_the_root(
+    tmp_path: pathlib.Path,
+):
     pytest.importorskip("mcap_ros2.writer")
     from test_pipeline_extract_cache import _episode
 
     from arena_evaluation.storage.manifest import MetadataWriter
 
     pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    MetadataWriter.write(
+        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
+    )
     pipeline.extract_benchmark("bench")
 
-    stored = {name: pl.read_parquet(tmp_path / "bench" / table.relative_path()) for name, table in DIMENSION_TABLES.items()}
+    stored = {
+        name: pl.read_parquet(tmp_path / "bench" / table.relative_path())
+        for name, table in DIMENSION_TABLES.items()
+    }
     assert stored["dim_episodes"].height == 1
     assert stored["dim_episodes"]["env_id"].to_list() == ["env_0"]
     assert stored["dim_episodes"]["pose_source"].to_list() == ["absent"]
 
 
-def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimensions(tmp_path: pathlib.Path):
+def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimensions(
+    tmp_path: pathlib.Path,
+):
     pytest.importorskip("mcap_ros2.writer")
     from test_pipeline_extract_cache import _episode
 
     from arena_evaluation.storage.manifest import MetadataWriter
 
     pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    MetadataWriter.write(
+        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
+    )
     pipeline.extract_benchmark("bench")
 
     assert (tmp_path / "bench" / "dim_metrics.parquet").is_file()
@@ -194,7 +242,9 @@ def test_extracting_a_benchmark_publishes_the_metric_dictionary_beside_its_dimen
     assert_frame_equal(stored, metric_dictionary())
 
 
-def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(tmp_path: pathlib.Path):
+def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(
+    tmp_path: pathlib.Path,
+):
     pytest.importorskip("mcap_ros2.writer")
     pytest.importorskip("arena_simulation_setup")
     from test_pipeline_extract_cache import _episode
@@ -203,21 +253,27 @@ def test_extracting_a_benchmark_publishes_the_geometry_of_its_world(tmp_path: pa
     from arena_evaluation.storage.manifest import MetadataWriter
 
     pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(_metadata("map_empty"), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    MetadataWriter.write(
+        _metadata("map_empty"), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
+    )
     pipeline.extract_benchmark("bench")
 
     stored = DimWorldGeometry.scan(tmp_path / "bench").collect()
     assert_frame_equal(stored, world_geometry_rows("map_empty", tmp_path / "bench"))
 
 
-def test_extracting_a_benchmark_skips_a_world_that_does_not_resolve_with_a_warning(tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture):
+def test_extracting_a_benchmark_skips_a_world_that_does_not_resolve_with_a_warning(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+):
     pytest.importorskip("mcap_ros2.writer")
     from test_pipeline_extract_cache import _episode
 
     from arena_evaluation.storage.manifest import MetadataWriter
 
     pipeline, episode, _ = _episode(tmp_path)
-    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    MetadataWriter.write(
+        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
+    )
 
     with caplog.at_level(logging.WARNING):
         pipeline.extract_benchmark("bench")
@@ -235,7 +291,9 @@ def test_an_episode_without_a_recording_warns_and_the_benchmark_still_writes_its
     from arena_evaluation.storage.manifest import MetadataWriter
 
     pipeline, episode, recording = _episode(tmp_path)
-    MetadataWriter.write(_metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml")
+    MetadataWriter.write(
+        _metadata(), pathlib.Path(episode.episode_dir) / "episode_000.yaml"
+    )
     recording.unlink()
 
     with caplog.at_level(logging.WARNING):
@@ -243,5 +301,27 @@ def test_an_episode_without_a_recording_warns_and_the_benchmark_still_writes_its
 
     assert "no MCAP found" in caplog.text
     assert "no extracted topics" in caplog.text
-    stored = {name: pl.read_parquet(tmp_path / "bench" / table.relative_path()) for name, table in DIMENSION_TABLES.items()}
+    stored = {
+        name: pl.read_parquet(tmp_path / "bench" / table.relative_path())
+        for name, table in DIMENSION_TABLES.items()
+    }
     assert stored["dim_episodes"].height == 0
+
+
+def test_episode_dimensions_rejects_bundle_without_identity():
+    with pytest.raises(ValueError, match="names its environment and robot"):
+        episode_dimensions(
+            run_id="bench",
+            episode_id=0,
+            metadata=_metadata(),
+            bundles={"jackal": TopicBundle()},
+        )
+
+
+def test_non_numeric_robot_parameter_becomes_null():
+    robots = _episode(0, {"jackal": _bundle(params={"robot_radius": "not_a_number"})})[
+        "dim_robots"
+    ]
+
+    assert robots["robot_radius"].to_list() == [None]
+    assert "robot_radius:not_recorded" in robots["null_reason"][0]

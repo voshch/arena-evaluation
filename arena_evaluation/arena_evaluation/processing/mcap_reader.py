@@ -25,9 +25,24 @@ from arena_evaluation.processing.telemetry.messages import (
     topic_parts,
     yaw_from_orientation,
 )
-from arena_evaluation.processing.telemetry.peds import ARENA_TABLE, ENGINE_TABLE, PedestrianRecorder
-from arena_evaluation.processing.telemetry.tracks import Pose3, is_base_frame, is_ground_truth, is_world_frame
-from arena_evaluation.processing.telemetry.writer import ENV_TABLES, FLUSH_ROW_LIMIT, GLOBAL_TABLES, ROBOT_TABLES, TableSink
+from arena_evaluation.processing.telemetry.peds import (
+    ARENA_TABLE,
+    ENGINE_TABLE,
+    PedestrianRecorder,
+)
+from arena_evaluation.processing.telemetry.tracks import (
+    _BASE_FRAME_MARKERS,
+    _WORLD_FRAMES,
+    Pose3,
+    is_ground_truth,
+)
+from arena_evaluation.processing.telemetry.writer import (
+    ENV_TABLES,
+    FLUSH_ROW_LIMIT,
+    GLOBAL_TABLES,
+    ROBOT_TABLES,
+    TableSink,
+)
 from arena_evaluation.storage.schemas import TopicBundle
 
 if typing.TYPE_CHECKING:
@@ -67,7 +82,9 @@ def anchor_at(anchors: list[Anchor], t_ns: int) -> tuple[float, float]:
     return ox, oy
 
 
-def by_anchor(anchors: list[Anchor], value: Callable[[float, float], pl.Expr]) -> pl.Expr:
+def by_anchor(
+    anchors: list[Anchor], value: Callable[[float, float], pl.Expr]
+) -> pl.Expr:
     """`value(ox, oy)` of the anchor in effect at each row's t_ns, as in anchor_at."""
     (_, ox, oy), *later = anchors
     if not later:
@@ -75,7 +92,11 @@ def by_anchor(anchors: list[Anchor], value: Callable[[float, float], pl.Expr]) -
     chain = None
     for t, ax, ay in reversed(later):
         cond = pl.col("t_ns") >= t
-        chain = pl.when(cond).then(value(ax, ay)) if chain is None else chain.when(cond).then(value(ax, ay))
+        chain = (
+            pl.when(cond).then(value(ax, ay))
+            if chain is None
+            else chain.when(cond).then(value(ax, ay))
+        )
     assert chain is not None
     return chain.otherwise(value(ox, oy))
 
@@ -99,7 +120,11 @@ class MCAPReader:
     def read(self, out_dir: pathlib.Path) -> dict[str, TopicBundle]:
         """Stream every recording into flat tables under out_dir and return one TopicBundle per robot."""
         files = self._mcap_files()
-        ingest = _Ingest(TableSink(out_dir, flush_rows=self._flush_rows), self._include_scan_rays, self._environment)
+        ingest = _Ingest(
+            TableSink(out_dir, flush_rows=self._flush_rows),
+            self._include_scan_rays,
+            self._environment,
+        )
         try:
             for path in files:
                 self._stream(path, ingest)
@@ -111,7 +136,9 @@ class MCAPReader:
         if self.data_path.is_dir():
             files = sorted(self.data_path.glob("*.mcap"))
             if not files:
-                raise FileNotFoundError(f"No MCAP file found in directory: {self.data_path}")
+                raise FileNotFoundError(
+                    f"No MCAP file found in directory: {self.data_path}"
+                )
         else:
             files = [self.data_path]
         for path in files:
@@ -123,13 +150,21 @@ class MCAPReader:
         factory = DecoderFactory()
         decoders: dict[int, Decoder | None] = {}
         with path.open("rb") as handle:
-            for schema, channel, message in NonSeekingReader(handle).iter_messages(log_time_order=False):
+            for schema, channel, message in NonSeekingReader(handle).iter_messages(
+                log_time_order=False
+            ):
                 if schema is None:
                     continue
                 if message.channel_id not in decoders:
-                    decoders[message.channel_id] = factory.decoder_for(channel.message_encoding, schema)
-                    if decoders[message.channel_id] is None and ingest.accepts(channel.topic, schema):
-                        _log.warning(f"{channel.topic}: schema {schema.name!r} ({schema.encoding}) cannot be decoded; its messages are skipped")
+                    decoders[message.channel_id] = factory.decoder_for(
+                        channel.message_encoding, schema
+                    )
+                    if decoders[message.channel_id] is None and ingest.accepts(
+                        channel.topic, schema
+                    ):
+                        _log.warning(
+                            f"{channel.topic}: schema {schema.name!r} ({schema.encoding}) cannot be decoded; its messages are skipped"
+                        )
                 decoder = decoders[message.channel_id]
                 if decoder is None:
                     continue
@@ -150,7 +185,9 @@ def _decode(decoder: Decoder, topic: str, data: bytes) -> object | None:
 class _Ingest:
     """Routes decoded messages to their recorders and writes the tables that need the whole recording."""
 
-    def __init__(self, sink: TableSink, include_scan_rays: bool, environment: str | None = None) -> None:
+    def __init__(
+        self, sink: TableSink, include_scan_rays: bool, environment: str | None = None
+    ) -> None:
         self._sink = sink
         self._environment = environment
         self._kinematics = tracks.KinematicsRecorder(sink)
@@ -164,11 +201,25 @@ class _Ingest:
             (_ends_with("/scan", "/lidar"), self._scan),
             (_ends_with("/cmd_vel"), self._command),
             (_ends_with("/joint_states"), self._joint_states),
-            (_both(_ends_with("/agent_meta"), _has_schema(_AGENT_META_SCHEMA)), self._agent_meta),
+            (
+                _both(_ends_with("/agent_meta"), _has_schema(_AGENT_META_SCHEMA)),
+                self._agent_meta,
+            ),
             (_ends_with("/arena_peds", "/peds"), self._arena_peds_frame),
             (_ends_with("/agent_states", "/agent_frame"), self._agent_states_frame),
-            (_both(_ends_with("/interactions"), _has_schema(_INTERACTION_FRAME_SCHEMA)), self._interactions),
-            (_both(_ends_with("/animation_states"), _has_schema(_ANIMATION_STATES_SCHEMA)), self._animations),
+            (
+                _both(
+                    _ends_with("/interactions"), _has_schema(_INTERACTION_FRAME_SCHEMA)
+                ),
+                self._interactions,
+            ),
+            (
+                _both(
+                    _ends_with("/animation_states"),
+                    _has_schema(_ANIMATION_STATES_SCHEMA),
+                ),
+                self._animations,
+            ),
             (_ends_with("/acoustics"), self._acoustics),
             (_ends_with("/characterization_phase"), self._characterization_phase),
             (_ends_with("/characterization_schedule"), self._characterization_schedule),
@@ -191,9 +242,19 @@ class _Ingest:
 
     def route(self, topic: str, schema: Schema, body: object, t_ns: int) -> None:
         env_id = env_id_in(topic) or self._environment
-        if env_id is None and not (_is_transform_topic(topic, schema) or topic.endswith("/state/semantics")):
-            raise ValueError(f"topic {topic!r} names no environment; the native reader never guesses one")
-        ref = None if env_id is None or _is_transform_topic(topic, schema) else RobotRef(env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id))
+        if env_id is None and not (
+            _is_transform_topic(topic, schema) or topic.endswith("/state/semantics")
+        ):
+            raise ValueError(
+                f"topic {topic!r} names no environment; the native reader never guesses one"
+            )
+        ref = (
+            None
+            if env_id is None or _is_transform_topic(topic, schema)
+            else RobotRef(
+                env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id)
+            )
+        )
         envelope = Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body)
         for matches, handle in self._routes:
             if matches(topic, schema):
@@ -216,7 +277,11 @@ class _Ingest:
         self._scans.record(envelope)
 
     def _command(self, topic: str, envelope: Envelope) -> None:
-        table = "robot_cmd_vel_controller" if is_controller_topic(topic) else "robot_cmd_vel"
+        table = (
+            "robot_cmd_vel_controller"
+            if is_controller_topic(topic)
+            else "robot_cmd_vel"
+        )
         self._kinematics.record_command(table, envelope)
 
     def _joint_states(self, _topic: str, envelope: Envelope) -> None:
@@ -281,7 +346,9 @@ class _Ingest:
         context.record_initial_pose(self._sink, envelope)
 
     def _transforms(self, topic: str, envelope: Envelope[TFMessage]) -> None:
-        context.record_transforms(self._sink, "tf_static" if "static" in topic else "tf", envelope)
+        context.record_transforms(
+            self._sink, "tf_static" if "static" in topic else "tf", envelope
+        )
         for transform in envelope.body.transforms:
             parent, child = transform.header.frame_id, transform.child_frame_id
             if not is_ground_truth(parent, child):
@@ -289,10 +356,26 @@ class _Ingest:
             child_env = env_id_in(child)
             if child_env is None:
                 raise ValueError(f"ground-truth frame {child!r} names no environment")
-            ref = RobotRef(env_id=child_env, robot_id=robot_id_of(child.strip("/").split("/"), child_env))
-            translation, rotation = transform.transform.translation, transform.transform.rotation
-            pose = Pose3(x=float(translation.x), y=float(translation.y), z=float(translation.z), yaw=yaw_from_orientation(rotation))
-            self._kinematics.record_ground_truth(Envelope(t_ns=envelope.t_ns, ref=ref, schema=envelope.schema, body=transform), pose)
+            ref = RobotRef(
+                env_id=child_env,
+                robot_id=robot_id_of(child.strip("/").split("/"), child_env),
+            )
+            translation, rotation = (
+                transform.transform.translation,
+                transform.transform.rotation,
+            )
+            pose = Pose3(
+                x=float(translation.x),
+                y=float(translation.y),
+                z=float(translation.z),
+                yaw=yaw_from_orientation(rotation),
+            )
+            self._kinematics.record_ground_truth(
+                Envelope(
+                    t_ns=envelope.t_ns, ref=ref, schema=envelope.schema, body=transform
+                ),
+                pose,
+            )
 
 
 def _ends_with(*suffixes: str) -> Predicate:
@@ -309,7 +392,9 @@ def _both(first: Predicate, second: Predicate) -> Predicate:
 
 def _is_transform_topic(topic: str, _schema: Schema) -> bool:
     """The global and per-environment /tf and /tf_static topics; human skeleton transforms are never robot ground truth."""
-    return topic in ("tf", "tf_static") or (topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic)
+    return topic in ("tf", "tf_static") or (
+        topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic
+    )
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -329,18 +414,32 @@ class _Tables:
         return frame if frame.head(1).collect().height else None
 
 
-def load_bundles(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]) -> dict[str, TopicBundle]:
+def load_bundles(
+    out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
+) -> dict[str, TopicBundle]:
     """One TopicBundle per robot: the episode's flat tables filtered to that robot and its environment."""
     global_frames = {name: _whole_table(out_dir, name) for name in GLOBAL_TABLES}
-    tables = _Tables(out_dir, global_frames, _env_anchors(global_frames["tf"], global_frames["tf_static"]), pedestrian_frames)
-    return {robot_id: _robot_bundle(tables, env_id, robot_id) for env_id, robot_id in _robot_refs(out_dir)}
+    tables = _Tables(
+        out_dir,
+        global_frames,
+        _env_anchors(global_frames["tf"], global_frames["tf_static"]),
+        pedestrian_frames,
+    )
+    return {
+        robot_id: _robot_bundle(tables, env_id, robot_id)
+        for env_id, robot_id in _robot_refs(out_dir)
+    }
 
 
 def _robot_bundle(tables: _Tables, env_id: str, robot_id: str) -> TopicBundle:
     if tables.anchors and env_id not in tables.anchors:
-        raise ValueError(f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(tables.anchors.items()))}")
+        raise ValueError(
+            f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(tables.anchors.items()))}"
+        )
     shifts = tables.anchors.get(env_id, [])
-    frames: dict[str, pl.LazyFrame | None] = {name: tables.scoped(name, "robot_id", robot_id) for name in ROBOT_TABLES}
+    frames: dict[str, pl.LazyFrame | None] = {
+        name: tables.scoped(name, "robot_id", robot_id) for name in ROBOT_TABLES
+    }
     frames |= {name: tables.scoped(name, "env_id", env_id) for name in ENV_TABLES}
     if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
         _check_map_frames(env_id, shifts, tables.pedestrian_frames)
@@ -348,16 +447,28 @@ def _robot_bundle(tables: _Tables, env_id: str, robot_id: str) -> TopicBundle:
     odom_controller = frames.pop("robot_odom_controller")
     cmd_vel_controller = frames.pop("robot_cmd_vel_controller")
     frames["robot_odom"] = _first_present(odom_controller, frames["robot_odom"])
-    frames["robot_cmd_vel"] = _first_present(frames["robot_cmd_vel"], cmd_vel_controller)
+    frames["robot_cmd_vel"] = _first_present(
+        frames["robot_cmd_vel"], cmd_vel_controller
+    )
     return TopicBundle(**tables.global_frames, **frames)
 
 
-def _check_map_frames(env_id: str, shifts: list[Anchor], pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]) -> None:
+def _check_map_frames(
+    env_id: str,
+    shifts: list[Anchor],
+    pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
+) -> None:
     for table in (ARENA_TABLE, ENGINE_TABLE):
-        unmapped = sorted(frame for frame in pedestrian_frames.get((env_id, table), frozenset()) if frame not in _UNMAPPED_FRAMES)
+        unmapped = sorted(
+            frame
+            for frame in pedestrian_frames.get((env_id, table), frozenset())
+            if frame not in _UNMAPPED_FRAMES
+        )
         if unmapped:
             offsets = [anchor[1:] for anchor in shifts]
-            raise ValueError(f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map")
+            raise ValueError(
+                f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map"
+            )
 
 
 def _shift_to_map(frames: dict[str, pl.LazyFrame | None], shifts: list[Anchor]) -> None:
@@ -370,7 +481,9 @@ def _shift_to_map(frames: dict[str, pl.LazyFrame | None], shifts: list[Anchor]) 
         frames["episode_lifecycle"] = _shift_episode_phases(lifecycle, shifts)
 
 
-def _shift_positions(frame: pl.LazyFrame, anchors: list[Anchor], columns: tuple[str, str]) -> pl.LazyFrame:
+def _shift_positions(
+    frame: pl.LazyFrame, anchors: list[Anchor], columns: tuple[str, str]
+) -> pl.LazyFrame:
     x_column, y_column = columns
     return frame.with_columns(
         by_anchor(anchors, lambda ox, _: pl.col(x_column) - ox).alias(x_column),
@@ -382,7 +495,9 @@ def _shift_episode_phases(frame: pl.LazyFrame, anchors: list[Anchor]) -> pl.Lazy
     return frame.with_columns(
         pl.struct(["t_ns", "phases_yaml"])
         .map_elements(
-            lambda row: _shift_map_poses(row["phases_yaml"], *anchor_at(anchors, int(row["t_ns"]))),
+            lambda row: _shift_map_poses(
+                row["phases_yaml"], *anchor_at(anchors, int(row["t_ns"]))
+            ),
             return_dtype=pl.String,
         )
         .alias("phases_yaml")
@@ -396,44 +511,80 @@ def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
     try:
         robots = json.loads(payload)
         for entry in robots.values():
-            entry["map_poses"] = [None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]] for pose in entry["map_poses"]]
+            entry["map_poses"] = [
+                None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]]
+                for pose in entry["map_poses"]
+            ]
         return json.dumps(robots)
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         _log.warning(f"Failed to offset episode phases: {error}")
         return payload
 
 
-def _env_anchors(tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None) -> dict[str, list[Anchor]]:
+def _env_anchors(
+    tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None
+) -> dict[str, list[Anchor]]:
     anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD)
     for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD).items():
         anchors.setdefault(env_id, dynamic)
     return {env_id: _without_repeats(values) for env_id, values in anchors.items()}
 
 
-def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]) -> dict[str, list[Anchor]]:
+def _anchors_by_env(
+    frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]
+) -> dict[str, list[Anchor]]:
     anchors: defaultdict[str, list[Anchor]] = defaultdict(list)
     if frame is None:
         return dict(anchors)
-    for row in frame.collect().iter_rows(named=True):
-        parent = row["parent_frame"].strip("/").lower()
-        child = row["child_frame"].strip("/").lower()
-        match = child_pattern.fullmatch(child)
-        if match and (parent == "" or is_world_frame(parent)) and not is_base_frame(child):
-            anchors[match.group(1)].append((row["t_ns"], row["tx"], row["ty"]))
+    parent = pl.col("parent_frame").str.strip_chars("/").str.to_lowercase()
+    child = pl.col("child_frame").str.strip_chars("/").str.to_lowercase()
+    env = child.str.extract(f"^{child_pattern.pattern}$", 1)
+    world_re = "|".join(re.escape(name) for name in _WORLD_FRAMES)
+    base_re = "|".join(re.escape(marker) for marker in _BASE_FRAME_MARKERS)
+    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(
+        rf"/(?:{world_re})$"
+    )
+    not_base = ~child.str.contains(base_re)
+    filtered = (
+        frame.with_columns(
+            parent.alias("_parent"), child.alias("_child"), env.alias("_env")
+        )
+        .filter(
+            pl.col("_env").is_not_null()
+            & ((pl.col("_parent") == "") | world_match)
+            & not_base
+        )
+        .select("_env", "t_ns", "tx", "ty")
+        .collect()
+    )
+    # agent-contracts: ignore materialize anchor tuples from filtered tf frame
+    rows = filtered.iter_rows()
+    for env_id, t_ns, tx, ty in rows:
+        anchors[env_id].append((t_ns, tx, ty))
     return dict(anchors)
 
 
 def _without_repeats(anchors: list[Anchor]) -> list[Anchor]:
-    return [anchor for index, anchor in enumerate(anchors) if index == 0 or anchor[1:] != anchors[index - 1][1:]]
+    return [
+        anchor
+        for index, anchor in enumerate(anchors)
+        if index == 0 or anchor[1:] != anchors[index - 1][1:]
+    ]
 
 
 def _robot_refs(out_dir: pathlib.Path) -> list[tuple[str, str]]:
     paths = [out_dir / f"{name}.parquet" for name in ROBOT_TABLES]
-    frames = [pl.scan_parquet(path).select("env_id", "robot_id") for path in paths if path.exists()]
+    frames = [
+        pl.scan_parquet(path).select("env_id", "robot_id")
+        for path in paths
+        if path.exists()
+    ]
     if not frames:
         return []
     refs = pl.concat(frames).unique().sort("robot_id").collect()
-    return [(env_id, robot_id) for env_id, robot_id in refs.iter_rows()]
+    # agent-contracts: ignore materialize (env_id, robot_id) keys for bundle dict
+    rows = refs.iter_rows()
+    return [(env_id, robot_id) for env_id, robot_id in rows]
 
 
 def _whole_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
@@ -443,5 +594,3 @@ def _whole_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
 
 def _first_present(*frames: pl.LazyFrame | None) -> pl.LazyFrame | None:
     return next((frame for frame in frames if frame is not None), None)
-
-

@@ -17,19 +17,31 @@ FLUSH_ROW_LIMIT: Final[int] = 50_000
 _ROBOT_KEY: Final[tuple[str, ...]] = ("env_id", "robot_id")
 _ENVIRONMENT_KEY: Final[tuple[str, ...]] = ("env_id",)
 
-_TELEMETRY_TABLES = tuple(table for table in registered_tables() if table.table_kind is TableKind.TELEMETRY)
+_TELEMETRY_TABLES = tuple(
+    table for table in registered_tables() if table.table_kind is TableKind.TELEMETRY
+)
 
 #: The Arrow schema of every recorded table, derived from its registry class.
-TABLE_SCHEMAS: Final[dict[str, pa.Schema]] = {table.table_name: table.arrow_schema() for table in _TELEMETRY_TABLES}
-ROBOT_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if table.key == _ROBOT_KEY)
-ENV_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if table.key == _ENVIRONMENT_KEY)
-GLOBAL_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if not table.key)
+TABLE_SCHEMAS: Final[dict[str, pa.Schema]] = {
+    table.table_name: table.arrow_schema() for table in _TELEMETRY_TABLES
+}
+ROBOT_TABLES: Final[tuple[str, ...]] = tuple(
+    table.table_name for table in _TELEMETRY_TABLES if table.key == _ROBOT_KEY
+)
+ENV_TABLES: Final[tuple[str, ...]] = tuple(
+    table.table_name for table in _TELEMETRY_TABLES if table.key == _ENVIRONMENT_KEY
+)
+GLOBAL_TABLES: Final[tuple[str, ...]] = tuple(
+    table.table_name for table in _TELEMETRY_TABLES if not table.key
+)
 
 
 class TableSink:
     """Buffers flat rows per table and streams every table into one ZSTD Parquet file, sorted by t_ns."""
 
-    def __init__(self, out_dir: pathlib.Path, *, flush_rows: int = FLUSH_ROW_LIMIT) -> None:
+    def __init__(
+        self, out_dir: pathlib.Path, *, flush_rows: int = FLUSH_ROW_LIMIT
+    ) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         self._out_dir = out_dir
         self._flush_rows = flush_rows
@@ -40,7 +52,9 @@ class TableSink:
         self._pending_rows = 0
 
     def append(self, table: str, row: Mapping[str, Any]) -> None:
-        columns = self._columns.setdefault(table, {name: [] for name in TABLE_SCHEMAS[table].names})
+        columns = self._columns.setdefault(
+            table, {name: [] for name in TABLE_SCHEMAS[table].names}
+        )
         stamp = row["t_ns"]
         previous = self._last_stamp.get(table)
         if previous is not None and stamp < previous:
@@ -70,9 +84,15 @@ class TableSink:
 
     def _writer(self, table: str) -> pq.ParquetWriter:
         if table not in self._writers:
-            self._writers[table] = pq.ParquetWriter(self._out_dir / f"{table}.parquet", TABLE_SCHEMAS[table], compression=COMPRESSION)
+            self._writers[table] = pq.ParquetWriter(
+                self._out_dir / f"{table}.parquet",
+                TABLE_SCHEMAS[table],
+                compression=COMPRESSION,
+            )
         return self._writers[table]
 
 
 def _sort_by_stamp(path: pathlib.Path) -> None:
-    pl.read_parquet(path).sort("t_ns", maintain_order=True).write_parquet(path, compression=COMPRESSION)
+    pl.read_parquet(path).sort("t_ns", maintain_order=True).write_parquet(
+        path, compression=COMPRESSION
+    )
