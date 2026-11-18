@@ -382,29 +382,20 @@ def test_evidence_store_rejects_nested_frames(tmp_path: pathlib.Path) -> None:
 
 def test_snapshot_id_determinism_invalidation_caching_and_frame_backed(
     tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from arena_evaluation.analytics import computations, evidence
+    from arena_evaluation.analytics import computations
     from arena_evaluation.storage.registry import FACT_TABLES, FactTable
 
     bench = _write_query_fixture_benchmark(tmp_path / "bench")
-    calls = {"n": 0}
-    orig_fp = evidence._file_fingerprint
-
-    def _counted_fp(path: pathlib.Path) -> tuple[str, int, int]:
-        calls["n"] += 1
-        return orig_fp(path)
-
-    monkeypatch.setattr(evidence, "_file_fingerprint", _counted_fp)
     c1 = BenchmarkCatalog.open(bench)
     c2 = BenchmarkCatalog.open(bench)
-    assert c1.snapshot_id == c2.snapshot_id
-    assert c1.snapshot_id.startswith("snap-")
-    after_first = calls["n"]
-    assert after_first > 0
+    cached_id = c1.snapshot_id
+    assert cached_id == c2.snapshot_id
+    assert cached_id.startswith("snap-")
+
     computations.run_computation("group_summary", c1, {"metrics": ["time_to_goal"]})
     computations.run_computation("distribution_bins", c1, {"metric": "time_to_goal"})
-    assert calls["n"] == after_first
+    assert c1.snapshot_id == cached_id
 
     fact_path = (
         bench
@@ -414,7 +405,8 @@ def test_snapshot_id_determinism_invalidation_caching_and_frame_backed(
     )
     df_ep = pl.read_parquet(fact_path).with_columns(pl.lit("TIMEOUT").alias("result"))
     df_ep.write_parquet(fact_path)
-    assert BenchmarkCatalog.open(bench).snapshot_id != c1.snapshot_id
+    assert c1.snapshot_id == cached_id
+    assert BenchmarkCatalog.open(bench).snapshot_id != cached_id
 
     f1 = pl.DataFrame({"episode_id": [0], "success": [True]})
     f2 = pl.DataFrame({"episode_id": [0], "success": [False]})

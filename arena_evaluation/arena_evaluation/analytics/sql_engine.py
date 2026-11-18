@@ -51,7 +51,6 @@ _WORD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b
 _SCIENTIFIC_NOTATION_RE: Final[re.Pattern[str]] = re.compile(
     r"(?<![a-zA-Z0-9_])([0-9]+(?:\.[0-9]+)?[eE][+-]?[0-9]+)(?![a-zA-Z0-9_])"
 )
-_FORBIDDEN_TABLE_FN_PREFIXES: Final[tuple[str, ...]] = ("READ_", "SCAN_")
 
 
 def normalize_sql_scientific_notation(sql: str) -> str:
@@ -111,53 +110,60 @@ def _strip_comments_and_mask_literals(sql: str) -> tuple[str, str]:
     return "".join(cleaned_parts).strip(), "".join(masked_parts).strip()
 
 
-def validate_readonly_sql(sql: str) -> str:
-    """Validate that ``sql`` is a single read-only ``SELECT`` or ``WITH ... SELECT`` statement."""
-    if not isinstance(sql, str) or not sql.strip():
-        raise SQLGuardError("SQL query must be a non-empty string.")
+_EXTERNAL_READER_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b((?:READ|SCAN)_[A-Z0-9_]*)\s*\(", re.IGNORECASE
+)
 
-    cleaned, masked = _strip_comments_and_mask_literals(sql)
-    if not cleaned:
-        raise SQLGuardError("SQL query contains only comments or whitespace.")
 
+def _strip_trailing_semicolon(cleaned: str, masked: str) -> tuple[str, str]:
+    """Strip a single trailing semicolon and reject embedded semicolons."""
     if masked.endswith(";"):
         masked = masked[:-1].strip()
         if cleaned.endswith(";"):
             cleaned = cleaned[:-1].rstrip()
-
     if ";" in masked:
         raise SQLGuardError("Multi-statement SQL queries (';') are forbidden.")
+    return cleaned, masked
 
-    tokens = [tok.upper() for tok in _WORD_TOKEN_RE.findall(masked)]
-    if not tokens:
-        raise SQLGuardError("SQL query contains no valid statement tokens.")
 
+def _assert_no_forbidden_sql(masked: str, tokens: list[str]) -> None:
+    """Reject mutating SQL keywords and external file-reader functions."""
     forbidden_found = [tok for tok in tokens if tok in FORBIDDEN_SQL_KEYWORDS]
     if forbidden_found:
         raise SQLGuardError(
             f"Forbidden SQL keyword(s) detected: {', '.join(dict.fromkeys(forbidden_found))}"
         )
-
-    file_readers = [
-        m.group(1).upper()
-        for m in re.finditer(
-            r"\b((?:READ|SCAN)_[A-Z0-9_]*)\s*\(", masked, re.IGNORECASE
-        )
-    ]
+    file_readers = [m.group(1).upper() for m in _EXTERNAL_READER_RE.finditer(masked)]
     if file_readers:
         raise SQLGuardError(
             f"External table function(s) forbidden: {', '.join(dict.fromkeys(file_readers))}. Query registered catalog tables only."
         )
 
+
+def _assert_readonly_start(tokens: list[str]) -> None:
+    """Ensure the statement begins with ``SELECT`` or ``WITH ... SELECT``."""
     first_token = tokens[0]
     if first_token not in _ALLOWED_START_KEYWORDS:
         raise SQLGuardError(
             f"Only SELECT or WITH ... SELECT queries are permitted; got '{first_token}'."
         )
-
     if first_token == "WITH" and "SELECT" not in tokens:
         raise SQLGuardError("CTE (WITH) query must contain a SELECT clause.")
 
+
+def validate_readonly_sql(sql: str) -> str:
+    """Validate that ``sql`` is a single read-only ``SELECT`` or ``WITH ... SELECT`` statement."""
+    if not isinstance(sql, str) or not sql.strip():
+        raise SQLGuardError("SQL query must be a non-empty string.")
+    cleaned, masked = _strip_comments_and_mask_literals(sql)
+    if not cleaned:
+        raise SQLGuardError("SQL query contains only comments or whitespace.")
+    cleaned, masked = _strip_trailing_semicolon(cleaned, masked)
+    tokens = [tok.upper() for tok in _WORD_TOKEN_RE.findall(masked)]
+    if not tokens:
+        raise SQLGuardError("SQL query contains no valid statement tokens.")
+    _assert_no_forbidden_sql(masked, tokens)
+    _assert_readonly_start(tokens)
     return cleaned
 
 

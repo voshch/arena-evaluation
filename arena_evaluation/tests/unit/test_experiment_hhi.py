@@ -101,6 +101,7 @@ def _rows() -> list[dict[str, object]]:
                                     if planner == "dwb" and arm == "contact"
                                     else 0.0
                                 ),
+                                "collision_amount": 0,
                                 "collision_amount_pedestrian": 0,
                                 "collision_amount_wall": 0,
                                 "collision_amount_static": 0,
@@ -158,6 +159,7 @@ def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
         {
             "success": [True, True, False],
             "time_to_goal": [30.0, 40.0, 120.0],
+            "collision_amount": [0, 1, 0],
             "collision_amount_pedestrian": [0, 1, 0],
             "collision_amount_wall": [0, 0, 0],
             "collision_amount_static": [0, 0, 0],
@@ -165,6 +167,7 @@ def test_paper_outcomes_fail_collisions_and_drop_failed_times() -> None:
         schema={
             "success": pl.Boolean,
             "time_to_goal": pl.Float64,
+            "collision_amount": pl.Int64,
             "collision_amount_pedestrian": pl.Int64,
             "collision_amount_wall": pl.Int64,
             "collision_amount_static": pl.Int64,
@@ -283,3 +286,16 @@ def test_window_table_and_manipulation_check_raise_on_missing_columns() -> None:
         hhi.window_table(empty_missing)
     with pytest.raises(ValueError, match="manipulation_check missing required columns"):
         hhi.manipulation_check(empty_missing)
+
+
+def test_paper_outcomes_preserves_null_collisions_and_success() -> None:
+    df = pl.DataFrame(
+        {
+            "success": pl.Series([True, True, True, False, None], dtype=pl.Boolean),
+            "time_to_goal": [10.0, 12.0, 14.0, 15.0, 16.0],
+            "collision_amount": pl.Series([0, None, 1, None, 0], dtype=pl.Int64),
+        }
+    )
+    out = hhi.paper_outcomes(df)
+    assert out["success"].to_list() == [True, None, False, False, None]
+    assert out["time_to_goal"].to_list() == [10.0, None, None, None, None]

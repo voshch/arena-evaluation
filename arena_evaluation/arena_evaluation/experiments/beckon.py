@@ -345,7 +345,7 @@ def paper_outcomes(
     df: pl.DataFrame, timeouts: Mapping[str, float] | None = None
 ) -> pl.DataFrame:
     """Waiting time per episode, censored at the stage's timeout when the caller was never served, at the run's longest episode without a known timeout."""
-    served = pl.col("success").cast(pl.Float64).fill_null(0.0) > 0.5
+    served = pl.col("success").cast(pl.Float64) > 0.5
     longest = df.select(pl.col("time_to_goal").max()).item()
     fallback = (
         max(float(longest), float(TIMEOUT_S))
@@ -363,7 +363,9 @@ def paper_outcomes(
         served.alias("served"),
         pl.when(served)
         .then(pl.col("time_to_goal") - CALL_ONSET_S)
-        .otherwise(pl.col("censor_at_s") - CALL_ONSET_S)
+        .when(~served)
+        .then(pl.col("censor_at_s") - CALL_ONSET_S)
+        .otherwise(None)
         .alias("wait_s"),
         (~served).alias("censored"),
     )

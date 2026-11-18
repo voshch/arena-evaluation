@@ -17,6 +17,8 @@ from typing import Final
 import numpy as np
 import polars as pl
 
+from arena_evaluation.analytics.catalog import _to_lazy
+
 __all__ = [
     "CLUSTER_BOOTSTRAP_SCHEMA",
     "KENDALL_RANKINGS_SCHEMA",
@@ -139,6 +141,25 @@ class KendallWResult:
     rankings_frame: pl.DataFrame
 
 
+def _validate_n_boot(n_boot: int) -> None:
+    """Require at least one bootstrap resample."""
+    if n_boot < 1:
+        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
+
+
+def _validate_ci_level(ci_level: float) -> None:
+    """Require a confidence level strictly inside (0, 1)."""
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError(f"ci_level must be in (0, 1), got {ci_level}")
+
+
+def _validate_direction(direction: str) -> bool:
+    """Validate ranking direction and return True when descending."""
+    if direction not in ("asc", "desc"):
+        raise ValueError(f"direction must be 'asc' or 'desc', got {direction!r}")
+    return direction == "desc"
+
+
 def _chi2_sf(chi2_val: float, df: int) -> float:
     """Survival function P(X >= chi2_val) for Chi-square distribution with df degrees of freedom."""
     if df <= 0 or chi2_val <= 0.0:
@@ -147,7 +168,7 @@ def _chi2_sf(chi2_val: float, df: int) -> float:
         return float(math.erfc(math.sqrt(chi2_val / 2.0)))
     if df == 2:
         return float(math.exp(-0.5 * chi2_val))
-    # Wilson-Hilferty normal approximation for general df > 2
+    # Wilson-Hilferty normal approximation for df > 2
     k = float(df)
     z = ((chi2_val / k) ** (1.0 / 3.0) - (1.0 - 2.0 / (9.0 * k))) / math.sqrt(
         2.0 / (9.0 * k)
@@ -164,8 +185,7 @@ def draw_cluster_indices(
     """Draw ``n_boot`` whole-cluster resample index rows of size ``n_clusters`` (cluster unit: ``seed`` by default)."""
     if n_clusters < 1:
         raise ValueError(f"n_clusters must be >= 1, got {n_clusters}")
-    if n_boot < 1:
-        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
+    _validate_n_boot(n_boot)
     return rng.integers(0, n_clusters, size=(n_boot, n_clusters))
 
 
@@ -184,6 +204,41 @@ def cluster_bootstrap_means(
     return np.where(boot_counts > 0.0, boot_sums / np.maximum(boot_counts, 1.0), 0.0)
 
 
+def _bootstrap_partition_ci(
+    sums: np.ndarray,
+    counts: np.ndarray,
+    *,
+    n_boot: int,
+    ci_level: float,
+    rng: np.random.Generator,
+) -> tuple[int, int, float, float, float, float, float, float]:
+    """Compute point estimate, SE, percentile CI, and basic CI for one cluster partition."""
+    n_clusters = len(sums)
+    n_obs = int(np.sum(counts))
+    total_count = float(np.sum(counts))
+    theta_hat = float(np.sum(sums) / total_count) if total_count > 0.0 else float("nan")
+    if n_clusters == 1:
+        return (
+            n_obs,
+            n_clusters,
+            theta_hat,
+            0.0,
+            theta_hat,
+            theta_hat,
+            theta_hat,
+            theta_hat,
+        )
+
+    alpha = 1.0 - ci_level
+    boot_means = cluster_bootstrap_means(sums, counts, n_boot=n_boot, rng=rng)
+    std_err = float(np.std(boot_means, ddof=1)) if n_boot > 1 else 0.0
+    ci_low = float(np.quantile(boot_means, alpha / 2.0))
+    ci_high = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
+    basic_low = float(2.0 * theta_hat - ci_high)
+    basic_high = float(2.0 * theta_hat - ci_low)
+    return n_obs, n_clusters, theta_hat, std_err, ci_low, ci_high, basic_low, basic_high
+
+
 def cluster_bootstrap_ci(
     frame: pl.LazyFrame | pl.DataFrame,
     metric_col: str,
@@ -195,21 +250,15 @@ def cluster_bootstrap_ci(
     random_seed: int = 42,
 ) -> pl.DataFrame:
     """Compute cluster-bootstrap confidence intervals (cluster unit: ``cluster_col``, default ``seed``)."""
-    if n_boot < 1:
-        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
-    if not (0.0 < ci_level < 1.0):
-        raise ValueError(f"ci_level must be in (0, 1), got {ci_level}")
+    _validate_n_boot(n_boot)
+    _validate_ci_level(ci_level)
 
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
     group_list = list(group_cols)
-
-    valid_lf = lf.filter(
-        pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null()
-    )
     cluster_agg_cols = [*group_list, cluster_col] if group_list else [cluster_col]
-
     cluster_df = (
-        valid_lf.group_by(cluster_agg_cols)
+        _to_lazy(frame)
+        .filter(pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null())
+        .group_by(cluster_agg_cols)
         .agg(
             cluster_sum=pl.col(metric_col).cast(pl.Float64).sum(),
             cluster_count=pl.col(metric_col).count().cast(pl.Int64),
@@ -232,36 +281,23 @@ def cluster_bootstrap_ci(
         if group_list
         else [cluster_df]
     )
-
-    alpha = 1.0 - ci_level
     rng = np.random.default_rng(random_seed)
     rows: list[dict[str, object]] = []
-
     for part_df in partitions:
         sums = part_df.get_column("cluster_sum").to_numpy().astype(np.float64)
         counts = part_df.get_column("cluster_count").to_numpy().astype(np.float64)
-        n_clusters = len(sums)
-        n_obs = int(np.sum(counts))
-        total_count = float(np.sum(counts))
-        theta_hat = (
-            float(np.sum(sums) / total_count) if total_count > 0.0 else float("nan")
+        (
+            n_obs,
+            n_clusters,
+            theta_hat,
+            std_err,
+            ci_low,
+            ci_high,
+            basic_low,
+            basic_high,
+        ) = _bootstrap_partition_ci(
+            sums, counts, n_boot=n_boot, ci_level=ci_level, rng=rng
         )
-
-        if n_clusters == 1:
-            std_err = 0.0
-            ci_low = theta_hat
-            ci_high = theta_hat
-            basic_low = theta_hat
-            basic_high = theta_hat
-        else:
-            boot_means = cluster_bootstrap_means(sums, counts, n_boot=n_boot, rng=rng)
-
-            std_err = float(np.std(boot_means, ddof=1)) if n_boot > 1 else 0.0
-            ci_low = float(np.quantile(boot_means, alpha / 2.0))
-            ci_high = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
-            basic_low = float(2.0 * theta_hat - ci_high)
-            basic_high = float(2.0 * theta_hat - ci_low)
-
         row: dict[str, object] = {col: part_df.item(0, col) for col in group_list}
         row.update(
             {
@@ -278,7 +314,6 @@ def cluster_bootstrap_ci(
             }
         )
         rows.append(row)
-
     return pl.DataFrame(rows, schema=out_schema)
 
 
@@ -302,13 +337,11 @@ def cluster_bootstrap_p_value(
     report p = 0. This is the single implementation both ``paired_treatment_diff`` and
     ``experiments.stats.cluster_bootstrap`` report.
     """
-    if n_boot < 1:
-        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
+    _validate_n_boot(n_boot)
 
     sums = np.asarray(cluster_sums, dtype=np.float64)
     counts = np.asarray(cluster_counts, dtype=np.float64)
-    n_clusters = int(sums.size)
-    if n_clusters < 2:
+    if int(sums.size) < 2:
         # A single cluster resamples to itself and cannot reject H0.
         return 1.0
 
@@ -319,145 +352,58 @@ def cluster_bootstrap_p_value(
     return float((1 + extreme_count) / (n_boot + 1))
 
 
-def paired_treatment_diff(
-    frame: pl.LazyFrame | pl.DataFrame,
-    metric_col: str,
+def _cohens_dz(mean_diff: float, std_diff: float) -> float:
+    """Return paired Cohen's dz (0.0 or signed inf when standard deviation is near zero)."""
+    if std_diff > 1e-12:
+        return float(mean_diff / std_diff)
+    if abs(mean_diff) <= 1e-12:
+        return 0.0
+    return math.copysign(float("inf"), mean_diff)
+
+
+def _cluster_diff_totals(
+    pairs_df: pl.DataFrame,
+    pair_list: list[str],
+    cluster_col: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Aggregate paired differences into per-cluster sums and pair counts."""
+    if cluster_col not in pair_list:
+        diffs = pairs_df.get_column("diff").to_numpy().astype(np.float64)
+        return diffs, np.ones(len(diffs), dtype=np.float64)
+    cluster_df = (
+        pairs_df.group_by(cluster_col)
+        .agg(
+            c_sum=pl.col("diff").sum(),
+            c_cnt=pl.col("diff").count().cast(pl.Float64),
+        )
+        .sort(cluster_col)
+    )
+    return (
+        cluster_df.get_column("c_sum").to_numpy().astype(np.float64),
+        cluster_df.get_column("c_cnt").to_numpy().astype(np.float64),
+    )
+
+
+def _build_paired_diff_result(
     *,
-    treatment_col: str = "planner",
+    treatment_col: str,
     treatment_a: str,
     treatment_b: str,
-    pair_cols: Sequence[str] = ("world", "scenario", "crowd_size", "seed"),
-    cluster_col: str = "seed",
-    n_boot: int = 2000,
-    ci_level: float = 0.95,
-    random_seed: int = 42,
+    metric_col: str,
+    n_pairs: int,
+    n_clusters: int,
+    mean_a: float | None,
+    mean_b: float | None,
+    mean_diff: float | None,
+    std_diff: float | None,
+    cohens_dz: float | None,
+    ci_level: float,
+    ci_low: float | None,
+    ci_high: float | None,
+    p_value: float | None,
+    pairs_df: pl.DataFrame,
 ) -> PairedDiffResult:
-    """Compute paired differences (A - B), Cohen's dz, cluster-bootstrap CI (cluster unit: ``cluster_col``, default ``seed``), and p-value."""
-    if n_boot < 1:
-        raise ValueError(f"n_boot must be >= 1, got {n_boot}")
-    if not (0.0 < ci_level < 1.0):
-        raise ValueError(f"ci_level must be in (0, 1), got {ci_level}")
-
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
-    pair_list = list(pair_cols)
-    if not pair_list:
-        raise ValueError("pair_cols must contain at least one blocking column.")
-
-    filtered = lf.filter(
-        pl.col(treatment_col).is_in([treatment_a, treatment_b])
-        & pl.col(metric_col).is_not_null()
-    )
-
-    cell_means = filtered.group_by([*pair_list, treatment_col]).agg(
-        cell_value=pl.col(metric_col).cast(pl.Float64).mean()
-    )
-
-    side_a = cell_means.filter(pl.col(treatment_col) == treatment_a).select(
-        [*pair_list, pl.col("cell_value").alias("value_a")]
-    )
-    side_b = cell_means.filter(pl.col(treatment_col) == treatment_b).select(
-        [*pair_list, pl.col("cell_value").alias("value_b")]
-    )
-
-    pairs_df = (
-        side_a.join(side_b, on=pair_list, how="inner")
-        .with_columns(diff=pl.col("value_a") - pl.col("value_b"))
-        .sort(pair_list)
-        .collect()
-    )
-
-    if pairs_df.is_empty():
-        empty_summary = pl.DataFrame(
-            [
-                {
-                    "treatment_col": treatment_col,
-                    "treatment_a": treatment_a,
-                    "treatment_b": treatment_b,
-                    "metric": metric_col,
-                    "n_pairs": 0,
-                    "n_clusters": 0,
-                    "mean_a": None,
-                    "mean_b": None,
-                    "mean_diff": None,
-                    "std_diff": None,
-                    "cohens_dz": None,
-                    "ci_level": float(ci_level),
-                    "ci_low": None,
-                    "ci_high": None,
-                    "p_value": None,
-                }
-            ],
-            schema=PAIRED_DIFF_SUMMARY_SCHEMA,
-        )
-        return PairedDiffResult(
-            treatment_col=treatment_col,
-            treatment_a=treatment_a,
-            treatment_b=treatment_b,
-            metric_col=metric_col,
-            n_pairs=0,
-            n_clusters=0,
-            mean_a=None,
-            mean_b=None,
-            mean_diff=None,
-            std_diff=None,
-            cohens_dz=None,
-            ci_level=float(ci_level),
-            ci_low=None,
-            ci_high=None,
-            p_value=None,
-            pairs_frame=pairs_df,
-            summary_frame=empty_summary,
-        )
-
-    vals_a = pairs_df.get_column("value_a").to_numpy().astype(np.float64)
-    vals_b = pairs_df.get_column("value_b").to_numpy().astype(np.float64)
-    diffs = pairs_df.get_column("diff").to_numpy().astype(np.float64)
-
-    n_pairs = len(diffs)
-    mean_a = float(np.mean(vals_a))
-    mean_b = float(np.mean(vals_b))
-    mean_diff = float(np.mean(diffs))
-    std_diff = float(np.std(diffs, ddof=1)) if n_pairs > 1 else 0.0
-    cohens_dz = (
-        float(mean_diff / std_diff)
-        if std_diff > 1e-12
-        else (
-            0.0 if abs(mean_diff) <= 1e-12 else math.copysign(float("inf"), mean_diff)
-        )
-    )
-
-    if cluster_col in pair_list:
-        cluster_df = (
-            pairs_df.group_by(cluster_col)
-            .agg(
-                c_sum=pl.col("diff").sum(),
-                c_cnt=pl.col("diff").count().cast(pl.Float64),
-            )
-            .sort(cluster_col)
-        )
-        c_sums = cluster_df.get_column("c_sum").to_numpy().astype(np.float64)
-        c_cnts = cluster_df.get_column("c_cnt").to_numpy().astype(np.float64)
-    else:
-        c_sums = diffs
-        c_cnts = np.ones(n_pairs, dtype=np.float64)
-
-    n_clusters = len(c_sums)
-    alpha = 1.0 - ci_level
-
-    if n_clusters == 1:
-        ci_low = mean_diff
-        ci_high = mean_diff
-    else:
-        rng = np.random.default_rng(random_seed)
-        boot_means = cluster_bootstrap_means(c_sums, c_cnts, n_boot=n_boot, rng=rng)
-
-        ci_low = float(np.quantile(boot_means, alpha / 2.0))
-        ci_high = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
-
-    p_value = cluster_bootstrap_p_value(
-        c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed
-    )
-
+    """Construct a PairedDiffResult dataclass instance."""
     summary_df = pl.DataFrame(
         [
             {
@@ -480,7 +426,6 @@ def paired_treatment_diff(
         ],
         schema=PAIRED_DIFF_SUMMARY_SCHEMA,
     )
-
     return PairedDiffResult(
         treatment_col=treatment_col,
         treatment_a=treatment_a,
@@ -502,6 +447,148 @@ def paired_treatment_diff(
     )
 
 
+def paired_treatment_diff(
+    frame: pl.LazyFrame | pl.DataFrame,
+    metric_col: str,
+    *,
+    treatment_col: str = "planner",
+    treatment_a: str,
+    treatment_b: str,
+    pair_cols: Sequence[str] = ("world", "scenario", "crowd_size", "seed"),
+    cluster_col: str = "seed",
+    n_boot: int = 2000,
+    ci_level: float = 0.95,
+    random_seed: int = 42,
+) -> PairedDiffResult:
+    """Compute paired differences (A - B), Cohen's dz, cluster-bootstrap CI (cluster unit: ``cluster_col``, default ``seed``), and p-value."""
+    _validate_n_boot(n_boot)
+    _validate_ci_level(ci_level)
+    pair_list = list(pair_cols)
+    if not pair_list:
+        raise ValueError("pair_cols must contain at least one blocking column.")
+
+    cell_means = (
+        _to_lazy(frame)
+        .filter(
+            pl.col(treatment_col).is_in([treatment_a, treatment_b])
+            & pl.col(metric_col).is_not_null()
+        )
+        .group_by([*pair_list, treatment_col])
+        .agg(cell_value=pl.col(metric_col).cast(pl.Float64).mean())
+    )
+    side_a = cell_means.filter(pl.col(treatment_col) == treatment_a).select(
+        [*pair_list, pl.col("cell_value").alias("value_a")]
+    )
+    side_b = cell_means.filter(pl.col(treatment_col) == treatment_b).select(
+        [*pair_list, pl.col("cell_value").alias("value_b")]
+    )
+    pairs_df = (
+        side_a.join(side_b, on=pair_list, how="inner")
+        .with_columns(diff=pl.col("value_a") - pl.col("value_b"))
+        .sort(pair_list)
+        .collect()
+    )
+
+    if pairs_df.is_empty():
+        return _build_paired_diff_result(
+            treatment_col=treatment_col,
+            treatment_a=treatment_a,
+            treatment_b=treatment_b,
+            metric_col=metric_col,
+            n_pairs=0,
+            n_clusters=0,
+            mean_a=None,
+            mean_b=None,
+            mean_diff=None,
+            std_diff=None,
+            cohens_dz=None,
+            ci_level=ci_level,
+            ci_low=None,
+            ci_high=None,
+            p_value=None,
+            pairs_df=pairs_df,
+        )
+
+    vals_a = pairs_df.get_column("value_a").to_numpy().astype(np.float64)
+    vals_b = pairs_df.get_column("value_b").to_numpy().astype(np.float64)
+    diffs = pairs_df.get_column("diff").to_numpy().astype(np.float64)
+    n_pairs = len(diffs)
+    mean_a = float(np.mean(vals_a))
+    mean_b = float(np.mean(vals_b))
+    mean_diff = float(np.mean(diffs))
+    std_diff = float(np.std(diffs, ddof=1)) if n_pairs > 1 else 0.0
+    cohens_dz = _cohens_dz(mean_diff, std_diff)
+
+    c_sums, c_cnts = _cluster_diff_totals(pairs_df, pair_list, cluster_col)
+    _, n_clusters, _, _, ci_low, ci_high, _, _ = _bootstrap_partition_ci(
+        c_sums,
+        c_cnts,
+        n_boot=n_boot,
+        ci_level=ci_level,
+        rng=np.random.default_rng(random_seed),
+    )
+
+    p_value = cluster_bootstrap_p_value(
+        c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed
+    )
+    return _build_paired_diff_result(
+        treatment_col=treatment_col,
+        treatment_a=treatment_a,
+        treatment_b=treatment_b,
+        metric_col=metric_col,
+        n_pairs=n_pairs,
+        n_clusters=n_clusters,
+        mean_a=mean_a,
+        mean_b=mean_b,
+        mean_diff=mean_diff,
+        std_diff=std_diff,
+        cohens_dz=cohens_dz,
+        ci_level=ci_level,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        p_value=p_value,
+        pairs_df=pairs_df,
+    )
+
+
+def _pairwise_rank_swap(
+    reg_a: str,
+    reg_b: str,
+    frame_a: pl.DataFrame,
+    frame_b: pl.DataFrame,
+) -> dict[str, object]:
+    """Compute pairwise rank-swap statistics for one ``(reg_a, reg_b)`` regime pair."""
+    joined = frame_a.join(frame_b, on="entity", how="inner", suffix="_b").sort("entity")
+    k = joined.height
+    total_pairs = k * (k - 1) // 2
+    if total_pairs == 0:
+        return {
+            "regime_a": reg_a,
+            "regime_b": reg_b,
+            "n_entities": k,
+            "total_pairs": 0,
+            "swap_count": 0,
+            "swap_rate": 0.0,
+            "kendall_tau": 1.0,
+        }
+
+    r_a = joined.get_column("rank").to_numpy().astype(np.float64)
+    r_b = joined.get_column("rank_b").to_numpy().astype(np.float64)
+    idx_i, idx_j = np.triu_indices(k, k=1)
+    prod = (r_a[idx_i] - r_a[idx_j]) * (r_b[idx_i] - r_b[idx_j])
+    discordant = int(np.sum(prod < -1e-12))
+    concordant = int(np.sum(prod > 1e-12))
+    return {
+        "regime_a": reg_a,
+        "regime_b": reg_b,
+        "n_entities": k,
+        "total_pairs": total_pairs,
+        "swap_count": discordant,
+        "swap_rate": float(discordant / total_pairs),
+        "kendall_tau": float((concordant - discordant) / total_pairs),
+    }
+
+
 def rank_swap_matrix(
     frame: pl.LazyFrame | pl.DataFrame,
     metric_col: str,
@@ -511,14 +598,10 @@ def rank_swap_matrix(
     direction: str = "asc",
 ) -> pl.DataFrame:
     """Compute pairwise rank-swap counts and Kendall tau distances across regimes."""
-    if direction not in ("asc", "desc"):
-        raise ValueError(f"direction must be 'asc' or 'desc', got {direction!r}")
-
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
-    descending = direction == "desc"
-
+    descending = _validate_direction(direction)
     ranked_df = (
-        lf.filter(
+        _to_lazy(frame)
+        .filter(
             pl.col(metric_col).is_not_null()
             & pl.col(entity_col).is_not_null()
             & pl.col(regime_col).is_not_null()
@@ -533,7 +616,6 @@ def rank_swap_matrix(
         .sort(regime_col, entity_col)
         .collect()
     )
-
     if ranked_df.is_empty():
         return pl.DataFrame(schema=RANK_SWAP_MATRIX_SCHEMA)
 
@@ -549,57 +631,50 @@ def rank_swap_matrix(
         for part in ranked_df.partition_by(regime_col, maintain_order=True)
     }
 
-    rows: list[dict[str, object]] = []
-    for i, reg_a in enumerate(regimes):
-        for reg_b in regimes[i + 1 :]:
-            joined = (
-                by_regime[reg_a]
-                .join(by_regime[reg_b], on="entity", how="inner", suffix="_b")
-                .sort("entity")
-            )
-            k = joined.height
-            total_pairs = k * (k - 1) // 2
-            if total_pairs == 0:
-                rows.append(
-                    {
-                        "regime_a": reg_a,
-                        "regime_b": reg_b,
-                        "n_entities": k,
-                        "total_pairs": 0,
-                        "swap_count": 0,
-                        "swap_rate": 0.0,
-                        "kendall_tau": 1.0,
-                    }
-                )
-                continue
-
-            r_a = joined.get_column("rank").to_numpy().astype(np.float64)
-            r_b = joined.get_column("rank_b").to_numpy().astype(np.float64)
-            idx_i, idx_j = np.triu_indices(k, k=1)
-            da = r_a[idx_i] - r_a[idx_j]
-            db = r_b[idx_i] - r_b[idx_j]
-            prod = da * db
-
-            discordant = int(np.sum(prod < -1e-12))
-            concordant = int(np.sum(prod > 1e-12))
-            swap_rate = float(discordant / total_pairs)
-            kendall_tau = float((concordant - discordant) / total_pairs)
-
-            rows.append(
-                {
-                    "regime_a": reg_a,
-                    "regime_b": reg_b,
-                    "n_entities": k,
-                    "total_pairs": total_pairs,
-                    "swap_count": discordant,
-                    "swap_rate": swap_rate,
-                    "kendall_tau": kendall_tau,
-                }
-            )
-
+    rows = [
+        _pairwise_rank_swap(reg_a, reg_b, by_regime[reg_a], by_regime[reg_b])
+        for i, reg_a in enumerate(regimes)
+        for reg_b in regimes[i + 1 :]
+    ]
     if not rows:
         return pl.DataFrame(schema=RANK_SWAP_MATRIX_SCHEMA)
     return pl.DataFrame(rows, schema=RANK_SWAP_MATRIX_SCHEMA)
+
+
+def _compute_kendalls_w_stats(
+    complete_df: pl.DataFrame,
+    *,
+    n_judges: int,
+    n_entities: int,
+) -> tuple[float, float, int, float]:
+    """Compute Kendall's W, Friedman's chi2, and chi2 survival p-value."""
+    rank_sums = (
+        complete_df.group_by("entity")
+        .agg(r_sum=pl.col("rank").sum())
+        .sort("entity")
+        .get_column("r_sum")
+        .to_numpy()
+        .astype(np.float64)
+    )
+    mean_r = 0.5 * n_judges * (n_entities + 1)
+    s_dev = float(np.sum((rank_sums - mean_r) ** 2))
+
+    # Tie correction T_j = sum(t^3 - t) per judge
+    tie_groups = (
+        complete_df.group_by("judge", "rank")
+        .agg(t_cnt=pl.len().cast(pl.Int64))
+        .filter(pl.col("t_cnt") > 1)
+    )
+    tie_sum = 0.0
+    if not tie_groups.is_empty():
+        t_vals = tie_groups.get_column("t_cnt").to_numpy().astype(np.float64)
+        tie_sum = float(np.sum(t_vals**3 - t_vals))
+
+    denom = float(n_judges**2 * (n_entities**3 - n_entities) - n_judges * tie_sum)
+    w = float(np.clip((12.0 * s_dev) / denom, 0.0, 1.0)) if denom > 1e-12 else 0.0
+    df = n_entities - 1
+    friedman_chi2 = float(n_judges * df * w)
+    return w, friedman_chi2, df, _chi2_sf(friedman_chi2, df)
 
 
 def kendalls_w(
@@ -611,14 +686,10 @@ def kendalls_w(
     direction: str = "asc",
 ) -> KendallWResult:
     """Compute Kendall's coefficient of concordance W, Friedman's chi2, and p-value across judges."""
-    if direction not in ("asc", "desc"):
-        raise ValueError(f"direction must be 'asc' or 'desc', got {direction!r}")
-
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
-    descending = direction == "desc"
-
+    descending = _validate_direction(direction)
     cell_df = (
-        lf.filter(
+        _to_lazy(frame)
+        .filter(
             pl.col(metric_col).is_not_null()
             & pl.col(entity_col).is_not_null()
             & pl.col(judge_col).is_not_null()
@@ -630,7 +701,6 @@ def kendalls_w(
         .agg(metric_mean=pl.col(metric_col).cast(pl.Float64).mean())
         .collect()
     )
-
     if cell_df.is_empty():
         return KendallWResult(
             entity_col=entity_col,
@@ -652,7 +722,6 @@ def kendalls_w(
         .filter(pl.col("j_cnt") == total_judges)
         .select("entity")
     )
-
     complete_df = (
         cell_df.join(complete_entities, on="entity", how="inner")
         .with_columns(
@@ -667,7 +736,6 @@ def kendalls_w(
 
     k = complete_df.get_column("entity").n_unique()
     m = complete_df.get_column("judge").n_unique()
-
     if m < 1 or k < 2:
         return KendallWResult(
             entity_col=entity_col,
@@ -682,34 +750,9 @@ def kendalls_w(
             rankings_frame=complete_df,
         )
 
-    rank_sums = (
-        complete_df.group_by("entity")
-        .agg(r_sum=pl.col("rank").sum())
-        .sort("entity")
-        .get_column("r_sum")
-        .to_numpy()
-        .astype(np.float64)
+    w, friedman_chi2, df, p_value = _compute_kendalls_w_stats(
+        complete_df, n_judges=m, n_entities=k
     )
-    mean_r = 0.5 * m * (k + 1)
-    s_dev = float(np.sum((rank_sums - mean_r) ** 2))
-
-    # Tie correction T_j = sum(t^3 - t) per judge
-    tie_groups = (
-        complete_df.group_by("judge", "rank")
-        .agg(t_cnt=pl.len().cast(pl.Int64))
-        .filter(pl.col("t_cnt") > 1)
-    )
-    tie_sum = 0.0
-    if not tie_groups.is_empty():
-        t_vals = tie_groups.get_column("t_cnt").to_numpy().astype(np.float64)
-        tie_sum = float(np.sum(t_vals**3 - t_vals))
-
-    denom = float(m**2 * (k**3 - k) - m * tie_sum)
-    w = float(np.clip((12.0 * s_dev) / denom, 0.0, 1.0)) if denom > 1e-12 else 0.0
-    df = k - 1
-    friedman_chi2 = float(m * df * w)
-    p_value = _chi2_sf(friedman_chi2, df)
-
     return KendallWResult(
         entity_col=entity_col,
         judge_col=judge_col,
@@ -758,8 +801,6 @@ def split_discovery_verification_seeds(
         )
 
     is_eager = isinstance(frame, pl.DataFrame)
-    lf = frame.lazy() if is_eager else frame
-
     seed_rank_0 = pl.col(seed_col).rank(method="dense").cast(pl.Int64) - 1
     n_unique_seeds = pl.col(seed_col).n_unique().cast(pl.Int64)
     cutoff = (
@@ -768,7 +809,6 @@ def split_discovery_verification_seeds(
         .cast(pl.Int64)
         .clip(1, pl.max_horizontal(pl.lit(1, dtype=pl.Int64), n_unique_seeds - 1))
     )
-
     cohort_expr = (
         pl.when(pl.col(seed_col).is_null())
         .then(pl.lit(None, dtype=pl.String))
@@ -777,6 +817,5 @@ def split_discovery_verification_seeds(
         .otherwise(pl.lit("verification"))
         .alias(cohort_col)
     )
-
-    result_lf = lf.with_columns(cohort_expr)
+    result_lf = _to_lazy(frame).with_columns(cohort_expr)
     return result_lf.collect() if is_eager else result_lf

@@ -332,11 +332,13 @@ def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
 def paper_outcomes(df: pl.DataFrame) -> pl.DataFrame:
     """Success is the goal before the timeout with zero collisions, and time to goal is kept only over successes."""
     collisions = (
-        pl.col("collision_amount_pedestrian").fill_null(0)
-        + pl.col("collision_amount_wall").fill_null(0)
-        + pl.col("collision_amount_static").fill_null(0)
-    ) > 0
-    success = (pl.col("success").cast(pl.Float64).fill_null(0.0) > 0.5) & ~collisions
+        pl.when(pl.col("collision_amount") == 0)
+        .then(False)
+        .when(pl.col("collision_amount") > 0)
+        .then(True)
+        .otherwise(None)
+    )
+    success = (pl.col("success").cast(pl.Float64) > 0.5) & ~collisions
     return df.with_columns(
         success.alias("success"),
         pl.when(success)

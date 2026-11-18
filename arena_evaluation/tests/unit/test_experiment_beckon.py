@@ -402,3 +402,19 @@ def test_main_analyze_returns_zero_after_printing_the_tables(
     )
     assert "== planners" in capsys.readouterr().out
     assert (tmp_path / "out" / "planners.csv").is_file()
+
+
+def test_paper_outcomes_preserves_null_success() -> None:
+    df = pl.DataFrame(
+        {
+            "stage": ["s", "s", "s"],
+            "success": pl.Series([True, False, None], dtype=pl.Boolean),
+            "time_to_goal": [10.0, None, None],
+        }
+    )
+    out = beckon.paper_outcomes(df, timeouts={"s": 60.0})
+    assert out["served"].to_list() == [True, False, None]
+    assert out["censored"].to_list() == [False, True, None]
+    assert out["wait_s"].to_list() == pytest.approx(
+        [10.0 - beckon.CALL_ONSET_S, 60.0 - beckon.CALL_ONSET_S, None]
+    )

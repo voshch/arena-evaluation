@@ -16,6 +16,8 @@ import numpy as np
 import polars as pl
 import scipy.stats
 
+from arena_evaluation.analytics.catalog import _to_lazy
+
 from .stats import cluster_bootstrap_means
 
 __all__ = [
@@ -87,18 +89,20 @@ class RankInterval:
     def from_dataframe(cls, frame: pl.DataFrame) -> list[RankInterval]:
         """Convert a rank intervals dataframe into structured RankInterval instances."""
         cols = frame.to_dict(as_series=False)
-        planners = cols["planner"]
-        medians = cols["median_rank"]
-        ci_lows = cols["ci_low"]
-        ci_highs = cols["ci_high"]
         return [
             cls(
-                planner=str(planners[i]),
-                median_rank=float(medians[i]),
-                ci_low=float(ci_lows[i]),
-                ci_high=float(ci_highs[i]),
+                planner=str(planner),
+                median_rank=float(median),
+                ci_low=float(ci_low),
+                ci_high=float(ci_high),
             )
-            for i in range(len(planners))
+            for planner, median, ci_low, ci_high in zip(
+                cols["planner"],
+                cols["median_rank"],
+                cols["ci_low"],
+                cols["ci_high"],
+                strict=True,
+            )
         ]
 
 
@@ -118,24 +122,26 @@ class ContextualStabilityResult:
     def from_dataframe(cls, frame: pl.DataFrame) -> list[ContextualStabilityResult]:
         """Convert contextual stability dataframe into structured result instances."""
         cols = frame.to_dict(as_series=False)
-        arms = cols["arm"]
-        worlds = cols["world"]
-        crowds = cols["crowd_size"]
-        metrics = cols["metric"]
-        means = cols["mean_tau"]
-        stds = cols["std_tau"]
-        top_ks = cols["top_k_preservation_rate"]
         return [
             cls(
-                arm=str(arms[i]),
-                world=str(worlds[i]),
-                crowd_size=str(crowds[i]),
-                metric=str(metrics[i]),
-                mean_tau=float(means[i]),
-                std_tau=float(stds[i]),
-                top_k_preservation_rate=float(top_ks[i]),
+                arm=str(arm),
+                world=str(world),
+                crowd_size=str(crowd),
+                metric=str(metric),
+                mean_tau=float(mean_tau),
+                std_tau=float(std_tau),
+                top_k_preservation_rate=float(top_k),
             )
-            for i in range(len(arms))
+            for arm, world, crowd, metric, mean_tau, std_tau, top_k in zip(
+                cols["arm"],
+                cols["world"],
+                cols["crowd_size"],
+                cols["metric"],
+                cols["mean_tau"],
+                cols["std_tau"],
+                cols["top_k_preservation_rate"],
+                strict=True,
+            )
         ]
 
 
@@ -185,7 +191,7 @@ def _build_planner_seed_matrices(
     seed_col: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Aggregate valid observations into dense ``(n_planners, n_seeds)`` sum and count arrays."""
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
+    lf = _to_lazy(frame)
     agg_df = (
         lf.filter(
             pl.col(metric_col).is_not_null()
@@ -213,6 +219,55 @@ def _build_planner_seed_matrices(
     sums[planner_idx, seed_idx] = agg_df.get_column("metric_sum").to_numpy()
     counts[planner_idx, seed_idx] = agg_df.get_column("metric_count").to_numpy()
     return planner_arr, sums, counts
+
+
+def _half_means(
+    sums: np.ndarray,
+    counts: np.ndarray,
+    seed_indices: np.ndarray,
+) -> np.ndarray:
+    """Compute weighted planner means over a half-sample of seed columns."""
+    half_sums = np.sum(sums[:, seed_indices], axis=1)
+    half_counts = np.sum(counts[:, seed_indices], axis=1)
+    return np.where(half_counts > 0, half_sums / np.maximum(half_counts, 1), 0.0)
+
+
+def _evaluate_seed_split(
+    sums: np.ndarray,
+    counts: np.ndarray,
+    *,
+    idx_1: np.ndarray,
+    idx_2: np.ndarray,
+    score_sign: float,
+    eff_k: int,
+) -> tuple[float, bool]:
+    """Compute Kendall's tau and top-k match for one seed split."""
+    means_1 = _half_means(sums, counts, idx_1)
+    means_2 = _half_means(sums, counts, idx_2)
+    ranks_1 = scipy.stats.rankdata(score_sign * means_1, method="average")
+    ranks_2 = scipy.stats.rankdata(score_sign * means_2, method="average")
+    order_1 = np.argsort(score_sign * means_1)
+    order_2 = np.argsort(score_sign * means_2)
+
+    if sums.shape[0] < 2:
+        tau_val = 1.0
+    else:
+        tau_res = typing.cast(
+            tuple[float, float], scipy.stats.kendalltau(ranks_1, ranks_2)
+        )
+        tau_raw = float(tau_res[0])
+        if math.isnan(tau_raw):
+            tau_val = 1.0 if np.array_equal(ranks_1, ranks_2) else 0.0
+        else:
+            tau_val = tau_raw
+
+    top_k_idx_1 = order_1[:eff_k]
+    top_k_idx_2 = order_2[:eff_k]
+    is_preserved = bool(
+        set(top_k_idx_1) == set(top_k_idx_2)
+        and np.all(ranks_1[top_k_idx_1] == ranks_2[top_k_idx_1])
+    )
+    return tau_val, is_preserved
 
 
 def seed_split_rank_stability(
@@ -249,58 +304,25 @@ def seed_split_rank_stability(
         )
     planner_arr, sums, counts = matrices
     n_planners, n_seeds = sums.shape
-
     rng = np.random.default_rng(seed)
     half_size = n_seeds // 2
     eff_k = min(k, n_planners)
+    score_sign = -1.0 if descending else 1.0
 
     taus: list[float] = []
     preserved: list[bool] = []
-
     for _ in range(n_splits):
         perm = rng.permutation(n_seeds)
-        idx_1 = perm[:half_size]
-        idx_2 = perm[half_size:]
-
-        sums_1 = np.sum(sums[:, idx_1], axis=1)
-        cnts_1 = np.sum(counts[:, idx_1], axis=1)
-        means_1 = np.where(cnts_1 > 0, sums_1 / np.maximum(cnts_1, 1), 0.0)
-
-        sums_2 = np.sum(sums[:, idx_2], axis=1)
-        cnts_2 = np.sum(counts[:, idx_2], axis=1)
-        means_2 = np.where(cnts_2 > 0, sums_2 / np.maximum(cnts_2, 1), 0.0)
-
-        score_sign = -1.0 if descending else 1.0
-        ranks_1 = scipy.stats.rankdata(score_sign * means_1, method="average")
-        ranks_2 = scipy.stats.rankdata(score_sign * means_2, method="average")
-        order_1 = np.argsort(score_sign * means_1)
-        order_2 = np.argsort(score_sign * means_2)
-
-        if n_planners < 2:
-            tau_val = 1.0
-        else:
-            tau_res = typing.cast(
-                tuple[float, float], scipy.stats.kendalltau(ranks_1, ranks_2)
-            )
-            tau_raw: float = float(tau_res[0])
-            if math.isnan(tau_raw):
-                tau_val = 1.0 if np.array_equal(ranks_1, ranks_2) else 0.0
-            else:
-                tau_val = tau_raw
-
-        top_k_idx_1 = order_1[:eff_k]
-        top_k_idx_2 = order_2[:eff_k]
-        is_preserved = bool(
-            set(top_k_idx_1) == set(top_k_idx_2)
-            and np.all(ranks_1[top_k_idx_1] == ranks_2[top_k_idx_1])
+        tau_val, is_preserved = _evaluate_seed_split(
+            sums,
+            counts,
+            idx_1=perm[:half_size],
+            idx_2=perm[half_size:],
+            score_sign=score_sign,
+            eff_k=eff_k,
         )
-
         taus.append(tau_val)
         preserved.append(is_preserved)
-
-    mean_tau = float(np.mean(taus))
-    std_tau = float(np.std(taus, ddof=1)) if len(taus) > 1 else 0.0
-    preservation_rate = float(np.mean(preserved))
 
     splits_frame = pl.DataFrame(
         {
@@ -310,16 +332,15 @@ def seed_split_rank_stability(
         },
         schema=RANK_SPLITS_SCHEMA,
     )
-
     return RankStabilityResult(
         metric_col=metric_col,
         planner_col=planner_col,
         seed_col=seed_col,
         n_splits=len(taus),
         k=eff_k,
-        mean_tau=mean_tau,
-        std_tau=std_tau,
-        top_k_preservation_rate=preservation_rate,
+        mean_tau=float(np.mean(taus)),
+        std_tau=float(np.std(taus, ddof=1)) if len(taus) > 1 else 0.0,
+        top_k_preservation_rate=float(np.mean(preserved)),
         splits_frame=splits_frame,
     )
 
@@ -339,28 +360,20 @@ def contextual_rank_stability(
     seed: int = 42,
 ) -> pl.DataFrame:
     """Compute Kendall tau rank stability across contextual environments and crowd densities."""
-    lf = frame.lazy() if isinstance(frame, pl.DataFrame) else frame
-    filtered_lf = lf.filter(
+    lf = _to_lazy(frame)
+    df = lf.filter(
         pl.col(metric_col).is_not_null()
         & pl.col(planner_col).is_not_null()
         & pl.col(seed_col).is_not_null()
         & pl.col(arm_col).is_not_null()
         & pl.col(world_col).is_not_null()
         & pl.col(crowd_col).is_not_null()
-    )
-
-    df = filtered_lf.collect()
+    ).collect()
     if df.is_empty():
         return pl.DataFrame(schema=CONTEXTUAL_STABILITY_SCHEMA)
 
-    partitions = df.partition_by([arm_col, world_col, crowd_col], maintain_order=True)
     rows: list[dict[str, object]] = []
-
-    for grp in partitions:
-        arm_val = str(grp.item(0, arm_col))
-        world_val = str(grp.item(0, world_col))
-        crowd_val = str(grp.item(0, crowd_col))
-
+    for grp in df.partition_by([arm_col, world_col, crowd_col], maintain_order=True):
         res = seed_split_rank_stability(
             grp,
             metric_col,
@@ -371,19 +384,17 @@ def contextual_rank_stability(
             descending=descending,
             seed=seed,
         )
-
         rows.append(
             {
-                "arm": arm_val,
-                "world": world_val,
-                "crowd_size": crowd_val,
+                "arm": str(grp.item(0, arm_col)),
+                "world": str(grp.item(0, world_col)),
+                "crowd_size": str(grp.item(0, crowd_col)),
                 "metric": metric_col,
                 "mean_tau": res.mean_tau,
                 "std_tau": res.std_tau,
                 "top_k_preservation_rate": res.top_k_preservation_rate,
             }
         )
-
     return pl.DataFrame(rows, schema=CONTEXTUAL_STABILITY_SCHEMA)
 
 
@@ -415,7 +426,6 @@ def paired_cluster_bootstrap_rank_intervals(
 
     rng = np.random.default_rng(seed)
     boot_means = cluster_bootstrap_means(sums, counts, n_boot=n_bootstrap, rng=rng)
-
     score_sign = -1.0 if descending else 1.0
     ranks_matrix = np.empty((n_bootstrap, n_planners), dtype=np.float64)
     for b in range(n_bootstrap):
@@ -424,21 +434,14 @@ def paired_cluster_bootstrap_rank_intervals(
         )
 
     alpha = 1.0 - ci
-    q_low = alpha / 2.0
-    q_high = 1.0 - alpha / 2.0
-
-    medians = np.median(ranks_matrix, axis=0)
-    ci_lows = np.quantile(ranks_matrix, q_low, axis=0)
-    ci_highs = np.quantile(ranks_matrix, q_high, axis=0)
-
-    out_df = pl.DataFrame(
+    return pl.DataFrame(
         {
             "planner": planner_arr.astype(str),
-            "median_rank": medians.astype(np.float64),
-            "ci_low": ci_lows.astype(np.float64),
-            "ci_high": ci_highs.astype(np.float64),
+            "median_rank": np.median(ranks_matrix, axis=0).astype(np.float64),
+            "ci_low": np.quantile(ranks_matrix, alpha / 2.0, axis=0).astype(np.float64),
+            "ci_high": np.quantile(ranks_matrix, 1.0 - alpha / 2.0, axis=0).astype(
+                np.float64
+            ),
         },
         schema=RANK_INTERVAL_SCHEMA,
     ).sort(["median_rank", "ci_low", "planner"])
-
-    return out_df
