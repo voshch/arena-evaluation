@@ -17,6 +17,7 @@ import sys
 import numpy as np
 import polars as pl
 
+from arena_evaluation.presentation.plot_types.acoustic_field import CellRenderRequest
 from arena_evaluation.presentation.viz_manifest import PlotSpec
 from arena_evaluation.storage.exceptions import MetricInputError
 
@@ -540,7 +541,7 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
         else None
     )
 
-    open_doors = set(open_set) if doors else None
+    open_doors = frozenset(open_set) if doors else None
     vmin = float(spec.options["vmin"])
     vmax = (
         float(spec.options["vmax"])
@@ -549,23 +550,23 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
     )
 
     ok = renderer.render_cell_png(
-        grid,
-        resolution,
-        ox,
-        oy,
-        rx_m,
-        ry_m,
-        source_dba,
-        peds,
-        title=f"{episode_id}  frame {frame_idx}  t={t_ns / 1e9:.1f}s  {source_dba:.0f} dBA",
-        out_path=out_path,
-        downsample=int(spec.options["downsample"]),
-        vmin=vmin,
-        vmax=vmax,
-        open_doors=open_doors,
-        doors=doors if doors else None,
-        overlay_trajectories=bool(spec.options["overlay_trajectories"]),
-        trajectory_data=traj_data,
+        CellRenderRequest(
+            grid=grid,
+            resolution_m=resolution,
+            origin_m=(ox, oy),
+            robot_xy_m=(rx_m, ry_m),
+            source_dba=source_dba,
+            peds=peds,
+            title=f"{episode_id}  frame {frame_idx}  t={t_ns / 1e9:.1f}s  {source_dba:.0f} dBA",
+            out_path=out_path,
+            downsample=int(spec.options["downsample"]),
+            vmin_dba=vmin,
+            vmax_dba=vmax,
+            open_doors=open_doors,
+            doors=doors if doors else None,
+            overlay_trajectories=bool(spec.options["overlay_trajectories"]),
+            trajectory_data=traj_data,
+        )
     )
 
     if ok:

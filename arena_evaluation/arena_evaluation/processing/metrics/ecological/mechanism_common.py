@@ -38,6 +38,17 @@ def _norm_path(name: str) -> str:
     return "/".join(p for p in str(name).split("/") if p)
 
 
+def _norm_path_expr(column: str) -> pl.Expr:
+    """``_norm_path`` as a column expression: no leading, trailing or doubled slashes."""
+    return (
+        pl.col(column)
+        .cast(pl.String)
+        .str.split("/")
+        .list.eval(pl.element().filter(pl.element() != ""))
+        .list.join("/")
+    )
+
+
 def entity_env(entity: str) -> str | None:
     """`env_<n>` prefix of a recorded entity or agent path, None when unprefixed."""
     match = _ENV_PREFIX.match(_norm_path(entity) + "/")
@@ -95,6 +106,26 @@ class RobotIdentity:
 
     def any_of(self, members: typing.Iterable[str]) -> bool:
         return any(self.matches(m) for m in members)
+
+    def entity_match_expr(self) -> pl.Expr:
+        """The ``matches`` predicate over a recorded ``entity`` column, in one vectorized expression.
+
+        A member matches when it is one of the robot's own spellings, when it is the underscore form
+        of the recorder name, or when its env prefix does not contradict the robot's and its last path
+        component is the robot's own. ``matches`` returns the same verdict row by row; metric frames
+        cannot afford that loop.
+        """
+        name = _norm_path_expr("entity")
+        if self.env is None:
+            env_ok = pl.lit(True)
+        else:
+            name_env = name.str.extract(_ENV_PREFIX.pattern, 1)
+            env_ok = name_env.is_null() | (name_env == self.env)
+        return (
+            name.is_in(sorted(self._aliases))
+            | (name.str.replace_all("/", "_") == self.robot_name)
+            | (env_ok & (name.str.split("/").list.last() == self.base.split("/")[-1]))
+        )
 
 
 def robot_identity(episode: AlignedEpisodeBundle) -> RobotIdentity | None:

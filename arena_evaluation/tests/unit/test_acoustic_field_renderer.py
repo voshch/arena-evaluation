@@ -1,13 +1,17 @@
-"""Acoustic field renderer: door masks under downsampling and embedded video links."""
+"""Acoustic field renderer: door masks under downsampling, the cell PNG and embedded video links."""
 
 from __future__ import annotations
+
+import pathlib
 
 import numpy as np
 import polars as pl
 
+from arena_evaluation.presentation.checks import image_is_blank
 from arena_evaluation.presentation.plot_types.acoustic_field import (
     AcousticFieldAnimationRenderer,
     AcousticFieldRenderer,
+    CellRenderRequest,
 )
 from arena_evaluation.presentation.viz_manifest import PlotSpec
 from arena_evaluation.processing.acoustics.impedance_grid import (
@@ -56,6 +60,30 @@ def test_downsampled_field_keeps_closed_door_in_doorway() -> None:
     tx, ty = round(2.4 / eff_res), round(4.0 / eff_res)
     los = 20.0 * np.log10(3.0)
     assert field_dba[ty, tx] < 100.0 - los - 20.0
+
+
+def test_render_cell_png_draws_the_field_walls_and_robot(tmp_path: pathlib.Path) -> None:
+    """The cell request renders a non-blank field image from one grid, pose and source level."""
+    grid = np.zeros((24, 24), dtype=np.uint8)
+    grid[12, :] = 1
+    out_path = tmp_path / "cell.png"
+
+    rendered = AcousticFieldRenderer(_spec("acoustic_field")).render_cell_png(
+        CellRenderRequest(
+            grid=grid,
+            resolution_m=0.1,
+            origin_m=(0.0, 0.0),
+            robot_xy_m=(1.0, 0.4),
+            source_dba=90.0,
+            peds=[(0.8, 0.6)],
+            title="cell",
+            out_path=out_path,
+        )
+    )
+
+    assert rendered is True
+    assert out_path.is_file()
+    assert not image_is_blank(out_path)
 
 
 def test_mp4_per_episode_animations_embed_video_links() -> None:

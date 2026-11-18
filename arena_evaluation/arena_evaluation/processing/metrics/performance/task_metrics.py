@@ -102,9 +102,7 @@ def _robot_events(
         events.lazy()
         .filter(pl.col("kind") == "robot")
         .select(pl.col("entity").unique())
-        .filter(
-            pl.col("entity").map_elements(identity.matches, return_dtype=pl.Boolean)
-        )
+        .filter(identity.entity_match_expr())
         .collect()
         .get_column("entity")
     )

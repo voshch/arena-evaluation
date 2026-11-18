@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 from robot_params_factory import make_robot_params
@@ -364,7 +366,7 @@ def test_robot_zone_unresolvable_without_pose_anchor():
     ctx = _ctx(
         [0, 1_000_000_000], pos_x=[1.0, 1.0], pos_y=[1.0, 1.0], zones=[_square("lobby")]
     )
-    ctx.pose_valid = False
+    ctx = dataclasses.replace(ctx, pose_valid=False)
     series, ok = _node_series(parse_atom("robot in lobby"), ctx)
 
     assert series is None
@@ -374,7 +376,7 @@ def test_robot_zone_unresolvable_without_pose_anchor():
         [0, 1_000_000_000], [["walker"], ["walker"]], [[1.0, 1.0, 0.0], [1.0, 1.0, 0.0]]
     )
     ctx = _ctx([0, 1_000_000_000], data=ped_data, zones=[_square("lobby")])
-    ctx.pose_valid = False
+    ctx = dataclasses.replace(ctx, pose_valid=False)
     series, ok = _node_series(parse_atom("walker in lobby"), ctx)
 
     assert ok is True
@@ -999,8 +1001,11 @@ def test_a_robot_relative_condition_resolves_across_envs_instead_of_being_unknow
         pos_y=[10.0, 10.0],
         zones=[_square("lobby")],
     )
-    ctx.fleet = _resample_fleet(
-        {"env_1_jackal": _fleet_pose_frame(1.0)}, t_ns, ego="env_0_jackal"
+    ctx = dataclasses.replace(
+        ctx,
+        fleet=_resample_fleet(
+            {"env_1_jackal": _fleet_pose_frame(1.0)}, t_ns, ego="env_0_jackal"
+        ),
     )
 
     sample = ctx.sample(0)

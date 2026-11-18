@@ -19,6 +19,7 @@ import os
 import pathlib
 import re
 import typing
+from collections.abc import Set as AbstractSet
 
 import numpy as np
 
@@ -234,7 +235,7 @@ def _entity_matches_door(door_key: str, entity: str) -> bool:
 def build_pixel_tl(
     grid: np.ndarray,
     doors: dict[str, tuple[np.ndarray, float]],
-    open_doors: set[str] | None = None,
+    open_doors: AbstractSet[str] | None = None,
     wall_tl_db: float = WALL_TRANSMISSION_LOSS_DB,
 ) -> np.ndarray:
     """Assemble the per-pixel TL map for the solver.

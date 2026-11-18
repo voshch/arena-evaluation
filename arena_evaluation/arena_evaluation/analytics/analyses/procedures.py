@@ -951,13 +951,15 @@ def _run_visibility_effect(
     deltas: list[float] = []
     for _ in range(params.n_boot):
         drawn = rng.choice(seeds, size=len(seeds), replace=True)
-        counts = {int(seed): int(np.count_nonzero(drawn == seed)) for seed in seeds}
+        drawn_seeds, draw_counts = np.unique(drawn, return_counts=True)
+        # One weight per drawn seed; a seed the replicate did not draw weighs 0 and drops out.
+        weights = {
+            int(seed): float(count)
+            for seed, count in zip(drawn_seeds, draw_counts, strict=True)
+        }
         weighted = frame.with_columns(
             pl.col("seed")
-            .map_elements(
-                lambda seed, counts=counts: float(counts.get(int(seed), 0)),
-                return_dtype=pl.Float64,
-            )
+            .replace_strict(weights, default=0.0, return_dtype=pl.Float64)
             .alias("__weight")
         ).filter(pl.col("__weight") > 0)
         boot_condition = _weighted_swap_count(

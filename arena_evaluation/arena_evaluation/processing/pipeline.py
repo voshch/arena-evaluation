@@ -256,8 +256,8 @@ def _peak_pedestrian_count(
         peds = peds.filter(pl.col("t_ns") >= start_ns)
     if end_ns is not None:
         peds = peds.filter(pl.col("t_ns") <= end_ns)
-    counts = peds.group_by("t_ns").len()["len"]
-    return int(counts.max()) if len(counts) > 0 else 0  # pyright: ignore[reportArgumentType]
+    peak = peds.group_by("t_ns").len()["len"].max()
+    return int(peak) if peak is not None else 0
 
 
 def _align_bundle(

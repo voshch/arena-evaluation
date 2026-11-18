@@ -429,8 +429,11 @@ def _recording_path(episode_dir: pathlib.Path) -> pathlib.Path:
 
 
 def _descriptor_present(topics: pathlib.Path) -> bool:
+    """Whether the episode recorded a robot descriptor: the file exists and holds at least one row."""
     path = topics / "robot_descriptor.parquet"
-    return path.is_file() and pl.read_parquet(path).height > 0
+    if not path.is_file():
+        return False
+    return pl.scan_parquet(path).select(pl.len()).collect().item() > 0
 
 
 def _descriptor_assignment(

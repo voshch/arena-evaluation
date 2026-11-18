@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import typing
 
 import numpy as np
@@ -408,20 +409,22 @@ def test_eval_context_family_at_returns_every_member_at_the_instant() -> None:
 def test_eval_context_peds_at_uses_the_latest_frame_within_the_alignment_tolerance(
     index: int, expected: dict[str, tuple[float, float]]
 ) -> None:
-    context = _eval_context()
-    context.t_ns = np.array([50_000_000, 150_000_000, 250_000_000])
-    context.peds_frames = [
-        pl.DataFrame({"ped_name": ["ped_a"], "x": [1.0], "y": [2.0]}),
-        pl.DataFrame({"ped_name": ["ped_a"], "x": [3.0], "y": [4.0]}),
-    ]
-    context.peds_times = np.array([0, TRACK_ALIGN_TOLERANCE_NS], dtype=np.int64)
+    context = dataclasses.replace(
+        _eval_context(),
+        t_ns=np.array([50_000_000, 150_000_000, 250_000_000]),
+        peds_frames=[
+            pl.DataFrame({"ped_name": ["ped_a"], "x": [1.0], "y": [2.0]}),
+            pl.DataFrame({"ped_name": ["ped_a"], "x": [3.0], "y": [4.0]}),
+        ],
+        peds_times=np.array([0, TRACK_ALIGN_TOLERANCE_NS], dtype=np.int64),
+    )
     assert context.peds_at(index) == expected
 
 
 def test_eval_context_sample_reports_the_ego_pose_on_the_time_axis() -> None:
-    context = _eval_context()
-    context.t_ns = np.array([1_000_000_000])
-    context.yaw = np.array([0.5])
+    context = dataclasses.replace(
+        _eval_context(), t_ns=np.array([1_000_000_000]), yaw=np.array([0.5])
+    )
     sampled = context.sample(0)
     assert (sampled.t, sampled.robots) == (1.0, {"robot": (0.0, 0.0, 0.5)})
 

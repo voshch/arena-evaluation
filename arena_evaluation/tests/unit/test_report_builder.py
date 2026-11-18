@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import pathlib
 
+import polars as pl
+import pytest
 from report_page import parse_page
 from star_benchmark import write_benchmark
 
-from arena_evaluation.presentation.report_builder import ReportBuilder
+from arena_evaluation.presentation.report_builder import (
+    ReportBuilder,
+    _summary_table_data,
+)
 from arena_evaluation.presentation.viz_manifest import (
     PlotChannels,
     PlotSpec,
@@ -158,8 +163,6 @@ def test_report_builder_from_dirs_merges_multiple_catalogs(
 def test_report_builder_records_missing_source_table_in_multirun_summary(
     tmp_path: pathlib.Path,
 ) -> None:
-    import polars as pl
-
     b1 = tmp_path / "bench_a"
     b2 = tmp_path / "bench_b"
     write_benchmark(b1, _ROWS)
@@ -341,3 +344,46 @@ def test_report_builder_embeds_bundle_and_static_render_for_every_plot(
     assert builder.build_checks.failed_count == 1
     assert builder.build_checks.failures[0].plot_id == "bar_plotly_fails"
     assert "bar_plotly_fails" in page
+
+
+def _summary_frame(pairs: list[tuple[str, str, float]]) -> pl.DataFrame:
+    """The long ``group_summary`` shape: one mean per (group, metric)."""
+    return pl.DataFrame(
+        {
+            "planner": [planner for planner, _, _ in pairs],
+            "metric": [metric for _, metric, _ in pairs],
+            "n": [2] * len(pairs),
+            "mean": [mean for _, _, mean in pairs],
+            "std": [1.0] * len(pairs),
+        }
+    )
+
+
+def test_summary_table_pivots_one_mean_per_group_and_metric() -> None:
+    """One row per group, one column per declared metric, in the manifest's metric order."""
+    table = _summary_frame(
+        [
+            ("teb", "success", 0.5),
+            ("dwb", "success", 1.0),
+            ("teb", "time_to_goal", 18.0),
+            ("dwb", "time_to_goal", 11.0),
+        ]
+    )
+    specs = [
+        SummarySpec(metric="success", label="Success", format="{:.0%}"),
+        SummarySpec(metric="time_to_goal", label="Time [s]", format="{:.1f}"),
+    ]
+
+    data = _summary_table_data(table, ["planner"], specs)
+
+    assert data["headers"] == ["planner", "Success", "Time [s]"]
+    assert data["rows"] == [["teb", "50%", "18.0"], ["dwb", "100%", "11.0"]]
+
+
+def test_summary_table_rejects_a_repeated_group_and_metric_cell() -> None:
+    """Two means for one cell must be reported, never silently resolved to the last row."""
+    table = _summary_frame([("teb", "success", 0.5), ("teb", "success", 0.75)])
+    specs = [SummarySpec(metric="success", label="Success", format="{:.0%}")]
+
+    with pytest.raises(ValueError, match=r"repeats 1 \(group, metric\) cell"):
+        _summary_table_data(table, ["planner"], specs)

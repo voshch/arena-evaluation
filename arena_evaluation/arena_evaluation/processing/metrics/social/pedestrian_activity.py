@@ -85,9 +85,12 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
                 (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
             )
         )
-        dx = tracks.get_column("x").diff().drop_nulls()
-        dy = tracks.get_column("y").diff().drop_nulls()
-        step_dist = np.hypot(dx.to_numpy(), dy.to_numpy())
+        # A step exists only between two samples that both carry a position: dropping x and y
+        # independently would pair one sample's dx with another sample's dy.
+        steps = tracks.select(
+            pl.col("x").diff().alias("dx"), pl.col("y").diff().alias("dy")
+        ).drop_nulls()
+        step_dist = np.hypot(steps["dx"].to_numpy(), steps["dy"].to_numpy())
         total_distance_m = float(np.sum(step_dist)) if len(step_dist) > 0 else 0.0
 
         speeds = tracks.get_column("derived_speed_mps").drop_nulls()

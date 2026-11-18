@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
     from arena_simulation_setup.tree.World import Level
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, slots=True)
 class ZoneGeometry:
     """Zone polygon with the speed, quiet and restricted annotations recorded for it."""
 
@@ -23,7 +23,7 @@ class ZoneGeometry:
     restricted: bool
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, slots=True)
 class DoorGeometry:
     """Door centre and activation radius in the flattened map frame."""
 

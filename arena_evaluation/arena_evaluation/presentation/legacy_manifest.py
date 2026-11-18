@@ -23,6 +23,7 @@ import yaml
 from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
 from arena_evaluation.presentation.viz_manifest import (
     ManifestGroup,
+    PlotChannels,
     PlotSpec,
     SummarySpec,
     VizManifest,
@@ -482,12 +483,11 @@ def _convert_table(
     group_cols = [name for name in group_cols if name]
     if not resolved or not group_cols:
         return None, "TODO: table without resolvable metrics or without a group column"
-    channels: dict[str, object] = {
-        "x": group_cols[0],
-        "y": ["metric", "n", "mean", "std"],
-    }
-    if len(group_cols) > 1:
-        channels["color"] = group_cols[1]
+    channels = PlotChannels(
+        x=group_cols[0],
+        y=["metric", "n", "mean", "std"],
+        color=group_cols[1] if len(group_cols) > 1 else None,
+    )
     options_new: dict[str, object] = {}
     if labels:
         options_new["labels"] = {
@@ -507,7 +507,7 @@ def _convert_table(
                 "computation": "group_summary",
                 "params": {"metrics": resolved, "group_cols": group_cols},
             },
-            channels=channels,  # type: ignore[arg-type]
+            channels=channels,
             options=options_new,
         ),
         "",
@@ -568,9 +568,9 @@ def _convert_distribution(
         params["group_cols"] = group_cols
     if filter_map:
         params["filter"] = filter_map
-    channels: dict[str, object] = {"x": "bin_center", "y": "count"}
-    if group_cols:
-        channels["color"] = group_cols[0]
+    channels = PlotChannels(
+        x="bin_center", y="count", color=group_cols[0] if group_cols else None
+    )
     return (
         PlotSpec(
             id=plot.id,
@@ -578,7 +578,7 @@ def _convert_distribution(
             title=plot.title,
             layout_group=plot.layout_group,
             data={"computation": "distribution_bins", "params": params},
-            channels=channels,  # type: ignore[arg-type]
+            channels=channels,
             options={"bin_low": "bin_low", "bin_high": "bin_high"},
         ),
         "",
@@ -615,24 +615,19 @@ def _convert_direct(
     if unresolved:
         return None, f"TODO: unresolved filter key {unresolved!r}"
     color = _color(plot)
-    channels: dict[str, object]
+    channels: PlotChannels
     if plot.type == "scatter":
         if secondary is None:
             return None, "TODO: scatter without options.y (the second axis metric)"
-        channels = {"x": metric, "y": secondary}
-        if color:
-            channels["color"] = color
+        channels = PlotChannels(x=metric, y=secondary, color=color)
     else:
-        if color:
-            channels = {"x": color, "y": metric}
-        else:
-            channels = {"y": metric}
+        channels = PlotChannels(x=color, y=metric)
     note = ""
     if not series and metric_tables is not None:
         fact_table = metric_tables.get(str(metric))
         if fact_table == "fact_pedestrians" and plot.type != "scatter":
             source = "fact_pedestrians"
-            channels = {"x": "ped_policy", "y": metric}
+            channels = PlotChannels(x="ped_policy", y=metric)
             note = (
                 "converted; grouped by ped_policy because fact_pedestrians has no "
                 "planner column (the old plot grouped by the planner label)"
@@ -642,7 +637,7 @@ def _convert_direct(
             and plot.type != "scatter"
         ):
             source = fact_table
-            channels = {"x": "robot_id", "y": metric}
+            channels = PlotChannels(x="robot_id", y=metric)
             note = f"converted; grouped by robot_id because {fact_table} has no planner column"
     data: dict[str, object] = {"source": source}
     where = _where(filter_map or {})
@@ -660,7 +655,7 @@ def _convert_direct(
             title=plot.title,
             layout_group=plot.layout_group,
             data=data,
-            channels=channels,  # type: ignore[arg-type]
+            channels=channels,
             options=options,
         ),
         note,
@@ -800,9 +795,9 @@ def _convert_series(
         params["bin_x"] = plot.options["bin_x"]
     if filter_map:
         params["filter"] = filter_map
-    channels: dict[str, object] = {"x": "x", "y": "value"}
-    if group_cols:
-        channels["color"] = group_cols[0]
+    channels = PlotChannels(
+        x="x", y="value", color=group_cols[0] if group_cols else None
+    )
     return (
         PlotSpec(
             id=plot.id,
@@ -810,7 +805,7 @@ def _convert_series(
             title=plot.title,
             layout_group=plot.layout_group,
             data={"computation": "series_profile", "params": params},
-            channels=channels,  # type: ignore[arg-type]
+            channels=channels,
             options={"show_markers": True} if plot.type == "line" else {},
         ),
         "",

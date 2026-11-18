@@ -49,6 +49,8 @@ from arena_evaluation.storage.config_layout import run_report_output_dir
 
 __all__ = ["BuildResult", "PlotBuildRecord", "ReportBuilder"]
 
+_REPEATED_CELL_EXAMPLES: Final[int] = 3
+
 _STATUS_COLS: tuple[str, ...] = (
     "stage",
     "planner",
@@ -180,24 +182,48 @@ def _summary_table_data(
     group_cols: list[str],
     summary_specs: Sequence[Any],
 ) -> dict[str, Any]:
-    """Pivot a long ``group_summary`` frame into a wide table: one row per group, one column per metric."""
-    headers = [*group_cols, *[item.label for item in summary_specs]]
-    grouped: dict[tuple[object, ...], dict[str, float | None]] = {}
-    for row in table.to_dicts():
-        key = tuple(row.get(col) for col in group_cols)
-        bucket = grouped.setdefault(key, {})
-        metric_name = str(row.get("metric", ""))
-        mean_val = row.get("mean")
-        bucket[metric_name] = (
-            float(mean_val) if isinstance(mean_val, (int, float)) else None
-        )
+    """Pivot the long ``group_summary`` frame into one row per group and one column per metric.
 
+    ``group_summary`` aggregates by the group columns, so a repeated ``(group, metric)`` pair means two
+    means compete for one cell. The pivot is required to be one-to-one: a repeated pair is reported
+    instead of letting the last row read win the cell.
+    """
+    headers = [*group_cols, *[item.label for item in summary_specs]]
+    keys = table.select([*group_cols, "metric"])
+    repeated = keys.filter(keys.is_duplicated()).unique(maintain_order=True)
+    if not repeated.is_empty():
+        sample = repeated.head(_REPEATED_CELL_EXAMPLES).select(
+            pl.concat_str(
+                [
+                    *(pl.col(name).cast(pl.String) for name in group_cols),
+                    pl.col("metric"),
+                ],
+                separator="/",
+            ).alias("cell")
+        )
+        # agent-contracts: ignore AC004 - example cells in the error message
+        examples = sample.to_series().to_list()
+        raise ValueError(
+            f"summary table repeats {repeated.height} (group, metric) cell(s); "
+            f"group_summary must publish exactly one mean per cell, e.g. {examples}"
+        )
+    wide = table.pivot(on="metric", index=group_cols, values="mean").select(
+        *group_cols, *[pl.col(item.metric).cast(pl.Float64) for item in summary_specs]
+    )
     rows: list[list[str]] = []
-    for key, metric_map in grouped.items():
-        cells = ["NULL" if val is None else str(val) for val in key]
-        for item in summary_specs:
-            cells.append(_format_metric(metric_map.get(item.metric), item.format))
-        rows.append(cells)
+    # agent-contracts: ignore AC004 - the report table renders one formatted string per cell
+    for record in wide.iter_rows():
+        key_cells = [
+            "NULL" if value is None else str(value)
+            for value in record[: len(group_cols)]
+        ]
+        value_cells = [
+            _format_metric(value, item.format)
+            for value, item in zip(
+                record[len(group_cols) :], summary_specs, strict=True
+            )
+        ]
+        rows.append([*key_cells, *value_cells])
     return {"headers": headers, "rows": rows}
 
 

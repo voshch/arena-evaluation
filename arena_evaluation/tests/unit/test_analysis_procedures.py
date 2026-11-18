@@ -156,6 +156,25 @@ def test_ranking_stability_returns_one_declared_table_for_any_world_count(
     assert single_world.summary.row(0, named=True)["kendalls_w"] is None
 
 
+def test_visibility_effect_bootstrap_weighs_rows_by_their_drawn_seed(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Every seed replicate keeps the planted swap delta: a seed-count weight, never a per-row rescan."""
+    catalog, _ = _catalog(tmp_path, include_swap=True)
+    result = run_procedure(
+        "visibility_effect", catalog, {"metric": "time_to_goal", "n_boot": 100}
+    )
+
+    row = result.summary.row(0, named=True)
+    assert row["condition_swaps"] == 5
+    assert row["seed_half_swaps"] == 0
+    assert row["swap_delta"] == 5
+    assert (row["ci_low"], row["ci_high"]) == (5.0, 5.0)
+    assert row["effect_detected"] is True
+    # No replicate delta reaches 0, so p = 1 / (n_boot + 1) exactly.
+    assert row["p_value"] == pytest.approx(1.0 / 101.0)
+
+
 def test_attribution_shares_use_pedestrian_contacts_only(
     tmp_path: pathlib.Path,
 ) -> None:

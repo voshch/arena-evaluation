@@ -240,6 +240,39 @@ def test_robot_identity_matches_recorder_and_sim_path_spellings():
     assert ident.any_of(["env_0/Pedestrian_5", "env_0/jackal"])
 
 
+@pytest.mark.parametrize(
+    ("robot", "member"),
+    [
+        ("env_0_jackal", "env_0/jackal"),
+        ("env_0_jackal", "/env_0/jackal/"),
+        ("env_0_jackal", "env_0_jackal"),
+        ("env_0_jackal", "jackal"),
+        ("env_0_jackal", "env_0/jackal/base_link"),
+        ("env_0_jackal", "env_1/jackal"),
+        ("env_0_jackal", "env_0/Pedestrian_5"),
+        ("env_0_jackal", ""),
+        ("robot_0", "robot_0"),
+        ("robot_0", "env_3/robot_0"),
+        ("robot_0", "env_3/robot_1"),
+        ("jackal/robot", "jackal/robot"),
+        ("jackal/robot", "jackal_robot"),
+        ("jackal/robot", "env_2/jackal/robot"),
+    ],
+)
+def test_the_entity_match_expression_agrees_with_matches(
+    robot: str, member: str
+) -> None:
+    """The vectorized predicate decides exactly what the row-wise ``matches`` decides."""
+    identity = RobotIdentity(robot)
+    matched = (
+        pl.DataFrame({"entity": [member]})
+        .select(identity.entity_match_expr().alias("matched"))
+        .item()
+    )
+
+    assert matched == identity.matches(member)
+
+
 def test_robot_identity_without_env_prefix():
     ident = RobotIdentity("robot_0")
     assert ident.matches("env_3/robot_0")

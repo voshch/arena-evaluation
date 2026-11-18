@@ -66,6 +66,27 @@ def _cell_centres(lower_m: float, cells: int, cell_m: float) -> np.ndarray:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class CellRenderRequest:
+    """Everything one acoustic cell needs: the field grid, the robot's place in it, and the render options."""
+
+    grid: np.ndarray
+    resolution_m: float
+    origin_m: tuple[float, float]
+    robot_xy_m: tuple[float, float]
+    source_dba: float
+    peds: Sequence[Sequence[float]]
+    title: str
+    out_path: pathlib.Path
+    downsample: int = 1
+    vmin_dba: float = _FIELD_VMIN_DBA
+    vmax_dba: float = 90.0
+    open_doors: frozenset[str] | None = None
+    doors: dict[str, tuple[np.ndarray, float]] | None = None
+    overlay_trajectories: bool = False
+    trajectory_data: dict[str, typing.Any] | None = None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class _AnimationLayers:
     """The static figure elements an acoustic-field animation updates each frame."""
 
@@ -174,46 +195,30 @@ class AcousticFieldRenderer(BasePlotRenderer):
         field_dba = source_dba - att_grid
         return field_dba, resolution, (h, w)
 
-    def render_cell_png(
-        self,
-        grid: np.ndarray,
-        resolution: float,
-        ox: float,
-        oy: float,
-        rx_m: float,
-        ry_m: float,
-        source_dba: float,
-        peds: Sequence[Sequence[float]],
-        title: str,
-        out_path: pathlib.Path,
-        downsample: int = 1,
-        vmin: float = _FIELD_VMIN_DBA,
-        vmax: float = 90.0,
-        open_doors: set[str] | None = None,
-        doors: dict[str, tuple[np.ndarray, float]] | None = None,
-        overlay_trajectories: bool = False,
-        trajectory_data: dict[str, typing.Any] | None = None,
-    ) -> bool:
+    def render_cell_png(self, request: CellRenderRequest) -> bool:
+        """Draw one acoustic cell: the field, its walls and doors, the robot and the pedestrians."""
         import matplotlib
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        eff_res = resolution
-        grid_eval = grid
-        doors_eval = doors
+        ox, oy = request.origin_m
+        rx_m, ry_m = request.robot_xy_m
+        eff_res = request.resolution_m
+        grid_eval = request.grid
+        doors_eval = request.doors
 
-        if downsample > 1:
-            grid_eval = downsample_occupancy(grid, downsample)
-            eff_res = resolution * downsample
-            if doors:
+        if request.downsample > 1:
+            grid_eval = downsample_occupancy(request.grid, request.downsample)
+            eff_res = request.resolution_m * request.downsample
+            if doors_eval:
                 doors_eval = {
-                    name: (downsample_mask(mask, downsample), tl_db)
-                    for name, (mask, tl_db) in doors.items()
+                    name: (downsample_mask(mask, request.downsample), tl_db)
+                    for name, (mask, tl_db) in doors_eval.items()
                 }
 
         pixel_tl = (
-            build_pixel_tl(grid_eval, doors_eval, open_doors=open_doors)
+            build_pixel_tl(grid_eval, doors_eval, open_doors=request.open_doors)
             if doors_eval
             else None
         )
@@ -224,7 +229,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             oy,
             rx_m,
             ry_m,
-            source_dba,
+            request.source_dba,
             downsample=1,
             pixel_tl=pixel_tl,
         )
@@ -232,7 +237,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         door_mask = np.zeros_like(grid_eval, dtype=bool)
         open_door_mask = np.zeros_like(grid_eval, dtype=bool)
         if doors_eval:
-            open_set = open_doors or set()
+            open_set = request.open_doors or frozenset()
             for name, (mask, _tl) in doors_eval.items():
                 door_mask |= mask
                 if any(_entity_matches_door(name, e) for e in open_set):
@@ -248,8 +253,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         ax = plt.gca()
         ax.set_facecolor("black")
         ax.grid(False)
-        left, right = _cell_extent(ox, w, eff_res, resolution)
-        bottom, top = _cell_extent(oy, h, eff_res, resolution)
+        left, right = _cell_extent(ox, w, eff_res, request.resolution_m)
+        bottom, top = _cell_extent(oy, h, eff_res, request.resolution_m)
         extent = (left, right, bottom, top)
 
         im = plt.imshow(
@@ -257,8 +262,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             cmap="inferno",
             origin="upper",
             extent=extent,
-            vmin=vmin,
-            vmax=vmax,
+            vmin=request.vmin_dba,
+            vmax=request.vmax_dba,
         )
         cy = _cell_centres(bottom, h, eff_res)
         cx = _cell_centres(left, w, eff_res)
@@ -295,8 +300,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 )
         plt.colorbar(im, label="dBA", fraction=0.046, pad=0.04)
 
-        if overlay_trajectories and trajectory_data:
-            self._draw_trajectories_overlay(ax, trajectory_data)
+        if request.overlay_trajectories and request.trajectory_data:
+            self._draw_trajectories_overlay(ax, request.trajectory_data)
 
         plt.plot(
             rx_m,
@@ -310,9 +315,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
             zorder=10,
             label="Robot (Position)",
         )
-        if peds:
-            px = [p[0] for p in peds if len(p) >= 2]
-            py = [p[1] for p in peds if len(p) >= 2]
+        if request.peds:
+            px = [p[0] for p in request.peds if len(p) >= 2]
+            py = [p[1] for p in request.peds if len(p) >= 2]
             if px:
                 plt.plot(
                     px,
@@ -327,7 +332,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                     label="Peds (Position)",
                 )
 
-        plt.title(title, fontsize=9)
+        plt.title(request.title, fontsize=9)
         plt.xlabel("X (m)", fontsize=8)
         plt.ylabel("Y (m)", fontsize=8)
         plt.tick_params(labelsize=7)
@@ -341,8 +346,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         )
         plt.tight_layout()
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(out_path, dpi=_CELL_DPI, bbox_inches="tight")
+        request.out_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(request.out_path, dpi=_CELL_DPI, bbox_inches="tight")
         plt.close()
         return True
 
@@ -506,7 +511,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 vmax = vmin + 20.0
             door_states = worst.get("door_states") or {}
             open_doors = (
-                {n for n, st in door_states.items() if st == "open"} if doors else None
+                frozenset(n for n, st in door_states.items() if st == "open")
+                if doors
+                else None
             )
             overlay_trajectories = self._overlay_trajectories()
             traj_data = (
@@ -515,23 +522,23 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 else None
             )
             ok = self.render_cell_png(
-                grid,
-                resolution,
-                ox,
-                oy,
-                worst["robot_x"],
-                worst["robot_y"],
-                src_dba,
-                worst["pedestrians"],
-                title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
-                out_path=png_path,
-                downsample=downsample,
-                vmin=vmin,
-                vmax=vmax,
-                open_doors=open_doors,
-                doors=doors,
-                overlay_trajectories=overlay_trajectories,
-                trajectory_data=traj_data,
+                CellRenderRequest(
+                    grid=grid,
+                    resolution_m=resolution,
+                    origin_m=(ox, oy),
+                    robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
+                    source_dba=src_dba,
+                    peds=worst["pedestrians"],
+                    title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
+                    out_path=png_path,
+                    downsample=downsample,
+                    vmin_dba=vmin,
+                    vmax_dba=vmax,
+                    open_doors=open_doors,
+                    doors=doors,
+                    overlay_trajectories=overlay_trajectories,
+                    trajectory_data=traj_data,
+                )
             )
             if not ok:
                 return ""
@@ -574,7 +581,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
             png_path = plots_dir / f"{safe}.png"
             door_states = worst.get("door_states") or {}
             open_doors = (
-                {n for n, st in door_states.items() if st == "open"} if doors else None
+                frozenset(n for n, st in door_states.items() if st == "open")
+                if doors
+                else None
             )
             traj_data = (
                 self._cell_trajectories(worst, work_df)
@@ -582,23 +591,23 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 else None
             )
             ok = self.render_cell_png(
-                grid,
-                resolution,
-                ox,
-                oy,
-                worst["robot_x"],
-                worst["robot_y"],
-                float(worst["source_dba"]),
-                worst["pedestrians"],
-                title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
-                out_path=png_path,
-                downsample=downsample,
-                vmin=vmin,
-                vmax=global_max,
-                open_doors=open_doors,
-                doors=doors,
-                overlay_trajectories=overlay_trajectories,
-                trajectory_data=traj_data,
+                CellRenderRequest(
+                    grid=grid,
+                    resolution_m=resolution,
+                    origin_m=(ox, oy),
+                    robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
+                    source_dba=float(worst["source_dba"]),
+                    peds=worst["pedestrians"],
+                    title=f"{row_label} / {col_label}  |  {worst['ped_max_exposure_dba']:.0f} dBA",
+                    out_path=png_path,
+                    downsample=downsample,
+                    vmin_dba=vmin,
+                    vmax_dba=global_max,
+                    open_doors=open_doors,
+                    doors=doors,
+                    overlay_trajectories=overlay_trajectories,
+                    trajectory_data=traj_data,
+                )
             )
             if ok:
                 cells.append(
@@ -659,7 +668,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         door_states = worst.get("door_states") or {}
         open_doors = (
-            {n for n, st in door_states.items() if st == "open"} if doors else None
+            frozenset(n for n, st in door_states.items() if st == "open")
+            if doors
+            else None
         )
         overlay_trajectories = self._overlay_trajectories()
         traj_data = (
@@ -667,23 +678,23 @@ class AcousticFieldRenderer(BasePlotRenderer):
         )
 
         self.render_cell_png(
-            grid,
-            resolution,
-            ox,
-            oy,
-            worst["robot_x"],
-            worst["robot_y"],
-            src_dba,
-            worst["pedestrians"],
-            title=f"{self.spec.title} (Robot: {src_dba:.0f} dBA)",
-            out_path=out_path,
-            downsample=downsample,
-            vmin=vmin,
-            vmax=vmax,
-            open_doors=open_doors,
-            doors=doors,
-            overlay_trajectories=overlay_trajectories,
-            trajectory_data=traj_data,
+            CellRenderRequest(
+                grid=grid,
+                resolution_m=resolution,
+                origin_m=(ox, oy),
+                robot_xy_m=(float(worst["robot_x"]), float(worst["robot_y"])),
+                source_dba=src_dba,
+                peds=worst["pedestrians"],
+                title=f"{self.spec.title} (Robot: {src_dba:.0f} dBA)",
+                out_path=out_path,
+                downsample=downsample,
+                vmin_dba=vmin,
+                vmax_dba=vmax,
+                open_doors=open_doors,
+                doors=doors,
+                overlay_trajectories=overlay_trajectories,
+                trajectory_data=traj_data,
+            )
         )
 
     @staticmethod

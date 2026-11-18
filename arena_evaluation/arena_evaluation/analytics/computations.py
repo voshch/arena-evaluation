@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Callable, Mapping, Sequence
+from enum import StrEnum
 from typing import Any, Literal
 
 import numpy as np
@@ -50,7 +51,16 @@ _NULL_REASON_COLUMNS: tuple[str, ...] = (
     "fact_episode_null_reason",
     "fact_robot_null_reason",
 )
-_DIRECTIONS: tuple[str, ...] = ("higher", "lower")
+
+
+class MetricDirection(StrEnum):
+    """The better side of a metric, the vocabulary ``dim_metrics.direction`` publishes."""
+
+    HIGHER = "higher"
+    LOWER = "lower"
+
+
+_DIRECTIONS: tuple[str, ...] = tuple(direction.value for direction in MetricDirection)
 
 
 _FilterScalar = str | int | float | bool
@@ -652,7 +662,7 @@ def _compute_distribution_bins(
 def _radar_normalize(
     raw: np.ndarray,
     metrics: Sequence[str],
-    directions: Sequence[str],
+    directions: Sequence[MetricDirection],
     *,
     log_scale: bool,
 ) -> tuple[np.ndarray, dict[str, int]]:
@@ -685,21 +695,30 @@ def _radar_normalize(
         col_valid = col[valid]
         high = float(col_valid.max())
         low = float(col_valid.min())
-        if high == 0.0 and low == 0.0:
-            normalized = np.ones_like(col_valid)
-        elif direction == "higher" and high > 0.0:
-            normalized = col_valid / high
-        elif direction == "higher":
-            untransformable[metric] = untransformable.get(metric, 0) + int(
-                col_valid.size
-            )
-            continue
-        elif low > 0.0:
-            normalized = low / col_valid
-        elif high <= 0.0:
-            normalized = col_valid / low
-        else:
-            normalized = 1.0 - col_valid / high
+        match direction:
+            case MetricDirection.HIGHER | MetricDirection.LOWER if (
+                high == 0.0 and low == 0.0
+            ):
+                # A flat all-zero column is the best possible value on either side.
+                normalized = np.ones_like(col_valid)
+            case MetricDirection.HIGHER if high > 0.0:
+                normalized = col_valid / high
+            case MetricDirection.HIGHER:
+                untransformable[metric] = untransformable.get(metric, 0) + int(
+                    col_valid.size
+                )
+                continue
+            case MetricDirection.LOWER if low > 0.0:
+                normalized = low / col_valid
+            case MetricDirection.LOWER if high <= 0.0:
+                normalized = col_valid / low
+            case MetricDirection.LOWER:
+                normalized = 1.0 - col_valid / high
+            case _:
+                raise ValueError(
+                    f"metric {metric!r} declares direction {direction!r}; "
+                    f"expected one of {list(_DIRECTIONS)}"
+                )
         column = np.full(col.shape, np.nan, dtype=np.float64)
         column[valid] = np.clip(normalized, 0.0, 1.0)
         matrix[:, col_idx] = column
@@ -745,7 +764,7 @@ def _compute_radar_profile(
     norm, untransformable = _radar_normalize(
         raw,
         p.metrics,
-        [directions.by_metric[m] for m in p.metrics],
+        [MetricDirection(directions.by_metric[m]) for m in p.metrics],
         log_scale=p.log_scale,
     )
     norm_df = pl.DataFrame(
@@ -828,15 +847,16 @@ def _run_composite_ranking(
         if not vals:
             continue
         low, high = min(vals), max(vals)
+        higher_is_better = (
+            MetricDirection(directions.by_metric[m]) is MetricDirection.HIGHER
+        )
         for idx, r in enumerate(group_rows):
             v = r[m]
             if v is None:
                 norm_scores[(idx, m)] = None
             else:
                 norm = 0.5 if high == low else (v - low) / (high - low)
-                norm_scores[(idx, m)] = (
-                    norm if directions.by_metric[m] == "higher" else 1.0 - norm
-                )
+                norm_scores[(idx, m)] = norm if higher_is_better else 1.0 - norm
 
     scored_groups: list[tuple[int, float | None]] = []
     for idx, _ in enumerate(group_rows):
