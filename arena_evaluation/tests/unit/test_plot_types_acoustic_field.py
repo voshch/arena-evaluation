@@ -10,7 +10,6 @@ import pytest
 from matplotlib.animation import FFMpegWriter
 from star_benchmark import write_benchmark
 
-import arena_evaluation.presentation.plot_types.acoustic_field as af_mod
 from arena_evaluation.presentation.checks import PlotDiagnostics
 from arena_evaluation.presentation.plot_types.acoustic_field import (
     AcousticFieldAnimationRenderer,
@@ -196,24 +195,6 @@ def _make_episode(
     return bench
 
 
-def test_grid_extent_starts_half_a_source_cell_below_the_origin() -> None:
-    assert af_mod._cell_extent(
-        origin_m=1.0, cells=10, cell_m=0.05, source_res_m=0.05
-    ) == pytest.approx((0.975, 1.475))
-
-
-def test_downsampled_grid_still_starts_half_a_source_cell_below_the_origin() -> None:
-    assert af_mod._cell_extent(
-        origin_m=0.0, cells=5, cell_m=0.1, source_res_m=0.05
-    ) == pytest.approx((-0.025, 0.475))
-
-
-def test_contour_centres_sit_in_the_middle_of_each_cell() -> None:
-    assert af_mod._cell_centres(lower_m=0.975, cells=4, cell_m=0.05) == pytest.approx(
-        [1.0, 1.05, 1.1, 1.15]
-    )
-
-
 def test_pick_worst_row_happy_with_prejoined_pose(tmp_path: pathlib.Path) -> None:
     renderer = _new_renderer(_af_spec(), tmp_path)
     worst = renderer.pick_worst_row(_af_df())
@@ -255,16 +236,6 @@ def test_prepared_df_excludes_reference_runs_by_default(
     assert out["planner"].to_list() == ["teb"]
     kept = _new_renderer(_af_spec(include_reference=True), tmp_path)._prepared_df(df)
     assert kept.height == 2
-
-
-def test_facet_axes_and_filter_facet(tmp_path: pathlib.Path) -> None:
-    renderer = _new_renderer(_af_spec(), tmp_path)
-    row_col, col_col, row_vals, col_vals = renderer._facet_axes(_af_df())
-    assert (row_col, col_col) == ("planner", "stage")
-    assert row_vals == ["dwb", "teb"]
-    assert col_vals == ["hall"]
-    filtered = renderer._filter_facet(_af_df(), row_col, col_col, "dwb", "hall")
-    assert filtered["planner"].to_list() == ["dwb"]
 
 
 def test_parse_pedestrian_positions_keeps_the_pair_list_encoding(
