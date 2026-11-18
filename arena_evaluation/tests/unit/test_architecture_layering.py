@@ -94,12 +94,7 @@ _ALIGNMENT_MODULES: frozenset[str] = frozenset(
         "processing/metrics/common/alignment.py",
     }
 )
-# Direct alignment sites that still bypass the one alignment module. Each is owned by a row
-# that must route it through `alignment` (X-026); delete the entry once the file no longer
-# aligns streams itself, the assertion below fails until then.
-_KNOWN_DIRECT_ALIGNMENT_SITES: dict[str, str] = {
-    "processing/metrics/social/encounter_costs.py": "X-026 / PR2",
-}
+# No production module outside the two alignment owners may match streams itself.
 
 
 def _resolve_package(path: pathlib.Path, level: int) -> str:
@@ -241,7 +236,6 @@ _FORBIDDEN_STAT_MODULES: tuple[str, ...] = ("scipy.stats", "scipy.cluster")
 def test_streams_are_aligned_only_in_the_alignment_module() -> None:
     """Alignment is one module: presentation binds published series and nothing re-pairs streams itself."""
     violations: list[str] = []
-    seen_known: set[str] = set()
     for path in sorted(_PKG_ROOT.rglob("*.py")):
         rel = path.relative_to(_PKG_ROOT).as_posix()
         if rel in _ALIGNMENT_MODULES:
@@ -256,16 +250,10 @@ def test_streams_are_aligned_only_in_the_alignment_module() -> None:
         ]
         if not lines:
             continue
-        if rel in _KNOWN_DIRECT_ALIGNMENT_SITES:
-            seen_known.add(rel)
-            continue
         violations.append(f"{rel}:{lines}")
 
     assert not violations, (
         f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
-    )
-    assert seen_known == set(_KNOWN_DIRECT_ALIGNMENT_SITES), (
-        f"site(s) no longer aligning directly, delete their entry: {set(_KNOWN_DIRECT_ALIGNMENT_SITES) - seen_known}"
     )
 
 

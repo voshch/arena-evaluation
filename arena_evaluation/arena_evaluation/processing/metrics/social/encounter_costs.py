@@ -16,6 +16,7 @@ from typing import Any, Final
 import numpy as np
 import polars as pl
 
+from arena_evaluation.processing.alignment import interpolate_values
 from arena_evaluation.processing.metrics.base import (
     NULL_REASON_SUFFIX,
     BaseMetricCalculator,
@@ -406,7 +407,9 @@ def _robot_excess_energy_wh(
     ):
         reasons["kcsc_wh_vs_planned_route"] = NullReason.NO_SAMPLES.value
         return None
-    robot_power_w = np.interp(robot.t_ns.astype(np.float64), power_t_ns, power_values)
+    robot_power_w = interpolate_values(
+        power_t_ns, power_values, robot.t_ns.astype(np.float64)
+    )
     free_distance_m = float(
         np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs])
     )
