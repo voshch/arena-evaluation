@@ -305,7 +305,7 @@ def _track_from_frame(frame: pl.DataFrame) -> PedTrack:
     position_moved = len(x) >= 2 and bool(np.any(np.hypot(np.diff(x), np.diff(y)) > 1e-6))
     if twist_is_zero and position_moved:
         vx, vy = BaseMetricCalculator.velocity_from_pose(x, y, t_ns)
-        vx[0], vy[0] = vx[1], vy[1]
+        vx[0], vy[0] = np.nan, np.nan
 
     radius_m = _first_float(frame["radius_m"])
     if radius_m is None or not np.isfinite(radius_m) or radius_m <= 0.0:

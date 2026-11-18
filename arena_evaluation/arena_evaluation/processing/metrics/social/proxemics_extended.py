@@ -27,7 +27,7 @@ from arena_evaluation.processing.metrics.common.alignment import (
 )
 from arena_evaluation.processing.metrics.social.proxemics import (
     INTIMATE_CLEARANCE_M,
-    PERSONAL_CLEARANCE_M,
+    PERSONAL_ZONE_EDGE_CLEARANCE_M,
 )
 from arena_evaluation.processing.pedestrian_frames import (
     NS_PER_S,
@@ -51,7 +51,7 @@ ZONES: Final[tuple[str, ...]] = ("intimate", "personal", "social", "public")
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemicsExtended.polars_schema()
 
-ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
+ZONE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.EPISODE, MetricScope.ENCOUNTER)
 
 TIME_IN_INTIMATE_ZONE = define_metric(
     "time_in_intimate_zone",
@@ -183,7 +183,7 @@ def _zone_expression() -> pl.Expr:
         .then(pl.lit(None, dtype=pl.String))
         .when(clearance_m < INTIMATE_CLEARANCE_M)
         .then(pl.lit("intimate"))
-        .when(clearance_m < PERSONAL_CLEARANCE_M)
+        .when(clearance_m < PERSONAL_ZONE_EDGE_CLEARANCE_M)
         .then(pl.lit("personal"))
         .when(clearance_m < SOCIAL_CLEARANCE_M)
         .then(pl.lit("social"))
@@ -390,9 +390,9 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
             _zone_top_speed_expression("social"),
             _zone_top_speed_expression("public"),
             personal_space_intrusion_integral_m_s=(
-                pl.when(pl.col("clearance_m") < PERSONAL_CLEARANCE_M)
+                pl.when(pl.col("clearance_m") < PERSONAL_ZONE_EDGE_CLEARANCE_M)
                 .then(
-                    (PERSONAL_CLEARANCE_M - pl.col("clearance_m").clip(lower_bound=0.0))
+                    (PERSONAL_ZONE_EDGE_CLEARANCE_M - pl.col("clearance_m").clip(lower_bound=0.0))
                     * pl.col("dt_s")
                 )
                 .otherwise(0.0)

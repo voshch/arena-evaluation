@@ -35,7 +35,7 @@ CI_SIGMA_Y_M: Final[float] = 0.28
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesSocialForces.polars_schema()
 
-FORCE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.ROBOT, MetricScope.ENCOUNTER)
+FORCE_SCOPES: Final[tuple[MetricScope, ...]] = (MetricScope.EPISODE, MetricScope.ENCOUNTER)
 
 SFM_CUMULATIVE_FORCE = define_metric("sfm_cumulative_force", pl.Float64, scopes=FORCE_SCOPES, unit="N·s", description="Time integral of the Helbing social force from the robot onto the pedestrians.", null_reason=True)
 SFM_PEAK_FORCE = define_metric("sfm_peak_force", pl.Float64, scopes=FORCE_SCOPES, unit="N", description="Peak Helbing social force from the robot onto the pedestrians.", null_reason=True)

@@ -24,10 +24,10 @@ ENCOUNTER_OUTPUTS = (
     "detour_time_s",
     "ped_path_excess_m",
     "robot_path_excess_m",
-    "robot_path_deviation_m",
-    "mar",
-    "pfi",
-    "kcsc_wh",
+    "robot_path_deviation_vs_planned_m",
+    "mar_vs_planned_route",
+    "pfi_vs_planned_route",
+    "kcsc_wh_vs_planned_route",
 )
 
 
@@ -165,12 +165,12 @@ def test_agents_on_their_planned_routes_have_no_excess(
 
     assert outputs["robot_path_excess_m"] == pytest.approx(0.0, abs=1e-9)
     assert outputs["ped_path_excess_m"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["robot_path_deviation_m"] == pytest.approx(0.0, abs=1e-9)
+    assert outputs["robot_path_deviation_vs_planned_m"] == pytest.approx(0.0, abs=1e-9)
     assert outputs["detour_time_s"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["pfi"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["kcsc_wh"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["mar"] is None
-    assert outputs[f"mar{NULL_REASON_SUFFIX}"] == "invalid_episode:no_path_excess"
+    assert outputs["pfi_vs_planned_route"] == pytest.approx(0.0, abs=1e-9)
+    assert outputs["kcsc_wh_vs_planned_route"] == pytest.approx(0.0, abs=1e-9)
+    assert outputs["mar_vs_planned_route"] is None
+    assert outputs[f"mar_vs_planned_route{NULL_REASON_SUFFIX}"] == "zero_denominator"
 
 
 def test_robot_detour_gives_its_excess_deviation_and_mar_one(
@@ -197,12 +197,12 @@ def test_robot_detour_gives_its_excess_deviation_and_mar_one(
     assert outputs["robot_path_excess_m"] == pytest.approx(
         2.0 * np.sqrt(2.0) - 2.0, abs=1e-6
     )
-    assert outputs["robot_path_deviation_m"] == pytest.approx(1.0, abs=1e-6)
+    assert outputs["robot_path_deviation_vs_planned_m"] == pytest.approx(1.0, abs=1e-6)
     assert outputs["ped_path_excess_m"] == pytest.approx(0.0, abs=1e-9)
-    assert outputs["mar"] == pytest.approx(1.0, abs=1e-6)
+    assert outputs["mar_vs_planned_route"] == pytest.approx(1.0, abs=1e-6)
 
 
-def test_endpoint_in_a_lethal_cell_gives_the_reason_for_the_robot_only(
+def test_endpoint_in_a_lethal_cell_gives_reference_missing_for_the_robot_only(
     tmp_path: pathlib.Path,
 ) -> None:
     run_dir = _write_world(
@@ -224,10 +224,7 @@ def test_endpoint_in_a_lethal_cell_gives_the_reason_for_the_robot_only(
     outputs = _calculator().calculate_for_scope(episode, {}, _window(1.0, 3.0))
 
     assert outputs["robot_path_excess_m"] is None
-    assert (
-        outputs[f"robot_path_excess_m{NULL_REASON_SUFFIX}"]
-        == "invalid_episode:start_in_lethal_cell"
-    )
+    assert outputs[f"robot_path_excess_m{NULL_REASON_SUFFIX}"] == "reference_missing"
     assert outputs["ped_path_excess_m"] == pytest.approx(0.0, abs=1e-9)
 
 
@@ -244,12 +241,9 @@ def test_pedestrian_without_a_radius_has_no_planned_route(
     outputs = _calculator().calculate_for_scope(episode, {}, _window(1.0, 3.0))
 
     assert outputs["ped_path_excess_m"] is None
-    assert (
-        outputs[f"ped_path_excess_m{NULL_REASON_SUFFIX}"]
-        == "invalid_episode:pedestrian_radius_missing"
-    )
+    assert outputs[f"ped_path_excess_m{NULL_REASON_SUFFIX}"] == "not_recorded"
     assert outputs["detour_time_s"] is None
-    assert outputs["mar"] is None
+    assert outputs["mar_vs_planned_route"] is None
 
 
 def test_an_encounter_with_a_non_pedestrian_is_not_applicable(

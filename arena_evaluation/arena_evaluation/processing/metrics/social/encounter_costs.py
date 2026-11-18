@@ -4,7 +4,7 @@ Each agent in an encounter window is compared with its planned route: the Theta*
 radius, between its positions at the window's first and last sample. The costs need no other recording.
 
 Walk the window with the agent's own samples: its path length minus the planned route length is the path excess; the
-window duration minus the planned route time (planned length over the agent's free speed) is the detour time.
+window duration minus the planned route time (planned length over the agent's free speed) is the detour time. mar, pfi, kcsc_wh and robot_path_deviation are measured against the planned route only, since no robot-free reference run is recorded; their names carry the planned-route suffix.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ ROBOT_PATH_EXCESS = define_metric(
     null_reason=True,
 )
 ROBOT_PATH_DEVIATION = define_metric(
-    "robot_path_deviation_m",
+    "robot_path_deviation_vs_planned_m",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER,),
     unit="m",
@@ -79,7 +79,7 @@ ROBOT_PATH_DEVIATION = define_metric(
     null_reason=True,
 )
 MAR = define_metric(
-    "mar",
+    "mar_vs_planned_route",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER,),
     unit="1",
@@ -87,7 +87,7 @@ MAR = define_metric(
     null_reason=True,
 )
 PFI = define_metric(
-    "pfi",
+    "pfi_vs_planned_route",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER,),
     unit="m/s",
@@ -95,7 +95,7 @@ PFI = define_metric(
     null_reason=True,
 )
 KCSC_WH = define_metric(
-    "kcsc_wh",
+    "kcsc_wh_vs_planned_route",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER,),
     unit="Wh",
@@ -165,7 +165,8 @@ def _power_samples(
     table = (episode.topics or {}).get("robot_power")
     if table is None or table.height == 0:
         return None
-    return table["t_ns"].to_numpy().astype(np.float64), table[
+    ordered = table.sort("t_ns")
+    return ordered["t_ns"].to_numpy().astype(np.float64), ordered[
         "total_power_w"
     ].to_numpy().astype(np.float64)
 
@@ -221,7 +222,14 @@ def _planned(
 
 
 def _refusal(route: RouteResult) -> str:
-    return f"{NullReason.INVALID_EPISODE.value}:{route.null_reason}"
+    """Closed-vocabulary reason for a missing planned-route reference.
+
+    A missing recorded parameter stays distinct from a route the planner could not find; neither makes
+    the episode unrankable, so an unregistered ``invalid_episode:<why>`` is never written.
+    """
+    if route.null_reason == NullReason.NOT_RECORDED.value:
+        return NullReason.NOT_RECORDED.value
+    return NullReason.REFERENCE_MISSING.value
 
 
 def _encounter_outputs(
@@ -262,7 +270,7 @@ def _encounter_outputs(
     )
     if track.radius_m is None or not np.isfinite(track.radius_m):
         ped_route = RouteResult(
-            points=None, length_m=None, null_reason="pedestrian_radius_missing"
+            points=None, length_m=None, null_reason=NullReason.NOT_RECORDED.value
         )
     else:
         ped_route = _planned(
@@ -277,12 +285,12 @@ def _encounter_outputs(
             _polyline_length(robot_window.x, robot_window.y) - robot_route.length_m
         )
         outputs["robot_path_excess_m"] = robot_excess_m
-        outputs["robot_path_deviation_m"] = max_orthogonal_deviation_m(
+        outputs["robot_path_deviation_vs_planned_m"] = max_orthogonal_deviation_m(
             robot_window.xy, robot_route.points
         )
     else:
         reasons["robot_path_excess_m"] = _refusal(robot_route)
-        reasons["robot_path_deviation_m"] = _refusal(robot_route)
+        reasons["robot_path_deviation_vs_planned_m"] = _refusal(robot_route)
 
     ped_excess_m: float | None = None
     if ped_route.points is not None and ped_route.length_m is not None:
@@ -347,25 +355,31 @@ def _populate_interaction_costs(
 ) -> None:
     if robot_excess_m is not None and ped_excess_m is not None:
         mar = mutual_accommodation_ratio(robot_excess_m, ped_excess_m)
-        outputs["mar"] = mar
+        outputs["mar_vs_planned_route"] = mar
         if mar is None:
-            reasons["mar"] = f"{NullReason.INVALID_EPISODE.value}:no_path_excess"
+            reasons["mar_vs_planned_route"] = NullReason.ZERO_DENOMINATOR.value
     else:
-        reasons["mar"] = NullReason.NO_SAMPLES.value
+        reasons["mar_vs_planned_route"] = (
+            reasons.get("ped_path_excess_m")
+            or reasons.get("robot_path_excess_m")
+            or NullReason.NO_SAMPLES.value
+        )
 
     dwell_s = _intimate_dwell_s(robot_window, track, robot_radius_m)
     deceleration = _deceleration_mps2(pedestrian_window)
     if dwell_s is None or deceleration is None:
-        reasons["pfi"] = NullReason.NO_SAMPLES.value
+        reasons["pfi_vs_planned_route"] = NullReason.NO_SAMPLES.value
     else:
-        outputs["pfi"] = deceleration * dwell_s
+        outputs["pfi_vs_planned_route"] = deceleration * dwell_s
 
     if power is None:
-        reasons["kcsc_wh"] = f"{NullReason.TOPIC_MISSING.value}:robot_power"
+        reasons["kcsc_wh_vs_planned_route"] = (
+            f"{NullReason.TOPIC_MISSING.value}:robot_power"
+        )
     elif robot_route.length_m is None:
-        reasons["kcsc_wh"] = _refusal(robot_route)
+        reasons["kcsc_wh_vs_planned_route"] = _refusal(robot_route)
     else:
-        outputs["kcsc_wh"] = _robot_excess_energy_wh(
+        outputs["kcsc_wh_vs_planned_route"] = _robot_excess_energy_wh(
             robot, robot_window, spans, power, window_ns, robot_route.length_m, reasons
         )
 
@@ -380,19 +394,28 @@ def _robot_excess_energy_wh(
     reasons: dict[str, str],
 ) -> float | None:
     power_t_ns, power_values = power
-    robot_power_w = np.interp(robot.t_ns.astype(np.float64), power_t_ns, power_values)
     free = _outside(robot.t_ns, [(start_ns, end_ns) for _, start_ns, end_ns in spans])
     free_pairs = free[:-1] & free[1:]
+    window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
+    used_pairs = free_pairs | window_pairs
+    used_t_ns = np.concatenate(
+        [robot.t_ns[:-1][used_pairs], robot.t_ns[1:][used_pairs]]
+    )
+    if used_t_ns.size and (
+        used_t_ns.min() < power_t_ns[0] or used_t_ns.max() > power_t_ns[-1]
+    ):
+        reasons["kcsc_wh_vs_planned_route"] = NullReason.NO_SAMPLES.value
+        return None
+    robot_power_w = np.interp(robot.t_ns.astype(np.float64), power_t_ns, power_values)
     free_distance_m = float(
         np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs])
     )
     if free_distance_m <= 0.0:
-        reasons["kcsc_wh"] = NullReason.NO_SAMPLES.value
+        reasons["kcsc_wh_vs_planned_route"] = NullReason.NO_SAMPLES.value
         return None
     energy_per_m_wh = (
         _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
     )
-    window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
     window_energy_wh = _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
     return max(window_energy_wh - energy_per_m_wh * planned_length_m, 0.0)
 
@@ -411,8 +434,6 @@ class EncounterCostsCalculator(BaseMetricCalculator):
     CATEGORY = "social"
     REQUIRED_TOPICS = [ROBOT_TRACKS_TOPIC, PEDESTRIAN_TRACKS_TOPIC]
     PARAMS = (
-        "target_agent_id",
-        "target_agent_name",
         "encounter_edge_distance_m",
         "encounter_merge_gap_s",
     )
@@ -429,12 +450,16 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         "detour_time_s": Direction.LOWER,
         "ped_path_excess_m": Direction.LOWER,
         "robot_path_excess_m": Direction.LOWER,
-        "robot_path_deviation_m": Direction.LOWER,
-        "mar": Direction.HIGHER,
-        "pfi": Direction.LOWER,
-        "kcsc_wh": Direction.LOWER,
+        "robot_path_deviation_vs_planned_m": Direction.LOWER,
+        "mar_vs_planned_route": Direction.HIGHER,
+        "pfi_vs_planned_route": Direction.LOWER,
+        "kcsc_wh_vs_planned_route": Direction.LOWER,
     }
-    PRIMARY_OUTPUTS = ["mar", "kcsc_wh", "detour_time_s"]
+    PRIMARY_OUTPUTS = [
+        "mar_vs_planned_route",
+        "kcsc_wh_vs_planned_route",
+        "detour_time_s",
+    ]
 
     @classmethod
     def _null_output(cls, null_reason: str | None = None) -> dict[str, Any]:
