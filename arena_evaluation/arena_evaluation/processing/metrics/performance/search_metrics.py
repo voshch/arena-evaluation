@@ -9,6 +9,7 @@ import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import SeesAtom
 from arena_simulation_setup.shared.judge import Sample, WallGrid, atom_holds
+from arena_simulation_setup.shared.task import GoToPhase, TaskPhase
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
@@ -46,11 +47,10 @@ def search_phase(phases: dict | None) -> tuple[int, str, float | None] | None:
     """(index, target ped, find radius) of the judge-only goto on a named target, None without one."""
     if not phases:
         return None
-    for index, phase in enumerate(phases.get("phases") or []):
-        goto = phase.get("goto")
-        if isinstance(goto, str) and phase.get("dispatch") is False:
-            radius = phase.get("tolerance_radius")
-            return index, goto, None if radius is None else float(radius)
+    for index, raw in enumerate(phases.get("phases") or []):
+        phase = TaskPhase.parse(raw)
+        if isinstance(phase, GoToPhase) and phase.target is not None and not phase.dispatch:
+            return index, phase.target, phase.tolerance_radius
     return None
 
 
@@ -97,7 +97,7 @@ def met_time_ns(episode: AlignedEpisodeBundle, index: int, start_ns: int) -> tup
 
 def driver_counters(episode: AlignedEpisodeBundle) -> dict[str, float | int | None]:
     """The last hearing_search_state message of the episode, every counter None without the topic."""
-    out: dict[str, float | int | None] = dict.fromkeys(COUNTER_KEYS)
+    out: dict[str, float | int | None] = dict.fromkeys(f"search_{key}" for key in COUNTER_KEYS)
     frame = (episode.topics or {}).get(SEARCH_STATE_TOPIC)
     if frame is None or len(frame) == 0 or "state" not in frame.columns:
         return out
@@ -116,7 +116,7 @@ def driver_counters(episode: AlignedEpisodeBundle) -> dict[str, float | int | No
         return out
     for key in COUNTER_KEYS:
         if state.get(key) is not None:
-            out[key] = float(state[key]) if key == "listened_s" else int(state[key])
+            out[f"search_{key}"] = float(state[key]) if key == "listened_s" else int(state[key])
     return out
 
 
@@ -136,42 +136,42 @@ class SearchMetricsCalculator(BaseMetricCalculator):
 
     NAME = "search_metrics"
     CATEGORY = "performance"
-    REQUIRED_TOPICS: typing.ClassVar[list[str | tuple[str, ...]]] = [("task_pose", "tf_gt", "odom")]
+    REQUIRED_TOPICS = [("task_pose", "tf_gt", "odom")]
 
-    UNITS: typing.ClassVar[dict[str, str]] = {
-        "found": "",
-        "time_to_find_s": "s",
-        "found_1m": "",
-        "found_1_5m": "",
-        "found_3m": "",
-        "time_to_find_1m_s": "s",
-        "time_to_find_1_5m_s": "s",
-        "time_to_find_3m_s": "s",
-        "tsr": "",
-        "spl_search": "",
-        "stops": "",
-        "listened_s": "s",
-        "goals_sent": "",
-        "goals_failed": "",
-        "calls": "",
-        "stopped_s": "s",
-        "driving_s": "s",
+    UNITS = {
+        "search_found": "",
+        "search_time_to_find_s": "s",
+        "search_found_1m": "",
+        "search_found_1_5m": "",
+        "search_found_3m": "",
+        "search_time_to_find_1m_s": "s",
+        "search_time_to_find_1_5m_s": "s",
+        "search_time_to_find_3m_s": "s",
+        "search_tsr": "",
+        "search_spl": "",
+        "search_stops": "",
+        "search_listened_s": "s",
+        "search_goals_sent": "",
+        "search_goals_failed": "",
+        "search_calls": "",
+        "search_stopped_s": "s",
+        "search_driving_s": "s",
     }
 
-    PRIMARY_OUTPUTS: typing.ClassVar[list[str]] = ["time_to_find_s", "found", "tsr"]
-    OUTPUT_DIRECTIONS: typing.ClassVar[dict[str, str]] = {
-        "found": "higher",
-        "time_to_find_s": "lower",
-        "found_1m": "higher",
-        "found_1_5m": "higher",
-        "found_3m": "higher",
-        "time_to_find_1m_s": "lower",
-        "time_to_find_1_5m_s": "lower",
-        "time_to_find_3m_s": "lower",
-        "tsr": "higher",
-        "spl_search": "higher",
-        "goals_failed": "lower",
-        "stopped_s": "lower",
+    PRIMARY_OUTPUTS = ["search_time_to_find_s", "search_found", "search_tsr"]
+    OUTPUT_DIRECTIONS = {
+        "search_found": "higher",
+        "search_time_to_find_s": "lower",
+        "search_found_1m": "higher",
+        "search_found_1_5m": "higher",
+        "search_found_3m": "higher",
+        "search_time_to_find_1m_s": "lower",
+        "search_time_to_find_1_5m_s": "lower",
+        "search_time_to_find_3m_s": "lower",
+        "search_tsr": "higher",
+        "search_spl": "higher",
+        "search_goals_failed": "lower",
+        "search_stopped_s": "lower",
     }
 
     @classmethod
@@ -212,20 +212,20 @@ class SearchMetricsCalculator(BaseMetricCalculator):
             found = met_ns is not None and met_ns < budget_ns
             find_s = (met_ns - t0) / 1e9 if found and met_ns is not None else budget
             end_ns = met_ns if found and met_ns is not None else budget_ns
-            results["found"] = found
-            results["time_to_find_s"] = find_s
-            results["tsr"] = float(found) * (1.0 - find_s / budget)
-            results["spl_search"] = self._spl(episode, solver, track, pos_x, pos_y, time_ns, met_ns, radius) if found and met_ns is not None else 0.0
-            results["stopped_s"] = stopped_seconds(pos_x, pos_y, time_ns, t0, end_ns)
-            results["driving_s"] = find_s - results["stopped_s"]
+            results["search_found"] = found
+            results["search_time_to_find_s"] = find_s
+            results["search_tsr"] = float(found) * (1.0 - find_s / budget)
+            results["search_spl"] = self._spl(episode, solver, track, pos_x, pos_y, time_ns, met_ns, radius) if found and met_ns is not None else 0.0
+            results["search_stopped_s"] = stopped_seconds(pos_x, pos_y, time_ns, t0, end_ns)
+            results["search_driving_s"] = find_s - results["search_stopped_s"]
 
         if track is not None and walls is not None:
             px, py = held_position(track, time_ns)
             rel = (time_ns - t0) / 1e9
             for suffix, find_radius in FIND_RADII_M.items():
                 first = self._first_sight(target, find_radius, walls, pos_x, pos_y, yaw, px, py, rel, budget)
-                results[f"found_{suffix}"] = first is not None
-                results[f"time_to_find_{suffix}_s"] = budget if first is None else first
+                results[f"search_found_{suffix}"] = first is not None
+                results[f"search_time_to_find_{suffix}_s"] = budget if first is None else first
         return results
 
     def _pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

@@ -130,67 +130,67 @@ def _score(episode: AlignedEpisodeBundle, partition_x: float | None = None, time
 
 def test_find_at_a_known_time_scores_time_tsr_and_spl() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0))
-    assert out["found"] is True
-    assert out["time_to_find_s"] == pytest.approx(12.0)
-    assert out["tsr"] == pytest.approx(1.0 - 12.0 / 180.0)
-    assert out["spl_search"] == pytest.approx(7.0 / 8.0, abs=0.02)
+    assert out["search_found"] is True
+    assert out["search_time_to_find_s"] == pytest.approx(12.0)
+    assert out["search_tsr"] == pytest.approx(1.0 - 12.0 / 180.0)
+    assert out["search_spl"] == pytest.approx(7.0 / 8.0, abs=0.02)
 
 
 def test_waiting_before_the_find_is_stopped_time_and_the_rest_driving() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0))
-    assert out["stopped_s"] == pytest.approx(WAIT_S)
-    assert out["driving_s"] == pytest.approx(12.0 - WAIT_S)
+    assert out["search_stopped_s"] == pytest.approx(WAIT_S)
+    assert out["search_driving_s"] == pytest.approx(12.0 - WAIT_S)
 
 
 def test_tsr_and_budget_follow_the_stage_timeout() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0), timeout_s=300.0)
-    assert out["found"] is True
-    assert out["tsr"] == pytest.approx(1.0 - 12.0 / 300.0)
+    assert out["search_found"] is True
+    assert out["search_tsr"] == pytest.approx(1.0 - 12.0 / 300.0)
 
 
 def test_find_radii_are_replayed_from_the_recorded_paths() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0))
-    assert (out["found_3m"], out["time_to_find_3m_s"]) == (True, pytest.approx(11.0))
-    assert (out["found_1_5m"], out["time_to_find_1_5m_s"]) == (True, pytest.approx(12.5))
-    assert (out["found_1m"], out["time_to_find_1m_s"]) == (True, pytest.approx(13.0))
+    assert (out["search_found_3m"], out["search_time_to_find_3m_s"]) == (True, pytest.approx(11.0))
+    assert (out["search_found_1_5m"], out["search_time_to_find_1_5m_s"]) == (True, pytest.approx(12.5))
+    assert (out["search_found_1m"], out["search_time_to_find_1m_s"]) == (True, pytest.approx(13.0))
 
 
 def test_a_track_that_stays_out_of_range_finds_nothing() -> None:
     out = _score(_episode(_poses(30.0, stop_x=6.0)))
-    assert out["found"] is False
-    assert out["time_to_find_s"] == 180.0
-    assert out["tsr"] == 0.0
-    assert out["spl_search"] == 0.0
-    assert [out[f"found_{r}"] for r in ("1m", "1_5m", "3m")] == [False, False, False]
-    assert [out[f"time_to_find_{r}_s"] for r in ("1m", "1_5m", "3m")] == [180.0, 180.0, 180.0]
-    assert out["stopped_s"] == pytest.approx(25.0)
-    assert out["driving_s"] == pytest.approx(out["time_to_find_s"] - out["stopped_s"])
+    assert out["search_found"] is False
+    assert out["search_time_to_find_s"] == 180.0
+    assert out["search_tsr"] == 0.0
+    assert out["search_spl"] == 0.0
+    assert [out[f"search_found_{r}"] for r in ("1m", "1_5m", "3m")] == [False, False, False]
+    assert [out[f"search_time_to_find_{r}_s"] for r in ("1m", "1_5m", "3m")] == [180.0, 180.0, 180.0]
+    assert out["search_stopped_s"] == pytest.approx(25.0)
+    assert out["search_driving_s"] == pytest.approx(out["search_time_to_find_s"] - out["search_stopped_s"])
 
 
 def test_a_find_after_the_budget_is_not_a_find() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0), timeout_s=10.0)
-    assert out["found"] is False
-    assert out["time_to_find_s"] == 10.0
-    assert out["tsr"] == 0.0
-    assert out["found_3m"] is False
-    assert out["time_to_find_3m_s"] == 10.0
+    assert out["search_found"] is False
+    assert out["search_time_to_find_s"] == 10.0
+    assert out["search_tsr"] == 0.0
+    assert out["search_found_3m"] is False
+    assert out["search_time_to_find_3m_s"] == 10.0
 
 
-def test_a_closed_door_at_one_metre_hides_the_person_from_every_radius() -> None:
+def test_a_closed_door_at_one_meter_hides_the_person_from_every_radius() -> None:
     episode = _episode(_poses(20.0, stop_x=10.0))
     open_corridor = _score(episode)
-    assert open_corridor["found_1m"] is True
+    assert open_corridor["search_found_1m"] is True
     behind_door = _score(episode, partition_x=10.5)
-    assert [behind_door[f"found_{r}"] for r in ("1m", "1_5m", "3m")] == [False, False, False]
-    assert [behind_door[f"time_to_find_{r}_s"] for r in ("1m", "1_5m", "3m")] == [180.0, 180.0, 180.0]
+    assert [behind_door[f"search_found_{r}"] for r in ("1m", "1_5m", "3m")] == [False, False, False]
+    assert [behind_door[f"search_time_to_find_{r}_s"] for r in ("1m", "1_5m", "3m")] == [180.0, 180.0, 180.0]
 
 
 def test_find_clock_starts_at_first_robot_pose() -> None:
     episode = _episode(_poses(20.0, stop_x=10.0), met_s=12.0)
     episode.data = episode.data.with_columns(pl.col("time_ns") + 80_000_000)
     out = _score(episode)
-    assert out["time_to_find_s"] == pytest.approx(12.0)
-    assert out["time_to_find_1m_s"] == pytest.approx(13.0)
+    assert out["search_time_to_find_s"] == pytest.approx(12.0)
+    assert out["search_time_to_find_1m_s"] == pytest.approx(13.0)
 
 
 def test_met_outside_episode_is_ignored_but_final_driver_state_is_kept() -> None:
@@ -199,8 +199,8 @@ def test_met_outside_episode_is_ignored_but_final_driver_state_is_kept() -> None
     episode.window_ns = (S, 21 * S)
     episode.semantic_snapshot = pl.concat([_snapshot(0.5), episode.semantic_snapshot])
     out = _score(episode)
-    assert out["found"] is False
-    assert out["stops"] == 4
+    assert out["search_found"] is False
+    assert out["search_stops"] == 4
 
 
 def test_replay_drops_target_when_latest_peds_message_omits_it() -> None:
@@ -213,8 +213,8 @@ def test_replay_drops_target_when_latest_peds_message_omits_it() -> None:
         }
     )
     out = _score(episode)
-    assert out["found_3m"] is False
-    assert out["time_to_find_3m_s"] == 180.0
+    assert out["search_found_3m"] is False
+    assert out["search_time_to_find_3m_s"] == 180.0
 
 
 def test_spl_uses_run_map_and_partial_segment_at_find(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -226,7 +226,7 @@ def test_spl_uses_run_map_and_partial_segment_at_find(tmp_path: pathlib.Path, mo
     world.mkdir(parents=True)
     Image.fromarray(np.where(np.flipud(_blocked()), 0, 255).astype(np.uint8)).save(world / "map.png")
     (world / "map.yaml").write_text(yaml.safe_dump({"image": "map.png", "resolution": RES, "origin": [0, 0, 0]}))
-    assert _calc().calculate(episode, {})["spl_search"] == pytest.approx(7.0 / 8.25)
+    assert _calc().calculate(episode, {})["search_spl"] == pytest.approx(7.0 / 8.25)
 
 
 def test_driver_counters_come_from_the_last_search_state_message() -> None:
@@ -234,34 +234,34 @@ def test_driver_counters_come_from_the_last_search_state_message() -> None:
     last = {"phase": "drive", "goal": [3.0, 4.0], "nav": "idle", "stops": 4, "listened_s": 8.0, "goals_sent": 6, "goals_failed": 1, "calls": 2}
     state = _search_state((9.0, last), (3.0, early))
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0, search_state=state))
-    assert (out["stops"], out["goals_sent"], out["goals_failed"], out["calls"]) == (4, 6, 1, 2)
-    assert out["listened_s"] == 8.0
+    assert (out["search_stops"], out["search_goals_sent"], out["search_goals_failed"], out["search_calls"]) == (4, 6, 1, 2)
+    assert out["search_listened_s"] == 8.0
 
 
 def test_without_the_search_state_topic_only_the_counters_are_none() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0))
-    assert all(out[k] is None for k in ("stops", "listened_s", "goals_sent", "goals_failed", "calls"))
-    assert out["found"] is True
+    assert all(out[k] is None for k in ("search_stops", "search_listened_s", "search_goals_sent", "search_goals_failed", "search_calls"))
+    assert out["search_found"] is True
 
 
 def test_without_a_recorded_met_list_the_find_keys_are_none_but_the_replay_runs() -> None:
     episode = _episode(_poses(20.0, stop_x=10.0))
     episode.semantic_snapshot = None
     out = _score(episode)
-    assert all(out[k] is None for k in ("found", "time_to_find_s", "tsr", "spl_search", "stopped_s", "driving_s"))
-    assert out["found_1m"] is True
+    assert all(out[k] is None for k in ("search_found", "search_time_to_find_s", "search_tsr", "search_spl", "search_stopped_s", "search_driving_s"))
+    assert out["search_found_1m"] is True
 
 
 def test_without_a_wall_grid_the_replay_keys_are_none() -> None:
     out = _calc().calculate_on_grid(_episode(_poses(20.0, stop_x=10.0), met_s=12.0), {}, _solver(_blocked()), None)
-    assert out["found"] is True
-    assert all(out[k] is None for k in ("found_1m", "found_1_5m", "found_3m", "time_to_find_1m_s"))
+    assert out["search_found"] is True
+    assert all(out[k] is None for k in ("search_found_1m", "search_found_1_5m", "search_found_3m", "search_time_to_find_1m_s"))
 
 
 def test_without_a_map_only_spl_search_is_none() -> None:
     out = _calc().calculate_on_grid(_episode(_poses(20.0, stop_x=10.0), met_s=12.0), {}, None, _walls(_blocked()))
-    assert out["spl_search"] is None
-    assert out["found"] is True
+    assert out["search_spl"] is None
+    assert out["search_found"] is True
 
 
 @pytest.mark.parametrize(
@@ -289,7 +289,7 @@ def test_search_phase_is_the_judge_only_goto_on_a_named_target() -> None:
 def test_search_metrics_is_registered_and_names_its_primary_outputs() -> None:
     registry = MetricRegistry(RobotParams(RADIUS))
     assert any(SearchMetricsCalculator.NAME in stage for stage in registry.execution_order())
-    assert SearchMetricsCalculator.PRIMARY_OUTPUTS == ["time_to_find_s", "found", "tsr"]
+    assert SearchMetricsCalculator.PRIMARY_OUTPUTS == ["search_time_to_find_s", "search_found", "search_tsr"]
     assert set(SearchMetricsCalculator.PRIMARY_OUTPUTS) <= set(SearchMetricsCalculator.output_keys())
 
 
@@ -314,17 +314,17 @@ def test_a_stage_with_timeout_300_scores_a_250s_episode_as_found_and_a_run_witho
     episode.timeout_s = _manifest_budget(tmp_path, [{"name": "rooms", "timeout": 300.0}, {"name": "hall", "timeout": 60.0}], _metadata("rooms"))
     assert episode.timeout_s == 300.0
     scored = _calc().calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
-    assert scored["found"] is True
-    assert scored["time_to_find_s"] == pytest.approx(250.0)
-    assert scored["tsr"] == pytest.approx(1.0 - 250.0 / 300.0)
+    assert scored["search_found"] is True
+    assert scored["search_time_to_find_s"] == pytest.approx(250.0)
+    assert scored["search_tsr"] == pytest.approx(1.0 - 250.0 / 300.0)
     verdict = collision.calculate(episode, {"time_to_goal": 250.0})
     assert (verdict["result"], verdict["success"]) == ("GOAL_REACHED", True)
 
     episode.timeout_s = _stage_budget(tmp_path / "bare" / "episode_000", tmp_path, _metadata("rooms"))
     assert episode.timeout_s is None
     scored = _calc().calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
-    assert scored["found"] is False
-    assert scored["time_to_find_s"] == 180.0
+    assert scored["search_found"] is False
+    assert scored["search_time_to_find_s"] == 180.0
     verdict = collision.calculate(episode, {"time_to_goal": 250.0})
     assert (verdict["result"], verdict["success"]) == ("TIMEOUT", False)
 
