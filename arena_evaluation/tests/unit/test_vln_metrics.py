@@ -29,6 +29,8 @@ RADIUS = 0.3
 START = (2.0, 10.0)
 GOAL = (15.0, 10.0)
 TOLERANCE = 3.0
+# A leg or goal is reached within this radius, as in the mission reference.
+ARRIVAL_RADIUS_M = 1.0
 OCTILE_MAX_RATIO = math.sqrt(4.0 - 2.0 * math.sqrt(2.0))
 
 
@@ -157,9 +159,24 @@ def test_stuck_flags_failed_dwell_and_ignores_success() -> None:
     assert _run(at_goal, grid, success=True)["stuck"] is False
 
 
+def _arrival_point(
+    start: tuple[float, float], leg: tuple[float, float], radius_m: float
+) -> tuple[float, float]:
+    """The point where a straight approach from start first enters the radius around leg."""
+    length = math.dist(start, leg)
+    return (
+        leg[0] - (leg[0] - start[0]) * radius_m / length,
+        leg[1] - (leg[1] - start[1]) * radius_m / length,
+    )
+
+
 def test_route_through_leg_goals_scores_ndtw_against_the_chained_reference() -> None:
     leg = (8.0, 16.0)
-    path = [START, leg, GOAL]
+    # The chained reference turns where the route enters the leg's arrival radius and stops where it
+    # enters the goal's, so a driver that follows it does the same, not the exact points.
+    turn = _arrival_point(START, leg, ARRIVAL_RADIUS_M)
+    stop = _arrival_point(turn, GOAL, ARRIVAL_RADIUS_M)
+    path = [START, turn, stop]
     chained = _run(
         _episode(path, "vln_free_two_legs", legs=(leg,)),
         _grid(wall=False),
