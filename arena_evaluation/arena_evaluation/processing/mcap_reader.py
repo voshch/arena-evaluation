@@ -669,7 +669,7 @@ class MCAPReader:
                                     target[column].extend(values)
                                 appended = True
 
-                        # Search driver counters (arena_hearing, latched JSON), the robot is the namespace above `hearing`
+                        # Search driver state
                         elif topic.endswith("/hearing/search_state"):
                             robot_name = get_robot_name(parts[:-1], env_key)
                             target = robot_data[robot_name]["hearing_search_state"]

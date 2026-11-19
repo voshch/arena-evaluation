@@ -133,7 +133,6 @@ def test_find_at_a_known_time_scores_time_tsr_and_spl() -> None:
     assert out["found"] is True
     assert out["time_to_find_s"] == pytest.approx(12.0)
     assert out["tsr"] == pytest.approx(1.0 - 12.0 / 180.0)
-    # driven 8 m (x 1 -> 9) against a 10 m Theta* path less the 3 m find radius
     assert out["spl_search"] == pytest.approx(7.0 / 8.0, abs=0.02)
 
 
@@ -151,7 +150,6 @@ def test_tsr_and_budget_follow_the_stage_timeout() -> None:
 
 def test_find_radii_are_replayed_from_the_recorded_paths() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0))
-    # the person is 14 - t metres away, the robot stops 1 m short of them at t = 13
     assert (out["found_3m"], out["time_to_find_3m_s"]) == (True, pytest.approx(11.0))
     assert (out["found_1_5m"], out["time_to_find_1_5m_s"]) == (True, pytest.approx(12.5))
     assert (out["found_1m"], out["time_to_find_1m_s"]) == (True, pytest.approx(13.0))
@@ -207,11 +205,13 @@ def test_met_outside_episode_is_ignored_but_final_driver_state_is_kept() -> None
 
 def test_replay_drops_target_when_latest_peds_message_omits_it() -> None:
     episode = _episode(_poses(20.0, stop_x=10.0))
-    episode.peds = pl.DataFrame({
-        "time_ns": [0, 5 * S],
-        "peds_names": [["person_0"], []],
-        "peds_positions": [[*PERSON, 0.0], []],
-    })
+    episode.peds = pl.DataFrame(
+        {
+            "time_ns": [0, 5 * S],
+            "peds_names": [["person_0"], []],
+            "peds_positions": [[*PERSON, 0.0], []],
+        }
+    )
     out = _score(episode)
     assert out["found_3m"] is False
     assert out["time_to_find_3m_s"] == 180.0
@@ -308,10 +308,7 @@ def _manifest_budget(tmp_path: pathlib.Path, stages: list[dict], metadata: RunMe
 
 
 def test_a_stage_with_timeout_300_scores_a_250s_episode_as_found_and_a_run_without_a_manifest_as_timeout(tmp_path: pathlib.Path) -> None:
-    # Reach the 3 m find radius on the last pose.
-    poses = _poses(250.0, stop_x=8.0, step_s=5.0).with_columns(
-        (START[0] + 7.0 * pl.col("time_ns") / (250 * S)).alias("pos_x")
-    )
+    poses = _poses(250.0, stop_x=8.0, step_s=5.0).with_columns((START[0] + 7.0 * pl.col("time_ns") / (250 * S)).alias("pos_x"))
     episode = _episode(poses, met_s=250.0)
     collision = CollisionMetricsCalculator(RobotParams(RADIUS, 0.0, 10.0))
     blocked = _blocked()
