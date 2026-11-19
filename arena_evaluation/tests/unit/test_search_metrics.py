@@ -286,11 +286,9 @@ def test_search_phase_is_the_judge_only_goto_on_a_named_target() -> None:
     assert search_phase({"phases": [{"goto": "person_0", "dispatch": False}]}) == (0, "person_0", None)
 
 
-def test_search_metrics_runs_after_its_dependencies_and_names_its_primary_outputs() -> None:
+def test_search_metrics_is_registered_and_names_its_primary_outputs() -> None:
     registry = MetricRegistry(RobotParams(RADIUS))
-    stage_of = {name: i for i, stage in enumerate(registry.execution_order()) for name in stage}
-    for dep in SearchMetricsCalculator.DEPENDS_ON:
-        assert stage_of[dep] < stage_of[SearchMetricsCalculator.NAME]
+    assert any(SearchMetricsCalculator.NAME in stage for stage in registry.execution_order())
     assert SearchMetricsCalculator.PRIMARY_OUTPUTS == ["time_to_find_s", "found", "tsr"]
     assert set(SearchMetricsCalculator.PRIMARY_OUTPUTS) <= set(SearchMetricsCalculator.output_keys())
 

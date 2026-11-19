@@ -136,7 +136,6 @@ class SearchMetricsCalculator(BaseMetricCalculator):
 
     NAME = "search_metrics"
     CATEGORY = "performance"
-    DEPENDS_ON: typing.ClassVar[list[str]] = ["time_metrics", "path_metrics", "collision_metrics"]
     REQUIRED_TOPICS: typing.ClassVar[list[str | tuple[str, ...]]] = [("task_pose", "tf_gt", "odom")]
 
     UNITS: typing.ClassVar[dict[str, str]] = {
