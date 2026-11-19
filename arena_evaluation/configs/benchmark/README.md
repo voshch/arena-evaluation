@@ -39,6 +39,7 @@ launch:                       # optional. launch args for the whole run, CLI pas
   lockstep: true              # steps unpaced from bringup (lockstep.paused false, lockstep.rtf 0), without it the launch default runs lockstep at rtf 1
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
   max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
+  timeout_s: 300              # episode seconds from which collision_metrics scores TIMEOUT, also the search_metrics budget (default 180). Set the stage `timeout` to match
   barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
     start: [2.25, 3.0]
     goal: [2.25, 13.0]

@@ -317,6 +317,7 @@ class MCAPReader:
                 "tf_gt": defaultdict(list),
                 "characterization_phase": defaultdict(list),
                 "characterization_schedule": defaultdict(list),
+                "hearing_search_state": defaultdict(list),
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
@@ -668,6 +669,14 @@ class MCAPReader:
                                 for column, values in rows.items():
                                     target[column].extend(values)
                                 appended = True
+
+                        # Search driver counters (arena_hearing, latched JSON), the robot is the namespace above `hearing`
+                        elif topic.endswith("/hearing/search_state"):
+                            robot_name = get_robot_name(parts[:-1], env_key)
+                            target = robot_data[robot_name]["hearing_search_state"]
+                            target["time_ns"].append(ts_ns)
+                            target["state"].append(str(ros_msg.data))
+                            appended = True
 
                         # Episode records
                         elif topic.endswith("/state/episode"):
