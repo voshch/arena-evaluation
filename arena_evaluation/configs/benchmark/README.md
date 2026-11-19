@@ -39,7 +39,6 @@ launch:                       # optional. launch args for the whole run, CLI pas
   lockstep: true              # steps unpaced from bringup (lockstep.paused false, lockstep.rtf 0), without it the launch default runs lockstep at rtf 1
 metrics:                      # optional. metric-layer overrides, snapshotted into manifest.yaml and read back at process time
   max_collisions: 1           # collisions per episode that flip success to COLLISION (default 3, 1 = any collision fails)
-  timeout_s: 300              # episode seconds from which collision_metrics scores TIMEOUT, also the search_metrics budget (default 180). Set the stage `timeout` to match
   barn:                       # reference the barn_score metric replays, written by the BARN import (see BARN below)
     start: [2.25, 3.0]
     goal: [2.25, 13.0]
@@ -79,7 +78,7 @@ extension has the extension stripped before it is sent (`4.json` and `4` are equ
 | `episodes` | int | Episode count (scaled by the `--scale-episodes` CLI flag, default 1.0) |
 | `config` | dict | Per-mode params. Top-level keys must name a mode the stage selects (e.g. `scenario`, `random`). Inner leaves map to `<mode namespace>.<leaf>` via QueueEpisode, the namespace being the mode's entry in the runtime's `mode_namespaces()` (see [task_generator/tasks/obstacles/README.md](../../../../task_generator/task_generator/tasks/obstacles/README.md)). A block named after a human backend namespace (`humansim`) goes out as `QueueEpisode.human_params` under that prefix in every task mode, and its keys match the `humansim.*` launch args. Only the backend that owns the namespace applies it, so the suite runs unchanged under another `human:=`. A `human` block is reserved and fails the stage. A value stays set on a reused env until a later stage overwrites it |
 | `seed` | int | Auto-derived from a SHA-1 hash of the stage fields (excluding `config`), the modes hashed under their `tm_<axis>` keys; can be set explicitly |
-| `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `task.episode.timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Defaults to 60s if absent |
+| `timeout` | string | Per-episode budget in **sim** seconds, e.g. `300s`/`5m`. The runner pushes it to the env's task generator as its `task.episode.timeout` parameter before every step, so the episode ends FAILED with `outcome_info='timeout'`. Processing reads it back from `manifest.yaml` as the TIMEOUT threshold of `collision_metrics` and the `search_metrics` budget. Defaults to 60s if absent |
 | `timeout_peds` | string | Same budget for the `unhindered_peds` reference step of this stage (see `references` below). Defaults to `timeout` if absent |
 | `optim` | dict | Extra `optim.<key>:=<value>` launch args for this stage's env |
 

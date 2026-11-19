@@ -227,6 +227,7 @@ class AlignedEpisodeBundle:
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
     window_ns: tuple[int | None, int | None] = (None, None)
+    timeout_s: float | None = None
 
 
 class PlotSpec(BaseModel):

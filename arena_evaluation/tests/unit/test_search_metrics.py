@@ -20,8 +20,8 @@ from arena_evaluation.processing.metrics.performance.search_metrics import (
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.path.theta_star import GeometricThetaStar
-from arena_evaluation.processing.pipeline import _suite_metrics
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.processing.pipeline import _stage_budget
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams, RunMetadata
 from arena_simulation_setup.shared.judge import WallGrid
 from mcap_ros2.writer import Writer
 from PIL import Image
@@ -117,16 +117,15 @@ def _episode(poses: pl.DataFrame, met_s: float | None = None, phases: dict | Non
     )
 
 
-def _calc(timeout_s: float | None = None) -> SearchMetricsCalculator:
-    calc = SearchMetricsCalculator(RobotParams(RADIUS, 0.0, 10.0))
-    if timeout_s is not None:
-        calc.metrics_config = {"timeout_s": timeout_s}
-    return calc
+def _calc() -> SearchMetricsCalculator:
+    return SearchMetricsCalculator(RobotParams(RADIUS, 0.0, 10.0))
 
 
 def _score(episode: AlignedEpisodeBundle, partition_x: float | None = None, timeout_s: float | None = None) -> dict:
     blocked = _blocked(partition_x)
-    return _calc(timeout_s).calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
+    if timeout_s is not None:
+        episode.timeout_s = timeout_s
+    return _calc().calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
 
 
 def test_find_at_a_known_time_scores_time_tsr_and_spl() -> None:
@@ -144,7 +143,7 @@ def test_waiting_before_the_find_is_stopped_time_and_the_rest_driving() -> None:
     assert out["driving_s"] == pytest.approx(12.0 - WAIT_S)
 
 
-def test_tsr_and_budget_follow_the_suite_timeout() -> None:
+def test_tsr_and_budget_follow_the_stage_timeout() -> None:
     out = _score(_episode(_poses(20.0, stop_x=10.0), met_s=12.0), timeout_s=300.0)
     assert out["found"] is True
     assert out["tsr"] == pytest.approx(1.0 - 12.0 / 300.0)
@@ -296,15 +295,19 @@ def test_search_metrics_runs_after_its_dependencies_and_names_its_primary_output
     assert set(SearchMetricsCalculator.PRIMARY_OUTPUTS) <= set(SearchMetricsCalculator.output_keys())
 
 
-def _manifest_metrics(tmp_path: pathlib.Path, suite_metrics: dict) -> dict:
+def _metadata(stage: str, reference_type: str | None = None) -> RunMetadata:
+    return RunMetadata(benchmark_id="usar", planner="nav2", map="usar_rooms", stage=stage, recording_started_at="", python_version="", ros_distro="", reference_type=reference_type)
+
+
+def _manifest_budget(tmp_path: pathlib.Path, stages: list[dict], metadata: RunMetadata) -> float | None:
     run = tmp_path / "20261116-000000-usar-inline"
     episode = run / "episodes" / "nav2" / "episode_000"
     episode.mkdir(parents=True)
-    (run / "manifest.yaml").write_text(yaml.safe_dump({"run_id": run.name, "suite": {"metrics": suite_metrics}}))
-    return _suite_metrics(episode, tmp_path)
+    (run / "manifest.yaml").write_text(yaml.safe_dump({"run_id": run.name, "steps": [{"key": stage["name"], "stage": stage} for stage in stages]}))
+    return _stage_budget(episode, tmp_path, metadata)
 
 
-def test_a_suite_with_timeout_300_scores_a_250s_episode_as_found_and_one_without_as_timeout(tmp_path: pathlib.Path) -> None:
+def test_a_stage_with_timeout_300_scores_a_250s_episode_as_found_and_a_run_without_a_manifest_as_timeout(tmp_path: pathlib.Path) -> None:
     # Reach the 3 m find radius on the last pose.
     poses = _poses(250.0, stop_x=8.0, step_s=5.0).with_columns(
         (START[0] + 7.0 * pl.col("time_ns") / (250 * S)).alias("pos_x")
@@ -313,40 +316,38 @@ def test_a_suite_with_timeout_300_scores_a_250s_episode_as_found_and_one_without
     collision = CollisionMetricsCalculator(RobotParams(RADIUS, 0.0, 10.0))
     blocked = _blocked()
 
-    with_budget = _manifest_metrics(tmp_path / "with", {"timeout_s": 300})
-    assert with_budget == {"timeout_s": 300.0}
-    search = _calc()
-    search.metrics_config = collision.metrics_config = with_budget
-    scored = search.calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
+    episode.timeout_s = _manifest_budget(tmp_path, [{"name": "rooms", "timeout": 300.0}, {"name": "hall", "timeout": 60.0}], _metadata("rooms"))
+    assert episode.timeout_s == 300.0
+    scored = _calc().calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
     assert scored["found"] is True
     assert scored["time_to_find_s"] == pytest.approx(250.0)
     assert scored["tsr"] == pytest.approx(1.0 - 250.0 / 300.0)
     verdict = collision.calculate(episode, {"time_to_goal": 250.0})
     assert (verdict["result"], verdict["success"]) == ("GOAL_REACHED", True)
 
-    without = _manifest_metrics(tmp_path / "without", {"max_collisions": 1})
-    assert "timeout_s" not in without
-    search.metrics_config = collision.metrics_config = without
-    scored = search.calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
+    episode.timeout_s = _stage_budget(tmp_path / "bare" / "episode_000", tmp_path, _metadata("rooms"))
+    assert episode.timeout_s is None
+    scored = _calc().calculate_on_grid(episode, {}, _solver(blocked), _walls(blocked))
     assert scored["found"] is False
     assert scored["time_to_find_s"] == 180.0
     verdict = collision.calculate(episode, {"time_to_goal": 250.0})
     assert (verdict["result"], verdict["success"]) == ("TIMEOUT", False)
 
 
-@pytest.mark.parametrize("junk", ["soon", 0, -30, float("inf"), float("nan")])
-def test_a_junk_timeout_in_a_manifest_is_ignored(tmp_path: pathlib.Path, junk: object) -> None:
-    assert _manifest_metrics(tmp_path, {"timeout_s": junk}) == {}
+def test_an_unhindered_peds_reference_takes_the_stage_timeout_peds(tmp_path: pathlib.Path) -> None:
+    stages = [{"name": "rooms", "timeout": 300.0, "timeout_peds": 120.0}]
+    assert _manifest_budget(tmp_path / "ref", stages, _metadata("rooms", reference_type="unhindered_peds")) == 120.0
+    assert _manifest_budget(tmp_path / "run", stages, _metadata("rooms")) == 300.0
 
 
-def test_a_suite_keeps_a_timeout_as_float_seconds() -> None:
-    assert Suite._parse_metrics({"timeout_s": 300}) == {"timeout_s": 300.0}
+@pytest.mark.parametrize("stages", [[{"name": "hall", "timeout": 60.0}], [{"name": "rooms", "timeout": "soon"}], [{"name": "rooms"}]])
+def test_a_stage_the_manifest_cannot_budget_has_no_budget(tmp_path: pathlib.Path, stages: list[dict]) -> None:
+    assert _manifest_budget(tmp_path, stages, _metadata("rooms")) is None
 
 
-@pytest.mark.parametrize("bad", [0, -1, float("inf"), float("nan")])
-def test_a_suite_rejects_a_invalid_timeout(bad: float) -> None:
-    with pytest.raises(ValueError, match="timeout_s"):
-        Suite._parse_metrics({"timeout_s": bad})
+def test_a_suite_rejects_a_metrics_timeout() -> None:
+    with pytest.raises(ValueError, match="unknown keys"):
+        Suite._parse_metrics({"timeout_s": 300})
 
 
 def test_the_reader_files_each_robots_search_state_messages(tmp_path: pathlib.Path) -> None:

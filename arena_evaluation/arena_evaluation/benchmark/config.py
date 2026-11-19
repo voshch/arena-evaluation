@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
-import math
 import re
 import typing
 
@@ -40,7 +39,7 @@ def _yamlable(v: object) -> object:
 _STAGE_OWNED_KEYS = frozenset({"world", "robot", "run_seed", "task_layer"})
 _STAGE_OWNED_PREFIXES = ("task.", "record.")
 
-_SUITE_METRIC_KEYS = frozenset({"max_collisions", "timeout_s", "barn"})
+_SUITE_METRIC_KEYS = frozenset({"max_collisions", "barn"})
 
 _LEGACY_MODE_PREFIX = "tm_"
 
@@ -121,11 +120,6 @@ class Suite(typing.NamedTuple):
             if v < 1:
                 raise ValueError(f"suite metrics: max_collisions must be >= 1, got {v}")
             metrics["max_collisions"] = v
-        if "timeout_s" in obj:
-            t = float(obj["timeout_s"])
-            if not math.isfinite(t) or t <= 0:
-                raise ValueError(f"suite metrics: timeout_s must be > 0, got {t}")
-            metrics["timeout_s"] = t
         if "barn" in obj:
             from arena_evaluation.processing.metrics.performance.barn_metrics import parse_reference
 

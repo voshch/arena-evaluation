@@ -179,10 +179,6 @@ class SearchMetricsCalculator(BaseMetricCalculator):
     def output_keys(cls) -> list[str]:
         return list(cls.UNITS)
 
-    def budget_s(self) -> float:
-        """The suite's metrics.timeout_s, the value collision_metrics times out at."""
-        return float(self.metrics_config.get("timeout_s", CollisionMetricsCalculator.TIMEOUT_THRESHOLD_S))
-
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         if search_phase(episode.phases) is None:
             return dict.fromkeys(self.output_keys())
@@ -198,7 +194,7 @@ class SearchMetricsCalculator(BaseMetricCalculator):
         if phase is None:
             return results
         index, target, radius = phase
-        budget = self.budget_s()
+        budget = CollisionMetricsCalculator.TIMEOUT_THRESHOLD_S if episode.timeout_s is None else episode.timeout_s
         results.update(driver_counters(episode))
 
         pos_x, pos_y, yaw, time_ns = self._pose(episode)
