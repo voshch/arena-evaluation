@@ -92,7 +92,7 @@ def _actions() -> dict[str, _Action]:
     viz = _viz_tools()
     if viz is not None:
         start, stop, _ = viz
-        views = {"view": _Action(start, "env", {"web_port": 0, "grpc_port": 0}), "view_stop": _Action(stop, "env")}
+        views = {"view": _Action(start, "env", {"web_port": 0, "grpc_port": 0}, hidden=("memory_limit", "max_rate_hz")), "view_stop": _Action(stop, "env")}
     return {
         "spawn": _Action(runtime.runtime_spawn_env, "runtime", {"wait_ready": False, "headless": True}, ("launch_args", "ns", "timeout_s")),
         "despawn": _Action(runtime.runtime_despawn_env, "env", {"wait": False}, ("timeout_s",)),
