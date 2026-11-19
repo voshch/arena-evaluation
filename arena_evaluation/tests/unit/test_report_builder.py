@@ -309,6 +309,34 @@ def test_report_builder_embeds_bundle_and_static_render_for_every_plot(
     assert "bar_plotly_fails" in page
 
 
+def test_overview_cards_carry_their_title_like_the_grouped_ones(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A plot in the overview section has its card title in the page, as a plot in a metric group does."""
+    bench_dir = tmp_path / "bench_overview"
+    write_benchmark(bench_dir, _ROWS)
+    manifest = VizManifest(
+        name="overview_titles",
+        title="Overview Titles",
+        plots=[
+            PlotSpec(
+                id="overview_box",
+                type="box",
+                title="Overview Card Title",
+                data={"source": "v_episode_summary"},
+                channels=PlotChannels(x="planner", y="time_to_goal"),
+                layout_group="overview",
+            ),
+        ],
+    )
+    builder = ReportBuilder(
+        bench_dir, output_dir=tmp_path / "out_overview", manifest=manifest
+    )
+    report_path = builder.build()
+    assert report_path is not None
+    assert "<h3>Overview Card Title</h3>" in report_path.read_text(encoding="utf-8")
+
+
 def _summary_frame(pairs: list[tuple[str, str, float]]) -> pl.DataFrame:
     """The long ``group_summary`` shape: one mean per (group, metric)."""
     return pl.DataFrame(
