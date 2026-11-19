@@ -144,7 +144,7 @@ registry rather than hand-writing names (a stale entry silently mislabels an axi
 | `title` | `str` | Plot title |
 | `uses` | `str \| None` | Plot bundle name from `plots/<name>/plot.yaml` |
 | `data` | `PlotDataSpec \| None` | Binding (`source`, `query`, `stored_query`, `computation`, `params`, `evidence_id`, `where`) |
-| `channels` | `PlotChannels` | Visual channels (`x`, `y`, `color`, `facet_col`, `facet_row`, `size`, `symbol`, `hierarchy`) |
+| `channels` | `PlotChannels` | Visual channels (`x`, `y`, `y2`, `color`, `facet_col`, `facet_row`, `size`, `symbol`, `hierarchy`) |
 | `slice` | `PlotSliceSpec \| None` | Entity slice (`episode_id`, `encounter_id`, `contact_id`) |
 | `options` | `dict` | Renderer options |
 | `checks` | `PlotChecks` | Declared check expectations (`require_columns`, `min_rows`, `allow_all_null`); an unknown key is rejected |
@@ -163,7 +163,7 @@ The registry registers **18** renderer types; `PLOT_TYPE` is the key a declarati
 - `bar`: Mean +/- error bar chart (`err_plus`/`err_minus` options; `barmode` for grouping).
 - `histogram`: Binned distribution (`distribution_bins`, `bin_low`/`bin_high`).
 - `scatter`: X-Y scatter with optional colour/size channels.
-- `timeseries`: 1NF series telemetry (`series_profile`) against the recorded time axis.
+- `timeseries`: 1NF series telemetry (`series_profile`) against the recorded time axis; a `y2` channel draws its signal, dotted, on a second right-hand axis.
 - `line`: Series profile lines with optional markers (`show_markers`).
 - `table`: Declarative table of the bound frame (scorecards, summaries).
 - `trajectory`: Robot or pedestrian paths over `dim_world_geometry`; `generate_gifs: true` also writes an animated GIF.
