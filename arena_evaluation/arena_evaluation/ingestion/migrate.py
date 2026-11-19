@@ -481,8 +481,8 @@ def _installed_parameters(model: str) -> dict[str, str]:
         raise MigrationError(f"arena_robots is not installed, so the parameters of {model!r} cannot be resolved; record a /state/robots fleet in the episode") from error
     root = share / "robots" / base
     radius = _yaml_value(root / "caps" / "mobile.yaml", ("radius",))
-    mass = _yaml_value(root / "model_params.yaml", ("mass", "base_kg"))
-    missing = [name for name, value in (("radius", radius), ("mass.base_kg", mass)) if value is None]
+    mass = _urdf_mass(base)
+    missing = [name for name, value in (("radius", radius), ("body.mass", mass)) if value is None]
     if missing:
         raise MigrationError(f"the installed arena_robots definition of {model!r} lacks {missing}; the descriptor cannot be synthesised with an invented value")
     parameters = {"robot_radius": str(radius), "robot_mass_kg": str(mass)}
@@ -490,6 +490,16 @@ def _installed_parameters(model: str) -> dict[str, str]:
     if isinstance(angular, list) and angular:
         parameters["max_angular_vel"] = str(max(abs(float(value)) for value in angular))
     return parameters
+
+
+def _urdf_mass(model: str) -> float | None:
+    """The mass of the model's rendered URDF in kg, None when the model does not resolve or states none."""
+    from arena_robots.fleet import instance_caps
+
+    try:
+        return instance_caps(model, {}).body.mass or None
+    except Exception:
+        return None
 
 
 def _yaml_value(path: pathlib.Path, keys: Sequence[str]) -> object:

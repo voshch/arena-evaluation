@@ -102,7 +102,7 @@ descriptor tables **once**, from data that already exists:
    or an equal-length name/model pairing. An empty model list, or a count mismatch, is a
    `MigrationError`.
 3. For each model, `_installed_parameters` reads the installed `arena_robots` definition:
-   `caps/mobile.yaml` -> `radius`, `model_params.yaml` -> `mass.base_kg`, plus a finite
+   `caps/mobile.yaml` -> `radius`, the mass of the rendered URDF (`body.mass` of the model's caps) -> `mass`, plus a finite
    `velocity_limits.angular` as `max_angular_vel` when declared. A missing package, definition,
    radius or mass is a hinted `MigrationError`, **no default radius or mass is ever substituted**.
 4. The rows are written to `topics/robot_descriptor.parquet` and `topics/robot_params.parquet`;
