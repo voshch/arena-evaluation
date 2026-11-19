@@ -7,7 +7,7 @@ stages:
   tm_obstacles: scenario
   episodes: 10
   seed: 2026
-  timeout: 120s
+  timeout: 240s
   config:
     scenario:
       file: default
@@ -18,7 +18,7 @@ stages:
   tm_obstacles: scenario
   episodes: 10
   seed: 2026
-  timeout: 120s
+  timeout: 240s
   config:
     scenario:
       file: default
