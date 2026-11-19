@@ -53,6 +53,7 @@ class TableSink:
         self._last_stamp: dict[str, int] = {}
         self._unsorted: set[str] = set()
         self._key_rows: dict[str, dict[tuple[Any, ...], int]] = {}
+        self._batch_count: dict[str, int] = {}
         self._pending_rows = 0
 
     def append(self, table: str, row: Mapping[str, Any]) -> None:
@@ -86,6 +87,7 @@ class TableSink:
             if columns["t_ns"]:
                 batch = pa.RecordBatch.from_pydict(columns, schema=TABLE_SCHEMAS[table])
                 self._writer(table).write_batch(batch)
+                self._batch_count[table] = self._batch_count.get(table, 0) + 1
                 for values in columns.values():
                     values.clear()
                 self._key_rows.setdefault(table, {}).clear()
@@ -95,8 +97,15 @@ class TableSink:
         self.flush()
         for writer in self._writers.values():
             writer.close()
-        for table in self._unsorted:
-            _sort_by_stamp(self._out_dir / f"{table}.parquet")
+        for table in self._writers:
+            key = _ROW_KEYS.get(table, ())
+            crosses_batches = bool(key) and self._batch_count.get(table, 0) > 1
+            if crosses_batches or table in self._unsorted:
+                _finalize(
+                    self._out_dir / f"{table}.parquet",
+                    key=key,
+                    sort=table in self._unsorted,
+                )
 
     def _writer(self, table: str) -> pq.ParquetWriter:
         if table not in self._writers:
@@ -108,7 +117,11 @@ class TableSink:
         return self._writers[table]
 
 
-def _sort_by_stamp(path: pathlib.Path) -> None:
-    pl.read_parquet(path).sort("t_ns", maintain_order=True).write_parquet(
-        path, compression=COMPRESSION
-    )
+def _finalize(path: pathlib.Path, *, key: tuple[str, ...], sort: bool) -> None:
+    """Keep the later record of each declared key across all batches, then sort by t_ns when the rows came unsorted."""
+    frame = pl.read_parquet(path)
+    if key:
+        frame = frame.unique(subset=list(key), keep="last", maintain_order=True)
+    if sort:
+        frame = frame.sort("t_ns", maintain_order=True)
+    frame.write_parquet(path, compression=COMPRESSION)
