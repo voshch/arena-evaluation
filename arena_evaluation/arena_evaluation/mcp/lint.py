@@ -51,6 +51,7 @@ _RESOLVE_ERRORS: Final[tuple[type[Exception], ...]] = (
 _SCALAR_CHANNELS: Final[tuple[str, ...]] = (
     "x",
     "y",
+    "y2",
     "color",
     "facet_col",
     "facet_row",

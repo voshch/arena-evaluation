@@ -977,6 +977,7 @@ plots:
   channels:
     x: time_s
     y: power_total_w
+    y2: battery_soc_pct
     color: robot_id
   layout_group: time_series_profiles
 - id: timeseries_velocity

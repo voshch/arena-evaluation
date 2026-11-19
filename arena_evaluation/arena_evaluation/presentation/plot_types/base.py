@@ -34,6 +34,7 @@ __all__ = [
 _CHANNEL_FIELDS: dict[str, str] = {
     "x": "x",
     "y": "y",
+    "y2": "y2",
     "color": "color",
     "hue": "color",
     "facet_col": "facet_col",
@@ -140,6 +141,7 @@ class BasePlotRenderer(ABC):
         for ch_name in (
             "x",
             "y",
+            "y2",
             "color",
             "facet_col",
             "facet_row",
@@ -216,7 +218,7 @@ class BasePlotRenderer(ABC):
         """Resolve a channel that can be a list of columns (e.g. multi-metric y)."""
         val = (
             self._channel_value(channel)
-            if channel in ("x", "y", "color", "hue", "hierarchy")
+            if channel in ("x", "y", "y2", "color", "hue", "hierarchy")
             else None
         )
         if isinstance(val, list):

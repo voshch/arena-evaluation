@@ -92,6 +92,7 @@ class PlotChannels(_ForbidExtraModel):
 
     x: str | list[str] | None = None
     y: str | list[str] | None = None
+    y2: str | list[str] | None = None  # second y axis, drawn on the right
     color: str | None = None
     facet_col: str | None = None
     facet_row: str | None = None
