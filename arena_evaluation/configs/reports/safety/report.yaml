@@ -1,0 +1,426 @@
+title: Safety & Collision Analysis Report
+description: Comprehensive safety report evaluating collision rates, SPL, temporal
+  reaction margins, interaction hazard indices, and kinematic limits.
+units:
+  ci_max: ''
+  collision_amount: ''
+  collision_amount_pedestrian: ''
+  jerk_max_mps3: 'm/s³'
+  jerk_mean: 'm/s³'
+  max_acceleration_mps2: 'm/s²'
+  max_speed_intimate_zone: 'm/s'
+  mean_velocity_mps: 'm/s'
+  path_length_m: 'm'
+  personal_space_intrusion_integral: 'm·s'
+  roughness_mean: 'rad/m'
+  spl_geodesic: ''
+  success: '%'
+  tti_mean: 's'
+  tti_min: 's'
+summary_group_by:
+- local_planner
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: collision_amount_pedestrian
+  label: Pedestrian Collisions
+  format: '{:.1f}'
+- metric: tti_min
+  label: Min TTI
+  format: '{:.2f}'
+- metric: ci_max
+  label: Max CI
+  format: '{:.2f}'
+groups:
+- id: overview
+  title: Safety Performance Overview
+- id: collision_analysis
+  title: Collision & Goal Completion Dynamics
+- id: temporal_margins
+  title: Temporal Reaction Margins & TTI
+- id: interaction_hazards
+  title: Interaction Hazards & Personal Space Invasions
+- id: kinematic_limits
+  title: Kinematic & Dynamic Stress Limits
+- id: tradeoffs
+  title: Safety Trade-Off Frontiers
+- id: details
+  title: Spatial Trajectories & Hazard Traces
+plots:
+- id: safety_summary_table
+  type: table
+  title: Safety Executive Summary
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      - spl_geodesic
+      - collision_amount
+      - collision_amount_wall
+      - collision_amount_static
+      - collision_amount_pedestrian
+      - tti_min
+      - ci_max
+      group_cols:
+      - local_planner
+      - crowd_condition
+  channels:
+    x: local_planner
+    color: crowd_condition
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  layout_group: overview
+  options:
+    labels:
+      success: Success
+      spl_geodesic: SPL
+      collision_amount: Total Collisions
+      collision_amount_wall: Wall Collisions
+      collision_amount_static: Static Collisions
+      collision_amount_pedestrian: Pedestrian Collisions
+      tti_min: Min TTI
+      ci_max: Max CI
+    format:
+      success: '{:.0%}'
+      spl_geodesic: '{:.2f}'
+      collision_amount: '{:.1f}'
+      collision_amount_wall: '{:.1f}'
+      collision_amount_static: '{:.1f}'
+      collision_amount_pedestrian: '{:.1f}'
+      tti_min: '{:.2f}'
+      ci_max: '{:.2f}'
+- id: radar_safety
+  type: radar
+  title: Multi-Axis Safety & Hazard Profile
+  data:
+    computation: radar_profile
+    params:
+      group_col: local_planner
+      metrics:
+      - success
+      - spl_geodesic
+      - collision_amount
+      - tti_min
+      - jerk_mean
+  channels:
+    x: metric
+    y: normalized_score
+    color: local_planner
+  layout_group: overview
+- id: bar_success_local
+  type: bar
+  title: Success Rate by Local Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+  layout_group: collision_analysis
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_success_inter
+  type: bar
+  title: Success Rate by Inter-Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: mean
+  layout_group: collision_analysis
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_spl_local
+  type: bar
+  title: Success weighted by Path Length (SPL) by Local Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+  layout_group: collision_analysis
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_spl_inter
+  type: bar
+  title: Success weighted by Path Length (SPL) by Inter-Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: mean
+  layout_group: collision_analysis
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: box_collisions_local
+  type: box
+  title: Total Collisions by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: collision_amount
+  layout_group: collision_analysis
+- id: box_collisions_inter
+  type: box
+  title: Total Collisions by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: inter_planner
+    y: collision_amount
+  layout_group: collision_analysis
+- id: bar_collision_breakdown
+  type: bar
+  title: Collision Breakdown by Obstacle Type
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - collision_amount_wall
+      - collision_amount_static
+      - collision_amount_pedestrian
+      group_cols:
+      - planner
+  channels:
+    x: planner
+    y: mean
+    color: metric
+  layout_group: collision_analysis
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: heatmap_success_pivot
+  type: heatmap
+  title: Success Rate Pivot Grid (Local vs Inter Planner)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - local_planner
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: local_planner
+    color: mean
+  layout_group: collision_analysis
+- id: heatmap_spl_pivot
+  type: heatmap
+  title: SPL Pivot Grid (Local vs Inter Planner)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - local_planner
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: local_planner
+    color: mean
+  layout_group: collision_analysis
+- id: box_tti_min_local
+  type: box
+  title: Minimum Time to Collision (TTI min) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: tti_min
+  layout_group: temporal_margins
+- id: box_tti_min_inter
+  type: box
+  title: Minimum Time to Collision (TTI min) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: inter_planner
+    y: tti_min
+  layout_group: temporal_margins
+- id: violin_tti_mean_local
+  type: violin
+  title: Mean Time to Collision (TTI mean) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: tti_mean
+  layout_group: temporal_margins
+- id: box_movement_towards_peds_local
+  type: box
+  title: Movement Towards Pedestrians Ratio by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: movement_towards_peds_ratio
+  layout_group: temporal_margins
+- id: box_ci_max_local
+  type: box
+  title: Directional Collision Index (CI Max) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: ci_max
+  layout_group: interaction_hazards
+- id: violin_ci_mean_local
+  type: violin
+  title: Directional Collision Index (CI Mean) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: ci_mean
+  layout_group: interaction_hazards
+- id: box_max_speed_intimate_local
+  type: box
+  title: Maximum Speed in Intimate Zone by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: max_speed_intimate_zone
+  layout_group: interaction_hazards
+- id: violin_psii_local
+  type: violin
+  title: Personal Space Intrusion Integral (PSII Depth) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: personal_space_intrusion_integral
+  layout_group: interaction_hazards
+- id: box_jerk_mean_local
+  type: box
+  title: Mean Jerk by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: jerk_mean
+  layout_group: kinematic_limits
+- id: box_jerk_max_local
+  type: box
+  title: Peak Jerk by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: jerk_max_mps3
+  layout_group: kinematic_limits
+- id: box_acceleration_max_local
+  type: box
+  title: Maximum Acceleration by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: max_acceleration_mps2
+  layout_group: kinematic_limits
+- id: box_roughness_mean_local
+  type: box
+  title: Path Roughness by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: roughness_mean
+  layout_group: kinematic_limits
+- id: scatter_velocity_vs_collisions
+  type: scatter
+  title: Speed vs. Collision Risk (Mean Velocity vs. Collision Amount)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: collision_amount
+    x: mean_velocity_mps
+  layout_group: tradeoffs
+- id: scatter_path_length_vs_tti
+  type: scatter
+  title: Detour vs. Safety Margin (Path Length vs. Min TTI)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: tti_min
+    x: path_length_m
+  layout_group: tradeoffs
+- id: scatter_spl_vs_collisions
+  type: scatter
+  title: Navigation Quality vs. Collisions (SPL vs. Collision Amount)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: spl_geodesic
+    x: collision_amount
+  layout_group: tradeoffs
+- id: scatter_jerk_vs_ci
+  type: scatter
+  title: Dynamic Reactivity vs. Pedestrian Hazard (Max Jerk vs. CI Max)
+  data:
+    source: v_episode_summary
+  channels:
+    color: local_planner
+    y: ci_max
+    x: jerk_max_mps3
+  layout_group: tradeoffs
+- id: trajectory_plot
+  type: trajectory
+  title: Spatial Robot Navigation Trajectories with Map Overlays
+  data:
+    stored_query: robot_tracks_non_ref
+  channels:
+    x: x
+    y: y
+    color: robot_id
+  layout_group: spatial_trajectories
+- id: pedestrian_trajectory_plot
+  type: trajectory
+  title: Spatial Pedestrian Trajectories & Encounter Corridors
+  data:
+    stored_query: pedestrian_arena_peds_non_ref
+  channels:
+    x: x
+    y: y
+    color: ped_id
+  layout_group: spatial_trajectories
