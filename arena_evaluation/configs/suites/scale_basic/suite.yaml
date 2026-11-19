@@ -1,0 +1,121 @@
+# Larger benchmark suite: the basic simple scenarios on map_empty, two episodes per stage (basic runs one).
+stages:
+- name: scenario_1
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: "1"
+- name: scenario_2
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: "2"
+- name: scenario_3
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: "3"
+- name: scenario_4
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: "4"
+- name: scenario_5
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: "5"
+- name: scenario_blocked_corridors
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: blocked_corridors
+- name: scenario_default
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: default
+- name: scenario_empty
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: empty
+- name: scenario_evacuation
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: evacuation
+- name: scenario_highly_social
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: highly_social
+- name: scenario_marl
+  map: map_empty
+  robot: jackal
+  episodes: 2
+  tm_robots: scenario
+  tm_obstacles: scenario
+  config:
+    scenario:
+      file: marl
+- name: random
+  map: map_empty
+  robot: jackal
+  episodes: 5
+  tm_robots: random
+  tm_obstacles: random
+  config:
+    random:
+      dynamic:
+        min: 3
+        max: 5
+        models: [arenian]
+      interactive:
+        min: 0
+        max: 0
+        models: [SquareShelf]
+      static:
+        min: 5
+        max: 10
+        models: [SquareShelf]
