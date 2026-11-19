@@ -1,5 +1,5 @@
-# Larger benchmark, aware arm: every nav2 planner with the social cost layer on.
-name: scale_aware
+# Larger benchmark planners: five nav2 local planners crossed with four inter-planners. The social cost layer is on for every robot, so no robot is blind.
+name: scale_planners
 contestants:
 - name: dwb-navigate_to_pose_w_replanning_and_recovery
   mobile:
