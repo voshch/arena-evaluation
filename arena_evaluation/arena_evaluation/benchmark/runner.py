@@ -1303,9 +1303,10 @@ class BenchmarkRunner(ArenaMixinNode):
                 except _SimStalled:
                     stalled = True
                     _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} SIM STALLED for {_SIM_STALL_S:.0f}s; cancelling and advancing")
+                    cancelled: RunEpisode.Impl.GetResultService.Response | None = None
                     try:
                         await self.await_ros(goal_handle.cancel_goal_async())
-                        await asyncio.wait_for(
+                        cancelled = await asyncio.wait_for(
                             self._await_alive(ac.await_result(goal_handle), env_id=env_id, what=f"run_episode cancel on env {env_id}"),
                             timeout=_CANCEL_SETTLE_S,
                         )
@@ -1316,7 +1317,9 @@ class BenchmarkRunner(ArenaMixinNode):
                         return _result("failed", StepErrorKind.ENV_SETUP, "run_episode cancel did not settle; env wedged")
                     except Exception as exc:
                         _log.warning(f"[{ep_idx + 1}/{step.episodes}] {step.key} env={env_id} error awaiting cancel ({exc}); advancing")
-                    _fold_window()
+                    stall_lockstep = _fold_window()
+                    if cancelled is not None:
+                        self._log_stalled_episode(step, env_id, cancelled.result.episode_id, ep_started_sim, stall_lockstep)
                     continue
                 ep_ended_sim = self.sim_time.to_seconds()
                 sim_s += ep_ended_sim - ep_started_sim
@@ -1417,6 +1420,30 @@ class BenchmarkRunner(ArenaMixinNode):
         if stalled and status != "ok":
             return _result(status, StepErrorKind.EPISODE_TIMEOUT, f"sim stalled {_SIM_STALL_S:.0f}s")
         return _result(status)
+
+    def _log_stalled_episode(self, step: Step, env_id: int, episode_id: int, started_sim: float, lockstep: LockstepSummary | None) -> None:
+        """Progress row of an episode cancelled on a stalled sim, with its record and lockstep window."""
+        rec = self._episode_records.get(env_id, {}).get(episode_id)
+        if rec is None:
+            _log.warning(f"{step.key} env={env_id} no EpisodeRecord for stalled episode_id={episode_id}; no progress row")
+            return
+        self._run_dir.progress.append(
+            ts_iso=datetime.datetime.now(tz=datetime.UTC).isoformat(),
+            run_id=self._run_id,
+            step_key=step.key,
+            contestant=step.contestant.name,
+            stage=step.stage.name,
+            env_id=env_id,
+            episode_id=episode_id,
+            episode_record=rec,
+            started_at=started_sim,
+            ended_at=self.sim_time.to_seconds(),
+            is_reference=step.is_reference,
+            reference_type=step.reference_type,
+            error_kind=StepErrorKind.EPISODE_TIMEOUT,
+            error_detail=f"sim stalled {_SIM_STALL_S:.0f}s",
+            lockstep=lockstep,
+        )
 
     async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: ClientGoalHandle, env_id: int) -> RunEpisode.Impl.GetResultService.Response:
         """Await an episode result with no wall ceiling, raising _SimStalled if the sim clock freezes while no env holds the sim."""

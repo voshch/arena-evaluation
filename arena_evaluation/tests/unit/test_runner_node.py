@@ -13,6 +13,7 @@ import pytest
 rclpy = pytest.importorskip("rclpy")
 
 from arena_evaluation.benchmark.config import Contest, Suite
+from arena_evaluation.benchmark.lockstep import LockstepSummary
 from arena_evaluation.benchmark.progress_display import BenchmarkProgressDisplay
 from arena_evaluation.benchmark.runner import (
     ARENA_NODE_FQN,
@@ -24,7 +25,7 @@ from arena_evaluation.benchmark.runner import (
     _proc_tree,
     _SimDied,
 )
-from arena_evaluation.benchmark.state import Manifest, RunDir
+from arena_evaluation.benchmark.state import Manifest, RunDir, progress_rows
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
 from arena_evaluation_msgs.msg import BenchmarkState
 from arena_evaluation_msgs.srv import RecordEpisode
@@ -417,6 +418,21 @@ def test_sim_death_while_sending_an_episode_goal_propagates(tmp_path: pathlib.Pa
 
     with pytest.raises(_SimDied):
         _drive(tmp_path, body)
+
+
+def test_a_stalled_episode_gets_a_progress_row_with_its_record_and_lockstep_window(tmp_path: pathlib.Path):
+    async def body(runner: BenchmarkRunner) -> list[dict[str, str]]:
+        _with_env_clients(runner, 3)
+        runner._episode_records[3][7] = EpisodeRecord(episode_id=7, outcome_state=EpisodeRecord.SKIPPED, outcome_info="cancelled", world="map_empty", seed=3, robots=["jackal"])
+        runner._log_stalled_episode(_step(), 3, 7, 12.5, LockstepSummary(active=True, stalls=1, max_stall_s=60.0, rtf=0.5, channels=("policy/jackal",), stalled_on=("policy/jackal",), ticks=40, beats=10, beats_due=11))
+        runner._log_stalled_episode(_step(), 3, 8, 12.5, None)
+        return progress_rows(tmp_path / "run")
+
+    rows = _drive(tmp_path, body)
+
+    assert [(r["episode_id"], r["outcome_state"], r["outcome_info"], r["error_kind"], r["error_detail"], r["lockstep_stalls"], r["lockstep_max_stall_s"], r["started_at"]) for r in rows] == [
+        ("7", str(EpisodeRecord.SKIPPED), "cancelled", StepErrorKind.EPISODE_TIMEOUT.value, "sim stalled 60s", "1", "60.0", "12.5"),
+    ]
 
 
 def _write_after(path: pathlib.Path, lines: list[tuple[float, str, str]]) -> typing.Awaitable[str]:
