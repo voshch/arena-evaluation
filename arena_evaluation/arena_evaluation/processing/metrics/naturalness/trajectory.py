@@ -190,7 +190,8 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     """Whole-mission route reference plus current-leg tracking errors.
 
     ``theta_star_length`` is the whole-mission route geodesic: the sum of per-leg Theta* lengths
-    between the start and every commanded task goal, reached or not; ``path_efficiency`` and
+    between the start and every commanded task goal, reached or not, each leg ending on its goal's
+    1 m arrival radius; ``path_efficiency`` and
     ``spl_geodesic`` share it. ``ade``/``fde``/``mhd``/``frechet_distance``/``adtw`` are tracking
     errors against the current-leg start -> goal Theta* reference and deliberately stay single-leg;
     ``adtw`` is plain dtaidistance DTW, not a penalty-weighted asymmetric variant.

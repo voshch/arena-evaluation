@@ -152,7 +152,8 @@ def test_diverged_last_sample_scores_mhd_through_the_dense_distance_fallback(
         {},
     )
 
-    assert res["theta_star_length"] == pytest.approx(3.0)
+    # The reference ends on the goal's 1 m arrival radius, so the 3 m leg is 2 m long.
+    assert res["theta_star_length"] == pytest.approx(2.0)
     assert res["mhd"] == math.inf
 
 
@@ -197,7 +198,8 @@ def test_the_reference_route_follows_every_commanded_goal_even_unvisited(
             "yaw": [0.0, 0.0],
         }
     )
-    # The track turns back at 2 m: the second commanded goal stays unvisited, yet it extends the mission to 4 m.
+    # The track turns back at 2 m: the second commanded goal stays unvisited, yet it stays in the mission.
+    # Each leg ends on its goal's 1 m arrival radius: 0 -> 2 m is 1 m, then 1 -> 4 m is 2 m.
     gt = _gt([0.0, 1.0, 2.0, 1.0, 0.0], [0.0] * 5)
 
     res = _calc().calculate(
@@ -207,7 +209,7 @@ def test_the_reference_route_follows_every_commanded_goal_even_unvisited(
         {},
     )
 
-    assert res["theta_star_length"] == pytest.approx(4.0)
+    assert res["theta_star_length"] == pytest.approx(3.0)
 
 
 def test_unreached_first_leg_falls_back_to_the_commanded_mission_target(
@@ -232,7 +234,8 @@ def test_unreached_first_leg_falls_back_to_the_commanded_mission_target(
         {},
     )
 
-    assert res["theta_star_length"] == pytest.approx(4.0)
+    # The 4 m leg ends on the goal's 1 m arrival radius.
+    assert res["theta_star_length"] == pytest.approx(3.0)
 
 
 def _plans(xs: list[float]) -> pl.DataFrame:

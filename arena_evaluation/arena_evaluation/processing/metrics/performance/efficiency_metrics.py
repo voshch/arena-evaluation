@@ -17,7 +17,7 @@ from arena_evaluation.processing.metrics.social.interaction_common import (
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-PATH_EFFICIENCY = define_metric("path_efficiency", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Mission route geodesic through the commanded task goals over the travelled path length; NULL when either side is unavailable or the planned route is longer than the sampled path (a ratio above one, never clamped).", null_reason=True)
+PATH_EFFICIENCY = define_metric("path_efficiency", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Mission route geodesic through the commanded task goals, each leg ending on its 1 m arrival radius, over the travelled path length; NULL when either side is unavailable or the planned route is longer than the sampled path (a ratio above one, never clamped).", null_reason=True)
 RELATIVE_THROUGHPUT = define_metric("relative_throughput", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Planned mission time over the episode's time to goal, higher is better. Planned mission time is the mission route length at the robot's free speed, the median speed outside encounter windows.", null_reason=True)
 
 

@@ -16,6 +16,9 @@ from arena_evaluation.processing.path.theta_star import (
 # Waypoints closer than 0.25 m are the same goal: below the planner's 0.5 m arrival tolerance.
 _ROUTE_WAYPOINT_TOLERANCE_M: typing.Final[float] = 0.25
 
+# A goal is reached inside this radius: the same arrival tolerance the goal-reached times use (time_metrics).
+GOAL_TOLERANCE_M: typing.Final[float] = 1.0
+
 # A planned route longer than the sampled travelled path is a sampling anomaly, not a ratio above one.
 REFERENCE_EXCEEDS_PATH: typing.Final[str] = "invalid_episode:reference_exceeds_path"
 
@@ -110,20 +113,55 @@ def route_waypoints(
     return tuple(points)
 
 
+def _truncate_to_goal_region(
+    points: np.ndarray, goal: tuple[float, float], tolerance_m: float
+) -> tuple[float, np.ndarray]:
+    """A planned route up to its first entry into the goal's arrival radius: its length, and its points ending on the entry.
+
+    A route that never enters the radius is measured whole, so an unreached goal stays in the reference.
+    """
+    if math.dist(points[0], goal) <= tolerance_m:
+        return 0.0, points[:1]
+    kept: list[np.ndarray] = [points[0]]
+    length_m = 0.0
+    for start, end in itertools.pairwise(points):
+        if math.dist(end, goal) <= tolerance_m:
+            direction = end - start
+            offset = start - np.asarray(goal, dtype=float)
+            a = float(direction @ direction)
+            b = 2.0 * float(offset @ direction)
+            c = float(offset @ offset) - tolerance_m * tolerance_m
+            root = (-b - math.sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * a)
+            entry = start + min(max(root, 0.0), 1.0) * direction
+            kept.append(entry)
+            return length_m + math.dist(start, entry), np.vstack(kept)
+        kept.append(end)
+        length_m += math.dist(start, end)
+    return length_m, np.vstack(kept)
+
+
 def plan_mission(
     *, grid: StaticGrid | None, waypoints: tuple[tuple[float, float], ...]
 ) -> RouteResult:
-    """Whole-mission route: the per-leg routes between the waypoints in order, refused at the first leg that is."""
+    """Whole-mission route: the per-leg routes in order, each leg ending on its goal's arrival radius.
+
+    The radius is the one that defines reaching a goal (time_metrics), so the reference and the
+    mission's completion agree. Every commanded goal stays in the mission, reached or not, and the
+    next leg starts at the arrival point. The first leg that cannot be planned refuses the mission.
+    """
     if grid is None:
         return RouteResult(points=None, length_m=None, null_reason="no_map")
     if len(waypoints) < 2:
         return RouteResult(points=None, length_m=None, null_reason="degenerate_mission")
     chunks: list[np.ndarray] = []
     length_m = 0.0
-    for leg_start, leg_goal in itertools.pairwise(waypoints):
+    leg_start = waypoints[0]
+    for leg_goal in waypoints[1:]:
         leg = plan_route(grid, leg_start, leg_goal)
         if leg.points is None or leg.length_m is None:
             return leg
-        chunks.append(leg.points if not chunks else leg.points[1:])
-        length_m += leg.length_m
+        leg_length, leg_points = _truncate_to_goal_region(leg.points, leg_goal, GOAL_TOLERANCE_M)
+        chunks.append(leg_points if not chunks else leg_points[1:])
+        length_m += leg_length
+        leg_start = (float(leg_points[-1][0]), float(leg_points[-1][1]))
     return RouteResult(points=np.vstack(chunks), length_m=length_m, null_reason=None)

@@ -16,6 +16,7 @@ from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
 )
+from arena_evaluation.processing.metrics.common.routes import GOAL_TOLERANCE_M
 from arena_evaluation.processing.metrics.performance.motion_metrics import (
     episode_speed_mps,
 )
@@ -24,8 +25,6 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
 IDLE_SPEED_MPS: typing.Final[float] = 0.01
-# Goal reached when the ground-truth track comes within 1 m: the planner's arrival tolerance plus pose noise (routes.py).
-GOAL_TOLERANCE_M: typing.Final[float] = 1.0
 
 TIME_DIFF = define_metric(
     "time_diff",

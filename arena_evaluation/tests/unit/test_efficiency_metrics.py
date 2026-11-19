@@ -93,18 +93,19 @@ def test_both_route_ratio_descriptions_state_the_shared_commanded_reference_rule
         assert "longer than the sampled path" in metric.description
 
 
-def test_straight_ten_metre_path_in_an_empty_map_has_efficiency_one(
+def test_straight_path_stopping_on_the_arrival_radius_has_efficiency_one(
     open_room_run_dir: pathlib.Path,
 ):
     episode = _straight_episode(open_room_run_dir)
 
     trajectory = TrajectoryMetricsCalculator(_params()).calculate(episode, {})
+    # The reference of the 10 m straight goal ends on its 1 m arrival radius: 9 m. A robot that stops there travels 9 m.
     efficiency = PathEfficiencyCalculator(_params()).calculate(
         episode,
-        {"path_length_m": 10.0, "theta_star_length": trajectory["theta_star_length"]},
+        {"path_length_m": 9.0, "theta_star_length": trajectory["theta_star_length"]},
     )
 
-    assert trajectory["theta_star_length"] == pytest.approx(10.0)
+    assert trajectory["theta_star_length"] == pytest.approx(9.0)
     assert efficiency["path_efficiency"] == pytest.approx(1.0)
 
 
