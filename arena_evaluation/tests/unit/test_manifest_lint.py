@@ -23,8 +23,8 @@ def test_schema_only_lint_is_valid_without_a_benchmark() -> None:
     # the repo's shipped declarations; declarations in the asset store are not part of this lint
     assert report.valid is True
     assert report.schema_valid is True
-    assert report.checked_manifests == 3
-    assert report.checked_plots == 3
+    assert report.checked_manifests == 7
+    assert report.checked_plots == 7
     assert report.bound_plots == 0
     assert report.unbound == ()
 

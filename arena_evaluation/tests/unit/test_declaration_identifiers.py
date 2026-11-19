@@ -139,19 +139,35 @@ def test_plot_lookup_returns_none_when_no_root_or_bucket_holds_it(
     assert resolver.find_recipe_path("no_such_plot") is None
 
 
-def test_repository_ships_three_declarations_per_kind() -> None:
+def test_repository_ships_the_restored_declarations_per_kind() -> None:
     assert sorted(path.name for path in (_PKG_CONFIGS / "plots").iterdir()) == [
+        "acoustic_field",
+        "contact_closing_share",
+        "encounter_hierarchy_treemap",
         "multi_planner_radar",
         "scorecard_table",
+        "success_without_contact_interval",
         "success_without_contact_panel",
     ]
     assert sorted(path.name for path in (_PKG_CONFIGS / "queries").iterdir()) == [
+        "blind_vs_aware_standoff_delta",
+        "contact_attribution_summary",
+        "near_miss_encounter_spikes",
+        "pedestrian_arena_peds_non_ref",
+        "pedestrian_deflection_by_inter_planner",
+        "pedestrian_deflection_by_local_planner",
+        "pedestrian_exposure_by_planner",
         "planner_scorecard_overview",
         "robot_speed_distribution",
+        "robot_tracks_non_ref",
         "telemetry_slice",
     ]
     assert sorted(path.name for path in (_PKG_CONFIGS / "reports").iterdir()) == [
         "characterization",
         "ecological",
+        "everything",
         "failure_modes",
+        "safety",
+        "social",
+        "standard",
     ]
