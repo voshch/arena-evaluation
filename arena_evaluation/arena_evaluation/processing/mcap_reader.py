@@ -73,12 +73,13 @@ _ALIGNED_TOLERANCE = 1e-6
 _MAP_PARENT = pl.col("parent_frame").is_in(list(_UNMAPPED_FRAMES))
 _CHILD_ENVIRONMENT = pl.col("child_frame").str.extract(r"(env_\d+)", 1)
 # Stored tables whose x/y columns are map-frame positions. Odometry is map-aligned in this runtime: the recorded map -> odom transform is the identity.
+# The engine's agent states are already in the environment frame, so they are not listed.
 _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
     "robot_tracks": ("x", "y"), "robot_odom": ("odom_x", "odom_y"),
     "robot_odom_controller": ("odom_x", "odom_y"), "robot_initialpose": ("pos_x", "pos_y"),
     "robot_goal_pose": ("pos_x", "pos_y"), "robot_task_pose": ("pos_x", "pos_y"),
     "robot_plans": ("x", "y"), "robot_collision_contacts": ("obstacle_x", "obstacle_y"),
-    "pedestrian_arena_peds": ("x", "y"), "pedestrian_agent_states": ("x", "y"),
+    "pedestrian_arena_peds": ("x", "y"),
     "pedestrian_gestures": ("at_x", "at_y"), "environment_map": ("origin_x", "origin_y"),
 }
 
@@ -426,7 +427,7 @@ def _check_map_frames(
     shifts: list[Anchor],
     pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
 ) -> None:
-    for table in (ARENA_TABLE, ENGINE_TABLE):
+    for table in (ARENA_TABLE,):
         unmapped = sorted(
             frame for frame in pedestrian_frames.get((env_id, table), frozenset())
             if frame not in _UNMAPPED_FRAMES

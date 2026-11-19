@@ -90,6 +90,16 @@ def test_stored_pedestrians_and_the_environment_map_are_in_the_environment_frame
     assert (environment["origin_x"], environment["origin_y"]) == pytest.approx((5.0, 5.0))
 
 
+def test_stored_engine_agent_states_keep_their_recorded_frame(topics: pathlib.Path) -> None:
+    _write(topics, "pedestrian_agent_states", [_env(AT_50_NS, ped_id="Pedestrian_11", x=1.0, y=2.0)])
+
+    mcap_reader.align_to_environment(topics, PEDESTRIAN_FRAMES)
+
+    agent = _stored(topics, "pedestrian_agent_states")
+
+    assert (agent["x"], agent["y"]) == pytest.approx((1.0, 2.0))
+
+
 def test_loading_bundles_does_not_move_the_stored_positions(topics: pathlib.Path) -> None:
     track = mcap_reader.load_bundles(topics)[JACKAL].robot_tracks.collect().row(0, named=True)
 
