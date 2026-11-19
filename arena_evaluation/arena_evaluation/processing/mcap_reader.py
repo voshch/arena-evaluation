@@ -144,6 +144,17 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
             ("duration", pa.float64()),
         ]
     ),
+    "search_state": pa.schema(
+        [
+            ("time_ns", pa.int64()),
+            ("phase", pa.string()),
+            ("stops", pa.int64()),
+            ("listened_s", pa.float64()),
+            ("goals_sent", pa.int64()),
+            ("goals_failed", pa.int64()),
+            ("calls", pa.int64()),
+        ]
+    ),
     "interaction_events": pa.schema(
         [
             ("time_ns", pa.int64()),
@@ -317,6 +328,7 @@ class MCAPReader:
                 "tf_gt": defaultdict(list),
                 "characterization_phase": defaultdict(list),
                 "characterization_schedule": defaultdict(list),
+                "search_state": defaultdict(list),
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
@@ -440,7 +452,7 @@ class MCAPReader:
                                 return env_key
                             if base.endswith("_controller"):
                                 base = parts[-3] if len(parts) >= 3 else base
-                            elif base == "power_publisher":
+                            elif base in ("power_publisher", "hearing"):
                                 base = parts[-3] if len(parts) >= 3 else base
                             return f"{env_key}_{base}"
 
@@ -667,6 +679,16 @@ class MCAPReader:
                                 target.clear()
                                 for column, values in rows.items():
                                     target[column].extend(values)
+                                appended = True
+
+                        # Search driver counters (arena_hearing), latched
+                        elif topic.endswith("/hearing/search_state"):
+                            row = self._search_state_row(str(ros_msg.data))
+                            if row is not None:
+                                target = robot_data[get_robot_name(parts, env_key)]["search_state"]
+                                target["time_ns"].append(ts_ns)
+                                for column, value in row.items():
+                                    target[column].append(value)
                                 appended = True
 
                         # Episode records
@@ -914,6 +936,23 @@ class MCAPReader:
             _log.warning(f"characterization_schedule payload rejected: {e!r}")
             return None
         return dict(rows)
+
+    @staticmethod
+    def _search_state_row(payload: str) -> dict[str, str | int | float] | None:
+        """Counters of one search driver state, None when the payload is not one."""
+        try:
+            state = json.loads(payload)
+            return {
+                "phase": str(state["phase"]),
+                "stops": int(state["stops"]),
+                "listened_s": float(state["listened_s"]),
+                "goals_sent": int(state["goals_sent"]),
+                "goals_failed": int(state["goals_failed"]),
+                "calls": int(state.get("calls", 0)),
+            }
+        except (ValueError, KeyError, TypeError) as e:
+            _log.warning(f"search_state payload rejected: {e!r}")
+            return None
 
     @staticmethod
     def _append_semantic_field(
