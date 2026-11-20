@@ -106,7 +106,7 @@ _SCORECARD_MEAN_METRICS: Final[tuple[str, ...]] = (
 )
 
 _SERIES_IDENTITY_COLUMNS: Final[tuple[str, ...]] = (
-    "local_planner", "planner", "inter_planner", "dispatcher", "robot_model", "stage", "world",
+    "local_planner", "planner", "planner_world", "inter_planner", "dispatcher", "robot_model", "stage", "world",
     "scenario", "crowd_condition", "crowd_condition_null_reason", "seed", "is_reference",
     "is_valid_for_ranking", "dim_episode_null_reason", "dim_robot_null_reason",
     "fact_episode_null_reason", "fact_robot_null_reason",
@@ -413,10 +413,17 @@ class BenchmarkCatalog:
             .join(ped_cond, on=["run_id", "episode_id", "env_id"], how="left")
             .join(con_counts, on=list(_JOIN_KEYS), how="left")
             .with_columns(
-                pl.when(pl.col("planner") == "")
-                .then(pl.lit(None, dtype=pl.String))
-                .otherwise(pl.col("planner"))
+                pl.when(pl.col("local_planner").is_not_null() & (pl.col("local_planner") != ""))
+                .then(pl.col("local_planner"))
+                .when(pl.col("planner") != "")
+                .then(pl.col("planner"))
+                .otherwise(pl.lit(None, dtype=pl.String))
                 .alias("local_planner"),
+            )
+            .with_columns(
+                pl.concat_str(
+                    [pl.col("local_planner"), pl.col("world")], separator=" · "
+                ).alias("planner_world"),
                 (
                     pl.col("invalid_reason").is_not_null()
                     & (pl.col("invalid_reason") == "")
@@ -451,7 +458,7 @@ class BenchmarkCatalog:
         merged_extras = tuple(n for n in dim_ep.collect_schema().names() if n not in dimensions.DimEpisodes.polars_schema())
         # A merged catalog adds the source-run key and its labels to dim_episodes; they are part of
         # the identity of every aggregate, not a column the scorecard may drop (L3-060).
-        common_group_cols = (*merged_extras, "world", "scenario", "stage", "crowd_condition", "planner")
+        common_group_cols = (*merged_extras, "world", "scenario", "stage", "crowd_condition", "planner", "local_planner")
         scorecard_group_cols = (*common_group_cols, "dispatcher", "robot_model")
         valid_for_ranking = pl.col("is_valid_for_ranking").fill_null(False)
         stream_totals = [_stream_total(*spec) for spec in _STREAM_TOTALS]
@@ -482,7 +489,7 @@ class BenchmarkCatalog:
         )
 
         treatment = v_episode_summary.select(
-            *_JOIN_KEYS, *merged_extras, "crowd_condition", "planner", "world", "scenario", "stage"
+            *_JOIN_KEYS, *merged_extras, "crowd_condition", "planner", "local_planner", "world", "scenario", "stage"
         )
 
         robot_close = pl.col("v_close_robot_mps").clip(lower_bound=0.0)

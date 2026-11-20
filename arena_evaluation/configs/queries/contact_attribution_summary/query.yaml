@@ -15,7 +15,7 @@ parameters:
 sql: |
   SELECT
       ep.crowd_condition,
-      ep.planner,
+      ep.local_planner,
       COUNT(*) AS total_contacts,
       AVG(c.relative_impact_speed_mps) AS mean_relative_impact_speed_mps,
       SUM(CASE WHEN c.v_close_robot_mps > 0 THEN c.v_close_robot_mps ELSE 0 END)
@@ -30,5 +30,5 @@ sql: |
   WHERE c.collider_kind = 'pedestrian'
     AND (:crowd_condition = 'all' OR ep.crowd_condition = :crowd_condition)
     AND (:planner = 'all' OR ep.planner = :planner)
-  GROUP BY ep.crowd_condition, ep.planner
-  ORDER BY ep.crowd_condition, ep.planner
+  GROUP BY ep.crowd_condition, ep.local_planner
+  ORDER BY ep.crowd_condition, ep.local_planner
