@@ -59,6 +59,23 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
             "evaluation_findings",
         ],
     },
+    "diagnostician": {
+        "purpose": (
+            "Detect counter-intuitive aggregate results (survivorship bias, "
+            "early-termination truncation, Simpson's paradox), form competing hypotheses, "
+            "and test them with paired-seed, stratified, and encounter-level queries."
+        ),
+        "tools": [
+            "evaluation_schema",
+            *_QUERY_PAIR,
+            "evaluation_summarize",
+            "evaluation_analysis",
+            "evaluation_slice",
+            "evaluation_worst_encounters",
+            "evaluation_finding_create",
+            "evaluation_findings",
+        ],
+    },
     "attribution": {
         "purpose": "Drill into contact/encounter slices and compute summed-parts closing shares.",
         "tools": [
