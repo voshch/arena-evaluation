@@ -458,7 +458,7 @@ class BenchmarkCatalog:
         merged_extras = tuple(n for n in dim_ep.collect_schema().names() if n not in dimensions.DimEpisodes.polars_schema())
         # A merged catalog adds the source-run key and its labels to dim_episodes; they are part of
         # the identity of every aggregate, not a column the scorecard may drop (L3-060).
-        common_group_cols = (*merged_extras, "world", "scenario", "stage", "crowd_condition", "planner", "local_planner")
+        common_group_cols = (*merged_extras, "world", "scenario", "stage", "crowd_condition", "planner", "local_planner", "inter_planner")
         scorecard_group_cols = (*common_group_cols, "dispatcher", "robot_model")
         valid_for_ranking = pl.col("is_valid_for_ranking").fill_null(False)
         stream_totals = [_stream_total(*spec) for spec in _STREAM_TOTALS]
@@ -489,7 +489,7 @@ class BenchmarkCatalog:
         )
 
         treatment = v_episode_summary.select(
-            *_JOIN_KEYS, *merged_extras, "crowd_condition", "planner", "local_planner", "world", "scenario", "stage"
+            *_JOIN_KEYS, *merged_extras, "crowd_condition", "planner", "local_planner", "inter_planner", "world", "scenario", "stage"
         )
 
         robot_close = pl.col("v_close_robot_mps").clip(lower_bound=0.0)
