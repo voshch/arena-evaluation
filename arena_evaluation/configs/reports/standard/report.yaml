@@ -196,12 +196,42 @@ plots:
   data:
     computation: cluster_bootstrap_ci
     params:
+      metric: success
       group_cols:
       - local_planner
-      - crowd_condition
+      - world
   channels:
     x: local_planner
-  title: Visible minus Blind Difference in Success without Pedestrian Contact (cluster bootstrap 95% CI)
+    color: world
+  title: Success Rate by Local Planner and World (cluster bootstrap 95% CI)
+  layout_group: overview
+- id: interval_time_to_goal
+  uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      metric: time_to_goal
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+  title: Time to Goal by Local Planner and World (cluster bootstrap 95% CI)
+  layout_group: overview
+- id: interval_energy_total
+  uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      metric: energy_total_wh
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+  title: Total Energy Usage by Local Planner and World (cluster bootstrap 95% CI)
   layout_group: overview
 - id: radar_local_planner
   uses: multi_planner_radar
@@ -617,8 +647,9 @@ plots:
   uses: encounter_hierarchy_treemap
   channels:
     hierarchy:
-    - crowd_condition
+    - world
     - local_planner
+    - inter_planner
     - approach_type
   title: Encounter Counts by Crowd Condition, Local Planner and Approach (Sunburst)
   layout_group: social
@@ -862,8 +893,9 @@ plots:
   uses: encounter_hierarchy_treemap
   channels:
     hierarchy:
-    - crowd_condition
+    - world
     - local_planner
+    - inter_planner
     - approach_type
   title: Encounter Hierarchy Treemap
   layout_group: tradeoffs
