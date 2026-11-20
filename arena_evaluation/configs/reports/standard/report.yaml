@@ -34,7 +34,8 @@ units:
   tti_min: 's'
   velocity_linear_mps: 'm/s'
 summary_group_by:
-- planner
+- local_planner
+- world
 summary:
 - metric: success
   label: Success
@@ -82,7 +83,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: collision_amount
   layout_group: safety
 - id: box_collisions_inter
@@ -100,7 +102,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: jerk_mean
   layout_group: motion
 - id: box_jerk_inter
@@ -118,7 +121,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: specific_cost_of_transport
   layout_group: ecological
 - id: violin_scot_inter
@@ -138,7 +142,7 @@ plots:
     computation: group_summary
     params:
       group_cols:
-      - planner
+      - planner_world
       - crowd_condition
       metrics:
       - success
@@ -149,7 +153,7 @@ plots:
       - collision_amount
       - specific_cost_of_transport
   channels:
-    x: planner
+    x: planner_world
     color: crowd_condition
     y:
     - metric
@@ -175,14 +179,38 @@ plots:
       specific_cost_of_transport: '{:.2f}'
 - id: e8_success_contact_panel
   uses: success_without_contact_panel
-  title: Success without Pedestrian Contact by Planner and Crowd Condition
+  data:
+    computation: group_summary
+    params:
+      group_cols:
+      - local_planner
+      - world
+      - crowd_condition
+  channels:
+    x: local_planner
+    color: world
+  title: Success without Pedestrian Contact by Local Planner, World and Crowd Condition
   layout_group: overview
 - id: e8_success_contact_interval
   uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      group_cols:
+      - local_planner
+      - crowd_condition
+  channels:
+    x: local_planner
   title: Visible minus Blind Difference in Success without Pedestrian Contact (cluster bootstrap 95% CI)
   layout_group: overview
 - id: radar_local_planner
   uses: multi_planner_radar
+  data:
+    computation: radar_profile
+    params:
+      group_col: local_planner
+  channels:
+    color: local_planner
   title: Performance Overview by Local Planner
   layout_group: overview
 - id: radar_inter_planner
@@ -228,11 +256,11 @@ plots:
       metrics:
       - success
       group_cols:
-      - local_planner
+      - planner_world
       - inter_planner
   channels:
     x: inter_planner
-    y: local_planner
+    y: planner_world
     color: mean
   layout_group: overview
 - id: heatmap_spl_pivot
@@ -244,11 +272,11 @@ plots:
       metrics:
       - spl_geodesic
       group_cols:
-      - local_planner
+      - planner_world
       - inter_planner
   channels:
     x: inter_planner
-    y: local_planner
+    y: planner_world
     color: mean
   layout_group: overview
 - id: bar_success_local
@@ -260,9 +288,11 @@ plots:
       metrics:
       - success
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: mean
   layout_group: safety
   options:
@@ -294,9 +324,11 @@ plots:
       metrics:
       - spl_geodesic
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: mean
   layout_group: safety
   options:
@@ -330,9 +362,11 @@ plots:
       - collision_amount_static
       - collision_amount_wall
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    facet_col: world
     y: mean
     color: metric
   layout_group: safety
@@ -345,7 +379,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: tti_min
   layout_group: safety
 - id: violin_efficiency_local
@@ -354,7 +389,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: path_efficiency
   layout_group: efficiency
 - id: violin_efficiency_inter
@@ -372,7 +408,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: time_to_goal
   layout_group: efficiency
 - id: violin_time_inter
@@ -390,7 +427,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: idling_time
   layout_group: efficiency
 - id: box_idling_inter
@@ -404,18 +442,18 @@ plots:
   layout_group: efficiency
 - id: histogram_path_length_local
   type: histogram
-  title: Path Length Distribution by Local Planner
+  title: Path Length Distribution by Local Planner and World
   data:
     computation: distribution_bins
     params:
       metric: path_length_m
       group_cols:
-      - planner
+      - planner_world
       nbins: 20
   channels:
     x: bin_center
     y: count
-    color: planner
+    color: planner_world
   layout_group: efficiency
   options:
     bin_low: bin_low
@@ -426,7 +464,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: relative_throughput
   layout_group: efficiency
 - id: box_ade_local
@@ -435,7 +474,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: ade
   layout_group: naturalness
 - id: box_ade_inter
@@ -453,7 +493,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: fde
   layout_group: naturalness
 - id: box_frechet_local
@@ -462,7 +503,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: frechet_distance
   layout_group: naturalness
 - id: violin_mhd_local
@@ -471,7 +513,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: mhd
   layout_group: naturalness
 - id: box_topological_complexity_local
@@ -480,7 +523,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: topological_complexity
   layout_group: naturalness
 - id: violin_velocity_local
@@ -489,7 +533,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: mean_velocity_mps
   layout_group: motion
 - id: violin_velocity_inter
@@ -507,7 +552,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: acceleration_mean
   layout_group: motion
 - id: box_acceleration_inter
@@ -525,7 +571,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: curvature_mean
   layout_group: smoothness
 - id: violin_curvature_inter
@@ -543,7 +590,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: roughness_mean
   layout_group: smoothness
 - id: violin_roughness_inter
@@ -561,12 +609,18 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: angle_over_length
   layout_group: smoothness
 - id: encounter_hierarchy_sunburst
   uses: encounter_hierarchy_treemap
-  title: Encounter Counts by Crowd Condition, Planner and Approach (Sunburst)
+  channels:
+    hierarchy:
+    - crowd_condition
+    - local_planner
+    - approach_type
+  title: Encounter Counts by Crowd Condition, Local Planner and Approach (Sunburst)
   layout_group: social
   options:
     mode: sunburst
@@ -576,7 +630,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: personal_space_intrusion_integral
   layout_group: social
 - id: violin_psii_inter
@@ -597,9 +652,11 @@ plots:
       metrics:
       - passing_rule_compliance
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: mean
   layout_group: social
   options:
@@ -628,7 +685,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: ci_max
   layout_group: social
 - id: violin_personal_space_local
@@ -637,7 +695,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: total_time_in_personal_space
   layout_group: social
 - id: box_looking_at_peds_local
@@ -646,7 +705,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: total_time_looking_at_pedestrians
   layout_group: social
 - id: box_looked_at_by_peds_local
@@ -655,7 +715,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: total_time_looked_at_by_pedestrians
   layout_group: social
 - id: encounter_energy_breakdown
@@ -669,9 +730,11 @@ plots:
       - energy_mechanical_wh
       - energy_thermal_wh
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    facet_col: world
     y: mean
     color: metric
   layout_group: ecological
@@ -689,9 +752,11 @@ plots:
       - energy_mechanical_wh
       - energy_thermal_wh
       group_cols:
-      - planner
+      - local_planner
+      - world
   channels:
-    x: planner
+    x: local_planner
+    facet_col: world
     y: mean
     color: metric
   layout_group: ecological
@@ -704,7 +769,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: e_cot
   layout_group: ecological
 - id: box_kinetic_energy_demand_local
@@ -713,7 +779,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: kinetic_energy_demand_j
   layout_group: ecological
 - id: box_friction_dissipation_local
@@ -722,7 +789,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: friction_dissipation_j
   layout_group: ecological
 - id: timeseries_power
@@ -734,7 +802,9 @@ plots:
     x: time_s
     y: power_total_w
     y2: battery_soc_pct
-    color: robot_id
+    color: planner_world
+  options:
+    bin_width_s: 0.5
   layout_group: ecological
 - id: timeseries_velocity
   type: timeseries
@@ -744,7 +814,9 @@ plots:
   channels:
     x: time_s
     y: velocity_linear_mps
-    color: robot_id
+    color: planner_world
+  options:
+    bin_width_s: 0.5
   layout_group: ecological
 - id: box_aeps_local
   type: box
@@ -752,7 +824,8 @@ plots:
   data:
     source: v_episode_summary
   channels:
-    x: planner
+    x: local_planner
+    color: world
     y: aeps_linear_s
   layout_group: ecological
 - id: planner_scorecard_table
@@ -761,7 +834,7 @@ plots:
   data:
     source: v_planner_scorecard
   channels:
-    x: planner
+    x: local_planner
     y:
     - episodes_count
     - success_rate
@@ -787,6 +860,11 @@ plots:
   layout_group: tradeoffs
 - id: encounter_hierarchy_treemap
   uses: encounter_hierarchy_treemap
+  channels:
+    hierarchy:
+    - crowd_condition
+    - local_planner
+    - approach_type
   title: Encounter Hierarchy Treemap
   layout_group: tradeoffs
 - id: scatter_spl_vs_energy
@@ -797,7 +875,7 @@ plots:
   channels:
     x: energy_total_wh
     y: spl_geodesic
-    color: planner
+    color: planner_world
   layout_group: tradeoffs
 - id: scatter_time_vs_ecot
   type: scatter
@@ -807,7 +885,7 @@ plots:
   channels:
     x: time_to_goal
     y: e_cot
-    color: planner
+    color: planner_world
   layout_group: tradeoffs
 - id: scatter_velocity_vs_psii
   type: scatter
@@ -817,10 +895,13 @@ plots:
   channels:
     x: mean_velocity_mps
     y: personal_space_intrusion_integral
-    color: planner
+    color: planner_world
   layout_group: tradeoffs
 - id: contact_closing_share
   uses: contact_closing_share
+  title: Robot Closing Share by Local Planner and Crowd Condition
+  channels:
+    x: local_planner
   layout_group: safety
 - id: trajectory_plot
   type: trajectory
