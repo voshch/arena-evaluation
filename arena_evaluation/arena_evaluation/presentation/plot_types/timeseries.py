@@ -1,14 +1,16 @@
-"""Timeseries plot renderer for temporal telemetry signals."""
+"""Timeseries renderer: one mean curve per colour value, with the 10th to 90th percentile over episodes as its band."""
 
 from __future__ import annotations
 
 import pathlib
-from typing import ClassVar
+from typing import ClassVar, Final, NamedTuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
+from arena_evaluation.analytics.stats import aggregate_timeseries_band
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import (
     BasePlotRenderer,
@@ -16,21 +18,57 @@ from arena_evaluation.presentation.plot_types.base import (
     new_figure,
     palette_color,
     require_drawable,
-    series_values,
 )
 
-EPISODE_COLUMN = "episode_id"
-Curve = tuple[str, pl.DataFrame, str]
+DEFAULT_BIN_WIDTH_S: Final[float] = 0.5
+BAND_LOW_QUANTILE: Final[float] = 0.1
+BAND_HIGH_QUANTILE: Final[float] = 0.9
+_ALL_CURVES: Final[str] = "all"
+_COLOUR: Final[str] = "colour"
+_BIN: Final[str] = "x"
+_VALUE: Final[str] = "value"
+
+
+def aggregate_curves(
+    df: pl.DataFrame,
+    *,
+    x_col: str,
+    y_col: str,
+    colour_col: str | None,
+    bin_width_s: float,
+) -> pl.DataFrame:
+    """Mean and percentile band of ``y_col`` over the episodes, per colour value and time bin."""
+    return aggregate_timeseries_band(
+        df,
+        x_col=x_col,
+        y_col=y_col,
+        colour_col=colour_col,
+        bin_width_s=bin_width_s,
+        low_quantile=BAND_LOW_QUANTILE,
+        high_quantile=BAND_HIGH_QUANTILE,
+    )
+
+
+class _Curve(NamedTuple):
+    name: str
+    x: np.ndarray
+    mean: np.ndarray
+    low: np.ndarray
+    high: np.ndarray
+    on_second_axis: bool
 
 
 class TimeseriesRenderer(BasePlotRenderer):
-    """Renders time-domain curves, one per signal and per colour value and episode, in Plotly and Matplotlib alike.
+    """Renders the mean over episodes of each signal per colour value, with its 10th to 90th percentile band.
 
     Signals declared as ``y2`` share the time axis and are drawn dotted against a second, right-hand axis.
+    The option ``bin_width_s`` sets the time resolution of the mean and the band.
     """
 
     PLOT_TYPE = "timeseries"
-    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
+    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
+        "bin_width_s",
+    }
 
     def _resolve_columns(
         self, df: pl.DataFrame
@@ -50,34 +88,38 @@ class TimeseriesRenderer(BasePlotRenderer):
         return self.format_label(column.replace("_", " ").title(), column)
 
     def _curves(
-        self, sorted_df: pl.DataFrame, y_cols: list[str], color_col: str | None
-    ) -> list[Curve]:
-        """One curve per signal and per (colour, episode) group: repeats of a robot never join into one line."""
-        split_cols = [
-            col
-            for col in (color_col, EPISODE_COLUMN)
-            if col and col in sorted_df.columns
-        ]
-        if not split_cols:
-            return [(y_col, sorted_df, y_col) for y_col in y_cols]
-        groups = sorted_df.partition_by(split_cols, as_dict=True, maintain_order=True)
-        return [
-            (self._curve_name(y_col, y_cols, split_cols, key), sub, y_col)
-            for y_col in y_cols
-            for key, sub in groups.items()
-        ]
-
-    @staticmethod
-    def _curve_name(
-        y_col: str, y_cols: list[str], split_cols: list[str], key: tuple
-    ) -> str:
-        parts = [] if len(y_cols) == 1 else [y_col]
-        for column, value in zip(split_cols, key, strict=True):
-            if column == EPISODE_COLUMN:
-                parts.append(f"episode {value}")
-            else:
-                parts.append("NULL" if value is None else str(value))
-        return " · ".join(parts)
+        self,
+        df: pl.DataFrame,
+        x_col: str,
+        y_cols: list[str],
+        y2_cols: list[str],
+        colour_col: str | None,
+    ) -> list[_Curve]:
+        bin_width_s = float(self.spec.options.get("bin_width_s", DEFAULT_BIN_WIDTH_S))
+        signals = [*y_cols, *y2_cols]
+        curves: list[_Curve] = []
+        for y_col in signals:
+            aggregated = aggregate_curves(
+                df, x_col=x_col, y_col=y_col, colour_col=colour_col, bin_width_s=bin_width_s
+            )
+            for key, sub in aggregated.partition_by(
+                _COLOUR, as_dict=True, maintain_order=True
+            ).items():
+                colour_value = key[0] if isinstance(key, tuple) else key
+                parts = [] if len(signals) == 1 else [y_col]
+                if colour_col:
+                    parts.append(str(colour_value))
+                curves.append(
+                    _Curve(
+                        name=" · ".join(parts) or y_col,
+                        x=sub[_BIN].to_numpy(),
+                        mean=sub["mean"].to_numpy(),
+                        low=sub["low"].to_numpy(),
+                        high=sub["high"].to_numpy(),
+                        on_second_axis=y_col in y2_cols,
+                    )
+                )
+        return curves
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly timeseries plot."""
@@ -87,22 +129,37 @@ class TimeseriesRenderer(BasePlotRenderer):
         palette = get_color_palette()
         fig = go.Figure()
 
-        for idx, (name, sub, y_col) in enumerate(
-            self._curves(df.sort(x_col), [*y_cols, *y2_cols], color_col)
-        ):
-            on_second_axis = y_col in y2_cols
+        for idx, curve in enumerate(self._curves(df, x_col, y_cols, y2_cols, color_col)):
+            colour = palette_color(palette, idx)
+            yaxis = "y2" if curve.on_second_axis else "y"
+            if not np.allclose(curve.low, curve.high, equal_nan=True):
+                band_x = np.concatenate([curve.x, curve.x[::-1]])
+                band_y = np.concatenate([curve.high, curve.low[::-1]])
+                fig.add_trace(
+                    go.Scatter(
+                        x=band_x.tolist(),
+                        y=band_y.tolist(),
+                        mode="lines",
+                        line={"color": colour, "width": 0},
+                        fill="toself",
+                        opacity=0.2,
+                        hoverinfo="skip",
+                        showlegend=False,
+                        yaxis=yaxis,
+                    )
+                )
             fig.add_trace(
                 go.Scatter(
-                    x=sub[x_col].to_numpy().tolist(),
-                    y=series_values(sub, y_col).tolist(),
+                    x=curve.x.tolist(),
+                    y=curve.mean.tolist(),
                     mode="lines",
-                    name=name,
+                    name=curve.name,
                     line={
-                        "color": palette_color(palette, idx),
+                        "color": colour,
                         "width": 2.0,
-                        "dash": "dot" if on_second_axis else "solid",
+                        "dash": "dot" if curve.on_second_axis else "solid",
                     },
-                    yaxis="y2" if on_second_axis else "y",
+                    yaxis=yaxis,
                     connectgaps=False,
                 )
             )
@@ -133,21 +190,24 @@ class TimeseriesRenderer(BasePlotRenderer):
         if df.is_empty():
             return
         x_col, y_cols, y2_cols, color_col = self._resolve_columns(df)
-        curves = self._curves(df.sort(x_col), [*y_cols, *y2_cols], color_col)
+        curves = self._curves(df, x_col, y_cols, y2_cols, color_col)
         palette = get_color_palette()
         fig, ax = new_figure()
         second_ax = ax.twinx() if y2_cols else ax
 
-        for idx, (name, sub, y_col) in enumerate(curves):
-            on_second_axis = y_col in y2_cols
-            target_ax = second_ax if on_second_axis else ax
+        for idx, curve in enumerate(curves):
+            target_ax = second_ax if curve.on_second_axis else ax
+            colour = palette_color(palette, idx)
             target_ax.plot(
-                sub[x_col].to_numpy(),
-                series_values(sub, y_col),
-                color=palette_color(palette, idx),
+                curve.x,
+                curve.mean,
+                color=colour,
                 linewidth=2.0,
-                linestyle=":" if on_second_axis else "-",
-                label=name,
+                linestyle=":" if curve.on_second_axis else "-",
+                label=curve.name,
+            )
+            target_ax.fill_between(
+                curve.x, curve.low, curve.high, color=colour, alpha=0.2, linewidth=0
             )
         if y2_cols:
             second_ax.set_ylabel(self._label(y2_cols[0]))

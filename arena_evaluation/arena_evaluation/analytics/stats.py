@@ -26,6 +26,7 @@ __all__ = [
     "PAIRED_DIFF_SUMMARY_SCHEMA",
     "PairedDiffResult",
     "RANK_SWAP_MATRIX_SCHEMA",
+    "aggregate_timeseries_band",
     "cluster_bootstrap_ci",
     "cluster_bootstrap_means",
     "contain_estimate",
@@ -35,6 +36,7 @@ __all__ = [
     "paired_treatment_diff",
     "rank_swap_matrix",
     "split_discovery_verification_seeds",
+    "split_display_outliers",
 ]
 
 CLUSTER_BOOTSTRAP_SCHEMA: Final[pl.Schema] = pl.Schema(
@@ -711,3 +713,73 @@ def split_discovery_verification_seeds(
     )
     result_lf = _to_lazy(frame).with_columns(cohort_expr)
     return result_lf.collect() if is_eager else result_lf
+
+
+_BEYOND_FENCE: Final[str] = "_beyond_fence"
+
+
+def _quantile_per_group(values: pl.Expr, quantile: float, groups: list[str]) -> pl.Expr:
+    expr = values.quantile(quantile, interpolation="linear")
+    return expr.over(groups) if groups else expr
+
+
+def split_display_outliers(
+    frame: pl.DataFrame, *, value: str, groups: Sequence[str]
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Split off the rows whose ``value`` lies beyond 1.5 IQR of their group, for drawing only."""
+    group_list = list(groups)
+    values = pl.col(value).cast(pl.Float64)
+    lower_quartile = _quantile_per_group(values, 0.25, group_list)
+    upper_quartile = _quantile_per_group(values, 0.75, group_list)
+    spread = upper_quartile - lower_quartile
+    beyond = (values < lower_quartile - 1.5 * spread) | (values > upper_quartile + 1.5 * spread)
+    flagged = frame.with_columns(beyond.fill_null(value=False).alias(_BEYOND_FENCE))
+    drawn = flagged.filter(~pl.col(_BEYOND_FENCE)).drop(_BEYOND_FENCE)
+    if not group_list:
+        return drawn, pl.DataFrame({"hidden": [int(flagged[_BEYOND_FENCE].sum())]})
+    hidden = (
+        flagged.group_by(group_list)
+        .agg(pl.col(_BEYOND_FENCE).sum().cast(pl.Int64).alias("hidden"))
+        .sort(group_list)
+    )
+    return drawn, hidden
+
+
+def aggregate_timeseries_band(
+    frame: pl.DataFrame,
+    *,
+    x_col: str,
+    y_col: str,
+    colour_col: str | None,
+    bin_width_s: float,
+    low_quantile: float = 0.1,
+    high_quantile: float = 0.9,
+) -> pl.DataFrame:
+    """Mean and percentile band of ``y_col`` over episodes, per colour value and time bin."""
+    if colour_col:
+        reason_col = f"{colour_col}_null_reason"
+        labels = pl.col(colour_col).cast(pl.Utf8)
+        if reason_col in frame.columns:
+            labels = pl.coalesce([labels, pl.col(reason_col).cast(pl.Utf8)])
+        colour_expr = labels.fill_null("NULL").alias("colour")
+    else:
+        colour_expr = pl.lit("all", dtype=pl.Utf8).alias("colour")
+
+    binned = (
+        frame.select(
+            colour_expr,
+            ((pl.col(x_col).cast(pl.Float64) / bin_width_s).round() * bin_width_s).alias("x"),
+            pl.col(y_col).cast(pl.Float64).fill_nan(None).alias("value"),
+        )
+        .drop_nulls(["x", "value"])
+    )
+    return (
+        binned.group_by(["colour", "x"])
+        .agg(
+            pl.col("value").mean().alias("mean"),
+            pl.col("value").quantile(low_quantile, interpolation="linear").alias("low"),
+            pl.col("value").quantile(high_quantile, interpolation="linear").alias("high"),
+            pl.len().alias("n"),
+        )
+        .sort(["colour", "x"])
+    )
