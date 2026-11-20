@@ -152,3 +152,32 @@ def test_relative_throughput_is_planned_time_over_time_to_goal_at_the_free_speed
     assert results["relative_throughput"] == pytest.approx(0.5)
 
 
+def test_relative_throughput_takes_the_free_speed_of_the_moving_samples_only():
+    times = np.arange(0.0, 8.0 + 1e-9, 0.5)
+    creep_m = 1e-4 * np.minimum(np.arange(len(times)), 10)
+    drive_m = 1e-3 + np.maximum(times - 5.0, 0.0)
+    robot = pl.DataFrame(
+        {
+            "t_ns": (times * SEC).astype(np.int64),
+            "x": np.where(times <= 5.0, creep_m, drive_m),
+            "y": np.zeros_like(times),
+            "yaw": np.zeros_like(times),
+            "vx": np.zeros_like(times),
+            "vy": np.zeros_like(times),
+        }
+    )
+    episode = AlignedEpisodeBundle(
+        episode_id=1,
+        data=pl.DataFrame(),
+        start_pos=[0.0, 0.0],
+        goal_pos=[4.0, 0.0],
+        topics={"robot_tracks": robot},
+    )
+
+    results = PathEfficiencyCalculator(_params()).calculate(
+        episode, {"path_length_m": 4.0, "theta_star_length": 4.0, "time_to_goal": 8.0}
+    )
+
+    assert results["relative_throughput"] == pytest.approx(0.5)
+
+

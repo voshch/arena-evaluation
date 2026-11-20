@@ -8,6 +8,7 @@ import polars as pl
 
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.common.routes import REFERENCE_EXCEEDS_PATH
+from arena_evaluation.processing.metrics.ecological.mechanism_metrics import STATIONARY_SPEED
 from arena_evaluation.processing.metrics.social.interaction_common import (
     NS_PER_S,
     detector_params_from_config,
@@ -84,7 +85,10 @@ class PathEfficiencyCalculator(BaseMetricCalculator):
         return (planned_m / free_speed_mps) / time_to_goal_s
 
     def _robot_free_speed_mps(self, episode: AlignedEpisodeBundle) -> float | None:
-        """Median robot speed over the sample pairs outside every pedestrian encounter window."""
+        """Median robot speed over the free sample pairs in which the robot moves.
+
+        Stationary jitter is left out so a stalled run keeps the cruising speed it reached, not zero.
+        """
         robot, _ = resolve_robot_trajectory(self, episode)
         spans = pedestrian_encounter_spans(episode, float(self.robot_params.robot_radius), detector_params_from_config(self.metrics_config))
         free = np.ones(len(robot.t_ns), dtype=bool)
@@ -94,7 +98,7 @@ class PathEfficiencyCalculator(BaseMetricCalculator):
         distance_m = np.hypot(np.diff(robot.x), np.diff(robot.y))
         both_free = free[:-1] & free[1:] & (dt_s > 0.0)
         speeds = distance_m[both_free] / dt_s[both_free]
-        if speeds.size == 0:
+        moving = speeds[speeds > STATIONARY_SPEED]
+        if moving.size == 0:
             return None
-        speed = float(np.median(speeds))
-        return speed if speed > 0.0 else None
+        return float(np.median(moving))
