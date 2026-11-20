@@ -81,3 +81,22 @@ def test_timeseries_plots_draw_one_curve_per_planner_and_world() -> None:
 
     assert series
     assert [plot["channels"]["color"] for plot in series] == ["planner_world"] * len(series)
+
+
+def test_summary_relative_throughput_uses_reference_time_to_goal(tmp_path: pathlib.Path) -> None:
+    rows = [
+        {"episode_id": 0, "planner": "dwb-nav", "is_reference": True, "success": True, "time_to_goal": 10.0},
+        {"episode_id": 1, "planner": "dwb-nav", "is_reference": False, "success": True, "time_to_goal": 20.0},
+        {"episode_id": 2, "planner": "dwb-nav", "is_reference": False, "success": False, "time_to_goal": 5.0},
+        {"episode_id": 3, "planner": "mppi-nav", "is_reference": False, "success": True, "time_to_goal": 15.0},
+    ]
+
+    summary = read_summary(write_benchmark(tmp_path / "bench", rows)).sort("episode_id")
+
+    assert summary["relative_throughput"].to_list() == [None, 0.5, None, None]
+    assert summary["relative_throughput_null_reason"].to_list() == [
+        "is_reference",
+        None,
+        "not_successful",
+        "reference_missing",
+    ]

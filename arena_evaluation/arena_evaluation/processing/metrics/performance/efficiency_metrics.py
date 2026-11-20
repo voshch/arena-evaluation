@@ -3,23 +3,15 @@ from __future__ import annotations
 import math
 import typing
 
-import numpy as np
 import polars as pl
 
 from arena_evaluation.processing.metrics.base import NULL_REASON_SUFFIX, BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.common.routes import REFERENCE_EXCEEDS_PATH
-from arena_evaluation.processing.metrics.ecological.mechanism_metrics import STATIONARY_SPEED
-from arena_evaluation.processing.metrics.social.interaction_common import (
-    NS_PER_S,
-    detector_params_from_config,
-    pedestrian_encounter_spans,
-    resolve_robot_trajectory,
-)
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 PATH_EFFICIENCY = define_metric("path_efficiency", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Mission route geodesic through the commanded task goals, each leg ending on its 1 m arrival radius, over the travelled path length; NULL when either side is unavailable or the planned route is longer than the sampled path (a ratio above one, never clamped).", null_reason=True)
-RELATIVE_THROUGHPUT = define_metric("relative_throughput", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Planned mission time over the episode's time to goal, higher is better. Planned mission time is the mission route length at the robot's free speed, the median speed outside encounter windows.", null_reason=True)
+RELATIVE_THROUGHPUT = define_metric("relative_throughput", pl.Float64, scopes=(MetricScope.ROBOT,), unit="1", description="Reference (unobstructed) time to goal over the episode's time to goal; 1.0 equals reference, 0.5 is twice as slow. Computed in v_episode_summary against is_reference episodes; NULL when no reference run exists.", null_reason=True)
 
 
 def _finite_positive(value: object) -> float | None:
@@ -56,9 +48,10 @@ class PathEfficiencyCalculator(BaseMetricCalculator):
     PRIMARY_OUTPUTS = ["path_efficiency", "relative_throughput"]
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """Geodesic reference over travelled length and planned-over-actual mission time; null when either side is unavailable."""
+        """Geodesic reference over travelled length; relative_throughput is left null here and computed in Layer 3 against is_reference runs."""
         results = self._path_efficiency(prior_results)
-        results["relative_throughput"] = self._relative_throughput(episode, prior_results)
+        results["relative_throughput"] = None
+        results[f"relative_throughput{NULL_REASON_SUFFIX}"] = NullReason.REFERENCE_MISSING.value
         return results
 
     @staticmethod
@@ -73,32 +66,3 @@ class PathEfficiencyCalculator(BaseMetricCalculator):
         if not math.isfinite(efficiency):
             return {"path_efficiency": None}
         return {"path_efficiency": efficiency}
-
-    def _relative_throughput(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> float | None:
-        planned_m = _finite_positive(prior_results.get("theta_star_length"))
-        time_to_goal_s = _finite_positive(prior_results.get("time_to_goal"))
-        if planned_m is None or time_to_goal_s is None:
-            return None
-        free_speed_mps = self._robot_free_speed_mps(episode)
-        if free_speed_mps is None:
-            return None
-        return (planned_m / free_speed_mps) / time_to_goal_s
-
-    def _robot_free_speed_mps(self, episode: AlignedEpisodeBundle) -> float | None:
-        """Median robot speed over the free sample pairs in which the robot moves.
-
-        Stationary jitter is left out so a stalled run keeps the cruising speed it reached, not zero.
-        """
-        robot, _ = resolve_robot_trajectory(self, episode)
-        spans = pedestrian_encounter_spans(episode, float(self.robot_params.robot_radius), detector_params_from_config(self.metrics_config))
-        free = np.ones(len(robot.t_ns), dtype=bool)
-        for _, start_ns, end_ns in spans:
-            free &= ~((robot.t_ns >= start_ns) & (robot.t_ns <= end_ns))
-        dt_s = np.diff(robot.t_ns).astype(np.float64) / NS_PER_S
-        distance_m = np.hypot(np.diff(robot.x), np.diff(robot.y))
-        both_free = free[:-1] & free[1:] & (dt_s > 0.0)
-        speeds = distance_m[both_free] / dt_s[both_free]
-        moving = speeds[speeds > STATIONARY_SPEED]
-        if moving.size == 0:
-            return None
-        return float(np.median(moving))

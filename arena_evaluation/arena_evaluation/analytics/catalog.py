@@ -450,7 +450,38 @@ class BenchmarkCatalog:
                     pl.col("collision_amount_wall") + pl.col("collision_amount_static")
                 ).alias("collision_amount_wall_and_static"),
             )
-            .drop(*_CONTACT_COUNT_COLUMNS)
+            .with_columns(
+                pl.when(
+                    pl.col("is_reference").fill_null(False)
+                    & pl.col("success").fill_null(False)
+                    & (pl.col("time_to_goal") > 0.0)
+                )
+                .then(pl.col("time_to_goal"))
+                .median()
+                .over(["planner"])
+                .alias("_ref_time_to_goal"),
+            )
+            .with_columns(
+                pl.when(
+                    ~pl.col("is_reference").fill_null(False)
+                    & pl.col("success").fill_null(False)
+                    & (pl.col("time_to_goal") > 0.0)
+                    & pl.col("_ref_time_to_goal").is_not_null()
+                    & (pl.col("_ref_time_to_goal") > 0.0)
+                )
+                .then(pl.col("_ref_time_to_goal") / pl.col("time_to_goal"))
+                .otherwise(pl.lit(None, dtype=pl.Float64))
+                .alias("relative_throughput"),
+                pl.when(pl.col("_ref_time_to_goal").is_null())
+                .then(pl.lit(NullReason.REFERENCE_MISSING.value))
+                .when(pl.col("is_reference").fill_null(False))
+                .then(pl.lit("is_reference"))
+                .when(~pl.col("success").fill_null(False))
+                .then(pl.lit("not_successful"))
+                .otherwise(pl.lit(None, dtype=pl.String))
+                .alias("relative_throughput_null_reason"),
+            )
+            .drop(*_CONTACT_COUNT_COLUMNS, "_ref_time_to_goal")
         )
         tables["v_episode_summary"] = v_episode_summary
 
