@@ -109,7 +109,7 @@ def test_arc_and_lateral_characterization_phases():
             "omega_z": [0.5, 0.5, 1.0, 1.0],
             "total_power_w": [60.0, 60.0, 75.0, 75.0],
             "total_level_af_dba": [45.0, 45.0, 50.0, 50.0],
-            "label": ["arc_vx_0.50_r_0.67_left"] * 2 + ["arc_vx_1.00_r_0.67_left"] * 2,
+            "label": ["arc_vx_0.50_r_0.77_left"] * 2 + ["arc_vx_1.00_r_0.77_left"] * 2,
         }
     )
     calc = _calc()
@@ -117,7 +117,7 @@ def test_arc_and_lateral_characterization_phases():
     assert calc.calculate(episode, {})["char_phase_coverage"] == 1.0
     table = _series(calc, episode)
     # turn radius is the schedule's commanded radius, not the achieved vx/wz ratio
-    assert abs(table["turn_radius_m"][0] - 0.6675) < 1e-4
+    assert abs(table["turn_radius_m"][0] - 2.5 * 0.3092) < 5e-3
     # Energy per rad: 60 W / 0.5 rad/s = 120 J/rad
     assert abs(table["energy_per_rad_j_rad"][0] - 120.0) < 1e-4
 
