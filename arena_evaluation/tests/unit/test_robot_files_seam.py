@@ -2,7 +2,6 @@ import pathlib
 import re
 
 SOURCE = pathlib.Path(__file__).resolve().parents[2] / "arena_evaluation"
-ALLOWED = {SOURCE / "ingestion" / "migrate.py"}
 FILE_LITERALS = re.compile(r"""["'](power\.yaml|acoustics\.yaml|model_params\.yaml|mobile\.yaml|control\.yaml|component\.yaml|assembly\.yaml)["']""")
 SHARE_LOOKUP = re.compile(r"""get_package_share_directory\(\s*["']arena_robots["']\s*\)""")
 ROBOTS_DIR = re.compile(r"""(?:/|,)\s*["']robots["']""")
@@ -17,8 +16,8 @@ def robot_file_reads(path: pathlib.Path) -> list[str]:
     return findings
 
 
-def test_only_the_migration_touches_robot_files():
-    findings = [finding for path in sorted(SOURCE.rglob("*.py")) if path not in ALLOWED for finding in robot_file_reads(path)]
+def test_no_source_reads_robot_files_by_path():
+    findings = [finding for path in sorted(SOURCE.rglob("*.py")) for finding in robot_file_reads(path)]
     assert findings == []
 
 
