@@ -19,11 +19,30 @@ from arena_evaluation.presentation.plot_types.base import (
     new_figure,
     palette_color,
     series_values,
+    split_display_outliers,
 )
+
+_NOTE_LEAD: str = "Not drawn, beyond 1.5 IQR of each group:"
+
+
+def _outlier_note(hidden: pl.DataFrame, groups: list[str]) -> str | None:
+    """Name each group that lost points to the display fence, with its count."""
+    counted = hidden.filter(pl.col("hidden") > 0).to_dicts()
+    if not counted:
+        return None
+    parts = [
+        f"{' · '.join('NULL' if row[group] is None else str(row[group]) for group in groups) or 'all'} {row['hidden']}"
+        for row in counted
+    ]
+    return f"{_NOTE_LEAD} {', '.join(parts)}"
 
 
 class ViolinRenderer(BasePlotRenderer):
-    """Renders distribution violin plots using Plotly and Seaborn."""
+    """Renders distribution violin plots using Plotly and Seaborn.
+
+    Values beyond 1.5 IQR of their group are left out of the drawing and the drawing names how many
+    were left out. The data itself is not changed.
+    """
 
     PLOT_TYPE = "violin"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
@@ -42,6 +61,15 @@ class ViolinRenderer(BasePlotRenderer):
 
     def _label(self, column: str) -> str:
         return self.format_label(self._title(column), column)
+
+    @staticmethod
+    def _drawn(
+        df: pl.DataFrame, x_col: str | None, y_col: str, color_col: str | None
+    ) -> tuple[pl.DataFrame, str | None]:
+        """The rows to draw, and the note naming the rows that are left out."""
+        groups = list(dict.fromkeys(col for col in (x_col, color_col) if col))
+        drawn, hidden = split_display_outliers(df, value=y_col, groups=groups)
+        return drawn, _outlier_note(hidden, groups)
 
     def _grouped(
         self, df: pl.DataFrame, trace_col: str | None, y_col: str
@@ -65,12 +93,13 @@ class ViolinRenderer(BasePlotRenderer):
         x_col, y_col, color_col = self._resolve_columns(df)
         if not y_col:
             return None
+        drawn, note = self._drawn(df, x_col, y_col, color_col)
 
         trace_col = color_col or x_col
         palette = get_color_palette()
         fig = go.Figure()
 
-        for idx, (name, sub) in enumerate(self._grouped(df, trace_col, y_col)):
+        for idx, (name, sub) in enumerate(self._grouped(drawn, trace_col, y_col)):
             violin: dict[str, object] = {
                 "y": series_values(sub, y_col).tolist(),
                 "name": name,
@@ -90,8 +119,13 @@ class ViolinRenderer(BasePlotRenderer):
             violinmode="group"
             if color_col and x_col and color_col != x_col
             else "overlay",
-            margin=dict(t=55, b=60, l=65, r=30),
+            margin=dict(t=55, b=90 if note else 60, l=65, r=30),
         )
+        if note:
+            fig.add_annotation(
+                text=note, xref="paper", yref="paper", x=0.0, y=-0.25,
+                showarrow=False, font={"size": 11},
+            )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
@@ -101,13 +135,14 @@ class ViolinRenderer(BasePlotRenderer):
         x_col, y_col, color_col = self._resolve_columns(df)
         if not y_col:
             return
+        drawn, note = self._drawn(df, x_col, y_col, color_col)
 
         axis_col = x_col or color_col
         cols = [c for c in dict.fromkeys([axis_col, color_col, y_col]) if c]
-        pdf = df.select(cols).to_pandas()
+        pdf = drawn.select(cols).to_pandas()
         for column in dict.fromkeys([axis_col, color_col]):
             if column:
-                pdf[column] = pd.Series(label_values(df, column))
+                pdf[column] = pd.Series(label_values(drawn, column))
 
         palette = get_color_palette()
         fig, ax = new_figure()
@@ -134,6 +169,8 @@ class ViolinRenderer(BasePlotRenderer):
             x_label=self._title(axis_col),
             y_label=y_label,
         )
+        if note:
+            ax.text(0.0, -0.22, note, transform=ax.transAxes, fontsize=8, va="top")
         fig.tight_layout()
         self.save_figure(fig, out_path)
         plt.close(fig)

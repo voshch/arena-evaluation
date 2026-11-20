@@ -12,6 +12,7 @@ import numpy as np
 import polars as pl
 
 from arena_evaluation.presentation.checks import PlotRenderError, null_reason_of
+from arena_evaluation.analytics.stats import split_display_outliers
 from arena_evaluation.presentation.viz_manifest import (
     PlotSpec,  # differs from overhaul/source:plot_types/base.py:13: PlotSpec lives in viz_manifest
 )
@@ -29,6 +30,7 @@ __all__ = [
     "palette_color",
     "require_drawable",
     "series_values",
+    "split_display_outliers",
 ]
 
 _CHANNEL_FIELDS: dict[str, str] = {
