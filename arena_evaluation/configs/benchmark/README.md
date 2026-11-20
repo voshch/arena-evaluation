@@ -26,6 +26,8 @@ configs/benchmark/
     |-- planners.yaml
     |-- edge_case_differential.yaml     - nav2 control + differential learned planners (jackal)
     |-- edge_case_omnidirectional.yaml  - nav2 control + omnidirectional learned planners (mpo700)
+    |-- usar_baseline.yaml              - USAR search baseline: nearest frontier, never stops (experiments/usar.py)
+    |-- usar_sweep.yaml                 - USAR stop rules x listening times, paired against usar_baseline
     `-- characterization.yaml
 ```
 

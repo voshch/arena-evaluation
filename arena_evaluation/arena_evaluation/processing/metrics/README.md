@@ -11,6 +11,7 @@ Metric calculators for the Arena evaluation pipeline. Subclasses of `BaseMetricC
 | `performance/` | Path, motion, time, collision, efficiency, clearance |
 | `naturalness/` | Trajectory naturalness against unobstructed baselines |
 | `edge_case/` | Criticality of generated edge-case scenarios against the case's own agents, formation panel |
+| `search/` | Search driver counters of a `search` episode from arena_hearing's `search_state`: stops, listening time, goals, heard calls, time without a frontier |
 
 ## Calculator Interface
 
