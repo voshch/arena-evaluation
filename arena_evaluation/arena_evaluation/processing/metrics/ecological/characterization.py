@@ -117,7 +117,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         from arena_robots.caps import MobileSpec
 
         raw = self.robot_params.mobile
-        return None if raw is None else MobileSpec(path=Path(f"{self.robot_params.model}/caps/mobile.yaml"), raw=raw)
+        return None if raw is None else MobileSpec(path=Path(f"{self.robot_params.model}/caps.yaml"), raw=raw)
 
     def _rebuilt_schedule(self) -> pl.DataFrame:
         """The default schedule for this robot's envelope, for recordings that carry no schedule table."""

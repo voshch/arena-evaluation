@@ -10,6 +10,7 @@ import json
 import pathlib
 
 import pytest
+import yaml
 
 pytest.importorskip("controller_manager_msgs")
 
@@ -32,10 +33,10 @@ from arena_robots.characterization import (
 
 def _mobile(tmp_path: pathlib.Path, body: str, **overrides: object) -> MobileSpec:
     """The mobile cap of a fictional robot written from body, with the instance's cap overrides applied."""
-    caps = tmp_path / "robot" / "caps"
-    caps.mkdir(parents=True)
-    (caps / "mobile.yaml").write_text(body)
-    return RobotCaps(caps, overrides=dict(overrides)).mobile
+    robot = tmp_path / "robot"
+    robot.mkdir(parents=True)
+    (robot / "caps.yaml").write_text(yaml.safe_dump({"mobile": yaml.safe_load(body)}))
+    return RobotCaps(robot, overrides=dict(overrides)).mobile
 
 
 _ACTIONS = "actions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n"

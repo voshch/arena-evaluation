@@ -2,7 +2,7 @@ import pathlib
 import re
 
 SOURCE = pathlib.Path(__file__).resolve().parents[2] / "arena_evaluation"
-FILE_LITERALS = re.compile(r"""["'](power\.yaml|acoustics\.yaml|model_params\.yaml|mobile\.yaml|control\.yaml|component\.yaml|assembly\.yaml)["']""")
+FILE_LITERALS = re.compile(r"""["'](caps\.yaml|model_params\.yaml|mobile\.yaml|control\.yaml|component\.yaml|assembly\.yaml)["']""")
 SHARE_LOOKUP = re.compile(r"""get_package_share_directory\(\s*["']arena_robots["']\s*\)""")
 ROBOTS_DIR = re.compile(r"""(?:/|,)\s*["']robots["']""")
 
@@ -23,9 +23,9 @@ def test_no_source_reads_robot_files_by_path():
 
 def test_the_scanner_catches_a_planted_robot_file_read(tmp_path: pathlib.Path):
     planted = tmp_path / "planted.py"
-    planted.write_text("import os\nfrom ament_index_python.packages import get_package_share_directory\nshare = get_package_share_directory(\"arena_robots\")\npower = os.path.join(share, \"robots\", \"jackal\", \"telemetry\", \"power.yaml\")\nparams = open(os.path.join(share, \"model_params.yaml\"))\n")
+    planted.write_text("import os\nfrom ament_index_python.packages import get_package_share_directory\nshare = get_package_share_directory(\"arena_robots\")\npower = os.path.join(share, \"robots\", \"jackal\", \"caps.yaml\")\nparams = open(os.path.join(share, \"model_params.yaml\"))\n")
     findings = robot_file_reads(planted)
-    assert any("power.yaml" in finding for finding in findings)
+    assert any("caps.yaml" in finding for finding in findings)
     assert any("model_params.yaml" in finding for finding in findings)
     assert any("joined with" in finding for finding in findings)
 

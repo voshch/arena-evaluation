@@ -132,7 +132,7 @@ arena_evaluation_msgs/         <- Sibling package: ROS 2 message and service def
 
 ### Robot facts
 
-The recorder writes the effective caps of every robot instance to `<run_dir>/robots/<robot ns>/caps.yaml` (`arena-caps/1`: `effective`, `provenance`, `hash`). The metrics read the mobile, power and acoustics models of a robot only from that snapshot through `RobotParams`, and the recorder subscribes the controller topics from its `body` block. The radius and mass are the recorded fleet parameters. A unit test fails on any read of robot definition files by path outside the migration. See the [ingestion](arena_evaluation/ingestion/README.md#robot-caps-snapshot) and [storage](arena_evaluation/storage/README.md) READMEs.
+The recorder writes the effective caps of every robot instance to `<run_dir>/robots/<robot ns>/caps_snapshot.yaml` (`arena-caps/1`: `effective`, `provenance`, `hash`). The metrics read the mobile, power and acoustics models of a robot only from that snapshot through `RobotParams`, and the recorder subscribes the controller topics from its `body` block. The radius and mass are the recorded fleet parameters. A unit test fails on any read of robot definition files by path outside the migration. See the [ingestion](arena_evaluation/ingestion/README.md#robot-caps-snapshot) and [storage](arena_evaluation/storage/README.md) READMEs.
 
 ---
 

@@ -139,7 +139,7 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str, snapshot: dict
 
 def caps_snapshot_path(run_dir: pathlib.Path, robot_ns: str) -> pathlib.Path:
     """Where a run keeps the caps snapshot of the robot at `robot_ns`."""
-    return run_dir / "robots" / robot_ns.strip("/").replace("/", "_") / "caps.yaml"
+    return run_dir / "robots" / robot_ns.strip("/").replace("/", "_") / "caps_snapshot.yaml"
 
 
 def _declared_rows(rows: pl.DataFrame, table: type[Table], robot_id: str) -> pl.DataFrame:

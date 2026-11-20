@@ -1134,7 +1134,7 @@ def test_robots_fleet_callback_writes_the_caps_snapshot(env_node):
 
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")], params))
 
-    snapshot = yaml.safe_load((node.run_dir / "robots" / "robot_0" / "caps.yaml").read_text())
+    snapshot = yaml.safe_load((node.run_dir / "robots" / "robot_0" / "caps_snapshot.yaml").read_text())
     assert snapshot["format"] == "arena-caps/1"
     assert snapshot["model"] == "jackal"
     assert snapshot["request"]["overrides"] == {"mobile.limits": {"scale": 0.5}}
@@ -1161,7 +1161,7 @@ def test_robots_fleet_callback_rewrites_the_snapshot_when_the_params_change(env_
     node.current_time = 2000
     node._begin_episode(0)
     node.current_metadata = _make_run_metadata(robot_model=["unknown"])
-    path = node.run_dir / "robots" / "robot_0" / "caps.yaml"
+    path = node.run_dir / "robots" / "robot_0" / "caps_snapshot.yaml"
 
     node.robots_fleet_callback(_fleet_message([("robot_0", "jackal")]))
     before = yaml.safe_load(path.read_text())
@@ -1181,7 +1181,7 @@ def test_a_runtime_hash_mismatch_warns_and_stores_both_hashes(tmp_path):
 
     assert snapshot is not None
     assert any(stale in line for line in _log(node, "WARN"))
-    written = yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps.yaml").read_text())
+    written = yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps_snapshot.yaml").read_text())
     assert written["runtime_hash"] == stale
     assert written["hash"] != stale
 
@@ -1195,7 +1195,7 @@ def test_a_matching_runtime_hash_is_not_recorded_twice(tmp_path):
     node._snapshot_robot_caps("robot_0", "jackal", {"caps:hash": runtime_hash})
 
     assert _log(node, "WARN") == []
-    assert "runtime_hash" not in yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps.yaml").read_text())
+    assert "runtime_hash" not in yaml.safe_load((tmp_path / "robots" / "robot_0" / "caps_snapshot.yaml").read_text())
 
 
 def test_a_robot_namespace_with_slashes_is_flattened_in_the_snapshot_path(tmp_path):
@@ -1203,7 +1203,7 @@ def test_a_robot_namespace_with_slashes_is_flattened_in_the_snapshot_path(tmp_pa
 
     node._snapshot_robot_caps("env_0/robot_0", "jackal", {})
 
-    assert (tmp_path / "robots" / "env_0_robot_0" / "caps.yaml").is_file()
+    assert (tmp_path / "robots" / "env_0_robot_0" / "caps_snapshot.yaml").is_file()
 
 
 def test_a_model_that_does_not_resolve_records_no_snapshot(tmp_path):
