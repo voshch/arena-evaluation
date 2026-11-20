@@ -1,0 +1,10 @@
+id: energy_vs_time_tradeoff
+type: scatter
+title: Energy Consumption vs. Time to Goal Tradeoff
+layout_group: tradeoffs
+data:
+  source: v_episode_summary
+channels:
+  x: time_to_goal
+  y: energy_total_wh
+  color: planner_world

@@ -1,0 +1,12 @@
+id: ade_box
+type: box
+title: Average Displacement Error (ADE) by Local Planner and World
+layout_group: naturalness
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: ade
+  color: world
+options:
+  show_outliers: false

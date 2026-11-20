@@ -122,16 +122,24 @@ class IntervalRenderer(BasePlotRenderer):
         data = self._plot_data(df)
         palette = get_color_palette()
         fig = go.Figure()
-        for group_index, (group, indices) in enumerate(data.groups_with_indices()):
+        categories = list(dict.fromkeys(data.labels))
+        positions = {label: idx for idx, label in enumerate(categories)}
+        groups = data.groups_with_indices()
+        n_groups = len(groups)
+        step = _DODGE_WIDTH / max(n_groups - 1, 1) if n_groups > 1 else 0.0
+        for group_index, (group, indices) in enumerate(groups):
             values = data.values[indices].astype(float)
+            offset = (
+                (group_index - (n_groups - 1) / 2.0) * step if n_groups > 1 else 0.0
+            )
             fig.add_trace(
                 go.Scatter(
-                    x=[data.labels[index] for index in indices],
+                    x=[positions[data.labels[index]] + offset for index in indices],
                     y=values.tolist(),
                     mode="markers",
                     name=group or None,
                     showlegend=data.groups is not None,
-                    marker={"color": palette_color(palette, group_index)},
+                    marker={"color": palette_color(palette, group_index), "size": 8},
                     error_y={
                         "type": "data",
                         "symmetric": False,
@@ -145,6 +153,11 @@ class IntervalRenderer(BasePlotRenderer):
             title=self.spec.title,
             xaxis_title=data.x_title,
             yaxis_title=data.y_title,
+            xaxis={
+                "tickmode": "array",
+                "tickvals": list(range(len(categories))),
+                "ticktext": categories,
+            },
         )
         if data.color_col:
             fig.update_layout(
@@ -155,7 +168,11 @@ class IntervalRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly interval chart with error bars."""
         fig = self.build_plotly_figure(df)
-        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
+        return (
+            None
+            if fig is None
+            else fig.to_html(include_plotlyjs=False, full_html=False)
+        )
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static interval figure without writing it."""

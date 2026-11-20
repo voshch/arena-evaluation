@@ -27,13 +27,35 @@ if TYPE_CHECKING:
 
 CONTESTANT = "planner"
 _ROLLUP_RULE = "mean_over_episodes"
-_DIRECTION_HINT = "ensure every metric has a declared direction ('higher' or 'lower') in dim_metrics"
+_DIRECTION_HINT = (
+    "ensure every metric has a declared direction ('higher' or 'lower') in dim_metrics"
+)
 
-_DEFAULT_METRICS: tuple[str, ...] = ("success", "time_to_goal", "path_efficiency", "energy_total_wh")
-Metrics = Annotated[list[str] | None, pydantic.Field(description="metric columns, the metrics' declared primary outputs when omitted")]
-References = Annotated[bool, pydantic.Field(description="keep reference episodes (is_reference), which are not contestant runs")]
+_DEFAULT_METRICS: tuple[str, ...] = (
+    "success",
+    "time_to_goal",
+    "path_efficiency",
+    "energy_total_wh",
+)
+Metrics = Annotated[
+    list[str] | None,
+    pydantic.Field(
+        description="metric columns, the metrics' declared primary outputs when omitted"
+    ),
+]
+References = Annotated[
+    bool,
+    pydantic.Field(
+        description="keep reference episodes (is_reference), which are not contestant runs"
+    ),
+]
 Scalar = str | int | float | bool
-Filter = Annotated[dict[str, Scalar | list[Scalar]] | None, pydantic.Field(description="equality filter, {column: value} or {column: [values]}")]
+Filter = Annotated[
+    dict[str, Scalar | list[Scalar]] | None,
+    pydantic.Field(
+        description="equality filter, {column: value} or {column: [values]}"
+    ),
+]
 
 
 def _open_catalog(run_id: str) -> BenchmarkCatalog:
@@ -43,7 +65,10 @@ def _open_catalog(run_id: str) -> BenchmarkCatalog:
 
     path = run_path(run_id)
     if not has_star_schema(path):
-        raise ToolError(f"run {run_id!r} has no Star Schema tables", hint="evaluation_process builds them",)
+        raise ToolError(
+            f"run {run_id!r} has no Star Schema tables",
+            hint="evaluation_process builds them",
+        )
     return BenchmarkCatalog.open(path)
 
 
@@ -107,7 +132,10 @@ def episodes(frame: pl.DataFrame, include_references: bool) -> pl.DataFrame:
 def columns(frame: pl.DataFrame, names: list[str], what: str) -> list[str]:
     missing = [name for name in names if name not in frame.columns]
     if missing:
-        raise ToolError(f"no {what} column {', '.join(missing)}", hint=f"columns: {', '.join(frame.columns)}",)
+        raise ToolError(
+            f"no {what} column {', '.join(missing)}",
+            hint=f"columns: {', '.join(frame.columns)}",
+        )
     return names
 
 
@@ -140,7 +168,9 @@ def column_stats(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
                 )
         elif isinstance(dtype, pl.List):
             entry["mean_length"] = jsonable(series.list.len().mean())
-        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(dtype, pl.Enum):
+        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(
+            dtype, pl.Enum
+        ):
             unique_s = series.drop_nulls().unique().sort()
             # agent-contracts: ignore JSON serialization boundary
             unique = unique_s.head(20).to_list()
@@ -156,7 +186,9 @@ def _pivot_group_summary(
     grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
     for row in summary_df.to_dicts():
         key = tuple(row[col] for col in group_cols)
-        entry = grouped.setdefault(key, {**{col: row[col] for col in group_cols}, "n_rows": int(row["n"])})
+        entry = grouped.setdefault(
+            key, {**{col: row[col] for col in group_cols}, "n_rows": int(row["n"])}
+        )
         metric = str(row["metric"])
         entry[metric] = jsonable(row["mean"])
         if include_spread:
@@ -218,6 +250,7 @@ def summary_of(
     overall_res = _group_summary(catalog, (), ("success",), exclude_references=exclude)
     overall_val = overall_res.frame["mean"][0] if overall_res.frame.height else None
     distinct = {
+        # agent-contracts: ignore AC004 - JSON MCP response boundary
         name: sorted(work[name].drop_nulls().unique().to_list())
         for name in (CONTESTANT, "stage", "world")
     }
@@ -311,16 +344,28 @@ def evaluation_describe_metric(
     known = sorted(
         {str(r["metric"]) for r in dim_rows} | {m.name for m in defined_metrics()}
     )
-    raise ToolError(f"no metric {metric_name!r}", hint=f"metrics: {', '.join(known)}" if known else "pass run_id with Star Schema tables",)
+    raise ToolError(
+        f"no metric {metric_name!r}",
+        hint=f"metrics: {', '.join(known)}"
+        if known
+        else "pass run_id with Star Schema tables",
+    )
 
 
 @domain.tool(read_only=True)
 def evaluation_aggregate(
     run_id: RunId,
-    dimension: Annotated[list[str] | str, pydantic.Field(description="column or columns to group by, e.g. planner or ['stage', 'planner']")] = "planner",
+    dimension: Annotated[
+        list[str] | str,
+        pydantic.Field(
+            description="column or columns to group by, e.g. planner or ['stage', 'planner']"
+        ),
+    ] = "planner",
     metrics: Metrics = None,
     filter: Filter = None,
-    sort_by: Annotated[str | None, pydantic.Field(description="metric column to sort by")] = None,
+    sort_by: Annotated[
+        str | None, pydantic.Field(description="metric column to sort by")
+    ] = None,
     descending: bool = True,
     include_references: References = False,
 ) -> dict[str, Any]:
@@ -330,7 +375,10 @@ def evaluation_aggregate(
     catalog, frame = _summary_frame(run_id)
     dimensions = [dimension] if isinstance(dimension, str) else list(dimension)
     if not dimensions:
-        raise ToolError("no dimension to group by", hint="pass at least one column, e.g. planner or ['stage', 'planner']",)
+        raise ToolError(
+            "no dimension to group by",
+            hint="pass at least one column, e.g. planner or ['stage', 'planner']",
+        )
     columns(frame, dimensions, "dimension")
     if filter:
         columns(frame, list(filter), "filter")
@@ -344,7 +392,10 @@ def evaluation_aggregate(
         ]
     )
     if sort_by is not None and sort_by not in chosen:
-        raise ToolError(f"sort_by {sort_by!r} is not one of the metrics {chosen}", hint=f"sort_by must be one of {chosen}",)
+        raise ToolError(
+            f"sort_by {sort_by!r} is not one of the metrics {chosen}",
+            hint=f"sort_by must be one of {chosen}",
+        )
     res = _group_summary(
         catalog,
         tuple(dimensions),
@@ -374,13 +425,31 @@ def evaluation_aggregate(
 @domain.tool(read_only=True)
 def evaluation_compare_planners(
     run_id: RunId,
-    planners: Annotated[list[str] | None, pydantic.Field(description="contestant names, all when omitted")] = None,
+    planners: Annotated[
+        list[str] | None,
+        pydantic.Field(description="contestant names, all when omitted"),
+    ] = None,
     metrics: Metrics = None,
     group_by_stage: bool = False,
-    normalize: Annotated[bool, pydantic.Field(description="include <metric>_norm in [0, 1] and composite rank")] = True,
+    normalize: Annotated[
+        bool,
+        pydantic.Field(
+            description="include <metric>_norm in [0, 1] and composite rank"
+        ),
+    ] = True,
     include_references: References = False,
-    n: Annotated[int | None, pydantic.Field(description="return only the n best contestants by weighted normalized score (the former evaluation_top_n)")] = None,
-    weights: Annotated[list[float] | None, pydantic.Field(description="one weight per metric when n is set, equal weights when omitted")] = None,
+    n: Annotated[
+        int | None,
+        pydantic.Field(
+            description="return only the n best contestants by weighted normalized score (the former evaluation_top_n)"
+        ),
+    ] = None,
+    weights: Annotated[
+        list[float] | None,
+        pydantic.Field(
+            description="one weight per metric when n is set, equal weights when omitted"
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Contestants side by side on metric means and composite ranking via Layer 3 ``composite_ranking``; ``n`` returns the top contestants."""
     catalog, frame = _summary_frame(run_id)
@@ -389,7 +458,10 @@ def evaluation_compare_planners(
     exclude = not include_references
     if n is not None:
         if weights is not None and len(weights) != len(chosen):
-            raise ToolError(f"{len(weights)} weights for {len(chosen)} metrics", hint="give one weight per metric, in the same order",)
+            raise ToolError(
+                f"{len(weights)} weights for {len(chosen)} metrics",
+                hint="give one weight per metric, in the same order",
+            )
         weight_map = (
             dict(zip(chosen, weights, strict=True))
             if weights is not None
@@ -461,10 +533,16 @@ def evaluation_correlation(
     catalog, frame = _summary_frame(run_id)
     columns(frame, metrics, "metric")
     if len(metrics) < 2:
-        raise ToolError("correlation needs at least two metrics", hint="pass at least two metric names, e.g. ['time_to_goal', 'path_length_m']",)
+        raise ToolError(
+            "correlation needs at least two metrics",
+            hint="pass at least two metric names, e.g. ['time_to_goal', 'path_length_m']",
+        )
     lists = [name for name in metrics if isinstance(frame.schema[name], pl.List)]
     if lists:
-        raise ToolError(f"{', '.join(lists)} hold one list per episode, correlate scalar metrics", hint="evaluation_summarize shows each column's dtype",)
+        raise ToolError(
+            f"{', '.join(lists)} hold one list per episode, correlate scalar metrics",
+            hint="evaluation_summarize shows each column's dtype",
+        )
 
     res = run_computation(
         "correlation_matrix",
@@ -477,7 +555,12 @@ def evaluation_correlation(
         r_val = jsonable(row["pearson_r"])
         matrix.setdefault(a, {})[b] = r_val
         matrix.setdefault(b, {})[a] = r_val
-    return {"run_id": run_id, "snapshot_id": res.snapshot_id, "metrics": metrics, "correlation_matrix": matrix}
+    return {
+        "run_id": run_id,
+        "snapshot_id": res.snapshot_id,
+        "metrics": metrics,
+        "correlation_matrix": matrix,
+    }
 
 
 @domain.tool(read_only=True)
@@ -531,7 +614,12 @@ def evaluation_summarize(
 )
 def metrics_schema_resource(run_id: str) -> dict[str, Any]:
     frame, snapshot_id = load_metrics_with_snapshot(run_id)
-    return {"run_id": run_id, "snapshot_id": snapshot_id, "n_rows": len(frame), "dtypes": {name: str(dtype) for name, dtype in frame.schema.items()}}
+    return {
+        "run_id": run_id,
+        "snapshot_id": snapshot_id,
+        "n_rows": len(frame),
+        "dtypes": {name: str(dtype) for name, dtype in frame.schema.items()},
+    }
 
 
 @domain.resource(
@@ -547,10 +635,21 @@ def metrics_summary_resource(run_id: str) -> dict[str, Any]:
 
 @domain.tool(read_only=False, destructive=False, idempotent=True)
 def evaluation_analysis(
-    procedure: Annotated[str | None, pydantic.Field(description="Named analysis procedure to run; omit to list all procedures and parameter schemas")] = None,
-    params: Annotated[dict[str, Any] | None, pydantic.Field(description="Procedure parameter dictionary")] = None,
+    procedure: Annotated[
+        str | None,
+        pydantic.Field(
+            description="Named analysis procedure to run; omit to list all procedures and parameter schemas"
+        ),
+    ] = None,
+    params: Annotated[
+        dict[str, Any] | None,
+        pydantic.Field(description="Procedure parameter dictionary"),
+    ] = None,
     run_id: OptionalRunId = None,
-    save_as: Annotated[str | None, pydantic.Field(description="Optional purpose/label for pinned evidence")] = None,
+    save_as: Annotated[
+        str | None,
+        pydantic.Field(description="Optional purpose/label for pinned evidence"),
+    ] = None,
 ) -> dict[str, Any]:
     """List or run a named statistical analysis procedure over a run and pin its evidence."""
     from arena_evaluation.analytics.analyses import list_procedures, run_procedure
@@ -571,7 +670,10 @@ def evaluation_analysis(
             save_as=save_as,
         )
     except (KeyError, ValueError, pydantic.ValidationError) as exc:
-        raise ToolError(str(exc), hint="call evaluation_analysis() without procedure to see valid procedures and schemas",) from exc
+        raise ToolError(
+            str(exc),
+            hint="call evaluation_analysis() without procedure to see valid procedures and schemas",
+        ) from exc
 
     summary_rows = result.summary.to_dicts()
     derived_table: str | None = None
@@ -584,7 +686,14 @@ def evaluation_analysis(
             "procedure": procedure,
             "params": params or {},
         }
-        specs = ((save_as, result.frame, definition), (f"{save_as}_summary", result.summary, {**definition, "kind": "procedure_summary"}))
+        specs = (
+            (save_as, result.frame, definition),
+            (
+                f"{save_as}_summary",
+                result.summary,
+                {**definition, "kind": "procedure_summary"},
+            ),
+        )
         try:
             saved = [
                 save_derived_table(
@@ -599,7 +708,10 @@ def evaluation_analysis(
                 for name, frame, spec_definition in specs
             ]
         except (ValueError, OSError) as exc:
-            raise ToolError(f"cannot save derived table {save_as!r}: {exc}", hint="use a save_as of letters, digits, '_' or '-', not starting with '-'",) from exc
+            raise ToolError(
+                f"cannot save derived table {save_as!r}: {exc}",
+                hint="use a save_as of letters, digits, '_' or '-', not starting with '-'",
+            ) from exc
         derived_table, derived_summary_table = (info["table_name"] for info in saved)
         append_audit_event(
             path,
@@ -623,7 +735,11 @@ def evaluation_analysis(
         "excluded_rows": dict(result.excluded_rows),
         "seeds_used": list(result.seeds_used),
         **({"derived_table": derived_table} if derived_table else {}),
-        **({"derived_summary_table": derived_summary_table} if derived_summary_table else {}),
+        **(
+            {"derived_summary_table": derived_summary_table}
+            if derived_summary_table
+            else {}
+        ),
     }
 
 
@@ -641,9 +757,17 @@ def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -
 @domain.tool(read_only=False, destructive=False, idempotent=True)
 def evaluation_sensitivity(
     run_id: RunId,
-    episodes: Annotated[list[int] | None, pydantic.Field(description="Episode IDs to rerun in memory; omit for all")] = None,
-    detector_params: Annotated[dict[str, Any] | None, pydantic.Field(description="Detector parameters for sensitivity rerun")] = None,
-    save_as: Annotated[str | None, pydantic.Field(description="Optional label for pinned evidence")] = None,
+    episodes: Annotated[
+        list[int] | None,
+        pydantic.Field(description="Episode IDs to rerun in memory; omit for all"),
+    ] = None,
+    detector_params: Annotated[
+        dict[str, Any] | None,
+        pydantic.Field(description="Detector parameters for sensitivity rerun"),
+    ] = None,
+    save_as: Annotated[
+        str | None, pydantic.Field(description="Optional label for pinned evidence")
+    ] = None,
 ) -> dict[str, Any]:
     """Run an in-memory detector-level sensitivity rerun over telemetry; it writes no variant and no published file."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
@@ -675,7 +799,14 @@ def evaluation_sensitivity(
         },
         produced_ids=[record.evidence_id],
     )
-    return {"run_id": path.name, "snapshot_id": catalog.snapshot_id, "evidence_id": record.evidence_id, "is_sensitivity": True, "n_rows": frame.height, "preview": frame.head(20).to_dicts()}
+    return {
+        "run_id": path.name,
+        "snapshot_id": catalog.snapshot_id,
+        "evidence_id": record.evidence_id,
+        "is_sensitivity": True,
+        "n_rows": frame.height,
+        "preview": frame.head(20).to_dicts(),
+    }
 
 
 @domain.tool(read_only=True)
@@ -698,7 +829,10 @@ def evaluation_refresh_table(run_id: RunId, name: str) -> dict[str, Any]:
     try:
         info = refresh_derived_table(path, name)
     except (FileNotFoundError, ValueError) as exc:
-        raise ToolError(str(exc), hint="evaluation_tables lists saved derived tables",) from exc
+        raise ToolError(
+            str(exc),
+            hint="evaluation_tables lists saved derived tables",
+        ) from exc
     append_audit_event(
         path,
         role="analyst",

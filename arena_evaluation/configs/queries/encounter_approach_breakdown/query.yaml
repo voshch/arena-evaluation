@@ -1,0 +1,22 @@
+name: encounter_approach_breakdown
+title: "Encounter Approach Breakdown"
+description: "Encounter counts, contact encounters, clearance, and detour time by world, local_planner, inter_planner, and approach_type"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+sql: |
+  SELECT
+      world,
+      local_planner,
+      inter_planner,
+      approach_type,
+      SUM(encounter_count) AS encounter_count,
+      SUM(contact_encounters) AS contact_encounters,
+      AVG(mean_min_clearance_m) AS mean_min_clearance_m,
+      AVG(mean_detour_time_s) AS mean_detour_time_s
+  FROM v_encounter_summary
+  WHERE (:world = 'all' OR world = :world)
+  GROUP BY world, local_planner, inter_planner, approach_type
+  ORDER BY world, local_planner, inter_planner, approach_type

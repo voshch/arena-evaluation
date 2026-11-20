@@ -49,117 +49,203 @@ def _metric(
 ) -> Metric:
     """An edge-case metric published at one scope, with its null always explained."""
     return define_metric(
-        name, dtype, scopes=(scope,), unit=unit, description=description, null_reason=True
+        name,
+        dtype,
+        scopes=(scope,),
+        unit=unit,
+        description=description,
+        null_reason=True,
     )
 
 
 EDGE_CASE_COLLIDED = _metric(
-    "edge_case_collided", pl.Boolean, MetricScope.ROBOT, "",
+    "edge_case_collided",
+    pl.Boolean,
+    MetricScope.ROBOT,
+    "",
     "Whether the case's robot made contact with one of its scored agents.",
 )
 EDGE_CASE_COLLISION_AT = _metric(
-    "edge_case_collision_at", pl.Float64, MetricScope.CONTACT, "s",
+    "edge_case_collision_at",
+    pl.Float64,
+    MetricScope.CONTACT,
+    "s",
     "Seconds after the episode start of the first collision with a scored agent.",
 )
 EDGE_CASE_COLLISION_PED_CLOSING = _metric(
-    "edge_case_collision_ped_closing", pl.Float64, MetricScope.CONTACT, "m/s",
+    "edge_case_collision_ped_closing",
+    pl.Float64,
+    MetricScope.CONTACT,
+    "m/s",
     "Pedestrian closing speed along the line of sight at the first collision.",
 )
 EDGE_CASE_COLLISION_ROBOT_CLOSING = _metric(
-    "edge_case_collision_robot_closing", pl.Float64, MetricScope.CONTACT, "m/s",
+    "edge_case_collision_robot_closing",
+    pl.Float64,
+    MetricScope.CONTACT,
+    "m/s",
     "Robot closing speed along the line of sight at the first collision.",
 )
 EDGE_CASE_COLLISION_WITH = _metric(
-    "edge_case_collision_with", pl.String, MetricScope.CONTACT, "",
+    "edge_case_collision_with",
+    pl.String,
+    MetricScope.CONTACT,
+    "",
     "Agent the robot first collided with.",
 )
 EDGE_CASE_FREEZE_S = _metric(
-    "edge_case_freeze_s", pl.Float64, MetricScope.ROBOT, "s",
+    "edge_case_freeze_s",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "s",
     "Seconds after the settling window the robot stood below the freeze speed.",
 )
 EDGE_CASE_ID = _metric(
-    "edge_case_id", pl.String, MetricScope.EPISODE, "",
+    "edge_case_id",
+    pl.String,
+    MetricScope.EPISODE,
+    "",
     "Identifier of the case the episode ran, from its provenance.",
 )
 EDGE_CASE_INTRUSION_S = _metric(
-    "edge_case_intrusion_s", pl.Float64, MetricScope.ROBOT, "s",
+    "edge_case_intrusion_s",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "s",
     "Seconds a scored pedestrian was inside the personal-space edge clearance.",
 )
 EDGE_CASE_MIN_CLEARANCE_AT = _metric(
-    "edge_case_min_clearance_at", pl.Float64, MetricScope.ROBOT, "s",
+    "edge_case_min_clearance_at",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "s",
     "Seconds after the episode start of the closest approach to a scored agent.",
 )
 EDGE_CASE_MIN_CLEARANCE_M = _metric(
-    "edge_case_min_clearance_m", pl.Float64, MetricScope.ROBOT, "m",
+    "edge_case_min_clearance_m",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "m",
     "Closest surface clearance between the robot and a scored agent.",
 )
 EDGE_CASE_MIN_CLEARANCE_WITH = _metric(
-    "edge_case_min_clearance_with", pl.String, MetricScope.ROBOT, "",
+    "edge_case_min_clearance_with",
+    pl.String,
+    MetricScope.ROBOT,
+    "",
     "Agent the closest approach was measured against.",
 )
 EDGE_CASE_MIN_TTC_AT = _metric(
-    "edge_case_min_ttc_at", pl.Float64, MetricScope.ROBOT, "s",
+    "edge_case_min_ttc_at",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "s",
     "Seconds after the episode start of the shortest time to collision.",
 )
 EDGE_CASE_MIN_TTC_S = _metric(
-    "edge_case_min_ttc_s", pl.Float64, MetricScope.ROBOT, "s",
+    "edge_case_min_ttc_s",
+    pl.Float64,
+    MetricScope.ROBOT,
+    "s",
     "Shortest constant-velocity time to collision with a scored agent.",
 )
 EDGE_CASE_MIN_TTC_WITH = _metric(
-    "edge_case_min_ttc_with", pl.String, MetricScope.ROBOT, "",
+    "edge_case_min_ttc_with",
+    pl.String,
+    MetricScope.ROBOT,
+    "",
     "Agent the shortest time to collision was measured against.",
 )
 EDGE_CASE_PET_S = _metric(
-    "edge_case_pet_s", pl.Float64, MetricScope.ENCOUNTER, "s",
+    "edge_case_pet_s",
+    pl.Float64,
+    MetricScope.ENCOUNTER,
+    "s",
     "Post-encroachment time at the case's designed encounter point.",
 )
 EDGE_CASE_PET_WITH = _metric(
-    "edge_case_pet_with", pl.String, MetricScope.ENCOUNTER, "",
+    "edge_case_pet_with",
+    pl.String,
+    MetricScope.ENCOUNTER,
+    "",
     "Agent the post-encroachment time was measured with.",
 )
 EDGE_CASE_PLAYED = _metric(
-    "edge_case_played", pl.Boolean, MetricScope.EPISODE, "",
+    "edge_case_played",
+    pl.Boolean,
+    MetricScope.EPISODE,
+    "",
     "Whether every encounter agent received a stimulus after the episode start.",
 )
 EDGE_CASE_SCOPE = _metric(
-    "edge_case_scope", pl.String, MetricScope.EPISODE, "",
+    "edge_case_scope",
+    pl.String,
+    MetricScope.EPISODE,
+    "",
     "Population the case was scored against: its own agents, the unplayed set, or everyone.",
 )
 EDGE_CASE_TRIGGERED_AT = _metric(
-    "edge_case_triggered_at", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_triggered_at",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds after the episode start the first encounter stimulus fired.",
 )
 
 EDGE_CASE_FORMATION_ARRIVED = _metric(
-    "edge_case_formation_arrived", pl.Int64, MetricScope.EPISODE, "",
+    "edge_case_formation_arrived",
+    pl.Int64,
+    MetricScope.EPISODE,
+    "",
     "Most formation members recorded inside the formation radius at one sample.",
 )
 EDGE_CASE_FORMATION_BREAK_FIRED_AT = _metric(
-    "edge_case_formation_break_fired_at", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_formation_break_fired_at",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds after the episode start the formation's break stimulus fired.",
 )
 EDGE_CASE_FORMATION_BROKE_AT = _metric(
-    "edge_case_formation_broke_at", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_formation_broke_at",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds after the episode start the held formation broke.",
 )
 EDGE_CASE_FORMATION_FORM_FIRED_AT = _metric(
-    "edge_case_formation_form_fired_at", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_formation_form_fired_at",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds after the episode start the formation's form stimulus fired.",
 )
 EDGE_CASE_FORMATION_FORMED_AT = _metric(
-    "edge_case_formation_formed_at", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_formation_formed_at",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds after the episode start every recorded member first stood inside the formation radius.",
 )
 EDGE_CASE_FORMATION_HELD_S = _metric(
-    "edge_case_formation_held_s", pl.Float64, MetricScope.EPISODE, "s",
+    "edge_case_formation_held_s",
+    pl.Float64,
+    MetricScope.EPISODE,
+    "s",
     "Seconds the recorded formation members held together.",
 )
 EDGE_CASE_FORMATION_SEEN = _metric(
-    "edge_case_formation_seen", pl.Boolean, MetricScope.EPISODE, "",
+    "edge_case_formation_seen",
+    pl.Boolean,
+    MetricScope.EPISODE,
+    "",
     "Whether at least one formation member was recorded.",
 )
 EDGE_CASE_FORMATION_VARIANT = _metric(
-    "edge_case_formation_variant", pl.String, MetricScope.EPISODE, "",
+    "edge_case_formation_variant",
+    pl.String,
+    MetricScope.EPISODE,
+    "",
     "Formation variant the case's provenance names.",
 )
 
@@ -298,6 +384,7 @@ def episode_samples(
             ),
             recorded_radius_m=pl.col("radius_m").cast(pl.Float64),
         )
+        # agent-contracts: ignore AC004 - builds Python Sample dicts for criticality scorer
         for row in held.iter_rows(named=True):
             name = str(row["bare_name"])
             peds_by_frame.setdefault(int(row["frame_ix"]), {})[name] = (

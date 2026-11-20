@@ -1,0 +1,14 @@
+id: paired_episode_power_grid
+type: line
+title: Paired Episode Total Power (Blind vs. Aware by Local Planner and Seed)
+layout_group: ecological
+data:
+  stored_query: paired_episode_energy_traces
+channels:
+  x: time_s
+  y: power_total_w
+  color: world
+  facet_col: local_planner
+  facet_row: seed
+options:
+  show_markers: false

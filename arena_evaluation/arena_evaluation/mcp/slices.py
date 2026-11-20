@@ -301,8 +301,8 @@ def evaluation_slice(
     for name in sorted(catalog.table_names()):
         if name not in SERIES_TABLE_NAMES:
             continue
-        window = catalog.get_table(name).collect().filter(
-            pl.col("episode_id") == episode_id
+        window = (
+            catalog.get_table(name).collect().filter(pl.col("episode_id") == episode_id)
         )
         if t_start_ns is not None and t_end_ns is not None:
             window = window.filter(
@@ -385,13 +385,14 @@ def evaluation_worst_encounters(
     catalog = _catalog(run_id)
     resolved_direction = direction
     if resolved_direction is None:
-        declared_directions = (
+        direction_col = (
             catalog.get_table("dim_metrics")
             .collect()
             .filter(pl.col("metric") == metric)
             .get_column("direction")
-            .to_list()
         )
+        # agent-contracts: ignore AC004 - MCP scalar lookup from collected dim_metrics
+        declared_directions = direction_col.to_list()
         resolved_direction = next(
             (value for value in declared_directions if value in ("higher", "lower")),
             None,

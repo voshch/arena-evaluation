@@ -41,40 +41,59 @@ __all__ = [
 
 CLUSTER_BOOTSTRAP_SCHEMA: Final[pl.Schema] = pl.Schema(
     {
-        "metric": pl.String, "n_obs": pl.Int64, "n_clusters": pl.Int64,
-        "mean": pl.Float64, "std_error": pl.Float64, "ci_level": pl.Float64,
-        "ci_low": pl.Float64, "ci_high": pl.Float64,
-        "basic_low": pl.Float64, "basic_high": pl.Float64,
+        "metric": pl.String,
+        "n_obs": pl.Int64,
+        "n_clusters": pl.Int64,
+        "mean": pl.Float64,
+        "std_error": pl.Float64,
+        "ci_level": pl.Float64,
+        "ci_low": pl.Float64,
+        "ci_high": pl.Float64,
+        "basic_low": pl.Float64,
+        "basic_high": pl.Float64,
         "dropped_rows": pl.Int64,
     }
 )
 
 PAIRED_DIFF_SUMMARY_SCHEMA: Final[pl.Schema] = pl.Schema(
     {
-        "treatment_col": pl.String, "treatment_a": pl.String,
-        "treatment_b": pl.String, "metric": pl.String,
-        "n_pairs": pl.Int64, "n_clusters": pl.Int64,
-        "mean_a": pl.Float64, "mean_b": pl.Float64,
-        "mean_diff": pl.Float64, "std_diff": pl.Float64,
-        "cohens_dz": pl.Float64, "cohens_dz_null_reason": pl.String,
-        "ci_level": pl.Float64, "ci_low": pl.Float64,
-        "ci_high": pl.Float64, "p_value": pl.Float64,
+        "treatment_col": pl.String,
+        "treatment_a": pl.String,
+        "treatment_b": pl.String,
+        "metric": pl.String,
+        "n_pairs": pl.Int64,
+        "n_clusters": pl.Int64,
+        "mean_a": pl.Float64,
+        "mean_b": pl.Float64,
+        "mean_diff": pl.Float64,
+        "std_diff": pl.Float64,
+        "cohens_dz": pl.Float64,
+        "cohens_dz_null_reason": pl.String,
+        "ci_level": pl.Float64,
+        "ci_low": pl.Float64,
+        "ci_high": pl.Float64,
+        "p_value": pl.Float64,
     }
 )
 
 RANK_SWAP_MATRIX_SCHEMA: Final[pl.Schema] = pl.Schema(
     {
-        "regime_a": pl.String, "regime_b": pl.String,
-        "n_entities": pl.Int64, "total_pairs": pl.Int64,
-        "swap_count": pl.Int64, "swap_rate": pl.Float64,
+        "regime_a": pl.String,
+        "regime_b": pl.String,
+        "n_entities": pl.Int64,
+        "total_pairs": pl.Int64,
+        "swap_count": pl.Int64,
+        "swap_rate": pl.Float64,
         "kendall_tau": pl.Float64,
     }
 )
 
 KENDALL_RANKINGS_SCHEMA: Final[pl.Schema] = pl.Schema(
     {
-        "judge": pl.String, "entity": pl.String,
-        "metric_mean": pl.Float64, "rank": pl.Float64,
+        "judge": pl.String,
+        "entity": pl.String,
+        "metric_mean": pl.Float64,
+        "rank": pl.Float64,
     }
 )
 
@@ -206,7 +225,16 @@ class _ClusterBootstrap:
             else float("nan")
         )
         if n_clusters == 1:
-            return (n_obs, n_clusters, estimate, 0.0, estimate, estimate, estimate, estimate)
+            return (
+                n_obs,
+                n_clusters,
+                estimate,
+                0.0,
+                estimate,
+                estimate,
+                estimate,
+                estimate,
+            )
 
         alpha = 1.0 - ci_level
         boot_means = cluster_bootstrap_means(
@@ -223,8 +251,14 @@ class _ClusterBootstrap:
             estimate,
         )
         return (
-            n_obs, n_clusters, estimate, std_err, ci_low, ci_high,
-            float(2.0 * estimate - ci_high), float(2.0 * estimate - ci_low),
+            n_obs,
+            n_clusters,
+            estimate,
+            std_err,
+            ci_low,
+            ci_high,
+            float(2.0 * estimate - ci_high),
+            float(2.0 * estimate - ci_low),
         )
 
     def p_value(self, observed: float) -> float:
@@ -406,7 +440,16 @@ def paired_treatment_diff(
     )
 
     fields: dict[str, object] = dict.fromkeys(
-        ("mean_a", "mean_b", "mean_diff", "std_diff", "cohens_dz", "ci_low", "ci_high", "p_value")
+        (
+            "mean_a",
+            "mean_b",
+            "mean_diff",
+            "std_diff",
+            "cohens_dz",
+            "ci_low",
+            "ci_high",
+            "p_value",
+        )
     )
     fields.update(
         treatment_col=treatment_col,
@@ -515,11 +558,15 @@ def rank_swap_matrix(
             k = joined.height
             total_pairs = k * (k - 1) // 2
             row: dict[str, object] = {
-                "regime_a": reg_a, "regime_b": reg_b,
-                "n_entities": k, "total_pairs": total_pairs,
+                "regime_a": reg_a,
+                "regime_b": reg_b,
+                "n_entities": k,
+                "total_pairs": total_pairs,
             }
             if total_pairs == 0:
-                rows.append(row | {"swap_count": 0, "swap_rate": 0.0, "kendall_tau": 1.0})
+                rows.append(
+                    row | {"swap_count": 0, "swap_rate": 0.0, "kendall_tau": 1.0}
+                )
                 continue
             r_a = joined.get_column("rank").to_numpy().astype(np.float64)
             r_b = joined.get_column("rank_b").to_numpy().astype(np.float64)
@@ -654,8 +701,7 @@ def kendalls_w(
         # Wilson-Hilferty normal approximation for df > 2
         degrees = float(df)
         z = (
-            (friedman_chi2 / degrees) ** (1.0 / 3.0)
-            - (1.0 - 2.0 / (9.0 * degrees))
+            (friedman_chi2 / degrees) ** (1.0 / 3.0) - (1.0 - 2.0 / (9.0 * degrees))
         ) / math.sqrt(2.0 / (9.0 * degrees))
         p_value = float(0.5 * math.erfc(z / math.sqrt(2.0)))
 
@@ -687,7 +733,9 @@ def split_discovery_verification_seeds(
     instead of returning an empty verification side.
     """
     _require("discovery_fraction", discovery_fraction)
-    distinct_seeds = _to_lazy(frame).select(pl.col(seed_col).n_unique()).collect().item()
+    distinct_seeds = (
+        _to_lazy(frame).select(pl.col(seed_col).n_unique()).collect().item()
+    )
     if int(distinct_seeds) < 2:
         raise ValueError(
             f"cannot split {distinct_seeds} distinct seed(s) into discovery and verification cohorts; "
@@ -732,7 +780,9 @@ def split_display_outliers(
     lower_quartile = _quantile_per_group(values, 0.25, group_list)
     upper_quartile = _quantile_per_group(values, 0.75, group_list)
     spread = upper_quartile - lower_quartile
-    beyond = (values < lower_quartile - 1.5 * spread) | (values > upper_quartile + 1.5 * spread)
+    beyond = (values < lower_quartile - 1.5 * spread) | (
+        values > upper_quartile + 1.5 * spread
+    )
     flagged = frame.with_columns(beyond.fill_null(value=False).alias(_BEYOND_FENCE))
     drawn = flagged.filter(~pl.col(_BEYOND_FENCE)).drop(_BEYOND_FENCE)
     if not group_list:
@@ -765,20 +815,21 @@ def aggregate_timeseries_band(
     else:
         colour_expr = pl.lit("all", dtype=pl.Utf8).alias("colour")
 
-    binned = (
-        frame.select(
-            colour_expr,
-            ((pl.col(x_col).cast(pl.Float64) / bin_width_s).round() * bin_width_s).alias("x"),
-            pl.col(y_col).cast(pl.Float64).fill_nan(None).alias("value"),
-        )
-        .drop_nulls(["x", "value"])
-    )
+    binned = frame.select(
+        colour_expr,
+        ((pl.col(x_col).cast(pl.Float64) / bin_width_s).round() * bin_width_s).alias(
+            "x"
+        ),
+        pl.col(y_col).cast(pl.Float64).fill_nan(None).alias("value"),
+    ).drop_nulls(["x", "value"])
     return (
         binned.group_by(["colour", "x"])
         .agg(
             pl.col("value").mean().alias("mean"),
             pl.col("value").quantile(low_quantile, interpolation="linear").alias("low"),
-            pl.col("value").quantile(high_quantile, interpolation="linear").alias("high"),
+            pl.col("value")
+            .quantile(high_quantile, interpolation="linear")
+            .alias("high"),
             pl.len().alias("n"),
         )
         .sort(["colour", "x"])

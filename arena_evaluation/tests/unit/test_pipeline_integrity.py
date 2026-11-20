@@ -8,21 +8,36 @@ import pytest
 pl = pytest.importorskip("polars")
 pytest.importorskip("arena_simulation_setup.shared.judge")
 
-import shapely
+import shapely  # noqa: E402
 
-from arena_evaluation.processing.metrics.common.caching import world_cache
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import _ZoneGeometry
-from arena_evaluation.processing.parquet_store import TopicParquetStore
-from arena_evaluation.processing.pipeline import ProcessingPipeline
-from arena_evaluation.storage.folder_manager import FolderManager
-from arena_evaluation.storage.manifest import MetadataWriter
-from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata
+from arena_evaluation.processing.metrics.common.caching import world_cache  # noqa: E402
+from arena_evaluation.processing.metrics.ecological.compliance_metrics import (  # noqa: E402
+    _ZoneGeometry,
+)
+from arena_evaluation.processing.parquet_store import TopicParquetStore  # noqa: E402
+from arena_evaluation.processing.pipeline import ProcessingPipeline  # noqa: E402
+from arena_evaluation.storage.folder_manager import FolderManager  # noqa: E402
+from arena_evaluation.storage.manifest import MetadataWriter  # noqa: E402
+from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata  # noqa: E402
 
 S = 1_000_000_000
 WORLD = "synthetic_integrity_world"
 ENV = "env_0"
 ROBOT = "env_0_jackal_0"
-PHASES = {"jackal_0": {"phases": [{"goto": [1.0, 1.0, 0.0], "tolerance_radius": 0.5, "tolerance_angle": 0.0, "hold_time": 0.0}], "conditions": [], "map_poses": [[1.0, 1.0, 0.0]]}}
+PHASES = {
+    "jackal_0": {
+        "phases": [
+            {
+                "goto": [1.0, 1.0, 0.0],
+                "tolerance_radius": 0.5,
+                "tolerance_angle": 0.0,
+                "hold_time": 0.0,
+            }
+        ],
+        "conditions": [],
+        "map_poses": [[1.0, 1.0, 0.0]],
+    }
+}
 MOVED = "env_0/jackal_0 moved by hand"
 RETASKED = "task parameters changed mid-episode"
 _PARAMS = {
@@ -64,7 +79,9 @@ def _write_acoustic_world(base: pathlib.Path, world: str) -> None:
     """A minimal format-2 world snapshot so the acoustic barrier map resolves for a synthetic episode."""
     world_dir = base / "worlds" / world
     world_dir.mkdir(parents=True, exist_ok=True)
-    (world_dir / "world.yaml").write_text("format: arena-world/2\nlevels:\n  - id: '0'\n    zones:\n      - name: open\n        polygon: [[0.0, 0.0], [30.0, 0.0], [30.0, 20.0], [0.0, 20.0]]\n")
+    (world_dir / "world.yaml").write_text(
+        "format: arena-world/2\nlevels:\n  - id: '0'\n    zones:\n      - name: open\n        polygon: [[0.0, 0.0], [30.0, 0.0], [30.0, 20.0], [0.0, 20.0]]\n"
+    )
 
 
 def _meta(*integrity: str) -> RunMetadata:
@@ -85,7 +102,14 @@ def _meta(*integrity: str) -> RunMetadata:
 
 
 def _descriptor(episode_dir: pathlib.Path) -> EpisodeDescriptor:
-    return EpisodeDescriptor(episode_dir=str(episode_dir), benchmark_id="run", episode_id=0, planner="nav2", stage="s0", map=WORLD)
+    return EpisodeDescriptor(
+        episode_dir=str(episode_dir),
+        benchmark_id="run",
+        episode_id=0,
+        planner="nav2",
+        stage="s0",
+        map=WORLD,
+    )
 
 
 def _records(*integrity: list[str]) -> pl.DataFrame:
@@ -107,8 +131,21 @@ def _records(*integrity: list[str]) -> pl.DataFrame:
 
 def _flags(*integrity: list[str]) -> pl.DataFrame:
     """The integrity flags each record carried, as episode_integrity rows."""
-    rows = [(i * S, ENV, index, flag) for i, reasons in enumerate(integrity) for index, flag in enumerate(reasons)]
-    return pl.DataFrame(rows, schema={"t_ns": pl.Int64, "env_id": pl.String, "flag_idx": pl.Int64, "flag": pl.String}, orient="row")
+    rows = [
+        (i * S, ENV, index, flag)
+        for i, reasons in enumerate(integrity)
+        for index, flag in enumerate(reasons)
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "t_ns": pl.Int64,
+            "env_id": pl.String,
+            "flag_idx": pl.Int64,
+            "flag": pl.String,
+        },
+        orient="row",
+    )
 
 
 def _write_topics(topics: pathlib.Path, integrity: tuple[list[str], ...]) -> None:
@@ -148,12 +185,25 @@ def _write_topics(topics: pathlib.Path, integrity: tuple[list[str], ...]) -> Non
         }
     ).write_parquet(topics / "robot_tracks.parquet")
     pl.DataFrame(
-        {"t_ns": [0], "env_id": [ENV], "robot_id": [ROBOT], "name": ["jackal_0"], "model": ["jackal"],
-         "ns": ["/env_0/jackal_0"], "frame": ["env_0/odom"], "base_frame": ["env_0/jackal_0/base_link"]}
+        {
+            "t_ns": [0],
+            "env_id": [ENV],
+            "robot_id": [ROBOT],
+            "name": ["jackal_0"],
+            "model": ["jackal"],
+            "ns": ["/env_0/jackal_0"],
+            "frame": ["env_0/odom"],
+            "base_frame": ["env_0/jackal_0/base_link"],
+        }
     ).write_parquet(topics / "robot_descriptor.parquet")
     pl.DataFrame(
-        {"t_ns": [0, 0], "env_id": [ENV] * 2, "robot_id": [ROBOT] * 2,
-         "param_key": ["robot_radius", "robot_mass_kg"], "param_value": [0.25, 40.0]}
+        {
+            "t_ns": [0, 0],
+            "env_id": [ENV] * 2,
+            "robot_id": [ROBOT] * 2,
+            "param_key": ["robot_radius", "robot_mass_kg"],
+            "param_value": [0.25, 40.0],
+        }
     ).write_parquet(topics / "robot_params.parquet")
     _write_fleet_topics(topics)
     _records(*integrity).write_parquet(topics / "episode_lifecycle.parquet")
@@ -162,7 +212,15 @@ def _write_topics(topics: pathlib.Path, integrity: tuple[list[str], ...]) -> Non
 
 
 def test_metric_rows_carry_integrity_of_the_last_record(tmp_path: pathlib.Path) -> None:
-    world_cache[WORLD] = [_ZoneGeometry(name="kitchen", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]), max_speed=None, quiet=False, restricted=False)]
+    world_cache[WORLD] = [
+        _ZoneGeometry(
+            name="kitchen",
+            polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]),
+            max_speed=None,
+            quiet=False,
+            restricted=False,
+        )
+    ]
     episode_dir = tmp_path / "run" / "episodes" / "nav2" / "episode_000"
     episode_dir.mkdir(parents=True)
     _write_acoustic_world(tmp_path / "run" / "episodes", WORLD)
@@ -170,7 +228,9 @@ def test_metric_rows_carry_integrity_of_the_last_record(tmp_path: pathlib.Path) 
     MetadataWriter.write(_meta(), episode_dir / "episode_000.yaml")
     _write_topics(episode_dir / "topics", ([], [MOVED], [MOVED, RETASKED]))
 
-    rows = ProcessingPipeline(FolderManager(data_root=tmp_path), workers=1).process_episode(_descriptor(episode_dir))
+    rows = ProcessingPipeline(
+        FolderManager(data_root=tmp_path), workers=1
+    ).process_episode(_descriptor(episode_dir))
 
     assert [row["robot"] for row in rows] == [ROBOT]
     assert rows[0]["integrity"] == [MOVED, RETASKED]

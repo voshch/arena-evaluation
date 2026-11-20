@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import polars as pl
 import seaborn as sns
+from plotly.subplots import make_subplots
 
 from arena_evaluation.presentation.color_utils import get_color_palette
 from arena_evaluation.presentation.plot_types.base import (
@@ -50,7 +51,7 @@ class LineRenderer(BasePlotRenderer):
 
     def _resolve_columns(
         self, df: pl.DataFrame
-    ) -> tuple[str | None, str | None, str | None]:
+    ) -> tuple[str, str, str | None, str | None, str | None]:
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if not x_col or not y_col:
@@ -58,9 +59,15 @@ class LineRenderer(BasePlotRenderer):
                 f"Plot {self.spec.id!r}: line plot requires channels 'x' and 'y'."
             )
         color_col = self.resolve_channel("color")
-        cell_keys = [c for c in dict.fromkeys((x_col, color_col)) if c is not None]
+        facet_col = self.resolve_channel("facet_col")
+        facet_row = self.resolve_channel("facet_row")
+        cell_keys = [
+            c
+            for c in dict.fromkeys((x_col, color_col, facet_col, facet_row))
+            if c is not None
+        ]
         self.validate_unique_cells(df, cell_keys)
-        return x_col, y_col, color_col
+        return x_col, y_col, color_col, facet_col, facet_row
 
     def _titles(self, x_col: str, y_col: str) -> tuple[str, str]:
         return (
@@ -121,70 +128,229 @@ class LineRenderer(BasePlotRenderer):
             return None
         return valid, lo, hi
 
+    @staticmethod
+    def _facet_grid(
+        df: pl.DataFrame, facet_col: str | None, facet_row: str | None
+    ) -> tuple[list[str | None], list[str | None]]:
+        cols = (
+            sorted({str(v) for v in label_values(df, facet_col).tolist()})
+            if facet_col
+            else [None]
+        )
+        rows = (
+            sorted({str(v) for v in label_values(df, facet_row).tolist()})
+            if facet_row
+            else [None]
+        )
+        return rows, cols
+
+    @staticmethod
+    def _facet_slice(
+        df: pl.DataFrame,
+        facet_col: str | None,
+        col_val: str | None,
+        facet_row: str | None,
+        row_val: str | None,
+    ) -> pl.DataFrame:
+        out = df
+        if facet_col and col_val is not None:
+            out = out.filter(pl.Series(label_values(out, facet_col)) == col_val)
+        if facet_row and row_val is not None:
+            out = out.filter(pl.Series(label_values(out, facet_row)) == row_val)
+        return out
+
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly line plot from bound columns."""
         if df.is_empty():
             return None
-        x_col, y_col, color_col = self._resolve_columns(df)
+        x_col, y_col, color_col, facet_col, facet_row = self._resolve_columns(df)
         palette = get_color_palette()
-        fig = go.Figure()
+        row_vals, col_vals = self._facet_grid(df, facet_col, facet_row)
+        nrows, ncols = len(row_vals), len(col_vals)
+        is_faceted = facet_col is not None or facet_row is not None
+        if is_faceted:
+            titles = []
+            for rv in row_vals:
+                for cv in col_vals:
+                    parts = [
+                        p
+                        for p in (cv, f"{facet_row}={rv}" if rv is not None else None)
+                        if p
+                    ]
+                    titles.append(" · ".join(parts))
+            fig = make_subplots(
+                rows=nrows,
+                cols=ncols,
+                shared_xaxes=True,
+                shared_yaxes=True,
+                subplot_titles=titles,
+                horizontal_spacing=0.05,
+                vertical_spacing=0.09,
+            )
+        else:
+            fig = go.Figure()
         show_markers = bool(self.spec.options.get("show_markers", True))
         trace_mode = "lines+markers" if show_markers else "lines"
-        for index, (label, sub) in enumerate(
-            self._grouped(df, x_col, y_col, color_col)
-        ):
-            color = palette_color(palette, index)
-            x_vals = sub[x_col].to_numpy().tolist()
-            y_vals = series_values(sub, y_col)
-            band = self._band(sub, y_vals)
-            if band is not None:
-                valid, lower, upper = band
-                vx = [x for x, keep in zip(x_vals, valid, strict=True) if keep]
-                fig.add_trace(
-                    go.Scatter(
-                        x=vx + vx[::-1],
-                        y=upper[valid].tolist() + lower[valid][::-1].tolist(),
-                        fill="toself",
-                        fillcolor=_rgba(color, 0.18),
-                        line={"color": "rgba(255,255,255,0)"},
-                        hoverinfo="skip",
-                        showlegend=False,
-                        name=f"{label}_band",
+        color_order = (
+            sorted({str(v) for v in label_values(df, color_col).tolist()})
+            if color_col
+            else [y_col]
+        )
+        seen_legend: set[str] = set()
+        for r_idx, rv in enumerate(row_vals, start=1):
+            for c_idx, cv in enumerate(col_vals, start=1):
+                cell_df = self._facet_slice(df, facet_col, cv, facet_row, rv)
+                if cell_df.is_empty():
+                    continue
+                for label, sub in self._grouped(cell_df, x_col, y_col, color_col):
+                    color = palette_color(
+                        palette, color_order.index(label) if label in color_order else 0
                     )
-                )
-            fig.add_trace(
-                go.Scatter(
-                    x=x_vals,
-                    y=y_vals.tolist(),
-                    mode=trace_mode,
-                    name=label,
-                    line={"color": color, "width": 2.2},
-                    connectgaps=False,
-                )
-            )
+                    x_vals = sub[x_col].to_numpy().tolist()
+                    y_vals = series_values(sub, y_col)
+                    band = self._band(sub, y_vals)
+                    trace_kwargs = {"row": r_idx, "col": c_idx} if is_faceted else {}
+                    if band is not None:
+                        valid, lower, upper = band
+                        vx = [x for x, keep in zip(x_vals, valid, strict=True) if keep]
+                        fig.add_trace(
+                            go.Scatter(
+                                x=vx + vx[::-1],
+                                y=upper[valid].tolist() + lower[valid][::-1].tolist(),
+                                fill="toself",
+                                fillcolor=_rgba(color, 0.18),
+                                line={"color": "rgba(255,255,255,0)"},
+                                hoverinfo="skip",
+                                showlegend=False,
+                                name=f"{label}_band",
+                            ),
+                            **trace_kwargs,
+                        )
+                    show_leg = label not in seen_legend
+                    seen_legend.add(label)
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x_vals,
+                            y=y_vals.tolist(),
+                            mode=trace_mode,
+                            name=label,
+                            legendgroup=label,
+                            showlegend=show_leg,
+                            line={"color": color, "width": 2.0},
+                            connectgaps=False,
+                        ),
+                        **trace_kwargs,
+                    )
         x_title, y_title = self._titles(x_col, y_col)
         fig.update_layout(
             template="plotly_white",
             title=self.spec.title or f"{y_title} vs {x_title}",
-            xaxis_title=x_title,
-            yaxis_title=y_title,
-            margin=dict(t=55, b=60, l=65, r=30),
+            height=max(420, 260 * nrows) if is_faceted else None,
+            margin={"t": 65, "b": 60, "l": 65, "r": 30},
         )
+        if is_faceted:
+            fig.update_xaxes(title_text=x_title, row=nrows)
+            fig.update_yaxes(title_text=y_title, col=1)
+        else:
+            fig.update_xaxes(title_text=x_title)
+            fig.update_yaxes(title_text=y_title)
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        """Render a static Seaborn line plot from bound columns."""
+        """Render a static Seaborn/Matplotlib line plot from bound columns."""
         if df.is_empty():
             return
-        x_col, y_col, color_col = self._resolve_columns(df)
+        x_col, y_col, color_col, facet_col, facet_row = self._resolve_columns(df)
+        x_title, y_title = self._titles(x_col, y_col)
+        palette = get_color_palette()
+        marker = "o" if bool(self.spec.options.get("show_markers", True)) else None
+        if facet_col is not None or facet_row is not None:
+            row_vals, col_vals = self._facet_grid(df, facet_col, facet_row)
+            nrows, ncols = len(row_vals), len(col_vals)
+            fig, axes = plt.subplots(
+                nrows,
+                ncols,
+                figsize=(max(9.0, 3.8 * ncols), max(4.5, 2.7 * nrows)),
+                sharex=True,
+                sharey=True,
+                squeeze=False,
+            )
+            color_order = (
+                sorted({str(v) for v in label_values(df, color_col).tolist()})
+                if color_col
+                else [y_col]
+            )
+            for r_idx, rv in enumerate(row_vals):
+                for c_idx, cv in enumerate(col_vals):
+                    ax = axes[r_idx][c_idx]
+                    cell_df = self._facet_slice(df, facet_col, cv, facet_row, rv)
+                    if not cell_df.is_empty():
+                        for label, sub in self._grouped(
+                            cell_df, x_col, y_col, color_col
+                        ):
+                            colour = palette_color(
+                                palette,
+                                color_order.index(label) if label in color_order else 0,
+                            )
+                            xs = series_values(sub, x_col)
+                            ys = series_values(sub, y_col)
+                            ax.plot(
+                                xs,
+                                ys,
+                                color=colour,
+                                linewidth=1.8,
+                                marker=marker,
+                                label=label,
+                            )
+                            band = self._band(sub, ys)
+                            if band is not None:
+                                valid, lower, upper = band
+                                ax.fill_between(
+                                    xs[valid],
+                                    lower[valid],
+                                    upper[valid],
+                                    color=colour,
+                                    alpha=0.18,
+                                )
+                    cell_parts = [
+                        p
+                        for p in (cv, f"{facet_row}={rv}" if rv is not None else None)
+                        if p
+                    ]
+                    finish_axes(
+                        ax,
+                        title=" · ".join(cell_parts),
+                        x_label=x_title if r_idx == nrows - 1 else "",
+                        y_label=y_title if c_idx == 0 else "",
+                        grid_axis="both",
+                    )
+            handles, labels = axes[0][0].get_legend_handles_labels()
+            if handles:
+                fig.legend(
+                    handles,
+                    labels,
+                    loc="upper center",
+                    bbox_to_anchor=(0.5, 0.96),
+                    ncol=min(len(labels), 4),
+                    frameon=False,
+                )
+            fig.suptitle(
+                self.spec.title or f"{y_title} vs {x_title}",
+                fontsize=12,
+                fontweight="bold",
+                y=0.995,
+            )
+            fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+            self.save_figure(fig, out_path)
+            plt.close(fig)
+            return
+
         sorted_df = df.sort(x_col)
         cols = [c for c in dict.fromkeys([x_col, y_col, color_col]) if c]
         pdf = sorted_df.select(cols).to_pandas()
         if color_col:
             pdf[color_col] = pd.Series(label_values(sorted_df, color_col))
-        palette = get_color_palette()
         fig, ax = new_figure()
-        marker = "o" if bool(self.spec.options.get("show_markers", True)) else None
         common = {
             "data": pdf,
             "x": x_col,
@@ -214,7 +380,6 @@ class LineRenderer(BasePlotRenderer):
                 color=palette_color(palette, index),
                 alpha=0.18,
             )
-        x_title, y_title = self._titles(x_col, y_col)
         finish_axes(
             ax,
             title=self.spec.title or f"{y_title} vs {x_title}",

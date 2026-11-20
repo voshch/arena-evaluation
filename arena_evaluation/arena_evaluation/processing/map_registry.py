@@ -133,7 +133,9 @@ class MapRegistry:
             pass
 
         candidates = [map_name]
-        candidates += [map_name.split(sep)[0] for sep in ("_stage", "-", "_") if sep in map_name]
+        candidates += [
+            map_name.split(sep)[0] for sep in ("_stage", "-", "_") if sep in map_name
+        ]
         for candidate in dict.fromkeys(candidates):
             for sub in ("worlds", "maps") if run_dir is not None else ():
                 path = pathlib.Path(run_dir) / sub / candidate
@@ -181,7 +183,9 @@ class MapRegistry:
             return None
         try:
             with Image.open(image_path) as image:
-                return _write_cache(cache_dir, map_name, image.convert("RGBA"), map_meta)
+                return _write_cache(
+                    cache_dir, map_name, image.convert("RGBA"), map_meta
+                )
         except Exception as e:
             print(f"Failed to cache map {map_name}: {e}")
             return None

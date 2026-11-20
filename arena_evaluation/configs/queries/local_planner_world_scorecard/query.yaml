@@ -1,0 +1,30 @@
+name: local_planner_world_scorecard
+title: "Local Planner & World Scorecard"
+description: "Per-world and crowd-condition overview aggregated by local_planner over valid ranking episodes"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+  local_planner:
+    type: string
+    default: "all"
+    description: "Filter by local planner or 'all'"
+sql: |
+  SELECT
+      world,
+      crowd_condition,
+      local_planner,
+      COUNT(*) AS episodes_count,
+      SUM(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN 1 ELSE 0 END) AS valid_episodes,
+      AVG(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN CAST(success AS DOUBLE) END) AS success_rate,
+      AVG(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN time_to_goal END) AS mean_time_to_goal,
+      AVG(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN energy_total_wh END) AS mean_energy_total_wh,
+      AVG(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN specific_cost_of_transport END) AS mean_scot,
+      AVG(CASE WHEN COALESCE(is_valid_for_ranking, FALSE) THEN spl_geodesic END) AS mean_spl_geodesic
+  FROM v_episode_summary
+  WHERE NOT COALESCE(is_reference, FALSE)
+    AND (:world = 'all' OR world = :world)
+    AND (:local_planner = 'all' OR local_planner = :local_planner)
+  GROUP BY world, crowd_condition, local_planner
+  ORDER BY world, crowd_condition, local_planner

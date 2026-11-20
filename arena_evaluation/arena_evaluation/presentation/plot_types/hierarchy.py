@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import pathlib
 from typing import ClassVar
 
@@ -123,16 +124,121 @@ class HierarchyRenderer(BasePlotRenderer):
         )
         fig.update_layout(
             template="plotly_white",
-            margin=dict(t=50 if self.spec.title else 30, b=30, l=30, r=30),
+            margin={"t": 50 if self.spec.title else 30, "b": 30, "l": 30, "r": 30},
         )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
+    def _render_sunburst_static(
+        self,
+        path_cols: list[str],
+        values_col: str,
+        work: pl.DataFrame,
+        out_path: pathlib.Path,
+    ) -> None:
+        """Render concentric annular wedges for each hierarchy level."""
+        palette = get_color_palette()
+        total = float(work[values_col].cast(pl.Float64).sum())
+        if total <= 0.0:
+            return
+        n_levels = len(path_cols)
+        r_inner = 0.16
+        r_step = (0.94 - r_inner) / max(n_levels, 1)
+        fig, ax = new_figure(width_in=8.5, height_in=8.0)
+
+        def _draw_level(
+            sub: pl.DataFrame,
+            level: int,
+            theta0: float,
+            theta1: float,
+            color_index: int,
+        ) -> None:
+            col = path_cols[level]
+            r0 = r_inner + level * r_step
+            r1 = r0 + r_step
+            alpha = max(0.45, 0.92 - level * 0.16)
+            groups = sorted(
+                (
+                    (
+                        str(part[col][0]),
+                        float(part[values_col].cast(pl.Float64).sum()),
+                        part,
+                    )
+                    for part in sub.partition_by(col, maintain_order=True)
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            sub_total = sum(val for _, val, _ in groups)
+            if sub_total <= 0.0:
+                return
+            cur = theta0
+            for idx, (label, val, part) in enumerate(groups):
+                span = (theta1 - theta0) * (val / sub_total)
+                c_idx = idx if level == 0 else color_index
+                ax.add_patch(
+                    mpatches.Wedge(
+                        (0.0, 0.0),
+                        r1,
+                        cur,
+                        cur + span,
+                        width=r_step,
+                        facecolor=palette_color(palette, c_idx),
+                        edgecolor="white",
+                        linewidth=1.5,
+                        alpha=alpha,
+                    )
+                )
+                if span >= (18.0 if level == 0 else 10.0):
+                    mid_deg = cur + span / 2.0
+                    mid_rad = math.radians(mid_deg)
+                    r_mid = (r0 + r1) / 2.0
+                    rot = (
+                        mid_deg - 90.0
+                        if 0.0 <= (mid_deg % 360.0) <= 180.0
+                        else mid_deg + 90.0
+                    )
+                    short_label = label if len(label) <= 22 else f"{label[:20]}.."
+                    val_str = f"{int(val)}" if val.is_integer() else f"{val:.3g}"
+                    ax.text(
+                        r_mid * math.cos(mid_rad),
+                        r_mid * math.sin(mid_rad),
+                        f"{short_label}\n{val_str}",
+                        ha="center",
+                        va="center",
+                        fontsize=7.5 if level >= 2 else 8.5,
+                        color="white" if level < 2 else "#0f172a",
+                        fontweight="bold",
+                        rotation=rot,
+                    )
+                if level + 1 < n_levels:
+                    _draw_level(part, level + 1, cur, cur + span, c_idx)
+                cur += span
+
+        _draw_level(work, 0, 90.0, 450.0, 0)
+        ax.set_xlim(-1.02, 1.02)
+        ax.set_ylim(-1.02, 1.02)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        if self.spec.title:
+            ax.set_title(self.spec.title, pad=12, fontsize=12, fontweight="bold")
+        fig.tight_layout()
+        self.save_figure(fig, out_path)
+        plt.close(fig)
+
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        """Render a static Matplotlib treemap breakdown for the hierarchy levels."""
+        """Render a static Matplotlib treemap or sunburst breakdown for the hierarchy levels."""
         prepared = self._drawable_frame(df)
         if prepared is None:
             return
         path_cols, values_col, work = prepared
+        mode = str(
+            self.spec.options.get("mode")
+            or self.spec.options.get("variant")
+            or _TREEMAP_MODE
+        ).lower()
+        if mode == "sunburst":
+            self._render_sunburst_static(path_cols, values_col, work, out_path)
+            return
         palette = get_color_palette()
         top_col = path_cols[0]
         top_groups = sorted(

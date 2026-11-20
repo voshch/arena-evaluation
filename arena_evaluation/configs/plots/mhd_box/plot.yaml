@@ -1,0 +1,12 @@
+id: mhd_box
+type: box
+title: Modified Hausdorff Distance (MHD) by Local Planner and World
+layout_group: naturalness
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: mhd
+  color: world
+options:
+  show_outliers: false

@@ -68,6 +68,7 @@ class TimeseriesRenderer(BasePlotRenderer):
     PLOT_TYPE = "timeseries"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
         "bin_width_s",
+        "show_band",
     }
 
     def _resolve_columns(
@@ -100,7 +101,11 @@ class TimeseriesRenderer(BasePlotRenderer):
         curves: list[_Curve] = []
         for y_col in signals:
             aggregated = aggregate_curves(
-                df, x_col=x_col, y_col=y_col, colour_col=colour_col, bin_width_s=bin_width_s
+                df,
+                x_col=x_col,
+                y_col=y_col,
+                colour_col=colour_col,
+                bin_width_s=bin_width_s,
             )
             for key, sub in aggregated.partition_by(
                 _COLOUR, as_dict=True, maintain_order=True
@@ -129,10 +134,13 @@ class TimeseriesRenderer(BasePlotRenderer):
         palette = get_color_palette()
         fig = go.Figure()
 
-        for idx, curve in enumerate(self._curves(df, x_col, y_cols, y2_cols, color_col)):
+        show_band = bool(self.spec.options.get("show_band", True))
+        for idx, curve in enumerate(
+            self._curves(df, x_col, y_cols, y2_cols, color_col)
+        ):
             colour = palette_color(palette, idx)
             yaxis = "y2" if curve.on_second_axis else "y"
-            if not np.allclose(curve.low, curve.high, equal_nan=True):
+            if show_band and not np.allclose(curve.low, curve.high, equal_nan=True):
                 band_x = np.concatenate([curve.x, curve.x[::-1]])
                 band_y = np.concatenate([curve.high, curve.low[::-1]])
                 fig.add_trace(
@@ -171,17 +179,17 @@ class TimeseriesRenderer(BasePlotRenderer):
             title=self.spec.title or f"{y_title} over Time",
             xaxis_title=x_title,
             yaxis_title=y_title,
-            margin=dict(t=55, b=60, l=65, r=30),
+            margin={"t": 55, "b": 60, "l": 65, "r": 30},
         )
         if y2_cols:
             fig.update_layout(
-                yaxis2=dict(
-                    title=self._label(y2_cols[0]),
-                    overlaying="y",
-                    side="right",
-                    showgrid=False,
-                    automargin=True,
-                )
+                yaxis2={
+                    "title": self._label(y2_cols[0]),
+                    "overlaying": "y",
+                    "side": "right",
+                    "showgrid": False,
+                    "automargin": True,
+                }
             )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
@@ -195,6 +203,7 @@ class TimeseriesRenderer(BasePlotRenderer):
         fig, ax = new_figure()
         second_ax = ax.twinx() if y2_cols else ax
 
+        show_band = bool(self.spec.options.get("show_band", True))
         for idx, curve in enumerate(curves):
             target_ax = second_ax if curve.on_second_axis else ax
             colour = palette_color(palette, idx)
@@ -206,9 +215,10 @@ class TimeseriesRenderer(BasePlotRenderer):
                 linestyle=":" if curve.on_second_axis else "-",
                 label=curve.name,
             )
-            target_ax.fill_between(
-                curve.x, curve.low, curve.high, color=colour, alpha=0.2, linewidth=0
-            )
+            if show_band:
+                target_ax.fill_between(
+                    curve.x, curve.low, curve.high, color=colour, alpha=0.2, linewidth=0
+                )
         if y2_cols:
             second_ax.set_ylabel(self._label(y2_cols[0]))
         if len(curves) > 1:
@@ -217,7 +227,14 @@ class TimeseriesRenderer(BasePlotRenderer):
                 second_handles, second_labels = second_ax.get_legend_handles_labels()
                 handles = [*handles, *second_handles]
                 labels = [*labels, *second_labels]
-            ax.legend(handles, labels, frameon=False)
+            ax.legend(
+                handles,
+                labels,
+                loc="upper right",
+                frameon=True,
+                framealpha=0.85,
+                edgecolor="none",
+            )
 
         y_title = "Value" if len(y_cols) > 1 else self._label(y_cols[0])
         x_title = self._label(x_col)

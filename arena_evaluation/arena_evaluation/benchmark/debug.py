@@ -84,7 +84,10 @@ def _classify(cmdline: str) -> str | None:
         return "benchmark_runner"
     if any(m in cmdline for m in _GEN_MARKERS):
         return "world_generator"
-    if any(m in cmdline for m in _SIM_MARKERS) or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES:
+    if (
+        any(m in cmdline for m in _SIM_MARKERS)
+        or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES
+    ):
         return "simulation"
     if any(m in cmdline for m in _NODE_MARKERS):
         return "arena_runtime_node"
@@ -180,7 +183,12 @@ def running_pids_by_run_id() -> dict[str, int]:
         if not match:
             # Fallback: any run-id-looking token (timestamp-suite-contest)
             for token in cmdline.split():
-                if len(token) > 10 and "-" in token and "/" not in token and not token.startswith("-"):
+                if (
+                    len(token) > 10
+                    and "-" in token
+                    and "/" not in token
+                    and not token.startswith("-")
+                ):
                     match = token
                     break
         if match:
@@ -192,7 +200,11 @@ def console_log_path(run_id: str, lane: str | None = None) -> pathlib.Path:
     """Path of the console log for a benchmark run, or for one lane of a shared run."""
     from arena_evaluation.storage.data_root import benchmarks_root
 
-    return benchmarks_root() / run_id / ("runner.log" if lane is None else f"runner.{lane}.log")
+    return (
+        benchmarks_root()
+        / run_id
+        / ("runner.log" if lane is None else f"runner.{lane}.log")
+    )
 
 
 def tail_console(run_id: str, lines: int = 200, lane: str | None = None) -> dict:
@@ -244,7 +256,6 @@ def latest_running_run_id() -> str | None:
     pid = find_runner_pid(None)
     if pid is None:
         return None
-    pids = running_pids_by_run_id()
     # The pid-level map might not match (no --run-id); fall back to a
     # cmdline scan for the newest runner's run id.
     for pid2, cmdline in _ps_lines():
@@ -275,17 +286,44 @@ def kill_processes(
     if pids:
         for pid in pids:
             if pid in protected:
-                results.append({"pid": pid, "kind": "caller", "command": f"pid {pid}", "status": "refused: this process or one of its parents"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "caller",
+                        "command": f"pid {pid}",
+                        "status": "refused: this process or one of its parents",
+                    }
+                )
             elif pid in arena:
                 targets.append(arena[pid])
             elif is_pid_alive(pid):
-                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "refused: not an arena process"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "unknown",
+                        "command": f"pid {pid}",
+                        "status": "refused: not an arena process",
+                    }
+                )
             else:
-                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "already_dead"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "unknown",
+                        "command": f"pid {pid}",
+                        "status": "already_dead",
+                    }
+                )
     else:
-        targets = [proc for proc in arena.values() if proc["pid"] not in protected and (everything or proc["kind"] == kind)]
+        targets = [
+            proc
+            for proc in arena.values()
+            if proc["pid"] not in protected and (everything or proc["kind"] == kind)
+        ]
     for proc in targets:
-        results.append({**proc, "status": _stop(proc["pid"], force=force, grace_s=grace_s)})
+        results.append(
+            {**proc, "status": _stop(proc["pid"], force=force, grace_s=grace_s)}
+        )
     return results
 
 
@@ -316,7 +354,15 @@ def _stop(pid: int, *, force: bool, grace_s: float) -> str:
         else:
             os.kill(pid, sig)
 
-    steps = ((signal.SIGKILL, 2.0, "force_killed"),) if force else ((signal.SIGINT, grace_s, "stopped"), (signal.SIGTERM, 5.0, "terminated"), (signal.SIGKILL, 2.0, "force_killed"))
+    steps = (
+        ((signal.SIGKILL, 2.0, "force_killed"),)
+        if force
+        else (
+            (signal.SIGINT, grace_s, "stopped"),
+            (signal.SIGTERM, 5.0, "terminated"),
+            (signal.SIGKILL, 2.0, "force_killed"),
+        )
+    )
     for sig, wait, outcome in steps:
         try:
             send(sig)

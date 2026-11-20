@@ -1,13 +1,13 @@
 id: encounter_hierarchy_treemap
 type: hierarchy
-title: Encounter Breakdown by Crowd Condition and Approach
+title: Encounter Breakdown by World, Local Planner, and Approach
 layout_group: social
 data:
-  source: v_encounter_summary
+  stored_query: encounter_hierarchy_summary
 channels:
   hierarchy:
-    - crowd_condition
-    - planner
+    - world
+    - local_planner
     - approach_type
   y: encounter_count
 options:

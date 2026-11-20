@@ -1,0 +1,23 @@
+name: safety_social_summary
+title: "Safety & Social Compliance Summary"
+description: "Per-world and local-planner safety and proxemics summary over non-reference episodes"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+sql: |
+  SELECT
+      world,
+      crowd_condition,
+      local_planner,
+      COUNT(*) AS episodes_count,
+      AVG(CAST(success_without_pedestrian_contact AS DOUBLE)) AS success_without_ped_contact_rate,
+      SUM(COALESCE(contact_count_pedestrian, 0)) AS total_pedestrian_contacts,
+      AVG(tti_min) AS mean_tti_min,
+      AVG(personal_space_intrusion_integral) AS mean_psii
+  FROM v_episode_summary
+  WHERE NOT COALESCE(is_reference, FALSE)
+    AND (:world = 'all' OR world = :world)
+  GROUP BY world, crowd_condition, local_planner
+  ORDER BY world, crowd_condition, local_planner

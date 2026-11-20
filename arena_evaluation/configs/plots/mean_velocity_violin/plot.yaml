@@ -1,0 +1,10 @@
+id: mean_velocity_violin
+type: violin
+title: Mean Velocity Distribution by Local Planner and World
+layout_group: motion
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: mean_velocity_mps
+  color: world

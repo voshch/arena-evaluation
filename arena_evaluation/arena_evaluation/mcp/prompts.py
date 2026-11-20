@@ -56,6 +56,33 @@ def evaluation_manifest_migration_workflow(
     )
 
 
+@domain.prompt()
+def evaluation_plot_authoring_workflow(goal: str, run_id: str) -> str:
+    """Author, lint, and visually verify reusable plot, query, and manifest declarations."""
+    return _compose_prompt(
+        f"Author reusable evaluation plots/queries for {goal!r} on run {run_id!r}.",
+        "1. Call evaluation_schema(run_id) and evaluation_tables(run_id) first. On v_episode_summary, "
+        "use contact_count_pedestrian / collision_amount_pedestrian (pedestrian_contact_rows is dropped). "
+        "Series views are v_series_energy, v_series_motion_metrics, v_series_path_metrics, "
+        "v_series_pedestrian_path_metrics, and v_series_characterization.",
+        "2. Never use composite 'planner' on local-planner plots: use local_planner on x/grouping, "
+        "world or crowd_condition on color/facet_col, and planner_world on timeseries/scatter color.",
+        "3. No statistics in presentation (except timeseries bands and violin 1.5xIQR trimming): use "
+        "data.computation (group_summary, cluster_bootstrap_ci, radar_profile) or data.stored_query. "
+        "Whenever data.params is specified (including 'uses:' overrides), data.computation or "
+        "data.stored_query MUST appear in the same data: block.",
+        "4. Match unique cell keys on bar, heatmap, interval, radar, and hierarchy plots. For "
+        "treemap/sunburst hierarchies, persist a 2-3 level aggregated query via evaluation_query_save "
+        "with short labels instead of raw 4-level views containing long inter_planner names.",
+        "5. Keep reference-only metrics (relative_throughput, 100% NULL without is_reference=true) "
+        "isolated in dedicated reference plots/manifests so non-reference quality gates pass.",
+        "6. Use options.show_outliers: false on box plots when extreme outliers squash the boxes, "
+        "options.mode: sunburst|treemap on hierarchy, and options.bin_width_s + channels.y2 on timeseries.",
+        "7. Persist with evaluation_query_save / evaluation_save_plot_declaration, run "
+        "evaluation_lint_declarations(run_id, deep=True), and inspect evaluation_render_plot PNGs.",
+    )
+
+
 def _make_role_prompt(role_name: str, purpose: str, tools: list[str]) -> None:
     def _prompt(run_id: str) -> str:
         return _compose_prompt(

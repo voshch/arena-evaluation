@@ -5,7 +5,7 @@ from robot_params_factory import make_robot_params
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (  # noqa: E402
     DoorGeom,
     EgressZone,
     ElevatorGeom,
@@ -16,13 +16,13 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     robot_identity,
     robot_track,
 )
-from arena_evaluation.processing.metrics.ecological.mechanism_metrics import (
+from arena_evaluation.processing.metrics.ecological.mechanism_metrics import (  # noqa: E402
     MechanismMetricsCalculator,
     _boardings,
     _cabin_masks,
     _Ctx,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle  # noqa: E402
 
 T = 1_000_000_000
 ROBOT = "env_0_jackal"
@@ -202,8 +202,6 @@ def _door(name="door_1", level="0"):
     return DoorGeom(name, level, (0.0, 0.0), (0.0, 2.0), 3.0)
 
 
-
-
 @pytest.mark.parametrize(
     ("robot", "member"),
     [
@@ -235,10 +233,6 @@ def test_the_entity_match_expression_agrees_with_matches(
     )
 
     assert matched == identity.matches(member)
-
-
-
-
 
 
 def test_robot_never_near_mechanisms():
@@ -273,8 +267,6 @@ def test_robot_never_near_mechanisms():
     assert results["door_oscillations"] == 0
     assert results["door_yield_violations"] == 0
     assert results["ped_mechanism_delay_seconds"] == 0.0
-
-
 
 
 def _ride_snapshot(ped_exits_at=None, capacity=None):
@@ -477,8 +469,6 @@ def test_elevator_no_queue_jump_when_ped_left():
     )
 
 
-
-
 def test_blocked_closing_door_count_and_seconds():
     world = MechanismWorld(doors=[_door()])
     snap = _snap(
@@ -572,8 +562,6 @@ def test_door_yield_no_violation_ped_moving_away_or_same_side():
     )
 
 
-
-
 def test_alarm_egress_blocking_seconds():
     world = MechanismWorld(
         egress_zones=[
@@ -627,5 +615,3 @@ def test_multi_env_snapshot_scoped_to_robot_env():
         _episode(_data([(1, 1)] * 3), snap, robot_name="env_1_jackal"), {}
     )
     assert other_env["door_freeze_s"] == pytest.approx(1.0)
-
-

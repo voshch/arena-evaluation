@@ -1,0 +1,12 @@
+id: frechet_distance_box
+type: box
+title: Frechet Distance by Local Planner and World
+layout_group: naturalness
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: frechet_distance
+  color: world
+options:
+  show_outliers: false

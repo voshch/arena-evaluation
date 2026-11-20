@@ -1,0 +1,12 @@
+id: velocity_timeseries
+type: timeseries
+title: Robot Linear Speed Over Time by Local Planner and World
+layout_group: motion
+data:
+  source: v_series_motion_metrics
+channels:
+  x: time_s
+  y: speed_mps
+  color: planner_world
+options:
+  bin_width_s: 0.5

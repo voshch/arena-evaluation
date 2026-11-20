@@ -1,0 +1,10 @@
+id: angle_over_length_violin
+type: violin
+title: Angle Over Length Distribution by Local Planner and World
+layout_group: smoothness
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: angle_over_length
+  color: world

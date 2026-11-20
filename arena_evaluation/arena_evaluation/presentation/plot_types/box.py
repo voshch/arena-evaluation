@@ -29,7 +29,8 @@ class BoxRenderer(BasePlotRenderer):
 
     PLOT_TYPE = "box"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
-        "show_points"
+        "show_outliers",
+        "show_points",
     }
 
     def _resolve_columns(
@@ -52,9 +53,7 @@ class BoxRenderer(BasePlotRenderer):
     ) -> list[tuple[str, pl.DataFrame]]:
         if trace_col is None:
             return [(y_col, df)]
-        tagged = df.with_columns(
-            pl.Series("_box_group", label_values(df, trace_col))
-        )
+        tagged = df.with_columns(pl.Series("_box_group", label_values(df, trace_col)))
         return [
             (str(sub["_box_group"][0]), sub)
             for sub in tagged.sort("_box_group").partition_by(
@@ -95,7 +94,7 @@ class BoxRenderer(BasePlotRenderer):
             boxmode="group"
             if color_col and x_col and color_col != x_col
             else "overlay",
-            margin=dict(t=55, b=60, l=65, r=30),
+            margin={"t": 55, "b": 60, "l": 65, "r": 30},
         )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
@@ -117,7 +116,13 @@ class BoxRenderer(BasePlotRenderer):
 
         palette = get_color_palette()
         fig, ax = new_figure()
-        box: dict[str, object] = {"data": pdf, "y": y_col, "ax": ax}
+        show_outliers = bool(self.spec.options.get("show_outliers", True))
+        box: dict[str, object] = {
+            "data": pdf,
+            "y": y_col,
+            "ax": ax,
+            "showfliers": show_outliers,
+        }
         if axis_col and color_col and color_col != axis_col:
             box.update(x=axis_col, hue=color_col, palette=palette)
         elif axis_col:

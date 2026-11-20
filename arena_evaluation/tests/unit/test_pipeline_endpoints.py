@@ -2,7 +2,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_window
+from arena_evaluation.processing.pipeline import _episode_endpoints, _episode_window  # noqa: E402
 
 
 def _aligned() -> pl.DataFrame:
@@ -62,5 +62,3 @@ def test_episode_window_stays_open_without_a_terminal_or_running_record():
     assert _episode_window(
         pl.DataFrame({"episode_id": [7], "t_ns": [700], "outcome_state": [3]})
     ) == (None, 700)
-
-

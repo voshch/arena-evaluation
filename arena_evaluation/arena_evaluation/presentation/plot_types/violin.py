@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import textwrap
 from typing import ClassVar
 
 import matplotlib.pyplot as plt
@@ -119,12 +120,17 @@ class ViolinRenderer(BasePlotRenderer):
             violinmode="group"
             if color_col and x_col and color_col != x_col
             else "overlay",
-            margin=dict(t=55, b=90 if note else 60, l=65, r=30),
+            margin={"t": 55, "b": 90 if note else 60, "l": 65, "r": 30},
         )
         if note:
             fig.add_annotation(
-                text=note, xref="paper", yref="paper", x=0.0, y=-0.25,
-                showarrow=False, font={"size": 11},
+                text=note,
+                xref="paper",
+                yref="paper",
+                x=0.0,
+                y=-0.25,
+                showarrow=False,
+                font={"size": 11},
             )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
@@ -170,7 +176,8 @@ class ViolinRenderer(BasePlotRenderer):
             y_label=y_label,
         )
         if note:
-            ax.text(0.0, -0.22, note, transform=ax.transAxes, fontsize=8, va="top")
+            wrapped = textwrap.fill(note, width=90)
+            ax.text(0.0, -0.18, wrapped, transform=ax.transAxes, fontsize=8, va="top")
         fig.tight_layout()
         self.save_figure(fig, out_path)
         plt.close(fig)

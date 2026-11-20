@@ -21,10 +21,10 @@ for _pkg in (
 ):
     pytest.importorskip(_pkg)
 
-from geometry_msgs.msg import Twist
-from arena_runtime_msgs.msg import RecordedTopic
+from geometry_msgs.msg import Twist  # noqa: E402
+from arena_runtime_msgs.msg import RecordedTopic  # noqa: E402
 
-from arena_evaluation.ingestion.topics import (
+from arena_evaluation.ingestion.topics import (  # noqa: E402
     TopicDefinition,
 )
 
@@ -94,5 +94,3 @@ def test_topic_definition_dataclass_defaults_and_overrides():
 
 def _row(topic: str, msg_type: str = "std_msgs/msg/String", **flags) -> RecordedTopic:
     return RecordedTopic(key="row", topic=topic, msg_type=msg_type, **flags)
-
-

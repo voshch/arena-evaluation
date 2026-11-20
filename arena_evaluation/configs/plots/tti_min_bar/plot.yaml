@@ -1,0 +1,19 @@
+id: tti_min_bar
+type: bar
+title: Minimum Time to Intrusion (TTI) by Local Planner and World
+layout_group: safety
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - tti_min
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

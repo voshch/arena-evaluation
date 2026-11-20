@@ -1,0 +1,14 @@
+id: paired_episode_battery_soc_grid
+type: line
+title: Paired Episode Battery SoC (Blind vs. Aware by Local Planner and Seed)
+layout_group: ecological
+data:
+  stored_query: paired_episode_energy_traces
+channels:
+  x: time_s
+  y: battery_soc_pct
+  color: world
+  facet_col: local_planner
+  facet_row: seed
+options:
+  show_markers: false

@@ -1,0 +1,19 @@
+id: scot_bar
+type: bar
+title: Specific Cost of Transport (S-CoT) by Local Planner and World
+layout_group: overview
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - specific_cost_of_transport
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

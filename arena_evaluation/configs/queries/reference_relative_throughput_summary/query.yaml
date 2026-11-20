@@ -1,0 +1,22 @@
+name: reference_relative_throughput_summary
+title: "Reference-Only Relative Throughput Summary"
+description: "Relative throughput (T_ref / time_to_goal) summary for benchmarks with is_reference=true episodes"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+sql: |
+  SELECT
+      world,
+      crowd_condition,
+      local_planner,
+      COUNT(*) AS evaluated_episodes,
+      AVG(relative_throughput) AS mean_relative_throughput,
+      STDDEV(relative_throughput) AS std_relative_throughput
+  FROM v_episode_summary
+  WHERE NOT COALESCE(is_reference, FALSE)
+    AND relative_throughput IS NOT NULL
+    AND (:world = 'all' OR world = :world)
+  GROUP BY world, crowd_condition, local_planner
+  ORDER BY world, crowd_condition, local_planner

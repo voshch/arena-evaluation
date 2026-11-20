@@ -71,9 +71,7 @@ def episode_dimensions(
         env_id, robot_id = _identity(bundle)
         _, pose = resolve_pose_source(bundle, (None, None))
         episodes.append(
-            _episode_row(
-                run_id, episode_id, metadata, env_id, robot_id, pose, bundle
-            )
+            _episode_row(run_id, episode_id, metadata, env_id, robot_id, pose, bundle)
         )
         robots.append(
             _robot_frame(run_id, episode_id, metadata, env_id, robot_id, bundle)
@@ -177,12 +175,7 @@ def _robot_frame(
     _refuse_non_numeric_parameters(params, robot_id)
     return conform(
         base.hstack(
-            params.select(
-                *(
-                    _parameter(name).alias(name)
-                    for name in _ROBOT_PARAMETERS
-                )
-            )
+            params.select(*(_parameter(name).alias(name) for name in _ROBOT_PARAMETERS))
         ),
         table,
     )
@@ -215,7 +208,9 @@ def _identity(bundle: TopicBundle) -> tuple[str, str]:
         bundle, bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom
     )
     if frame is None:
-        raise ValueError("a robot bundle has no table that names its environment and robot")
+        raise ValueError(
+            "a robot bundle has no table that names its environment and robot"
+        )
     env_id, robot_id = frame.select("env_id", "robot_id").row(0)
     return str(env_id), str(robot_id)
 
@@ -247,16 +242,15 @@ def _entity_frame(
 def _pedestrian_rows(
     run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
 ) -> pl.DataFrame:
-    frame = _first_frame(
-        bundle, bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds
+    agent_states = _first_frame(bundle, bundle.pedestrian_agent_states)
+    frame = (
+        agent_states
+        if agent_states is not None
+        else _first_frame(bundle, bundle.pedestrian_arena_peds)
     )
     if frame is None:
         return pl.DataFrame()
-    fields = (
-        _PEDESTRIAN_FIELDS
-        if "robot_awareness" in frame.columns
-        else _PEDESTRIAN_CORE_FIELDS
-    )
+    fields = _PEDESTRIAN_FIELDS if agent_states is not None else _PEDESTRIAN_CORE_FIELDS
     first_values = [
         pl.col(source).drop_nulls().first().alias(dimension)
         for dimension, source in fields.items()

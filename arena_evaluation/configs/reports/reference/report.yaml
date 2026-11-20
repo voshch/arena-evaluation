@@ -1,0 +1,29 @@
+title: Reference-Normalized Throughput Report
+description: Dedicated report manifest for benchmarks with reference (is_reference=true) episodes.
+units:
+  relative_throughput: ''
+  time_to_goal: 's'
+  success: '%'
+summary_group_by:
+  - local_planner
+  - world
+summary:
+  - metric: success
+    label: Success
+    format: '{:.0%}'
+  - metric: time_to_goal
+    label: Avg Time to Goal
+    format: '{:.1f}'
+  - metric: relative_throughput
+    label: Relative Throughput
+    format: '{:.2f}'
+groups:
+  - id: reference
+    title: Reference-Normalized Throughput
+plots:
+  - id: reference_relative_throughput_bar
+    uses: reference_relative_throughput_bar
+  - id: reference_relative_throughput_interval
+    uses: reference_relative_throughput_interval
+  - id: reference_relative_throughput_violin
+    uses: reference_relative_throughput_violin
