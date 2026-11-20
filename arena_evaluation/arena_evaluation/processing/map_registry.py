@@ -56,11 +56,13 @@ class MapRegistry:
             if run_world is not None and run_world.is_dir()
             else WorldIdentifier(bare).resolve_sync()
         )
-        asset_view = (
-            view
-            if (view.path / "assets").is_dir()
-            else WorldIdentifier(bare).resolve_sync()
-        )
+        if (view.path / "assets").is_dir():
+            asset_view = view
+        else:
+            try:
+                asset_view = WorldIdentifier(bare).resolve_sync()
+            except (FileNotFoundError, ValueError, LookupError):
+                asset_view = view
         with world_assets(asset_view):
             loaded = view.load(level_filter=level_filter)
             origins = view.level_origins()
