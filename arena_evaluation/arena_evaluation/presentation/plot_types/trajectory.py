@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
+from shapely.geometry import LineString
 
 from arena_evaluation.presentation.checks import PlotRenderError
 from arena_evaluation.presentation.color_utils import get_color_palette
@@ -23,6 +24,8 @@ _GEOM_STYLES: dict[str, tuple[str, float, bool]] = {
 }
 _GIF_FRAMES: int = 40
 _GIF_FPS: int = 6
+DISPLAY_TOLERANCE_M: float = 0.01
+DISPLAY_DECIMALS: int = 3
 _WorldElements = list[tuple[str, str, np.ndarray, np.ndarray]]
 _WorldTracks = list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]
 
@@ -62,6 +65,38 @@ def _extract_tracks(
             label = "/".join("NULL" if k is None else str(k) for k in key_tuple)
         tracks.append(one(label, sub))
     return tracks
+
+
+def _finite_runs(mask: np.ndarray) -> list[np.ndarray]:
+    """Index arrays of the consecutive ``True`` runs of ``mask``."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False])).astype(np.int8)))
+    return [np.arange(start, stop) for start, stop in zip(edges[::2], edges[1::2], strict=True)]
+
+
+def simplify_track(
+    xs: np.ndarray, ys: np.ndarray, *, tolerance_m: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Douglas-Peucker simplification of one track: every dropped sample lies within ``tolerance_m`` of the line.
+
+    Corners and both ends are kept. Non-finite samples split the track into runs that stay separate
+    lines, as they do when drawn.
+    """
+    x_parts: list[np.ndarray] = []
+    y_parts: list[np.ndarray] = []
+    for run in _finite_runs(np.isfinite(xs) & np.isfinite(ys)):
+        run_xy = np.column_stack([xs[run], ys[run]])
+        if len(run) > 2:
+            run_xy = np.asarray(
+                LineString(run_xy).simplify(tolerance_m, preserve_topology=False).coords
+            )
+        if x_parts:
+            x_parts.append(np.array([np.nan]))
+            y_parts.append(np.array([np.nan]))
+        x_parts.append(run_xy[:, 0])
+        y_parts.append(run_xy[:, 1])
+    if not x_parts:
+        return np.empty(0), np.empty(0)
+    return np.concatenate(x_parts), np.concatenate(y_parts)
 
 
 class TrajectoryRenderer(BasePlotRenderer):
@@ -175,12 +210,15 @@ class TrajectoryRenderer(BasePlotRenderer):
                     )
                 )
             for idx, (label, xs, ys, _times) in enumerate(tracks):
+                sx, sy = simplify_track(xs, ys, tolerance_m=DISPLAY_TOLERANCE_M)
                 fig.add_trace(
                     go.Scatter(
-                        x=xs.tolist(), y=ys.tolist(), mode="lines+markers",
+                        x=np.round(sx, DISPLAY_DECIMALS).tolist(),
+                        y=np.round(sy, DISPLAY_DECIMALS).tolist(),
+                        mode="lines",
                         name=label,
                         line={"color": palette_color(palette, idx), "width": 2.2},
-                        marker={"size": 4}, connectgaps=False,
+                        connectgaps=False,
                     )
                 )
             fig.update_layout(
@@ -218,12 +256,6 @@ class TrajectoryRenderer(BasePlotRenderer):
                 lbl = label if label not in seen_labels else None
                 seen_labels.add(label)
                 ax.plot(xs, ys, color=c, linewidth=2.0, label=lbl)
-                for point, marker, size, min_len in ((0, "o", 30, 1), (-1, "X", 45, 2)):
-                    if len(xs) >= min_len and np.isfinite(xs[point]) and np.isfinite(ys[point]):
-                        ax.scatter(
-                            [xs[point]], [ys[point]], color=c,
-                            marker=marker, s=size, zorder=5,
-                        )
 
             ax.set_aspect("equal", adjustable="datalim")
             if seen_labels:
