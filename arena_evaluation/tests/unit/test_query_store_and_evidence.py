@@ -49,7 +49,23 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "robot_model": "jackal",
                 "seed": 1,
                 "is_reference": False,
-            }
+            },
+            {
+                "run_id": "run-q",
+                "episode_id": 1,
+                "env_id": "env_0",
+                "robot_id": "robot_0",
+                "world": "hospital",
+                "scenario": "corridor",
+                "planner": "dwb",
+                "local_planner": "dwb",
+                "inter_planner": "navigate_to_pose",
+                "dispatcher": "none",
+                "robot_model": "jackal",
+                "seed": 1,
+                "is_reference": True,
+                "reference_type": "unobstructed_robot",
+            },
         ],
         dimensions.DimEpisodes.polars_schema(),
     )
@@ -79,7 +95,14 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "robot_id": "robot_0",
                 "result": "SUCCESS",
                 "invalid_reason": "",
-            }
+            },
+            {
+                "run_id": "run-q",
+                "episode_id": 1,
+                "robot_id": "robot_0",
+                "result": "SUCCESS",
+                "invalid_reason": "",
+            },
         ],
         FACT_TABLES[FactTable.EPISODES].polars_schema(),
     ).write_parquet(ep_dir / FACT_TABLES[FactTable.EPISODES].relative_path())
@@ -96,7 +119,18 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "time_to_goal": 12.0,
                 "path_efficiency": 0.85,
                 "energy_total_wh": 3.0,
-            }
+            },
+            {
+                "run_id": "run-q",
+                "episode_id": 1,
+                "env_id": "env_0",
+                "robot_id": "robot_0",
+                "robot_name": "robot_0",
+                "success": True,
+                "time_to_goal": 10.0,
+                "path_efficiency": 1.0,
+                "energy_total_wh": 2.0,
+            },
         ],
         FACT_TABLES[FactTable.ROBOTS].polars_schema(),
     ).write_parquet(ep_dir / FACT_TABLES[FactTable.ROBOTS].relative_path())
