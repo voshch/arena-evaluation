@@ -27,6 +27,9 @@ ENCOUNTER_OUTPUTS = (
     "mar_vs_planned_route",
     "pfi_vs_planned_route",
     "kcsc_wh_vs_planned_route",
+    "ecsi_j",
+    "energy_per_social_interaction_j",
+    "psychoacoustic_yielding_cost",
 )
 
 
@@ -256,5 +259,3 @@ def test_the_calculator_publishes_only_encounter_scope_outputs() -> None:
         metric.scopes == (MetricScope.ENCOUNTER,)
         for metric in EncounterCostsCalculator.OUTPUTS
     )
-
-
