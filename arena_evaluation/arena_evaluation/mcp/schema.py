@@ -7,6 +7,7 @@ import pathlib
 from typing import TYPE_CHECKING, Annotated, Any
 
 import pydantic
+
 from arena_mcp.core import ToolError
 
 from .base import OptionalRunId, RunId, data_root, domain, run_path

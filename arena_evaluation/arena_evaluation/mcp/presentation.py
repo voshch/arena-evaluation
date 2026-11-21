@@ -15,7 +15,6 @@ import polars.exceptions
 matplotlib.use("Agg")
 import pydantic
 import yaml
-from arena_mcp.core import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
@@ -38,6 +37,7 @@ from arena_evaluation.storage.config_layout import (
 )
 from arena_evaluation.storage.exceptions import ArenaEvaluationError
 from arena_evaluation.storage.star_schema import has_star_schema
+from arena_mcp.core import ToolError
 
 from .base import (
     OptionalRunId,

@@ -16,11 +16,11 @@ import polars.exceptions
 matplotlib.use("Agg")
 import pydantic
 import yaml
-from arena_mcp.core import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
 from arena_evaluation.storage.exceptions import ArenaEvaluationError
+from arena_mcp.core import ToolError
 
 if TYPE_CHECKING:
     from arena_evaluation.analytics.catalog import BenchmarkCatalog

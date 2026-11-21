@@ -8,7 +8,6 @@ from collections.abc import Callable, Iterator, Mapping
 from typing import Annotated, Any, Final, Literal
 
 import polars as pl
-from arena_mcp.core import ToolError
 from pydantic import Field
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
@@ -33,6 +32,7 @@ from arena_evaluation.storage.config_layout import (
     package_config_roots,
     run_analysis_root,
 )
+from arena_mcp.core import ToolError
 
 from .analysis import rerun_sensitivity_params
 from .base import (

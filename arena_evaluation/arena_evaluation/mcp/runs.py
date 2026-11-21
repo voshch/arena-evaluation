@@ -9,8 +9,6 @@ import pathlib
 from typing import Annotated, Any, Final, Literal
 
 import pydantic
-from arena_mcp.core import JOBS, ROS, Job, ToolError, cli, msgs, proc
-from arena_mcp.core.jobs import RUNNING, SUCCEEDED
 
 from arena_evaluation.benchmark.dashboard import find_rendered_reports
 from arena_evaluation.storage.config_layout import (
@@ -19,6 +17,8 @@ from arena_evaluation.storage.config_layout import (
     run_analysis_root,
 )
 from arena_evaluation.storage.star_schema import has_star_schema
+from arena_mcp.core import JOBS, ROS, Job, ToolError, cli, msgs, proc
+from arena_mcp.core.jobs import RUNNING, SUCCEEDED
 
 from .base import (
     OptionalRunId,

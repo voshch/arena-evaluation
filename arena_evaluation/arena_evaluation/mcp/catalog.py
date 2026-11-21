@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import attrs
 import pydantic
-from arena_mcp.core import ToolError
-from arena_mcp.core.msgs import jsonable
 
 from arena_evaluation.storage.config_layout import (
     CONFIGS_DIR_NAME,
@@ -17,6 +15,8 @@ from arena_evaluation.storage.config_layout import (
     share_dir,
     source_tree_dir,
 )
+from arena_mcp.core import ToolError
+from arena_mcp.core.msgs import jsonable
 
 from .base import config_stem, domain, run_path
 

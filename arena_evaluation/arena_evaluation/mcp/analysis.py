@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pydantic
-from arena_mcp.core import ToolError
-from arena_mcp.core.msgs import jsonable
 
 from arena_evaluation.analytics.computations import run_computation
 from arena_evaluation.benchmark.sensitivity import rerun_sensitivity
+from arena_mcp.core import ToolError
+from arena_mcp.core.msgs import jsonable
 
 from .base import (
     OptionalRunId,

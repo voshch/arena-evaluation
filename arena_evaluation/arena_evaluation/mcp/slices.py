@@ -6,12 +6,12 @@ from typing import Annotated, Any, Final, Literal
 
 import polars as pl
 import pydantic
-from arena_mcp.core import ToolError
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.storage.registry.facts import FACT_TABLES
 from arena_evaluation.storage.registry.series import SERIES_TABLES
 from arena_evaluation.storage.star_schema import has_star_schema
+from arena_mcp.core import ToolError
 
 from .base import RunId, domain, run_path
 

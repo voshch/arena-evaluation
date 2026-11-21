@@ -9,7 +9,6 @@ from typing import Annotated, Any, Final
 import polars as pl
 import polars.exceptions
 import pydantic
-from arena_mcp.core import ToolError
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.evidence import EvidenceStore
@@ -17,6 +16,7 @@ from arena_evaluation.analytics.queries import QueryCatalog, QueryDeclaration
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine, validate_readonly_sql
 from arena_evaluation.storage.config_layout import run_analysis_root
 from arena_evaluation.storage.star_schema import has_star_schema
+from arena_mcp.core import ToolError
 
 from .base import (
     OptionalRunId,

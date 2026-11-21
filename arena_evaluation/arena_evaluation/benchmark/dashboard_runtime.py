@@ -466,8 +466,9 @@ class RuntimeBridge:
         return {"action": action, "result": await work}
 
     async def _snapshot(self) -> dict[str, typing.Any]:
-        from arena_mcp.core import ROS
         from arena_runtime.mcp import runtime_envs, runtime_state
+
+        from arena_mcp.core import ROS
 
         state = await runtime_state()
         base = {
@@ -717,8 +718,9 @@ def _config_names(kind: str) -> list[str]:
 
 
 async def _domain_busy() -> tuple[str | None, bool]:
-    from arena_mcp.core import ROS
     from arena_runtime.mcp import SIM_STATE
+
+    from arena_mcp.core import ROS
 
     owner = await _benchmark_owner()
     return owner, (await ROS.node()).count_publishers(SIM_STATE) > 0
@@ -865,8 +867,9 @@ def _sims() -> list[str]:
 
 
 async def _episode(env_id: int) -> dict[str, typing.Any]:
-    from arena_mcp.core import ToolError
     from arena_runtime.env.episode_mcp import episode_current
+
+    from arena_mcp.core import ToolError
 
     try:
         current = await episode_current(env_id)
@@ -889,6 +892,7 @@ async def _episode(env_id: int) -> dict[str, typing.Any]:
 
 async def _benchmark_owner() -> str | None:
     from arena_evaluation_msgs.msg import BenchmarkState
+
     from arena_mcp.core import LATCHED, ROS, ToolError
 
     from .runner import STATE_TOPIC

@@ -8,10 +8,10 @@ import pathlib
 from typing import Annotated, Any
 
 import yaml
-from arena_mcp.core import ToolError
 from pydantic import Field
 
 from arena_evaluation.storage.config_layout import run_analysis_root
+from arena_mcp.core import ToolError
 
 from .base import (
     OptionalRunId,

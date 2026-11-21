@@ -10,12 +10,12 @@ from collections.abc import Callable
 from typing import Annotated
 
 import pydantic
-from arena_mcp.core import Domain, ToolError
 from mcp.server.mcpserver import Audio, Image, MCPServer
 from mcp.types import CallToolResult
 
 from arena_evaluation.storage.atomic import atomic_write_text as atomic_write_text
 from arena_evaluation.storage.atomic import file_lock as file_lock
+from arena_mcp.core import Domain, ToolError
 
 _ANALYSIS_HINT = "agent writes belong under <run>/analysis/"
 

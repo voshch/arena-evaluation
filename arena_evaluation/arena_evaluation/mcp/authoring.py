@@ -6,9 +6,9 @@ import pathlib
 from typing import Annotated, Any
 
 import pydantic
-from arena_mcp.core import ToolError
 
 from arena_evaluation.storage.config_layout import get_config_kind
+from arena_mcp.core import ToolError
 
 from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
