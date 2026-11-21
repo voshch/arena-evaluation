@@ -114,7 +114,7 @@ def _resolver(benchmark_dir: pathlib.Path | None) -> DataResolver:
                 continue
             schema = dict(tbl.polars_schema())
             if tbl.table_kind is TableKind.TELEMETRY and "episode_id" not in schema:
-                schema["episode_id"] = pl.Int64
+                schema["episode_id"] = pl.Int64()
             catalog.register_table(table_name, pl.LazyFrame(schema=schema))
         catalog._register_series_views()
     return DataResolver(

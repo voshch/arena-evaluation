@@ -196,8 +196,8 @@ def _kinematics_on_grid(grid: np.ndarray, speed_mps: np.ndarray, window: int, sa
     return Kinematics(
         t_ns=grid,
         speed_mps=speed_mps,
-        acceleration_mps2=savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s),
-        jerk_mps3=savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s),
+        acceleration_mps2=np.asarray(savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s), dtype=float),
+        jerk_mps3=np.asarray(savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s), dtype=float),
     )
 
 
@@ -217,8 +217,8 @@ def _smooth_position_kinematics(
     grid, window, sample_step_s = gridded
     grid_x = interpolate_values(t_ns, x_m, grid)
     grid_y = interpolate_values(t_ns, y_m, grid)
-    velocity_x = savgol_filter(grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
-    velocity_y = savgol_filter(grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
+    velocity_x = np.asarray(savgol_filter(grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s), dtype=float)
+    velocity_y = np.asarray(savgol_filter(grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s), dtype=float)
     return _kinematics_on_grid(grid, np.hypot(velocity_x, velocity_y), window, sample_step_s)
 
 

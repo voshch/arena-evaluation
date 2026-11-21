@@ -1044,7 +1044,7 @@ def get_procedure(name: str) -> ProcedureSpec:
 def run_procedure(
     name: str,
     catalog: BenchmarkCatalog,
-    params: dict[str, Any] | BaseModel | None = None,
+    params: Mapping[str, object] | BaseModel | None = None,
     *,
     evidence_store: EvidenceStore | None = None,
     save_as: str | None = None,

@@ -354,8 +354,9 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         """EPISODE keeps the aligned population; an ENCOUNTER slice measures its own window telemetry."""
         del prior_results
-        scope = MetricScope.EPISODE if scope_slice is None else scope_slice.scope
-        match scope:
+        if scope_slice is None:
+            return self._episode_metrics(episode)
+        match scope_slice.scope:
             case MetricScope.EPISODE:
                 return self._episode_metrics(episode)
             case MetricScope.ENCOUNTER:
@@ -366,7 +367,6 @@ class ProxemicsExtendedCalculator(BaseMetricCalculator):
     def series_table(
         self,
         episode: AlignedEpisodeBundle,
-        *,
         run_id: str = "",
         robot_id: str = "",
     ) -> pl.DataFrame:

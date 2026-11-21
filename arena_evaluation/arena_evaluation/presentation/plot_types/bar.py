@@ -197,7 +197,6 @@ class BarRenderer(BasePlotRenderer):
     ) -> None:
         if sub_df.is_empty():
             return
-        pos_kw = {"row": row, "col": col} if row is not None and col is not None else {}
         orientation = str(self.spec.options.get("orientation", "v"))
         horizontal = orientation == "h"
         _, groups = _bar_groups(sub_df, context)
@@ -205,19 +204,20 @@ class BarRenderer(BasePlotRenderer):
             error_kw = _plotly_error(group.plus, group.minus)
             values = group.values.tolist()
             marker_color: object = palette_color(context.palette, group.palette_index) if group.palette_index is not None else [palette_color(context.palette, i) for i in range(len(group.x_labels))]
-            fig.add_trace(
-                go.Bar(
-                    name=group.label,
-                    x=values if horizontal else group.x_labels,
-                    y=group.x_labels if horizontal else values,
-                    orientation=orientation,
-                    marker_color=marker_color,
-                    error_y=None if horizontal else error_kw,
-                    error_x=error_kw if horizontal else None,
-                    showlegend=show_legend,
-                ),
-                **pos_kw,
+            trace = go.Bar(
+                name=group.label,
+                x=values if horizontal else group.x_labels,
+                y=group.x_labels if horizontal else values,
+                orientation=orientation,
+                marker_color=marker_color,
+                error_y=None if horizontal else error_kw,
+                error_x=error_kw if horizontal else None,
+                showlegend=show_legend,
             )
+            if row is not None and col is not None:
+                fig.add_trace(trace, row=row, col=col)
+            else:
+                fig.add_trace(trace)
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly bar chart from pre-computed rows."""
@@ -341,6 +341,7 @@ class BarRenderer(BasePlotRenderer):
             fig, ax = new_figure()
             axes = [[ax]]
 
+        ax = axes[0][0]
         y_label = "Value"
         for r_idx, c_idx, panel_title, sub_df in panels:
             ax = axes[r_idx - 1][c_idx - 1]

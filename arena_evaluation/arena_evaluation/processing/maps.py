@@ -39,7 +39,7 @@ class DenseGrid:
         # Free is 0; occupied and unknown cells both block a route.
         lethal = self.cells != 0
         if robot_radius_m > 0.0:
-            clearance_m = distance_transform_edt(~lethal) * self.resolution_m
+            clearance_m = np.asarray(distance_transform_edt(~lethal), dtype=float) * self.resolution_m
             lethal = clearance_m <= robot_radius_m
         return StaticGrid(
             origin_xy=(self.origin_x, self.origin_y),

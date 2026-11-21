@@ -7,7 +7,7 @@ from typing import Final
 
 import numpy as np
 import polars as pl
-from scipy.spatial import cKDTree
+from scipy.spatial import KDTree
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.storage.registry import MetricScope, define_metric
@@ -152,7 +152,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
         actual_m = np.ascontiguousarray(valid_actual[:, :2], dtype=np.float64)
         reference_m = np.ascontiguousarray(valid_reference[:, :2], dtype=np.float64)
         if np.isfinite(reference_m).all() and np.isfinite(actual_m).all():
-            distances, _ = cKDTree(reference_m).query(actual_m, k=1)
+            distances, _ = KDTree(reference_m).query(actual_m, k=1)
             return float(np.mean(distances))
         dense = np.hypot(
             actual_m[:, None, 0] - reference_m[None, :, 0],

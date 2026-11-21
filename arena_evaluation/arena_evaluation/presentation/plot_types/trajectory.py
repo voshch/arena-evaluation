@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
+from matplotlib.artist import Artist
 from shapely.geometry import LineString
 
 from arena_evaluation.presentation.checks import PlotRenderError
@@ -112,8 +113,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         if not world_name:
             return []
         geom = self.world_geometry
-        usable = geom is not None and not geom.is_empty() and geom.schema.get("world") is not None
-        if usable:
+        if geom is not None and not geom.is_empty() and geom.schema.get("world") is not None:
             sub = geom.filter(pl.col("world") == world_name)
             if not sub.is_empty():
                 ordered = sub.sort(["element_kind", "element_name", "part_idx", "vertex_idx"])
@@ -316,7 +316,7 @@ class TrajectoryRenderer(BasePlotRenderer):
         frames = np.linspace(0.0, end_time, _GIF_FRAMES + 1)
         clock = fig.text(0.02, 0.02, "", fontsize=11, family="monospace")
 
-        def draw(now: float) -> list[object]:
+        def draw(now: float) -> list[Artist]:
             for w_idx, (_world, _elements, tracks) in enumerate(layers):
                 for track_idx, (_label, xs, ys, times) in enumerate(tracks):
                     count = int(np.searchsorted(times, now, side="right"))
@@ -326,7 +326,7 @@ class TrajectoryRenderer(BasePlotRenderer):
                     else:
                         heads[w_idx][track_idx].set_data([], [])
             clock.set_text(f"t = {now:6.1f} s")
-            artists = [artist for world_lines, world_heads in zip(lines, heads, strict=True) for artist in (*world_lines, *world_heads)]
+            artists: list[Artist] = [artist for world_lines, world_heads in zip(lines, heads, strict=True) for artist in (*world_lines, *world_heads)]
             return [*artists, clock]
 
         animation_writer = animation.PillowWriter(fps=_GIF_FPS)

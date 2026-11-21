@@ -287,8 +287,7 @@ def compute_closing_speeds(event: ContactEvent, context: ContactContext) -> tupl
         return float("nan"), float("nan")
 
     track = event.track
-    covers_onset = track is not None and len(track.t_ns) > 0 and int(track.t_ns[0]) <= event.t0_ns <= int(track.t_ns[-1])
-    if covers_onset:
+    if track is not None and len(track.t_ns) > 0 and int(track.t_ns[0]) <= event.t0_ns <= int(track.t_ns[-1]):
         pedestrian = track.trajectory.resample_onto(robot.t_ns)
         inside = (robot.t_ns >= track.t_ns[0]) & (robot.t_ns <= track.t_ns[-1])
         return _closing_components(

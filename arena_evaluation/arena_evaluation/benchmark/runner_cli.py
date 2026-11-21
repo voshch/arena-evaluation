@@ -7,6 +7,8 @@ import datetime
 import os
 import pathlib
 import sys
+import typing
+from collections.abc import Callable, Iterable
 
 import attrs
 
@@ -17,7 +19,21 @@ from .step import Step
 
 _EPILOG = "exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted"
 
-_OPTIONS: tuple[tuple[tuple[str, ...], dict[str, object]], ...] = (
+
+class _OptionKwargs(typing.TypedDict, total=False):
+    action: str | type[argparse.Action]
+    nargs: int | str | None
+    const: object
+    default: object
+    type: Callable[[str], object]
+    choices: Iterable[object] | None
+    required: bool
+    help: str | None
+    metavar: str | tuple[str, ...] | None
+    dest: str | None
+
+
+_OPTIONS: tuple[tuple[tuple[str, ...], _OptionKwargs], ...] = (
     (("--suite",), {"default": "basic"}),
     (("--contest",), {"default": "basic"}),
     (("--scale-episodes",), {"type": float, "default": 1.0}),

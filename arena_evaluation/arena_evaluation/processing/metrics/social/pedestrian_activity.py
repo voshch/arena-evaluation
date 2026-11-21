@@ -81,7 +81,8 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         total_distance_m = float(np.sum(step_dist)) if len(step_dist) > 0 else 0.0
 
         speeds = tracks.get_column("derived_speed_mps").drop_nulls()
-        mean_speed_mps = float(speeds.mean()) if len(speeds) > 0 else None
+        mean_speed_val = speeds.mean() if len(speeds) > 0 else None
+        mean_speed_mps = float(mean_speed_val) if isinstance(mean_speed_val, (int, float)) else None
 
         spawn_x = float(tracks.get_column("x")[0])
         spawn_y = float(tracks.get_column("y")[0])

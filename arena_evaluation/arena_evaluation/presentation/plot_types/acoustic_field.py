@@ -284,8 +284,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
             resolution_m=float(meta["resolution"]),
             origin_m=(float(meta["origin"][0]), float(meta["origin"][1])),
             doors=meta["doors"],
-            downsample=int(self.spec.options.get("downsample", default_downsample)),
-            vmin_dba=float(self.spec.options.get("vmin", _FIELD_VMIN_DBA)),
+            downsample=self.option_int("downsample", default_downsample),
+            vmin_dba=self.option_float("vmin", _FIELD_VMIN_DBA),
         )
 
     def _render_worst_cell(
@@ -1440,10 +1440,10 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
         if scene is None:
             raise MetricInputError("acoustic_field_animation: the plot frame declares no world.")
 
-        fps = int(self.spec.options.get("fps", 10))
-        max_frames = int(self.spec.options.get("max_frames", 120))
-        stride = int(self.spec.options.get("stride", 1))
-        dpi = int(self.spec.options.get("dpi", 150))
+        fps = self.option_int("fps", 10)
+        max_frames = self.option_int("max_frames", 120)
+        stride = self.option_int("stride", 1)
+        dpi = self.option_int("dpi", 150)
         output_format = str(self.spec.options.get("format", "gif"))
         per_episode = bool(self.spec.options.get("per_episode", False))
         static_image = out_path.suffix.lower() in {".png", ".svg"}

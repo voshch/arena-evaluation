@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Callable, Sequence
-from typing import Final
+from typing import Final, TypedDict, overload
 
 import numpy as np
 import polars as pl
@@ -113,6 +113,26 @@ class PairedDiffResult:
     p_value: float | None
     pairs_frame: pl.DataFrame
     summary_frame: pl.DataFrame
+
+
+class _PairedDiffFields(TypedDict):
+    """Typed intermediate field bundle for building a ``PairedDiffResult``."""
+
+    treatment_col: str
+    treatment_a: str
+    treatment_b: str
+    metric_col: str
+    n_pairs: int
+    n_clusters: int
+    mean_a: float | None
+    mean_b: float | None
+    mean_diff: float | None
+    std_diff: float | None
+    cohens_dz: float | None
+    ci_level: float
+    ci_low: float | None
+    ci_high: float | None
+    p_value: float | None
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -332,8 +352,8 @@ def cluster_bootstrap_ci(
 
 
 def cluster_bootstrap_p_value(
-    cluster_sums: Sequence[float],
-    cluster_counts: Sequence[float],
+    cluster_sums: Sequence[float] | np.ndarray,
+    cluster_counts: Sequence[float] | np.ndarray,
     *,
     observed: float,
     n_boot: int = 2000,
@@ -360,11 +380,14 @@ def cluster_bootstrap_p_value(
     ).p_value(observed)
 
 
-def _build_paired_diff_result(fields: dict[str, object], pairs_df: pl.DataFrame) -> PairedDiffResult:
+def _build_paired_diff_result(fields: _PairedDiffFields, pairs_df: pl.DataFrame) -> PairedDiffResult:
     """Build the scalar summary row and typed result from one field mapping."""
-    row = {**fields}
-    row["metric"] = row.pop("metric_col")
-    row["cohens_dz_null_reason"] = None if fields["cohens_dz"] is not None or fields["n_pairs"] == 0 else f"std_diff:{NullReason.ZERO_DENOMINATOR.value}"
+    row: dict[str, object] = {
+        **fields,
+        "metric": fields["metric_col"],
+        "cohens_dz_null_reason": None if fields["cohens_dz"] is not None or fields["n_pairs"] == 0 else f"std_diff:{NullReason.ZERO_DENOMINATOR.value}",
+    }
+    del row["metric_col"]
     summary = pl.DataFrame([row], schema=PAIRED_DIFF_SUMMARY_SCHEMA)
     return PairedDiffResult(**fields, pairs_frame=pairs_df, summary_frame=summary)
 
@@ -394,27 +417,23 @@ def paired_treatment_diff(
     side_b = cell_means.filter(pl.col(treatment_col) == treatment_b).select([*pair_list, pl.col("cell_value").alias("value_b")])
     pairs_df = side_a.join(side_b, on=pair_list, how="inner").with_columns(diff=pl.col("value_a") - pl.col("value_b")).sort(pair_list).collect()
 
-    fields: dict[str, object] = dict.fromkeys(
-        (
-            "mean_a",
-            "mean_b",
-            "mean_diff",
-            "std_diff",
-            "cohens_dz",
-            "ci_low",
-            "ci_high",
-            "p_value",
-        )
-    )
-    fields.update(
-        treatment_col=treatment_col,
-        treatment_a=treatment_a,
-        treatment_b=treatment_b,
-        metric_col=metric_col,
-        n_pairs=0,
-        n_clusters=0,
-        ci_level=float(ci_level),
-    )
+    fields: _PairedDiffFields = {
+        "treatment_col": treatment_col,
+        "treatment_a": treatment_a,
+        "treatment_b": treatment_b,
+        "metric_col": metric_col,
+        "n_pairs": 0,
+        "n_clusters": 0,
+        "mean_a": None,
+        "mean_b": None,
+        "mean_diff": None,
+        "std_diff": None,
+        "cohens_dz": None,
+        "ci_level": float(ci_level),
+        "ci_low": None,
+        "ci_high": None,
+        "p_value": None,
+    }
     if pairs_df.is_empty():
         return _build_paired_diff_result(fields, pairs_df)
 
@@ -447,18 +466,16 @@ def paired_treatment_diff(
     ).interval(ci_level)
     std_diff = float(np.std(diffs, ddof=1)) if n_pairs > 1 else 0.0
     cohens_dz = float(mean_diff / std_diff) if std_diff > 1e-12 else None
-    fields.update(
-        n_pairs=n_pairs,
-        n_clusters=n_clusters,
-        mean_a=mean_a,
-        mean_b=mean_b,
-        mean_diff=mean_diff,
-        std_diff=std_diff,
-        cohens_dz=cohens_dz,
-        ci_low=ci_low,
-        ci_high=ci_high,
-        p_value=cluster_bootstrap_p_value(c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed),
-    )
+    fields["n_pairs"] = n_pairs
+    fields["n_clusters"] = n_clusters
+    fields["mean_a"] = mean_a
+    fields["mean_b"] = mean_b
+    fields["mean_diff"] = mean_diff
+    fields["std_diff"] = std_diff
+    fields["cohens_dz"] = cohens_dz
+    fields["ci_low"] = ci_low
+    fields["ci_high"] = ci_high
+    fields["p_value"] = cluster_bootstrap_p_value(c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed)
     return _build_paired_diff_result(fields, pairs_df)
 
 
@@ -621,6 +638,36 @@ def kendalls_w(
         p_value=p_value,
         rankings_frame=complete_df,
     )
+
+
+@overload
+def split_discovery_verification_seeds(
+    frame: pl.DataFrame,
+    *,
+    seed_col: str = "seed",
+    discovery_fraction: float = 0.5,
+    cohort_col: str = "cohort",
+) -> pl.DataFrame: ...
+
+
+@overload
+def split_discovery_verification_seeds(
+    frame: pl.LazyFrame,
+    *,
+    seed_col: str = "seed",
+    discovery_fraction: float = 0.5,
+    cohort_col: str = "cohort",
+) -> pl.LazyFrame: ...
+
+
+@overload
+def split_discovery_verification_seeds(
+    frame: pl.LazyFrame | pl.DataFrame,
+    *,
+    seed_col: str = "seed",
+    discovery_fraction: float = 0.5,
+    cohort_col: str = "cohort",
+) -> pl.LazyFrame | pl.DataFrame: ...
 
 
 def split_discovery_verification_seeds(

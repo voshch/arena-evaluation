@@ -203,10 +203,12 @@ def _grid(kind: str) -> Handler:
 
 def _both_events(first: Callable[..., None], second: Callable[..., None]) -> Handler:
     """Route one interaction frame to both of its recorders."""
-    return lambda ingest, _topic, envelope: (
-        first(ingest._sink, envelope),
-        second(ingest._sink, envelope),
-    )
+
+    def _handle(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+        first(ingest._sink, envelope)
+        second(ingest._sink, envelope)
+
+    return _handle
 
 
 def _odometry(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
@@ -221,7 +223,14 @@ def _command(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
 
 def _agent_meta(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
     schema_text = envelope.schema.data.decode("utf-8", "replace")
-    meta = agent_meta(envelope.body) if legacy_schemas.agent_meta_has_crowd(schema_text) else agent_meta_without_robot_fields(envelope.body)
+    meta = (
+        agent_meta(envelope.body)
+        if legacy_schemas.agent_meta_has_crowd(schema_text)
+        else agent_meta_without_robot_fields(
+            envelope.body,
+            has_agent_type=legacy_schemas.agent_meta_has_agent_type(schema_text),
+        )
+    )
     ingest._pedestrians.record_meta(envelope, meta)
 
 
@@ -510,7 +519,10 @@ def _rewrite_columns(
     """Replace the named columns of a stored table with their transformed values; every other column and the arrow schema stay as written."""
     table = pq.read_table(path)
     needed = list(dict.fromkeys([*keys, *names]))
-    shifted = transform(pl.from_arrow(table.select(needed))).to_arrow()
+    frame = pl.from_arrow(table.select(needed))
+    if not isinstance(frame, pl.DataFrame):
+        raise TypeError(f"Expected DataFrame from arrow table {path}, got {type(frame).__name__}")
+    shifted = transform(frame).to_arrow()
     for name in names:
         index = table.schema.get_field_index(name)
         field = table.schema.field(index)

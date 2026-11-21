@@ -264,9 +264,10 @@ def evaluation_report_plot(
             body = PlotlyRenderer(units={}).render(spec, df, run_dir=run_dir, diagnostics=diagnostics)
             if isinstance(body, list):
                 body = "\n".join(body)
-            status, error_message = _render_outcome(body, out_png, spec.id, diagnostics)
+            html_body = body or ""
+            status, error_message = _render_outcome(html_body, out_png, spec.id, diagnostics)
             if status == "rendered":
-                atomic_write_text(out_html, body)
+                atomic_write_text(out_html, html_body)
     except _RENDER_FAILURES as exc:
         status = "failed"
         error_message = str(exc)
@@ -275,7 +276,8 @@ def evaluation_report_plot(
     if diagnostics is not None:
         checks = dataclasses.asdict(diagnostics)
         if status == "failed":
-            issues = list(checks.get("issues") or ())
+            raw_issues = checks.get("issues")
+            issues: list[str] = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
             if error_message and error_message not in issues:
                 issues.append(error_message)
             checks["issues"] = issues
@@ -352,8 +354,8 @@ def evaluation_report_view(
     img_path_str = review.get("image_path")
     if img_path_str and pathlib.Path(img_path_str).is_file():
         encoded = base64.b64encode(pathlib.Path(img_path_str).read_bytes()).decode("ascii")
-        content.append(ImageContent(type="image", data=encoded, mimeType="image/png"))
-    return CallToolResult(content=content, structuredContent=summary_payload)
+        content.append(ImageContent(type="image", data=encoded, mime_type="image/png"))
+    return CallToolResult(content=content, structured_content=summary_payload)
 
 
 @domain.tool(read_only=False, destructive=False, idempotent=True)

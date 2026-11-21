@@ -61,11 +61,6 @@ __all__ = [
 DEFAULT_REPORT: Final[str] = "reviewed_report"  # the name evaluation_report_assemble writes by default
 
 
-def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
-    """Annotate a tool parameter with its published description."""
-    return Annotated[kind, Field(description=description)]
-
-
 @contextlib.contextmanager
 def _finding_errors(hint: str) -> Iterator[None]:
     """Translate a finding-domain error into the tool error contract."""
@@ -133,25 +128,25 @@ def _computation_runners() -> dict[str, ComputationRunner]:
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_finding_create(
     run_id: RunId,
-    claim: _described(str, "empirical claim in one sentence"),
-    episode_id: _described(int | None, "episode the claim is about") = None,
-    encounter_id: _described(str | None, "encounter id from fact_encounters") = None,
-    contact_id: _described(str | None, "contact id from fact_contacts") = None,
-    pedestrian_id: _described(str | None, "pedestrian id the claim is about") = None,
-    query: _described(str | None, "SELECT query that establishes the claim") = None,
-    stored_query: _described(str | None, "stored query name from evaluation_queries") = None,
-    evidence_id: _described(str | None, "pinned evidence id from evaluation_query") = None,
-    evidence_ids: _described(list[str] | None, "pinned evidence ids supporting the claim") = None,
-    numbers: _described(
+    claim: Annotated[str, Field(description="empirical claim in one sentence")],
+    episode_id: Annotated[int | None, Field(description="episode the claim is about")] = None,
+    encounter_id: Annotated[str | None, Field(description="encounter id from fact_encounters")] = None,
+    contact_id: Annotated[str | None, Field(description="contact id from fact_contacts")] = None,
+    pedestrian_id: Annotated[str | None, Field(description="pedestrian id the claim is about")] = None,
+    query: Annotated[str | None, Field(description="SELECT query that establishes the claim")] = None,
+    stored_query: Annotated[str | None, Field(description="stored query name from evaluation_queries")] = None,
+    evidence_id: Annotated[str | None, Field(description="pinned evidence id from evaluation_query")] = None,
+    evidence_ids: Annotated[list[str] | None, Field(description="pinned evidence ids supporting the claim")] = None,
+    numbers: Annotated[
         dict[str, float] | None,
-        "refused: free-form numbers are not checked against evidence; quote them in structured_numbers",
-    ) = None,
-    structured_numbers: _described(
+        Field(description="refused: free-form numbers are not checked against evidence; quote them in structured_numbers"),
+    ] = None,
+    structured_numbers: Annotated[
         list[dict[str, Any]] | None,
-        "structured numeric assertions verified against EvidenceStore: [{evidence_id, column, value, tolerance}]",
-    ) = None,
-    author: _described(str, "role authoring the finding") = "analyst",
-    figure_path: _described(str | None, "path to a plot artifact supporting the claim") = None,
+        Field(description="structured numeric assertions verified against EvidenceStore: [{evidence_id, column, value, tolerance}]"),
+    ] = None,
+    author: Annotated[str, Field(description="role authoring the finding")] = "analyst",
+    figure_path: Annotated[str | None, Field(description="path to a plot artifact supporting the claim")] = None,
 ) -> Finding:
     """Record one empirical claim as a ``proposed`` finding under ``analysis/findings/<id>.yaml``."""
     run_dir = run_path(run_id)
@@ -226,10 +221,10 @@ def evaluation_finding_verify(run_id: RunId, finding_id: str) -> dict[str, Any]:
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_finding_status(
     run_id: RunId,
-    finding_id: _described(str, "finding to review, from evaluation_findings"),
-    status: _described(Literal["proposed", "verified", "refuted", "needs_work"], "new review state"),
-    by: _described(str, "role adjudicating the finding status") = "verifier",
-    note: _described(str | None, "optional review note") = None,
+    finding_id: Annotated[str, Field(description="finding to review, from evaluation_findings")],
+    status: Annotated[Literal["proposed", "verified", "refuted", "needs_work"], Field(description="new review state")],
+    by: Annotated[str, Field(description="role adjudicating the finding status")] = "verifier",
+    note: Annotated[str | None, Field(description="optional review note")] = None,
 ) -> Finding:
     """Move one finding between review states with mechanical and author-separation gates."""
     run_dir = run_path(run_id)
@@ -248,11 +243,11 @@ def evaluation_finding_status(
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_finding_attach(
     run_id: RunId,
-    finding_id: _described(str, "finding to attach, from evaluation_findings"),
-    report: _described(
+    finding_id: Annotated[str, Field(description="finding to attach, from evaluation_findings")],
+    report: Annotated[
         str,
-        "assembled report name: reports/<name>/report.html written by evaluation_report_assemble",
-    ) = DEFAULT_REPORT,
+        Field(description="assembled report name: reports/<name>/report.html written by evaluation_report_assemble"),
+    ] = DEFAULT_REPORT,
 ) -> FindingAttachResponse:
     """Attach a verified finding to a report, locking findings and notes together."""
     run_dir = run_path(run_id)

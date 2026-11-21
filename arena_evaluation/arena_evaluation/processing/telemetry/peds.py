@@ -130,9 +130,13 @@ class PedestrianRecorder:
 
     def record_meta(self, envelope: Envelope[RosAgentMeta], meta: AgentMeta) -> None:
         """Keep the normalised agent metadata of one environment."""
+        if envelope.ref is None:
+            raise ValueError("PedestrianRecorder.record_meta requires an envelope with a RobotRef")
         self._meta[envelope.ref.env_id] = meta
 
     def record_frame(self, table: str, envelope: Envelope[Pedestrians | AgentFrame | AgentStates]) -> None:
+        if envelope.ref is None:
+            raise ValueError("PedestrianRecorder.record_frame requires an envelope with a RobotRef")
         env_id = envelope.ref.env_id
         self._frames[(env_id, table)].add(envelope.body.header.frame_id.strip("/"))
         for agent in _agents(envelope, self._meta.get(env_id, AgentMeta())):
@@ -165,11 +169,12 @@ def agent_meta(meta: RosAgentMeta) -> AgentMeta:
     return AgentMeta(policies=policies, types_by_id=types, crowd_by_id=crowd)
 
 
-def agent_meta_without_robot_fields(meta: RosAgentMeta) -> AgentMeta:
+def agent_meta_without_robot_fields(meta: RosAgentMeta, *, has_agent_type: bool = True) -> AgentMeta:
     """The normalised metadata of a Nov-8 AgentMeta: the crowd settings are absent, never invented."""
+    types = {int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)} if has_agent_type else {}
     return AgentMeta(
         policies=tuple(str(policy) for policy in meta.policies),
-        types_by_id={int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)},
+        types_by_id=types,
         crowd_by_id={},
     )
 

@@ -36,10 +36,10 @@ class BreakdownRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         color_col = self.resolve_channel("color")
-        missing = [name for name, column in (("x", x_col), ("y", y_col), ("color", color_col)) if column is None]
-        if missing:
-            hint = " naming the component column to stack, e.g. {'color': 'component'}." if missing[0] == "color" else "."
-            raise ValueError(f"Plot {self.spec.id!r}: breakdown plot requires channel {missing[0]!r}{hint}")
+        if x_col is None or y_col is None or color_col is None:
+            missing_name = "x" if x_col is None else ("y" if y_col is None else "color")
+            hint = " naming the component column to stack, e.g. {'color': 'component'}." if missing_name == "color" else "."
+            raise ValueError(f"Plot {self.spec.id!r}: breakdown plot requires channel {missing_name!r}{hint}")
         self.validate_unique_cells(df, [x_col, color_col])
         return x_col, y_col, color_col
 

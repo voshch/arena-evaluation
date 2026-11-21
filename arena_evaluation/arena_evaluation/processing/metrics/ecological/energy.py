@@ -41,7 +41,7 @@ SERIES_SCHEMA: Final[pl.Schema] = SeriesEnergy.polars_schema()
 
 def _metric(
     name: str,
-    dtype: pl.DataType,
+    dtype: pl.DataType | type[pl.DataType],
     unit: str,
     description: str,
     *scopes: MetricScope,

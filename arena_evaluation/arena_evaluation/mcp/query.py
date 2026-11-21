@@ -157,7 +157,6 @@ def evaluation_query(
     catalog = BenchmarkCatalog.open(benchmark_path)
     engine = PolarsSQLEngine(catalog)
 
-    decl: QueryDeclaration | None
     if stored_query is not None:
         try:
             decl = QueryCatalog(run_dir=benchmark_path).get_query(stored_query)
@@ -169,6 +168,7 @@ def evaluation_query(
         operation = f"stored_query:{stored_query}"
         render_error = f"Invalid parameters for {stored_query!r}"
         render_hint = "evaluation_queries shows the declaration's parameters and defaults"
+        sql_to_run = _render(decl, params, render_error, render_hint)
     else:
         clean_query = query.strip() if query is not None else ""
         operation = f"sql:{clean_query}"
@@ -176,8 +176,8 @@ def evaluation_query(
         render_hint = "pass :placeholder names as params, or drop params for SQL without placeholders"
         if params:
             decl = QueryDeclaration(name="ad_hoc", description="", sql=clean_query, parameters=params)
+            sql_to_run = _render(decl, params, render_error, render_hint)
         else:
-            decl = None
             try:
                 sql_to_run = validate_readonly_sql(clean_query)
             except _QUERY_FAILURES as exc:
@@ -185,9 +185,6 @@ def evaluation_query(
                     f"Invalid SQL query: {exc}",
                     hint="only one read-only SELECT or WITH ... SELECT statement is accepted",
                 ) from exc
-
-    if decl is not None:
-        sql_to_run = _render(decl, params, render_error, render_hint)
 
     try:
         plan = engine.query_lazy(sql_to_run)

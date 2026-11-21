@@ -83,8 +83,10 @@ def pedestrian_id(number: int) -> str:
     return f"Pedestrian_{number}"
 
 
-def robot_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any]:
+def robot_row(envelope: Envelope[typing.Any], **columns: typing.Any) -> dict[str, typing.Any]:
     """A row of a robot-scoped table."""
+    if envelope.ref is None:
+        raise ValueError("robot_row requires an envelope with a RobotRef")
     return {
         "t_ns": envelope.t_ns,
         "env_id": envelope.ref.env_id,
@@ -93,8 +95,10 @@ def robot_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any
     }
 
 
-def env_row(envelope: Envelope, **columns: typing.Any) -> dict[str, typing.Any]:
+def env_row(envelope: Envelope[typing.Any], **columns: typing.Any) -> dict[str, typing.Any]:
     """A row of an environment-scoped table."""
+    if envelope.ref is None:
+        raise ValueError("env_row requires an envelope with a RobotRef")
     return {"t_ns": envelope.t_ns, "env_id": envelope.ref.env_id, **columns}
 
 

@@ -67,7 +67,7 @@ class ScatterRenderer(BasePlotRenderer):
             symbol=cols["symbol"],
             facet_col=cols["facet_col"],
             facet_row=cols["facet_row"],
-            opacity=float(self.spec.options.get("alpha", 0.8)),
+            opacity=self.option_float("alpha", 0.8),
             color_discrete_sequence=get_color_palette(),
             title=title,
             template="plotly_white",
@@ -87,15 +87,12 @@ class ScatterRenderer(BasePlotRenderer):
         x_col, y_col, cols, pdf = prepared
         x_label, y_label, title = self._labels(x_col, y_col)
         palette = get_color_palette()
-        artist_kwargs: dict[str, object] = {"alpha": float(self.spec.options.get("alpha", 0.8))}
-        if cols["color"]:
-            artist_kwargs.update(hue=cols["color"], palette=palette)
-        else:
-            artist_kwargs["color"] = palette_color(palette, 0)
-        if cols["size"]:
-            artist_kwargs["size"] = cols["size"]
-        if cols["symbol"]:
-            artist_kwargs["style"] = cols["symbol"]
+        alpha = self.option_float("alpha", 0.8)
+        hue = cols["color"] if cols["color"] else None
+        hue_palette = palette if cols["color"] else None
+        color = None if cols["color"] else palette_color(palette, 0)
+        size = cols["size"] if cols["size"] else None
+        style = cols["symbol"] if cols["symbol"] else None
 
         if cols["facet_col"] or cols["facet_row"]:
             grid = sns.relplot(
@@ -107,7 +104,12 @@ class ScatterRenderer(BasePlotRenderer):
                 row=cols["facet_row"],
                 height=4.2,
                 aspect=1.25,
-                **artist_kwargs,
+                alpha=alpha,
+                hue=hue,
+                palette=hue_palette,
+                color=color,
+                size=size,
+                style=style,
             )
             grid.set_axis_labels(x_label, y_label)
             grid.figure.suptitle(title, y=1.02, fontsize=12, fontweight="bold")
@@ -117,7 +119,18 @@ class ScatterRenderer(BasePlotRenderer):
             return
 
         fig, ax = new_figure()
-        sns.scatterplot(data=pdf, x=x_col, y=y_col, ax=ax, **artist_kwargs)
+        sns.scatterplot(
+            data=pdf,
+            x=x_col,
+            y=y_col,
+            ax=ax,
+            alpha=alpha,
+            hue=hue,
+            palette=hue_palette,
+            color=color,
+            size=size,
+            style=style,
+        )
         finish_axes(ax, title=title, x_label=x_label, y_label=y_label, grid_axis="both")
         fig.tight_layout()
         self.save_figure(fig, out_path)

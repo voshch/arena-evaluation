@@ -9,6 +9,7 @@ import pydantic
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.storage.registry.facts import FACT_TABLES
+from arena_evaluation.storage.registry.scopes import FactTable
 from arena_evaluation.storage.registry.series import SERIES_TABLES
 from arena_evaluation.storage.star_schema import has_star_schema
 from arena_mcp.core import ToolError
@@ -110,7 +111,7 @@ def _catalog(run_id: str) -> BenchmarkCatalog:
 
 def _facts(catalog: BenchmarkCatalog, *keys: str) -> tuple[pl.DataFrame, ...]:
     """The declared fact tables named by ``keys``, in order; absent files use the canonical schema."""
-    return tuple(catalog.get_table(f"fact_{FACT_TABLES[key].table_name}").collect() for key in keys)
+    return tuple(catalog.get_table(f"fact_{FACT_TABLES[FactTable(key)].table_name}").collect() for key in keys)
 
 
 def _preview(table: str, frame: pl.DataFrame, limit: int) -> TablePreview:
@@ -297,20 +298,20 @@ def evaluation_worst_encounters(
     "Worst" is the opposite of the measure's declared direction, so ``min_clearance_m`` ranks the
     closest encounter first and ``duration_s`` the longest. Nulls never outrank a measured value.
     """
-    declared = FACT_TABLES["encounters"].polars_schema()
+    declared = FACT_TABLES[FactTable.ENCOUNTERS].polars_schema()
     if metric not in declared.names():
         raise ToolError(
             f"{metric!r} is not a declared fact_encounters column",
             hint=f"declared columns: {', '.join(declared.names())}",
         )
     catalog = _catalog(run_id)
-    resolved_direction = direction
-    if resolved_direction is None:
+    resolved_direction: Literal["higher", "lower"] | None
+    if direction is None:
         direction_col = catalog.get_table("dim_metrics").collect().filter(pl.col("metric") == metric).get_column("direction")
         # agent-contracts: ignore AC004 - MCP scalar lookup from collected dim_metrics
         declared_directions = direction_col.to_list()
         resolved_direction = next(
-            (value for value in declared_directions if value in ("higher", "lower")),
+            ("higher" if value == "higher" else "lower" for value in declared_directions if value in ("higher", "lower")),
             None,
         )
         if resolved_direction is None:
@@ -318,6 +319,10 @@ def evaluation_worst_encounters(
                 f"encounter metric {metric!r} has no declared direction in dim_metrics",
                 hint="pass direction='higher' or direction='lower', or inspect evaluation_metrics",
             )
+    elif direction == "higher":
+        resolved_direction = "higher"
+    else:
+        resolved_direction = "lower"
     (encounters,) = _facts(catalog, "encounters")
     if episode_id is not None:
         encounters = encounters.filter(pl.col("episode_id") == episode_id)

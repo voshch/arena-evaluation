@@ -266,7 +266,9 @@ def test_suite_parse_warns_about_an_unknown_top_level_key(caplog):
 
     from arena_evaluation.benchmark.config import Suite
 
-    with caplog.at_level(logging.WARNING):
+    logger = logging.getLogger("arena_evaluation.benchmark.config")
+    logger.propagate = True
+    with caplog.at_level(logging.WARNING, logger=logger.name):
         suite = Suite.parse(
             "test_suite",
             {"stages": [_make_stage_dict()], "metric": {"max_collisions": 5}},

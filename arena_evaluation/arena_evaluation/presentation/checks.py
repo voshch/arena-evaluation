@@ -122,6 +122,7 @@ def image_is_blank(path: pathlib.Path) -> bool:
         luma = image.convert("L")
         luma.thumbnail((128, 128))
         low, high = luma.getextrema()
+    assert isinstance(low, (int, float)) and isinstance(high, (int, float))
     return int(high) - int(low) < _BLANK_LUMA_SPREAD
 
 

@@ -40,7 +40,7 @@ YIELD_RADIUS_M = 2.0
 
 def _metric(
     name: str,
-    dtype: pl.DataType,
+    dtype: pl.DataType | type[pl.DataType],
     unit: str,
     description: str,
     scope: MetricScope = MetricScope.ROBOT,
@@ -481,6 +481,8 @@ def _has_approaching_ped_in_window(
     side_after: int,
     window_ns: int,
 ) -> bool:
+    if ctx.peds is None:
+        return False
     cx, cy = geom.center
     lo = int(np.searchsorted(t, t[cross_idx] - window_ns, side="left"))
     for k in range(lo, cross_idx + 1):

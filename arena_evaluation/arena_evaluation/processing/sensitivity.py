@@ -16,7 +16,7 @@ from arena_evaluation.processing.windows import (
     pedestrian_pairs_lf,
 )
 from arena_evaluation.storage.exceptions import MetricInputError
-from arena_evaluation.storage.registry import NullReason
+from arena_evaluation.storage.registry import FactTable, NullReason
 from arena_evaluation.storage.registry.facts import FACT_TABLES
 from arena_evaluation.storage.registry.telemetry import (
     PedestrianAgentStates,
@@ -34,7 +34,7 @@ _DETECTOR_KEYS: Final[frozenset[str]] = frozenset({"encounter_edge_distance_m", 
 _TOPIC_MISSING: Final[str] = NullReason.TOPIC_MISSING.value
 _NO_SAMPLES: Final[str] = NullReason.NO_SAMPLES.value
 _NOT_RECORDED: Final[str] = NullReason.NOT_RECORDED.value
-_ROW_SCHEMA: Final[dict[str, pl.DataType]] = {
+_ROW_SCHEMA: Final[dict[str, pl.DataType | type[pl.DataType]]] = {
     "episode_id": pl.Int64,
     "n_samples": pl.Int64,
     "encounter_edge_distance_m": pl.Float64,
@@ -61,7 +61,7 @@ def _read(table: type, episode_dir: pathlib.Path) -> pl.DataFrame | None:
 
 def _published(episode_dir: pathlib.Path) -> Published:
     """Published pedestrian encounter count, minimum clearance and total duration of one episode."""
-    encounters = _read(FACT_TABLES["encounters"], episode_dir)
+    encounters = _read(FACT_TABLES[FactTable.ENCOUNTERS], episode_dir)
     if encounters is None:
         return None, None, None
     peds = encounters.filter(pl.col("actor_2_kind") == ACTOR_PEDESTRIAN)
@@ -70,7 +70,7 @@ def _published(episode_dir: pathlib.Path) -> Published:
     clearance = peds["min_clearance_m"].min()
     return (
         peds.height,
-        None if clearance is None else float(clearance),
+        float(clearance) if isinstance(clearance, (int, float)) else None,
         float(peds["duration_s"].sum()),
     )
 
@@ -114,7 +114,8 @@ def _rerun_counts(
     if found.is_empty():
         return 0, None, None
     durations = (found["t_end_ns"] - found["t_start_ns"]) / _NS_PER_S
-    return found.height, float(found["min_clearance_m"].min()), float(durations.sum())
+    min_clearance = found["min_clearance_m"].min()
+    return found.height, float(min_clearance) if isinstance(min_clearance, (int, float)) else None, float(durations.sum())
 
 
 def rerun_sensitivity(

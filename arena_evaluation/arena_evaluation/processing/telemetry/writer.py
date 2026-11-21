@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pathlib
 from collections.abc import Mapping
-from typing import Any, Final
+from typing import Any, ClassVar, Final, Protocol, cast
 
 import polars as pl
 import pyarrow as pa
@@ -24,7 +24,14 @@ TABLE_SCHEMAS: Final[dict[str, pa.Schema]] = {table.table_name: table.arrow_sche
 ROBOT_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if table.key == _ROBOT_KEY)
 ENV_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if table.key == _ENVIRONMENT_KEY)
 GLOBAL_TABLES: Final[tuple[str, ...]] = tuple(table.table_name for table in _TELEMETRY_TABLES if not table.key)
-_ROW_KEYS: Final[dict[str, tuple[str, ...]]] = {table.table_name: table.row_key for table in _TELEMETRY_TABLES}
+
+
+class _TelemetryTableProto(Protocol):
+    table_name: ClassVar[str]
+    row_key: ClassVar[tuple[str, ...]]
+
+
+_ROW_KEYS: Final[dict[str, tuple[str, ...]]] = {table.table_name: cast(_TelemetryTableProto, table).row_key for table in _TELEMETRY_TABLES}
 
 
 class TableSink:
@@ -50,6 +57,7 @@ class TableSink:
             self._unsorted.add(table)
         self._last_stamp[table] = stamp
         key = _ROW_KEYS.get(table, ())
+        key_value: tuple[Any, ...] | None = None
         if key:
             key_value = tuple(row[name] for name in key)
             index = self._key_rows.setdefault(table, {}).get(key_value)
@@ -60,7 +68,7 @@ class TableSink:
                 return
         for name, values in columns.items():
             values.append(row[name])
-        if key:
+        if key_value is not None:
             self._key_rows[table][key_value] = len(columns["t_ns"]) - 1
         self._pending_rows += 1
         if self._pending_rows >= self._flush_rows:

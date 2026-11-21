@@ -370,13 +370,14 @@ class CharacterizationCalculator(BaseMetricCalculator):
         mean_efficiency = series["_efficiency"].mean()
         mean_intensity = series["_energy_intensity"].mean()
         dba = series["_dba"].drop_nulls()
-        leq_dba = 10.0 * math.log10(float((10.0 ** (dba / 10.0)).mean())) if len(dba) > 0 else None
+        dba_mean = (10.0 ** (dba / 10.0)).mean() if len(dba) > 0 else None
+        leq_dba = 10.0 * math.log10(float(dba_mean)) if isinstance(dba_mean, (int, float)) else None
 
         return {
             "char_phase_coverage": phase_coverage,
-            "char_mean_efficiency": None if mean_efficiency is None else float(mean_efficiency),
+            "char_mean_efficiency": float(mean_efficiency) if isinstance(mean_efficiency, (int, float)) else None,
             "char_leq_dba": leq_dba,
-            "char_mean_energy_intensity_j_m": None if mean_intensity is None else float(mean_intensity),
+            "char_mean_energy_intensity_j_m": float(mean_intensity) if isinstance(mean_intensity, (int, float)) else None,
             "char_sample_count": len(series),
         }
 

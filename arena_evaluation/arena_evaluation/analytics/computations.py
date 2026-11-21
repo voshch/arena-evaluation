@@ -169,7 +169,7 @@ class Computation:
     """Registered named analytical computation with parameter model and output table schema."""
 
     name: str
-    params: type[BaseModel]
+    params: type[_BaseParams]
     output: type[Table]
     description: str
     fn: _ComputeFn
@@ -181,7 +181,7 @@ COMPUTATIONS: dict[str, Computation] = {}
 def register_computation(
     name: str,
     *,
-    params: type[BaseModel],
+    params: type[_BaseParams],
     output: type[Table],
     description: str = "",
 ) -> Callable[[_ComputeFn], _ComputeFn]:
@@ -876,7 +876,7 @@ def run_computation(
     )
 
 
-_ComputationSpec = tuple[str, type[BaseModel], type[Table], _ComputeFn, str]
+_ComputationSpec = tuple[str, type[_BaseParams], type[Table], _ComputeFn, str]
 
 _COMPUTATION_SPECS: tuple[_ComputationSpec, ...] = (
     (

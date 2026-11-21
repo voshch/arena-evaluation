@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from arena_evaluation.presentation.plot_types.table import TableRenderer
 
 if TYPE_CHECKING:
-    from arena_evaluation.presentation.report_builder import ReportBuilder
+    from .report_builder import ReportBuilder
 
 __all__ = ["LatexExport", "export_report_latex", "latex_escape", "table_to_booktabs"]
 

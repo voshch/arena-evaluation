@@ -376,5 +376,5 @@ def evaluation_render_plot(
     content: list[Any] = [TextContent(type="text", text=json.dumps(summary_payload))]
     if output_format == "png":
         encoded = base64.b64encode(out_file.read_bytes()).decode("ascii")
-        content.append(ImageContent(type="image", data=encoded, mimeType="image/png"))
-    return CallToolResult(content=content, structuredContent=summary_payload)
+        content.append(ImageContent(type="image", data=encoded, mime_type="image/png"))
+    return CallToolResult(content=content, structured_content=summary_payload)

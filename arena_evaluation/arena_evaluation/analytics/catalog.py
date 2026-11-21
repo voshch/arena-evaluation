@@ -74,14 +74,27 @@ _PEDESTRIAN_MEAN_METRICS: Final[tuple[str, ...]] = (
     "mean_speed_mps",
 )
 
-_STAR_SCHEMAS: Final[dict[str, pl.Schema]] = {
-    **{name: tbl.polars_schema() for name, tbl in dimensions.DIMENSION_TABLES.items()},
-    **{f"fact_{tbl.table_name}": tbl.polars_schema() for tbl in FACT_TABLES.values()},
-}
+
+def _star_schemas() -> dict[str, pl.Schema]:
+    from arena_evaluation.processing.metrics.registry import load_metric_definitions
+
+    load_metric_definitions()
+    return {
+        **{name: tbl.polars_schema() for name, tbl in dimensions.DIMENSION_TABLES.items()},
+        **{f"fact_{tbl.table_name}": tbl.polars_schema() for tbl in FACT_TABLES.values()},
+    }
+
+
+_STAR_TABLE_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        *dimensions.DIMENSION_TABLES,
+        *(f"fact_{tbl.table_name}" for tbl in FACT_TABLES.values()),
+    }
+)
 
 _PROTECTED_BASE_NAMES: Final[frozenset[str]] = frozenset(
     {
-        *_STAR_SCHEMAS,
+        *_STAR_TABLE_NAMES,
         *(tbl.table_name for tbl in series.SERIES_TABLES.values()),
         *(tbl.table_name for tbl in registry_table.registered_tables() if tbl.table_kind is registry_table.TableKind.TELEMETRY),
         "evidence_index",
@@ -216,6 +229,9 @@ class BenchmarkCatalog:
         *,
         variant: str | None = None,
     ) -> None:
+        from arena_evaluation.processing.metrics.registry import load_metric_definitions
+
+        load_metric_definitions()
         self._tables: dict[str, pl.LazyFrame] = {}
         self._source_dir: pathlib.Path | None = source if isinstance(source, pathlib.Path) else None
         if variant not in (None, "sensitivity"):
@@ -256,7 +272,7 @@ class BenchmarkCatalog:
             self._snapshot_id = compute_snapshot_id(self._source_dir)
             return self._snapshot_id
         hasher = hashlib.sha256()
-        for name in sorted(_STAR_SCHEMAS):
+        for name in sorted(_STAR_TABLE_NAMES):
             hasher.update(name.encode())
             hasher.update(compute_frame_hash(self._tables[name].collect()).encode())
         self._snapshot_id = f"snap-{hasher.hexdigest()[:12]}"
@@ -276,7 +292,7 @@ class BenchmarkCatalog:
         source: Mapping[str, pl.LazyFrame | pl.DataFrame] | None,
     ) -> None:
         """Populate the empty Star Schema, overlaying any frame a mapping source provides."""
-        for name, schema in _STAR_SCHEMAS.items():
+        for name, schema in _star_schemas().items():
             raw = None if source is None else source.get(name)
             self._tables[name] = _to_lazy(raw) if raw is not None else pl.LazyFrame(schema=schema)
         if source is not None:
@@ -327,7 +343,7 @@ class BenchmarkCatalog:
         if not name or not name.strip():
             raise ValueError("Table name must be a non-empty string.")
         self._tables[name] = _to_lazy(frame)
-        if name in _STAR_SCHEMAS:
+        if name in _STAR_TABLE_NAMES:
             self._register_views()
 
     def get_table(self, name: str) -> pl.LazyFrame:

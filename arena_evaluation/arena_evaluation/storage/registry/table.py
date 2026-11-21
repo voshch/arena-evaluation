@@ -202,6 +202,7 @@ class Table:
     table_kind: ClassVar[TableKind]
     table_scope: ClassVar[MetricScope | None]
     key: ClassVar[tuple[str, ...]] = ()
+    row_key: ClassVar[tuple[str, ...]] = ()
     unique_key: ClassVar[bool] = True
     required_by_default: ClassVar[bool] = False
     _columns: ClassVar[dict[str, Column]]

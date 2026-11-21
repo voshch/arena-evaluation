@@ -5,16 +5,40 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
+import typing
 
 import numpy as np
 import polars as pl
 
-from arena_evaluation.presentation.plot_types.acoustic_field import CellRenderRequest
+from arena_evaluation.presentation.plot_types.acoustic_field import (
+    CellRenderRequest,
+)
 from arena_evaluation.presentation.viz_manifest import PlotSpec
 from arena_evaluation.storage.exceptions import MetricInputError
 
 _ACOUSTIC_SPEC_ID = "acoustic_field"
 _EXPOSURE_COLUMNS = ("ped_max_exposure_dba", "ped_leq_exposure_dba")
+
+
+class _AcousticMeta(typing.TypedDict):
+    resolution: float
+    origin: tuple[float, float]
+    doors: dict[str, tuple[np.ndarray, float]]
+
+
+class _DoorTimelineProtocol(typing.Protocol):
+    def open_doors_at(self, t_ns: int) -> set[str]: ...
+
+
+class _AcousticRendererProtocol(typing.Protocol):
+    def option_int(self, name: str, default: int) -> int: ...
+    def option_float(self, name: str, default: float) -> float: ...
+    def load_grid_and_meta(self, map_name: str, *, run_dir: pathlib.Path) -> tuple[np.ndarray, _AcousticMeta]: ...
+    def load_door_timeline(self, benchmark_dir: pathlib.Path, episode_id: str | int) -> _DoorTimelineProtocol | None: ...
+    def parse_pedestrian_positions(self, positions: object) -> list[tuple[float, float]]: ...
+    def trajectory_data(self, *args: object, **kwargs: object) -> dict[str, typing.Any]: ...
+    def render_animation(self, *args: object, **kwargs: object) -> pathlib.Path: ...
+    def render_cell_png(self, request: CellRenderRequest) -> bool: ...
 
 
 def handle_acoustic(args: argparse.Namespace) -> None:
@@ -73,9 +97,12 @@ def _load_pedestrian_exposure(benchmark_dir: pathlib.Path) -> pl.DataFrame | Non
 
 def _format_level(value: object) -> str:
     """One exposure level for the text table, '-' when it was not measured."""
-    if value is None or not np.isfinite(float(value)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
         return "-"
-    return f"{float(value):.2f}"
+    numeric = float(value)
+    if not np.isfinite(numeric):
+        return "-"
+    return f"{numeric:.2f}"
 
 
 def _map_for_episode(df: pl.DataFrame, episode_id: str) -> str | None:
@@ -197,8 +224,10 @@ def _loudest_source_episode(df: pl.DataFrame, benchmark_dir: pathlib.Path) -> st
         if field is None or field.is_empty():
             continue
         peak = field["source_dba"].max() if "source_dba" in field.schema else None
-        if peak is not None and np.isfinite(float(peak)) and float(peak) > best_source:
-            best_source, best_episode = float(peak), int(episode)
+        if isinstance(peak, (int, float)) and not isinstance(peak, bool):
+            peak_val = float(peak)
+            if np.isfinite(peak_val) and peak_val > best_source:
+                best_source, best_episode = peak_val, int(episode)
     if best_episode is None:
         print("Error: no recorded acoustic field frame found.")
         return None
@@ -260,7 +289,10 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     spec = _animation_spec(args)
     try:
-        renderer = prepare_renderer(spec, episode_df, run_dir=args.benchmark_dir)
+        renderer = typing.cast(
+            _AcousticRendererProtocol,
+            prepare_renderer(spec, episode_df, run_dir=args.benchmark_dir),
+        )
         grid, meta = renderer.load_grid_and_meta(map_name, run_dir=args.benchmark_dir)
     except MetricInputError as exc:
         print(f"Error: {exc}")
@@ -293,14 +325,14 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
             doors,
             state_timeline=state_timeline,
             out_path=out_path,
-            downsample=int(spec.options["downsample"]),
-            stride=int(spec.options["stride"]),
-            max_frames=int(spec.options["max_frames"]),
-            fps=int(spec.options["fps"]),
-            dpi=int(spec.options["dpi"]),
-            vmin=float(spec.options["vmin"]),
-            vmax=(float(spec.options["vmax"]) if "vmax" in spec.options else None),
-            robot_trail=int(spec.options["robot_trail"]),
+            downsample=renderer.option_int("downsample", 1),
+            stride=renderer.option_int("stride", 1),
+            max_frames=renderer.option_int("max_frames", 120),
+            fps=renderer.option_int("fps", 10),
+            dpi=renderer.option_int("dpi", 150),
+            vmin=renderer.option_float("vmin", 35.0),
+            vmax=(renderer.option_float("vmax", 0.0) if "vmax" in spec.options else None),
+            robot_trail=renderer.option_int("robot_trail", 0),
             show_doors=bool(spec.options["show_doors"]),
             format=str(spec.options["format"]),
             overlay_trajectories=bool(spec.options["overlay_trajectories"]),
@@ -401,7 +433,10 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     spec = _snapshot_spec(args)
     try:
-        renderer = prepare_renderer(spec, episode_df, run_dir=args.benchmark_dir)
+        renderer = typing.cast(
+            _AcousticRendererProtocol,
+            prepare_renderer(spec, episode_df, run_dir=args.benchmark_dir),
+        )
         grid, meta = renderer.load_grid_and_meta(map_name, run_dir=args.benchmark_dir)
     except MetricInputError as exc:
         print(f"Error: {exc}")
@@ -423,14 +458,15 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
     rx_m_raw = row.get("x")
     ry_m_raw = row.get("y")
     src_raw = row.get("source_dba")
-    if rx_m_raw is None or ry_m_raw is None or src_raw is None:
+    if isinstance(rx_m_raw, bool) or not isinstance(rx_m_raw, (int, float)) or isinstance(ry_m_raw, bool) or not isinstance(ry_m_raw, (int, float)) or isinstance(src_raw, bool) or not isinstance(src_raw, (int, float)):
         print(f"Error: frame {frame_idx} of {episode_id} is missing pose or source_dba.")
         sys.exit(1)
 
     rx_m = float(rx_m_raw)
     ry_m = float(ry_m_raw)
     source_dba = float(src_raw)
-    t_ns = int(row.get("t_ns", 0))
+    t_ns_raw = row.get("t_ns", 0)
+    t_ns = int(t_ns_raw) if isinstance(t_ns_raw, (int, float)) and not isinstance(t_ns_raw, bool) else 0
 
     peds = renderer.parse_pedestrian_positions(row.get("peds_positions"))
 
@@ -452,8 +488,8 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
     )
 
     open_doors = frozenset(open_set) if doors else None
-    vmin = float(spec.options["vmin"])
-    vmax = float(spec.options["vmax"]) if "vmax" in spec.options else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
+    vmin = renderer.option_float("vmin", 35.0)
+    vmax = renderer.option_float("vmax", 0.0) if "vmax" in spec.options else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
 
     ok = renderer.render_cell_png(
         CellRenderRequest(
@@ -465,7 +501,7 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
             peds=peds,
             title=f"{episode_id}  frame {frame_idx}  t={t_ns / 1e9:.1f}s  {source_dba:.0f} dBA",
             out_path=out_path,
-            downsample=int(spec.options["downsample"]),
+            downsample=renderer.option_int("downsample", 1),
             vmin_dba=vmin,
             vmax_dba=vmax,
             open_doors=open_doors,

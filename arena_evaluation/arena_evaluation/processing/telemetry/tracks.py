@@ -92,9 +92,13 @@ class KinematicsRecorder:
         self._odometry: dict[tuple[str, RobotRef], list[_Odometry]] = defaultdict(list)
 
     def record_ground_truth(self, envelope: Envelope[TransformStamped], pose: Pose3) -> None:
+        if envelope.ref is None:
+            raise ValueError("KinematicsRecorder.record_ground_truth requires an envelope with a RobotRef")
         self._poses[envelope.ref].append((envelope.t_ns, pose))
 
     def record_odometry(self, table: str, envelope: Envelope[Odometry]) -> None:
+        if envelope.ref is None:
+            raise ValueError("KinematicsRecorder.record_odometry requires an envelope with a RobotRef")
         odometry = envelope.body
         pose = odometry.pose.pose
         self._odometry[(table, envelope.ref)].append(

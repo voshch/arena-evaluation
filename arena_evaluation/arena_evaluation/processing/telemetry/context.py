@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from arena_evaluation.processing.telemetry.messages import (
     Envelope,
@@ -26,6 +26,12 @@ if TYPE_CHECKING:
     from tf2_msgs.msg import TFMessage
 
     from arena_evaluation.processing.legacy_schemas import EpisodeFields, FleetRobot
+
+
+class _KeyValueProto(Protocol):
+    key: object
+    value: object
+
 
 _log = logging.getLogger(__name__)
 
@@ -86,7 +92,7 @@ class FleetRecorder:
                     "base_frame": str(state.descriptor.base_frame),
                 },
             )
-            for param in state.params:
+            for param in cast(Iterable[_KeyValueProto], state.params):
                 self._sink.append(
                     "robot_params",
                     {
@@ -168,6 +174,8 @@ class PlanRecorder:
         self._plan_counts: defaultdict[RobotRef, int] = defaultdict(int)
 
     def record(self, envelope: Envelope[Path]) -> None:
+        if envelope.ref is None:
+            raise ValueError("PlanRecorder requires an envelope with a RobotRef")
         plan_id = self._plan_counts[envelope.ref]
         self._plan_counts[envelope.ref] += 1
         for waypoint_idx, stamped in enumerate(envelope.body.poses):
@@ -199,6 +207,8 @@ class ScheduleRecorder:
         self._latest: dict[RobotRef, tuple[int, list[dict[str, Any]]]] = {}
 
     def record(self, envelope: Envelope[RosString]) -> None:
+        if envelope.ref is None:
+            raise ValueError("ScheduleRecorder requires an envelope with a RobotRef")
         phases = _schedule_phases(str(envelope.body.data))
         if phases is not None:
             self._latest[envelope.ref] = (envelope.t_ns, phases)

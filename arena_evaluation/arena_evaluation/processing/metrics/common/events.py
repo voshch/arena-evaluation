@@ -4,7 +4,7 @@ import typing
 
 import polars as pl
 
-_RECONSTRUCTED_EVENTS_SCHEMA: typing.Final[dict[str, pl.DataType]] = {
+_RECONSTRUCTED_EVENTS_SCHEMA: typing.Final[dict[str, pl.DataType | type[pl.DataType]]] = {
     "t_ns": pl.Int64,
     "entity": pl.Utf8,
     "kind": pl.Utf8,

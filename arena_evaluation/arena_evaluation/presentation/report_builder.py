@@ -31,7 +31,6 @@ from arena_evaluation.presentation.checks import (
     image_is_blank,
 )
 from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
-from arena_evaluation.presentation.exports import LatexExport, export_report_latex
 from arena_evaluation.presentation.manifest_registry import is_inline, resolve_manifest
 from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
@@ -46,6 +45,8 @@ from arena_evaluation.presentation.resolver import DataResolver
 from arena_evaluation.presentation.static_renderer import StaticRenderer
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 from arena_evaluation.storage.config_layout import run_report_output_dir
+
+from .exports import LatexExport, export_report_latex
 
 __all__ = ["BuildResult", "PlotBuildRecord", "ReportBuilder"]
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pathlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -66,7 +66,14 @@ def new_figure(*, width_in: float = 10.0, height_in: float = 6.0) -> tuple[plt.F
     return plt.subplots(figsize=(width_in, height_in))
 
 
-def finish_axes(ax: plt.Axes, *, title: str, x_label: str, y_label: str, grid_axis: str = "y") -> None:
+def finish_axes(
+    ax: plt.Axes,
+    *,
+    title: str,
+    x_label: str,
+    y_label: str,
+    grid_axis: Literal["both", "x", "y"] = "y",
+) -> None:
     """Apply the shared static-plot style and axis labels."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -197,6 +204,20 @@ class BasePlotRenderer(ABC):
         if fallback is not None:
             return [fallback.strip()] if isinstance(fallback, str) else [str(f).strip() for f in fallback if f]
         return []
+
+    def option_int(self, key: str, default: int) -> int:
+        """Read an integer option from ``spec.options``, raising on non-numeric values."""
+        val = self.spec.options.get(key, default)
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            raise ValueError(f"Plot {self.spec.id!r}: option {key!r} must be an int, got {val!r}.")
+        return int(val)
+
+    def option_float(self, key: str, default: float) -> float:
+        """Read a float option from ``spec.options``, raising on non-numeric values."""
+        val = self.spec.options.get(key, default)
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            raise ValueError(f"Plot {self.spec.id!r}: option {key!r} must be a float, got {val!r}.")
+        return float(val)
 
     @staticmethod
     def save_figure(fig: matplotlib.figure.Figure, out_path: pathlib.Path, dpi: int = 300) -> None:

@@ -79,8 +79,79 @@ from .step import Step, StepErrorKind, StepResult
 _T = typing.TypeVar("_T")
 _log = logging.getLogger("arena_evaluation.benchmark.runner")
 
+if typing.TYPE_CHECKING:
+    from arena_rclpy_mixins import ArenaMixinNode
+    from rclpy.publisher import Publisher
+    from rclpy.subscription import Subscription
 
-class _RunnerEnvMixin:
+    from .config import Contest, Suite
+    from .lockstep import LockstepMonitor
+    from .runner_plan import _RetryBudget
+    from .state import RunDir
+
+    class _RunnerHost(ArenaMixinNode):
+        _suite: Suite
+        _contest: Contest
+        _simulator: str | None
+        _suite_bundle_dir: pathlib.Path | None
+        _scale_episodes: float
+        _env_n: int
+        _run_id: str
+        _headless: bool
+        _run_dir: RunDir
+        _retry_failed: bool
+        _noexit: bool
+        _lockstep_verdict: bool
+        _strict: bool
+        _retries: int
+        _max_sim_deaths: int
+        _spawn_budget: float
+        _efficacy: float | None
+        _world_swap: bool
+        _shared: str | None
+        _arena_passthrough: dict[str, str]
+        _viz: bool
+        _viz_proc: subprocess.Popen[bytes] | None
+        _lockstep: LockstepMonitor
+        _total_groups: int
+        _completed_groups: int
+        _sim_used: bool
+        _spawn: ClientWrapper
+        _despawn: ClientWrapper
+        _env_records: dict[int, typing.Any]
+        _env_visible_events: dict[int, asyncio.Event]
+        _env_gone_events: dict[int, asyncio.Event]
+        _arena_proc: subprocess.Popen[bytes] | None
+        _episode_action_clients: dict[int, ActionClientWrapper]
+        _queue_clients: dict[int, ClientWrapper]
+        _param_clients: dict[int, ClientWrapper]
+        _param_get_clients: dict[int, ClientWrapper]
+        _tf_namespaces: dict[int, str]
+        _episode_records: dict[int, dict[int, EpisodeRecord]]
+        _env_subs: dict[int, list[Subscription]]
+        _recorder_clients: dict[int, ClientWrapper]
+        _triggered_episodes: dict[int, set[int]]
+        _env_holds: bool
+        _sim_dead: asyncio.Event
+        _sim_dead_reason: str
+        _sim_generation: int
+        _envs_spawned: int
+        _sim_recover_lock: asyncio.Lock
+        _retry_budget: _RetryBudget
+        _runtime_started_at: float
+        _runtime_up: asyncio.Event
+        _parent_episode_map: dict[tuple[str, str, int], int]
+        _state_pub: Publisher
+
+        def _build_pending(self) -> list[Step]: ...
+
+else:
+
+    class _RunnerHost:
+        pass
+
+
+class _RunnerEnvMixin(_RunnerHost):
     """Services, waits, env clients and arena-runtime process lifecycle."""
 
     def _set_event(self, event: asyncio.Event) -> None:
@@ -303,7 +374,7 @@ class _RunnerEnvMixin:
         future = recorder.client.call_async(request)
         future.add_done_callback(lambda completed, episode_id=msg.episode_id: self._recorder_started(env_id, episode_id, completed))
 
-    def _recorder_started(self, env_id: int, episode_id: int, future: Future[RecordEpisode.Response]) -> None:
+    def _recorder_started(self, env_id: int, episode_id: int, future: Future) -> None:
         error = future.exception()
         if error:
             _log.warning(f"[env {env_id}] recorder start_episode({episode_id}) failed: {error}")
@@ -333,11 +404,15 @@ class _RunnerEnvMixin:
         self._tf_namespaces[env_id] = response.values[0].string_value if response.values else ""
         self._recorder_clients[env_id] = self.create_client_wrapper(RecordEpisode, f"{env_ns_root}/start_episode")
         self._triggered_episodes[env_id] = set()
+
+        def _on_record(msg: EpisodeRecord) -> None:
+            self._on_episode_record(env_id, msg)
+
         self._env_subs[env_id] = [
             self.create_subscription(
                 EpisodeRecord,
                 f"{env_ns_root}/state/episode",
-                lambda msg, eid=env_id: self._on_episode_record(eid, msg),
+                _on_record,
                 10,
             )
         ]
@@ -701,7 +776,33 @@ class _RunnerEnvMixin:
         await self._start_arena()
 
 
-class _RunnerExecMixin:
+if typing.TYPE_CHECKING:
+
+    class _RunnerExecHost(_RunnerHost):
+        async def _await_alive(self, awaitable: typing.Awaitable[_T], *, env_id: int | None = None, what: str) -> _T: ...
+        async def _await_episode_result(self, ac: ActionClientWrapper, goal_handle: ClientGoalHandle, env_id: int) -> RunEpisode.Impl.GetResultService.Response: ...
+        async def _best_effort_despawn(self, env_id: int, timeout: float) -> None: ...
+        async def _despawn_env(self, env_id: int) -> None: ...
+        async def _push_stage_config(self, env_id: int, step: Step) -> None: ...
+        async def _recover_sim(self, reason: str, generation: int) -> None: ...
+        async def _restart_arena(self) -> None: ...
+        async def _spawn_and_setup_env(
+            self,
+            launch_step: Step,
+            *,
+            inactivity_timeout: float = 120.0,
+        ) -> tuple[int, str] | None: ...
+        async def _spend_sim_death(self, reason: str, step_key: str | None) -> tuple[bool, bool]: ...
+        async def _start_arena(self) -> None: ...
+        def _teardown_env_clients(self, env_id: int) -> None: ...
+
+else:
+
+    class _RunnerExecHost:
+        pass
+
+
+class _RunnerExecMixin(_RunnerExecHost):
     """Episode execution, retries and the per-run scheduling loop."""
 
     def _update_slot(

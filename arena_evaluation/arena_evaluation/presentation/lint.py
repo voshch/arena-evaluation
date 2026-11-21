@@ -86,6 +86,9 @@ def _validate_plot_spec(
 
 
 def _lint_catalog(benchmark_dir: pathlib.Path | None) -> BenchmarkCatalog:
+    from arena_evaluation.processing.metrics.registry import load_metric_definitions
+
+    load_metric_definitions()
     catalog = BenchmarkCatalog.open(benchmark_dir) if benchmark_dir is not None else BenchmarkCatalog()
     existing = set(catalog.table_names())
     for tbl in registered_tables():
@@ -93,7 +96,7 @@ def _lint_catalog(benchmark_dir: pathlib.Path | None) -> BenchmarkCatalog:
         if tname not in existing:
             schema = dict(tbl.polars_schema())
             if tbl.table_kind is TableKind.TELEMETRY and "episode_id" not in schema:
-                schema["episode_id"] = pl.Int64
+                schema["episode_id"] = pl.Int64()
             catalog.register_table(tname, pl.LazyFrame(schema=schema))
     catalog._register_series_views()  # agent-contracts: ignore AC002 - lazy view registration
     return catalog

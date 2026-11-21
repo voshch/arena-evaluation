@@ -26,9 +26,10 @@ class _RadarData(NamedTuple):
 
 
 def _optional_float(value: object) -> float | None:
-    if value is None or math.isnan(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    numeric = float(value)
+    return None if math.isnan(numeric) else numeric
 
 
 class RadarRenderer(BasePlotRenderer):

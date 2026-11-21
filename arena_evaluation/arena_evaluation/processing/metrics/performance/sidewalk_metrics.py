@@ -166,7 +166,7 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
         path_m = float(step[: end - 1].sum())
         duration_s = (end - 1) / SAMPLE_HZ
 
-        outside = ~shapely.intersects(area, shapely.points(gx[:end], gy[:end]))
+        outside = np.asarray(~shapely.intersects(area, shapely.points(gx[:end], gy[:end])), dtype=bool)
         off_entries = excursions(outside, round(EXCURSION_MERGE_S * SAMPLE_HZ))
         n_freezes = freezes(speed, round(FREEZE_GRACE_S * SAMPLE_HZ), end, round(FREEZE_S * SAMPLE_HZ))
         n_collisions = _collisions(episode)

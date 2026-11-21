@@ -109,13 +109,12 @@ class HistogramRenderer(BasePlotRenderer):
 
         for idx, (label, sub) in enumerate(self._bar_groups(df, color_col)):
             centers, widths = self._bar_geometry(sub, x_col)
-            bar: dict[str, object] = {
-                "width": widths if widths is not None else 0.8,
-                "color": palette_color(palette, idx),
-            }
+            width = widths if widths is not None else 0.8
+            color = palette_color(palette, idx)
             if color_col is not None:
-                bar.update(alpha=0.65, label=label)
-            ax.bar(centers, series_values(sub, y_col), **bar)
+                ax.bar(centers, series_values(sub, y_col), width=width, color=color, alpha=0.65, label=label)
+            else:
+                ax.bar(centers, series_values(sub, y_col), width=width, color=color)
         if color_col is not None:
             ax.legend(title=color_col)
 

@@ -104,19 +104,12 @@ class BoxRenderer(BasePlotRenderer):
         palette = get_color_palette()
         fig, ax = new_figure()
         show_outliers = bool(self.spec.options.get("show_outliers", True))
-        box: dict[str, object] = {
-            "data": pdf,
-            "y": y_col,
-            "ax": ax,
-            "showfliers": show_outliers,
-        }
         if axis_col and color_col and color_col != axis_col:
-            box.update(x=axis_col, hue=color_col, palette=palette)
+            sns.boxplot(data=pdf, y=y_col, ax=ax, showfliers=show_outliers, x=axis_col, hue=color_col, palette=palette)
         elif axis_col:
-            box.update(x=axis_col, hue=axis_col, palette=palette, legend=False)
+            sns.boxplot(data=pdf, y=y_col, ax=ax, showfliers=show_outliers, x=axis_col, hue=axis_col, palette=palette, legend=False)
         else:
-            box["color"] = palette_color(palette, 0)
-        sns.boxplot(**box)
+            sns.boxplot(data=pdf, y=y_col, ax=ax, showfliers=show_outliers, color=palette_color(palette, 0))
 
         if axis_col and pdf[axis_col].nunique() > 6:
             ax.tick_params(axis="x", rotation=30)

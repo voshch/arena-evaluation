@@ -13,13 +13,7 @@ from arena_mcp.core import ToolError
 from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, run_path
 from .catalog import config_identifier, config_names
 
-
-def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
-    """Annotate a tool parameter with its published description."""
-    return Annotated[kind, pydantic.Field(description=description)]
-
-
-Overwrite = _described(bool, "replace an existing config of that name")
+Overwrite = Annotated[bool, pydantic.Field(description="replace an existing config of that name")]
 
 
 def _invalid(problems: list[str], *, warnings: bool = True) -> dict[str, Any]:
@@ -184,12 +178,18 @@ def evaluation_create_contest(name: str, yaml_content: YamlText, overwrite: Over
 def evaluation_create_manifest(
     name: str,
     *,
-    yaml_content: _described(str | None, "complete manifest YAML, or omit and give a template") = None,
-    template: _described(str | None, "a resolvable manifest to start from (evaluation_manifests)") = None,
-    run_id: _described(
+    yaml_content: Annotated[
         str | None,
-        "write into this run's directory instead of the shared manifest root",
-    ) = None,
+        pydantic.Field(description="complete manifest YAML, or omit and give a template"),
+    ] = None,
+    template: Annotated[
+        str | None,
+        pydantic.Field(description="a resolvable manifest to start from (evaluation_manifests)"),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        pydantic.Field(description="write into this run's directory instead of the shared manifest root"),
+    ] = None,
     overwrite: Overwrite = False,
 ) -> dict[str, Any]:
     """Write a report manifest, from YAML or a copy of a template, into a run directory or the shared manifest root (table notes: options.notes, options.rows, options.note, options.notes_key)."""

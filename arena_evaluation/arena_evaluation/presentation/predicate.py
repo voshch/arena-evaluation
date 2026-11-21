@@ -21,15 +21,15 @@ _SET_LITERALS: Final[tuple[type[ast.expr], ...]] = (ast.Tuple, ast.List, ast.Set
 _COMPARE: Final[
     dict[
         type[ast.cmpop],
-        Callable[[pl.Expr | ScalarLiteral, pl.Expr | ScalarLiteral], pl.Expr],
+        Callable[[pl.Expr, pl.Expr], pl.Expr],
     ]
 ] = {
-    ast.Eq: lambda left, right: left == right,
-    ast.NotEq: lambda left, right: left != right,
-    ast.Lt: lambda left, right: left < right,
-    ast.LtE: lambda left, right: left <= right,
-    ast.Gt: lambda left, right: left > right,
-    ast.GtE: lambda left, right: left >= right,
+    ast.Eq: lambda left, right: left.eq(right),
+    ast.NotEq: lambda left, right: left.ne(right),
+    ast.Lt: lambda left, right: left.lt(right),
+    ast.LtE: lambda left, right: left.le(right),
+    ast.Gt: lambda left, right: left.gt(right),
+    ast.GtE: lambda left, right: left.ge(right),
 }
 
 
@@ -142,7 +142,9 @@ def _comparison(where: str, left: ast.expr, op: ast.cmpop, right: ast.expr, sche
     if op_fn is None:
         _reject(where, f"unsupported comparison operator {type(op).__name__}")
     value = _ensure_fits(where, dtype, _literal(where, literal_node))
-    return op_fn(pl.col(name), value) if column_on_left else op_fn(value, pl.col(name))
+    col_expr = pl.col(name)
+    lit_expr = pl.lit(value)
+    return op_fn(col_expr, lit_expr) if column_on_left else op_fn(lit_expr, col_expr)
 
 
 def _call(where: str, node: ast.Call, schema: pl.Schema) -> pl.Expr:

@@ -92,7 +92,7 @@ class TimeseriesRenderer(BasePlotRenderer):
         y2_cols: list[str],
         colour_col: str | None,
     ) -> list[_Curve]:
-        bin_width_s = float(self.spec.options.get("bin_width_s", DEFAULT_BIN_WIDTH_S))
+        bin_width_s = self.option_float("bin_width_s", DEFAULT_BIN_WIDTH_S)
         signals = [*y_cols, *y2_cols]
         curves: list[_Curve] = []
         for y_col in signals:

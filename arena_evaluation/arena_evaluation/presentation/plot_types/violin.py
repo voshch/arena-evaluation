@@ -134,19 +134,12 @@ class ViolinRenderer(BasePlotRenderer):
 
         palette = get_color_palette()
         fig, ax = new_figure()
-        violin: dict[str, object] = {
-            "data": pdf,
-            "y": y_col,
-            "inner": "box",
-            "ax": ax,
-        }
         if axis_col and color_col and color_col != axis_col:
-            violin.update(x=axis_col, hue=color_col, palette=palette)
+            sns.violinplot(data=pdf, y=y_col, inner="box", ax=ax, x=axis_col, hue=color_col, palette=palette)
         elif axis_col:
-            violin.update(x=axis_col, hue=axis_col, palette=palette, legend=False)
+            sns.violinplot(data=pdf, y=y_col, inner="box", ax=ax, x=axis_col, hue=axis_col, palette=palette, legend=False)
         else:
-            violin["color"] = palette_color(palette, 0)
-        sns.violinplot(**violin)
+            sns.violinplot(data=pdf, y=y_col, inner="box", ax=ax, color=palette_color(palette, 0))
 
         if axis_col and pdf[axis_col].nunique() > 6:
             ax.tick_params(axis="x", rotation=30)

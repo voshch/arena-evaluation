@@ -77,7 +77,7 @@ def _group_summary(
     group_cols: tuple[str, ...],
     metrics: tuple[str, ...],
     *,
-    filter: dict[str, Scalar | tuple[Scalar, ...]] | None = None,
+    filter: Mapping[str, Scalar | tuple[Scalar, ...]] | None = None,
     exclude_references: bool = False,
 ) -> AnalysisResult:
     """Layer 3 ``group_summary`` over ``metrics`` grouped by ``group_cols``."""
@@ -492,7 +492,8 @@ def evaluation_correlation(run_id: RunId, metrics: list[str], include_references
     matrix: dict[str, dict[str, float | None]] = {m: {} for m in metrics}
     for row in res.frame.to_dicts():
         a, b = str(row["metric_x"]), str(row["metric_y"])
-        r_val = jsonable(row["pearson_r"])
+        raw_r = row["pearson_r"]
+        r_val = float(raw_r) if isinstance(raw_r, int | float) else None
         matrix.setdefault(a, {})[b] = r_val
         matrix.setdefault(b, {})[a] = r_val
     return {
@@ -585,7 +586,7 @@ def evaluation_analysis(
         return {"procedures": list_procedures()}
 
     path = run_path(run_id)
-    catalog = _open_catalog(run_id)
+    catalog = _open_catalog(path.name)
     store = EvidenceStore(path)
     try:
         result = run_procedure(
@@ -644,11 +645,7 @@ def evaluation_analysis(
             role="analyst",
             tool="evaluation_analysis",
             args={"procedure": procedure, "save_as": save_as},
-            produced_ids=[
-                result.evidence_id,
-                derived_table,
-                derived_summary_table,
-            ],
+            produced_ids=[pid for pid in (result.evidence_id, derived_table, derived_summary_table) if pid is not None],
         )
     return {
         "run_id": path.name,
@@ -731,7 +728,7 @@ def evaluation_tables(run_id: RunId) -> dict[str, Any]:
     from arena_evaluation.analytics.derived import list_derived_tables
 
     path = run_path(run_id)
-    catalog = _open_catalog(run_id)
+    catalog = _open_catalog(path.name)
     tables = list_derived_tables(path, current_snapshot_id=catalog.snapshot_id)
     return {"run_id": path.name, "snapshot_id": catalog.snapshot_id, "tables": tables}
 

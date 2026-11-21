@@ -233,8 +233,12 @@ def _seed_and_duration(
     starts = lifecycle.get_column("start_t_ns").drop_nulls()
     if starts.len() == 0:
         return seed, None
-    start_ns = int(starts.min())
-    end_ns = int(lifecycle.get_column("t_ns").max())
+    start_val = starts.min()
+    end_val = lifecycle.get_column("t_ns").max()
+    if not isinstance(start_val, (int, float)) or not isinstance(end_val, (int, float)):
+        return seed, None
+    start_ns = int(start_val)
+    end_ns = int(end_val)
     return seed, (end_ns - start_ns) / _NS_PER_SECOND if end_ns > start_ns else None
 
 

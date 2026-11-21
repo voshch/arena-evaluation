@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -24,7 +25,7 @@ from .trajectory import TrajectoryRenderer
 from .trajectory_slice import TrajectorySliceRenderer
 from .violin import ViolinRenderer
 
-RENDERER_REGISTRY: dict[str, type[BasePlotRenderer]] = {
+RENDERER_REGISTRY: Mapping[str, type[BasePlotRenderer]] = {
     "acoustic_field": AcousticFieldRenderer,
     "acoustic_field_animation": AcousticFieldAnimationRenderer,
     "bar": BarRenderer,
@@ -46,8 +47,8 @@ RENDERER_REGISTRY: dict[str, type[BasePlotRenderer]] = {
 }
 
 if TYPE_CHECKING:
-    from arena_evaluation.presentation.checks import PlotDiagnostics
-    from arena_evaluation.presentation.viz_manifest import PlotSpec
+    from ..checks import PlotDiagnostics
+    from ..viz_manifest import PlotSpec
 
 
 def prepare_renderer(

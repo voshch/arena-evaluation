@@ -34,7 +34,7 @@ WINDOWS: Final[tuple[str, ...]] = ("approach", "hold", "post", "rest")
 STALL_SERIES_SCHEMA: Final[pl.Schema] = SeriesHhiContact.polars_schema()
 
 
-def _episode_metric(name: str, dtype: pl.DataType, unit: str, description: str) -> Metric:
+def _episode_metric(name: str, dtype: pl.DataType | type[pl.DataType], unit: str, description: str) -> Metric:
     """Episode-scope output of the two-person interaction, with a null reason."""
     return define_metric(
         name,
@@ -456,7 +456,6 @@ class ContactInteractionCalculator(BaseMetricCalculator):
     def series_table(
         self,
         episode: AlignedEpisodeBundle,
-        *,
         run_id: str = "",
         robot_id: str = "",
     ) -> pl.DataFrame:

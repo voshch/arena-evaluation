@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import Final
+from typing import Final, SupportsFloat
 
 import numpy as np
 import polars as pl
@@ -81,9 +81,16 @@ def _records(frame: pl.DataFrame, *columns: str) -> list[tuple[object, ...]]:
     return list(zip(*(values[column] for column in columns), strict=True))
 
 
+def _float(value: object) -> float:
+    """Coerce a non-null numeric frame entry to ``float``."""
+    if isinstance(value, (SupportsFloat, str)):
+        return float(value)
+    raise TypeError(f"Expected numeric value, got {type(value).__name__}")
+
+
 def _optional_float(value: object) -> float | None:
     """A nullable float column entry with ``None`` preserved."""
-    return None if value is None else float(value)
+    return None if value is None else _float(value)
 
 
 def _rank(values: np.ndarray, method: str) -> np.ndarray:
@@ -135,9 +142,9 @@ class ContextualStabilityResult:
                 world=str(world),
                 crowd_size=str(crowd),
                 metric=str(metric),
-                mean_tau=float(mean_tau),
-                std_tau=float(std_tau),
-                top_k_preservation_rate=float(top_k),
+                mean_tau=_float(mean_tau),
+                std_tau=_float(std_tau),
+                top_k_preservation_rate=_float(top_k),
             )
             for arm, world, crowd, metric, mean_tau, std_tau, top_k in _records(
                 frame,
@@ -291,7 +298,7 @@ class PlannerSeedMatrices:
         ranks_1 = _rank(observed_1, "average")
         ranks_2 = _rank(observed_2, "average")
         order_1, order_2 = np.argsort(observed_1), np.argsort(observed_2)
-        tau_raw = float(scipy.stats.kendalltau(ranks_1, ranks_2)[0])
+        tau_raw = _float(scipy.stats.kendalltau(ranks_1, ranks_2)[0])
         tau_val = tau_raw if not math.isnan(tau_raw) else (1.0 if np.array_equal(ranks_1, ranks_2) else 0.0)
         split_k = min(eff_k, n_ranked)
         top_k_idx_1, top_k_idx_2 = order_1[:split_k], order_2[:split_k]

@@ -139,7 +139,10 @@ def _clipped(
     return frame
 
 
-def _merge_frames(groups: list[dict[str, pl.DataFrame]], how: str) -> dict[str, pl.DataFrame]:
+def _merge_frames(
+    groups: list[dict[str, pl.DataFrame]],
+    how: typing.Literal["vertical", "vertical_relaxed"],
+) -> dict[str, pl.DataFrame]:
     """Concatenate per-robot frames by table stem."""
     parts: dict[str, list[pl.DataFrame]] = collections.defaultdict(list)
     for group in groups:
@@ -193,8 +196,6 @@ def _shutdown_executor_cleanly(executor: concurrent.futures.ProcessPoolExecutor)
 
 def _episode_pipeline(data_root_str: str) -> ProcessingPipeline:
     """A single-worker pipeline rooted at the worker's data root."""
-    from arena_evaluation.processing.pipeline import ProcessingPipeline
-
     return ProcessingPipeline(
         FolderManager(data_root=pathlib.Path(data_root_str)),
         profiler=None,
@@ -888,7 +889,7 @@ class ProcessingPipeline:
         tracks, pose_source = resolve_pose_source(bundle, window)
         aligned_df = None if tracks is None else _align_bundle(bundle, *window)
         row_count = 0 if aligned_df is None else len(aligned_df)
-        if tracks is None or row_count < 5:
+        if tracks is None or aligned_df is None or row_count < 5:
             reason = "no tf ground-truth rows inside the episode window" if tracks is None else f"{row_count} ground-truth rows inside the episode window"
             if tracks is not None:
                 _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
@@ -926,7 +927,8 @@ class ProcessingPipeline:
                 window[1],
             )
         )
-        num_pedestrians = 0 if peds_df is None or len(peds_df) == 0 else int(peds_df.group_by("t_ns").len()["len"].max() or 0)
+        max_peds = None if peds_df is None or len(peds_df) == 0 else peds_df.group_by("t_ns").len()["len"].max()
+        num_pedestrians = int(max_peds) if isinstance(max_peds, (int, float)) else 0
 
         conditions = None
         phases = None

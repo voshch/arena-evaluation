@@ -58,5 +58,6 @@ def asof_join[FrameT: (pl.DataFrame, pl.LazyFrame)](
     right_on: str | None = None,
 ) -> FrameT:
     """Each query row joined to the last source row at or before its time, null where none lies within tolerance_ns (no bound when None)."""
-    keys = {"on": on} if left_on is None else {"left_on": left_on, "right_on": right_on or on}
-    return query.join_asof(source, strategy="backward", tolerance=tolerance_ns, **keys)
+    if left_on is None:
+        return query.join_asof(source, on=on, strategy="backward", tolerance=tolerance_ns)
+    return query.join_asof(source, left_on=left_on, right_on=right_on or on, strategy="backward", tolerance=tolerance_ns)

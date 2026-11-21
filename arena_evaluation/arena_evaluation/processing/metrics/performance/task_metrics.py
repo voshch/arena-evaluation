@@ -6,7 +6,7 @@ import attrs
 import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import EpisodeCondition
-from arena_simulation_setup.shared.judge import ConditionMonitor, PhaseMonitor
+from arena_simulation_setup.shared.judge import ConditionMonitor, PhaseMonitor, Zones
 from arena_simulation_setup.shared.task import GoToPhase, TaskPhase
 from arena_simulation_setup.utils.geometry import Orientation, Pose, Position
 
@@ -237,7 +237,7 @@ def _replay_phase_step(
     lo: int,
     hi: int,
     ctx: EvalContext,
-    polygons: object,
+    polygons: Zones,
     scoped: list[tuple[dict, ConditionMonitor]],
     met: set[int],
     failed: set[int],

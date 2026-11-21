@@ -332,14 +332,11 @@ def create_finding(
         )
     }
     verified_structured = _validate_structured_numbers(run_dir, structured_numbers)
-    all_ev = list(
-        dict.fromkeys(
-            [
-                *(evidence_ids or []),
-                *([checked["evidence"]] if checked["evidence"] else []),
-            ]
-        )
-    )
+    checked_evidence = checked["evidence"]
+    ev_items: list[str] = list(evidence_ids or [])
+    if checked_evidence is not None:
+        ev_items.append(checked_evidence)
+    all_ev = list(dict.fromkeys(ev_items))
 
     fdir = findings_dir(run_dir)
     fdir.mkdir(parents=True, exist_ok=True)
@@ -356,7 +353,7 @@ def create_finding(
             pedestrian_id=pedestrian_id,
             query=query,
             stored_query=checked["stored_query"],
-            evidence_id=checked["evidence"] or (all_ev[0] if all_ev else None),
+            evidence_id=checked_evidence or (all_ev[0] if all_ev else None),
             evidence_ids=all_ev,
             structured_numbers=verified_structured,
             author=author_clean,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import pathlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import AbstractSet, Final
 
 import yaml
@@ -14,6 +14,7 @@ from arena_evaluation.presentation.data_sources import EPISODE_SUMMARY_VIEW
 from arena_evaluation.presentation.viz_manifest import (
     ManifestGroup,
     PlotChannels,
+    PlotDataSpec,
     PlotSpec,
     SummarySpec,
     VizManifest,
@@ -173,6 +174,11 @@ class MetricMap:
         )
 
 
+def _seq(value: object) -> Sequence[object]:
+    """Treat a list or tuple field as a sequence, falling back to an empty tuple."""
+    return value if isinstance(value, (list, tuple)) else ()
+
+
 def _spec(
     plot: LegacyPlot,
     plot_type: str,
@@ -186,8 +192,8 @@ def _spec(
         type=plot_type,
         title=plot.title,
         layout_group=plot.layout_group,
-        data=dict(data),
-        channels=channels,
+        data=PlotDataSpec.model_validate(dict(data)),
+        channels=channels if isinstance(channels, PlotChannels) else PlotChannels.model_validate(dict(channels)),
         options=dict(options or {}),
     )
 
@@ -281,10 +287,10 @@ def load_legacy_manifest(path: pathlib.Path) -> LegacyManifest:
             id=str(_mapping(item, where="groups[]")["id"]),
             title=str(_mapping(item, where="groups[]")["title"]),
         )
-        for item in document.get("groups") or ()
+        for item in _seq(document.get("groups"))
     )
     plots: list[LegacyPlot] = []
-    for index, item in enumerate(document.get("plots") or ()):
+    for index, item in enumerate(_seq(document.get("plots"))):
         plot_raw = _mapping(item, where=f"{resolved}:plots[{index}]")
         _reject_unknown(plot_raw, _LEGACY_PLOT_KEYS, where=f"{resolved}:plots[{index}]")
         options = plot_raw.get("options") or {}
@@ -297,18 +303,20 @@ def load_legacy_manifest(path: pathlib.Path) -> LegacyManifest:
                 layout_group=str(plot_raw.get("layout_group", "")),
                 differentiate=str(plot_raw.get("differentiate") or ""),
                 secondary_data_key=str(plot_raw.get("secondary_data_key") or ""),
-                group_by=tuple(str(v) for v in plot_raw.get("group_by") or ()),
+                group_by=tuple(str(v) for v in _seq(plot_raw.get("group_by"))),
                 filter=_mapping(plot_raw.get("filter") or {}, where="filter"),
                 options=_mapping(options, where="options"),
                 auto_differentiate=bool(plot_raw.get("auto_differentiate", False)),
             )
         )
+    units_raw = document.get("units")
+    units = {str(k): str(v) for k, v in _mapping(units_raw, where="units").items()} if units_raw is not None else {}
     return LegacyManifest(
         name=str(document.get("name") or resolved.stem),
         title=str(document.get("title") or resolved.stem),
         description=str(document.get("description") or ""),
         data_source=str(document.get("data_source") or ""),
-        units={str(k): str(v) for k, v in (document.get("units") or {}).items()},
+        units=units,
         groups=groups,
         plots=tuple(plots),
     )
@@ -392,7 +400,7 @@ def _resolve_filter(filter_map: Mapping[str, object], *, prefer_stem: str | None
 
 
 def _group_columns(plot: LegacyPlot) -> list[str]:
-    option_groups = plot.options.get("group_by") or ()
+    option_groups = _seq(plot.options.get("group_by"))
     raw = list(plot.group_by) or [str(v) for v in option_groups] or ([plot.differentiate] if plot.differentiate else [])
     resolved = [str(_dimension(name) or "") for name in raw]
     return [name for name in resolved if name]
@@ -840,7 +848,7 @@ def convert_manifest(
         units={str(metric_map.renamed.get(name, name)): unit for name, unit in legacy.units.items() if unit and metric_map.resolve(name, known_metrics).status != "removed"},
         plots=specs,
     )
-    carried_notes = tuple(f"{plot.id} [{item.get('label', '')}]: {item.get('value', '')}" for plot in legacy.plots for item in (plot.options.get("notes") or ()) if isinstance(item, dict))
+    carried_notes = tuple(f"{plot.id} [{item.get('label', '')}]: {item.get('value', '')}" for plot in legacy.plots for item in _seq(plot.options.get("notes")) if isinstance(item, dict))
     return LegacyMigration(
         source=source or pathlib.Path(f"{legacy.name}.yaml"),
         manifest=manifest,
@@ -897,9 +905,9 @@ def _referenced_metric_names(plot: LegacyPlot) -> list[str]:
         names.append(plot.data_key)
     for key in ("metrics", "y", "x"):
         value = plot.options.get(key)
-        values = [value] if isinstance(value, str) else (value or ())
+        values = [value] if isinstance(value, str) else _seq(value)
         names.extend(str(v) for v in values if isinstance(v, str) and v != "*")
-    for column in plot.options.get("columns") or ():
+    for column in _seq(plot.options.get("columns")):
         if isinstance(column, dict) and column.get("metric"):
             names.append(str(column["metric"]))
     return [name for name in dict.fromkeys(names) if not name.startswith("timeseries_")]
@@ -962,7 +970,7 @@ def write_legacy_bundle(
     overwrite: bool = False,
 ) -> tuple[pathlib.Path, pathlib.Path]:
     """Write ``<output_dir>/<name>/report.yaml`` and its ``migration_report.yaml``."""
-    bundle = pathlib.Path(output_dir) / migration.manifest.name
+    bundle = pathlib.Path(output_dir) / (migration.manifest.name or "report")
     report_path = bundle / "report.yaml"
     migration_path = bundle / "migration_report.yaml"
     if report_path.exists() and not overwrite:

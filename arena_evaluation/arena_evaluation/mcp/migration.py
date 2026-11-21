@@ -29,11 +29,6 @@ __all__ = [
 ]
 
 
-def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
-    """Annotate a tool parameter with its published description."""
-    return Annotated[kind, Field(description=description)]
-
-
 def _converter() -> Any:  # noqa: ANN401 - lazy import returns legacy_manifest module
     """Import the L4 legacy converter lazily and fail with a hint when it is not installed."""
     try:
@@ -82,21 +77,21 @@ def _convert(source: str) -> tuple[Any, Any]:
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_migrate_manifest(
-    source: _described(str, "path to a pre-overhaul report manifest YAML file to convert"),
-    target: _described(
+    source: Annotated[str, Field(description="path to a pre-overhaul report manifest YAML file to convert")],
+    target: Annotated[
         str | None,
-        "report bundle name to write under <run>/analysis/reports; defaults to the legacy name",
-    ) = None,
+        Field(description="report bundle name to write under <run>/analysis/reports; defaults to the legacy name"),
+    ] = None,
     *,
     run_id: OptionalRunId = None,
-    dry_run: _described(
+    dry_run: Annotated[
         bool,
-        "when true only return the skeleton and the conversion report; nothing is written",
-    ) = True,
-    overwrite: _described(
+        Field(description="when true only return the skeleton and the conversion report; nothing is written"),
+    ] = True,
+    overwrite: Annotated[
         bool,
-        "replace an existing report.yaml in the target bundle",
-    ) = False,
+        Field(description="replace an existing report.yaml in the target bundle"),
+    ] = False,
 ) -> dict[str, Any]:
     """Convert a legacy manifest into the current grammar, reporting every unresolved plot.
 
@@ -168,7 +163,7 @@ def evaluation_migrate_manifest(
 
 @domain.tool(read_only=True)
 def evaluation_manifest_mappings(
-    manifest: _described(str, "path to a pre-overhaul report manifest YAML file to map"),
+    manifest: Annotated[str, Field(description="path to a pre-overhaul report manifest YAML file to map")],
 ) -> dict[str, Any]:
     """The old->new metric and plot mapping table for one legacy manifest, without writing."""
     converter, migration = _convert(manifest)

@@ -349,7 +349,7 @@ class ScopedEvaluator:
 
     @staticmethod
     def _episode_span(robot_tracks: pl.DataFrame | None) -> tuple[int, int, str | None]:
-        if not _has_rows(robot_tracks):
+        if robot_tracks is None or not _has_rows(robot_tracks):
             return 0, 0, None
         times = robot_tracks.get_column("t_ns").drop_nulls()
         lo, hi = times.min(), times.max()
@@ -560,7 +560,7 @@ class ScopedEvaluator:
                 empty_contact_windows(),
             )
 
-        robot_id = _first_val(robot_tracks, "robot_id", str, str(materialized.robot_name or "robot"))
+        robot_id = _first_val(robot_tracks, "robot_id", str, str(materialized.robot_name or "robot")) or str(materialized.robot_name or "robot")
         robot_token = _ENV_PREFIX.sub("", robot_id, count=1)
         episode_slice_id = f"{run_id}:{int(episode_id)}:{robot_id}"
         start_ns, end_ns, env_id = self._episode_span(robot_tracks)
@@ -874,7 +874,7 @@ class ScopedEvaluator:
                     scope,
                     scope_slice.window_bundle,
                     available_topics=set(scope_slice.window_bundle.topics or {}),
-                    prior_results=prior_results,
+                    prior_results=dict(prior_results) if prior_results is not None else None,
                     scope_slice=scope_slice,
                 ),
             )

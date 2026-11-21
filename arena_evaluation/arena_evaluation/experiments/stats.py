@@ -72,8 +72,8 @@ def cluster_bootstrap(
     tail = (1.0 - level) / 2.0
     lo, hi = contain_estimate(float(np.quantile(draws, tail)), float(np.quantile(draws, 1.0 - tail)), estimate)
     p = cluster_bootstrap_p_value(
-        cluster_sums,
-        cluster_counts,
+        cluster_sums.tolist(),
+        cluster_counts.tolist(),
         observed=estimate,
         n_boot=n_boot,
         random_seed=p_seed,

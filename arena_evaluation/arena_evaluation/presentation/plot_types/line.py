@@ -109,8 +109,8 @@ class LineRenderer(BasePlotRenderer):
 
     @staticmethod
     def _facet_grid(df: pl.DataFrame, facet_col: str | None, facet_row: str | None) -> tuple[list[str | None], list[str | None]]:
-        cols = sorted({str(v) for v in label_values(df, facet_col).tolist()}) if facet_col else [None]
-        rows = sorted({str(v) for v in label_values(df, facet_row).tolist()}) if facet_row else [None]
+        cols: list[str | None] = [str(v) for v in sorted({str(v) for v in label_values(df, facet_col).tolist()})] if facet_col else [None]
+        rows: list[str | None] = [str(v) for v in sorted({str(v) for v in label_values(df, facet_row).tolist()})] if facet_row else [None]
         return rows, cols
 
     @staticmethod
@@ -168,38 +168,39 @@ class LineRenderer(BasePlotRenderer):
                     x_vals = sub[x_col].to_numpy().tolist()
                     y_vals = series_values(sub, y_col)
                     band = self._band(sub, y_vals)
-                    trace_kwargs = {"row": r_idx, "col": c_idx} if is_faceted else {}
                     if band is not None:
                         valid, lower, upper = band
                         vx = [x for x, keep in zip(x_vals, valid, strict=True) if keep]
-                        fig.add_trace(
-                            go.Scatter(
-                                x=vx + vx[::-1],
-                                y=upper[valid].tolist() + lower[valid][::-1].tolist(),
-                                fill="toself",
-                                fillcolor=_rgba(color, 0.18),
-                                line={"color": "rgba(255,255,255,0)"},
-                                hoverinfo="skip",
-                                showlegend=False,
-                                name=f"{label}_band",
-                            ),
-                            **trace_kwargs,
+                        band_trace = go.Scatter(
+                            x=vx + vx[::-1],
+                            y=upper[valid].tolist() + lower[valid][::-1].tolist(),
+                            fill="toself",
+                            fillcolor=_rgba(color, 0.18),
+                            line={"color": "rgba(255,255,255,0)"},
+                            hoverinfo="skip",
+                            showlegend=False,
+                            name=f"{label}_band",
                         )
+                        if is_faceted:
+                            fig.add_trace(band_trace, row=r_idx, col=c_idx)
+                        else:
+                            fig.add_trace(band_trace)
                     show_leg = label not in seen_legend
                     seen_legend.add(label)
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_vals,
-                            y=y_vals.tolist(),
-                            mode=trace_mode,
-                            name=label,
-                            legendgroup=label,
-                            showlegend=show_leg,
-                            line={"color": color, "width": 2.0},
-                            connectgaps=False,
-                        ),
-                        **trace_kwargs,
+                    line_trace = go.Scatter(
+                        x=x_vals,
+                        y=y_vals.tolist(),
+                        mode=trace_mode,
+                        name=label,
+                        legendgroup=label,
+                        showlegend=show_leg,
+                        line={"color": color, "width": 2.0},
+                        connectgaps=False,
                     )
+                    if is_faceted:
+                        fig.add_trace(line_trace, row=r_idx, col=c_idx)
+                    else:
+                        fig.add_trace(line_trace)
         x_title, y_title = self._titles(x_col, y_col)
         fig.update_layout(
             template="plotly_white",

@@ -67,6 +67,8 @@ def _checked_rates(rates: Mapping[str, object]) -> dict[str, float]:
     """A record_rates_hz mapping as floats, refusing a rate below 0 Hz."""
     checked: dict[str, float] = {}
     for topic_name, rate in rates.items():
+        if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+            raise TypeError(f"record_rates_hz[{topic_name!r}] must be numeric, got {type(rate).__name__}")
         value = float(rate)
         if value < 0.0:
             raise ValueError(f"record_rates_hz[{topic_name!r}] is {value}: a throttle rate is >= 0 Hz, 0 meaning unthrottled")
@@ -1108,8 +1110,10 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             return {"record_rates_hz": {}, "tf_frames": []}
         if "record_frequencies" in config:
             raise ValueError("data_recorder_config.yaml still sets record_frequencies, which the recorder no longer reads: replace it with record_rates_hz (exact topic name -> rate in Hz, 0 = unthrottled) and rebuild arena_evaluation so the installed share copy is refreshed")
-        config["record_rates_hz"] = _checked_rates(config.get("record_rates_hz") or {})
-        return config
+        return {
+            "record_rates_hz": _checked_rates(config.get("record_rates_hz") or {}),
+            "tf_frames": list(config.get("tf_frames") or []),
+        }
 
     def finalize(self):
         """Close the current episode writer and write final metadata."""

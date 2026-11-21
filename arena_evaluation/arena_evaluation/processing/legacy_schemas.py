@@ -15,6 +15,66 @@ from mcap.reader import NonSeekingReader, make_reader
 
 if typing.TYPE_CHECKING:
     from mcap.records import Schema
+    from rcl_interfaces.msg import ParameterValue
+
+
+class _RosTimeProto(typing.Protocol):
+    sec: int
+    nanosec: int
+
+
+class _ParameterProto(typing.Protocol):
+    name: str
+    value: ParameterValue
+
+
+class _ModeProto(typing.Protocol):
+    key: str
+    value: str
+
+
+class _DescriptorProto(typing.Protocol):
+    name: str
+    model: str
+    ns: str
+    frame: str
+    base_frame: str
+
+
+class _RobotStateProto(typing.Protocol):
+    descriptor: _DescriptorProto
+    params: Iterable[object]
+
+
+class _RobotFleetProto(typing.Protocol):
+    robots: Sequence[_RobotStateProto]
+
+
+class _EpisodeRecordProto(typing.Protocol):
+    episode_id: int
+    world: str
+    seed: int
+    task_layer: str
+    modes: Sequence[_ModeProto]
+    params: Iterable[object]
+    human_params: Iterable[object]
+    robots: Sequence[str]
+    outcome_state: int
+    outcome_info: str
+    goal_uuid: str
+    goal_dist_start: float
+    goal_dist_min: float
+    path_length: float
+    start_time: _RosTimeProto
+    integrity: bool | Sequence[str]
+    tm_robots: str
+    tm_obstacles: str
+    tm_modules: str
+    robots_params: Iterable[object]
+    obstacles_params: Iterable[object]
+    conditions: str
+    phases: str
+
 
 NATIVE: typing.Final[str] = "native"
 LEGACY_2026_09: typing.Final[str] = "legacy_2026_09"
@@ -188,8 +248,10 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     episode = _schema_of(topics, "/state/episode")
     fleet = _schema_of(topics, "/state/robots")
     agent_meta = _schema_of(topics, "/agent_meta")
-    agent_text = topics.get(_topic_by_suffix(topics, "/agent_meta"), (None, ""))[1]
-    episode_text = topics.get(_topic_by_suffix(topics, "/state/episode"), (None, ""))[1]
+    agent_topic = _topic_by_suffix(topics, "/agent_meta")
+    episode_topic = _topic_by_suffix(topics, "/state/episode")
+    agent_text = topics[agent_topic][1] if agent_topic is not None else ""
+    episode_text = topics[episode_topic][1] if episode_topic is not None else ""
     crowd = "robot_awareness" in agent_text
     unsupported: list[str] = []
     if episode is None:
@@ -241,6 +303,11 @@ def recording_topics(recording: pathlib.Path) -> tuple[str, ...]:
 def agent_meta_has_crowd(schema_text: str) -> bool:
     """Whether the recorded AgentMeta schema declares the four robot interaction settings."""
     return all(setting in schema_text for setting in _ROBOT_SETTINGS)
+
+
+def agent_meta_has_agent_type(schema_text: str) -> bool:
+    """Whether the recorded AgentMeta schema declares ``agent_type``."""
+    return "agent_type" in schema_text
 
 
 def _validated_fields(
@@ -336,11 +403,11 @@ def _legacy_not_recorded(schema: EpisodeSchema) -> tuple[str, ...]:
 def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
     """Normalise a fleet snapshot, its descriptor read as the recording itself declared it."""
     if schema.name.endswith("/RobotFleet"):
-        states = tuple(fleet.robots)
+        states: tuple[_RobotStateProto, ...] = tuple(typing.cast(_RobotFleetProto, fleet).robots)
     elif schema.name.endswith("/RobotState"):
-        states = (fleet,)
+        states = (typing.cast(_RobotStateProto, fleet),)
     elif isinstance(fleet, Sequence):
-        states = tuple(fleet)
+        states = tuple(typing.cast(Sequence[_RobotStateProto], fleet))
     else:
         raise LegacySchemaError(f"fleet schema {schema.name!r} carries no RobotState sequence")
     fields = _descriptor_fields(schema.name, schema.data.decode("utf-8", "replace"))
@@ -432,10 +499,11 @@ def _parameter_values(parameters: Iterable[object]) -> dict[str, object]:
     """The recorded name -> value of one rcl_interfaces Parameter sequence."""
     from arena_evaluation.processing.telemetry.messages import parameter_value
 
-    return {parameter.name: parameter_value(parameter.value) for parameter in parameters}
+    typed_params = typing.cast(Iterable[_ParameterProto], parameters)
+    return {parameter.name: parameter_value(parameter.value) for parameter in typed_params}
 
 
-def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
+def _integrity_flags(record: _EpisodeRecordProto, schema: EpisodeSchema) -> tuple[str, ...]:
     """The recorded integrity reasons, read as the generation's own declared field type."""
     if not schema.carries("integrity"):
         return ()
@@ -448,52 +516,53 @@ def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
 
 def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> EpisodeFields:
     """The shared native field set, with the generation-specific modes/params/optional fields filled in."""
-    robot_names = tuple(str(robot) for robot in record.robots)
-    integrity = _integrity_flags(record, schema)
+    typed = typing.cast(_EpisodeRecordProto, record)
+    robot_names = tuple(str(robot) for robot in typed.robots)
+    integrity = _integrity_flags(typed, schema)
     if legacy:
         modes = legacy_modes(
-            robots=record.tm_robots,
-            obstacles=record.tm_obstacles,
-            modules=record.tm_modules,
+            robots=typed.tm_robots,
+            obstacles=typed.tm_obstacles,
+            modules=typed.tm_modules,
         )
         params = legacy_params(
             modes,
-            flatten_params(_parameter_values(record.robots_params)),
-            flatten_params(_parameter_values(record.obstacles_params)),
+            flatten_params(_parameter_values(typed.robots_params)),
+            flatten_params(_parameter_values(typed.obstacles_params)),
         )
-        human = _parameter_values(record.human_params) if schema.carries("human_params") else {}
+        human = _parameter_values(typed.human_params) if schema.carries("human_params") else {}
         task_layer, modes_payload, params_payload = (
             None,
             modes_json(modes),
             params_yaml(params),
         )
-        conditions = (str(record.conditions) or None) if schema.carries("conditions") else None
-        phases = (str(record.phases) or None) if schema.carries("phases") else None
+        conditions = (str(typed.conditions) or None) if schema.carries("conditions") else None
+        phases = (str(typed.phases) or None) if schema.carries("phases") else None
         not_recorded = _legacy_not_recorded(schema)
     else:
-        modes = {mode.key: mode.value for mode in record.modes}
-        params = _parameter_values(record.params)
-        human = _parameter_values(record.human_params)
-        task_layer = str(record.task_layer) or None
+        modes = {mode.key: mode.value for mode in typed.modes}
+        params = _parameter_values(typed.params)
+        human = _parameter_values(typed.human_params)
+        task_layer = str(typed.task_layer) or None
         modes_payload = json.dumps(modes) if modes else None
         params_payload = yaml.dump(params) if params else None
-        conditions = str(record.conditions) or None
-        phases = str(record.phases) or None
+        conditions = str(typed.conditions) or None
+        phases = str(typed.phases) or None
         not_recorded = ()
     return EpisodeFields(
-        episode_id=int(record.episode_id),
-        world=str(record.world) if record.world else None,
-        seed=int(record.seed) if record.seed >= 0 else None,
+        episode_id=int(typed.episode_id),
+        world=str(typed.world) if typed.world else None,
+        seed=int(typed.seed) if typed.seed >= 0 else None,
         task_layer=task_layer,
         modes_json=modes_payload,
         robots=robot_names,
-        outcome_state=int(record.outcome_state),
-        outcome_info=str(record.outcome_info),
-        goal_uuid=str(record.goal_uuid),
-        goal_dist_start=float(record.goal_dist_start),
-        goal_dist_min=float(record.goal_dist_min),
-        path_length=float(record.path_length),
-        start_t_ns=int(record.start_time.sec) * 1_000_000_000 + int(record.start_time.nanosec),
+        outcome_state=int(typed.outcome_state),
+        outcome_info=str(typed.outcome_info),
+        goal_uuid=str(typed.goal_uuid),
+        goal_dist_start=float(typed.goal_dist_start),
+        goal_dist_min=float(typed.goal_dist_min),
+        path_length=float(typed.path_length),
+        start_t_ns=int(typed.start_time.sec) * 1_000_000_000 + int(typed.start_time.nanosec),
         integrity=integrity,
         params_yaml=params_payload,
         human_params_json=json.dumps(human) if human else None,

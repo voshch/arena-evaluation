@@ -180,7 +180,7 @@ def _build_geometry(
 
     path_length_m = float(np.nansum(step_length_m)) if sample_count > 0 else None
     angle_over_length_rad_m = None
-    if sample_count >= 2 and path_length_m > 0.0:
+    if sample_count >= 2 and path_length_m is not None and path_length_m > 0.0:
         turn_rad = _angle_difference_rad(yaw_rad[:-1], yaw_rad[1:])
         angle_over_length_rad_m = float(np.abs(np.sum(turn_rad)) / path_length_m)
     curvature_mean_inv_m, curvature_max_inv_m = _mean_max(curvature_inv_m)

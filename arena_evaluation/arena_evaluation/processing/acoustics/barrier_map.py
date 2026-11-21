@@ -126,7 +126,7 @@ def _door_corners(door: DoorOpening) -> tuple[tuple[float, float], ...]:
     start, direction, length, half_width = _door_frame(door)
     across = np.array([-direction[1], direction[0]]) * half_width
     end = start + direction * length
-    return tuple(tuple(float(value) for value in point) for point in (start + across, start - across, end - across, end + across))
+    return tuple((float(point[0]), float(point[1])) for point in (start + across, start - across, end - across, end + across))
 
 
 def _mark_wall(barrier: np.ndarray, wall: WallSegment, *, cell_um: int, col0: int, row0: int) -> None:

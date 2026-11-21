@@ -244,7 +244,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         speed: np.ndarray,
         t_ns: np.ndarray,
         doors: list[DoorGeometry],
-    ) -> float:
+    ) -> float | None:
         if not doors:
             return 0.0
 
@@ -391,6 +391,8 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
         for bout in bouts:
             min_idx = bout["curr_min_dist"].arg_min()
+            if min_idx is None:
+                continue
             lat_at_min = bout["curr_lat"][min_idx]
             if self.passing_convention == "right" and lat_at_min >= 0.0:
                 encounters_compliant += 1

@@ -183,8 +183,9 @@ class GazeMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         """EPISODE and ROBOT measure the whole episode on the ground-truth axis; an ENCOUNTER slice measures its own window telemetry."""
         del prior_results
-        scope = MetricScope.EPISODE if scope_slice is None else scope_slice.scope
-        match scope:
+        if scope_slice is None:
+            return self._metrics_from_samples(self._samples(episode))
+        match scope_slice.scope:
             case MetricScope.EPISODE | MetricScope.ROBOT:
                 return self._metrics_from_samples(self._samples(episode))
             case MetricScope.ENCOUNTER:
@@ -198,7 +199,6 @@ class GazeMetricsCalculator(BaseMetricCalculator):
     def series_table(
         self,
         episode: AlignedEpisodeBundle,
-        *,
         run_id: str = "",
         robot_id: str = "",
     ) -> pl.DataFrame:

@@ -299,10 +299,10 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     def _modified_hausdorff(robot_points: np.ndarray, reference_points: np.ndarray) -> float:
         """Modified Hausdorff distance between two paths."""
         try:
-            from scipy.spatial import cKDTree
+            from scipy.spatial import KDTree
 
-            robot_tree = cKDTree(robot_points)
-            reference_tree = cKDTree(reference_points)
+            robot_tree = KDTree(robot_points)
+            reference_tree = KDTree(reference_points)
             robot_to_reference, _ = reference_tree.query(robot_points, k=1)
             reference_to_robot, _ = robot_tree.query(reference_points, k=1)
         except (ImportError, ValueError):

@@ -114,10 +114,11 @@ class MapRegistry:
         candidates = [map_name]
         candidates += [map_name.split(sep)[0] for sep in ("_stage", "-", "_") if sep in map_name]
         for candidate in dict.fromkeys(candidates):
-            for sub in ("worlds", "maps") if run_dir is not None else ():
-                path = pathlib.Path(run_dir) / sub / candidate
-                if path.exists():
-                    return path
+            if run_dir is not None:
+                for sub in ("worlds", "maps"):
+                    path = pathlib.Path(run_dir) / sub / candidate
+                    if path.exists():
+                        return path
             for root in roots:
                 path = root / candidate
                 if path.exists():

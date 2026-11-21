@@ -102,10 +102,12 @@ class EvidenceRecord:
 
     def to_dict(self) -> dict[str, object]:
         """Serialize record metadata to a JSON-compatible dictionary."""
-        return dataclasses.asdict(self) | {
+        payload: dict[str, object] = {
+            **dataclasses.asdict(self),
             "params_json": _canonical_json(self.params),
             "artifact_path": self.artifact_path.as_posix(),
         }
+        return payload
 
     @classmethod
     def from_index_row(cls, row: Mapping[str, object]) -> EvidenceRecord:

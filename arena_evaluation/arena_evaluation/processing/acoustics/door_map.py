@@ -26,8 +26,33 @@ from arena_evaluation.processing.acoustics.constants import (
 from arena_evaluation.processing.world_lookup import installed_world_dir
 from arena_evaluation.storage.exceptions import MetricInputError
 
-if typing.TYPE_CHECKING:
-    from arena_simulation_setup.shared import Level
+
+class _PointProto(typing.Protocol):
+    x: float
+    y: float
+
+
+class _WallProto(typing.Protocol):
+    start: _PointProto
+    end: _PointProto
+
+
+class _DoorProto(typing.Protocol):
+    name: str
+    start: _PointProto
+    end: _PointProto
+    width: float
+
+
+class _ZoneProto(typing.Protocol):
+    polygon: typing.Sequence[_PointProto]
+
+
+class _LevelProto(typing.Protocol):
+    all_walls: typing.Sequence[_WallProto]
+    doors: typing.Sequence[_DoorProto]
+    zones: typing.Sequence[_ZoneProto]
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +62,13 @@ DEFAULT_RESOLUTION_M = 0.05
 
 
 @functools.lru_cache(maxsize=32)
-def _load_level(world_dir: str) -> Level:
+def _load_level(world_dir: str) -> _LevelProto:
     """The world's levels flattened into one map frame, which is the frame agent positions are recorded in."""
     from arena_simulation_setup.tree.World import WorldView
 
     world = WorldView(pathlib.Path(world_dir)).load(validate=False)
     origins = world.level_origins() if len(world.levels) > 1 else dict.fromkeys(world.level_ids, (0.0, 0.0))
-    return world.compact_world(origins)
+    return typing.cast(_LevelProto, world.compact_world(origins))
 
 
 def _world_candidates(map_name: str, run_dir: pathlib.Path | str | None = None) -> list[tuple[str, pathlib.Path | None]]:
@@ -96,7 +121,7 @@ def resolve_world_dir(map_name: str, run_dir: pathlib.Path | str | None = None) 
     return None
 
 
-def _find_world_level(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, Level] | None:
+def _find_world_level(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, _LevelProto] | None:
     """The first candidate directory holding a world, and that world's level."""
     resolved = resolve_world_dir(map_name, run_dir=run_dir)
     if resolved is None:

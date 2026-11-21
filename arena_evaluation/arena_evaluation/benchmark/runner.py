@@ -259,13 +259,10 @@ class BenchmarkRunner(runner_impl._RunnerEnvMixin, runner_impl._RunnerExecMixin,
         self._arena_watch: asyncio.Task | None = None
         self._parent_episode_map: dict[tuple[str, str, int], int] = {}
         self._progress: BenchmarkProgressDisplay | None = None
-        for message_type, topic, callback in (
-            (EnvRegistry, "/arena/state/envs", self._on_envs),
-            (SimState, runner_plan.SIM_STATE_TOPIC, self._on_sim_state),
-            (LockstepStatus, "/arena/state/lockstep", self._on_lockstep),
-            (HoldRegistry, "/arena/state/holders", self._on_holders),
-        ):
-            self.create_subscription(message_type, topic, callback, runner_plan._LATCHED)
+        self.create_subscription(EnvRegistry, "/arena/state/envs", self._on_envs, runner_plan._LATCHED)
+        self.create_subscription(SimState, runner_plan.SIM_STATE_TOPIC, self._on_sim_state, runner_plan._LATCHED)
+        self.create_subscription(LockstepStatus, "/arena/state/lockstep", self._on_lockstep, runner_plan._LATCHED)
+        self.create_subscription(HoldRegistry, "/arena/state/holders", self._on_holders, runner_plan._LATCHED)
         self._state_pub = self.create_publisher(BenchmarkState, STATE_TOPIC, runner_plan._LATCHED)
 
     def _build_pending(self) -> list[Step]:

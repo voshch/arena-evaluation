@@ -59,7 +59,10 @@ class PedestrianPathMetricsCalculator(BaseMetricCalculator):
             return pl.DataFrame(schema=SERIES_SCHEMA)
 
         present = present.unique(subset=["t_ns", "ped_id"], keep="last", maintain_order=True)
-        first_t_ns = int(present["t_ns"].min())
+        min_t = present["t_ns"].min()
+        if not isinstance(min_t, (int, float)):
+            return pl.DataFrame(schema=SERIES_SCHEMA)
+        first_t_ns = int(min_t)
         return present.select(
             run_id=pl.lit(run_id, dtype=pl.String),
             episode_id=pl.lit(int(episode.episode_id), dtype=pl.Int64),

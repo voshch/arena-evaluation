@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import pathlib
+from collections.abc import Mapping
 
 import yaml
 
@@ -35,7 +36,9 @@ class MergeManifest:
 
 def _labels(raw: object) -> dict[str, str]:
     """Coerce a label mapping to the string pairs the manifest round-trips."""
-    return {str(key): str(value) for key, value in (raw or {}).items()}
+    if not isinstance(raw, Mapping):
+        return {}
+    return {str(key): str(value) for key, value in raw.items()}
 
 
 def _manifest_source(entry: dict[str, object], benchmarks_root: pathlib.Path) -> MergeSource:
