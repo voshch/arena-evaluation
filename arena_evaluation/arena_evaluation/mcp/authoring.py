@@ -14,7 +14,7 @@ from .base import YamlText, atomic_write_text, config_stem, domain, parse_yaml, 
 from .catalog import config_identifier, config_names
 
 
-def _described(kind: Any, description: str) -> Any:
+def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
     """Annotate a tool parameter with its published description."""
     return Annotated[kind, pydantic.Field(description=description)]
 
@@ -30,7 +30,7 @@ def _invalid(problems: list[str], *, warnings: bool = True) -> dict[str, Any]:
     return verdict
 
 
-def _parser(module: str, attribute: str, what: str) -> Any:
+def _parser(module: str, attribute: str, what: str) -> Any:  # noqa: ANN401 - lazy import returns Suite or Contest parser class
     """Import a parser lazily; a missing dependency becomes a hinted ToolError instead of ImportError."""
     try:
         return getattr(importlib.import_module(module), attribute)

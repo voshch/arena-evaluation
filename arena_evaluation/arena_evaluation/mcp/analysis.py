@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     import polars as pl
 
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
+    from arena_evaluation.analytics.evidence import AnalysisResult
 
 CONTESTANT = "planner"
 _ROLLUP_RULE = "mean_over_episodes"
@@ -78,7 +79,7 @@ def _group_summary(
     *,
     filter: dict[str, Scalar | tuple[Scalar, ...]] | None = None,
     exclude_references: bool = False,
-) -> Any:
+) -> AnalysisResult:
     """Layer 3 ``group_summary`` over ``metrics`` grouped by ``group_cols``."""
     params: dict[str, Any] = {
         "group_cols": group_cols,
@@ -90,7 +91,7 @@ def _group_summary(
     return run_computation("group_summary", catalog, params)
 
 
-def _computation_or_error(kind: str, catalog: BenchmarkCatalog, params: dict[str, Any], hint: str) -> Any:
+def _computation_or_error(kind: str, catalog: BenchmarkCatalog, params: dict[str, Any], hint: str) -> AnalysisResult:
     """Run a Layer 3 computation, turning its ValueError into a hinted ToolError."""
     try:
         return run_computation(kind, catalog, params)
@@ -664,7 +665,7 @@ def evaluation_analysis(
     }
 
 
-def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -> Any:
+def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -> pl.DataFrame:
     """Rerun sensitivity telemetry from persisted evidence parameters."""
     raw_episodes = params.get("episodes")
     episodes = [int(e) for e in raw_episodes] if isinstance(raw_episodes, list) else None

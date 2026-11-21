@@ -9,8 +9,6 @@ import polars as pl
 
 TRACK_ALIGN_TOLERANCE_NS: typing.Final[int] = 100_000_000
 
-_FrameT = typing.TypeVar("_FrameT", pl.DataFrame, pl.LazyFrame)
-
 
 def asof_index(source_t_ns: np.ndarray, query_t_ns: np.ndarray, tolerance_ns: int | None = None) -> np.ndarray:
     """Per query, the index of the last source sample at or before it; -1 where there is none, or where it is more than tolerance_ns older (no bound when None)."""
@@ -50,15 +48,15 @@ def interpolate_values(source_t_ns: np.ndarray, source_values: np.ndarray, query
     return np.interp(query_t_ns, source_t_ns, source_values)
 
 
-def asof_join(
-    query: _FrameT,
-    source: _FrameT,
+def asof_join[FrameT: (pl.DataFrame, pl.LazyFrame)](
+    query: FrameT,
+    source: FrameT,
     *,
     tolerance_ns: int | None,
     on: str = "t_ns",
     left_on: str | None = None,
     right_on: str | None = None,
-) -> _FrameT:
+) -> FrameT:
     """Each query row joined to the last source row at or before its time, null where none lies within tolerance_ns (no bound when None)."""
     keys = {"on": on} if left_on is None else {"left_on": left_on, "right_on": right_on or on}
     return query.join_asof(source, strategy="backward", tolerance=tolerance_ns, **keys)

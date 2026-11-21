@@ -97,7 +97,6 @@ _SPAWN_CHATTER_PATTERNS = (
 )
 
 _log = logging.getLogger("arena_evaluation.benchmark.runner")
-_T = typing.TypeVar("_T")
 
 
 def _arena_git_provenance(share: pathlib.Path) -> tuple[str | None, bool]:

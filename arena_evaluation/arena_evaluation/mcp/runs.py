@@ -611,7 +611,7 @@ def evaluation_runs(
     runs = []
     more = False
     seen_manifest_ids: set[str] = set()
-    for path, status in sorted(
+    for _path, status in sorted(
         candidates,
         key=lambda item: (
             item[0].name == item[1]["manifest_run_id"],

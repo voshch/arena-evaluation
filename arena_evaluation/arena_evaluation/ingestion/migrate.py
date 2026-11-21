@@ -499,10 +499,10 @@ def _installed_parameters(model: str) -> dict[str, str]:
     return parameters
 
 
-def _yaml_value(path: pathlib.Path, keys: Sequence[str]) -> typing.Any | None:
+def _yaml_value(path: pathlib.Path, keys: Sequence[str]) -> object:
     """One value of a nested YAML mapping, None when the file or any key is absent."""
     try:
-        value: typing.Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value: object = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return None
     for key in keys:

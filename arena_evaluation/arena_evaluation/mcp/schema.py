@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import pathlib
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import pydantic
 from arena_mcp.core import ToolError
 
 from .base import OptionalRunId, RunId, data_root, domain, run_path
+
+if TYPE_CHECKING:
+    import polars as pl
+
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
 _VIEW_DESCRIPTIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "v_episode_summary": (
@@ -46,7 +51,7 @@ _VIEW_DESCRIPTIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 
 
 def _schema_metadata(
-    catalog: Any,
+    catalog: BenchmarkCatalog,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
     """Table and column metadata from storage.registry, overlaid with the catalog's dim_metrics."""
     from arena_evaluation.storage.registry import defined_metrics, registered_tables
@@ -108,7 +113,7 @@ def _table_metadata(name: str, table_meta: dict[str, dict[str, Any]]) -> dict[st
     }
 
 
-def _open_catalog(run_id: str | None) -> tuple[pathlib.Path | None, Any]:
+def _open_catalog(run_id: str | None) -> tuple[pathlib.Path | None, BenchmarkCatalog]:
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
     from arena_evaluation.storage.star_schema import has_star_schema
 
@@ -123,7 +128,7 @@ def _open_catalog(run_id: str | None) -> tuple[pathlib.Path | None, Any]:
     return path, BenchmarkCatalog.open(path)
 
 
-def _column_details(lf: Any, col_meta: dict[str, dict[str, str]], keys: list[str]) -> tuple[int, list[dict[str, Any]]]:
+def _column_details(lf: pl.LazyFrame, col_meta: dict[str, dict[str, str]], keys: list[str]) -> tuple[int, list[dict[str, Any]]]:
     import polars as pl
 
     schema = lf.collect_schema()

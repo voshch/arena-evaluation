@@ -139,7 +139,7 @@ class EpisodeScopeHierarchy:
     contact_windows: pl.DataFrame
 
 
-def _default_fact_field(table: FactTable) -> Any:
+def _default_fact_field(table: FactTable) -> pl.DataFrame:
     return dataclasses.field(default_factory=lambda: _empty_fact(table))
 
 
@@ -222,12 +222,12 @@ def _float(val: object) -> float | None:
     return None if val is None else float(val)  # type: ignore[arg-type]
 
 
-def _first_val(
+def _first_val[T](
     df: pl.DataFrame | None,
     col: str,
-    cast: Callable[[Any], Any] = str,
-    default: Any = None,
-) -> Any:
+    cast: Callable[[object], T],
+    default: T | None = None,
+) -> T | None:
     """Return the first non-null value of `col` in `df` cast via `cast`, or `default`."""
     if df is None or col not in df.columns:
         return default

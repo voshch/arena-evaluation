@@ -550,8 +550,8 @@ def _episode_identity(
     metadata: RunMetadata | None,
     robot: str,
     *,
-    start: typing.Any,
-    goal: typing.Any,
+    start: list[float],
+    goal: list[float],
 ) -> dict[str, typing.Any]:
     """The identity columns carried by every row of one episode, evaluated or not."""
     from arena_evaluation.storage.planner_names import split_planner_name

@@ -548,7 +548,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
 
         self.create_timer(1.0, self.discover_topics)
 
-    def _env_topic_binding(self, key: str, t_def: Any) -> tuple[QoSProfile, Callable[..., Any]]:
+    def _env_topic_binding(self, key: str, t_def: TopicDefinition) -> tuple[QoSProfile, Callable[..., Any]]:
         qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
         if key == "episode_record":
             return QoSProfile(

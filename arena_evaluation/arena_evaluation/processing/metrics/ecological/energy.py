@@ -21,7 +21,7 @@ from arena_evaluation.processing.metrics.common.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,
     asof_values,
 )
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
 from arena_evaluation.storage.registry.series import SeriesEnergy
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
@@ -45,7 +45,7 @@ def _metric(
     unit: str,
     description: str,
     *scopes: MetricScope,
-) -> typing.Any:
+) -> Metric:
     return define_metric(
         name,
         dtype,

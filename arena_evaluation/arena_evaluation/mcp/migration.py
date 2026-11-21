@@ -29,12 +29,12 @@ __all__ = [
 ]
 
 
-def _described(kind: Any, description: str) -> Any:
+def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
     """Annotate a tool parameter with its published description."""
     return Annotated[kind, Field(description=description)]
 
 
-def _converter() -> Any:
+def _converter() -> Any:  # noqa: ANN401 - lazy import returns legacy_manifest module
     """Import the L4 legacy converter lazily and fail with a hint when it is not installed."""
     try:
         return importlib.import_module("arena_evaluation.presentation.legacy_manifest")

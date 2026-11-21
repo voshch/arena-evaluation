@@ -295,7 +295,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             self._draw_geometry(ax, elements)
             world_lines: list[plt.Line2D] = []
             world_heads: list[plt.Line2D] = []
-            for idx, (_label, xs, ys, times) in enumerate(tracks):
+            for idx, (_label, _xs, _ys, times) in enumerate(tracks):
                 colour = palette_color(palette, idx)
                 (line,) = ax.plot([], [], color=colour, linewidth=2.0)
                 (head,) = ax.plot([], [], "o", color=colour, markersize=7)

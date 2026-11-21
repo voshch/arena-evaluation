@@ -461,13 +461,13 @@ class BenchmarkCatalog:
             .join(con_counts, on=list(_JOIN_KEYS), how="left")
             .group_by(scorecard_group_cols)
             .agg(
-                episodes_count=pl.len().cast(pl.Int64),
-                valid_episodes=valid_for_ranking.sum().cast(pl.Int64),
-                excluded_episodes=(pl.len() - valid_for_ranking.sum()).cast(pl.Int64),
-                success_rate=pl.col("success").cast(pl.Float64).filter(valid_for_ranking).mean(),
-                success_without_pedestrian_contact_rate=(pl.col("success_without_pedestrian_contact").cast(pl.Float64).filter(valid_for_ranking).mean()),
+                pl.len().cast(pl.Int64).alias("episodes_count"),
+                valid_for_ranking.sum().cast(pl.Int64).alias("valid_episodes"),
+                (pl.len() - valid_for_ranking.sum()).cast(pl.Int64).alias("excluded_episodes"),
+                pl.col("success").cast(pl.Float64).filter(valid_for_ranking).mean().alias("success_rate"),
+                pl.col("success_without_pedestrian_contact").cast(pl.Float64).filter(valid_for_ranking).mean().alias("success_without_pedestrian_contact_rate"),
                 *(pl.col(metric).filter(valid_for_ranking).mean().alias(f"mean_{metric}") for metric in _SCORECARD_MEAN_METRICS),
-                episodes_without_contacts=pl.col("contact_rows").is_null().sum().cast(pl.Int64),
+                pl.col("contact_rows").is_null().sum().cast(pl.Int64).alias("episodes_without_contacts"),
                 *(total for total, _ in stream_totals),
                 *(reason for _, reason in stream_totals if reason is not None),
             )
@@ -515,9 +515,9 @@ class BenchmarkCatalog:
             fact_enc.join(treatment, on=list(_JOIN_KEYS), how="left")
             .group_by(encounter_group_cols)
             .agg(
-                encounter_count=pl.len().cast(pl.Int64),
+                pl.len().cast(pl.Int64).alias("encounter_count"),
                 *(pl.col(metric).mean().alias(f"mean_{metric}") for metric in _ENCOUNTER_MEAN_METRICS),
-                contact_encounters=had_contact.sum().cast(pl.Int64),
+                had_contact.sum().cast(pl.Int64).alias("contact_encounters"),
             )
             .sort(encounter_group_cols)
         )
@@ -538,8 +538,8 @@ class BenchmarkCatalog:
             fact_ped.join(episode_identity, on=["run_id", "episode_id"], how="left")
             .group_by(pedestrian_group_cols)
             .agg(
-                pedestrians=pl.len().cast(pl.Int64),
-                episodes=pl.col("episode_id").n_unique().cast(pl.Int64),
+                pl.len().cast(pl.Int64).alias("pedestrians"),
+                pl.col("episode_id").n_unique().cast(pl.Int64).alias("episodes"),
                 *(pl.col(metric).mean().alias(f"mean_{metric}") for metric in _PEDESTRIAN_MEAN_METRICS),
             )
             .sort(pedestrian_group_cols)

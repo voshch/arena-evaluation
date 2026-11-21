@@ -436,9 +436,9 @@ def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple
             _rewrite_columns(
                 path,
                 [x_column, y_column],
-                lambda frame: frame.with_columns(
-                    _in_environment(anchors, x_column, lambda value, ox, _oy: value - ox),
-                    _in_environment(anchors, y_column, lambda value, _ox, oy: value - oy),
+                lambda frame, x_col=x_column, y_col=y_column: frame.with_columns(
+                    _in_environment(anchors, x_col, lambda value, ox, _oy: value - ox),
+                    _in_environment(anchors, y_col, lambda value, _ox, oy: value - oy),
                 ),
             )
     lifecycle = out_dir / "episode_lifecycle.parquet"
@@ -478,14 +478,16 @@ def _in_environment(
     column: str,
     shifted: Callable[[pl.Expr, float, float], pl.Expr],
     *,
-    env: pl.Expr = pl.col("env_id"),
-    where: pl.Expr = pl.lit(True),
+    env: pl.Expr | None = None,
+    where: pl.Expr | None = None,
 ) -> pl.Expr:
     """`column` of each row selected by `where`, moved by the offset of its environment in effect at the row's t_ns."""
+    env_expr = pl.col("env_id") if env is None else env
+    where_expr = pl.lit(True) if where is None else where
     expr = pl.col(column)
     for env_id, shifts in anchors.items():
         moved = by_anchor(shifts, lambda ox, oy: shifted(pl.col(column), ox, oy))
-        expr = pl.when(where & (env == env_id)).then(moved).otherwise(expr)
+        expr = pl.when(where_expr & (env_expr == env_id)).then(moved).otherwise(expr)
     return expr.alias(column)
 
 

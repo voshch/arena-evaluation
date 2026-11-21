@@ -27,7 +27,7 @@ from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     true_runs,
 )
 from arena_evaluation.processing.pose_segments import MAX_SPEED_MPS, MIN_JUMP_M
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import Metric, MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 STATIONARY_SPEED = 0.05
@@ -44,7 +44,7 @@ def _metric(
     unit: str,
     description: str,
     scope: MetricScope = MetricScope.ROBOT,
-) -> typing.Any:
+) -> Metric:
     return define_metric(
         name,
         dtype,

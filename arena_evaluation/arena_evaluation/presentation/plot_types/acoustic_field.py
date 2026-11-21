@@ -43,6 +43,7 @@ from arena_evaluation.storage.exceptions import MetricInputError
 if typing.TYPE_CHECKING:
     from matplotlib.artist import Artist
     from matplotlib.axes import Axes
+    from matplotlib.contour import QuadContourSet
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def _masked_render_grid(grid: np.ndarray, field_dba: np.ndarray, open_door_mask:
     return np.flipud(np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba))
 
 
-def _draw_wall_contour(ax: typing.Any, cx: np.ndarray, cy: np.ndarray, wall_outline: np.ndarray) -> None:
+def _draw_wall_contour(ax: Axes, cx: np.ndarray, cy: np.ndarray, wall_outline: np.ndarray) -> None:
     """Outline the occupancy walls on a field axes."""
     ax.contour(
         cx,
@@ -135,12 +136,12 @@ def _draw_wall_contour(ax: typing.Any, cx: np.ndarray, cy: np.ndarray, wall_outl
 
 
 def _draw_door_contours(
-    ax: typing.Any,
+    ax: Axes,
     cx: np.ndarray,
     cy: np.ndarray,
     door_mask: np.ndarray,
     open_door_mask: np.ndarray,
-) -> typing.Any:
+) -> QuadContourSet | None:
     """Outline closed doors dashed and open doors green; return the open-door contour."""
     if not np.any(door_mask):
         return None

@@ -61,7 +61,7 @@ __all__ = [
 DEFAULT_REPORT: Final[str] = "reviewed_report"  # the name evaluation_report_assemble writes by default
 
 
-def _described(kind: Any, description: str) -> Any:
+def _described(kind: Any, description: str) -> Any:  # noqa: ANN401 - runtime Annotated type-alias factory for MCP tool schemas
     """Annotate a tool parameter with its published description."""
     return Annotated[kind, Field(description=description)]
 

@@ -99,7 +99,7 @@ def _validated_spec(parsed: dict[str, Any], label: str, hint: str) -> PlotSpec:
         raise ToolError(f"Invalid PlotSpec schema{label}: {exc}", hint=hint) from exc
 
 
-def _render_error(plot_id: Any, exc: Exception) -> ToolError:
+def _render_error(plot_id: str | None, exc: Exception) -> ToolError:
     """The typed error wrapping a renderer failure for plot ``plot_id``."""
     return ToolError(
         f"Cannot render plot {plot_id!r}: {exc}",

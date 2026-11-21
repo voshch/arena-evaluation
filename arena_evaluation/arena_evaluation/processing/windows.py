@@ -273,13 +273,13 @@ def detect_encounter_windows_lf(pairs: pl.LazyFrame, params: DetectorParams = DE
     )
     flagged = samples.join(runs, on=["actor_id", "run_id"], how="left").with_columns(bridged=pl.col("in_encounter") | pl.col("bridgeable").fill_null(False)).with_columns(encounter_run=pl.col("bridged").rle_id().over("actor_id")).filter(pl.col("bridged"))
     windows = flagged.group_by(["actor_id", "encounter_run"]).agg(
-        robot_id=pl.col("robot_id").first(),
-        actor_name=pl.col("actor_name").first(),
-        actor_kind=pl.col("actor_kind").first(),
-        t_start_ns=pl.col("t_ns").min(),
-        t_end_ns=pl.col("t_ns").max(),
-        min_distance_m=pl.col("distance_m").min(),
-        min_clearance_m=pl.col("edge_clearance_m").min(),
+        pl.col("robot_id").first().alias("robot_id"),
+        pl.col("actor_name").first().alias("actor_name"),
+        pl.col("actor_kind").first().alias("actor_kind"),
+        pl.col("t_ns").min().alias("t_start_ns"),
+        pl.col("t_ns").max().alias("t_end_ns"),
+        pl.col("distance_m").min().alias("min_distance_m"),
+        pl.col("edge_clearance_m").min().alias("min_clearance_m"),
         *[
             pl.col(column).sort_by("t_ns").first()
             for column in (

@@ -15,7 +15,11 @@ import pydantic
 import yaml
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
-from arena_evaluation.analytics.evidence import EvidenceStore, compute_frame_hash
+from arena_evaluation.analytics.evidence import (
+    EvidenceRecord,
+    EvidenceStore,
+    compute_frame_hash,
+)
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
 from arena_evaluation.storage.atomic import atomic_write_text, file_lock
@@ -365,7 +369,7 @@ def create_finding(
 def _rerun_evidence(
     run_dir: pathlib.Path,
     catalog: BenchmarkCatalog,
-    record: Any,
+    record: EvidenceRecord,
     stored_frame: pl.DataFrame,
     *,
     computation_runners: _ComputationRunners | None = None,

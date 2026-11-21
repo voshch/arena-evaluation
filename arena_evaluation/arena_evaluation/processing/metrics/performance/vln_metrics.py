@@ -323,8 +323,8 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         pos_y: np.ndarray,
         goals: list[tuple[float, float]],
         threshold: float | None,
-        success: typing.Any,
-        path_length: typing.Any,
+        success: bool | None,
+        path_length: float | None,
     ) -> None:
         start_xy = (float(pos_x[0]), float(pos_y[0]))
         goal_xy = goals[-1]

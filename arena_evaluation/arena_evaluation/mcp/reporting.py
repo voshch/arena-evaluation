@@ -8,7 +8,7 @@ import datetime
 import json
 import pathlib
 import uuid
-from typing import Annotated, Any, Final, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal
 
 import matplotlib
 import polars.exceptions
@@ -21,6 +21,12 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 
 from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
 from arena_evaluation.storage.exceptions import ArenaEvaluationError
+
+if TYPE_CHECKING:
+    from arena_evaluation.analytics.catalog import BenchmarkCatalog
+    from arena_evaluation.presentation.checks import PlotDiagnostics
+    from arena_evaluation.presentation.report_builder import ReportBuilder
+    from arena_evaluation.presentation.resolver import DataResolver
 
 from .base import (
     RunId,
@@ -83,7 +89,7 @@ def _plot_not_found(plot_id: str, draft_id: str) -> ToolError:
     )
 
 
-def _resolver(run_dir: pathlib.Path, catalog: Any) -> Any:
+def _resolver(run_dir: pathlib.Path, catalog: BenchmarkCatalog) -> DataResolver:
     """The one DataResolver wiring shared by plot rendering and the export renderers."""
     from arena_evaluation.analytics.evidence import EvidenceStore
     from arena_evaluation.analytics.queries import QueryCatalog
@@ -114,7 +120,7 @@ def _derived_table_provenance(run_dir: pathlib.Path, source: str | None) -> dict
     }
 
 
-def _render_outcome(body: str, out_png: pathlib.Path, plot_id: str, diagnostics: Any) -> tuple[str, str | None]:
+def _render_outcome(body: str, out_png: pathlib.Path, plot_id: str, diagnostics: PlotDiagnostics) -> tuple[str, str | None]:
     """The rendered/failed status of one plot, naming the first render defect it finds."""
     from arena_evaluation.presentation.checks import image_is_blank
 
@@ -460,11 +466,11 @@ def _classify_reviews(
 
 def _write_exports(
     *,
-    builder: Any,
+    builder: ReportBuilder,
     run_dir: pathlib.Path,
     reports_root: pathlib.Path,
     report_name: str,
-    catalog: Any,
+    catalog: BenchmarkCatalog,
     plots_used: list[str],
     plots_by_id: dict[str, dict[str, Any]],
     snapshot_id: str,

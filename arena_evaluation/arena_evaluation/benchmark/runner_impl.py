@@ -31,8 +31,9 @@ from arena_runtime_msgs.srv import DespawnEnv, QueueEpisode, SpawnEnv
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action.client import ClientGoalHandle
+from rclpy.task import Future
 
-from .lockstep import format_report, format_table
+from .lockstep import LockstepSummary, format_report, format_table
 from .progress_display import BenchmarkProgressDisplay
 from .runner_plan import (
     _ADAPTER_RESET_FAILED,
@@ -302,7 +303,7 @@ class _RunnerEnvMixin:
         future = recorder.client.call_async(request)
         future.add_done_callback(lambda completed, episode_id=msg.episode_id: self._recorder_started(env_id, episode_id, completed))
 
-    def _recorder_started(self, env_id: int, episode_id: int, future) -> None:
+    def _recorder_started(self, env_id: int, episode_id: int, future: Future[RecordEpisode.Response]) -> None:
         error = future.exception()
         if error:
             _log.warning(f"[env {env_id}] recorder start_episode({episode_id}) failed: {error}")
@@ -763,7 +764,7 @@ class _RunnerExecMixin:
         ep_idx: int,
         started_at: float,
         ended_at: float,
-        lockstep,
+        lockstep: LockstepSummary | None,
     ) -> None:
         self._run_dir.progress.append(
             ts_iso=datetime.datetime.now(tz=datetime.UTC).isoformat(),
@@ -795,7 +796,7 @@ class _RunnerExecMixin:
         record = self._env_records.get(env_id)
         env_fqn = record.fqn if record is not None else ""
 
-        def _fold_window():
+        def _fold_window() -> LockstepSummary | None:
             nonlocal lockstep
             if not window:
                 return None
@@ -803,7 +804,11 @@ class _RunnerExecMixin:
             lockstep = summary if lockstep is None else lockstep.merge(summary)
             return summary
 
-        def _result(status, error_kind=None, error_detail=None):
+        def _result(
+            status: typing.Literal["ok", "failed", "skipped", "partial", "in_progress"],
+            error_kind: StepErrorKind | None = None,
+            error_detail: str | None = None,
+        ) -> StepResult:
             _fold_window()
             return StepResult(
                 step.key,
@@ -1024,7 +1029,7 @@ class _RunnerExecMixin:
             abort = flush_cb(self._failed_result(step, env_id, StepErrorKind.ENV_SETUP, detail)) or abort
         return abort
 
-    async def _start_recorder(self, step: Step, env_id: int, env_ns_root: str, offset: int):
+    async def _start_recorder(self, step: Step, env_id: int, env_ns_root: str, offset: int) -> asyncio.subprocess.Process:
         local_planner, inter_planner = resolve_planner_identity(step.contestant)
         params = (
             ("record_data_dir", step.record_dir),
@@ -1083,7 +1088,7 @@ class _RunnerExecMixin:
             await recorder.ensure(timeout_sec=5.0)
         return process
 
-    async def _stop_recorder(self, process) -> None:
+    async def _stop_recorder(self, process: asyncio.subprocess.Process | None) -> None:
         if process is None:
             return
         try:

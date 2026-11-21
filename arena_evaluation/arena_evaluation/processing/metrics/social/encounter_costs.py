@@ -14,6 +14,7 @@ from arena_evaluation.processing.metrics.base import (
     NULL_REASON_SUFFIX,
     BaseMetricCalculator,
     Direction,
+    ScopeSlice,
 )
 from arena_evaluation.processing.metrics.ecological.energy import JOULES_PER_WH
 from arena_evaluation.processing.metrics.social.interaction_common import (
@@ -527,7 +528,7 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         self,
         episode: AlignedEpisodeBundle,
         prior_results: dict[str, Any],
-        scope_slice: Any = None,
+        scope_slice: ScopeSlice | None = None,
     ) -> dict[str, Any]:
         """Costs of one encounter window of the robot and its pedestrian."""
         del prior_results
