@@ -24,7 +24,7 @@ POSE_SOURCE = "tf_gt"
 TWIST_STAMPED_SCHEMA = "geometry_msgs/msg/TwistStamped"
 _WORLD_FRAMES = ("map", "world", "odom")
 _GROUND_TRUTH_FRAMES = ("map", "world", "odom")
-_BASE_FRAME_MARKERS = ("base_link", "base_footprint")
+LEGACY_BASE_FRAMES = frozenset({"base_link", "base_footprint"})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -65,14 +65,14 @@ def _named_frame(frame: str, names: tuple[str, ...]) -> bool:
     return frame in names or frame.endswith(tuple(f"/{name}" for name in names))
 
 
-def is_base_frame(frame: str) -> bool:
-    """Whether a frame name is a robot base frame."""
-    return any(marker in frame for marker in _BASE_FRAME_MARKERS)
+def is_base_frame(frame: str, base_frames: frozenset[str]) -> bool:
+    """Whether a tf frame id (prefix allowed) ends in one of the base frames."""
+    return frame.strip("/").lower().rpartition("/")[2] in base_frames
 
 
-def is_ground_truth(parent: str, child: str) -> bool:
+def is_ground_truth(parent: str, child: str, base_frames: frozenset[str]) -> bool:
     """Whether a transform is a map, world, or odom to robot-base pose."""
-    return _named_frame(parent.strip("/").lower(), _GROUND_TRUTH_FRAMES) and is_base_frame(child.strip("/").lower())
+    return _named_frame(parent.strip("/").lower(), _GROUND_TRUTH_FRAMES) and is_base_frame(child, base_frames)
 
 
 def _command_twist(envelope: Envelope[Twist | TwistStamped]) -> Twist:
