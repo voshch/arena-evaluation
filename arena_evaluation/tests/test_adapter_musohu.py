@@ -112,7 +112,7 @@ def test_topic_rows_keep_their_own_clock(converted: Path):
     assert (command["linear_x"][5], command["angular_z"][5]) == pytest.approx(cmd_vel(5))
     assert odom["t_ns"].to_list() == [i * STEP_NS for i in range(COUNT)]
     assert scan["t_ns"].to_list() == odom["t_ns"].to_list()
-    assert command["time_ns"].to_list() == [i * STEP_NS + STAMP_LAG_NS + CMD_OFFSET_NS for i in range(COUNT)]
+    assert command["t_ns"].to_list() == [i * STEP_NS + STAMP_LAG_NS + CMD_OFFSET_NS for i in range(COUNT)]
 
 
 def test_messages_carry_robot_frames_and_the_paired_twist(converted: Path):

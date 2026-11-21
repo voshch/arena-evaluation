@@ -86,9 +86,6 @@ def _validate_plot_spec(
 
 
 def _lint_catalog(benchmark_dir: pathlib.Path | None) -> BenchmarkCatalog:
-    from arena_evaluation.processing.metrics.registry import load_metric_definitions
-
-    load_metric_definitions()
     catalog = BenchmarkCatalog.open(benchmark_dir) if benchmark_dir is not None else BenchmarkCatalog()
     existing = set(catalog.table_names())
     for tbl in registered_tables():

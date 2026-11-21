@@ -5,8 +5,8 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections import defaultdict
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 
@@ -151,7 +151,17 @@ class PedestrianRecorder:
         return {key: frozenset(frames) for key, frames in self._frames.items()}
 
 
-def agent_meta(meta: RosAgentMeta) -> AgentMeta:
+class _CrowdAgentMetaProto(Protocol):
+    policies: Sequence[str]
+    agent_id: Sequence[int]
+    agent_type: Sequence[str]
+    robot_awareness: Sequence[float]
+    robot_fov_gain: Sequence[float]
+    robot_repulsion_gain: Sequence[float]
+    robot_reaction_gain: Sequence[float]
+
+
+def agent_meta(meta: _CrowdAgentMetaProto) -> AgentMeta:
     """The normalised metadata of a generation whose AgentMeta carries the four robot settings."""
     policies = tuple(str(policy) for policy in meta.policies)
     types = {int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)}
@@ -221,9 +231,11 @@ def _pedestrians_columns(envelope: Envelope[Pedestrians]) -> dict[str, list[Any]
 
 def _agent_frame_columns(envelope: Envelope[AgentFrame], meta: AgentMeta) -> dict[str, list[Any]]:
     frame = envelope.body
+    schema_text = envelope.schema.data.decode("utf-8", "replace")
     humans = _uint8(frame.kind) == HUMAN_KIND
     agent_ids = np.asarray(frame.agent_id, dtype=np.int64)[humans].tolist()
     policy_indices = np.asarray(frame.policy_idx, dtype=np.int64)[humans].tolist()
+    nulls: list[Any] = [None] * len(agent_ids)
     return {
         "number": agent_ids,
         "name": [str(agent_id) for agent_id in agent_ids],
@@ -239,10 +251,10 @@ def _agent_frame_columns(envelope: Envelope[AgentFrame], meta: AgentMeta) -> dic
         "policy": [_policy_name(meta.policies, index) for index in policy_indices],
         "agent_type": [meta.types_by_id.get(agent_id) for agent_id in agent_ids],
         "animation_state": _bytes(frame.animation_state, humans),
-        "interaction_id": [None if value == NO_INTERACTION_ID else value for value in np.asarray(frame.interaction_id, dtype=np.int64)[humans].tolist()],
-        "interaction_type": [None if value == NO_INTERACTION_TYPE else value for value in _bytes(frame.interaction_type, humans)],
-        "gait_phase": [_nonzero(phase) for phase in _floats(frame.gait_phase, humans)],
-        "gait_cadence": [_nonzero(cadence) for cadence in _floats(frame.gait_cadence, humans)],
+        "interaction_id": ([None if value == NO_INTERACTION_ID else value for value in np.asarray(frame.interaction_id, dtype=np.int64)[humans].tolist()] if "interaction_id" in schema_text else nulls),
+        "interaction_type": ([None if value == NO_INTERACTION_TYPE else value for value in _bytes(frame.interaction_type, humans)] if "interaction_type" in schema_text else nulls),
+        "gait_phase": ([_nonzero(phase) for phase in _floats(frame.gait_phase, humans)] if "gait_phase" in schema_text else nulls),
+        "gait_cadence": ([_nonzero(cadence) for cadence in _floats(frame.gait_cadence, humans)] if "gait_cadence" in schema_text else nulls),
         "crowd": [meta.crowd_by_id.get(agent_id) for agent_id in agent_ids],
     }
 

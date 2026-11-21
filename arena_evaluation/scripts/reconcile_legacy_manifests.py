@@ -17,9 +17,7 @@ from arena_evaluation.presentation.legacy_manifest import (
 from arena_evaluation.presentation.viz_manifest import PlotSpec, VizManifest
 
 _TOKEN = re.compile(r"[a-z0-9]+")
-_STOP_TOKENS = frozenset(
-    {"the", "by", "and", "of", "vs", "with", "local", "planner", "per"}
-)
+_STOP_TOKENS = frozenset({"the", "by", "and", "of", "vs", "with", "local", "planner", "per"})
 _TYPE_FAMILY = {
     "box": "distribution",
     "violin": "distribution",
@@ -37,9 +35,7 @@ _MATCH_THRESHOLD = 0.34
 
 
 def _tokens(text: str) -> set[str]:
-    return {
-        token for token in _TOKEN.findall(text.lower()) if token not in _STOP_TOKENS
-    }
+    return {token for token in _TOKEN.findall(text.lower()) if token not in _STOP_TOKENS}
 
 
 def _legacy_metrics(plot: LegacyPlot) -> set[str]:
@@ -48,9 +44,10 @@ def _legacy_metrics(plot: LegacyPlot) -> set[str]:
         names.add(plot.data_key)
     for key in ("metrics", "y"):
         value = plot.options.get(key)
-        values = [value] if isinstance(value, str) else (value or ())
+        values = [value] if isinstance(value, str) else value if isinstance(value, (list, tuple)) else ()
         names.update(str(v) for v in values if isinstance(v, str))
-    for column in plot.options.get("columns") or ():
+    raw_columns = plot.options.get("columns")
+    for column in raw_columns if isinstance(raw_columns, (list, tuple)) else ():
         if isinstance(column, dict) and column.get("metric"):
             names.add(str(column["metric"]))
     return names
@@ -59,7 +56,8 @@ def _legacy_metrics(plot: LegacyPlot) -> set[str]:
 def _new_metrics(spec: PlotSpec) -> set[str]:
     names: set[str] = set()
     params = (spec.data.params or {}) if spec.data is not None else {}
-    for metric in params.get("metrics") or ():
+    raw_metrics = params.get("metrics")
+    for metric in raw_metrics if isinstance(raw_metrics, (list, tuple)) else ():
         names.add(str(metric))
     if isinstance(params.get("metric"), str):
         names.add(str(params["metric"]))
@@ -92,9 +90,7 @@ def _row(
     }
 
 
-def reconcile(
-    legacy_path: pathlib.Path, new_path: pathlib.Path
-) -> list[dict[str, object]]:
+def reconcile(legacy_path: pathlib.Path, new_path: pathlib.Path) -> list[dict[str, object]]:
     """Return one row per old plot (plus new-only rows): ported / missing, with the score."""
     legacy = load_legacy_manifest(legacy_path)
     new_manifest = VizManifest.load(new_path)
@@ -118,10 +114,7 @@ def reconcile(
         for candidate_id, candidate in unused.items():
             if _TYPE_FAMILY.get(candidate.type, candidate.type) != family:
                 continue
-            score = 0.75 * _jaccard(legacy_metrics, _new_metrics(candidate)) + 0.25 * (
-                len(legacy_tokens & _tokens(candidate.title))
-                / max(1, len(legacy_tokens | _tokens(candidate.title)))
-            )
+            score = 0.75 * _jaccard(legacy_metrics, _new_metrics(candidate)) + 0.25 * (len(legacy_tokens & _tokens(candidate.title)) / max(1, len(legacy_tokens | _tokens(candidate.title))))
             if score > best_score:
                 best_id, best_score = candidate_id, score
         if best_id is not None and best_score >= _MATCH_THRESHOLD:
@@ -142,8 +135,7 @@ def reconcile(
                     "missing",
                     None,
                     round(best_score, 3),
-                    "no new plot of the same family draws this metric set; "
-                    "port it or record the intentional drop",
+                    "no new plot of the same family draws this metric set; port it or record the intentional drop",
                 )
             )
     for extra_id in sorted(unused):
@@ -184,9 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{args.legacy.name} vs {args.new}: {counts}")
     for row in rows:
         if row["status"] != "ported":
-            print(
-                f"  {row['status']:8s} {row['legacy_id'] or row['new_id']}: {row['reason']}"
-            )
+            print(f"  {row['status']:8s} {row['legacy_id'] or row['new_id']}: {row['reason']}")
     if args.out is not None:
         args.out.write_text(
             yaml.safe_dump(

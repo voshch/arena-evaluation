@@ -11,7 +11,7 @@ from typing import Any
 
 import polars as pl
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ImageContent
+from mcp.types import CallToolResult, ImageContent
 
 RESULTS_FILENAME = "agent_eval_results.parquet"
 TRANSCRIPT_FILENAME = "agent_eval_transcript.json"
@@ -30,6 +30,7 @@ async def _call(
     if called is not None:
         called.append(name)
     res = await server.call_tool(name, arguments)
+    assert isinstance(res, CallToolResult), f"{name} returned {type(res).__name__}"
     assert res.structured_content is not None, f"{name} returned no structured_content"
     return dict(res.structured_content)
 
@@ -55,9 +56,7 @@ def verdict_for(direction: str, ci_low: float, ci_high: float) -> str:
         case "different":
             verified = ci_low > 0.0 or ci_high < 0.0
         case _:
-            raise ValueError(
-                f"unknown claim direction {direction!r}; use lower, higher or different"
-            )
+            raise ValueError(f"unknown claim direction {direction!r}; use lower, higher or different")
     return "verified" if verified else "refuted"
 
 
@@ -68,10 +67,7 @@ def _planner_value_column(planner: str, summary: dict[str, Any]) -> str:
         return "value_a"
     if planner == str(summary.get("planner_b")):
         return "value_b"
-    raise AssertionError(
-        f"planner {planner!r} is neither {summary.get('planner_a')!r} "
-        f"nor {summary.get('planner_b')!r}"
-    )
+    raise AssertionError(f"planner {planner!r} is neither {summary.get('planner_a')!r} nor {summary.get('planner_b')!r}")
 
 
 async def _quoted_planner_mean(
@@ -95,16 +91,17 @@ async def _quoted_planner_mean(
     return value, str(result["evidence_id"])
 
 
-def _recompute_from_evidence(
-    evidence_rows: list[dict[str, Any]], value_column: str
-) -> tuple[float, float]:
+def _recompute_from_evidence(evidence_rows: list[dict[str, Any]], value_column: str) -> tuple[float, float]:
     """Recompute the planner mean and the pooled mean from the pinned compare frame."""
     frame = pl.DataFrame(evidence_rows)
     if frame.height == 0:
         raise AssertionError("the pinned compare evidence is empty")
     values = frame.get_column(value_column)
     pooled = pl.concat([frame.get_column("value_a"), frame.get_column("value_b")])
-    return float(values.mean()), float(pooled.mean())
+    values_mean = values.mean()
+    pooled_mean = pooled.mean()
+    assert isinstance(values_mean, (int, float)) and isinstance(pooled_mean, (int, float))
+    return float(values_mean), float(pooled_mean)
 
 
 def _run_analysis_dir(run_id: str) -> pathlib.Path:
@@ -116,9 +113,7 @@ def _run_analysis_dir(run_id: str) -> pathlib.Path:
     return analysis
 
 
-def _write_artifacts(
-    run_id: str, results: list[dict[str, Any]], called: list[str]
-) -> tuple[pathlib.Path, pathlib.Path]:
+def _write_artifacts(run_id: str, results: list[dict[str, Any]], called: list[str]) -> tuple[pathlib.Path, pathlib.Path]:
     """Write the result table and the tool transcript into the run's analysis directory."""
     analysis = _run_analysis_dir(run_id)
     results_path = analysis / RESULTS_FILENAME
@@ -138,9 +133,7 @@ def _write_artifacts(
     return results_path, transcript_path
 
 
-async def evaluate_hypotheses_async(
-    run_id: str, truth_path: pathlib.Path
-) -> tuple[list[dict[str, Any]], list[str]]:
+async def evaluate_hypotheses_async(run_id: str, truth_path: pathlib.Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Run the scripted hypothesis-to-report loop through an in-process MCPServer session."""
     from arena_evaluation.mcp import domain
 
@@ -210,10 +203,7 @@ async def evaluate_hypotheses_async(
             ci_low = float(summary["ci_low"])
             ci_high = float(summary["ci_high"])
             mean_diff = float(summary["mean_diff"])
-            assert ci_high > ci_low, (
-                f"{hyp['id']}: interval [{ci_low}, {ci_high}] has zero width; "
-                "the proof cannot falsify a deterministic fixture"
-            )
+            assert ci_high > ci_low, f"{hyp['id']}: interval [{ci_low}, {ci_high}] has zero width; the proof cannot falsify a deterministic fixture"
             derived_table = cmp_res.get("derived_table")
             assert derived_table, f"{hyp['id']}: compare wrote no derived table"
             value_column = _planner_value_column(str(hyp["planner_a"]), summary)
@@ -230,17 +220,10 @@ async def evaluate_hypotheses_async(
                 {"run_id": run_id, "evidence_id": ev_id},
                 called=called,
             )
-            recomputed, pooled = _recompute_from_evidence(
-                evidence["data"], value_column
-            )
-            assert abs(recomputed - quoted) <= NUMBER_TOLERANCE, (
-                f"{hyp['id']}: quoted {quoted} != evidence-recomputed {recomputed}"
-            )
+            recomputed, pooled = _recompute_from_evidence(evidence["data"], value_column)
+            assert abs(recomputed - quoted) <= NUMBER_TOLERANCE, f"{hyp['id']}: quoted {quoted} != evidence-recomputed {recomputed}"
             if abs(mean_diff) > 1.0:
-                assert abs(quoted - pooled) > 0.5, (
-                    f"{hyp['id']}: quoted number {quoted} is the pooled mean {pooled}, "
-                    "not the compared planner's mean"
-                )
+                assert abs(quoted - pooled) > 0.5, f"{hyp['id']}: quoted number {quoted} is the pooled mean {pooled}, not the compared planner's mean"
             measured.update(
                 {
                     "ci_low": ci_low,
@@ -298,9 +281,7 @@ async def evaluate_hypotheses_async(
         created_ids.append(finding_id)
         measurements[finding_id] = measured
 
-    stored = await _call(
-        server, "evaluation_findings", {"run_id": run_id}, called=called
-    )
+    stored = await _call(server, "evaluation_findings", {"run_id": run_id}, called=called)
     by_id = {f["finding_id"]: f for f in stored["findings"]}
 
     await _call(
@@ -325,6 +306,7 @@ async def evaluate_hypotheses_async(
         "evaluation_report_view",
         {"run_id": run_id, "draft_id": draft_id, "plot_id": "proof_summary"},
     )
+    assert isinstance(view_res, CallToolResult)
     assert any(isinstance(c, ImageContent) for c in view_res.content)
     await _call(
         server,
@@ -385,9 +367,7 @@ async def evaluate_hypotheses_async(
     return results, called
 
 
-def evaluate_hypotheses(
-    run_id: str, truth_path: pathlib.Path
-) -> tuple[list[dict[str, Any]], list[str]]:
+def evaluate_hypotheses(run_id: str, truth_path: pathlib.Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Run the scripted hypothesis-to-report loop synchronously over an MCPServer session."""
     return asyncio.run(evaluate_hypotheses_async(run_id, truth_path))
 

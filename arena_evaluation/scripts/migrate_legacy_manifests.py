@@ -64,9 +64,7 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="replace an existing report.yaml in the output bundle",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="report the plan without writing files"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="report the plan without writing files")
     parser.add_argument(
         "--legacy-plots",
         type=pathlib.Path,
@@ -95,20 +93,14 @@ def main(argv: list[str] | None = None) -> int:
             known_metrics=known,
             metric_tables=metric_tables,
         )
-        print(
-            f"{path}: {len(migration.entries)} plots -> "
-            f"{migration.converted} converted, {migration.dropped} dropped, "
-            f"{migration.todo} todo; {len(migration.manifest.plots)} plots in the skeleton"
-        )
+        print(f"{path}: {len(migration.entries)} plots -> {migration.converted} converted, {migration.dropped} dropped, {migration.todo} todo; {len(migration.manifest.plots)} plots in the skeleton")
         for entry in migration.entries:
             if entry.status != "converted":
                 print(f"  {entry.status:8s} {entry.plot_id}: {entry.reason}")
         if args.dry_run:
             continue
         try:
-            report_path, migration_path = write_legacy_bundle(
-                migration, output_dir, overwrite=args.overwrite
-            )
+            report_path, migration_path = write_legacy_bundle(migration, output_dir, overwrite=args.overwrite)
         except FileExistsError as exc:
             print(f"error: {exc}", file=sys.stderr)
             status = 1
@@ -116,10 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  wrote {report_path} and {migration_path}")
     for declaration in args.legacy_plots:
         classification = classify_legacy_plot_declaration(declaration)
-        print(
-            f"{classification['file']}: {classification['disposition']} - "
-            f"{classification['reason']}"
-        )
+        print(f"{classification['file']}: {classification['disposition']} - {classification['reason']}")
     return status
 
 

@@ -76,9 +76,6 @@ _PEDESTRIAN_MEAN_METRICS: Final[tuple[str, ...]] = (
 
 
 def _star_schemas() -> dict[str, pl.Schema]:
-    from arena_evaluation.processing.metrics.registry import load_metric_definitions
-
-    load_metric_definitions()
     return {
         **{name: tbl.polars_schema() for name, tbl in dimensions.DIMENSION_TABLES.items()},
         **{f"fact_{tbl.table_name}": tbl.polars_schema() for tbl in FACT_TABLES.values()},
@@ -229,9 +226,6 @@ class BenchmarkCatalog:
         *,
         variant: str | None = None,
     ) -> None:
-        from arena_evaluation.processing.metrics.registry import load_metric_definitions
-
-        load_metric_definitions()
         self._tables: dict[str, pl.LazyFrame] = {}
         self._source_dir: pathlib.Path | None = source if isinstance(source, pathlib.Path) else None
         if variant not in (None, "sensitivity"):
