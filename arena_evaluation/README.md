@@ -96,7 +96,7 @@ arena_evaluation/
 |   |   |-- static_renderer.py <- Static PNG/SVG chart dispatcher
 |   |   |-- color_utils.py     <- Palette loader and styling
 |   |   |-- report_template.html.j2 <- Jinja2 report template
-|   |   `-- plot_types/        <- acoustic_field, acoustic_field_animation, bar, box, breakdown, heatmap, hierarchy, histogram, interval, line, radar, rank_swap, scatter, table, timeseries, trajectory, trajectory_slice, violin (18 types)
+|   |   `-- plot_types/        <- acoustic_field, bar, box, breakdown, heatmap, hierarchy, histogram, interval, line, radar, rank_swap, scatter, table, timeseries, trajectory, trajectory_slice, violin (17 types)
 |   |-- benchmark/             <- Benchmark runner and CLI
 |   |   |-- runner.py          <- BenchmarkRunner
 |   |   |-- config.py          <- Suite and Contest parsers
@@ -115,7 +115,7 @@ arena_evaluation/
 |   |-- color_palette.yaml          <- Color palette (flat config asset)
 |   |-- suites/<name>/suite.yaml     <- Suite definitions
 |   |-- contests/<name>/contest.yaml <- Contest definitions
-|   |-- reports/<name>/report.yaml   <- Report manifests (standard, ecological, social, safety, characterization, failure_modes, everything)
+|   |-- reports/<name>/report.yaml   <- Report manifests (standard, ecological, social, safety, reference, characterization, failure_modes, everything)
 |   |-- plots/<name>/plot.yaml       <- Reusable plot declarations (`uses: <name>`)
 |   `-- queries/<name>/query.yaml    <- Stored SQL queries (`stored_query: <name>`)
 `-- tests/

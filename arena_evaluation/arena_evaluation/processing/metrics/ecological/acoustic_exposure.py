@@ -89,6 +89,14 @@ SOUND_EXPOSURE_DOSE_PA2S = define_metric(
     description="Barrier-aware acoustic exposure dose integrated over the encounter window.",
     null_reason=True,
 )
+POI_PSYCHOACOUSTIC_EXPOSURE = define_metric(
+    "poi_psychoacoustic_exposure",
+    pl.Float64,
+    scopes=(MetricScope.PEDESTRIAN,),
+    unit="s",
+    description="Integrated linear A-weighted acoustic exposure at this pedestrian's position over the episode.",
+    null_reason=True,
+)
 
 _METRICS: Final[tuple[Metric, ...]] = (
     PED_MAX_EXPOSURE_DBA,
@@ -96,12 +104,14 @@ _METRICS: Final[tuple[Metric, ...]] = (
     PED_MAX_STARTLE_FACTOR,
     WORST_CASE_ACOUSTIC_T_NS,
     SOUND_EXPOSURE_DOSE_PA2S,
+    POI_PSYCHOACOUSTIC_EXPOSURE,
 )
 _PEDESTRIAN_KEYS: Final[tuple[str, ...]] = (
     "ped_max_exposure_dba",
     "ped_leq_exposure_dba",
     "ped_max_startle_factor",
     "worst_case_acoustic_t_ns",
+    "poi_psychoacoustic_exposure",
 )
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesAcousticExposure.polars_schema()
@@ -295,15 +305,19 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         levels_dba = np.array([level for _, level in ordered], dtype=np.float64)
         worst = int(np.argmax(levels_dba))
         rates = rise_rates_dba_per_s(levels_dba, times_ns)
+        durations_s = frame_durations_s(times_ns)
         return {
             "ped_max_exposure_dba": float(levels_dba[worst]),
             "ped_leq_exposure_dba": energy_equivalent_level_dba(
-                levels_dba, frame_durations_s(times_ns)
+                levels_dba, durations_s
             ),
             "ped_max_startle_factor": (
                 max_positive_rise_dba_per_s(rates) if len(rates) else None
             ),
             "worst_case_acoustic_t_ns": int(times_ns[worst]),
+            "poi_psychoacoustic_exposure": float(
+                np.sum(np.power(10.0, levels_dba / 10.0) * durations_s)
+            ),
         }
 
     def _compute(
@@ -419,12 +433,10 @@ class AcousticExposureCalculator(BaseMetricCalculator):
                             )
                             > POSITION_EVALUATION_THRESHOLD_M
                         )
-                        pedestrians_changed = len(
-                            px_m
-                        ) != len(last_eval_peds[0]) or np.any(
-                            np.hypot(
-                                px_m - last_eval_peds[0], py_m - last_eval_peds[1]
-                            )
+                        pedestrians_changed = len(px_m) != len(
+                            last_eval_peds[0]
+                        ) or np.any(
+                            np.hypot(px_m - last_eval_peds[0], py_m - last_eval_peds[1])
                             > POSITION_EVALUATION_THRESHOLD_M
                         )
                         should_eval = bool(robot_moved or pedestrians_changed)

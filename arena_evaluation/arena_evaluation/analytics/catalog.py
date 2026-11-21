@@ -542,6 +542,15 @@ class BenchmarkCatalog:
                 .median()
                 .over(["planner"])
                 .alias("_ref_time_to_goal"),
+                pl.when(
+                    pl.col("is_reference").fill_null(False)
+                    & pl.col("success").fill_null(False)
+                    & (pl.col("energy_total_wh") > 0.0)
+                )
+                .then(pl.col("energy_total_wh"))
+                .median()
+                .over(["planner"])
+                .alias("_ref_energy_total_wh"),
             )
             .with_columns(
                 pl.when(
@@ -562,8 +571,29 @@ class BenchmarkCatalog:
                 .then(pl.lit("not_successful"))
                 .otherwise(pl.lit(None, dtype=pl.String))
                 .alias("relative_throughput_null_reason"),
+                pl.when(
+                    ~pl.col("is_reference").fill_null(False)
+                    & pl.col("success").fill_null(False)
+                    & (pl.col("energy_total_wh") > 0.0)
+                    & pl.col("_ref_energy_total_wh").is_not_null()
+                    & (pl.col("_ref_energy_total_wh") > 0.0)
+                )
+                .then(
+                    (pl.col("energy_total_wh") - pl.col("_ref_energy_total_wh"))
+                    / pl.col("_ref_energy_total_wh")
+                )
+                .otherwise(pl.lit(None, dtype=pl.Float64))
+                .alias("relative_social_compliance_cost"),
+                pl.when(pl.col("_ref_energy_total_wh").is_null())
+                .then(pl.lit(NullReason.REFERENCE_MISSING.value))
+                .when(pl.col("is_reference").fill_null(False))
+                .then(pl.lit("is_reference"))
+                .when(~pl.col("success").fill_null(False))
+                .then(pl.lit("not_successful"))
+                .otherwise(pl.lit(None, dtype=pl.String))
+                .alias("relative_social_compliance_cost_null_reason"),
             )
-            .drop(*_CONTACT_COUNT_COLUMNS, "_ref_time_to_goal")
+            .drop(*_CONTACT_COUNT_COLUMNS, "_ref_time_to_goal", "_ref_energy_total_wh")
         )
         tables["v_episode_summary"] = v_episode_summary
 

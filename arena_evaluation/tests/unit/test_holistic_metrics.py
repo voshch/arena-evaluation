@@ -151,7 +151,9 @@ def test_registry_reports_the_missing_series_and_never_returns_a_value() -> None
     )
 
 
-def _robot_slice(window: AlignedEpisodeBundle, full: AlignedEpisodeBundle) -> ScopeSlice:
+def _robot_slice(
+    window: AlignedEpisodeBundle, full: AlignedEpisodeBundle
+) -> ScopeSlice:
     return ScopeSlice(
         scope=MetricScope.ROBOT,
         slice_id="robot_1",
@@ -203,3 +205,25 @@ def test_the_robot_scope_measures_its_own_window_not_the_full_episode() -> None:
     assert robot["aeps_linear_s"] == 0.0
 
 
+def test_apa_weights_linear_power_by_clamped_inverse_square_distance() -> None:
+    bundle = _episode(
+        (0.0, 1.0, 2.0),
+        levels=_levels([(0.0, [50.0]), (1.0, [50.0]), (2.0, [50.0])]),
+        clearances=_clearances([(0.0, 0.1), (1.0, 1.0), (2.0, 2.0)]),
+    )
+    out = HolisticMetricsCalculator(make_robot_params()).calculate(bundle, {})
+    # t=0 has dt=0; t=1 has d=1.0 -> 1e5/1.0*1.0; t=2 has d=2.0 -> 1e5/4.0*1.0
+    assert out["acoustic_proxemic_annoyance"] == pytest.approx(1e5 + 1e5 / 4.0)
+    assert out["relative_social_compliance_cost"] is None
+    assert out["relative_social_compliance_cost_null_reason"] == "reference_missing"
+
+
+def test_pedestrian_summary_integrates_poi_psychoacoustic_exposure() -> None:
+    from arena_evaluation.processing.metrics.ecological.acoustic_exposure import (
+        AcousticExposureCalculator,
+    )
+
+    summary = AcousticExposureCalculator.pedestrian_summary(
+        [(0, 60.0), (1_000_000_000, 60.0), (2_000_000_000, 60.0)]
+    )
+    assert summary["poi_psychoacoustic_exposure"] == pytest.approx(3.0 * 1e6)

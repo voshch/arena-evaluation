@@ -103,6 +103,30 @@ KCSC_WH = define_metric(
     description="Kinematic cost of social compliance: robot energy in the encounter window minus the energy of its planned route, floored at zero.",
     null_reason=True,
 )
+ECSI_J = define_metric(
+    "ecsi_j",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="J",
+    description="Energy cost of social interaction: robot energy in the encounter window minus the energy of its planned route in Joules.",
+    null_reason=True,
+)
+ENERGY_PER_SOCIAL_INTERACTION_J = define_metric(
+    "energy_per_social_interaction_j",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="J",
+    description="Total electrical energy in Joules consumed by the robot during this encounter window.",
+    null_reason=True,
+)
+PSYCHOACOUSTIC_YIELDING_COST = define_metric(
+    "psychoacoustic_yielding_cost",
+    pl.Float64,
+    scopes=(MetricScope.ENCOUNTER,),
+    unit="m*s",
+    description="Psychoacoustic yielding cost: integral of pedestrian deviation from planned route weighted by log10 barrier-aware acoustic level.",
+    null_reason=True,
+)
 
 
 def mutual_accommodation_ratio(
@@ -115,20 +139,24 @@ def mutual_accommodation_ratio(
     return robot / total if total > 0.0 else None
 
 
-def max_orthogonal_deviation_m(points: np.ndarray, polyline: np.ndarray) -> float:
-    """Largest distance of any point to a polyline: perpendicular to a segment, clipped to its ends."""
+def orthogonal_distances_m(points: np.ndarray, polyline: np.ndarray) -> np.ndarray:
+    """Point-to-polyline Euclidean distance per point: perpendicular to a segment, clipped to ends."""
     starts = polyline[:-1]
     deltas = polyline[1:] - starts
     length_sq = np.einsum("ij,ij->i", deltas, deltas)
     usable = length_sq > _DEGENERATE_SEGMENT_M2
     if not np.any(usable):
-        return float(np.max(np.linalg.norm(points - polyline[0], axis=1)))
+        return np.linalg.norm(points - polyline[0], axis=1)
     starts, deltas, length_sq = starts[usable], deltas[usable], length_sq[usable]
     offsets = points[:, None, :] - starts[None, :, :]
     fraction = np.clip(np.einsum("nmk,mk->nm", offsets, deltas) / length_sq, 0.0, 1.0)
     projected = starts[None, :, :] + fraction[..., None] * deltas[None, :, :]
-    nearest = np.linalg.norm(points[:, None, :] - projected, axis=2).min(axis=1)
-    return float(np.max(nearest))
+    return np.linalg.norm(points[:, None, :] - projected, axis=2).min(axis=1)
+
+
+def max_orthogonal_deviation_m(points: np.ndarray, polyline: np.ndarray) -> float:
+    """Largest distance of any point to a polyline: perpendicular to a segment, clipped to its ends."""
+    return float(np.max(orthogonal_distances_m(points, polyline)))
 
 
 def _polyline_length(x: np.ndarray, y: np.ndarray) -> float:
@@ -243,21 +271,13 @@ def _encounter_outputs(
     run_dir: pathlib.Path | None,
     robot_radius_m: float,
     power: tuple[np.ndarray, np.ndarray] | None,
+    acoustic_exposure: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> dict[str, Any]:
     t_start_ns, t_end_ns = window_ns
     robot_window = robot.slice_ns(t_start_ns, t_end_ns)
     pedestrian_window = track.trajectory.slice_ns(t_start_ns, t_end_ns)
     outputs: dict[str, Any] = {
-        metric.name: None
-        for metric in (
-            DETOUR_TIME,
-            PED_PATH_EXCESS,
-            ROBOT_PATH_EXCESS,
-            ROBOT_PATH_DEVIATION,
-            MAR,
-            PFI,
-            KCSC_WH,
-        )
+        metric.name: None for metric in EncounterCostsCalculator.OUTPUTS
     }
     reasons: dict[str, str] = {}
     if len(robot_window.t_ns) < 2 or len(pedestrian_window.t_ns) < 2:
@@ -331,11 +351,44 @@ def _encounter_outputs(
         window_ns=(t_start_ns, t_end_ns),
         robot_radius_m=robot_radius_m,
         robot_route=robot_route,
+        ped_route=ped_route,
         robot_excess_m=robot_excess_m,
         ped_excess_m=ped_excess_m,
         power=power,
+        acoustic_exposure=acoustic_exposure,
     )
     return _with_reasons(outputs, reasons)
+
+
+def _psychoacoustic_yielding_cost(
+    pedestrian_window: Trajectory2D,
+    ped_route: RouteResult,
+    acoustic_exposure: tuple[np.ndarray, np.ndarray] | None,
+    reasons: dict[str, str],
+) -> float | None:
+    """Integral of pedestrian path deviation weighted by log10 barrier-aware acoustic level."""
+    if ped_route.points is None:
+        reasons["psychoacoustic_yielding_cost"] = _refusal(ped_route)
+        return None
+    if acoustic_exposure is None:
+        reasons["psychoacoustic_yielding_cost"] = (
+            f"{NullReason.TOPIC_MISSING.value}:acoustic_exposure"
+        )
+        return None
+    if len(pedestrian_window.t_ns) < 2:
+        reasons["psychoacoustic_yielding_cost"] = NullReason.NO_SAMPLES.value
+        return None
+    ac_t_ns, ac_dba = acoustic_exposure
+    if ac_t_ns.size == 0:
+        reasons["psychoacoustic_yielding_cost"] = NullReason.NO_SAMPLES.value
+        return None
+    levels = interpolate_values(
+        ac_t_ns, ac_dba, pedestrian_window.t_ns.astype(np.float64)
+    )
+    deviations = orthogonal_distances_m(pedestrian_window.xy, ped_route.points)
+    dt_s = np.diff(pedestrian_window.t_ns).astype(np.float64) / NS_PER_S
+    weights = np.log10(np.maximum(levels[:-1], 1.0))
+    return float(np.sum(deviations[:-1] * weights * dt_s))
 
 
 def _populate_interaction_costs(
@@ -350,9 +403,11 @@ def _populate_interaction_costs(
     window_ns: tuple[int, int],
     robot_radius_m: float,
     robot_route: RouteResult,
+    ped_route: RouteResult,
     robot_excess_m: float | None,
     ped_excess_m: float | None,
     power: tuple[np.ndarray, np.ndarray] | None,
+    acoustic_exposure: tuple[np.ndarray, np.ndarray] | None,
 ) -> None:
     if robot_excess_m is not None and ped_excess_m is not None:
         mar = mutual_accommodation_ratio(robot_excess_m, ped_excess_m)
@@ -374,15 +429,63 @@ def _populate_interaction_costs(
         outputs["pfi_vs_planned_route"] = deceleration * dwell_s
 
     if power is None:
-        reasons["kcsc_wh_vs_planned_route"] = (
-            f"{NullReason.TOPIC_MISSING.value}:robot_power"
-        )
-    elif robot_route.length_m is None:
-        reasons["kcsc_wh_vs_planned_route"] = _refusal(robot_route)
+        missing_power = f"{NullReason.TOPIC_MISSING.value}:robot_power"
+        reasons["kcsc_wh_vs_planned_route"] = missing_power
+        reasons["ecsi_j"] = missing_power
+        reasons["energy_per_social_interaction_j"] = missing_power
     else:
-        outputs["kcsc_wh_vs_planned_route"] = _robot_excess_energy_wh(
-            robot, robot_window, spans, power, window_ns, robot_route.length_m, reasons
-        )
+        window_energy = _window_energy_wh(robot, power, window_ns)
+        if window_energy is None:
+            reasons["energy_per_social_interaction_j"] = NullReason.NO_SAMPLES.value
+        else:
+            outputs["energy_per_social_interaction_j"] = window_energy * JOULES_PER_WH
+
+        if robot_route.length_m is None:
+            refusal = _refusal(robot_route)
+            reasons["kcsc_wh_vs_planned_route"] = refusal
+            reasons["ecsi_j"] = refusal
+        else:
+            delta_wh = _robot_excess_energy_wh(
+                robot,
+                robot_window,
+                spans,
+                power,
+                window_ns,
+                robot_route.length_m,
+                reasons,
+            )
+            if delta_wh is not None:
+                outputs["kcsc_wh_vs_planned_route"] = max(delta_wh, 0.0)
+                outputs["ecsi_j"] = delta_wh * JOULES_PER_WH
+            else:
+                reasons["ecsi_j"] = reasons.get(
+                    "kcsc_wh_vs_planned_route", NullReason.NO_SAMPLES.value
+                )
+
+    outputs["psychoacoustic_yielding_cost"] = _psychoacoustic_yielding_cost(
+        pedestrian_window, ped_route, acoustic_exposure, reasons
+    )
+
+
+def _window_energy_wh(
+    robot: Trajectory2D,
+    power: tuple[np.ndarray, np.ndarray],
+    window_ns: tuple[int, int],
+) -> float | None:
+    """Total electrical energy (Wh) in the encounter window."""
+    power_t_ns, power_values = power
+    window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
+    if not np.any(window_pairs):
+        return None
+    used_t_ns = np.concatenate(
+        [robot.t_ns[:-1][window_pairs], robot.t_ns[1:][window_pairs]]
+    )
+    if used_t_ns.min() < power_t_ns[0] or used_t_ns.max() > power_t_ns[-1]:
+        return None
+    robot_power_w = interpolate_values(
+        power_t_ns, power_values, robot.t_ns.astype(np.float64)
+    )
+    return _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
 
 
 def _robot_excess_energy_wh(
@@ -394,6 +497,7 @@ def _robot_excess_energy_wh(
     planned_length_m: float,
     reasons: dict[str, str],
 ) -> float | None:
+    del robot_window
     power_t_ns, power_values = power
     free = _outside(robot.t_ns, [(start_ns, end_ns) for _, start_ns, end_ns in spans])
     free_pairs = free[:-1] & free[1:]
@@ -420,7 +524,7 @@ def _robot_excess_energy_wh(
         _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
     )
     window_energy_wh = _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
-    return max(window_energy_wh - energy_per_m_wh * planned_length_m, 0.0)
+    return window_energy_wh - energy_per_m_wh * planned_length_m
 
 
 def _with_reasons(outputs: dict[str, Any], reasons: dict[str, str]) -> dict[str, Any]:
@@ -448,6 +552,9 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         MAR,
         PFI,
         KCSC_WH,
+        ECSI_J,
+        ENERGY_PER_SOCIAL_INTERACTION_J,
+        PSYCHOACOUSTIC_YIELDING_COST,
     )
     DIRECTIONS = {
         "detour_time_s": Direction.LOWER,
@@ -457,6 +564,9 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         "mar_vs_planned_route": Direction.HIGHER,
         "pfi_vs_planned_route": Direction.LOWER,
         "kcsc_wh_vs_planned_route": Direction.LOWER,
+        "ecsi_j": Direction.LOWER,
+        "energy_per_social_interaction_j": Direction.LOWER,
+        "psychoacoustic_yielding_cost": Direction.LOWER,
     }
     PRIMARY_OUTPUTS = [
         "mar_vs_planned_route",
@@ -507,6 +617,23 @@ class EncounterCostsCalculator(BaseMetricCalculator):
             float(self.robot_params.robot_radius),
             detector_params_from_config(self.metrics_config),
         )
+        ac_frame = self.series_frame(episode, "acoustic_exposure")
+        acoustic_exposure: tuple[np.ndarray, np.ndarray] | None = None
+        if ac_frame is not None and ac_frame.height > 0:
+            ped_ac = (
+                ac_frame.filter(pl.col("ped_id").cast(pl.String) == str(track.ped_id))
+                .select(
+                    pl.col("t_ns").cast(pl.Int64),
+                    pl.col("exposure_dba").cast(pl.Float64),
+                )
+                .drop_nulls()
+                .sort("t_ns")
+            )
+            if ped_ac.height > 0:
+                acoustic_exposure = (
+                    ped_ac.get_column("t_ns").to_numpy().astype(np.int64),
+                    ped_ac.get_column("exposure_dba").to_numpy().astype(np.float64),
+                )
         return _encounter_outputs(
             track=track,
             window_ns=(int(scope_slice.t_start_ns), int(scope_slice.t_end_ns)),
@@ -516,4 +643,5 @@ class EncounterCostsCalculator(BaseMetricCalculator):
             run_dir=episode.run_dir,
             robot_radius_m=float(self.robot_params.robot_radius),
             power=_power_samples(episode),
+            acoustic_exposure=acoustic_exposure,
         )
