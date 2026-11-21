@@ -49,18 +49,35 @@ def benchmark_world_geometry(
 
 def world_geometry_rows(world_name: str, run_dir: pathlib.Path | None) -> pl.DataFrame:
     """One row per vertex of a world's compacted level; an unresolved world raises."""
-    from arena_simulation_setup.tree.World.model import render_door_polygons, render_elevator_polygons
+    from arena_simulation_setup.tree.World.model import (
+        render_door_polygons,
+        render_elevator_polygons,
+    )
 
     with MapRegistry.compacted_world_scope(world_name, run_dir=run_dir) as (level, _):
         if level is None:
             raise ValueError(f"world {world_name!r} compacts to no level")
         walls = [
-            (_WALL, f"{_WALL_NAME_PREFIX}{index:0{_WALL_INDEX_WIDTH}d}", (((wall.start.x, wall.start.y), (wall.end.x, wall.end.y)),))
+            (
+                _WALL,
+                f"{_WALL_NAME_PREFIX}{index:0{_WALL_INDEX_WIDTH}d}",
+                (((wall.start.x, wall.start.y), (wall.end.x, wall.end.y)),),
+            )
             for index, wall in enumerate(level.all_walls)
         ]
         doors = [(_DOOR, door.name, render_door_polygons(door)) for door in level.doors]
-        elevators = [(_ELEVATOR, elevator.name, render_elevator_polygons(elevator)) for elevator in level.elevators]
-        zones = [(_ZONE, zone.name, (tuple((corner.x, corner.y) for corner in zone.polygon),)) for zone in level.zones]
+        elevators = [
+            (_ELEVATOR, elevator.name, render_elevator_polygons(elevator))
+            for elevator in level.elevators
+        ]
+        zones = [
+            (
+                _ZONE,
+                zone.name,
+                (tuple((corner.x, corner.y) for corner in zone.polygon),),
+            )
+            for zone in level.zones
+        ]
         objects = [
             (_OBJECT, obstacle.name, (footprint,))
             for obstacle in level.objects

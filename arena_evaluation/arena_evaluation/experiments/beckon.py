@@ -68,8 +68,6 @@ def _world_dir() -> pathlib.Path:
     )
 
 
-
-
 class _Map:
     """The world's occupancy image, for validating that a placement is free and a sightline is clear."""
 
@@ -295,8 +293,6 @@ def generate(
         f"\n{len(stages)} stages x {episodes} episodes per contestant -> {suite_path}"
     )
     return suite
-
-
 
 
 def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:

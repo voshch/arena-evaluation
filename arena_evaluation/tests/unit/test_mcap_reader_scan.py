@@ -31,5 +31,3 @@ def _summary(
     ScanRecorder(sink).record(Envelope(t_ns=1, ref=_REF, schema=None, body=scan))
     sink.close()
     return pl.read_parquet(out / f"{SCAN_SUMMARY_TABLE}.parquet").row(0, named=True)
-
-

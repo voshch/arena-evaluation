@@ -325,8 +325,8 @@ def null_reason_counts(
             .agg(pl.len().alias("rows"))
         )
         attributed = 0
-        # the per-reason counts are result metadata, not data rows
-        for row in codes.iter_rows(named=True):  # agent-contracts: ignore metadata dict boundary
+        # agent-contracts: ignore AC004 - per-reason counts are result metadata, not data rows
+        for row in codes.iter_rows(named=True):
             counts[f"{column}:{row['code']}"] = int(row["rows"])
             attributed += int(row["rows"])
         unreasoned = null_rows.height - attributed
@@ -373,7 +373,9 @@ def _prepare(
     lf = lf.select(select_cols)
     for col, val in row_filter.items():
         lf = lf.filter(
-            pl.col(col).is_in(list(val)) if isinstance(val, tuple) else pl.col(col) == val
+            pl.col(col).is_in(list(val))
+            if isinstance(val, tuple)
+            else pl.col(col) == val
         )
     df = lf.collect()
 
@@ -464,9 +466,12 @@ def _compute_group_summary(
             mean_expr = val.mean()
             raw_std = val.std()
             std_expr = pl.when(cnt >= 2).then(raw_std).otherwise(None).cast(pl.Float64)
-            sem_expr = pl.when(cnt >= 2).then(
-                raw_std / cnt.cast(pl.Float64).sqrt()
-            ).otherwise(None).cast(pl.Float64)
+            sem_expr = (
+                pl.when(cnt >= 2)
+                .then(raw_std / cnt.cast(pl.Float64).sqrt())
+                .otherwise(None)
+                .cast(pl.Float64)
+            )
             ci_half = _WILSON_Z * sem_expr
             err_expr = (
                 ci_half
@@ -726,7 +731,11 @@ def _run_composite_ranking(
         for idx, row in enumerate(group_rows):
             value = row[metric]
             normalized = (
-                None if value is None else 0.5 if high == low else (value - low) / (high - low)
+                None
+                if value is None
+                else 0.5
+                if high == low
+                else (value - low) / (high - low)
             )
             norm_scores[(idx, metric)] = (
                 normalized
@@ -872,9 +881,7 @@ def _compute_paired_diff(
 def _compute_cluster_bootstrap_ci(
     catalog: BenchmarkCatalog, p: ClusterBootstrapCIParams
 ) -> AnalysisResult:
-    df, excluded, seeds = _prepare(
-        catalog, p, [*p.group_cols, p.cluster_col, p.metric]
-    )
+    df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.cluster_col, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     raw = cluster_bootstrap_ci(
         df,
@@ -923,7 +930,9 @@ def _compute_series_profile(
         )
 
     x_col = pl.col(p.x).cast(pl.Float64)
-    x_expr = ((x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col).alias("x")
+    x_expr = (
+        (x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col
+    ).alias("x")
     work = work.with_columns(x_expr, pl.col(p.metric).cast(pl.Float64).alias("_y"))
 
     cell_keys = [*p.group_cols, "x"]
@@ -1049,35 +1058,71 @@ def run_computation(
 _ComputationSpec = tuple[str, type[BaseModel], type[Table], _ComputeFn, str]
 
 _COMPUTATION_SPECS: tuple[_ComputationSpec, ...] = (
-    ("group_summary", GroupSummaryParams, GroupSummaryAnalysis,
-     _compute_group_summary,
-     "Per-group summary statistics (Wilson CI for booleans; mean/std/sem/ci95 for numeric)."),
-    ("distribution_bins", DistributionBinsParams, DistributionBinsAnalysis,
-     _compute_distribution_bins,
-     "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); "
-     "the density column holds a probability mass per bin (count / total) unless density=True, "
-     "which divides by the bin width to give a probability density."),
-    ("radar_profile", RadarProfileParams, RadarProfileAnalysis,
-     _compute_radar_profile,
-     "Capability tradeoff radar profile matching RadarRenderer normalization (null means stay null)."),
-    ("composite_ranking", CompositeRankingParams, CompositeRankingAnalysis,
-     _run_composite_ranking,
-     "Weighted min-max normalized composite ranking (unrounded scores)."),
-    ("top_n_ranking", CompositeRankingParams, CompositeRankingAnalysis,
-     functools.partial(_run_composite_ranking, default_top_n=3),
-     "Top-N contestants by weighted normalized composite score (unrounded scores)."),
-    ("correlation_matrix", CorrelationMatrixParams, CorrelationMatrixAnalysis,
-     _compute_correlation_matrix,
-     "Pairwise-complete Pearson correlation matrix using pl.corr."),
-    ("paired_diff", PairedDiffParams, PairedDiffAnalysis,
-     _compute_paired_diff,
-     "Cluster-paired treatment minus control difference with bootstrap CI and p-value."),
-    ("cluster_bootstrap_ci", ClusterBootstrapCIParams, ClusterBootstrapCIAnalysis,
-     _compute_cluster_bootstrap_ci,
-     "Cluster-bootstrap confidence interval per group using Layer 3 stats."),
-    ("series_profile", SeriesProfileParams, SeriesProfileAnalysis,
-     _compute_series_profile,
-     "Series-grain binned/trimmed/reduced profile along an x axis with optional smoothing."),
+    (
+        "group_summary",
+        GroupSummaryParams,
+        GroupSummaryAnalysis,
+        _compute_group_summary,
+        "Per-group summary statistics (Wilson CI for booleans; mean/std/sem/ci95 for numeric).",
+    ),
+    (
+        "distribution_bins",
+        DistributionBinsParams,
+        DistributionBinsAnalysis,
+        _compute_distribution_bins,
+        "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); "
+        "the density column holds a probability mass per bin (count / total) unless density=True, "
+        "which divides by the bin width to give a probability density.",
+    ),
+    (
+        "radar_profile",
+        RadarProfileParams,
+        RadarProfileAnalysis,
+        _compute_radar_profile,
+        "Capability tradeoff radar profile matching RadarRenderer normalization (null means stay null).",
+    ),
+    (
+        "composite_ranking",
+        CompositeRankingParams,
+        CompositeRankingAnalysis,
+        _run_composite_ranking,
+        "Weighted min-max normalized composite ranking (unrounded scores).",
+    ),
+    (
+        "top_n_ranking",
+        CompositeRankingParams,
+        CompositeRankingAnalysis,
+        functools.partial(_run_composite_ranking, default_top_n=3),
+        "Top-N contestants by weighted normalized composite score (unrounded scores).",
+    ),
+    (
+        "correlation_matrix",
+        CorrelationMatrixParams,
+        CorrelationMatrixAnalysis,
+        _compute_correlation_matrix,
+        "Pairwise-complete Pearson correlation matrix using pl.corr.",
+    ),
+    (
+        "paired_diff",
+        PairedDiffParams,
+        PairedDiffAnalysis,
+        _compute_paired_diff,
+        "Cluster-paired treatment minus control difference with bootstrap CI and p-value.",
+    ),
+    (
+        "cluster_bootstrap_ci",
+        ClusterBootstrapCIParams,
+        ClusterBootstrapCIAnalysis,
+        _compute_cluster_bootstrap_ci,
+        "Cluster-bootstrap confidence interval per group using Layer 3 stats.",
+    ),
+    (
+        "series_profile",
+        SeriesProfileParams,
+        SeriesProfileAnalysis,
+        _compute_series_profile,
+        "Series-grain binned/trimmed/reduced profile along an x axis with optional smoothing.",
+    ),
 )
 
 for _name, _params, _output, _fn, _description in _COMPUTATION_SPECS:

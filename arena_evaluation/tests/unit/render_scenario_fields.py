@@ -10,7 +10,9 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 try:
     from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST
-    from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
+    from arena_evaluation.processing.acoustics.impedance_grid import (
+        compute_attenuations,
+    )
 except ImportError as exc:  # a standalone render script without the test tree
     raise SystemExit(f"missing acoustic rendering dependency: {exc}") from exc
 
@@ -29,8 +31,18 @@ def _door_mask(grid, spec) -> np.ndarray:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("out_dir", nargs="?", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parent / "test_images" / "fields_dba")
-    ap.add_argument("--source-dba", type=float, default=60.0, help="source level at 1 m (default 60)")
+    ap.add_argument(
+        "out_dir",
+        nargs="?",
+        type=pathlib.Path,
+        default=pathlib.Path(__file__).resolve().parent / "test_images" / "fields_dba",
+    )
+    ap.add_argument(
+        "--source-dba",
+        type=float,
+        default=60.0,
+        help="source level at 1 m (default 60)",
+    )
     args = ap.parse_args()
     OUT = args.out_dir
     SOURCE = args.source_dba
@@ -71,7 +83,9 @@ def main() -> None:
 
         # Build door masks for contour rendering
         door_mask = _door_mask(grid, spec)
-        open_door_mask = door_mask & (tl == 0.0) if open_door else np.zeros_like(door_mask)
+        open_door_mask = (
+            door_mask & (tl == 0.0) if open_door else np.zeros_like(door_mask)
+        )
 
         import matplotlib
 
@@ -83,9 +97,13 @@ def main() -> None:
         ax.grid(False)
 
         # Main heatmap: inferno, walls NaN -> black background
-        im = ax.imshow(np.flipud(field_dba), cmap="inferno", origin="upper", vmin=0, vmax=SOURCE)
+        im = ax.imshow(
+            np.flipud(field_dba), cmap="inferno", origin="upper", vmin=0, vmax=SOURCE
+        )
         # 3 dB ticks = double-energy steps
-        cb = plt.colorbar(im, ax=ax, label="Received level (dBA)", ticks=np.arange(0, SOURCE + 1, 3))
+        cb = plt.colorbar(
+            im, ax=ax, label="Received level (dBA)", ticks=np.arange(0, SOURCE + 1, 3)
+        )
         cb.set_ticklabels([f"{t:.0f}" for t in np.arange(0, SOURCE + 1, 3)])
 
         # Door contours (matching AcousticFieldRenderer._render_cell_png style)
@@ -93,10 +111,26 @@ def main() -> None:
             cty = np.linspace(0, h * RES, h)
             ctx = np.linspace(0, w * RES, w)
             # Cyan outline for ALL doors
-            ax.contour(ctx, cty, np.flipud(door_mask.astype(np.uint8)), levels=[0.5], colors=["#00ffd5"], linewidths=1.5, alpha=0.85)
+            ax.contour(
+                ctx,
+                cty,
+                np.flipud(door_mask.astype(np.uint8)),
+                levels=[0.5],
+                colors=["#00ffd5"],
+                linewidths=1.5,
+                alpha=0.85,
+            )
             # Bright green outline for OPEN doors
             if open_door_mask.any():
-                ax.contour(ctx, cty, np.flipud(open_door_mask.astype(np.uint8)), levels=[0.5], colors=["#00ff00"], linewidths=2.5, alpha=0.9)
+                ax.contour(
+                    ctx,
+                    cty,
+                    np.flipud(open_door_mask.astype(np.uint8)),
+                    levels=[0.5],
+                    colors=["#00ff00"],
+                    linewidths=2.5,
+                    alpha=0.9,
+                )
 
         ax.plot(sxp, syp, "g*", markersize=12, label="Source")
         ax.plot(tx / RES, ty / RES, "r^", markersize=10, label="Target")
@@ -107,7 +141,9 @@ def main() -> None:
         OUT.mkdir(parents=True, exist_ok=True)
         fig.savefig(OUT / f"{name}.png", dpi=120)
         plt.close(fig)
-        print(f"  {name:32s} received@target = {recv_target:6.1f} dBA  -> {OUT / name}.png")
+        print(
+            f"  {name:32s} received@target = {recv_target:6.1f} dBA  -> {OUT / name}.png"
+        )
 
     print(f"\nFields (dBA) written to {OUT}")
 

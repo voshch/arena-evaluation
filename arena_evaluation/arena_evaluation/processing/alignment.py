@@ -75,6 +75,4 @@ def asof_join(
         if left_on is None
         else {"left_on": left_on, "right_on": right_on or on}
     )
-    return query.join_asof(
-        source, strategy="backward", tolerance=tolerance_ns, **keys
-    )
+    return query.join_asof(source, strategy="backward", tolerance=tolerance_ns, **keys)

@@ -1,4 +1,3 @@
-
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
@@ -23,5 +22,3 @@ def _episode(data, start_pos):
         start_pos=start_pos,
         goal_pos=[],
     )
-
-

@@ -1,4 +1,7 @@
-from .edge_case_metrics import EdgeCaseCriticalityCalculator, EdgeCaseFormationCalculator
+from .edge_case_metrics import (
+    EdgeCaseCriticalityCalculator,
+    EdgeCaseFormationCalculator,
+)
 
 __all__ = [
     "EdgeCaseCriticalityCalculator",

@@ -58,7 +58,12 @@ def _plotly_error(
 ) -> dict[str, object] | None:
     if plus is None or minus is None:
         return None
-    return {"type": "data", "array": plus.tolist(), "arrayminus": minus.tolist(), "symmetric": False}
+    return {
+        "type": "data",
+        "array": plus.tolist(),
+        "arrayminus": minus.tolist(),
+        "symmetric": False,
+    }
 
 
 def _draw_errorbars(
@@ -156,19 +161,32 @@ class BarRenderer(BasePlotRenderer):
             raise ValueError(
                 f"Plot {self.spec.id!r}: bar plot requires channel 'x' or 'color'."
             )
-        cell_keys = [c for c in dict.fromkeys((group_col, color_col, facet_col, facet_row)) if c]
+        cell_keys = [
+            c for c in dict.fromkeys((group_col, color_col, facet_col, facet_row)) if c
+        ]
         self.validate_unique_cells(df, cell_keys)
 
         opts = self.spec.options
         err_plus = opts.get("err_plus") or opts.get("error_col")
-        err_plus_col = err_plus.strip() if isinstance(err_plus, str) and err_plus.strip() else None
+        err_plus_col = (
+            err_plus.strip() if isinstance(err_plus, str) and err_plus.strip() else None
+        )
         err_minus = opts.get("err_minus")
         err_minus_col = (
-            str(err_minus).strip() if isinstance(err_minus, str) and err_minus.strip() else err_plus_col
+            str(err_minus).strip()
+            if isinstance(err_minus, str) and err_minus.strip()
+            else err_plus_col
         )
         return _BarContext(
-            x_col, y_cols, color_col, group_col, facet_col, facet_row,
-            err_plus_col, err_minus_col, get_color_palette(),
+            x_col,
+            y_cols,
+            color_col,
+            group_col,
+            facet_col,
+            facet_row,
+            err_plus_col,
+            err_minus_col,
+            get_color_palette(),
         )
 
     def _panels(
@@ -177,10 +195,21 @@ class BarRenderer(BasePlotRenderer):
         """Facet panels in row-major order, or a single unsplit panel."""
         if not context.facet_col and not context.facet_row:
             return False, [(1, 1, "", df)]
-        col_vals = list(dict.fromkeys(label_values(df, context.facet_col).tolist())) if context.facet_col else [""]
-        row_vals = list(dict.fromkeys(label_values(df, context.facet_row).tolist())) if context.facet_row else [""]
+        col_vals = (
+            list(dict.fromkeys(label_values(df, context.facet_col).tolist()))
+            if context.facet_col
+            else [""]
+        )
+        row_vals = (
+            list(dict.fromkeys(label_values(df, context.facet_row).tolist()))
+            if context.facet_row
+            else [""]
+        )
         tagged = df
-        for alias, column in (("_bar_fcol", context.facet_col), ("_bar_frow", context.facet_row)):
+        for alias, column in (
+            ("_bar_fcol", context.facet_col),
+            ("_bar_frow", context.facet_row),
+        ):
             if column:
                 tagged = tagged.with_columns(pl.Series(alias, label_values(df, column)))
         panels: list[tuple[int, int, str, pl.DataFrame]] = []
@@ -198,8 +227,14 @@ class BarRenderer(BasePlotRenderer):
         return True, panels
 
     def _add_plotly_panel(
-        self, fig: go.Figure, sub_df: pl.DataFrame, context: _BarContext,
-        *, row: int | None, col: int | None, show_legend: bool,
+        self,
+        fig: go.Figure,
+        sub_df: pl.DataFrame,
+        context: _BarContext,
+        *,
+        row: int | None,
+        col: int | None,
+        show_legend: bool,
     ) -> None:
         if sub_df.is_empty():
             return
@@ -213,7 +248,10 @@ class BarRenderer(BasePlotRenderer):
             marker_color: object = (
                 palette_color(context.palette, group.palette_index)
                 if group.palette_index is not None
-                else [palette_color(context.palette, i) for i in range(len(group.x_labels))]
+                else [
+                    palette_color(context.palette, i)
+                    for i in range(len(group.x_labels))
+                ]
             )
             fig.add_trace(
                 go.Bar(
@@ -246,11 +284,17 @@ class BarRenderer(BasePlotRenderer):
             fig = go.Figure()
         for idx, (r_idx, c_idx, _title, sub_df) in enumerate(panels):
             self._add_plotly_panel(
-                fig, sub_df, context, row=r_idx if faceted else None,
-                col=c_idx if faceted else None, show_legend=not faceted or idx == 0,
+                fig,
+                sub_df,
+                context,
+                row=r_idx if faceted else None,
+                col=c_idx if faceted else None,
+                show_legend=not faceted or idx == 0,
             )
 
-        y_title = self.format_label(context.y_cols[0].replace("_", " ").title(), context.y_cols[0])
+        y_title = self.format_label(
+            context.y_cols[0].replace("_", " ").title(), context.y_cols[0]
+        )
         x_title = context.group_col.replace("_", " ").title()
         horizontal = str(self.spec.options.get("orientation", "v")) == "h"
         fig.update_layout(
@@ -275,8 +319,11 @@ class BarRenderer(BasePlotRenderer):
             for idx, group in enumerate(groups):
                 offset = (idx - (len(groups) - 1) / 2.0) * width
                 ax.bar(
-                    xs + offset, group.values, width=width,
-                    label=group.label, color=palette_color(context.palette, idx),
+                    xs + offset,
+                    group.values,
+                    width=width,
+                    label=group.label,
+                    color=palette_color(context.palette, idx),
                 )
             ax.set_xticks(xs)
             ax.set_xticklabels(x_labels)
@@ -293,7 +340,9 @@ class BarRenderer(BasePlotRenderer):
             ax.set_xticks(xs)
             ax.set_xticklabels(x_labels)
             if group.plus is not None and group.minus is not None:
-                _draw_errorbars(ax, xs, group.values, group.plus, group.minus, capsize=4)
+                _draw_errorbars(
+                    ax, xs, group.values, group.plus, group.minus, capsize=4
+                )
             return y_label
 
         uniq_x = list(dict.fromkeys(x_labels))
@@ -304,16 +353,22 @@ class BarRenderer(BasePlotRenderer):
             value_map = dict(zip(group.x_labels, group.values, strict=True))
             ys = np.array([value_map.get(xv, np.nan) for xv in uniq_x])
             ax.bar(
-                xs + offset, ys, width=width,
-                label=group.label, color=palette_color(context.palette, idx),
+                xs + offset,
+                ys,
+                width=width,
+                label=group.label,
+                color=palette_color(context.palette, idx),
             )
             if group.plus is not None and group.minus is not None:
                 plus_map = dict(zip(group.x_labels, group.plus, strict=True))
                 minus_map = dict(zip(group.x_labels, group.minus, strict=True))
                 _draw_errorbars(
-                    ax, xs + offset, ys,
+                    ax,
+                    xs + offset,
+                    ys,
                     np.array([plus_map.get(xv, np.nan) for xv in uniq_x]),
-                    np.array([minus_map.get(xv, np.nan) for xv in uniq_x]), capsize=3,
+                    np.array([minus_map.get(xv, np.nan) for xv in uniq_x]),
+                    capsize=3,
                 )
         ax.set_xticks(xs)
         ax.set_xticklabels(uniq_x)
@@ -330,8 +385,11 @@ class BarRenderer(BasePlotRenderer):
             n_rows = max(p[0] for p in panels)
             n_cols = max(p[1] for p in panels)
             fig, axes = plt.subplots(
-                n_rows, n_cols, figsize=(max(5.0, 4.5 * n_cols), max(4.0, 4.0 * n_rows)),
-                sharey=True, squeeze=False,
+                n_rows,
+                n_cols,
+                figsize=(max(5.0, 4.5 * n_cols), max(4.0, 4.0 * n_rows)),
+                sharey=True,
+                squeeze=False,
             )
         else:
             fig, ax = new_figure()
@@ -354,8 +412,10 @@ class BarRenderer(BasePlotRenderer):
             fig.tight_layout()
         else:
             finish_axes(
-                ax, title=self.spec.title or y_label,
-                x_label=context.group_col.replace("_", " ").title(), y_label=y_label,
+                ax,
+                title=self.spec.title or y_label,
+                x_label=context.group_col.replace("_", " ").title(),
+                y_label=y_label,
             )
         self.save_figure(fig, out_path)
         plt.close(fig)

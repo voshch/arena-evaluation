@@ -42,7 +42,11 @@ def test_schedule_structure():
     assert phases[0].kind == PhaseKind.IDLE
     assert phases[-1].kind == PhaseKind.IDLE
     # Baseline standstill blocks at start and end.
-    idle_blocks = [p for p in phases if p.kind == PhaseKind.IDLE and p.duration_s == IDLE_DURATION_S]
+    idle_blocks = [
+        p
+        for p in phases
+        if p.kind == PhaseKind.IDLE and p.duration_s == IDLE_DURATION_S
+    ]
     assert len(idle_blocks) == 2
 
 
@@ -63,16 +67,24 @@ def test_linear_sweep_coverage_up_to_2mps():
 def test_ramp_tests():
     phases = build_schedule()
     ramps_up = [p for p in phases if p.kind == PhaseKind.RAMP_UP and p.vx_target > 0.0]
-    ramps_down = [p for p in phases if p.kind == PhaseKind.RAMP_DOWN and p.vx_target > 0.0]
-    ramps_up_neg = [p for p in phases if p.kind == PhaseKind.RAMP_UP and p.vx_target < 0.0]
-    ramps_down_neg = [p for p in phases if p.kind == PhaseKind.RAMP_DOWN and p.vx_target < 0.0]
+    ramps_down = [
+        p for p in phases if p.kind == PhaseKind.RAMP_DOWN and p.vx_target > 0.0
+    ]
+    ramps_up_neg = [
+        p for p in phases if p.kind == PhaseKind.RAMP_UP and p.vx_target < 0.0
+    ]
+    ramps_down_neg = [
+        p for p in phases if p.kind == PhaseKind.RAMP_DOWN and p.vx_target < 0.0
+    ]
 
     # Covers the linear envelope steps
     targets = sorted(p.vx_target for p in ramps_up)
     assert targets == [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
     assert sorted(p.vx_target for p in ramps_down) == targets
     assert sorted(p.vx_target for p in ramps_up_neg) == [-v for v in reversed(targets)]
-    assert sorted(p.vx_target for p in ramps_down_neg) == [-v for v in reversed(targets)]
+    assert sorted(p.vx_target for p in ramps_down_neg) == [
+        -v for v in reversed(targets)
+    ]
 
     # Settle at apex for each positive and negative step
     apexes = [p for p in phases if p.name.startswith("ramp_apex")]
@@ -83,7 +95,19 @@ def test_ramp_tests():
 def test_angular_sweep():
     phases = build_schedule()
     angular = [p for p in phases if p.kind == PhaseKind.ANGULAR]
-    assert [p.wz_target for p in angular] == [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert [p.wz_target for p in angular] == [
+        -2.5,
+        -2.0,
+        -1.5,
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+    ]
     assert all(p.duration_s == ANGULAR_DWELL_S for p in angular)
     assert all(p.vx_target == 0.0 for p in angular)
 
@@ -114,7 +138,13 @@ def test_sweeps_end_exactly_on_the_envelope():
     # 0.4 m/s and 1.9 rad/s are not multiples of the step, so a naive range
     # either overshoots the rated limit or stops short of it.
     phases = build_schedule(vx_max=0.4, wz_max=1.9)
-    linear = sorted({p.vx_target for p in phases if p.kind == PhaseKind.LINEAR and p.vx_target > 0.0})
+    linear = sorted(
+        {
+            p.vx_target
+            for p in phases
+            if p.kind == PhaseKind.LINEAR and p.vx_target > 0.0
+        }
+    )
     assert linear == [0.25, 0.4]
     angular = [p.wz_target for p in phases if p.kind == PhaseKind.ANGULAR]
     assert min(angular) == -1.9
@@ -125,7 +155,11 @@ def test_sweeps_end_exactly_on_the_envelope():
 def test_angular_sweep_is_symmetric_about_zero():
     # The lower bound comes from the robot's own rated rate, not a module constant.
     for wz_max in (0.3, 1.0, 2.2, 4.0):
-        angular = [p.wz_target for p in build_schedule(wz_max=wz_max) if p.kind == PhaseKind.ANGULAR]
+        angular = [
+            p.wz_target
+            for p in build_schedule(wz_max=wz_max)
+            if p.kind == PhaseKind.ANGULAR
+        ]
         assert min(angular) == -wz_max
         assert max(angular) == wz_max
 
@@ -133,8 +167,12 @@ def test_angular_sweep_is_symmetric_about_zero():
 def test_arc_radii_scale_with_the_footprint():
     small = [p for p in build_schedule(radius=0.2) if p.kind == PhaseKind.ARC]
     large = [p for p in build_schedule(radius=0.8) if p.kind == PhaseKind.ARC]
-    assert {p.radius_m for p in small} <= {round(f * 0.2, 6) for f in ARC_RADIUS_FACTORS}
-    assert {p.radius_m for p in large} <= {round(f * 0.8, 6) for f in ARC_RADIUS_FACTORS}
+    assert {p.radius_m for p in small} <= {
+        round(f * 0.2, 6) for f in ARC_RADIUS_FACTORS
+    }
+    assert {p.radius_m for p in large} <= {
+        round(f * 0.8, 6) for f in ARC_RADIUS_FACTORS
+    }
     assert min(p.radius_m for p in small) < min(p.radius_m for p in large)
     # Every arc is a closed orbit, so left and right come in pairs.
     assert sum(p.wz_target > 0 for p in small) == sum(p.wz_target < 0 for p in small)
@@ -151,7 +189,12 @@ def test_labels_never_encode_a_duration():
     # The offline calculator rebuilds the schedule without knowing the run's
     # duration config, so no configurable duration may reach a label.
     baseline = [p.name for p in build_schedule()]
-    retimed = [p.name for p in build_schedule(**{name: default + 3.0 for name, default in DURATION_DEFAULTS.items()})]
+    retimed = [
+        p.name
+        for p in build_schedule(
+            **{name: default + 3.0 for name, default in DURATION_DEFAULTS.items()}
+        )
+    ]
     assert baseline == retimed
 
 
@@ -251,7 +294,11 @@ def test_custom_arc_factors_change_targets_and_respect_the_rated_wz_limit():
 
 
 def test_sweep_defaults_keys_are_accepted_by_build_schedule():
-    assert set(SWEEP_DEFAULTS) == {"arc_speed_factors", "arc_radius_factors", "ramp_horizons_s"}
+    assert set(SWEEP_DEFAULTS) == {
+        "arc_speed_factors",
+        "arc_radius_factors",
+        "ramp_horizons_s",
+    }
     assert build_schedule(**SWEEP_DEFAULTS) == build_schedule()
 
 

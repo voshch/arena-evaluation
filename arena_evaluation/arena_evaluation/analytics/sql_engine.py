@@ -10,21 +10,45 @@ import polars as pl
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
-__all__ = ["FORBIDDEN_SQL_KEYWORDS", "PolarsSQLEngine", "SQLGuardError", "normalize_sql_scientific_notation", "validate_readonly_sql"]
+__all__ = [
+    "FORBIDDEN_SQL_KEYWORDS",
+    "PolarsSQLEngine",
+    "SQLGuardError",
+    "normalize_sql_scientific_notation",
+    "validate_readonly_sql",
+]
 
-FORBIDDEN_SQL_KEYWORDS: Final[frozenset[str]] = frozenset({
-    "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE",
-    "TRUNCATE", "COPY", "ATTACH", "DETACH", "PRAGMA", "VACUUM",
-})
+FORBIDDEN_SQL_KEYWORDS: Final[frozenset[str]] = frozenset(
+    {
+        "DROP",
+        "DELETE",
+        "INSERT",
+        "UPDATE",
+        "ALTER",
+        "CREATE",
+        "TRUNCATE",
+        "COPY",
+        "ATTACH",
+        "DETACH",
+        "PRAGMA",
+        "VACUUM",
+    }
+)
 _ALLOWED_START_KEYWORDS: Final[frozenset[str]] = frozenset({"SELECT", "WITH"})
 _LEXER_RE: Final[re.Pattern[str]] = re.compile(
     r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|--[^\r\n]*|/\*.*?\*/",
     re.DOTALL,
 )
-_STRING_LITERAL_RE: Final[re.Pattern[str]] = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"")
+_STRING_LITERAL_RE: Final[re.Pattern[str]] = re.compile(
+    r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\""
+)
 _WORD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
-_SCIENTIFIC_NOTATION_RE: Final[re.Pattern[str]] = re.compile(r"(?<![a-zA-Z0-9_])([0-9]+(?:\.[0-9]+)?[eE][+-]?[0-9]+)(?![a-zA-Z0-9_])")
-_EXTERNAL_READER_RE: Final[re.Pattern[str]] = re.compile(r"\b((?:READ|SCAN)_[A-Z0-9_]*)\s*\(", re.IGNORECASE)
+_SCIENTIFIC_NOTATION_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?<![a-zA-Z0-9_])([0-9]+(?:\.[0-9]+)?[eE][+-]?[0-9]+)(?![a-zA-Z0-9_])"
+)
+_EXTERNAL_READER_RE: Final[re.Pattern[str]] = re.compile(
+    r"\b((?:READ|SCAN)_[A-Z0-9_]*)\s*\(", re.IGNORECASE
+)
 
 
 def _format_scientific(match: re.Match[str]) -> str:
@@ -42,10 +66,16 @@ def normalize_sql_scientific_notation(sql: str) -> str:
     parts: list[str] = []
     last_end = 0
     for match in _STRING_LITERAL_RE.finditer(sql):
-        parts.append(_SCIENTIFIC_NOTATION_RE.sub(_format_scientific, sql[last_end : match.start()]))
+        parts.append(
+            _SCIENTIFIC_NOTATION_RE.sub(
+                _format_scientific, sql[last_end : match.start()]
+            )
+        )
         parts.append(match.group(0))
         last_end = match.end()
-    return "".join([*parts, _SCIENTIFIC_NOTATION_RE.sub(_format_scientific, sql[last_end:])])
+    return "".join(
+        [*parts, _SCIENTIFIC_NOTATION_RE.sub(_format_scientific, sql[last_end:])]
+    )
 
 
 class SQLGuardError(ValueError):
@@ -117,12 +147,18 @@ class PolarsSQLEngine:
     """Guarded read-only OLAP SQL engine backed by ``polars.SQLContext`` and ``BenchmarkCatalog``."""
 
     def __init__(self, catalog: BenchmarkCatalog | pathlib.Path) -> None:
-        self.catalog = catalog if isinstance(catalog, BenchmarkCatalog) else BenchmarkCatalog(catalog)
+        self.catalog = (
+            catalog
+            if isinstance(catalog, BenchmarkCatalog)
+            else BenchmarkCatalog(catalog)
+        )
 
     def register_table(self, name: str, frame: pl.LazyFrame | pl.DataFrame) -> None:
         """Register a derived table or view in the underlying catalog."""
         if self.catalog.is_protected_table(name):
-            raise SQLGuardError(f"Cannot overwrite protected catalog table or view '{name}'.")
+            raise SQLGuardError(
+                f"Cannot overwrite protected catalog table or view '{name}'."
+            )
         self.catalog.register_table(name, frame)
 
     def query_lazy(self, sql: str) -> pl.LazyFrame:
@@ -142,7 +178,9 @@ class PolarsSQLEngine:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be non-negative, got {limit}")
         if save_as is not None and self.catalog.is_protected_table(save_as):
-            raise SQLGuardError(f"Cannot overwrite protected catalog table or view '{save_as}'.")
+            raise SQLGuardError(
+                f"Cannot overwrite protected catalog table or view '{save_as}'."
+            )
         lazy_frame = self.query_lazy(sql)
         if limit is not None:
             lazy_frame = lazy_frame.limit(limit)

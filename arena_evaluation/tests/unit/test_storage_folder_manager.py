@@ -162,5 +162,3 @@ def test_mcap_fallback_symlink_escape_raises(tmp_path: pathlib.Path):
 
 
 # extracted_topics_path_for_episode
-
-

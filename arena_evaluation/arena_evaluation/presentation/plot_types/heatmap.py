@@ -35,7 +35,9 @@ class HeatmapRenderer(BasePlotRenderer):
         labels = sorted(set(values.tolist()))
         return labels, {label: index for index, label in enumerate(labels)}
 
-    def _extract_matrix(self, df: pl.DataFrame) -> tuple[list[str], list[str], np.ndarray] | None:
+    def _extract_matrix(
+        self, df: pl.DataFrame
+    ) -> tuple[list[str], list[str], np.ndarray] | None:
         if df.is_empty():
             return None
         x_col = self.resolve_channel("x")
@@ -43,7 +45,11 @@ class HeatmapRenderer(BasePlotRenderer):
         z_col = self.resolve_channel("color")
         if not z_col:
             value_col = self.spec.options.get("value_col")
-            z_col = value_col.strip() if isinstance(value_col, str) and value_col.strip() else None
+            z_col = (
+                value_col.strip()
+                if isinstance(value_col, str) and value_col.strip()
+                else None
+            )
         if not (x_col and y_col and z_col):
             raise ValueError(
                 f"Plot {self.spec.id!r}: heatmap requires channels 'x', 'y', and 'color' (or option 'value_col')."

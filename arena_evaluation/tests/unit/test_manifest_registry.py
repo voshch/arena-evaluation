@@ -48,5 +48,3 @@ def test_flat_report_yaml_is_not_found(manifests_dir):
 def test_default_when_nothing_else(tmp_path: pathlib.Path, manifests_dir):
     m = registry.resolve_manifest(None, benchmark_dir=tmp_path)
     assert m.name == "standard"
-
-

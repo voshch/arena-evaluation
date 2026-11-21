@@ -84,5 +84,3 @@ def test_main_measures_every_benchmark_dir_about_the_center(
                 "0",
             ]
         )
-
-

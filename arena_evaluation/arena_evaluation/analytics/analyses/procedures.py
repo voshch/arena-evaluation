@@ -407,7 +407,10 @@ def _project_rows(
 ) -> pl.DataFrame:
     """Add typed NULLs for absent columns, apply literals, and cast to the declared schema."""
     present = frame.with_columns(
-        [pl.lit(value, dtype=schema[name]).alias(name) for name, value in values.items()]
+        [
+            pl.lit(value, dtype=schema[name]).alias(name)
+            for name, value in values.items()
+        ]
     )
     nulls = [
         pl.lit(None, dtype=dtype).alias(name)
@@ -506,9 +509,14 @@ def _run_triage(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
         catalog, include_references=params.include_references
     )
     metrics = params.metrics or [
-        str(name) for name in catalog.metric_dictionary()
+        str(name)
+        for name in catalog.metric_dictionary()
         .filter(pl.col("scope").is_in(["episodes", "robots"]))
-        .select("metric").unique().sort("metric").collect().get_column("metric")
+        .select("metric")
+        .unique()
+        .sort("metric")
+        .collect()
+        .get_column("metric")
     ]
     group_cols = ["planner", "world", "crowd_condition"]
     counts = (
@@ -1145,22 +1153,51 @@ def _run_attribution_shares(
 _PROCEDURES: dict[str, ProcedureSpec] = {
     spec_name: ProcedureSpec(spec_name, description, model, fn)
     for spec_name, description, model, fn in (
-        ("triage", "Episode usability per planner/world/condition with the invalid-reason "
-         "breakdown and each metric's missing counts.", TriageParams, _run_triage),
-        ("compare", "Paired planner comparison with cluster-bootstrap CI, exclusion counts, "
-         "and a typed reason when the cell has no complete pair.", CompareParams, _run_compare),
-        ("ranking_stability", "Rank repeatability: pair swaps across crowd conditions, "
-         "Kendall's W across worlds, seed-half agreement, and per-planner seed-bootstrap "
-         "rank intervals.", RankingStabilityParams, _run_ranking_stability),
-        ("visibility_effect", "Whether the crowd-condition rank swap count exceeds the seed-half "
-         "swap count, with a seed-clustered bootstrap interval on the difference.",
-         VisibilityEffectParams, _run_visibility_effect),
-        ("lead_measures", "Select measures by planner separation on the discovery seeds, then "
-         "count the separated planner pairs on the verification seeds using each planner's "
-         "seed interval.", LeadMeasuresParams, _run_lead_measures),
-        ("attribution_shares", "Pedestrian-contact closing shares of valid episodes, pooled from "
-         "the contact parts, with the frozen-robot persistence and the pooled Probst "
-         "responsibility.", AttributionSharesParams, _run_attribution_shares),
+        (
+            "triage",
+            "Episode usability per planner/world/condition with the invalid-reason "
+            "breakdown and each metric's missing counts.",
+            TriageParams,
+            _run_triage,
+        ),
+        (
+            "compare",
+            "Paired planner comparison with cluster-bootstrap CI, exclusion counts, "
+            "and a typed reason when the cell has no complete pair.",
+            CompareParams,
+            _run_compare,
+        ),
+        (
+            "ranking_stability",
+            "Rank repeatability: pair swaps across crowd conditions, "
+            "Kendall's W across worlds, seed-half agreement, and per-planner seed-bootstrap "
+            "rank intervals.",
+            RankingStabilityParams,
+            _run_ranking_stability,
+        ),
+        (
+            "visibility_effect",
+            "Whether the crowd-condition rank swap count exceeds the seed-half "
+            "swap count, with a seed-clustered bootstrap interval on the difference.",
+            VisibilityEffectParams,
+            _run_visibility_effect,
+        ),
+        (
+            "lead_measures",
+            "Select measures by planner separation on the discovery seeds, then "
+            "count the separated planner pairs on the verification seeds using each planner's "
+            "seed interval.",
+            LeadMeasuresParams,
+            _run_lead_measures,
+        ),
+        (
+            "attribution_shares",
+            "Pedestrian-contact closing shares of valid episodes, pooled from "
+            "the contact parts, with the frozen-robot persistence and the pooled Probst "
+            "responsibility.",
+            AttributionSharesParams,
+            _run_attribution_shares,
+        ),
     )
 }
 

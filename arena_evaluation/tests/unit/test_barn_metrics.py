@@ -351,5 +351,3 @@ def test_registry_reports_the_score_beside_the_native_metrics():
         key: NULLS[key] for key in NULLS if key != "barn_optimal_time"
     }
     assert skipped["barn_optimal_time"] == pytest.approx(5.0)
-
-

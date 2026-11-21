@@ -25,5 +25,3 @@ def test_pose_frame_is_the_most_frequent_parent_inside_the_window() -> None:
 def test_pose_frame_is_none_when_the_window_excludes_every_row() -> None:
     tf_gt = pl.DataFrame({"t_ns": [1, 2], "parent_frame": ["map", "map"]})
     assert pose_frame(tf_gt, (10, 20)) is None
-
-

@@ -40,7 +40,12 @@ class LockstepSummary:
     def verdict(self) -> str:
         if not self.active:
             return "inactive"
-        if self.max_stall_s >= STALL_FAIL_S or not self.beat_seen or self.ticks == 0 or self.beats == 0:
+        if (
+            self.max_stall_s >= STALL_FAIL_S
+            or not self.beat_seen
+            or self.ticks == 0
+            or self.beats == 0
+        ):
             return "fail"
         return "pass"
 
@@ -100,15 +105,25 @@ class _Counters:
         """False when later belongs to a new scheduler run."""
         if later.ticks < self.ticks:
             return False
-        return all(later.due.get(t, -1) >= n for t, n in self.due.items()) and all(later.received.get(t, -1) >= n for t, n in self.received.items())
+        return all(later.due.get(t, -1) >= n for t, n in self.due.items()) and all(
+            later.received.get(t, -1) >= n for t, n in self.received.items()
+        )
 
     def plus(self, later: _Counters, base: _Counters) -> _Counters:
         """self + (later - base), per topic."""
         topics = set(self.due) | set(later.due)
         return _Counters(
             ticks=self.ticks + later.ticks - base.ticks,
-            due={t: self.due.get(t, 0) + later.due.get(t, 0) - base.due.get(t, 0) for t in topics},
-            received={t: self.received.get(t, 0) + later.received.get(t, 0) - base.received.get(t, 0) for t in topics},
+            due={
+                t: self.due.get(t, 0) + later.due.get(t, 0) - base.due.get(t, 0)
+                for t in topics
+            },
+            received={
+                t: self.received.get(t, 0)
+                + later.received.get(t, 0)
+                - base.received.get(t, 0)
+                for t in topics
+            },
         )
 
 
@@ -155,7 +170,9 @@ class LockstepMonitor:
 
     def observe(self, msg: LockstepStatus, now: float) -> None:
         waiting = set(msg.waiting_on)
-        channels = {ch.name for reg in msg.registrations for ch in reg.channels if ch.hard}
+        channels = {
+            ch.name for reg in msg.registrations for ch in reg.channels if ch.hard
+        }
         counters = _Counters.from_msg(msg)
         with self._lock:
             self._active = bool(msg.active)
@@ -183,7 +200,12 @@ class LockstepMonitor:
     def open(self, key: object, now: float, env: str = "") -> None:
         """env scopes the beat counts to channels whose topic lies under that namespace."""
         with self._lock:
-            w = _Window(active=self._active, channels=set(self._channels), env=env, base=self._counters)
+            w = _Window(
+                active=self._active,
+                channels=set(self._channels),
+                env=env,
+                base=self._counters,
+            )
             if self._waiting:
                 w.stalled_on |= self._waiting
                 w.stall_since = now
@@ -195,7 +217,12 @@ class LockstepMonitor:
             w = self._windows.pop(key)
             w.end_stall(now)
             delta = w.folded.plus(self._counters, w.base)
-            beat_topics = [t for t in delta.due if _in_env(t, w.env) and self._names.get(t, "").startswith(BEAT_PREFIXES)]
+            beat_topics = [
+                t
+                for t in delta.due
+                if _in_env(t, w.env)
+                and self._names.get(t, "").startswith(BEAT_PREFIXES)
+            ]
             return LockstepSummary(
                 active=w.active,
                 stalls=w.stalls,
@@ -210,16 +237,32 @@ class LockstepMonitor:
             )
 
 
-def format_table(header: typing.Sequence[str], table: typing.Sequence[typing.Sequence[str]]) -> str:
+def format_table(
+    header: typing.Sequence[str], table: typing.Sequence[typing.Sequence[str]]
+) -> str:
     """Aligned, left-justified column printer shared by the lockstep and efficacy reports."""
     widths = [max(len(str(r[i])) for r in (header, *table)) for i in range(len(header))]
-    lines = ["  ".join(str(c).ljust(w) for c, w in zip(row, widths, strict=True)).rstrip() for row in (header, *table)]
+    lines = [
+        "  ".join(str(c).ljust(w) for c, w in zip(row, widths, strict=True)).rstrip()
+        for row in (header, *table)
+    ]
     return "\n".join(lines)
 
 
 def format_report(rows: typing.Sequence[tuple[str, str, LockstepSummary]]) -> str:
     """One line per (contestant, stage): verdict, stalls, longest stall, mean rtf, gated ticks, beats received/due, beat channels, stalled channels."""
-    header = ("contestant", "stage", "verdict", "stalls", "max_stall_s", "rtf", "ticks", "beats", "beat_channels", "stalled_on")
+    header = (
+        "contestant",
+        "stage",
+        "verdict",
+        "stalls",
+        "max_stall_s",
+        "rtf",
+        "ticks",
+        "beats",
+        "beat_channels",
+        "stalled_on",
+    )
     table = [
         (
             contestant,

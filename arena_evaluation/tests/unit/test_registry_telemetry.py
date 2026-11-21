@@ -419,5 +419,3 @@ def _telemetry_tables() -> dict[str, type]:
         for table in registered_tables()
         if table.table_kind is TableKind.TELEMETRY
     }
-
-

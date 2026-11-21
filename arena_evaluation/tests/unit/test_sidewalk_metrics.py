@@ -1,4 +1,3 @@
-
 import numpy as np
 import polars as pl
 import pytest
@@ -184,5 +183,3 @@ def test_registry_runs_the_calculator_beside_the_native_metrics():
         scope_slice=_robot_slice(skipped_episode),
     ).results
     assert {key: skipped[key] for key in NULLS} == NULLS
-
-

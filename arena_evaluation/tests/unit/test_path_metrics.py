@@ -63,5 +63,3 @@ def test_without_an_aligned_frame_the_aggregates_and_the_series_are_absent():
         pl.DataFrame(schema=SERIES_SCHEMA),
         check_dtypes=True,
     )
-
-

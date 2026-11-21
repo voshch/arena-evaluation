@@ -5,7 +5,13 @@ import sys
 
 import polars as pl
 
-FIXTURE = pathlib.Path(__file__).parent.parent / "fixtures" / "sample_benchmark" / "episodes" / "episode_000"
+FIXTURE = (
+    pathlib.Path(__file__).parent.parent
+    / "fixtures"
+    / "sample_benchmark"
+    / "episodes"
+    / "episode_000"
+)
 
 
 def _episode(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -15,7 +21,13 @@ def _episode(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def _cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "arena_evaluation.cli", *args], capture_output=True, text=True, timeout=600, check=False)
+    return subprocess.run(
+        [sys.executable, "-m", "arena_evaluation.cli", *args],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
 
 
 def test_extract_run_dir_writes_topic_parquet(tmp_path: pathlib.Path) -> None:

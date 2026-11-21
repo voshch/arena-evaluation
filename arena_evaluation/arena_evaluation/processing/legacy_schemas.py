@@ -87,8 +87,8 @@ _LEGACY_OPTIONAL_FIELDS: typing.Final[tuple[str, ...]] = (
     "conditions",
     "phases",
 )
-_LEGACY_EPISODE_FIELDS: typing.Final[frozenset[str]] = _LEGACY_REQUIRED_FIELDS | frozenset(
-    _LEGACY_OPTIONAL_FIELDS
+_LEGACY_EPISODE_FIELDS: typing.Final[frozenset[str]] = (
+    _LEGACY_REQUIRED_FIELDS | frozenset(_LEGACY_OPTIONAL_FIELDS)
 )
 _DESCRIPTOR_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
     {"name", "model", "ns", "frame"}
@@ -296,7 +296,8 @@ def episode_schema(name: str, definition: str) -> EpisodeSchema:
     if not types:
         raise LegacySchemaError("the EpisodeRecord schema declares no field")
     return EpisodeSchema(
-        name=name, types=_validated_fields(name, types, known, required, "EpisodeRecord")
+        name=name,
+        types=_validated_fields(name, types, known, required, "EpisodeRecord"),
     )
 
 
@@ -504,7 +505,9 @@ def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
     )
 
 
-def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> EpisodeFields:
+def _episode_fields(
+    record: object, schema: EpisodeSchema, *, legacy: bool
+) -> EpisodeFields:
     """The shared native field set, with the generation-specific modes/params/optional fields filled in."""
     robot_names = tuple(str(robot) for robot in record.robots)
     integrity = _integrity_flags(record, schema)
@@ -519,9 +522,19 @@ def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> E
             flatten_params(_parameter_values(record.robots_params)),
             flatten_params(_parameter_values(record.obstacles_params)),
         )
-        human = _parameter_values(record.human_params) if schema.carries("human_params") else {}
-        task_layer, modes_payload, params_payload = None, modes_json(modes), params_yaml(params)
-        conditions = (str(record.conditions) or None) if schema.carries("conditions") else None
+        human = (
+            _parameter_values(record.human_params)
+            if schema.carries("human_params")
+            else {}
+        )
+        task_layer, modes_payload, params_payload = (
+            None,
+            modes_json(modes),
+            params_yaml(params),
+        )
+        conditions = (
+            (str(record.conditions) or None) if schema.carries("conditions") else None
+        )
         phases = (str(record.phases) or None) if schema.carries("phases") else None
         not_recorded = _legacy_not_recorded(schema)
     else:

@@ -68,7 +68,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
         state = StateFile.open(run_path)
         counts = _count_by_status(state.steps)
         total = len(manifest.steps)
-        created = manifest.created_at[:16].replace("T", " ") if manifest.created_at else ""
+        created = (
+            manifest.created_at[:16].replace("T", " ") if manifest.created_at else ""
+        )
         rows.append(
             (
                 manifest.run_id,
@@ -115,7 +117,20 @@ def _cmd_list(args: argparse.Namespace) -> int:
     ) -> str:
         return f"{str(run_id):<{col_widths[0]}}  {str(suite):<{col_widths[1]}}  {str(contest):<{col_widths[2]}}  {str(total):>{col_widths[3]}}  {str(ok):>{col_widths[4]}}  {str(partial):>{col_widths[5]}}  {str(failed):>{col_widths[6]}}  {str(skipped):>{col_widths[7]}}  {str(in_flight):>{col_widths[8]}}  {str(created)}"
 
-    print(_row("RUN_ID", "SUITE", "CONTEST", "STEPS", "OK", "PARTIAL", "FAILED", "SKIPPED", "IN_FLIGHT", "CREATED"))
+    print(
+        _row(
+            "RUN_ID",
+            "SUITE",
+            "CONTEST",
+            "STEPS",
+            "OK",
+            "PARTIAL",
+            "FAILED",
+            "SKIPPED",
+            "IN_FLIGHT",
+            "CREATED",
+        )
+    )
     for r in rows:
         print(_row(*r))
 
@@ -194,7 +209,9 @@ def _status_from_disk(data_root: pathlib.Path, run_id: str | None) -> str:
         failed=counts["failed"],
         skipped=counts["skipped"],
         in_flight=counts["in_progress"],
-        active=[(entry["key"], _ago(entry["started_at"])) for entry in status["active"]],
+        active=[
+            (entry["key"], _ago(entry["started_at"])) for entry in status["active"]
+        ],
         failed_steps=[
             (entry["key"], entry["error_kind"], entry["error_detail"])
             for entry in status["failed"]
@@ -267,7 +284,17 @@ def _cmd_tail(args: argparse.Namespace) -> int:
         time.sleep(1)
 
     try:
-        subprocess.run(["tail", "-n", "50", "-F", str(csv_path), *map(str, sorted(run_path.glob("progress.*.csv")))], check=False)
+        subprocess.run(
+            [
+                "tail",
+                "-n",
+                "50",
+                "-F",
+                str(csv_path),
+                *map(str, sorted(run_path.glob("progress.*.csv"))),
+            ],
+            check=False,
+        )
     except KeyboardInterrupt:
         pass
     return 0
@@ -298,7 +325,9 @@ def _cmd_ps(args: argparse.Namespace) -> int:
 
     print(f"{'PID':<{w_pid}}  {'KIND':<{w_kind}}  {'ELAPSED':<{w_el}}  CMD")
     for r in rows:
-        print(f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  {_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}")
+        print(
+            f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  {_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}"
+        )
     return 0
 
 
@@ -339,7 +368,9 @@ def _cmd_console(args: argparse.Namespace) -> int:
     res = tail_console(run_id, lines=args.lines)
     if not res["exists"]:
         print(f"no console log for run '{run_id}' (expected at {res['path']})")
-        print("hint: the benchmark writes runner.log as soon as it creates the run directory")
+        print(
+            "hint: the benchmark writes runner.log as soon as it creates the run directory"
+        )
         return 1
     state = "running" if res["alive"] else "finished"
     print(f"run: {run_id}  [{state}]  pid: {res['pid']}  log: {res['path']}")
@@ -354,7 +385,12 @@ def _cmd_kill(args: argparse.Namespace) -> int:
     from arena_evaluation.benchmark.debug import kill_processes
 
     try:
-        results = kill_processes(pids=args.pids or None, force=args.force, kind=args.kind, everything=args.all)
+        results = kill_processes(
+            pids=args.pids or None,
+            force=args.force,
+            kind=args.kind,
+            everything=args.all,
+        )
     except ValueError:
         from arena_evaluation.benchmark.debug import running_processes
 
@@ -382,7 +418,10 @@ def _cmd_kill(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="evaluation_cli", epilog="benchmark exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted")
+    parser = argparse.ArgumentParser(
+        prog="evaluation_cli",
+        epilog="benchmark exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_list = sub.add_parser("list", help="list benchmark runs")
@@ -390,31 +429,68 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="show run status")
     p_status.add_argument("--data-root", default=None, metavar="PATH")
-    p_status.add_argument("--watch", action="store_true", help="subscribe to live topic")
+    p_status.add_argument(
+        "--watch", action="store_true", help="subscribe to live topic"
+    )
     p_status.add_argument("run_id", nargs="?", default=None)
 
     p_tail = sub.add_parser("tail", help="tail progress.csv of a run")
     p_tail.add_argument("--data-root", default=None, metavar="PATH")
     p_tail.add_argument("run_id", nargs="?", default=None)
 
-    p_ps = sub.add_parser("ps", help="list running arena processes (benchmark runner, sim, nodes)")
+    p_ps = sub.add_parser(
+        "ps", help="list running arena processes (benchmark runner, sim, nodes)"
+    )
     p_ps.add_argument("--data-root", default=None, metavar="PATH")
 
-    p_kill = sub.add_parser("kill", help="stop arena benchmark and simulation processes: SIGINT first, SIGTERM and SIGKILL only if they survive")
-    p_kill.add_argument("pids", nargs="*", type=int, default=None, help="arena PIDs to stop (other processes are refused)")
-    p_kill.add_argument("--all", action="store_true", help="stop every arena process (bare kill stops nothing and lists them)")
-    p_kill.add_argument("-9", "--force", action="store_true", help="send SIGKILL immediately")
-    p_kill.add_argument("--kind", choices=["benchmark_runner", "simulation", "arena_runtime_node", "world_generator", "arena_cli"], default=None, help="filter by process kind")
+    p_kill = sub.add_parser(
+        "kill",
+        help="stop arena benchmark and simulation processes: SIGINT first, SIGTERM and SIGKILL only if they survive",
+    )
+    p_kill.add_argument(
+        "pids",
+        nargs="*",
+        type=int,
+        default=None,
+        help="arena PIDs to stop (other processes are refused)",
+    )
+    p_kill.add_argument(
+        "--all",
+        action="store_true",
+        help="stop every arena process (bare kill stops nothing and lists them)",
+    )
+    p_kill.add_argument(
+        "-9", "--force", action="store_true", help="send SIGKILL immediately"
+    )
+    p_kill.add_argument(
+        "--kind",
+        choices=[
+            "benchmark_runner",
+            "simulation",
+            "arena_runtime_node",
+            "world_generator",
+            "arena_cli",
+        ],
+        default=None,
+        help="filter by process kind",
+    )
 
     p_console = sub.add_parser("console", help="tail a benchmark run's console log")
     p_console.add_argument("--data-root", default=None, metavar="PATH")
-    p_console.add_argument("--lines", type=int, default=200, help="tail lines (default 200)")
-    p_console.add_argument("--follow", action="store_true", help="follow new output until the runner exits")
+    p_console.add_argument(
+        "--lines", type=int, default=200, help="tail lines (default 200)"
+    )
+    p_console.add_argument(
+        "--follow", action="store_true", help="follow new output until the runner exits"
+    )
     p_console.add_argument("run_id", nargs="?", default=None)
 
     from . import dashboard
 
-    p_serve = sub.add_parser("serve", help="serve the live web dashboard of every run under the data root until Ctrl-C, printing `viz: <url>` once listening")
+    p_serve = sub.add_parser(
+        "serve",
+        help="serve the live web dashboard of every run under the data root until Ctrl-C, printing `viz: <url>` once listening",
+    )
     dashboard.add_arguments(p_serve)
 
     args = parser.parse_args(argv)

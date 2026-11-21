@@ -28,7 +28,9 @@ def _tf(t_ns: int, child: str, tx: float) -> dict:
     }
 
 
-def test_later_record_wins_when_its_key_straddles_a_flush(tmp_path: pathlib.Path) -> None:
+def test_later_record_wins_when_its_key_straddles_a_flush(
+    tmp_path: pathlib.Path,
+) -> None:
     out = tmp_path / "topics"
     sink = TableSink(out, flush_rows=2)
     sink.append("tf", _tf(10, "body_env_0_agent_6", 1.0))
@@ -38,5 +40,7 @@ def test_later_record_wins_when_its_key_straddles_a_flush(tmp_path: pathlib.Path
 
     stored = pl.read_parquet(out / "tf.parquet")
 
-    assert stored.filter(pl.col("child_frame") == "body_env_0_agent_6")["tx"].to_list() == [3.0]
+    assert stored.filter(pl.col("child_frame") == "body_env_0_agent_6")[
+        "tx"
+    ].to_list() == [3.0]
     assert stored.height == 2

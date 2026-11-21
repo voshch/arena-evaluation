@@ -798,9 +798,7 @@ def _convert_series(
             plot,
             plot.type,
             {"computation": "series_profile", "params": params},
-            PlotChannels(
-                x="x", y="value", color=group_cols[0] if group_cols else None
-            ),
+            PlotChannels(x="x", y="value", color=group_cols[0] if group_cols else None),
             {"show_markers": True} if plot.type == "line" else {},
         ),
         "",

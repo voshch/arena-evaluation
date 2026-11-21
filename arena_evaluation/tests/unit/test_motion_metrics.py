@@ -104,8 +104,6 @@ def test_without_an_aligned_frame_aggregates_and_series_are_empty():
     )
 
 
-
-
 def _ramp_episode(
     *,
     rate_hz: float = 50.0,
@@ -138,5 +136,3 @@ def _ramp_episode(
         start_pos=[],
         goal_pos=[],
     )
-
-

@@ -191,10 +191,7 @@ def _zone_expression() -> pl.Expr:
 def _zone_value_expression(zone: str, value: str, alias: str) -> pl.Expr:
     """``value`` on the frames whose closest pedestrian sat in ``zone``, null elsewhere; the caller reduces it."""
     return (
-        pl.when(pl.col("zone") == zone)
-        .then(pl.col(value))
-        .otherwise(None)
-        .alias(alias)
+        pl.when(pl.col("zone") == zone).then(pl.col(value)).otherwise(None).alias(alias)
     )
 
 

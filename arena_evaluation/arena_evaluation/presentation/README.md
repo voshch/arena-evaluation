@@ -72,7 +72,7 @@ builder.build()
 builder.export_latex(Path("report.tex"))       # approved tables + figures, escaped
 print(builder.build_checks.failed_count, builder.build_checks.failures)
 
-# External-asset report: plotly.min.js sibling + <img src="plots/<id>.png"> instead of inline bytes
+# External-asset report: plotly.min.js sibling + external PNG files under plots/<id>.png instead of inline bytes
 ReportBuilder.from_dirs(
     source_dirs=[Path("/opt/arena_ws/data/my_benchmark")],
     output_dir=Path("./out"),
@@ -202,7 +202,7 @@ also covers the page-level summary table.
 
 - `report.html` + `plots/*.png` (+ `*.svg` via `options.vector_svg`) + inline Plotly bundle.
 - External-asset mode (`external_assets=True`): the bundle moves to a sibling `plotly.min.js` and every
-  figure becomes `<img src="plots/<id>.png">`, so the HTML holds markup instead of megabytes of
+  figure becomes an `<img>` tag pointing to `plots/<id>.png`, so the HTML holds markup instead of megabytes of
   base64 + script.
 - Size budget: **inline ≤ 300 KB per plot** (the `everything` report measured 21.6 MB / 84 plots =
   251 KB/plot, ~96 % of it base64 PNGs); use `external_assets=True` for reports over ~15 MB or

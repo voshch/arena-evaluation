@@ -154,5 +154,3 @@ _SEPT_PEDESTRIAN = (
     "float32 gait_phase\n"
     "string model_uri\n"
 )
-
-

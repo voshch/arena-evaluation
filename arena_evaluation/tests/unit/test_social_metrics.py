@@ -108,5 +108,3 @@ def test_intrusion_count_is_recomputed_not_taken_from_a_prior_total():
     prior = {"total_intrusions_intimate": 99, "total_intrusions_personal": 99}
     results = _calc(PedestrianIntrusionCalculator).calculate(empty, prior)
     assert results["total_intrusions_intimate"] is None
-
-

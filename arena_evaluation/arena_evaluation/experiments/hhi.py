@@ -56,8 +56,6 @@ def _default_suite_path() -> pathlib.Path:
     return _ROOT.parents[2] / "configs" / "suites" / "hhi_contact" / "suite.yaml"
 
 
-
-
 class Geometry(typing.NamedTuple):
     start: tuple[float, float, float]
     goal: tuple[float, float, float]
@@ -283,7 +281,6 @@ def generate(
         yaml.safe_dump(manifest, sort_keys=False)
     )
     return suite
-
 
 
 FAMILY_METRICS = {

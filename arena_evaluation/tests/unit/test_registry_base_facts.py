@@ -193,5 +193,3 @@ def test_fact_schema_is_pinned_in_name_and_order(table: FactTable) -> None:
 
 def test_row_keys_are_pinned() -> None:
     assert dict(FACT_KEY_COLUMNS) == _EXPECTED_KEYS
-
-

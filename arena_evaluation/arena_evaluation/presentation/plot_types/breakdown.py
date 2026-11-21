@@ -107,7 +107,11 @@ class BreakdownRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive stacked Plotly breakdown chart."""
         fig = self.build_plotly_figure(df)
-        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
+        return (
+            None
+            if fig is None
+            else fig.to_html(include_plotlyjs=False, full_html=False)
+        )
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the stacked static figure without writing it."""

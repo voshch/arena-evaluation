@@ -35,8 +35,13 @@ from arena_evaluation.storage.exceptions import ArenaEvaluationError
 _EXPORT_FORMATS: Final[tuple[str, str]] = ("svg", "pdf")
 _DRAFT_FILE: Final[str] = "draft.yaml"
 _RENDER_FAILURES: Final[tuple[type[BaseException], ...]] = (
-    KeyError, ValueError, OSError, RuntimeError, ArenaEvaluationError,
-    pydantic.ValidationError, polars.exceptions.PolarsError,
+    KeyError,
+    ValueError,
+    OSError,
+    RuntimeError,
+    ArenaEvaluationError,
+    pydantic.ValidationError,
+    polars.exceptions.PolarsError,
 )
 
 
@@ -61,10 +66,14 @@ def _load_draft(draft_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def _write_yaml(path: pathlib.Path, payload: dict[str, Any]) -> None:
-    atomic_write_text(path, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    atomic_write_text(
+        path, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    )
 
 
-def _save_draft(run_dir: pathlib.Path, draft_dir: pathlib.Path, data: dict[str, Any]) -> None:
+def _save_draft(
+    run_dir: pathlib.Path, draft_dir: pathlib.Path, data: dict[str, Any]
+) -> None:
     path = draft_dir / _DRAFT_FILE
     assert_safe_analysis_write(run_dir, path)
     _write_yaml(path, data)
@@ -93,13 +102,19 @@ def _resolver(run_dir: pathlib.Path, catalog: Any) -> Any:
     )
 
 
-def _derived_table_provenance(run_dir: pathlib.Path, source: str | None) -> dict[str, str]:
+def _derived_table_provenance(
+    run_dir: pathlib.Path, source: str | None
+) -> dict[str, str]:
     """The snapshot recorded by a ``derived_*`` table's sidecar, for the report card (H-022)."""
     if not source or not source.startswith("derived_"):
         return {}
     stem = component(source.removeprefix("derived_"), "derived table name")
     sidecar = run_dir / "analysis" / "derived" / f"{stem}.yaml"
-    raw = yaml.safe_load(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else None
+    raw = (
+        yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+        if sidecar.is_file()
+        else None
+    )
     if not isinstance(raw, dict):
         return {}
     return {
@@ -116,9 +131,15 @@ def _render_outcome(
 
     issues = "; ".join(diagnostics.issues)
     if not body:
-        return "failed", issues or f"interactive renderer produced no output for plot {plot_id!r}"
+        return (
+            "failed",
+            issues or f"interactive renderer produced no output for plot {plot_id!r}",
+        )
     if not out_png.is_file() or out_png.stat().st_size == 0:
-        return "failed", issues or f"static renderer produced no output for plot {plot_id!r}"
+        return (
+            "failed",
+            issues or f"static renderer produced no output for plot {plot_id!r}",
+        )
     if image_is_blank(out_png):
         return "failed", f"static render of plot {plot_id!r} is blank"
     return "rendered", None
@@ -187,8 +208,11 @@ def evaluation_report_draft(
     }
     _save_draft(run_dir, ddir, data)
     append_audit_event(
-        run_dir, role="reporter", tool="evaluation_report_draft",
-        args={"run_id": run_id, "from_manifest": from_manifest}, produced_ids=[draft_id],
+        run_dir,
+        role="reporter",
+        tool="evaluation_report_draft",
+        args={"run_id": run_id, "from_manifest": from_manifest},
+        produced_ids=[draft_id],
     )
     return {
         "run_id": run_dir.name,
@@ -222,7 +246,9 @@ def evaluation_report_plot(
 
     spec = PlotSpec.model_validate(plot)
     if not spec.id:
-        raise ToolError("plot.id must be non-empty", hint="set plot['id'] to a short identifier")
+        raise ToolError(
+            "plot.id must be non-empty", hint="set plot['id'] to a short identifier"
+        )
 
     catalog = BenchmarkCatalog.open(run_dir)
     resolver = _resolver(run_dir, catalog)
@@ -300,7 +326,9 @@ def evaluation_report_plot(
         _save_draft(run_dir, ddir, data)
 
     append_audit_event(
-        run_dir, role="reporter", tool="evaluation_report_plot",
+        run_dir,
+        role="reporter",
+        tool="evaluation_report_plot",
         args={"run_id": run_id, "draft_id": draft_id, "plot_id": spec.id},
         produced_ids=[spec.id],
     )
@@ -344,7 +372,9 @@ def evaluation_report_view(
     content: list[Any] = [TextContent(type="text", text=json.dumps(summary_payload))]
     img_path_str = review.get("image_path")
     if img_path_str and pathlib.Path(img_path_str).is_file():
-        encoded = base64.b64encode(pathlib.Path(img_path_str).read_bytes()).decode("ascii")
+        encoded = base64.b64encode(pathlib.Path(img_path_str).read_bytes()).decode(
+            "ascii"
+        )
         content.append(ImageContent(type="image", data=encoded, mimeType="image/png"))
     return CallToolResult(content=content, structuredContent=summary_payload)
 
@@ -378,14 +408,23 @@ def evaluation_report_review(
                 "reason": reason,
                 "note": note,
                 "by": by,
-                "reviewed_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+                "reviewed_at": datetime.datetime.now(datetime.UTC).isoformat(
+                    timespec="seconds"
+                ),
             }
         )
         _save_draft(run_dir, ddir, data)
 
     append_audit_event(
-        run_dir, role=by, tool="evaluation_report_review",
-        args={"run_id": run_id, "draft_id": draft_id, "plot_id": plot_id, "verdict": verdict},
+        run_dir,
+        role=by,
+        tool="evaluation_report_review",
+        args={
+            "run_id": run_id,
+            "draft_id": draft_id,
+            "plot_id": plot_id,
+            "verdict": verdict,
+        },
         produced_ids=[plot_id],
     )
     return {
@@ -418,9 +457,15 @@ def _verified_findings(
             verified.append(finding)
             continue
         if left_out_reason is not None:
-            left_out.append({"finding_id": finding.finding_id, "reason": left_out_reason})
+            left_out.append(
+                {"finding_id": finding.finding_id, "reason": left_out_reason}
+            )
         not_used.append(
-            {"finding_id": finding.finding_id, "status": finding.status.value, "reason": reason}
+            {
+                "finding_id": finding.finding_id,
+                "status": finding.status.value,
+                "reason": reason,
+            }
         )
     return verified, left_out, not_used
 
@@ -451,10 +496,17 @@ def _classify_reviews(
 
 
 def _write_exports(
-    *, builder: Any, run_dir: pathlib.Path, reports_root: pathlib.Path,
-    report_name: str, catalog: Any, plots_used: list[str],
-    plots_by_id: dict[str, dict[str, Any]], snapshot_id: str,
-    findings_used: list[Finding], wanted: set[str],
+    *,
+    builder: Any,
+    run_dir: pathlib.Path,
+    reports_root: pathlib.Path,
+    report_name: str,
+    catalog: Any,
+    plots_used: list[str],
+    plots_by_id: dict[str, dict[str, Any]],
+    snapshot_id: str,
+    findings_used: list[Finding],
+    wanted: set[str],
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Render the requested SVG/PDF/LaTeX exports, verify every artifact, and write its sidecar."""
     from arena_evaluation.presentation.static_renderer import StaticRenderer
@@ -495,8 +547,11 @@ def _write_exports(
                 _write_yaml(
                     pathlib.Path(f"{target}.meta.yaml"),
                     {
-                        "plot_id": pid, "format": fmt, "snapshot_id": snapshot_id,
-                        "evidence_id": diagnostics.evidence_id, "row_count": diagnostics.row_count,
+                        "plot_id": pid,
+                        "format": fmt,
+                        "snapshot_id": snapshot_id,
+                        "evidence_id": diagnostics.evidence_id,
+                        "row_count": diagnostics.row_count,
                     },
                 )
                 paths[fmt].append(str(target))
@@ -510,8 +565,10 @@ def _write_exports(
             _write_yaml(
                 pathlib.Path(f"{latex.path}.meta.yaml"),
                 {
-                    "report": report_name, "snapshot_id": snapshot_id,
-                    "tables": list(latex.tables), "figures": list(latex.figures),
+                    "report": report_name,
+                    "snapshot_id": snapshot_id,
+                    "tables": list(latex.tables),
+                    "figures": list(latex.figures),
                     "findings": [f.finding_id for f in findings_used],
                 },
             )
@@ -558,14 +615,17 @@ def evaluation_report_assemble(
             "status": finding.status.value,
             "claim": finding.claim,
             "evidence": ", ".join(
-                finding.evidence_ids or ([finding.evidence_id] if finding.evidence_id else [])
+                finding.evidence_ids
+                or ([finding.evidence_id] if finding.evidence_id else [])
             ),
         }
         for finding in findings_used
     ]
 
     approved_specs = [
-        PlotSpec.model_validate(plots_by_id[pid]) for pid in approved_ids if pid in plots_by_id
+        PlotSpec.model_validate(plots_by_id[pid])
+        for pid in approved_ids
+        if pid in plots_by_id
     ]
     manifest = VizManifest(
         name=report_name,
@@ -574,8 +634,12 @@ def evaluation_report_assemble(
         plots=approved_specs,
     )
     builder = ReportBuilder(
-        run_dir, output_dir=run_dir, manifest=manifest, findings=findings_payload,
-        findings_not_used=findings_not_used, excluded_plots=excluded_plots,
+        run_dir,
+        output_dir=run_dir,
+        manifest=manifest,
+        findings=findings_payload,
+        findings_not_used=findings_not_used,
+        excluded_plots=excluded_plots,
     )
     report_path = builder.build()
     build = builder.build_result
@@ -589,17 +653,30 @@ def evaluation_report_assemble(
     plots_used = [record.plot_id for record in build.plots if record.passed]
     plots_failed = [
         *draft_failed,
-        *(pid for pid in approved_ids if pid in build_failed and pid not in draft_failed),
+        *(
+            pid
+            for pid in approved_ids
+            if pid in build_failed and pid not in draft_failed
+        ),
     ]
 
     export_paths, export_warnings = _write_exports(
-        builder=builder, run_dir=run_dir, reports_root=reports_root, report_name=report_name,
-        catalog=catalog, plots_used=plots_used, plots_by_id=plots_by_id,
-        snapshot_id=snapshot_id, findings_used=findings_used, wanted=set(exports or []),
+        builder=builder,
+        run_dir=run_dir,
+        reports_root=reports_root,
+        report_name=report_name,
+        catalog=catalog,
+        plots_used=plots_used,
+        plots_by_id=plots_by_id,
+        snapshot_id=snapshot_id,
+        findings_used=findings_used,
+        wanted=set(exports or []),
     )
 
     append_audit_event(
-        run_dir, role="reporter", tool="evaluation_report_assemble",
+        run_dir,
+        role="reporter",
+        tool="evaluation_report_assemble",
         args={"run_id": run_id, "draft_id": draft_id, "name": report_name},
         produced_ids=[report_name],
     )

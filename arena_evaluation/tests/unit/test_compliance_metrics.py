@@ -281,5 +281,3 @@ def test_speed_metrics_are_null_with_no_samples_when_a_speed_is_not_finite():
         assert results[key] is None, key
         assert results[f"{key}{NULL_REASON_SUFFIX}"] == "no_samples", key
     assert results["quiet_zone_dwell_seconds"] == pytest.approx(2.0)
-
-

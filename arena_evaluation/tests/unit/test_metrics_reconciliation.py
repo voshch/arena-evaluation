@@ -34,5 +34,3 @@ def test_geometric_theta_star_obstacle_detour() -> None:
     assert res.null_reason is None
     assert res.length_m > np.hypot(3.0, 0.0)  # Path must be longer than straight line
     assert len(res.points) >= 3  # Start, corner waypoint(s), goal
-
-

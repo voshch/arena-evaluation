@@ -241,7 +241,9 @@ class DataResolver:
             df = self.catalog.get_table(table_source).collect()
 
         return (
-            self._apply_where_eager(df, data_spec.where if data_spec is not None else None),
+            self._apply_where_eager(
+                df, data_spec.where if data_spec is not None else None
+            ),
             evidence_id,
             snapshot_id,
         )

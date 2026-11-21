@@ -51,5 +51,3 @@ def test_trajectory_gif_is_written_when_requested(tmp_path: pathlib.Path) -> Non
     with Image.open(gif) as image:
         assert image.format == "GIF"
         assert getattr(image, "n_frames", 1) > 1
-
-

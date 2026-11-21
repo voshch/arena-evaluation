@@ -219,5 +219,3 @@ def test_a_rate_of_zero_passes_every_message(tmp_path: pathlib.Path):
         callback(String(data=str(t_ns)))
 
     assert [ts for ts, _ in _strings(read())] == [0, 0, 1, 2]
-
-

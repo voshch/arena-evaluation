@@ -319,5 +319,3 @@ def test_enforce_writes_the_report_and_raises(tmp_path: pathlib.Path) -> None:
     assert any(
         "fact_episodes" in violation["table"] for violation in payload["violations"]
     )
-
-

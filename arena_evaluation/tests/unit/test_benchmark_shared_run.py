@@ -52,7 +52,9 @@ def _make_manifest(**overrides: object) -> Manifest:
     return Manifest(**base)  # type: ignore[arg-type]
 
 
-def _result(key: str, status: str, started_at: float, **overrides: object) -> StepResult:
+def _result(
+    key: str, status: str, started_at: float, **overrides: object
+) -> StepResult:
     fields: dict[str, object] = dict(
         key=key,
         status=status,
@@ -70,7 +72,9 @@ def _record(info: str = "") -> types.SimpleNamespace:
     return types.SimpleNamespace(
         world="map1",
         seed=1,
-        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": []}),
+        modes=encode_modes(
+            {"robots": ["random"], "obstacles": ["random"], "modules": []}
+        ),
         robots=["jackal"],
         outcome_state=2,
         outcome_info=info,
@@ -82,7 +86,9 @@ def _record(info: str = "") -> types.SimpleNamespace:
     )
 
 
-def _append(log: ProgressLog, ts: str, step_key: str, episode_id: int, info: str = "") -> None:
+def _append(
+    log: ProgressLog, ts: str, step_key: str, episode_id: int, info: str = ""
+) -> None:
     log.append(
         ts_iso=ts,
         run_id="shared-run",
@@ -103,7 +109,10 @@ def _rows(path: pathlib.Path) -> list[dict[str, str]]:
 
 
 def _lanes(tmp_path: pathlib.Path, *lanes: str) -> list[RunDir]:
-    return [RunDir.create(tmp_path, "shared-run", _make_manifest(), lane=lane) for lane in lanes]
+    return [
+        RunDir.create(tmp_path, "shared-run", _make_manifest(), lane=lane)
+        for lane in lanes
+    ]
 
 
 def _make_step(contestant: str, stage: str, world: str) -> Step:
@@ -142,7 +151,11 @@ def test_fold_merges_state_and_dedupes_progress(tmp_path: pathlib.Path):
     assert "#" not in text
     assert text.splitlines()[0] == ProgressLog._HEADER
     rows = _rows(run / "progress.csv")
-    assert [(r["step_key"], r["episode_id"]) for r in rows] == [("b/s", "1"), ("a/s", "2"), ("a/s", "0")]
+    assert [(r["step_key"], r["episode_id"]) for r in rows] == [
+        ("b/s", "1"),
+        ("a/s", "2"),
+        ("a/s", "0"),
+    ]
     assert rows[-1]["outcome_info"] == "p2-new"
     assert (run / "progress.p1.csv").exists()
     assert (run / ".benchmark_state.p2.json").exists()
@@ -161,13 +174,28 @@ def test_fold_keeps_rows_of_a_prior_progress_csv(tmp_path: pathlib.Path):
     p1.fold()
 
     rows = _rows(run / "progress.csv")
-    assert [(r["episode_id"], r["outcome_info"]) for r in rows] == [("0", "legacy"), ("1", "")]
+    assert [(r["episode_id"], r["outcome_info"]) for r in rows] == [
+        ("0", "legacy"),
+        ("1", ""),
+    ]
 
 
-def test_fold_moves_rows_of_a_rerun_steps_earlier_attempt_to_the_superseded_file(tmp_path: pathlib.Path):
+def test_fold_moves_rows_of_a_rerun_steps_earlier_attempt_to_the_superseded_file(
+    tmp_path: pathlib.Path,
+):
     (p1,) = _lanes(tmp_path, "p1")
     run = tmp_path / "shared-run"
-    p1.state.write({"a/s": _result("a/s", "ok", datetime.datetime.fromisoformat("2026-10-03T10:00:03+00:00").timestamp())})
+    p1.state.write(
+        {
+            "a/s": _result(
+                "a/s",
+                "ok",
+                datetime.datetime.fromisoformat(
+                    "2026-10-03T10:00:03+00:00"
+                ).timestamp(),
+            )
+        }
+    )
     _append(p1.progress, "2026-10-03T10:00:01+00:00", "a/s", 0, "first attempt")
     _append(p1.progress, "2026-10-03T10:00:04+00:00", "a/s", 1, "rerun")
 
@@ -175,7 +203,9 @@ def test_fold_moves_rows_of_a_rerun_steps_earlier_attempt_to_the_superseded_file
     fold_run_dir(run)
 
     assert [r["outcome_info"] for r in _rows(run / "progress.csv")] == ["rerun"]
-    assert [r["outcome_info"] for r in _rows(run / SUPERSEDED_PROGRESS)] == ["first attempt"]
+    assert [r["outcome_info"] for r in _rows(run / SUPERSEDED_PROGRESS)] == [
+        "first attempt"
+    ]
 
 
 def test_fold_drops_partial_trailing_row(tmp_path: pathlib.Path):
@@ -197,7 +227,9 @@ def test_claim_is_exclusive_across_lanes(tmp_path: pathlib.Path):
     assert not p2.claim("tok", "abc")
     assert not p1.claim("tok", "abc")
     assert p2.claimed("tok", "abc")
-    assert (tmp_path / "shared-run" / "claims" / "tok" / "abc").read_text().strip() == "p1"
+    assert (
+        tmp_path / "shared-run" / "claims" / "tok" / "abc"
+    ).read_text().strip() == "p1"
     assert p2.claim("other-token", "abc")
 
 
@@ -214,7 +246,9 @@ def test_episode_ids_start_after_existing_episode_dirs(tmp_path: pathlib.Path):
 def test_shared_create_rejects_config_hash_mismatch(tmp_path: pathlib.Path):
     RunDir.create(tmp_path, "shared-run", _make_manifest(), lane="p1")
     with pytest.raises(ManifestMismatchError, match="config_hash"):
-        RunDir.create(tmp_path, "shared-run", _make_manifest(config_hash="1" * 40), lane="p2")
+        RunDir.create(
+            tmp_path, "shared-run", _make_manifest(config_hash="1" * 40), lane="p2"
+        )
 
 
 def test_lane_file_names(tmp_path: pathlib.Path):
@@ -229,16 +263,32 @@ def test_lane_file_names(tmp_path: pathlib.Path):
 
 
 def test_block_claim_key_is_stable_and_distinct_per_block():
-    steps = [_make_step(c, s, w) for c in ("dwb", "teb") for s, w in (("s1", "map1"), ("s2", "map1"), ("s3", "map2"))]
+    steps = [
+        _make_step(c, s, w)
+        for c in ("dwb", "teb")
+        for s, w in (("s1", "map1"), ("s2", "map1"), ("s3", "map2"))
+    ]
     world_steps = [s for s in steps if s.stage.map == "map1"]
-    keys_a = [block_claim_key(b, "map1", "gazebo") for b in group_pending(world_steps, "gazebo")]
-    keys_b = [block_claim_key(b, "map1", "gazebo") for b in group_pending(list(world_steps), "gazebo")]
+    keys_a = [
+        block_claim_key(b, "map1", "gazebo")
+        for b in group_pending(world_steps, "gazebo")
+    ]
+    keys_b = [
+        block_claim_key(b, "map1", "gazebo")
+        for b in group_pending(list(world_steps), "gazebo")
+    ]
     assert keys_a == keys_b
     assert len(set(keys_a)) == len(keys_a) == 2
-    late = [block_claim_key(b, "map1", "gazebo") for b in group_pending(world_steps[1:], "gazebo")]
+    late = [
+        block_claim_key(b, "map1", "gazebo")
+        for b in group_pending(world_steps[1:], "gazebo")
+    ]
     assert set(late) == set(keys_a)
     assert all(len(k) == 40 for k in keys_a)
-    other_world = [block_claim_key(b, "map2", "gazebo") for b in group_pending([s for s in steps if s.stage.map == "map2"], "gazebo")]
+    other_world = [
+        block_claim_key(b, "map2", "gazebo")
+        for b in group_pending([s for s in steps if s.stage.map == "map2"], "gazebo")
+    ]
     assert not set(other_world) & set(keys_a)
 
 
@@ -246,9 +296,17 @@ def _cli(args: list[str], lane: str | None) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k != "ARENA_LANE"}
     if lane is not None:
         env["ARENA_LANE"] = lane
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_PACKAGE_ROOT), os.environ.get("PYTHONPATH")]))
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(_PACKAGE_ROOT), os.environ.get("PYTHONPATH")])
+    )
     script = "import sys\nfrom arena_evaluation.benchmark.runner import cli_main\nraise SystemExit(cli_main(sys.argv[1:]))\n"
-    return subprocess.run([sys.executable, "-c", script, *args], capture_output=True, text=True, env=env, timeout=120)
+    return subprocess.run(
+        [sys.executable, "-c", script, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
 
 
 @pytest.mark.parametrize(
@@ -260,7 +318,9 @@ def _cli(args: list[str], lane: str | None) -> subprocess.CompletedProcess[str]:
         (["--shared", "../x", "--run-id", "r1"], "p1", "plain file name"),
     ],
 )
-def test_shared_flag_rejects_incomplete_arguments(tmp_path: pathlib.Path, args: list[str], lane: str | None, needle: str):
+def test_shared_flag_rejects_incomplete_arguments(
+    tmp_path: pathlib.Path, args: list[str], lane: str | None, needle: str
+):
     proc = _cli([*args, "--data-root", str(tmp_path)], lane)
     assert proc.returncode == 2
     assert needle in proc.stderr

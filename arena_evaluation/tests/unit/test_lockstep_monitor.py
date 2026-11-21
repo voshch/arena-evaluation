@@ -6,7 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from arena_evaluation.benchmark.lockstep import STALL_FAIL_S, STALL_REPORT_LAG_S, LockstepMonitor, LockstepSummary, format_report
+from arena_evaluation.benchmark.lockstep import (
+    STALL_FAIL_S,
+    STALL_REPORT_LAG_S,
+    LockstepMonitor,
+    LockstepSummary,
+    format_report,
+)
 
 
 def _status(
@@ -18,14 +24,22 @@ def _status(
     ticks: int = 0,
     counts: tuple[tuple[str, str, int, int], ...] = (),
 ) -> SimpleNamespace:
-    regs = [SimpleNamespace(caller="x", env="", channels=[SimpleNamespace(name=n, hard=True) for n in channels])]
+    regs = [
+        SimpleNamespace(
+            caller="x",
+            env="",
+            channels=[SimpleNamespace(name=n, hard=True) for n in channels],
+        )
+    ]
     return SimpleNamespace(
         active=active,
         waiting_on=list(waiting),
         measured_rtf=rtf,
         registrations=regs,
         gated_ticks=ticks,
-        counts=[SimpleNamespace(name=n, topic=t, due=d, received=r) for n, t, d, r in counts],
+        counts=[
+            SimpleNamespace(name=n, topic=t, due=d, received=r) for n, t, d, r in counts
+        ],
     )
 
 
@@ -33,16 +47,32 @@ _ENV0 = "/arena_env_node/env_0"
 _ENV1 = "/arena_env_node/env_1"
 
 
-def _counts(n: int, *, env1_received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:
+def _counts(
+    n: int, *, env1_received: int | None = None
+) -> tuple[tuple[str, str, int, int], ...]:
     return (
         ("engine", "/arena/env_0/agent_states", n, n),
         ("planner/jackal", f"{_ENV0}/jackal/lockstep/planner", n, n),
-        ("planner/jackal", f"{_ENV1}/jackal/lockstep/planner", n, n if env1_received is None else env1_received),
+        (
+            "planner/jackal",
+            f"{_ENV1}/jackal/lockstep/planner",
+            n,
+            n if env1_received is None else env1_received,
+        ),
     )
 
 
-def _nav_counts(n: int, received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:
-    return (("nav/jackal", f"{_ENV0}/jackal/lockstep/nav", n, n if received is None else received),)
+def _nav_counts(
+    n: int, received: int | None = None
+) -> tuple[tuple[str, str, int, int], ...]:
+    return (
+        (
+            "nav/jackal",
+            f"{_ENV0}/jackal/lockstep/nav",
+            n,
+            n if received is None else received,
+        ),
+    )
 
 
 def test_stall_accounting_includes_report_lag() -> None:
@@ -61,7 +91,9 @@ def test_stall_accounting_includes_report_lag() -> None:
     assert s.verdict == "fail"
 
 
-def test_window_opened_mid_stall_inherits_it_and_open_stall_closes_with_window() -> None:
+def test_window_opened_mid_stall_inherits_it_and_open_stall_closes_with_window() -> (
+    None
+):
     m = LockstepMonitor()
     m.observe(_status(waiting=("planner/jackal",)), 5.0)
     m.open("ep1", 6.0)
@@ -87,15 +119,43 @@ def test_stall_just_under_threshold_passes() -> None:
     m = LockstepMonitor()
     m.open("a", 0.0)
     m.observe(_status(waiting=("nav/jackal",)), 1.0)
-    m.observe(_status(rtf=1.0, ticks=5, counts=_nav_counts(5)), 1.0 + STALL_FAIL_S - STALL_REPORT_LAG_S - 0.1)
+    m.observe(
+        _status(rtf=1.0, ticks=5, counts=_nav_counts(5)),
+        1.0 + STALL_FAIL_S - STALL_REPORT_LAG_S - 0.1,
+    )
     assert m.close("a", 10.0).verdict == "pass"
 
 
 def test_merge_and_roundtrip() -> None:
-    a = LockstepSummary(active=True, stalls=1, stall_s=2.0, max_stall_s=2.0, rtf=2.0, channels=("nav/jackal",), stalled_on=("nav/jackal",), ticks=10, beats=9, beats_due=10)
-    b = LockstepSummary(active=True, stalls=0, stall_s=0.0, max_stall_s=0.0, rtf=4.0, channels=("engine",), ticks=5, beats=5, beats_due=5)
+    a = LockstepSummary(
+        active=True,
+        stalls=1,
+        stall_s=2.0,
+        max_stall_s=2.0,
+        rtf=2.0,
+        channels=("nav/jackal",),
+        stalled_on=("nav/jackal",),
+        ticks=10,
+        beats=9,
+        beats_due=10,
+    )
+    b = LockstepSummary(
+        active=True,
+        stalls=0,
+        stall_s=0.0,
+        max_stall_s=0.0,
+        rtf=4.0,
+        channels=("engine",),
+        ticks=5,
+        beats=5,
+        beats_due=5,
+    )
     merged = a.merge(b)
-    assert merged.stalls == 1 and merged.max_stall_s == 2.0 and merged.rtf == pytest.approx(3.0)
+    assert (
+        merged.stalls == 1
+        and merged.max_stall_s == 2.0
+        and merged.rtf == pytest.approx(3.0)
+    )
     assert (merged.ticks, merged.beats, merged.beats_due) == (15, 14, 15)
     assert merged.channels == ("engine", "nav/jackal")
     assert LockstepSummary.from_dict(merged.to_dict()) == merged
@@ -104,14 +164,69 @@ def test_merge_and_roundtrip() -> None:
 
 def test_format_report_columns() -> None:
     rows = [
-        ("drlvo", "soak", LockstepSummary(active=True, rtf=2.5, channels=("engine", "planner/jackal"), ticks=30, beats=30, beats_due=30)),
-        ("teb", "soak", LockstepSummary(active=True, stalls=2, max_stall_s=7.25, rtf=1.0, channels=("nav/jackal",), stalled_on=("nav/jackal",))),
+        (
+            "drlvo",
+            "soak",
+            LockstepSummary(
+                active=True,
+                rtf=2.5,
+                channels=("engine", "planner/jackal"),
+                ticks=30,
+                beats=30,
+                beats_due=30,
+            ),
+        ),
+        (
+            "teb",
+            "soak",
+            LockstepSummary(
+                active=True,
+                stalls=2,
+                max_stall_s=7.25,
+                rtf=1.0,
+                channels=("nav/jackal",),
+                stalled_on=("nav/jackal",),
+            ),
+        ),
     ]
     text = format_report(rows)
     lines = text.splitlines()
-    assert lines[0].split() == ["contestant", "stage", "verdict", "stalls", "max_stall_s", "rtf", "ticks", "beats", "beat_channels", "stalled_on"]
-    assert lines[1].split() == ["drlvo", "soak", "pass", "0", "0.0", "2.50", "30", "30/30", "planner/jackal", "-"]
-    assert lines[2].split() == ["teb", "soak", "fail", "2", "7.2", "1.00", "0", "0/0", "nav/jackal", "nav/jackal"]
+    assert lines[0].split() == [
+        "contestant",
+        "stage",
+        "verdict",
+        "stalls",
+        "max_stall_s",
+        "rtf",
+        "ticks",
+        "beats",
+        "beat_channels",
+        "stalled_on",
+    ]
+    assert lines[1].split() == [
+        "drlvo",
+        "soak",
+        "pass",
+        "0",
+        "0.0",
+        "2.50",
+        "30",
+        "30/30",
+        "planner/jackal",
+        "-",
+    ]
+    assert lines[2].split() == [
+        "teb",
+        "soak",
+        "fail",
+        "2",
+        "7.2",
+        "1.00",
+        "0",
+        "0/0",
+        "nav/jackal",
+        "nav/jackal",
+    ]
 
 
 def test_counter_reset_folds_the_finished_run_into_the_window() -> None:
@@ -126,6 +241,8 @@ def test_counter_reset_folds_the_finished_run_into_the_window() -> None:
 
 
 def test_summary_roundtrip_keeps_counts() -> None:
-    s = LockstepSummary(active=True, channels=("planner/jackal",), ticks=3, beats=2, beats_due=3)
+    s = LockstepSummary(
+        active=True, channels=("planner/jackal",), ticks=3, beats=2, beats_due=3
+    )
     assert LockstepSummary.from_dict(s.to_dict()) == s
     assert "ticks=3 beats=2/3 beat_channels=planner/jackal" in s.short()

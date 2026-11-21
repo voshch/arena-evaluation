@@ -241,5 +241,3 @@ def test_window_table_and_manipulation_check_raise_on_missing_columns() -> None:
         hhi.window_table(empty_missing)
     with pytest.raises(ValueError, match="manipulation_check missing required columns"):
         hhi.manipulation_check(empty_missing)
-
-

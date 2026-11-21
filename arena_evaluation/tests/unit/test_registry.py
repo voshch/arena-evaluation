@@ -111,11 +111,15 @@ def test_registry_orders_calculators_by_their_dependencies() -> None:
 
 def test_registry_refuses_a_circular_dependency() -> None:
     with pytest.raises(CircularDependencyError):
-        MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB))
+        MetricRegistry(
+            make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB)
+        )
 
 
 def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
-    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,))
+    registry = MetricRegistry(
+        make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,)
+    )
 
     with pytest.raises(SchemaViolationError, match="leaky_extra"):
         registry.run_scope(
@@ -127,7 +131,9 @@ def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
 
 
 def test_registry_refuses_a_declaration_without_a_producer() -> None:
-    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(SilentCalc,))
+    registry = MetricRegistry(
+        make_robot_params(robot_radius=0.25), calculators=(SilentCalc,)
+    )
 
     with pytest.raises(SchemaViolationError, match="silent_out"):
         registry.run_scope(

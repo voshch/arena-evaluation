@@ -21,5 +21,3 @@ def _bag_records() -> pl.DataFrame:
             "phases_yaml": [_OLD_PHASES, "", "", ""],
         }
     )
-
-

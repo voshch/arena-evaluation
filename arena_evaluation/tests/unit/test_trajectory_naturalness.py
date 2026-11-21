@@ -249,5 +249,3 @@ def _plans(xs: list[float]) -> pl.DataFrame:
             "yaw": [0.0] * len(xs),
         }
     )
-
-

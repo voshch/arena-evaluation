@@ -224,5 +224,3 @@ def test_episode_encounter_windows_without_tracks_is_empty() -> None:
 
     assert windows.height == 0
     assert windows.schema == empty_encounter_windows().schema
-
-

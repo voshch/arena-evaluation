@@ -329,5 +329,3 @@ def test_main_analyze_returns_zero_after_printing_the_tables(
     )
     assert "== planners" in capsys.readouterr().out
     assert (tmp_path / "out" / "planners.csv").is_file()
-
-

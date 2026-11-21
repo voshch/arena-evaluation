@@ -439,7 +439,10 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
     @staticmethod
     def _world_semantics_recorded(episode: AlignedEpisodeBundle) -> bool:
-        return episode.semantic_snapshot is not None and episode.semantic_snapshot.height > 0
+        return (
+            episode.semantic_snapshot is not None
+            and episode.semantic_snapshot.height > 0
+        )
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Zone and door compliance needs the recorded world semantics; without it the values are unknown."""

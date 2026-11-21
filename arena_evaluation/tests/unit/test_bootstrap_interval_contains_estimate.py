@@ -14,5 +14,3 @@ def _pair_frame(values_by_seed: list[list[float]]) -> pl.DataFrame:
                 {"planner": "B", "seed": seed, "pair_id": pair_id, "metric": 0.0}
             )
     return pl.DataFrame(rows)
-
-

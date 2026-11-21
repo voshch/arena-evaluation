@@ -42,5 +42,3 @@ def _write_minimal_benchmark(
             root / "episodes" / "episode_000" / table.relative_path()
         )
     return root
-
-

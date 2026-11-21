@@ -126,5 +126,3 @@ def _elapsed_derivation(walls: list[WallSegment], doors: list[DoorOpening]) -> f
     started = time.perf_counter()
     derive_barrier_map(walls=walls, doors=doors)
     return time.perf_counter() - started
-
-

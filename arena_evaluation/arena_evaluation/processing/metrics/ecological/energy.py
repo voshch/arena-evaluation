@@ -56,27 +56,138 @@ def _metric(
     )
 
 
-ENERGY_STATIC_WH = _metric("energy_static_wh", pl.Float64, "Wh", "Static (idle) electrical energy drawn over the scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-ENERGY_MECHANICAL_WH = _metric("energy_mechanical_wh", pl.Float64, "Wh", "Mechanical energy delivered to the drivetrain over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-ENERGY_THERMAL_WH = _metric("energy_thermal_wh", pl.Float64, "Wh", "Thermal energy dissipated in the drivetrain over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-ENERGY_TOTAL_WH = _metric("energy_total_wh", pl.Float64, "Wh", "Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power (D-15), not the device energy counter, which is kept only as a cross-check in a test.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-BATTERY_SOC_FINAL = _metric("battery_soc_final", pl.Float64, "%", "Battery state of charge at the end of the scope, as recorded: not validated against 0-100 % and not normalised to 100 at the start.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-BATTERY_SOC_DROP_PCT = _metric("battery_soc_drop_pct", pl.Float64, "%", "Battery state-of-charge drop over the scope, floored at zero.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-SPECIFIC_COST_OF_TRANSPORT = _metric("specific_cost_of_transport", pl.Float64, "1", "Energy per unit weight and distance over the scope's own path; NULL without a declared mass.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-ENERGY_PER_METER = _metric("energy_per_meter", pl.Float64, "Wh/m", "Energy per metre of the window's own path.", MetricScope.ENCOUNTER)
-PEAK_TO_MEAN_POWER_RATIO = _metric("peak_to_mean_power_ratio", pl.Float64, "1", "Peak over mean total power of the scope, after a three-sample median filter.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-STANDSTILL_ENERGY_PENALTY_WH = _metric("standstill_energy_penalty_wh", pl.Float64, "Wh", "Energy drawn while standing still, in blocks of at least half a second.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-KINETIC_ENERGY_DEMAND_J = _metric("kinetic_energy_demand_j", pl.Float64, "J", "Sum of the absolute changes in kinetic energy over the scope; NULL without angular velocity.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-FRICTION_DISSIPATION_J = _metric("friction_dissipation_j", pl.Float64, "J", "Energy dissipated by rolling friction over the scope; NULL without a declared rolling-resistance coefficient.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-MEAN_POWER_W = _metric("mean_power_w", pl.Float64, "W", "Mean electrical power of the robot over the episode.")
-POWER_PEAK_W = _metric("power_peak_w", pl.Float64, "W", "Peak total electrical power over the scope: the episode at robot scope, the window at encounter scope.", MetricScope.ROBOT, MetricScope.ENCOUNTER)
-ENERGY_SURGE_RATIO = _metric("energy_surge_ratio", pl.Float64, "1", "Mean power of the encounter window over the mean power of the episode.", MetricScope.ENCOUNTER)
+ENERGY_STATIC_WH = _metric(
+    "energy_static_wh",
+    pl.Float64,
+    "Wh",
+    "Static (idle) electrical energy drawn over the scope.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+ENERGY_MECHANICAL_WH = _metric(
+    "energy_mechanical_wh",
+    pl.Float64,
+    "Wh",
+    "Mechanical energy delivered to the drivetrain over the scope: the episode at robot scope, the window at encounter scope.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+ENERGY_THERMAL_WH = _metric(
+    "energy_thermal_wh",
+    pl.Float64,
+    "Wh",
+    "Thermal energy dissipated in the drivetrain over the scope: the episode at robot scope, the window at encounter scope.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+ENERGY_TOTAL_WH = _metric(
+    "energy_total_wh",
+    pl.Float64,
+    "Wh",
+    "Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power (D-15), not the device energy counter, which is kept only as a cross-check in a test.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+BATTERY_SOC_FINAL = _metric(
+    "battery_soc_final",
+    pl.Float64,
+    "%",
+    "Battery state of charge at the end of the scope, as recorded: not validated against 0-100 % and not normalised to 100 at the start.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+BATTERY_SOC_DROP_PCT = _metric(
+    "battery_soc_drop_pct",
+    pl.Float64,
+    "%",
+    "Battery state-of-charge drop over the scope, floored at zero.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+SPECIFIC_COST_OF_TRANSPORT = _metric(
+    "specific_cost_of_transport",
+    pl.Float64,
+    "1",
+    "Energy per unit weight and distance over the scope's own path; NULL without a declared mass.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+ENERGY_PER_METER = _metric(
+    "energy_per_meter",
+    pl.Float64,
+    "Wh/m",
+    "Energy per metre of the window's own path.",
+    MetricScope.ENCOUNTER,
+)
+PEAK_TO_MEAN_POWER_RATIO = _metric(
+    "peak_to_mean_power_ratio",
+    pl.Float64,
+    "1",
+    "Peak over mean total power of the scope, after a three-sample median filter.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+STANDSTILL_ENERGY_PENALTY_WH = _metric(
+    "standstill_energy_penalty_wh",
+    pl.Float64,
+    "Wh",
+    "Energy drawn while standing still, in blocks of at least half a second.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+KINETIC_ENERGY_DEMAND_J = _metric(
+    "kinetic_energy_demand_j",
+    pl.Float64,
+    "J",
+    "Sum of the absolute changes in kinetic energy over the scope; NULL without angular velocity.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+FRICTION_DISSIPATION_J = _metric(
+    "friction_dissipation_j",
+    pl.Float64,
+    "J",
+    "Energy dissipated by rolling friction over the scope; NULL without a declared rolling-resistance coefficient.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+MEAN_POWER_W = _metric(
+    "mean_power_w",
+    pl.Float64,
+    "W",
+    "Mean electrical power of the robot over the episode.",
+)
+POWER_PEAK_W = _metric(
+    "power_peak_w",
+    pl.Float64,
+    "W",
+    "Peak total electrical power over the scope: the episode at robot scope, the window at encounter scope.",
+    MetricScope.ROBOT,
+    MetricScope.ENCOUNTER,
+)
+ENERGY_SURGE_RATIO = _metric(
+    "energy_surge_ratio",
+    pl.Float64,
+    "1",
+    "Mean power of the encounter window over the mean power of the episode.",
+    MetricScope.ENCOUNTER,
+)
 
 _METRICS: Final[tuple[typing.Any, ...]] = (
-    ENERGY_STATIC_WH, ENERGY_MECHANICAL_WH, ENERGY_THERMAL_WH, ENERGY_TOTAL_WH,
-    BATTERY_SOC_FINAL, BATTERY_SOC_DROP_PCT, SPECIFIC_COST_OF_TRANSPORT,
-    ENERGY_PER_METER, PEAK_TO_MEAN_POWER_RATIO, STANDSTILL_ENERGY_PENALTY_WH,
-    KINETIC_ENERGY_DEMAND_J, FRICTION_DISSIPATION_J, MEAN_POWER_W, POWER_PEAK_W,
+    ENERGY_STATIC_WH,
+    ENERGY_MECHANICAL_WH,
+    ENERGY_THERMAL_WH,
+    ENERGY_TOTAL_WH,
+    BATTERY_SOC_FINAL,
+    BATTERY_SOC_DROP_PCT,
+    SPECIFIC_COST_OF_TRANSPORT,
+    ENERGY_PER_METER,
+    PEAK_TO_MEAN_POWER_RATIO,
+    STANDSTILL_ENERGY_PENALTY_WH,
+    KINETIC_ENERGY_DEMAND_J,
+    FRICTION_DISSIPATION_J,
+    MEAN_POWER_W,
+    POWER_PEAK_W,
     ENERGY_SURGE_RATIO,
 )
 _NOT_LOWER_IS_BETTER: Final[frozenset[str]] = frozenset(

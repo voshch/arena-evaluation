@@ -1190,5 +1190,3 @@ def test_constructor_auto_mode_generates_run_id_from_map_robot_planner(fake_shar
         sys.argv = old_argv
         if node is not None:
             node.destroy_node()
-
-

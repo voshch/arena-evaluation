@@ -103,5 +103,3 @@ def _assert_polygon_vertices(frame: pl.DataFrame) -> None:
         .agg(pl.len().alias("vertex_count"))
     )
     assert polygons["vertex_count"].ge(POLYGON_MIN_VERTEX_COUNT).all()
-
-

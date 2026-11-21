@@ -46,24 +46,100 @@ def _metric(
     scope: MetricScope = MetricScope.ROBOT,
 ) -> typing.Any:
     return define_metric(
-        name, dtype, scopes=(scope,), unit=unit, description=description, null_reason=True
+        name,
+        dtype,
+        scopes=(scope,),
+        unit=unit,
+        description=description,
+        null_reason=True,
     )
 
 
-BLOCKED_CLOSING_DOOR = _metric("blocked_closing_door", pl.Int64, "", "Door blocked-close episodes the robot stood in the doorway band for.")
-BLOCKED_CLOSING_DOOR_S = _metric("blocked_closing_door_s", pl.Float64, "s", "Seconds the robot stood in a door's doorway band while the door reported blocked-close.")
-PED_MECHANISM_DELAY_SECONDS = _metric("ped_mechanism_delay_seconds", pl.Float64, "s", "Pedestrian-seconds spent waiting at a closed door or elevator.", MetricScope.EPISODE)
-ELEVATOR_WAIT_TO_BOARD_S = _metric("elevator_wait_to_board_s", pl.Float64, "s", "Seconds the robot spent in an elevator's call area before boarding.")
-ELEVATOR_MISSED_CYCLES = _metric("elevator_missed_cycles", pl.Int64, "", "Complete cabin-door open-close cycles the robot let pass while waiting in the call area.")
-ELEVATOR_UNNECESSARY_CALLS = _metric("elevator_unnecessary_calls", pl.Int64, "", "Call-area visits that ended without boarding although the cabin door opened with no pedestrian waiting.")
-ENTERED_FULL_CABIN = _metric("entered_full_cabin", pl.Int64, "", "Boardings into a cabin that was already at capacity.")
-CABIN_DOOR_BLOCKING_S = _metric("cabin_door_blocking_s", pl.Float64, "s", "Seconds the robot stood still in a cabin doorway while the cabin door was open or closing.")
-DOOR_YIELD_VIOLATIONS = _metric("door_yield_violations", pl.Int64, "", "Door crossings with a pedestrian approaching from the far side within 2 m in the 2 s before.")
-ELEVATOR_QUEUE_JUMPS = _metric("elevator_queue_jumps", pl.Int64, "", "Boardings that overtook a pedestrian already waiting in the call area.")
-ALARM_EGRESS_BLOCKING_S = _metric("alarm_egress_blocking_s", pl.Float64, "s", "Seconds the robot stood still inside an egress zone while a schedule was active.")
-DOOR_FREEZE_S = _metric("door_freeze_s", pl.Float64, "s", "Seconds the robot stood still inside a steady door's activation radius.")
-DOOR_OSCILLATIONS = _metric("door_oscillations", pl.Int64, "", "Extra re-openings of a door during each robot visit.")
-BOARDED_BEFORE_EXIT = _metric("boarded_before_exit", pl.Int64, "", "Boardings into an elevator cabin while it still reported an arrival and held another agent.")
+BLOCKED_CLOSING_DOOR = _metric(
+    "blocked_closing_door",
+    pl.Int64,
+    "",
+    "Door blocked-close episodes the robot stood in the doorway band for.",
+)
+BLOCKED_CLOSING_DOOR_S = _metric(
+    "blocked_closing_door_s",
+    pl.Float64,
+    "s",
+    "Seconds the robot stood in a door's doorway band while the door reported blocked-close.",
+)
+PED_MECHANISM_DELAY_SECONDS = _metric(
+    "ped_mechanism_delay_seconds",
+    pl.Float64,
+    "s",
+    "Pedestrian-seconds spent waiting at a closed door or elevator.",
+    MetricScope.EPISODE,
+)
+ELEVATOR_WAIT_TO_BOARD_S = _metric(
+    "elevator_wait_to_board_s",
+    pl.Float64,
+    "s",
+    "Seconds the robot spent in an elevator's call area before boarding.",
+)
+ELEVATOR_MISSED_CYCLES = _metric(
+    "elevator_missed_cycles",
+    pl.Int64,
+    "",
+    "Complete cabin-door open-close cycles the robot let pass while waiting in the call area.",
+)
+ELEVATOR_UNNECESSARY_CALLS = _metric(
+    "elevator_unnecessary_calls",
+    pl.Int64,
+    "",
+    "Call-area visits that ended without boarding although the cabin door opened with no pedestrian waiting.",
+)
+ENTERED_FULL_CABIN = _metric(
+    "entered_full_cabin",
+    pl.Int64,
+    "",
+    "Boardings into a cabin that was already at capacity.",
+)
+CABIN_DOOR_BLOCKING_S = _metric(
+    "cabin_door_blocking_s",
+    pl.Float64,
+    "s",
+    "Seconds the robot stood still in a cabin doorway while the cabin door was open or closing.",
+)
+DOOR_YIELD_VIOLATIONS = _metric(
+    "door_yield_violations",
+    pl.Int64,
+    "",
+    "Door crossings with a pedestrian approaching from the far side within 2 m in the 2 s before.",
+)
+ELEVATOR_QUEUE_JUMPS = _metric(
+    "elevator_queue_jumps",
+    pl.Int64,
+    "",
+    "Boardings that overtook a pedestrian already waiting in the call area.",
+)
+ALARM_EGRESS_BLOCKING_S = _metric(
+    "alarm_egress_blocking_s",
+    pl.Float64,
+    "s",
+    "Seconds the robot stood still inside an egress zone while a schedule was active.",
+)
+DOOR_FREEZE_S = _metric(
+    "door_freeze_s",
+    pl.Float64,
+    "s",
+    "Seconds the robot stood still inside a steady door's activation radius.",
+)
+DOOR_OSCILLATIONS = _metric(
+    "door_oscillations",
+    pl.Int64,
+    "",
+    "Extra re-openings of a door during each robot visit.",
+)
+BOARDED_BEFORE_EXIT = _metric(
+    "boarded_before_exit",
+    pl.Int64,
+    "",
+    "Boardings into an elevator cabin while it still reported an arrival and held another agent.",
+)
 
 
 @dataclasses.dataclass
@@ -405,9 +481,7 @@ def _door_stats(
             if band is not None:
                 blocked_attributable = True
                 mask = np.array([v == "true" for v in blocked], dtype=bool)
-                blocked_count += sum(
-                    1 for s, e in true_runs(mask) if np.any(band[s:e])
-                )
+                blocked_count += sum(1 for s, e in true_runs(mask) if np.any(band[s:e]))
                 blocked_seconds += float(np.sum(ctx.track.dt[mask & band]))
         near = ctx.robot_near_door(entity)
         state = ctx.door_state(entity)
@@ -551,11 +625,20 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
 
     OUTPUTS = (
-        BLOCKED_CLOSING_DOOR, BLOCKED_CLOSING_DOOR_S, PED_MECHANISM_DELAY_SECONDS,
-        ELEVATOR_WAIT_TO_BOARD_S, ELEVATOR_MISSED_CYCLES, ELEVATOR_UNNECESSARY_CALLS,
-        ENTERED_FULL_CABIN, CABIN_DOOR_BLOCKING_S, DOOR_YIELD_VIOLATIONS,
-        ELEVATOR_QUEUE_JUMPS, ALARM_EGRESS_BLOCKING_S, DOOR_FREEZE_S,
-        DOOR_OSCILLATIONS, BOARDED_BEFORE_EXIT,
+        BLOCKED_CLOSING_DOOR,
+        BLOCKED_CLOSING_DOOR_S,
+        PED_MECHANISM_DELAY_SECONDS,
+        ELEVATOR_WAIT_TO_BOARD_S,
+        ELEVATOR_MISSED_CYCLES,
+        ELEVATOR_UNNECESSARY_CALLS,
+        ENTERED_FULL_CABIN,
+        CABIN_DOOR_BLOCKING_S,
+        DOOR_YIELD_VIOLATIONS,
+        ELEVATOR_QUEUE_JUMPS,
+        ALARM_EGRESS_BLOCKING_S,
+        DOOR_FREEZE_S,
+        DOOR_OSCILLATIONS,
+        BOARDED_BEFORE_EXIT,
     )
     DIRECTIONS = {metric.name: Direction.LOWER for metric in OUTPUTS}
 

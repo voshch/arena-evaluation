@@ -145,7 +145,9 @@ def test_an_interrupted_dimension_write_keeps_the_previous_file(
     assert [path for path in tmp_path.iterdir() if path.name.endswith(".tmp")] == []
 
 
-def test_a_forced_process_retires_a_stale_benchmark_stamp(tmp_path: pathlib.Path) -> None:
+def test_a_forced_process_retires_a_stale_benchmark_stamp(
+    tmp_path: pathlib.Path,
+) -> None:
     """The stamp of an older layout moves to legacy/ with the stale outputs, so the rewritten benchmark passes the check."""
     root = tmp_path / "benchmarks" / "stamped"
     root.mkdir(parents=True)
@@ -167,5 +169,3 @@ def test_retiring_keeps_a_current_benchmark_stamp(tmp_path: pathlib.Path) -> Non
     retire_legacy_outputs(root)
 
     assert (root / "benchmark_layout.yaml").is_file()
-
-

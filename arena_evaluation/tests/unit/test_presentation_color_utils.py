@@ -69,5 +69,3 @@ def test_set_global_color_palette_creates_template_when_plotly_white_missing(the
     set_global_color_palette(["#111111", "#222222"])
     assert pio.templates["plotly_white"].layout.colorway == ("#111111", "#222222")
     assert pio.templates.default == "plotly_white"
-
-

@@ -66,5 +66,3 @@ def test_recorded_constants_join_onto_each_pedestrian_row_by_ped_id() -> None:
 
     assert joined.get_column("radius_m").to_list() == [0.25, 0.25, 0.4]
     assert joined.get_column("robot_awareness").to_list() == [0.0, 0.0, 1.0]
-
-

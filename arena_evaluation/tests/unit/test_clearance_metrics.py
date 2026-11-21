@@ -96,5 +96,3 @@ def test_timeseries_takes_the_minimum_of_both_sources(calc):
         check_names=False,
         rel_tol=1e-9,
     )
-
-

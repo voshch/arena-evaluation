@@ -1,4 +1,3 @@
-
 import pytest
 
 pytest.importorskip("mcap_ros2.writer")
@@ -12,5 +11,3 @@ def _odom(x: float) -> dict:
         "pose": {"pose": {"position": {"x": x, "y": 0.0}, "orientation": {"w": 1.0}}},
         "twist": {"twist": {}},
     }
-
-

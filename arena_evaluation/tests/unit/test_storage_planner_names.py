@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 
-
-
 # falsy inputs
 
 
@@ -21,5 +19,3 @@ from __future__ import annotations
 
 
 # hypothesis properties
-
-

@@ -228,7 +228,6 @@ def _stage(case: str, arm: str, mode: str, seed: int, episodes: int) -> dict:
     }
 
 
-
 CENTERS = {
     f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()
 } | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}

@@ -79,9 +79,9 @@ def _empty_geometry() -> FrameGeometry:
 
 def _robot_track(robot_tracks: pl.DataFrame) -> pl.DataFrame:
     """Robot pose and finite-difference velocity on the track's own time axis."""
-    step_s = (
-        pl.col("robot_t_ns") - pl.col("robot_t_ns").shift(1)
-    ).cast(pl.Float64) / NS_PER_S
+    step_s = (pl.col("robot_t_ns") - pl.col("robot_t_ns").shift(1)).cast(
+        pl.Float64
+    ) / NS_PER_S
     safe_step_s = pl.when(step_s > 0.0).then(step_s).otherwise(1e-6)
     return (
         robot_tracks.select(
@@ -110,9 +110,7 @@ def _robot_track(robot_tracks: pl.DataFrame) -> pl.DataFrame:
 
 def _frames(peds: pl.DataFrame) -> pl.DataFrame:
     """One row per distinct pedestrian frame timestamp, in time order, with its integration step."""
-    step_s = (
-        pl.col("t_ns").shift(-1) - pl.col("t_ns")
-    ).cast(pl.Float64) / NS_PER_S
+    step_s = (pl.col("t_ns").shift(-1) - pl.col("t_ns")).cast(pl.Float64) / NS_PER_S
     return (
         peds.select(pl.col("t_ns").cast(pl.Int64))
         .unique()
@@ -217,9 +215,7 @@ def distances_to_pedestrians(
     return robot.join(frames, on="t_ns", how="inner").select(
         "row",
         "ped_id",
-        (
-            (pl.col("x") - pl.col("rx")).pow(2) + (pl.col("y") - pl.col("ry")).pow(2)
-        )
+        ((pl.col("x") - pl.col("rx")).pow(2) + (pl.col("y") - pl.col("ry")).pow(2))
         .sqrt()
         .alias("distance"),
     )

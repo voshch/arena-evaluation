@@ -174,5 +174,3 @@ def test_no_legacy_aliases_exist_in_catalog_module() -> None:
     assert not hasattr(catalog_module, "TELEMETRY_TABLE_NAMES")
     assert "v_contact_blame_summary" not in CANONICAL_VIEW_NAMES
     assert "v_contact_summary" in CANONICAL_VIEW_NAMES
-
-

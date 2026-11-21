@@ -225,9 +225,10 @@ def append_audit_event(
         ).hexdigest()[:12],
         "produced_ids": produced_ids or [],
     }
-    with file_lock(audit_path.with_suffix(".jsonl.lock")), audit_path.open(
-        "a", encoding="utf-8"
-    ) as fh:
+    with (
+        file_lock(audit_path.with_suffix(".jsonl.lock")),
+        audit_path.open("a", encoding="utf-8") as fh,
+    ):
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
 
 

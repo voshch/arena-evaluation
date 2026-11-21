@@ -418,15 +418,15 @@ def _level_shifted_episode(
     )
 
 
-@pytest.mark.parametrize("stored_origins", [None, (40.0, -3.0)], ids=["derived", "stored"])
+@pytest.mark.parametrize(
+    "stored_origins", [None, (40.0, -3.0)], ids=["derived", "stored"]
+)
 def test_the_encounter_point_moves_with_the_robot_level_into_the_map_frame(
     tmp_path: pathlib.Path,
     criticality: EdgeCaseCriticalityCalculator,
     stored_origins: tuple[float, float] | None,
 ) -> None:
-    out = criticality.calculate(
-        _level_shifted_episode(tmp_path, stored_origins), {}
-    )
+    out = criticality.calculate(_level_shifted_episode(tmp_path, stored_origins), {})
     assert (
         out["edge_case_pet_s"] == pytest.approx(3.0)
         and out["edge_case_pet_with"] == "edge_0"
@@ -860,5 +860,3 @@ def test_every_published_series_is_read_back_with_its_declared_class_and_a_uniqu
         frame = pl.read_parquet(path)
         assert frame.schema == table.polars_schema()
         assert not frame.select(list(table.key)).is_duplicated().any()
-
-

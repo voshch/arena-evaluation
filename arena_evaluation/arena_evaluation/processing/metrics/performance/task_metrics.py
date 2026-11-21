@@ -313,7 +313,9 @@ def _replay_phase_step(
         return []
     if index in failed:
         return (
-            [f"phase {index} recorded as failed but met in replay"] if replay_met else []
+            [f"phase {index} recorded as failed but met in replay"]
+            if replay_met
+            else []
         )
     if index not in dropped and replay_met:
         return [f"phase {index} met in replay but still pending in the record"]

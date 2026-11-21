@@ -174,5 +174,3 @@ def test_barrier_doors_carve_the_tl_map(tmp_path):
 
 
 # build_pixel_tl
-
-

@@ -156,7 +156,9 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         return {
             "collision_amount": cls._column_rising_edges(episode, "event_count"),
             "collision_amount_wall": cls._column_rising_edges(episode, "wall_count"),
-            "collision_amount_static": cls._column_rising_edges(episode, "static_count"),
+            "collision_amount_static": cls._column_rising_edges(
+                episode, "static_count"
+            ),
             "collision_amount_pedestrian": cls._column_rising_edges(
                 episode, "ped_count"
             ),

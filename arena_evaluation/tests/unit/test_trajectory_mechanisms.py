@@ -41,5 +41,3 @@ def test_trajectory_multi_world_and_missing_geometry_diagnostics(
     out = tmp_path / "traj_multi.png"
     renderer.render_static(df, out)
     assert out.exists() and out.stat().st_size > 1000
-
-

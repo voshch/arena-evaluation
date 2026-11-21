@@ -17,7 +17,9 @@ ENV = "env_3"
 PEDESTRIAN_FRAMES = {(ENV, "pedestrian_arena_peds"): frozenset({"map", ""})}
 
 
-def _tf_row(t_ns: int, parent: str, child: str, tx: float, ty: float, yaw: float = 0.0) -> dict:
+def _tf_row(
+    t_ns: int, parent: str, child: str, tx: float, ty: float, yaw: float = 0.0
+) -> dict:
     return {
         "t_ns": t_ns,
         "parent_frame": parent,
@@ -37,10 +39,16 @@ def _write(topics: pathlib.Path, name: str, rows: list[dict]) -> None:
 
 
 def _row(topics: pathlib.Path, name: str, child: str) -> dict:
-    return pl.read_parquet(topics / f"{name}.parquet").filter(pl.col("child_frame") == child).row(0, named=True)
+    return (
+        pl.read_parquet(topics / f"{name}.parquet")
+        .filter(pl.col("child_frame") == child)
+        .row(0, named=True)
+    )
 
 
-def test_recorded_transforms_from_the_map_frame_move_with_the_anchor(tmp_path: pathlib.Path) -> None:
+def test_recorded_transforms_from_the_map_frame_move_with_the_anchor(
+    tmp_path: pathlib.Path,
+) -> None:
     topics = tmp_path / "topics"
     topics.mkdir()
     _write(
@@ -76,13 +84,19 @@ def test_recorded_transforms_from_the_map_frame_move_with_the_anchor(tmp_path: p
 def test_a_rotated_environment_frame_is_refused(tmp_path: pathlib.Path) -> None:
     topics = tmp_path / "topics"
     topics.mkdir()
-    _write(topics, "tf_static", [_tf_row(0, "map", f"{ENV}/map", 10.0, 20.0, yaw=math.pi / 2)])
+    _write(
+        topics,
+        "tf_static",
+        [_tf_row(0, "map", f"{ENV}/map", 10.0, 20.0, yaw=math.pi / 2)],
+    )
 
     with pytest.raises(ValueError, match="rotated"):
         mcap_reader.align_to_environment(topics, PEDESTRIAN_FRAMES)
 
 
-def test_an_odometry_frame_that_is_not_map_aligned_is_refused(tmp_path: pathlib.Path) -> None:
+def test_an_odometry_frame_that_is_not_map_aligned_is_refused(
+    tmp_path: pathlib.Path,
+) -> None:
     topics = tmp_path / "topics"
     topics.mkdir()
     _write(

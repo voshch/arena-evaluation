@@ -142,5 +142,3 @@ def test_endpoint_inside_the_inflated_area_gives_an_explicit_null(start, goal, r
     assert path.null_reason == reason
     assert path.points is None
     assert path.length_m is None
-
-

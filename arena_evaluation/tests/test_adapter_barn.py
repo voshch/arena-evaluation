@@ -303,8 +303,6 @@ def test_convert_rejects_empty_source(tmp_path: Path):
         )
 
 
-
-
 def test_report_manifest_loads_through_the_manifest_identifier(out: Path):
     from arena_evaluation.presentation.manifest_identifier import (
         ManifestIdentifier,

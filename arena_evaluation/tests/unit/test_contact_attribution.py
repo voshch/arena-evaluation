@@ -204,8 +204,6 @@ def _contact_slice(
     )
 
 
-
-
 def test_golden_2_robot_drives_into_a_standing_pedestrian() -> None:
     """A robot driving into a stationary pedestrian: share 1 and a positive frozen-robot clearance."""
     t_s = _grid()
@@ -303,8 +301,6 @@ def test_golden_6_empty_recorded_collision_stream_is_zero_contacts_and_absent_is
     )
 
 
-
-
 @pytest.mark.parametrize(
     ("v_robot", "v_target", "expected"),
     [
@@ -334,8 +330,6 @@ def test_closing_shares_clip_the_speeds_and_leave_an_empty_ratio_null(
         assert robot_share == pytest.approx(expected[0])
         assert target_share == pytest.approx(expected[1])
         assert robot_share + target_share == pytest.approx(1.0)
-
-
 
 
 def test_a_pedestrian_without_a_recorded_track_has_no_target_scalars() -> None:
@@ -470,8 +464,6 @@ def test_a_contact_slice_without_identity_raises() -> None:
         _calculator().calculate_for_scope(episode, {}, scope_slice)
 
 
-
-
 def test_a_pedestrian_contact_without_an_obstacle_id_uses_the_nearest_track() -> None:
     """An unresolved pedestrian id resolves to the nearest recorded track."""
     t_s = _grid()
@@ -560,5 +552,3 @@ def test_absent_or_empty_robot_tracks_leave_the_contact_count_null() -> None:
 
         assert out["contact_count"] is None
         assert out["contact_count_null_reason"] == "topic_missing:robot_tracks"
-
-

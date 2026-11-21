@@ -48,11 +48,10 @@ def _formatted_cells(
 ) -> list[list[str]]:
     default_fmt = raw_format if isinstance(raw_format, str) else None
     per_col_fmt = _string_map(raw_format)
-    metric_names = (
-        [str(metric) for metric in df["metric"].to_list()]  # agent-contracts: ignore AC004 - cell export
-        if "metric" in cols
-        else None
-    )
+    metric_names: list[str] | None = None
+    if "metric" in cols:
+        # agent-contracts: ignore AC004 - cell export
+        metric_names = [str(metric) for metric in df["metric"].to_list()]
     cells_by_col: list[list[str]] = []
     for col in cols:
         col_fmt = per_col_fmt.get(col, default_fmt)

@@ -133,5 +133,3 @@ def test_progress_threshold_constant_is_the_shared_model_default():
         .default
     )
     assert default == OPEN_PROGRESS_THRESHOLD
-
-

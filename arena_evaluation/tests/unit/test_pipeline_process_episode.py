@@ -237,5 +237,3 @@ def test_process_episode_replays_the_task_on_the_episode_world(
     assert pl.read_parquet(metrics_dir / "fact_judge_disagreements.parquet").height == 0
     assert not (metrics_dir / "dim_episodes.parquet").exists()
     assert (metrics_dir / "fact_episodes.parquet").exists()
-
-

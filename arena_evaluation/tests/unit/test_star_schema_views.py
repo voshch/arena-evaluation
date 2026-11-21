@@ -102,5 +102,3 @@ def test_episode_directories_and_id_parsing(tmp_path: pathlib.Path) -> None:
     assert [d.name for d in dirs] == ["episode_000", "episode_001"]
     assert [episode_directory_id(d) for d in dirs] == [0, 1]
     assert episode_directory_id(pathlib.Path("not_an_episode")) is None
-
-

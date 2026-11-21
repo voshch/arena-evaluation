@@ -1049,5 +1049,3 @@ def test_global_and_env_writers_append_across_buffer_flushes(tmp_path: pathlib.P
     assert len(bundles["env_0_jackal"].tf.collect()) == 5001
     assert len(bundles["env_0_jackal"].pedestrian_arena_peds.collect()) == 5001
     assert len(bundles["env_0_jackal"].robot_odom.collect()) == 2
-
-

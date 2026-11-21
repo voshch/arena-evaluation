@@ -85,8 +85,6 @@ def test_a_missing_collision_count_leaves_success_null_without_samples():
     assert results[f"success{NULL_REASON_SUFFIX}"] == "no_samples"
 
 
-
-
 def _contact_slice(
     full: AlignedEpisodeBundle,
     t_start_ns: int,

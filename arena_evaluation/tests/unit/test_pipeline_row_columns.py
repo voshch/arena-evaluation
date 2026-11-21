@@ -27,5 +27,3 @@ def _episode(tmp_path: pathlib.Path, manifest: str | None = None) -> EpisodeDesc
         stage="stage_1",
         map="stage_1_world",
     )
-
-

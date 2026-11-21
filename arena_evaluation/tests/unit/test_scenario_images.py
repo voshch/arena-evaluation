@@ -20,4 +20,3 @@ class TestScenarioImages:
         export_pngs(tmp_path)
         pngs = sorted(tmp_path.glob("*.png"))
         assert len(pngs) == 8, f"expected 8 occupancy PNGs, got {len(pngs)}"
-

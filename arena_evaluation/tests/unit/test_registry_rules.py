@@ -229,5 +229,3 @@ def test_arrow_schema_declares_the_writer_types_and_nullability() -> None:
     assert schema.field("episode_id").type == pa.int64()
     assert schema.field("result").nullable is True
     assert schema.field("null_reason").nullable is True
-
-

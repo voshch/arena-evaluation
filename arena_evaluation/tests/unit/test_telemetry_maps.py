@@ -119,5 +119,3 @@ def _schema_for(message_type: type) -> Schema:
         encoding="ros2msg",
         name=f"{package}/msg/{message_type.__name__}",
     )
-
-

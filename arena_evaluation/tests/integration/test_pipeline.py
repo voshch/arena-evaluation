@@ -10,7 +10,9 @@ from arena_evaluation.storage.registry.facts import FactEpisodes
 FIXTURE = pathlib.Path(__file__).parent.parent / "fixtures" / "sample_benchmark"
 
 
-def test_process_benchmark_writes_the_star_schema_of_a_recorded_episode(tmp_path: pathlib.Path):
+def test_process_benchmark_writes_the_star_schema_of_a_recorded_episode(
+    tmp_path: pathlib.Path,
+):
     shutil.copytree(FIXTURE, tmp_path / "sample_benchmark")
     fm = FolderManager(data_root=tmp_path)
 

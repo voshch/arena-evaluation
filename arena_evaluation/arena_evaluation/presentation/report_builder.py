@@ -643,9 +643,7 @@ class ReportBuilder:
                     }
                 )
 
-            records.append(
-                _build_record(diag, plot_id=spec.id, passed=not plot_failed)
-            )
+            records.append(_build_record(diag, plot_id=spec.id, passed=not plot_failed))
 
         status_table, summary_table = self._build_summary_tables(manifest, failures)
         self._build_checks = BuildChecks(

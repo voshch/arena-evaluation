@@ -247,5 +247,3 @@ _BOUT_SCHEMA: Final[pl.Schema] = pl.Schema(
 
 def _bouts(rows: Sequence[dict[str, object]]) -> pl.DataFrame:
     return _build(rows, {"obstacle_x": None, "obstacle_y": None}, _BOUT_SCHEMA)
-
-

@@ -40,13 +40,20 @@ class RankSwapRenderer(BasePlotRenderer):
         self.validate_unique_cells(df, [x_col])
         return x_col, y_col
 
-    def _plot_data(self, df: pl.DataFrame) -> tuple[list[str], np.ndarray, str, str] | None:
+    def _plot_data(
+        self, df: pl.DataFrame
+    ) -> tuple[list[str], np.ndarray, str, str] | None:
         if df.is_empty():
             return None
         x_col, y_col = self._resolve_columns(df)
         x_title = x_col.replace("_", " ").title()
         y_title = self.format_label(y_col.replace("_", " ").title(), y_col)
-        return label_values(df, x_col).tolist(), series_values(df, y_col), x_title, y_title
+        return (
+            label_values(df, x_col).tolist(),
+            series_values(df, y_col),
+            x_title,
+            y_title,
+        )
 
     def build_plotly_figure(self, df: pl.DataFrame) -> go.Figure | None:
         """Build the interactive rank-swap figure without serializing it."""
@@ -74,7 +81,11 @@ class RankSwapRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly rank-swap bar chart."""
         fig = self.build_plotly_figure(df)
-        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
+        return (
+            None
+            if fig is None
+            else fig.to_html(include_plotlyjs=False, full_html=False)
+        )
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static rank-swap figure without writing it."""

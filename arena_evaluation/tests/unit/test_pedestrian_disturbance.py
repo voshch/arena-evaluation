@@ -94,5 +94,3 @@ def test_delay_is_null_for_single_sample():
     result = _calc(_frame([[1.0, 1.0, 0.0]], [0]))
     assert result["ped_path_deflection_m"] is None
     assert math.isnan(result["ped_velocity_delay_ratio"])
-
-

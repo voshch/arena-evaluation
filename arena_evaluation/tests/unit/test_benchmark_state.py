@@ -316,8 +316,6 @@ _OLD_COLUMNS = [
 ]  # fmt: skip
 
 
-
-
 def _write_log_lines(path: pathlib.Path, lines: list[str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 

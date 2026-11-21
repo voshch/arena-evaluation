@@ -126,7 +126,12 @@ def build_parser(default_host: str, default_port: int) -> argparse.ArgumentParse
     parser = argparse.ArgumentParser(prog="benchmark", epilog=_EPILOG)
     for flags, options in _OPTIONS:
         parser.add_argument(*flags, **options)
-    parser.add_argument("--viz-port", type=int, default=default_port, help=f"Port of the --viz dashboard on {default_host} (default {default_port}).")
+    parser.add_argument(
+        "--viz-port",
+        type=int,
+        default=default_port,
+        help=f"Port of the --viz dashboard on {default_host} (default {default_port}).",
+    )
     return parser
 
 
@@ -141,9 +146,7 @@ def data_root(share: pathlib.Path, override: str | None) -> pathlib.Path:
     return root
 
 
-def parse_extras(
-    parser: argparse.ArgumentParser, extras: list[str]
-) -> dict[str, str]:
+def parse_extras(parser: argparse.ArgumentParser, extras: list[str]) -> dict[str, str]:
     passthrough: dict[str, str] = {}
     for arg in extras:
         if not _KV_RE.match(arg):

@@ -33,7 +33,10 @@ FATAL_OUTCOME_STATE: Final[int] = 5
 def invalid_episode(why: str) -> str:
     """``invalid_episode:<why>`` token, rejected when ``why`` is outside the declared vocabulary."""
     base = why.partition(":")[0]
-    if why not in INVALID_EPISODE_REASONS and f"{base}:<topic>" not in INVALID_EPISODE_REASONS:
+    if (
+        why not in INVALID_EPISODE_REASONS
+        and f"{base}:<topic>" not in INVALID_EPISODE_REASONS
+    ):
         raise ValueError(
             f"unknown invalid_episode reason {why!r}; declare it in INVALID_EPISODE_REASONS"
         )
@@ -52,9 +55,7 @@ def teleport_reason(tracks: pl.DataFrame | None) -> str | None:
         np.diff(rows["y"].to_numpy().astype(np.float64)),
     )
     return (
-        invalid_episode("pose_teleport")
-        if np.any(steps_m > TELEPORT_STEP_M)
-        else None
+        invalid_episode("pose_teleport") if np.any(steps_m > TELEPORT_STEP_M) else None
     )
 
 
@@ -71,7 +72,11 @@ def episode_validity(
     elif (jump := teleport_reason(robot_tracks)) is not None:
         defects[jump] = None
     if outcome_state not in RANKABLE_OUTCOME_STATES:
-        why = "simulator_error" if outcome_state == FATAL_OUTCOME_STATE else "incomplete_recording"
+        why = (
+            "simulator_error"
+            if outcome_state == FATAL_OUTCOME_STATE
+            else "incomplete_recording"
+        )
         defects[invalid_episode(why)] = None
     if integrity:
         defects[invalid_episode("incomplete_recording")] = None

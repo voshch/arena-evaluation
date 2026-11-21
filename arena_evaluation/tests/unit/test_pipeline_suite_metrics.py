@@ -10,7 +10,9 @@ def _episode_dir(tmp_path: pathlib.Path, suite: dict | None) -> pathlib.Path:
     episode = run / "episodes" / "nav2" / "episode_000"
     episode.mkdir(parents=True)
     if suite is not None:
-        (run / "manifest.yaml").write_text(yaml.safe_dump({"run_id": run.name, "suite": suite}))
+        (run / "manifest.yaml").write_text(
+            yaml.safe_dump({"run_id": run.name, "suite": suite})
+        )
     return episode
 
 
@@ -26,5 +28,8 @@ def test_suite_metrics_barn_reference_from_manifest(tmp_path: pathlib.Path) -> N
 
 
 def test_suite_metrics_junk_barn_reference_ignored(tmp_path: pathlib.Path) -> None:
-    episode = _episode_dir(tmp_path, {"metrics": {"max_collisions": 1, "barn": {"path_length": {"barn_0": "long"}}}})
+    episode = _episode_dir(
+        tmp_path,
+        {"metrics": {"max_collisions": 1, "barn": {"path_length": {"barn_0": "long"}}}},
+    )
     assert _suite_metrics(episode, tmp_path) == {"max_collisions": 1}

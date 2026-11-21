@@ -30,9 +30,7 @@ class TrajectorySliceRenderer(BasePlotRenderer):
         self._resolve_columns(df)
 
     def _resolve_columns(self, df: pl.DataFrame) -> tuple[str, str]:
-        x_col, y_col = (
-            self.resolve_channel(axis, axis) or axis for axis in ("x", "y")
-        )
+        x_col, y_col = (self.resolve_channel(axis, axis) or axis for axis in ("x", "y"))
         missing = [name for name in (x_col, y_col) if name not in df.columns]
         if missing:
             missing_text = ", ".join(repr(name) for name in missing)
@@ -42,11 +40,16 @@ class TrajectorySliceRenderer(BasePlotRenderer):
             )
         return x_col, y_col
 
-    def _plot_data(self, df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray, str, str] | None:
+    def _plot_data(
+        self, df: pl.DataFrame
+    ) -> tuple[np.ndarray, np.ndarray, str, str] | None:
         if df.is_empty():
             return None
         x_col, y_col = self._resolve_columns(df)
-        x_title, y_title = x_col.replace("_", " ").title(), y_col.replace("_", " ").title()
+        x_title, y_title = (
+            x_col.replace("_", " ").title(),
+            y_col.replace("_", " ").title(),
+        )
         return series_values(df, x_col), series_values(df, y_col), x_title, y_title
 
     def build_plotly_figure(self, df: pl.DataFrame) -> go.Figure | None:
@@ -76,7 +79,11 @@ class TrajectorySliceRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly trajectory-slice line."""
         fig = self.build_plotly_figure(df)
-        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
+        return (
+            None
+            if fig is None
+            else fig.to_html(include_plotlyjs=False, full_html=False)
+        )
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static trajectory-slice figure without writing it."""

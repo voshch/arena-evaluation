@@ -6,13 +6,28 @@ import pytest
 
 EPISODE = "episode_000"
 TOPIC = "/arena/env_0/arena_env_node/jackal/cmd_vel"
-MOVED = ("_enter_episode_dir", "_open_writer", "_close_current_writer", "_write_serialized", "_register_topic", "_ensure_topic_in_bag", "_finalize_episode_metadata")
+MOVED = (
+    "_enter_episode_dir",
+    "_open_writer",
+    "_close_current_writer",
+    "_write_serialized",
+    "_register_topic",
+    "_ensure_topic_in_bag",
+    "_finalize_episode_metadata",
+)
 
 
 def metadata(episode_id: int = 0):
     from arena_evaluation.ingestion.metadata import IngestionMetadata
 
-    return IngestionMetadata.create_episode_metadata(benchmark_id="run", planner="teb", stage="stage", map_name="unknown", episode_id=episode_id, robot_model="jackal")
+    return IngestionMetadata.create_episode_metadata(
+        benchmark_id="run",
+        planner="teb",
+        stage="stage",
+        map_name="unknown",
+        episode_id=episode_id,
+        robot_model="jackal",
+    )
 
 
 def record(writer, directory: Path, speeds: list[float]):
@@ -55,9 +70,13 @@ def test_open_episode_raises_when_the_bag_cannot_open(tmp_path: Path):
     from arena_evaluation.ingestion.episode_writer import EpisodeWriter
 
     (tmp_path / "share" / "config").mkdir(parents=True)
-    (tmp_path / "share" / "config" / "mcap_writer_options.yaml").write_text("compression: [unclosed\n")
+    (tmp_path / "share" / "config" / "mcap_writer_options.yaml").write_text(
+        "compression: [unclosed\n"
+    )
     with pytest.raises(RuntimeError, match="no MCAP writer"):
-        EpisodeWriter(base_dir=str(tmp_path / "share")).open_episode(tmp_path / "run" / "episodes" / EPISODE, metadata())
+        EpisodeWriter(base_dir=str(tmp_path / "share")).open_episode(
+            tmp_path / "run" / "episodes" / EPISODE, metadata()
+        )
 
 
 def test_bag_an_earlier_writer_left_unclosed_is_kept_aside(writer, tmp_path: Path):
@@ -65,7 +84,11 @@ def test_bag_an_earlier_writer_left_unclosed_is_kept_aside(writer, tmp_path: Pat
     (directory / EPISODE).mkdir(parents=True)
     (directory / EPISODE / "stale.mcap").write_bytes(b"stale")
     record(writer, directory, [0.1])
-    assert sorted(p.name for p in directory.iterdir()) == [f"{EPISODE}.mcap", f"{EPISODE}.yaml", f"{EPISODE}_unclosed_0"]
+    assert sorted(p.name for p in directory.iterdir()) == [
+        f"{EPISODE}.mcap",
+        f"{EPISODE}.yaml",
+        f"{EPISODE}_unclosed_0",
+    ]
     assert (directory / f"{EPISODE}_unclosed_0" / "stale.mcap").read_bytes() == b"stale"
 
 

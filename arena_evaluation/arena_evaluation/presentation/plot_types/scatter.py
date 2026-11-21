@@ -127,9 +127,7 @@ class ScatterRenderer(BasePlotRenderer):
 
         fig, ax = new_figure()
         sns.scatterplot(data=pdf, x=x_col, y=y_col, ax=ax, **artist_kwargs)
-        finish_axes(
-            ax, title=title, x_label=x_label, y_label=y_label, grid_axis="both"
-        )
+        finish_axes(ax, title=title, x_label=x_label, y_label=y_label, grid_axis="both")
         fig.tight_layout()
         self.save_figure(fig, out_path)
         plt.close(fig)

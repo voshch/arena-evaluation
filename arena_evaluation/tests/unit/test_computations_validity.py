@@ -145,5 +145,3 @@ def test_radar_profile_nulls_untransformable_columns_and_reports_them(
     assert result.summary["normalized_score"].to_list() == [None, None]
     assert "radar_untransformable:mean_velocity_mps=2" in result.diagnostics
     assert "directions_from_param=1:mean_velocity_mps" in result.diagnostics
-
-

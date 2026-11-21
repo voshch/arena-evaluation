@@ -263,7 +263,11 @@ class SystemSampler:
                     continue
                 if dev.startswith("nvme") and "p" in dev:
                     continue
-                if dev.startswith("loop") or dev.startswith("ram") or dev.startswith("dm-"):
+                if (
+                    dev.startswith("loop")
+                    or dev.startswith("ram")
+                    or dev.startswith("dm-")
+                ):
                     continue
                 total_read += int(parts[5])
                 total_write += int(parts[9])
@@ -396,8 +400,12 @@ class SimulationProfiler:
 
         dt = snap.timestamp - self._prev_disk_ts
         if dt > 0:
-            read_rate = (snap.disk_read_bytes - self._prev_disk_read) / dt / (1024 * 1024)
-            write_rate = (snap.disk_write_bytes - self._prev_disk_write) / dt / (1024 * 1024)
+            read_rate = (
+                (snap.disk_read_bytes - self._prev_disk_read) / dt / (1024 * 1024)
+            )
+            write_rate = (
+                (snap.disk_write_bytes - self._prev_disk_write) / dt / (1024 * 1024)
+            )
             self._disk_read_mbps.update(max(0.0, read_rate))
             self._disk_write_mbps.update(max(0.0, write_rate))
 
@@ -489,7 +497,9 @@ class _PhaseStats:
 
     duration_s: float = 0.0
     cpu: _RunningStats = dataclasses.field(default_factory=_RunningStats)
-    per_core: _PerCoreAccumulator = dataclasses.field(default_factory=_PerCoreAccumulator)
+    per_core: _PerCoreAccumulator = dataclasses.field(
+        default_factory=_PerCoreAccumulator
+    )
     ram_mb: _RunningStats = dataclasses.field(default_factory=_RunningStats)
     gpu_util: _RunningStats = dataclasses.field(default_factory=_RunningStats)
     vram_mb: _RunningStats = dataclasses.field(default_factory=_RunningStats)
@@ -584,8 +594,14 @@ class PipelineProfiler:
 
                     dt = snap.timestamp - prev_disk_ts
                     if dt > 0:
-                        read_rate = (snap.process_read_bytes - prev_disk_r) / dt / (1024 * 1024)
-                        write_rate = (snap.process_write_bytes - prev_disk_w) / dt / (1024 * 1024)
+                        read_rate = (
+                            (snap.process_read_bytes - prev_disk_r) / dt / (1024 * 1024)
+                        )
+                        write_rate = (
+                            (snap.process_write_bytes - prev_disk_w)
+                            / dt
+                            / (1024 * 1024)
+                        )
                         stats.disk_read_mbps.update(max(0.0, read_rate))
                         stats.disk_write_mbps.update(max(0.0, write_rate))
 

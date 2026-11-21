@@ -1,4 +1,3 @@
-
 import numpy as np
 import pytest
 from robot_params_factory import make_robot_params
@@ -96,12 +95,6 @@ def _ctx(t_ns, pos_x=None, pos_y=None, snapshot=None, data=None, peds=None, zone
     )
 
 
-
-
-
-
-
-
 def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
     snapshot = snapshot_frame(
         [
@@ -121,10 +114,6 @@ def test_entity_atom_resolves_a_world_entity_without_its_level_suffix():
     assert quiet_ok is True and list(quiet_series) == [False, True]
     assert lift_series is None and lift_ok is False
     assert _entity_roster(snapshot)["jackal"] == "env_0/jackal"
-
-
-
-
 
 
 def _ped_data(t_ns, names, positions):
@@ -182,10 +171,6 @@ def test_ped_zone_zero_order_hold_and_before_first_sample_false():
     assert list(series) == [False, True, False]
 
 
-
-
-
-
 def test_calculate_all_none_when_world_absent():
     calc = _calc()
     data = pl.DataFrame(
@@ -226,8 +211,6 @@ def test_calculate_success_when_all_true():
     assert results["clauses_total"] == 1
 
     assert set(results) == set(calc.output_keys())
-
-
 
 
 def _gestures(rows):
@@ -334,8 +317,6 @@ def test_calculate_plays_atom_from_the_recorded_gestures():
     assert results["clauses_unknown"] == 3
 
 
-
-
 def _wardrobe_snapshot():
     return snapshot_frame(
         [
@@ -370,8 +351,6 @@ def _wardrobe_snapshot():
     )
 
 
-
-
 def _fleet_pose_frame(x_m: float) -> pl.DataFrame:
     """Two judge-pose samples of one other robot standing at `x_m`."""
     return pl.DataFrame(
@@ -382,5 +361,3 @@ def _fleet_pose_frame(x_m: float) -> pl.DataFrame:
             "yaw": np.zeros(2, dtype=np.float64),
         }
     )
-
-

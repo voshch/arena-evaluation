@@ -328,7 +328,10 @@ class SeriesMotionMetrics(
 
 
 class SeriesPathMetrics(
-    _TimedSeries, name="series_path_metrics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries,
+    name="series_path_metrics",
+    kind=TableKind.SERIES,
+    scope=MetricScope.ROBOT,
 ):
     """Path samples of the robot: its ground-truth and odometry trajectory with the geometry at each sample."""
 
@@ -433,7 +436,10 @@ class SeriesPedestrianPathMetrics(
 
 
 class SeriesProxemics(
-    _TimedSeries, name="series_proxemics", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries,
+    name="series_proxemics",
+    kind=TableKind.SERIES,
+    scope=MetricScope.ROBOT,
 ):
     """Personal-space samples: how many pedestrians sit inside the robot's personal space at each sample."""
 
@@ -459,7 +465,10 @@ class SeriesProxemicsExtended(
 
 
 class SeriesSocialForces(
-    _TimedSeries, name="series_social_forces", kind=TableKind.SERIES, scope=MetricScope.ROBOT
+    _TimedSeries,
+    name="series_social_forces",
+    kind=TableKind.SERIES,
+    scope=MetricScope.ROBOT,
 ):
     """Force samples: the social force of the robot on the pedestrians and their personal-space index, one row per frame."""
 

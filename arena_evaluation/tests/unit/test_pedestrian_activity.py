@@ -52,5 +52,3 @@ def test_a_complete_track_sums_every_step() -> None:
     peds = _track([0.0, 3.0, 3.0], [0.0, 0.0, 4.0])
 
     assert _total_distance_m(peds) == pytest.approx(7.0)
-
-

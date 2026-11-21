@@ -53,5 +53,3 @@ def _write_image(path: pathlib.Path, pixels: list[list[int]]) -> pathlib.Path:
     image.putdata([value for row in pixels for value in row])
     image.save(path)
     return path
-
-

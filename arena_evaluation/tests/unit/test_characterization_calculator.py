@@ -1,6 +1,5 @@
 """Unit tests for the CharacterizationCalculator (ecological metric)."""
 
-
 import polars as pl
 import pytest
 from polars.testing import assert_series_equal
@@ -307,5 +306,3 @@ def test_joints_and_power_work_with_production_aligned_schema():
     assert joints_out["char_sample_count"] == 3
     # Joints carry mechanical power, not an acoustic level: no built-in profile stands in for the recording.
     assert joints_out["char_leq_dba"] is None
-
-

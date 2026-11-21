@@ -86,7 +86,10 @@ def evaluation_console(
             if lane is not None
             else [
                 None,
-                *sorted(log.stem.removeprefix("runner.") for log in path.glob("runner.*.log")),
+                *sorted(
+                    log.stem.removeprefix("runner.")
+                    for log in path.glob("runner.*.log")
+                ),
             ]
         )
     ]

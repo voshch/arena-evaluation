@@ -50,5 +50,3 @@ def test_speed_from_pose_single_sample_is_zero(probe):
     out = probe.speed_from_pose(np.array([1.0]), np.array([1.0]), np.array([0]))
     assert len(out) == 1
     assert np.isnan(out[0])
-
-

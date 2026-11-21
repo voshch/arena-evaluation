@@ -153,5 +153,3 @@ def test_requested_exports_are_written_and_validated(
         assert target.is_file() and target.stat().st_size > 0
         assert pathlib.Path(f"{target}.meta.yaml").is_file()
     assert assembled["export_warnings"] == []
-
-

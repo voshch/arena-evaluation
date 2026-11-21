@@ -39,8 +39,16 @@ def _make_manifest(run_id: str = "r1", **overrides: object) -> Manifest:
     return Manifest(**base)  # type: ignore[arg-type]
 
 
-def _make_run(data_root: pathlib.Path, run_id: str, manifest: Manifest | None = None, state_steps: dict[str, StepResult] | None = None, progress_csv: str | None = None) -> pathlib.Path:
-    run_dir = RunDir.create(data_root, run_id, manifest or _make_manifest(run_id=run_id))
+def _make_run(
+    data_root: pathlib.Path,
+    run_id: str,
+    manifest: Manifest | None = None,
+    state_steps: dict[str, StepResult] | None = None,
+    progress_csv: str | None = None,
+) -> pathlib.Path:
+    run_dir = RunDir.create(
+        data_root, run_id, manifest or _make_manifest(run_id=run_id)
+    )
     if state_steps:
         run_dir.state.write(state_steps)
     if progress_csv is not None:
@@ -123,7 +131,9 @@ def test_status_from_disk_active_and_failed(tmp_path: pathlib.Path):
         state_steps={
             "p/s0": _sr("p/s0", "ok"),  # neither active nor failed
             "p/s1": StepResult("p/s1", "in_progress", None, 100.0, None, None, None),
-            "p/s2": StepResult("p/s2", "failed", 1, 0.0, 1.0, StepErrorKind.INTERNAL, "boom"),
+            "p/s2": StepResult(
+                "p/s2", "failed", 1, 0.0, 1.0, StepErrorKind.INTERNAL, "boom"
+            ),
         },
     )
     block = cli_mod._status_from_disk(tmp_path, "r1")
@@ -140,8 +150,6 @@ def test_cmd_status_no_run_id_resolves_latest(tmp_path: pathlib.Path, capsys):
     rc = cli_mod._cmd_status(_args(data_root=str(tmp_path), run_id=None, watch=False))
     assert "run: r2" in capsys.readouterr().out
     assert rc == 0
-
-
 
 
 def _install_watch_stubs(monkeypatch) -> types.SimpleNamespace:
@@ -210,7 +218,9 @@ def test_cmd_status_watch_stubbed(tmp_path: pathlib.Path, capsys, monkeypatch):
     assert "p/s1" in out  # active_keys rendered
 
 
-def test_cmd_status_watch_keyboard_interrupt(tmp_path: pathlib.Path, capsys, monkeypatch):
+def test_cmd_status_watch_keyboard_interrupt(
+    tmp_path: pathlib.Path, capsys, monkeypatch
+):
     state = _install_watch_stubs(monkeypatch)
 
     def run_main_kb(node_cls):  # noqa: ARG001
@@ -265,10 +275,25 @@ def test_cmd_ps_prints_rows_and_elapsed_formats(capsys, monkeypatch):
     monkeypatch.setattr(
         "arena_evaluation.benchmark.debug.running_processes",
         lambda: [
-            {"pid": 7, "kind": "benchmark_runner", "elapsed_s": None, "command": "eval benchmark r1"},
+            {
+                "pid": 7,
+                "kind": "benchmark_runner",
+                "elapsed_s": None,
+                "command": "eval benchmark r1",
+            },
             {"pid": 12, "kind": "simulation", "elapsed_s": 12.0, "command": "gz sim"},
-            {"pid": 305, "kind": "arena_runtime_node", "elapsed_s": 305.0, "command": "arena_runtime_node"},
-            {"pid": 3900, "kind": "arena_cli", "elapsed_s": 3900.0, "command": "arena_cli x"},
+            {
+                "pid": 305,
+                "kind": "arena_runtime_node",
+                "elapsed_s": 305.0,
+                "command": "arena_runtime_node",
+            },
+            {
+                "pid": 3900,
+                "kind": "arena_cli",
+                "elapsed_s": 3900.0,
+                "command": "arena_cli x",
+            },
         ],
     )
     rc = cli_mod._cmd_ps(_args(data_root=None))
@@ -291,7 +316,9 @@ def test_cmd_console_resolves_latest_run(monkeypatch, tmp_path: pathlib.Path, ca
     # so the lexicographically-largest run name wins
     _make_run(tmp_path / "benchmarks", "a_older")
     _make_run(tmp_path / "benchmarks", "z_newest")
-    rc = cli_mod._cmd_console(_args(data_root=None, run_id=None, lines=200, follow=False))
+    rc = cli_mod._cmd_console(
+        _args(data_root=None, run_id=None, lines=200, follow=False)
+    )
     out = capsys.readouterr().out
     assert rc == 1
     # resolution came from the manifest of the most recent run
@@ -325,15 +352,41 @@ def test_cmd_console_follow_until_runner_exits(capsys, monkeypatch):
     def _tail(run_id, lines):  # noqa: ARG001
         state["n"] += 1
         if state["n"] == 1:
-            return {"run_id": run_id, "path": "/logs/runner.log", "exists": True, "pid": 7, "alive": True, "truncated": False, "lines": ["a", "b"]}
+            return {
+                "run_id": run_id,
+                "path": "/logs/runner.log",
+                "exists": True,
+                "pid": 7,
+                "alive": True,
+                "truncated": False,
+                "lines": ["a", "b"],
+            }
         if state["n"] == 2:
-            return {"run_id": run_id, "path": "/logs/runner.log", "exists": False, "pid": 7, "alive": True, "truncated": False, "lines": []}
-        return {"run_id": run_id, "path": "/logs/runner.log", "exists": True, "pid": 7, "alive": False, "truncated": False, "lines": ["a", "b", "c"]}
+            return {
+                "run_id": run_id,
+                "path": "/logs/runner.log",
+                "exists": False,
+                "pid": 7,
+                "alive": True,
+                "truncated": False,
+                "lines": [],
+            }
+        return {
+            "run_id": run_id,
+            "path": "/logs/runner.log",
+            "exists": True,
+            "pid": 7,
+            "alive": False,
+            "truncated": False,
+            "lines": ["a", "b", "c"],
+        }
 
     monkeypatch.setattr("arena_evaluation.benchmark.debug.tail_console", _tail)
     monkeypatch.setattr(cli_mod.time, "sleep", lambda secs: None)
 
-    rc = cli_mod._cmd_console(_args(data_root=None, run_id="r1", lines=200, follow=True))
+    rc = cli_mod._cmd_console(
+        _args(data_root=None, run_id="r1", lines=200, follow=True)
+    )
     out = capsys.readouterr().out
     assert rc == 0
     assert out.count("console log:") == 1  # header printed once
@@ -361,7 +414,9 @@ def test_main_status_command(tmp_path: pathlib.Path, capsys):
 
 
 def test_main_ps_command_no_processes(capsys, monkeypatch):
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.running_processes", lambda: [])
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.running_processes", lambda: []
+    )
     assert cli_mod.main(["ps"]) == 0
     assert "no arena processes running" in capsys.readouterr().out
 
@@ -388,10 +443,22 @@ def test_main_bare_kill_stops_nothing_and_asks_for_targets(capsys):
 
 def test_main_kill_with_processes(capsys, monkeypatch):
     killed = [
-        {"pid": 1234, "kind": "benchmark_runner", "command": "python benchmark ...", "status": "killed"},
-        {"pid": 5678, "kind": "simulation", "command": "gz sim ...", "status": "force_killed"},
+        {
+            "pid": 1234,
+            "kind": "benchmark_runner",
+            "command": "python benchmark ...",
+            "status": "killed",
+        },
+        {
+            "pid": 5678,
+            "kind": "simulation",
+            "command": "gz sim ...",
+            "status": "force_killed",
+        },
     ]
-    monkeypatch.setattr("arena_evaluation.benchmark.debug.kill_processes", lambda **kwargs: killed)
+    monkeypatch.setattr(
+        "arena_evaluation.benchmark.debug.kill_processes", lambda **kwargs: killed
+    )
     assert cli_mod.main(["kill", "1234", "5678", "-9"]) == 0
     out = capsys.readouterr().out
     assert "[killed] pid 1234 (benchmark_runner)" in out

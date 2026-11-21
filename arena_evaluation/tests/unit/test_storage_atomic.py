@@ -17,5 +17,3 @@ def test_atomic_write_bytes_replaces_the_document(tmp_path: pathlib.Path) -> Non
     atomic_write_bytes(path, b"new")
 
     assert path.read_bytes() == b"new"
-
-

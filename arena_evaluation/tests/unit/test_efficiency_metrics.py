@@ -151,5 +151,3 @@ def test_layer2_relative_throughput_is_deferred_to_catalog_reference_join():
 
     assert results["relative_throughput"] is None
     assert results["relative_throughput_null_reason"] == "reference_missing"
-
-

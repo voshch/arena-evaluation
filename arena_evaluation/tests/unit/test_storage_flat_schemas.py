@@ -51,5 +51,3 @@ def test_a_registered_schema_has_no_nested_dtype(name: str, schema: pl.Schema) -
         if isinstance(dtype, _NESTED_DTYPES)
     }
     assert not nested, f"{name} has nested columns {nested}"
-
-

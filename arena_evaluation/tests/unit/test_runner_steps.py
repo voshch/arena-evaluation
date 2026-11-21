@@ -134,12 +134,6 @@ def test_runtime_launch_args_keep_an_explicit_paused_lockstep():
     )
 
 
-
-
-
-
-
-
 def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(
     tmp_path: pathlib.Path,
 ):
@@ -197,8 +191,6 @@ def test_planner_identity_falls_back_to_the_contestant_name():
     ) == split_planner_name("teb-spline")
 
 
-
-
 def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
     jackal = _step("a", _stage("s1", robot="jackal", world="w1"))
     burger = _step("b", _stage("s2", robot="burger", world="w1"))
@@ -224,14 +216,6 @@ def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
     ]
 
 
-
-
-
-
-
-
-
-
 def test_robot_without_an_assembly_is_judged_by_its_model_sensors():
     pytest.importorskip("arena_robots")
 
@@ -249,8 +233,6 @@ def test_default_run_id_without_lane():
     assert _default_run_id("{stages: []}", "allplanners", None).endswith(
         "-inline-allplanners"
     )
-
-
 
 
 def _manifest(config_hash: str) -> Manifest:

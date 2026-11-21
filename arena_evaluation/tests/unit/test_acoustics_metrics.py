@@ -1,4 +1,3 @@
-
 import polars as pl
 import pytest
 
@@ -49,5 +48,3 @@ def test_acoustic_cost_is_energy_per_meter(calc):
     # 4 samples of p_0^2 * 10^6 for 1 s each, over 10 m.
     expected = ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2 * 4 * 10**6.0 / 10.0
     assert results["acoustic_cost"] == pytest.approx(expected, rel=1e-9)
-
-

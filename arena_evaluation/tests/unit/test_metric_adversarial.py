@@ -138,5 +138,3 @@ def test_gaze_adversarial_chaotic() -> None:
     # Must run without crashing
     results = calc.calculate(episode, {})
     assert "total_time_looking_at_pedestrians" in results
-
-

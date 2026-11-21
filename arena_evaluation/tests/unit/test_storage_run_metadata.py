@@ -45,5 +45,3 @@ def test_metadata_without_a_required_field_is_refused(
 
     with pytest.raises(UnmigratedMetadataError, match=missing):
         MetadataWriter.read(path)
-
-

@@ -60,14 +60,6 @@ def _bool(token: str) -> bool:
     return token.strip().lower() in ("true", "1")
 
 
-
-
-
-
-
-
-
-
 def test_entered_over_cap_zone_zero_without_any_over_cap_window():
     events = pl.DataFrame(
         {"t_ns": [], "entity": [], "kind": [], "field": [], "current": []}
@@ -80,8 +72,6 @@ def test_entered_over_cap_zone_zero_without_any_over_cap_window():
     )
 
     assert count == 0
-
-
 
 
 def test_ran_red_signal_skips_signal_without_matching_door():
@@ -104,12 +94,6 @@ def test_ran_red_signal_skips_signal_without_matching_door():
     )
 
     assert count == 0
-
-
-
-
-
-
 
 
 def test_calculate_used_elevator_during_alarm_end_to_end_without_world():

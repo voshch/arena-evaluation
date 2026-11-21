@@ -9,7 +9,11 @@ MIN_JUMP_M = 0.5
 MAX_SPEED_MPS = 5.0  # above any ground robot in the fleet; a reset moves the robot within one sample
 MIN_SEGMENT_M = 0.2  # a piece shorter than this cannot be the episode's path
 RIDE_ARRIVAL_TOLERANCE_NS = 2_000_000_000
-RIDE_ARRIVALS = {"elevator": "just_arrived", "stairs": "just_crossed", "escalator": "just_crossed"}
+RIDE_ARRIVALS = {
+    "elevator": "just_arrived",
+    "stairs": "just_crossed",
+    "escalator": "just_crossed",
+}
 
 
 def _drop_exempt(
@@ -28,7 +32,9 @@ def _drop_exempt(
     landing = log_t[jumps + 1]
     right = np.clip(np.searchsorted(arrivals, landing), 0, len(arrivals) - 1)
     left = np.clip(right - 1, 0, len(arrivals) - 1)
-    distance = np.minimum(np.abs(arrivals[left] - landing), np.abs(arrivals[right] - landing))
+    distance = np.minimum(
+        np.abs(arrivals[left] - landing), np.abs(arrivals[right] - landing)
+    )
     return jumps[distance > RIDE_ARRIVAL_TOLERANCE_NS]
 
 
@@ -51,7 +57,9 @@ def teleport_jumps(
         t = np.asarray(t_ns, dtype=np.float64)
         if len(t) == len(x):
             dt = np.diff(t) / 1e9
-            speed = np.divide(distance, dt, out=np.full_like(distance, np.inf), where=dt > 0)
+            speed = np.divide(
+                distance, dt, out=np.full_like(distance, np.inf), where=dt > 0
+            )
             teleport &= speed > MAX_SPEED_MPS
     return _drop_exempt(np.flatnonzero(teleport), exempt_ns, exempt_t_ns, len(x))
 
@@ -86,7 +94,10 @@ def ride_arrival_times(snapshot: pl.DataFrame | pl.LazyFrame | None) -> np.ndarr
     if not {"kind", "field_name", "value_bool", "entity_name", "t_ns"}.issubset(names):
         return np.array([], dtype=np.int64)
     arrival = pl.any_horizontal(
-        [(pl.col("kind") == kind) & (pl.col("field_name") == field) for kind, field in RIDE_ARRIVALS.items()]
+        [
+            (pl.col("kind") == kind) & (pl.col("field_name") == field)
+            for kind, field in RIDE_ARRIVALS.items()
+        ]
     )
     rises = (
         lazy.filter(arrival)
@@ -94,7 +105,9 @@ def ride_arrival_times(snapshot: pl.DataFrame | pl.LazyFrame | None) -> np.ndarr
         .collect()
         .sort("entity_name", "t_ns")
         .with_columns(high=pl.col("value_bool").fill_null(False))
-        .with_columns(was_high=pl.col("high").shift(1, fill_value=False).over("entity_name"))
+        .with_columns(
+            was_high=pl.col("high").shift(1, fill_value=False).over("entity_name")
+        )
         .filter(pl.col("high") & ~pl.col("was_high"))
     )
     return rises.get_column("t_ns").sort().to_numpy().astype(np.int64)

@@ -33,5 +33,3 @@ def _episode_record(outcome_state: int) -> dict:
         "conditions": "",
         "phases": "",
     }
-
-

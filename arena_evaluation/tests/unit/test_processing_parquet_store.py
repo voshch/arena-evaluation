@@ -109,5 +109,3 @@ def test_a_corrupt_table_reads_as_a_cache_miss(tmp_path):
     dest.mkdir()
     (dest / "robot_odom.parquet").write_bytes(b"not parquet data")
     assert TopicParquetStore.read(dest) is None
-
-

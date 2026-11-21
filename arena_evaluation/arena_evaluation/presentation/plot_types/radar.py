@@ -119,7 +119,9 @@ class RadarRenderer(BasePlotRenderer):
         data = self._prepare(df)
         if data is None:
             return
-        angles = np.linspace(0, 2 * np.pi, len(data.axis_labels), endpoint=False).tolist()
+        angles = np.linspace(
+            0, 2 * np.pi, len(data.axis_labels), endpoint=False
+        ).tolist()
         angles_closed = angles + [angles[0]]
         fig, ax = plt.subplots(figsize=(7.5, 7.5), subplot_kw={"polar": True})
         palette = get_color_palette()

@@ -186,14 +186,14 @@ def evaluation_query(
             ) from exc
         operation = f"stored_query:{stored_query}"
         render_error = f"Invalid parameters for {stored_query!r}"
-        render_hint = "evaluation_queries shows the declaration's parameters and defaults"
+        render_hint = (
+            "evaluation_queries shows the declaration's parameters and defaults"
+        )
     else:
         clean_query = query.strip() if query is not None else ""
         operation = f"sql:{clean_query}"
         render_error = "Invalid query parameters"
-        render_hint = (
-            "pass :placeholder names as params, or drop params for SQL without placeholders"
-        )
+        render_hint = "pass :placeholder names as params, or drop params for SQL without placeholders"
         if params:
             decl = QueryDeclaration(
                 name="ad_hoc", description="", sql=clean_query, parameters=params

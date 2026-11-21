@@ -286,12 +286,44 @@ def viz_url(job: Job) -> str | None:
 
 @domain.tool(read_only=False, destructive=False, idempotent=True)
 async def evaluation_dashboard(
-    port: Annotated[int | None, pydantic.Field(description="port to listen on (default 8765), a dashboard of the same data root already there is reused", ge=1, le=65535)] = None,
-    host: Annotated[str | None, pydantic.Field(description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)")] = None,
-    run_id: Annotated[str | None, pydantic.Field(description="run whose page the returned URL opens, the run list when omitted")] = None,
-    data_root_dir: Annotated[str | None, pydantic.Field(description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted")] = None,
-    runtime: Annotated[bool, pydantic.Field(description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls")] = False,
-    confirm_s: Annotated[float, pydantic.Field(description="seconds to wait for the server to listen", gt=0, le=60)] = 20.0,
+    port: Annotated[
+        int | None,
+        pydantic.Field(
+            description="port to listen on (default 8765), a dashboard of the same data root already there is reused",
+            ge=1,
+            le=65535,
+        ),
+    ] = None,
+    host: Annotated[
+        str | None,
+        pydantic.Field(
+            description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)"
+        ),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        pydantic.Field(
+            description="run whose page the returned URL opens, the run list when omitted"
+        ),
+    ] = None,
+    data_root_dir: Annotated[
+        str | None,
+        pydantic.Field(
+            description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted"
+        ),
+    ] = None,
+    runtime: Annotated[
+        bool,
+        pydantic.Field(
+            description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls"
+        ),
+    ] = False,
+    confirm_s: Annotated[
+        float,
+        pydantic.Field(
+            description="seconds to wait for the server to listen", gt=0, le=60
+        ),
+    ] = 20.0,
 ) -> dict[str, Any]:
     """Start `arena evaluation serve`, the live web dashboard of benchmark runs and optionally of the runtime's envs, as a job and return its URL. jobs_cancel stops it."""
     argv = _option_pairs(
@@ -332,28 +364,117 @@ async def evaluation_dashboard(
 async def evaluation_benchmark(
     suite: ConfigArg = None,
     contest: ConfigArg = None,
-    run_id: Annotated[str | None, pydantic.Field(description="run id, <utc stamp>-<suite>-<contest> when omitted, the run to continue when resume is set")] = None,
-    resume: Annotated[bool, pydantic.Field(description="continue run_id (or the most recent resumable run) from its stored config")] = False,
-    retry_failed: Annotated[bool, pydantic.Field(description="on resume also rerun failed steps")] = False,
-    retries: Annotated[int | None, pydantic.Field(description="retries per cell after a systemic failure, -1 forever, 0 never (runner default 1)")] = None,
-    max_sim_deaths: Annotated[int | None, pydantic.Field(description="abort once this many sim deaths happened")] = None,
-    lockstep_verdict: Annotated[bool, pydantic.Field(description="exit 3 when a step's lockstep report fails")] = False,
-    strict: Annotated[bool, pydantic.Field(description="exit 3 when a cell ended with an error kind or ran fewer episodes than requested")] = False,
-    efficacy: Annotated[float | None, pydantic.Field(description="flag non-success episodes closing less than this fraction of the goal distance as weak, exit 3 on wedged or weak cells")] = None,
-    spawn_budget: Annotated[float | None, pydantic.Field(description="max wall seconds for one env spawn (runner default 600)")] = None,
-    world_swap: Annotated[bool, pydantic.Field(description="swap worlds in place instead of restarting the runtime per world")] = False,
-    noexit: Annotated[bool, pydantic.Field(description="leave the runtime and last env up after the run")] = False,
-    profile: Annotated[bool, pydantic.Field(description="write simulation_profile.yaml with resource stats")] = False,
-    scale_episodes: Annotated[float | None, pydantic.Field(description="scale every stage's episode count")] = None,
-    lanes: Annotated[int | None, pydantic.Field(description="run as one shared run across this many lanes, each in a pool fork", ge=1)] = None,
-    sim: Annotated[str | None, pydantic.Field(description="sim:= launch arg, the suite's launch block or the runtime default when omitted")] = None,
-    headless: Annotated[bool | None, pydantic.Field(description="headless:= launch arg, only passed when set")] = None,
-    env_n: Annotated[int | None, pydantic.Field(description="env.n:= parallel envs, only passed when set")] = None,
-    optim_obstacles: Annotated[str | None, pydantic.Field(description="optim.obstacles:= launch arg, only passed when set")] = None,
+    run_id: Annotated[
+        str | None,
+        pydantic.Field(
+            description="run id, <utc stamp>-<suite>-<contest> when omitted, the run to continue when resume is set"
+        ),
+    ] = None,
+    resume: Annotated[
+        bool,
+        pydantic.Field(
+            description="continue run_id (or the most recent resumable run) from its stored config"
+        ),
+    ] = False,
+    retry_failed: Annotated[
+        bool, pydantic.Field(description="on resume also rerun failed steps")
+    ] = False,
+    retries: Annotated[
+        int | None,
+        pydantic.Field(
+            description="retries per cell after a systemic failure, -1 forever, 0 never (runner default 1)"
+        ),
+    ] = None,
+    max_sim_deaths: Annotated[
+        int | None,
+        pydantic.Field(description="abort once this many sim deaths happened"),
+    ] = None,
+    lockstep_verdict: Annotated[
+        bool, pydantic.Field(description="exit 3 when a step's lockstep report fails")
+    ] = False,
+    strict: Annotated[
+        bool,
+        pydantic.Field(
+            description="exit 3 when a cell ended with an error kind or ran fewer episodes than requested"
+        ),
+    ] = False,
+    efficacy: Annotated[
+        float | None,
+        pydantic.Field(
+            description="flag non-success episodes closing less than this fraction of the goal distance as weak, exit 3 on wedged or weak cells"
+        ),
+    ] = None,
+    spawn_budget: Annotated[
+        float | None,
+        pydantic.Field(
+            description="max wall seconds for one env spawn (runner default 600)"
+        ),
+    ] = None,
+    world_swap: Annotated[
+        bool,
+        pydantic.Field(
+            description="swap worlds in place instead of restarting the runtime per world"
+        ),
+    ] = False,
+    noexit: Annotated[
+        bool,
+        pydantic.Field(description="leave the runtime and last env up after the run"),
+    ] = False,
+    profile: Annotated[
+        bool,
+        pydantic.Field(description="write simulation_profile.yaml with resource stats"),
+    ] = False,
+    scale_episodes: Annotated[
+        float | None, pydantic.Field(description="scale every stage's episode count")
+    ] = None,
+    lanes: Annotated[
+        int | None,
+        pydantic.Field(
+            description="run as one shared run across this many lanes, each in a pool fork",
+            ge=1,
+        ),
+    ] = None,
+    sim: Annotated[
+        str | None,
+        pydantic.Field(
+            description="sim:= launch arg, the suite's launch block or the runtime default when omitted"
+        ),
+    ] = None,
+    headless: Annotated[
+        bool | None,
+        pydantic.Field(description="headless:= launch arg, only passed when set"),
+    ] = None,
+    env_n: Annotated[
+        int | None,
+        pydantic.Field(description="env.n:= parallel envs, only passed when set"),
+    ] = None,
+    optim_obstacles: Annotated[
+        str | None,
+        pydantic.Field(
+            description="optim.obstacles:= launch arg, only passed when set"
+        ),
+    ] = None,
     launch_args: LaunchArgs = None,
-    data_root_dir: Annotated[str | None, pydantic.Field(description="--data-root, the run tools only read the default $ARENA_DATA_DIR/benchmarks")] = None,
-    viz: Annotated[bool, pydantic.Field(description="serve the run's live web dashboard while it runs, its URL comes back as viz_url")] = False,
-    viz_port: Annotated[int | None, pydantic.Field(description="port of the viz dashboard (runner default 8765)", ge=1, le=65535)] = None,
+    data_root_dir: Annotated[
+        str | None,
+        pydantic.Field(
+            description="--data-root, the run tools only read the default $ARENA_DATA_DIR/benchmarks"
+        ),
+    ] = None,
+    viz: Annotated[
+        bool,
+        pydantic.Field(
+            description="serve the run's live web dashboard while it runs, its URL comes back as viz_url"
+        ),
+    ] = False,
+    viz_port: Annotated[
+        int | None,
+        pydantic.Field(
+            description="port of the viz dashboard (runner default 8765)",
+            ge=1,
+            le=65535,
+        ),
+    ] = None,
     confirm_s: Confirm = 60.0,
 ) -> dict[str, Any]:
     """Start `arena evaluation benchmark` as a job, always with an explicit run id. Exit codes 0 ok, 1 systemic abort, 2 config error, 3 lockstep, strict or efficacy verdict, 4 runner hung, 130 interrupted."""
@@ -431,11 +552,34 @@ async def evaluation_benchmark(
 
 @domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_preflight(
-    planners: Annotated[list[str] | None, pydantic.Field(description="planner names (arena planners ls), bridge planners run under drl or vla, others as nav2 local planners")] = None,
-    all_planners: Annotated[bool, pydantic.Field(description="every initialized planner instead of names")] = False,
-    soak: Annotated[bool, pydantic.Field(description="the crowded lockstep soak instead of the short start-and-drive preflight")] = False,
-    run_id: Annotated[str | None, pydantic.Field(description="run id, <utc stamp>-preflight or -soak when omitted")] = None,
-    lanes: Annotated[int | None, pydantic.Field(description="spread the planners over this many lanes, each in a pool fork", ge=1)] = None,
+    planners: Annotated[
+        list[str] | None,
+        pydantic.Field(
+            description="planner names (arena planners ls), bridge planners run under drl or vla, others as nav2 local planners"
+        ),
+    ] = None,
+    all_planners: Annotated[
+        bool, pydantic.Field(description="every initialized planner instead of names")
+    ] = False,
+    soak: Annotated[
+        bool,
+        pydantic.Field(
+            description="the crowded lockstep soak instead of the short start-and-drive preflight"
+        ),
+    ] = False,
+    run_id: Annotated[
+        str | None,
+        pydantic.Field(
+            description="run id, <utc stamp>-preflight or -soak when omitted"
+        ),
+    ] = None,
+    lanes: Annotated[
+        int | None,
+        pydantic.Field(
+            description="spread the planners over this many lanes, each in a pool fork",
+            ge=1,
+        ),
+    ] = None,
     sim: Annotated[str | None, pydantic.Field(description="sim:= launch arg")] = None,
     launch_args: LaunchArgs = None,
     confirm_s: Confirm = 60.0,
@@ -479,7 +623,14 @@ async def evaluation_preflight(
 @domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_stop(
     run_id: RunId,
-    grace_s: Annotated[float, pydantic.Field(description="seconds the runner gets after SIGINT to shut its runtime down before SIGTERM", gt=0, le=300)] = 60.0,
+    grace_s: Annotated[
+        float,
+        pydantic.Field(
+            description="seconds the runner gets after SIGINT to shut its runtime down before SIGTERM",
+            gt=0,
+            le=300,
+        ),
+    ] = 60.0,
 ) -> dict[str, Any]:
     """Stop a running benchmark: SIGINT to its runner process group (job, lane runners or a CLI-started runner), escalating only after grace_s."""
     from arena_evaluation.benchmark.debug import running_processes
@@ -521,7 +672,10 @@ def evaluation_runs(
     suite: str | None = None,
     contest: str | None = None,
     state: Literal["completed", "running", "incomplete"] | None = None,
-    query: Annotated[str | None, pydantic.Field(description="case-insensitive substring of the run id")] = None,
+    query: Annotated[
+        str | None,
+        pydantic.Field(description="case-insensitive substring of the run id"),
+    ] = None,
 ) -> dict[str, Any]:
     """Benchmark runs, newest by created_at first, each addressed by its folder name, filtered by exact suite or contest, state or run id substring."""
     root = data_root()
@@ -624,7 +778,10 @@ async def evaluation_watch(
 @domain.tool(read_only=True)
 def evaluation_progress(
     run_id: OptionalRunId = None,
-    last: Annotated[int | None, pydantic.Field(description="only the last rows, all rows when omitted", ge=1)] = 50,
+    last: Annotated[
+        int | None,
+        pydantic.Field(description="only the last rows, all rows when omitted", ge=1),
+    ] = 50,
     step_key: str | None = None,
     contestant: str | None = None,
     stage: str | None = None,
@@ -879,12 +1036,39 @@ async def pipeline_job(
     return {"command": "arena evaluation " + " ".join(argv), "job": job.as_dict()}
 
 
-RunIds = Annotated[list[str] | None, pydantic.Field(description="benchmark run ids, the most recent run when neither run_ids nor episode_dirs is given")]
-EpisodeDirs = Annotated[list[str] | None, pydantic.Field(description="episode_NNN directories to handle one by one, absolute or relative to $ARENA_DATA_DIR/benchmarks")]
-OutputDir = Annotated[str | None, pydantic.Field(description="where reports and plots go, the first input directory when omitted")]
-Workers = Annotated[int | None, pydantic.Field(description="worker processes, CPU count when omitted")]
-ReportManifest = Annotated[str | None, pydantic.Field(description="report manifest: a name (evaluation_manifests), a custom manifest in the run dir, a path, or inline {...} YAML")]
-Profile = Annotated[bool, pydantic.Field(description="write pipeline_profile.yaml with per-phase resource stats")]
+RunIds = Annotated[
+    list[str] | None,
+    pydantic.Field(
+        description="benchmark run ids, the most recent run when neither run_ids nor episode_dirs is given"
+    ),
+]
+EpisodeDirs = Annotated[
+    list[str] | None,
+    pydantic.Field(
+        description="episode_NNN directories to handle one by one, absolute or relative to $ARENA_DATA_DIR/benchmarks"
+    ),
+]
+OutputDir = Annotated[
+    str | None,
+    pydantic.Field(
+        description="where reports and plots go, the first input directory when omitted"
+    ),
+]
+Workers = Annotated[
+    int | None, pydantic.Field(description="worker processes, CPU count when omitted")
+]
+ReportManifest = Annotated[
+    str | None,
+    pydantic.Field(
+        description="report manifest: a name (evaluation_manifests), a custom manifest in the run dir, a path, or inline {...} YAML"
+    ),
+]
+Profile = Annotated[
+    bool,
+    pydantic.Field(
+        description="write pipeline_profile.yaml with per-phase resource stats"
+    ),
+]
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=True)
@@ -982,20 +1166,42 @@ async def evaluation_pipeline(
 async def evaluation_acoustic(
     run_id: RunId,
     action: Literal["list", "animate", "snapshot"],
-    episode: Annotated[str | None, pydantic.Field(description="episode id or worst, loudest-source, max-total (default worst)")] = None,
-    frame: Annotated[int | None, pydantic.Field(description="snapshot frame index, the worst-case frame when omitted")] = None,
-    output_format: Annotated[Literal["gif", "mp4", "frames"] | None, pydantic.Field(description="animate output format (default gif)")] = None,
+    episode: Annotated[
+        str | None,
+        pydantic.Field(
+            description="episode id or worst, loudest-source, max-total (default worst)"
+        ),
+    ] = None,
+    frame: Annotated[
+        int | None,
+        pydantic.Field(
+            description="snapshot frame index, the worst-case frame when omitted"
+        ),
+    ] = None,
+    output_format: Annotated[
+        Literal["gif", "mp4", "frames"] | None,
+        pydantic.Field(description="animate output format (default gif)"),
+    ] = None,
     fps: int | None = None,
     max_frames: int | None = None,
     stride: int | None = None,
     downsample: int | None = None,
     dpi: int | None = None,
-    vmin: Annotated[float | None, pydantic.Field(description="color floor in dBA")] = None,
-    vmax: Annotated[float | None, pydantic.Field(description="color ceiling in dBA")] = None,
+    vmin: Annotated[
+        float | None, pydantic.Field(description="color floor in dBA")
+    ] = None,
+    vmax: Annotated[
+        float | None, pydantic.Field(description="color ceiling in dBA")
+    ] = None,
     door_overlay: bool = True,
     trajectories: bool = True,
     robot_trail: int | None = None,
-    output: Annotated[str | None, pydantic.Field(description="output path, plots/<episode>_acoustic.* when omitted")] = None,
+    output: Annotated[
+        str | None,
+        pydantic.Field(
+            description="output path, plots/<episode>_acoustic.* when omitted"
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Start `arena evaluation acoustic` as a job: list episodes with acoustic metrics, animate the acoustic field, or render one snapshot."""
     path = run_path(run_id)

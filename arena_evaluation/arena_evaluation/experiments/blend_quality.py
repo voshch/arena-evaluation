@@ -46,8 +46,12 @@ def _messages(mcap_path: pathlib.Path, suffixes: tuple[str, ...]):
         summary = reader.get_summary()
         if summary is None:
             raise ValueError(f"{mcap_path} has no summary section")
-        topics = [c.topic for c in summary.channels.values() if c.topic.endswith(suffixes)]
-        for _schema, channel, message, ros_msg in reader.iter_decoded_messages(topics=topics):
+        topics = [
+            c.topic for c in summary.channels.values() if c.topic.endswith(suffixes)
+        ]
+        for _schema, channel, message, ros_msg in reader.iter_decoded_messages(
+            topics=topics
+        ):
             yield channel.topic, message.log_time, ros_msg
 
 
@@ -55,7 +59,9 @@ _stance = functools.cache(load_stance)
 
 
 def _yaw(q: Quaternion) -> float:
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    )
 
 
 def ped_angles(ped: Pedestrian) -> dict[str, float]:
@@ -66,10 +72,18 @@ def ped_angles(ped: Pedestrian) -> dict[str, float]:
         return dict(zip(ped.joint_state.name, ped.joint_state.position, strict=False))
     if not body.joints:
         return dict(zip(ped.joint_state.name, ped.joint_state.position, strict=False))
-    return body_to_semantic({joint: (q.x, q.y, q.z, q.w) for joint, q in zip(body.joints, body.rotations, strict=True)}, _stance(ped.model_uri))
+    return body_to_semantic(
+        {
+            joint: (q.x, q.y, q.z, q.w)
+            for joint, q in zip(body.joints, body.rotations, strict=True)
+        },
+        _stance(ped.model_uri),
+    )
 
 
-def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, list], dict[int, list]]:
+def episode_tracks(
+    mcap_path: pathlib.Path,
+) -> tuple[dict[int, list], dict[int, list], dict[int, list]]:
     """Per ped: joint angles as published, animation_states slot keys and base, and the layer inputs off arena_peds."""
     joints: dict[int, list] = defaultdict(list)
     anim: dict[int, list] = defaultdict(list)
@@ -82,8 +96,26 @@ def episode_tracks(mcap_path: pathlib.Path) -> tuple[dict[int, list], dict[int, 
                 if angles:
                     joints[int(p.id)].append((t, angles))
                 yaw = _yaw(p.pose.orientation)
-                channels = tuple((g.slot, (g.at.x, g.at.y, g.at.z), g.clip, g.hand, bool(g.render_pose_override)) for g in p.gestures)
-                inputs[int(p.id)].append((t, int(p.animation_state), p.twist.linear.x * math.cos(yaw) + p.twist.linear.y * math.sin(yaw), (p.pose.position.x, p.pose.position.y, yaw), channels))
+                channels = tuple(
+                    (
+                        g.slot,
+                        (g.at.x, g.at.y, g.at.z),
+                        g.clip,
+                        g.hand,
+                        bool(g.render_pose_override),
+                    )
+                    for g in p.gestures
+                )
+                inputs[int(p.id)].append(
+                    (
+                        t,
+                        int(p.animation_state),
+                        p.twist.linear.x * math.cos(yaw)
+                        + p.twist.linear.y * math.sin(yaw),
+                        (p.pose.position.x, p.pose.position.y, yaw),
+                        channels,
+                    )
+                )
         else:
             for p in msg.peds:
                 keys = frozenset((s.slot, s.animation, s.phase) for s in p.slots)
@@ -103,12 +135,23 @@ def replay(inputs: dict[int, list]) -> dict[int, list]:
     mgr.gesture_hook = layer
     moving_states = (Pedestrian.WALKING, Pedestrian.RUNNING)
     out: dict[int, list] = defaultdict(list)
-    samples = sorted((t, pid, state, speed, pose, chans) for pid, rows in inputs.items() for t, state, speed, pose, chans in rows)
+    samples = sorted(
+        (t, pid, state, speed, pose, chans)
+        for pid, rows in inputs.items()
+        for t, state, speed, pose, chans in rows
+    )
     prev: dict[int, float] = {}
     for t, pid, state, speed, pose, chans in samples:
         dt = 0.05 if pid not in prev else max(0.0, t - prev[pid])
         prev[pid] = t
-        req = GestureRequest(channels=tuple(Channel(slot=c[0], at=c[1], clip=c[2], hand=c[3], lock=c[4]) for c in chans), pose=pose, moving=state in moving_states)
+        req = GestureRequest(
+            channels=tuple(
+                Channel(slot=c[0], at=c[1], clip=c[2], hand=c[3], lock=c[4])
+                for c in chans
+            ),
+            pose=pose,
+            moving=state in moving_states,
+        )
         out[pid].append((t, mgr.compute(pid, state, speed, dt, gesture=req)))
     return out
 
@@ -132,7 +175,9 @@ def transition_times(states: list) -> list[float]:
     return out
 
 
-def link_steps(samples: list, fk: Callable[..., tuple[dict, object]], body: object) -> tuple[np.ndarray, np.ndarray]:
+def link_steps(
+    samples: list, fk: Callable[..., tuple[dict, object]], body: object
+) -> tuple[np.ndarray, np.ndarray]:
     """(t, worst link step in m per tick) between consecutive joint-state samples, rescaled to a 50 ms tick."""
     ts, pos = [], []
     for t, angles in samples:
@@ -148,7 +193,12 @@ def link_steps(samples: list, fk: Callable[..., tuple[dict, object]], body: obje
     return ts[1:][ok], (step[ok] * TICK_S / dt[ok])
 
 
-def analyze_episode(mcap_path: pathlib.Path, fk: Callable[..., tuple[dict, object]], body: object, source: str = "replay") -> dict:
+def analyze_episode(
+    mcap_path: pathlib.Path,
+    fk: Callable[..., tuple[dict, object]],
+    body: object,
+    source: str = "replay",
+) -> dict:
     joints, anim, inputs = episode_tracks(mcap_path)
     if source == "replay":
         joints = replay(inputs)
@@ -171,7 +221,14 @@ def analyze_episode(mcap_path: pathlib.Path, fk: Callable[..., tuple[dict, objec
         steady_steps.append(step[~in_window])
     trans = np.concatenate(trans_steps) if trans_steps else np.zeros(0)
     steady = np.concatenate(steady_steps) if steady_steps else np.zeros(0)
-    return {"episode": mcap_path.parent.name, "peds": len(joints), "events": events, "events_over_gate": events_over, "trans": trans, "steady": steady}
+    return {
+        "episode": mcap_path.parent.name,
+        "peds": len(joints),
+        "events": events,
+        "events_over_gate": events_over,
+        "trans": trans,
+        "steady": steady,
+    }
 
 
 def gate_link_step_m() -> float:
@@ -198,7 +255,13 @@ def summarize(results: list[dict]) -> dict:
     def stats(x: np.ndarray) -> dict:
         if len(x) == 0:
             return {"ticks": 0}
-        return {"ticks": int(len(x)), "median_m": float(np.median(x)), "p99_m": float(np.percentile(x, 99)), "max_m": float(x.max()), "over_gate": int((x > gate_link_step_m()).sum())}
+        return {
+            "ticks": int(len(x)),
+            "median_m": float(np.median(x)),
+            "p99_m": float(np.percentile(x, 99)),
+            "max_m": float(x.max()),
+            "over_gate": int((x > gate_link_step_m()).sum()),
+        }
 
     events = sum(r["events"] for r in results)
     over = sum(r["events_over_gate"] for r in results)
@@ -213,7 +276,9 @@ def summarize(results: list[dict]) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--benchmark-dir", type=pathlib.Path, required=True)
     ap.add_argument("--out", type=pathlib.Path, default=None)
     ap.add_argument("--limit", type=int, default=None, help="only the first N episodes")
@@ -233,7 +298,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = {"source": args.source, **summarize(results)}
     out = args.out or args.benchmark_dir / "layer"
     out.mkdir(parents=True, exist_ok=True)
-    (out / f"blend_quality_{args.source}.json").write_text(json.dumps(summary, indent=1))
+    (out / f"blend_quality_{args.source}.json").write_text(
+        json.dumps(summary, indent=1)
+    )
     print(json.dumps(summary, indent=1))
     return 0
 

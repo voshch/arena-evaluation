@@ -161,5 +161,3 @@ def test_episode_scope_recomputes_and_unserved_scopes_do_not_masquerade(
         value is None
         for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values()
     )
-
-

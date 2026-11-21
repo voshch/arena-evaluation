@@ -440,7 +440,7 @@ For each group the runner:
      `timeout_peds` for the `unhindered_peds` reference step) via
      `<env_ns>/set_parameters`, so the episode budget is spent in sim time.
      The runner keeps no wall-clock episode ceiling, only a 60 s sim-stall
-     guard (see [benchmark/README.md](../../arena_evaluation/benchmark/README.md#liveness)).
+     guard (see [benchmark/README.md](../arena_evaluation/benchmark/README.md#liveness)).
    - Drives `step.episodes` goals via the `RunEpisode` action at
      `<env_ns>/lifecycle/run_episode`, with `goal.world = stage.map` and
      `goal.seed = stage.seed` overriding the queued world/seed if needed.
@@ -479,7 +479,7 @@ Override with `--data-root`. Inside Docker: `/opt/arena_ws/data/benchmarks/<run_
 `-- reports/                   # Rendered HTML reports (<name>/report.html)
 ```
 
-Runs shared across lanes add per-lane files, see [Shared Runs](../../arena_evaluation/benchmark/README.md#shared-runs).
+Runs shared across lanes add per-lane files, see [Shared Runs](../arena_evaluation/benchmark/README.md#shared-runs).
 
 ## Inspection & Management Commands
 ```bash

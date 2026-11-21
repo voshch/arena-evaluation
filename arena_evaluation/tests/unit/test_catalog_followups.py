@@ -197,5 +197,3 @@ def _write_benchmark(
         fact_con_schema,
     ).write_parquet(metrics / "fact_contacts.parquet")
     return root
-
-

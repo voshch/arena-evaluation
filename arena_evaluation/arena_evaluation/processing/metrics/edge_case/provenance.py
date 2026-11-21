@@ -59,25 +59,44 @@ def _encounter(raw: Mapping[str, typing.Any], origin: Point) -> Encounter:
     """One encounter, its point moved into the map frame; a malformed one is an input error, never a silent unscored case."""
     point = raw.get("point")
     if "agent" not in raw or not isinstance(point, list | tuple) or len(point) != 2:
-        raise MetricInputError(f"edge_case encounters name an agent and a 2-d point; got {dict(raw)!r}")
-    return Encounter(agent=str(raw["agent"]), point=(float(point[0]) + origin[0], float(point[1]) + origin[1]))
+        raise MetricInputError(
+            f"edge_case encounters name an agent and a 2-d point; got {dict(raw)!r}"
+        )
+    return Encounter(
+        agent=str(raw["agent"]),
+        point=(float(point[0]) + origin[0], float(point[1]) + origin[1]),
+    )
 
 
-def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) -> Provenance:
+def parse_provenance(
+    raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)
+) -> Provenance:
     """A provenance mapping with the formation center and encounter points moved from their level frame by `origin` into the map frame."""
-    owned = {str(step): tuple(str(name) for name in names or ()) for step, names in (raw.get("owned") or {}).items()}
+    owned = {
+        str(step): tuple(str(name) for name in names or ())
+        for step, names in (raw.get("owned") or {}).items()
+    }
     spec = raw.get("formation")
     formation = None
     if spec:
         center = spec.get("center")
         formation = Formation(
-            center=None if center is None else (float(center[0]) + origin[0], float(center[1]) + origin[1]),
+            center=None
+            if center is None
+            else (float(center[0]) + origin[0], float(center[1]) + origin[1]),
             radius=float(spec.get("radius", FORMATION_RADIUS_M)),
             variant=str(spec.get("variant", "")),
         )
     encounters = tuple(_encounter(e, origin) for e in raw.get("encounters") or ())
     hold_s = float((raw.get("robot") or {}).get("hold_s") or 0.0)
-    return Provenance(id=str(raw.get("id", "")), steps=tuple(str(s) for s in raw.get("steps") or ()), owned=owned, formation=formation, encounters=encounters, hold_s=hold_s)
+    return Provenance(
+        id=str(raw.get("id", "")),
+        steps=tuple(str(s) for s in raw.get("steps") or ()),
+        owned=owned,
+        formation=formation,
+        encounters=encounters,
+        hold_s=hold_s,
+    )
 
 
 def human_radii(scenario: Mapping[str, typing.Any]) -> dict[str, float]:
@@ -85,12 +104,18 @@ def human_radii(scenario: Mapping[str, typing.Any]) -> dict[str, float]:
     radii: dict[str, float] = {}
     for human in scenario.get("humans") or ():
         agent = human.get("agent")
-        if isinstance(agent, Mapping) and agent.get("radius") is not None and human.get("name") is not None:
+        if (
+            isinstance(agent, Mapping)
+            and agent.get("radius") is not None
+            and human.get("name") is not None
+        ):
             radii[str(human["name"])] = float(agent["radius"])
     return radii
 
 
-def scenario_file(modes: Mapping[str, list[str]], params: Mapping[str, typing.Any], layer: str = "") -> str | None:
+def scenario_file(
+    modes: Mapping[str, list[str]], params: Mapping[str, typing.Any], layer: str = ""
+) -> str | None:
     """The scenario file the `scenario` task mode ran under the task runtime `layer`, None when no axis selects it."""
     from arena_runtime.env.task_layer import task_layer
 
@@ -107,11 +132,15 @@ def scenario_name(run: RunMetadata | None) -> str | None:
     return None if run is None else scenario_file(run.modes, run.params, run.task_layer)
 
 
-_provenance_cache: dict[tuple[str, str, str], tuple[tuple[tuple[Path, int], ...], Provenance | None]] = {}
+_provenance_cache: dict[
+    tuple[str, str, str], tuple[tuple[tuple[Path, int], ...], Provenance | None]
+] = {}
 
 
 def _stamp(paths: Iterable[Path]) -> tuple[tuple[Path, int], ...]:
-    return tuple((path, path.stat().st_mtime_ns if path.exists() else -1) for path in paths)
+    return tuple(
+        (path, path.stat().st_mtime_ns if path.exists() else -1) for path in paths
+    )
 
 
 def world_view(world: str, run_dir: Path | None = None) -> WorldView | None:
@@ -134,29 +163,45 @@ def _level_origin(view: WorldView, scenario: Mapping[str, typing.Any]) -> Point:
     if not origins:
         return (0.0, 0.0)
     robots = scenario.get("robots") or []
-    level = str(robots[0].get("level")) if robots and robots[0].get("level") is not None else next(iter(origins))
+    level = (
+        str(robots[0].get("level"))
+        if robots and robots[0].get("level") is not None
+        else next(iter(origins))
+    )
     return origins.get(level, (0.0, 0.0))
 
 
-def _read_provenance(world: str, scenario: str, run_dir: Path | None) -> tuple[list[Path], Provenance | None]:
+def _read_provenance(
+    world: str, scenario: str, run_dir: Path | None
+) -> tuple[list[Path], Provenance | None]:
     view = world_view(world, run_dir)
     if view is None:
         return [], None
     try:
         scenario_view = view.scenario(scenario).resolve_sync()
     except FileNotFoundError as e:
-        logger.warning("edge_case: scenario '%s' of world '%s' not available locally: %s", scenario, world, e)
+        logger.warning(
+            "edge_case: scenario '%s' of world '%s' not available locally: %s",
+            scenario,
+            world,
+            e,
+        )
         return [], None
     path = Path(scenario_view.path) / PROVENANCE
     if not path.is_file():
         return [path], None
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     scenario_doc = scenario_view.read()
-    provenance = attrs.evolve(parse_provenance(raw, _level_origin(view, scenario_doc)), radii=human_radii(scenario_doc))
+    provenance = attrs.evolve(
+        parse_provenance(raw, _level_origin(view, scenario_doc)),
+        radii=human_radii(scenario_doc),
+    )
     return [path, Path(scenario_view.scenario_path), view.world_path], provenance
 
 
-def load_provenance(world: str, scenario: str, run_dir: Path | None = None) -> Provenance | None:
+def load_provenance(
+    world: str, scenario: str, run_dir: Path | None = None
+) -> Provenance | None:
     """The provenance of `scenario` in `world`, the run's snapshot first, None without the scenario or its provenance.yaml."""
     key = (str(run_dir), world, scenario)
     cached = _provenance_cache.get(key)

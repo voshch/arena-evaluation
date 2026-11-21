@@ -428,8 +428,6 @@ def _persisted(run_dir: pathlib.Path, table: str) -> pl.DataFrame:
     )
 
 
-
-
 def test_contact_slice_explains_the_attributed_contact(run: pathlib.Path) -> None:
     response = evaluation_slice(RUN_ID, contact_id=CONTACT_ID, preview_limit=5)
 
@@ -541,8 +539,6 @@ def test_worst_encounters_rank_a_lower_measure_descending(run: pathlib.Path) -> 
 def test_worst_encounters_reject_an_unranked_measure(run: pathlib.Path) -> None:
     with pytest.raises(ToolError, match="direction"):
         evaluation_worst_encounters(RUN_ID, metric="actor_2")
-
-
 
 
 def test_finding_create_list_review_and_attach(run: pathlib.Path) -> None:

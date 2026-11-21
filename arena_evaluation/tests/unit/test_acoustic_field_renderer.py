@@ -47,7 +47,9 @@ def test_downsampled_field_keeps_closed_door_in_doorway() -> None:
     assert field_dba[ty, tx] < 100.0 - los - 20.0
 
 
-def test_render_cell_png_draws_the_field_walls_and_robot(tmp_path: pathlib.Path) -> None:
+def test_render_cell_png_draws_the_field_walls_and_robot(
+    tmp_path: pathlib.Path,
+) -> None:
     """The cell request renders a non-blank field image from one grid, pose and source level."""
     grid = np.zeros((24, 24), dtype=np.uint8)
     grid[12, :] = 1

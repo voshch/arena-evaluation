@@ -461,8 +461,6 @@ def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
     assert "&id" not in text
 
 
-
-
 def test_report_renders_the_metrics_per_contestant_and_per_episode(
     assets: Path, out: Path, tmp_path: Path
 ):

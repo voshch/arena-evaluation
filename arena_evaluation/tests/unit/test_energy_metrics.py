@@ -93,8 +93,6 @@ def test_short_standstill_blocks_are_ignored(calc):
     )
 
 
-
-
 def _encounter_episode(
     power_w: float = 360.0, track: bool = True
 ) -> AlignedEpisodeBundle:
@@ -180,5 +178,3 @@ def test_mechanical_energy_reads_the_aligned_mechanical_power_column(calc):
     results = calc.calculate(episode, {})
     assert results["energy_mechanical_wh"] is not None
     assert results["energy_mechanical_wh"] == pytest.approx(results["energy_total_wh"])
-
-

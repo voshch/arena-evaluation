@@ -325,5 +325,3 @@ def test_split_discovery_verification_seeds_validation() -> None:
         split_discovery_verification_seeds(df, discovery_fraction=1.0)
     out = split_discovery_verification_seeds(df, discovery_fraction=0.5)
     assert out["cohort"].to_list() == ["discovery", "discovery", "verification", None]
-
-

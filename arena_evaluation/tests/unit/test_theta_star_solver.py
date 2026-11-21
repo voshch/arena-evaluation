@@ -174,5 +174,3 @@ def test_a_library_that_cannot_be_loaded_names_the_build_step(
         theta_star._solver_library.cache_clear()
     assert "arena build" in str(raised.value)
     assert ENV_SO_VAR in str(raised.value)
-
-

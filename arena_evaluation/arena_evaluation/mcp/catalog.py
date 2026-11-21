@@ -155,9 +155,10 @@ def evaluation_config_template(
 def _readme_section(word: str) -> str:
     """Return matching sections from ``configs/README.md``."""
     for base in (share_dir(), source_tree_dir()):
-        if base is None or not (
-            readme := base / CONFIGS_DIR_NAME / "README.md"
-        ).is_file():
+        if (
+            base is None
+            or not (readme := base / CONFIGS_DIR_NAME / "README.md").is_file()
+        ):
             continue
         sections = readme.read_text(encoding="utf-8").split("\n## ")
         return "\n\n".join(

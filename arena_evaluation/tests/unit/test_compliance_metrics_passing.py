@@ -270,5 +270,3 @@ def test_doorway_blocking_needs_two_samples():
     episode = _door_episode([0.0], [0.0], [0.0], _snapshot("env_0/door_1", "open"))
 
     assert _blocking(episode, [_DoorGeometry("door_1", 0.0, 0.0, 1.0)]) is None
-
-

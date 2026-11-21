@@ -13,7 +13,20 @@ def _roughness() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "local_planner": ["dwb"] * 6 + ["mppi"] * 6,
-            "roughness_mean": [1.0, 2.0, 3.0, 4.0, 5.0, 100.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            "roughness_mean": [
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+                5.0,
+                100.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+            ],
         }
     )
 

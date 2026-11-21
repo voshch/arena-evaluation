@@ -18,5 +18,3 @@ ECOLOGICAL_CALCULATORS = tuple(
         key=lambda calculator: calculator.NAME,
     )
 )
-
-

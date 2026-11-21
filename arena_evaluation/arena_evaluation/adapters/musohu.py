@@ -44,7 +44,9 @@ BAG_MAGIC = b"#ROSBAG V2.0\n"
 PROBE_HEAD = 4096
 PROBE_SPAN = 65536
 TF_TOPICS = ("/tf", "/tf_static")
-MAPPED_TOPICS = frozenset(f"/{ROBOT_NAMESPACE}/{key}" for key in ("scan", "odom", "cmd_vel"))
+MAPPED_TOPICS = frozenset(
+    f"/{ROBOT_NAMESPACE}/{key}" for key in ("scan", "odom", "cmd_vel")
+)
 
 Message = tuple[str, int, typing.Any, typing.Any]
 Passed = tuple[int, str, type, typing.Any]
@@ -85,7 +87,14 @@ class MuSoHu(Importer):
 
     meta = IMPORTERS.meta("episode", "musohu")
 
-    def __init__(self, cache: Path | None = None, provider: Provider | None = None, *, topics: Topics = DEFAULT_TOPICS, dataset_api: str = DATASET_API):
+    def __init__(
+        self,
+        cache: Path | None = None,
+        provider: Provider | None = None,
+        *,
+        topics: Topics = DEFAULT_TOPICS,
+        dataset_api: str = DATASET_API,
+    ):
         super().__init__(cache, provider)
         self.topics = topics
         self.dataset_api = dataset_api
@@ -115,7 +124,11 @@ class MuSoHu(Importer):
         return listing
 
     def files(self) -> dict[str, dict]:
-        return {Path(f["dataFile"]["filename"]).stem: f["dataFile"] for f in self.listing()["files"] if f["dataFile"]["filename"].endswith(".bag")}
+        return {
+            Path(f["dataFile"]["filename"]).stem: f["dataFile"]
+            for f in self.listing()["files"]
+            if f["dataFile"]["filename"].endswith(".bag")
+        }
 
     def items(self) -> Iterable[str]:
         return sorted(self.files())
@@ -125,7 +138,9 @@ class MuSoHu(Importer):
         try:
             return self.files()[item]
         except KeyError:
-            raise KeyError(f"no bag '{item}' in the MuSoHu dataset, list the items with: import episode {self.meta.name}") from None
+            raise KeyError(
+                f"no bag '{item}' in the MuSoHu dataset, list the items with: import episode {self.meta.name}"
+            ) from None
 
     def fetch(self, item: str) -> Path:
         entry = self.entry(item)
@@ -135,7 +150,9 @@ class MuSoHu(Importer):
         available = self.probe(item, entry)
         missing = wanted_topics(self.topics) - available
         if missing:
-            raise ValueError(f"{dest.name} lacks topics {sorted(missing)}, has {sorted(available)}")
+            raise ValueError(
+                f"{dest.name} lacks topics {sorted(missing)}, has {sorted(available)}"
+            )
         body = self.provider.get(str(entry["id"]), self.cache / f"{item}.body")
         complete(self.provider, str(entry["id"]), body, int(entry["filesize"]))
         body.replace(dest)
@@ -144,11 +161,20 @@ class MuSoHu(Importer):
     def probe(self, item: str, entry: dict) -> set[str]:
         """Topics of the bag's connection records, read once by range request and cached beside the download."""
         path = self.cache / f"{item}.topics.json"
-        cached = read_json(path, lambda probe: {str(topic) for topic in probe["topics"]})
+        cached = read_json(
+            path, lambda probe: {str(topic) for topic in probe["topics"]}
+        )
         if cached is not None:
             return cached
-        topics, fetched = probe_topics(self.provider, str(entry["id"]), int(entry["filesize"]), self.cache / f"{item}.probe")
-        write_atomic(path, json.dumps({"topics": sorted(topics), "bytes": fetched}).encode())
+        topics, fetched = probe_topics(
+            self.provider,
+            str(entry["id"]),
+            int(entry["filesize"]),
+            self.cache / f"{item}.probe",
+        )
+        write_atomic(
+            path, json.dumps({"topics": sorted(topics), "bytes": fetched}).encode()
+        )
         return topics
 
     def convert(self, item: str, src: Path, out: Path) -> str:
@@ -159,7 +185,9 @@ class MuSoHu(Importer):
         types, skipped, start_ns = passthrough_types(src, wanted_topics(self.topics))
         for topic, reason in skipped:
             logger.warning("%s: %s not recorded, %s", src.name, topic, reason)
-        record_episode(run, read_bag(src, self.topics), passthrough_messages(src, types), start_ns)
+        record_episode(
+            run, read_bag(src, self.topics), passthrough_messages(src, types), start_ns
+        )
         return item
 
     def attribution(self, item: str) -> Attribution:
@@ -197,7 +225,11 @@ def stamp_ns(header: Header) -> int:
 
 
 def wanted_topics(topics: Topics) -> set[str]:
-    return {topic for topic in (topics.scan, topics.odom, topics.velocity, topics.cmd_vel) if topic}
+    return {
+        topic
+        for topic in (topics.scan, topics.odom, topics.velocity, topics.cmd_vel)
+        if topic
+    }
 
 
 def record_fields(header: bytes) -> dict[bytes, bytes]:
@@ -223,19 +255,27 @@ def connection_topics(blob: bytes, count: int) -> set[str] | None:
             return None
         fields = record_fields(blob[pos + 4 : pos + 4 + header_len])
         if fields[b"op"] != b"\x07":
-            raise ValueError(f"record {len(topics)} of the index is op {fields[b'op'].hex()}, not a connection")
+            raise ValueError(
+                f"record {len(topics)} of the index is op {fields[b'op'].hex()}, not a connection"
+            )
         (data_len,) = struct.unpack_from("<I", blob, pos + 4 + header_len)
         topics.append(fields[b"topic"].decode())
         pos += 8 + header_len + data_len
     return set(topics)
 
 
-def probe_topics(provider: Provider, relpath: str, size: int, scratch: Path) -> tuple[set[str], int]:
+def probe_topics(
+    provider: Provider, relpath: str, size: int, scratch: Path
+) -> tuple[set[str], int]:
     """Topics of a rosbag1 file from its header and the connection records of its index, fetched by range, and the bytes fetched."""
-    head = provider.get(relpath, scratch, range=(0, min(PROBE_HEAD, size) - 1)).read_bytes()
+    head = provider.get(
+        relpath, scratch, range=(0, min(PROBE_HEAD, size) - 1)
+    ).read_bytes()
     if len(head) > PROBE_HEAD:
         scratch.unlink()
-        raise RuntimeError(f"{provider.url(relpath)} ignored the range request, probing it would download the whole bag")
+        raise RuntimeError(
+            f"{provider.url(relpath)} ignored the range request, probing it would download the whole bag"
+        )
     if not head.startswith(BAG_MAGIC):
         scratch.unlink()
         raise ValueError(f"{provider.url(relpath)} is not a rosbag v2 file")
@@ -245,11 +285,15 @@ def probe_topics(provider: Provider, relpath: str, size: int, scratch: Path) -> 
     (count,) = struct.unpack("<I", header[b"conn_count"])
     if index_pos == 0:
         scratch.unlink()
-        raise ValueError(f"{provider.url(relpath)} has no index, the bag was not closed")
+        raise ValueError(
+            f"{provider.url(relpath)} has no index, the bag was not closed"
+        )
     fetched = len(head)
     span = PROBE_SPAN
     while True:
-        blob = provider.get(relpath, scratch, range=(index_pos, min(index_pos + span, size) - 1)).read_bytes()
+        blob = provider.get(
+            relpath, scratch, range=(index_pos, min(index_pos + span, size) - 1)
+        ).read_bytes()
         fetched += len(blob)
         topics = connection_topics(blob, count)
         if topics is not None or index_pos + span >= size:
@@ -257,7 +301,9 @@ def probe_topics(provider: Provider, relpath: str, size: int, scratch: Path) -> 
         span *= 4
     scratch.unlink()
     if topics is None:
-        raise ValueError(f"{provider.url(relpath)}: {count} connection records announced, the index ends early")
+        raise ValueError(
+            f"{provider.url(relpath)}: {count} connection records announced, the index ends early"
+        )
     return topics, fetched
 
 
@@ -266,12 +312,16 @@ def complete(provider: Provider, relpath: str, body: Path, size: int) -> None:
     piece = body.with_name(f"{body.name}.piece")
     while (have := body.stat().st_size) < size:
         if not provider.get(relpath, piece, range=(have, size - 1)).stat().st_size:
-            raise ConnectionError(f"{provider.url(relpath)} sent nothing from byte {have} of {size}")
+            raise ConnectionError(
+                f"{provider.url(relpath)} sent nothing from byte {have} of {size}"
+            )
         with open(body, "ab") as f, open(piece, "rb") as g:
             shutil.copyfileobj(g, f)
         piece.unlink()
     if have != size:
-        raise ValueError(f"{provider.url(relpath)} sent {have} bytes, its listing names {size}")
+        raise ValueError(
+            f"{provider.url(relpath)} sent {have} bytes, its listing names {size}"
+        )
 
 
 def read_bag(bag: Path, topics: Topics) -> list[Message]:
@@ -286,7 +336,9 @@ def read_bag(bag: Path, topics: Topics) -> list[Message]:
         connections = [c for c in reader.connections if c.topic in wanted]
         missing = wanted - {c.topic for c in connections}
         if missing:
-            raise ValueError(f"{bag.name} lacks topics {sorted(missing)}, has {sorted(reader.topics)}")
+            raise ValueError(
+                f"{bag.name} lacks topics {sorted(missing)}, has {sorted(reader.topics)}"
+            )
         for connection, t, raw in reader.messages(connections=connections):
             msg: typing.Any = reader.deserialize(raw, connection.msgtype)
             if connection.topic == topics.velocity:
@@ -294,12 +346,28 @@ def read_bag(bag: Path, topics: Topics) -> list[Message]:
             elif connection.topic == topics.cmd_vel:
                 messages.append(("cmd_vel", t, msg, None))
             else:
-                messages.append((keys[connection.topic], stamp_ns(msg.header), msg, None))
+                messages.append(
+                    (keys[connection.topic], stamp_ns(msg.header), msg, None)
+                )
     if topics.velocity:
-        paired = [(key, t, msg, velocity.get(t) if key == "odom" else None) for key, t, msg, _ in messages]
-        messages = [message for message in paired if message[0] != "odom" or message[3] is not None]
+        paired = [
+            (key, t, msg, velocity.get(t) if key == "odom" else None)
+            for key, t, msg, _ in messages
+        ]
+        messages = [
+            message
+            for message in paired
+            if message[0] != "odom" or message[3] is not None
+        ]
     if not any(key == "odom" for key, *_ in messages):
-        raise ValueError(f"{bag.name}: no {topics.odom} message" + (f" shares a header stamp with {topics.velocity}" if topics.velocity else ""))
+        raise ValueError(
+            f"{bag.name}: no {topics.odom} message"
+            + (
+                f" shares a header stamp with {topics.velocity}"
+                if topics.velocity
+                else ""
+            )
+        )
     return sorted(messages, key=lambda message: message[1])
 
 
@@ -321,10 +389,19 @@ def to_ros2[M: Ros2Message](src: Ros1Message, dst: M) -> M:
             package, _, message = element.partition("/")
             cls = ros2_message_type(f"{package}/msg/{message}")
             if cls is None:
-                raise TypeError(f"{type(dst).__name__}.{name}: no ROS 2 message type {element}")
+                raise TypeError(
+                    f"{type(dst).__name__}.{name}: no ROS 2 message type {element}"
+                )
             setattr(dst, name, [to_ros2(item, cls()) for item in value])
         elif element is not None and isinstance(target, array):
-            setattr(dst, name, array(target.typecode, np.ascontiguousarray(value, dtype=target.typecode).tobytes()))
+            setattr(
+                dst,
+                name,
+                array(
+                    target.typecode,
+                    np.ascontiguousarray(value, dtype=target.typecode).tobytes(),
+                ),
+            )
         elif element is not None:
             setattr(dst, name, list(value))
         elif "/" in kind:
@@ -364,7 +441,9 @@ def recorded_topic(topic: str) -> str:
     return topic if topic in TF_TOPICS else f"/{ROBOT_NAMESPACE}{topic}"
 
 
-def lacking_fields(fielddefs: Mapping[str, typing.Any], msgtype: str, cls: type) -> list[str]:
+def lacking_fields(
+    fielddefs: Mapping[str, typing.Any], msgtype: str, cls: type
+) -> list[str]:
     """Type.field names of the ROS 2 fields of cls, nested ones included, that the ROS 1 type msgtype lacks."""
     from rosbags.interfaces import Nodetype
 
@@ -397,7 +476,9 @@ def ros2_message_type(msgtype: str) -> type | None:
         return None
 
 
-def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], list[tuple[str, str]], int]:
+def passthrough_types(
+    bag: Path, mapped: set[str]
+) -> tuple[dict[str, type], list[tuple[str, str]], int]:
     """ROS 2 type of every passthrough topic, the skipped topics as (topic, reason), and the bag's first receive time."""
     from rosbags.highlevel import AnyReader
 
@@ -412,7 +493,9 @@ def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], lis
             if msgtype is None or cls is None:
                 skipped.append((topic, f"no ROS 2 message type for {msgtype}"))
             elif lacking := lacking_fields(reader.typestore.fielddefs, msgtype, cls):
-                skipped.append((topic, f"the ROS 1 {msgtype} has no {', '.join(lacking)}"))
+                skipped.append(
+                    (topic, f"the ROS 1 {msgtype} has no {', '.join(lacking)}")
+                )
             else:
                 types[topic] = cls
         return types, skipped, reader.start_time
@@ -427,14 +510,27 @@ def passthrough_messages(bag: Path, types: dict[str, type]) -> Iterator[Passed]:
     with AnyReader([bag]) as reader:
         connections = [c for c in reader.connections if c.topic in types]
         for connection, t, raw in reader.messages(connections=connections):
-            yield t, connection.topic, types[connection.topic], reader.deserialize(raw, connection.msgtype)
+            yield (
+                t,
+                connection.topic,
+                types[connection.topic],
+                reader.deserialize(raw, connection.msgtype),
+            )
 
 
 def iso(ns: int) -> str:
-    return (datetime.datetime.fromtimestamp(0, datetime.UTC) + datetime.timedelta(microseconds=ns // 1000)).isoformat()
+    return (
+        datetime.datetime.fromtimestamp(0, datetime.UTC)
+        + datetime.timedelta(microseconds=ns // 1000)
+    ).isoformat()
 
 
-def record_episode(run: Path, messages: list[Message], passthrough: Iterable[Passed] = (), start_ns: int | None = None) -> Path:
+def record_episode(
+    run: Path,
+    messages: list[Message],
+    passthrough: Iterable[Passed] = (),
+    start_ns: int | None = None,
+) -> Path:
     """Write the mapped and the passed-through messages as run/episodes/episode_000 through the recorder's episode writer, time counted from the earlier of the first mapped message and start_ns."""
     from nav_msgs.msg import Odometry
     from rclpy.serialization import serialize_message
@@ -445,7 +541,10 @@ def record_episode(run: Path, messages: list[Message], passthrough: Iterable[Pas
     from arena_evaluation.storage.manifest import MetadataWriter
 
     definitions = get_topics(namespace=ROBOT_NAMESPACE, parent_namespace=ENV_NAMESPACE)
-    types = {key: (definitions[key].name_template, definitions[key].msg_type) for key in ("scan", "cmd_vel")}
+    types = {
+        key: (definitions[key].name_template, definitions[key].msg_type)
+        for key in ("scan", "cmd_vel")
+    }
     types["odom"] = (f"/{ROBOT_NAMESPACE}/odom", Odometry)
 
     origin_ns = min(t for _, t, *_ in messages)
@@ -490,13 +589,17 @@ def record_episode(run: Path, messages: list[Message], passthrough: Iterable[Pas
     writer.open_episode(episode, metadata)
     written = 0
     last_ns = origin_ns
-    for t, topic, msg_type, data in heapq.merge(mapped(), passed(), key=lambda record: record[0]):
+    for t, topic, msg_type, data in heapq.merge(
+        mapped(), passed(), key=lambda record: record[0]
+    ):
         writer.write_message(topic, msg_type, data, t - origin_ns)
         written += 1
         last_ns = max(last_ns, t)
     writer.close_episode()
     if metadata.rosbag2_message_count != written:
-        raise RuntimeError(f"{episode}: {metadata.rosbag2_message_count} of {written} messages recorded, the log names the cause")
+        raise RuntimeError(
+            f"{episode}: {metadata.rosbag2_message_count} of {written} messages recorded, the log names the cause"
+        )
 
     metadata.recording_ended_at = iso(last_ns)
     MetadataWriter.write(metadata, episode / f"{EPISODE}.yaml")

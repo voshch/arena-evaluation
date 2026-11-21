@@ -39,7 +39,9 @@ def test_create_episode_metadata_none_planner_is_rejected(tmp_path):
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        IngestionMetadata.create_episode_metadata(**_base_kwargs(tmp_path, planner=None))
+        IngestionMetadata.create_episode_metadata(
+            **_base_kwargs(tmp_path, planner=None)
+        )
 
 
 # get_git_sha / is_git_dirty

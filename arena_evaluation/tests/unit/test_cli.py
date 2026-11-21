@@ -101,5 +101,3 @@ def test_validate_contest_rejects_a_duplicate_contestant(
 
     assert _main_impl(["validate", "--contest", str(config)]) == 1
     assert capsys.readouterr().err.startswith("Error: ")
-
-

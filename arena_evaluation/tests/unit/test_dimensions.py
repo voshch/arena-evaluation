@@ -202,5 +202,3 @@ def test_episode_dimensions_rejects_bundle_without_identity():
 def test_non_numeric_robot_parameter_is_refused():
     with pytest.raises(ContractViolationError, match="robot_radius"):
         _episode(0, {"jackal": _bundle(params={"robot_radius": "not_a_number"})})
-
-

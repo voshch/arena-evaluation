@@ -214,7 +214,9 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
             else None,
             "ped_velocity_delay_ratio": round(
                 velocity_delay_value(
-                    geometry, (int(last_ns) - int(first_ns)) / 1e9, desired_speed_mps(peds)
+                    geometry,
+                    (int(last_ns) - int(first_ns)) / 1e9,
+                    desired_speed_mps(peds),
                 ),
                 SUMMED_VALUE_DECIMALS,
             ),

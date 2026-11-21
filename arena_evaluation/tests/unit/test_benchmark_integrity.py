@@ -16,7 +16,9 @@ SPAWNED = "robot jackal spawned by hand"
 OLD_HEADER = ProgressLog._HEADER.removesuffix(",integrity")
 
 
-def _record(*integrity: str, outcome_state: int = EpisodeRecord.SUCCESS, info: str = "") -> EpisodeRecord:
+def _record(
+    *integrity: str, outcome_state: int = EpisodeRecord.SUCCESS, info: str = ""
+) -> EpisodeRecord:
     msg = EpisodeRecord()
     msg.world = "map_empty"
     msg.robots = ["jackal"]
@@ -26,9 +28,26 @@ def _record(*integrity: str, outcome_state: int = EpisodeRecord.SUCCESS, info: s
     return msg
 
 
-def _append(log: ProgressLog, ts: str, episode_id: int, rec: EpisodeRecord, step_key: str = "dwb/preflight") -> None:
+def _append(
+    log: ProgressLog,
+    ts: str,
+    episode_id: int,
+    rec: EpisodeRecord,
+    step_key: str = "dwb/preflight",
+) -> None:
     contestant, stage = step_key.split("/")
-    log.append(ts_iso=ts, run_id="r", step_key=step_key, contestant=contestant, stage=stage, env_id=0, episode_id=episode_id, episode_record=rec, started_at=0.0, ended_at=1.0)
+    log.append(
+        ts_iso=ts,
+        run_id="r",
+        step_key=step_key,
+        contestant=contestant,
+        stage=stage,
+        env_id=0,
+        episode_id=episode_id,
+        episode_record=rec,
+        started_at=0.0,
+        ended_at=1.0,
+    )
 
 
 def _rows(path: pathlib.Path) -> list[dict[str, str]]:
@@ -37,12 +56,24 @@ def _rows(path: pathlib.Path) -> list[dict[str, str]]:
 
 
 def _result(key: str, run: int, compromised: int) -> StepResult:
-    return StepResult(key, "ok", 0, 0.0, 1.0, None, None, episodes_run=run, episodes_compromised=compromised)
+    return StepResult(
+        key,
+        "ok",
+        0,
+        0.0,
+        1.0,
+        None,
+        None,
+        episodes_run=run,
+        episodes_compromised=compromised,
+    )
 
 
 def _step(contestant: str, stage: str) -> Step:
     return Step(
-        contestant=Contestant(name=contestant, args={"mobile.local_planner": contestant}),
+        contestant=Contestant(
+            name=contestant, args={"mobile.local_planner": contestant}
+        ),
         stage=Suite.Stage(
             name=stage,
             episodes=2,
@@ -56,7 +87,9 @@ def _step(contestant: str, stage: str) -> Step:
     )
 
 
-def test_progress_csv_with_an_older_header_is_refused_on_open(tmp_path: pathlib.Path) -> None:
+def test_progress_csv_with_an_older_header_is_refused_on_open(
+    tmp_path: pathlib.Path,
+) -> None:
     path = tmp_path / "progress.csv"
     path.write_text(OLD_HEADER + "\n", encoding="utf-8")
 
@@ -65,10 +98,21 @@ def test_progress_csv_with_an_older_header_is_refused_on_open(tmp_path: pathlib.
     assert path.read_text(encoding="utf-8") == OLD_HEADER + "\n"
 
 
-def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(tmp_path: pathlib.Path) -> None:
+def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(
+    tmp_path: pathlib.Path,
+) -> None:
     run = tmp_path / "shared-run"
     run.mkdir()
-    old_row = ["2026-10-13T10:00:00+00:00", "shared-run", "dwb/preflight", "dwb", "preflight", "0", "0", *[""] * (len(OLD_HEADER.split(",")) - 7)]
+    old_row = [
+        "2026-10-13T10:00:00+00:00",
+        "shared-run",
+        "dwb/preflight",
+        "dwb",
+        "preflight",
+        "0",
+        "0",
+        *[""] * (len(OLD_HEADER.split(",")) - 7),
+    ]
     legacy = run / "progress.csv"
     with legacy.open("w", newline="") as fh:
         fh.write(OLD_HEADER + "\n")
@@ -87,10 +131,21 @@ def test_fold_refuses_an_older_progress_csv_and_leaves_it_unchanged(tmp_path: pa
 def test_episode_line_appends_integrity_reasons_only_when_compromised() -> None:
     head = "[1/2] dwb/preflight env=0"
     intact = episode_line(head, _record(info="finished after 13.7s"), 13.7, 20.04)
-    compromised = episode_line(head, _record(SPAWNED, MOVED, outcome_state=EpisodeRecord.FAILED, info="timeout"), 60.0, 70.0)
+    compromised = episode_line(
+        head,
+        _record(SPAWNED, MOVED, outcome_state=EpisodeRecord.FAILED, info="timeout"),
+        60.0,
+        70.0,
+    )
 
-    assert intact == "[1/2] dwb/preflight env=0 SUCCESS info='finished after 13.7s' sim=13.7s wall=20.0s"
-    assert compromised == f"[1/2] dwb/preflight env=0 FAILED info='timeout' sim=60.0s wall=70.0s integrity={[SPAWNED, MOVED]!r}"
+    assert (
+        intact
+        == "[1/2] dwb/preflight env=0 SUCCESS info='finished after 13.7s' sim=13.7s wall=20.0s"
+    )
+    assert (
+        compromised
+        == f"[1/2] dwb/preflight env=0 FAILED info='timeout' sim=60.0s wall=70.0s integrity={[SPAWNED, MOVED]!r}"
+    )
 
 
 def test_episode_line_keeps_goal_progress_before_integrity() -> None:
@@ -98,11 +153,17 @@ def test_episode_line_keeps_goal_progress_before_integrity() -> None:
     rec.goal_dist_start = 4.0
     rec.goal_dist_min = 1.0
     rec.path_length = 3.5
-    assert episode_line("[2/2] dwb/preflight env=1", rec, 5.0, 6.0).endswith(f" progress=75% path=3.5m integrity={[MOVED]!r}")
+    assert episode_line("[2/2] dwb/preflight env=1", rec, 5.0, 6.0).endswith(
+        f" progress=75% path=3.5m integrity={[MOVED]!r}"
+    )
 
 
 def test_compromised_table_counts_per_contestant_across_stages() -> None:
-    steps = [_step("dwb", "preflight"), _step("dwb", "crowd"), _step("teb", "preflight")]
+    steps = [
+        _step("dwb", "preflight"),
+        _step("dwb", "crowd"),
+        _step("teb", "preflight"),
+    ]
     step_map = {s.key: s for s in steps}
     results = {
         "dwb/preflight": _result("dwb/preflight", 2, 1),
@@ -113,7 +174,10 @@ def test_compromised_table_counts_per_contestant_across_stages() -> None:
     table = compromised_table(results, step_map)
 
     assert table is not None
-    assert table.splitlines() == ["contestant  compromised  episodes", "dwb         3            4"]
+    assert table.splitlines() == [
+        "contestant  compromised  episodes",
+        "dwb         3            4",
+    ]
 
 
 def test_compromised_table_is_absent_when_every_episode_is_intact() -> None:
@@ -139,5 +203,3 @@ def _manifest() -> Manifest:
         contest=[],
         steps=[],
     )
-
-

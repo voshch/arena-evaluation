@@ -161,7 +161,9 @@ class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSI
     )
 
 
-class DimWorldEntities(_EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION):
+class DimWorldEntities(
+    _EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION
+):
     """One row per world entity of each episode, as the world declares it."""
 
     key = ("run_id", "episode_id", "env_id", "entity_name")

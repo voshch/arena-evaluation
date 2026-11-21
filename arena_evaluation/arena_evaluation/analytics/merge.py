@@ -9,7 +9,10 @@ import pathlib
 import yaml
 
 from arena_evaluation.storage.atomic import atomic_write_text
-from arena_evaluation.storage.star_schema import MERGE_MANIFEST_FILENAME, has_star_schema
+from arena_evaluation.storage.star_schema import (
+    MERGE_MANIFEST_FILENAME,
+    has_star_schema,
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -35,7 +38,9 @@ def _labels(raw: object) -> dict[str, str]:
     return {str(key): str(value) for key, value in (raw or {}).items()}
 
 
-def _manifest_source(entry: dict[str, object], benchmarks_root: pathlib.Path) -> MergeSource:
+def _manifest_source(
+    entry: dict[str, object], benchmarks_root: pathlib.Path
+) -> MergeSource:
     """Resolve one manifest entry against the benchmarks root and validate its directory."""
     run_id = str(entry["run_id"])
     stored = pathlib.Path(str(entry["run_dir"]))
@@ -106,7 +111,9 @@ def create_merged_benchmark(
         yaml.safe_dump(
             {
                 "name": name,
-                "created_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+                "created_at": datetime.datetime.now(datetime.UTC).isoformat(
+                    timespec="seconds"
+                ),
                 "sources": sources,
             },
             sort_keys=False,

@@ -3,6 +3,3 @@
 import pytest
 
 pytest.importorskip("polars")
-
-
-

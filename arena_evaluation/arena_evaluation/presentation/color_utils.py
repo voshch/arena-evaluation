@@ -5,7 +5,16 @@ import yaml
 from arena_evaluation.storage.config_layout import find_config_asset
 
 _PALETTE_CACHE = None
-_DEFAULT_PALETTE = ["#41b6e6", "#d3273e", "#00bfb2", "#ffc845", "#be84a3", "#dc582a", "#1d4289", "#94a596"]
+_DEFAULT_PALETTE = [
+    "#41b6e6",
+    "#d3273e",
+    "#00bfb2",
+    "#ffc845",
+    "#be84a3",
+    "#dc582a",
+    "#1d4289",
+    "#94a596",
+]
 
 
 def load_color_palette(config_path: pathlib.Path) -> list[str]:
@@ -57,7 +66,9 @@ def set_global_color_palette(palette: list[str] | None = None) -> None:
             assert isinstance(layout, go.Layout)
             layout.colorway = palette
         else:
-            pio.templates["plotly_white"] = go.layout.Template(layout=dict(colorway=palette))
+            pio.templates["plotly_white"] = go.layout.Template(
+                layout=dict(colorway=palette)
+            )
         pio.templates.default = "plotly_white"
     except ImportError:
         pass

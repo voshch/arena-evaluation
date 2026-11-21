@@ -83,5 +83,3 @@ def test_a_stored_metric_that_no_calculator_publishes_is_an_error() -> None:
 def test_two_calculators_publishing_one_metric_at_one_scope_is_an_error() -> None:
     with pytest.raises(SchemaViolationError, match="produced by both"):
         scope_producers((_HigherAtRobot, _LowerAtRobot))
-
-

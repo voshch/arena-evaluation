@@ -1,9 +1,7 @@
-
 import pytest
 
 pytest.importorskip("polars")
 pytest.importorskip("mcap_ros2.writer")
-
 
 
 def _record(outcome_state: int, conditions: str) -> dict:
@@ -27,5 +25,3 @@ def _record(outcome_state: int, conditions: str) -> dict:
         "conditions": conditions,
         "phases": "",
     }
-
-

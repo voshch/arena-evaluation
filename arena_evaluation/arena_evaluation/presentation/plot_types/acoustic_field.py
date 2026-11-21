@@ -569,13 +569,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
             for col_value in col_values:
                 cell_df = work_df
                 if row_col is not None:
-                    cell_df = cell_df.filter(
-                        pl.col(row_col).cast(pl.Utf8) == row_value
-                    )
+                    cell_df = cell_df.filter(pl.col(row_col).cast(pl.Utf8) == row_value)
                 if col_col is not None:
-                    cell_df = cell_df.filter(
-                        pl.col(col_col).cast(pl.Utf8) == col_value
-                    )
+                    cell_df = cell_df.filter(pl.col(col_col).cast(pl.Utf8) == col_value)
                 if len(cell_df) == 0:
                     continue
                 worst = self.pick_worst_row(cell_df)
@@ -773,9 +769,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 traj_data["robot_start"] = _first_xy(
                     df, schema, "start", "start_pos"
                 ) or (float(rx_clean[0]), float(ry_clean[0]))
-                traj_data["robot_goal"] = _first_xy(
-                    df, schema, "goal", "goal_pos"
-                ) or (float(rx_clean[-1]), float(ry_clean[-1]))
+                traj_data["robot_goal"] = _first_xy(df, schema, "goal", "goal_pos") or (
+                    float(rx_clean[-1]),
+                    float(ry_clean[-1]),
+                )
 
         if "has_collision" in schema and rx_col and ry_col and df is not None:
             coll_df = df.filter(pl.col("has_collision"))
@@ -1583,7 +1580,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 label="Peds",
             )
         if show_doors:
-            _draw_door_contours(ax_frame, layers.cx, layers.cy, layers.door_mask_all, open_dm)
+            _draw_door_contours(
+                ax_frame, layers.cx, layers.cy, layers.door_mask_all, open_dm
+            )
         collision_label = (
             "  COLLISION!" if frames.collision_per_frame[frame_index] else ""
         )

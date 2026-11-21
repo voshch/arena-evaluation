@@ -49,8 +49,6 @@ def test_no_semantic_snapshot_is_undefined():
     assert results["elevator_rides_anyone"] is None
 
 
-
-
 def _members(rows):
     """Members rows: (t_ns, entity, kind, [names])."""
     return snapshot_frame(

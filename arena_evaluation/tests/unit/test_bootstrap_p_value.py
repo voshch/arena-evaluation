@@ -69,5 +69,3 @@ def test_both_entry_points_report_the_same_p_value_on_one_fixture() -> None:
     )
 
     assert analytics.p_value == experiments.p == shared
-
-

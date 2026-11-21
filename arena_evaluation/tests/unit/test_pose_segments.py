@@ -14,9 +14,25 @@ def test_teleport_jumps_exempt_elevator_arrivals():
     y = np.zeros(5)
     log_t = (np.arange(5) * 1e9).astype(np.int64)
     assert list(teleport_jumps(x, y, log_t)) == [2]
-    assert list(teleport_jumps(x, y, log_t, exempt_ns=np.array([3_500_000_000]), exempt_t_ns=log_t)) == []
-    assert list(teleport_jumps(x, y, log_t, exempt_ns=np.array([9_000_000_000]), exempt_t_ns=log_t)) == [2]
-    assert list(teleport_jumps(x, y, exempt_ns=np.array([3_000_000_000]), exempt_t_ns=log_t)) == []
+    assert (
+        list(
+            teleport_jumps(
+                x, y, log_t, exempt_ns=np.array([3_500_000_000]), exempt_t_ns=log_t
+            )
+        )
+        == []
+    )
+    assert list(
+        teleport_jumps(
+            x, y, log_t, exempt_ns=np.array([9_000_000_000]), exempt_t_ns=log_t
+        )
+    ) == [2]
+    assert (
+        list(
+            teleport_jumps(x, y, exempt_ns=np.array([3_000_000_000]), exempt_t_ns=log_t)
+        )
+        == []
+    )
     assert list(teleport_jumps(x, y, exempt_ns=np.array([3_000_000_000]))) == [2]
 
     snap = pl.DataFrame(
@@ -42,6 +58,6 @@ def test_the_longest_piece_survives_a_teleport():
 
 def test_a_track_without_a_teleport_is_kept_whole():
     x = np.array([0.0, 0.5, 1.0])
-    assert consistent_segment(x, np.zeros(3), (np.arange(3) * 1e9).astype(np.int64)) == (0, 3)
-
-
+    assert consistent_segment(
+        x, np.zeros(3), (np.arange(3) * 1e9).astype(np.int64)
+    ) == (0, 3)

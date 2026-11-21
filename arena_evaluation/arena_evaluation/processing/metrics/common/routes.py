@@ -160,7 +160,9 @@ def plan_mission(
         leg = plan_route(grid, leg_start, leg_goal)
         if leg.points is None or leg.length_m is None:
             return leg
-        leg_length, leg_points = _truncate_to_goal_region(leg.points, leg_goal, GOAL_TOLERANCE_M)
+        leg_length, leg_points = _truncate_to_goal_region(
+            leg.points, leg_goal, GOAL_TOLERANCE_M
+        )
         chunks.append(leg_points if not chunks else leg_points[1:])
         length_m += leg_length
         leg_start = (float(leg_points[-1][0]), float(leg_points[-1][1]))

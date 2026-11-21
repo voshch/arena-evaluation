@@ -69,5 +69,3 @@ def test_plot_spec_requires_type_or_uses() -> None:
         PlotSpec(id="missing_type")
     spec = PlotSpec(id="from_recipe", uses="scorecard_table")
     assert spec.uses == "scorecard_table"
-
-

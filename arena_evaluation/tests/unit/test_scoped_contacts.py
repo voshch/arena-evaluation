@@ -240,5 +240,3 @@ def test_a_contact_spanning_several_robot_samples_keeps_its_span() -> None:
     )
 
     assert _evaluated_contact_window_lengths_ns(episode) == [2 * tenth_s_ns]
-
-

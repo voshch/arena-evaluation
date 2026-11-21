@@ -73,7 +73,13 @@ _SHARED_FRAMES = frozenset(
 KEPT_EMPTY_TABLES = ("robot_collision_contacts", "pedestrian_gestures")
 
 # The robot track's registry columns that every episode-scope calculator reads off the aligned frame.
-_TRACK_COLUMNS: typing.Final[tuple[str, ...]] = ("x", "y", "yaw", "speed_mps", "omega_z")
+_TRACK_COLUMNS: typing.Final[tuple[str, ...]] = (
+    "x",
+    "y",
+    "yaw",
+    "speed_mps",
+    "omega_z",
+)
 
 # EpisodeRecord.outcome_state -> (result, success)
 _STATUS_EVALUATED = "evaluated"
@@ -303,12 +309,36 @@ def _align_bundle(
 
 _SECONDARY_TABLES: typing.Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
     ("robot_scan_summary", ("scan_min_m", "range_max_m", "n_valid_rays")),
-    ("robot_cmd_vel", ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z")),
-    ("robot_collision_events", ("event_count", "wall_count", "static_count", "ped_count")),
+    (
+        "robot_cmd_vel",
+        ("linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z"),
+    ),
+    (
+        "robot_collision_events",
+        ("event_count", "wall_count", "static_count", "ped_count"),
+    ),
     ("robot_collision_monitor", ("action_type", "polygon_name")),
-    ("robot_power", ("total_power_w", "static_power_w", "total_mech_power_w", "total_thermal_power_w")),
+    (
+        "robot_power",
+        (
+            "total_power_w",
+            "static_power_w",
+            "total_mech_power_w",
+            "total_thermal_power_w",
+        ),
+    ),
     ("robot_energy", ("total_energy_consumed_wh", "battery_soc_percent")),
-    ("robot_acoustics", ("total_level_af_dba", "total_level_zf_db", "baseline_level_dba", "drivetrain_level_dba", "uncertainty_1sigma_dba", "validity_flags")),
+    (
+        "robot_acoustics",
+        (
+            "total_level_af_dba",
+            "total_level_zf_db",
+            "baseline_level_dba",
+            "drivetrain_level_dba",
+            "uncertainty_1sigma_dba",
+            "validity_flags",
+        ),
+    ),
 )
 
 
@@ -367,7 +397,11 @@ def _episode_endpoints(
             latest_plan = plan_df.filter(
                 pl.col("plan_id") == plan_df["plan_id"].max()
             ).sort("waypoint_idx")
-            goal_pos = [latest_plan["x"][-1], latest_plan["y"][-1], latest_plan["yaw"][-1]]
+            goal_pos = [
+                latest_plan["x"][-1],
+                latest_plan["y"][-1],
+                latest_plan["yaw"][-1],
+            ]
 
     gotos = [pose for pose in (phases or {}).get("map_poses", []) if pose is not None]
     if gotos:
@@ -392,9 +426,7 @@ def _record_json_values(
             yield parsed
 
 
-def _robot_phases(
-    record: pl.DataFrame | pl.LazyFrame, robot_dir: str
-) -> dict | None:
+def _robot_phases(record: pl.DataFrame | pl.LazyFrame, robot_dir: str) -> dict | None:
     """This robot's {phases, conditions, map_poses, goal_inputs, instructions} from the last EpisodeRecord row that carries any, None without."""
     from arena_evaluation.processing.metrics.ecological.condition_metrics import (
         bare_robot_name,
@@ -483,14 +515,25 @@ def _robot_identity(bundle: TopicBundle) -> tuple[str, RobotParams]:
     """This robot's recorded identity and parameters, never the installed definition or a default."""
     from arena_evaluation.storage.schemas import robot_params_from_recorded
 
-    observed = [_frame(table) for table in (bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom)]
+    observed = [
+        _frame(table)
+        for table in (bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom)
+    ]
     robot_id = next(
-        (str(frame.get_column("robot_id")[0]) for frame in observed if frame is not None and frame.height),
+        (
+            str(frame.get_column("robot_id")[0])
+            for frame in observed
+            if frame is not None and frame.height
+        ),
         None,
     )
     if robot_id is None:
-        raise MetricInputError("a robot bundle has no recorded table that names its robot")
-    recorded = [_frame(table) for table in (bundle.robot_descriptor, bundle.robot_params)]
+        raise MetricInputError(
+            "a robot bundle has no recorded table that names its robot"
+        )
+    recorded = [
+        _frame(table) for table in (bundle.robot_descriptor, bundle.robot_params)
+    ]
     rows = (
         pl.concat([frame for frame in recorded if frame is not None], how="diagonal")
         if any(frame is not None for frame in recorded)
@@ -662,8 +705,15 @@ def _metadata_robot(
     metadata: RunMetadata | None, bundles: dict[str, TopicBundle] | None = None
 ) -> str:
     """Bundle-style robot key (env_0_jackal) for a row without a robot bundle."""
-    model = metadata.robot_model[0].partition("[")[0] if metadata is not None and metadata.robot_model else ""
-    env = next((m.group(0) for name in (bundles or {}) if (m := re.match(r"env_\d+", name))), None)
+    model = (
+        metadata.robot_model[0].partition("[")[0]
+        if metadata is not None and metadata.robot_model
+        else ""
+    )
+    env = next(
+        (m.group(0) for name in (bundles or {}) if (m := re.match(r"env_\d+", name))),
+        None,
+    )
     return f"{env}_{model}" if env and model else model
 
 
@@ -973,9 +1023,7 @@ class ProcessingPipeline:
                 else f"{row_count} ground-truth rows inside the episode window"
             )
             if tracks is not None:
-                _log.warning(
-                    f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}"
-                )
+                _log.warning(f"episode_{ep.episode_id:03d} [{robot_name}]: {reason}")
             return (
                 _status_row(
                     ep,
