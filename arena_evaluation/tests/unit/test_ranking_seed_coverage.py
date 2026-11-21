@@ -25,9 +25,7 @@ _COLUMNS = {
 }
 
 
-def _row(
-    planner: str, seed: int, success: float, time_to_goal: float
-) -> dict[str, object]:
+def _row(planner: str, seed: int, success: float, time_to_goal: float) -> dict[str, object]:
     return {
         "arm": "arm_main",
         "world": "hospital",
@@ -52,9 +50,7 @@ def _partial_coverage() -> pl.DataFrame:
 
 
 def test_seed_split_stability_drops_a_half_without_observations() -> None:
-    result = seed_split_rank_stability(
-        _partial_coverage(), "success", n_splits=40, k=1, seed=7
-    )
+    result = seed_split_rank_stability(_partial_coverage(), "success", n_splits=40, k=1, seed=7)
 
     # planner_partial has data on one seed only, so no split observes it in both halves.
     assert result.planners_ranked == 2
@@ -75,9 +71,7 @@ def test_seed_split_stability_drops_a_half_without_observations() -> None:
 
 
 def test_rank_intervals_leave_the_unrankable_planner_null() -> None:
-    intervals = paired_cluster_bootstrap_rank_intervals(
-        _partial_coverage(), "success", n_bootstrap=100, seed=11
-    )
+    intervals = paired_cluster_bootstrap_rank_intervals(_partial_coverage(), "success", n_bootstrap=100, seed=11)
 
     assert intervals.schema == RANK_INTERVAL_SCHEMA
     by_planner = {

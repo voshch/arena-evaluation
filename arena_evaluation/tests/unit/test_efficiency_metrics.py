@@ -74,16 +74,12 @@ def _episode(
     topics = {"robot_tracks": gt, "tf_gt": gt}
     if plans is not None:
         topics["robot_plans"] = plans
-    return AlignedEpisodeBundle(
-        1, gt, [], goal, map=map_name, topics=topics, run_dir=run_dir
-    )
+    return AlignedEpisodeBundle(1, gt, [], goal, map=map_name, topics=topics, run_dir=run_dir)
 
 
 def _straight_episode(run_dir: pathlib.Path | None = None) -> AlignedEpisodeBundle:
     xs = [float(value) for value in np.linspace(0.0, 10.0, 21)]
-    return _episode(
-        _gt(xs, [0.0] * len(xs)), [10.0, 0.0], map_name=OPEN_ROOM, run_dir=run_dir
-    )
+    return _episode(_gt(xs, [0.0] * len(xs)), [10.0, 0.0], map_name=OPEN_ROOM, run_dir=run_dir)
 
 
 def test_both_route_ratio_descriptions_state_the_shared_commanded_reference_rule():
@@ -145,9 +141,7 @@ def test_layer2_relative_throughput_is_deferred_to_catalog_reference_join():
         topics={"robot_tracks": robot},
     )
 
-    results = PathEfficiencyCalculator(_params()).calculate(
-        episode, {"path_length_m": 4.0, "theta_star_length": 4.0, "time_to_goal": 8.0}
-    )
+    results = PathEfficiencyCalculator(_params()).calculate(episode, {"path_length_m": 4.0, "theta_star_length": 4.0, "time_to_goal": 8.0})
 
     assert results["relative_throughput"] is None
     assert results["relative_throughput_null_reason"] == "reference_missing"

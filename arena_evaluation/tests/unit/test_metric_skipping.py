@@ -45,9 +45,7 @@ def _run_skipping(
 
 
 def test_registry_skipping_with_available_topics():
-    params = make_robot_params(
-        robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0
-    )
+    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
     registry = MetricRegistry(params)
 
     df_odom_only = pl.DataFrame(
@@ -71,9 +69,7 @@ def test_registry_skipping_with_available_topics():
 
     assert results["path_length_m"] > 0
     # The sample at 2000 ns is exactly 1 m from the goal, which is within the 1 m tolerance.
-    assert results["time_to_goal"] == pytest.approx(
-        1e-6
-    )  # 1000 ns after the first sample
+    assert results["time_to_goal"] == pytest.approx(1e-6)  # 1000 ns after the first sample
     assert results["mean_velocity_mps"] == 1.0
 
     assert results["collision_amount"] is None
@@ -85,9 +81,7 @@ def test_registry_skipping_with_available_topics():
 
 
 def test_registry_skipping_with_all_topics():
-    params = make_robot_params(
-        robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0
-    )
+    params = make_robot_params(robot_radius=0.25, laser_min_range=0.0, laser_max_range=30.0)
     registry = MetricRegistry(params)
 
     df_all = pl.DataFrame(
@@ -124,9 +118,7 @@ def test_registry_skipping_with_all_topics():
         }
     )
 
-    collision_events = pl.DataFrame(
-        {"t_ns": [1000, 2000, 3000], "event_count": [0, 0, 0]}
-    )
+    collision_events = pl.DataFrame({"t_ns": [1000, 2000, 3000], "event_count": [0, 0, 0]})
     episode = AlignedEpisodeBundle(
         episode_id=1,
         data=df_all,

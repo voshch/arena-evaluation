@@ -37,9 +37,7 @@ def _status(
         measured_rtf=rtf,
         registrations=regs,
         gated_ticks=ticks,
-        counts=[
-            SimpleNamespace(name=n, topic=t, due=d, received=r) for n, t, d, r in counts
-        ],
+        counts=[SimpleNamespace(name=n, topic=t, due=d, received=r) for n, t, d, r in counts],
     )
 
 
@@ -47,9 +45,7 @@ _ENV0 = "/arena_env_node/env_0"
 _ENV1 = "/arena_env_node/env_1"
 
 
-def _counts(
-    n: int, *, env1_received: int | None = None
-) -> tuple[tuple[str, str, int, int], ...]:
+def _counts(n: int, *, env1_received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:
     return (
         ("engine", "/arena/env_0/agent_states", n, n),
         ("planner/jackal", f"{_ENV0}/jackal/lockstep/planner", n, n),
@@ -62,9 +58,7 @@ def _counts(
     )
 
 
-def _nav_counts(
-    n: int, received: int | None = None
-) -> tuple[tuple[str, str, int, int], ...]:
+def _nav_counts(n: int, received: int | None = None) -> tuple[tuple[str, str, int, int], ...]:
     return (
         (
             "nav/jackal",
@@ -91,9 +85,7 @@ def test_stall_accounting_includes_report_lag() -> None:
     assert s.verdict == "fail"
 
 
-def test_window_opened_mid_stall_inherits_it_and_open_stall_closes_with_window() -> (
-    None
-):
+def test_window_opened_mid_stall_inherits_it_and_open_stall_closes_with_window() -> None:
     m = LockstepMonitor()
     m.observe(_status(waiting=("planner/jackal",)), 5.0)
     m.open("ep1", 6.0)
@@ -151,11 +143,7 @@ def test_merge_and_roundtrip() -> None:
         beats_due=5,
     )
     merged = a.merge(b)
-    assert (
-        merged.stalls == 1
-        and merged.max_stall_s == 2.0
-        and merged.rtf == pytest.approx(3.0)
-    )
+    assert merged.stalls == 1 and merged.max_stall_s == 2.0 and merged.rtf == pytest.approx(3.0)
     assert (merged.ticks, merged.beats, merged.beats_due) == (15, 14, 15)
     assert merged.channels == ("engine", "nav/jackal")
     assert LockstepSummary.from_dict(merged.to_dict()) == merged
@@ -241,8 +229,6 @@ def test_counter_reset_folds_the_finished_run_into_the_window() -> None:
 
 
 def test_summary_roundtrip_keeps_counts() -> None:
-    s = LockstepSummary(
-        active=True, channels=("planner/jackal",), ticks=3, beats=2, beats_due=3
-    )
+    s = LockstepSummary(active=True, channels=("planner/jackal",), ticks=3, beats=2, beats_due=3)
     assert LockstepSummary.from_dict(s.to_dict()) == s
     assert "ticks=3 beats=2/3 beat_channels=planner/jackal" in s.short()

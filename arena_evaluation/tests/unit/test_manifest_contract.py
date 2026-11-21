@@ -73,13 +73,9 @@ def _assert_valid_plot_binding(spec: PlotSpec) -> None:
         spec = DataResolver().resolve_spec(spec)
     assert spec.type not in ("acoustic_field_animation", "dendrogram")
     if spec.data.source is not None:
-        assert spec.data.source in declared_data_sources(), (
-            f"{spec.id}: unknown source {spec.data.source!r}"
-        )
+        assert spec.data.source in declared_data_sources(), f"{spec.id}: unknown source {spec.data.source!r}"
     if spec.data.computation is not None:
-        assert spec.data.computation in COMPUTATIONS, (
-            f"{spec.id}: unknown computation {spec.data.computation!r}"
-        )
+        assert spec.data.computation in COMPUTATIONS, f"{spec.id}: unknown computation {spec.data.computation!r}"
     if spec.data.stored_query is not None:
         QueryCatalog().get_query(spec.data.stored_query)
 
@@ -244,10 +240,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
     ped_schema = dimensions.DimPedestrians.polars_schema()
     ped_rows: list[dict[str, object]] = []
     for episode_id in range(12):
-        ped_row = {
-            name: _dummy_val(name, dtype, rng, episode_id)
-            for name, dtype in ped_schema.items()
-        }
+        ped_row = {name: _dummy_val(name, dtype, rng, episode_id) for name, dtype in ped_schema.items()}
         ped_row.update(
             {
                 "run_id": "run",
@@ -258,9 +251,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             }
         )
         ped_rows.append(ped_row)
-    pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(
-        bench / f"{dimensions.DimPedestrians.table_name}.parquet"
-    )
+    pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(bench / f"{dimensions.DimPedestrians.table_name}.parquet")
 
     for episode_id in range(12):
         ep_dir = bench / "episodes" / f"episode_{episode_id:03d}"
@@ -270,10 +261,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             s_schema = series_cls.polars_schema()
             s_rows = []
             for step in range(4):
-                sr = {
-                    name: _dummy_val(name, dtype, rng, episode_id + step)
-                    for name, dtype in s_schema.items()
-                }
+                sr = {name: _dummy_val(name, dtype, rng, episode_id + step) for name, dtype in s_schema.items()}
                 sr["run_id"] = "run"
                 sr["episode_id"] = episode_id
                 sr["robot_id"] = "robot_0"
@@ -293,19 +281,12 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 if "t_s" in s_schema:
                     sr["t_s"] = float(step)
                 s_rows.append(sr)
-            pl.DataFrame(s_rows, schema=s_schema).write_parquet(
-                ep_dir
-                / "metrics"
-                / f"series_{series_cls.table_name.removeprefix('series_')}.parquet"
-            )
+            pl.DataFrame(s_rows, schema=s_schema).write_parquet(ep_dir / "metrics" / f"series_{series_cls.table_name.removeprefix('series_')}.parquet")
 
         ped_schema = PedestrianArenaPeds.polars_schema()
         ped_rows = [
             {
-                **{
-                    name: _dummy_val(name, dtype, rng, step)
-                    for name, dtype in ped_schema.items()
-                },
+                **{name: _dummy_val(name, dtype, rng, step) for name, dtype in ped_schema.items()},
                 "t_ns": step * 1_000_000_000,
                 "env_id": "env_0",
                 "x": float(step) + 0.5,
@@ -313,16 +294,11 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             }
             for step in range(4)
         ]
-        pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(
-            topics_dir / f"{PedestrianArenaPeds.table_name}.parquet"
-        )
+        pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(topics_dir / f"{PedestrianArenaPeds.table_name}.parquet")
         rt_schema = RobotTracks.polars_schema()
         rt_rows = [
             {
-                **{
-                    name: _dummy_val(name, dtype, rng, step)
-                    for name, dtype in rt_schema.items()
-                },
+                **{name: _dummy_val(name, dtype, rng, step) for name, dtype in rt_schema.items()},
                 "t_ns": step * 1_000_000_000,
                 # A telemetry row carries its recorded keys: the trajectory query joins the episode on
                 # (episode_id, robot_id), so a dummy robot id would fan the sample out onto no episode.
@@ -333,19 +309,14 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             }
             for step in range(4)
         ]
-        pl.DataFrame(rt_rows, schema=rt_schema).write_parquet(
-            topics_dir / f"{RobotTracks.table_name}.parquet"
-        )
+        pl.DataFrame(rt_rows, schema=rt_schema).write_parquet(topics_dir / f"{RobotTracks.table_name}.parquet")
 
         # A-028: the acoustic-field recipe refuses to invent a source level, so the benchmark
         # records one robot_acoustics sample per frame like the acoustics backend does.
         ra_schema = RobotAcoustics.polars_schema()
         ra_rows = [
             {
-                **{
-                    name: _dummy_val(name, dtype, rng, step)
-                    for name, dtype in ra_schema.items()
-                },
+                **{name: _dummy_val(name, dtype, rng, step) for name, dtype in ra_schema.items()},
                 "t_ns": step * 1_000_000_000,
                 "env_id": "env_0",
                 "robot_id": "robot_0",
@@ -354,16 +325,12 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             }
             for step in range(4)
         ]
-        pl.DataFrame(ra_rows, schema=ra_schema).write_parquet(
-            topics_dir / f"{RobotAcoustics.table_name}.parquet"
-        )
+        pl.DataFrame(ra_rows, schema=ra_schema).write_parquet(topics_dir / f"{RobotAcoustics.table_name}.parquet")
 
     return bench
 
 
-@pytest.mark.parametrize(
-    "manifest_path", _manifest_paths(), ids=lambda p: p.parent.name
-)
+@pytest.mark.parametrize("manifest_path", _manifest_paths(), ids=lambda p: p.parent.name)
 def test_bundled_manifest_builds_with_zero_failed_checks(
     manifest_path: pathlib.Path,
     full_registry_bench: pathlib.Path,
@@ -376,58 +343,36 @@ def test_bundled_manifest_builds_with_zero_failed_checks(
     builder = ReportBuilder(full_registry_bench, output_dir=out_dir, manifest=manifest)
     report_path = builder.build()
     assert report_path is not None and report_path.exists()
-    assert builder.build_checks.failed_count == 0, (
-        f"{manifest_path.parent.name} had failed checks: {builder.build_checks.failures}"
-    )
+    assert builder.build_checks.failed_count == 0, f"{manifest_path.parent.name} had failed checks: {builder.build_checks.failures}"
 
 
-def _assert_converted_tables(
-    reports: dict[str, dict], expected: dict[tuple[str, str], int]
-) -> None:
+def _assert_converted_tables(reports: dict[str, dict], expected: dict[tuple[str, str], int]) -> None:
     for (rname, pid), count in expected.items():
         by_id = {p["id"]: p for p in reports[rname]["plots"]}
         tbl = by_id[pid]
-        assert len(tbl["data"]["params"]["metrics"]) == count, (
-            f"{rname}:{pid} metric count"
-        )
+        assert len(tbl["data"]["params"]["metrics"]) == count, f"{rname}:{pid} metric count"
         assert len(tbl["options"]["labels"]) == count, f"{rname}:{pid} labels count"
         assert len(tbl["options"]["format"]) == count, f"{rname}:{pid} format count"
 
 
-def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectories() -> (
-    None
-):
+def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectories() -> None:
     """The shipped reports keep their options, characterization filters and tables."""
     import yaml
 
-    reports = {
-        p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8"))
-        for p in _manifest_paths()
-    }
+    reports = {p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in _manifest_paths()}
     # No legacy options.columns anywhere in manifests or plot recipes
     for rname, rdata in reports.items():
         for p in rdata["plots"]:
             opts = p.get("options") or {}
-            assert "columns" not in opts, (
-                f"{rname}:{p['id']} still uses options.columns"
-            )
+            assert "columns" not in opts, f"{rname}:{p['id']} still uses options.columns"
     for rpath in _declaration_paths():
         rdata = yaml.safe_load(rpath.read_text(encoding="utf-8"))
-        assert "columns" not in (rdata.get("options") or {}), (
-            f"{rpath} uses options.columns"
-        )
+        assert "columns" not in (rdata.get("options") or {}), f"{rpath} uses options.columns"
 
     # Characterization preserves 21 phase_kind filters and 18 smooth_window params
     ch_plots = reports["characterization"]["plots"]
-    filtered = [
-        p
-        for p in ch_plots
-        if "phase_kind" in str((p["data"].get("params") or {}).get("filter", ""))
-        or "phase_kind" in str(p["data"].get("where", ""))
-    ]
-    smoothed = [
-        p for p in ch_plots if (p["data"].get("params") or {}).get("smooth_window")
-    ]
+    filtered = [p for p in ch_plots if "phase_kind" in str((p["data"].get("params") or {}).get("filter", "")) or "phase_kind" in str(p["data"].get("where", ""))]
+    smoothed = [p for p in ch_plots if (p["data"].get("params") or {}).get("smooth_window")]
     assert len(filtered) == 21
     assert len(smoothed) == 18
 
@@ -437,19 +382,11 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
             comp = (p.get("data") or {}).get("computation")
             opts = p.get("options") or {}
             if p.get("type") == "bar" and comp == "group_summary":
-                assert opts.get("err_plus") == "err_plus", (
-                    f"{rname}:{p['id']} missing options.err_plus"
-                )
-                assert opts.get("err_minus") == "err_minus", (
-                    f"{rname}:{p['id']} missing options.err_minus"
-                )
+                assert opts.get("err_plus") == "err_plus", f"{rname}:{p['id']} missing options.err_plus"
+                assert opts.get("err_minus") == "err_minus", f"{rname}:{p['id']} missing options.err_minus"
             if p.get("type") == "histogram" and comp == "distribution_bins":
-                assert opts.get("bin_low") == "bin_low", (
-                    f"{rname}:{p['id']} missing options.bin_low"
-                )
-                assert opts.get("bin_high") == "bin_high", (
-                    f"{rname}:{p['id']} missing options.bin_high"
-                )
+                assert opts.get("bin_low") == "bin_low", f"{rname}:{p['id']} missing options.bin_low"
+                assert opts.get("bin_high") == "bin_high", f"{rname}:{p['id']} missing options.bin_high"
 
     # Converted tables of the shipped reports preserve full source metric lists, labels, and formats
     _assert_converted_tables(
@@ -474,30 +411,18 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     from a local root or a benchmark bucket."""
     import yaml
 
-    reports = {
-        p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8"))
-        for p in _manifest_paths()
-    }
+    reports = {p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in _manifest_paths()}
     missing = [name for name in _ASSET_REPORTS if name not in reports]
     if missing:
-        pytest.skip(
-            f"report(s) {', '.join(missing)} are in the asset store, not the repo: "
-            "arena asset pull manifest <name>"
-        )
+        pytest.skip(f"report(s) {', '.join(missing)} are in the asset store, not the repo: arena asset pull manifest <name>")
 
     # Pivot heatmaps bind their real metrics, not success
     ev_plots = {p["id"]: p for p in reports["everything"]["plots"]}
-    assert ev_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == [
-        "spl_geodesic"
-    ]
+    assert ev_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == ["spl_geodesic"]
     assert ev_plots["heatmap_ecot_pivot"]["data"]["params"]["metrics"] == ["e_cot"]
-    assert ev_plots["heatmap_psii_pivot"]["data"]["params"]["metrics"] == [
-        "personal_space_intrusion_integral"
-    ]
+    assert ev_plots["heatmap_psii_pivot"]["data"]["params"]["metrics"] == ["personal_space_intrusion_integral"]
     sf_plots = {p["id"]: p for p in reports["safety"]["plots"]}
-    assert sf_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == [
-        "spl_geodesic"
-    ]
+    assert sf_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == ["spl_geodesic"]
 
     # All 6 inter plots group by inter_planner
     for pid in ("bar_success_inter", "bar_spl_inter", "bar_passing_compliance_inter"):
@@ -513,10 +438,7 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     try:
         ccs = PlotIdentifier(name="contact_closing_share").resolve_sync()
     except FileNotFoundError:
-        pytest.skip(
-            "plot 'contact_closing_share' is in the asset store: "
-            "arena asset pull plot contact_closing_share"
-        )
+        pytest.skip("plot 'contact_closing_share' is in the asset store: arena asset pull plot contact_closing_share")
     assert ccs["type"] == "bar"
     assert ccs["data"]["stored_query"] == "contact_attribution_summary"
     assert ccs["channels"]["facet_col"] == "crowd_condition"
@@ -524,13 +446,8 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     # standard, social, everything, safety bind both non-reference trajectory queries
     for rname in _ASSET_REPORTS:
         by_id = {p["id"]: p for p in reports[rname]["plots"]}
-        assert (
-            by_id["trajectory_plot"]["data"]["stored_query"] == "robot_tracks_non_ref"
-        )
-        assert (
-            by_id["pedestrian_trajectory_plot"]["data"]["stored_query"]
-            == "pedestrian_arena_peds_non_ref"
-        )
+        assert by_id["trajectory_plot"]["data"]["stored_query"] == "robot_tracks_non_ref"
+        assert by_id["pedestrian_trajectory_plot"]["data"]["stored_query"] == "pedestrian_arena_peds_non_ref"
 
     # Converted tables of the asset reports preserve full source metric lists, labels, and formats
     _assert_converted_tables(

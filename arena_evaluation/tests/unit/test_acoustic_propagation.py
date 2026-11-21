@@ -153,9 +153,7 @@ def test_side_door_closed_blocks_like_wall():
 
 def test_wall_only_blocks():
     spec = scenarios()["two_rooms_wall_only"]
-    att = _solve(
-        build({**spec, "_name": "two_rooms_wall_only"}), spec["start"], spec["target"]
-    )
+    att = _solve(build({**spec, "_name": "two_rooms_wall_only"}), spec["start"], spec["target"])
     los = _los_db(spec["start"], spec["target"])
     assert att >= los + 30.0, f"solid wall must block: {att:.1f}"
 
@@ -163,9 +161,7 @@ def test_wall_only_blocks():
 def test_wall_only_harder_than_open_door():
     wall = scenarios()["two_rooms_wall_only"]
     door = scenarios()["two_rooms_door_open_middle"]
-    a_wall = _solve(
-        build({**wall, "_name": "two_rooms_wall_only"}), wall["start"], wall["target"]
-    )
+    a_wall = _solve(build({**wall, "_name": "two_rooms_wall_only"}), wall["start"], wall["target"])
     a_door = _solve(
         build({**door, "_name": "two_rooms_door_open_middle"}),
         door["start"],
@@ -179,13 +175,9 @@ def test_wall_only_harder_than_open_door():
 
 def test_corridor_line_of_sight():
     spec = scenarios()["long_corridor"]
-    att = _solve(
-        build({**spec, "_name": "long_corridor"}), spec["start"], spec["target"]
-    )
+    att = _solve(build({**spec, "_name": "long_corridor"}), spec["start"], spec["target"])
     los = _los_db(spec["start"], spec["target"])
-    assert np.isclose(att, los, atol=2.0), (
-        f"corridor should be ~LOS: {att:.1f} vs {los:.1f}"
-    )
+    assert np.isclose(att, los, atol=2.0), f"corridor should be ~LOS: {att:.1f} vs {los:.1f}"
 
 
 def test_corridor_narrowing_increases_attenuation():
@@ -196,19 +188,13 @@ def test_corridor_narrowing_increases_attenuation():
         narrow["start"],
         narrow["target"],
     )
-    a_plain = _solve(
-        build({**plain, "_name": "long_corridor"}), plain["start"], plain["target"]
-    )
-    assert a_narrow > a_plain, (
-        f"narrowing must cost more: {a_narrow:.1f} vs {a_plain:.1f}"
-    )
+    a_plain = _solve(build({**plain, "_name": "long_corridor"}), plain["start"], plain["target"])
+    assert a_narrow > a_plain, f"narrowing must cost more: {a_narrow:.1f} vs {a_plain:.1f}"
 
 
 def test_corridor_closed_door_blocks():
     spec = scenarios()["corridor_side_door"]
-    att = _solve(
-        build({**spec, "_name": "corridor_side_door"}), spec["start"], spec["target"]
-    )
+    att = _solve(build({**spec, "_name": "corridor_side_door"}), spec["start"], spec["target"])
     los = _los_db(spec["start"], spec["target"])
     assert att >= los + 30.0, f"closed corridor door must block: {att:.1f}"
 
@@ -222,22 +208,12 @@ def test_closed_door_cheaper_than_wall():
     wall = scenarios()["two_rooms_wall_only"]
     g_door = build({**door, "_name": "two_rooms_door_closed_middle"})
     g_wall = build({**wall, "_name": "two_rooms_wall_only"})
-    a_door = _solve(
-        g_door, door["start"], door["target"], pixel_tl=_tl_map(g_door, door)
-    )
-    a_wall = _solve(
-        g_wall, wall["start"], wall["target"], pixel_tl=_tl_map(g_wall, wall)
-    )
+    a_door = _solve(g_door, door["start"], door["target"], pixel_tl=_tl_map(g_door, door))
+    a_wall = _solve(g_wall, wall["start"], wall["target"], pixel_tl=_tl_map(g_wall, wall))
     los = _los_db(door["start"], door["target"])
-    assert np.isclose(a_door, los + DOOR_TL, atol=2.0), (
-        f"door: {a_door:.1f} vs {los + DOOR_TL:.1f}"
-    )
-    assert np.isclose(a_wall, los + WALL_TL, atol=2.0), (
-        f"wall: {a_wall:.1f} vs {los + WALL_TL:.1f}"
-    )
-    assert a_door < a_wall - 15.0, (
-        f"door {a_door:.1f} must be cheaper than wall {a_wall:.1f}"
-    )
+    assert np.isclose(a_door, los + DOOR_TL, atol=2.0), f"door: {a_door:.1f} vs {los + DOOR_TL:.1f}"
+    assert np.isclose(a_wall, los + WALL_TL, atol=2.0), f"wall: {a_wall:.1f} vs {los + WALL_TL:.1f}"
+    assert a_door < a_wall - 15.0, f"door {a_door:.1f} must be cheaper than wall {a_wall:.1f}"
 
 
 def test_open_door_equals_free_space():
@@ -297,9 +273,7 @@ def test_door_carving_open_vs_closed():
     grid = build({**spec, "_name": "two_rooms_door_open_middle"})
     start, target = spec["start"], spec["target"]
     a_open = _solve(grid, start, target, pixel_tl=_tl_map(grid, spec, open_doors=True))
-    a_closed = _solve(
-        grid, start, target, pixel_tl=_tl_map(grid, spec, open_doors=False)
-    )
+    a_closed = _solve(grid, start, target, pixel_tl=_tl_map(grid, spec, open_doors=False))
     los = _los_db(start, target)
     assert a_open < los + 2.0, f"open door should be ~LOS: {a_open:.1f}"
     assert a_closed >= los + 20.0, f"closed door should block: {a_closed:.1f}"
@@ -313,9 +287,7 @@ def test_touching_walls_pay_for_each_wall_crossed():
 
     att = _solve(grid, start, target)
 
-    assert np.isclose(att, _los_db(start, target) + 2 * WALL_TL, atol=0.5), (
-        f"two touching walls must cost twice: {att:.1f}"
-    )
+    assert np.isclose(att, _los_db(start, target) + 2 * WALL_TL, atol=0.5), f"two touching walls must cost twice: {att:.1f}"
 
 
 def test_line_of_sight_cannot_squeeze_past_touching_barriers():
@@ -327,9 +299,7 @@ def test_line_of_sight_cannot_squeeze_past_touching_barriers():
 
     att = _solve(grid, (0.0, 0.0), (RES, RES), pixel_tl=pixel_tl)
 
-    assert att == pytest.approx(DOOR_TL, abs=0.5), (
-        f"the squeeze must pay the door's TL, not pass free: {att:.2f}"
-    )
+    assert att == pytest.approx(DOOR_TL, abs=0.5), f"the squeeze must pay the door's TL, not pass free: {att:.2f}"
 
 
 def test_world_door_in_a_derived_wall_blocks_when_closed_and_opens_the_path(tmp_path):
@@ -354,9 +324,7 @@ def test_world_door_in_a_derived_wall_blocks_when_closed_and_opens_the_path(tmp_
         yaml.safe_dump(
             {
                 "format": "arena-world/2",
-                "levels": [
-                    {"id": "0", "zones": [room], "walls": walls, "doors": [door]}
-                ],
+                "levels": [{"id": "0", "zones": [room], "walls": walls, "doors": [door]}],
             }
         )
     )
@@ -373,12 +341,8 @@ def test_world_door_in_a_derived_wall_blocks_when_closed_and_opens_the_path(tmp_
     grid, origin = barrier.occupancy, barrier.origin
     start, target = (3.0, 1.0), (3.0, 5.0)
     los = _los_db(start, target)
-    att = _solve(
-        grid, start, target, pixel_tl=build_pixel_tl(grid, doors), origin=origin
-    )
-    assert np.isclose(att, los + DOOR_TL, atol=0.5), (
-        f"closed door must block: {att:.1f} vs LOS {los:.1f}"
-    )
+    att = _solve(grid, start, target, pixel_tl=build_pixel_tl(grid, doors), origin=origin)
+    assert np.isclose(att, los + DOOR_TL, atol=0.5), f"closed door must block: {att:.1f} vs LOS {los:.1f}"
     att_open = _solve(
         grid,
         start,
@@ -386,9 +350,7 @@ def test_world_door_in_a_derived_wall_blocks_when_closed_and_opens_the_path(tmp_
         pixel_tl=build_pixel_tl(grid, doors, open_doors={"world/d"}),
         origin=origin,
     )
-    assert np.isclose(att_open, los, atol=0.5), (
-        f"open door should be LOS: {att_open:.1f} vs {los:.1f}"
-    )
+    assert np.isclose(att_open, los, atol=0.5), f"open door should be LOS: {att_open:.1f} vs {los:.1f}"
 
 
 def test_acoustic_field_matches_sparse_points():
@@ -405,8 +367,6 @@ def test_acoustic_field_matches_sparse_points():
     test_pts = [(10.0, 15.0), (20.0, 15.0), (25.0, 25.0)]
     tx = np.array([p[0] for p in test_pts], dtype=np.float32)
     ty = np.array([p[1] for p in test_pts], dtype=np.float32)
-    pt_atts = compute_attenuations(
-        grid, res, sx, sy, tx, ty, wall_tl=47.0, mic_distance=1.0
-    )
+    pt_atts = compute_attenuations(grid, res, sx, sy, tx, ty, wall_tl=47.0, mic_distance=1.0)
     for i, (px, py) in enumerate(test_pts):
         assert np.isclose(field[int(py), int(px)], pt_atts[i], atol=1e-3)

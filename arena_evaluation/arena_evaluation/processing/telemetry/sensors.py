@@ -23,11 +23,7 @@ class ScanRecorder:
     def record(self, envelope: Envelope[LaserScan]) -> None:
         scan = envelope.body
         out_of_range = float(scan.range_max)
-        valid = [
-            float(distance)
-            for distance in scan.ranges
-            if scan.range_min <= distance < scan.range_max
-        ]
+        valid = [float(distance) for distance in scan.ranges if scan.range_min <= distance < scan.range_max]
         self._sink.append(
             SCAN_SUMMARY_TABLE,
             robot_row(

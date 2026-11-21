@@ -39,15 +39,11 @@ FINDING_NOTE_PREFIX: Final[str] = "finding:"
 LaunchValue = str | int | float | bool
 LaunchArgs = Annotated[
     dict[str, LaunchValue] | None,
-    pydantic.Field(
-        description="launch args passed as key:=value, e.g. {'task.episode.fail_on_collision': true}, booleans written as true/false"
-    ),
+    pydantic.Field(description="launch args passed as key:=value, e.g. {'task.episode.fail_on_collision': true}, booleans written as true/false"),
 ]
 ConfigArg = Annotated[
     str | dict[str, object] | list[object] | None,
-    pydantic.Field(
-        description="a config name, an inline YAML or JSON literal, or the config itself as an object"
-    ),
+    pydantic.Field(description="a config name, an inline YAML or JSON literal, or the config itself as an object"),
 ]
 Confirm = Annotated[
     float,
@@ -68,25 +64,16 @@ def launch_value(value: LaunchValue) -> str:
     return ("true" if value else "false") if isinstance(value, bool) else str(value)
 
 
-def launch_tokens(
-    launch_args: dict[str, LaunchValue] | None, **named: LaunchValue | None
-) -> list[str]:
+def launch_tokens(launch_args: dict[str, LaunchValue] | None, **named: LaunchValue | None) -> list[str]:
     """key:=value tokens for the named launch args the caller set and the free-form ones, nothing for unset ones."""
-    chosen = {
-        key.replace("__", "."): value
-        for key, value in named.items()
-        if value is not None
-    }
+    chosen = {key.replace("__", "."): value for key, value in named.items() if value is not None}
     clash = sorted(set(chosen) & set(launch_args or {}))
     if clash:
         raise ToolError(
             f"{', '.join(clash)} given both as a parameter and in launch_args",
             hint="set each value once, either as its parameter or in launch_args",
         )
-    return [
-        f"{key}:={launch_value(value)}"
-        for key, value in {**chosen, **(launch_args or {})}.items()
-    ]
+    return [f"{key}:={launch_value(value)}" for key, value in {**chosen, **(launch_args or {})}.items()]
 
 
 def config_value(value: str | dict[str, object] | list[object]) -> str:
@@ -107,12 +94,7 @@ def _switches(pairs: tuple[tuple[str, object], ...]) -> list[str]:
 
 def _option_pairs(pairs: tuple[tuple[str, object], ...]) -> list[str]:
     """`flag value` tokens for the pairs whose value is not None, in order."""
-    return [
-        token
-        for flag, value in pairs
-        if value is not None
-        for token in (flag, str(value))
-    ]
+    return [token for flag, value in pairs if value is not None for token in (flag, str(value))]
 
 
 def benchmark_argv(
@@ -197,17 +179,10 @@ def benchmark_argv(
 
 
 def run_jobs(run_id: str) -> list[Job]:
-    return [
-        job
-        for kind in BENCHMARK_JOBS
-        for job in JOBS.list(kind=kind, limit=500)
-        if job.title.endswith(f" {run_id}")
-    ]
+    return [job for kind in BENCHMARK_JOBS for job in JOBS.list(kind=kind, limit=500) if job.title.endswith(f" {run_id}")]
 
 
-def run_status(
-    path: pathlib.Path, *, running: dict[str, int] | None = None, light: bool = False
-) -> dict[str, Any]:
+def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, light: bool = False) -> dict[str, Any]:
     """A run's progress from its manifest, the union of its lane states, its jobs and, unless light, its progress rows."""
     from arena_evaluation.benchmark.dashboard import RunStatusError
     from arena_evaluation.benchmark.dashboard import run_status as benchmark_status
@@ -242,10 +217,7 @@ def run_summary_after(path: pathlib.Path) -> dict[str, Any]:
         status = run_status(path)
     except ToolError as exc:
         return {"run_dir": str(path), "error": exc.message}
-    return {
-        key: status[key]
-        for key in ("run_id", "run_dir", "state", "steps_total", "steps")
-    }
+    return {key: status[key] for key in ("run_id", "run_dir", "state", "steps_total", "steps")}
 
 
 async def confirm_start(job: Job, confirm_s: float) -> dict[str, Any]:
@@ -296,33 +268,23 @@ async def evaluation_dashboard(
     ] = None,
     host: Annotated[
         str | None,
-        pydantic.Field(
-            description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)"
-        ),
+        pydantic.Field(description="address to listen on (default 127.0.0.1, 0.0.0.0 for every interface)"),
     ] = None,
     run_id: Annotated[
         str | None,
-        pydantic.Field(
-            description="run whose page the returned URL opens, the run list when omitted"
-        ),
+        pydantic.Field(description="run whose page the returned URL opens, the run list when omitted"),
     ] = None,
     data_root_dir: Annotated[
         str | None,
-        pydantic.Field(
-            description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted"
-        ),
+        pydantic.Field(description="benchmarks root to serve, $ARENA_DATA_DIR/benchmarks when omitted"),
     ] = None,
     runtime: Annotated[
         bool,
-        pydantic.Field(
-            description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls"
-        ),
+        pydantic.Field(description="also serve the runtime page: the envs of the runtime on this ROS domain with spawn, despawn, reset, pause, step and lockstep controls"),
     ] = False,
     confirm_s: Annotated[
         float,
-        pydantic.Field(
-            description="seconds to wait for the server to listen", gt=0, le=60
-        ),
+        pydantic.Field(description="seconds to wait for the server to listen", gt=0, le=60),
     ] = 20.0,
 ) -> dict[str, Any]:
     """Start `arena evaluation serve`, the live web dashboard of benchmark runs and optionally of the runtime's envs, as a job and return its URL. jobs_cancel stops it."""
@@ -334,9 +296,7 @@ async def evaluation_dashboard(
             ("--data-root", data_root_dir),
         )
     ) + _switches((("--runtime", runtime),))
-    job = await cli.job(
-        "dashboard", f"dashboard {port or 'default port'}", "evaluation", "serve", *argv
-    )
+    job = await cli.job("dashboard", f"dashboard {port or 'default port'}", "evaluation", "serve", *argv)
     loop = asyncio.get_running_loop()
     deadline = loop.time() + confirm_s
     while (found := viz_url(job)) is None:
@@ -366,55 +326,37 @@ async def evaluation_benchmark(
     contest: ConfigArg = None,
     run_id: Annotated[
         str | None,
-        pydantic.Field(
-            description="run id, <utc stamp>-<suite>-<contest> when omitted, the run to continue when resume is set"
-        ),
+        pydantic.Field(description="run id, <utc stamp>-<suite>-<contest> when omitted, the run to continue when resume is set"),
     ] = None,
     resume: Annotated[
         bool,
-        pydantic.Field(
-            description="continue run_id (or the most recent resumable run) from its stored config"
-        ),
+        pydantic.Field(description="continue run_id (or the most recent resumable run) from its stored config"),
     ] = False,
-    retry_failed: Annotated[
-        bool, pydantic.Field(description="on resume also rerun failed steps")
-    ] = False,
+    retry_failed: Annotated[bool, pydantic.Field(description="on resume also rerun failed steps")] = False,
     retries: Annotated[
         int | None,
-        pydantic.Field(
-            description="retries per cell after a systemic failure, -1 forever, 0 never (runner default 1)"
-        ),
+        pydantic.Field(description="retries per cell after a systemic failure, -1 forever, 0 never (runner default 1)"),
     ] = None,
     max_sim_deaths: Annotated[
         int | None,
         pydantic.Field(description="abort once this many sim deaths happened"),
     ] = None,
-    lockstep_verdict: Annotated[
-        bool, pydantic.Field(description="exit 3 when a step's lockstep report fails")
-    ] = False,
+    lockstep_verdict: Annotated[bool, pydantic.Field(description="exit 3 when a step's lockstep report fails")] = False,
     strict: Annotated[
         bool,
-        pydantic.Field(
-            description="exit 3 when a cell ended with an error kind or ran fewer episodes than requested"
-        ),
+        pydantic.Field(description="exit 3 when a cell ended with an error kind or ran fewer episodes than requested"),
     ] = False,
     efficacy: Annotated[
         float | None,
-        pydantic.Field(
-            description="flag non-success episodes closing less than this fraction of the goal distance as weak, exit 3 on wedged or weak cells"
-        ),
+        pydantic.Field(description="flag non-success episodes closing less than this fraction of the goal distance as weak, exit 3 on wedged or weak cells"),
     ] = None,
     spawn_budget: Annotated[
         float | None,
-        pydantic.Field(
-            description="max wall seconds for one env spawn (runner default 600)"
-        ),
+        pydantic.Field(description="max wall seconds for one env spawn (runner default 600)"),
     ] = None,
     world_swap: Annotated[
         bool,
-        pydantic.Field(
-            description="swap worlds in place instead of restarting the runtime per world"
-        ),
+        pydantic.Field(description="swap worlds in place instead of restarting the runtime per world"),
     ] = False,
     noexit: Annotated[
         bool,
@@ -424,9 +366,7 @@ async def evaluation_benchmark(
         bool,
         pydantic.Field(description="write simulation_profile.yaml with resource stats"),
     ] = False,
-    scale_episodes: Annotated[
-        float | None, pydantic.Field(description="scale every stage's episode count")
-    ] = None,
+    scale_episodes: Annotated[float | None, pydantic.Field(description="scale every stage's episode count")] = None,
     lanes: Annotated[
         int | None,
         pydantic.Field(
@@ -436,9 +376,7 @@ async def evaluation_benchmark(
     ] = None,
     sim: Annotated[
         str | None,
-        pydantic.Field(
-            description="sim:= launch arg, the suite's launch block or the runtime default when omitted"
-        ),
+        pydantic.Field(description="sim:= launch arg, the suite's launch block or the runtime default when omitted"),
     ] = None,
     headless: Annotated[
         bool | None,
@@ -450,22 +388,16 @@ async def evaluation_benchmark(
     ] = None,
     optim_obstacles: Annotated[
         str | None,
-        pydantic.Field(
-            description="optim.obstacles:= launch arg, only passed when set"
-        ),
+        pydantic.Field(description="optim.obstacles:= launch arg, only passed when set"),
     ] = None,
     launch_args: LaunchArgs = None,
     data_root_dir: Annotated[
         str | None,
-        pydantic.Field(
-            description="--data-root, the run tools only read the default $ARENA_DATA_DIR/benchmarks"
-        ),
+        pydantic.Field(description="--data-root, the run tools only read the default $ARENA_DATA_DIR/benchmarks"),
     ] = None,
     viz: Annotated[
         bool,
-        pydantic.Field(
-            description="serve the run's live web dashboard while it runs, its URL comes back as viz_url"
-        ),
+        pydantic.Field(description="serve the run's live web dashboard while it runs, its URL comes back as viz_url"),
     ] = False,
     viz_port: Annotated[
         int | None,
@@ -501,9 +433,7 @@ async def evaluation_benchmark(
             hint="evaluation_suites and evaluation_contests list them",
         )
     else:
-        run_id = run_id or _default_run_id(
-            config_value(suite), config_value(contest), os.environ.get("ARENA_LANE")
-        )
+        run_id = run_id or _default_run_id(config_value(suite), config_value(contest), os.environ.get("ARENA_LANE"))
     argv = benchmark_argv(
         suite=suite,
         contest=contest,
@@ -554,24 +484,16 @@ async def evaluation_benchmark(
 async def evaluation_preflight(
     planners: Annotated[
         list[str] | None,
-        pydantic.Field(
-            description="planner names (arena planners ls), bridge planners run under drl or vla, others as nav2 local planners"
-        ),
+        pydantic.Field(description="planner names (arena planners ls), bridge planners run under drl or vla, others as nav2 local planners"),
     ] = None,
-    all_planners: Annotated[
-        bool, pydantic.Field(description="every initialized planner instead of names")
-    ] = False,
+    all_planners: Annotated[bool, pydantic.Field(description="every initialized planner instead of names")] = False,
     soak: Annotated[
         bool,
-        pydantic.Field(
-            description="the crowded lockstep soak instead of the short start-and-drive preflight"
-        ),
+        pydantic.Field(description="the crowded lockstep soak instead of the short start-and-drive preflight"),
     ] = False,
     run_id: Annotated[
         str | None,
-        pydantic.Field(
-            description="run id, <utc stamp>-preflight or -soak when omitted"
-        ),
+        pydantic.Field(description="run id, <utc stamp>-preflight or -soak when omitted"),
     ] = None,
     lanes: Annotated[
         int | None,
@@ -590,9 +512,7 @@ async def evaluation_preflight(
             "pass planner names or all_planners=true, not both or neither",
             hint="planners_list or arena planners ls names them",
         )
-    run_id = component(
-        run_id or f"{utc_stamp()}-{'soak' if soak else 'preflight'}", "run_id"
-    )
+    run_id = component(run_id or f"{utc_stamp()}-{'soak' if soak else 'preflight'}", "run_id")
     argv = [
         *([] if soak else ["--preflight"]),
         *(["--all"] if all_planners else list(planners or ())),
@@ -636,11 +556,7 @@ async def evaluation_stop(
     from arena_evaluation.benchmark.debug import running_processes
 
     path = run_path(run_id)
-    groups = {
-        job.pid: f"job {job.id}"
-        for job in run_jobs(run_id)
-        if job.state == RUNNING and job.pid is not None and job.alive
-    }
+    groups = {job.pid: f"job {job.id}" for job in run_jobs(run_id) if job.state == RUNNING and job.pid is not None and job.alive}
     from arena_evaluation.benchmark.dashboard import runner_pids
 
     for pid in await asyncio.to_thread(runner_pids, path, run_id):
@@ -658,11 +574,7 @@ async def evaluation_stop(
         except proc.ProtectedProcess as exc:
             outcome = f"refused: {exc}"
         stopped.append({"pgid": pgid, "owner": owner, "outcome": outcome})
-    leftovers = [
-        row
-        for row in await asyncio.to_thread(running_processes)
-        if row["kind"] in ("simulation", "arena_runtime_node")
-    ]
+    leftovers = [row for row in await asyncio.to_thread(running_processes) if row["kind"] in ("simulation", "arena_runtime_node")]
     return {"run_id": run_id, "stopped": stopped, "arena_processes_left": leftovers}
 
 
@@ -686,11 +598,7 @@ def evaluation_runs(
     running = running_pids_by_run_id()
     candidates: list[tuple[pathlib.Path, dict[str, Any]]] = []
     unreadable = 0
-    for path in (
-        entry
-        for entry in root.iterdir()
-        if entry.is_dir() and (entry / "manifest.yaml").is_file()
-    ):
+    for path in (entry for entry in root.iterdir() if entry.is_dir() and (entry / "manifest.yaml").is_file()):
         if query and query.lower() not in path.name.lower():
             continue
         try:
@@ -712,11 +620,7 @@ def evaluation_runs(
         ),
         reverse=True,
     ):
-        if (
-            (suite and status["suite"] != suite)
-            or (contest and status["contest"] != contest)
-            or (state and status["state"] != state)
-        ):
+        if (suite and status["suite"] != suite) or (contest and status["contest"] != contest) or (state and status["state"] != state):
             continue
         if status["manifest_run_id"] in seen_manifest_ids:
             continue
@@ -790,13 +694,7 @@ def evaluation_progress(
     from arena_evaluation.benchmark.state import progress_rows
 
     path = run_path(run_id)
-    rows = [
-        row
-        for row in progress_rows(path)
-        if (step_key is None or row["step_key"] == step_key)
-        and (contestant is None or row["contestant"] == contestant)
-        and (stage is None or row["stage"] == stage)
-    ]
+    rows = [row for row in progress_rows(path) if (step_key is None or row["step_key"] == step_key) and (contestant is None or row["contestant"] == contestant) and (stage is None or row["stage"] == stage)]
     return {
         "run_id": path.name,
         "n_rows": len(rows),
@@ -839,24 +737,16 @@ def load_notes(path: pathlib.Path) -> list[dict[str, str]]:
     if isinstance(data, dict):
         return [{"label": str(key), "value": str(value)} for key, value in data.items()]
     if isinstance(data, list):
-        return [
-            {"label": str(row.get("label", "")), "value": str(row.get("value", ""))}
-            for row in data
-            if isinstance(row, dict)
-        ]
+        return [{"label": str(row.get("label", "")), "value": str(row.get("value", ""))} for row in data if isinstance(row, dict)]
     return []
 
 
-def _merged_rows(
-    existing: list[dict[str, str]], rows: list[dict[str, str]]
-) -> list[dict[str, str]]:
+def _merged_rows(existing: list[dict[str, str]], rows: list[dict[str, str]]) -> list[dict[str, str]]:
     """existing then rows, one row per label with the incoming row winning."""
     return list({row["label"]: row for row in [*existing, *rows]}.values())
 
 
-def write_notes(
-    path: pathlib.Path, notes: list[Note], mode: str
-) -> list[dict[str, str]]:
+def write_notes(path: pathlib.Path, notes: list[Note], mode: str) -> list[dict[str, str]]:
     """Write notes.yaml under its file lock: replace, append or merge by label.
 
     A replace keeps the ``finding:<id>`` rows attached by evaluation_finding_attach, so a
@@ -871,23 +761,11 @@ def write_notes(
             case "append":
                 rows = [*existing, *rows]
             case "merge" | "replace":
-                kept = (
-                    [
-                        row
-                        for row in existing
-                        if row["label"].startswith(FINDING_NOTE_PREFIX)
-                    ]
-                    if mode == "replace"
-                    else existing
-                )
+                kept = [row for row in existing if row["label"].startswith(FINDING_NOTE_PREFIX)] if mode == "replace" else existing
                 rows = _merged_rows(kept, rows)
             case _:
-                raise ToolError(
-                    f"unknown notes mode {mode!r}", hint="replace, append or merge"
-                )
-        atomic_write_text(
-            path, yaml.safe_dump(rows, sort_keys=False, allow_unicode=True)
-        )
+                raise ToolError(f"unknown notes mode {mode!r}", hint="replace, append or merge")
+        atomic_write_text(path, yaml.safe_dump(rows, sort_keys=False, allow_unicode=True))
     return rows
 
 
@@ -908,9 +786,7 @@ def evaluation_write_notes(
     return {"run_id": run_id, "mode": mode, "n_notes": len(rows)}
 
 
-def pipeline_inputs(
-    run_ids: list[str] | None, episode_dirs: list[str] | None
-) -> tuple[str, list[pathlib.Path]]:
+def pipeline_inputs(run_ids: list[str] | None, episode_dirs: list[str] | None) -> tuple[str, list[pathlib.Path]]:
     """The input flag and directories of a processing verb: run directories, the latest run, or episode directories."""
     if run_ids and episode_dirs:
         raise ToolError(
@@ -1038,36 +914,24 @@ async def pipeline_job(
 
 RunIds = Annotated[
     list[str] | None,
-    pydantic.Field(
-        description="benchmark run ids, the most recent run when neither run_ids nor episode_dirs is given"
-    ),
+    pydantic.Field(description="benchmark run ids, the most recent run when neither run_ids nor episode_dirs is given"),
 ]
 EpisodeDirs = Annotated[
     list[str] | None,
-    pydantic.Field(
-        description="episode_NNN directories to handle one by one, absolute or relative to $ARENA_DATA_DIR/benchmarks"
-    ),
+    pydantic.Field(description="episode_NNN directories to handle one by one, absolute or relative to $ARENA_DATA_DIR/benchmarks"),
 ]
 OutputDir = Annotated[
     str | None,
-    pydantic.Field(
-        description="where reports and plots go, the first input directory when omitted"
-    ),
+    pydantic.Field(description="where reports and plots go, the first input directory when omitted"),
 ]
-Workers = Annotated[
-    int | None, pydantic.Field(description="worker processes, CPU count when omitted")
-]
+Workers = Annotated[int | None, pydantic.Field(description="worker processes, CPU count when omitted")]
 ReportManifest = Annotated[
     str | None,
-    pydantic.Field(
-        description="report manifest: a name (evaluation_manifests), a custom manifest in the run dir, a path, or inline {...} YAML"
-    ),
+    pydantic.Field(description="report manifest: a name (evaluation_manifests), a custom manifest in the run dir, a path, or inline {...} YAML"),
 ]
 Profile = Annotated[
     bool,
-    pydantic.Field(
-        description="write pipeline_profile.yaml with per-phase resource stats"
-    ),
+    pydantic.Field(description="write pipeline_profile.yaml with per-phase resource stats"),
 ]
 
 
@@ -1098,9 +962,7 @@ async def evaluation_extract(
     profile: Profile = False,
 ) -> dict[str, Any]:
     """Start `arena evaluation extract` as a job: MCAP topics into the per-episode Parquet cache, no metrics."""
-    return await pipeline_job(
-        "extract", run_ids, episode_dirs, workers=workers, profile=profile
-    )
+    return await pipeline_job("extract", run_ids, episode_dirs, workers=workers, profile=profile)
 
 
 @domain.tool(read_only=False, destructive=True, idempotent=True)
@@ -1168,15 +1030,11 @@ async def evaluation_acoustic(
     action: Literal["list", "animate", "snapshot"],
     episode: Annotated[
         str | None,
-        pydantic.Field(
-            description="episode id or worst, loudest-source, max-total (default worst)"
-        ),
+        pydantic.Field(description="episode id or worst, loudest-source, max-total (default worst)"),
     ] = None,
     frame: Annotated[
         int | None,
-        pydantic.Field(
-            description="snapshot frame index, the worst-case frame when omitted"
-        ),
+        pydantic.Field(description="snapshot frame index, the worst-case frame when omitted"),
     ] = None,
     output_format: Annotated[
         Literal["gif", "mp4", "frames"] | None,
@@ -1187,20 +1045,14 @@ async def evaluation_acoustic(
     stride: int | None = None,
     downsample: int | None = None,
     dpi: int | None = None,
-    vmin: Annotated[
-        float | None, pydantic.Field(description="color floor in dBA")
-    ] = None,
-    vmax: Annotated[
-        float | None, pydantic.Field(description="color ceiling in dBA")
-    ] = None,
+    vmin: Annotated[float | None, pydantic.Field(description="color floor in dBA")] = None,
+    vmax: Annotated[float | None, pydantic.Field(description="color ceiling in dBA")] = None,
     door_overlay: bool = True,
     trajectories: bool = True,
     robot_trail: int | None = None,
     output: Annotated[
         str | None,
-        pydantic.Field(
-            description="output path, plots/<episode>_acoustic.* when omitted"
-        ),
+        pydantic.Field(description="output path, plots/<episode>_acoustic.* when omitted"),
     ] = None,
 ) -> dict[str, Any]:
     """Start `arena evaluation acoustic` as a job: list episodes with acoustic metrics, animate the acoustic field, or render one snapshot."""
@@ -1251,9 +1103,7 @@ async def evaluation_acoustic(
         "door_overlay": ("--no-door-overlay", door_overlay),
         "trajectories": ("--no-trajectories", trajectories),
     }
-    given = {name for name, value in values.items() if value is not None} | {
-        name for name, (_, on) in switches.items() if not on
-    }
+    given = {name for name, value in values.items() if value is not None} | {name for name, (_, on) in switches.items() if not on}
     if given - allowed:
         raise ToolError(
             f"{action} takes no {', '.join(sorted(given - allowed))}",
@@ -1274,11 +1124,7 @@ async def evaluation_acoustic(
         f"evaluation acoustic {action} {run_id}",
         "evaluation",
         *argv,
-        result=lambda _job: (
-            {"plots": sorted(str(plot) for plot in (path / "plots").glob("*acoustic*"))}
-            if (path / "plots").is_dir()
-            else {}
-        ),
+        result=lambda _job: {"plots": sorted(str(plot) for plot in (path / "plots").glob("*acoustic*"))} if (path / "plots").is_dir() else {},
     )
     return {"command": "arena evaluation " + " ".join(argv), "job": job.as_dict()}
 

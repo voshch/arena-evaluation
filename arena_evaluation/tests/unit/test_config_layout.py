@@ -43,11 +43,7 @@ _CONFIGS_DIR = _PKG_ROOT / "configs"
 
 def test_package_configs_holds_only_five_kinds_the_flat_assets_and_readme() -> None:
     entries = {p.name for p in _CONFIGS_DIR.iterdir()}
-    expected = (
-        {spec.folder for spec in CONFIG_KINDS.values()}
-        | {asset.filename for asset in CONFIG_ASSETS.values()}
-        | {"README.md"}
-    )
+    expected = {spec.folder for spec in CONFIG_KINDS.values()} | {asset.filename for asset in CONFIG_ASSETS.values()} | {"README.md"}
     assert entries == expected
     readme = configs_readme_path()
     assert readme is not None and readme.is_file()
@@ -63,19 +59,13 @@ def test_every_kind_folder_holds_only_bundles_and_parses() -> None:
             entry = child / spec.filename
             assert entry.is_file(), f"Missing bundle entry {entry}"
             if kind_name == "suite":
-                Suite.parse(
-                    child.name, yaml.safe_load(entry.read_text(encoding="utf-8"))
-                )
+                Suite.parse(child.name, yaml.safe_load(entry.read_text(encoding="utf-8")))
             elif kind_name == "contest":
-                Contest.parse(
-                    child.name, yaml.safe_load(entry.read_text(encoding="utf-8"))
-                )
+                Contest.parse(child.name, yaml.safe_load(entry.read_text(encoding="utf-8")))
             elif kind_name == "report":
                 VizManifest.load(entry)
             elif kind_name == "plot":
-                PlotSpec.model_validate(
-                    yaml.safe_load(entry.read_text(encoding="utf-8"))
-                )
+                PlotSpec.model_validate(yaml.safe_load(entry.read_text(encoding="utf-8")))
             elif kind_name == "query":
                 payload = yaml.safe_load(entry.read_text(encoding="utf-8"))
                 QueryDeclaration(
@@ -137,9 +127,7 @@ def test_run_local_bundles_override_package_bundles(tmp_path: pathlib.Path) -> N
         "id: scorecard_table\ntype: table\ntitle: Run Scorecard\ndata:\n  source: v_planner_scorecard\n",
         encoding="utf-8",
     )
-    resolved_plot = DataResolver(benchmark_dir=tmp_path).resolve_spec(
-        PlotSpec(id="p", uses="scorecard_table")
-    )
+    resolved_plot = DataResolver(benchmark_dir=tmp_path).resolve_spec(PlotSpec(id="p", uses="scorecard_table"))
     assert resolved_plot.title == "Run Scorecard"
 
     query_file = bundle_path(analysis, "query", "robot_speed_distribution")
@@ -148,10 +136,7 @@ def test_run_local_bundles_override_package_bundles(tmp_path: pathlib.Path) -> N
         "name: robot_speed_distribution\ndescription: override\nsql: SELECT 7 AS v\n",
         encoding="utf-8",
     )
-    assert (
-        "SELECT 7 AS v"
-        in QueryCatalog(run_dir=tmp_path).get_query("robot_speed_distribution").sql
-    )
+    assert "SELECT 7 AS v" in QueryCatalog(run_dir=tmp_path).get_query("robot_speed_distribution").sql
 
 
 def test_report_build_writes_into_reports_subdir_only(tmp_path: pathlib.Path) -> None:
@@ -235,9 +220,7 @@ def test_all_config_roots_orders_imported_before_share_and_source(
     assert _CONFIGS_DIR in roots
     sd = share_dir()
     if sd is not None and (sd / "configs").resolve() != _CONFIGS_DIR.resolve():
-        assert roots.index((sd / "configs").resolve()) < roots.index(
-            _CONFIGS_DIR.resolve()
-        )
+        assert roots.index((sd / "configs").resolve()) < roots.index(_CONFIGS_DIR.resolve())
 
     # Dashboard has_report uses find_rendered_reports under reports/<name>/report.html
     run_dir = tmp_path / "run_1"

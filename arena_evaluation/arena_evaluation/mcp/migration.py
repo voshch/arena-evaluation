@@ -41,11 +41,7 @@ def _converter() -> Any:
     except ImportError as exc:
         raise ToolError(
             "the legacy manifest converter is not available in this build",
-            hint=(
-                "requires arena_evaluation.presentation.legacy_manifest (the L4 migration "
-                "converter); install the reporting layer that ships the converter, then "
-                "call evaluation_migrate_manifest again"
-            ),
+            hint=("requires arena_evaluation.presentation.legacy_manifest (the L4 migration converter); install the reporting layer that ships the converter, then call evaluation_migrate_manifest again"),
         ) from exc
 
 
@@ -65,9 +61,7 @@ def _convert(source: str) -> tuple[Any, Any]:
     # The L4 converter takes in-memory metric maps, so this is the explicit boundary
     # where the columnar dictionary becomes the converter's inputs.
     names = dictionary.get_column("metric").to_list()  # agent-contracts: ignore AC004
-    fact_tables = dictionary.get_column(
-        "fact_table"
-    ).to_list()  # agent-contracts: ignore AC004
+    fact_tables = dictionary.get_column("fact_table").to_list()  # agent-contracts: ignore AC004
     metrics = list(zip(names, fact_tables, strict=True))
     known = frozenset(str(name) for name, _ in metrics)
     metric_tables = {str(name): str(table or "") for name, table in metrics}
@@ -88,9 +82,7 @@ def _convert(source: str) -> tuple[Any, Any]:
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_migrate_manifest(
-    source: _described(
-        str, "path to a pre-overhaul report manifest YAML file to convert"
-    ),
+    source: _described(str, "path to a pre-overhaul report manifest YAML file to convert"),
     target: _described(
         str | None,
         "report bundle name to write under <run>/analysis/reports; defaults to the legacy name",
@@ -116,9 +108,7 @@ def evaluation_migrate_manifest(
     and a run id, under ``<run>/analysis/reports/<target>/``.
     """
     converter, migration = _convert(source)
-    target_name = component(
-        target or str(migration.manifest.name), "target report name"
-    )
+    target_name = component(target or str(migration.manifest.name), "target report name")
     if migration.manifest.name != target_name:
         manifest = migration.manifest.model_copy(update={"name": target_name})
         migration = dataclasses.replace(migration, manifest=manifest)
@@ -172,19 +162,13 @@ def evaluation_migrate_manifest(
         "migration_report": migration_report,
         "summary": dict(migration_report.get("counts") or {}),
         "written": written,
-        "hint": (
-            "resolve every 'todo' plot with evaluation_metrics and evaluation_describe_metric, "
-            "author a stored query with evaluation_query_save, then validate with "
-            "evaluation_validate_manifest and evaluation_lint_declarations(deep=True)"
-        ),
+        "hint": ("resolve every 'todo' plot with evaluation_metrics and evaluation_describe_metric, author a stored query with evaluation_query_save, then validate with evaluation_validate_manifest and evaluation_lint_declarations(deep=True)"),
     }
 
 
 @domain.tool(read_only=True)
 def evaluation_manifest_mappings(
-    manifest: _described(
-        str, "path to a pre-overhaul report manifest YAML file to map"
-    ),
+    manifest: _described(str, "path to a pre-overhaul report manifest YAML file to map"),
 ) -> dict[str, Any]:
     """The old->new metric and plot mapping table for one legacy manifest, without writing."""
     converter, migration = _convert(manifest)
@@ -215,8 +199,5 @@ def evaluation_manifest_mappings(
         "plots": plots,
         "summary": dict(migration_report.get("counts") or {}),
         "carried_notes": list(migration_report.get("carried_notes") or ()),
-        "hint": (
-            "use evaluation_metrics and evaluation_describe_metric to resolve ambiguous or "
-            "todo bindings; never guess a metric name"
-        ),
+        "hint": ("use evaluation_metrics and evaluation_describe_metric to resolve ambiguous or todo bindings; never guess a metric name"),
     }

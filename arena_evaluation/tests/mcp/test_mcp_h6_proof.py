@@ -40,10 +40,7 @@ def test_h6_scripted_truth_loop_verifies_refutes_and_flags_missing(
     assert difference["ci_width"] is not None and difference["ci_width"] > 0.0
     assert difference["ci_low"] <= truth["planted_delta"] <= difference["ci_high"]
     assert difference["quoted_number"] is not None
-    assert (
-        abs(difference["quoted_number"] - difference["evidence_recomputed_number"])
-        <= 1e-4
-    )
+    assert abs(difference["quoted_number"] - difference["evidence_recomputed_number"]) <= 1e-4
     assert abs(difference["quoted_number"] - difference["pooled_number"]) > 0.5
     assert difference["number_resolved"] is True
 
@@ -67,11 +64,7 @@ def test_h6_scripted_truth_loop_verifies_refutes_and_flags_missing(
 
     audit_path = run_dir / "analysis" / "audit.jsonl"
     assert audit_path.is_file()
-    entries = [
-        json.loads(line)
-        for line in audit_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert entries
     by_name = {t.name: t for t in domain.tools}
     for tool_name in set(called_tools):
@@ -79,20 +72,14 @@ def test_h6_scripted_truth_loop_verifies_refutes_and_flags_missing(
         if not tool_obj.annotations.read_only_hint:
             expected_calls = called_tools.count(tool_name)
             actual_logged = sum(1 for e in entries if e["tool"] == tool_name)
-            assert actual_logged == expected_calls, (
-                f"audit mismatch for {tool_name}: logged {actual_logged}, called {expected_calls}"
-            )
+            assert actual_logged == expected_calls, f"audit mismatch for {tool_name}: logged {actual_logged}, called {expected_calls}"
     for entry in entries:
         role_name = entry["role"]
         tool_name = entry["tool"]
         assert role_name != "operator", f"operator-only tool called: {entry}"
-        assert tool_name in roles.ROLES[role_name]["tools"], (
-            f"{tool_name} not in {role_name} allowlist"
-        )
+        assert tool_name in roles.ROLES[role_name]["tools"], f"{tool_name} not in {role_name} allowlist"
         if by_name[tool_name].annotations.destructive_hint:
-            assert tool_name in roles.AGENT_AREA_TOOLS, (
-                f"destructive tool {tool_name} outside AGENT_AREA_TOOLS"
-            )
+            assert tool_name in roles.AGENT_AREA_TOOLS, f"destructive tool {tool_name} outside AGENT_AREA_TOOLS"
 
 
 def test_h6_planted_refusals_are_enforced_by_mcp_server(
@@ -130,9 +117,7 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
                     "run_id": "h6_refusals",
                     "claim": "bogus claim",
                     "evidence_ids": [ev_id],
-                    "structured_numbers": [
-                        {"evidence_id": ev_id, "column": "mean_diff", "value": 99999.0}
-                    ],
+                    "structured_numbers": [{"evidence_id": ev_id, "column": "mean_diff", "value": 99999.0}],
                     "author": "analyst",
                 },
             )

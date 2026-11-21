@@ -42,9 +42,7 @@ def test_a_world_snapshotted_into_the_run_resolves_through_the_run_dir(
             )
         )
     )
-    (world / "map" / "0.yaml").write_text(
-        "image: 0.png\nresolution: 0.05\norigin: [0.0, 0.0, 0.0]\n"
-    )
+    (world / "map" / "0.yaml").write_text("image: 0.png\nresolution: 0.05\norigin: [0.0, 0.0, 0.0]\n")
     Image.new("L", (4, 3), 255).save(world / "map" / "0.png")
     run = EpisodeDescriptor(
         episode_dir=str(tmp_path / "golden" / "episodes" / "episode_000"),
@@ -55,8 +53,6 @@ def test_a_world_snapshotted_into_the_run_resolves_through_the_run_dir(
         map="unknown",
     )
     episode = _bundle(run=run, run_dir=tmp_path / "golden", map="bundled_world")
-    meta = MapRegistry.get_map(
-        episode.map, cache_dir=tmp_path / "cache", run_dir=episode.run_dir
-    )
+    meta = MapRegistry.get_map(episode.map, cache_dir=tmp_path / "cache", run_dir=episode.run_dir)
     assert meta is not None
     assert (meta["width"], meta["height"], meta["resolution"]) == (4, 3, 0.05)

@@ -66,27 +66,17 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         if ped_tracks is None or len(ped_tracks) == 0:
             return dict.fromkeys(self.output_keys())
 
-        resolved_target = (
-            target_id
-            if target_id is not None
-            else self.metrics_config.get("target_agent_id")
-        )
+        resolved_target = target_id if target_id is not None else self.metrics_config.get("target_agent_id")
         if resolved_target is not None:
             ped_tracks = ped_tracks.filter(pl.col("ped_id") == str(resolved_target))
 
         if len(ped_tracks) == 0:
             return dict.fromkeys(self.output_keys())
 
-        tracks = ped_tracks.sort("t_ns").with_columns(
-            derived_speed_mps=pl.col("speed_mps").fill_null(
-                (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
-            )
-        )
+        tracks = ped_tracks.sort("t_ns").with_columns(derived_speed_mps=pl.col("speed_mps").fill_null((pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()))
         # A step exists only between two samples that both carry a position: dropping x and y
         # independently would pair one sample's dx with another sample's dy.
-        steps = tracks.select(
-            pl.col("x").diff().alias("dx"), pl.col("y").diff().alias("dy")
-        ).drop_nulls()
+        steps = tracks.select(pl.col("x").diff().alias("dx"), pl.col("y").diff().alias("dy")).drop_nulls()
         step_dist = np.hypot(steps["dx"].to_numpy(), steps["dy"].to_numpy())
         total_distance_m = float(np.sum(step_dist)) if len(step_dist) > 0 else 0.0
 
@@ -104,15 +94,8 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         if max_disp > ROUND_TRIP_MIN_DISPLACEMENT_M:
             reach_m = ROUND_TRIP_REACH_SHARE * max_disp
             return_m = ROUND_TRIP_RETURN_SHARE * max_disp
-            disp_df = (
-                pl.DataFrame({"disp": displacements})
-                .filter((pl.col("disp") >= reach_m) | (pl.col("disp") <= return_m))
-                .with_columns(is_away=pl.col("disp") >= reach_m)
-                .with_columns(next_away=pl.col("is_away").shift(-1))
-            )
-            completed = disp_df.filter(
-                pl.col("is_away") & ~pl.col("next_away").fill_null(True)
-            )
+            disp_df = pl.DataFrame({"disp": displacements}).filter((pl.col("disp") >= reach_m) | (pl.col("disp") <= return_m)).with_columns(is_away=pl.col("disp") >= reach_m).with_columns(next_away=pl.col("is_away").shift(-1))
+            completed = disp_df.filter(pl.col("is_away") & ~pl.col("next_away").fill_null(True))
             round_trips = len(completed)
 
         return {
@@ -121,9 +104,7 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
             "round_trips_completed": round_trips,
         }
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         return self._calculate_for_target(episode)
 
@@ -133,10 +114,6 @@ class PedestrianActivityCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
         scope_slice: ScopeSlice | None = None,
     ) -> dict[str, typing.Any]:
-        target_id = (
-            scope_slice.slice_id
-            if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN
-            else None
-        )
+        target_id = scope_slice.slice_id if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN else None
         del prior_results
         return self._calculate_for_target(episode, target_id=target_id)

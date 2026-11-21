@@ -21,9 +21,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return RegimeMetricsCalculator(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    return RegimeMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):
@@ -61,15 +59,11 @@ def _bool(token: str) -> bool:
 
 
 def test_entered_over_cap_zone_zero_without_any_over_cap_window():
-    events = pl.DataFrame(
-        {"t_ns": [], "entity": [], "kind": [], "field": [], "current": []}
-    )
+    events = pl.DataFrame({"t_ns": [], "entity": [], "kind": [], "field": [], "current": []})
     zone_idx = np.array([-1, 0])
     t_ns = np.array([0, 1_000_000_000])
 
-    count = _entered_over_cap_zone(
-        events, zone_idx, t_ns, end_t_ns=2_000_000_000, zone_names=["lobby"]
-    )
+    count = _entered_over_cap_zone(events, zone_idx, t_ns, end_t_ns=2_000_000_000, zone_names=["lobby"])
 
     assert count == 0
 
@@ -89,9 +83,7 @@ def test_ran_red_signal_skips_signal_without_matching_door():
     pos_y = np.array([0.0])
     t_ns = np.array([2_000_000_000])
 
-    count = _ran_red_signal(
-        events, pos_x, pos_y, t_ns, end_t_ns=3_000_000_000, doors=doors
-    )
+    count = _ran_red_signal(events, pos_x, pos_y, t_ns, end_t_ns=3_000_000_000, doors=doors)
 
     assert count == 0
 
@@ -230,9 +222,7 @@ def test_calculate_entered_over_cap_zone_with_cached_world():
 
     calc = _calc()
     calc.world = "synthetic_world_cap"
-    zone = _CapZoneGeometry(
-        name="lobby", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)])
-    )
+    zone = _CapZoneGeometry(name="lobby", polygon=shapely.Polygon([(0, 0), (0, 4), (4, 4), (4, 0)]))
     calc._world_cache["synthetic_world_cap"] = ([zone], [], [])
 
     data = pl.DataFrame(
@@ -359,9 +349,7 @@ def test_calculate_world_not_locally_present_leaves_geometry_metrics_none() -> N
     assert results == {"used_elevator_during_alarm_anyone": 1}
     assert robot["entered_over_cap_zone"] is None
     assert robot["ran_red_signal"] is None
-    assert any(
-        "definitely_nonexistent_world_xyz" in record.getMessage() for record in records
-    )
+    assert any("definitely_nonexistent_world_xyz" in record.getMessage() for record in records)
 
 
 def _members_events(rows):
@@ -416,16 +404,9 @@ def test_calculate_ran_red_signal_with_cached_signal_geometry():
             "yaw": [0.0] * 3,
         }
     )
-    snapshot = snapshot_frame(
-        [(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)]
-    )
+    snapshot = snapshot_frame([(0, "env_0/crossing_1/0", "signal", "stop", "predicate", True)])
 
-    assert (
-        _robot_results(calc, _episode(data, semantic_snapshot=snapshot))[
-            "ran_red_signal"
-        ]
-        == 1
-    )
+    assert _robot_results(calc, _episode(data, semantic_snapshot=snapshot))["ran_red_signal"] == 1
 
 
 def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
@@ -467,9 +448,7 @@ def test_used_elevator_during_alarm_robot_counts_only_robot_membership():
     )
     assert _used_elevator_during_alarm(robot, 6_000_000_000, ident) == 1
 
-    no_members = _members_events(
-        [(1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true")]
-    )
+    no_members = _members_events([(1_000_000_000, "env_0/fire_alarm/0", "schedule", "active", "true")])
     assert _used_elevator_during_alarm(no_members, 6_000_000_000, ident) is None
 
 

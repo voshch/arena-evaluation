@@ -32,9 +32,7 @@ from arena_evaluation.storage.registry.table import Table
 from star_benchmark import write_benchmark
 
 
-def _write_dim_metrics(
-    root: pathlib.Path, *, null_direction: str | None = None
-) -> None:
+def _write_dim_metrics(root: pathlib.Path, *, null_direction: str | None = None) -> None:
     dm_rows = [
         {
             "metric": "success",
@@ -82,9 +80,7 @@ def _write_dim_metrics(
         },
     ]
     dm_path = root / dimensions.DIMENSION_TABLES["dim_metrics"].relative_path()
-    pl.DataFrame(
-        dm_rows, schema=dimensions.DIMENSION_TABLES["dim_metrics"].polars_schema()
-    ).write_parquet(dm_path)
+    pl.DataFrame(dm_rows, schema=dimensions.DIMENSION_TABLES["dim_metrics"].polars_schema()).write_parquet(dm_path)
 
 
 def _make_benchmark(
@@ -115,9 +111,7 @@ def _default_rows() -> list[dict[str, object]]:
             [True, True, False, False],
         ),
     ):
-        for idx, (ttg, pl_m, succ) in enumerate(
-            zip(ttg_vals, path_vals, succ_vals, strict=True)
-        ):
+        for idx, (ttg, pl_m, succ) in enumerate(zip(ttg_vals, path_vals, succ_vals, strict=True)):
             rows.append(
                 {
                     "episode_id": ep_id,
@@ -253,24 +247,18 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
         *GroupSummaryAnalysis.polars_schema().names(),
     ]
 
-    dwb_succ = res_ci95.summary.filter(
-        (pl.col("planner") == "dwb") & (pl.col("metric") == "success")
-    ).row(0, named=True)
+    dwb_succ = res_ci95.summary.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "success")).row(0, named=True)
     assert dwb_succ["mean"] == pytest.approx(1.0)
     assert dwb_succ["err_plus"] == pytest.approx(0.0)
     assert dwb_succ["err_minus"] == pytest.approx(0.48990002040399916)
 
-    teb_succ = res_ci95.summary.filter(
-        (pl.col("planner") == "teb") & (pl.col("metric") == "success")
-    ).row(0, named=True)
+    teb_succ = res_ci95.summary.filter((pl.col("planner") == "teb") & (pl.col("metric") == "success")).row(0, named=True)
     assert teb_succ["mean"] == pytest.approx(0.5)
     assert teb_succ["err_plus"] == pytest.approx(0.3499642911798285)
     assert teb_succ["err_minus"] == pytest.approx(0.3499642911798285)
 
     # Numeric std / sem / ci95: overhaul/source:presentation/plot_types/line.py:103-118
-    dwb_ttg_ci95 = res_ci95.summary.filter(
-        (pl.col("planner") == "dwb") & (pl.col("metric") == "time_to_goal")
-    ).row(0, named=True)
+    dwb_ttg_ci95 = res_ci95.summary.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "time_to_goal")).row(0, named=True)
     assert dwb_ttg_ci95["mean"] == pytest.approx(13.0)
     assert dwb_ttg_ci95["std"] == pytest.approx(2.581988897471611)
     assert dwb_ttg_ci95["sem"] == pytest.approx(1.2909944487358056)
@@ -285,18 +273,14 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     assert dwb_sem["err_plus"] == pytest.approx(1.2909944487358056)
 
     # n < 2: differs from overhaul/source:presentation/plot_types/bar.py:199-200 (undefined stays null)
-    solo_ttg = res_ci95.summary.filter(
-        (pl.col("planner") == "solo") & (pl.col("metric") == "time_to_goal")
-    ).row(0, named=True)
+    solo_ttg = res_ci95.summary.filter((pl.col("planner") == "solo") & (pl.col("metric") == "time_to_goal")).row(0, named=True)
     assert solo_ttg["n"] == 1
     assert solo_ttg["mean"] == pytest.approx(9.0)
     assert solo_ttg["std"] is None
     assert solo_ttg["ci_low"] is None
     assert solo_ttg["err_plus"] is None
 
-    ghost_ttg = res_ci95.summary.filter(
-        (pl.col("planner") == "ghost") & (pl.col("metric") == "time_to_goal")
-    ).row(0, named=True)
+    ghost_ttg = res_ci95.summary.filter((pl.col("planner") == "ghost") & (pl.col("metric") == "time_to_goal")).row(0, named=True)
     assert ghost_ttg["n"] == 0
     assert ghost_ttg["mean"] is None
     assert ghost_ttg["std"] is None
@@ -312,9 +296,7 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
         }
         for i, v in enumerate([1.0, 10.0, 14.0, 100.0])
     ]
-    trim_cat = BenchmarkCatalog.open(
-        _make_benchmark(tmp_path / "trim_bench", trim_rows)
-    )
+    trim_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "trim_bench", trim_rows))
     res_trim = run_computation(
         "group_summary",
         trim_cat,
@@ -371,19 +353,10 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
         "planner",
         *RadarProfileAnalysis.polars_schema().names(),
     ]
-    assert (
-        RadarProfileAnalysis.arrow_schema().field("normalized_score").nullable is True
-    )
-    casted = (
-        res.summary.select(RadarProfileAnalysis.polars_schema().names())
-        .to_arrow()
-        .cast(RadarProfileAnalysis.arrow_schema())
-    )
+    assert RadarProfileAnalysis.arrow_schema().field("normalized_score").nullable is True
+    casted = res.summary.select(RadarProfileAnalysis.polars_schema().names()).to_arrow().cast(RadarProfileAnalysis.arrow_schema())
     assert casted.num_rows == res.summary.height
-    by_key = {
-        (r["planner"], r["metric"]): r["normalized_score"]
-        for r in res.summary.to_dicts()
-    }
+    by_key = {(r["planner"], r["metric"]): r["normalized_score"] for r in res.summary.to_dicts()}
     assert by_key[("p1", "time_to_goal")] == pytest.approx(1.0)
     assert by_key[("p2", "time_to_goal")] == pytest.approx(0.0)
     assert by_key[("ghost", "time_to_goal")] is None
@@ -404,23 +377,15 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
 
     # A partial dim_metrics must not silently decide a ranking direction: the error names every
     # unresolved metric with its count (H-021), and a caller that knows the direction supplies it.
-    partial_cat = BenchmarkCatalog.open(
-        _make_benchmark(tmp_path / "bad_bench", rows, null_direction="time_to_goal")
-    )
-    with pytest.raises(
-        ValueError, match=r"1 metric\(s\) have no 'higher'/'lower' direction"
-    ):
+    partial_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bad_bench", rows, null_direction="time_to_goal"))
+    with pytest.raises(ValueError, match=r"1 metric\(s\) have no 'higher'/'lower' direction"):
         resolve_metric_directions(partial_cat, ["time_to_goal"])
-    declared = resolve_metric_directions(
-        partial_cat, ["time_to_goal"], declared={"time_to_goal": "lower"}
-    )
+    declared = resolve_metric_directions(partial_cat, ["time_to_goal"], declared={"time_to_goal": "lower"})
     assert declared.by_metric == {"time_to_goal": "lower"}
     assert declared.from_override == ("time_to_goal",)
     assert declared.diagnostics[0].startswith("directions_from_param=1:")
 
-    unknown_cat = BenchmarkCatalog.open(
-        _make_benchmark(tmp_path / "unknown_bench", rows)
-    )
+    unknown_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "unknown_bench", rows))
     with pytest.raises(ValueError, match="have no 'higher'/'lower' direction"):
         resolve_metric_directions(unknown_cat, ["no_such_metric"])
 
@@ -476,9 +441,7 @@ def test_composite_and_top_n_ranking_unrounded_precision(
         "planner",
         *CompositeRankingAnalysis.polars_schema().names(),
     ]
-    ranks = {
-        r["planner"]: (r["rank"], r["composite_score"]) for r in res.summary.to_dicts()
-    }
+    ranks = {r["planner"]: (r["rank"], r["composite_score"]) for r in res.summary.to_dicts()}
     assert ranks["z_first"] == (1, pytest.approx(1.0))
     assert ranks["a_second"] == (2, pytest.approx(0.99998))
     assert ranks["slow"] == (3, pytest.approx(0.5))
@@ -550,21 +513,14 @@ def test_correlation_paired_diff_and_cluster_bootstrap_ci(
             "is_reference": False,
         },
     ]
-    corr_cat = BenchmarkCatalog.open(
-        _make_benchmark(tmp_path / "corr_bench", corr_rows)
-    )
+    corr_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "corr_bench", corr_rows))
     corr = run_computation(
         "correlation_matrix",
         corr_cat,
         {"metrics": ["time_to_goal", "path_length_m"]},
     )
-    assert corr.summary.columns == list(
-        CorrelationMatrixAnalysis.polars_schema().names()
-    )
-    by_pair = {
-        (r["metric_x"], r["metric_y"]): (r["pearson_r"], r["n_pairs"])
-        for r in corr.summary.to_dicts()
-    }
+    assert corr.summary.columns == list(CorrelationMatrixAnalysis.polars_schema().names())
+    by_pair = {(r["metric_x"], r["metric_y"]): (r["pearson_r"], r["n_pairs"]) for r in corr.summary.to_dicts()}
     assert by_pair[("time_to_goal", "time_to_goal")] == (pytest.approx(1.0), 5)
     assert by_pair[("path_length_m", "path_length_m")] == (pytest.approx(1.0), 5)
     assert by_pair[("time_to_goal", "path_length_m")] == (
@@ -572,9 +528,7 @@ def test_correlation_paired_diff_and_cluster_bootstrap_ci(
         4,
     )
 
-    bench_cat = BenchmarkCatalog.open(
-        _make_benchmark(tmp_path / "bench", _default_rows())
-    )
+    bench_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bench", _default_rows()))
     pdiff = run_computation(
         "paired_diff",
         bench_cat,
@@ -698,9 +652,6 @@ def test_grouped_computations_preserve_null_group_key(
         None,
     }
     if name == "radar_profile":
-        null_scores = {
-            r["metric"]: r["normalized_score"]
-            for r in res.summary.filter(pl.col("local_planner").is_null()).to_dicts()
-        }
+        null_scores = {r["metric"]: r["normalized_score"] for r in res.summary.filter(pl.col("local_planner").is_null()).to_dicts()}
         assert null_scores["time_to_goal"] == pytest.approx(11.0 / 13.0)
         assert null_scores["path_length_m"] == pytest.approx(21.0 / 23.0)

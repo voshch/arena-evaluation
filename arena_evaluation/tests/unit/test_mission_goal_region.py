@@ -48,9 +48,7 @@ def test_second_leg_starts_at_the_first_arrival(
 ) -> None:
     legs: list[tuple[tuple[float, float], tuple[float, float]]] = []
 
-    def straight(
-        grid: object, start: tuple[float, float], goal: tuple[float, float]
-    ) -> RouteResult:
+    def straight(grid: object, start: tuple[float, float], goal: tuple[float, float]) -> RouteResult:
         legs.append((start, goal))
         length = math.dist(start, goal)
         return RouteResult(
@@ -61,9 +59,7 @@ def test_second_leg_starts_at_the_first_arrival(
 
     monkeypatch.setattr(routes, "plan_route", straight)
 
-    mission = routes.plan_mission(
-        grid=object(), waypoints=((0.0, 0.0), (10.0, 0.0), (10.0, 5.0))
-    )
+    mission = routes.plan_mission(grid=object(), waypoints=((0.0, 0.0), (10.0, 0.0), (10.0, 5.0)))
 
     assert mission.length_m == pytest.approx(9.0 + (math.hypot(1.0, 5.0) - 1.0))
     assert legs[1][0] == pytest.approx((9.0, 0.0))

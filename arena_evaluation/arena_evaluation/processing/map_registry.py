@@ -26,20 +26,14 @@ _ARENA_WORLDS_ROOT = "/opt/arena_ws/src/Arena/arena_simulation_setup/worlds"
 
 class MapRegistry:
     @staticmethod
-    def compacted_world(
-        map_name: str, run_dir: pathlib.Path | None = None
-    ) -> tuple[Level | None, dict[str, tuple[float, float]] | None]:
+    def compacted_world(map_name: str, run_dir: pathlib.Path | None = None) -> tuple[Level | None, dict[str, tuple[float, float]] | None]:
         """The world's levels compacted onto one grid the way the runtime renders them, with its level origins. A world copied into the run's worlds folder wins over the workspace's. Raises when the world does not resolve."""
-        with MapRegistry.compacted_world_scope(
-            map_name, run_dir=run_dir
-        ) as compacted_and_origins:
+        with MapRegistry.compacted_world_scope(map_name, run_dir=run_dir) as compacted_and_origins:
             return compacted_and_origins
 
     @staticmethod
     @contextlib.contextmanager
-    def compacted_world_scope(
-        map_name: str, run_dir: pathlib.Path | None = None
-    ) -> Iterator[tuple[Level | None, dict[str, tuple[float, float]] | None]]:
+    def compacted_world_scope(map_name: str, run_dir: pathlib.Path | None = None) -> Iterator[tuple[Level | None, dict[str, tuple[float, float]] | None]]:
         """Like compacted_world, with the world's assets resolvable inside the block. A run's copy of a world carries its layout but not its assets, so those come from the workspace world of the same name."""
         from arena_simulation_setup.tree.World import (
             WorldIdentifier,
@@ -48,14 +42,8 @@ class MapRegistry:
         )
 
         bare, level_filter = WorldIdentifier.split_filter(map_name)
-        run_world = (
-            pathlib.Path(run_dir) / "worlds" / bare if run_dir is not None else None
-        )
-        view = (
-            WorldView(run_world)
-            if run_world is not None and run_world.is_dir()
-            else WorldIdentifier(bare).resolve_sync()
-        )
+        run_world = pathlib.Path(run_dir) / "worlds" / bare if run_dir is not None else None
+        view = WorldView(run_world) if run_world is not None and run_world.is_dir() else WorldIdentifier(bare).resolve_sync()
         if (view.path / "assets").is_dir():
             asset_view = view
         else:
@@ -66,11 +54,7 @@ class MapRegistry:
         with world_assets(asset_view):
             loaded = view.load(level_filter=level_filter)
             origins = view.level_origins()
-            compacted = loaded.compact_world(
-                origins=origins
-                if origins is not None
-                else {fid: (0.0, 0.0) for fid in loaded.level_ids}
-            )
+            compacted = loaded.compact_world(origins=origins if origins is not None else {fid: (0.0, 0.0) for fid in loaded.level_ids})
             yield compacted, origins
 
     @staticmethod
@@ -103,9 +87,7 @@ class MapRegistry:
         return path if path.exists() else None
 
     @staticmethod
-    def _find_ros_map_dir(
-        map_name: str, run_dir: pathlib.Path | None = None
-    ) -> pathlib.Path | None:
+    def _find_ros_map_dir(map_name: str, run_dir: pathlib.Path | None = None) -> pathlib.Path | None:
         """The first run-world, workspace-world or ROS-share world directory the name resolves to."""
         roots = [pathlib.Path(_ARENA_WORLDS_ROOT)]
         arena_dir = os.environ.get("ARENA_DIR")
@@ -114,10 +96,7 @@ class MapRegistry:
         try:
             from ament_index_python.packages import get_package_share_directory
 
-            roots.append(
-                pathlib.Path(get_package_share_directory("arena_simulation_setup"))
-                / "worlds"
-            )
+            roots.append(pathlib.Path(get_package_share_directory("arena_simulation_setup")) / "worlds")
         except Exception:
             pass
         try:
@@ -133,9 +112,7 @@ class MapRegistry:
             pass
 
         candidates = [map_name]
-        candidates += [
-            map_name.split(sep)[0] for sep in ("_stage", "-", "_") if sep in map_name
-        ]
+        candidates += [map_name.split(sep)[0] for sep in ("_stage", "-", "_") if sep in map_name]
         for candidate in dict.fromkeys(candidates):
             for sub in ("worlds", "maps") if run_dir is not None else ():
                 path = pathlib.Path(run_dir) / sub / candidate
@@ -167,11 +144,7 @@ class MapRegistry:
         if ros_map_dir is None:
             return MapRegistry._render_world_map(map_name, cache_dir)
         yaml_path = next(
-            (
-                ros_map_dir / candidate
-                for candidate in _MAP_YAML_CANDIDATES
-                if (ros_map_dir / candidate).exists()
-            ),
+            (ros_map_dir / candidate for candidate in _MAP_YAML_CANDIDATES if (ros_map_dir / candidate).exists()),
             None,
         ) or MapRegistry._world_preview(ros_map_dir)
         if yaml_path is None:
@@ -183,24 +156,18 @@ class MapRegistry:
             return None
         try:
             with Image.open(image_path) as image:
-                return _write_cache(
-                    cache_dir, map_name, image.convert("RGBA"), map_meta
-                )
+                return _write_cache(cache_dir, map_name, image.convert("RGBA"), map_meta)
         except Exception as e:
             print(f"Failed to cache map {map_name}: {e}")
             return None
 
 
 def _default_cache_dir() -> pathlib.Path:
-    data_root = os.environ.get("ARENA_DATA_DIR") or os.path.join(
-        os.environ.get("ARENA_WS_DIR", "/opt/arena_ws"), "data"
-    )
+    data_root = os.environ.get("ARENA_DATA_DIR") or os.path.join(os.environ.get("ARENA_WS_DIR", "/opt/arena_ws"), "data")
     return pathlib.Path(data_root) / "maps_cache"
 
 
-def _write_cache(
-    cache_dir: pathlib.Path, map_name: str, image: Image.Image, meta: dict
-) -> dict:
+def _write_cache(cache_dir: pathlib.Path, map_name: str, image: Image.Image, meta: dict) -> dict:
     """Write the PNG and its metadata yaml into the cache, returning the metadata."""
     png_path = cache_dir / f"{map_name}.png"
     image.save(png_path)

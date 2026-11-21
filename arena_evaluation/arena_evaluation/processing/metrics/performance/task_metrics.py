@@ -30,7 +30,6 @@ from arena_evaluation.processing.pedestrian_frames import frames_of
 from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
-
 GOAL_CONDITION_RATE = define_metric(
     "goal_condition_rate",
     pl.Float64,
@@ -93,9 +92,7 @@ def _split_indices(value: str) -> list[int]:
     return [int(v) for v in value.split(",") if v]
 
 
-def _robot_events(
-    events: pl.DataFrame, robot: str
-) -> dict[str, tuple[np.ndarray, list[str]]]:
+def _robot_events(events: pl.DataFrame, robot: str) -> dict[str, tuple[np.ndarray, list[str]]]:
     """Stepwise series of the robot entity's fields (phase, met, failed, dropped, violated), keyed by field."""
     identity = RobotIdentity(robot)
     rows = events.filter((pl.col("kind") == "robot") & identity.entity_match_expr())
@@ -111,9 +108,7 @@ def _last(series: dict[str, tuple[np.ndarray, list[str]]], field: str) -> str:
     return entry[1][-1] if entry is not None and entry[1] else ""
 
 
-def _active_phase_spans(
-    series: dict[str, tuple[np.ndarray, list[str]]], end_ns: int
-) -> dict[int, tuple[int, int]]:
+def _active_phase_spans(series: dict[str, tuple[np.ndarray, list[str]]], end_ns: int) -> dict[int, tuple[int, int]]:
     """[start, end) recording interval of every phase that was active, from the `phase` field transitions."""
     entry = series.get("phase")
     if entry is None:
@@ -169,9 +164,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["goal_condition_rate", "unsafe", "judge_agrees"]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         empty = dict.fromkeys((*self.output_keys(), *self.CHILD_OUTPUTS))
         spec = episode.phases
@@ -183,10 +176,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
         events = reconstruct_events(snapshot)
         robot_series = _robot_events(events, episode.robot_name or "")
 
-        met, failed, dropped = (
-            set(_split_indices(_last(robot_series, field)))
-            for field in ("met", "failed", "dropped")
-        )
+        met, failed, dropped = (set(_split_indices(_last(robot_series, field))) for field in ("met", "failed", "dropped"))
         violated = {v for v in _last(robot_series, "violated").split(",") if v}
 
         results: dict[str, typing.Any] = dict(empty)
@@ -195,36 +185,19 @@ class TaskReplayCalculator(BaseMetricCalculator):
         results["phases_failed"] = len(failed)
         results["phases_dropped"] = len(dropped)
         results["goal_condition_rate"] = len(met) / len(phases) if phases else None
-        results["phase_outcomes"] = [
-            "met"
-            if i in met
-            else "failed"
-            if i in failed
-            else "dropped"
-            if i in dropped
-            else "pending"
-            for i in range(len(phases))
-        ]
+        results["phase_outcomes"] = ["met" if i in met else "failed" if i in failed else "dropped" if i in dropped else "pending" for i in range(len(phases))]
         results["unsafe"] = len(violated)
 
         poses = episode.topics.get("robot_task_pose") if episode.topics else None
         zones = _zones_for_world(self.world)
-        if (
-            poses is None
-            or len(poses) == 0
-            or not {"t_ns", "pos_x", "pos_y"} <= set(poses.columns)
-            or zones is None
-            or not self.world
-        ):
+        if poses is None or len(poses) == 0 or not {"t_ns", "pos_x", "pos_y"} <= set(poses.columns) or zones is None or not self.world:
             return results
 
         poses = poses.sort("t_ns")
         t_ns = poses["t_ns"].to_numpy()
         gestures = episode.topics.get("pedestrian_gestures") if episode.topics else None
         peds_df = self.native_ped_frame(episode)
-        peds_frames = (
-            frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
-        )
+        peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
         ctx = EvalContext(
             events=events,
             t_ns=t_ns,
@@ -239,9 +212,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
             walls=load_wall_grid(self.world),
             clips=clips_on_axis(peds_df, gestures, t_ns),
             peds_frames=peds_frames,
-            peds_times=np.array(
-                [int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64
-            ),
+            peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )
         spans = _active_phase_spans(robot_series, int(t_ns[-1]) + 1)
         disagreements = _replay_phases(
@@ -280,17 +251,11 @@ def _replay_phase_step(
         sample = ctx.sample(i)
         if isinstance(phase, GoToPhase) and phase.hold and "robot" in sample.robots:
             x, y, yaw = sample.robots["robot"]
-            phase = attrs.evolve(
-                phase, pose=Pose(Position(x, y), Orientation.from_yaw(yaw))
-            )
+            phase = attrs.evolve(phase, pose=Pose(Position(x, y), Orientation.from_yaw(yaw)))
             monitor.phase = phase
         closing = i == hi - 1 and index in met | failed
         action_done = None if isinstance(phase, GoToPhase) else closing
-        signal = (
-            phase.signal
-            if isinstance(phase, GoToPhase) and phase.signal and closing
-            else None
-        )
+        signal = phase.signal if isinstance(phase, GoToPhase) and phase.signal and closing else None
         for cond, cmon in scoped:
             first = cond.get("from", 0) or 0
             last = cond.get("to")
@@ -312,11 +277,7 @@ def _replay_phase_step(
             return [f"phase {index} recorded as met but not met in replay"]
         return []
     if index in failed:
-        return (
-            [f"phase {index} recorded as failed but met in replay"]
-            if replay_met
-            else []
-        )
+        return [f"phase {index} recorded as failed but met in replay"] if replay_met else []
     if index not in dropped and replay_met:
         return [f"phase {index} met in replay but still pending in the record"]
     return []
@@ -341,9 +302,7 @@ def _replay_phases(
         (
             c,
             ConditionMonitor(
-                EpisodeCondition.parse(
-                    {k: v for k, v in c.items() if k not in ("id", "from", "to")}
-                ),
+                EpisodeCondition.parse({k: v for k, v in c.items() if k not in ("id", "from", "to")}),
                 "robot",
             ),
         )
@@ -374,9 +333,7 @@ def _replay_phases(
         if cmon.finish() is False:
             replay_violated.add(str(cond.get("id", "")))
     if replay_violated != violated:
-        disagreements.append(
-            f"violated conditions differ: replay {sorted(replay_violated)} vs recorded {sorted(violated)}"
-        )
+        disagreements.append(f"violated conditions differ: replay {sorted(replay_violated)} vs recorded {sorted(violated)}")
     return disagreements
 
 

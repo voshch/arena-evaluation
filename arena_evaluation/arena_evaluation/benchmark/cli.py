@@ -68,9 +68,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         state = StateFile.open(run_path)
         counts = _count_by_status(state.steps)
         total = len(manifest.steps)
-        created = (
-            manifest.created_at[:16].replace("T", " ") if manifest.created_at else ""
-        )
+        created = manifest.created_at[:16].replace("T", " ") if manifest.created_at else ""
         rows.append(
             (
                 manifest.run_id,
@@ -209,13 +207,8 @@ def _status_from_disk(data_root: pathlib.Path, run_id: str | None) -> str:
         failed=counts["failed"],
         skipped=counts["skipped"],
         in_flight=counts["in_progress"],
-        active=[
-            (entry["key"], _ago(entry["started_at"])) for entry in status["active"]
-        ],
-        failed_steps=[
-            (entry["key"], entry["error_kind"], entry["error_detail"])
-            for entry in status["failed"]
-        ],
+        active=[(entry["key"], _ago(entry["started_at"])) for entry in status["active"]],
+        failed_steps=[(entry["key"], entry["error_kind"], entry["error_detail"]) for entry in status["failed"]],
     )
 
 
@@ -325,9 +318,7 @@ def _cmd_ps(args: argparse.Namespace) -> int:
 
     print(f"{'PID':<{w_pid}}  {'KIND':<{w_kind}}  {'ELAPSED':<{w_el}}  CMD")
     for r in rows:
-        print(
-            f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  {_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}"
-        )
+        print(f"{r['pid']:<{w_pid}}  {r['kind']:<{w_kind}}  {_elapsed(r['elapsed_s']):<{w_el}}  {r['command']}")
     return 0
 
 
@@ -368,9 +359,7 @@ def _cmd_console(args: argparse.Namespace) -> int:
     res = tail_console(run_id, lines=args.lines)
     if not res["exists"]:
         print(f"no console log for run '{run_id}' (expected at {res['path']})")
-        print(
-            "hint: the benchmark writes runner.log as soon as it creates the run directory"
-        )
+        print("hint: the benchmark writes runner.log as soon as it creates the run directory")
         return 1
     state = "running" if res["alive"] else "finished"
     print(f"run: {run_id}  [{state}]  pid: {res['pid']}  log: {res['path']}")
@@ -429,18 +418,14 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="show run status")
     p_status.add_argument("--data-root", default=None, metavar="PATH")
-    p_status.add_argument(
-        "--watch", action="store_true", help="subscribe to live topic"
-    )
+    p_status.add_argument("--watch", action="store_true", help="subscribe to live topic")
     p_status.add_argument("run_id", nargs="?", default=None)
 
     p_tail = sub.add_parser("tail", help="tail progress.csv of a run")
     p_tail.add_argument("--data-root", default=None, metavar="PATH")
     p_tail.add_argument("run_id", nargs="?", default=None)
 
-    p_ps = sub.add_parser(
-        "ps", help="list running arena processes (benchmark runner, sim, nodes)"
-    )
+    p_ps = sub.add_parser("ps", help="list running arena processes (benchmark runner, sim, nodes)")
     p_ps.add_argument("--data-root", default=None, metavar="PATH")
 
     p_kill = sub.add_parser(
@@ -459,9 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="stop every arena process (bare kill stops nothing and lists them)",
     )
-    p_kill.add_argument(
-        "-9", "--force", action="store_true", help="send SIGKILL immediately"
-    )
+    p_kill.add_argument("-9", "--force", action="store_true", help="send SIGKILL immediately")
     p_kill.add_argument(
         "--kind",
         choices=[
@@ -477,12 +460,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_console = sub.add_parser("console", help="tail a benchmark run's console log")
     p_console.add_argument("--data-root", default=None, metavar="PATH")
-    p_console.add_argument(
-        "--lines", type=int, default=200, help="tail lines (default 200)"
-    )
-    p_console.add_argument(
-        "--follow", action="store_true", help="follow new output until the runner exits"
-    )
+    p_console.add_argument("--lines", type=int, default=200, help="tail lines (default 200)")
+    p_console.add_argument("--follow", action="store_true", help="follow new output until the runner exits")
     p_console.add_argument("run_id", nargs="?", default=None)
 
     from . import dashboard

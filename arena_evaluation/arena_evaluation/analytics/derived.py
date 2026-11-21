@@ -24,9 +24,7 @@ def derived_dir(benchmark_dir: pathlib.Path) -> pathlib.Path:
     return run_analysis_root(benchmark_dir) / DERIVED_DIR_NAME
 
 
-def _table_paths(
-    benchmark_dir: pathlib.Path, name: str
-) -> tuple[str, pathlib.Path, pathlib.Path, pathlib.Path]:
+def _table_paths(benchmark_dir: pathlib.Path, name: str) -> tuple[str, pathlib.Path, pathlib.Path, pathlib.Path]:
     clean = name.strip()
     if not _SAFE_NAME.match(clean):
         raise ValueError(f"Invalid derived table name {name!r}")
@@ -41,9 +39,7 @@ def _load_sidecar(path: pathlib.Path) -> dict[str, Any]:
         raise ValueError(f"Corrupt derived table sidecar {path}: {exc}") from exc
     if isinstance(raw, dict):
         return raw
-    raise ValueError(
-        f"Derived table sidecar {path} is not a YAML mapping; fix or remove {path}"
-    )
+    raise ValueError(f"Derived table sidecar {path} is not a YAML mapping; fix or remove {path}")
 
 
 def _discovered(root: pathlib.Path, pattern: str) -> list[pathlib.Path]:
@@ -52,11 +48,7 @@ def _discovered(root: pathlib.Path, pattern: str) -> list[pathlib.Path]:
 
 def scan_derived_tables(benchmark_dir: pathlib.Path) -> dict[str, pl.LazyFrame]:
     """Lazily scan all active derived tables in ``benchmark_dir`` as ``derived_<name>``."""
-    return {
-        f"derived_{path.stem}": pl.scan_parquet(path)
-        for path in _discovered(derived_dir(benchmark_dir), "*.parquet")
-        if not _VERSIONED_PARQUET.search(path.name)
-    }
+    return {f"derived_{path.stem}": pl.scan_parquet(path) for path in _discovered(derived_dir(benchmark_dir), "*.parquet") if not _VERSIONED_PARQUET.search(path.name)}
 
 
 def save_derived_table(
@@ -75,16 +67,9 @@ def save_derived_table(
     is named by the version the replaced sidecar carried.
     """
     clean, root, parquet_path, sidecar_path = _table_paths(benchmark_dir, name)
-    nested = [
-        column
-        for column, dtype in frame.schema.items()
-        if isinstance(dtype, (pl.List, pl.Struct, pl.Array, pl.Object))
-    ]
+    nested = [column for column, dtype in frame.schema.items() if isinstance(dtype, (pl.List, pl.Struct, pl.Array, pl.Object))]
     if nested:
-        raise ValueError(
-            f"Derived table {clean!r} must be flat; the nested column(s) {nested} cannot be persisted. "
-            "Store one row per element instead (for example a seed column rather than a seed list)."
-        )
+        raise ValueError(f"Derived table {clean!r} must be flat; the nested column(s) {nested} cannot be persisted. Store one row per element instead (for example a seed column rather than a seed list).")
     author_clean = author.strip()
     if not author_clean:
         raise ValueError(f"Derived table {clean!r} requires a non-empty author")
@@ -108,27 +93,19 @@ def save_derived_table(
             "purpose": purpose,
             "author": author_clean,
             "updated_at": updated_at,
-            "columns": [
-                {"name": column, "dtype": str(dtype)}
-                for column, dtype in frame.schema.items()
-            ],
+            "columns": [{"name": column, "dtype": str(dtype)} for column, dtype in frame.schema.items()],
             "n_rows": frame.height,
             "definition": definition,
         }
         atomic.atomic_write_text(sidecar_path, yaml.safe_dump(sidecar, sort_keys=False))
     return {
-        **{
-            key: sidecar[key]
-            for key in ("name", "table_name", "version", "snapshot_id", "n_rows")
-        },
+        **{key: sidecar[key] for key in ("name", "table_name", "version", "snapshot_id", "n_rows")},
         "path": str(parquet_path),
         "status": "fresh",
     }
 
 
-def list_derived_tables(
-    benchmark_dir: pathlib.Path, *, current_snapshot_id: str
-) -> list[dict[str, Any]]:
+def list_derived_tables(benchmark_dir: pathlib.Path, *, current_snapshot_id: str) -> list[dict[str, Any]]:
     """List all derived tables with ``fresh`` or ``stale`` status against ``current_snapshot_id``."""
     entries: list[dict[str, Any]] = []
     for sidecar_path in _discovered(derived_dir(benchmark_dir), "*.yaml"):

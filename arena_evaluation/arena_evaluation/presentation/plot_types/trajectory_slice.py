@@ -34,15 +34,10 @@ class TrajectorySliceRenderer(BasePlotRenderer):
         missing = [name for name in (x_col, y_col) if name not in df.columns]
         if missing:
             missing_text = ", ".join(repr(name) for name in missing)
-            raise ValueError(
-                f"Plot {self.spec.id!r}: trajectory_slice plot requires columns "
-                f"{missing_text}; bind channels 'x' and 'y'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: trajectory_slice plot requires columns {missing_text}; bind channels 'x' and 'y'.")
         return x_col, y_col
 
-    def _plot_data(
-        self, df: pl.DataFrame
-    ) -> tuple[np.ndarray, np.ndarray, str, str] | None:
+    def _plot_data(self, df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray, str, str] | None:
         if df.is_empty():
             return None
         x_col, y_col = self._resolve_columns(df)
@@ -79,11 +74,7 @@ class TrajectorySliceRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly trajectory-slice line."""
         fig = self.build_plotly_figure(df)
-        return (
-            None
-            if fig is None
-            else fig.to_html(include_plotlyjs=False, full_html=False)
-        )
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static trajectory-slice figure without writing it."""

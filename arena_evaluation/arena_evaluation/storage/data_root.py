@@ -43,11 +43,7 @@ def _manifest_created_at(run_dir: pathlib.Path) -> str | None:
         return None
     created = payload.get(_CREATED_AT_KEY)
     if isinstance(created, datetime.datetime):
-        aware = (
-            created
-            if created.tzinfo is not None
-            else created.replace(tzinfo=datetime.UTC)
-        )
+        aware = created if created.tzinfo is not None else created.replace(tzinfo=datetime.UTC)
         return aware.astimezone(datetime.UTC).isoformat()
     if isinstance(created, str):
         return created
@@ -65,16 +61,10 @@ def latest_benchmark(
     Only folders that carry a manifest are runs; a stray folder is not one. The run id is the
     folder name, never ``manifest.run_id``, so a copied folder keeps its own identity.
     """
-    resolved_root = root or benchmarks_root(
-        environ=environ, share_directory=share_directory
-    )
+    resolved_root = root or benchmarks_root(environ=environ, share_directory=share_directory)
     if not resolved_root.is_dir():
         return None
-    candidates = [
-        (created_at, path.name, path)
-        for path in resolved_root.iterdir()
-        if path.is_dir() and (created_at := _manifest_created_at(path)) is not None
-    ]
+    candidates = [(created_at, path.name, path) for path in resolved_root.iterdir() if path.is_dir() and (created_at := _manifest_created_at(path)) is not None]
     if not candidates:
         return None
     return max(candidates)[2]

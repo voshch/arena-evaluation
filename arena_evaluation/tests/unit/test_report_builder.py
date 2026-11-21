@@ -59,9 +59,7 @@ def _sample_manifest() -> VizManifest:
         summary_group_by=["planner"],
         summary=[
             SummarySpec(metric="success", label="Success Rate", format="{:.1%}"),
-            SummarySpec(
-                metric="time_to_goal", label="Time to Goal [s]", format="{:.2f}"
-            ),
+            SummarySpec(metric="time_to_goal", label="Time to Goal [s]", format="{:.2f}"),
         ],
         plots=[
             PlotSpec(
@@ -105,9 +103,7 @@ def test_report_builder_from_dirs_merges_multiple_catalogs(
     write_benchmark(b2, rows_b)
     out_dir = tmp_path / "out_multi"
     manifest = _sample_manifest()
-    manifest.plots[0] = manifest.plots[0].model_copy(
-        update={"channels": PlotChannels(x="planner", y="mean", color="run")}
-    )
+    manifest.plots[0] = manifest.plots[0].model_copy(update={"channels": PlotChannels(x="planner", y="mean", color="run")})
     builder = ReportBuilder.from_dirs([b1, b2], out_dir, manifest=manifest)
     report_path = builder.build()
 
@@ -130,9 +126,7 @@ def test_report_builder_records_missing_source_table_in_multirun_summary(
     b2 = tmp_path / "bench_b"
     write_benchmark(b1, _ROWS)
     write_benchmark(b2, _ROWS)
-    pl.DataFrame({"t": [0.0], "x": [1.0]}).write_parquet(
-        b1 / "episodes" / "episode_000" / "metrics" / "series_custom.parquet"
-    )
+    pl.DataFrame({"t": [0.0], "x": [1.0]}).write_parquet(b1 / "episodes" / "episode_000" / "metrics" / "series_custom.parquet")
     manifest = _sample_manifest().model_copy(
         update={
             "data_source": "v_series_custom",
@@ -140,14 +134,9 @@ def test_report_builder_records_missing_source_table_in_multirun_summary(
             "summary_group_by": ["planner"],
         }
     )
-    builder = ReportBuilder.from_dirs(
-        [b1, b2], tmp_path / "out_missing", manifest=manifest
-    )
+    builder = ReportBuilder.from_dirs([b1, b2], tmp_path / "out_missing", manifest=manifest)
     builder.build()
-    assert any(
-        c.plot_id == "summary" and "v_series_custom" in c.detail
-        for c in builder.build_checks.failures
-    )
+    assert any(c.plot_id == "summary" and "v_series_custom" in c.detail for c in builder.build_checks.failures)
 
 
 def test_report_builder_records_missing_recipe_as_load_failure_and_nonnegative_passed(
@@ -168,15 +157,10 @@ def test_report_builder_records_missing_recipe_as_load_failure_and_nonnegative_p
             )
         ],
     )
-    builder = ReportBuilder(
-        bench_dir, output_dir=tmp_path / "out_bad_recipe", manifest=manifest
-    )
+    builder = ReportBuilder(bench_dir, output_dir=tmp_path / "out_bad_recipe", manifest=manifest)
     builder.build()
     assert builder.build_checks.passed_count == 0
-    assert any(
-        f.plot_id == "missing_recipe_plot" and f.stage.value == "load"
-        for f in builder.build_checks.failures
-    )
+    assert any(f.plot_id == "missing_recipe_plot" and f.stage.value == "load" for f in builder.build_checks.failures)
 
 
 def test_report_builder_summary_uses_manifest_source_and_fails_on_missing_metric(
@@ -193,9 +177,7 @@ def test_report_builder_summary_uses_manifest_source_and_fails_on_missing_metric
         plots=[],
     )
     out_missing = tmp_path / "out_missing"
-    b_missing = ReportBuilder(
-        bench_dir, output_dir=out_missing, manifest=missing_manifest
-    )
+    b_missing = ReportBuilder(bench_dir, output_dir=out_missing, manifest=missing_manifest)
     b_missing.build()
     # The summary is a page-level feature, not a declared plot: it never inflates
     # failed_count past plots_total, but it is still a reported, non-passing check.
@@ -205,9 +187,7 @@ def test_report_builder_summary_uses_manifest_source_and_fails_on_missing_metric
     assert b_missing.build_checks.failures[0].plot_id == "summary"
     assert "nonexistent_metric" in b_missing.build_checks.failures[0].detail
 
-    empty_manifest = VizManifest(
-        name="no_summary", title="No Summary", summary=[], plots=[]
-    )
+    empty_manifest = VizManifest(name="no_summary", title="No Summary", summary=[], plots=[])
     out_empty = tmp_path / "out_empty"
     b_empty = ReportBuilder(bench_dir, output_dir=out_empty, manifest=empty_manifest)
     p_empty = b_empty.build()
@@ -232,9 +212,7 @@ def test_report_builder_escapes_html_and_sanitizes_markdown_links(
                 title="Box <b>Title</b>",
                 data={"source": "v_episode_summary"},
                 channels=PlotChannels(x="planner", y="time_to_goal"),
-                options={
-                    "note": "[bad](javascript:alert(1)) and [ok](https://example.com)"
-                },
+                options={"note": "[bad](javascript:alert(1)) and [ok](https://example.com)"},
             )
         ],
     )
@@ -244,10 +222,7 @@ def test_report_builder_escapes_html_and_sanitizes_markdown_links(
     assert report_path is not None
     html = report_path.read_text(encoding="utf-8")
     assert "<script>alert('xss')</script>" not in html
-    assert (
-        "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;" in html
-        or "&lt;script&gt;" in html
-    )
+    assert "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;" in html or "&lt;script&gt;" in html
     assert 'href="javascript:' not in html
     assert 'href="https://example.com"' in html
 
@@ -292,9 +267,7 @@ def test_report_builder_embeds_bundle_and_static_render_for_every_plot(
             ),
         ],
     )
-    builder = ReportBuilder(
-        bench_dir, output_dir=tmp_path / "out_blocks", manifest=manifest
-    )
+    builder = ReportBuilder(bench_dir, output_dir=tmp_path / "out_blocks", manifest=manifest)
     report_path = builder.build()
     assert report_path is not None
     page = report_path.read_text(encoding="utf-8")
@@ -329,9 +302,7 @@ def test_overview_cards_carry_their_title_like_the_grouped_ones(
             ),
         ],
     )
-    builder = ReportBuilder(
-        bench_dir, output_dir=tmp_path / "out_overview", manifest=manifest
-    )
+    builder = ReportBuilder(bench_dir, output_dir=tmp_path / "out_overview", manifest=manifest)
     report_path = builder.build()
     assert report_path is not None
     assert "<h3>Overview Card Title</h3>" in report_path.read_text(encoding="utf-8")

@@ -8,7 +8,6 @@ from typing import Final
 import numpy as np
 import polars as pl
 
-from arena_evaluation.storage.registry.series import SeriesProxemics
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
@@ -27,6 +26,7 @@ from arena_evaluation.processing.windows import (
 )
 from arena_evaluation.storage.exceptions import MetricInputError
 from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry.series import SeriesProxemics
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 INTIMATE_CLEARANCE_M: Final[float] = 0.45
@@ -86,15 +86,9 @@ def _pedestrian_radii(peds: pl.DataFrame) -> pl.DataFrame:
         ped_id=pl.col("ped_id").cast(pl.String),
         radius_m=pl.col("radius_m").cast(pl.Float64),
     ).unique(subset=["ped_id"], keep="first")
-    invalid = radii.filter(
-        pl.col("radius_m").is_null()
-        | pl.col("radius_m").is_nan()
-        | (pl.col("radius_m") <= 0.0)
-    )
+    invalid = radii.filter(pl.col("radius_m").is_null() | pl.col("radius_m").is_nan() | (pl.col("radius_m") <= 0.0))
     if invalid.height > 0:
-        raise MetricInputError(
-            "proxemics needs each pedestrian's recorded radius_m; a pedestrian has none or a non-positive one"
-        )
+        raise MetricInputError("proxemics needs each pedestrian's recorded radius_m; a pedestrian has none or a non-positive one")
     return radii
 
 
@@ -109,17 +103,7 @@ def personal_space_counts(
     pos_x = robot_frame.get_column("x").to_numpy().astype(np.float64)
     pos_y = robot_frame.get_column("y").to_numpy().astype(np.float64)
     radii = _pedestrian_radii(peds)
-    within = (
-        distances_to_pedestrians(t_ns, pos_x, pos_y, peds)
-        .join(radii, on="ped_id", how="left")
-        .with_columns(
-            edge_clearance_m=pl.col("distance")
-            - (pl.lit(float(robot_radius_m), dtype=pl.Float64) + pl.col("radius_m"))
-        )
-        .filter(pl.col("edge_clearance_m") < clearance_m)
-        .group_by("row")
-        .len()
-    )
+    within = distances_to_pedestrians(t_ns, pos_x, pos_y, peds).join(radii, on="ped_id", how="left").with_columns(edge_clearance_m=pl.col("distance") - (pl.lit(float(robot_radius_m), dtype=pl.Float64) + pl.col("radius_m"))).filter(pl.col("edge_clearance_m") < clearance_m).group_by("row").len()
     counts = np.zeros(len(t_ns), dtype=np.int64)
     if within.height > 0:
         counts[within["row"].to_numpy()] = within["len"].to_numpy()
@@ -154,24 +138,15 @@ class ProxemicsCalculator(BaseMetricCalculator):
         "total_time_in_personal_space": Direction.LOWER,
     }
 
-    def _episode_inputs(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[pl.DataFrame, pl.DataFrame] | None:
+    def _episode_inputs(self, episode: AlignedEpisodeBundle) -> tuple[pl.DataFrame, pl.DataFrame] | None:
         """The episode's robot ground-truth frame and flat pedestrian rows, None when either is unusable."""
         robot_frame = self.resolve_robot_frame(episode)
         peds_df = self.native_ped_frame(episode)
-        if (
-            robot_frame is None
-            or robot_frame.height == 0
-            or peds_df is None
-            or peds_df.height == 0
-        ):
+        if robot_frame is None or robot_frame.height == 0 or peds_df is None or peds_df.height == 0:
             return None
         return robot_frame, peds_df
 
-    def _occupancy_counts(
-        self, robot_frame: pl.DataFrame, peds_df: pl.DataFrame
-    ) -> pl.DataFrame:
+    def _occupancy_counts(self, robot_frame: pl.DataFrame, peds_df: pl.DataFrame) -> pl.DataFrame:
         """Personal-space occupancy counts against the calculator's own radius parameters."""
         return personal_space_counts(
             robot_frame,
@@ -203,18 +178,14 @@ class ProxemicsCalculator(BaseMetricCalculator):
             "avg_velocity_in_personal_space": _masked_speed_mean(speeds, inside),
         }
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Dwell of the robot inside its personal space, and the mean velocity while inside."""
         del prior_results
         inputs = self._episode_inputs(episode)
         if inputs is None:
             return dict.fromkeys(self.output_keys())
         robot_frame, peds_df = inputs
-        return self._personal_space_metrics(
-            robot_frame, peds_df, episode.num_pedestrians
-        )
+        return self._personal_space_metrics(robot_frame, peds_df, episode.num_pedestrians)
 
     def _window_metrics(self, window: AlignedEpisodeBundle) -> dict[str, typing.Any]:
         """Personal-space dwell over the window's own robot samples and pedestrian set."""
@@ -222,9 +193,7 @@ class ProxemicsCalculator(BaseMetricCalculator):
         peds = self.native_ped_frame(window)
         if robot is None or robot.height == 0 or peds is None or peds.height == 0:
             return dict.fromkeys(self.output_keys())
-        return self._personal_space_metrics(
-            robot, peds, int(peds.get_column("ped_id").n_unique())
-        )
+        return self._personal_space_metrics(robot, peds, int(peds.get_column("ped_id").n_unique()))
 
     def calculate_for_scope(
         self,
@@ -297,19 +266,10 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
         if isinstance(ped_tracks, pl.LazyFrame):
             ped_tracks = ped_tracks.collect()
 
-        if (
-            robot_tracks is None
-            or len(robot_tracks) == 0
-            or ped_tracks is None
-            or len(ped_tracks) == 0
-        ):
+        if robot_tracks is None or len(robot_tracks) == 0 or ped_tracks is None or len(ped_tracks) == 0:
             return dict.fromkeys(self.output_keys())
 
-        resolved_target = (
-            target_id
-            if target_id is not None
-            else self.metrics_config.get("target_agent_id")
-        )
+        resolved_target = target_id if target_id is not None else self.metrics_config.get("target_agent_id")
         if resolved_target is not None:
             ped_tracks = ped_tracks.filter(pl.col("ped_id") == str(resolved_target))
 
@@ -317,13 +277,7 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
             return dict.fromkeys(self.output_keys())
 
         robot_radius_m = float(self.robot_params.robot_radius)
-        pairs = (
-            pedestrian_pairs_lf(
-                robot_tracks, ped_tracks, robot_radius_m, DEFAULT_DETECTOR_PARAMS
-            )
-            .collect()
-            .sort(["actor_id", "t_ns"])
-        )
+        pairs = pedestrian_pairs_lf(robot_tracks, ped_tracks, robot_radius_m, DEFAULT_DETECTOR_PARAMS).collect().sort(["actor_id", "t_ns"])
         if len(pairs) == 0:
             return {"total_intrusions_intimate": 0, "total_intrusions_personal": 0}
 
@@ -331,23 +285,15 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
             intimate=pl.col("edge_clearance_m") < INTIMATE_CLEARANCE_M,
             personal=pl.col("edge_clearance_m") < PERSONAL_ZONE_EDGE_CLEARANCE_M,
         ).with_columns(
-            intimate_entry=pl.col("intimate")
-            & ~pl.col("intimate").shift(1, fill_value=False).over("actor_id"),
-            personal_entry=pl.col("personal")
-            & ~pl.col("personal").shift(1, fill_value=False).over("actor_id"),
+            intimate_entry=pl.col("intimate") & ~pl.col("intimate").shift(1, fill_value=False).over("actor_id"),
+            personal_entry=pl.col("personal") & ~pl.col("personal").shift(1, fill_value=False).over("actor_id"),
         )
         return {
-            "total_intrusions_intimate": int(
-                entries.get_column("intimate_entry").sum()
-            ),
-            "total_intrusions_personal": int(
-                entries.get_column("personal_entry").sum()
-            ),
+            "total_intrusions_intimate": int(entries.get_column("intimate_entry").sum()),
+            "total_intrusions_personal": int(entries.get_column("personal_entry").sum()),
         }
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         return self._calculate_for_target(episode)
 
@@ -357,10 +303,6 @@ class PedestrianIntrusionCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
         scope_slice: ScopeSlice | None = None,
     ) -> dict[str, typing.Any]:
-        target_id = (
-            scope_slice.slice_id
-            if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN
-            else None
-        )
+        target_id = scope_slice.slice_id if scope_slice is not None and scope_slice.scope == MetricScope.PEDESTRIAN else None
         del prior_results
         return self._calculate_for_target(episode, target_id=target_id)

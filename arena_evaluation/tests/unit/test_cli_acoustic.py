@@ -88,9 +88,7 @@ def _rows() -> list[dict[str, object]]:
     ]
 
 
-def _benchmark(
-    tmp_path: pathlib.Path, rows: list[dict[str, object]] | None = None
-) -> pathlib.Path:
+def _benchmark(tmp_path: pathlib.Path, rows: list[dict[str, object]] | None = None) -> pathlib.Path:
     return write_benchmark(tmp_path / "bench", rows or _rows())
 
 
@@ -183,15 +181,11 @@ _PEDESTRIAN_FACTS_SCHEMA = pl.Schema(
 )
 
 
-def _replace_pedestrian_facts(
-    bench_dir: pathlib.Path, rows_by_episode: dict[int, list[dict[str, object]]]
-) -> None:
+def _replace_pedestrian_facts(bench_dir: pathlib.Path, rows_by_episode: dict[int, list[dict[str, object]]]) -> None:
     for ep_num, rows in rows_by_episode.items():
         metrics = bench_dir / "episodes" / f"episode_{ep_num:03d}" / "metrics"
         metrics.mkdir(parents=True, exist_ok=True)
-        pl.DataFrame(rows, schema=_PEDESTRIAN_FACTS_SCHEMA).write_parquet(
-            metrics / "fact_pedestrians.parquet"
-        )
+        pl.DataFrame(rows, schema=_PEDESTRIAN_FACTS_SCHEMA).write_parquet(metrics / "fact_pedestrians.parquet")
 
 
 def _write_exposure_series(
@@ -211,17 +205,11 @@ def _arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _acoustic_argv(
-    command: str, benchmark_dir: pathlib.Path, *extra: str
-) -> argparse.Namespace:
-    return _arg_parser().parse_args(
-        ["acoustic", command, "--benchmark-dir", str(benchmark_dir), *extra]
-    )
+def _acoustic_argv(command: str, benchmark_dir: pathlib.Path, *extra: str) -> argparse.Namespace:
+    return _arg_parser().parse_args(["acoustic", command, "--benchmark-dir", str(benchmark_dir), *extra])
 
 
-def test_handle_acoustic_requires_star_schema_tables(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_handle_acoustic_requires_star_schema_tables(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     bench_dir = tmp_path / "bench"
     bench_dir.mkdir()
     with pytest.raises(SystemExit) as exc:
@@ -236,15 +224,10 @@ def test_handle_acoustic_missing_dir(capsys: pytest.CaptureFixture[str]) -> None
     with pytest.raises(SystemExit) as exc:
         handle_acoustic(_acoustic_argv("list", pathlib.Path("/nonexistent/dir")))
     assert exc.value.code == 1
-    assert (
-        "Error: benchmark directory does not exist: /nonexistent/dir"
-        in capsys.readouterr().out
-    )
+    assert "Error: benchmark directory does not exist: /nonexistent/dir" in capsys.readouterr().out
 
 
-def test_handle_acoustic_list_dispatch(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_handle_acoustic_list_dispatch(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     handle_acoustic(_acoustic_argv("list", _benchmark(tmp_path)))
     out = capsys.readouterr().out
     assert "EPISODE" in out
@@ -261,9 +244,7 @@ def test_map_for_episode_names_the_recorded_world() -> None:
     assert _map_for_episode(summary, "episode_009") is None
 
 
-def test_episode_of_max_exposure_without_measurements(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_episode_of_max_exposure_without_measurements(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     rows = [{"episode_id": 1, "l_aeq_t": 54.5, "ped_max_exposure_dba": None}]
     bench_dir = _benchmark(tmp_path, rows)
     assert (
@@ -278,15 +259,11 @@ def test_episode_of_max_exposure_without_measurements(
     assert "has no max exposure values" in capsys.readouterr().out
 
 
-def test_episode_of_max_exposure_without_exposure_columns(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_episode_of_max_exposure_without_exposure_columns(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     bench_dir = _benchmark(tmp_path)
     for ep_num in (1, 2, 3):
         metrics = bench_dir / "episodes" / f"episode_{ep_num:03d}" / "metrics"
-        pl.DataFrame({"episode_id": [ep_num], "ped_id": ["ped_1"]}).write_parquet(
-            metrics / "fact_pedestrians.parquet"
-        )
+        pl.DataFrame({"episode_id": [ep_num], "ped_id": ["ped_1"]}).write_parquet(metrics / "fact_pedestrians.parquet")
     assert (
         _episode_of_max_exposure(
             bench_dir,
@@ -299,25 +276,19 @@ def test_episode_of_max_exposure_without_exposure_columns(
     assert "has no pedestrian acoustic exposure columns" in capsys.readouterr().out
 
 
-def test_resolve_episode_rejects_an_absent_episode(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_resolve_episode_rejects_an_absent_episode(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     summary = _load_episode_summary(_benchmark(tmp_path))
     assert _resolve_episode(summary, "episode_007", tmp_path / "bench") is None
     assert "not found in the episode summary" in capsys.readouterr().out
 
 
-def test_resolve_episode_rejects_an_unknown_specifier(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_resolve_episode_rejects_an_unknown_specifier(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     summary = _load_episode_summary(_benchmark(tmp_path))
     assert _resolve_episode(summary, "bogus", tmp_path / "bench") is None
     assert "unknown episode specifier 'bogus'" in capsys.readouterr().out
 
 
-def test_max_total_selects_the_largest_summed_exposure(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_max_total_selects_the_largest_summed_exposure(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     bench_dir = _benchmark(tmp_path)
     _replace_pedestrian_facts(
         bench_dir,
@@ -361,9 +332,7 @@ def test_max_total_selects_the_largest_summed_exposure(
     assert "total exposure=160.00 dBA" in out
 
 
-def test_loudest_source_episode_picks_peak_source_from_telemetry(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_loudest_source_episode_picks_peak_source_from_telemetry(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     bench_dir = _benchmark(tmp_path)
     _write_episode_telemetry(bench_dir, 1, source_levels=[60.0, 91.5])
     _write_episode_telemetry(bench_dir, 2, source_levels=[65.0, 74.0])
@@ -380,17 +349,13 @@ def test_acoustic_snapshot_renders_png_from_catalog_and_world(
     _write_episode_telemetry(bench_dir, 2, source_levels=[65.0, 78.0])
     out_png = tmp_path / "snapshot.png"
     summary = _load_episode_summary(bench_dir)
-    args = _acoustic_argv(
-        "snapshot", bench_dir, "--episode", "episode_002", "--output", str(out_png)
-    )
+    args = _acoustic_argv("snapshot", bench_dir, "--episode", "episode_002", "--output", str(out_png))
     _acoustic_snapshot(summary, args)
     assert out_png.is_file()
     assert out_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_acoustic_snapshot_defaults_to_the_series_max_exposure(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_acoustic_snapshot_defaults_to_the_series_max_exposure(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     rows = [{"episode_id": 2, "world": "map1", "planner": "dwb", "l_aeq_t": 72.4}]
     bench_dir = _benchmark(tmp_path, rows)
     _write_world(bench_dir, "map1")
@@ -419,20 +384,13 @@ def test_acoustic_snapshot_defaults_to_the_series_max_exposure(
     )
     out_png = tmp_path / "snapshot.png"
     summary = _load_episode_summary(bench_dir)
-    args = _acoustic_argv(
-        "snapshot", bench_dir, "--episode", "episode_002", "--output", str(out_png)
-    )
+    args = _acoustic_argv("snapshot", bench_dir, "--episode", "episode_002", "--output", str(out_png))
     _acoustic_snapshot(summary, args)
     assert out_png.is_file()
-    assert (
-        "Using frame 0 (maximum exposure in series_acoustic_exposure"
-        in capsys.readouterr().out
-    )
+    assert "Using frame 0 (maximum exposure in series_acoustic_exposure" in capsys.readouterr().out
 
 
-def test_acoustic_snapshot_exits_when_source_dba_missing(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_acoustic_snapshot_exits_when_source_dba_missing(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     bench_dir = _benchmark(tmp_path)
     _write_world(bench_dir, "map1")
     _write_episode_telemetry(bench_dir, 2, include_acoustics=False)

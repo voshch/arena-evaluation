@@ -17,8 +17,8 @@ from arena_evaluation.analytics.findings import (
     Finding,
     FindingAttachResponse,
     FindingError,
-    FindingStatus,
     FindingsResponse,
+    FindingStatus,
     create_finding,
     findings_dir,
     findings_lock_path,
@@ -58,9 +58,7 @@ __all__ = [
     "evaluation_findings",
 ]
 
-DEFAULT_REPORT: Final[str] = (
-    "reviewed_report"  # the name evaluation_report_assemble writes by default
-)
+DEFAULT_REPORT: Final[str] = "reviewed_report"  # the name evaluation_report_assemble writes by default
 
 
 def _described(kind: Any, description: str) -> Any:
@@ -81,10 +79,7 @@ def _attach_note(finding: Finding) -> Note:
     """One self-contained notes.yaml entry for a finding attached to a report."""
     parts = [finding.claim]
     if finding.structured_numbers:
-        formatted = ", ".join(
-            f"{entry['column']}={entry['value']}"
-            for entry in finding.structured_numbers
-        )
+        formatted = ", ".join(f"{entry['column']}={entry['value']}" for entry in finding.structured_numbers)
         parts.append(f"numbers: {formatted}")
     if finding.evidence_id:
         parts.append(f"evidence: {finding.evidence_id}")
@@ -92,9 +87,7 @@ def _attach_note(finding: Finding) -> Note:
         parts.append(f"query: {finding.stored_query}")
     if finding.figure_path:
         parts.append(f"figure: {finding.figure_path}")
-    return Note(
-        label=f"{FINDING_NOTE_PREFIX}{finding.finding_id}", value="; ".join(parts)
-    )
+    return Note(label=f"{FINDING_NOTE_PREFIX}{finding.finding_id}", value="; ".join(parts))
 
 
 def _report_token(run_dir: pathlib.Path, report: str) -> str:
@@ -146,15 +139,9 @@ def evaluation_finding_create(
     contact_id: _described(str | None, "contact id from fact_contacts") = None,
     pedestrian_id: _described(str | None, "pedestrian id the claim is about") = None,
     query: _described(str | None, "SELECT query that establishes the claim") = None,
-    stored_query: _described(
-        str | None, "stored query name from evaluation_queries"
-    ) = None,
-    evidence_id: _described(
-        str | None, "pinned evidence id from evaluation_query"
-    ) = None,
-    evidence_ids: _described(
-        list[str] | None, "pinned evidence ids supporting the claim"
-    ) = None,
+    stored_query: _described(str | None, "stored query name from evaluation_queries") = None,
+    evidence_id: _described(str | None, "pinned evidence id from evaluation_query") = None,
+    evidence_ids: _described(list[str] | None, "pinned evidence ids supporting the claim") = None,
     numbers: _described(
         dict[str, float] | None,
         "refused: free-form numbers are not checked against evidence; quote them in structured_numbers",
@@ -164,9 +151,7 @@ def evaluation_finding_create(
         "structured numeric assertions verified against EvidenceStore: [{evidence_id, column, value, tolerance}]",
     ) = None,
     author: _described(str, "role authoring the finding") = "analyst",
-    figure_path: _described(
-        str | None, "path to a plot artifact supporting the claim"
-    ) = None,
+    figure_path: _described(str | None, "path to a plot artifact supporting the claim") = None,
 ) -> Finding:
     """Record one empirical claim as a ``proposed`` finding under ``analysis/findings/<id>.yaml``."""
     run_dir = run_path(run_id)
@@ -242,18 +227,14 @@ def evaluation_finding_verify(run_id: RunId, finding_id: str) -> dict[str, Any]:
 def evaluation_finding_status(
     run_id: RunId,
     finding_id: _described(str, "finding to review, from evaluation_findings"),
-    status: _described(
-        Literal["proposed", "verified", "refuted", "needs_work"], "new review state"
-    ),
+    status: _described(Literal["proposed", "verified", "refuted", "needs_work"], "new review state"),
     by: _described(str, "role adjudicating the finding status") = "verifier",
     note: _described(str | None, "optional review note") = None,
 ) -> Finding:
     """Move one finding between review states with mechanical and author-separation gates."""
     run_dir = run_path(run_id)
     with _finding_errors("check finding status transition"):
-        reviewed = transition_finding_status(
-            run_dir, finding_id, status, by=by, note=note
-        )
+        reviewed = transition_finding_status(run_dir, finding_id, status, by=by, note=note)
     append_audit_event(
         run_dir,
         role=by,

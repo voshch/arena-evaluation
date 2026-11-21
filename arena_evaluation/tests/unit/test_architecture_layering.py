@@ -129,9 +129,7 @@ def _is_internal(module: str) -> bool:
 
 
 def _matches_allowed(module: str, allowed: tuple[str, ...]) -> bool:
-    return any(
-        module == prefix or module.startswith(f"{prefix}.") for prefix in allowed
-    )
+    return any(module == prefix or module.startswith(f"{prefix}.") for prefix in allowed)
 
 
 def test_storage_imports_only_storage() -> None:
@@ -148,18 +146,11 @@ def test_storage_imports_only_storage() -> None:
             else:
                 violations.append(f"{rel} imports {module} ({list(names)})")
     assert not violations, f"storage imports outside allow-list: {violations}"
-    assert seen_pinned == set(_STORAGE_PINNED), (
-        f"pinned edge(s) missing: {set(_STORAGE_PINNED) - seen_pinned}"
-    )
+    assert seen_pinned == set(_STORAGE_PINNED), f"pinned edge(s) missing: {set(_STORAGE_PINNED) - seen_pinned}"
 
 
 def test_analytics_imports_only_storage_and_analytics() -> None:
-    violations = [
-        f"{path.relative_to(_ANALYTICS_ROOT)} imports {module}"
-        for path in sorted(_ANALYTICS_ROOT.rglob("*.py"))
-        for module, _ in _imports_of(path)
-        if _is_internal(module) and not _matches_allowed(module, _ANALYTICS_ALLOWED)
-    ]
+    violations = [f"{path.relative_to(_ANALYTICS_ROOT)} imports {module}" for path in sorted(_ANALYTICS_ROOT.rglob("*.py")) for module, _ in _imports_of(path) if _is_internal(module) and not _matches_allowed(module, _ANALYTICS_ALLOWED)]
     assert not violations, f"analytics imports outside allow-list: {violations}"
 
 
@@ -169,9 +160,7 @@ def test_experiments_imports_only_allowed_layers_and_pinned_edge() -> None:
     for path in sorted(_EXPERIMENTS_ROOT.rglob("*.py")):
         rel = path.relative_to(_EXPERIMENTS_ROOT).as_posix()
         for module, names in _imports_of(path):
-            if not _is_internal(module) or _matches_allowed(
-                module, _EXPERIMENTS_ALLOWED
-            ):
+            if not _is_internal(module) or _matches_allowed(module, _EXPERIMENTS_ALLOWED):
                 continue
             key = (rel, module)
             if key in _EXPERIMENTS_PINNED and set(names) == _EXPERIMENTS_PINNED[key]:
@@ -180,9 +169,7 @@ def test_experiments_imports_only_allowed_layers_and_pinned_edge() -> None:
                 violations.append(f"{rel} imports {module} ({list(names)})")
 
     assert not violations, f"experiments imports outside allow-list: {violations}"
-    assert seen_pinned == set(_EXPERIMENTS_PINNED), (
-        f"pinned edge(s) missing: {set(_EXPERIMENTS_PINNED) - seen_pinned}"
-    )
+    assert seen_pinned == set(_EXPERIMENTS_PINNED), f"pinned edge(s) missing: {set(_EXPERIMENTS_PINNED) - seen_pinned}"
 
 
 def test_presentation_imports_only_allowed_layers_and_pinned_edge() -> None:
@@ -191,9 +178,7 @@ def test_presentation_imports_only_allowed_layers_and_pinned_edge() -> None:
     for path in sorted(_PRESENTATION_ROOT.rglob("*.py")):
         rel = path.relative_to(_PRESENTATION_ROOT).as_posix()
         for module, names in _imports_of(path):
-            if not _is_internal(module) or _matches_allowed(
-                module, _PRESENTATION_ALLOWED
-            ):
+            if not _is_internal(module) or _matches_allowed(module, _PRESENTATION_ALLOWED):
                 continue
             key = (rel, module)
             if key in _PRESENTATION_PINNED and set(names) == _PRESENTATION_PINNED[key]:
@@ -202,9 +187,7 @@ def test_presentation_imports_only_allowed_layers_and_pinned_edge() -> None:
                 violations.append(f"{rel} imports {module} ({list(names)})")
 
     assert not violations, f"presentation imports outside allow-list: {violations}"
-    assert seen_pinned == set(_PRESENTATION_PINNED), (
-        f"pinned edge(s) missing: {set(_PRESENTATION_PINNED) - seen_pinned}"
-    )
+    assert seen_pinned == set(_PRESENTATION_PINNED), f"pinned edge(s) missing: {set(_PRESENTATION_PINNED) - seen_pinned}"
 
 
 _FORBIDDEN_STAT_ATTRS: frozenset[str] = frozenset(
@@ -241,20 +224,12 @@ def test_streams_are_aligned_only_in_the_alignment_module() -> None:
         if rel in _ALIGNMENT_MODULES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        lines = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"join_asof", "interp"}
-        ]
+        lines = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"join_asof", "interp"}]
         if not lines:
             continue
         violations.append(f"{rel}:{lines}")
 
-    assert not violations, (
-        f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
-    )
+    assert not violations, f"streams aligned outside {sorted(_ALIGNMENT_MODULES)}: {violations}"
 
 
 def test_presentation_computes_no_statistics() -> None:
@@ -263,39 +238,23 @@ def test_presentation_computes_no_statistics() -> None:
         rel = path.relative_to(_PRESENTATION_ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for module, _ in _imports_of(path):
-            if any(
-                module == prefix or module.startswith(f"{prefix}.")
-                for prefix in _FORBIDDEN_STAT_MODULES
-            ):
+            if any(module == prefix or module.startswith(f"{prefix}.") for prefix in _FORBIDDEN_STAT_MODULES):
                 violations.append(f"{rel} imports forbidden stats module {module}")
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Attribute):
                     if node.func.attr in _FORBIDDEN_STAT_ATTRS:
-                        violations.append(
-                            f"{rel}:{node.lineno} calls .{node.func.attr}()"
-                        )
+                        violations.append(f"{rel}:{node.lineno} calls .{node.func.attr}()")
                     if node.func.attr == "fill_null" and node.args:
                         arg0 = node.args[0]
                         if isinstance(arg0, ast.Constant) and arg0.value in (0, 0.0):
-                            violations.append(
-                                f"{rel}:{node.lineno} calls .fill_null({arg0.value!r})"
-                            )
-                elif (
-                    isinstance(node.func, ast.Name)
-                    and node.func.id in _FORBIDDEN_STAT_ATTRS
-                ):
+                            violations.append(f"{rel}:{node.lineno} calls .fill_null({arg0.value!r})")
+                elif isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_STAT_ATTRS:
                     violations.append(f"{rel}:{node.lineno} calls {node.func.id}()")
                 for kw in node.keywords:
-                    if kw.arg == "estimator" and not (
-                        isinstance(kw.value, ast.Constant) and kw.value.value is None
-                    ):
-                        violations.append(
-                            f"{rel}:{node.lineno} passes estimator= (non-None)"
-                        )
-    assert not violations, (
-        f"presentation must bind, not compute statistics: {violations}"
-    )
+                    if kw.arg == "estimator" and not (isinstance(kw.value, ast.Constant) and kw.value.value is None):
+                        violations.append(f"{rel}:{node.lineno} passes estimator= (non-None)")
+    assert not violations, f"presentation must bind, not compute statistics: {violations}"
 
 
 _MCP_ROOT: pathlib.Path = _PKG_ROOT / "mcp"
@@ -307,9 +266,7 @@ _MCP_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.mcp",
 )
 _MCP_PINNED: dict[tuple[str, str], set[str]] = {
-    ("migration.py", "arena_evaluation.processing.metrics.dictionary"): {
-        "metric_dictionary"
-    },
+    ("migration.py", "arena_evaluation.processing.metrics.dictionary"): {"metric_dictionary"},
 }
 
 
@@ -327,9 +284,7 @@ def test_mcp_imports_only_allowed_layers() -> None:
             else:
                 violations.append(f"{rel} imports {module} ({list(names)})")
     assert not violations, f"mcp imports outside allow-list: {violations}"
-    assert seen_pinned == set(_MCP_PINNED), (
-        f"pinned edge(s) missing: {set(_MCP_PINNED) - seen_pinned}"
-    )
+    assert seen_pinned == set(_MCP_PINNED), f"pinned edge(s) missing: {set(_MCP_PINNED) - seen_pinned}"
 
 
 def test_mcp_reads_no_parquet_directly() -> None:
@@ -338,15 +293,9 @@ def test_mcp_reads_no_parquet_directly() -> None:
         rel = path.relative_to(_MCP_ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in ("read_parquet", "scan_parquet", "write_parquet")
-            ):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("read_parquet", "scan_parquet", "write_parquet"):
                 violations.append(f"{rel}:{node.lineno} calls .{node.func.attr}()")
-    assert not violations, (
-        f"mcp must use BenchmarkCatalog, not direct Parquet I/O: {violations}"
-    )
+    assert not violations, f"mcp must use BenchmarkCatalog, not direct Parquet I/O: {violations}"
 
 
 _NON_MCP_TO_MCP_PINNED: set[tuple[str, str]] = {
@@ -362,12 +311,7 @@ def test_non_mcp_packages_never_import_mcp() -> None:
         for path in sorted(_PKG_ROOT.rglob("*.py"))
         if not path.is_relative_to(_MCP_ROOT)
         for module, _ in _imports_of(path)
-        if (
-            module == "arena_evaluation.mcp"
-            or module.startswith("arena_evaluation.mcp.")
-        )
-        and (path.relative_to(_PKG_ROOT).as_posix(), module)
-        not in _NON_MCP_TO_MCP_PINNED
+        if (module == "arena_evaluation.mcp" or module.startswith("arena_evaluation.mcp.")) and (path.relative_to(_PKG_ROOT).as_posix(), module) not in _NON_MCP_TO_MCP_PINNED
     ]
     assert not violations, f"non-mcp modules import mcp: {violations}"
 
@@ -486,17 +430,8 @@ _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
 
 def test_module_import_graph_has_only_reviewed_cycles() -> None:
     """Pin every module-granularity cycle so a new one fails review before it becomes architecture."""
-    cycles = {
-        frozenset(component)
-        for component in _strongly_connected(_module_graph())
-        if len(component) > 1
-    }
+    cycles = {frozenset(component) for component in _strongly_connected(_module_graph()) if len(component) > 1}
     unreviewed = cycles - _ALLOWED_CYCLES
-    assert not unreviewed, (
-        f"new module import cycle(s): {sorted(sorted(cycle) for cycle in unreviewed)}"
-    )
+    assert not unreviewed, f"new module import cycle(s): {sorted(sorted(cycle) for cycle in unreviewed)}"
     resolved = _ALLOWED_CYCLES - cycles
-    assert not resolved, (
-        "reviewed cycle(s) no longer present; update _ALLOWED_CYCLES: "
-        f"{sorted(sorted(cycle) for cycle in resolved)}"
-    )
+    assert not resolved, f"reviewed cycle(s) no longer present; update _ALLOWED_CYCLES: {sorted(sorted(cycle) for cycle in resolved)}"

@@ -41,9 +41,7 @@ def _flat() -> AgentFrame:
     msg = AgentFrame()
     msg.header.frame_id = "map"
     msg.header.stamp.sec = 2
-    msg.agent_id, msg.kind, msg.x, msg.y, msg.theta, msg.vx, msg.vy = (
-        list(column) for column in zip(*_AGENTS, strict=True)
-    )
+    msg.agent_id, msg.kind, msg.x, msg.y, msg.theta, msg.vx, msg.vy = (list(column) for column in zip(*_AGENTS, strict=True))
     msg.desired_velocity = [0.0, 0.0, 0.0]
     msg.radius = [0.0, 0.0, 0.0]
     msg.policy_idx = [-1, -1, -1]
@@ -55,16 +53,12 @@ def _flat() -> AgentFrame:
     return msg
 
 
-def _physics_frame(
-    tmp_path: pathlib.Path, name: str, type_name: str, msg: object
-) -> pl.DataFrame:
+def _physics_frame(tmp_path: pathlib.Path, name: str, type_name: str, msg: object) -> pl.DataFrame:
     bag = tmp_path / name
     writer = rosbag2_py.SequentialWriter()
     writer.open(
         rosbag2_py.StorageOptions(uri=str(bag), storage_id="mcap"),
-        rosbag2_py.ConverterOptions(
-            input_serialization_format="cdr", output_serialization_format="cdr"
-        ),
+        rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"),
     )
     writer.create_topic(rosbag2_py.TopicMetadata(0, _TOPIC, type_name, "cdr"))
     writer.write(_TOPIC, serialize_message(msg), 2_000_000_000)
@@ -77,12 +71,8 @@ def _physics_frame(
 def test_agent_states_nested_and_flat_layouts_read_into_identical_humans(
     tmp_path: pathlib.Path,
 ) -> None:
-    nested = _physics_frame(
-        tmp_path, "nested", "arena_humansim_msgs/msg/AgentStates", _nested()
-    )
-    flat = _physics_frame(
-        tmp_path, "flat", "arena_humansim_msgs/msg/AgentFrame", _flat()
-    )
+    nested = _physics_frame(tmp_path, "nested", "arena_humansim_msgs/msg/AgentStates", _nested())
+    flat = _physics_frame(tmp_path, "flat", "arena_humansim_msgs/msg/AgentFrame", _flat())
 
     assert nested.equals(flat)
     assert flat.select("ped_id", "ped_name", "x", "y", "yaw", "vx", "vy").rows() == [

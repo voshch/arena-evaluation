@@ -46,10 +46,7 @@ def test_generate_writes_paired_stages_sharing_seeds(tmp_path: pathlib.Path) -> 
                 by_name[hhi.stage_name(kind, k, "loco")],
             )
             assert contact["seed"] == loco["seed"]
-            assert (
-                contact["config"]["scenario"]["file"]
-                == loco["config"]["scenario"]["file"]
-            )
+            assert contact["config"]["scenario"]["file"] == loco["config"]["scenario"]["file"]
             assert (
                 contact["config"]["scenario"]["contact_mode"],
                 loco["config"]["scenario"]["contact_mode"],
@@ -58,16 +55,12 @@ def test_generate_writes_paired_stages_sharing_seeds(tmp_path: pathlib.Path) -> 
     reloaded = yaml.safe_load((tmp_path / "suite.yaml").read_text())
     assert reloaded == suite
 
-    scenario = yaml.safe_load(
-        (tmp_path / "scenarios" / "hhi_shake_01" / "scenario.yaml").read_text()
-    )
+    scenario = yaml.safe_load((tmp_path / "scenarios" / "hhi_shake_01" / "scenario.yaml").read_text())
     assert [d["agent"]["agent_type"] for d in scenario["dynamic"]] == [
         "./partner_0.yaml",
         "./partner_1.yaml",
     ]
-    partner = yaml.safe_load(
-        (tmp_path / "scenarios" / "hhi_shake_01" / "partner_1.yaml").read_text()
-    )
+    partner = yaml.safe_load((tmp_path / "scenarios" / "hhi_shake_01" / "partner_1.yaml").read_text())
     steps = partner["sequences"]["contact_seq"]["steps"]
     assert list(steps) == ["wait", "approach", "contact", "separate", "rest"]
     assert steps["contact"]["interaction"] == "SHAKE_HAND"
@@ -95,19 +88,12 @@ def _rows() -> list[dict[str, object]]:
                                 "episode_id": episode,
                                 "is_reference": False,
                                 "success": True,
-                                "time_to_goal": 40.0
-                                + (
-                                    10.0
-                                    if planner == "dwb" and arm == "contact"
-                                    else 0.0
-                                ),
+                                "time_to_goal": 40.0 + (10.0 if planner == "dwb" and arm == "contact" else 0.0),
                                 "collision_amount": 0,
                                 "collision_amount_pedestrian": 0,
                                 "collision_amount_wall": 0,
                                 "collision_amount_static": 0,
-                                "hhi_interaction": "hug"
-                                if kind == "hug"
-                                else "shake_hand",
+                                "hhi_interaction": "hug" if kind == "hug" else "shake_hand",
                                 "hhi_hold_onset_s": 2.0,
                                 "hhi_release_s": 6.0 if arm == "contact" else None,
                                 "hhi_episode_s": 10.0,
@@ -171,11 +157,7 @@ def test_window_table_and_manipulation_check_use_the_episode_rows_without_contac
     assert dwb_win["stall_share_post"] == pytest.approx(0.75)
     assert dwb_win["time_share_post"] == pytest.approx(0.25)
     assert dwb_win["excess"] == pytest.approx(0.5)
-    contact_hug = (
-        tables["manipulation_check"]
-        .filter((pl.col("interaction") == "hug") & (pl.col("arm") == "contact"))
-        .row(0, named=True)
-    )
+    contact_hug = tables["manipulation_check"].filter((pl.col("interaction") == "hug") & (pl.col("arm") == "contact")).row(0, named=True)
     assert contact_hug["pair_gap_median"] == pytest.approx(0.6)
 
 
@@ -195,9 +177,7 @@ def test_default_paths_sit_beside_the_package() -> None:
     assert scenarios.parts[-3:] == ("worlds", hhi.MAP, "scenarios")
 
 
-def test_main_generates_then_analyzes(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_generates_then_analyzes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert (
         hhi.main(
             [

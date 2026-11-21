@@ -28,11 +28,7 @@ _SEARCH_REASONS: Final[dict[int, str]] = {
 _PACKAGE_DIR = Path(__file__).parent
 _SOLVER_LIBRARY = _PACKAGE_DIR / "solver.so"
 _ENV_SO_VAR = "ARENA_THETA_STAR_SO"
-_BUILD_HINT: Final[str] = (
-    "run `arena build` (the arena_theta_star_solver CMake target), or "
-    "`cmake -S arena_evaluation -B build -DARENA_SOLVERS_ONLY=ON && cmake --build build`, "
-    "or set ARENA_THETA_STAR_SO to a library built elsewhere (needs a C++17 compiler)"
-)
+_BUILD_HINT: Final[str] = "run `arena build` (the arena_theta_star_solver CMake target), or `cmake -S arena_evaluation -B build -DARENA_SOLVERS_ONLY=ON && cmake --build build`, or set ARENA_THETA_STAR_SO to a library built elsewhere (needs a C++17 compiler)"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -70,9 +66,7 @@ class RouteResult:
     null_reason: str | None
 
 
-def plan_route(
-    grid: StaticGrid, start_xy: tuple[float, float], goal_xy: tuple[float, float]
-) -> RouteResult:
+def plan_route(grid: StaticGrid, start_xy: tuple[float, float], goal_xy: tuple[float, float]) -> RouteResult:
     """Shortest any-angle route between two points whose cells all stay clear."""
     if not (_is_finite(start_xy) and _is_finite(goal_xy)):
         return _refused("endpoint_not_finite")
@@ -87,9 +81,7 @@ def plan_route(
     if _is_lethal(grid, goal_cell):
         return _refused("goal_in_lethal_cell")
     cells: tuple[tuple[int, int], ...]
-    if _line_of_sight(
-        grid.lethal, start_cell[0], start_cell[1], goal_cell[0], goal_cell[1]
-    ):
+    if _line_of_sight(grid.lethal, start_cell[0], start_cell[1], goal_cell[0], goal_cell[1]):
         cells = (start_cell, goal_cell)
     else:
         searched = _search(
@@ -104,9 +96,7 @@ def plan_route(
         cells = searched
     interior = [grid.cell_centre(gx, gy) for gx, gy in cells[1:-1]]
     points = np.array([start_xy, *interior, goal_xy], dtype=np.float64)
-    return RouteResult(
-        points=points, length_m=_polyline_length(points), null_reason=None
-    )
+    return RouteResult(points=points, length_m=_polyline_length(points), null_reason=None)
 
 
 def _search_budget(lethal: np.ndarray) -> int:
@@ -150,9 +140,7 @@ def _line_of_sight(
             error += dx
         else:
             # Diagonal step: check both adjacent cells to prevent corner cutting
-            if (0 <= y < h and 0 <= x + x_inc < w and grid[y, x + x_inc]) or (
-                0 <= y + y_inc < h and 0 <= x < w and grid[y + y_inc, x]
-            ):
+            if (0 <= y < h and 0 <= x + x_inc < w and grid[y, x + x_inc]) or (0 <= y + y_inc < h and 0 <= x < w and grid[y + y_inc, x]):
                 return False
             x += x_inc
             y += y_inc
@@ -171,10 +159,7 @@ def solver_abi(library: ctypes.CDLL) -> int:
     try:
         exported = library.arena_theta_star_solver_abi
     except AttributeError as error:
-        raise MetricInputError(
-            f"Theta* solver {_solver_path()} exports no {THETA_STAR_SOLVER_ABI_SYMBOL}, "
-            f"so it predates ABI {THETA_STAR_SOLVER_ABI}; {_BUILD_HINT}"
-        ) from error
+        raise MetricInputError(f"Theta* solver {_solver_path()} exports no {THETA_STAR_SOLVER_ABI_SYMBOL}, so it predates ABI {THETA_STAR_SOLVER_ABI}; {_BUILD_HINT}") from error
     exported.restype = ctypes.c_int
     exported.argtypes = []
     return int(exported())
@@ -194,13 +179,9 @@ def _verify_library(library: ctypes.CDLL) -> None:
     solver_path = _solver_path()
     abi = solver_abi(library)
     if abi != THETA_STAR_SOLVER_ABI:
-        raise MetricInputError(
-            f"Theta* solver {solver_path} exports ABI {abi}, this package needs ABI {THETA_STAR_SOLVER_ABI}; {_BUILD_HINT}"
-        )
+        raise MetricInputError(f"Theta* solver {solver_path} exports ABI {abi}, this package needs ABI {THETA_STAR_SOLVER_ABI}; {_BUILD_HINT}")
     if not _exports(library, THETA_STAR_SOLVER_SYMBOL):
-        raise MetricInputError(
-            f"Theta* solver {solver_path} exports ABI {abi} but no {THETA_STAR_SOLVER_SYMBOL}; {_BUILD_HINT}"
-        )
+        raise MetricInputError(f"Theta* solver {solver_path} exports ABI {abi} but no {THETA_STAR_SOLVER_SYMBOL}; {_BUILD_HINT}")
 
 
 @functools.cache
@@ -208,15 +189,11 @@ def _solver_library() -> ctypes.CDLL:
     """Load the built C++17 search library and bind its C ABI; never compiles."""
     solver_path = _solver_path()
     if not solver_path.is_file():
-        raise MetricInputError(
-            f"Theta* search library not found at {solver_path} (set {_ENV_SO_VAR} to override the default); {_BUILD_HINT}"
-        )
+        raise MetricInputError(f"Theta* search library not found at {solver_path} (set {_ENV_SO_VAR} to override the default); {_BUILD_HINT}")
     try:
         library = ctypes.CDLL(str(solver_path))
     except OSError as error:
-        raise MetricInputError(
-            f"Theta* search library {solver_path} could not be loaded: {error}; {_BUILD_HINT}"
-        ) from error
+        raise MetricInputError(f"Theta* search library {solver_path} could not be loaded: {error}; {_BUILD_HINT}") from error
     _verify_library(library)
     library.solve_geometric_theta_star.argtypes = [
         ctypes.POINTER(ctypes.c_uint8),
@@ -282,9 +259,7 @@ def _is_lethal(grid: StaticGrid, cell: tuple[int, int]) -> bool:
 
 
 def _polyline_length(points: np.ndarray) -> float:
-    return float(
-        sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in itertools.pairwise(points))
-    )
+    return float(sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in itertools.pairwise(points)))
 
 
 def _refused(reason: str) -> RouteResult:

@@ -36,9 +36,7 @@ def test_downsampled_field_keeps_closed_door_in_doorway() -> None:
         }
     )
     renderer = AcousticFieldRenderer(_spec("acoustic_field"))
-    frames = renderer.compute_field_timeseries(
-        df, grid, 0.1, 0.0, 0.0, {"world/d": (door, 25.0)}, downsample=4
-    )
+    frames = renderer.compute_field_timeseries(df, grid, 0.1, 0.0, 0.0, {"world/d": (door, 25.0)}, downsample=4)
     assert frames[0] is not None
     field_dba, eff_res, (h, w), _, _ = frames[0]
     assert (h, w) == (12, 12)
@@ -75,9 +73,7 @@ def test_render_cell_png_draws_the_field_walls_and_robot(
 
 def test_mp4_per_episode_animations_embed_video_links() -> None:
     df = pl.DataFrame({"episode_id": [1, 2], "ped_max_exposure_dba": [60.0, 70.0]})
-    chunks = AcousticFieldAnimationRenderer(
-        _spec("acoustic_field_animation", format="mp4", per_episode=True)
-    ).render_plotly(df)
+    chunks = AcousticFieldAnimationRenderer(_spec("acoustic_field_animation", format="mp4", per_episode=True)).render_plotly(df)
     assert isinstance(chunks, list)
     assert ['<video src="plots/anim_episode_001.mp4"' in c for c in chunks] == [
         True,

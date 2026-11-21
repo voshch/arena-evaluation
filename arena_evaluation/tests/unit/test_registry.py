@@ -26,9 +26,7 @@ def _output(name: str) -> Metric:
 
 
 def _episode() -> AlignedEpisodeBundle:
-    return AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[]
-    )
+    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[])
 
 
 class Calc1(BaseMetricCalculator):
@@ -111,15 +109,11 @@ def test_registry_orders_calculators_by_their_dependencies() -> None:
 
 def test_registry_refuses_a_circular_dependency() -> None:
     with pytest.raises(CircularDependencyError):
-        MetricRegistry(
-            make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB)
-        )
+        MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(CycleA, CycleB))
 
 
 def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
-    registry = MetricRegistry(
-        make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,)
-    )
+    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(LeakyCalc,))
 
     with pytest.raises(SchemaViolationError, match="leaky_extra"):
         registry.run_scope(
@@ -131,9 +125,7 @@ def test_registry_refuses_a_produced_key_without_a_declaration() -> None:
 
 
 def test_registry_refuses_a_declaration_without_a_producer() -> None:
-    registry = MetricRegistry(
-        make_robot_params(robot_radius=0.25), calculators=(SilentCalc,)
-    )
+    registry = MetricRegistry(make_robot_params(robot_radius=0.25), calculators=(SilentCalc,))
 
     with pytest.raises(SchemaViolationError, match="silent_out"):
         registry.run_scope(
@@ -170,9 +162,7 @@ class _CrashingCalc(BaseMetricCalculator):
         raise RuntimeError("boom")
 
 
-def test_registry_run_scope_pins_topic_alternatives_pedsim_callback_and_exception() -> (
-    None
-):
+def test_registry_run_scope_pins_topic_alternatives_pedsim_callback_and_exception() -> None:
     registry = MetricRegistry(
         make_robot_params(robot_radius=0.25),
         calculators=(_AltTopicCalc, _PedsimCalc, _CrashingCalc),
@@ -215,7 +205,5 @@ def test_registry_run_scope_pins_topic_alternatives_pedsim_callback_and_exceptio
     assert outcome_empty.provenance["crash_out"] == "crash_out:exception:RuntimeError"
     assert seen == [("crashing", 3, 3)]
 
-    outcome_full = registry.run_scope(
-        MetricScope.EPISODE, ep_full, available_topics=None, pedsim_available=True
-    )
+    outcome_full = registry.run_scope(MetricScope.EPISODE, ep_full, available_topics=None, pedsim_available=True)
     assert outcome_full.results["alt_out"] == 7

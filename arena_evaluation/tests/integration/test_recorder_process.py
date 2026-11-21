@@ -107,9 +107,7 @@ def _drive_reset(clock: str) -> None:
         QoSProfile(depth=20, durability=DurabilityPolicy.TRANSIENT_LOCAL),
     )
     clock = node.create_publisher(Clock, "/clock", 10)
-    peds = node.create_publisher(
-        Pedestrians, f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds", 10
-    )
+    peds = node.create_publisher(Pedestrians, f"{RESET_NAMESPACE.rsplit('/', 1)[0]}/arena_peds", 10)
 
     record(1, EpisodeRecord.RUNNING)
     record(1, EpisodeRecord.FAILED)
@@ -206,9 +204,7 @@ def _messages(mcap: pathlib.Path, topic: str, msg_type: type) -> list:
     reader = rosbag2_py.SequentialReader()
     reader.open(
         rosbag2_py.StorageOptions(uri=str(mcap), storage_id="mcap"),
-        rosbag2_py.ConverterOptions(
-            input_serialization_format="cdr", output_serialization_format="cdr"
-        ),
+        rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"),
     )
     messages = []
     while reader.has_next():
@@ -243,9 +239,7 @@ def test_recorder_keeps_up_with_a_fast_clock_and_finalizes_on_sigterm(
 
 
 @pytest.mark.parametrize("clock", ["frozen", "silent"])
-def test_recorder_opens_one_episode_when_the_reset_is_over(
-    tmp_path: pathlib.Path, clock: str
-) -> None:
+def test_recorder_opens_one_episode_when_the_reset_is_over(tmp_path: pathlib.Path, clock: str) -> None:
     from arena_people_msgs.msg import Pedestrians
     from arena_runtime_msgs.msg import EpisodeRecord
 
@@ -275,16 +269,12 @@ def test_recorder_opens_one_episode_when_the_reset_is_over(
     assert driver.returncode == 0, driven
     assert recorder.returncode == 0, output
     episodes = tmp_path / "episodes"
-    assert sorted(path.name for path in episodes.iterdir() if path.is_dir()) == [
-        "episode_000"
-    ], output
+    assert sorted(path.name for path in episodes.iterdir() if path.is_dir()) == ["episode_000"], output
     assert sorted(path.name for path in (episodes / "episode_000").iterdir()) == [
         "episode_000.mcap",
         "episode_000.yaml",
     ], output
-    metadata = yaml.safe_load(
-        (episodes / "episode_000" / "episode_000.yaml").read_text()
-    )
+    metadata = yaml.safe_load((episodes / "episode_000" / "episode_000.yaml").read_text())
     assert metadata["task_generator_episode_id"] == 5
     assert metadata["outcome_state"] == 2
     mcap = episodes / "episode_000" / "episode_000.mcap"
@@ -298,12 +288,7 @@ def test_recorder_opens_one_episode_when_the_reset_is_over(
     ]
     assert len(batches) >= 1, output
     assert all(batch == ["current"] for batch in batches), batches
-    records = [
-        (msg.episode_id, msg.outcome_state)
-        for msg in _messages(
-            mcap, f"{RESET_NAMESPACE}/state/episode".strip("/"), EpisodeRecord
-        )
-    ]
+    records = [(msg.episode_id, msg.outcome_state) for msg in _messages(mcap, f"{RESET_NAMESPACE}/state/episode".strip("/"), EpisodeRecord)]
     assert (5, EpisodeRecord.RUNNING) in records, records
 
 
@@ -331,13 +316,9 @@ def test_recorder_records_into_an_episode_whose_bag_was_left_unclosed(
     assert recorder.returncode == 0, output
     assert "Bag directory already exists" not in output
     assert (episode / "episode_000.mcap").stat().st_size > 0, output
-    assert (
-        yaml.safe_load((episode / "episode_000.yaml").read_text())["outcome_state"] == 2
-    )
+    assert yaml.safe_load((episode / "episode_000.yaml").read_text())["outcome_state"] == 2
     assert not unclosed.exists()
-    assert [path.name for path in (episode / "episode_000_unclosed_0").iterdir()] == [
-        "episode_000_0.mcap"
-    ]
+    assert [path.name for path in (episode / "episode_000_unclosed_0").iterdir()] == ["episode_000_0.mcap"]
 
 
 if __name__ == "__main__":

@@ -136,22 +136,11 @@ _EXPECTED_COLUMNS: dict[str, tuple[tuple[str, pl.DataType], ...]] = {
     ),
 }
 
-_EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
-    name: (
-        _PEDESTRIAN_KEY
-        if name in {"series_pedestrian_path_metrics", "series_acoustic_exposure"}
-        else _ROBOT_KEY
-    )
-    for name in _EXPECTED_COLUMNS
-}
+_EXPECTED_KEYS: dict[str, tuple[str, ...]] = {name: (_PEDESTRIAN_KEY if name in {"series_pedestrian_path_metrics", "series_acoustic_exposure"} else _ROBOT_KEY) for name in _EXPECTED_COLUMNS}
 
 
 def _series_classes() -> dict[str, type]:
-    return {
-        table.table_name: table
-        for table in registered_tables()
-        if table.table_kind is TableKind.SERIES
-    }
+    return {table.table_name: table for table in registered_tables() if table.table_kind is TableKind.SERIES}
 
 
 def _clearance(**overrides: pl.Series) -> pl.DataFrame:
@@ -171,14 +160,10 @@ def _clearance(**overrides: pl.Series) -> pl.DataFrame:
     "frame",
     [
         pytest.param(_clearance().drop("combined_clearance_m"), id="missing-column"),
-        pytest.param(
-            _clearance().with_columns(extra_m=pl.lit(1.0)), id="undeclared-column"
-        ),
+        pytest.param(_clearance().with_columns(extra_m=pl.lit(1.0)), id="undeclared-column"),
     ],
 )
-def test_a_series_frame_that_drifts_from_its_declaration_is_refused(
-    tmp_path: pathlib.Path, frame: pl.DataFrame
-) -> None:
+def test_a_series_frame_that_drifts_from_its_declaration_is_refused(tmp_path: pathlib.Path, frame: pl.DataFrame) -> None:
     with pytest.raises(ContractViolationError, match="does not match its declaration"):
         write_series_tables({"clearance": frame}, tmp_path / "metrics")
 

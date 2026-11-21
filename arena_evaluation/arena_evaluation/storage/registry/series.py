@@ -15,15 +15,9 @@ from arena_evaluation.storage.registry.table import (
     registered_tables,
 )
 
-_RUN: Final[Column] = Column(
-    pl.String, required=True, description="Benchmark run the row belongs to."
-)
-_EPISODE: Final[Column] = Column(
-    pl.Int64, required=True, description="Episode number within the run."
-)
-_ROBOT: Final[Column] = Column(
-    pl.String, required=True, description="Robot of the episode the row describes."
-)
+_RUN: Final[Column] = Column(pl.String, required=True, description="Benchmark run the row belongs to.")
+_EPISODE: Final[Column] = Column(pl.Int64, required=True, description="Episode number within the run.")
+_ROBOT: Final[Column] = Column(pl.String, required=True, description="Robot of the episode the row describes.")
 _TIME: Final[Column] = Column(
     pl.Int64,
     required=True,
@@ -35,9 +29,7 @@ _ELAPSED: Final[Column] = Column(
     unit="s",
     description="Seconds from the first sample of the series to this one.",
 )
-_PEDESTRIAN: Final[Column] = Column(
-    pl.String, required=True, description="Pedestrian the row describes."
-)
+_PEDESTRIAN: Final[Column] = Column(pl.String, required=True, description="Pedestrian the row describes.")
 
 
 class _Series(Table, abstract=True):
@@ -151,9 +143,7 @@ class SeriesCharacterization(
         unit="rad/s",
         description="Yaw rate the robot achieved at the sample.",
     )
-    speed_achieved_mps = Column(
-        pl.Float64, unit="m/s", description="Speed the robot achieved at the sample."
-    )
+    speed_achieved_mps = Column(pl.Float64, unit="m/s", description="Speed the robot achieved at the sample.")
     accel_achieved_mps2 = Column(
         pl.Float64,
         unit="m/s²",
@@ -193,9 +183,7 @@ class SeriesCharacterization(
         unit="m/s",
         description="Magnitude of the forward velocity the schedule commanded at the sample.",
     )
-    turn_radius_m = Column(
-        pl.Float64, unit="m", description="Turn radius of the phase at the sample."
-    )
+    turn_radius_m = Column(pl.Float64, unit="m", description="Turn radius of the phase at the sample.")
     energy_intensity_j_m = Column(
         pl.Float64,
         unit="J/m",
@@ -213,9 +201,7 @@ class SeriesCharacterization(
     )
 
 
-class SeriesClearance(
-    _Series, name="series_clearance", kind=TableKind.SERIES, scope=MetricScope.ROBOT
-):
+class SeriesClearance(_Series, name="series_clearance", kind=TableKind.SERIES, scope=MetricScope.ROBOT):
     """Clearance samples: the edge-to-edge distance of the robot to its nearest obstacle and its nearest pedestrian."""
 
     obstacle_clearance_m = Column(
@@ -235,9 +221,7 @@ class SeriesClearance(
     )
 
 
-class SeriesEnergy(
-    _TimedSeries, name="series_energy", kind=TableKind.SERIES, scope=MetricScope.ROBOT
-):
+class SeriesEnergy(_TimedSeries, name="series_energy", kind=TableKind.SERIES, scope=MetricScope.ROBOT):
     """Energy samples of the robot: electrical power by component, battery charge and linear velocity."""
 
     power_total_w = Column(
@@ -260,9 +244,7 @@ class SeriesEnergy(
         unit="W",
         description="Thermal power dissipated in the drivetrain at the sample.",
     )
-    battery_soc_pct = Column(
-        pl.Float64, unit="%", description="Battery state of charge at the sample."
-    )
+    battery_soc_pct = Column(pl.Float64, unit="%", description="Battery state of charge at the sample.")
     velocity_linear_mps = Column(
         pl.Float64,
         unit="m/s",
@@ -270,9 +252,7 @@ class SeriesEnergy(
     )
 
 
-class SeriesGaze(
-    _TimedSeries, name="series_gaze", kind=TableKind.SERIES, scope=MetricScope.ROBOT
-):
+class SeriesGaze(_TimedSeries, name="series_gaze", kind=TableKind.SERIES, scope=MetricScope.ROBOT):
     """Gaze samples: how many pedestrians the robot looks at and how many look back at it."""
 
     looking_at_peds = Column(
@@ -285,9 +265,7 @@ class SeriesGaze(
     )
 
 
-class SeriesHhiContact(
-    _Series, name="series_hhi_contact", kind=TableKind.SERIES, scope=MetricScope.ROBOT
-):
+class SeriesHhiContact(_Series, name="series_hhi_contact", kind=TableKind.SERIES, scope=MetricScope.ROBOT):
     """Stall samples of the robot in the human-human interaction study, one row per stall keyed by its onset."""
 
     onset_s = Column(
@@ -484,8 +462,4 @@ class SeriesSocialForces(
     )
 
 
-SERIES_TABLES: Final[dict[str, type[Table]]] = {
-    table.table_name.removeprefix(SERIES_PREFIX): table
-    for table in registered_tables()
-    if table.table_kind is TableKind.SERIES
-}
+SERIES_TABLES: Final[dict[str, type[Table]]] = {table.table_name.removeprefix(SERIES_PREFIX): table for table in registered_tables() if table.table_kind is TableKind.SERIES}

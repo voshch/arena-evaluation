@@ -16,10 +16,6 @@ def _shipped_calculators() -> list[type[BaseMetricCalculator]]:
     while pending:
         cls = pending.pop()
         pending.extend(cls.__subclasses__())
-        if (
-            cls.__module__.startswith(_PACKAGE)
-            and cls.NAME
-            and not inspect.isabstract(cls)
-        ):
+        if cls.__module__.startswith(_PACKAGE) and cls.NAME and not inspect.isabstract(cls):
             found.append(cls)
     return found

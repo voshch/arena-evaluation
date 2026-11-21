@@ -17,9 +17,7 @@ from arena_evaluation.analytics.analyses.procedures import (
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
 
-def _catalog(
-    tmp_path: pathlib.Path, *, include_swap: bool = False
-) -> tuple[BenchmarkCatalog, SyntheticTruth]:
+def _catalog(tmp_path: pathlib.Path, *, include_swap: bool = False) -> tuple[BenchmarkCatalog, SyntheticTruth]:
     run = tmp_path / "benchmarks" / ("syn_swap" if include_swap else "syn_noswap")
     truth = write_synthetic_benchmark(run, include_swap=include_swap)
     return BenchmarkCatalog.open(run), truth
@@ -32,17 +30,9 @@ def test_compare_reports_a_null_pairing_key_instead_of_silent_nulls(
     catalog, truth = _catalog(tmp_path)
     run = tmp_path / "benchmarks" / "syn_noswap"
     pedestrians = pl.read_parquet(run / "dim_pedestrians.parquet")
-    pedestrians.with_columns(
-        pl.lit(None, dtype=pl.Float64).alias("robot_awareness")
-    ).write_parquet(run / "dim_pedestrians.parquet")
+    pedestrians.with_columns(pl.lit(None, dtype=pl.Float64).alias("robot_awareness")).write_parquet(run / "dim_pedestrians.parquet")
     unrecorded = BenchmarkCatalog.open(run)
-    assert (
-        unrecorded.get_table("v_episode_summary")
-        .select(pl.col("crowd_condition").null_count())
-        .collect()
-        .item()
-        == 128
-    )
+    assert unrecorded.get_table("v_episode_summary").select(pl.col("crowd_condition").null_count()).collect().item() == 128
 
     result = run_procedure(
         "compare",
@@ -80,19 +70,12 @@ def test_compare_pairs_across_two_crowd_sizes(tmp_path: pathlib.Path) -> None:
     episodes = pl.read_parquet(run / "dim_episodes.parquet")
     # Crowd size is part of the cell: an unrecorded crowd size takes its whole cell out of the pairing
     # instead of pooling two crowd sizes into one difference (L3-045).
-    unrecorded = episodes.with_columns(
-        pl.when(pl.col("seed") % 2 == 0)
-        .then(pl.lit(None, dtype=pl.Int64))
-        .otherwise(pl.col("crowd_size"))
-        .alias("crowd_size")
-    )
+    unrecorded = episodes.with_columns(pl.when(pl.col("seed") % 2 == 0).then(pl.lit(None, dtype=pl.Int64)).otherwise(pl.col("crowd_size")).alias("crowd_size"))
     unrecorded.write_parquet(run / "dim_episodes.parquet")
     halved = run_procedure("compare", BenchmarkCatalog.open(run), params)
 
     assert halved.excluded_rows["crowd_size:not_recorded"] == 32
-    assert halved.summary.row(0, named=True)["n_pairs"] == (
-        single.summary.row(0, named=True)["n_pairs"] // 2
-    )
+    assert halved.summary.row(0, named=True)["n_pairs"] == (single.summary.row(0, named=True)["n_pairs"] // 2)
 
 
 def test_lead_measures_selects_on_discovery_and_counts_verification_pairs(
@@ -103,10 +86,7 @@ def test_lead_measures_selects_on_discovery_and_counts_verification_pairs(
     result = run_procedure("lead_measures", catalog, {"n_boot": 100})
 
     assert result.frame.schema == LEAD_MEASURES_SCHEMA
-    assert not any(
-        isinstance(dtype, (pl.List, pl.Struct))
-        for dtype in result.frame.schema.values()
-    )
+    assert not any(isinstance(dtype, (pl.List, pl.Struct)) for dtype in result.frame.schema.values())
     row = result.frame.filter(pl.col("metric") == "time_to_goal").row(0, named=True)
     assert row["selected"] is True
     assert row["discovery_separation"] > row["discovery_seed_noise"]
@@ -116,12 +96,8 @@ def test_lead_measures_selects_on_discovery_and_counts_verification_pairs(
 
     summary = result.summary.row(0, named=True)
     assert summary["discovery_seeds"] and summary["verification_seeds"]
-    assert set(summary["discovery_seeds"]).isdisjoint(
-        set(summary["verification_seeds"])
-    )
-    assert summary["discovery_seeds_csv"] == ",".join(
-        str(seed) for seed in summary["discovery_seeds"]
-    )
+    assert set(summary["discovery_seeds"]).isdisjoint(set(summary["verification_seeds"]))
+    assert summary["discovery_seeds_csv"] == ",".join(str(seed) for seed in summary["discovery_seeds"])
     assert summary["n_selected_measures"] >= 1
 
 
@@ -144,9 +120,7 @@ def test_ranking_stability_returns_one_declared_table_for_any_world_count(
 
     run = tmp_path / "benchmarks" / "syn_swap"
     episodes = pl.read_parquet(run / "dim_episodes.parquet")
-    episodes.with_columns(pl.lit("world_1").alias("world")).write_parquet(
-        run / "dim_episodes.parquet"
-    )
+    episodes.with_columns(pl.lit("world_1").alias("world")).write_parquet(run / "dim_episodes.parquet")
     single_world = run_procedure(
         "ranking_stability",
         BenchmarkCatalog.open(run),
@@ -161,9 +135,7 @@ def test_visibility_effect_bootstrap_weighs_rows_by_their_drawn_seed(
 ) -> None:
     """Every seed replicate keeps the planted swap delta: a seed-count weight, never a per-row rescan."""
     catalog, _ = _catalog(tmp_path, include_swap=True)
-    result = run_procedure(
-        "visibility_effect", catalog, {"metric": "time_to_goal", "n_boot": 100}
-    )
+    result = run_procedure("visibility_effect", catalog, {"metric": "time_to_goal", "n_boot": 100})
 
     row = result.summary.row(0, named=True)
     assert row["condition_swaps"] == 5
@@ -181,9 +153,7 @@ def test_attribution_shares_use_pedestrian_contacts_only(
     """A wall contact cannot close in, so it never enters the closing share (L3-050, D-01)."""
     catalog, truth = _catalog(tmp_path)
     run = tmp_path / "benchmarks" / "syn_noswap"
-    contacts = pl.read_parquet(
-        run / "episodes" / "episode_000" / "metrics" / "fact_contacts.parquet"
-    )
+    contacts = pl.read_parquet(run / "episodes" / "episode_000" / "metrics" / "fact_contacts.parquet")
     wall = pl.DataFrame(
         [
             {
@@ -200,20 +170,14 @@ def test_attribution_shares_use_pedestrian_contacts_only(
         ],
         schema=contacts.schema,
     )
-    pl.concat([contacts, wall], how="vertical_relaxed").write_parquet(
-        run / "episodes" / "episode_000" / "metrics" / "fact_contacts.parquet"
-    )
+    pl.concat([contacts, wall], how="vertical_relaxed").write_parquet(run / "episodes" / "episode_000" / "metrics" / "fact_contacts.parquet")
 
-    result = run_procedure(
-        "attribution_shares", BenchmarkCatalog.open(run), {"n_boot": 100}
-    )
+    result = run_procedure("attribution_shares", BenchmarkCatalog.open(run), {"n_boot": 100})
     assert result.frame.schema == ATTRIBUTION_SHARES_SCHEMA
     planner_a = result.frame.filter(pl.col("planner") == "planner_a")
     robot_sum = float(planner_a["robot_closing_sum"].sum())
     target_sum = float(planner_a["target_closing_sum"].sum())
-    assert robot_sum / (robot_sum + target_sum) == pytest.approx(
-        truth.closer_shares["planner_a"]["robot_closing_share"]
-    )
+    assert robot_sum / (robot_sum + target_sum) == pytest.approx(truth.closer_shares["planner_a"]["robot_closing_share"])
     assert result.excluded_rows["non_pedestrian_contacts"] == 1
     assert set(result.summary["metric"].unique().to_list()) == {"robot_closing_share"}
     assert result.summary.schema["n_clusters"] == pl.Int64
@@ -230,9 +194,7 @@ def test_triage_breaks_missingness_down_by_metric_and_reason(
 
     kinds = set(result.frame["row_kind"].unique().to_list())
     assert {"group", "metric_null"} <= kinds
-    missing = result.frame.filter(
-        (pl.col("row_kind") == "metric_null") & (pl.col("metric") == "ci_max")
-    )
+    missing = result.frame.filter((pl.col("row_kind") == "metric_null") & (pl.col("metric") == "ci_max"))
     assert missing.height > 0
     assert set(missing["reason"].unique().to_list()) <= {
         "not_recorded",

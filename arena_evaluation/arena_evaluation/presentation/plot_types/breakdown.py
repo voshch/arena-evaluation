@@ -36,21 +36,10 @@ class BreakdownRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         color_col = self.resolve_channel("color")
-        missing = [
-            name
-            for name, column in (("x", x_col), ("y", y_col), ("color", color_col))
-            if column is None
-        ]
+        missing = [name for name, column in (("x", x_col), ("y", y_col), ("color", color_col)) if column is None]
         if missing:
-            hint = (
-                " naming the component column to stack, e.g. {'color': 'component'}."
-                if missing[0] == "color"
-                else "."
-            )
-            raise ValueError(
-                f"Plot {self.spec.id!r}: breakdown plot requires "
-                f"channel {missing[0]!r}{hint}"
-            )
+            hint = " naming the component column to stack, e.g. {'color': 'component'}." if missing[0] == "color" else "."
+            raise ValueError(f"Plot {self.spec.id!r}: breakdown plot requires channel {missing[0]!r}{hint}")
         self.validate_unique_cells(df, [x_col, color_col])
         return x_col, y_col, color_col
 
@@ -65,9 +54,7 @@ class BreakdownRenderer(BasePlotRenderer):
         components = list(dict.fromkeys(component_values))
         positions = {label: index for index, label in enumerate(x_labels)}
         rows = {component: np.zeros(len(x_labels)) for component in components}
-        for x_label, component, value in zip(
-            x_values, component_values, series_values(df, y_col), strict=True
-        ):
+        for x_label, component, value in zip(x_values, component_values, series_values(df, y_col), strict=True):
             if not np.isnan(value):
                 rows[component][positions[x_label]] = float(value)
         return (
@@ -107,11 +94,7 @@ class BreakdownRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive stacked Plotly breakdown chart."""
         fig = self.build_plotly_figure(df)
-        return (
-            None
-            if fig is None
-            else fig.to_html(include_plotlyjs=False, full_html=False)
-        )
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the stacked static figure without writing it."""

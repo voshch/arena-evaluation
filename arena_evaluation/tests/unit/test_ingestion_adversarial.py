@@ -22,16 +22,8 @@ def recorder_node(tmp_path):
 
 def _log_times(node, topic: str) -> list[int]:
     node._close_current_writer()
-    with open(
-        node.current_episode_dir / f"{node.current_episode_dir.name}.mcap", "rb"
-    ) as f:
-        return [
-            message.log_time
-            for _, channel, message in make_reader(f).iter_messages(
-                log_time_order=False
-            )
-            if channel.topic == topic
-        ]
+    with open(node.current_episode_dir / f"{node.current_episode_dir.name}.mcap", "rb") as f:
+        return [message.log_time for _, channel, message in make_reader(f).iter_messages(log_time_order=False) if channel.topic == topic]
 
 
 def test_backward_time_jump(recorder_node):

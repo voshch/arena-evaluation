@@ -36,23 +36,13 @@ _WorldElements = list[tuple[str, str, np.ndarray, np.ndarray]]
 _WorldTracks = list[tuple[str, np.ndarray, np.ndarray, np.ndarray]]
 
 
-def _extract_tracks(
-    df: pl.DataFrame, *, x_col: str | None, y_col: str | None, color_col: str | None
-) -> _WorldTracks:
+def _extract_tracks(df: pl.DataFrame, *, x_col: str | None, y_col: str | None, color_col: str | None) -> _WorldTracks:
     """Split trajectory samples by structural keys, with each track's time in seconds."""
     if not x_col or not y_col:
         return []
-    split_cols = list(
-        dict.fromkeys(
-            c
-            for c in ("episode_id", "robot_id", "ped_id", "agent_id", color_col)
-            if c and c in df.columns
-        )
-    )
+    split_cols = list(dict.fromkeys(c for c in ("episode_id", "robot_id", "ped_id", "agent_id", color_col) if c and c in df.columns))
 
-    def one(
-        label: str, sub: pl.DataFrame
-    ) -> tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+    def one(label: str, sub: pl.DataFrame) -> tuple[str, np.ndarray, np.ndarray, np.ndarray]:
         xs = series_values(sub, x_col)
         ys = series_values(sub, y_col)
         times = np.arange(len(xs), dtype=np.float64)
@@ -67,9 +57,7 @@ def _extract_tracks(
     if not split_cols:
         return [one("trajectory", df)]
     tracks: _WorldTracks = []
-    for key, sub in df.partition_by(
-        split_cols, as_dict=True, maintain_order=True
-    ).items():
+    for key, sub in df.partition_by(split_cols, as_dict=True, maintain_order=True).items():
         key_tuple = key if isinstance(key, tuple) else (key,)
         if color_col and color_col in split_cols:
             c_val = key_tuple[split_cols.index(color_col)]
@@ -82,18 +70,11 @@ def _extract_tracks(
 
 def _finite_runs(mask: np.ndarray) -> list[np.ndarray]:
     """Index arrays of the consecutive ``True`` runs of ``mask``."""
-    edges = np.flatnonzero(
-        np.diff(np.concatenate(([False], mask, [False])).astype(np.int8))
-    )
-    return [
-        np.arange(start, stop)
-        for start, stop in zip(edges[::2], edges[1::2], strict=True)
-    ]
+    edges = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False])).astype(np.int8)))
+    return [np.arange(start, stop) for start, stop in zip(edges[::2], edges[1::2], strict=True)]
 
 
-def simplify_track(
-    xs: np.ndarray, ys: np.ndarray, *, tolerance_m: float
-) -> tuple[np.ndarray, np.ndarray]:
+def simplify_track(xs: np.ndarray, ys: np.ndarray, *, tolerance_m: float) -> tuple[np.ndarray, np.ndarray]:
     """Douglas-Peucker simplification of one track: every dropped sample lies within ``tolerance_m`` of the line.
 
     Corners and both ends are kept. Non-finite samples split the track into runs that stay separate
@@ -104,9 +85,7 @@ def simplify_track(
     for run in _finite_runs(np.isfinite(xs) & np.isfinite(ys)):
         run_xy = np.column_stack([xs[run], ys[run]])
         if len(run) > 2:
-            run_xy = np.asarray(
-                LineString(run_xy).simplify(tolerance_m, preserve_topology=False).coords
-            )
+            run_xy = np.asarray(LineString(run_xy).simplify(tolerance_m, preserve_topology=False).coords)
         if x_parts:
             x_parts.append(np.array([np.nan]))
             y_parts.append(np.array([np.nan]))
@@ -133,17 +112,11 @@ class TrajectoryRenderer(BasePlotRenderer):
         if not world_name:
             return []
         geom = self.world_geometry
-        usable = (
-            geom is not None
-            and not geom.is_empty()
-            and geom.schema.get("world") is not None
-        )
+        usable = geom is not None and not geom.is_empty() and geom.schema.get("world") is not None
         if usable:
             sub = geom.filter(pl.col("world") == world_name)
             if not sub.is_empty():
-                ordered = sub.sort(
-                    ["element_kind", "element_name", "part_idx", "vertex_idx"]
-                )
+                ordered = sub.sort(["element_kind", "element_name", "part_idx", "vertex_idx"])
                 elements: _WorldElements = []
                 for (_, kind, name, _), part in ordered.partition_by(
                     ["world", "element_kind", "element_name", "part_idx"],
@@ -157,22 +130,14 @@ class TrajectoryRenderer(BasePlotRenderer):
         self.add_notice(f"dim_world_geometry has no rows for world {world_name!r}")
         return []
 
-    def _world_layers(
-        self, df: pl.DataFrame
-    ) -> Iterator[tuple[str | None, _WorldElements, _WorldTracks]]:
+    def _world_layers(self, df: pl.DataFrame) -> Iterator[tuple[str | None, _WorldElements, _WorldTracks]]:
         """World name, geometry elements and tracks for each world partition."""
         opts = self.spec.options
-        x_col = self.resolve_channel("x") or (
-            str(opts["x_col"]) if opts.get("x_col") else None
-        )
-        y_col = self.resolve_channel("y") or (
-            str(opts["y_col"]) if opts.get("y_col") else None
-        )
+        x_col = self.resolve_channel("x") or (str(opts["x_col"]) if opts.get("x_col") else None)
+        y_col = self.resolve_channel("y") or (str(opts["y_col"]) if opts.get("y_col") else None)
         color_col = self.resolve_channel("color")
         if not x_col or not y_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: trajectory plot requires channels 'x' and 'y'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: trajectory plot requires channels 'x' and 'y'.")
         opt_world = opts.get("world")
         has_world = "world" in df.columns  # agent-contracts: ignore AC003 - world
         if isinstance(opt_world, str) and opt_world.strip():
@@ -184,9 +149,7 @@ class TrajectoryRenderer(BasePlotRenderer):
                 partitions = [(w, sub if not sub.is_empty() else df)]
         elif has_world and not df.is_empty():
             partitions = []
-            for key, sub in df.partition_by(
-                "world", as_dict=True, maintain_order=True
-            ).items():
+            for key, sub in df.partition_by("world", as_dict=True, maintain_order=True).items():
                 w_val = key[0] if isinstance(key, tuple) else key
                 partitions.append((str(w_val) if w_val is not None else None, sub))
         else:
@@ -199,9 +162,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             )
 
     def _trajectory_title(self, world_name: str | None) -> str:
-        return self.spec.title or (
-            f"Trajectories ({world_name})" if world_name else "Trajectories"
-        )
+        return self.spec.title or (f"Trajectories ({world_name})" if world_name else "Trajectories")
 
     def _draw_geometry(self, ax: plt.Axes, elements: _WorldElements) -> None:
         for kind, _name, xs, ys in elements:
@@ -276,9 +237,7 @@ class TrajectoryRenderer(BasePlotRenderer):
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
         """Render a static Matplotlib trajectory plot with dim_world_geometry."""
         if df.is_empty():
-            raise PlotRenderError(
-                f"Plot {self.spec.id!r}: trajectory plot cannot draw an empty frame."
-            )
+            raise PlotRenderError(f"Plot {self.spec.id!r}: trajectory plot cannot draw an empty frame.")
 
         layers = list(self._world_layers(df))
         n_worlds = len(layers)
@@ -302,11 +261,7 @@ class TrajectoryRenderer(BasePlotRenderer):
             ax.set_aspect("equal", adjustable="datalim")
             if seen_labels:
                 ax.legend(loc="best", fontsize=8)
-            title = (
-                f"{self.spec.title} ({world_name})"
-                if self.spec.title and world_name and n_worlds > 1
-                else self._trajectory_title(world_name)
-            )
+            title = f"{self.spec.title} ({world_name})" if self.spec.title and world_name and n_worlds > 1 else self._trajectory_title(world_name)
             finish_axes(
                 ax,
                 title=title,
@@ -317,9 +272,7 @@ class TrajectoryRenderer(BasePlotRenderer):
 
         if not rendered_any:
             plt.close(fig)
-            raise PlotRenderError(
-                f"Plot {self.spec.id!r}: trajectory frame holds no drawable track."
-            )
+            raise PlotRenderError(f"Plot {self.spec.id!r}: trajectory frame holds no drawable track.")
         fig.tight_layout()
         self.save_figure(fig, out_path)
         plt.close(fig)
@@ -351,16 +304,12 @@ class TrajectoryRenderer(BasePlotRenderer):
                 if len(times):
                     end_time = max(end_time, float(np.nanmax(times)))
             ax.set_aspect("equal", adjustable="datalim")
-            ax.set(
-                xlabel="X [m]", ylabel="Y [m]", title=self._trajectory_title(world_name)
-            )
+            ax.set(xlabel="X [m]", ylabel="Y [m]", title=self._trajectory_title(world_name))
             lines.append(world_lines)
             heads.append(world_heads)
 
         if end_time <= 0.0:
-            end_time = float(
-                max((len(t[1]) for _w, _e, tracks in layers for t in tracks), default=0)
-            )
+            end_time = float(max((len(t[1]) for _w, _e, tracks in layers for t in tracks), default=0))
         if end_time <= 0.0:
             plt.close(fig)
             return
@@ -373,23 +322,15 @@ class TrajectoryRenderer(BasePlotRenderer):
                     count = int(np.searchsorted(times, now, side="right"))
                     lines[w_idx][track_idx].set_data(xs[:count], ys[:count])
                     if count:
-                        heads[w_idx][track_idx].set_data(
-                            [xs[count - 1]], [ys[count - 1]]
-                        )
+                        heads[w_idx][track_idx].set_data([xs[count - 1]], [ys[count - 1]])
                     else:
                         heads[w_idx][track_idx].set_data([], [])
             clock.set_text(f"t = {now:6.1f} s")
-            artists = [
-                artist
-                for world_lines, world_heads in zip(lines, heads, strict=True)
-                for artist in (*world_lines, *world_heads)
-            ]
+            artists = [artist for world_lines, world_heads in zip(lines, heads, strict=True) for artist in (*world_lines, *world_heads)]
             return [*artists, clock]
 
         animation_writer = animation.PillowWriter(fps=_GIF_FPS)
-        gif = animation.FuncAnimation(
-            fig, draw, frames=frames, interval=1000 // _GIF_FPS
-        )
+        gif = animation.FuncAnimation(fig, draw, frames=frames, interval=1000 // _GIF_FPS)
         try:
             gif.save(out_path, writer=animation_writer)
         finally:

@@ -41,16 +41,12 @@ def test_normalize_sql_scientific_notation_preserves_literals_and_identifiers() 
         ("WITH cte AS (VALUES (1)) SHOW TABLES", "must contain a SELECT clause"),
     ],
 )
-def test_validate_readonly_sql_rejects_disallowed_queries(
-    bad_sql: str, match: str
-) -> None:
+def test_validate_readonly_sql_rejects_disallowed_queries(bad_sql: str, match: str) -> None:
     with pytest.raises(SQLGuardError, match=match):
         validate_readonly_sql(bad_sql)
 
 
-def test_validate_readonly_sql_accepts_comments_literals_and_trailing_semicolon() -> (
-    None
-):
+def test_validate_readonly_sql_accepts_comments_literals_and_trailing_semicolon() -> None:
     sql = "/* head */ SELECT 'DROP TABLE x; 1;2' AS s FROM t -- tail\n;"
     cleaned = validate_readonly_sql(sql)
     assert cleaned.startswith("SELECT 'DROP TABLE x; 1;2' AS s FROM t")

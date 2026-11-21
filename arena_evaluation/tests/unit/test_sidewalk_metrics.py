@@ -63,14 +63,8 @@ def _episode(
     stamps = T0 + np.arange(0.0, duration + 1e-9, 1.0 / RATE_HZ)
     xy = np.array([position(t - T0) for t in stamps])
     time_ns = np.round(stamps * 1e9).astype(np.int64)
-    tracks = pl.DataFrame(
-        {"t_ns": time_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.zeros(len(stamps))}
-    )
-    hits = (
-        np.zeros(len(stamps), dtype=np.int64)
-        if collision_at is None
-        else (stamps - T0 >= collision_at).astype(np.int64)
-    )
+    tracks = pl.DataFrame({"t_ns": time_ns, "x": xy[:, 0], "y": xy[:, 1], "yaw": np.zeros(len(stamps))})
+    hits = np.zeros(len(stamps), dtype=np.int64) if collision_at is None else (stamps - T0 >= collision_at).astype(np.int64)
     collisions = pl.DataFrame({"t_ns": time_ns, "event_count": hits})
     return AlignedEpisodeBundle(
         episode_id=1,
@@ -120,12 +114,7 @@ def test_curb_is_not_walkable():
     def curb_walk(t: float) -> tuple[float, float]:
         return t, -2.5
 
-    assert (
-        _calc().calculate(_episode(curb_walk, 22.0, goal=[21.05, -2.5]), {})[
-            "sidewalk_off_sidewalk"
-        ]
-        is True
-    )
+    assert _calc().calculate(_episode(curb_walk, 22.0, goal=[21.05, -2.5]), {})["sidewalk_off_sidewalk"] is True
 
 
 def test_robot_that_never_moves_has_no_failure_rate():

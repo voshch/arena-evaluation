@@ -130,9 +130,7 @@ def test_reconstruct_events_returns_empty_frame_for_unusable_snapshot() -> None:
     ("require_annotation", "expected_names"),
     [(True, ["speed_zone"]), (False, ["speed_zone", "quiet_zone"])],
 )
-def test_extract_zone_geometry_filters_by_annotation_and_skips_degenerate_polygons(
-    require_annotation: bool, expected_names: list[str]
-) -> None:
+def test_extract_zone_geometry_filters_by_annotation_and_skips_degenerate_polygons(require_annotation: bool, expected_names: list[str]) -> None:
     zones = extract_zone_geometry(_zone_level(), require_annotation=require_annotation)
     assert [zone.name for zone in zones] == expected_names
     assert (zones[0].max_speed, zones[0].quiet, zones[0].restricted) == (
@@ -140,14 +138,10 @@ def test_extract_zone_geometry_filters_by_annotation_and_skips_degenerate_polygo
         True,
         False,
     )
-    assert zones[0].polygon.equals(
-        shapely.Polygon([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)])
-    )
+    assert zones[0].polygon.equals(shapely.Polygon([(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)]))
 
 
-def test_extract_door_geometry_uses_the_midpoint_and_largest_activation_distance() -> (
-    None
-):
+def test_extract_door_geometry_uses_the_midpoint_and_largest_activation_distance() -> None:
     assert extract_door_geometry(_zone_level()) == [DoorGeometry("door", 2.0, 1.0, 2.0)]
 
 

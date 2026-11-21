@@ -114,18 +114,10 @@ def _raw_dimension_frames() -> dict[str, pl.DataFrame]:
             [_protagonist_robot_row()],
             DIMENSION_TABLES["dim_robots"],
         ),
-        "dim_pedestrians": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_pedestrians"].polars_schema()
-        ),
-        "dim_world_entities": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_world_entities"].polars_schema()
-        ),
-        "dim_world_geometry": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_world_geometry"].polars_schema()
-        ),
-        "dim_metrics": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_metrics"].polars_schema()
-        ),
+        "dim_pedestrians": pl.DataFrame(schema=DIMENSION_TABLES["dim_pedestrians"].polars_schema()),
+        "dim_world_entities": pl.DataFrame(schema=DIMENSION_TABLES["dim_world_entities"].polars_schema()),
+        "dim_world_geometry": pl.DataFrame(schema=DIMENSION_TABLES["dim_world_geometry"].polars_schema()),
+        "dim_metrics": pl.DataFrame(schema=DIMENSION_TABLES["dim_metrics"].polars_schema()),
     }
 
 
@@ -133,11 +125,7 @@ def _explained(frame: pl.DataFrame, table: type[Table]) -> pl.DataFrame:
     """The frame with every NULL in a reason-carrying column explained as not recorded."""
     rows = []
     for row in frame.iter_rows(named=True):
-        reasons = [
-            f"{column}:not_recorded"
-            for column in table.null_reason_columns()
-            if row[column] is None
-        ]
+        reasons = [f"{column}:not_recorded" for column in table.null_reason_columns() if row[column] is None]
         joined = "; ".join(filter(None, [row[NULL_REASON_COLUMN], *reasons]))
         rows.append({**row, NULL_REASON_COLUMN: joined or None})
     return pl.DataFrame(rows, schema=frame.schema)
@@ -145,10 +133,7 @@ def _explained(frame: pl.DataFrame, table: type[Table]) -> pl.DataFrame:
 
 def _dimension_frames() -> dict[str, pl.DataFrame]:
     """The clean dimension frames, every NULL explained by its reason."""
-    return {
-        name: _explained(frame, DIMENSION_TABLES[name])
-        for name, frame in _raw_dimension_frames().items()
-    }
+    return {name: _explained(frame, DIMENSION_TABLES[name]) for name, frame in _raw_dimension_frames().items()}
 
 
 def _write_benchmark(
@@ -192,16 +177,10 @@ def _clean_benchmark(tmp_path: pathlib.Path) -> pathlib.Path:
 def test_a_nested_column_fails_the_flat_schema_contract(
     tmp_path: pathlib.Path,
 ) -> None:
-    nested = _frame([_episode_row()], FactEpisodes).with_columns(
-        pl.Series("tags", [["tag"]], dtype=pl.List(pl.String))
-    )
+    nested = _frame([_episode_row()], FactEpisodes).with_columns(pl.Series("tags", [["tag"]], dtype=pl.List(pl.String)))
     root = _write_benchmark(tmp_path / "benchmarks" / RUN_ID, fact_episodes=nested)
     report = check_benchmark(root)
-    nested_violations = [
-        violation
-        for violation in report.violations
-        if violation.check == "nested_dtype"
-    ]
+    nested_violations = [violation for violation in report.violations if violation.check == "nested_dtype"]
     assert nested_violations
     assert nested_violations[0].table == "fact_episodes"
     assert nested_violations[0].column == "tags"
@@ -215,9 +194,7 @@ def test_an_orphan_fact_row_fails(tmp_path: pathlib.Path) -> None:
         fact_robots=_frame([_robot_row("ghost")], FactRobots),
     )
     report = check_benchmark(root)
-    orphans = [
-        violation for violation in report.violations if violation.check == "orphan_fact"
-    ]
+    orphans = [violation for violation in report.violations if violation.check == "orphan_fact"]
     assert orphans and orphans[0].table == "fact_robots"
     assert "robot_id" in orphans[0].column
 
@@ -227,16 +204,10 @@ def test_an_unknown_null_reason_code_fails_and_names_the_table(
 ) -> None:
     root = _write_benchmark(
         tmp_path / "benchmarks" / RUN_ID,
-        fact_episodes=_frame(
-            [_episode_row(null_reason="result:made_up")], FactEpisodes
-        ),
+        fact_episodes=_frame([_episode_row(null_reason="result:made_up")], FactEpisodes),
     )
     report = check_benchmark(root)
-    unknown = [
-        violation
-        for violation in report.violations
-        if violation.check == "null_reason_unknown"
-    ]
+    unknown = [violation for violation in report.violations if violation.check == "null_reason_unknown"]
     assert unknown and unknown[0].table == "fact_episodes"
     assert unknown[0].column == "null_reason"
     assert "made_up" in unknown[0].message()
@@ -252,10 +223,7 @@ def test_a_window_that_does_not_move_forward_fails(tmp_path: pathlib.Path) -> No
         ),
     )
     report = check_benchmark(root)
-    assert any(
-        violation.check == "window_order" and violation.table == "fact_encounters"
-        for violation in report.violations
-    )
+    assert any(violation.check == "window_order" and violation.table == "fact_encounters" for violation in report.violations)
 
 
 def test_an_encounter_actor_paired_with_itself_fails(
@@ -267,10 +235,7 @@ def test_an_encounter_actor_paired_with_itself_fails(
         fact_encounters=_frame([_encounter_row(actor_2=ROBOT_ID)], FactEncounters),
     )
     report = check_benchmark(root)
-    assert any(
-        violation.check == "actor_self_pair" and violation.table == "fact_encounters"
-        for violation in report.violations
-    )
+    assert any(violation.check == "actor_self_pair" and violation.table == "fact_encounters" for violation in report.violations)
 
 
 def test_a_robot_without_a_recorded_descriptor_fails(
@@ -283,21 +248,13 @@ def test_a_robot_without_a_recorded_descriptor_fails(
     )
     dimensions = _dimension_frames()
     dimensions["dim_robots"] = _frame(
-        [
-            _protagonist_robot_row(
-                robot_model=None, null_reason="robot_model:not_recorded"
-            )
-        ],
+        [_protagonist_robot_row(robot_model=None, null_reason="robot_model:not_recorded")],
         DIMENSION_TABLES["dim_robots"],
     )
     for name, frame in dimensions.items():
         frame.write_parquet(root / f"{name}.parquet")
     report = check_benchmark(root)
-    missing = [
-        violation
-        for violation in report.violations
-        if violation.check == "descriptor_missing"
-    ]
+    missing = [violation for violation in report.violations if violation.check == "descriptor_missing"]
     assert missing and missing[0].table == "dim_robots"
     assert missing[0].column == "robot_model"
 
@@ -316,6 +273,4 @@ def test_enforce_writes_the_report_and_raises(tmp_path: pathlib.Path) -> None:
     payload = yaml.safe_load(report_path.read_text(encoding="utf-8"))
     assert payload["ok"] is False
     assert payload["violations"]
-    assert any(
-        "fact_episodes" in violation["table"] for violation in payload["violations"]
-    )
+    assert any("fact_episodes" in violation["table"] for violation in payload["violations"])

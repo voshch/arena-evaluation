@@ -46,10 +46,7 @@ def write_benchmark(
     resolved = [{**_KEYS, **row} for row in rows]
     directory.mkdir(parents=True, exist_ok=True)
 
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = _frame(resolved, dimensions.DimEpisodes.polars_schema())
     dims["dim_robots"] = _frame(resolved, dimensions.DimRobots.polars_schema())
     write_benchmark_dimensions(dims, directory)
@@ -60,33 +57,19 @@ def write_benchmark(
         metrics_dir = directory / "episodes" / f"episode_{episode_id:03d}" / "metrics"
         metrics_dir.mkdir(parents=True, exist_ok=True)
         ep_rows = [row for row in resolved if int(row["episode_id"]) == episode_id]
-        ep_contacts = [
-            row for row in contact_rows if int(row["episode_id"]) == episode_id
-        ]
+        ep_contacts = [row for row in contact_rows if int(row["episode_id"]) == episode_id]
         for fact_enum, fact_table in FACT_TABLES.items():
             table_rows = ep_contacts if fact_enum is FactTable.CONTACTS else ep_rows
             if fact_enum is FactTable.EPISODES:
                 table_rows = _episode_rows(table_rows)
-            _frame(table_rows, fact_table.polars_schema()).write_parquet(
-                metrics_dir / f"fact_{fact_enum.value}.parquet"
-            )
+            _frame(table_rows, fact_table.polars_schema()).write_parquet(metrics_dir / f"fact_{fact_enum.value}.parquet")
 
     if robot_tracks is not None:
         for episode_id in sorted({int(row["episode_id"]) for row in resolved}):
-            samples = [
-                sample
-                for sample in robot_tracks
-                if int(sample["episode_id"]) == episode_id
-            ]
+            samples = [sample for sample in robot_tracks if int(sample["episode_id"]) == episode_id]
             if not samples:
                 continue
-            path = (
-                directory
-                / "episodes"
-                / f"episode_{episode_id:03d}"
-                / "topics"
-                / "robot_tracks.parquet"
-            )
+            path = directory / "episodes" / f"episode_{episode_id:03d}" / "topics" / "robot_tracks.parquet"
             path.parent.mkdir(parents=True, exist_ok=True)
             # A telemetry row carries its recorded keys: env_id and robot_id, not only the time.
             _frame(

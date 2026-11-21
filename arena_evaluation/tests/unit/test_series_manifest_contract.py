@@ -10,13 +10,8 @@ from arena_evaluation.storage.registry import dimensions, series
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
 
 
-def _write_minimal_benchmark(
-    root: pathlib.Path, series_stems: tuple[str, ...]
-) -> pathlib.Path:
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+def _write_minimal_benchmark(root: pathlib.Path, series_stems: tuple[str, ...]) -> pathlib.Path:
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = pl.DataFrame(
         [
             {
@@ -38,7 +33,5 @@ def _write_minimal_benchmark(
     metrics_dir.mkdir(parents=True, exist_ok=True)
     for stem in series_stems:
         table = series.SERIES_TABLES[stem]
-        pl.DataFrame(schema=table.polars_schema()).write_parquet(
-            root / "episodes" / "episode_000" / table.relative_path()
-        )
+        pl.DataFrame(schema=table.polars_schema()).write_parquet(root / "episodes" / "episode_000" / table.relative_path())
     return root

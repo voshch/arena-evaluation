@@ -197,11 +197,7 @@ def test_mcp_server_image_tools_return_image_content_and_structured_payload(tmp_
 
     fe_schema = FACT_TABLES["episodes"].polars_schema()
     pl.DataFrame(
-        [
-            {col: None for col in fe_schema.names()}
-            | {"run_id": "run-img-01", "episode_id": eid, "result": "COMPLETED"}
-            for eid in (0, 1)
-        ],
+        [{col: None for col in fe_schema.names()} | {"run_id": "run-img-01", "episode_id": eid, "result": "COMPLETED"} for eid in (0, 1)],
         schema=fe_schema,
     ).write_parquet(run_dir / "fact_episodes.parquet")
 
@@ -229,11 +225,7 @@ def test_mcp_server_image_tools_return_image_content_and_structured_payload(tmp_
             "evaluation_render_plot",
             {
                 "run_id": "run-img-01",
-                "spec_yaml": (
-                    "id: test_bar\ntitle: Test Bar\ntype: bar\n"
-                    "data:\n  source: dim_episodes\n"
-                    "channels:\n  x: episode_id\n  y: duration_s\n"
-                ),
+                "spec_yaml": ("id: test_bar\ntitle: Test Bar\ntype: bar\ndata:\n  source: dim_episodes\nchannels:\n  x: episode_id\n  y: duration_s\n"),
                 "output_format": "png",
             },
         )
@@ -280,9 +272,7 @@ def test_evaluation_domain_registers_same_resources_and_prompts_as_domain():
             """Ping."""
             return {"ok": 1}
 
-        @dom.resource(
-            "arena://toy/info", mime_type="application/json", description="info"
-        )
+        @dom.resource("arena://toy/info", mime_type="application/json", description="info")
         def toy_info() -> str:
             return "{}"
 

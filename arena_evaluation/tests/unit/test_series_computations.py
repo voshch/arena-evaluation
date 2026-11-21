@@ -126,9 +126,7 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
             "error_mode": "std",
         },
     )
-    assert res_std.summary.columns == list(
-        SeriesProfileAnalysis.polars_schema().names()
-    )
+    assert res_std.summary.columns == list(SeriesProfileAnalysis.polars_schema().names())
     by_x = {round(r["x"], 1): r for r in res_std.summary.to_dicts()}
     assert set(by_x) == {0.1, 0.2, 0.3, 0.4, 0.5}
     # bin 0.1: [10.0, 14.0] -> mean=12.0, sample std=2.8284271247461903, n=2
@@ -344,10 +342,7 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
             "metrics": ["power_total_w"],
         },
     )
-    sum_by_k = {
-        (r["phase_kind"], r["speed_target_mps"]): r["mean"]
-        for r in summary_res.summary.to_dicts()
-    }
+    sum_by_k = {(r["phase_kind"], r["speed_target_mps"]): r["mean"] for r in summary_res.summary.to_dicts()}
     assert sum_by_k[("idle", 0.0)] == pytest.approx((4.0 + 6.0 + 8.0 + 5.0) / 4.0)
 
     # F4 contract for series_profile: schema binding + {} vs explicit defaults single evidence id

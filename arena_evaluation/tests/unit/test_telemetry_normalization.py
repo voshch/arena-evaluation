@@ -36,9 +36,7 @@ def _ground_truth_pose(step: int) -> tuple[float, float, float]:
 def _odometry(x: float, y: float) -> dict:
     return {
         "header": _header(frame_id="odom"),
-        "pose": {
-            "pose": {"position": {"x": 1.5 * x, "y": -y}, "orientation": {"w": 1.0}}
-        },
+        "pose": {"pose": {"position": {"x": 1.5 * x, "y": -y}, "orientation": {"w": 1.0}}},
         "twist": {"twist": {}},
     }
 
@@ -53,11 +51,7 @@ def _ground_truth_bag(path: pathlib.Path) -> pathlib.Path:
             (
                 "/tf",
                 TF_MESSAGE,
-                {
-                    "transforms": [
-                        _transform("map", "env_0/jackal/base_link", x, y, rotation)
-                    ]
-                },
+                {"transforms": [_transform("map", "env_0/jackal/base_link", x, y, rotation)]},
                 t_ns,
             )
         )
@@ -127,9 +121,7 @@ def _pedestrian_bag(path: pathlib.Path) -> pathlib.Path:
 
 
 def _odometry_only_bag(path: pathlib.Path) -> pathlib.Path:
-    return _write_bag(
-        path, [("/env_0/jackal/odom", ODOMETRY, _odometry(2.0, 0.0), SEC)]
-    )
+    return _write_bag(path, [("/env_0/jackal/odom", ODOMETRY, _odometry(2.0, 0.0), SEC)])
 
 
 @pytest.fixture(scope="module")
@@ -180,9 +172,7 @@ def test_velocities_are_numerical_derivatives_of_the_ground_truth_pose(
         ]
     )
 
-    np.testing.assert_allclose(
-        tracks.select("vx", "vy", "omega_z").to_numpy(), expected, atol=1e-9
-    )
+    np.testing.assert_allclose(tracks.select("vx", "vy", "omega_z").to_numpy(), expected, atol=1e-9)
 
 
 def test_each_pedestrian_row_carries_that_pedestrians_position(
@@ -192,9 +182,7 @@ def test_each_pedestrian_row_carries_that_pedestrians_position(
 
     peds = bundles[ROBOT].pedestrian_arena_peds.collect().sort("ped_id")
 
-    np.testing.assert_allclose(
-        peds.select("x", "y").to_numpy(), [[1.0, 2.0], [-4.0, 0.5], [6.0, -3.0]]
-    )
+    np.testing.assert_allclose(peds.select("x", "y").to_numpy(), [[1.0, 2.0], [-4.0, 0.5], [6.0, -3.0]])
 
 
 def test_every_ingested_table_leads_with_a_non_null_monotonic_int64_t_ns(
@@ -218,11 +206,7 @@ def test_every_ingested_table_leads_with_a_non_null_monotonic_int64_t_ns(
 def test_laser_scan_summary_keeps_the_nearest_and_farthest_valid_return(
     every_topic_out: pathlib.Path,
 ):
-    summary = (
-        pl.read_parquet(every_topic_out / "robot_scan_summary.parquet")
-        .filter(pl.col("robot_id") == ROBOT)
-        .sort("t_ns")
-    )
+    summary = pl.read_parquet(every_topic_out / "robot_scan_summary.parquet").filter(pl.col("robot_id") == ROBOT).sort("t_ns")
 
     assert summary.select("scan_min_m", "scan_max_m", "n_valid_rays").row(0) == (
         1.5,
@@ -270,9 +254,7 @@ def test_param_value_decodes_byte_array_and_rejects_unknown_type() -> None:
         parameter_value as _param_value,
     )
 
-    assert _param_value(
-        ParameterValue(type=5, byte_array_value=[b"\x01", b"\x02"])
-    ) == [1, 2]
+    assert _param_value(ParameterValue(type=5, byte_array_value=[b"\x01", b"\x02"])) == [1, 2]
     with pytest.raises(ValueError, match="unsupported ROS parameter type 99"):
         _param_value(ParameterValue(type=99))
 

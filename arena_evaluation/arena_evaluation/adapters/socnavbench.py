@@ -139,9 +139,7 @@ class SocNavBenchSuite(Importer):
         stages: list[dict] = []
         for name in episodes.items():
             scenario = episodes.import_item(name, suite_dir / "worlds")
-            stages.append(
-                stage(name, scenario.parents[1].name, episodes.episode(name).max_time)
-            )
+            stages.append(stage(name, scenario.parents[1].name, episodes.episode(name).max_time))
 
         _dump(
             suite_dir / "suite.yaml",

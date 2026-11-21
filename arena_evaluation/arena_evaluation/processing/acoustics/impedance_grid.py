@@ -22,11 +22,7 @@ from arena_evaluation.storage.exceptions import MetricInputError
 _SRC_DIR = Path(__file__).parent
 _DEFAULT_SO_FILE = _SRC_DIR / "solver.so"
 _ENV_SO_VAR: Final[str] = "ARENA_ACOUSTIC_SOLVER_SO"
-_BUILD_HINT: Final[str] = (
-    "run `arena build` (the arena_acoustics_solver CMake target), or "
-    "`cmake -S arena_evaluation -B build -DARENA_SOLVERS_ONLY=ON && cmake --build build`, "
-    "or set ARENA_ACOUSTIC_SOLVER_SO to a library built elsewhere (needs a C++17 compiler)"
-)
+_BUILD_HINT: Final[str] = "run `arena build` (the arena_acoustics_solver CMake target), or `cmake -S arena_evaluation -B build -DARENA_SOLVERS_ONLY=ON && cmake --build build`, or set ARENA_ACOUSTIC_SOLVER_SO to a library built elsewhere (needs a C++17 compiler)"
 
 
 def solver_library_path() -> Path:
@@ -40,10 +36,7 @@ def solver_abi(lib: ctypes.CDLL) -> int:
     try:
         exported = lib.arena_acoustic_solver_abi
     except AttributeError as error:
-        raise MetricInputError(
-            f"acoustic solver {solver_library_path()} exports no {ACOUSTIC_SOLVER_ABI_SYMBOL}, "
-            f"so it predates ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}"
-        ) from error
+        raise MetricInputError(f"acoustic solver {solver_library_path()} exports no {ACOUSTIC_SOLVER_ABI_SYMBOL}, so it predates ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}") from error
     exported.restype = ctypes.c_int
     exported.argtypes = []
     return int(exported())
@@ -54,16 +47,10 @@ def _verify_library(lib: ctypes.CDLL) -> None:
     so_path = solver_library_path()
     abi = solver_abi(lib)
     if abi != ACOUSTIC_SOLVER_ABI:
-        raise MetricInputError(
-            f"acoustic solver {so_path} exports ABI {abi}, this package needs ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}"
-        )
-    missing = [
-        symbol for symbol in ACOUSTIC_SOLVER_SYMBOLS if not _exports(lib, symbol)
-    ]
+        raise MetricInputError(f"acoustic solver {so_path} exports ABI {abi}, this package needs ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}")
+    missing = [symbol for symbol in ACOUSTIC_SOLVER_SYMBOLS if not _exports(lib, symbol)]
     if missing:
-        raise MetricInputError(
-            f"acoustic solver {so_path} exports ABI {abi} but no {', '.join(missing)}; {_BUILD_HINT}"
-        )
+        raise MetricInputError(f"acoustic solver {so_path} exports ABI {abi} but no {', '.join(missing)}; {_BUILD_HINT}")
 
 
 def _exports(lib: ctypes.CDLL, symbol: str) -> bool:
@@ -80,15 +67,11 @@ def _solver_library() -> ctypes.CDLL:
     """Load the built C++17 acoustic solver library and bind its C ABI; never compiles."""
     so_path = solver_library_path()
     if not so_path.is_file():
-        raise MetricInputError(
-            f"acoustic solver library not found at {so_path}; {_BUILD_HINT}"
-        )
+        raise MetricInputError(f"acoustic solver library not found at {so_path}; {_BUILD_HINT}")
     try:
         lib = ctypes.CDLL(str(so_path))
     except OSError as error:
-        raise MetricInputError(
-            f"acoustic solver library {so_path} could not be loaded: {error}; {_BUILD_HINT}"
-        ) from error
+        raise MetricInputError(f"acoustic solver library {so_path} could not be loaded: {error}; {_BUILD_HINT}") from error
     _verify_library(lib)
 
     lib.solve_acoustic_field.argtypes = [
@@ -98,19 +81,13 @@ def _solver_library() -> ctypes.CDLL:
         ctypes.c_float,  # resolution
         ctypes.c_float,  # start_x
         ctypes.c_float,  # start_y
-        np.ctypeslib.ndpointer(
-            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
-        ),  # target_xs
-        np.ctypeslib.ndpointer(
-            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
-        ),  # target_ys
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # target_xs
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # target_ys
         ctypes.c_int,  # num_targets
         ctypes.c_float,  # wall_tl
         ctypes.c_float,  # mic_distance
         ctypes.c_void_p,  # pixel_tl (NULL when None)
-        np.ctypeslib.ndpointer(
-            dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
-        ),  # out_attenuations
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # out_attenuations
     ]
     lib.solve_acoustic_field.restype = None
 
@@ -124,9 +101,7 @@ def _solver_library() -> ctypes.CDLL:
         ctypes.c_float,  # wall_tl
         ctypes.c_float,  # mic_distance
         ctypes.c_void_p,  # pixel_tl (NULL when None)
-        np.ctypeslib.ndpointer(
-            dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
-        ),  # out_field
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"),  # out_field
     ]
     lib.solve_acoustic_grid.restype = None
     return lib
@@ -155,9 +130,7 @@ def compute_attenuations(
 
     num_targets = len(target_xs_px)
     if len(target_ys_px) != num_targets:
-        raise MetricInputError(
-            f"target_xs_px and target_ys_px must have the same length, got {num_targets} and {len(target_ys_px)}"
-        )
+        raise MetricInputError(f"target_xs_px and target_ys_px must have the same length, got {num_targets} and {len(target_ys_px)}")
 
     out_attenuations = np.empty(num_targets, dtype=np.float32)
 
@@ -215,16 +188,12 @@ def compute_acoustic_field(
     return out_field
 
 
-def _pixel_tl_pointer(
-    pixel_tl: np.ndarray | None, height: int, width: int
-) -> ctypes.c_void_p | None:
+def _pixel_tl_pointer(pixel_tl: np.ndarray | None, height: int, width: int) -> ctypes.c_void_p | None:
     """The C pointer of a per-cell transmission-loss map, NULL when there is none."""
     if pixel_tl is None:
         return None
     if pixel_tl.shape != (height, width):
-        raise MetricInputError(
-            f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}"
-        )
+        raise MetricInputError(f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}")
     contiguous = np.ascontiguousarray(pixel_tl, dtype=np.float32)
     return contiguous.ctypes.data_as(ctypes.c_void_p)
 

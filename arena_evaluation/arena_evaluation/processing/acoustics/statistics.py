@@ -24,14 +24,10 @@ def frame_durations_s(t_ns: np.ndarray) -> np.ndarray:
 
 def linear_energy(levels_dba: np.ndarray) -> np.ndarray:
     """Linear power ratio of A-weighted levels, floored at MIN_DBA."""
-    return np.power(
-        10.0, np.maximum(np.asarray(levels_dba, dtype=np.float64), MIN_DBA) / 10.0
-    )
+    return np.power(10.0, np.maximum(np.asarray(levels_dba, dtype=np.float64), MIN_DBA) / 10.0)
 
 
-def energy_equivalent_level_dba(
-    levels_dba: np.ndarray, durations_s: np.ndarray
-) -> float | None:
+def energy_equivalent_level_dba(levels_dba: np.ndarray, durations_s: np.ndarray) -> float | None:
     """Duration-weighted energy-equivalent level of the samples, None without a positive duration."""
     levels = np.asarray(levels_dba, dtype=np.float64)
     durations = np.asarray(durations_s, dtype=np.float64)
@@ -46,9 +42,7 @@ def energy_equivalent_level_dba(
     return None if (np.isnan(level) or np.isinf(level)) else float(level)
 
 
-def rise_rates_dba_per_s(
-    levels_dba: np.ndarray, t_ns: np.ndarray, *, gate_dba: float | None = None
-) -> np.ndarray:
+def rise_rates_dba_per_s(levels_dba: np.ndarray, t_ns: np.ndarray, *, gate_dba: float | None = None) -> np.ndarray:
     """Signed level change rates (dBA/s) between consecutive samples a positive time apart.
 
     A repeated timestamp carries no rate: it is dropped, never divided by a floor duration.

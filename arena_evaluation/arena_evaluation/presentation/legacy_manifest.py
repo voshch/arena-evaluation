@@ -55,9 +55,7 @@ _DIMENSION_ALIASES: Final[dict[str, str]] = {
     "crowd_condition": "crowd_condition",
     "is_reference": "is_reference",
 }
-_TRAJECTORY_SUBJECTS: Final[frozenset[str]] = frozenset(
-    {"path", "pedestrian_path", "robot_path"}
-)
+_TRAJECTORY_SUBJECTS: Final[frozenset[str]] = frozenset({"path", "pedestrian_path", "robot_path"})
 # Old series names carry a short scope prefix and often a suffix the registry renamed.
 _SERIES_PREFIX_STEMS: Final[dict[str, str]] = {
     "char": "characterization",
@@ -162,13 +160,9 @@ class MetricMap:
     def resolve(self, legacy: str, known: AbstractSet[str]) -> MetricResolution:
         """Resolve one old metric name without guessing."""
         if legacy in self.renamed:
-            return MetricResolution(
-                legacy=legacy, new=self.renamed[legacy], status="renamed"
-            )
+            return MetricResolution(legacy=legacy, new=self.renamed[legacy], status="renamed")
         if legacy in self.removed:
-            return MetricResolution(
-                legacy=legacy, new=None, status="removed", note=self.removed[legacy]
-            )
+            return MetricResolution(legacy=legacy, new=None, status="removed", note=self.removed[legacy])
         if legacy in known:
             return MetricResolution(legacy=legacy, new=legacy, status="confirmed")
         return MetricResolution(
@@ -220,11 +214,7 @@ def load_metric_map(path: pathlib.Path | None = None) -> MetricMap:
     from .legacy_metric_map import LEGACY_METRIC_MAP
 
     resolved = _metric_map_path(path)
-    raw: object = (
-        yaml.safe_load(resolved.read_text(encoding="utf-8"))
-        if resolved is not None
-        else LEGACY_METRIC_MAP
-    )
+    raw: object = yaml.safe_load(resolved.read_text(encoding="utf-8")) if resolved is not None else LEGACY_METRIC_MAP
     if not isinstance(raw, dict):
         raise ValueError("Legacy metric map must be a YAML mapping.")
     renamed = raw.get("renamed") or {}
@@ -274,15 +264,10 @@ def _mapping(value: object, *, where: str) -> dict[str, object]:
     return value
 
 
-def _reject_unknown(
-    raw: Mapping[str, object], allowed: frozenset[str], *, where: str
-) -> None:
+def _reject_unknown(raw: Mapping[str, object], allowed: frozenset[str], *, where: str) -> None:
     unknown = sorted(set(raw) - allowed)
     if unknown:
-        raise ValueError(
-            f"{where} declares unknown legacy field(s) {unknown}; "
-            f"the legacy schema allows {sorted(allowed)}."
-        )
+        raise ValueError(f"{where} declares unknown legacy field(s) {unknown}; the legacy schema allows {sorted(allowed)}.")
 
 
 def load_legacy_manifest(path: pathlib.Path) -> LegacyManifest:
@@ -331,10 +316,7 @@ def load_legacy_manifest(path: pathlib.Path) -> LegacyManifest:
 
 @functools.lru_cache(maxsize=1)
 def _series_columns() -> dict[str, frozenset[str]]:
-    return {
-        stem: frozenset(table.polars_schema().names())
-        for stem, table in SERIES_TABLES.items()
-    }
+    return {stem: frozenset(table.polars_schema().names()) for stem, table in SERIES_TABLES.items()}
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -343,9 +325,7 @@ class _SeriesBinding:
     column: str
 
 
-def _resolve_series(
-    name: str, *, prefer_stem: str | None = None
-) -> _SeriesBinding | None:
+def _resolve_series(name: str, *, prefer_stem: str | None = None) -> _SeriesBinding | None:
     """Resolve ``timeseries_<prefix>_<column>`` to a series table stem and column."""
     if not name.startswith("timeseries_"):
         return None
@@ -390,20 +370,12 @@ def _where(filter_map: Mapping[str, object]) -> str:
     parts = []
     for key, value in filter_map.items():
         values = list(value) if isinstance(value, (list, tuple)) else [value]
-        literal = (
-            "[" + ", ".join(_literal(v) for v in values) + "]"
-            if len(values) > 1
-            else _literal(values[0])
-        )
-        parts.append(
-            f"{key} == {literal}" if len(values) == 1 else f"{key} in {literal}"
-        )
+        literal = "[" + ", ".join(_literal(v) for v in values) + "]" if len(values) > 1 else _literal(values[0])
+        parts.append(f"{key} == {literal}" if len(values) == 1 else f"{key} in {literal}")
     return " and ".join(parts)
 
 
-def _resolve_filter(
-    filter_map: Mapping[str, object], *, prefer_stem: str | None
-) -> tuple[dict[str, object] | None, str | None]:
+def _resolve_filter(filter_map: Mapping[str, object], *, prefer_stem: str | None) -> tuple[dict[str, object] | None, str | None]:
     """Map legacy filter keys to new columns; return (filter, unresolved key)."""
     resolved: dict[str, object] = {}
     for key, value in filter_map.items():
@@ -421,11 +393,7 @@ def _resolve_filter(
 
 def _group_columns(plot: LegacyPlot) -> list[str]:
     option_groups = plot.options.get("group_by") or ()
-    raw = (
-        list(plot.group_by)
-        or [str(v) for v in option_groups]
-        or ([plot.differentiate] if plot.differentiate else [])
-    )
+    raw = list(plot.group_by) or [str(v) for v in option_groups] or ([plot.differentiate] if plot.differentiate else [])
     resolved = [str(_dimension(name) or "") for name in raw]
     return [name for name in resolved if name]
 
@@ -442,9 +410,7 @@ def _series_source(name: str) -> tuple[str, str] | None:
     return f"v_series_{binding.stem}", binding.column
 
 
-def _primary_source(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[str, str, str | None, str]:
+def _primary_source(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[str, str, str | None, str]:
     """Resolve the first data binding: (view, metric, series stem, problem)."""
     series = _series_source(plot.data_key)
     if series is not None:
@@ -453,9 +419,7 @@ def _primary_source(
     return EPISODE_SUMMARY_VIEW, metric or "", None, problem or ""
 
 
-def _metric_or_todo(
-    name: str, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[str | None, str | None]:
+def _metric_or_todo(name: str, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[str | None, str | None]:
     if not name or name == "*":
         return None, f"plot declares no single metric (data_key={name!r})"
     resolution = metric_map.resolve(name, known)
@@ -490,15 +454,10 @@ def _resolve_option_metrics(
     return metrics, f"converted; dropped {dropped}" if dropped else "", ""
 
 
-def _convert_table(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_table(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     options = dict(plot.options)
     if options.get("notes"):
-        return None, (
-            "notes-only table: the new grammar has no figures without data; the note text "
-            "is preserved in migration_report.yaml as carried_notes"
-        )
+        return None, ("notes-only table: the new grammar has no figures without data; the note text is preserved in migration_report.yaml as carried_notes")
     columns = options.get("columns") or options.get("metrics") or []
     metrics: list[str] = []
     labels: dict[str, str] = {}
@@ -526,13 +485,9 @@ def _convert_table(
         return None, "TODO: table without resolvable metrics or without a group column"
     options_new: dict[str, object] = {}
     if labels:
-        options_new["labels"] = {
-            metric_map.renamed.get(k, k): v for k, v in labels.items()
-        }
+        options_new["labels"] = {metric_map.renamed.get(k, k): v for k, v in labels.items()}
     if formats:
-        options_new["format"] = {
-            metric_map.renamed.get(k, k): v for k, v in formats.items()
-        }
+        options_new["format"] = {metric_map.renamed.get(k, k): v for k, v in formats.items()}
     return (
         _spec(
             plot,
@@ -552,9 +507,7 @@ def _convert_table(
     )
 
 
-def _convert_bar(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_bar(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     source, metric, prefer_stem, problem = _primary_source(plot, metric_map, known)
     if problem:
         return None, problem
@@ -583,9 +536,7 @@ def _convert_bar(
     )
 
 
-def _convert_distribution(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_distribution(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     metric, problem = _metric_or_todo(plot.data_key, metric_map, known)
     if problem:
         return None, problem
@@ -603,9 +554,7 @@ def _convert_distribution(
             plot,
             "histogram",
             {"computation": "distribution_bins", "params": params},
-            PlotChannels(
-                x="bin_center", y="count", color=group_cols[0] if group_cols else None
-            ),
+            PlotChannels(x="bin_center", y="count", color=group_cols[0] if group_cols else None),
             {"bin_low": "bin_low", "bin_high": "bin_high"},
         ),
         "",
@@ -639,9 +588,7 @@ def _convert_direct(
     if plot.type == "scatter":
         if secondary is None:
             return None, "TODO: scatter without options.y (the second axis metric)"
-        channels: PlotChannels | dict[str, str] = PlotChannels(
-            x=metric, y=secondary, color=color
-        )
+        channels: PlotChannels | dict[str, str] = PlotChannels(x=metric, y=secondary, color=color)
     else:
         channels = PlotChannels(x=color, y=metric)
     note = ""
@@ -650,14 +597,8 @@ def _convert_direct(
         if fact_table == "fact_pedestrians" and plot.type != "scatter":
             source = "fact_pedestrians"
             channels = PlotChannels(x="ped_policy", y=metric)
-            note = (
-                "converted; grouped by ped_policy because fact_pedestrians has no "
-                "planner column (the old plot grouped by the planner label)"
-            )
-        elif (
-            fact_table in ("fact_contacts", "fact_encounters")
-            and plot.type != "scatter"
-        ):
+            note = "converted; grouped by ped_policy because fact_pedestrians has no planner column (the old plot grouped by the planner label)"
+        elif fact_table in ("fact_contacts", "fact_encounters") and plot.type != "scatter":
             source = fact_table
             channels = PlotChannels(x="robot_id", y=metric)
             note = f"converted; grouped by robot_id because {fact_table} has no planner column"
@@ -665,17 +606,11 @@ def _convert_direct(
     where = _where(filter_map or {})
     if where:
         data["where"] = where
-    options = {
-        key: value
-        for key, value in plot.options.items()
-        if key in ("show_points", "barmode", "show_markers")
-    }
+    options = {key: value for key, value in plot.options.items() if key in ("show_points", "barmode", "show_markers")}
     return _spec(plot, plot.type, data, channels, options), note
 
 
-def _convert_radar(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_radar(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     metrics, note, problem = _resolve_option_metrics(
         plot.options.get("metrics") or [],
         minimum=3,
@@ -700,9 +635,7 @@ def _convert_radar(
     )
 
 
-def _convert_heatmap(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_heatmap(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     raw_metrics = plot.options.get("metrics") or []
     if isinstance(raw_metrics, list) and len(raw_metrics) >= 2:
         metrics, note, problem = _resolve_option_metrics(
@@ -746,15 +679,10 @@ def _convert_heatmap(
             ),
             "",
         )
-    return None, (
-        "TODO: heatmap without options.metrics (correlation) or options.x/options.y "
-        "(pivot); decide the two dimensions or the metric list to correlate"
-    )
+    return None, ("TODO: heatmap without options.metrics (correlation) or options.x/options.y (pivot); decide the two dimensions or the metric list to correlate")
 
 
-def _convert_series(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_series(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     """line/timeseries: a series_profile over one published series table."""
     del metric_map, known
     raw_metrics = plot.options.get("metrics") or [plot.data_key]
@@ -770,10 +698,7 @@ def _convert_series(
         return None, "TODO: series plot without a metric"
     if len(bindings) > 1:
         names = ", ".join(str(metric) for metric in raw_metrics)
-        return None, (
-            f"TODO: timeseries declares {len(bindings)} metrics ({names}); emit one "
-            "series_profile plot per metric"
-        )
+        return None, (f"TODO: timeseries declares {len(bindings)} metrics ({names}); emit one series_profile plot per metric")
     primary = bindings[0]
     x_raw = str(plot.options.get("x") or "timeseries_time_s")
     x_binding = _resolve_series(x_raw, prefer_stem=primary.stem)
@@ -805,9 +730,7 @@ def _convert_series(
     )
 
 
-def _convert_trajectory(
-    plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]
-) -> tuple[PlotSpec | None, str]:
+def _convert_trajectory(plot: LegacyPlot, metric_map: MetricMap, known: AbstractSet[str]) -> tuple[PlotSpec | None, str]:
     del metric_map, known
     if plot.data_key not in _TRAJECTORY_SUBJECTS:
         return (
@@ -815,11 +738,7 @@ def _convert_trajectory(
             f"trajectory subject {plot.data_key!r} is not a published track stream",
         )
     subject = "robot" if plot.data_key == "path" else "pedestrian"
-    query = (
-        "robot_tracks_non_ref"
-        if subject == "robot"
-        else "pedestrian_arena_peds_non_ref"
-    )
+    query = "robot_tracks_non_ref" if subject == "robot" else "pedestrian_arena_peds_non_ref"
     color = "robot_id" if subject == "robot" else "ped_id"
     return (
         _spec(
@@ -832,11 +751,7 @@ def _convert_trajectory(
     )
 
 
-_ACOUSTIC_DROP: Final[str] = (
-    "acoustic plot types are registered but no recipe binds them to a report, and the "
-    "report contract test forbids acoustic types in shipped manifests (L4-010); bind it "
-    "ad hoc with evaluation_render_plot or ship a recipe first"
-)
+_ACOUSTIC_DROP: Final[str] = "acoustic plot types are registered but no recipe binds them to a report, and the report contract test forbids acoustic types in shipped manifests (L4-010); bind it ad hoc with evaluation_render_plot or ship a recipe first"
 
 _CONVERTERS = {
     "table": _convert_table,
@@ -867,11 +782,7 @@ def _convert_plot(
         problem = f"TODO: no conversion rule for legacy plot type {plot.type!r}."
         status = TODO
     else:
-        spec, problem = (
-            converter(plot, metric_map, known, metric_tables)
-            if converter is _convert_direct
-            else converter(plot, metric_map, known)
-        )
+        spec, problem = converter(plot, metric_map, known, metric_tables) if converter is _convert_direct else converter(plot, metric_map, known)
         if spec is not None:
             return spec, MigrationEntry(
                 plot_id=plot.id,
@@ -913,21 +824,11 @@ def convert_manifest(
     for item in legacy.summary:
         summary_metric = str(item.get("metric") or "")
         if summary_metric:
-            metrics.setdefault(
-                summary_metric, metric_map.resolve(summary_metric, known_metrics)
-            )
-    groups = legacy.groups or tuple(
-        ManifestGroup(id=plot.layout_group, title=plot.layout_group)
-        for plot in legacy.plots
-        if plot.layout_group
-    )
+            metrics.setdefault(summary_metric, metric_map.resolve(summary_metric, known_metrics))
+    groups = legacy.groups or tuple(ManifestGroup(id=plot.layout_group, title=plot.layout_group) for plot in legacy.plots if plot.layout_group)
     unique_groups = tuple({group.id: group for group in groups}.values())
-    summary, summary_group_by, summary_stem = _convert_summary(
-        legacy, metric_map, known_metrics
-    )
-    data_source = (
-        f"v_series_{summary_stem}" if summary_stem is not None else EPISODE_SUMMARY_VIEW
-    )
+    summary, summary_group_by, summary_stem = _convert_summary(legacy, metric_map, known_metrics)
+    data_source = f"v_series_{summary_stem}" if summary_stem is not None else EPISODE_SUMMARY_VIEW
     manifest = VizManifest(
         name=legacy.name,
         title=legacy.title,
@@ -936,19 +837,10 @@ def convert_manifest(
         summary=summary,
         summary_group_by=summary_group_by or None,
         groups=list(unique_groups),
-        units={
-            str(metric_map.renamed.get(name, name)): unit
-            for name, unit in legacy.units.items()
-            if unit and metric_map.resolve(name, known_metrics).status != "removed"
-        },
+        units={str(metric_map.renamed.get(name, name)): unit for name, unit in legacy.units.items() if unit and metric_map.resolve(name, known_metrics).status != "removed"},
         plots=specs,
     )
-    carried_notes = tuple(
-        f"{plot.id} [{item.get('label', '')}]: {item.get('value', '')}"
-        for plot in legacy.plots
-        for item in (plot.options.get("notes") or ())
-        if isinstance(item, dict)
-    )
+    carried_notes = tuple(f"{plot.id} [{item.get('label', '')}]: {item.get('value', '')}" for plot in legacy.plots for item in (plot.options.get("notes") or ()) if isinstance(item, dict))
     return LegacyMigration(
         source=source or pathlib.Path(f"{legacy.name}.yaml"),
         manifest=manifest,
@@ -1001,11 +893,7 @@ def _convert_summary(
 
 def _referenced_metric_names(plot: LegacyPlot) -> list[str]:
     names: list[str] = []
-    if (
-        plot.data_key
-        and plot.data_key != "*"
-        and not plot.data_key.startswith("timeseries_")
-    ):
+    if plot.data_key and plot.data_key != "*" and not plot.data_key.startswith("timeseries_"):
         names.append(plot.data_key)
     for key in ("metrics", "y", "x"):
         value = plot.options.get(key)
@@ -1063,9 +951,7 @@ def render_migration_report(migration: LegacyMigration) -> dict[str, object]:
 
 def render_manifest_yaml(migration: LegacyMigration) -> str:
     """The new-grammar manifest as YAML."""
-    payload = migration.manifest.model_dump(
-        exclude_none=True, exclude={"manifest_version"}
-    )
+    payload = migration.manifest.model_dump(exclude_none=True, exclude={"manifest_version"})
     return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
 
@@ -1080,15 +966,11 @@ def write_legacy_bundle(
     report_path = bundle / "report.yaml"
     migration_path = bundle / "migration_report.yaml"
     if report_path.exists() and not overwrite:
-        raise FileExistsError(
-            f"{report_path} already exists; pass overwrite=True to replace it."
-        )
+        raise FileExistsError(f"{report_path} already exists; pass overwrite=True to replace it.")
     bundle.mkdir(parents=True, exist_ok=True)
     report_path.write_text(render_manifest_yaml(migration), encoding="utf-8")
     migration_path.write_text(
-        yaml.safe_dump(
-            render_migration_report(migration), sort_keys=False, allow_unicode=True
-        ),
+        yaml.safe_dump(render_migration_report(migration), sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
     return report_path, migration_path
@@ -1119,14 +1001,6 @@ def classify_legacy_plot_declaration(path: pathlib.Path) -> dict[str, object]:
         "file": pathlib.Path(path).name,
         "code_driven_schema": is_code_schema,
         "has_plots": "plots" in document,
-        "disposition": "convert"
-        if "plots" in document
-        else ("best-effort" if is_code_schema else "archive"),
-        "reason": (
-            "declares plots in the current grammar"
-            if "plots" in document
-            else "code-driven schema (show_plots/datasets/results/single_episode_*); no unambiguous plot specs"
-            if is_code_schema
-            else "documentation/template file, no runnable declaration"
-        ),
+        "disposition": "convert" if "plots" in document else ("best-effort" if is_code_schema else "archive"),
+        "reason": ("declares plots in the current grammar" if "plots" in document else "code-driven schema (show_plots/datasets/results/single_episode_*); no unambiguous plot specs" if is_code_schema else "documentation/template file, no runnable declaration"),
     }

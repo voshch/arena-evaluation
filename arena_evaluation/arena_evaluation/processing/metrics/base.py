@@ -77,9 +77,7 @@ class BaseMetricCalculator(ABC):
     # Better side of each output that has one; an output absent here has none.
     DIRECTIONS: typing.ClassVar[Mapping[str, Direction]] = MappingProxyType({})
     # Scopes at which this calculator publishes a metric; absent names use the metric's own scopes.
-    OUTPUT_SCOPES: typing.ClassVar[Mapping[str, tuple[MetricScope, ...]]] = (
-        MappingProxyType({})
-    )
+    OUTPUT_SCOPES: typing.ClassVar[Mapping[str, tuple[MetricScope, ...]]] = MappingProxyType({})
     # Table-valued results (replay phases, collision records, edge-case rows); not metric columns.
     CHILD_OUTPUTS: typing.ClassVar[tuple[str, ...]] = ()
     PRIMARY_OUTPUTS: list[str] = []
@@ -101,9 +99,7 @@ class BaseMetricCalculator(ABC):
     @classmethod
     def effective_scopes(cls) -> frozenset[MetricScope]:
         """All evaluation scopes in which this calculator is registered."""
-        return frozenset(
-            scope for metric in cls.OUTPUTS for scope in cls.scopes_of_output(metric)
-        )
+        return frozenset(scope for metric in cls.OUTPUTS for scope in cls.scopes_of_output(metric))
 
     @classmethod
     def scopes_of_output(cls, metric: Metric) -> tuple[MetricScope, ...]:
@@ -111,9 +107,7 @@ class BaseMetricCalculator(ABC):
         return cls.OUTPUT_SCOPES.get(metric.name, metric.scopes)
 
     @classmethod
-    def required_topics_for_scope(
-        cls, scope: MetricScope
-    ) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
         """Required topic names (or topic alternatives) for executing in `scope`."""
         del scope
         normalized: list[str | tuple[str, ...]] = []
@@ -127,35 +121,20 @@ class BaseMetricCalculator(ABC):
     @classmethod
     def output_keys_for_scope(cls, scope: MetricScope) -> tuple[str, ...]:
         """Names of the metrics this calculator publishes at `scope`."""
-        return tuple(
-            metric.name
-            for metric in cls.OUTPUTS
-            if scope in cls.scopes_of_output(metric)
-        )
+        return tuple(metric.name for metric in cls.OUTPUTS if scope in cls.scopes_of_output(metric))
 
     def _ground_truth_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
         """The aligned native /tf rows with a finite pose, None when no sample is usable."""
-        if (
-            episode.data is None or not {"x", "y", "yaw"} <= set(episode.data.columns)
-        ):  # agent-contracts: ignore optional stream: a recording without a ground-truth track carries none of x, y or yaw
+        if episode.data is None or not {"x", "y", "yaw"} <= set(episode.data.columns):  # agent-contracts: ignore optional stream: a recording without a ground-truth track carries none of x, y or yaw
             return None
-        frame = episode.data.filter(
-            pl.col("x").is_not_null()
-            & ~pl.col("x").is_nan()
-            & pl.col("y").is_not_null()
-            & ~pl.col("y").is_nan()
-            & pl.col("yaw").is_not_null()
-            & ~pl.col("yaw").is_nan()
-        )
+        frame = episode.data.filter(pl.col("x").is_not_null() & ~pl.col("x").is_nan() & pl.col("y").is_not_null() & ~pl.col("y").is_nan() & pl.col("yaw").is_not_null() & ~pl.col("yaw").is_nan())
         return None if len(frame) == 0 else frame
 
     def resolve_robot_frame(self, episode: AlignedEpisodeBundle) -> pl.DataFrame | None:
         """The aligned native /tf rows with a finite pose, the one track every robot-scope metric reads."""
         return self._ground_truth_frame(episode)
 
-    def resolve_robot_pose(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Map-frame native /tf pose (x, y, yaw) of the episode.
 
         There is one pose source: the robot's native /tf track. The trailing estimate triple is
@@ -175,9 +154,7 @@ class BaseMetricCalculator(ABC):
             empty,
         )
 
-    def series_table(
-        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
-    ) -> pl.DataFrame | None:
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame | None:
         """1NF long-format series this calculator publishes, None when it publishes none."""
         return None
 
@@ -185,9 +162,7 @@ class BaseMetricCalculator(ABC):
         """Raw native-rate topic frames keyed by topic name; {} when absent."""
         return episode.topics if isinstance(episode.topics, dict) else {}
 
-    def series_frame(
-        self, episode: AlignedEpisodeBundle, stem: str
-    ) -> pl.DataFrame | None:
+    def series_frame(self, episode: AlignedEpisodeBundle, stem: str) -> pl.DataFrame | None:
         """The episode's published 1NF series frame for `stem`, None when it is absent or empty."""
         frame = episode.series.get(stem)
         if frame is None or frame.height == 0:
@@ -203,9 +178,7 @@ class BaseMetricCalculator(ABC):
         del episode
         return {}
 
-    def resolve_native_pose(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def resolve_native_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Ground-truth robot pose on the native clock: (x, y, yaw, t_ns) float64 arrays, empty without ground truth.
 
         The robot's /tf track is the only trajectory source; wheel odometry never stands in for it.
@@ -302,9 +275,7 @@ class BaseMetricCalculator(ABC):
         return speed
 
     @staticmethod
-    def velocity_from_pose(
-        x: np.ndarray, y: np.ndarray, t_ns: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def velocity_from_pose(x: np.ndarray, y: np.ndarray, t_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """GT velocity vector (m/s) by finite-differencing GT positions; NaN where no step has a positive duration."""
         n = len(x)
         vx = np.full(n, np.nan)
@@ -322,9 +293,7 @@ class BaseMetricCalculator(ABC):
         return [metric.name for metric in cls.OUTPUTS]
 
     @abstractmethod
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Calculate metrics for a single episode."""
         pass
 

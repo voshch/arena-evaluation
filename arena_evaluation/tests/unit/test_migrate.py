@@ -50,9 +50,7 @@ _OLD_METADATA = {
 }
 
 
-def _write_recording(
-    path: pathlib.Path, records: list[tuple[str, tuple[str, str], dict, int]]
-) -> pathlib.Path:
+def _write_recording(path: pathlib.Path, records: list[tuple[str, tuple[str, str], dict, int]]) -> pathlib.Path:
     with path.open("wb") as handle:
         writer = Writer(handle)
         schemas: dict[tuple[str, str], int] = {}
@@ -83,9 +81,7 @@ def _phase(topic: str, log_time: int) -> tuple[str, tuple[str, str], dict, int]:
     return (topic, STRING, {"data": "ramp_up"}, log_time)
 
 
-def _transform(
-    parent: str, child: str, log_time: int
-) -> tuple[str, tuple[str, str], dict, int]:
+def _transform(parent: str, child: str, log_time: int) -> tuple[str, tuple[str, str], dict, int]:
     transform = {
         "header": {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": parent},
         "child_frame_id": child,
@@ -100,9 +96,7 @@ def _transform(
 def test_the_environment_falls_back_to_the_transform_frames_when_no_topic_names_one(
     tmp_path: pathlib.Path,
 ) -> None:
-    episode = _old_episode(
-        tmp_path, [_transform("env_0/map", "env_0/jackal/base_link", SEC)]
-    )
+    episode = _old_episode(tmp_path, [_transform("env_0/map", "env_0/jackal/base_link", SEC)])
 
     migrate_episode(episode)
 
@@ -115,9 +109,7 @@ def test_a_recording_that_names_no_environment_is_refused(
 ) -> None:
     episode = _old_episode(tmp_path, [("/odom", STRING, {"data": "bare"}, SEC)])
 
-    with pytest.raises(
-        MigrationError, match="no topic or transform frame names an environment"
-    ):
+    with pytest.raises(MigrationError, match="no topic or transform frame names an environment"):
         migrate_episode(episode)
     assert not (episode / "topics").exists()
 
@@ -138,15 +130,9 @@ def test_a_recording_that_names_two_environments_is_refused(
 
 
 def test_metadata_without_task_modes_is_refused(tmp_path: pathlib.Path) -> None:
-    metadata = {
-        key: value for key, value in _OLD_METADATA.items() if not key.startswith("tm_")
-    }
-    episode = _old_episode(
-        tmp_path, [_phase("/env_0/jackal/characterization_phase", SEC)], metadata
-    )
+    metadata = {key: value for key, value in _OLD_METADATA.items() if not key.startswith("tm_")}
+    episode = _old_episode(tmp_path, [_phase("/env_0/jackal/characterization_phase", SEC)], metadata)
 
     with pytest.raises(MigrationError, match="neither modes nor the tm_\\* fields"):
         migrate_episode(episode)
-    assert (episode / "episode_000.yaml").read_text(encoding="utf-8") == yaml.safe_dump(
-        metadata
-    )
+    assert (episode / "episode_000.yaml").read_text(encoding="utf-8") == yaml.safe_dump(metadata)

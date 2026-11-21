@@ -122,9 +122,7 @@ PSYCHOACOUSTIC_YIELDING_COST = define_metric(
 )
 
 
-def mutual_accommodation_ratio(
-    robot_excess_m: float, pedestrian_excess_m: float
-) -> float | None:
+def mutual_accommodation_ratio(robot_excess_m: float, pedestrian_excess_m: float) -> float | None:
     """Robot excess over the summed excesses, each floored at zero; None when neither agent deviated."""
     robot = max(robot_excess_m, 0.0)
     pedestrian = max(pedestrian_excess_m, 0.0)
@@ -165,9 +163,7 @@ def _outside(t_ns: np.ndarray, spans: Sequence[tuple[int, int]]) -> np.ndarray:
     return ~inside
 
 
-def _pair_speeds(
-    t_ns: np.ndarray, x: np.ndarray, y: np.ndarray, free: np.ndarray
-) -> np.ndarray:
+def _pair_speeds(t_ns: np.ndarray, x: np.ndarray, y: np.ndarray, free: np.ndarray) -> np.ndarray:
     """Speeds (m/s) of consecutive sample pairs whose two samples are both free."""
     dt_s = np.diff(t_ns).astype(np.float64) / NS_PER_S
     distance_m = np.hypot(np.diff(x), np.diff(y))
@@ -188,9 +184,7 @@ def _power_samples(
     if table is None or table.height == 0:
         return None
     ordered = table.sort("t_ns")
-    return ordered["t_ns"].to_numpy().astype(np.float64), ordered[
-        "total_power_w"
-    ].to_numpy().astype(np.float64)
+    return ordered["t_ns"].to_numpy().astype(np.float64), ordered["total_power_w"].to_numpy().astype(np.float64)
 
 
 def _speed_between(trajectory: Trajectory2D, first: int, second: int) -> float:
@@ -208,9 +202,7 @@ def _deceleration_mps2(pedestrian_window: Trajectory2D) -> float | None:
     """Speed lost between the window's entry and exit, per second of window."""
     if len(pedestrian_window.t_ns) < 3:
         return None
-    duration_s = (
-        float(pedestrian_window.t_ns[-1] - pedestrian_window.t_ns[0]) / NS_PER_S
-    )
+    duration_s = float(pedestrian_window.t_ns[-1] - pedestrian_window.t_ns[0]) / NS_PER_S
     if duration_s <= 0.0:
         return None
     entry_speed = _speed_between(pedestrian_window, 0, 1)
@@ -218,22 +210,16 @@ def _deceleration_mps2(pedestrian_window: Trajectory2D) -> float | None:
     return max(0.0, entry_speed - exit_speed) / duration_s
 
 
-def _intimate_dwell_s(
-    robot_window: Trajectory2D, track: PedTrack, robot_radius_m: float
-) -> float | None:
+def _intimate_dwell_s(robot_window: Trajectory2D, track: PedTrack, robot_radius_m: float) -> float | None:
     if track.radius_m is None or not np.isfinite(track.radius_m):
         return None
     on_robot_times = track.trajectory.resample_onto(robot_window.t_ns)
-    clearance_m = np.hypot(
-        on_robot_times.x - robot_window.x, on_robot_times.y - robot_window.y
-    ) - (robot_radius_m + float(track.radius_m))
+    clearance_m = np.hypot(on_robot_times.x - robot_window.x, on_robot_times.y - robot_window.y) - (robot_radius_m + float(track.radius_m))
     dt_s = np.diff(robot_window.t_ns).astype(np.float64) / NS_PER_S
     return float(np.sum(dt_s[clearance_m[:-1] < INTIMATE_ZONE_M]))
 
 
-def _planned(
-    grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray
-) -> RouteResult:
+def _planned(grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray) -> RouteResult:
     if grid is None:
         return RouteResult(points=None, length_m=None, null_reason="no_map")
     return plan_route(
@@ -269,9 +255,7 @@ def _encounter_outputs(
     t_start_ns, t_end_ns = window_ns
     robot_window = robot.slice_ns(t_start_ns, t_end_ns)
     pedestrian_window = track.trajectory.slice_ns(t_start_ns, t_end_ns)
-    outputs: dict[str, Any] = {
-        metric.name: None for metric in EncounterCostsCalculator.OUTPUTS
-    }
+    outputs: dict[str, Any] = {metric.name: None for metric in EncounterCostsCalculator.OUTPUTS}
     reasons: dict[str, str] = {}
     if len(robot_window.t_ns) < 2 or len(pedestrian_window.t_ns) < 2:
         reasons = {name: NullReason.NO_SAMPLES.value for name in outputs}
@@ -283,9 +267,7 @@ def _encounter_outputs(
         robot_window.xy[-1],
     )
     if track.radius_m is None or not np.isfinite(track.radius_m):
-        ped_route = RouteResult(
-            points=None, length_m=None, null_reason=NullReason.NOT_RECORDED.value
-        )
+        ped_route = RouteResult(points=None, length_m=None, null_reason=NullReason.NOT_RECORDED.value)
     else:
         ped_route = _planned(
             grid_for_map(map_name, run_dir, float(track.radius_m)),
@@ -295,35 +277,22 @@ def _encounter_outputs(
 
     robot_excess_m: float | None = None
     if robot_route.points is not None and robot_route.length_m is not None:
-        robot_excess_m = (
-            _polyline_length(robot_window.x, robot_window.y) - robot_route.length_m
-        )
+        robot_excess_m = _polyline_length(robot_window.x, robot_window.y) - robot_route.length_m
         outputs["robot_path_excess_m"] = robot_excess_m
-        outputs["robot_path_deviation_vs_planned_m"] = max_orthogonal_deviation_m(
-            robot_window.xy, robot_route.points
-        )
+        outputs["robot_path_deviation_vs_planned_m"] = max_orthogonal_deviation_m(robot_window.xy, robot_route.points)
     else:
         reasons["robot_path_excess_m"] = _refusal(robot_route)
         reasons["robot_path_deviation_vs_planned_m"] = _refusal(robot_route)
 
     ped_excess_m: float | None = None
     if ped_route.points is not None and ped_route.length_m is not None:
-        ped_excess_m = (
-            _polyline_length(pedestrian_window.x, pedestrian_window.y)
-            - ped_route.length_m
-        )
+        ped_excess_m = _polyline_length(pedestrian_window.x, pedestrian_window.y) - ped_route.length_m
         outputs["ped_path_excess_m"] = ped_excess_m
     else:
         reasons["ped_path_excess_m"] = _refusal(ped_route)
 
-    own_spans = [
-        (start_ns, end_ns)
-        for ped_id, start_ns, end_ns in spans
-        if str(ped_id) == str(track.ped_id)
-    ]
-    free_speeds = _pair_speeds(
-        track.t_ns, track.x, track.y, _outside(track.t_ns, own_spans)
-    )
+    own_spans = [(start_ns, end_ns) for ped_id, start_ns, end_ns in spans if str(ped_id) == str(track.ped_id)]
+    free_speeds = _pair_speeds(track.t_ns, track.x, track.y, _outside(track.t_ns, own_spans))
     free_speed_mps = float(np.median(free_speeds)) if free_speeds.size else 0.0
     duration_s = (t_end_ns - t_start_ns) / NS_PER_S
     if ped_route.length_m is None:
@@ -364,9 +333,7 @@ def _psychoacoustic_yielding_cost(
         reasons["psychoacoustic_yielding_cost"] = _refusal(ped_route)
         return None
     if acoustic_exposure is None:
-        reasons["psychoacoustic_yielding_cost"] = (
-            f"{NullReason.TOPIC_MISSING.value}:acoustic_exposure"
-        )
+        reasons["psychoacoustic_yielding_cost"] = f"{NullReason.TOPIC_MISSING.value}:acoustic_exposure"
         return None
     if len(pedestrian_window.t_ns) < 2:
         reasons["psychoacoustic_yielding_cost"] = NullReason.NO_SAMPLES.value
@@ -375,9 +342,7 @@ def _psychoacoustic_yielding_cost(
     if ac_t_ns.size == 0:
         reasons["psychoacoustic_yielding_cost"] = NullReason.NO_SAMPLES.value
         return None
-    levels = interpolate_values(
-        ac_t_ns, ac_dba, pedestrian_window.t_ns.astype(np.float64)
-    )
+    levels = interpolate_values(ac_t_ns, ac_dba, pedestrian_window.t_ns.astype(np.float64))
     deviations = orthogonal_distances_m(pedestrian_window.xy, ped_route.points)
     dt_s = np.diff(pedestrian_window.t_ns).astype(np.float64) / NS_PER_S
     weights = np.log10(np.maximum(levels[:-1], 1.0))
@@ -408,11 +373,7 @@ def _populate_interaction_costs(
         if mar is None:
             reasons["mar_vs_planned_route"] = NullReason.ZERO_DENOMINATOR.value
     else:
-        reasons["mar_vs_planned_route"] = (
-            reasons.get("ped_path_excess_m")
-            or reasons.get("robot_path_excess_m")
-            or NullReason.NO_SAMPLES.value
-        )
+        reasons["mar_vs_planned_route"] = reasons.get("ped_path_excess_m") or reasons.get("robot_path_excess_m") or NullReason.NO_SAMPLES.value
 
     dwell_s = _intimate_dwell_s(robot_window, track, robot_radius_m)
     deceleration = _deceleration_mps2(pedestrian_window)
@@ -451,13 +412,9 @@ def _populate_interaction_costs(
                 outputs["kcsc_wh_vs_planned_route"] = max(delta_wh, 0.0)
                 outputs["ecsi_j"] = delta_wh * JOULES_PER_WH
             else:
-                reasons["ecsi_j"] = reasons.get(
-                    "kcsc_wh_vs_planned_route", NullReason.NO_SAMPLES.value
-                )
+                reasons["ecsi_j"] = reasons.get("kcsc_wh_vs_planned_route", NullReason.NO_SAMPLES.value)
 
-    outputs["psychoacoustic_yielding_cost"] = _psychoacoustic_yielding_cost(
-        pedestrian_window, ped_route, acoustic_exposure, reasons
-    )
+    outputs["psychoacoustic_yielding_cost"] = _psychoacoustic_yielding_cost(pedestrian_window, ped_route, acoustic_exposure, reasons)
 
 
 def _window_energy_wh(
@@ -470,14 +427,10 @@ def _window_energy_wh(
     window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
     if not np.any(window_pairs):
         return None
-    used_t_ns = np.concatenate(
-        [robot.t_ns[:-1][window_pairs], robot.t_ns[1:][window_pairs]]
-    )
+    used_t_ns = np.concatenate([robot.t_ns[:-1][window_pairs], robot.t_ns[1:][window_pairs]])
     if used_t_ns.min() < power_t_ns[0] or used_t_ns.max() > power_t_ns[-1]:
         return None
-    robot_power_w = interpolate_values(
-        power_t_ns, power_values, robot.t_ns.astype(np.float64)
-    )
+    robot_power_w = interpolate_values(power_t_ns, power_values, robot.t_ns.astype(np.float64))
     return _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
 
 
@@ -496,26 +449,16 @@ def _robot_excess_energy_wh(
     free_pairs = free[:-1] & free[1:]
     window_pairs = (robot.t_ns[:-1] >= window_ns[0]) & (robot.t_ns[1:] <= window_ns[1])
     used_pairs = free_pairs | window_pairs
-    used_t_ns = np.concatenate(
-        [robot.t_ns[:-1][used_pairs], robot.t_ns[1:][used_pairs]]
-    )
-    if used_t_ns.size and (
-        used_t_ns.min() < power_t_ns[0] or used_t_ns.max() > power_t_ns[-1]
-    ):
+    used_t_ns = np.concatenate([robot.t_ns[:-1][used_pairs], robot.t_ns[1:][used_pairs]])
+    if used_t_ns.size and (used_t_ns.min() < power_t_ns[0] or used_t_ns.max() > power_t_ns[-1]):
         reasons["kcsc_wh_vs_planned_route"] = NullReason.NO_SAMPLES.value
         return None
-    robot_power_w = interpolate_values(
-        power_t_ns, power_values, robot.t_ns.astype(np.float64)
-    )
-    free_distance_m = float(
-        np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs])
-    )
+    robot_power_w = interpolate_values(power_t_ns, power_values, robot.t_ns.astype(np.float64))
+    free_distance_m = float(np.sum(np.hypot(np.diff(robot.x), np.diff(robot.y))[free_pairs]))
     if free_distance_m <= 0.0:
         reasons["kcsc_wh_vs_planned_route"] = NullReason.NO_SAMPLES.value
         return None
-    energy_per_m_wh = (
-        _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
-    )
+    energy_per_m_wh = _pair_energy_wh(robot.t_ns, robot_power_w, free_pairs) / free_distance_m
     window_energy_wh = _pair_energy_wh(robot.t_ns, robot_power_w, window_pairs)
     return window_energy_wh - energy_per_m_wh * planned_length_m
 
@@ -572,14 +515,10 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         """Every published output key mapped to None, optionally with one shared null reason."""
         output: dict[str, Any] = {metric.name: None for metric in cls.OUTPUTS}
         if null_reason is not None:
-            output.update(
-                {f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output}
-            )
+            output.update({f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output})
         return output
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, Any]
-    ) -> dict[str, Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, Any]) -> dict[str, Any]:
         """Encounter scope only: the episode as a whole carries no encounter costs."""
         del episode, prior_results
         return self._null_output()
@@ -594,15 +533,10 @@ class EncounterCostsCalculator(BaseMetricCalculator):
         del prior_results
         if scope_slice is None or scope_slice.scope != MetricScope.ENCOUNTER:
             return self._null_output()
-        if (
-            str(scope_slice.identity.get("actor_2_kind", "pedestrian")).lower()
-            != "pedestrian"
-        ):
+        if str(scope_slice.identity.get("actor_2_kind", "pedestrian")).lower() != "pedestrian":
             return self._null_output(NullReason.NOT_APPLICABLE.value)
         robot, _ = resolve_robot_trajectory(self, episode)
-        track = resolve_ped_track(
-            extract_episode_ped_tracks(episode), scope_slice.identity.get("actor_2")
-        )
+        track = resolve_ped_track(extract_episode_ped_tracks(episode), scope_slice.identity.get("actor_2"))
         if track is None or len(robot.t_ns) < 2:
             return self._null_output()
         spans = pedestrian_encounter_spans(

@@ -57,9 +57,7 @@ def test_status_transition_matrix(run_dir, start, target, allowed):
         assert evaluation_findings(RUN_ID).findings[0].status.value == start
         return
 
-    moved = evaluation_finding_status(
-        RUN_ID, finding.finding_id, target, by="verifier", note="checked"
-    )
+    moved = evaluation_finding_status(RUN_ID, finding.finding_id, target, by="verifier", note="checked")
     assert moved.status.value == target
     assert moved.note == "checked"
     assert evaluation_findings(RUN_ID).findings[0].status.value == target
@@ -88,9 +86,7 @@ def test_attach_needs_a_verified_finding(run_dir):
 
     evaluation_finding_verify(RUN_ID, finding.finding_id)
     evaluation_finding_status(RUN_ID, finding.finding_id, "verified", by="verifier")
-    attached = evaluation_finding_attach(
-        RUN_ID, finding.finding_id, report="report.html"
-    )
+    attached = evaluation_finding_attach(RUN_ID, finding.finding_id, report="report.html")
     assert attached.finding.status is FindingStatus.VERIFIED
     assert attached.finding.report == "report.html"
 
@@ -99,16 +95,12 @@ def test_two_concurrent_appenders_lose_nothing(run_dir):
     claims = [f"concurrent claim {index}" for index in range(16)]
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        created = list(
-            pool.map(lambda claim: evaluation_finding_create(RUN_ID, claim), claims)
-        )
+        created = list(pool.map(lambda claim: evaluation_finding_create(RUN_ID, claim), claims))
 
     stored = evaluation_findings(RUN_ID).findings
     assert sorted(finding.claim for finding in stored) == sorted(claims)
     assert len({finding.finding_id for finding in stored}) == len(claims)
-    assert sorted(finding.finding_id for finding in created) == sorted(
-        finding.finding_id for finding in stored
-    )
+    assert sorted(finding.finding_id for finding in created) == sorted(finding.finding_id for finding in stored)
 
 
 def test_creating_a_finding_writes_analysis_dir_and_locks(run_dir):

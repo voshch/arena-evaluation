@@ -47,9 +47,7 @@ _LEGACY_MODE_PREFIX = "tm_"
 # Keys a stage carries that are not fields of Suite.Stage: they are parsed separately.
 _STAGE_EXTRA_KEYS = ("timeout", "timeout_peds", "optim")
 
-_SUITE_KEYS = frozenset(
-    {"name", "stages", "launch", "references", "metrics", "task_layer"}
-)
+_SUITE_KEYS = frozenset({"name", "stages", "launch", "references", "metrics", "task_layer"})
 
 _log = logging.getLogger(__name__)
 
@@ -88,10 +86,7 @@ def _expand_modes(obj: dict, layer: TaskLayer) -> dict:
 
 def stage_modes(stage: Suite.Stage, vocabulary: TaskModes) -> TaskModes:
     """The mode names the stage selects on every axis of the vocabulary, empty for an axis it leaves out."""
-    return {
-        axis: [name for name in stage.modes.get(axis, "").split(",") if name]
-        for axis in vocabulary
-    }
+    return {axis: [name for name in stage.modes.get(axis, "").split(",") if name] for axis in vocabulary}
 
 
 def _launch_value(key: str, value: object) -> str:
@@ -102,9 +97,7 @@ def _launch_value(key: str, value: object) -> str:
         return str(value)
     if isinstance(value, str):
         return value
-    raise ValueError(
-        f"suite launch: {key!r} must be a bool, number or string, got {type(value).__name__}"
-    )
+    raise ValueError(f"suite launch: {key!r} must be a bool, number or string, got {type(value).__name__}")
 
 
 class Suite(typing.NamedTuple):
@@ -132,11 +125,7 @@ class Suite(typing.NamedTuple):
     @staticmethod
     def _parse_launch(obj: dict) -> dict[str, str]:
         launch = {str(k): _launch_value(str(k), v) for k, v in obj.items()}
-        owned = [
-            k
-            for k in launch
-            if k in _STAGE_OWNED_KEYS or k.startswith(_STAGE_OWNED_PREFIXES)
-        ]
+        owned = [k for k in launch if k in _STAGE_OWNED_KEYS or k.startswith(_STAGE_OWNED_PREFIXES)]
         if owned:
             raise ValueError(f"suite launch: {owned} are set per stage, not suite-wide")
         return launch
@@ -145,9 +134,7 @@ class Suite(typing.NamedTuple):
     def _parse_metrics(obj: dict) -> dict[str, typing.Any]:
         unknown = sorted(set(obj) - _SUITE_METRIC_KEYS)
         if unknown:
-            raise ValueError(
-                f"suite metrics: unknown keys {unknown}, known: {sorted(_SUITE_METRIC_KEYS)}"
-            )
+            raise ValueError(f"suite metrics: unknown keys {unknown}, known: {sorted(_SUITE_METRIC_KEYS)}")
         metrics: dict[str, typing.Any] = {}
         if "max_collisions" in obj:
             v = int(obj["max_collisions"])
@@ -184,19 +171,9 @@ class Suite(typing.NamedTuple):
         def parse(cls, obj: dict, layer: TaskLayer | None = None) -> Suite.Stage:
             obj = _expand_modes(obj, _layer() if layer is None else layer)
             obj.setdefault("config", {})
-            raw_timeout, raw_timeout_peds, optim = (
-                obj.pop(key, None) for key in _STAGE_EXTRA_KEYS
-            )
-            timeout_f = (
-                _DEFAULT_TIMEOUT_S
-                if raw_timeout is None
-                else _parse_duration(str(raw_timeout))
-            )
-            timeout_peds_f = (
-                _parse_duration(str(raw_timeout_peds))
-                if raw_timeout_peds is not None
-                else None
-            )
+            raw_timeout, raw_timeout_peds, optim = (obj.pop(key, None) for key in _STAGE_EXTRA_KEYS)
+            timeout_f = _DEFAULT_TIMEOUT_S if raw_timeout is None else _parse_duration(str(raw_timeout))
+            timeout_peds_f = _parse_duration(str(raw_timeout_peds)) if raw_timeout_peds is not None else None
             modes = obj.pop("modes", {})
             obj.setdefault("seed", None)
             return cls(
@@ -227,27 +204,16 @@ def robot_with_parts(robot: str, parts: typing.Mapping[str, str]) -> str:
     entries = []
     for entry in split_robot_arg(robot):
         model, _, body = entry.partition("[")
-        kept = [
-            item
-            for item in split_robot_arg(body.rpartition("]")[0])
-            if item.partition("=")[0].strip() not in parts
-        ]
-        entries.append(
-            f"{model.strip()}[{','.join([*kept, *(f'{k}={v}' for k, v in parts.items())])}]"
-        )
+        kept = [item for item in split_robot_arg(body.rpartition("]")[0]) if item.partition("=")[0].strip() not in parts]
+        entries.append(f"{model.strip()}[{','.join([*kept, *(f'{k}={v}' for k, v in parts.items())])}]")
     return ",".join(entries)
 
 
 def _parse_parts(name: str, obj: object) -> dict[str, str]:
     if obj is None:
         return {}
-    if not isinstance(obj, dict) or not all(
-        isinstance(v, (str, int, float)) and not isinstance(v, bool)
-        for v in obj.values()
-    ):
-        raise ValueError(
-            f"contestant {name!r}: parts must map a part key to one value, e.g. {{camera: vln_rgbd}}, got {obj!r}"
-        )
+    if not isinstance(obj, dict) or not all(isinstance(v, (str, int, float)) and not isinstance(v, bool) for v in obj.values()):
+        raise ValueError(f"contestant {name!r}: parts must map a part key to one value, e.g. {{camera: vln_rgbd}}, got {obj!r}")
     return {str(k): str(v) for k, v in obj.items()}
 
 
@@ -332,11 +298,7 @@ class Contest:
         else:
             combos = [()]
 
-        varying_idx = [
-            i
-            for i, (_, _, vs) in enumerate(axes)
-            if len({_yamlable(v) for v in vs}) > 1
-        ]
+        varying_idx = [i for i, (_, _, vs) in enumerate(axes) if len({_yamlable(v) for v in vs}) > 1]
 
         contestants = []
         for combo in combos:
@@ -358,9 +320,7 @@ class Contest:
             else:
                 derived = "single"
             entry_name = f"{prefix}-{derived}" if prefix else derived
-            contestants.append(
-                Contestant(name=entry_name, args=args, parts=robot_parts)
-            )
+            contestants.append(Contestant(name=entry_name, args=args, parts=robot_parts))
 
         cls._reject_duplicate_names(contestants)
         return cls(name=name, description=description, contestants=contestants)

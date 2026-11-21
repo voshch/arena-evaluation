@@ -19,9 +19,7 @@ SKIPPED_OUTCOME = 4
 
 def _tracks(xs: list[float], ys: list[float] | None = None) -> pl.DataFrame:
     ys = [0.0] * len(xs) if ys is None else ys
-    return pl.DataFrame(
-        {"t_ns": [i * NS_PER_TICK for i in range(len(xs))], "x": xs, "y": ys}
-    )
+    return pl.DataFrame({"t_ns": [i * NS_PER_TICK for i in range(len(xs))], "x": xs, "y": ys})
 
 
 @pytest.mark.parametrize(
@@ -32,18 +30,12 @@ def _tracks(xs: list[float], ys: list[float] | None = None) -> pl.DataFrame:
         (None, "incomplete_recording"),
     ],
 )
-def test_an_outcome_that_is_not_terminal_and_rankable_is_refused(
-    outcome_state: int | None, why: str
-) -> None:
-    assert episode_validity(
-        robot_tracks=_tracks([0.0, 0.1]), outcome_state=outcome_state, integrity=()
-    ) == (False, invalid_episode(why))
+def test_an_outcome_that_is_not_terminal_and_rankable_is_refused(outcome_state: int | None, why: str) -> None:
+    assert episode_validity(robot_tracks=_tracks([0.0, 0.1]), outcome_state=outcome_state, integrity=()) == (False, invalid_episode(why))
 
 
 def test_every_defect_is_listed_once() -> None:
-    _, reason = episode_validity(
-        robot_tracks=None, outcome_state=None, integrity=("gap",)
-    )
+    _, reason = episode_validity(robot_tracks=None, outcome_state=None, integrity=("gap",))
 
     assert reason == ";".join(
         dict.fromkeys(

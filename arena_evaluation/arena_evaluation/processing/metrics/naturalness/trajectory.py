@@ -149,9 +149,7 @@ def _path_irregularity(
     return float((np.sum(np.abs(delta_yaw)) - np.abs(rotation_to_target)) / length_m)
 
 
-def _topological_complexity(
-    peds_df: pl.DataFrame | None, pos_x: np.ndarray, pos_y: np.ndarray, t_ns: np.ndarray
-) -> float | None:
+def _topological_complexity(peds_df: pl.DataFrame | None, pos_x: np.ndarray, pos_y: np.ndarray, t_ns: np.ndarray) -> float | None:
     """Total absolute net winding of every pedestrian around the robot's path."""
     if peds_df is None or len(peds_df) == 0 or len(pos_x) < 2 or len(t_ns) < 2:
         return None
@@ -159,28 +157,13 @@ def _topological_complexity(
     if not required <= set(peds_df.columns):
         return None
     robot = pl.LazyFrame({"t_ns": t_ns, "rx": pos_x, "ry": pos_y}).sort("t_ns")
-    pedestrians = (
-        peds_df.lazy()
-        .select("t_ns", "ped_id", "x", "y")
-        .drop_nulls(["t_ns", "ped_id", "x", "y"])
-        .sort("t_ns")
-    )
+    pedestrians = peds_df.lazy().select("t_ns", "ped_id", "x", "y").drop_nulls(["t_ns", "ped_id", "x", "y"]).sort("t_ns")
     rel_x = pl.col("rx") - pl.col("x")
     rel_y = pl.col("ry") - pl.col("y")
     angle = pl.arctan2(rel_y, rel_x)
     delta_angle = angle.diff().over("ped_id")
     wrapped = ((delta_angle + pl.lit(np.pi)) % pl.lit(_TWO_PI)) - pl.lit(np.pi)
-    winding = (
-        asof_join(pedestrians, robot, tolerance_ns=None)
-        .with_columns(wrapped_d_angle=wrapped)
-        .group_by("ped_id")
-        .agg(
-            net_winding=pl.col("wrapped_d_angle").drop_nulls().sum().abs()
-            / pl.lit(_TWO_PI)
-        )
-        .select(total_winding=pl.col("net_winding").sum())
-        .collect()
-    )
+    winding = asof_join(pedestrians, robot, tolerance_ns=None).with_columns(wrapped_d_angle=wrapped).group_by("ped_id").agg(net_winding=pl.col("wrapped_d_angle").drop_nulls().sum().abs() / pl.lit(_TWO_PI)).select(total_winding=pl.col("net_winding").sum()).collect()
     if len(winding) == 0 or winding["total_winding"][0] is None:
         return None
     return float(winding["total_winding"][0])
@@ -224,9 +207,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["ade", "fde", "mhd", "frechet_distance"]
 
-    def _episode_pose(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _episode_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Ground-truth pose of the episode on the native /tf clock, falling back to the aligned ground-truth segment."""
         pos_x, pos_y, yaw, t_ns = self.resolve_native_pose(episode)
         if len(pos_x) > 0:
@@ -234,23 +215,15 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         if episode.data is None or len(episode.data) == 0:
             empty = np.array([])
             return empty, empty, empty, np.array([], dtype=np.int64)
-        pos_x, pos_y, yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(
-            episode
-        )
+        pos_x, pos_y, yaw, _odom_x, _odom_y, _odom_yaw = self.resolve_robot_pose(episode)
         t_ns = episode.data["t_ns"].to_numpy().astype(np.int64)
         return pos_x, pos_y, yaw, t_ns
 
     @staticmethod
     def _goal_point(episode: AlignedEpisodeBundle) -> tuple[float, float] | None:
-        return (
-            (float(episode.goal_pos[0]), float(episode.goal_pos[1]))
-            if episode.goal_pos and len(episode.goal_pos) >= 2
-            else None
-        )
+        return (float(episode.goal_pos[0]), float(episode.goal_pos[1])) if episode.goal_pos and len(episode.goal_pos) >= 2 else None
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         pos_x, pos_y, yaw, t_ns = self._episode_pose(episode)
         if len(pos_x) == 0:
@@ -259,20 +232,14 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         goal_pt = self._goal_point(episode)
         results: dict[str, typing.Any] = {key: None for key in self.output_keys()}
         results["path_irregularity"] = _path_irregularity(pos_x, pos_y, yaw, goal_pt)
-        results["topological_complexity"] = _topological_complexity(
-            self.native_ped_frame(episode), pos_x, pos_y, t_ns
-        )
+        results["topological_complexity"] = _topological_complexity(self.native_ped_frame(episode), pos_x, pos_y, t_ns)
 
         if goal_pt is None:
             return results
         start_pt = (float(pos_x[0]), float(pos_y[0]))
-        results["fde"] = float(
-            np.sqrt((pos_x[-1] - goal_pt[0]) ** 2 + (pos_y[-1] - goal_pt[1]) ** 2)
-        )
+        results["fde"] = float(np.sqrt((pos_x[-1] - goal_pt[0]) ** 2 + (pos_y[-1] - goal_pt[1]) ** 2))
         try:
-            grid = grid_for_map(
-                episode.map, episode.run_dir, self.robot_params.robot_radius
-            )
+            grid = grid_for_map(episode.map, episode.run_dir, self.robot_params.robot_radius)
         except FileNotFoundError:
             # The world asset is not on disk: the grid outputs were never measurable, the pose ones still are.
             for key in _GRID_OUTPUTS:
@@ -295,9 +262,7 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         return results
 
     @staticmethod
-    def _reference_metrics(
-        pos_x: np.ndarray, pos_y: np.ndarray, reference_path: np.ndarray
-    ) -> dict[str, float | None]:
+    def _reference_metrics(pos_x: np.ndarray, pos_y: np.ndarray, reference_path: np.ndarray) -> dict[str, float | None]:
         """ADE/MHD/Frechet/DTW against the geometric Theta* reference path."""
         ref_x, ref_y = reference_path[:, 0], reference_path[:, 1]
         metrics: dict[str, float | None] = {
@@ -307,55 +272,31 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
             "adtw": None,
         }
 
-        current_distance = np.insert(
-            np.cumsum(np.sqrt(np.diff(pos_x) ** 2 + np.diff(pos_y) ** 2)), 0, 0
-        )
-        reference_distance = np.insert(
-            np.cumsum(np.sqrt(np.diff(ref_x) ** 2 + np.diff(ref_y) ** 2)), 0, 0
-        )
+        current_distance = np.insert(np.cumsum(np.sqrt(np.diff(pos_x) ** 2 + np.diff(pos_y) ** 2)), 0, 0)
+        reference_distance = np.insert(np.cumsum(np.sqrt(np.diff(ref_x) ** 2 + np.diff(ref_y) ** 2)), 0, 0)
         if current_distance[-1] > 0 and reference_distance[-1] > 0:
             current_fraction = current_distance / current_distance[-1]
             reference_fraction = reference_distance / reference_distance[-1]
-            interpolated_x = interpolate_values(
-                reference_fraction, ref_x, current_fraction
-            )
-            interpolated_y = interpolate_values(
-                reference_fraction, ref_y, current_fraction
-            )
-            metrics["ade"] = float(
-                np.mean(
-                    np.sqrt(
-                        (pos_x - interpolated_x) ** 2 + (pos_y - interpolated_y) ** 2
-                    )
-                )
-            )
+            interpolated_x = interpolate_values(reference_fraction, ref_x, current_fraction)
+            interpolated_y = interpolate_values(reference_fraction, ref_y, current_fraction)
+            metrics["ade"] = float(np.mean(np.sqrt((pos_x - interpolated_x) ** 2 + (pos_y - interpolated_y) ** 2)))
 
         robot_points = np.column_stack((pos_x, pos_y))
         reference_points = np.column_stack((ref_x, ref_y))
-        metrics["mhd"] = TrajectoryMetricsCalculator._modified_hausdorff(
-            robot_points, reference_points
-        )
+        metrics["mhd"] = TrajectoryMetricsCalculator._modified_hausdorff(robot_points, reference_points)
 
         robot_sample = robot_points
         reference_sample = reference_points
         if len(robot_points) > 1000:
-            robot_sample = robot_points[
-                np.linspace(0, len(robot_points) - 1, 1000, dtype=int)
-            ]
+            robot_sample = robot_points[np.linspace(0, len(robot_points) - 1, 1000, dtype=int)]
         if len(reference_points) > 1000:
-            reference_sample = reference_points[
-                np.linspace(0, len(reference_points) - 1, 1000, dtype=int)
-            ]
+            reference_sample = reference_points[np.linspace(0, len(reference_points) - 1, 1000, dtype=int)]
         metrics["frechet_distance"] = _discrete_frechet(robot_sample, reference_sample)
-        metrics["adtw"] = TrajectoryMetricsCalculator._dtw(
-            robot_sample, reference_sample
-        )
+        metrics["adtw"] = TrajectoryMetricsCalculator._dtw(robot_sample, reference_sample)
         return metrics
 
     @staticmethod
-    def _modified_hausdorff(
-        robot_points: np.ndarray, reference_points: np.ndarray
-    ) -> float:
+    def _modified_hausdorff(robot_points: np.ndarray, reference_points: np.ndarray) -> float:
         """Modified Hausdorff distance between two paths."""
         try:
             from scipy.spatial import cKDTree
@@ -387,6 +328,4 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
             return self.calculate(episode, prior_results)
-        raise ValueError(
-            f"trajectory_naturalness does not serve the {scope_slice.scope.value} scope"
-        )
+        raise ValueError(f"trajectory_naturalness does not serve the {scope_slice.scope.value} scope")

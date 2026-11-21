@@ -42,13 +42,9 @@ class DoorStateTimeline:
             return None
 
         df = semantic
-        missing = {"t_ns", "entity_name", "kind", "field_name", "value_num"} - set(
-            df.columns
-        )
+        missing = {"t_ns", "entity_name", "kind", "field_name", "value_num"} - set(df.columns)
         if missing:
-            raise MetricInputError(
-                f"AcousticExposureCalculator: semantic table lacks columns {sorted(missing)}; re-extract world_semantics for the episode (has {df.columns})"
-            )
+            raise MetricInputError(f"AcousticExposureCalculator: semantic table lacks columns {sorted(missing)}; re-extract world_semantics for the episode (has {df.columns})")
         df = df.filter(pl.col("kind") == "door")
         if len(df) == 0:
             return None
@@ -61,27 +57,14 @@ class DoorStateTimeline:
             how="anti",
         )
         if len(unmeasured) > 0:
-            raise MetricInputError(
-                f"AcousticExposureCalculator: {len(unmeasured)} door readings have no 'progress' row (first {unmeasured.row(0)}); re-extract world_semantics for the episode"
-            )
+            raise MetricInputError(f"AcousticExposureCalculator: {len(unmeasured)} door readings have no 'progress' row (first {unmeasured.row(0)}); re-extract world_semantics for the episode")
 
-        is_open_expr = pl.col("value_num").is_not_nan() & (
-            pl.col("value_num") > open_progress_threshold
-        )
+        is_open_expr = pl.col("value_num").is_not_nan() & (pl.col("value_num") > open_progress_threshold)
         all_timestamps = df.select("t_ns").unique().sort("t_ns")
-        open_by_ts = (
-            progress.filter(is_open_expr)
-            .group_by("t_ns")
-            .agg(pl.col("entity_name").unique().alias("open_doors"))
-        )
-        timeline_df = all_timestamps.join(open_by_ts, on="t_ns", how="left").sort(
-            "t_ns"
-        )
+        open_by_ts = progress.filter(is_open_expr).group_by("t_ns").agg(pl.col("entity_name").unique().alias("open_doors"))
+        timeline_df = all_timestamps.join(open_by_ts, on="t_ns", how="left").sort("t_ns")
         timestamps = timeline_df["t_ns"].to_numpy()
-        open_sets = [
-            frozenset(doors) if doors is not None else frozenset()
-            for doors in timeline_df["open_doors"]
-        ]
+        open_sets = [frozenset(doors) if doors is not None else frozenset() for doors in timeline_df["open_doors"]]
         return cls(timestamps, open_sets)
 
     def open_doors_at(self, t_ns: int) -> frozenset[str]:

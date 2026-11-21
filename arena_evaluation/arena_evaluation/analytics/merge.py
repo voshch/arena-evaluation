@@ -38,18 +38,13 @@ def _labels(raw: object) -> dict[str, str]:
     return {str(key): str(value) for key, value in (raw or {}).items()}
 
 
-def _manifest_source(
-    entry: dict[str, object], benchmarks_root: pathlib.Path
-) -> MergeSource:
+def _manifest_source(entry: dict[str, object], benchmarks_root: pathlib.Path) -> MergeSource:
     """Resolve one manifest entry against the benchmarks root and validate its directory."""
     run_id = str(entry["run_id"])
     stored = pathlib.Path(str(entry["run_dir"]))
     resolved = stored if stored.is_absolute() else benchmarks_root / stored
     if not resolved.is_dir():
-        raise FileNotFoundError(
-            f"Merged benchmark references source run {run_id!r} at {resolved}, which does not "
-            "exist; fix the merge manifest or restore the run"
-        )
+        raise FileNotFoundError(f"Merged benchmark references source run {run_id!r} at {resolved}, which does not exist; fix the merge manifest or restore the run")
     return MergeSource(run_id, str(resolved), _labels(entry.get("labels")))
 
 
@@ -72,9 +67,7 @@ def load_merge_manifest(benchmark_dir: pathlib.Path) -> MergeManifest | None:
     )
 
 
-def _source_record(
-    benchmarks_dir: pathlib.Path, run_id: str, labels: dict[str, dict[str, str]]
-) -> dict[str, object]:
+def _source_record(benchmarks_dir: pathlib.Path, run_id: str, labels: dict[str, dict[str, str]]) -> dict[str, object]:
     """Validate one source run and return its root-relative manifest entry."""
     source_dir = benchmarks_dir / run_id
     if not source_dir.is_dir():
@@ -111,9 +104,7 @@ def create_merged_benchmark(
         yaml.safe_dump(
             {
                 "name": name,
-                "created_at": datetime.datetime.now(datetime.UTC).isoformat(
-                    timespec="seconds"
-                ),
+                "created_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
                 "sources": sources,
             },
             sort_keys=False,

@@ -51,9 +51,7 @@ _PEDESTRIAN_TRACKS_SCHEMA: Final[pl.Schema] = pl.Schema(
     }
 )
 
-_FLEET_POSE_SCHEMA: Final[pl.Schema] = pl.Schema(
-    {"t_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64, "radius_m": pl.Float64}
-)
+_FLEET_POSE_SCHEMA: Final[pl.Schema] = pl.Schema({"t_ns": pl.Int64, "pos_x": pl.Float64, "pos_y": pl.Float64, "radius_m": pl.Float64})
 
 _PAIR_INPUT_SCHEMA: Final[pl.Schema] = pl.Schema(
     {
@@ -126,9 +124,7 @@ _ENCOUNTER_DEFAULTS: Final[dict[str, object]] = {
 }
 
 
-def _build(
-    rows: Sequence[dict[str, object]], defaults: dict[str, object], schema: pl.Schema
-) -> pl.DataFrame:
+def _build(rows: Sequence[dict[str, object]], defaults: dict[str, object], schema: pl.Schema) -> pl.DataFrame:
     return pl.DataFrame([{**defaults, **row} for row in rows], schema=schema)
 
 
@@ -153,23 +149,15 @@ def _pairs_lf(rows: Sequence[dict[str, object]]) -> pl.LazyFrame:
     frame = _build(rows, _PAIR_DEFAULTS, _PAIR_INPUT_SCHEMA)
     return (
         frame.with_columns(
-            distance_m=(
-                (pl.col("actor_x") - pl.col("robot_x")).pow(2)
-                + (pl.col("actor_y") - pl.col("robot_y")).pow(2)
-            ).sqrt(),
+            distance_m=((pl.col("actor_x") - pl.col("robot_x")).pow(2) + (pl.col("actor_y") - pl.col("robot_y")).pow(2)).sqrt(),
         )
-        .with_columns(
-            edge_clearance_m=pl.col("distance_m")
-            - (pl.lit(ROBOT_RADIUS_M) + pl.col("actor_radius_m"))
-        )
+        .with_columns(edge_clearance_m=pl.col("distance_m") - (pl.lit(ROBOT_RADIUS_M) + pl.col("actor_radius_m")))
         .select(PAIR_SCHEMA.names())
         .lazy()
     )
 
 
-def _detect_windows(
-    pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS
-) -> pl.DataFrame:
+def _detect_windows(pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.DataFrame:
     return detect_encounter_windows_lf(pairs, params).collect()
 
 
@@ -191,16 +179,12 @@ def test_pedestrian_pairs_refuse_a_pedestrian_without_a_recorded_radius() -> Non
 
 
 def test_fleet_pairs_empty_fleet_returns_canonical_empty_frame() -> None:
-    pairs = fleet_pairs_lf(
-        _robot_tracks([{"t_ns": 0}]), {}, robot_radius_m=0.4
-    ).collect()
+    pairs = fleet_pairs_lf(_robot_tracks([{"t_ns": 0}]), {}, robot_radius_m=0.4).collect()
 
     assert_frame_equal(pairs, pl.DataFrame(schema=PAIR_SCHEMA))
 
 
-def _pair_frame(
-    edge_clearance_m: Sequence[float], t_s: Sequence[float] | None = None
-) -> pl.LazyFrame:
+def _pair_frame(edge_clearance_m: Sequence[float], t_s: Sequence[float] | None = None) -> pl.LazyFrame:
     """Pair rows with an explicit surface clearance, distance = clearance + the fixture radii."""
     count = len(edge_clearance_m)
     times_s = list(range(count)) if t_s is None else list(t_s)
@@ -222,9 +206,7 @@ def _pair_frame(
             "actor_vx": [0.0] * count,
             "actor_vy": [0.0] * count,
             "actor_radius_m": [ACTOR_RADIUS_M] * count,
-            "distance_m": [
-                clearance + surface_margin_m for clearance in edge_clearance_m
-            ],
+            "distance_m": [clearance + surface_margin_m for clearance in edge_clearance_m],
             "edge_clearance_m": list(edge_clearance_m),
         },
         schema=PAIR_SCHEMA,

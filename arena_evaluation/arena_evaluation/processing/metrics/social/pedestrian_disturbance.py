@@ -60,12 +60,7 @@ def _track_frame(peds: pl.DataFrame) -> pl.DataFrame:
             x_m=pl.col("x").cast(pl.Float64),
             y_m=pl.col("y").cast(pl.Float64),
         )
-        .filter(
-            pl.col("x_m").is_finite()
-            & pl.col("y_m").is_finite()
-            & (pl.col("x_m").abs() < VALID_POSITION_LIMIT_M)
-            & (pl.col("y_m").abs() < VALID_POSITION_LIMIT_M)
-        )
+        .filter(pl.col("x_m").is_finite() & pl.col("y_m").is_finite() & (pl.col("x_m").abs() < VALID_POSITION_LIMIT_M) & (pl.col("y_m").abs() < VALID_POSITION_LIMIT_M))
         .sort("ped_id", "t_ns")
     )
 
@@ -83,29 +78,17 @@ def pedestrian_geometry_frame(peds: pl.DataFrame | None) -> pl.DataFrame:
     chord_x_m = pl.col("x_m").last() - first_x_m
     chord_y_m = pl.col("y_m").last() - first_y_m
     chord_m = (chord_x_m.pow(2) + chord_y_m.pow(2)).sqrt()
-    lateral_m = (
-        (pl.col("x_m") - first_x_m) * (chord_y_m / chord_m)
-        - (pl.col("y_m") - first_y_m) * (chord_x_m / chord_m)
-    ).abs()
+    lateral_m = ((pl.col("x_m") - first_x_m) * (chord_y_m / chord_m) - (pl.col("y_m") - first_y_m) * (chord_x_m / chord_m)).abs()
     return (
         track.group_by("ped_id")
         .agg(
             n_points=pl.len(),
             first_t_ns=pl.col("t_ns").first(),
             last_t_ns=pl.col("t_ns").last(),
-            path_length_m=(pl.col("x_m").diff().pow(2) + pl.col("y_m").diff().pow(2))
-            .sqrt()
-            .sum(),
+            path_length_m=(pl.col("x_m").diff().pow(2) + pl.col("y_m").diff().pow(2)).sqrt().sum(),
             chord_m=chord_m,
-            max_displacement_m=(
-                (pl.col("x_m") - first_x_m).pow(2) + (pl.col("y_m") - first_y_m).pow(2)
-            )
-            .sqrt()
-            .max(),
-            lateral_deviation_m=pl.when(chord_m > DEFLECTION_MIN_CHORD_M)
-            .then(lateral_m.mean())
-            .otherwise(None)
-            .alias("lateral_deviation_m"),
+            max_displacement_m=((pl.col("x_m") - first_x_m).pow(2) + (pl.col("y_m") - first_y_m).pow(2)).sqrt().max(),
+            lateral_deviation_m=pl.when(chord_m > DEFLECTION_MIN_CHORD_M).then(lateral_m.mean()).otherwise(None).alias("lateral_deviation_m"),
         )
         .select(
             "ped_id",
@@ -130,9 +113,7 @@ def desired_speed_mps(peds: pl.DataFrame) -> float | None:
     return float(np.mean(measured)) if measured.size > 0 else None
 
 
-def velocity_delay_value(
-    geometry: pl.DataFrame, duration_s: float | None, desired_speed: float | None = None
-) -> float:
+def velocity_delay_value(geometry: pl.DataFrame, duration_s: float | None, desired_speed: float | None = None) -> float:
     """Relative slowdown of the mean traveled speed against the recorded (or nominal) desired speed; NaN when undefined."""
     if duration_s is None or duration_s <= 0.0:
         return UNDEFINED
@@ -143,11 +124,7 @@ def velocity_delay_value(
     mean_speed_mps = mean_distance_m / duration_s
     if mean_speed_mps <= 0.0:
         return UNDEFINED
-    reference_speed_mps = (
-        desired_speed
-        if desired_speed is not None and desired_speed > 0.0
-        else NOMINAL_DESIRED_SPEED_MPS
-    )
+    reference_speed_mps = desired_speed if desired_speed is not None and desired_speed > 0.0 else NOMINAL_DESIRED_SPEED_MPS
     return max(0.0, 1.0 - mean_speed_mps / reference_speed_mps)
 
 
@@ -164,9 +141,7 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
     DIRECTIONS = {"ped_path_deflection_m": Direction.LOWER}
 
     @staticmethod
-    def _compute_trajectory_deflection(
-        actual_coords: np.ndarray, reference_coords: np.ndarray
-    ) -> float:
+    def _compute_trajectory_deflection(actual_coords: np.ndarray, reference_coords: np.ndarray) -> float:
         """Mean distance of the recorded points to their nearest reference point, NaN when either side has no finite point."""
         if len(actual_coords) == 0 or len(reference_coords) == 0:
             return UNDEFINED
@@ -201,17 +176,10 @@ class PedestrianDisturbanceCalculator(BaseMetricCalculator):
                 "ped_path_deflection_m": UNDEFINED,
                 "ped_velocity_delay_ratio": UNDEFINED,
             }
-        first_ns, last_ns = geometry.select(
-            pl.col("first_t_ns").min(), pl.col("last_t_ns").max()
-        ).row(0)
-        measured = geometry.filter(
-            (pl.col("n_points") >= PEDESTRIAN_MIN_POINTS)
-            & pl.col("lateral_deviation_m").is_not_null()
-        )
+        first_ns, last_ns = geometry.select(pl.col("first_t_ns").min(), pl.col("last_t_ns").max()).row(0)
+        measured = geometry.filter((pl.col("n_points") >= PEDESTRIAN_MIN_POINTS) & pl.col("lateral_deviation_m").is_not_null())
         return {
-            "ped_path_deflection_m": float(measured["lateral_deviation_m"][0])
-            if measured.height == 1
-            else None,
+            "ped_path_deflection_m": float(measured["lateral_deviation_m"][0]) if measured.height == 1 else None,
             "ped_velocity_delay_ratio": round(
                 velocity_delay_value(
                     geometry,

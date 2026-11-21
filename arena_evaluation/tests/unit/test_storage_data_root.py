@@ -15,9 +15,7 @@ from arena_evaluation.storage.data_root import latest_benchmark
 # latest_benchmark
 
 
-def _write_manifest(
-    run_dir: pathlib.Path, *, created_at: str, run_id: str | None = None
-) -> pathlib.Path:
+def _write_manifest(run_dir: pathlib.Path, *, created_at: str, run_id: str | None = None) -> pathlib.Path:
     """Create a run folder with the manifest the runner writes."""
     run_dir.mkdir(parents=True)
     (run_dir / "manifest.yaml").write_text(
@@ -55,14 +53,10 @@ def test_latest_benchmark_reads_an_unquoted_yaml_timestamp(tmp_path: pathlib.Pat
     root.mkdir()
     older = root / "older"
     older.mkdir()
-    (older / "manifest.yaml").write_text(
-        "run_id: older\ncreated_at: 2026-01-01T00:00:00+00:00\n", encoding="utf-8"
-    )
+    (older / "manifest.yaml").write_text("run_id: older\ncreated_at: 2026-01-01T00:00:00+00:00\n", encoding="utf-8")
     newer = root / "newer"
     newer.mkdir()
-    (newer / "manifest.yaml").write_text(
-        "run_id: newer\ncreated_at: 2026-03-01T00:00:00+00:00\n", encoding="utf-8"
-    )
+    (newer / "manifest.yaml").write_text("run_id: newer\ncreated_at: 2026-03-01T00:00:00+00:00\n", encoding="utf-8")
     assert latest_benchmark(root) == newer
 
 
@@ -80,7 +74,5 @@ def test_latest_benchmark_default_root_uses_benchmarks_root(tmp_path: pathlib.Pa
     fake_root = tmp_path / "benchmarks"
     fake_root.mkdir()
     _write_manifest(fake_root / "run_a", created_at="2026-01-01T00:00:00+00:00")
-    newest = _write_manifest(
-        fake_root / "run_b", created_at="2026-02-01T00:00:00+00:00"
-    )
+    newest = _write_manifest(fake_root / "run_b", created_at="2026-02-01T00:00:00+00:00")
     assert latest_benchmark(environ={"ARENA_DATA_DIR": str(tmp_path)}) == newest

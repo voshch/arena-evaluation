@@ -24,9 +24,7 @@ from tf2_msgs.msg import TFMessage
 from arena_evaluation.ingestion.recorder import DataRecorderNode
 from arena_evaluation.processing.telemetry.messages import robot_id_of, topic_parts
 
-_CONVERTER = rosbag2_py.ConverterOptions(
-    input_serialization_format="cdr", output_serialization_format="cdr"
-)
+_CONVERTER = rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr")
 
 
 def _bare_node(
@@ -65,15 +63,10 @@ def _bare_node(
 
 def _mcap_rows(path: pathlib.Path) -> list[tuple[str, bytes, int]]:
     with path.open("rb") as f:
-        return [
-            (channel.topic, message.data, message.log_time)
-            for _, channel, message in make_reader(f).iter_messages()
-        ]
+        return [(channel.topic, message.data, message.log_time) for _, channel, message in make_reader(f).iter_messages()]
 
 
-def _bag(
-    node: DataRecorderNode, uri: pathlib.Path
-) -> Callable[[], list[tuple[str, bytes, int]]]:
+def _bag(node: DataRecorderNode, uri: pathlib.Path) -> Callable[[], list[tuple[str, bytes, int]]]:
     """Point the node at a real writer on uri, returning a closure that closes it and reads the bag back."""
     writer = rosbag2_py.SequentialWriter()
     writer.open(rosbag2_py.StorageOptions(uri=str(uri), storage_id="mcap"), _CONVERTER)
@@ -92,9 +85,7 @@ def _strings(rows: list[tuple[str, bytes, int]]) -> list[tuple[int, str]]:
     return [(ts, deserialize_message(data, String).data) for _, data, ts in rows]
 
 
-def _transform(
-    frame_id: str, child_frame_id: str, x: float, stamp_ns: int
-) -> TransformStamped:
+def _transform(frame_id: str, child_frame_id: str, x: float, stamp_ns: int) -> TransformStamped:
     tf = TransformStamped()
     tf.header.frame_id = frame_id
     tf.child_frame_id = child_frame_id
@@ -115,10 +106,7 @@ def _tf_writes(
     return [
         (
             ts,
-            {
-                transform.child_frame_id: transform.transform.translation.x
-                for transform in deserialize_message(data, TFMessage).transforms
-            },
+            {transform.child_frame_id: transform.transform.translation.x for transform in deserialize_message(data, TFMessage).transforms},
         )
         for topic, data, ts in rows
         if topic == "tf"
@@ -157,9 +145,7 @@ def _config_node(tmp_path: pathlib.Path, text: str) -> DataRecorderNode:
 def env_node(tmp_path: pathlib.Path):
     node = DataRecorderNode(
         namespace="env_0",
-        parameter_overrides=[
-            Parameter("record_data_dir", value=str(tmp_path / "episodes"))
-        ],
+        parameter_overrides=[Parameter("record_data_dir", value=str(tmp_path / "episodes"))],
     )
     yield node
     node.destroy_node()
@@ -174,12 +160,8 @@ def test_initialpose_is_written_under_the_robot_its_frame_names(
     env_node._close_current_writer()
 
     rows = _mcap_rows(env_node.episodes_root / "episode_000" / "episode_000.mcap")
-    assert [(topic, ts) for topic, _, ts in rows] == [
-        ("env_0/jackal/initialpose", 5_000)
-    ]
-    assert (
-        robot_id_of(topic_parts("env_0/jackal/initialpose"), "env_0") == "env_0_jackal"
-    )
+    assert [(topic, ts) for topic, _, ts in rows] == [("env_0/jackal/initialpose", 5_000)]
+    assert robot_id_of(topic_parts("env_0/jackal/initialpose"), "env_0") == "env_0_jackal"
 
 
 def test_initialpose_without_a_robot_frame_stays_at_the_environment(

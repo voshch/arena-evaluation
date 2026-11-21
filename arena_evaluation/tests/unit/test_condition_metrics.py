@@ -33,9 +33,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ConditionComplianceCalculator(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    return ConditionComplianceCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):
@@ -78,9 +76,7 @@ def _ctx(t_ns, pos_x=None, pos_y=None, snapshot=None, data=None, peds=None, zone
     if peds_df is None and data is not None and "ped_name" in data.columns:
         peds_df = data
     peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
-    peds_times = np.array(
-        [int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64
-    )
+    peds_times = np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64)
     return _EvalContext(
         events=_reconstruct_events(snapshot),
         t_ns=time_arr,
@@ -273,9 +269,7 @@ def test_calculate_plays_atom_from_the_recorded_gestures():
     world_cache["synthetic_conditions4"] = [_square("pharmacy")]
     _wall_cache["synthetic_conditions4"] = None
     times = [0, 1_000_000_000, 2_000_000_000]
-    data = pl.DataFrame(
-        {"t_ns": times, "x": [1.0] * 3, "y": [1.0] * 3, "yaw": [0.0] * 3}
-    )
+    data = pl.DataFrame({"t_ns": times, "x": [1.0] * 3, "y": [1.0] * 3, "yaw": [0.0] * 3})
     peds = pl.DataFrame(
         {
             "t_ns": times,

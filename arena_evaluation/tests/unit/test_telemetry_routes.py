@@ -39,16 +39,10 @@ def _initial_pose(x: float) -> dict:
 
 
 def _warnings_about(caplog: pytest.LogCaptureFixture, topic: str) -> list[str]:
-    return [
-        record.message
-        for record in caplog.records
-        if record.name == _READER_LOGGER and topic in record.message
-    ]
+    return [record.message for record in caplog.records if record.name == _READER_LOGGER and topic in record.message]
 
 
-def test_an_accepted_topic_without_an_environment_is_skipped_with_one_warning(
-    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_an_accepted_topic_without_an_environment_is_skipped_with_one_warning(tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture) -> None:
     bag = _write_bag(
         tmp_path / "bare.mcap",
         [
@@ -64,9 +58,7 @@ def test_an_accepted_topic_without_an_environment_is_skipped_with_one_warning(
     assert len(_warnings_about(caplog, "/odom")) == 1
 
 
-def test_an_environment_level_initial_pose_is_not_a_robot_row(
-    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_an_environment_level_initial_pose_is_not_a_robot_row(tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture) -> None:
     bag = _write_bag(
         tmp_path / "initialpose.mcap",
         [

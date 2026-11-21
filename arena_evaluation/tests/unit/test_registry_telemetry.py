@@ -414,8 +414,4 @@ _EXPECTED: dict[str, tuple[tuple[str, pa.DataType, bool], ...]] = {
 
 
 def _telemetry_tables() -> dict[str, type]:
-    return {
-        table.table_name: table
-        for table in registered_tables()
-        if table.table_kind is TableKind.TELEMETRY
-    }
+    return {table.table_name: table for table in registered_tables() if table.table_kind is TableKind.TELEMETRY}

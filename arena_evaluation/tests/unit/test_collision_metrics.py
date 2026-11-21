@@ -23,9 +23,7 @@ _EVENTS_SCHEMA = {
 }
 
 
-def _events(
-    event_count, *, wall_count=None, static_count=None, ped_count=None
-) -> pl.DataFrame:
+def _events(event_count, *, wall_count=None, static_count=None, ped_count=None) -> pl.DataFrame:
     count = len(event_count)
     return pl.DataFrame(
         {
@@ -77,9 +75,7 @@ def test_a_kind_the_stream_never_recorded_is_null():
 
 
 def test_a_missing_collision_count_leaves_success_null_without_samples():
-    results = CollisionMetricsCalculator(PARAMS).calculate(
-        _episode(None, outcome_state=2), {}
-    )
+    results = CollisionMetricsCalculator(PARAMS).calculate(_episode(None, outcome_state=2), {})
     assert results["collision_amount"] is None
     assert results["success"] is None
     assert results[f"success{NULL_REASON_SUFFIX}"] == "no_samples"
@@ -113,9 +109,7 @@ def _contact_slice(
 def test_contact_carries_the_subject_actor():
     full = _episode(_events([0, 1, 1, 1, 0]))
     contact = _contact_slice(full, SEC_NS, 3 * SEC_NS, obstacle_id="env_0/Pedestrian_4")
-    result = CollisionMetricsCalculator(PARAMS).calculate_for_scope(
-        contact.window_bundle, {}, contact
-    )
+    result = CollisionMetricsCalculator(PARAMS).calculate_for_scope(contact.window_bundle, {}, contact)
     assert result["collision_obstacles"] == ["env_0/Pedestrian_4"]
     assert result["collisions"] == []
 
@@ -134,6 +128,4 @@ def test_other_scopes_are_rejected():
         full_episode=full,
     )
     with pytest.raises(ValueError, match="does not serve the pedestrians scope"):
-        CollisionMetricsCalculator(PARAMS).calculate_for_scope(
-            pedestrian_slice.window_bundle, {}, pedestrian_slice
-        )
+        CollisionMetricsCalculator(PARAMS).calculate_for_scope(pedestrian_slice.window_bundle, {}, pedestrian_slice)

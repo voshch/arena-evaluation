@@ -66,28 +66,20 @@ class TimeMetricsCalculator(BaseMetricCalculator):
     DIRECTIONS = {"time_to_goal": Direction.LOWER, "idling_time": Direction.LOWER}
     PRIMARY_OUTPUTS = ["time_to_goal", "idling_time"]
 
-    def _time_to_goal(
-        self, episode: AlignedEpisodeBundle, start_ns: int
-    ) -> tuple[float | None, str | None]:
+    def _time_to_goal(self, episode: AlignedEpisodeBundle, start_ns: int) -> tuple[float | None, str | None]:
         """Seconds from the episode start to the first goal arrival; with the reason when there is none."""
         if len(episode.goal_pos) < 2:
             return None, "reference_missing"
         track = self.resolve_robot_frame(episode)
         if track is None:
             return None, "topic_missing:robot_tracks"
-        distance_sq = (track["x"] - float(episode.goal_pos[0])) ** 2 + (
-            track["y"] - float(episode.goal_pos[1])
-        ) ** 2
+        distance_sq = (track["x"] - float(episode.goal_pos[0])) ** 2 + (track["y"] - float(episode.goal_pos[1])) ** 2
         arrivals = (distance_sq <= GOAL_TOLERANCE_M**2).arg_true()
         if len(arrivals) == 0:
             return None, "no_samples"
-        return float(
-            track["t_ns"][int(arrivals[0])] - start_ns
-        ) / NANOSECONDS_PER_SECOND, None
+        return float(track["t_ns"][int(arrivals[0])] - start_ns) / NANOSECONDS_PER_SECOND, None
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         if episode.data is None or len(episode.data) == 0:
             return dict.fromkeys(("time_diff", "time_to_goal", "idling_time"))

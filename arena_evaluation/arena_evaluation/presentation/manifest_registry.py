@@ -37,9 +37,7 @@ def _ensure_registered() -> None:
         import arena_evaluation.benchmark.tree  # noqa: F401
 
 
-def find_manifest_file(
-    stem: str, benchmark_dir: pathlib.Path | None = None
-) -> pathlib.Path | None:
+def find_manifest_file(stem: str, benchmark_dir: pathlib.Path | None = None) -> pathlib.Path | None:
     """Resolve a report name: run-local analysis/reports/<name>/report.yaml first, then asset chain."""
     if benchmark_dir is not None:
         local = bundle_path(run_analysis_root(benchmark_dir), "report", stem)
@@ -65,10 +63,7 @@ class ManifestNotFoundError(FileNotFoundError):
     def __init__(self, name: str, message: str | None = None) -> None:
         self.name = name
         available = ", ".join(available_manifests()) or "(none bundled)"
-        super().__init__(
-            message
-            or f"Report manifest '{name}' not found. Available: {available}. Pass a name, a path to a YAML file, or inline {{...}} YAML."
-        )
+        super().__init__(message or f"Report manifest '{name}' not found. Available: {available}. Pass a name, a path to a YAML file, or inline {{...}} YAML.")
 
 
 def resolve_manifest(
@@ -83,9 +78,7 @@ def resolve_manifest(
     if is_inline(ref):
         data = yaml.safe_load(ref)
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Inline manifest must be a YAML mapping, got {type(data).__name__}"
-            )
+            raise ValueError(f"Inline manifest must be a YAML mapping, got {type(data).__name__}")
         return VizManifest.model_validate(data)
 
     p = pathlib.Path(ref)

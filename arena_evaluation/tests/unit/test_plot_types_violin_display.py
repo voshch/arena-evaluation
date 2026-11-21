@@ -32,9 +32,7 @@ def _roughness() -> pl.DataFrame:
 
 
 def test_outliers_beyond_one_and_a_half_iqr_are_split_off_per_group() -> None:
-    inliers, hidden = split_display_outliers(
-        _roughness(), value="roughness_mean", groups=["local_planner"]
-    )
+    inliers, hidden = split_display_outliers(_roughness(), value="roughness_mean", groups=["local_planner"])
 
     assert inliers.height == 11
     assert hidden.to_dicts() == [

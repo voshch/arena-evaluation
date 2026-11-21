@@ -18,24 +18,16 @@ if typing.TYPE_CHECKING:
     import shapely
 
 
-def _entity_field_series(
-    events: pl.DataFrame, entity: str, field: str
-) -> tuple[np.ndarray, np.ndarray]:
+def _entity_field_series(events: pl.DataFrame, entity: str, field: str) -> tuple[np.ndarray, np.ndarray]:
     """Sorted (event times, values) for one recorded entity and field."""
-    rows = events.filter(
-        (pl.col("entity") == entity) & (pl.col("field") == field)
-    ).sort("t_ns")
+    rows = events.filter((pl.col("entity") == entity) & (pl.col("field") == field)).sort("t_ns")
     return rows["t_ns"].to_numpy(), rows["current"].to_numpy()
 
 
-def _entity_family_series(
-    events: pl.DataFrame, entity: str, family: str
-) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+def _entity_family_series(events: pl.DataFrame, entity: str, family: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Sorted (event times, values) of every `<family>.<member>` field of one recorded entity, keyed by member."""
     prefix = f"{family}."
-    rows = events.filter(
-        (pl.col("entity") == entity) & (pl.col("field").str.starts_with(prefix))
-    ).sort("t_ns")
+    rows = events.filter((pl.col("entity") == entity) & (pl.col("field").str.starts_with(prefix))).sort("t_ns")
     series: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for (field,), group in rows.group_by(["field"], maintain_order=True):
         ordered = group.sort("t_ns")
@@ -46,9 +38,7 @@ def _entity_family_series(
     return series
 
 
-def _step_value(
-    times: np.ndarray, values: typing.Sequence[str] | np.ndarray, t_ns: int
-) -> str | None:
+def _step_value(times: np.ndarray, values: typing.Sequence[str] | np.ndarray, t_ns: int) -> str | None:
     val = values[max(asof_position(times, t_ns), 0)]
     return None if val is None else str(val)
 
@@ -76,35 +66,21 @@ class EvalContext:
     ped_roster: dict[str, str]
     pose_valid: bool = True
     yaw: np.ndarray | None = None
-    fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(
-        default_factory=dict
-    )
+    fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(default_factory=dict)
     walls: WallGrid | None = None
     clips: list[dict[str, frozenset[str]]] | None = None
-    _fields: dict[tuple[str, str], tuple[np.ndarray, np.ndarray] | None] = (
-        dataclasses.field(default_factory=dict, init=False, repr=False)
-    )
-    _families: dict[
-        tuple[str, str], dict[str, tuple[np.ndarray, np.ndarray]] | None
-    ] = dataclasses.field(default_factory=dict, init=False, repr=False)
+    _fields: dict[tuple[str, str], tuple[np.ndarray, np.ndarray] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
+    _families: dict[tuple[str, str], dict[str, tuple[np.ndarray, np.ndarray]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     peds_frames: list[pl.DataFrame] = dataclasses.field(default_factory=list)
-    peds_times: np.ndarray = dataclasses.field(
-        default_factory=lambda: np.zeros(0, dtype=np.int64)
-    )
+    peds_times: np.ndarray = dataclasses.field(default_factory=lambda: np.zeros(0, dtype=np.int64))
 
     def field_at(self, entity: str, field: str, t_ns: int) -> str | None:
         """Stepwise recorded value of one entity field at `t_ns`, None when the entity is unknown."""
         key = (entity, field)
         if key not in self._fields:
             recorded = self.entity_roster.get(entity)
-            series = (
-                None
-                if recorded is None
-                else _entity_field_series(self.events, recorded, field)
-            )
-            self._fields[key] = (
-                None if series is None or len(series[0]) == 0 else series
-            )
+            series = None if recorded is None else _entity_field_series(self.events, recorded, field)
+            self._fields[key] = None if series is None or len(series[0]) == 0 else series
         series = self._fields[key]
         if series is None:
             return None
@@ -115,29 +91,20 @@ class EvalContext:
         key = (entity, family)
         if key not in self._families:
             recorded = self.entity_roster.get(entity)
-            self._families[key] = (
-                None
-                if recorded is None
-                else _entity_family_series(self.events, recorded, family)
-            )
+            self._families[key] = None if recorded is None else _entity_family_series(self.events, recorded, family)
         members = self._families[key]
         if members is None:
             return None
         return typing.cast(
             dict[str, str],
-            {
-                member: _step_value(times, values, t_ns)
-                for member, (times, values) in members.items()
-            },
+            {member: _step_value(times, values, t_ns) for member, (times, values) in members.items()},
         )
 
     def peds_at(self, i: int) -> dict[str, tuple[float, float]]:
         """Pedestrians of the latest frame at or before sample i, within the alignment tolerance."""
         if len(self.peds_times) == 0:
             return {}
-        idx = asof_position(
-            self.peds_times, int(self.t_ns[i]), TRACK_ALIGN_TOLERANCE_NS
-        )
+        idx = asof_position(self.peds_times, int(self.t_ns[i]), TRACK_ALIGN_TOLERANCE_NS)
         if idx < 0:
             return {}
         peds: dict[str, tuple[float, float]] = {}

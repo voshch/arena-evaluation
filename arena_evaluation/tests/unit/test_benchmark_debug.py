@@ -70,9 +70,7 @@ def sleeper():
     procs: list[subprocess.Popen] = []
 
     def spawn() -> int:
-        procs.append(
-            subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-        )
+        procs.append(subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"]))
         return procs[-1].pid
 
     yield spawn
@@ -82,9 +80,7 @@ def sleeper():
 
 
 def test_ps_lines_parses_and_filters(monkeypatch):
-    fake = _fake_run_stdout(
-        "  1234 /usr/bin/python evaluation benchmark --run-id r1\n  5678 gz sim -s\n  9999 garbage no split here\n  0xBAD not-a-pid\n  3333 pkill -f arena\n  4444 ps -ef\n  5555 grep arena\n 99999 arena_runtime_node --self --pid\n"
-    )
+    fake = _fake_run_stdout("  1234 /usr/bin/python evaluation benchmark --run-id r1\n  5678 gz sim -s\n  9999 garbage no split here\n  0xBAD not-a-pid\n  3333 pkill -f arena\n  4444 ps -ef\n  5555 grep arena\n 99999 arena_runtime_node --self --pid\n")
     monkeypatch.setattr(debug_mod.subprocess, "run", fake)
     monkeypatch.setattr(debug_mod.os, "getpid", lambda: 99999)
 
@@ -259,10 +255,7 @@ def test_latest_running_run_id_skips_flag_token(monkeypatch, sleeper):
 def test_kill_refuses_processes_outside_arena_and_the_caller():
     bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        results = {
-            entry["pid"]: entry["status"]
-            for entry in debug_mod.kill_processes(pids=[bystander.pid, os.getpid()])
-        }
+        results = {entry["pid"]: entry["status"] for entry in debug_mod.kill_processes(pids=[bystander.pid, os.getpid()])}
         assert results[bystander.pid] == "refused: not an arena process"
         assert results[os.getpid()].startswith("refused: this process")
         assert bystander.poll() is None
@@ -286,10 +279,7 @@ def test_kill_stops_an_arena_process_group_with_sigint_first():
     try:
         assert target.stdout is not None and target.stdout.readline() == "ready\n"
         deadline = time.time() + 10
-        while (
-            target.pid not in {proc["pid"] for proc in debug_mod.running_processes()}
-            and time.time() < deadline
-        ):
+        while target.pid not in {proc["pid"] for proc in debug_mod.running_processes()} and time.time() < deadline:
             time.sleep(0.1)
         (result,) = debug_mod.kill_processes(pids=[target.pid], grace_s=10.0)
         assert result["kind"] == "world_generator"

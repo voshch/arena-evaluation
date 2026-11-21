@@ -35,9 +35,7 @@ _REJECTED_PLOT_FIELDS: Final[tuple[str, ...]] = (
     "data_source",
 )
 _REJECTED_CHANNEL_FIELDS: Final[tuple[str, ...]] = ("hue", "facet")
-_REJECTED_MANIFEST_FILENAMES: Final[frozenset[str]] = frozenset(
-    {"viz_manifest.yaml", "manifest.yaml"}
-)
+_REJECTED_MANIFEST_FILENAMES: Final[frozenset[str]] = frozenset({"viz_manifest.yaml", "manifest.yaml"})
 
 
 class _ForbidExtraModel(BaseModel):
@@ -71,17 +69,9 @@ class PlotDataSpec(_ForbidExtraModel):
             if val is not None
         ]
         if len(primaries) > 1:
-            raise ValueError(
-                f"PlotDataSpec accepts at most one data binding, got {primaries}."
-            )
-        if (
-            self.params is not None
-            and self.stored_query is None
-            and self.computation is None
-        ):
-            raise ValueError(
-                "PlotDataSpec 'params' is only valid with 'stored_query' or 'computation'."
-            )
+            raise ValueError(f"PlotDataSpec accepts at most one data binding, got {primaries}.")
+        if self.params is not None and self.stored_query is None and self.computation is None:
+            raise ValueError("PlotDataSpec 'params' is only valid with 'stored_query' or 'computation'.")
         if self.source is not None:
             validate_data_source(self.source)
         return self
@@ -106,9 +96,7 @@ class PlotChannels(_ForbidExtraModel):
         if isinstance(data, Mapping):
             for field_name in _REJECTED_CHANNEL_FIELDS:
                 if field_name in data:
-                    raise ValueError(
-                        f"legacy channel field {field_name!r} is rejected; use 'color' / 'facet_col'."
-                    )
+                    raise ValueError(f"legacy channel field {field_name!r} is rejected; use 'color' / 'facet_col'.")
         return data
 
 
@@ -151,13 +139,9 @@ class PlotSpec(_ForbidExtraModel):
             return data
         for field_name in _REJECTED_PLOT_FIELDS:
             if field_name in data:
-                raise ValueError(
-                    f"legacy PlotSpec field {field_name!r} is rejected; use 'data' and 'channels'."
-                )
+                raise ValueError(f"legacy PlotSpec field {field_name!r} is rejected; use 'data' and 'channels'.")
         if "data" in data and isinstance(data["data"], str):
-            raise ValueError(
-                "bare-string 'data' is rejected; pass a mapping with source, query, stored_query, computation, or evidence_id."
-            )
+            raise ValueError("bare-string 'data' is rejected; pass a mapping with source, query, stored_query, computation, or evidence_id.")
         updated = dict(data)
         if "uses" in updated and not updated.get("id"):
             updated["id"] = updated["uses"]
@@ -203,9 +187,7 @@ class VizManifest(_ForbidExtraModel):
     @classmethod
     def _reject_legacy_manifest_fields(cls, data: object) -> object:
         if isinstance(data, Mapping) and "sections" in data:
-            raise ValueError(
-                "legacy manifest field 'sections' is rejected; use 'groups' and 'plots'."
-            )
+            raise ValueError("legacy manifest field 'sections' is rejected; use 'groups' and 'plots'.")
         return data
 
     @model_validator(mode="after")
@@ -222,16 +204,12 @@ class VizManifest(_ForbidExtraModel):
         if resolved.name in _REJECTED_MANIFEST_FILENAMES:
             raise ValueError(f"legacy manifest filename {resolved.name!r} is rejected.")
         if not resolved.exists():
-            raise FileNotFoundError(
-                f"Report manifest {resolved} does not exist; pass None for the default manifest."
-            )
+            raise FileNotFoundError(f"Report manifest {resolved} does not exist; pass None for the default manifest.")
 
         with resolved.open(encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Manifest {resolved} must be a YAML mapping, got {type(data).__name__}."
-            )
+            raise ValueError(f"Manifest {resolved} must be a YAML mapping, got {type(data).__name__}.")
         return cls.model_validate(data)
 
     @classmethod
@@ -242,8 +220,5 @@ class VizManifest(_ForbidExtraModel):
         try:
             path = ManifestIdentifier(name="standard").resolve_source_sync().path
         except FileNotFoundError as error:
-            raise FileNotFoundError(
-                "Manifest 'standard' not found. Install arena_evaluation or check "
-                "configs/reports/standard/report.yaml."
-            ) from error
+            raise FileNotFoundError("Manifest 'standard' not found. Install arena_evaluation or check configs/reports/standard/report.yaml.") from error
         return cls.load(path)

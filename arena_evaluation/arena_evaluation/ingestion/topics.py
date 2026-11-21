@@ -24,9 +24,7 @@ class TopicDefinition:
     depth: int = 0
 
 
-def get_topics(
-    namespace: str, parent_namespace: str = ""
-) -> dict[str, TopicDefinition]:
+def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDefinition]:
     """Return the dictionary of topics to subscribe to."""
     from arena_humansim_msgs.msg import AgentFrame, AgentMeta, InteractionFrame
     from arena_people_msgs.msg import Pedestrians
@@ -62,27 +60,17 @@ def get_topics(
             throttled=True,
             throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
         ),
-        "joint_states": TopicDefinition(
-            f"{ns}/joint_states", JointState, throttled=True
-        ),
+        "joint_states": TopicDefinition(f"{ns}/joint_states", JointState, throttled=True),
         "plan": TopicDefinition(f"{ns}/plan", Path, throttled=False),
         "goal_pose": TopicDefinition(f"{ns}/goal_pose", PoseStamped, throttled=False),
         "task_pose": TopicDefinition(f"{ns}/task_pose", PoseStamped, throttled=False),
-        "initialpose": TopicDefinition(
-            f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False
-        ),
+        "initialpose": TopicDefinition(f"{p_ns}/initialpose", PoseWithCovarianceStamped, throttled=False),
         "tf": TopicDefinition("/tf", TFMessage, throttled=True),
-        "tf_static": TopicDefinition(
-            "/tf_static", TFMessage, throttled=False, qos_transient_local=True
-        ),
+        "tf_static": TopicDefinition("/tf_static", TFMessage, throttled=False, qos_transient_local=True),
         "tf_humans": TopicDefinition(f"{env_ns}/humans/tf", TFMessage, throttled=True),
         "peds": TopicDefinition(f"{env_ns}/arena_peds", Pedestrians, throttled=True),
-        "agent_states": TopicDefinition(
-            f"{p_ns}/agent_states", AgentFrame, throttled=True
-        ),
-        "agent_meta": TopicDefinition(
-            f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True
-        ),
+        "agent_states": TopicDefinition(f"{p_ns}/agent_states", AgentFrame, throttled=True),
+        "agent_meta": TopicDefinition(f"{p_ns}/agent_meta", AgentMeta, throttled=False, qos_transient_local=True),
         "interactions": TopicDefinition(
             f"{p_ns}/interactions",
             InteractionFrame,
@@ -107,9 +95,7 @@ def get_topics(
             throttled=False,
             qos_transient_local=True,
         ),
-        "collision_events": TopicDefinition(
-            f"{ns}/collision_events", CollisionEvents, throttled=False
-        ),
+        "collision_events": TopicDefinition(f"{ns}/collision_events", CollisionEvents, throttled=False),
         "power": TopicDefinition(
             f"{ns}/power_publisher/power",
             Power,
@@ -128,21 +114,15 @@ def get_topics(
             throttled=True,
             throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
         ),
-        "characterization_phase": TopicDefinition(
-            f"{ns}/characterization_phase", String, throttled=False
-        ),
+        "characterization_phase": TopicDefinition(f"{ns}/characterization_phase", String, throttled=False),
         "characterization_schedule": TopicDefinition(
             f"{ns}/characterization_schedule",
             String,
             throttled=False,
             qos_transient_local=True,
         ),
-        "collision_monitor_state": TopicDefinition(
-            f"{ns}/collision_monitor_state", CollisionMonitorState, throttled=False
-        ),
-        "map": TopicDefinition(
-            f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True
-        ),
+        "collision_monitor_state": TopicDefinition(f"{ns}/collision_monitor_state", CollisionMonitorState, throttled=False),
+        "map": TopicDefinition(f"{p_ns}/map", OccupancyGrid, throttled=False, qos_transient_local=True),
         "door_mask": TopicDefinition(
             f"{p_ns}/door_mask",
             OccupancyGrid,
@@ -154,9 +134,7 @@ def get_topics(
     return topics
 
 
-def recorded_topic_definition(
-    row: RecordedTopic, tg_namespace: str, robot_namespace: str = ""
-) -> TopicDefinition | None:
+def recorded_topic_definition(row: RecordedTopic, tg_namespace: str, robot_namespace: str = "") -> TopicDefinition | None:
     """The TopicDefinition of one recorded-topics row, None when its message type does not import."""
     from rosidl_runtime_py.utilities import get_message
 

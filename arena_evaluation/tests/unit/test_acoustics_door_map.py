@@ -43,9 +43,7 @@ def _env_vars(**overrides: str | None) -> Iterator[None]:
                 os.environ[key] = previous
 
 
-def _door(
-    name="door", start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding"
-) -> dict:
+def _door(name="door", start=(0.0, 0.0), end=(4.0, 0.0), width=1.0, kind="sliding") -> dict:
     return {
         "name": name,
         "span": [list(start), list(end)],
@@ -117,9 +115,7 @@ def test_find_world_level_run_dir_without_world_skipped(tmp_path):
 
 def test_find_world_level_ws_root_fallback(tmp_path):
     with _env_vars(ARENA_DIR=str(tmp_path / "src" / "Arena")):
-        ws_world = _write_world(
-            tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m4"
-        )
+        ws_world = _write_world(tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "m4")
         found = _find_world_level("m4", run_dir=None)
     assert found is not None
     assert found[0] == ws_world
@@ -135,9 +131,7 @@ def test_load_barrier_map_unusable_ament_is_named_in_the_error(tmp_path):
 
 
 def test_load_barrier_map_world_without_walls_or_doors_raises(tmp_path):
-    _write_world(
-        tmp_path / "run" / "worlds" / "m1", levels=[_level("0", [], zones=False)]
-    )
+    _write_world(tmp_path / "run" / "worlds" / "m1", levels=[_level("0", [], zones=False)])
     with pytest.raises(MetricInputError, match="no walls, doors or extent"):
         load_barrier_map("m1", run_dir=tmp_path / "run")
 
@@ -164,9 +158,7 @@ def test_barrier_doors_carve_the_tl_map(tmp_path):
     closed = build_pixel_tl(barrier.occupancy, doors)
     assert np.allclose(closed[mask], DEFAULT_DOOR_TL_DB * barrier.resolution / 1.0)
 
-    opened = build_pixel_tl(
-        barrier.occupancy, doors, open_doors={"env_0/world/main_door/2"}
-    )
+    opened = build_pixel_tl(barrier.occupancy, doors, open_doors={"env_0/world/main_door/2"})
     assert np.all(opened[mask] == 0.0)
 
 

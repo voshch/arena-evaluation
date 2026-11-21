@@ -35,9 +35,7 @@ def test_verify_reruns_evidence_from_a_computation(run_dir):
         evidence_store=EvidenceStore(run_dir),
         purpose="planner means",
     )
-    finding = evaluation_finding_create(
-        RUN_ID, "planner means are recorded", evidence_id=result.evidence_id
-    )
+    finding = evaluation_finding_create(RUN_ID, "planner means are recorded", evidence_id=result.evidence_id)
 
     checked = evaluation_finding_verify(RUN_ID, finding.finding_id)
 

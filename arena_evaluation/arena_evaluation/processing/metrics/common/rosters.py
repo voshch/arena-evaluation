@@ -28,11 +28,7 @@ def entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
             unsuffixed[bare.rsplit("/", 1)[0]] |= recorded
         if bare.startswith(_WORLD_OBJECT_PREFIX):
             unsuffixed[bare.removeprefix(_WORLD_OBJECT_PREFIX)] |= recorded
-    roster = {
-        name: next(iter(p))
-        for name, p in unsuffixed.items()
-        if name not in paths and len(p) == 1
-    }
+    roster = {name: next(iter(p)) for name, p in unsuffixed.items() if name not in paths and len(p) == 1}
     return roster | {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
 
 

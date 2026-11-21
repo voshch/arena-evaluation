@@ -63,9 +63,7 @@ def _world_dir() -> pathlib.Path:
         candidate = parent / "arena_simulation_setup" / "worlds" / WORLD
         if candidate.is_dir():
             return candidate
-    raise FileNotFoundError(
-        f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}"
-    )
+    raise FileNotFoundError(f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}")
 
 
 class _Map:
@@ -80,9 +78,7 @@ class _Map:
         self.grid = np.array(Image.open(world_dir / "0" / meta["image"]).convert("L"))
 
     def _rc(self, x: float, y: float) -> tuple[int, int]:
-        return int(round(self.grid.shape[0] - (y - self.oy) / self.res)), int(
-            round((x - self.ox) / self.res)
-        )
+        return int(round(self.grid.shape[0] - (y - self.oy) / self.res)), int(round((x - self.ox) / self.res))
 
     def free(self, x: float, y: float, clearance: float = 0.6) -> bool:
         x, y = x + SCENARIO_TO_MAP[0], y + SCENARIO_TO_MAP[1]
@@ -100,11 +96,7 @@ class _Map:
         sensor_range: float,
     ) -> tuple[str, float]:
         """How much of the walked route can see the target, and how close the route passes it."""
-        visible = [
-            p
-            for p in samples
-            if math.dist(p, target) <= sensor_range and self.line_of_sight(p, target)
-        ]
+        visible = [p for p in samples if math.dist(p, target) <= sensor_range and self.line_of_sight(p, target)]
         closest = min(math.dist(p, target) for p in samples)
         if not visible:
             return "nowhere", closest
@@ -121,10 +113,7 @@ class _Map:
             x = a[0] + (b[0] - a[0]) * i / steps
             y = a[1] + (b[1] - a[1]) * i / steps
             r, c = self._rc(x, y)
-            if (
-                not (0 <= r < self.grid.shape[0] and 0 <= c < self.grid.shape[1])
-                or self.grid[r, c] < 100
-            ):
+            if not (0 <= r < self.grid.shape[0] and 0 <= c < self.grid.shape[1]) or self.grid[r, c] < 100:
                 return False
         return True
 
@@ -136,12 +125,7 @@ def _route_samples(step: float = 0.5) -> list[tuple[float, float]]:
     for a, b in zip(legs[:-1], legs[1:], strict=True):
         length = math.dist((a[0], a[1]), (b[0], b[1]))
         steps = max(1, int(length / step))
-        out.extend(
-            [
-                (a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps)
-                for i in range(steps + 1)
-            ]
-        )
+        out.extend([(a[0] + (b[0] - a[0]) * i / steps, a[1] + (b[1] - a[1]) * i / steps) for i in range(steps + 1)])
     return out
 
 
@@ -179,10 +163,7 @@ def robot_phases() -> list[dict]:
     passed = f"robot within {SERVICE_RADIUS_M:g} of {CALLER}"
     return [
         {
-            "loop": [
-                {"goto": list(p), "tolerance_radius": CHECKPOINT_RADIUS_M}
-                for p in ROUTE
-            ],
+            "loop": [{"goto": list(p), "tolerance_radius": CHECKPOINT_RADIUS_M} for p in ROUTE],
             "until": f"{called} or {passed}",
         },
         {
@@ -237,16 +218,10 @@ def generate(
     for index, (case, (pose, _description)) in enumerate(CALLERS.items()):
         directory = scenarios_dir / f"beckon_{case}"
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "scenario.yaml").write_text(
-            yaml.safe_dump(scenario_yaml(pose), sort_keys=False, width=120)
-        )
-        (directory / "caller.yaml").write_text(
-            yaml.safe_dump(caller_agent_yaml(), sort_keys=False, width=120)
-        )
+        (directory / "scenario.yaml").write_text(yaml.safe_dump(scenario_yaml(pose), sort_keys=False, width=120))
+        (directory / "caller.yaml").write_text(yaml.safe_dump(caller_agent_yaml(), sort_keys=False, width=120))
 
-        seen, closest = world_map.route_window(
-            _route_samples(), (pose[0], pose[1]), SENSOR_RANGE_M
-        )
+        seen, closest = world_map.route_window(_route_samples(), (pose[0], pose[1]), SENSOR_RANGE_M)
         sightlines = f"seen from {seen} of the route, closest approach {closest:.1f} m ({'passed' if closest <= SERVICE_RADIUS_M else 'never passed'})"
         for arm, gesture_mode in ARMS.items():
             stages.append(
@@ -270,9 +245,7 @@ def generate(
         print(f"beckon_{case:11s} {sightlines}")
 
     suite = {"stages": stages}
-    suite_path = suite_path or (
-        _ROOT.parents[1] / "configs" / "suites" / "beckon_service" / "suite.yaml"
-    )
+    suite_path = suite_path or (_ROOT.parents[1] / "configs" / "suites" / "beckon_service" / "suite.yaml")
     suite_path.parent.mkdir(parents=True, exist_ok=True)
 
     header = (
@@ -286,12 +259,8 @@ def generate(
     suite_path.write_text(header + yaml.safe_dump(suite, sort_keys=False, width=120))
     for arm in ARMS:
         arm_stages = [stage for stage in stages if stage["name"].endswith(f"_{arm}")]
-        (suite_path.parent / f"beckon_{arm}.yaml").write_text(
-            header + yaml.safe_dump({"stages": arm_stages}, sort_keys=False, width=120)
-        )
-    print(
-        f"\n{len(stages)} stages x {episodes} episodes per contestant -> {suite_path}"
-    )
+        (suite_path.parent / f"beckon_{arm}.yaml").write_text(header + yaml.safe_dump({"stages": arm_stages}, sort_keys=False, width=120))
+    print(f"\n{len(stages)} stages x {episodes} episodes per contestant -> {suite_path}")
     return suite
 
 
@@ -302,11 +271,7 @@ def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
         pl.col("stage").str.extract(rf"^beckon_(.*)_(?:{arms})$", 1).alias("case"),
         pl.col("stage").str.extract(rf"_({arms})$", 1).alias("arm"),
     ).filter(pl.col("case").is_not_null() & pl.col("success").is_not_null())
-    return parsed.sort("episode_id").with_columns(
-        (pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1)
-        .cast(pl.Int64)
-        .alias("seed")
-    )
+    return parsed.sort("episode_id").with_columns((pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
 
 
 def stage_timeouts(benchmark_dir: pathlib.Path) -> dict[str, float]:
@@ -315,50 +280,27 @@ def stage_timeouts(benchmark_dir: pathlib.Path) -> dict[str, float]:
     if not manifest.is_file():
         return {}
     stages = yaml.safe_load(manifest.read_text())["suite"]["stages"]
-    return {
-        stage["name"]: _parse_duration(str(stage["timeout"]))
-        for stage in stages
-        if "timeout" in stage
-    }
+    return {stage["name"]: _parse_duration(str(stage["timeout"])) for stage in stages if "timeout" in stage}
 
 
 def _float_or_none(value: object) -> float | None:
     return float(value) if isinstance(value, int | float) else None
 
 
-def paper_outcomes(
-    df: pl.DataFrame, timeouts: Mapping[str, float] | None = None
-) -> pl.DataFrame:
+def paper_outcomes(df: pl.DataFrame, timeouts: Mapping[str, float] | None = None) -> pl.DataFrame:
     """Waiting time per episode, censored at the stage's timeout when the caller was never served, at the run's longest episode without a known timeout."""
     served = pl.col("success").cast(pl.Float64) > 0.5
     longest = df.select(pl.col("time_to_goal").max()).item()
-    fallback = (
-        max(float(longest), float(TIMEOUT_S))
-        if longest is not None
-        else float(TIMEOUT_S)
-    )
-    censor = (
-        pl.col("stage").replace_strict(
-            dict(timeouts), default=fallback, return_dtype=pl.Float64
-        )
-        if timeouts
-        else pl.lit(fallback)
-    )
+    fallback = max(float(longest), float(TIMEOUT_S)) if longest is not None else float(TIMEOUT_S)
+    censor = pl.col("stage").replace_strict(dict(timeouts), default=fallback, return_dtype=pl.Float64) if timeouts else pl.lit(fallback)
     return df.with_columns(censor.alias("censor_at_s")).with_columns(
         served.alias("served"),
-        pl.when(served)
-        .then(pl.col("time_to_goal") - CALL_ONSET_S)
-        .when(~served)
-        .then(pl.col("censor_at_s") - CALL_ONSET_S)
-        .otherwise(None)
-        .alias("wait_s"),
+        pl.when(served).then(pl.col("time_to_goal") - CALL_ONSET_S).when(~served).then(pl.col("censor_at_s") - CALL_ONSET_S).otherwise(None).alias("wait_s"),
         (~served).alias("censored"),
     )
 
 
-def case_table(
-    df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
-) -> pl.DataFrame:
+def case_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
     """Per planner and case: the waiting time in each arm and their paired difference over seeds."""
     rows = []
     rng = np.random.default_rng(seed)
@@ -367,13 +309,7 @@ def case_table(
         off = group.filter(pl.col("arm") == "off")
         pairs = on.join(off, on="seed", how="inner", suffix="_off")
         diffs = (pairs["wait_s"] - pairs["wait_s_off"]).to_numpy()
-        result = (
-            cluster_bootstrap(
-                [np.array([float(d)]) for d in diffs], n_boot=n_boot, rng=rng
-            )
-            if len(diffs)
-            else None
-        )
+        result = cluster_bootstrap([np.array([float(d)]) for d in diffs], n_boot=n_boot, rng=rng) if len(diffs) else None
         rows.append(
             {
                 "planner": planner,
@@ -397,9 +333,7 @@ def case_table(
     return table
 
 
-def planner_table(
-    df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
-) -> pl.DataFrame:
+def planner_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
     """Per planner, the paired difference pooled over cases, resampled over cases."""
     rows = []
     rng = np.random.default_rng(seed)
@@ -411,9 +345,7 @@ def planner_table(
             pairs = on.join(off, on="seed", how="inner", suffix="_off")
             if len(pairs):
                 clusters.append((pairs["wait_s"] - pairs["wait_s_off"]).to_numpy())
-        result = (
-            cluster_bootstrap(clusters, n_boot=n_boot, rng=rng) if clusters else None
-        )
+        result = cluster_bootstrap(clusters, n_boot=n_boot, rng=rng) if clusters else None
         on_all = group.filter(pl.col("arm") == "on")
         off_all = group.filter(pl.col("arm") == "off")
         rows.append(
@@ -439,9 +371,7 @@ def analyze(
     n_boot: int = DEFAULT_BOOT,
     out_dir: pathlib.Path | None = None,
 ) -> dict[str, pl.DataFrame]:
-    episodes = paper_outcomes(
-        load_episodes(episode_summary(benchmark_dir)), stage_timeouts(benchmark_dir)
-    )
+    episodes = paper_outcomes(load_episodes(episode_summary(benchmark_dir)), stage_timeouts(benchmark_dir))
     tables = {
         "cases": case_table(episodes, n_boot=n_boot),
         "planners": planner_table(episodes, n_boot=n_boot),
@@ -457,9 +387,7 @@ def analyze(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
     gen = sub.add_parser("generate")

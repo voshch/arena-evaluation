@@ -41,9 +41,7 @@ def test_plotspec_rejects_bare_string_data() -> None:
 
 
 @pytest.mark.parametrize("filename", ["viz_manifest.yaml", "manifest.yaml"])
-def test_manifest_load_rejects_legacy_filenames(
-    tmp_path: pathlib.Path, filename: str
-) -> None:
+def test_manifest_load_rejects_legacy_filenames(tmp_path: pathlib.Path, filename: str) -> None:
     legacy_path = tmp_path / filename
     legacy_path.write_text("plots: []\n", encoding="utf-8")
     with pytest.raises(ValueError, match=filename):

@@ -35,9 +35,7 @@ class HistogramRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if not x_col or not y_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: histogram requires pre-binned 'x' (e.g. bin_center) and 'y' (e.g. count or density)."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: histogram requires pre-binned 'x' (e.g. bin_center) and 'y' (e.g. count or density).")
         color_col = self.resolve_channel("color")
         cell_keys = [c for c in dict.fromkeys((x_col, color_col)) if c is not None]
         self.validate_unique_cells(df, cell_keys)
@@ -46,34 +44,22 @@ class HistogramRenderer(BasePlotRenderer):
     def _bin_columns(self) -> tuple[str, str] | None:
         low_col = self.spec.options.get("bin_low")
         high_col = self.spec.options.get("bin_high")
-        if (
-            isinstance(low_col, str)
-            and low_col.strip()
-            and isinstance(high_col, str)
-            and high_col.strip()
-        ):
+        if isinstance(low_col, str) and low_col.strip() and isinstance(high_col, str) and high_col.strip():
             return low_col.strip(), high_col.strip()
         return None
 
-    def _bar_geometry(
-        self, sub: pl.DataFrame, x_col: str
-    ) -> tuple[np.ndarray, np.ndarray | None]:
+    def _bar_geometry(self, sub: pl.DataFrame, x_col: str) -> tuple[np.ndarray, np.ndarray | None]:
         bins = self._bin_columns()
         if bins is None:
             return series_values(sub, x_col), None
         low_edges, high_edges = (series_values(sub, column) for column in bins)
         return 0.5 * (low_edges + high_edges), high_edges - low_edges
 
-    def _bar_groups(
-        self, df: pl.DataFrame, color_col: str | None
-    ) -> list[tuple[str | None, pl.DataFrame]]:
+    def _bar_groups(self, df: pl.DataFrame, color_col: str | None) -> list[tuple[str | None, pl.DataFrame]]:
         if color_col is None:
             return [(None, df)]
         labels = label_values(df, color_col)
-        return [
-            (label, df.filter(pl.Series(labels == label)))
-            for label in sorted(set(labels.tolist()))
-        ]
+        return [(label, df.filter(pl.Series(labels == label))) for label in sorted(set(labels.tolist()))]
 
     def _label(self, column: str) -> str:
         return self.format_label(column.replace("_", " ").title(), column)

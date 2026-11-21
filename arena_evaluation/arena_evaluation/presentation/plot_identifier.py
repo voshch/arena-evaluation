@@ -26,13 +26,9 @@ class PlotIdentifier(AssetIdentifier[dict[str, object]]):
 
     def load(self, path: pathlib.Path, /, **kwargs: object) -> dict[str, object]:
         del kwargs
-        data = yaml.safe_load(
-            bundle_config_file(path, "plot").read_text(encoding="utf-8")
-        )
+        data = yaml.safe_load(bundle_config_file(path, "plot").read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Plot declaration '{self.name}' must be a YAML mapping, got {type(data).__name__}."
-            )
+            raise ValueError(f"Plot declaration '{self.name}' must be a YAML mapping, got {type(data).__name__}.")
         return data
 
 

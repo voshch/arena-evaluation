@@ -27,9 +27,7 @@ _PARAM_BRACE_RE: Final[re.Pattern[str]] = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*
 _PARAM_VALIDATORS: Final[Mapping[str, Callable[[object], bool]]] = {
     "string": lambda value: isinstance(value, str),
     "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
-    "float": lambda value: (
-        isinstance(value, (int, float)) and not isinstance(value, bool)
-    ),
+    "float": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool),
     "boolean": lambda value: isinstance(value, bool),
 }
 
@@ -55,20 +53,12 @@ class QueryDeclaration:
     name: str
     description: str
     sql: str
-    parameters: Mapping[str, Mapping[str, object] | object] = dataclasses.field(
-        default_factory=dict
-    )
+    parameters: Mapping[str, Mapping[str, object] | object] = dataclasses.field(default_factory=dict)
     title: str = ""
 
     def default_parameters(self) -> dict[str, object]:
         """Extract default parameter values from the declaration."""
-        return {
-            key: spec["default"]
-            if isinstance(spec, Mapping) and "default" in spec
-            else spec
-            for key, spec in self.parameters.items()
-            if not isinstance(spec, Mapping) or "default" in spec
-        }
+        return {key: spec["default"] if isinstance(spec, Mapping) and "default" in spec else spec for key, spec in self.parameters.items() if not isinstance(spec, Mapping) or "default" in spec}
 
     def validate_parameters(self, params: Mapping[str, object]) -> None:
         """Enforce declared parameter ``type`` constraints on ``params``."""
@@ -77,13 +67,9 @@ class QueryDeclaration:
                 continue
             expected, value = str(spec["type"]), params[key]
             if expected not in _PARAM_VALIDATORS:
-                raise ValueError(
-                    f"Unsupported parameter type {expected!r} for '{key}'. Expected one of {sorted(_PARAM_VALIDATORS)}."
-                )
+                raise ValueError(f"Unsupported parameter type {expected!r} for '{key}'. Expected one of {sorted(_PARAM_VALIDATORS)}.")
             if value is not None and not _PARAM_VALIDATORS[expected](value):
-                raise TypeError(
-                    f"Parameter '{key}' expects type {expected!r}, got {type(value).__name__} ({value!r})."
-                )
+                raise TypeError(f"Parameter '{key}' expects type {expected!r}, got {type(value).__name__} ({value!r}).")
 
     def render_sql(self, params: Mapping[str, object] | None = None) -> str:
         """Substitute parameters into the query SQL and validate read-only compliance."""
@@ -93,9 +79,7 @@ class QueryDeclaration:
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
             if name not in combined:
-                raise ValueError(
-                    f"Missing required parameter '{name}' for query declaration '{self.name}'."
-                )
+                raise ValueError(f"Missing required parameter '{name}' for query declaration '{self.name}'.")
             return format_sql_literal(combined[name])
 
         rendered = _PARAM_COLON_RE.sub(replace, self.sql)
@@ -104,10 +88,7 @@ class QueryDeclaration:
     def to_dict(self) -> dict[str, object]:
         """Serialize query declaration to a dictionary."""
         data = dataclasses.asdict(self)
-        return {
-            key: data[key]
-            for key in ("name", "title", "description", "parameters", "sql")
-        }
+        return {key: data[key] for key in ("name", "title", "description", "parameters", "sql")}
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> QueryDeclaration:
@@ -124,19 +105,13 @@ class QueryDeclaration:
         )
 
 
-def declaration_from_payload(
-    payload: object, *, folder_name: str, source: str
-) -> QueryDeclaration:
+def declaration_from_payload(payload: object, *, folder_name: str, source: str) -> QueryDeclaration:
     """Validate one parsed ``query.yaml``; a declaration that names no query takes its folder's name."""
     if not isinstance(payload, Mapping) or "sql" not in payload:
-        raise ValueError(
-            f"Invalid query declaration in {source}: expected a YAML mapping with a 'sql' field."
-        )
+        raise ValueError(f"Invalid query declaration in {source}: expected a YAML mapping with a 'sql' field.")
     raw_params = payload.get("parameters") or {}
     if not isinstance(raw_params, Mapping):
-        raise ValueError(
-            f"Invalid query declaration in {source}: 'parameters' must be a mapping."
-        )
+        raise ValueError(f"Invalid query declaration in {source}: 'parameters' must be a mapping.")
     declaration = QueryDeclaration.from_dict(
         {
             **payload,
@@ -151,9 +126,7 @@ def declaration_from_payload(
 def read_query_declaration(file_path: pathlib.Path) -> QueryDeclaration:
     """Parse one ``query.yaml`` bundle file into a validated declaration named after its folder."""
     payload = yaml.safe_load(file_path.read_text(encoding="utf-8"))
-    return declaration_from_payload(
-        payload, folder_name=file_path.parent.name, source=str(file_path)
-    )
+    return declaration_from_payload(payload, folder_name=file_path.parent.name, source=str(file_path))
 
 
 class QueryCatalog:
@@ -167,11 +140,7 @@ class QueryCatalog:
     ) -> None:
         candidates = [run_analysis_root(run_dir)] if run_dir is not None else []
         candidates.extend(search_dirs or ())
-        candidates.extend(
-            root
-            for root in (*config_dirs(), *bucket_cache_dirs())
-            if root not in candidates
-        )
+        candidates.extend(root for root in (*config_dirs(), *bucket_cache_dirs()) if root not in candidates)
         self._search_dirs = tuple(candidates)
         self._cache: dict[str, QueryDeclaration] = {}
         self._load_all()
@@ -212,9 +181,7 @@ class QueryCatalog:
             payload = QueryIdentifier(name=stem).resolve_sync()
         except FileNotFoundError:
             return None
-        declaration = declaration_from_payload(
-            payload, folder_name=stem, source=f"benchmark bucket query '{stem}'"
-        )
+        declaration = declaration_from_payload(payload, folder_name=stem, source=f"benchmark bucket query '{stem}'")
         self._cache[stem] = self._cache[declaration.name] = declaration
         return declaration
 
@@ -225,9 +192,7 @@ class QueryCatalog:
     def get_query(self, name: str) -> QueryDeclaration:
         """Retrieve a ``QueryDeclaration`` by name or stem."""
         if (declaration := self._lookup(name)) is None:
-            raise KeyError(
-                f"Query declaration '{name}' not found. Available: {sorted(set(self._cache))}"
-            )
+            raise KeyError(f"Query declaration '{name}' not found. Available: {sorted(set(self._cache))}")
         return declaration
 
     def save_query(
@@ -252,14 +217,10 @@ class QueryCatalog:
             title=(title or clean_name).strip(),
         )
         declaration.render_sql()
-        target_dir = directory or next(
-            (d for d in self._search_dirs if d.is_dir()), self._search_dirs[0]
-        )
+        target_dir = directory or next((d for d in self._search_dirs if d.is_dir()), self._search_dirs[0])
         file_path = bundle_path(target_dir, "query", clean_name)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(
-            yaml.safe_dump(declaration.to_dict(), sort_keys=False), encoding="utf-8"
-        )
+        file_path.write_text(yaml.safe_dump(declaration.to_dict(), sort_keys=False), encoding="utf-8")
         self._cache[clean_name] = declaration
         return declaration
 
@@ -272,9 +233,5 @@ class QueryCatalog:
         limit: int | None = None,
     ) -> pl.DataFrame:
         """Render and execute a stored query over :class:`PolarsSQLEngine`."""
-        declaration = (
-            name_or_declaration
-            if isinstance(name_or_declaration, QueryDeclaration)
-            else self.get_query(name_or_declaration)
-        )
+        declaration = name_or_declaration if isinstance(name_or_declaration, QueryDeclaration) else self.get_query(name_or_declaration)
         return engine.query(declaration.render_sql(params), limit=limit)

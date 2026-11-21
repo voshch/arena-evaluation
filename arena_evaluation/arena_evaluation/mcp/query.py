@@ -58,9 +58,7 @@ def _closest(missing: str, candidates: tuple[str, ...] | list[str]) -> str:
 
 def _shown(names: tuple[str, ...] | list[str]) -> str:
     ordered = sorted(names)
-    return ", ".join(ordered[:_SHOWN_LIMIT]) + (
-        " ..." if len(ordered) > _SHOWN_LIMIT else ""
-    )
+    return ", ".join(ordered[:_SHOWN_LIMIT]) + (" ..." if len(ordered) > _SHOWN_LIMIT else "")
 
 
 def _column_candidates(catalog: BenchmarkCatalog, message: str, sql: str) -> list[str]:
@@ -71,13 +69,7 @@ def _column_candidates(catalog: BenchmarkCatalog, message: str, sql: str) -> lis
     source = _FROM_TABLE.search(sql)
     if source is not None and source.group(1) in catalog.table_names():
         return catalog.get_table(source.group(1)).collect_schema().names()
-    return sorted(
-        {
-            name
-            for table in catalog.table_names()
-            for name in catalog.get_table(table).collect_schema().names()
-        }
-    )
+    return sorted({name for table in catalog.table_names() for name in catalog.get_table(table).collect_schema().names()})
 
 
 def _query_error(exc: Exception, catalog: BenchmarkCatalog, sql: str) -> ToolError:
@@ -103,9 +95,7 @@ def _query_error(exc: Exception, catalog: BenchmarkCatalog, sql: str) -> ToolErr
     )
 
 
-def _render(
-    decl: QueryDeclaration, params: dict[str, Any] | None, error: str, hint: str
-) -> str:
+def _render(decl: QueryDeclaration, params: dict[str, Any] | None, error: str, hint: str) -> str:
     """Render one stored or ad-hoc declaration, mapping parameter failures to a hinted ToolError."""
     try:
         return decl.render_sql(params)
@@ -116,9 +106,7 @@ def _render(
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_query(
     run_id: OptionalRunId = None,
-    query: Annotated[
-        str | None, pydantic.Field(description="Ad-hoc read-only SQL query to execute")
-    ] = None,
+    query: Annotated[str | None, pydantic.Field(description="Ad-hoc read-only SQL query to execute")] = None,
     *,
     stored_query: Annotated[
         str | None,
@@ -130,15 +118,11 @@ def evaluation_query(
     ] = None,
     pin_evidence: Annotated[
         bool,
-        pydantic.Field(
-            description="Persist the full query result as content-addressed evidence"
-        ),
+        pydantic.Field(description="Persist the full query result as content-addressed evidence"),
     ] = False,
     purpose: Annotated[
         str,
-        pydantic.Field(
-            description="Hypothesis or purpose for pinning evidence, a non-empty purpose pins too"
-        ),
+        pydantic.Field(description="Hypothesis or purpose for pinning evidence, a non-empty purpose pins too"),
     ] = "",
     limit: Annotated[
         int,
@@ -149,9 +133,7 @@ def evaluation_query(
     ] = PREVIEW_ROWS,
     save_as: Annotated[
         str | None,
-        pydantic.Field(
-            description="Optional derived table name to persist under analysis/derived/<name>.parquet"
-        ),
+        pydantic.Field(description="Optional derived table name to persist under analysis/derived/<name>.parquet"),
     ] = None,
 ) -> dict[str, Any]:
     """Execute an ad-hoc or stored analytical SQL query and return a capped preview: row_count, returned_rows, truncated, columns and data; pin_evidence=true pins the full result."""
@@ -186,18 +168,14 @@ def evaluation_query(
             ) from exc
         operation = f"stored_query:{stored_query}"
         render_error = f"Invalid parameters for {stored_query!r}"
-        render_hint = (
-            "evaluation_queries shows the declaration's parameters and defaults"
-        )
+        render_hint = "evaluation_queries shows the declaration's parameters and defaults"
     else:
         clean_query = query.strip() if query is not None else ""
         operation = f"sql:{clean_query}"
         render_error = "Invalid query parameters"
         render_hint = "pass :placeholder names as params, or drop params for SQL without placeholders"
         if params:
-            decl = QueryDeclaration(
-                name="ad_hoc", description="", sql=clean_query, parameters=params
-            )
+            decl = QueryDeclaration(name="ad_hoc", description="", sql=clean_query, parameters=params)
         else:
             decl = None
             try:
@@ -291,9 +269,7 @@ def evaluation_query(
         "truncated": truncated,
         "limit": limit,
         "columns": list(preview.columns),
-        "artifact_path": str(rec.artifact_path)
-        if rec is not None and rec.artifact_path is not None
-        else None,
+        "artifact_path": str(rec.artifact_path) if rec is not None and rec.artifact_path is not None else None,
         "data": preview.to_dicts(),
         **({"derived_table": derived_info["table_name"]} if derived_info else {}),
     }
@@ -309,29 +285,21 @@ def evaluation_queries(run_id: OptionalRunId = None) -> dict[str, Any]:
 @domain.tool(read_only=False, destructive=True, idempotent=True)
 def evaluation_query_save(
     run_id: RunId,
-    name: Annotated[
-        str, pydantic.Field(description="Unique identifier for the query declaration")
-    ],
+    name: Annotated[str, pydantic.Field(description="Unique identifier for the query declaration")],
     description: Annotated[
         str,
-        pydantic.Field(
-            description="Description of what this analytical query computes"
-        ),
+        pydantic.Field(description="Description of what this analytical query computes"),
     ],
     sql: Annotated[
         str,
-        pydantic.Field(
-            description="Read-only SQL statement with optional :param placeholders"
-        ),
+        pydantic.Field(description="Read-only SQL statement with optional :param placeholders"),
     ],
     *,
     parameters: Annotated[
         dict[str, Any] | None,
         pydantic.Field(description="Parameter declarations with types and defaults"),
     ] = None,
-    title: Annotated[
-        str | None, pydantic.Field(description="Human-readable title")
-    ] = None,
+    title: Annotated[str | None, pydantic.Field(description="Human-readable title")] = None,
 ) -> dict[str, Any]:
     """Save a query declaration into the run's analysis queries; the package store is read only."""
     safe_name = component(name.removesuffix(".yaml").removesuffix(".yml"), "name")
@@ -376,12 +344,8 @@ def evaluation_query_save(
 @domain.tool(read_only=True)
 def evaluation_evidence(
     run_id: OptionalRunId = None,
-    evidence_id: Annotated[
-        str | None, pydantic.Field(description="Specific evidence_id to load data for")
-    ] = None,
-    purpose_filter: Annotated[
-        str | None, pydantic.Field(description="Substring filter for evidence purpose")
-    ] = None,
+    evidence_id: Annotated[str | None, pydantic.Field(description="Specific evidence_id to load data for")] = None,
+    purpose_filter: Annotated[str | None, pydantic.Field(description="Substring filter for evidence purpose")] = None,
     limit: Annotated[
         int,
         pydantic.Field(description="most evidence rows to return", ge=1),
@@ -415,18 +379,14 @@ def evaluation_evidence(
             "limit": limit,
             "columns": list(frame.columns),
             "created_at_ns": rec.created_at_ns,
-            "artifact_path": str(rec.artifact_path)
-            if rec.artifact_path is not None
-            else None,
+            "artifact_path": str(rec.artifact_path) if rec.artifact_path is not None else None,
             "data": preview.to_dicts(),
         }
 
     index_df = store.load_index()
     if purpose_filter is not None and purpose_filter.strip():
         pat = purpose_filter.strip().lower()
-        index_df = index_df.filter(
-            pl.col("purpose").str.to_lowercase().str.contains(pat)
-        )
+        index_df = index_df.filter(pl.col("purpose").str.to_lowercase().str.contains(pat))
 
     return {
         "run_id": benchmark_path.name,

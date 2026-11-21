@@ -32,14 +32,10 @@ def _episode(
     columns: dict[str, pl.Series] = {"t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64)}
     if speed_mps is not None:
         columns["speed_mps"] = pl.Series("speed_mps", speed_mps, dtype=pl.Float64)
-    return AlignedEpisodeBundle(
-        episode_id=1, data=pl.DataFrame(columns), start_pos=[], goal_pos=goal or []
-    )
+    return AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(columns), start_pos=[], goal_pos=goal or [])
 
 
-def _ground_truth_episode(
-    xs: list[float], times_s: list[float], goal: list[float]
-) -> AlignedEpisodeBundle:
+def _ground_truth_episode(xs: list[float], times_s: list[float], goal: list[float]) -> AlignedEpisodeBundle:
     t_ns = [int(t * SEC) for t in times_s]
     data = pl.DataFrame(
         {
@@ -49,15 +45,11 @@ def _ground_truth_episode(
             "yaw": pl.Series("yaw", [0.0] * len(xs), dtype=pl.Float64),
         }
     )
-    return AlignedEpisodeBundle(
-        episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=goal
-    )
+    return AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[0.0, 0.0, 0.0], goal_pos=goal)
 
 
 def test_a_track_that_never_comes_within_one_metre_of_the_goal_has_no_time_to_goal():
-    episode = _ground_truth_episode(
-        xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[9.0, 0.0]
-    )
+    episode = _ground_truth_episode(xs=[0.0, 1.0, 2.0, 3.0], times_s=[1.0, 2.0, 3.0, 4.0], goal=[9.0, 0.0])
 
     results = _calculator().calculate(episode, {})
 

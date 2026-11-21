@@ -42,12 +42,5 @@ class StaticRenderer:
         )
         renderer.render_static(df, out_path)
         if not pathlib.Path(out_path).is_file():
-            detail = (
-                f": {'; '.join(diagnostics.issues)}"
-                if diagnostics is not None and diagnostics.issues
-                else ""
-            )
-            raise PlotRenderError(
-                f"Plot {spec.id!r}: {spec.type} renderer produced no file at "
-                f"{out_path}{detail}; the frame holds nothing the renderer can draw."
-            )
+            detail = f": {'; '.join(diagnostics.issues)}" if diagnostics is not None and diagnostics.issues else ""
+            raise PlotRenderError(f"Plot {spec.id!r}: {spec.type} renderer produced no file at {out_path}{detail}; the frame holds nothing the renderer can draw.")

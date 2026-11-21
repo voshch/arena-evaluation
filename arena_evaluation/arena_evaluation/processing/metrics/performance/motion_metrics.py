@@ -10,17 +10,16 @@ import numpy as np
 import polars as pl
 from scipy.signal import savgol_filter
 
-from arena_evaluation.storage.registry.series import SeriesMotionMetrics
-from arena_evaluation.processing.metrics.common.alignment import interpolate_values
-
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
     ScopeSlice,
 )
-from arena_evaluation.storage.registry import MetricScope, define_metric
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from arena_evaluation.processing.metrics.common.alignment import interpolate_values
 from arena_evaluation.processing.metrics.common.series import null_float_series
+from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry.series import SeriesMotionMetrics
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
 MIN_DT_S: typing.Final[float] = 1e-6
@@ -118,9 +117,7 @@ def _dt_s(t_ns: np.ndarray) -> np.ndarray:
     return np.where(dt <= 0.0, MIN_DT_S, dt)
 
 
-def _pose_track(
-    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
-) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+def _pose_track(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Ground-truth position samples of the scope view: the aligned native /tf frame, else the native track."""
     frame = calculator.resolve_robot_frame(episode)
     if frame is not None and frame.height >= 2:
@@ -140,9 +137,7 @@ def _pose_track(
     )
 
 
-def _unique_track(
-    t_ns: np.ndarray, x_m: np.ndarray, y_m: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+def _unique_track(t_ns: np.ndarray, x_m: np.ndarray, y_m: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Samples in ascending time with one row per stamp and finite positions, None when fewer than two remain."""
     order = np.argsort(t_ns, kind="stable")
     time_sorted = t_ns[order]
@@ -196,19 +191,13 @@ def _smoothing_grid(t_ns: np.ndarray) -> tuple[np.ndarray, int, float] | None:
     return grid, window, sample_step_s
 
 
-def _kinematics_on_grid(
-    grid: np.ndarray, speed_mps: np.ndarray, window: int, sample_step_s: float
-) -> Kinematics:
+def _kinematics_on_grid(grid: np.ndarray, speed_mps: np.ndarray, window: int, sample_step_s: float) -> Kinematics:
     """Acceleration and jerk as the first and second smoothed derivative of a gridded speed signal."""
     return Kinematics(
         t_ns=grid,
         speed_mps=speed_mps,
-        acceleration_mps2=savgol_filter(
-            speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
-        ),
-        jerk_mps3=savgol_filter(
-            speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s
-        ),
+        acceleration_mps2=savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s),
+        jerk_mps3=savgol_filter(speed_mps, window, SMOOTHING_POLYORDER, deriv=2, delta=sample_step_s),
     )
 
 
@@ -228,15 +217,9 @@ def _smooth_position_kinematics(
     grid, window, sample_step_s = gridded
     grid_x = interpolate_values(t_ns, x_m, grid)
     grid_y = interpolate_values(t_ns, y_m, grid)
-    velocity_x = savgol_filter(
-        grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
-    )
-    velocity_y = savgol_filter(
-        grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s
-    )
-    return _kinematics_on_grid(
-        grid, np.hypot(velocity_x, velocity_y), window, sample_step_s
-    )
+    velocity_x = savgol_filter(grid_x, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
+    velocity_y = savgol_filter(grid_y, window, SMOOTHING_POLYORDER, deriv=1, delta=sample_step_s)
+    return _kinematics_on_grid(grid, np.hypot(velocity_x, velocity_y), window, sample_step_s)
 
 
 def _smooth_speed_kinematics(
@@ -247,9 +230,7 @@ def _smooth_speed_kinematics(
     order = np.argsort(t_ns, kind="stable")
     time_sorted = t_ns[order]
     speed_sorted = speed_mps[order]
-    keep = np.concatenate(([True], np.diff(time_sorted) > 0)) & np.isfinite(
-        speed_sorted
-    )
+    keep = np.concatenate(([True], np.diff(time_sorted) > 0)) & np.isfinite(speed_sorted)
     time_sorted, speed_sorted = time_sorted[keep], speed_sorted[keep]
     if len(time_sorted) < 2:
         return None
@@ -265,9 +246,7 @@ def _smooth_speed_kinematics(
     )
 
 
-def episode_speed_mps(
-    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
-) -> tuple[np.ndarray, np.ndarray]:
+def episode_speed_mps(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray]:
     """Recorded speed (m/s) and sample times (ns) of an episode, the speed-only fallback stream.
 
     Used where the recording carries a speed stream but no ground-truth position track.
@@ -289,9 +268,7 @@ def episode_speed_mps(
     )
 
 
-def episode_kinematics(
-    calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle
-) -> Kinematics:
+def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Kinematics:
     """Speed, acceleration and jerk of the scope view, smoothed over the declared window when it fits.
 
     The recorded ground-truth speed stream is the signal (the same stream the metric always
@@ -299,14 +276,8 @@ def episode_kinematics(
     """
     speed_mps, t_ns = episode_speed_mps(calculator, episode)
     if len(speed_mps) > 0:
-        smoothed = (
-            _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
-        )
-        return (
-            smoothed
-            if smoothed is not None
-            else _speed_only_kinematics(speed_mps, t_ns)
-        )
+        smoothed = _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
+        return smoothed if smoothed is not None else _speed_only_kinematics(speed_mps, t_ns)
 
     track = _pose_track(calculator, episode)
     if track is None:
@@ -330,9 +301,7 @@ def _summarize(kinematics: Kinematics) -> dict[str, float | None]:
         return result
     result["mean_velocity_mps"] = float(np.mean(speed_mps))
     result["velocity_max"] = float(np.max(speed_mps))
-    acceleration_mps2 = kinematics.acceleration_mps2[
-        np.isfinite(kinematics.acceleration_mps2)
-    ]
+    acceleration_mps2 = kinematics.acceleration_mps2[np.isfinite(kinematics.acceleration_mps2)]
     if len(acceleration_mps2) > 0:
         result["acceleration_mean"] = float(np.mean(np.abs(acceleration_mps2)))
         result["max_acceleration_mps2"] = float(np.max(np.abs(acceleration_mps2)))
@@ -354,24 +323,16 @@ def _motion_series_frame(
     sample_count = len(kinematics.speed_mps)
     if sample_count == 0:
         return pl.DataFrame(schema=SERIES_SCHEMA)
-    time_s = (
-        kinematics.t_ns.astype(np.float64) - float(kinematics.t_ns[0])
-    ) / NANOSECONDS_PER_SECOND
+    time_s = (kinematics.t_ns.astype(np.float64) - float(kinematics.t_ns[0])) / NANOSECONDS_PER_SECOND
     return pl.DataFrame(
         {
             "run_id": pl.Series("run_id", [run_id] * sample_count, dtype=pl.String),
-            "episode_id": pl.Series(
-                "episode_id", [int(episode_id)] * sample_count, dtype=pl.Int64
-            ),
-            "robot_id": pl.Series(
-                "robot_id", [robot_id] * sample_count, dtype=pl.String
-            ),
+            "episode_id": pl.Series("episode_id", [int(episode_id)] * sample_count, dtype=pl.Int64),
+            "robot_id": pl.Series("robot_id", [robot_id] * sample_count, dtype=pl.String),
             "t_ns": pl.Series("t_ns", kinematics.t_ns, dtype=pl.Int64),
             "time_s": pl.Series("time_s", time_s, dtype=pl.Float64),
             "speed_mps": null_float_series(kinematics.speed_mps, "speed_mps"),
-            "acceleration_mps2": null_float_series(
-                kinematics.acceleration_mps2, "acceleration_mps2"
-            ),
+            "acceleration_mps2": null_float_series(kinematics.acceleration_mps2, "acceleration_mps2"),
             "jerk_mps3": null_float_series(kinematics.jerk_mps3, "jerk_mps3"),
         },
         schema=SERIES_SCHEMA,
@@ -415,20 +376,12 @@ class MotionMetricsCalculator(BaseMetricCalculator):
     ]
 
     @classmethod
-    def required_topics_for_scope(
-        cls, scope: MetricScope
-    ) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
         # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
         # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
-        return (
-            ()
-            if scope == MetricScope.ENCOUNTER
-            else super().required_topics_for_scope(scope)
-        )
+        return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         return _summarize(episode_kinematics(self, episode))
 
@@ -443,13 +396,9 @@ class MotionMetricsCalculator(BaseMetricCalculator):
         del prior_results
         if scope_slice.scope == MetricScope.ENCOUNTER:
             return _summarize(episode_kinematics(self, episode))
-        raise ValueError(
-            f"motion_metrics does not serve the {scope_slice.scope.value} scope"
-        )
+        raise ValueError(f"motion_metrics does not serve the {scope_slice.scope.value} scope")
 
-    def series_table(
-        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
-    ) -> pl.DataFrame:
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
         """1NF flat motion series, one row per kinematics sample; schema-typed when empty."""
         return _motion_series_frame(
             episode_kinematics(self, episode),

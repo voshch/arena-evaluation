@@ -47,9 +47,7 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         run_id="h5_run",
         claim="planner_a has mean_ttg recorded in derived_planner_ttg",
         evidence_ids=[ev_id],
-        structured_numbers=[
-            {"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}
-        ],
+        structured_numbers=[{"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}],
         author="analyst",
     )
     findings.evaluation_finding_verify(run_id="h5_run", finding_id=f_created.finding_id)
@@ -65,9 +63,7 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         run_id="h5_run",
         claim="Unverified claim",
         evidence_ids=[ev_id],
-        structured_numbers=[
-            {"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}
-        ],
+        structured_numbers=[{"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}],
         author="analyst",
     )
 
@@ -85,9 +81,7 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     assert comparison["derived_summary_table"] == "derived_cmp_ab_summary"
 
     # 1. Draft
-    draft = reporting.evaluation_report_draft(
-        run_id="h5_run", title="H5 Reviewed Report"
-    )
+    draft = reporting.evaluation_report_draft(run_id="h5_run", title="H5 Reviewed Report")
     draft_id = draft["draft_id"]
 
     # 2. Plot 1: interval (approved)
@@ -106,9 +100,7 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     assert p1["status"] == "rendered", p1
 
     # View returns ImageContent + check report
-    view_res = reporting.evaluation_report_view(
-        run_id="h5_run", draft_id=draft_id, plot_id="cmp_interval"
-    )
+    view_res = reporting.evaluation_report_view(run_id="h5_run", draft_id=draft_id, plot_id="cmp_interval")
     assert len(view_res.content) >= 2
 
     img_blocks = [c for c in view_res.content if isinstance(c, ImageContent)]
@@ -227,15 +219,11 @@ def test_h5_rejects_analysis_prefix_and_preserves_renderer_diagnostics(
     plot_dir = run_dir / "analysis" / "plots" / "acoustic_diag"
     plot_dir.mkdir(parents=True, exist_ok=True)
     (plot_dir / "plot.yaml").write_text(
-        "id: acoustic_diag\ntitle: Acoustic\ntype: acoustic_field\n"
-        "data:\n  source: v_episode_summary\n"
-        "channels:\n  x: planner\n  y: time_to_goal\n",
+        "id: acoustic_diag\ntitle: Acoustic\ntype: acoustic_field\ndata:\n  source: v_episode_summary\nchannels:\n  x: planner\n  y: time_to_goal\n",
         encoding="utf-8",
     )
     with pytest.raises(ToolError) as exc_info:
-        presentation.evaluation_render_plot(
-            run_id="h5_diag", declaration="acoustic_diag", output_format="png"
-        )
+        presentation.evaluation_render_plot(run_id="h5_diag", declaration="acoustic_diag", output_format="png")
     assert plot_res["checks"]["issues"][0] in str(exc_info.value)
 
 
@@ -250,16 +238,11 @@ def test_h5_reviewed_report_embeds_the_bundle_and_both_plot_renders(
 
     query.evaluation_query(
         run_id="h5_blocks",
-        query=(
-            "SELECT planner, AVG(time_to_goal) AS mean_ttg FROM v_episode_summary "
-            "GROUP BY planner ORDER BY planner"
-        ),
+        query=("SELECT planner, AVG(time_to_goal) AS mean_ttg FROM v_episode_summary GROUP BY planner ORDER BY planner"),
         pin_evidence=True,
         save_as="planner_ttg",
     )
-    draft_id = reporting.evaluation_report_draft(
-        run_id="h5_blocks", title="plot blocks"
-    )["draft_id"]
+    draft_id = reporting.evaluation_report_draft(run_id="h5_blocks", title="plot blocks")["draft_id"]
     for plot_id, plot_type in (("bar_ttg", "bar"), ("box_ttg", "box")):
         shown = reporting.evaluation_report_plot(
             run_id="h5_blocks",
@@ -298,9 +281,7 @@ def test_h5_reviewed_report_embeds_the_bundle_and_both_plot_renders(
     )
     assert failed["status"] == "failed"
 
-    assembled = reporting.evaluation_report_assemble(
-        run_id="h5_blocks", draft_id=draft_id, name="plot_blocks"
-    )
+    assembled = reporting.evaluation_report_assemble(run_id="h5_blocks", draft_id=draft_id, name="plot_blocks")
     report_path = pathlib.Path(assembled["report_path"])
     page = report_path.read_text(encoding="utf-8")
     parts = parse_page(page)
@@ -335,18 +316,13 @@ def test_h5_analysis_save_as_stores_and_refreshes_the_summary_table(
     )
     assert saved["derived_table"] == "derived_cmp_pair"
     assert saved["derived_summary_table"] == "derived_cmp_pair_summary"
-    listed = {
-        table["table_name"]
-        for table in analysis.evaluation_tables(run_id="h5_summary")["tables"]
-    }
+    listed = {table["table_name"] for table in analysis.evaluation_tables(run_id="h5_summary")["tables"]}
     assert {"derived_cmp_pair", "derived_cmp_pair_summary"} <= listed
 
     refreshed = analysis.evaluation_refresh_table(run_id="h5_summary", name="cmp_pair")
     assert refreshed["version"] == 2
     derived = run_dir / "analysis" / "derived"
-    summary_sidecar = yaml.safe_load(
-        (derived / "cmp_pair_summary.yaml").read_text(encoding="utf-8")
-    )
+    summary_sidecar = yaml.safe_load((derived / "cmp_pair_summary.yaml").read_text(encoding="utf-8"))
     assert summary_sidecar["version"] == 2
     summary_frame = pl.read_parquet(derived / "cmp_pair_summary.parquet")
     assert "mean_diff" in summary_frame.columns

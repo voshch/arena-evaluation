@@ -39,18 +39,10 @@ _CONFIG_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 _LAUNCH_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:=")
 
 
-def _int(
-    body: dict[str, typing.Any], name: str, default: int, low: int, high: int
-) -> int:
+def _int(body: dict[str, typing.Any], name: str, default: int, low: int, high: int) -> int:
     value = body.get(name, default)
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or not low <= value <= high
-    ):
-        raise ControlError(
-            400, f"{name} must be an integer from {low} to {high}, got {value!r}"
-        )
+    if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+        raise ControlError(400, f"{name} must be an integer from {low} to {high}, got {value!r}")
     return value
 
 
@@ -65,12 +57,7 @@ class _Action:
     settable: bool = True
 
 
-def _viz_tools() -> (
-    tuple[
-        Callable[..., typing.Any], Callable[..., typing.Any], Callable[..., typing.Any]
-    ]
-    | None
-):
+def _viz_tools() -> tuple[Callable[..., typing.Any], Callable[..., typing.Any], Callable[..., typing.Any]] | None:
     """The rerun view tools, None when rerun_utils does not provide them."""
     try:
         from rerun_utils.mcp import viz_rerun_list, viz_rerun_start, viz_rerun_stop
@@ -79,9 +66,7 @@ def _viz_tools() -> (
     return viz_rerun_start, viz_rerun_stop, viz_rerun_list
 
 
-async def _tool_result(
-    tool: Callable[..., typing.Any], **kwargs: object
-) -> dict[str, typing.Any]:
+async def _tool_result(tool: Callable[..., typing.Any], **kwargs: object) -> dict[str, typing.Any]:
     result = tool(**kwargs)
     return await result if inspect.isawaitable(result) else result
 
@@ -131,12 +116,8 @@ def _actions() -> dict[str, _Action]:
             {"wait_ready": False, "headless": True},
             ("launch_args", "ns", "timeout_s"),
         ),
-        "despawn": _Action(
-            runtime.runtime_despawn_env, "env", {"wait": False}, ("timeout_s",)
-        ),
-        "despawn_all": _Action(
-            runtime.runtime_despawn_env, "runtime", {"wait": False}, ("timeout_s",)
-        ),
+        "despawn": _Action(runtime.runtime_despawn_env, "env", {"wait": False}, ("timeout_s",)),
+        "despawn_all": _Action(runtime.runtime_despawn_env, "runtime", {"wait": False}, ("timeout_s",)),
         "reset": _Action(episode_reset, "env", {"wait": False}, ("timeout_s",)),
         "cleanup": _Action(runtime.runtime_cleanup_env, "env"),
         **views,
@@ -164,13 +145,9 @@ def _args_model(action: str) -> type[pydantic.BaseModel]:
             if name not in skip:
                 fields[name] = (
                     hints[name],
-                    ...
-                    if parameter.default is inspect.Parameter.empty
-                    else parameter.default,
+                    ... if parameter.default is inspect.Parameter.empty else parameter.default,
                 )
-    return pydantic.create_model(
-        f"{action}_args", __config__=pydantic.ConfigDict(extra="forbid"), **fields
-    )
+    return pydantic.create_model(f"{action}_args", __config__=pydantic.ConfigDict(extra="forbid"), **fields)
 
 
 def _validated(action: str, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -183,10 +160,7 @@ def _validated(action: str, body: dict[str, typing.Any]) -> dict[str, typing.Any
     except pydantic.ValidationError as exc:
         raise ControlError(
             400,
-            "; ".join(
-                f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-                for error in exc.errors()
-            ),
+            "; ".join(f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()),
         ) from exc
     return {name: getattr(checked, name) for name in model.model_fields}
 
@@ -243,13 +217,7 @@ def _action_docs() -> dict[str, dict[str, typing.Any]]:
             "doc": (spec.tool.__doc__ or "").strip().splitlines()[0],
             "scope": spec.scope,
             "annotations": _annotations(spec.tool),
-            "params": [
-                _tool_param(name, schema)
-                for name, schema in _args_model(action)
-                .model_json_schema()
-                .get("properties", {})
-                .items()
-            ],
+            "params": [_tool_param(name, schema) for name, schema in _args_model(action).model_json_schema().get("properties", {}).items()],
         }
         for action, spec in _actions().items()
     }
@@ -261,15 +229,11 @@ def _check_param_types(params: dict[str, typing.Any], declared: dict[str, str]) 
         if kind is None:
             continue
         if kind not in _PARAM_TYPES:
-            raise ControlError(
-                400, f"{name} is declared as {kind}, the dashboard cannot set it"
-            )
+            raise ControlError(400, f"{name} is declared as {kind}, the dashboard cannot set it")
         try:
             pydantic.TypeAdapter(_PARAM_TYPES[kind]).validate_python(value, strict=True)
         except pydantic.ValidationError as exc:
-            raise ControlError(
-                400, f"{name} is declared as {kind}: {exc.errors()[0]['msg']}"
-            ) from exc
+            raise ControlError(400, f"{name} is declared as {kind}: {exc.errors()[0]['msg']}") from exc
 
 
 def _mapping(body: dict[str, typing.Any], name: str) -> dict[str, typing.Any]:
@@ -284,29 +248,17 @@ def _modes(body: dict[str, typing.Any]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for axis, names in modes.items():
         listed = [names] if isinstance(names, str) else names
-        if not isinstance(listed, list) or not all(
-            isinstance(name, str) for name in listed
-        ):
-            raise ControlError(
-                400, f"modes.{axis} must be a mode name or a list of mode names"
-            )
+        if not isinstance(listed, list) or not all(isinstance(name, str) for name in listed):
+            raise ControlError(400, f"modes.{axis} must be a mode name or a list of mode names")
         out[axis] = [name for name in listed if name]
     return out
 
 
 def _launch_args(body: dict[str, typing.Any]) -> dict[str, str]:
     raw = body.get("launch_args", {})
-    if not isinstance(raw, dict) or not all(
-        isinstance(key, str) and isinstance(value, str) for key, value in raw.items()
-    ):
-        raise ControlError(
-            400, "launch_args must map launch argument names to string values"
-        )
-    return {
-        key.strip(): value.strip()
-        for key, value in raw.items()
-        if key.strip() and value.strip()
-    }
+    if not isinstance(raw, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in raw.items()):
+        raise ControlError(400, "launch_args must map launch argument names to string values")
+    return {key.strip(): value.strip() for key, value in raw.items() if key.strip() and value.strip()}
 
 
 class RuntimeBridge:
@@ -314,9 +266,7 @@ class RuntimeBridge:
 
     def __init__(self) -> None:
         self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(
-            target=self.loop.run_forever, name="dashboard-runtime", daemon=True
-        )
+        self.thread = threading.Thread(target=self.loop.run_forever, name="dashboard-runtime", daemon=True)
         self.thread.start()
         self._viewport: tuple[float, bool] = (0.0, False)
         self._options: tuple[float, dict[str, typing.Any] | None] = (0.0, None)
@@ -367,9 +317,7 @@ class RuntimeBridge:
             self._cache = cache
         with self._refresher_lock:
             if self._refresher is None or self._refresher.done():
-                self._refresher = asyncio.run_coroutine_threadsafe(
-                    self._refresh(), self.loop
-                )
+                self._refresher = asyncio.run_coroutine_threadsafe(self._refresh(), self.loop)
         age = time.monotonic() - cache[0]
         if isinstance(cache[1], ControlError):
             raise ControlError(
@@ -411,12 +359,8 @@ class RuntimeBridge:
     def camera(self, env_id: int) -> bytes:
         return self.run(self._camera(env_id), timeout=40.0)
 
-    def act(
-        self, action: str, env_id: int | None, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        runtime_actions = {
-            name: spec for name, spec in _actions().items() if spec.scope != "run"
-        }
+    def act(self, action: str, env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        runtime_actions = {name: spec for name, spec in _actions().items() if spec.scope != "run"}
         spec = runtime_actions.get(action)
         if spec is None:
             raise ControlError(
@@ -444,9 +388,7 @@ class RuntimeBridge:
         finally:
             self.poke()
 
-    def start_benchmark(
-        self, data_root: pathlib.Path, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def start_benchmark(self, data_root: pathlib.Path, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Start `benchmark` detached on this ROS domain, refused while a runtime or another runner is up here."""
         from .dashboard import _RUN_ID_RE
         from .runner import _default_run_id
@@ -454,9 +396,7 @@ class RuntimeBridge:
         suite, contest = _config_name(body, "suite"), _config_name(body, "contest")
         run_id = body.get("run_id") or _default_run_id(suite, contest, None)
         if not isinstance(run_id, str) or not _RUN_ID_RE.match(run_id):
-            raise ControlError(
-                400, f"run ids are letters, digits, '_', '.' and '-', got {run_id!r}"
-            )
+            raise ControlError(400, f"run ids are letters, digits, '_', '.' and '-', got {run_id!r}")
         if (data_root / run_id).exists():
             raise ControlError(
                 409,
@@ -526,9 +466,8 @@ class RuntimeBridge:
         return {"action": action, "result": await work}
 
     async def _snapshot(self) -> dict[str, typing.Any]:
-        from arena_runtime.mcp import runtime_envs, runtime_state
-
         from arena_mcp.core import ROS
+        from arena_runtime.mcp import runtime_envs, runtime_state
 
         state = await runtime_state()
         base = {
@@ -556,10 +495,7 @@ class RuntimeBridge:
             "running": True,
             "state": state,
             "sim_time": sim_time,
-            "envs": [
-                env | {"episode": episode, "view": views.get(env["env_id"])}
-                for env, episode in zip(envs, episodes, strict=True)
-            ],
+            "envs": [env | {"episode": episode, "view": views.get(env["env_id"])} for env, episode in zip(envs, episodes, strict=True)],
             "benchmark": benchmark,
             "viewport": viewport,
         }
@@ -574,10 +510,7 @@ class RuntimeBridge:
             up = False
         else:
             available = await view_available()
-            up = any(
-                entry["surface"] == "sim" and entry["capture"]
-                for entry in available["viewports"]
-            )
+            up = any(entry["surface"] == "sim" and entry["capture"] for entry in available["viewports"])
         self._viewport = (time.monotonic(), up)
         return up
 
@@ -616,19 +549,13 @@ class RuntimeBridge:
 
         kinds = _catalog_kinds()
         if kind not in kinds:
-            raise ControlError(
-                400, f"no catalog kind {kind!r}", f"kinds: {', '.join(kinds)}"
-            )
+            raise ControlError(400, f"no catalog kind {kind!r}", f"kinds: {', '.join(kinds)}")
         envs = await runtime_envs() if (await runtime_state())["running"] else []
         live = bool(envs)
         key = (kind, world, live)
         stamp, items = self._catalogs.get(key, (0.0, []))
         if time.monotonic() - stamp > CATALOG_TTL_S:
-            items = (
-                await _live_catalog(kind, envs[0]["env_id"], world)
-                if live
-                else await _offline_catalog(kind, world)
-            )
+            items = await _live_catalog(kind, envs[0]["env_id"], world) if live else await _offline_catalog(kind, world)
             self._catalogs[key] = (time.monotonic(), items)
         return {"kind": kind, "world": world, "items": items}
 
@@ -639,18 +566,12 @@ class RuntimeBridge:
         )
         from arena_runtime.env.task_layer import TM_AXES, task_layer, task_layer_name
 
-        active = typing.cast(
-            "dict[str, list[str]]", (await episode_task_modes_active(env_id))["modes"]
-        )
+        active = typing.cast("dict[str, list[str]]", (await episode_task_modes_active(env_id))["modes"])
         live = await episode_task_modes(env_id, source="live")
-        namespaces = task_layer(
-            task_layer_name(typing.cast("str", live["task_layer"]))
-        ).mode_namespaces()
+        namespaces = task_layer(task_layer_name(typing.cast("str", live["task_layer"]))).mode_namespaces()
         params: dict[str, typing.Any] = {}
         for axis in TM_AXES:
-            declared = typing.cast(
-                "dict[str, list[dict[str, typing.Any]]]", live.get(axis, {})
-            )
+            declared = typing.cast("dict[str, list[dict[str, typing.Any]]]", live.get(axis, {}))
             for mode in active.get(axis, []):
                 for entry in declared.get(mode, []):
                     params[f"{namespaces[axis][mode]}.{entry['name']}"] = entry["value"]
@@ -663,22 +584,16 @@ class RuntimeBridge:
         try:
             from arena_cam.mcp import View, view_capture
         except ImportError as exc:
-            raise ControlError(
-                404, "arena_cam is not installed, the dashboard has no camera"
-            ) from exc
+            raise ControlError(404, "arena_cam is not installed, the dashboard has no camera") from exc
         episode = await _episode(env_id)
         robots = episode.get("robots") or []
         view = View(follow=robots[0]) if robots else View(top_down=12.0)
         content = await view_capture(view=view, env_id=env_id, surface="sim")
         return content[1].data
 
-    async def _invoke(
-        self, action: str, env_id: int | None, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    async def _invoke(self, action: str, env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         spec = _actions()[action]
-        kwargs = _validated(action, body) | (
-            {} if env_id is None else {"env_id": env_id}
-        )
+        kwargs = _validated(action, body) | ({} if env_id is None else {"env_id": env_id})
         if action == "despawn" and env_id is not None:
             await self._stop_view(env_id)
         result = await _tool_result(spec.tool, **spec.fixed, **kwargs)
@@ -696,9 +611,7 @@ class RuntimeBridge:
             with contextlib.suppress(ToolError):
                 await _tool_result(viz[1], env_id=env_id)
 
-    async def _spawn(
-        self, action: str, _env_id: int | None, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    async def _spawn(self, action: str, _env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         from arena_rclpy_mixins.launch_params import value_to_launch_str
         from arena_runtime.env.task_layer import selection_args
 
@@ -723,13 +636,8 @@ class RuntimeBridge:
             )
         _check_param_types(params, declared)
         selected = dict(token.split(":=", 1) for token in selection_args(modes))
-        args |= selected | {
-            name: value_to_launch_str(value) for name, value in params.items()
-        }
-        spawned = [
-            await spec.tool(**spec.fixed, **kwargs, launch_args=args)
-            for _ in range(count)
-        ]
+        args |= selected | {name: value_to_launch_str(value) for name, value in params.items()}
+        spawned = [await spec.tool(**spec.fixed, **kwargs, launch_args=args) for _ in range(count)]
         return {
             "launch_args": args,
             "spawned": [
@@ -741,9 +649,7 @@ class RuntimeBridge:
             ],
         }
 
-    async def _despawn_all(
-        self, action: str, _env_id: int | None, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    async def _despawn_all(self, action: str, _env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         from arena_runtime.mcp import runtime_envs
 
         spec = _actions()[action]
@@ -751,14 +657,10 @@ class RuntimeBridge:
         despawned = []
         for env in await runtime_envs():
             await self._stop_view(env["env_id"])
-            despawned.append(
-                await spec.tool(**spec.fixed, **kwargs, env_id=env["env_id"])
-            )
+            despawned.append(await spec.tool(**spec.fixed, **kwargs, env_id=env["env_id"]))
         return {"despawned": despawned}
 
-    async def _reset(
-        self, action: str, env_id: int | None, body: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    async def _reset(self, action: str, env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         from arena_runtime.env.episode_mcp import episode_queue
 
         spec = _actions()[action]
@@ -804,9 +706,7 @@ def _launch_tokens(args: object) -> list[str]:
         raise ControlError(400, f"args do not parse: {exc}") from exc
     bad = [token for token in tokens if not _LAUNCH_TOKEN_RE.match(token)]
     if bad:
-        raise ControlError(
-            400, f"launch arguments are key:=value, got {', '.join(bad)}"
-        )
+        raise ControlError(400, f"launch arguments are key:=value, got {', '.join(bad)}")
     return tokens
 
 
@@ -817,9 +717,8 @@ def _config_names(kind: str) -> list[str]:
 
 
 async def _domain_busy() -> tuple[str | None, bool]:
-    from arena_runtime.mcp import SIM_STATE
-
     from arena_mcp.core import ROS
+    from arena_runtime.mcp import SIM_STATE
 
     owner = await _benchmark_owner()
     return owner, (await ROS.node()).count_publishers(SIM_STATE) > 0
@@ -841,13 +740,7 @@ class _TaskSchema:
 
     def param_types(self, modes: dict[str, list[str]] | None) -> dict[str, str]:
         """Full parameter name to declared type for the given modes, every mode when None."""
-        return {
-            f"{self.namespaces[axis][mode]}.{entry['name']}": entry["type"]
-            for axis, by_mode in self.registry.items()
-            for mode, entries in by_mode.items()
-            if modes is None or mode in modes.get(axis, [])
-            for entry in entries
-        }
+        return {f"{self.namespaces[axis][mode]}.{entry['name']}": entry["type"] for axis, by_mode in self.registry.items() for mode, entries in by_mode.items() if modes is None or mode in modes.get(axis, []) for entry in entries}
 
 
 async def _task_schema() -> _TaskSchema:
@@ -856,11 +749,7 @@ async def _task_schema() -> _TaskSchema:
 
     layer = task_layer(task_layer_name())
     modes = await episode_task_modes(source="registry")
-    registry = {
-        axis: typing.cast("dict[str, list[dict[str, typing.Any]]]", modes[axis])
-        for axis in TM_AXES
-        if axis in modes
-    }
+    registry = {axis: typing.cast("dict[str, list[dict[str, typing.Any]]]", modes[axis]) for axis in TM_AXES if axis in modes}
     return _TaskSchema(layer, layer.mode_namespaces(), registry)
 
 
@@ -878,12 +767,8 @@ def _param(namespace: str, entry: dict[str, typing.Any]) -> dict[str, typing.Any
         "description": entry.get("description", ""),
         "choices": constraint["values"] if kind == "choices" else None,
         "catalog": constraint["name"] if kind == "catalog" else None,
-        "range": [constraint["lo"], constraint["hi"], step or None]
-        if kind == "range"
-        else None,
-        "widget": ("sketch" if constraint["sketch"] else "text")
-        if kind == "text"
-        else None,
+        "range": [constraint["lo"], constraint["hi"], step or None] if kind == "range" else None,
+        "widget": ("sketch" if constraint["sketch"] else "text") if kind == "text" else None,
         "read_only": bool(entry.get("read_only", False)),
     }
 
@@ -902,10 +787,7 @@ async def _task_modes() -> dict[str, dict[str, typing.Any]]:
             "modes": {
                 mode: {
                     "namespace": schema.namespaces[axis][mode],
-                    "params": [
-                        _param(schema.namespaces[axis][mode], entry)
-                        for entry in entries
-                    ],
+                    "params": [_param(schema.namespaces[axis][mode], entry) for entry in entries],
                 }
                 for mode, entries in sorted(modes.items())
             },
@@ -922,9 +804,7 @@ def _catalog_kinds() -> list[str]:
 async def _live_catalog(kind: str, env_id: int, world: str) -> list[str]:
     from arena_runtime.env.episode_mcp import episode_catalog
 
-    return await episode_catalog(
-        typing.cast("typing.Any", kind), env_id=env_id, world=world
-    )
+    return await episode_catalog(typing.cast("typing.Any", kind), env_id=env_id, world=world)
 
 
 async def _offline_catalog(kind: str, world: str) -> list[str]:
@@ -935,14 +815,10 @@ async def _offline_catalog(kind: str, world: str) -> list[str]:
     try:
         return sorted(await LISTERS[kind](world))
     except FileNotFoundError as exc:
-        raise ControlError(
-            404, f"no world {world!r}", "worlds lists the ones that exist"
-        ) from exc
+        raise ControlError(404, f"no world {world!r}", "worlds lists the ones that exist") from exc
 
 
-def _spawn_fields(
-    launch_args: list[dict[str, str]], planners: list[str]
-) -> list[dict[str, typing.Any]]:
+def _spawn_fields(launch_args: list[dict[str, str]], planners: list[str]) -> list[dict[str, typing.Any]]:
     """Launch arguments the spawn form renders itself, each with the catalog kind or the fixed list its values come from."""
     described = {arg["name"]: arg["description"] for arg in launch_args}
     sources: dict[str, tuple[str | None, list[str] | None]] = {
@@ -969,19 +845,14 @@ def _launch_args_of_env() -> list[dict[str, str]]:
     )
     from arena_runtime.env.task_layer import TM_AXES, mode_param, mode_param_description
 
-    found: dict[str, str] = {
-        mode_param(axis): mode_param_description(axis) for axis in TM_AXES
-    }
+    found: dict[str, str] = {mode_param(axis): mode_param_description(axis) for axis in TM_AXES}
     try:
         declared = declared_arguments("arena_runtime", "env.launch.py")
     except UnreadableLaunchFile:
         declared = []
     for argument in declared:
         found.setdefault(argument.name, argument.description)
-    return [
-        {"name": name, "description": description}
-        for name, description in sorted(found.items())
-    ]
+    return [{"name": name, "description": description} for name, description in sorted(found.items())]
 
 
 def _sims() -> list[str]:
@@ -994,9 +865,8 @@ def _sims() -> list[str]:
 
 
 async def _episode(env_id: int) -> dict[str, typing.Any]:
-    from arena_runtime.env.episode_mcp import episode_current
-
     from arena_mcp.core import ToolError
+    from arena_runtime.env.episode_mcp import episode_current
 
     try:
         current = await episode_current(env_id)
@@ -1019,7 +889,6 @@ async def _episode(env_id: int) -> dict[str, typing.Any]:
 
 async def _benchmark_owner() -> str | None:
     from arena_evaluation_msgs.msg import BenchmarkState
-
     from arena_mcp.core import LATCHED, ROS, ToolError
 
     from .runner import STATE_TOPIC
@@ -1028,8 +897,6 @@ async def _benchmark_owner() -> str | None:
     if node.count_publishers(STATE_TOPIC) == 0:
         return None
     try:
-        return (
-            await ROS.latest(BenchmarkState, STATE_TOPIC, qos=LATCHED, timeout=2.0)
-        ).run_id or "unnamed"
+        return (await ROS.latest(BenchmarkState, STATE_TOPIC, qos=LATCHED, timeout=2.0)).run_id or "unnamed"
     except ToolError:
         return "unnamed"

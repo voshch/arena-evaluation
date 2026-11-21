@@ -125,12 +125,8 @@ class AcousticsCalculator(BaseMetricCalculator):
         if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
             return self.calculate(episode, prior_results)
         if scope_slice.scope == MetricScope.ENCOUNTER:
-            return self.calculate(
-                episode, {"path_length_m": self._window_path_length_m(episode)}
-            )
-        raise ValueError(
-            f"acoustics does not serve the {scope_slice.scope.value} scope"
-        )
+            return self.calculate(episode, {"path_length_m": self._window_path_length_m(episode)})
+        raise ValueError(f"acoustics does not serve the {scope_slice.scope.value} scope")
 
     def calculate(
         self,
@@ -144,10 +140,7 @@ class AcousticsCalculator(BaseMetricCalculator):
         frame = (
             acous.select(
                 pl.col("t_ns").cast(pl.Int64),
-                pl.col("total_level_af_dba")
-                .cast(pl.Float64)
-                .forward_fill()
-                .alias("dba"),
+                pl.col("total_level_af_dba").cast(pl.Float64).forward_fill().alias("dba"),
             )
             .drop_nulls("dba")
             .sort("t_ns")
@@ -170,9 +163,7 @@ class AcousticsCalculator(BaseMetricCalculator):
         l_a90 = float(np.percentile(dba, 10))
 
         dba_filt = self._median_filter_3(dba)
-        acoustic_startle_factor = max_positive_rise_dba_per_s(
-            rise_rates_dba_per_s(dba_filt, t_ns, gate_dba=STARTLE_GATE_DBA)
-        )
+        acoustic_startle_factor = max_positive_rise_dba_per_s(rise_rates_dba_per_s(dba_filt, t_ns, gate_dba=STARTLE_GATE_DBA))
 
         acoustic_surge_index = self._surge_index(dt, energy, total_duration_s)
 
@@ -194,9 +185,7 @@ class AcousticsCalculator(BaseMetricCalculator):
         }
 
     @staticmethod
-    def _surge_index(
-        dt: np.ndarray, linear_energy: np.ndarray, total_duration_s: float
-    ) -> float:
+    def _surge_index(dt: np.ndarray, linear_energy: np.ndarray, total_duration_s: float) -> float:
         """Variance of 1 s Leq windows over the scope."""
         if total_duration_s < SURGE_WINDOW_S or len(linear_energy) < 2:
             return 0.0
@@ -228,11 +217,7 @@ class AcousticsCalculator(BaseMetricCalculator):
         )
         if len(frame) < 2:
             return None
-        steps = (
-            (pl.col("x").diff().pow(2) + pl.col("y").diff().pow(2))
-            .sqrt()
-            .alias("step_m")
-        )
+        steps = (pl.col("x").diff().pow(2) + pl.col("y").diff().pow(2)).sqrt().alias("step_m")
         return float(frame.select(steps).get_column("step_m").drop_nulls().sum())
 
     @staticmethod

@@ -48,6 +48,4 @@ def test_predicate_rejects_non_boolean_bare_column() -> None:
     with pytest.raises(ValueError, match="boolean column"):
         compile_where_predicate("planner", schema)
     with pytest.raises(ValidationError, match="data_key"):
-        PlotSpec.model_validate(
-            {"id": "bad", "type": "bar", "data_key": "time_to_goal"}
-        )
+        PlotSpec.model_validate({"id": "bad", "type": "bar", "data_key": "time_to_goal"})

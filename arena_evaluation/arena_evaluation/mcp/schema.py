@@ -56,26 +56,16 @@ def _schema_metadata(
 
     for table in registered_tables():
         table_name = table.table_name
-        catalog_name = (
-            f"fact_{table_name}"
-            if table.table_kind.value == "fact" and not table_name.startswith("fact_")
-            else table_name
-        )
+        catalog_name = f"fact_{table_name}" if table.table_kind.value == "fact" and not table_name.startswith("fact_") else table_name
         table_meta[catalog_name] = {
             "kind": table.table_kind.value,
-            "scope": table.table_scope.value
-            if table.table_scope is not None
-            else table.table_kind.value,
+            "scope": table.table_scope.value if table.table_scope is not None else table.table_kind.value,
             "keys": list(table.key),
-            "meaning": (table.__doc__ or "").strip().splitlines()[0]
-            if table.__doc__
-            else "",
+            "meaning": (table.__doc__ or "").strip().splitlines()[0] if table.__doc__ else "",
         }
         for column_name in table.polars_schema().names():
             column = table.column(column_name)
-            col_meta.setdefault(
-                column_name, {"unit": column.unit, "meaning": column.description}
-            )
+            col_meta.setdefault(column_name, {"unit": column.unit, "meaning": column.description})
 
     for metric in defined_metrics():
         col_meta[metric.name] = {
@@ -91,8 +81,7 @@ def _schema_metadata(
             existing = col_meta.get(name, {})
             col_meta[name] = {
                 "unit": str(row.get("unit") or "") or existing.get("unit", ""),
-                "meaning": str(row.get("description") or "")
-                or existing.get("meaning", ""),
+                "meaning": str(row.get("description") or "") or existing.get("meaning", ""),
                 "direction": str(row.get("direction") or ""),
             }
     return table_meta, col_meta
@@ -134,9 +123,7 @@ def _open_catalog(run_id: str | None) -> tuple[pathlib.Path | None, Any]:
     return path, BenchmarkCatalog.open(path)
 
 
-def _column_details(
-    lf: Any, col_meta: dict[str, dict[str, str]], keys: list[str]
-) -> tuple[int, list[dict[str, Any]]]:
+def _column_details(lf: Any, col_meta: dict[str, dict[str, str]], keys: list[str]) -> tuple[int, list[dict[str, Any]]]:
     import polars as pl
 
     schema = lf.collect_schema()
@@ -151,9 +138,7 @@ def _column_details(
         if dtype.is_numeric():
             exprs.append(pl.col(name).cast(pl.Float64).min().alias(f"__min__{name}"))
             exprs.append(pl.col(name).cast(pl.Float64).max().alias(f"__max__{name}"))
-        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(
-            dtype, pl.Enum
-        ):
+        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(dtype, pl.Enum):
             exprs.append(pl.col(name).drop_nulls().n_unique().alias(f"__uniq__{name}"))
 
     stats_row = lf.select(exprs).collect().row(0, named=True)
@@ -187,9 +172,7 @@ def evaluation_schema(
     run_id: OptionalRunId = None,
     table: Annotated[
         str | None,
-        pydantic.Field(
-            description="Table or view name to inspect in detail; omit for overview"
-        ),
+        pydantic.Field(description="Table or view name to inspect in detail; omit for overview"),
     ] = None,
 ) -> dict[str, Any]:
     """Describe every table in the lake, or one table's columns with units, meanings, null counts, and ranges."""
@@ -206,9 +189,7 @@ def evaluation_schema(
                 hint=f"available tables: {', '.join(available)}",
             )
         tmeta = _table_metadata(table, table_meta)
-        row_count, columns = _column_details(
-            catalog.get_table(table), col_meta, tmeta["keys"]
-        )
+        row_count, columns = _column_details(catalog.get_table(table), col_meta, tmeta["keys"])
         sample_cols = ", ".join(column["name"] for column in columns[:5]) or "*"
         return {
             "run_id": path.name if path is not None else None,
@@ -253,17 +234,11 @@ def evaluation_schema(
 
 @domain.tool(read_only=False, destructive=False, idempotent=False)
 def evaluation_merge_runs(
-    run_ids: Annotated[
-        list[str], pydantic.Field(description="Source benchmark run IDs to merge")
-    ],
-    name: Annotated[
-        str, pydantic.Field(description="Name for the merged benchmark folder")
-    ],
+    run_ids: Annotated[list[str], pydantic.Field(description="Source benchmark run IDs to merge")],
+    name: Annotated[str, pydantic.Field(description="Name for the merged benchmark folder")],
     labels: Annotated[
         dict[str, dict[str, str]] | None,
-        pydantic.Field(
-            description="Optional per-run label mapping, e.g. {'run_a': {'simulator': 'isaac'}}"
-        ),
+        pydantic.Field(description="Optional per-run label mapping, e.g. {'run_a': {'simulator': 'isaac'}}"),
     ] = None,
 ) -> dict[str, Any]:
     """Create a merged benchmark referencing source runs and per-source labels without copying episode files."""
@@ -272,9 +247,7 @@ def evaluation_merge_runs(
 
     benchmarks = data_root()
     try:
-        merged_dir = create_merged_benchmark(
-            benchmarks, run_ids=run_ids, name=name, labels=labels
-        )
+        merged_dir = create_merged_benchmark(benchmarks, run_ids=run_ids, name=name, labels=labels)
     except (FileNotFoundError, FileExistsError, ValueError) as exc:
         raise ToolError(
             str(exc),
@@ -295,9 +268,7 @@ def evaluation_lint_declarations(
     run_id: OptionalRunId = None,
     deep: Annotated[
         bool,
-        pydantic.Field(
-            description="resolve every plot's query, stored query, computation, and channels, not only its schema"
-        ),
+        pydantic.Field(description="resolve every plot's query, stored query, computation, and channels, not only its schema"),
     ] = False,
 ) -> dict[str, Any]:
     """Validate every stored query, plot recipe, and report manifest against the catalog and registry.

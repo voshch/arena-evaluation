@@ -54,11 +54,7 @@ def _field(grid: StaticGrid, goal: tuple[float, float]) -> np.ndarray:
 
 
 def _geodesic(grid: StaticGrid, field: np.ndarray, x: float, y: float) -> float:
-    return float(
-        geodesic_distances(
-            field, np.array([x]), np.array([y]), grid.resolution_m, grid.origin_xy
-        )[0]
-    )
+    return float(geodesic_distances(field, np.array([x]), np.array([y]), grid.resolution_m, grid.origin_xy)[0])
 
 
 def _densify(waypoints: list[tuple[float, float]], step: float) -> np.ndarray:
@@ -129,10 +125,7 @@ def test_goto_without_tolerance_keeps_only_ne() -> None:
         success=True,
     )
     assert out["ne"] == pytest.approx(4.0, abs=RES)
-    assert all(
-        out[k] is None
-        for k in ("osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw")
-    )
+    assert all(out[k] is None for k in ("osr", "success_geodesic", "spl_geodesic", "ndtw", "sdtw"))
 
 
 def test_goal_behind_wall_within_euclidean_threshold_fails() -> None:
@@ -159,9 +152,7 @@ def test_stuck_flags_failed_dwell_and_ignores_success() -> None:
     assert _run(at_goal, grid, success=True)["stuck"] is False
 
 
-def _arrival_point(
-    start: tuple[float, float], leg: tuple[float, float], radius_m: float
-) -> tuple[float, float]:
+def _arrival_point(start: tuple[float, float], leg: tuple[float, float], radius_m: float) -> tuple[float, float]:
     """The point where a straight approach from start first enters the radius around leg."""
     length = math.dist(start, leg)
     return (
@@ -182,9 +173,7 @@ def test_route_through_leg_goals_scores_ndtw_against_the_chained_reference() -> 
         _grid(wall=False),
         success=True,
     )
-    direct = _run(
-        _episode(path, "vln_free_two_legs_direct"), _grid(wall=False), success=True
-    )
+    direct = _run(_episode(path, "vln_free_two_legs_direct"), _grid(wall=False), success=True)
     assert chained["ndtw"] == pytest.approx(1.0, abs=0.02)
     assert chained["spl_geodesic"] == pytest.approx(1.0, abs=0.02)
     assert direct["ndtw"] < chained["ndtw"] - 0.2
@@ -207,9 +196,7 @@ def test_skipping_a_leg_goal_lowers_ndtw_but_not_success() -> None:
 
 def test_route_is_empty_without_a_goto() -> None:
     assert route(None) == ([], None)
-    assert route(
-        {"phases": [{"gesture": "wave"}], "conditions": [], "map_poses": [None]}
-    ) == ([], None)
+    assert route({"phases": [{"gesture": "wave"}], "conditions": [], "map_poses": [None]}) == ([], None)
 
 
 @pytest.mark.parametrize(
@@ -255,9 +242,7 @@ def test_route_is_empty_without_a_goto() -> None:
         ),
     ],
 )
-def test_goal_inputs_label_names_derived_inputs(
-    inputs, gotos, instructions, label
-) -> None:
+def test_goal_inputs_label_names_derived_inputs(inputs, gotos, instructions, label) -> None:
     phases = {
         "phases": [{"goto": goto} for goto in gotos],
         "map_poses": [[4.0, 4.0, 0.0]] * len(gotos),
@@ -275,20 +260,14 @@ def test_goal_inputs_label_names_derived_inputs(
     ],
 )
 def test_refused_ne_route_carries_the_planner_reason(final, goal, reason) -> None:
-    grid = StaticGrid(
-        origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool)
-    )
-    out = _run(
-        _episode([START, final], "vln_refused_ne_route", goal=goal), grid, success=False
-    )
+    grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
+    out = _run(_episode([START, final], "vln_refused_ne_route", goal=goal), grid, success=False)
     assert out["ne"] is None
     assert out["ne_null_reason"] == reason
 
 
 def test_refused_route_returns_the_planner_reason() -> None:
-    grid = StaticGrid(
-        origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool)
-    )
+    grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
     assert _within(grid, (14.0, 10.0), (3.0, 3.0), TOLERANCE) == (
         False,
         "start_outside_grid",

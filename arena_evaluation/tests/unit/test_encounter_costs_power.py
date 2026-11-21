@@ -29,9 +29,7 @@ def _episode_with_power(power_table: pl.DataFrame) -> AlignedEpisodeBundle:
 
 def test_a_window_past_the_recorded_power_has_no_energy() -> None:
     times_ns = np.arange(7, dtype=np.int64) * (SEC // 2)
-    robot = Trajectory2D(
-        times_ns, np.arange(7) * 0.1, np.zeros(7), np.ones(7), np.zeros(7), 0.3
-    )
+    robot = Trajectory2D(times_ns, np.arange(7) * 0.1, np.zeros(7), np.ones(7), np.zeros(7), 0.3)
     power = (np.array([0.0, 2.0 * SEC]), np.array([10.0, 10.0]))
     reasons: dict[str, str] = {}
     _robot_excess_energy_wh(robot, robot, [], power, (0, 3 * SEC), 1.0, reasons)
@@ -40,9 +38,7 @@ def test_a_window_past_the_recorded_power_has_no_energy() -> None:
 
 def test_window_energy_and_pyc_integrate_over_encounter_samples() -> None:
     times_ns = np.array([0, SEC, 2 * SEC], dtype=np.int64)
-    robot = Trajectory2D(
-        times_ns, np.array([0.0, 1.0, 2.0]), np.zeros(3), np.ones(3), np.zeros(3), 0.3
-    )
+    robot = Trajectory2D(times_ns, np.array([0.0, 1.0, 2.0]), np.zeros(3), np.ones(3), np.zeros(3), 0.3)
     power = (np.array([0.0, float(2 * SEC)]), np.array([36.0, 36.0]))
     wh = _window_energy_wh(robot, power, (0, 2 * SEC))
     assert wh is not None
@@ -56,9 +52,7 @@ def test_window_energy_and_pyc_integrate_over_encounter_samples() -> None:
         np.zeros(3),
         0.3,
     )
-    ped_route = RouteResult(
-        points=np.array([[0.0, 0.0], [2.0, 0.0]]), length_m=2.0, null_reason=None
-    )
+    ped_route = RouteResult(points=np.array([[0.0, 0.0], [2.0, 0.0]]), length_m=2.0, null_reason=None)
     reasons: dict[str, str] = {}
     pyc = _psychoacoustic_yielding_cost(
         ped_window,

@@ -140,9 +140,7 @@ def _load_steps(state_path: pathlib.Path) -> dict[str, StepResult]:
             episodes_run=val.get("episodes_run", 0),
             episodes_failed=val.get("episodes_failed", 0),
             episodes_compromised=val.get("episodes_compromised", 0),
-            lockstep=LockstepSummary.from_dict(val["lockstep"])
-            if val.get("lockstep")
-            else None,
+            lockstep=LockstepSummary.from_dict(val["lockstep"]) if val.get("lockstep") else None,
         )
     return steps
 
@@ -191,20 +189,14 @@ def _union_steps(path: pathlib.Path) -> dict[str, StepResult]:
 class StateFile:
     _STATE_FILENAME = ".benchmark_state.json"
 
-    def __init__(
-        self, path: pathlib.Path, steps: dict[str, StepResult], lane: str | None = None
-    ) -> None:
+    def __init__(self, path: pathlib.Path, steps: dict[str, StepResult], lane: str | None = None) -> None:
         self.path = path
         self.steps = steps
         self.lane = lane
 
     @property
     def filename(self) -> str:
-        return (
-            self._STATE_FILENAME
-            if self.lane is None
-            else f".benchmark_state.{self.lane}.json"
-        )
+        return self._STATE_FILENAME if self.lane is None else f".benchmark_state.{self.lane}.json"
 
     @classmethod
     def open(cls, path: pathlib.Path, lane: str | None = None) -> StateFile:
@@ -249,9 +241,7 @@ class ProgressLog:
         self._path = path
         is_empty = not path.exists() or path.stat().st_size == 0
         if not is_empty and _header_line(path) not in (None, self._HEADER):
-            raise ValueError(
-                f"{path}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run"
-            )
+            raise ValueError(f"{path}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run")
         self._fh = path.open("a", newline="")
         if is_empty:
             self._fh.write(self._HEADER + "\n")
@@ -367,9 +357,7 @@ def _csv_lines(path: pathlib.Path) -> list[str]:
         return [line for line in fh if line.rstrip("\n") and not line.startswith("#")]
 
 
-def _latest_rows(
-    header: list[str], rows: typing.Iterable[list[str]]
-) -> dict[tuple[str, str], list[str]]:
+def _latest_rows(header: list[str], rows: typing.Iterable[list[str]]) -> dict[tuple[str, str], list[str]]:
     """Rows keyed by (step_key, episode_id), keeping the latest ts_iso."""
     step_key_idx = header.index("step_key")
     episode_id_idx = header.index("episode_id")
@@ -395,26 +383,19 @@ def _split_attempts(
     superseded: list[list[str]] = []
     for row in rows:
         start = started.get(row[step_key_idx])
-        earlier = (
-            start is not None
-            and datetime.datetime.fromisoformat(row[ts_iso_idx]).timestamp() < start
-        )
+        earlier = start is not None and datetime.datetime.fromisoformat(row[ts_iso_idx]).timestamp() < start
         (superseded if earlier else current).append(row)
     return current, superseded
 
 
-def _keep_superseded(
-    directory: pathlib.Path, header: list[str], rows: list[list[str]]
-) -> None:
+def _keep_superseded(directory: pathlib.Path, header: list[str], rows: list[list[str]]) -> None:
     """Add rows of superseded step attempts to the run's superseded progress file."""
     if not rows:
         return
     path = directory / SUPERSEDED_PROGRESS
     ts_iso_idx = header.index("ts_iso")
     kept = sorted(
-        _latest_rows(
-            header, [*(_rows_by_column([path], header) if path.exists() else []), *rows]
-        ).values(),
+        _latest_rows(header, [*(_rows_by_column([path], header) if path.exists() else []), *rows]).values(),
         key=lambda r: (r[ts_iso_idx], r),
     )
     tmp = path.with_suffix(".csv.tmp")
@@ -425,9 +406,7 @@ def _keep_superseded(
     os.replace(tmp, path)
 
 
-def _rows_by_column(
-    sources: typing.Iterable[pathlib.Path], header: list[str]
-) -> list[list[str]]:
+def _rows_by_column(sources: typing.Iterable[pathlib.Path], header: list[str]) -> list[list[str]]:
     """Complete rows of current-layout progress csvs; another header raises and is never rewritten."""
     rows: list[list[str]] = []
     for source in sources:
@@ -439,25 +418,17 @@ def _rows_by_column(
             continue
         source_header = records[0]
         if source_header != header:
-            raise ValueError(
-                f"{source}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run"
-            )
+            raise ValueError(f"{source}: the progress header is not the current layout; progress.csv is runner state and is not migrated, move the file aside or re-record the run")
         rows.extend(row for row in records[1:] if len(row) == len(source_header))
     return rows
 
 
 def _folded_progress(path: pathlib.Path) -> tuple[list[str], list[list[str]]]:
-    sources = [
-        p
-        for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv")))
-        if p.exists()
-    ]
+    sources = [p for p in (path / "progress.csv", *sorted(path.glob("progress.*.csv"))) if p.exists()]
     header = next(csv.reader([ProgressLog._HEADER]))
     rows = _rows_by_column(sources, header)
     ts_iso_idx = header.index("ts_iso")
-    return header, sorted(
-        _latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r)
-    )
+    return header, sorted(_latest_rows(header, rows).values(), key=lambda r: (r[ts_iso_idx], r))
 
 
 def progress_rows(path: pathlib.Path) -> list[dict[str, str]]:
@@ -512,9 +483,7 @@ class RunDir:
 
     @property
     def log_path(self) -> pathlib.Path:
-        return self.path / (
-            "runner.log" if self.lane is None else f"runner.{self.lane}.log"
-        )
+        return self.path / ("runner.log" if self.lane is None else f"runner.{self.lane}.log")
 
     @property
     def ros_log_dir(self) -> pathlib.Path:
@@ -522,9 +491,7 @@ class RunDir:
 
     @property
     def live_path(self) -> pathlib.Path:
-        return self.path / (
-            "live.json" if self.lane is None else f"live.{self.lane}.json"
-        )
+        return self.path / ("live.json" if self.lane is None else f"live.{self.lane}.json")
 
     @property
     def pid_path(self) -> pathlib.Path:
@@ -555,18 +522,14 @@ class RunDir:
         except FileExistsError:
             existing = Manifest.from_yaml(manifest_path.read_text())
             if existing.config_hash != manifest.config_hash:
-                raise ManifestMismatchError(
-                    f"run dir {path} was created with config_hash {existing.config_hash}, lane {lane!r} has {manifest.config_hash}"
-                ) from None
+                raise ManifestMismatchError(f"run dir {path} was created with config_hash {existing.config_hash}, lane {lane!r} has {manifest.config_hash}") from None
             manifest = existing
         finally:
             tmp.unlink()
         return cls._open_lane(path, manifest, lane)
 
     @classmethod
-    def open(
-        cls, data_root: pathlib.Path, run_id: str, lane: str | None = None
-    ) -> RunDir:
+    def open(cls, data_root: pathlib.Path, run_id: str, lane: str | None = None) -> RunDir:
         path = data_root / run_id
         manifest_path = path / "manifest.yaml"
         manifest = Manifest.from_yaml(manifest_path.read_text())
@@ -585,9 +548,7 @@ class RunDir:
 
     def attach_log_handler(self, logger: logging.Logger) -> None:
         handler = logging.FileHandler(self.log_path)
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
 
     def fold(self) -> None:

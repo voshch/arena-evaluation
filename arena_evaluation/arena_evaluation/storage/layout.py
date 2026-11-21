@@ -28,9 +28,7 @@ __all__ = [
     "write_episode_stamp",
 ]
 
-NATIVE_LAYOUT_VERSION: Final[int] = (
-    3  # 3: stored positions and recorded map-frame transforms are in the environment frame.
-)
+NATIVE_LAYOUT_VERSION: Final[int] = 3  # 3: stored positions and recorded map-frame transforms are in the environment frame.
 
 _BENCHMARK_STAMP_FILE: Final[str] = "benchmark_layout.yaml"
 _EPISODE_STAMP_FILE: Final[str] = ".complete"
@@ -39,10 +37,7 @@ _LEGACY_BENCHMARK_FILES: Final[tuple[str, ...]] = (
     "metrics.parquet",
     "combined_metrics.parquet",
 )
-_LAYOUT_HINT: Final[str] = (
-    "run the process command with --force-process on this benchmark "
-    "(old outputs are moved to legacy/, not deleted)"
-)
+_LAYOUT_HINT: Final[str] = "run the process command with --force-process on this benchmark (old outputs are moved to legacy/, not deleted)"
 
 # Decision X-007: this is the one accepted storage -> processing edge. A fact schema grows from the
 # shared metric store, so the native layout must load the registry before any schema is read. The
@@ -56,20 +51,13 @@ def _native_tables() -> tuple[type[Table], ...]:
     return (
         *FACT_TABLES.values(),
         *DIMENSION_TABLES.values(),
-        *(
-            table
-            for table in registered_tables()
-            if table.table_kind is TableKind.TELEMETRY
-        ),
+        *(table for table in registered_tables() if table.table_kind is TableKind.TELEMETRY),
     )
 
 
 def registry_schema_hash() -> str:
     """The SHA-256 over every native table name and Polars schema, sorted by stored name."""
-    entries = sorted(
-        (table.file_name().removesuffix(".parquet"), str(table.polars_schema()))
-        for table in _native_tables()
-    )
+    entries = sorted((table.file_name().removesuffix(".parquet"), str(table.polars_schema())) for table in _native_tables())
     payload = "\n".join(f"{name}\0{schema}" for name, schema in entries)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -117,17 +105,12 @@ def _stamp(
 
 def _is_current_stamp(payload: dict[str, object]) -> bool:
     """Whether a stamp payload carries the native layout version and the current schema hash."""
-    return (
-        payload.get("layout_version") == NATIVE_LAYOUT_VERSION
-        and payload.get("schema_hash") == registry_schema_hash()
-    )
+    return payload.get("layout_version") == NATIVE_LAYOUT_VERSION and payload.get("schema_hash") == registry_schema_hash()
 
 
 def episode_is_complete(metrics_dir: pathlib.Path) -> bool:
     """Whether the episode metrics directory carries the current completion stamp; unreadable is incomplete."""
-    payload = _stamp(
-        metrics_dir / _EPISODE_STAMP_FILE, json.loads, (json.JSONDecodeError,)
-    )
+    payload = _stamp(metrics_dir / _EPISODE_STAMP_FILE, json.loads, (json.JSONDecodeError,))
     if payload is None:
         return False
     return _is_current_stamp(payload)
@@ -145,18 +128,12 @@ def _episode_fact_files(
     episodes: tuple[pathlib.Path, ...],
 ) -> tuple[pathlib.Path, ...]:
     """Every stored per-episode fact file, sorted by episode and file name."""
-    return tuple(
-        path
-        for episode in episodes
-        for path in sorted((episode / "metrics").glob("fact_*.parquet"))
-    )
+    return tuple(path for episode in episodes for path in sorted((episode / "metrics").glob("fact_*.parquet")))
 
 
 def _stale(benchmark_dir: pathlib.Path, reason: str) -> StaleBenchmarkError:
     """The refusal of a benchmark whose stored outputs predate the native layout."""
-    return StaleBenchmarkError(
-        f"benchmark {benchmark_dir} is stale: {reason}; {_LAYOUT_HINT}."
-    )
+    return StaleBenchmarkError(f"benchmark {benchmark_dir} is stale: {reason}; {_LAYOUT_HINT}.")
 
 
 def _benchmark_stamp_is_stale(benchmark_dir: pathlib.Path) -> bool:
@@ -171,9 +148,7 @@ def _benchmark_stamp_is_stale(benchmark_dir: pathlib.Path) -> bool:
 def check_benchmark_layout(benchmark_dir: pathlib.Path) -> None:
     """Refuse stored outputs that predate the native layout, before any fact table is read."""
     root = pathlib.Path(benchmark_dir)
-    legacy = tuple(
-        root / name for name in _LEGACY_BENCHMARK_FILES if (root / name).is_file()
-    )
+    legacy = tuple(root / name for name in _LEGACY_BENCHMARK_FILES if (root / name).is_file())
     if legacy:
         raise _stale(root, f"{legacy[0].name} predates the native layout")
     facts = _episode_fact_files(_episode_directories(root))
@@ -211,14 +186,8 @@ def _move_to_legacy(benchmark_dir: pathlib.Path, source: pathlib.Path) -> pathli
 def retire_legacy_outputs(benchmark_dir: pathlib.Path) -> tuple[pathlib.Path, ...]:
     """Move old benchmark, stale stamp and incomplete-episode outputs under ``legacy/``, never deleting one."""
     root = pathlib.Path(benchmark_dir)
-    sources = [
-        root / name for name in _LEGACY_BENCHMARK_FILES if (root / name).is_file()
-    ]
+    sources = [root / name for name in _LEGACY_BENCHMARK_FILES if (root / name).is_file()]
     if _benchmark_stamp_is_stale(root):
         sources.append(root / _BENCHMARK_STAMP_FILE)
-    sources.extend(
-        path
-        for path in _episode_fact_files(_episode_directories(root))
-        if not episode_is_complete(path.parent)
-    )
+    sources.extend(path for path in _episode_fact_files(_episode_directories(root)) if not episode_is_complete(path.parent))
     return tuple(_move_to_legacy(root, source) for source in sources)

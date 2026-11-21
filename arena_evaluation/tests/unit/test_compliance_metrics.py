@@ -24,9 +24,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return ComplianceMetricsCalculator(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    return ComplianceMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _start_pos(data):
@@ -46,11 +44,7 @@ def _episode(data, semantic_snapshot=None):
 
 
 def test_restricted_zone_entries_counts_transitions_not_dwell():
-    zones = [
-        _ZoneGeometry(
-            name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True
-        )
-    ]
+    zones = [_ZoneGeometry(name="pharmacy", polygon=None, max_speed=None, quiet=False, restricted=True)]
     # outside, enter, stay, leave, re-enter
     zone_idx = np.array([-1, 0, 0, -1, 0])
 
@@ -167,9 +161,7 @@ def test_calculate_end_to_end_with_cached_world():
             "speed_mps": [0.5, 2.0, 0.5],  # over 1.0 m/s cap during [1s, 2s)
         }
     )
-    snapshot = snapshot_frame(
-        [(0, "env_0/door_1", "door", "state", "discrete", "closed")]
-    )
+    snapshot = snapshot_frame([(0, "env_0/door_1", "door", "state", "discrete", "closed")])
     episode = _episode(data, semantic_snapshot=snapshot)
 
     results = calc.calculate(episode, {})
@@ -226,9 +218,7 @@ def test_compliance_outputs_declare_their_better_side():
         "doorway_blocking_time": Direction.LOWER,
         "passing_rule_compliance": Direction.HIGHER,
     }
-    assert set(ComplianceMetricsCalculator.PRIMARY_OUTPUTS) <= set(
-        ComplianceMetricsCalculator.DIRECTIONS
-    )
+    assert set(ComplianceMetricsCalculator.PRIMARY_OUTPUTS) <= set(ComplianceMetricsCalculator.DIRECTIONS)
 
 
 def test_speed_metrics_are_null_with_topic_missing_without_the_speed_stream():
@@ -242,9 +232,7 @@ def test_speed_metrics_are_null_with_topic_missing_without_the_speed_stream():
         }
     )
 
-    results = calc.calculate(
-        _episode(data, semantic_snapshot=_open_door_snapshot()), {}
-    )
+    results = calc.calculate(_episode(data, semantic_snapshot=_open_door_snapshot()), {})
 
     for key in (
         "speed_zone_violations",
@@ -269,9 +257,7 @@ def test_speed_metrics_are_null_with_no_samples_when_a_speed_is_not_finite():
         }
     )
 
-    results = calc.calculate(
-        _episode(data, semantic_snapshot=_open_door_snapshot()), {}
-    )
+    results = calc.calculate(_episode(data, semantic_snapshot=_open_door_snapshot()), {})
 
     for key in (
         "speed_zone_violations",

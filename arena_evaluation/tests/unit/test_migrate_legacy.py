@@ -54,9 +54,7 @@ SEPT_EPISODE = (
 OLD_AGENT_META = (
     "arena_humansim_msgs/msg/AgentMeta",
     _msgdef(
-        "std_msgs/Header header\nstring[] policies\nint32[] agent_id\n"
-        "string[] name\nstring[] handedness\nstring[] agent_type\n"
-        "string[] source_name\nint32[] source_seq",
+        "std_msgs/Header header\nstring[] policies\nint32[] agent_id\nstring[] name\nstring[] handedness\nstring[] agent_type\nstring[] source_name\nint32[] source_seq",
         HEADER,
         TIME,
     ),
@@ -102,12 +100,8 @@ def _sept_records(
                 "path_length": 2.0,
                 "start_time": {"sec": 1, "nanosec": 0},
                 "integrity": [],
-                "obstacles_params": [
-                    {"name": "count", "value": {"type": 2, "integer_value": 3}}
-                ],
-                "robots_params": [
-                    {"name": "speed", "value": {"type": 3, "double_value": 1.0}}
-                ],
+                "obstacles_params": [{"name": "count", "value": {"type": 2, "integer_value": 3}}],
+                "robots_params": [{"name": "speed", "value": {"type": 3, "double_value": 1.0}}],
                 "human_params": [],
                 "conditions": "",
                 "phases": "",
@@ -116,9 +110,7 @@ def _sept_records(
         )
     ]
     if robot_phase:
-        records.append(
-            ("/env_0/jackal/characterization_phase", STRING, {"data": "ramp"}, 2 * SEC)
-        )
+        records.append(("/env_0/jackal/characterization_phase", STRING, {"data": "ramp"}, 2 * SEC))
     return records
 
 
@@ -129,9 +121,7 @@ def _episode(
 ) -> pathlib.Path:
     directory.mkdir(parents=True)
     _write_bag(directory / f"{directory.name}.mcap", records)
-    (directory / f"{directory.name}.yaml").write_text(
-        yaml.safe_dump(_METADATA if metadata is None else metadata), encoding="utf-8"
-    )
+    (directory / f"{directory.name}.yaml").write_text(yaml.safe_dump(_METADATA if metadata is None else metadata), encoding="utf-8")
     return directory
 
 
@@ -241,9 +231,7 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
     assert states.height == 1
     assert states["robot_awareness"].to_list() == [None]
     generation = legacy_schemas.detect(episode / "episode_000.mcap")
-    assert any(
-        "AgentMeta has no robot_* fields" in note for note in generation.unsupported
-    )
+    assert any("AgentMeta has no robot_* fields" in note for note in generation.unsupported)
 
 
 def test_a_missing_robot_definition_is_a_loud_migration_error(
@@ -268,15 +256,11 @@ def test_a_benchmark_root_migrates_only_its_episodes_and_writes_the_report(
     migrated = migrate_run(root)
 
     assert migrated == [root / "episodes" / "episode_000"]
-    report = yaml.safe_load(
-        (root / "migration_report.yaml").read_text(encoding="utf-8")
-    )
+    report = yaml.safe_load((root / "migration_report.yaml").read_text(encoding="utf-8"))
     assert report["episodes"][0]["episode"] == "episode_000"
     assert report["episodes"][0]["generation"] == "legacy_2026_09"
     assert report["episodes"][0]["migrated"] is True
-    assert (
-        root / "episodes" / "episode_000" / "topics" / "episode_lifecycle.parquet"
-    ).exists()
+    assert (root / "episodes" / "episode_000" / "topics" / "episode_lifecycle.parquet").exists()
 
 
 def test_a_dry_run_migrates_nothing(tmp_path: pathlib.Path) -> None:
@@ -313,9 +297,7 @@ def test_an_unknown_generation_fails_loudly_but_the_other_episodes_continue(
     root = tmp_path / "bench"
     (root / "episodes").mkdir(parents=True)
     _episode(root / "episodes" / "episode_000", _sept_records())
-    mystery = _episode(
-        root / "episodes" / "episode_001", _sept_records(robot_phase=False)
-    )
+    mystery = _episode(root / "episodes" / "episode_001", _sept_records(robot_phase=False))
     _write_bag(
         mystery / "episode_001.mcap",
         [
@@ -331,9 +313,7 @@ def test_an_unknown_generation_fails_loudly_but_the_other_episodes_continue(
     with pytest.raises(MigrationError, match="episode_001"):
         migrate_run(root)
 
-    report = yaml.safe_load(
-        (root / "migration_report.yaml").read_text(encoding="utf-8")
-    )
+    report = yaml.safe_load((root / "migration_report.yaml").read_text(encoding="utf-8"))
     by_name = {row["episode"]: row for row in report["episodes"]}
     assert by_name["episode_000"]["migrated"] is True
     assert by_name["episode_001"]["error"]
@@ -448,9 +428,7 @@ def test_an_unknown_episode_field_is_a_loud_migration_error(
 _SMOKE_ROOT = pathlib.Path("/home/nelson/arena_ws/data/benchmarks")
 
 
-@pytest.mark.skipif(
-    not _SMOKE_ROOT.is_dir(), reason="no recorded benchmark corpus on this machine"
-)
+@pytest.mark.skipif(not _SMOKE_ROOT.is_dir(), reason="no recorded benchmark corpus on this machine")
 def test_a_real_recorded_benchmark_has_a_detectable_generation() -> None:
     recording = next(_SMOKE_ROOT.rglob("*.mcap"), None)
     if recording is None:

@@ -37,9 +37,7 @@ def test_metadata_with_a_tm_field_is_refused(tmp_path: pathlib.Path):
 
 
 @pytest.mark.parametrize("missing", ["modes", "params"])
-def test_metadata_without_a_required_field_is_refused(
-    tmp_path: pathlib.Path, missing: str
-):
+def test_metadata_without_a_required_field_is_refused(tmp_path: pathlib.Path, missing: str):
     data = {key: value for key, value in _METADATA.items() if key != missing}
     path = _write_metadata(tmp_path, data)
 

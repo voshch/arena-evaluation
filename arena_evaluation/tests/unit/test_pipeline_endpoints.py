@@ -16,9 +16,7 @@ def _aligned() -> pl.DataFrame:
     )
 
 
-def _plan(
-    poses: list[tuple[float, float, float]], plan_id: int = 0, t_ns: int = 0
-) -> pl.DataFrame:
+def _plan(poses: list[tuple[float, float, float]], plan_id: int = 0, t_ns: int = 0) -> pl.DataFrame:
     """One planned path as flat waypoint rows."""
     return pl.DataFrame(
         {
@@ -47,18 +45,12 @@ def test_final_goto_of_the_recorded_phases_defines_the_goal_over_the_plan():
 
 def test_episode_window_spans_running_to_terminal_record():
     # A latched terminal record from the previous episode can precede this episode's RUNNING row.
-    record = pl.DataFrame(
-        {"episode_id": [7, 7, 7], "t_ns": [50, 100, 900], "outcome_state": [2, 1, 4]}
-    )
+    record = pl.DataFrame({"episode_id": [7, 7, 7], "t_ns": [50, 100, 900], "outcome_state": [2, 1, 4]})
     assert _episode_window(record.lazy()) == (100, 900)
     assert _episode_window(None) == (None, None)
     assert _episode_window(pl.DataFrame({"t_ns": []})) == (None, None)
 
 
 def test_episode_window_stays_open_without_a_terminal_or_running_record():
-    assert _episode_window(
-        pl.DataFrame({"episode_id": [7, 7], "t_ns": [50, 100], "outcome_state": [2, 1]})
-    ) == (100, None)
-    assert _episode_window(
-        pl.DataFrame({"episode_id": [7], "t_ns": [700], "outcome_state": [3]})
-    ) == (None, 700)
+    assert _episode_window(pl.DataFrame({"episode_id": [7, 7], "t_ns": [50, 100], "outcome_state": [2, 1]})) == (100, None)
+    assert _episode_window(pl.DataFrame({"episode_id": [7], "t_ns": [700], "outcome_state": [3]})) == (None, 700)

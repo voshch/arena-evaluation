@@ -19,6 +19,8 @@ from arena_evaluation.processing.metrics.common.events import (
 )
 from arena_evaluation.processing.metrics.common.parsing import (
     parse_bool as _parse_bool,
+)
+from arena_evaluation.processing.metrics.common.parsing import (
     parse_float as _parse_float,
 )
 from arena_evaluation.processing.metrics.common.zones import (
@@ -121,11 +123,7 @@ def _extract_occupancy_zone_geometry(flattened: Level) -> list[_CapZoneGeometry]
         if len(zone.polygon) < 3:
             continue
 
-        has_cap = any(
-            (cfg.role == "state" and cfg.name in ("cap", "occupancy"))
-            or (cfg.role == "predicate" and cfg.name == "over_cap")
-            for cfg in zone.semantics
-        )
+        has_cap = any((cfg.role == "state" and cfg.name in ("cap", "occupancy")) or (cfg.role == "predicate" and cfg.name == "over_cap") for cfg in zone.semantics)
         if not has_cap:
             continue
 
@@ -143,9 +141,7 @@ def _windows(
 ) -> dict[str, list[tuple[int, int]]]:
     """Per-entity true intervals for one field, seeded false before the first recorded row,
     held to `end_t_ns` when still true, keyed by authored entity name (`entity_name`)."""
-    rows = events.filter((pl.col("kind") == kind) & (pl.col("field") == field)).sort(
-        "t_ns"
-    )
+    rows = events.filter((pl.col("kind") == kind) & (pl.col("field") == field)).sort("t_ns")
     windows: dict[str, list[tuple[int, int]]] = {}
     if len(rows) == 0:
         return windows
@@ -157,9 +153,7 @@ def _windows(
         start: int | None = None
         entity_windows: list[tuple[int, int]] = []
 
-        for t_raw, current in zip(
-            g["t_ns"].to_numpy(), g["current"].to_numpy(), strict=True
-        ):
+        for t_raw, current in zip(g["t_ns"].to_numpy(), g["current"].to_numpy(), strict=True):
             if current is None:
                 continue
             t = int(t_raw)
@@ -189,26 +183,14 @@ def _overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
     return a_start < b_end and b_start < a_end
 
 
-def _used_elevator_during_alarm(
-    events: pl.DataFrame, end_t_ns: int | None, identity: RobotIdentity | None = None
-) -> int | None:
+def _used_elevator_during_alarm(events: pl.DataFrame, end_t_ns: int | None, identity: RobotIdentity | None = None) -> int | None:
     """Count of alarm (`schedule.active`) windows overlapped by elevator occupancy: nonzero `occupants` by anyone
     aboard when `identity` is None, else the robot's own `members` membership (None when no elevator reports members)."""
-    if (
-        identity is not None
-        and len(
-            events.filter(
-                (pl.col("kind") == "elevator") & (pl.col("field") == "members")
-            )
-        )
-        == 0
-    ):
+    if identity is not None and len(events.filter((pl.col("kind") == "elevator") & (pl.col("field") == "members"))) == 0:
         return None
     alarm_windows = _windows(events, "schedule", "active", _parse_bool, end_t_ns)
     if identity is None:
-        occupancy_windows = _windows(
-            events, "elevator", "occupants", lambda v: _parse_float(v) > 0.0, end_t_ns
-        )
+        occupancy_windows = _windows(events, "elevator", "occupants", lambda v: _parse_float(v) > 0.0, end_t_ns)
     else:
         occupancy_windows = _windows(
             events,
@@ -219,18 +201,9 @@ def _used_elevator_during_alarm(
         )
 
     all_alarm = [w for entity_windows in alarm_windows.values() for w in entity_windows]
-    all_occupancy = [
-        w for entity_windows in occupancy_windows.values() for w in entity_windows
-    ]
+    all_occupancy = [w for entity_windows in occupancy_windows.values() for w in entity_windows]
 
-    return sum(
-        1
-        for a_start, a_end in all_alarm
-        if any(
-            _overlaps(a_start, a_end, o_start, o_end)
-            for o_start, o_end in all_occupancy
-        )
-    )
+    return sum(1 for a_start, a_end in all_alarm if any(_overlaps(a_start, a_end, o_start, o_end) for o_start, o_end in all_occupancy))
 
 
 def _entered_over_cap_zone(
@@ -241,9 +214,7 @@ def _entered_over_cap_zone(
     zone_names: list[str],
 ) -> int:
     """Count of outside-to-inside transitions into an occupancy_cap zone while it is over cap."""
-    over_cap_windows = _windows(
-        events, "occupancy_cap", "over_cap", _parse_bool, end_t_ns
-    )
+    over_cap_windows = _windows(events, "occupancy_cap", "over_cap", _parse_bool, end_t_ns)
     if not over_cap_windows:
         return 0
 
@@ -261,18 +232,12 @@ def _entered_over_cap_zone(
 DEFAULT_SIGNAL_RADIUS = 1.0
 
 
-def _signal_area(
-    name: str, signals: dict[str, SignalGeom], doors: dict[str, DoorGeometry]
-) -> tuple[float, float, float] | None:
+def _signal_area(name: str, signals: dict[str, SignalGeom], doors: dict[str, DoorGeometry]) -> tuple[float, float, float] | None:
     """(x, y, radius) a signal guards, from its own params, else the same-named door."""
     signal = signals.get(name)
     door = doors.get(name)
     if signal is not None:
-        radius = (
-            signal.radius
-            if signal.radius is not None
-            else (door.radius if door is not None else DEFAULT_SIGNAL_RADIUS)
-        )
+        radius = signal.radius if signal.radius is not None else (door.radius if door is not None else DEFAULT_SIGNAL_RADIUS)
         return signal.x, signal.y, radius
     if door is not None:
         return door.center_x, door.center_y, door.radius
@@ -331,23 +296,11 @@ def _cmd_vel_change_times(data: pl.DataFrame, epsilon: float) -> list[int] | Non
 def _replan_triggers(events: pl.DataFrame) -> list[int]:
     """Trigger times: door `open` false->true, gate `locked` true->false, any signal
     `state` change, any schedule `active` change (SPEC_M2 M2.C8)."""
-    door_open = (
-        (pl.col("kind") == "door")
-        & (pl.col("field") == "open")
-        & (pl.col("previous") == "false")
-        & (pl.col("current") == "true")
-    )
-    gate_unlock = (
-        (pl.col("kind") == "gate")
-        & (pl.col("field") == "locked")
-        & (pl.col("previous") == "true")
-        & (pl.col("current") == "false")
-    )
+    door_open = (pl.col("kind") == "door") & (pl.col("field") == "open") & (pl.col("previous") == "false") & (pl.col("current") == "true")
+    gate_unlock = (pl.col("kind") == "gate") & (pl.col("field") == "locked") & (pl.col("previous") == "true") & (pl.col("current") == "false")
     signal_state = (pl.col("kind") == "signal") & (pl.col("field") == "state")
     schedule_active = (pl.col("kind") == "schedule") & (pl.col("field") == "active")
-    matched = events.filter(
-        door_open | gate_unlock | signal_state | schedule_active
-    ).sort("t_ns")
+    matched = events.filter(door_open | gate_unlock | signal_state | schedule_active).sort("t_ns")
     return [int(t) for t in matched["t_ns"].to_numpy()]
 
 
@@ -415,9 +368,7 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
             tuple[list[_CapZoneGeometry], list[DoorGeometry], list[SignalGeom]] | None,
         ] = {}
 
-    def _load_world(
-        self, world_name: str
-    ) -> tuple[list[_CapZoneGeometry], list[DoorGeometry], list[SignalGeom]] | None:
+    def _load_world(self, world_name: str) -> tuple[list[_CapZoneGeometry], list[DoorGeometry], list[SignalGeom]] | None:
         if world_name in self._world_cache:
             return self._world_cache[world_name]
 
@@ -441,18 +392,12 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
     ) -> dict[str, typing.Any]:
         """Episode scope: elevator use during an alarm by anyone aboard."""
         del prior_results
-        events = _reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        events = _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         end_t_ns = episode_end_t_ns(episode)
         kinds = set(events["kind"].unique())
         if end_t_ns is None or not {"schedule", "elevator"} <= kinds:
             return {"used_elevator_during_alarm_anyone": None}
-        return {
-            "used_elevator_during_alarm_anyone": _used_elevator_during_alarm(
-                events, end_t_ns, None
-            )
-        }
+        return {"used_elevator_during_alarm_anyone": _used_elevator_during_alarm(events, end_t_ns, None)}
 
     def calculate_for_scope(
         self,
@@ -483,25 +428,15 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
         if "occupancy_cap" in kinds and zones:
             zone_idx = zone_membership(pos_x, pos_y, zones)
             zone_names = [zone.name for zone in zones]
-            results["entered_over_cap_zone"] = _entered_over_cap_zone(
-                events, zone_idx, t_ns, end_t_ns, zone_names
-            )
+            results["entered_over_cap_zone"] = _entered_over_cap_zone(events, zone_idx, t_ns, end_t_ns, zone_names)
         if "signal" in kinds:
-            results["ran_red_signal"] = _ran_red_signal(
-                events, pos_x, pos_y, t_ns, end_t_ns, doors, signals
-            )
+            results["ran_red_signal"] = _ran_red_signal(events, pos_x, pos_y, t_ns, end_t_ns, doors, signals)
 
     def _robot_metrics(self, episode: AlignedEpisodeBundle) -> dict[str, typing.Any]:
         """Robot scope: elevator use by the robot itself, and the robot's own signal, zone and replan metrics."""
-        results: dict[str, typing.Any] = {
-            metric.name: None
-            for metric in self.OUTPUTS
-            if MetricScope.ROBOT in self.scopes_of_output(metric)
-        }
+        results: dict[str, typing.Any] = {metric.name: None for metric in self.OUTPUTS if MetricScope.ROBOT in self.scopes_of_output(metric)}
 
-        events = _reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        events = _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         has_events = len(events) > 0
         kinds = set(events["kind"].unique()) if has_events else set()
 
@@ -515,44 +450,28 @@ class RegimeMetricsCalculator(BaseMetricCalculator):
             return results
         end_t_ns = int(t_ns.max())
 
-        if (
-            episode.robot_name
-            and has_events
-            and {"schedule", "elevator"}.issubset(kinds)
-        ):
-            results["used_elevator_during_alarm_robot"] = _used_elevator_during_alarm(
-                events, end_t_ns, RobotIdentity(episode.robot_name)
-            )
+        if episode.robot_name and has_events and {"schedule", "elevator"}.issubset(kinds):
+            results["used_elevator_during_alarm_robot"] = _used_elevator_during_alarm(events, end_t_ns, RobotIdentity(episode.robot_name))
 
         if has_events and (kinds & {"door", "gate", "signal", "schedule"}):
             cmd_changes = _cmd_vel_change_times(episode.data, self.CMD_CHANGE_EPSILON)
             if cmd_changes is not None:
                 triggers = _replan_triggers(events)
                 latencies = _latency_distribution(triggers, cmd_changes)
-                results["replan_unanswered_triggers"] = _unanswered_trigger_count(
-                    triggers, cmd_changes
-                )
+                results["replan_unanswered_triggers"] = _unanswered_trigger_count(triggers, cmd_changes)
                 if latencies:
-                    results["replan_latency_after_state_change_median"] = float(
-                        np.median(latencies)
-                    )
-                    results["replan_latency_after_state_change_p95"] = float(
-                        np.percentile(latencies, 95)
-                    )
+                    results["replan_latency_after_state_change_median"] = float(np.median(latencies))
+                    results["replan_latency_after_state_change_p95"] = float(np.percentile(latencies, 95))
 
         n = len(pos_x)
         if has_events and episode.start_pos and n > 0 and len(t_ns) == n:
-            self._populate_world_regime_metrics(
-                results, events, kinds, pos_x, pos_y, t_ns, end_t_ns
-            )
+            self._populate_world_regime_metrics(results, events, kinds, pos_x, pos_y, t_ns, end_t_ns)
 
         return results
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Replan latency is unknown, not zero, when an input stream it needs was not recorded."""
-        has_cmd_vel = episode.data is not None and any(
-            column in episode.data.columns for column in _CMD_VEL_COLUMNS
-        )
+        has_cmd_vel = episode.data is not None and any(column in episode.data.columns for column in _CMD_VEL_COLUMNS)
         if not has_cmd_vel:
             reason = f"{NullReason.TOPIC_MISSING.value}:robot_cmd_vel"
         elif episode.semantic_snapshot is None or episode.semantic_snapshot.height == 0:

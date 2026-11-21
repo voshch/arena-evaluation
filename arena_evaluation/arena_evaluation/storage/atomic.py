@@ -39,9 +39,7 @@ def staged_temp_path(path: pathlib.Path) -> Iterator[pathlib.Path]:
         mode = stat.S_IMODE(path.stat().st_mode)
     except FileNotFoundError:
         mode = 0o644
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     os.close(descriptor)
     temporary = pathlib.Path(temporary_name)
     try:

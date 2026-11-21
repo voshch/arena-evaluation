@@ -12,9 +12,7 @@ TRACK_ALIGN_TOLERANCE_NS: typing.Final[int] = 100_000_000
 _FrameT = typing.TypeVar("_FrameT", pl.DataFrame, pl.LazyFrame)
 
 
-def asof_index(
-    source_t_ns: np.ndarray, query_t_ns: np.ndarray, tolerance_ns: int | None = None
-) -> np.ndarray:
+def asof_index(source_t_ns: np.ndarray, query_t_ns: np.ndarray, tolerance_ns: int | None = None) -> np.ndarray:
     """Per query, the index of the last source sample at or before it; -1 where there is none, or where it is more than tolerance_ns older (no bound when None)."""
     source = np.asarray(source_t_ns, dtype=np.int64)
     query = np.asarray(query_t_ns, dtype=np.int64)
@@ -28,15 +26,9 @@ def asof_index(
     return np.where(stale, -1, index)
 
 
-def asof_position(
-    source_t_ns: np.ndarray, query_t_ns: int, tolerance_ns: int | None = None
-) -> int:
+def asof_position(source_t_ns: np.ndarray, query_t_ns: int, tolerance_ns: int | None = None) -> int:
     """The asof_index of one query time."""
-    return int(
-        asof_index(source_t_ns, np.asarray([query_t_ns], dtype=np.int64), tolerance_ns)[
-            0
-        ]
-    )
+    return int(asof_index(source_t_ns, np.asarray([query_t_ns], dtype=np.int64), tolerance_ns)[0])
 
 
 def asof_values(
@@ -53,9 +45,7 @@ def asof_values(
     return np.where(index >= 0, values[np.maximum(index, 0)], np.nan)
 
 
-def interpolate_values(
-    source_t_ns: np.ndarray, source_values: np.ndarray, query_t_ns: np.ndarray
-) -> np.ndarray:
+def interpolate_values(source_t_ns: np.ndarray, source_values: np.ndarray, query_t_ns: np.ndarray) -> np.ndarray:
     """Linear interpolation of the source at each query time; beyond the source span the nearest end value is held."""
     return np.interp(query_t_ns, source_t_ns, source_values)
 
@@ -70,9 +60,5 @@ def asof_join(
     right_on: str | None = None,
 ) -> _FrameT:
     """Each query row joined to the last source row at or before its time, null where none lies within tolerance_ns (no bound when None)."""
-    keys = (
-        {"on": on}
-        if left_on is None
-        else {"left_on": left_on, "right_on": right_on or on}
-    )
+    keys = {"on": on} if left_on is None else {"left_on": left_on, "right_on": right_on or on}
     return query.join_asof(source, strategy="backward", tolerance=tolerance_ns, **keys)

@@ -18,11 +18,7 @@ def _episode(levels_dba, dt_s=1.0):
         data=pl.DataFrame({"t_ns": times}),
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[5.0, 0.0],
-        topics={
-            "robot_acoustics": pl.DataFrame(
-                {"t_ns": times, "total_level_af_dba": levels_dba}
-            )
-        },
+        topics={"robot_acoustics": pl.DataFrame({"t_ns": times, "total_level_af_dba": levels_dba})},
     )
 
 

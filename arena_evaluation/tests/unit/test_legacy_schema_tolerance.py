@@ -73,9 +73,7 @@ def _sept_record(**overrides: object) -> types.SimpleNamespace:
     return types.SimpleNamespace(**values)
 
 
-def _sept_schema(
-    definition: str | None = None, name: str = _SEPT_EPISODE[0]
-) -> _Schema:
+def _sept_schema(definition: str | None = None, name: str = _SEPT_EPISODE[0]) -> _Schema:
     return _Schema(name, definition if definition is not None else _SEPT_EPISODE[1])
 
 
@@ -105,52 +103,23 @@ def test_a_native_schema_missing_a_field_is_loud_and_named() -> None:
 
 
 _FLEET = "task_generator_msgs/msg/RobotFleet"
-_ROBOT_STATE = (
-    "MSG: task_generator_msgs/RobotState\n"
-    "RobotDescriptor descriptor\n"
-    "RobotCap[] caps\n"
-    "diagnostic_msgs/KeyValue[] params\n"
-)
-_DESCRIPTOR = (
-    "MSG: task_generator_msgs/RobotDescriptor\n"
-    "string name\n"
-    "string model\n"
-    "string ns\n"
-    "string frame\n"
-)
+_ROBOT_STATE = "MSG: task_generator_msgs/RobotState\nRobotDescriptor descriptor\nRobotCap[] caps\ndiagnostic_msgs/KeyValue[] params\n"
+_DESCRIPTOR = "MSG: task_generator_msgs/RobotDescriptor\nstring name\nstring model\nstring ns\nstring frame\n"
 
 
 def _fleet(descriptor: types.SimpleNamespace) -> types.SimpleNamespace:
-    return types.SimpleNamespace(
-        robots=[types.SimpleNamespace(descriptor=descriptor, params=[])]
-    )
+    return types.SimpleNamespace(robots=[types.SimpleNamespace(descriptor=descriptor, params=[])])
 
 
 def test_a_legacy_fleet_descriptor_without_base_frame_is_null() -> None:
-    definition = (
-        "RobotState[] robots\n" + _SEPARATOR + _ROBOT_STATE + _SEPARATOR + _DESCRIPTOR
-    )
-    descriptor = types.SimpleNamespace(
-        name="jackal", model="jackal", ns="/env_3/jackal", frame="env_3/jackal"
-    )
+    definition = "RobotState[] robots\n" + _SEPARATOR + _ROBOT_STATE + _SEPARATOR + _DESCRIPTOR
+    descriptor = types.SimpleNamespace(name="jackal", model="jackal", ns="/env_3/jackal", frame="env_3/jackal")
 
-    robots = legacy_schemas.fleet_robots(
-        _fleet(descriptor), _Schema(_FLEET, definition)
-    )
+    robots = legacy_schemas.fleet_robots(_fleet(descriptor), _Schema(_FLEET, definition))
 
     assert robots[0].descriptor.name == "jackal"
     assert robots[0].descriptor.base_frame is None
 
 
 _PEDESTRIANS = "arena_people_msgs/msg/Pedestrians"
-_SEPT_PEDESTRIAN = (
-    "MSG: arena_people_msgs/Pedestrian\n"
-    "string name\n"
-    "uint32 id\n"
-    "geometry_msgs/Pose pose\n"
-    "geometry_msgs/Twist twist\n"
-    "uint8 animation_state\n"
-    "sensor_msgs/JointState joint_state\n"
-    "float32 gait_phase\n"
-    "string model_uri\n"
-)
+_SEPT_PEDESTRIAN = "MSG: arena_people_msgs/Pedestrian\nstring name\nuint32 id\ngeometry_msgs/Pose pose\ngeometry_msgs/Twist twist\nuint8 animation_state\nsensor_msgs/JointState joint_state\nfloat32 gait_phase\nstring model_uri\n"

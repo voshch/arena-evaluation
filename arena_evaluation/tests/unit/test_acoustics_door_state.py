@@ -127,9 +127,5 @@ def test_progress_threshold_constant_is_the_shared_model_default():
     from arena_evaluation.processing.acoustics import constants
 
     assert OPEN_PROGRESS_THRESHOLD == constants.DOOR_OPEN_PROGRESS_THRESHOLD == 0.15
-    default = (
-        inspect.signature(DoorStateTimeline.from_semantic_frame)
-        .parameters["open_progress_threshold"]
-        .default
-    )
+    default = inspect.signature(DoorStateTimeline.from_semantic_frame).parameters["open_progress_threshold"].default
     assert default == OPEN_PROGRESS_THRESHOLD

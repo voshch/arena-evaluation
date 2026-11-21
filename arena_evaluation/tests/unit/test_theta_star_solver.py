@@ -44,9 +44,7 @@ def _use_library(monkeypatch: pytest.MonkeyPatch, path: pathlib.Path) -> None:
     theta_star._solver_library.cache_clear()
 
 
-def _open(
-    size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)
-) -> StaticGrid:
+def _open(size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)) -> StaticGrid:
     return StaticGrid(
         origin_xy=origin,
         resolution_m=resolution,
@@ -69,9 +67,7 @@ def test_cell_of_floors_each_point_into_its_cell_and_rejects_points_outside():
     assert grid.cell_of(float("inf"), 2.0) is None
 
 
-def test_missing_search_library_raises_metric_input_error_with_the_path_and_the_build(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_missing_search_library_raises_metric_input_error_with_the_path_and_the_build(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
     missing_library = tmp_path / "solver.so"
     monkeypatch.setenv(ENV_SO_VAR, str(missing_library))
     grid = _open()
@@ -91,24 +87,17 @@ def test_missing_search_library_raises_metric_input_error_with_the_path_and_the_
 
 def test_the_default_library_sits_next_to_the_module():
     """Without an override the loader looks where the CMake build writes."""
-    assert theta_star._SOLVER_LIBRARY == (
-        pathlib.Path(theta_star.__file__).resolve().parent / "solver.so"
-    )
+    assert theta_star._SOLVER_LIBRARY == (pathlib.Path(theta_star.__file__).resolve().parent / "solver.so")
 
 
 def test_the_solver_source_declares_the_wrappers_abi():
     """The C++ ABI constant and the Python one cannot drift apart."""
     source = SOLVER_SOURCE.read_text(encoding="utf-8")
-    assert (
-        f"#define ARENA_THETA_STAR_SOLVER_ABI {theta_star.THETA_STAR_SOLVER_ABI}"
-        in source
-    )
+    assert f"#define ARENA_THETA_STAR_SOLVER_ABI {theta_star.THETA_STAR_SOLVER_ABI}" in source
     assert theta_star.THETA_STAR_SOLVER_ABI_SYMBOL in source
 
 
-def test_a_library_without_the_abi_symbol_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-):
+def test_a_library_without_the_abi_symbol_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
     """A library from before the ABI (the old import-time g++ build) raises instead of binding."""
     stale = _compile(
         tmp_path,
@@ -117,23 +106,18 @@ def test_a_library_without_the_abi_symbol_is_refused(
     )
     _use_library(monkeypatch, stale)
     try:
-        with pytest.raises(
-            MetricInputError, match=theta_star.THETA_STAR_SOLVER_ABI_SYMBOL
-        ):
+        with pytest.raises(MetricInputError, match=theta_star.THETA_STAR_SOLVER_ABI_SYMBOL):
             theta_star._solver_library()
     finally:
         theta_star._solver_library.cache_clear()
 
 
-def test_a_library_with_another_abi_version_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-):
+def test_a_library_with_another_abi_version_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
     """A library built from a different search does not plan under this ABI."""
     foreign = _compile(
         tmp_path,
         "foreign",
-        'extern "C" int arena_theta_star_solver_abi(void) { return 999; }\n'
-        'extern "C" void solve_geometric_theta_star() {}\n',
+        'extern "C" int arena_theta_star_solver_abi(void) { return 999; }\nextern "C" void solve_geometric_theta_star() {}\n',
     )
     _use_library(monkeypatch, foreign)
     try:
@@ -143,9 +127,7 @@ def test_a_library_with_another_abi_version_is_refused(
         theta_star._solver_library.cache_clear()
 
 
-def test_a_library_missing_the_search_symbol_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-):
+def test_a_library_missing_the_search_symbol_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
     """An ABI match without the search symbol is still not loadable."""
     partial = _compile(
         tmp_path,
@@ -160,9 +142,7 @@ def test_a_library_missing_the_search_symbol_is_refused(
         theta_star._solver_library.cache_clear()
 
 
-def test_a_library_that_cannot_be_loaded_names_the_build_step(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-):
+def test_a_library_that_cannot_be_loaded_names_the_build_step(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
     """A file that is not a shared library raises the hinted error instead of a bare OSError."""
     broken = tmp_path / "broken.so"
     broken.write_text("not a shared library\n", encoding="utf-8")

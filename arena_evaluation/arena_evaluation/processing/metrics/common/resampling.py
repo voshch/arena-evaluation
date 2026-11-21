@@ -16,9 +16,7 @@ def _bare_robot_name(robot_dir: str) -> str:
     return _ROBOT_DIR_PREFIX.sub("", robot_dir, count=1)
 
 
-def resample_fleet(
-    fleet: dict[str, pl.DataFrame], t_ns: np.ndarray, ego: str | None
-) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+def resample_fleet(fleet: dict[str, pl.DataFrame], t_ns: np.ndarray, ego: str | None) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Other robots' judge poses held onto the ego axis, keyed by the bare name the judge atoms use.
 
     The fleet arrives keyed by the full env-prefixed id (``env_1_jackal``) while a condition names a

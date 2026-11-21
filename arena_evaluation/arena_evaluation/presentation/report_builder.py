@@ -118,9 +118,7 @@ class _CatalogSources:
         for label, catalog in zip(self.run_labels, self.catalogs, strict=True):
             if table not in catalog.table_names():
                 if multi:
-                    logging.getLogger(__name__).warning(
-                        "Run %r is missing table %r.", label, table
-                    )
+                    logging.getLogger(__name__).warning("Run %r is missing table %r.", label, table)
                 continue
             df = catalog.get_table(table).collect()
             if tag_run and multi:
@@ -128,9 +126,7 @@ class _CatalogSources:
             frames.append(df)
         if not frames:
             return None
-        return (
-            frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
-        )
+        return frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
 
     def world_geometry(self) -> pl.DataFrame | None:
         """Load and concatenate dim_world_geometry across sources when registered."""
@@ -155,16 +151,11 @@ def _status_table_data(df: pl.DataFrame) -> dict[str, Any] | None:
     return {
         "heading": f"Episodes not fully evaluated ({len(rows)} of {len(df)})",
         "headers": [name.replace("_", " ") for name in cols],
-        "rows": [
-            ["NULL" if row.get(col) is None else str(row.get(col)) for col in cols]
-            for row in rows.to_dicts()
-        ],
+        "rows": [["NULL" if row.get(col) is None else str(row.get(col)) for col in cols] for row in rows.to_dicts()],
     }
 
 
-def _build_record(
-    diag: PlotDiagnostics, *, plot_id: str, passed: bool
-) -> PlotBuildRecord:
+def _build_record(diag: PlotDiagnostics, *, plot_id: str, passed: bool) -> PlotBuildRecord:
     """One plot's provenance record, shared by the success and gate-failure paths."""
     return PlotBuildRecord(
         plot_id=plot_id,
@@ -218,26 +209,13 @@ def _summary_table_data(
         )
         # agent-contracts: ignore AC004 - example cells in the error message
         examples = sample.to_series().to_list()
-        raise ValueError(
-            f"summary table repeats {repeated.height} (group, metric) cell(s); "
-            f"group_summary must publish exactly one mean per cell, e.g. {examples}"
-        )
-    wide = table.pivot(on="metric", index=group_cols, values="mean").select(
-        *group_cols, *[pl.col(item.metric).cast(pl.Float64) for item in summary_specs]
-    )
+        raise ValueError(f"summary table repeats {repeated.height} (group, metric) cell(s); group_summary must publish exactly one mean per cell, e.g. {examples}")
+    wide = table.pivot(on="metric", index=group_cols, values="mean").select(*group_cols, *[pl.col(item.metric).cast(pl.Float64) for item in summary_specs])
     rows: list[list[str]] = []
     # agent-contracts: ignore AC004 - the report table renders one formatted string per cell
     for record in wide.iter_rows():
-        key_cells = [
-            "NULL" if value is None else str(value)
-            for value in record[: len(group_cols)]
-        ]
-        value_cells = [
-            _format_metric(value, item.format)
-            for value, item in zip(
-                record[len(group_cols) :], summary_specs, strict=True
-            )
-        ]
+        key_cells = ["NULL" if value is None else str(value) for value in record[: len(group_cols)]]
+        value_cells = [_format_metric(value, item.format) for value, item in zip(record[len(group_cols) :], summary_specs, strict=True)]
         rows.append([*key_cells, *value_cells])
     return {"headers": headers, "rows": rows}
 
@@ -290,10 +268,7 @@ def _checked_vector_formats(formats: Sequence[str]) -> tuple[str, ...]:
     """Validate and de-duplicate the requested extra figure formats, in request order."""
     unknown = set(formats) - _VECTOR_FORMATS
     if unknown:
-        raise ValueError(
-            f"unknown vector export format(s) {sorted(unknown)}; "
-            f"supported: {sorted(_VECTOR_FORMATS)}"
-        )
+        raise ValueError(f"unknown vector export format(s) {sorted(unknown)}; supported: {sorted(_VECTOR_FORMATS)}")
     return tuple(dict.fromkeys(formats))
 
 
@@ -320,12 +295,8 @@ class ReportBuilder:
         self.findings = tuple(findings)
         self.findings_not_used = tuple(findings_not_used)
         self.excluded_plots = tuple(excluded_plots)
-        self.output_root = (
-            pathlib.Path(output_dir) if output_dir else self.benchmark_dir
-        )
-        manifest_obj, report_name = _resolve_manifest_and_name(
-            manifest, self.benchmark_dir
-        )
+        self.output_root = pathlib.Path(output_dir) if output_dir else self.benchmark_dir
+        manifest_obj, report_name = _resolve_manifest_and_name(manifest, self.benchmark_dir)
         self._manifest_obj: VizManifest = manifest_obj
         self.report_name = report_name
         self.output_dir = run_report_output_dir(self.output_root, report_name)
@@ -336,12 +307,7 @@ class ReportBuilder:
             dirs=(self.benchmark_dir,),
             catalogs=(BenchmarkCatalog.open(self.benchmark_dir),),
         )
-        self._resolvers = tuple(
-            DataResolver(catalog=catalog, benchmark_dir=src_dir)
-            for src_dir, catalog in zip(
-                self._sources.dirs, self._sources.catalogs, strict=True
-            )
-        )
+        self._resolvers = tuple(DataResolver(catalog=catalog, benchmark_dir=src_dir) for src_dir, catalog in zip(self._sources.dirs, self._sources.catalogs, strict=True))
         self._build_checks = BuildChecks(plots_total=0, failures=())
         self._build_result: BuildResult | None = None
 
@@ -367,14 +333,10 @@ class ReportBuilder:
         instance.findings = tuple(findings)
         instance.findings_not_used = tuple(findings_not_used)
         instance.excluded_plots = tuple(excluded_plots)
-        paths = tuple(pathlib.Path(src) for src in source_dirs) or (
-            pathlib.Path(output_dir),
-        )
+        paths = tuple(pathlib.Path(src) for src in source_dirs) or (pathlib.Path(output_dir),)
         instance.benchmark_dir = paths[0]
         instance.output_root = pathlib.Path(output_dir)
-        manifest_obj, report_name = _resolve_manifest_and_name(
-            manifest, instance.benchmark_dir
-        )
+        manifest_obj, report_name = _resolve_manifest_and_name(manifest, instance.benchmark_dir)
         instance._manifest_obj = manifest_obj
         instance.report_name = report_name
         instance.output_dir = run_report_output_dir(instance.output_root, report_name)
@@ -387,12 +349,7 @@ class ReportBuilder:
             dirs=paths,
             catalogs=tuple(BenchmarkCatalog.open(p) for p in paths),
         )
-        instance._resolvers = tuple(
-            DataResolver(catalog=catalog, benchmark_dir=src_dir)
-            for src_dir, catalog in zip(
-                instance._sources.dirs, instance._sources.catalogs, strict=True
-            )
-        )
+        instance._resolvers = tuple(DataResolver(catalog=catalog, benchmark_dir=src_dir) for src_dir, catalog in zip(instance._sources.dirs, instance._sources.catalogs, strict=True))
         return instance
 
     @property
@@ -418,25 +375,19 @@ class ReportBuilder:
 
     def resolve_plot(self, spec: PlotSpec) -> tuple[pl.DataFrame, PlotDiagnostics]:
         """Resolve one plot's frame and diagnostics exactly as build() does."""
-        return self._resolve_for_spec(
-            self.resolved_spec(spec), default_source=self._manifest_obj.data_source
-        )
+        return self._resolve_for_spec(self.resolved_spec(spec), default_source=self._manifest_obj.data_source)
 
     def export_latex(self, output_path: pathlib.Path) -> LatexExport:
         """Export the approved tables and rendered figures of the last build as LaTeX."""
         return export_report_latex(self, output_path)
 
-    def _resolve_for_spec(
-        self, spec: PlotSpec, *, default_source: str = EPISODE_SUMMARY_VIEW
-    ) -> tuple[pl.DataFrame, PlotDiagnostics]:
+    def _resolve_for_spec(self, spec: PlotSpec, *, default_source: str = EPISODE_SUMMARY_VIEW) -> tuple[pl.DataFrame, PlotDiagnostics]:
         """Resolve one plot across all source catalogs, retaining per-run provenance."""
         frames: list[pl.DataFrame] = []
         evidence_ids: list[str] = []
         snapshot_ids: list[str] = []
         multi = len(self._sources.dirs) > 1
-        for label, resolver in zip(
-            self._sources.run_labels, self._resolvers, strict=True
-        ):
+        for label, resolver in zip(self._sources.run_labels, self._resolvers, strict=True):
             resolved_spec = resolver.resolve_spec(spec)
             frame, diag = resolver.resolve(resolved_spec, default_source=default_source)
             if multi:
@@ -447,9 +398,7 @@ class ReportBuilder:
             if diag.snapshot_id:
                 snapshot_ids.append(diag.snapshot_id)
 
-        combined = (
-            frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
-        )
+        combined = frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
         checked = DiagnosticInspector.inspect(combined, spec)
         combined_diag = PlotDiagnostics(
             status=checked.status,
@@ -497,9 +446,7 @@ class ReportBuilder:
         records: list[PlotBuildRecord] = []
 
         def record_failure(spec: PlotSpec, stage: CheckStage, detail: str) -> None:
-            failures.append(
-                PlotCheck(plot_id=spec.id, title=spec.title, stage=stage, detail=detail)
-            )
+            failures.append(PlotCheck(plot_id=spec.id, title=spec.title, stage=stage, detail=detail))
 
         spec_resolver = DataResolver(benchmark_dir=self.benchmark_dir)
         for raw_spec in manifest.plots:
@@ -510,18 +457,9 @@ class ReportBuilder:
                 if raw_spec.uses:
                     spec = spec_resolver.resolve_spec(raw_spec)
                 renderer_cls = RENDERER_REGISTRY.get(spec.type)
-                if (
-                    self.generate_gifs
-                    and not spec.options.get("generate_gifs")
-                    and renderer_cls is not None
-                    and "generate_gifs" in renderer_cls.SUPPORTED_OPTIONS
-                ):
-                    spec = spec.model_copy(
-                        update={"options": {**spec.options, "generate_gifs": True}}
-                    )
-                plot_df, diag = self._resolve_for_spec(
-                    spec, default_source=manifest.data_source
-                )
+                if self.generate_gifs and not spec.options.get("generate_gifs") and renderer_cls is not None and "generate_gifs" in renderer_cls.SUPPORTED_OPTIONS:
+                    spec = spec.model_copy(update={"options": {**spec.options, "generate_gifs": True}})
+                plot_df, diag = self._resolve_for_spec(spec, default_source=manifest.data_source)
             except Exception as exc:
                 record_failure(spec, CheckStage.LOAD, str(exc))
                 records.append(_build_record(diag, plot_id=spec.id, passed=False))
@@ -530,9 +468,7 @@ class ReportBuilder:
             note_html = self._plot_note_markup(spec)
 
             if diag.status == "FAILED":
-                detail = (
-                    "; ".join(diag.issues) if diag.issues else "Quality gate rejected"
-                )
+                detail = "; ".join(diag.issues) if diag.issues else "Quality gate rejected"
                 record_failure(spec, CheckStage.QUALITY, detail)
                 plot_entries.append(
                     {
@@ -590,9 +526,7 @@ class ReportBuilder:
                         diagnostics=diag,
                     )
                 except Exception as exc:
-                    record_failure(
-                        spec, CheckStage.STATIC, f"vector {vector_format}: {exc}"
-                    )
+                    record_failure(spec, CheckStage.STATIC, f"vector {vector_format}: {exc}")
                     plot_failed = True
 
             html_chunks: list[str] = []
@@ -612,9 +546,7 @@ class ReportBuilder:
                     )
                     plot_failed = True
                 else:
-                    html_chunks = (
-                        html_chunk if isinstance(html_chunk, list) else [html_chunk]
-                    )
+                    html_chunks = html_chunk if isinstance(html_chunk, list) else [html_chunk]
             except Exception as exc:
                 record_failure(spec, CheckStage.INTERACTIVE, str(exc))
                 plot_failed = True
@@ -631,11 +563,7 @@ class ReportBuilder:
                                 title=spec.title,
                                 interactive_html="\n".join(html_chunks),
                                 png_path=png_path,
-                                png_src=(
-                                    f"plots/{spec.id}.png"
-                                    if self.external_assets
-                                    else None
-                                ),
+                                png_src=(f"plots/{spec.id}.png" if self.external_assets else None),
                             )
                         ),
                         "note_html": note_html,
@@ -646,9 +574,7 @@ class ReportBuilder:
             records.append(_build_record(diag, plot_id=spec.id, passed=not plot_failed))
 
         status_table, summary_table = self._build_summary_tables(manifest, failures)
-        self._build_checks = BuildChecks(
-            plots_total=len(manifest.plots), failures=tuple(failures)
-        )
+        self._build_checks = BuildChecks(plots_total=len(manifest.plots), failures=tuple(failures))
         self._build_result = BuildResult(
             report_path=self.report_path,
             checks=self._build_checks,
@@ -656,9 +582,7 @@ class ReportBuilder:
         )
 
         report_title = manifest.title or self.output_root.name
-        page_snapshot_id = next(
-            (record.snapshot_id for record in records if record.snapshot_id), ""
-        )
+        page_snapshot_id = next((record.snapshot_id for record in records if record.snapshot_id), "")
         html_content = self._assemble_html(
             status_table=status_table,
             summary_table=summary_table,
@@ -670,14 +594,10 @@ class ReportBuilder:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(html_content, encoding="utf-8")
         if self.external_assets:
-            (self.output_dir / "plotly.min.js").write_text(
-                plotly_bundle_text(), encoding="utf-8"
-            )
+            (self.output_dir / "plotly.min.js").write_text(plotly_bundle_text(), encoding="utf-8")
         return self.report_path
 
-    def _build_summary_tables(
-        self, manifest: VizManifest, failures: list[PlotCheck]
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    def _build_summary_tables(self, manifest: VizManifest, failures: list[PlotCheck]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """Build status and summary table payloads from manifest.data_source and manifest.summary."""
         # differs from overhaul/source:report_builder.py:489-531: delegates aggregation to analytics group_summary
         source_name = manifest.data_source or EPISODE_SUMMARY_VIEW
@@ -703,17 +623,11 @@ class ReportBuilder:
         metrics = [item.metric for item in manifest.summary]
         missing_metrics = [m for m in metrics if source_df.schema.get(m) is None]
         if missing_metrics:
-            return fail_summary(
-                f"Summary metric(s) {missing_metrics!r} missing from {source_name!r}."
-            )
+            return fail_summary(f"Summary metric(s) {missing_metrics!r} missing from {source_name!r}.")
         if manifest.summary_group_by is None:
             return fail_summary("Summary manifest must declare 'summary_group_by'.")
 
-        raw_groups = (
-            [manifest.summary_group_by]
-            if isinstance(manifest.summary_group_by, str)
-            else list(manifest.summary_group_by)
-        )
+        raw_groups = [manifest.summary_group_by] if isinstance(manifest.summary_group_by, str) else list(manifest.summary_group_by)
 
         multi = len(self._sources.dirs) > 1
         if multi and "run" not in raw_groups:
@@ -723,9 +637,7 @@ class ReportBuilder:
 
         missing_groups = [g for g in group_cols if source_df.schema.get(g) is None]
         if missing_groups:
-            return fail_summary(
-                f"Summary group_by column(s) {missing_groups!r} missing from {source_name!r}."
-            )
+            return fail_summary(f"Summary group_by column(s) {missing_groups!r} missing from {source_name!r}.")
 
         if not group_cols:
             return status_table, None
@@ -769,12 +681,8 @@ class ReportBuilder:
 
         if not frames:
             return status_table, None
-        summary_df = (
-            frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
-        )
-        return status_table, _summary_table_data(
-            summary_df, group_cols, manifest.summary
-        )
+        summary_df = frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
+        return status_table, _summary_table_data(summary_df, group_cols, manifest.summary)
 
     def _plot_note_markup(self, spec: PlotSpec) -> markupsafe.Markup | None:
         opts = spec.options or {}
@@ -784,18 +692,9 @@ class ReportBuilder:
             if notes_path.is_file():
                 try:
                     data = yaml.safe_load(notes_path.read_text(encoding="utf-8"))
-                    rows = (
-                        data
-                        if isinstance(data, list)
-                        else [
-                            {"label": str(k), "value": str(v)}
-                            for k, v in (data or {}).items()
-                        ]
-                    )
+                    rows = data if isinstance(data, list) else [{"label": str(k), "value": str(v)} for k, v in (data or {}).items()]
                     for row in rows:
-                        if isinstance(row, dict) and str(row.get("label", "")) == str(
-                            opts["notes_key"]
-                        ):
+                        if isinstance(row, dict) and str(row.get("label", "")) == str(opts["notes_key"]):
                             note = row.get("value")
                             break
                 except Exception:
@@ -821,9 +720,7 @@ class ReportBuilder:
             else:
                 grouped.setdefault(str(entry["group"]), []).append(entry)
 
-        plot_groups = [
-            {"title": name, "plots": items} for name, items in grouped.items()
-        ]
+        plot_groups = [{"title": name, "plots": items} for name, items in grouped.items()]
         template_dir = pathlib.Path(__file__).parent
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(template_dir)),
@@ -833,9 +730,7 @@ class ReportBuilder:
         return template.render(
             benchmark_id=report_title,
             report_dir=str(self.output_dir),
-            generated_on=datetime.datetime.now(datetime.timezone.utc).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            ),
+            generated_on=datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC"),
             status_table=status_table,
             summary_table=summary_table,
             overview_plots=overview_plots,
@@ -845,10 +740,6 @@ class ReportBuilder:
             findings=self.findings,
             findings_not_used=self.findings_not_used,
             excluded_plots=self.excluded_plots,
-            plotly_bundle=markupsafe.Markup(
-                plotly_bundle_reference()
-                if self.external_assets
-                else plotly_bundle_script()
-            ),
+            plotly_bundle=markupsafe.Markup(plotly_bundle_reference() if self.external_assets else plotly_bundle_script()),
             plot_block_styles=markupsafe.Markup(plot_block_styles()),
         )

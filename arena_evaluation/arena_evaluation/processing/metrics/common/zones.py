@@ -33,9 +33,7 @@ class DoorGeometry:
     radius: float
 
 
-def extract_zone_geometry(
-    flattened: Level, require_annotation: bool = True
-) -> list[ZoneGeometry]:
+def extract_zone_geometry(flattened: Level, require_annotation: bool = True) -> list[ZoneGeometry]:
     """Zone polygons with their recorded semantics, skipping degenerate polygons."""
     import shapely
 
@@ -83,11 +81,7 @@ def extract_door_geometry(flattened: Level) -> list[DoorGeometry]:
         center_x = (door.start.x + door.end.x) / 2.0
         center_y = (door.start.y + door.end.y) / 2.0
         radius = max(door.activation_distance)
-        doors.append(
-            DoorGeometry(
-                name=door.name, center_x=center_x, center_y=center_y, radius=radius
-            )
-        )
+        doors.append(DoorGeometry(name=door.name, center_x=center_x, center_y=center_y, radius=radius))
     return doors
 
 
@@ -96,9 +90,7 @@ class _PolygonZone(typing.Protocol):
     def polygon(self) -> shapely.Polygon | shapely.MultiPolygon: ...
 
 
-def zone_membership(
-    pos_x: np.ndarray, pos_y: np.ndarray, zones: Sequence[_PolygonZone]
-) -> np.ndarray:
+def zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: Sequence[_PolygonZone]) -> np.ndarray:
     """Index of the first zone covering each point, -1 outside every zone."""
     import shapely
 

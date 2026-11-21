@@ -41,9 +41,7 @@ def _packed_tool(fn: Callable[..., object]) -> Callable[..., object]:
     """Wrap ``fn`` so list results serialize as JSON while preserving metadata."""
 
     def pack(result: object) -> object:
-        if isinstance(result, list | tuple) and not any(
-            isinstance(item, Image | Audio) for item in result
-        ):
+        if isinstance(result, list | tuple) and not any(isinstance(item, Image | Audio) for item in result):
             return json.dumps(result, indent=2, default=str)
         return result
 
@@ -136,15 +134,11 @@ def run_path(run_id: str | None) -> pathlib.Path:
 
         latest = latest_benchmark(root)
         if latest is None:
-            raise ToolError(
-                f"no benchmark runs in {root}", hint="evaluation_benchmark starts one"
-            )
+            raise ToolError(f"no benchmark runs in {root}", hint="evaluation_benchmark starts one")
         return latest
     path = root / component(run_id, "run_id")
     if not path.is_dir():
-        raise ToolError(
-            f"no run {run_id!r} in {root}", hint="evaluation_runs lists the runs"
-        )
+        raise ToolError(f"no run {run_id!r} in {root}", hint="evaluation_runs lists the runs")
     return path
 
 
@@ -176,9 +170,7 @@ def is_inline(value: str) -> bool:
     return value.lstrip().startswith(("{", "["))
 
 
-def assert_safe_analysis_write(
-    run_dir: pathlib.Path, target: pathlib.Path
-) -> pathlib.Path:
+def assert_safe_analysis_write(run_dir: pathlib.Path, target: pathlib.Path) -> pathlib.Path:
     """Refuse writes aimed at ``episodes/`` or published root tables; allow ``analysis/`` and ``reports/``."""
     resolved_target = target.resolve()
     try:
@@ -191,11 +183,7 @@ def assert_safe_analysis_write(
     if rel.parts and rel.parts[0] in ("analysis", "reports"):
         return resolved_target
     protected = not rel.parts or rel.parts[0] == "episodes"
-    detail = (
-        f"protected published data under episodes/: {rel}"
-        if protected
-        else f"protected published file: {rel}"
-    )
+    detail = f"protected published data under episodes/: {rel}" if protected else f"protected published file: {rel}"
     raise ToolError(
         f"refusing write to {detail}",
         hint=_ANALYSIS_HINT if protected else f"{_ANALYSIS_HINT} or <run>/reports/",
@@ -220,9 +208,7 @@ def append_audit_event(
         "timestamp": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         "role": role,
         "tool": tool,
-        "args_hash": hashlib.sha256(
-            json.dumps(args, sort_keys=True, default=str).encode("utf-8")
-        ).hexdigest()[:12],
+        "args_hash": hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12],
         "produced_ids": produced_ids or [],
     }
     with (

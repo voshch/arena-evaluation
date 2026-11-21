@@ -76,9 +76,7 @@ def test_data_resolver_catalog_view_with_where_and_default_source(
     assert diag.status == "PASSED"
     assert diag.snapshot_id.startswith("snap-")
 
-    default_spec = PlotSpec(
-        id="p_default", type="box", channels=PlotChannels(x="planner", y="time_to_goal")
-    )
+    default_spec = PlotSpec(id="p_default", type="box", channels=PlotChannels(x="planner", y="time_to_goal"))
     df_default, _ = resolver.resolve(default_spec, default_source="v_episode_summary")
     assert df_default.height == 4
 
@@ -109,13 +107,9 @@ def test_data_resolver_evidence_store_roundtrip(tmp_path: pathlib.Path) -> None:
     catalog = BenchmarkCatalog.open(tmp_path)
     store = EvidenceStore(tmp_path)
     sample = pl.DataFrame({"planner": ["dwb", "mppi"], "score": [0.9, 0.7]})
-    rec = store.record(
-        sample, kind="sql", operation="manual", snapshot_id=catalog.snapshot_id
-    )
+    rec = store.record(sample, kind="sql", operation="manual", snapshot_id=catalog.snapshot_id)
 
-    resolver = DataResolver(
-        benchmark_dir=tmp_path, catalog=catalog, evidence_store=store
-    )
+    resolver = DataResolver(benchmark_dir=tmp_path, catalog=catalog, evidence_store=store)
     spec = PlotSpec(
         id="p_ev",
         type="bar",
@@ -166,9 +160,7 @@ def test_recipe_resolution_in_analysis_dir_and_deep_merge(
     assert merged.channels.y == "time_to_goal"
 
     assert recipe_search_dirs()
-    assert deep_merge({"a": {"x": 1, "y": 2}}, {"a": {"y": 3}}) == {
-        "a": {"x": 1, "y": 3}
-    }
+    assert deep_merge({"a": {"x": 1, "y": 2}}, {"a": {"y": 3}}) == {"a": {"x": 1, "y": 3}}
     assert find_recipe_path("missing_recipe_xyz") is None
     with pytest.raises(FileNotFoundError):
         resolver.resolve_spec(PlotSpec(uses="missing_recipe_xyz"))

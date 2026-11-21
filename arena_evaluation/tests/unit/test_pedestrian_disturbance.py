@@ -22,10 +22,7 @@ def _frame(rows: list, seconds: list[float] | None = None) -> pl.DataFrame:
     frames = []
     for t, row in zip(times, rows, strict=True):
         values = row or []
-        pedestrians = [
-            {"ped_id": f"Pedestrian_{j}", "x": values[3 * j], "y": values[3 * j + 1]}
-            for j in range(len(values) // 3)
-        ]
+        pedestrians = [{"ped_id": f"Pedestrian_{j}", "x": values[3 * j], "y": values[3 * j + 1]} for j in range(len(values) // 3)]
         frames.append((int(t * S), pedestrians))
     return flat_peds(frames)
 
@@ -33,12 +30,8 @@ def _frame(rows: list, seconds: list[float] | None = None) -> pl.DataFrame:
 def _calc(peds: pl.DataFrame | None) -> dict:
     """The PEDESTRIAN slice's bundle: one pedestrian's track, on its own frame times."""
     topics = {} if peds is None else {"pedestrian_arena_peds": peds}
-    data = (
-        None if peds is None else pl.DataFrame({"t_ns": peds["t_ns"].unique().sort()})
-    )
-    episode = AlignedEpisodeBundle(
-        episode_id=1, data=data, start_pos=[], goal_pos=[], peds=peds, topics=topics
-    )
+    data = None if peds is None else pl.DataFrame({"t_ns": peds["t_ns"].unique().sort()})
+    episode = AlignedEpisodeBundle(episode_id=1, data=data, start_pos=[], goal_pos=[], peds=peds, topics=topics)
     return PedestrianDisturbanceCalculator(make_robot_params()).calculate(episode, {})
 
 
@@ -53,16 +46,12 @@ def test_deflection_of_empty_input_is_null():
 
 
 def test_deflection_of_all_nan_rows_is_null():
-    assert math.isnan(
-        deflection(np.array([[np.nan, 0.0], [1.0, np.nan]]), np.array([[0.0, 0.0]]))
-    )
+    assert math.isnan(deflection(np.array([[np.nan, 0.0], [1.0, np.nan]]), np.array([[0.0, 0.0]])))
     assert math.isnan(deflection(np.array([[0.0, 0.0]]), np.array([[np.nan, np.nan]])))
 
 
 def test_deflection_ignores_z():
-    assert deflection(
-        np.array([[0.0, 0.0, 5.0]]), np.array([[3.0, 4.0, -2.0]])
-    ) == pytest.approx(5.0, abs=1e-12)
+    assert deflection(np.array([[0.0, 0.0, 5.0]]), np.array([[3.0, 4.0, -2.0]])) == pytest.approx(5.0, abs=1e-12)
 
 
 def test_deflection_with_infinite_reference_falls_back_to_dense_distances():

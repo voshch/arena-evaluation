@@ -84,9 +84,7 @@ def test_topic_definition_dataclass_defaults_and_overrides():
     assert td.reliable is False
     assert td.depth == 0
 
-    over = TopicDefinition(
-        "/y", Twist, throttled=False, throttle_rate_hz=30.0, qos_transient_local=True
-    )
+    over = TopicDefinition("/y", Twist, throttled=False, throttle_rate_hz=30.0, qos_transient_local=True)
     assert over.throttled is False
     assert over.throttle_rate_hz == 30.0
     assert over.qos_transient_local is True

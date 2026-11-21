@@ -79,18 +79,10 @@ def _dimension_frames(
             DIMENSION_TABLES["dim_episodes"],
         ),
         "dim_robots": _frame(robot_rows, DIMENSION_TABLES["dim_robots"]),
-        "dim_pedestrians": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_pedestrians"].polars_schema()
-        ),
-        "dim_world_entities": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_world_entities"].polars_schema()
-        ),
-        "dim_world_geometry": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_world_geometry"].polars_schema()
-        ),
-        "dim_metrics": pl.DataFrame(
-            schema=DIMENSION_TABLES["dim_metrics"].polars_schema()
-        ),
+        "dim_pedestrians": pl.DataFrame(schema=DIMENSION_TABLES["dim_pedestrians"].polars_schema()),
+        "dim_world_entities": pl.DataFrame(schema=DIMENSION_TABLES["dim_world_entities"].polars_schema()),
+        "dim_world_geometry": pl.DataFrame(schema=DIMENSION_TABLES["dim_world_geometry"].polars_schema()),
+        "dim_metrics": pl.DataFrame(schema=DIMENSION_TABLES["dim_metrics"].polars_schema()),
     }
 
 
@@ -129,11 +121,7 @@ def test_a_dimension_episode_without_a_fact_row_fails(
         fact_episodes=_frame([], FactEpisodes),
     )
     report = check_benchmark(root)
-    uncovered = [
-        violation
-        for violation in report.violations
-        if violation.check == "episode_uncovered"
-    ]
+    uncovered = [violation for violation in report.violations if violation.check == "episode_uncovered"]
     assert uncovered
     assert uncovered[0].table == "dim_episodes"
     assert uncovered[0].column == "episode_id"
@@ -148,11 +136,7 @@ def test_a_fact_episode_with_an_error_status_is_not_evaluated(
         fact_episodes=_frame([_episode_row(result="error")], FactEpisodes),
     )
     report = check_benchmark(root)
-    unevaluated = [
-        violation
-        for violation in report.violations
-        if violation.check == "episode_not_evaluated"
-    ]
+    unevaluated = [violation for violation in report.violations if violation.check == "episode_not_evaluated"]
     assert unevaluated
     assert "0" in unevaluated[0].detail
     assert "error" in unevaluated[0].detail
@@ -170,11 +154,7 @@ def test_a_robot_missing_a_required_parameter_fails(
         robots=[_robot_row(robot_radius=None)],
     )
     report = check_benchmark(root)
-    missing = [
-        violation
-        for violation in report.violations
-        if violation.check == "descriptor_param_missing"
-    ]
+    missing = [violation for violation in report.violations if violation.check == "descriptor_param_missing"]
     assert missing
     assert missing[0].table == "dim_robots"
     assert missing[0].column == "robot_radius"
@@ -196,11 +176,7 @@ def test_a_telemetry_robot_without_a_dimension_row_fails(
         },
     )
     report = check_benchmark(root)
-    undescribed = [
-        violation
-        for violation in report.violations
-        if violation.check == "descriptor_missing_telemetry"
-    ]
+    undescribed = [violation for violation in report.violations if violation.check == "descriptor_missing_telemetry"]
     assert undescribed
     assert undescribed[0].table == "dim_robots"
     assert undescribed[0].column == "robot_id"

@@ -19,9 +19,7 @@ def _key(dtype: pl.DataType | type[pl.DataType], description: str) -> Column:
     return Column(dtype, required=True, description=description)
 
 
-def _optional(
-    dtype: pl.DataType | type[pl.DataType], description: str, unit: str = ""
-) -> Column:
+def _optional(dtype: pl.DataType | type[pl.DataType], description: str, unit: str = "") -> Column:
     """A recorded value that may be missing; a missing value carries its reason."""
     return Column(dtype, null_reason=True, unit=unit, description=description)
 
@@ -59,27 +57,17 @@ class DimEpisodes(_EpisodeKey, name="dim_episodes", kind=TableKind.DIMENSION):
     world = _optional(pl.String, "World the episode ran in.")
     scenario = _optional(pl.String, "Scenario the episode followed.")
     planner = _optional(pl.String, "Planner the robot ran.")
-    local_planner = _optional(
-        pl.String, "Local planner the episode recorded, from RunMetadata.local_planner."
-    )
+    local_planner = _optional(pl.String, "Local planner the episode recorded, from RunMetadata.local_planner.")
     inter_planner = _optional(pl.String, "Inter-planner of the episode.")
     dispatcher = _optional(pl.String, "Dispatcher that assigned the robot.")
-    ped_policy_default = _optional(
-        pl.String, "Default crowd policy the pedestrians were given."
-    )
+    ped_policy_default = _optional(pl.String, "Default crowd policy the pedestrians were given.")
     crowd_size = _optional(pl.Int64, "Number of pedestrians of the crowd as launched.")
     seed = _optional(pl.Int64, "Seed the episode was run with.")
     is_reference = _optional(pl.Boolean, "Whether the episode is a reference run.")
     reference_type = _optional(pl.String, "Kind of reference run.")
-    duration_s = _optional(
-        pl.Float64, "Duration of the episode as the runner recorded it.", unit="s"
-    )
-    outcome_state = _optional(
-        pl.Int64, "Outcome state of the episode as the runner recorded it."
-    )
-    outcome_info = _optional(
-        pl.String, "Outcome information of the episode as the runner recorded it."
-    )
+    duration_s = _optional(pl.Float64, "Duration of the episode as the runner recorded it.", unit="s")
+    outcome_state = _optional(pl.Int64, "Outcome state of the episode as the runner recorded it.")
+    outcome_info = _optional(pl.String, "Outcome information of the episode as the runner recorded it.")
     pose_source = _optional(
         pl.String,
         "Ground-truth pose stream of the episode: tf (dense), tf_sparse (raw sparse samples) or absent.",
@@ -97,21 +85,13 @@ class DimRobots(_EpisodeKey, name="dim_robots", kind=TableKind.DIMENSION):
     key = ("run_id", "episode_id", "env_id", "robot_id")
 
     robot_id = _ROBOT
-    robot_model = _optional(
-        pl.String, "Model of this robot, from its recorded descriptor."
-    )
+    robot_model = _optional(pl.String, "Model of this robot, from its recorded descriptor.")
     planner = _optional(pl.String, "Planner the robot ran.")
     inter_planner = _optional(pl.String, "Inter-planner of the episode.")
     dispatcher = _optional(pl.String, "Dispatcher that assigned the robot.")
-    max_angular_vel = _optional(
-        pl.Float64, "Maximum angular velocity of the robot's parameters.", unit="rad/s"
-    )
-    linear_acc = _optional(
-        pl.Float64, "Linear acceleration limit of the robot's parameters.", unit="m/s^2"
-    )
-    linear_decel = _optional(
-        pl.Float64, "Linear deceleration limit of the robot's parameters.", unit="m/s^2"
-    )
+    max_angular_vel = _optional(pl.Float64, "Maximum angular velocity of the robot's parameters.", unit="rad/s")
+    linear_acc = _optional(pl.Float64, "Linear acceleration limit of the robot's parameters.", unit="m/s^2")
+    linear_decel = _optional(pl.Float64, "Linear deceleration limit of the robot's parameters.", unit="m/s^2")
     robot_radius = _optional(pl.Float64, "Radius of the robot's footprint.", unit="m")
     robot_mass_kg = _optional(pl.Float64, "Mass of the robot.", unit="kg")
     static_power_w = _optional(pl.Float64, "Static power draw of the robot.", unit="W")
@@ -129,20 +109,14 @@ class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSI
 
     ped_id = _key(pl.String, "Pedestrian the row describes.")
     ped_name = _optional(pl.String, "Name of the pedestrian agent.")
-    agent_type = _optional(
-        pl.String, "Agent type of the pedestrian, from its agent metadata."
-    )
+    agent_type = _optional(pl.String, "Agent type of the pedestrian, from its agent metadata.")
     ped_policy = _optional(pl.String, "Policy name the pedestrian's agent runs.")
-    desired_speed = _optional(
-        pl.Float64, "Desired speed of the pedestrian.", unit="m/s"
-    )
+    desired_speed = _optional(pl.Float64, "Desired speed of the pedestrian.", unit="m/s")
     radius_m = _optional(pl.Float64, "Radius of the pedestrian.", unit="m")
     spawn_x = _optional(pl.Float64, "Spawn position of the pedestrian, x.", unit="m")
     spawn_y = _optional(pl.Float64, "Spawn position of the pedestrian, y.", unit="m")
     spawn_yaw = _optional(pl.Float64, "Spawn heading of the pedestrian.", unit="rad")
-    waypoints_count = _optional(
-        pl.Int64, "Number of waypoints of the pedestrian's route."
-    )
+    waypoints_count = _optional(pl.Int64, "Number of waypoints of the pedestrian's route.")
     robot_awareness = _optional(
         pl.Float32,
         unit="1",
@@ -153,17 +127,11 @@ class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSI
         unit="1",
         description="Robot field-of-view multiplier of the pedestrian, 1 nominal.",
     )
-    robot_repulsion_gain = _optional(
-        pl.Float32, unit="1", description="Repulsion multiplier from robots, 1 nominal."
-    )
-    robot_reaction_gain = _optional(
-        pl.Float32, unit="1", description="Robot reaction-range multiplier, 1 nominal."
-    )
+    robot_repulsion_gain = _optional(pl.Float32, unit="1", description="Repulsion multiplier from robots, 1 nominal.")
+    robot_reaction_gain = _optional(pl.Float32, unit="1", description="Robot reaction-range multiplier, 1 nominal.")
 
 
-class DimWorldEntities(
-    _EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION
-):
+class DimWorldEntities(_EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION):
     """One row per world entity of each episode, as the world declares it."""
 
     key = ("run_id", "episode_id", "env_id", "entity_name")
@@ -171,12 +139,8 @@ class DimWorldEntities(
     entity_name = _key(pl.String, "Name of the world entity.")
     entity_kind = _optional(pl.String, "Kind of the world entity.")
     zone = _optional(pl.String, "Zone the entity belongs to.")
-    activation_dist = _optional(
-        pl.Float64, "Distance at which the entity activates.", unit="m"
-    )
-    acoustic_tl_db = _optional(
-        pl.Float64, "Acoustic transmission loss of the entity.", unit="dB"
-    )
+    activation_dist = _optional(pl.Float64, "Distance at which the entity activates.", unit="m")
+    acoustic_tl_db = _optional(pl.Float64, "Acoustic transmission loss of the entity.", unit="dB")
     initial_state = _optional(pl.String, "State the entity starts in.")
 
 
@@ -185,12 +149,8 @@ class DimWorldGeometry(_Dimension, name="dim_world_geometry", kind=TableKind.DIM
 
     key = ("world", "element_kind", "element_name", "part_idx", "vertex_idx")
 
-    world = _key(
-        pl.String, "World the geometry belongs to, as dim_episodes.world holds it."
-    )
-    element_kind = _key(
-        pl.String, "Kind of element: wall, door, elevator, zone or object."
-    )
+    world = _key(pl.String, "World the geometry belongs to, as dim_episodes.world holds it.")
+    element_kind = _key(pl.String, "Kind of element: wall, door, elevator, zone or object.")
     element_name = _key(
         pl.String,
         "Name of the element: wall_<index> for a wall, else the entity name.",
@@ -240,12 +200,8 @@ class DimMetrics(_Dimension, name="dim_metrics", kind=TableKind.DIMENSION):
         required=True,
         description="Polars type of the metric's column: Float64, Int64, Boolean or String.",
     )
-    unit = _optional(
-        pl.String, "Unit of the metric's values; NULL for a count, a flag or a label."
-    )
-    description = Column(
-        pl.String, required=True, description="What the metric measures."
-    )
+    unit = _optional(pl.String, "Unit of the metric's values; NULL for a count, a flag or a label.")
+    description = Column(pl.String, required=True, description="What the metric measures.")
     direction = _optional(
         pl.String,
         "Better side of the metric, higher or lower; NULL when neither side is better.",
@@ -257,8 +213,4 @@ class DimMetrics(_Dimension, name="dim_metrics", kind=TableKind.DIMENSION):
     )
 
 
-DIMENSION_TABLES: Final[dict[str, type[Table]]] = {
-    table.table_name: table
-    for table in registered_tables()
-    if table.table_kind is TableKind.DIMENSION
-}
+DIMENSION_TABLES: Final[dict[str, type[Table]]] = {table.table_name: table for table in registered_tables() if table.table_kind is TableKind.DIMENSION}

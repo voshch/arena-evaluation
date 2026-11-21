@@ -132,9 +132,7 @@ class PedestrianRecorder:
         """Keep the normalised agent metadata of one environment."""
         self._meta[envelope.ref.env_id] = meta
 
-    def record_frame(
-        self, table: str, envelope: Envelope[Pedestrians | AgentFrame | AgentStates]
-    ) -> None:
+    def record_frame(self, table: str, envelope: Envelope[Pedestrians | AgentFrame | AgentStates]) -> None:
         env_id = envelope.ref.env_id
         self._frames[(env_id, table)].add(envelope.body.header.frame_id.strip("/"))
         for agent in _agents(envelope, self._meta.get(env_id, AgentMeta())):
@@ -152,14 +150,9 @@ class PedestrianRecorder:
 def agent_meta(meta: RosAgentMeta) -> AgentMeta:
     """The normalised metadata of a generation whose AgentMeta carries the four robot settings."""
     policies = tuple(str(policy) for policy in meta.policies)
-    types = {
-        int(agent_id): _text_or_none(agent_type)
-        for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)
-    }
+    types = {int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)}
     crowd = {
-        int(agent_id): CrowdSettings(
-            float(awareness), float(fov), float(repulsion), float(reaction)
-        )
+        int(agent_id): CrowdSettings(float(awareness), float(fov), float(repulsion), float(reaction))
         for agent_id, awareness, fov, repulsion, reaction in zip(
             meta.agent_id,
             meta.robot_awareness,
@@ -176,17 +169,12 @@ def agent_meta_without_robot_fields(meta: RosAgentMeta) -> AgentMeta:
     """The normalised metadata of a Nov-8 AgentMeta: the crowd settings are absent, never invented."""
     return AgentMeta(
         policies=tuple(str(policy) for policy in meta.policies),
-        types_by_id={
-            int(agent_id): _text_or_none(agent_type)
-            for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)
-        },
+        types_by_id={int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)},
         crowd_by_id={},
     )
 
 
-def _agents(
-    envelope: Envelope[Pedestrians | AgentFrame | AgentStates], meta: AgentMeta
-) -> list[_Agent]:
+def _agents(envelope: Envelope[Pedestrians | AgentFrame | AgentStates], meta: AgentMeta) -> list[_Agent]:
     schema = envelope.schema.name
     if schema == PEDESTRIANS_SCHEMA:
         columns = _pedestrians_columns(cast("Envelope[Pedestrians]", envelope))
@@ -196,10 +184,7 @@ def _agents(
         columns = _agent_states_columns(cast("Envelope[AgentStates]", envelope), meta)
     else:
         raise ValueError(f"unsupported pedestrian schema {schema!r}")
-    return [
-        _Agent(**dict(zip(columns, values, strict=True)))
-        for values in zip(*columns.values(), strict=True)
-    ]
+    return [_Agent(**dict(zip(columns, values, strict=True))) for values in zip(*columns.values(), strict=True)]
 
 
 def _pedestrians_columns(envelope: Envelope[Pedestrians]) -> dict[str, list[Any]]:
@@ -219,39 +204,17 @@ def _pedestrians_columns(envelope: Envelope[Pedestrians]) -> dict[str, list[Any]
         "radius_m": nulls,
         "desired_speed": nulls,
         "policy": nulls,
-        "agent_type": (
-            [_text_or_none(ped.agent_type) for ped in peds]
-            if fields.carries("agent_type")
-            else nulls
-        ),
+        "agent_type": ([_text_or_none(ped.agent_type) for ped in peds] if fields.carries("agent_type") else nulls),
         "animation_state": [int(ped.animation_state) for ped in peds],
-        "interaction_id": (
-            [int(ped.interaction_id) for ped in peds]
-            if fields.carries("interaction_id")
-            else nulls
-        ),
-        "interaction_type": (
-            [int(ped.interaction_type) for ped in peds]
-            if fields.carries("interaction_type")
-            else nulls
-        ),
-        "gait_phase": (
-            [_nonzero(float(ped.gait_phase)) for ped in peds]
-            if fields.carries("gait_phase")
-            else nulls
-        ),
-        "gait_cadence": (
-            [_nonzero(float(ped.gait_cadence)) for ped in peds]
-            if fields.carries("gait_cadence")
-            else nulls
-        ),
+        "interaction_id": ([int(ped.interaction_id) for ped in peds] if fields.carries("interaction_id") else nulls),
+        "interaction_type": ([int(ped.interaction_type) for ped in peds] if fields.carries("interaction_type") else nulls),
+        "gait_phase": ([_nonzero(float(ped.gait_phase)) for ped in peds] if fields.carries("gait_phase") else nulls),
+        "gait_cadence": ([_nonzero(float(ped.gait_cadence)) for ped in peds] if fields.carries("gait_cadence") else nulls),
         "crowd": nulls,
     }
 
 
-def _agent_frame_columns(
-    envelope: Envelope[AgentFrame], meta: AgentMeta
-) -> dict[str, list[Any]]:
+def _agent_frame_columns(envelope: Envelope[AgentFrame], meta: AgentMeta) -> dict[str, list[Any]]:
     frame = envelope.body
     humans = _uint8(frame.kind) == HUMAN_KIND
     agent_ids = np.asarray(frame.agent_id, dtype=np.int64)[humans].tolist()
@@ -267,33 +230,19 @@ def _agent_frame_columns(
         "vy": _floats(frame.vy, humans),
         "vz": [0.0] * len(agent_ids),
         "radius_m": [_nonzero(radius) for radius in _floats(frame.radius, humans)],
-        "desired_speed": [
-            _nonzero(speed) for speed in _floats(frame.desired_velocity, humans)
-        ],
+        "desired_speed": [_nonzero(speed) for speed in _floats(frame.desired_velocity, humans)],
         "policy": [_policy_name(meta.policies, index) for index in policy_indices],
         "agent_type": [meta.types_by_id.get(agent_id) for agent_id in agent_ids],
         "animation_state": _bytes(frame.animation_state, humans),
-        "interaction_id": [
-            None if value == NO_INTERACTION_ID else value
-            for value in np.asarray(frame.interaction_id, dtype=np.int64)[
-                humans
-            ].tolist()
-        ],
-        "interaction_type": [
-            None if value == NO_INTERACTION_TYPE else value
-            for value in _bytes(frame.interaction_type, humans)
-        ],
+        "interaction_id": [None if value == NO_INTERACTION_ID else value for value in np.asarray(frame.interaction_id, dtype=np.int64)[humans].tolist()],
+        "interaction_type": [None if value == NO_INTERACTION_TYPE else value for value in _bytes(frame.interaction_type, humans)],
         "gait_phase": [_nonzero(phase) for phase in _floats(frame.gait_phase, humans)],
-        "gait_cadence": [
-            _nonzero(cadence) for cadence in _floats(frame.gait_cadence, humans)
-        ],
+        "gait_cadence": [_nonzero(cadence) for cadence in _floats(frame.gait_cadence, humans)],
         "crowd": [meta.crowd_by_id.get(agent_id) for agent_id in agent_ids],
     }
 
 
-def _agent_states_columns(
-    envelope: Envelope[AgentStates], meta: AgentMeta
-) -> dict[str, list[Any]]:
+def _agent_states_columns(envelope: Envelope[AgentStates], meta: AgentMeta) -> dict[str, list[Any]]:
     agents = [agent for agent in envelope.body.agents if agent.kind == HUMAN_KIND]
     nulls = [None] * len(agents)
     return {
@@ -348,11 +297,7 @@ def _floats(values: object, humans: np.ndarray) -> list[float]:
 
 
 def _uint8(values: object) -> np.ndarray:
-    return (
-        np.frombuffer(values, dtype=np.uint8)
-        if isinstance(values, (bytes, bytearray))
-        else np.asarray(values, dtype=np.uint8)
-    )
+    return np.frombuffer(values, dtype=np.uint8) if isinstance(values, (bytes, bytearray)) else np.asarray(values, dtype=np.uint8)
 
 
 def _bytes(values: object, humans: np.ndarray) -> list[int]:

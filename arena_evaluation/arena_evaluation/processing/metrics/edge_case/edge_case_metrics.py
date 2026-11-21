@@ -250,9 +250,7 @@ def agent_name(recorded: str) -> str:
     return _ENV_PREFIX.sub("", recorded, count=1).lstrip("/").split("/", 1)[0]
 
 
-def episode_provenance(
-    episode: AlignedEpisodeBundle, world: str | None
-) -> Provenance | None:
+def episode_provenance(episode: AlignedEpisodeBundle, world: str | None) -> Provenance | None:
     """The provenance of the scenario the episode ran, None when it has none."""
     world = episode.map or world
     scenario = scenario_name(episode.run)
@@ -265,18 +263,11 @@ def _case_agent(episode: AlignedEpisodeBundle, actor_id: object) -> str | None:
     """The scenario name of the pedestrian the recorded id names, None when the episode records no such pedestrian."""
     if episode.peds is None or actor_id is None:
         return None
-    names = (
-        episode.peds.filter(pl.col("ped_id").cast(pl.String) == str(actor_id))
-        .get_column("ped_name")
-        .head(1)
-        .to_numpy()
-    )
+    names = episode.peds.filter(pl.col("ped_id").cast(pl.String) == str(actor_id)).get_column("ped_name").head(1).to_numpy()
     return agent_name(str(names[0])) if len(names) > 0 else None
 
 
-def fired_stimuli(
-    snapshot: pl.DataFrame | None, start_s: float | None
-) -> dict[str, dict[str, float]] | None:
+def fired_stimuli(snapshot: pl.DataFrame | None, start_s: float | None) -> dict[str, dict[str, float]] | None:
     """Sim time in s each `stimulus.<agent>.<need>` of the `timeline` entity fired from `start_s` on, None without the entity."""
     if snapshot is None or len(snapshot) == 0:
         return None
@@ -284,10 +275,7 @@ def fired_stimuli(
     if len(rows) == 0:
         return None
     fired: dict[str, dict[str, float]] = {}
-    matched = rows.filter(
-        (pl.col("field_kind") == "discrete")
-        & pl.col("field_name").str.starts_with(STIMULUS_PREFIX)
-    )
+    matched = rows.filter((pl.col("field_kind") == "discrete") & pl.col("field_name").str.starts_with(STIMULUS_PREFIX))
     for field, value in zip(
         matched.get_column("field_name").to_numpy(),
         matched.get_column("value_str").to_numpy(),
@@ -298,11 +286,7 @@ def fired_stimuli(
             at = float(value)
         except (TypeError, ValueError):
             continue
-        if (
-            not agent
-            or not need
-            or (start_s is not None and at < start_s - PEDS_TOLERANCE_NS / 1e9)
-        ):
+        if not agent or not need or (start_s is not None and at < start_s - PEDS_TOLERANCE_NS / 1e9):
             continue
         needs = fired.setdefault(agent, {})
         needs[need] = min(at, needs.get(need, at))
@@ -316,34 +300,19 @@ def _first_fired(
     start_s: float,
 ) -> float | None:
     """Seconds after `start_s` the first of `agents` received `need` (any need when None), None when none did."""
-    times = [
-        at
-        for agent in agents
-        for name, at in fired.get(agent, {}).items()
-        if need is None or name == need
-    ]
+    times = [at for agent in agents for name, at in fired.get(agent, {}).items() if need is None or name == need]
     return min(times) - start_s if times else None
 
 
-def _pedestrian_radius_m(
-    name: str, radii: Mapping[str, float], recorded_radius_m: float | None
-) -> float:
+def _pedestrian_radius_m(name: str, radii: Mapping[str, float], recorded_radius_m: float | None) -> float:
     """The scenario-pinned radius, else the pedestrian's recorded radius_m; neither is never replaced by a default."""
     pinned = radii.get(name)
     if pinned is not None:
         if not np.isfinite(pinned) or pinned <= 0.0:
-            raise MetricInputError(
-                f"edge_case needs a positive radius for pedestrian {name!r}; the scenario pins {pinned!r}"
-            )
+            raise MetricInputError(f"edge_case needs a positive radius for pedestrian {name!r}; the scenario pins {pinned!r}")
         return float(pinned)
-    if (
-        recorded_radius_m is None
-        or not np.isfinite(recorded_radius_m)
-        or recorded_radius_m <= 0.0
-    ):
-        raise MetricInputError(
-            f"edge_case needs the radius of pedestrian {name!r}: the scenario pins none and pedestrian_arena_peds records none"
-        )
+    if recorded_radius_m is None or not np.isfinite(recorded_radius_m) or recorded_radius_m <= 0.0:
+        raise MetricInputError(f"edge_case needs the radius of pedestrian {name!r}: the scenario pins none and pedestrian_arena_peds records none")
     return float(recorded_radius_m)
 
 
@@ -361,22 +330,12 @@ def episode_samples(
     rx = interpolate_values(t_ns, pos_x, grid)
     ry = interpolate_values(t_ns, pos_y, grid)
     vx, vy = calc.velocity_from_pose(rx, ry, grid)
-    peds_by_frame: dict[
-        int, dict[str, tuple[tuple[float, float], tuple[float, float], float]]
-    ] = {}
+    peds_by_frame: dict[int, dict[str, tuple[tuple[float, float], tuple[float, float], float]]] = {}
     peds = calc.native_ped_frame(episode)
     if peds is not None and peds.height > 0:
-        held = pedestrians_at(
-            pl.Series("t_ns", grid), peds, PEDS_TOLERANCE_NS
-        ).with_columns(
+        held = pedestrians_at(pl.Series("t_ns", grid), peds, PEDS_TOLERANCE_NS).with_columns(
             frame_ix=((pl.col("t_ns") - int(grid[0])) // step_ns).cast(pl.Int64),
-            bare_name=(
-                pl.col("ped_name")
-                .cast(pl.String)
-                .str.replace(_ENV_PREFIX.pattern, "")
-                .str.split("/")
-                .list.first()
-            ),
+            bare_name=(pl.col("ped_name").cast(pl.String).str.replace(_ENV_PREFIX.pattern, "").str.split("/").list.first()),
             recorded_radius_m=pl.col("radius_m").cast(pl.Float64),
         )
         # agent-contracts: ignore AC004 - builds Python Sample dicts for criticality scorer
@@ -450,15 +409,11 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         "edge_case_unplayed",
     )
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         return self._case_criticality(episode, focus=None)
 
-    def _case_criticality(
-        self, episode: AlignedEpisodeBundle, focus: str | None
-    ) -> dict[str, typing.Any]:
+    def _case_criticality(self, episode: AlignedEpisodeBundle, focus: str | None) -> dict[str, typing.Any]:
         """The case scored over the whole episode, or over the one case agent `focus` that a CONTACT or ENCOUNTER slice names."""
         results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
         provenance = episode_provenance(episode, self.world)
@@ -470,35 +425,23 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         encountered = list(dict.fromkeys(e.agent for e in provenance.encounters))
         start_s = samples[0].t if samples else None
         fired = fired_stimuli(episode.semantic_snapshot, start_s)
-        unplayed = (
-            []
-            if fired is None
-            else [agent for agent in encountered if agent not in fired]
-        )
+        unplayed = [] if fired is None else [agent for agent in encountered if agent not in fired]
         scored = [name for name in seen if name not in unplayed]
         results["edge_case_id"] = provenance.id
         results["edge_case_steps"] = list(provenance.steps)
         results["edge_case_scope"] = "own" if scored else "unplayed" if seen else "all"
         results["edge_case_agents"] = scored
-        results["edge_case_missing"] = [
-            name for name in provenance.agents if name not in recorded
-        ]
+        results["edge_case_missing"] = [name for name in provenance.agents if name not in recorded]
         if fired is not None and encountered:
             results["edge_case_played"] = not unplayed
             results["edge_case_unplayed"] = unplayed
             if start_s is not None:
-                results["edge_case_triggered_at"] = _first_fired(
-                    fired, encountered, None, start_s
-                )
+                results["edge_case_triggered_at"] = _first_fired(fired, encountered, None, start_s)
         if seen and not scored:
             return results
         if focus is not None and focus not in scored:
             return results
-        encounters = [
-            (e.agent, e.point)
-            for e in provenance.encounters
-            if e.agent not in unplayed and (focus is None or e.agent == focus)
-        ]
+        encounters = [(e.agent, e.point) for e in provenance.encounters if e.agent not in unplayed and (focus is None or e.agent == focus)]
         result = score(
             samples,
             only=[focus] if focus is not None else (scored or None),
@@ -540,16 +483,12 @@ class EdgeCaseCriticalityCalculator(BaseMetricCalculator):
         full = scope_slice.full_episode
         focus = None
         if scope_slice.scope != MetricScope.ROBOT:
-            actor_key = (
-                "obstacle_id" if scope_slice.scope == MetricScope.CONTACT else "actor_2"
-            )
+            actor_key = "obstacle_id" if scope_slice.scope == MetricScope.CONTACT else "actor_2"
             focus = _case_agent(full, scope_slice.identity.get(actor_key))
             if focus is None:
                 return dict.fromkeys(self.output_keys_for_scope(scope_slice.scope))
         scored = self._case_criticality(full, focus=focus)
-        return {
-            key: scored[key] for key in self.output_keys_for_scope(scope_slice.scope)
-        }
+        return {key: scored[key] for key in self.output_keys_for_scope(scope_slice.scope)}
 
 
 class EdgeCaseFormationCalculator(BaseMetricCalculator):
@@ -580,9 +519,7 @@ class EdgeCaseFormationCalculator(BaseMetricCalculator):
         "edge_case_formation_absent",
     )
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
         provenance = episode_provenance(episode, self.world)

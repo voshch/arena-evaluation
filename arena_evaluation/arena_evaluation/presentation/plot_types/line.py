@@ -45,27 +45,17 @@ class LineRenderer(BasePlotRenderer):
         "clamp_zero",
         "show_markers",
     }
-    COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset(
-        {"ci_low", "ci_high", "error_col", "err_plus", "err_minus"}
-    )
+    COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset({"ci_low", "ci_high", "error_col", "err_plus", "err_minus"})
 
-    def _resolve_columns(
-        self, df: pl.DataFrame
-    ) -> tuple[str, str, str | None, str | None, str | None]:
+    def _resolve_columns(self, df: pl.DataFrame) -> tuple[str, str, str | None, str | None, str | None]:
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if not x_col or not y_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: line plot requires channels 'x' and 'y'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: line plot requires channels 'x' and 'y'.")
         color_col = self.resolve_channel("color")
         facet_col = self.resolve_channel("facet_col")
         facet_row = self.resolve_channel("facet_row")
-        cell_keys = [
-            c
-            for c in dict.fromkeys((x_col, color_col, facet_col, facet_row))
-            if c is not None
-        ]
+        cell_keys = [c for c in dict.fromkeys((x_col, color_col, facet_col, facet_row)) if c is not None]
         self.validate_unique_cells(df, cell_keys)
         return x_col, y_col, color_col, facet_col, facet_row
 
@@ -86,16 +76,9 @@ class LineRenderer(BasePlotRenderer):
         if color_col is None:
             return [(y_col, df.sort(x_col))]
         tagged = df.with_columns(pl.Series("_line_group", label_values(df, color_col)))
-        return [
-            (str(sub["_line_group"][0]), sub.sort(x_col))
-            for sub in tagged.sort("_line_group").partition_by(
-                "_line_group", maintain_order=True
-            )
-        ]
+        return [(str(sub["_line_group"][0]), sub.sort(x_col)) for sub in tagged.sort("_line_group").partition_by("_line_group", maintain_order=True)]
 
-    def _band(
-        self, frame: pl.DataFrame, y_vals: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    def _band(self, frame: pl.DataFrame, y_vals: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """Mask and bounds of the finite error band, or ``None`` when nothing is drawable."""
         opts = self.spec.options
         low_col = opts.get("ci_low")
@@ -110,11 +93,7 @@ class LineRenderer(BasePlotRenderer):
             minus_opt = opts.get("err_minus")
             if isinstance(plus_opt, str):
                 plus = series_values(frame, plus_opt)
-                minus = (
-                    series_values(frame, minus_opt)
-                    if isinstance(minus_opt, str)
-                    else plus
-                )
+                minus = series_values(frame, minus_opt) if isinstance(minus_opt, str) else plus
                 lo, hi = y_vals - minus, y_vals + plus
             elif isinstance(opts.get("error_col"), str):
                 err = series_values(frame, str(opts["error_col"]))
@@ -129,19 +108,9 @@ class LineRenderer(BasePlotRenderer):
         return valid, lo, hi
 
     @staticmethod
-    def _facet_grid(
-        df: pl.DataFrame, facet_col: str | None, facet_row: str | None
-    ) -> tuple[list[str | None], list[str | None]]:
-        cols = (
-            sorted({str(v) for v in label_values(df, facet_col).tolist()})
-            if facet_col
-            else [None]
-        )
-        rows = (
-            sorted({str(v) for v in label_values(df, facet_row).tolist()})
-            if facet_row
-            else [None]
-        )
+    def _facet_grid(df: pl.DataFrame, facet_col: str | None, facet_row: str | None) -> tuple[list[str | None], list[str | None]]:
+        cols = sorted({str(v) for v in label_values(df, facet_col).tolist()}) if facet_col else [None]
+        rows = sorted({str(v) for v in label_values(df, facet_row).tolist()}) if facet_row else [None]
         return rows, cols
 
     @staticmethod
@@ -172,11 +141,7 @@ class LineRenderer(BasePlotRenderer):
             titles = []
             for rv in row_vals:
                 for cv in col_vals:
-                    parts = [
-                        p
-                        for p in (cv, f"{facet_row}={rv}" if rv is not None else None)
-                        if p
-                    ]
+                    parts = [p for p in (cv, f"{facet_row}={rv}" if rv is not None else None) if p]
                     titles.append(" · ".join(parts))
             fig = make_subplots(
                 rows=nrows,
@@ -191,11 +156,7 @@ class LineRenderer(BasePlotRenderer):
             fig = go.Figure()
         show_markers = bool(self.spec.options.get("show_markers", True))
         trace_mode = "lines+markers" if show_markers else "lines"
-        color_order = (
-            sorted({str(v) for v in label_values(df, color_col).tolist()})
-            if color_col
-            else [y_col]
-        )
+        color_order = sorted({str(v) for v in label_values(df, color_col).tolist()}) if color_col else [y_col]
         seen_legend: set[str] = set()
         for r_idx, rv in enumerate(row_vals, start=1):
             for c_idx, cv in enumerate(col_vals, start=1):
@@ -203,9 +164,7 @@ class LineRenderer(BasePlotRenderer):
                 if cell_df.is_empty():
                     continue
                 for label, sub in self._grouped(cell_df, x_col, y_col, color_col):
-                    color = palette_color(
-                        palette, color_order.index(label) if label in color_order else 0
-                    )
+                    color = palette_color(palette, color_order.index(label) if label in color_order else 0)
                     x_vals = sub[x_col].to_numpy().tolist()
                     y_vals = series_values(sub, y_col)
                     band = self._band(sub, y_vals)
@@ -275,19 +234,13 @@ class LineRenderer(BasePlotRenderer):
                 sharey=True,
                 squeeze=False,
             )
-            color_order = (
-                sorted({str(v) for v in label_values(df, color_col).tolist()})
-                if color_col
-                else [y_col]
-            )
+            color_order = sorted({str(v) for v in label_values(df, color_col).tolist()}) if color_col else [y_col]
             for r_idx, rv in enumerate(row_vals):
                 for c_idx, cv in enumerate(col_vals):
                     ax = axes[r_idx][c_idx]
                     cell_df = self._facet_slice(df, facet_col, cv, facet_row, rv)
                     if not cell_df.is_empty():
-                        for label, sub in self._grouped(
-                            cell_df, x_col, y_col, color_col
-                        ):
+                        for label, sub in self._grouped(cell_df, x_col, y_col, color_col):
                             colour = palette_color(
                                 palette,
                                 color_order.index(label) if label in color_order else 0,
@@ -312,11 +265,7 @@ class LineRenderer(BasePlotRenderer):
                                     color=colour,
                                     alpha=0.18,
                                 )
-                    cell_parts = [
-                        p
-                        for p in (cv, f"{facet_row}={rv}" if rv is not None else None)
-                        if p
-                    ]
+                    cell_parts = [p for p in (cv, f"{facet_row}={rv}" if rv is not None else None) if p]
                     finish_axes(
                         ax,
                         title=" · ".join(cell_parts),
@@ -364,9 +313,7 @@ class LineRenderer(BasePlotRenderer):
             sns.lineplot(**common, hue=color_col, palette=palette)
         else:
             sns.lineplot(**common, color=palette_color(palette, 0))
-        for index, (_, sub) in enumerate(
-            self._grouped(sorted_df, x_col, y_col, color_col)
-        ):
+        for index, (_, sub) in enumerate(self._grouped(sorted_df, x_col, y_col, color_col)):
             y_vals = series_values(sub, y_col)
             band = self._band(sub, y_vals)
             if band is None:

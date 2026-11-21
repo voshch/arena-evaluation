@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from arena_evaluation.storage.registry import analysis, dimensions, series, telemetry
 from arena_evaluation.storage.registry.facts import FACT_KEY_COLUMNS, FACT_TABLES
 from arena_evaluation.storage.registry.null_reasons import (
     INVALID_EPISODE_REASONS,
@@ -21,7 +22,6 @@ from arena_evaluation.storage.registry.table import (
     defined_metrics,
     registered_tables,
 )
-from arena_evaluation.storage.registry import analysis, dimensions, series, telemetry
 
 __all__ = [
     "FACT_KEY_COLUMNS",

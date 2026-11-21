@@ -71,15 +71,11 @@ class TimeseriesRenderer(BasePlotRenderer):
         "show_band",
     }
 
-    def _resolve_columns(
-        self, df: pl.DataFrame
-    ) -> tuple[str, list[str], list[str], str | None]:
+    def _resolve_columns(self, df: pl.DataFrame) -> tuple[str, list[str], list[str], str | None]:
         x_col = self.resolve_channel("x")
         y_cols = self.resolve_channel_list("y")
         if not x_col or not y_cols:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: timeseries plot requires channels 'x' and 'y'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: timeseries plot requires channels 'x' and 'y'.")
         y2_cols = self.resolve_channel_list("y2")
         for y2_col in y2_cols:
             require_drawable(df, y2_col, plot_id=self.spec.id, plot_type=self.PLOT_TYPE)
@@ -107,9 +103,7 @@ class TimeseriesRenderer(BasePlotRenderer):
                 colour_col=colour_col,
                 bin_width_s=bin_width_s,
             )
-            for key, sub in aggregated.partition_by(
-                _COLOUR, as_dict=True, maintain_order=True
-            ).items():
+            for key, sub in aggregated.partition_by(_COLOUR, as_dict=True, maintain_order=True).items():
                 colour_value = key[0] if isinstance(key, tuple) else key
                 parts = [] if len(signals) == 1 else [y_col]
                 if colour_col:
@@ -135,9 +129,7 @@ class TimeseriesRenderer(BasePlotRenderer):
         fig = go.Figure()
 
         show_band = bool(self.spec.options.get("show_band", True))
-        for idx, curve in enumerate(
-            self._curves(df, x_col, y_cols, y2_cols, color_col)
-        ):
+        for idx, curve in enumerate(self._curves(df, x_col, y_cols, y2_cols, color_col)):
             colour = palette_color(palette, idx)
             yaxis = "y2" if curve.on_second_axis else "y"
             if show_band and not np.allclose(curve.low, curve.high, equal_nan=True):
@@ -216,9 +208,7 @@ class TimeseriesRenderer(BasePlotRenderer):
                 label=curve.name,
             )
             if show_band:
-                target_ax.fill_between(
-                    curve.x, curve.low, curve.high, color=colour, alpha=0.2, linewidth=0
-                )
+                target_ax.fill_between(curve.x, curve.low, curve.high, color=colour, alpha=0.2, linewidth=0)
         if y2_cols:
             second_ax.set_ylabel(self._label(y2_cols[0]))
         if len(curves) > 1:

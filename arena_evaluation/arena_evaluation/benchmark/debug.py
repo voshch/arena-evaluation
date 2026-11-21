@@ -77,10 +77,7 @@ def _classify(cmdline: str) -> str | None:
         return "benchmark_runner"
     if any(m in cmdline for m in _GEN_MARKERS):
         return "world_generator"
-    if (
-        any(m in cmdline for m in _SIM_MARKERS)
-        or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES
-    ):
+    if any(m in cmdline for m in _SIM_MARKERS) or os.path.basename(cmdline.split(" ", 1)[0]) in _SIM_EXECUTABLES:
         return "simulation"
     if any(m in cmdline for m in _NODE_MARKERS):
         return "arena_runtime_node"
@@ -176,12 +173,7 @@ def running_pids_by_run_id() -> dict[str, int]:
         if not match:
             # Fallback: any run-id-looking token (timestamp-suite-contest)
             for token in cmdline.split():
-                if (
-                    len(token) > 10
-                    and "-" in token
-                    and "/" not in token
-                    and not token.startswith("-")
-                ):
+                if len(token) > 10 and "-" in token and "/" not in token and not token.startswith("-"):
                     match = token
                     break
         if match:
@@ -193,11 +185,7 @@ def console_log_path(run_id: str, lane: str | None = None) -> pathlib.Path:
     """Path of the console log for a benchmark run, or for one lane of a shared run."""
     from arena_evaluation.storage.data_root import benchmarks_root
 
-    return (
-        benchmarks_root()
-        / run_id
-        / ("runner.log" if lane is None else f"runner.{lane}.log")
-    )
+    return benchmarks_root() / run_id / ("runner.log" if lane is None else f"runner.{lane}.log")
 
 
 def tail_console(run_id: str, lines: int = 200, lane: str | None = None) -> dict:
@@ -308,15 +296,9 @@ def kill_processes(
                     }
                 )
     else:
-        targets = [
-            proc
-            for proc in arena.values()
-            if proc["pid"] not in protected and (everything or proc["kind"] == kind)
-        ]
+        targets = [proc for proc in arena.values() if proc["pid"] not in protected and (everything or proc["kind"] == kind)]
     for proc in targets:
-        results.append(
-            {**proc, "status": _stop(proc["pid"], force=force, grace_s=grace_s)}
-        )
+        results.append({**proc, "status": _stop(proc["pid"], force=force, grace_s=grace_s)})
     return results
 
 

@@ -64,9 +64,7 @@ def _legacy_benchmark(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
     benchmark_dir = root / "bench"
     episode_dir = benchmark_dir / "episodes" / "episode_000"
     episode_dir.mkdir(parents=True)
-    MetadataWriter.write(
-        _metadata("bench", 0, "barn_0"), episode_dir / "episode_000.yaml"
-    )
+    MetadataWriter.write(_metadata("bench", 0, "barn_0"), episode_dir / "episode_000.yaml")
     return benchmark_dir, _old_fact_file(episode_dir / "metrics")
 
 
@@ -77,9 +75,7 @@ def _stamped_episode(
     episode_dir = root / "bench" / "episodes" / "episode_000"
     metrics_dir = episode_dir / "metrics"
     metrics_dir.mkdir(parents=True)
-    pl.DataFrame(
-        {"run_id": ["bench"], "episode_id": [0], "robot_id": ["env_0_jackal_0"]}
-    ).write_parquet(metrics_dir / "fact_episodes.parquet")
+    pl.DataFrame({"run_id": ["bench"], "episode_id": [0], "robot_id": ["env_0_jackal_0"]}).write_parquet(metrics_dir / "fact_episodes.parquet")
     write_episode_stamp(metrics_dir)
     return (
         ProcessingPipeline(FolderManager(root), workers=1),

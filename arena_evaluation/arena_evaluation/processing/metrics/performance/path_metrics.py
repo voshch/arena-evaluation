@@ -8,20 +8,18 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
-from arena_evaluation.storage.registry.series import SeriesPathMetrics
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
     ScopeSlice,
 )
-from arena_evaluation.storage.registry import MetricScope, define_metric
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from arena_evaluation.processing.metrics.common.series import null_float_series
+from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry.series import SeriesPathMetrics
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
-MIN_STEP_M: typing.Final[float] = (
-    1e-3  # consecutive samples closer than this are one point
-)
+MIN_STEP_M: typing.Final[float] = 1e-3  # consecutive samples closer than this are one point
 MIN_CURVATURE_POINTS: typing.Final[int] = 3
 
 SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPathMetrics.polars_schema()
@@ -125,9 +123,7 @@ def _angle_difference_rad(first: np.ndarray, second: np.ndarray) -> np.ndarray:
     return np.pi - np.abs(np.abs(first - second) - np.pi)
 
 
-def _curvature_arrays(
-    pos_x_m: np.ndarray, pos_y_m: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _curvature_arrays(pos_x_m: np.ndarray, pos_y_m: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-sample Menger curvature, normalized curvature and roughness, NaN where a triple is undefined.
 
     Curvature is defined at the middle sample of three consecutive distinct points, so the
@@ -157,9 +153,7 @@ def _curvature_arrays(
     divisor = d01 * d12 * d20
     with np.errstate(divide="ignore", invalid="ignore"):
         clean_curvature = np.where(divisor == 0.0, 0.0, 4.0 * triangle_area / divisor)
-        clean_roughness = np.where(
-            d20 == 0.0, 0.0, 2.0 * triangle_area / np.square(d20)
-        )
+        clean_roughness = np.where(d20 == 0.0, 0.0, 2.0 * triangle_area / np.square(d20))
     middle_samples = np.flatnonzero(keep)[1:-1]
     curvature_inv_m[middle_samples] = clean_curvature
     normalized_curvature[middle_samples] = clean_curvature * (d01 + d12)
@@ -182,9 +176,7 @@ def _build_geometry(
     step_length_m = _nan_array(sample_count)
     if sample_count >= 2:
         step_length_m[1:] = np.hypot(np.diff(pos_x_m), np.diff(pos_y_m))
-    curvature_inv_m, normalized_curvature, roughness = _curvature_arrays(
-        pos_x_m, pos_y_m
-    )
+    curvature_inv_m, normalized_curvature, roughness = _curvature_arrays(pos_x_m, pos_y_m)
 
     path_length_m = float(np.nansum(step_length_m)) if sample_count > 0 else None
     angle_over_length_rad_m = None
@@ -255,18 +247,10 @@ class PathMetricsCalculator(BaseMetricCalculator):
         if episode.data is None:
             return None
         frame = self.resolve_robot_frame(episode)
-        pos_x_m, pos_y_m, yaw_rad, odom_x_m, odom_y_m, odom_yaw_rad = (
-            self.resolve_robot_pose(episode)
-        )
-        t_ns = (
-            np.array([], dtype=np.int64)
-            if frame is None
-            else frame["t_ns"].to_numpy().astype(np.int64)
-        )
+        pos_x_m, pos_y_m, yaw_rad, odom_x_m, odom_y_m, odom_yaw_rad = self.resolve_robot_pose(episode)
+        t_ns = np.array([], dtype=np.int64) if frame is None else frame["t_ns"].to_numpy().astype(np.int64)
         if len(t_ns) != len(pos_x_m):
-            raise ValueError(
-                f"path_metrics: {len(t_ns)} sample times for {len(pos_x_m)} resolved poses"
-            )
+            raise ValueError(f"path_metrics: {len(t_ns)} sample times for {len(pos_x_m)} resolved poses")
         if len(odom_x_m) != len(pos_x_m):
             # No wheel-odometry stream: the odom columns are null at every sample, not absent from the row axis.
             odom_x_m, odom_y_m, odom_yaw_rad = (
@@ -284,9 +268,7 @@ class PathMetricsCalculator(BaseMetricCalculator):
             odom_yaw_rad=odom_yaw_rad,
         )
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         geometry = self._path_geometry(episode)
         if geometry is None:
@@ -311,24 +293,16 @@ class PathMetricsCalculator(BaseMetricCalculator):
         del prior_results
         if scope_slice.scope == MetricScope.ENCOUNTER:
             geometry = self._path_geometry(episode)
-            return {
-                "path_length_m": None if geometry is None else geometry.path_length_m
-            }
-        raise ValueError(
-            f"path_metrics does not serve the {scope_slice.scope.value} scope"
-        )
+            return {"path_length_m": None if geometry is None else geometry.path_length_m}
+        raise ValueError(f"path_metrics does not serve the {scope_slice.scope.value} scope")
 
-    def series_table(
-        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
-    ) -> pl.DataFrame:
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
         """1NF flat path series, one row per resolved track sample; schema-typed when empty."""
         geometry = self._path_geometry(episode)
         if geometry is None or len(geometry.t_ns) == 0:
             return pl.DataFrame(schema=SERIES_SCHEMA)
         sample_count = len(geometry.t_ns)
-        time_s = (
-            geometry.t_ns.astype(np.float64) - float(geometry.t_ns[0])
-        ) / NANOSECONDS_PER_SECOND
+        time_s = (geometry.t_ns.astype(np.float64) - float(geometry.t_ns[0])) / NANOSECONDS_PER_SECOND
         return pl.DataFrame(
             {
                 "run_id": pl.Series("run_id", [run_id] * sample_count, dtype=pl.String),
@@ -349,18 +323,10 @@ class PathMetricsCalculator(BaseMetricCalculator):
                 "yaw_rad": null_float_series(geometry.yaw_rad, "yaw_rad"),
                 "odom_x_m": null_float_series(geometry.odom_x_m, "odom_x_m"),
                 "odom_y_m": null_float_series(geometry.odom_y_m, "odom_y_m"),
-                "odom_yaw_rad": null_float_series(
-                    geometry.odom_yaw_rad, "odom_yaw_rad"
-                ),
-                "step_length_m": null_float_series(
-                    geometry.step_length_m, "step_length_m"
-                ),
-                "curvature_inv_m": null_float_series(
-                    geometry.curvature_inv_m, "curvature_inv_m"
-                ),
-                "normalized_curvature": null_float_series(
-                    geometry.normalized_curvature, "normalized_curvature"
-                ),
+                "odom_yaw_rad": null_float_series(geometry.odom_yaw_rad, "odom_yaw_rad"),
+                "step_length_m": null_float_series(geometry.step_length_m, "step_length_m"),
+                "curvature_inv_m": null_float_series(geometry.curvature_inv_m, "curvature_inv_m"),
+                "normalized_curvature": null_float_series(geometry.normalized_curvature, "normalized_curvature"),
                 "roughness": null_float_series(geometry.roughness, "roughness"),
             },
             schema=SERIES_SCHEMA,

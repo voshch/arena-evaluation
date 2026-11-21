@@ -54,9 +54,7 @@ def write_synthetic_benchmark(
         for world in worlds:
             for cond in conditions:
                 for planner in planners:
-                    base_ttg = (
-                        12.0 + (seed % 3) * 0.2 + (0.5 if world == "world_2" else 0.0)
-                    )
+                    base_ttg = 12.0 + (seed % 3) * 0.2 + (0.5 if world == "world_2" else 0.0)
                     if planner == "planner_a":
                         ttg = base_ttg - 2.0
                         if include_swap and cond == "visible":
@@ -167,13 +165,7 @@ def write_synthetic_benchmark(
     tracks_schema = RobotTracks.polars_schema()
     for ep_num in sorted({int(r["episode_id"]) for r in rows}):
         ep_tracks = [t for t in tracks if int(t["episode_id"]) == ep_num]
-        tracks_path = (
-            directory
-            / "episodes"
-            / f"episode_{ep_num:03d}"
-            / "topics"
-            / "robot_tracks.parquet"
-        )
+        tracks_path = directory / "episodes" / f"episode_{ep_num:03d}" / "topics" / "robot_tracks.parquet"
         pl.DataFrame(
             [{k: t.get(k) for k in tracks_schema.names()} for t in ep_tracks],
             schema=tracks_schema,
@@ -192,9 +184,7 @@ def write_synthetic_benchmark(
         }
         for r in rows
     ]
-    pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(
-        directory / dimensions.DimPedestrians.relative_path()
-    )
+    pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(directory / dimensions.DimPedestrians.relative_path())
 
     # Ensure dim_metrics has canonical directions & units
     dm_schema = dimensions.DimMetrics.polars_schema()
@@ -244,9 +234,7 @@ def write_synthetic_benchmark(
             "null_reason": None,
         },
     ]
-    pl.DataFrame(dm_rows, schema=dm_schema).write_parquet(
-        directory / dimensions.DimMetrics.relative_path()
-    )
+    pl.DataFrame(dm_rows, schema=dm_schema).write_parquet(directory / dimensions.DimMetrics.relative_path())
 
     truth = SyntheticTruth(
         planted_diff_metric="time_to_goal",
@@ -257,9 +245,7 @@ def write_synthetic_benchmark(
         null_pair_b="planner_d",
         swap_condition_low="blind",
         swap_condition_high="visible",
-        closer_shares={
-            "planner_a": {"robot_closing_share": 0.1, "target_closing_share": 0.9}
-        },
+        closer_shares={"planner_a": {"robot_closing_share": 0.1, "target_closing_share": 0.9}},
         all_null_metric="ci_max",
         hypotheses=(
             {
@@ -288,7 +274,5 @@ def write_synthetic_benchmark(
             },
         ),
     )
-    (directory / "truth.json").write_text(
-        json.dumps(dataclasses.asdict(truth), indent=2), encoding="utf-8"
-    )
+    (directory / "truth.json").write_text(json.dumps(dataclasses.asdict(truth), indent=2), encoding="utf-8")
     return truth

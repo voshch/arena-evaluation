@@ -44,11 +44,7 @@ def _leaf_calculator_classes(
     """Concrete calculator subclasses of the metrics package; test-local classes excluded."""
     leaves: list[type[BaseMetricCalculator]] = []
     for sub in root.__subclasses__():
-        if (
-            not inspect.isabstract(sub)
-            and "<locals>" not in sub.__qualname__
-            and sub.__module__.startswith(_METRICS_PACKAGE)
-        ):
+        if not inspect.isabstract(sub) and "<locals>" not in sub.__qualname__ and sub.__module__.startswith(_METRICS_PACKAGE):
             leaves.append(sub)
         leaves.extend(_leaf_calculator_classes(sub))
     return leaves
@@ -64,9 +60,7 @@ def scope_producers(
             for scope in calc.scopes_of_output(metric):
                 owner = producers.setdefault((metric.name, scope), calc.NAME)
                 if owner != calc.NAME:
-                    raise SchemaViolationError(
-                        f"{metric.name!r} at {scope} is produced by both {owner} and {calc.NAME}"
-                    )
+                    raise SchemaViolationError(f"{metric.name!r} at {scope} is produced by both {owner} and {calc.NAME}")
     return producers
 
 
@@ -79,20 +73,14 @@ def _topic_row_count(table: pl.DataFrame | pl.LazyFrame | None) -> int:
     return len(table)
 
 
-def _check_declared_keys(
-    calc: BaseMetricCalculator, scope: MetricScope, produced: Mapping[str, object]
-) -> None:
+def _check_declared_keys(calc: BaseMetricCalculator, scope: MetricScope, produced: Mapping[str, object]) -> None:
     """Refuse keys no scope of the calculator declares, and declared keys of this scope it did not produce."""
     undeclared = sorted(set(produced) - set(calc.output_keys()))
     unproduced = sorted(set(calc.output_keys_for_scope(scope)) - set(produced))
     if undeclared:
-        raise SchemaViolationError(
-            f"{calc.NAME} produced undeclared keys: {undeclared}"
-        )
+        raise SchemaViolationError(f"{calc.NAME} produced undeclared keys: {undeclared}")
     if unproduced:
-        raise SchemaViolationError(
-            f"{calc.NAME} did not produce its declared keys at {scope}: {unproduced}"
-        )
+        raise SchemaViolationError(f"{calc.NAME} did not produce its declared keys at {scope}: {unproduced}")
 
 
 def _mark_unavailable(
@@ -123,16 +111,10 @@ def _published(results: Mapping[str, object]) -> dict[str, typing.Any]:
     return {key: None if _is_nan(value) else value for key, value in results.items()}
 
 
-def _present_topics(
-    full_topics: Mapping[str, typing.Any], available_topics: set[str] | None
-) -> set[str]:
+def _present_topics(full_topics: Mapping[str, typing.Any], available_topics: set[str] | None) -> set[str]:
     """Topic names present in the full episode."""
     if available_topics is not None:
-        return {
-            topic
-            for topic in available_topics
-            if full_topics.get(topic, True) is not None
-        }
+        return {topic for topic in available_topics if full_topics.get(topic, True) is not None}
     return {name for name, table in full_topics.items() if table is not None}
 
 
@@ -154,9 +136,7 @@ def _topic_unavailable_reason(
         else:
             if not any(t in present_topics for t in req):
                 return f"topic_missing:{req[0] if req else 'unknown'}"
-            if all(t in slice_topics for t in req) and all(
-                _topic_row_count(slice_topics[t]) == 0 for t in req
-            ):
+            if all(t in slice_topics for t in req) and all(_topic_row_count(slice_topics[t]) == 0 for t in req):
                 empty_slice_topic = True
     return "no_samples" if empty_slice_topic else None
 
@@ -171,18 +151,12 @@ def _unavailable_reason(
     pedsim_available: bool,
 ) -> str | None:
     """First precondition failure reason for running `calc` in `scope`, None when ready."""
-    topic_reason = _topic_unavailable_reason(
-        calc, scope, present_topics=present_topics, slice_topics=slice_topics
-    )
+    topic_reason = _topic_unavailable_reason(calc, scope, present_topics=present_topics, slice_topics=slice_topics)
     if topic_reason is not None:
         return topic_reason
     series = full_series or {}
     missing_series = next(
-        (
-            stem
-            for stem in calc.SERIES_DEPENDS_ON
-            if (frame := series.get(stem)) is None or frame.height == 0
-        ),
+        (stem for stem in calc.SERIES_DEPENDS_ON if (frame := series.get(stem)) is None or frame.height == 0),
         None,
     )
     if missing_series is not None:
@@ -222,12 +196,8 @@ class MetricRegistry:
         self.world = world
         self.metrics_config = dict(metrics_config or {})
         self.calculators: dict[str, BaseMetricCalculator] = {}
-        self.calculators_by_scope: dict[
-            MetricScope, dict[str, BaseMetricCalculator]
-        ] = {scope: {} for scope in MetricScope}
-        self.execution_stages_by_scope: dict[MetricScope, list[list[str]]] = {
-            scope: [] for scope in MetricScope
-        }
+        self.calculators_by_scope: dict[MetricScope, dict[str, BaseMetricCalculator]] = {scope: {} for scope in MetricScope}
+        self.execution_stages_by_scope: dict[MetricScope, list[list[str]]] = {scope: [] for scope in MetricScope}
         self.execution_stages: list[list[str]] = []
         if calculators is None:
             calculators = shipped_calculators()
@@ -238,9 +208,7 @@ class MetricRegistry:
                 if name not in self.calculators_by_scope[scope]:
                     self.calculators_by_scope[scope][name] = calc
 
-        self.execution_stages_by_scope = {
-            scope: self._compute_execution_order(scope) for scope in MetricScope
-        }
+        self.execution_stages_by_scope = {scope: self._compute_execution_order(scope) for scope in MetricScope}
         self.execution_stages = self.execution_stages_by_scope[MetricScope.EPISODE]
 
     @classmethod
@@ -263,9 +231,7 @@ class MetricRegistry:
                 for _, sub_name, _ in iter_namespace(sub_pkg):
                     importlib.import_module(sub_name)
 
-    def _register_calculators(
-        self, calculators: Iterable[type[BaseMetricCalculator]]
-    ) -> None:
+    def _register_calculators(self, calculators: Iterable[type[BaseMetricCalculator]]) -> None:
         """Register each calculator class, indexed by name and by scope."""
         for calc_cls in calculators:
             if not calc_cls.NAME:
@@ -278,15 +244,9 @@ class MetricRegistry:
         """Refuse two calculators publishing the same metric at the same scope."""
         scope_producers(self.calculators.values())
 
-    def register(
-        self, calculator: type[BaseMetricCalculator] | BaseMetricCalculator
-    ) -> None:
+    def register(self, calculator: type[BaseMetricCalculator] | BaseMetricCalculator) -> None:
         """Register a calculator class or instance across all of its effective scopes."""
-        calc = (
-            calculator(self.robot_params)
-            if isinstance(calculator, type)
-            else calculator
-        )
+        calc = calculator(self.robot_params) if isinstance(calculator, type) else calculator
         calc.world = self.world
         calc.metrics_config = self.metrics_config
         self.calculators[calc.NAME] = calc
@@ -309,9 +269,7 @@ class MetricRegistry:
             key=lambda item: item[0],
         )
 
-    def _compute_execution_order(
-        self, scope: MetricScope = MetricScope.EPISODE
-    ) -> list[list[str]]:
+    def _compute_execution_order(self, scope: MetricScope = MetricScope.EPISODE) -> list[list[str]]:
         """Compute topological sort of calculators in `scope` using Kahn's algorithm."""
         scope_calcs = self.calculators_by_scope[scope]
         in_degree = {name: 0 for name in scope_calcs}
@@ -344,9 +302,7 @@ class MetricRegistry:
             stages.append(current_stage)
 
         if processed_count != len(scope_calcs):
-            raise CircularDependencyError(
-                f"Circular dependency detected among metric calculators in scope '{scope}'"
-            )
+            raise CircularDependencyError(f"Circular dependency detected among metric calculators in scope '{scope}'")
 
         return stages
 
@@ -370,16 +326,10 @@ class MetricRegistry:
         scope_slice: ScopeSlice | None = None,
     ) -> ScopeExecutionOutcome:
         """Executes all calculators registered for `scope` in topological order."""
-        slice_episode = (
-            scope_slice.window_bundle if scope_slice is not None else episode
-        )
+        slice_episode = scope_slice.window_bundle if scope_slice is not None else episode
         full_episode = scope_slice.full_episode if scope_slice is not None else episode
-        full_topics = (
-            full_episode.topics if isinstance(full_episode.topics, Mapping) else {}
-        )
-        slice_topics = (
-            slice_episode.topics if isinstance(slice_episode.topics, Mapping) else {}
-        )
+        full_topics = full_episode.topics if isinstance(full_episode.topics, Mapping) else {}
+        slice_topics = slice_episode.topics if isinstance(slice_episode.topics, Mapping) else {}
         present_topics = _present_topics(full_topics, available_topics)
 
         prior = dict(prior_results or {})
@@ -404,9 +354,7 @@ class MetricRegistry:
                     pedsim_available=pedsim_available,
                 )
                 if reason is not None:
-                    _mark_unavailable(
-                        scope_keys, reason, published=published, provenance=provenance
-                    )
+                    _mark_unavailable(scope_keys, reason, published=published, provenance=provenance)
                     continue
                 _notify_progress(progress_callback, calc_name, calc_idx, total_calcs)
                 self._execute_calculator(
@@ -443,18 +391,8 @@ class MetricRegistry:
     ) -> None:
         """Run one calculator for `scope`, recording its outputs, children and null provenance."""
         try:
-            calc_out = dict(
-                calc.calculate_for_scope(
-                    slice_episode, prior_and_published, scope_slice
-                )
-            )
-            children.update(
-                {
-                    key: calc_out.pop(key)
-                    for key in calc.CHILD_OUTPUTS
-                    if key in calc_out
-                }
-            )
+            calc_out = dict(calc.calculate_for_scope(slice_episode, prior_and_published, scope_slice))
+            children.update({key: calc_out.pop(key) for key in calc.CHILD_OUTPUTS if key in calc_out})
             null_reasons: dict[str, str] = {}
             for key in calc.output_keys():
                 companion = calc_out.pop(f"{key}{NULL_REASON_SUFFIX}", None)
@@ -468,15 +406,11 @@ class MetricRegistry:
                 if _is_defined(own[key]):
                     provenance.pop(key, None)
                 elif key not in provenance:
-                    provenance[key] = missing_inputs.get(
-                        key, f"{key}:{null_reasons.get(key, 'no_samples')}"
-                    )
+                    provenance[key] = missing_inputs.get(key, f"{key}:{null_reasons.get(key, 'no_samples')}")
         except (MetricInputError, SchemaViolationError):
             raise
         except Exception as exc:
-            _logger.warning(
-                f"Calculator {calc.NAME} failed on episode {slice_episode.episode_id}: {exc}"
-            )
+            _logger.warning(f"Calculator {calc.NAME} failed on episode {slice_episode.episode_id}: {exc}")
             _mark_unavailable(
                 scope_keys,
                 f"exception:{type(exc).__name__}",

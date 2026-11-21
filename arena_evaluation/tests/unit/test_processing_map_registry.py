@@ -51,23 +51,17 @@ def _run_world(tmp_path: pathlib.Path, name: str = "ae_map_r1") -> pathlib.Path:
 
 
 def _get_map(tmp_path: pathlib.Path, name: str = "ae_map_r1") -> dict | None:
-    return MapRegistry.get_map(
-        name, cache_dir=tmp_path / "cache", run_dir=tmp_path / "run"
-    )
+    return MapRegistry.get_map(name, cache_dir=tmp_path / "cache", run_dir=tmp_path / "run")
 
 
 # _find_ros_map_dir
 
 
-def test_find_ros_map_dir_rospack_hit_but_dir_missing_falls_to_arena_dir(
-    tmp_path, monkeypatch
-):
+def test_find_ros_map_dir_rospack_hit_but_dir_missing_falls_to_arena_dir(tmp_path, monkeypatch):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _Proc(str(pkg)))
-    map_dir = (
-        tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "ae_map_r2"
-    )
+    map_dir = tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "ae_map_r2"
     map_dir.mkdir(parents=True)
     monkeypatch.setenv("ARENA_DIR", str(tmp_path / "src" / "Arena"))
     assert MapRegistry._find_ros_map_dir("ae_map_r2") == map_dir
@@ -78,9 +72,7 @@ def test_find_ros_map_dir_rospack_failure_falls_to_arena_dir(tmp_path, monkeypat
         raise FileNotFoundError("rospack not installed")
 
     monkeypatch.setattr(mr.subprocess, "run", _boom)
-    map_dir = (
-        tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "ae_map_r3"
-    )
+    map_dir = tmp_path / "src" / "Arena" / "arena_simulation_setup" / "worlds" / "ae_map_r3"
     map_dir.mkdir(parents=True)
     monkeypatch.setenv("ARENA_DIR", str(tmp_path / "src" / "Arena"))
     assert MapRegistry._find_ros_map_dir("ae_map_r3") == map_dir
@@ -103,9 +95,7 @@ def _write_format2_world(base: pathlib.Path, level_ids: list[str]) -> pathlib.Pa
         }
         for level_id in level_ids
     ]
-    (base / "world.yaml").write_text(
-        yaml.safe_dump({"format": "arena-world/2", "levels": levels})
-    )
+    (base / "world.yaml").write_text(yaml.safe_dump({"format": "arena-world/2", "levels": levels}))
     return base
 
 

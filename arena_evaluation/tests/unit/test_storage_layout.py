@@ -30,11 +30,7 @@ def _native_tables() -> tuple[type[Table], ...]:
     return (
         *FACT_TABLES.values(),
         *DIMENSION_TABLES.values(),
-        *(
-            table
-            for table in registered_tables()
-            if table.table_kind is TableKind.TELEMETRY
-        ),
+        *(table for table in registered_tables() if table.table_kind is TableKind.TELEMETRY),
     )
 
 
@@ -55,10 +51,7 @@ def _stale_episode(root: pathlib.Path, name: str = "episode_000") -> pathlib.Pat
 
 def _dimension_frames() -> dict[str, pl.DataFrame]:
     """Every declared dimension as an empty frame of its registry schema."""
-    return {
-        name: pl.DataFrame(schema=table.polars_schema())
-        for name, table in DIMENSION_TABLES.items()
-    }
+    return {name: pl.DataFrame(schema=table.polars_schema()) for name, table in DIMENSION_TABLES.items()}
 
 
 def test_retiring_moves_stale_outputs_to_legacy_and_never_deletes(
@@ -78,14 +71,7 @@ def test_retiring_moves_stale_outputs_to_legacy_and_never_deletes(
     pl.DataFrame({"value": [1]}).write_parquet(complete_fact)
     write_episode_stamp(complete_metrics)
 
-    target = (
-        root
-        / "legacy"
-        / "episodes"
-        / "episode_000"
-        / "metrics"
-        / "fact_episodes.parquet"
-    )
+    target = root / "legacy" / "episodes" / "episode_000" / "metrics" / "fact_episodes.parquet"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"resident")
 
@@ -96,9 +82,7 @@ def test_retiring_moves_stale_outputs_to_legacy_and_never_deletes(
     backups = sorted(target.parent.glob(f"{target.name}.*"))
     assert [path.read_bytes() for path in backups] == [b"resident"]
     assert (root / "legacy" / "metrics.parquet").read_bytes() == b"benchmark-metrics"
-    assert (
-        root / "legacy" / "combined_metrics.parquet"
-    ).read_bytes() == b"combined-metrics"
+    assert (root / "legacy" / "combined_metrics.parquet").read_bytes() == b"combined-metrics"
     assert complete_fact.is_file()
     assert (complete_metrics / ".complete").is_file()
     assert retire_legacy_outputs(root) == ()
@@ -110,21 +94,15 @@ def test_enforce_writes_a_readable_report_for_a_dimension_violation(
     root = tmp_path / "benchmarks" / "clean"
     root.mkdir(parents=True)
     dimensions = _dimension_frames()
-    dimensions["dim_metrics"] = dimensions["dim_metrics"].with_columns(
-        pl.col("metric").cast(pl.Int64)
-    )
+    dimensions["dim_metrics"] = dimensions["dim_metrics"].with_columns(pl.col("metric").cast(pl.Int64))
 
     with pytest.raises(ContractViolationError) as error:
         enforce_benchmark_contract(root, dimensions=dimensions)
 
     assert "dim_metrics" in str(error.value)
-    payload = yaml.safe_load(
-        (root / "contract_report.yaml").read_text(encoding="utf-8")
-    )
+    payload = yaml.safe_load((root / "contract_report.yaml").read_text(encoding="utf-8"))
     assert payload["ok"] is False
-    assert any(
-        violation["table"] == "dim_metrics" for violation in payload["violations"]
-    )
+    assert any(violation["table"] == "dim_metrics" for violation in payload["violations"])
 
 
 def test_an_interrupted_dimension_write_keeps_the_previous_file(
@@ -135,9 +113,7 @@ def test_an_interrupted_dimension_write_keeps_the_previous_file(
     previous = pl.read_parquet(tmp_path / "dim_episodes.parquet")
 
     broken = dict(dimensions)
-    broken["dim_robots"] = pl.DataFrame(
-        {"metric": pl.Series([object()], dtype=pl.Object)}
-    )
+    broken["dim_robots"] = pl.DataFrame({"metric": pl.Series([object()], dtype=pl.Object)})
     with pytest.raises(pl.exceptions.PolarsError):
         write_benchmark_dimensions(broken, tmp_path)
 

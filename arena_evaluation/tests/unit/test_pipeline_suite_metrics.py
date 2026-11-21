@@ -10,9 +10,7 @@ def _episode_dir(tmp_path: pathlib.Path, suite: dict | None) -> pathlib.Path:
     episode = run / "episodes" / "nav2" / "episode_000"
     episode.mkdir(parents=True)
     if suite is not None:
-        (run / "manifest.yaml").write_text(
-            yaml.safe_dump({"run_id": run.name, "suite": suite})
-        )
+        (run / "manifest.yaml").write_text(yaml.safe_dump({"run_id": run.name, "suite": suite}))
     return episode
 
 

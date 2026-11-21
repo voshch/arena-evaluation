@@ -28,9 +28,7 @@ def test_base_resolve_channel_and_list() -> None:
         id="p1",
         type="bar",
         data={"source": "fact_episodes"},
-        channels=PlotChannels(
-            x="planner", y=["success", "time_to_goal"], color="world"
-        ),
+        channels=PlotChannels(x="planner", y=["success", "time_to_goal"], color="world"),
     )
     renderer = _DummyRenderer(spec, units={"time_to_goal": "s"})
     assert renderer.resolve_channel("x") == "planner"

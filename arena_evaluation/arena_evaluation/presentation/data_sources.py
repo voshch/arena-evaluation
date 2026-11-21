@@ -49,11 +49,7 @@ def declared_view_names() -> frozenset[str]:
 @functools.lru_cache(maxsize=1)
 def declared_data_sources() -> frozenset[str]:
     """Return every table or view a manifest may declare."""
-    telemetry_names = (
-        tbl.table_name
-        for tbl in registered_tables()
-        if tbl.table_kind is TableKind.TELEMETRY
-    )
+    telemetry_names = (tbl.table_name for tbl in registered_tables() if tbl.table_kind is TableKind.TELEMETRY)
     fact_names = (f"fact_{tbl.table_name}" for tbl in FACT_TABLES.values())
     series_names = (tbl.table_name for tbl in SERIES_TABLES.values())
     return frozenset(
@@ -72,19 +68,13 @@ def validate_data_source(data_source: str) -> str:
     if not data_source or not data_source.strip():
         raise ValueError("data_source must be a non-empty table or view name.")
     if data_source in REJECTED_DATA_SOURCES:
-        raise ValueError(
-            f"legacy data_source {data_source!r} is rejected; use {EPISODE_SUMMARY_VIEW!r} or a declared v_* view."
-        )
+        raise ValueError(f"legacy data_source {data_source!r} is rejected; use {EPISODE_SUMMARY_VIEW!r} or a declared v_* view.")
     if data_source.startswith("v_") and data_source not in declared_view_names():
         available = ", ".join(sorted(declared_view_names()))
-        raise ValueError(
-            f"unknown data_source {data_source!r}: no declared catalog view. Declared views: {available}"
-        )
+        raise ValueError(f"unknown data_source {data_source!r}: no declared catalog view. Declared views: {available}")
     if data_source.startswith("derived_"):
         return data_source
     if not data_source.startswith("v_") and data_source not in declared_data_sources():
         available = ", ".join(sorted(declared_data_sources()))
-        raise ValueError(
-            f"unknown data_source {data_source!r}: not a declared table or view. Declared: {available}"
-        )
+        raise ValueError(f"unknown data_source {data_source!r}: not a declared table or view. Declared: {available}")
     return data_source

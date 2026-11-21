@@ -79,9 +79,7 @@ def _robot_frame(
             "t_ns": (np.asarray(t_s, dtype=np.float64) * NS_PER_S).astype(np.int64),
             "x": np.asarray(x, dtype=np.float64),
             "y": np.asarray(y, dtype=np.float64),
-            "yaw": np.zeros(len(t_s), dtype=np.float64)
-            if yaw is None
-            else np.asarray(yaw, dtype=np.float64),
+            "yaw": np.zeros(len(t_s), dtype=np.float64) if yaw is None else np.asarray(yaw, dtype=np.float64),
             "vx": np.asarray(vx, dtype=np.float64),
             "vy": np.asarray(vy, dtype=np.float64),
         }
@@ -134,9 +132,7 @@ def _trajectory(
     )
 
 
-def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first_sample_unmeasured() -> (
-    None
-):
+def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first_sample_unmeasured() -> None:
     frame = pl.DataFrame(
         [
             _ped_row(0, "Pedestrian_3", 0.0, 0.0, vx=0.0, vy=0.0),
@@ -146,9 +142,7 @@ def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first
         schema=_PED_SCHEMA,
     )
 
-    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))[
-        "Pedestrian_3"
-    ]
+    track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))["Pedestrian_3"]
 
     # The difference needs two poses, so the first sample is unmeasured (NaN), never a copy of the second.
     assert np.isnan(track.vx[0]) and np.isnan(track.vy[0])
@@ -156,9 +150,7 @@ def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first
     np.testing.assert_allclose(track.vy[1:], [0.0, 0.0], atol=1e-9)
 
 
-def _encounter_episode(
-    *, with_pedestrians: bool = True, fleet: dict[str, pl.DataFrame] | None = None
-) -> AlignedEpisodeBundle:
+def _encounter_episode(*, with_pedestrians: bool = True, fleet: dict[str, pl.DataFrame] | None = None) -> AlignedEpisodeBundle:
     """Robot at x = t and one pedestrian 2 m ahead on the robot's line."""
     robot = _robot_frame(
         t_s=np.arange(5.0),
@@ -206,16 +198,12 @@ def _fleet_poses(radius_m: float) -> pl.DataFrame:
 
 
 def test_episode_encounters_exclude_robot_actors_from_pedestrian_metrics() -> None:
-    episode = _encounter_episode(
-        with_pedestrians=False, fleet={"env_0_robot_2": _fleet_poses(0.25)}
-    )
+    episode = _encounter_episode(with_pedestrians=False, fleet={"env_0_robot_2": _fleet_poses(0.25)})
 
     fact_windows = episode_encounter_windows(episode, ROBOT_RADIUS_M)
 
     assert fact_windows.height == 1
-    assert_series_equal(
-        fact_windows["actor_kind"], pl.Series("actor_kind", ["robot"], dtype=pl.String)
-    )
+    assert_series_equal(fact_windows["actor_kind"], pl.Series("actor_kind", ["robot"], dtype=pl.String))
     assert pedestrian_encounter_spans(episode, ROBOT_RADIUS_M) == []
 
 

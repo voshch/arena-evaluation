@@ -34,9 +34,7 @@ _Element = tuple[str, str, Iterable[object]]
 _Row = dict[str, str | int | float]
 
 
-def benchmark_world_geometry(
-    worlds: Iterable[str], run_dir: pathlib.Path | None
-) -> pl.DataFrame:
+def benchmark_world_geometry(worlds: Iterable[str], run_dir: pathlib.Path | None) -> pl.DataFrame:
     """The rows of every world that resolves; a world that does not is skipped with a warning."""
     frames = [empty_dimension(DimWorldGeometry)]
     for world in worlds:
@@ -66,10 +64,7 @@ def world_geometry_rows(world_name: str, run_dir: pathlib.Path | None) -> pl.Dat
             for index, wall in enumerate(level.all_walls)
         ]
         doors = [(_DOOR, door.name, render_door_polygons(door)) for door in level.doors]
-        elevators = [
-            (_ELEVATOR, elevator.name, render_elevator_polygons(elevator))
-            for elevator in level.elevators
-        ]
+        elevators = [(_ELEVATOR, elevator.name, render_elevator_polygons(elevator)) for elevator in level.elevators]
         zones = [
             (
                 _ZONE,
@@ -78,11 +73,7 @@ def world_geometry_rows(world_name: str, run_dir: pathlib.Path | None) -> pl.Dat
             )
             for zone in level.zones
         ]
-        objects = [
-            (_OBJECT, obstacle.name, (footprint,))
-            for obstacle in level.objects
-            if (footprint := obstacle_footprint(obstacle)) is not None
-        ]
+        objects = [(_OBJECT, obstacle.name, (footprint,)) for obstacle in level.objects if (footprint := obstacle_footprint(obstacle)) is not None]
         rows = _element_rows(world_name, chain(walls, doors, elevators, zones, objects))
     return conform(pl.DataFrame(rows), DimWorldGeometry)
 

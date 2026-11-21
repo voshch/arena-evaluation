@@ -68,8 +68,6 @@ def test_data_resolver_missing_table_raises_without_fallback(
 
 def test_unambiguous_channels_reject_legacy_fields() -> None:
     with pytest.raises(ValidationError, match="data_key"):
-        PlotSpec.model_validate(
-            {"id": "legacy", "type": "bar", "data_key": "time_to_goal"}
-        )
+        PlotSpec.model_validate({"id": "legacy", "type": "bar", "data_key": "time_to_goal"})
     with pytest.raises(ValidationError, match="hue"):
         PlotChannels.model_validate({"hue": "planner"})

@@ -25,19 +25,12 @@ class ScatterRenderer(BasePlotRenderer):
     """Renders 2D scatter plots with optional color, size, symbol, and facets."""
 
     PLOT_TYPE = "scatter"
-    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
-        "alpha"
-    }
+    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {"alpha"}
 
     def _resolve_columns(self, df: pl.DataFrame) -> dict[str, str | None]:
-        return {
-            name: self.resolve_channel(name)
-            for name in ("x", "y", "color", "size", "symbol", "facet_col", "facet_row")
-        }
+        return {name: self.resolve_channel(name) for name in ("x", "y", "color", "size", "symbol", "facet_col", "facet_row")}
 
-    def _prepare(
-        self, df: pl.DataFrame
-    ) -> tuple[str, str, dict[str, str | None], pd.DataFrame] | None:
+    def _prepare(self, df: pl.DataFrame) -> tuple[str, str, dict[str, str | None], pd.DataFrame] | None:
         if df.is_empty():
             return None
         cols = self._resolve_columns(df)
@@ -94,9 +87,7 @@ class ScatterRenderer(BasePlotRenderer):
         x_col, y_col, cols, pdf = prepared
         x_label, y_label, title = self._labels(x_col, y_col)
         palette = get_color_palette()
-        artist_kwargs: dict[str, object] = {
-            "alpha": float(self.spec.options.get("alpha", 0.8))
-        }
+        artist_kwargs: dict[str, object] = {"alpha": float(self.spec.options.get("alpha", 0.8))}
         if cols["color"]:
             artist_kwargs.update(hue=cols["color"], palette=palette)
         else:

@@ -304,17 +304,11 @@ def test_paired_cluster_bootstrap_validation_and_empty() -> None:
 def test_discovery_verification_cohort_partitioning() -> None:
     """Verify twin seed discovery/verification cohort halving."""
     df = _build_synthetic_twin_episodes(n_seeds=20)
-    split_df = split_discovery_verification_seeds(
-        df, seed_col="seed", discovery_fraction=0.5
-    )
+    split_df = split_discovery_verification_seeds(df, seed_col="seed", discovery_fraction=0.5)
 
     assert "cohort" in split_df.columns
-    unique_seeds_discovery = (
-        split_df.filter(pl.col("cohort") == "discovery").get_column("seed").unique()
-    )
-    unique_seeds_verification = (
-        split_df.filter(pl.col("cohort") == "verification").get_column("seed").unique()
-    )
+    unique_seeds_discovery = split_df.filter(pl.col("cohort") == "discovery").get_column("seed").unique()
+    unique_seeds_verification = split_df.filter(pl.col("cohort") == "verification").get_column("seed").unique()
 
     assert len(unique_seeds_discovery) == 10
     assert len(unique_seeds_verification) == 10
@@ -322,9 +316,7 @@ def test_discovery_verification_cohort_partitioning() -> None:
     assert set(unique_seeds_discovery).isdisjoint(set(unique_seeds_verification))
 
     # All twin episodes for a seed share the same cohort
-    seed_cohort_counts = split_df.group_by("seed").agg(
-        n_cohorts=pl.col("cohort").n_unique()
-    )
+    seed_cohort_counts = split_df.group_by("seed").agg(n_cohorts=pl.col("cohort").n_unique())
     assert (seed_cohort_counts.get_column("n_cohorts") == 1).all()
 
     # Test LazyFrame overload

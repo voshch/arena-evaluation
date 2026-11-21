@@ -175,9 +175,7 @@ _EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
 
 def _declared_schema(table: FactTable) -> pl.Schema:
     """The table's declared base columns; ``polars_schema`` merges its scope's metrics."""
-    return pl.Schema(
-        {name: column.dtype for name, column in FACT_TABLES[table]._columns.items()}
-    )
+    return pl.Schema({name: column.dtype for name, column in FACT_TABLES[table]._columns.items()})
 
 
 def test_the_registry_holds_the_eleven_fact_tables() -> None:
@@ -186,9 +184,7 @@ def test_the_registry_holds_the_eleven_fact_tables() -> None:
 
 @pytest.mark.parametrize("table", list(FactTable))
 def test_fact_schema_is_pinned_in_name_and_order(table: FactTable) -> None:
-    assert list(_declared_schema(table).items()) == list(
-        _EXPECTED_SCHEMAS[table].items()
-    )
+    assert list(_declared_schema(table).items()) == list(_EXPECTED_SCHEMAS[table].items())
 
 
 def test_row_keys_are_pinned() -> None:

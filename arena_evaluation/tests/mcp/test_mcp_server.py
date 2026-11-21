@@ -36,15 +36,9 @@ def test_server_lists_every_tool_resource_and_template(tmp_path):
         prompts = (await client.list_prompts()).prompts
         return tools, resources, templates, prompts
 
-    tools, resources, templates, prompts = run_session(
-        body, server_env(tmp_path), ("evaluation",)
-    )
-    assert sorted(tool.name for tool in tools) == sorted(
-        spec.name for spec in domain.tools
-    )
-    assert all(
-        tool.name.startswith("evaluation_") and tool.description for tool in tools
-    )
+    tools, resources, templates, prompts = run_session(body, server_env(tmp_path), ("evaluation",))
+    assert sorted(tool.name for tool in tools) == sorted(spec.name for spec in domain.tools)
+    assert all(tool.name.startswith("evaluation_") and tool.description for tool in tools)
     assert "evaluation_append_insight" not in {tool.name for tool in tools}
     destructive = {tool.name for tool in tools if tool.annotations.destructive_hint}
     assert {
@@ -94,21 +88,10 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
             "schema": ("evaluation_config_schema", {"kind": "suite"}),
             "contest_schema": ("evaluation_config_schema", {"kind": "contest"}),
         }
-        out = {
-            key: payload(await client.call_tool(name, args))
-            for key, (name, args) in calls.items()
-        }
-        out["bad_metric"] = error_text(
-            await client.call_tool("evaluation_describe_metric", {"metric_name": "zz"})
-        )
-        out["traversal"] = error_text(
-            await client.call_tool(
-                "evaluation_config_template", {"kind": "suite", "name": "../secrets"}
-            )
-        )
-        out["suites_resource"] = json.loads(
-            (await client.read_resource("arena://evaluation/suites")).contents[0].text
-        )
+        out = {key: payload(await client.call_tool(name, args)) for key, (name, args) in calls.items()}
+        out["bad_metric"] = error_text(await client.call_tool("evaluation_describe_metric", {"metric_name": "zz"}))
+        out["traversal"] = error_text(await client.call_tool("evaluation_config_template", {"kind": "suite", "name": "../secrets"}))
+        out["suites_resource"] = json.loads((await client.read_resource("arena://evaluation/suites")).contents[0].text)
         return out
 
     out = run_session(body, server_env(tmp_path), ("evaluation",))
@@ -120,19 +103,11 @@ def test_catalog_tools_read_the_registries_and_resolvers(tmp_path):
         "energy_total_wh",
         "contact_count",
     }
-    assert {path.stem for path in (CONFIGS / "suites").glob("*.yaml")} <= set(
-        out["suites"]["suites"]
-    )
+    assert {path.stem for path in (CONFIGS / "suites").glob("*.yaml")} <= set(out["suites"]["suites"])
     assert out["suites_resource"] == out["suites"]["suites"]
-    assert {path.stem for path in (CONFIGS / "contests").glob("*.yaml")} <= set(
-        out["contests"]["contests"]
-    )
-    assert {path.stem for path in (CONFIGS / "manifests").glob("*.yaml")} <= set(
-        out["manifests"]["manifests"]
-    )
-    assert yaml.safe_load(out["template"]["content"]) == yaml.safe_load(
-        (CONFIGS / "suites" / "basic" / "suite.yaml").read_text()
-    )
+    assert {path.stem for path in (CONFIGS / "contests").glob("*.yaml")} <= set(out["contests"]["contests"])
+    assert {path.stem for path in (CONFIGS / "manifests").glob("*.yaml")} <= set(out["manifests"]["manifests"])
+    assert yaml.safe_load(out["template"]["content"]) == yaml.safe_load((CONFIGS / "suites" / "basic" / "suite.yaml").read_text())
     assert out["manifest_template"]["name"] == "standard"
     assert "one path component" in out["traversal"]
     assert {
@@ -178,63 +153,34 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
         out["basic_suite"] = payload(
             await client.call_tool(
                 "evaluation_validate_suite",
-                {
-                    "yaml_content": (
-                        CONFIGS / "suites" / "basic" / "suite.yaml"
-                    ).read_text()
-                },
+                {"yaml_content": (CONFIGS / "suites" / "basic" / "suite.yaml").read_text()},
             )
         )
-        out["typos"] = payload(
-            await client.call_tool(
-                "evaluation_validate_suite", {"yaml_content": suite_with_typos}
-            )
-        )
+        out["typos"] = payload(await client.call_tool("evaluation_validate_suite", {"yaml_content": suite_with_typos}))
         out["bad_mode"] = payload(
             await client.call_tool(
                 "evaluation_validate_suite",
-                {
-                    "yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: warp, tm_obstacles: random}]"
-                },
+                {"yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: warp, tm_obstacles: random}]"},
             )
         )
         out["empty_mode"] = payload(
             await client.call_tool(
                 "evaluation_validate_suite",
-                {
-                    "yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: '', tm_obstacles: random}]"
-                },
+                {"yaml_content": "stages: [{name: s, map: map_empty, robot: jackal, episodes: 1, tm_robots: '', tm_obstacles: random}]"},
             )
         )
         out["basic_contest"] = payload(
             await client.call_tool(
                 "evaluation_validate_contest",
-                {
-                    "yaml_content": (
-                        CONFIGS / "contests" / "basic" / "contest.yaml"
-                    ).read_text()
-                },
+                {"yaml_content": (CONFIGS / "contests" / "basic" / "contest.yaml").read_text()},
             )
         )
-        out["bad_contest"] = payload(
-            await client.call_tool(
-                "evaluation_validate_contest", {"yaml_content": bad_contest}
-            )
-        )
-        out["manifests"] = [
-            payload(
-                await client.call_tool(
-                    "evaluation_validate_manifest", {"yaml_content": path.read_text()}
-                )
-            )
-            for path in sorted((CONFIGS / "reports").glob("*/report.yaml"))
-        ]
+        out["bad_contest"] = payload(await client.call_tool("evaluation_validate_contest", {"yaml_content": bad_contest}))
+        out["manifests"] = [payload(await client.call_tool("evaluation_validate_manifest", {"yaml_content": path.read_text()})) for path in sorted((CONFIGS / "reports").glob("*/report.yaml"))]
         out["bad_manifest"] = payload(
             await client.call_tool(
                 "evaluation_validate_manifest",
-                {
-                    "yaml_content": "plots:\n  - id: bad\n    type: violin\n    title: no data key\n"
-                },
+                {"yaml_content": "plots:\n  - id: bad\n    type: violin\n    title: no data key\n"},
             )
         )
         out["clobber"] = error_text(
@@ -242,15 +188,11 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
                 "evaluation_create_suite",
                 {
                     "name": "basic",
-                    "yaml_content": (
-                        CONFIGS / "suites" / "basic" / "suite.yaml"
-                    ).read_text(),
+                    "yaml_content": (CONFIGS / "suites" / "basic" / "suite.yaml").read_text(),
                 },
             )
         )
-        out["empty"] = error_text(
-            await client.call_tool("evaluation_validate_suite", {"yaml_content": "  "})
-        )
+        out["empty"] = error_text(await client.call_tool("evaluation_validate_suite", {"yaml_content": "  "}))
         return out
 
     out = run_session(body, server_env(tmp_path), ("evaluation",))
@@ -265,9 +207,7 @@ def test_authoring_tools_validate_with_the_runner_parsers(tmp_path):
     assert out["basic_contest"]["valid"], out["basic_contest"]
     assert out["bad_contest"]["valid"]
     assert "side_stream" in out["bad_contest"]
-    assert all(
-        verdict["valid"] and verdict["n_plots"] >= 1 for verdict in out["manifests"]
-    )
+    assert all(verdict["valid"] and verdict["n_plots"] >= 1 for verdict in out["manifests"])
     assert not out["bad_manifest"]["valid"]
     assert "already exists" in out["clobber"]
     assert "empty suite" in out["empty"]
@@ -345,12 +285,8 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
             ),
         ):
             out[key] = payload(await client.call_tool(name, args))
-        out["missing_run"] = error_text(
-            await client.call_tool("evaluation_status", {"run_id": "nope"})
-        )
-        out["unprocessed"] = error_text(
-            await client.call_tool("evaluation_summarize", {"run_id": EMPTY_RUN_ID})
-        )
+        out["missing_run"] = error_text(await client.call_tool("evaluation_status", {"run_id": "nope"}))
+        out["unprocessed"] = error_text(await client.call_tool("evaluation_summarize", {"run_id": EMPTY_RUN_ID}))
         out["bad_column"] = error_text(
             await client.call_tool(
                 "evaluation_aggregate",
@@ -383,24 +319,18 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     }
     assert status["state"] == "incomplete"
     assert status["lanes"] == ["p2"]
-    assert status["failed"] == [
-        {"key": "dwb_social/s1", "error_kind": "sim_dead", "error_detail": "gz died"}
-    ]
+    assert status["failed"] == [{"key": "dwb_social/s1", "error_kind": "sim_dead", "error_detail": "gz died"}]
     assert status["episodes_logged"] == 3
     assert out["latest"]["run_id"] == RUN_ID
     assert [row["episode_id"] for row in out["progress"]["rows"]] == ["1", "2"]
     assert out["lane_progress"]["n_rows"] == 1
-    assert out["console"]["logs"]["runner.log"] == [
-        f"runner line {index}" for index in range(295, 300)
-    ]
+    assert out["console"]["logs"]["runner.log"] == [f"runner line {index}" for index in range(295, 300)]
     assert out["console"]["logs"]["runner.p2.log"] == [
         "lane p2 started",
         "lane p2 sim died",
     ]
     assert out["console"]["alive"] is False
-    assert out["lane_console"]["logs"] == {
-        "runner.p2.log": ["lane p2 started", "lane p2 sim died"]
-    }
+    assert out["lane_console"]["logs"] == {"runner.p2.log": ["lane p2 started", "lane p2 sim died"]}
     assert out["episode"]["metadata"]["planner"] == "dwb"
     assert out["notes"]["notes"] == [{"label": "a", "value": "1"}]
     assert out["metrics"]["column_stats"]["success"]["dtype"] == "Boolean"
@@ -410,9 +340,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
         "dwb",
         "dwb_social",
     ]
-    assert "unhindered_peds" not in [
-        row["planner"] for row in out["compare_default"]["rankings"]
-    ]
+    assert "unhindered_peds" not in [row["planner"] for row in out["compare_default"]["rankings"]]
     assert out["top"]["rankings"][0]["planner"] == "dwb"
     assert out["correlation"]["correlation_matrix"]["success"]["success"] == 1.0
     assert out["summary"]["planners"] == ["dwb", "dwb_social"]
@@ -428,10 +356,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
     assert out[f"arena://evaluation/runs/{RUN_ID}/state"]["lanes"] == ["p2"]
     assert out[f"arena://evaluation/runs/{RUN_ID}/notes"][0]["label"] == "a"
     assert out[f"arena://evaluation/runs/{RUN_ID}/report"]["report"] is None
-    assert (
-        out[f"arena://evaluation/runs/{RUN_ID}/metrics/schema"]["dtypes"]["planner"]
-        == "String"
-    )
+    assert out[f"arena://evaluation/runs/{RUN_ID}/metrics/schema"]["dtypes"]["planner"] == "String"
     assert out[f"arena://evaluation/runs/{RUN_ID}/metrics/summary"]["planners"] == [
         "dwb",
         "dwb_social",
@@ -442,9 +367,7 @@ def test_run_and_analysis_tools_read_shared_runs(tmp_path):
 @sourced
 def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_path):
     build_runs(tmp_path / "data" / "benchmarks")
-    stranger = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True
-    )
+    stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
     worker = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(120)", "world_generator"],
         start_new_session=True,
@@ -477,16 +400,8 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
 
     async def body(client):
         out = {}
-        out["process"] = payload(
-            await client.call_tool(
-                "evaluation_process", {"run_ids": [EMPTY_RUN_ID], "workers": 1}
-            )
-        )
-        out["process_done"] = payload(
-            await client.call_tool(
-                "jobs_wait", {"job_id": out["process"]["job"]["id"], "timeout_s": 240}
-            )
-        )
+        out["process"] = payload(await client.call_tool("evaluation_process", {"run_ids": [EMPTY_RUN_ID], "workers": 1}))
+        out["process_done"] = payload(await client.call_tool("jobs_wait", {"job_id": out["process"]["job"]["id"], "timeout_s": 240}))
         started = time.monotonic()
         out["config_error"] = error_text(
             await client.call_tool(
@@ -511,28 +426,14 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
                 },
             )
         )
-        out["no_resume"] = error_text(
-            await client.call_tool(
-                "evaluation_benchmark", {"resume": True, "run_id": "nope"}
-            )
-        )
-        out["preflight_args"] = error_text(
-            await client.call_tool("evaluation_preflight", {})
-        )
+        out["no_resume"] = error_text(await client.call_tool("evaluation_benchmark", {"resume": True, "run_id": "nope"}))
+        out["preflight_args"] = error_text(await client.call_tool("evaluation_preflight", {}))
         out["kill_nothing"] = error_text(await client.call_tool("evaluation_kill", {}))
         out["ps"] = payload(await client.call_tool("evaluation_ps", {}))
-        out["kill"] = payload(
-            await client.call_tool(
-                "evaluation_kill", {"pids": [stranger.pid, worker.pid], "grace_s": 5}
-            )
-        )
+        out["kill"] = payload(await client.call_tool("evaluation_kill", {"pids": [stranger.pid, worker.pid], "grace_s": 5}))
         out["stranger_alive"] = stranger.poll() is None
-        out["stop"] = payload(
-            await client.call_tool("evaluation_stop", {"run_id": RUN_ID, "grace_s": 5})
-        )
-        out["stop_again"] = error_text(
-            await client.call_tool("evaluation_stop", {"run_id": RUN_ID})
-        )
+        out["stop"] = payload(await client.call_tool("evaluation_stop", {"run_id": RUN_ID, "grace_s": 5}))
+        out["stop_again"] = error_text(await client.call_tool("evaluation_stop", {"run_id": RUN_ID}))
         return out
 
     try:
@@ -546,19 +447,14 @@ def test_jobs_surface_failures_and_process_control_stays_on_arena_processes(tmp_
     assert out["process_done"]["exit_code"] == 1
     assert "nope_planner" in out["config_error"]
     assert "before it prepared the run" in out["config_error"]
-    assert (
-        "File exists" in out["exists"] and "before it prepared the run" in out["exists"]
-    )
+    assert "File exists" in out["exists"] and "before it prepared the run" in out["exists"]
     assert "no run 'nope' to resume" in out["no_resume"]
     assert "not both or neither" in out["preflight_args"]
     assert "nothing is stopped by default" in out["kill_nothing"]
     assert {worker.pid, runner.pid} <= {row["pid"] for row in out["ps"]["processes"]}
     killed = {row["pid"]: row for row in out["kill"]["results"]}
     assert killed[stranger.pid]["status"] == "refused: not an arena process"
-    assert (
-        killed[worker.pid]["kind"] == "world_generator"
-        and killed[worker.pid]["status"] == "stopped"
-    )
+    assert killed[worker.pid]["kind"] == "world_generator" and killed[worker.pid]["status"] == "stopped"
     assert out["stranger_alive"]
     assert out["stop"]["stopped"][0]["outcome"].startswith("stopped")
     assert "no runner" in out["stop_again"]
@@ -595,24 +491,10 @@ def test_pipeline_verbs_run_the_evaluation_cli_as_jobs(tmp_path):
             started = payload(await client.call_tool(name, args))
             out[key] = {
                 "command": started["command"],
-                "done": payload(
-                    await client.call_tool(
-                        "jobs_wait", {"job_id": started["job"]["id"], "timeout_s": 280}
-                    )
-                ),
-                "log": (
-                    await client.call_tool(
-                        "jobs_log", {"job_id": started["job"]["id"], "lines": 30}
-                    )
-                )
-                .content[0]
-                .text,
+                "done": payload(await client.call_tool("jobs_wait", {"job_id": started["job"]["id"], "timeout_s": 280})),
+                "log": (await client.call_tool("jobs_log", {"job_id": started["job"]["id"], "lines": 30})).content[0].text,
             }
-        out["bad_option"] = error_text(
-            await client.call_tool(
-                "evaluation_acoustic", {"run_id": RUN_ID, "action": "list", "fps": 5}
-            )
-        )
+        out["bad_option"] = error_text(await client.call_tool("evaluation_acoustic", {"run_id": RUN_ID, "action": "list", "fps": 5}))
         out["both_inputs"] = error_text(
             await client.call_tool(
                 "evaluation_process",
@@ -622,27 +504,15 @@ def test_pipeline_verbs_run_the_evaluation_cli_as_jobs(tmp_path):
                 },
             )
         )
-        out["not_episode"] = error_text(
-            await client.call_tool("evaluation_process", {"episode_dirs": [RUN_ID]})
-        )
+        out["not_episode"] = error_text(await client.call_tool("evaluation_process", {"episode_dirs": [RUN_ID]}))
         return out
 
     out = run_session(body, server_env(tmp_path))
-    assert all(
-        out[key]["done"]["state"] == "succeeded"
-        for key in ("acoustic", "extract", "plot", "report")
-    ), {key: out[key]["log"] for key in out if isinstance(out[key], dict)}
-    assert out["acoustic"]["command"].startswith(
-        "arena evaluation acoustic list --benchmark-dir "
-    )
+    assert all(out[key]["done"]["state"] == "succeeded" for key in ("acoustic", "extract", "plot", "report")), {key: out[key]["log"] for key in out if isinstance(out[key], dict)}
+    assert out["acoustic"]["command"].startswith("arena evaluation acoustic list --benchmark-dir ")
     assert "No episodes found" in out["extract"]["log"]
-    assert any(
-        path.endswith("bar_success_local.png")
-        for path in out["plot"]["done"]["result"]["plots"]
-    )
-    assert out["report"]["done"]["result"]["report"] == str(
-        tmp_path / "out" / "reports" / "standard" / "report.html"
-    )
+    assert any(path.endswith("bar_success_local.png") for path in out["plot"]["done"]["result"]["plots"])
+    assert out["report"]["done"]["result"]["report"] == str(tmp_path / "out" / "reports" / "standard" / "report.html")
     assert "list takes no fps" in out["bad_option"]
     assert "not both" in out["both_inputs"]
     assert "is not an episode_NNN directory" in out["not_episode"]

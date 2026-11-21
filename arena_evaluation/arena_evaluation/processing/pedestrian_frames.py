@@ -79,9 +79,7 @@ def _empty_geometry() -> FrameGeometry:
 
 def _robot_track(robot_tracks: pl.DataFrame) -> pl.DataFrame:
     """Robot pose and finite-difference velocity on the track's own time axis."""
-    step_s = (pl.col("robot_t_ns") - pl.col("robot_t_ns").shift(1)).cast(
-        pl.Float64
-    ) / NS_PER_S
+    step_s = (pl.col("robot_t_ns") - pl.col("robot_t_ns").shift(1)).cast(pl.Float64) / NS_PER_S
     safe_step_s = pl.when(step_s > 0.0).then(step_s).otherwise(1e-6)
     return (
         robot_tracks.select(
@@ -93,35 +91,17 @@ def _robot_track(robot_tracks: pl.DataFrame) -> pl.DataFrame:
         .drop_nulls(["robot_t_ns", "robot_x_m", "robot_y_m"])
         .sort("robot_t_ns")
         .with_columns(
-            robot_vx_mps=(
-                (pl.col("robot_x_m") - pl.col("robot_x_m").shift(1)) / safe_step_s
-            ).fill_null(0.0),
-            robot_vy_mps=(
-                (pl.col("robot_y_m") - pl.col("robot_y_m").shift(1)) / safe_step_s
-            ).fill_null(0.0),
+            robot_vx_mps=((pl.col("robot_x_m") - pl.col("robot_x_m").shift(1)) / safe_step_s).fill_null(0.0),
+            robot_vy_mps=((pl.col("robot_y_m") - pl.col("robot_y_m").shift(1)) / safe_step_s).fill_null(0.0),
         )
-        .with_columns(
-            robot_speed_mps=(
-                pl.col("robot_vx_mps").pow(2) + pl.col("robot_vy_mps").pow(2)
-            ).sqrt()
-        )
+        .with_columns(robot_speed_mps=(pl.col("robot_vx_mps").pow(2) + pl.col("robot_vy_mps").pow(2)).sqrt())
     )
 
 
 def _frames(peds: pl.DataFrame) -> pl.DataFrame:
     """One row per distinct pedestrian frame timestamp, in time order, with its integration step."""
     step_s = (pl.col("t_ns").shift(-1) - pl.col("t_ns")).cast(pl.Float64) / NS_PER_S
-    return (
-        peds.select(pl.col("t_ns").cast(pl.Int64))
-        .unique()
-        .sort("t_ns")
-        .with_row_index("frame_ix")
-        .with_columns(
-            dt_s=pl.when(step_s.is_null() | (step_s == 0.0))
-            .then(1e-6)
-            .otherwise(step_s)
-        )
-    )
+    return peds.select(pl.col("t_ns").cast(pl.Int64)).unique().sort("t_ns").with_row_index("frame_ix").with_columns(dt_s=pl.when(step_s.is_null() | (step_s == 0.0)).then(1e-6).otherwise(step_s))
 
 
 def frame_geometry(
@@ -131,12 +111,7 @@ def frame_geometry(
     tolerance_ns: int = TRACK_ALIGN_TOLERANCE_NS,
 ) -> FrameGeometry:
     """Sample the robot track onto the pedestrian frame axis and attach every pedestrian's relative geometry."""
-    if (
-        peds is None
-        or robot_tracks is None
-        or peds.height == 0
-        or robot_tracks.height == 0
-    ):
+    if peds is None or robot_tracks is None or peds.height == 0 or robot_tracks.height == 0:
         return _empty_geometry()
     sampled = asof_join(
         _frames(peds),
@@ -164,9 +139,7 @@ def frame_geometry(
         )
         .with_columns(
             distance_m=(pl.col("dx_m").pow(2) + pl.col("dy_m").pow(2)).sqrt(),
-            rel_speed_mps=(
-                pl.col("rel_vx_mps").pow(2) + pl.col("rel_vy_mps").pow(2)
-            ).sqrt(),
+            rel_speed_mps=(pl.col("rel_vx_mps").pow(2) + pl.col("rel_vy_mps").pow(2)).sqrt(),
         )
         .select(
             "frame_ix",
@@ -186,9 +159,7 @@ def frame_geometry(
             "rel_speed_mps",
         )
     )
-    return FrameGeometry(
-        frames=sampled.select(*FRAME_SCHEMA.names()), pedestrians=pedestrians
-    )
+    return FrameGeometry(frames=sampled.select(*FRAME_SCHEMA.names()), pedestrians=pedestrians)
 
 
 def frames_of(peds: pl.DataFrame) -> list[pl.DataFrame]:
@@ -206,24 +177,16 @@ def distances_to_pedestrians(
     tolerance_ns: int = TRACK_ALIGN_TOLERANCE_NS,
 ) -> pl.DataFrame:
     """One row per robot sample and pedestrian in its frame: ``row`` (the sample index), ``ped_id`` and ``distance`` to the robot at (x, y)."""
-    robot = pl.DataFrame(
-        {"row": np.arange(len(t_ns)), "t_ns": t_ns.astype(np.int64), "rx": x, "ry": y}
-    )
-    frames = pedestrians_at(robot["t_ns"].unique(), peds, tolerance_ns).select(
-        "t_ns", "ped_id", "x", "y"
-    )
+    robot = pl.DataFrame({"row": np.arange(len(t_ns)), "t_ns": t_ns.astype(np.int64), "rx": x, "ry": y})
+    frames = pedestrians_at(robot["t_ns"].unique(), peds, tolerance_ns).select("t_ns", "ped_id", "x", "y")
     return robot.join(frames, on="t_ns", how="inner").select(
         "row",
         "ped_id",
-        ((pl.col("x") - pl.col("rx")).pow(2) + (pl.col("y") - pl.col("ry")).pow(2))
-        .sqrt()
-        .alias("distance"),
+        ((pl.col("x") - pl.col("rx")).pow(2) + (pl.col("y") - pl.col("ry")).pow(2)).sqrt().alias("distance"),
     )
 
 
-def pedestrians_at(
-    t_ns: pl.Series, peds: pl.DataFrame, tolerance_ns: int = TRACK_ALIGN_TOLERANCE_NS
-) -> pl.DataFrame:
+def pedestrians_at(t_ns: pl.Series, peds: pl.DataFrame, tolerance_ns: int = TRACK_ALIGN_TOLERANCE_NS) -> pl.DataFrame:
     """Every pedestrian of the latest frame at or before each robot time, within the tolerance: one row per robot time and pedestrian.
 
     The frame a row came from is kept in ``frame_ns``; robot times with no frame in tolerance produce no rows.
@@ -237,6 +200,4 @@ def pedestrians_at(
         right_on="frame_ns",
         tolerance_ns=tolerance_ns,
     )
-    return matched.drop_nulls("frame_ns").join(
-        peds, left_on="frame_ns", right_on="t_ns", how="inner"
-    )
+    return matched.drop_nulls("frame_ns").join(peds, left_on="frame_ns", right_on="t_ns", how="inner")

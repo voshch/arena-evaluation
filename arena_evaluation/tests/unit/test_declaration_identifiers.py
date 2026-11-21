@@ -39,9 +39,7 @@ def _write_query(root: Path, name: str, title: str) -> None:
         ("queries", "query.yaml"),
     ],
 )
-def test_bundle_filename_comes_from_the_folder_of_its_config_kind(
-    folder: str, filename: str
-) -> None:
+def test_bundle_filename_comes_from_the_folder_of_its_config_kind(folder: str, filename: str) -> None:
     assert bundle_filename(folder) == filename
 
 
@@ -57,9 +55,7 @@ def test_config_path_resolver_finds_query_bundles_in_the_queries_folder(
     assert [identifier.name for identifier in local.listall()] == ["telemetry"]
 
 
-def test_bucket_cache_bundle_resolves_while_its_ttl_marker_is_fresh(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bucket_cache_bundle_resolves_while_its_ttl_marker_is_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sim_tree, "ARENA_ASSETS_DIR", tmp_path)
     bundle = tmp_path / "arena-internal" / "plots" / "fleet_speed"
     bundle.mkdir(parents=True)
@@ -83,9 +79,7 @@ def test_bucket_cache_bundle_resolves_while_its_ttl_marker_is_fresh(
     }
 
 
-def test_local_query_shadows_the_bucket_copy(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_local_query_shadows_the_bucket_copy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _write_query(tmp_path / "cache" / "arena-internal", "dup", "Bucket copy")
     local = tmp_path / "local"
     _write_query(local, "dup", "Local copy")
@@ -116,9 +110,7 @@ def test_query_name_defaults_to_its_bundle_folder(tmp_path: Path) -> None:
     assert read_query_declaration(bundle / "query.yaml").name == "named_by_folder"
 
 
-def test_plot_lookup_falls_back_to_the_bucket(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_plot_lookup_falls_back_to_the_bucket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     fetched = tmp_path / "plots" / "fleet_speed" / "plot.yaml"
     fetched.parent.mkdir(parents=True)
     fetched.write_text("id: fleet_speed\n")

@@ -21,8 +21,6 @@ def _track(stamps_s: list[float]) -> pl.DataFrame:
 
 
 def test_a_single_sample_is_sparse_without_a_gap():
-    kept, source = resolve_pose_source(
-        TopicBundle(robot_tracks=_track([5.0])), (None, None)
-    )
+    kept, source = resolve_pose_source(TopicBundle(robot_tracks=_track([5.0])), (None, None))
     assert (source.kind, source.samples, source.median_gap_s) == ("tf_sparse", 1, None)
     assert kept is not None

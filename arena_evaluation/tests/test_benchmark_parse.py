@@ -161,11 +161,7 @@ def test_stage_parse_emits_modes_and_no_legacy_keys():
     from_legacy = Suite.Stage.parse(legacy)
     from_mapping = Suite.Stage.parse(mapping)
 
-    assert (
-        from_legacy.modes
-        == from_mapping.modes
-        == {"robots": "random", "obstacles": "scenario"}
-    )
+    assert from_legacy.modes == from_mapping.modes == {"robots": "random", "obstacles": "scenario"}
     assert "modes" in from_legacy._asdict()
     assert not [key for key in from_legacy._asdict() if key.startswith("tm_")]
 
@@ -190,9 +186,7 @@ def test_stage_parse_modules_axis_takes_a_comma_list():
     from arena_evaluation.benchmark.config import Suite
 
     names = registered_modes(task_layer())["modules"][:2]
-    result = Suite.Stage.parse(
-        _make_stage_dict(modes={"modules": ",".join(name.upper() for name in names)})
-    )
+    result = Suite.Stage.parse(_make_stage_dict(modes={"modules": ",".join(name.upper() for name in names)}))
     assert result.modes["modules"] == ",".join(names)
 
 
@@ -219,18 +213,14 @@ def test_every_shipped_suite_keeps_its_explicit_seeds_and_leaves_others_unset():
 
     from arena_evaluation.benchmark.config import Suite
 
-    suites = sorted(
-        (pathlib.Path(__file__).parents[1] / "configs" / "suites").rglob("suite.yaml")
-    )
+    suites = sorted((pathlib.Path(__file__).parents[1] / "configs" / "suites").rglob("suite.yaml"))
     explicit = 0
     unset = 0
     for path in suites:
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict) or "stages" not in data or "task_layer" in data:
             continue
-        for raw, stage in zip(
-            data["stages"], Suite.parse(path.parent.name, data).stages, strict=True
-        ):
+        for raw, stage in zip(data["stages"], Suite.parse(path.parent.name, data).stages, strict=True):
             if "seed" in raw:
                 assert stage.seed == raw["seed"], (path.parent.name, raw["name"])
                 explicit += 1
@@ -267,9 +257,7 @@ def test_stage_parse_passes_on_the_message_of_the_runtime_validator():
             Suite.Stage.parse(stage)
         axis, value = next(iter(modes.items()))
         with pytest.raises(ValueError) as validated:
-            task_layer().validate_modes(
-                {axis: [name for name in value.split(",") if name]}
-            )
+            task_layer().validate_modes({axis: [name for name in value.split(",") if name]})
         assert str(parsed.value) == str(validated.value)
 
 
@@ -667,34 +655,19 @@ def test_shipped_landmarks_suite_and_contest_parse():
     )
     contest = Contest.parse(
         "landmarks",
-        yaml.safe_load(
-            (configs / "contests" / "landmarks" / "contest.yaml").read_text()
-        ),
+        yaml.safe_load((configs / "contests" / "landmarks" / "contest.yaml").read_text()),
     )
 
     assert {stage.map for stage in suite.stages} == {"hospital_1"}
-    assert all(
-        stage.config["scenario"]["file"].startswith("landmark_")
-        and stage.modes["robots"] == "scenario"
-        for stage in suite.stages
-    )
+    assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.modes["robots"] == "scenario" for stage in suite.stages)
     assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
     assert {stage.robot for stage in suite.stages} == {"jackal"}
-    assert (
-        suite.launch_args["lockstep"] == "true"
-        and suite.launch_args["lockstep.paused"] == "false"
-    )
+    assert suite.launch_args["lockstep"] == "true" and suite.launch_args["lockstep.paused"] == "false"
     wordings = {c.name: c.args["mobile"].get("wording") for c in contest.contestants}
     assert wordings["nav2"] is None and wordings["omnivla-edge-pose"] is None
-    assert {
-        name.rsplit("-", 1)[1] for name, wording in wordings.items() if wording
-    } == {"goal", "route"}
+    assert {name.rsplit("-", 1)[1] for name, wording in wordings.items() if wording} == {"goal", "route"}
     assert all(name.endswith(wording) for name, wording in wordings.items() if wording)
-    cameras = {
-        c.args["mobile"]["planner"]: c.parts["camera"]
-        for c in contest.contestants
-        if c.name != "nav2"
-    }
+    cameras = {c.args["mobile"]["planner"]: c.parts["camera"] for c in contest.contestants if c.name != "nav2"}
     assert set(cameras) == {
         "cma",
         "navid",
@@ -712,11 +685,7 @@ def test_shipped_landmarks_suite_and_contest_parse():
     }
     assert cameras["cma"] == "vln_rgbd" and cameras["navila"] == "vln_navila"
     assert next(c for c in contest.contestants if c.name == "nav2").parts == {}
-    assert {
-        c.parts["camera"]
-        for c in contest.contestants
-        if c.args["mobile"].get("config.variant") == "uninavid"
-    } == {"vln_uninavid"}
+    assert {c.parts["camera"] for c in contest.contestants if c.args["mobile"].get("config.variant") == "uninavid"} == {"vln_uninavid"}
 
 
 @pytest.mark.parametrize(
@@ -733,23 +702,11 @@ def test_shipped_edge_case_contests_parse(contest, planners):
 
     from arena_evaluation.benchmark.config import Contest
 
-    path = (
-        pathlib.Path(__file__).parents[1]
-        / "configs"
-        / "contests"
-        / contest
-        / "contest.yaml"
-    )
+    path = pathlib.Path(__file__).parents[1] / "configs" / "contests" / contest / "contest.yaml"
     parsed = Contest.parse(contest, yaml.safe_load(path.read_text()))
-    assert (
-        parsed.contestants[0].name == "nav2"
-        and parsed.contestants[0].args["mobile"]["driver"] == "nav2"
-    )
+    assert parsed.contestants[0].name == "nav2" and parsed.contestants[0].args["mobile"]["driver"] == "nav2"
     assert {c.args["mobile"]["planner"] for c in parsed.contestants[1:]} == planners
-    assert all(
-        c.args["mobile"]["driver"] == "drl" and c.args["mobile"]["rate"] == 10
-        for c in parsed.contestants[1:]
-    )
+    assert all(c.args["mobile"]["driver"] == "drl" and c.args["mobile"]["rate"] == 10 for c in parsed.contestants[1:])
 
 
 def test_a_generated_edge_case_suite_parses():
@@ -771,16 +728,8 @@ def test_a_generated_edge_case_suite_parses():
         "hospital_1.normal__u_001",
         "hospital_1.normal__u_002",
     ]
-    assert all(
-        stage.map == "hospital_1"
-        and stage.robot == "jackal"
-        and stage.episodes == 3
-        and stage.seed == 7
-        for stage in suite.stages
-    )
-    assert {
-        (stage.modes["robots"], stage.modes["obstacles"]) for stage in suite.stages
-    } == {("scenario", "scenario")}
+    assert all(stage.map == "hospital_1" and stage.robot == "jackal" and stage.episodes == 3 and stage.seed == 7 for stage in suite.stages)
+    assert {(stage.modes["robots"], stage.modes["obstacles"]) for stage in suite.stages} == {("scenario", "scenario")}
     assert [stage.config["scenario"]["file"] for stage in suite.stages] == [
         "normal__u_001",
         "normal__u_002",
@@ -823,38 +772,23 @@ def test_contest_parse_sweep_shares_parts():
     )
 
     assert [c.name for c in result.contestants] == ["navid-goal", "navid-route"]
-    assert all(
-        c.parts == {"camera": "vln_navid"} and "parts" not in c.args
-        for c in result.contestants
-    )
+    assert all(c.parts == {"camera": "vln_navid"} and "parts" not in c.args for c in result.contestants)
 
 
 def test_contest_parse_parts_rejects_lists():
     from arena_evaluation.benchmark.config import Contest
 
     with pytest.raises(ValueError, match="parts must map"):
-        Contest.parse(
-            "c", [{"name": "cma", "parts": {"camera": ["vln_rgbd", "vln_navid"]}}]
-        )
+        Contest.parse("c", [{"name": "cma", "parts": {"camera": ["vln_rgbd", "vln_navid"]}}])
 
 
 def test_robot_with_parts_replaces_items_of_the_same_key():
     from arena_evaluation.benchmark.config import robot_with_parts
 
     assert robot_with_parts("jackal", {}) == "jackal"
-    assert (
-        robot_with_parts("jackal", {"camera": "vln_rgbd"}) == "jackal[camera=vln_rgbd]"
-    )
-    assert (
-        robot_with_parts("jackal[camera=vln_navid]", {"camera": "vln_rgbd"})
-        == "jackal[camera=vln_rgbd]"
-    )
-    assert (
-        robot_with_parts(
-            "jackal[2,camera=[a,b],lidar=x],burger", {"camera": "vln_rgbd"}
-        )
-        == "jackal[2,lidar=x,camera=vln_rgbd],burger[camera=vln_rgbd]"
-    )
+    assert robot_with_parts("jackal", {"camera": "vln_rgbd"}) == "jackal[camera=vln_rgbd]"
+    assert robot_with_parts("jackal[camera=vln_navid]", {"camera": "vln_rgbd"}) == "jackal[camera=vln_rgbd]"
+    assert robot_with_parts("jackal[2,camera=[a,b],lidar=x],burger", {"camera": "vln_rgbd"}) == "jackal[2,lidar=x,camera=vln_rgbd],burger[camera=vln_rgbd]"
 
 
 # _parse_duration
@@ -896,9 +830,7 @@ def test_suite_parse_metrics_defaults_empty():
 def test_suite_parse_metrics_max_collisions():
     from arena_evaluation.benchmark.config import Suite
 
-    suite = Suite.parse(
-        "test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 1}}
-    )
+    suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 1}})
     assert suite.metrics == {"max_collisions": 1}
 
 
@@ -926,9 +858,7 @@ def test_suite_parse_metrics_barn_reference():
     from arena_evaluation.benchmark.config import Suite
 
     barn = {"start": [2.25, 3], "goal": [2.25, 13], "path_length": {"map1": 11.5}}
-    suite = Suite.parse(
-        "test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": barn}}
-    )
+    suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": barn}})
     assert suite.metrics == {
         "barn": {
             "start": [2.25, 3.0],
@@ -965,8 +895,6 @@ def test_stage_fields_are_plain_yaml_once_task_modes_are_values():
     stage = Suite.Stage.parse(_make_stage_dict(timeout="90s"))
     record = stage._asdict()
     assert set(record) == set(Suite.Stage._fields)
-    assert (
-        yaml.safe_load(yaml.dump({"stage": record}, sort_keys=False))["stage"] == record
-    )
+    assert yaml.safe_load(yaml.dump({"stage": record}, sort_keys=False))["stage"] == record
     assert record["timeout"] == 90.0
     assert record["map"] == "map1"

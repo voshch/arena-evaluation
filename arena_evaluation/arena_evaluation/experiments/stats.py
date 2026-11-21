@@ -58,9 +58,7 @@ def cluster_bootstrap(
 
     if statistic is None:
         estimate = float(np.sum(cluster_sums) / np.sum(cluster_counts))
-        draws = cluster_bootstrap_means(
-            cluster_sums, cluster_counts, n_boot=n_boot, rng=rng
-        )
+        draws = cluster_bootstrap_means(cluster_sums, cluster_counts, n_boot=n_boot, rng=rng)
     else:
         estimate = statistic(clusters)
         idx_matrix = draw_cluster_indices(k, n_boot, rng=rng)
@@ -70,13 +68,9 @@ def cluster_bootstrap(
         )
     draws = draws[np.isfinite(draws)]
     if len(draws) == 0:
-        return BootResult(
-            estimate, float("nan"), float("nan"), float("nan"), k, n_pairs
-        )
+        return BootResult(estimate, float("nan"), float("nan"), float("nan"), k, n_pairs)
     tail = (1.0 - level) / 2.0
-    lo, hi = contain_estimate(
-        float(np.quantile(draws, tail)), float(np.quantile(draws, 1.0 - tail)), estimate
-    )
+    lo, hi = contain_estimate(float(np.quantile(draws, tail)), float(np.quantile(draws, 1.0 - tail)), estimate)
     p = cluster_bootstrap_p_value(
         cluster_sums,
         cluster_counts,
@@ -113,23 +107,10 @@ def paired_differences(
 ) -> pl.DataFrame:
     """treatment - control per (cell, scenario, seed); rows missing either arm or the metric drop out."""
     keys = [*cell, scenario, seed]
-    wide = (
-        df.filter(
-            pl.col(arm).is_in([treatment, control]) & pl.col(metric).is_not_null()
-        )
-        .select([*keys, arm, pl.col(metric).cast(pl.Float64)])
-        .unique(subset=[*keys, arm], keep="first")
-        .pivot(on=arm, index=keys, values=metric)
-    )
+    wide = df.filter(pl.col(arm).is_in([treatment, control]) & pl.col(metric).is_not_null()).select([*keys, arm, pl.col(metric).cast(pl.Float64)]).unique(subset=[*keys, arm], keep="first").pivot(on=arm, index=keys, values=metric)
     if treatment not in wide.columns or control not in wide.columns:
-        return pl.DataFrame(
-            schema={**{k: df.schema[k] for k in keys}, "diff": pl.Float64}
-        )
-    return (
-        wide.with_columns((pl.col(treatment) - pl.col(control)).alias("diff"))
-        .drop_nulls("diff")
-        .select([*keys, "diff"])
-    )
+        return pl.DataFrame(schema={**{k: df.schema[k] for k in keys}, "diff": pl.Float64})
+    return wide.with_columns((pl.col(treatment) - pl.col(control)).alias("diff")).drop_nulls("diff").select([*keys, "diff"])
 
 
 def summarize_family(
@@ -145,16 +126,11 @@ def summarize_family(
     rows: list[dict[str, object]] = []
     rng = np.random.default_rng(seed)
     for key, group in diffs.group_by(list(cell), maintain_order=True):
-        clusters = [
-            g["diff"].to_numpy()
-            for _, g in group.group_by(scenario, maintain_order=True)
-        ]
+        clusters = [g["diff"].to_numpy() for _, g in group.group_by(scenario, maintain_order=True)]
         res = cluster_bootstrap(clusters, n_boot=n_boot, rng=rng)
         rows.append({**dict(zip(cell, key, strict=True)), **dataclasses.asdict(res)})
     if not rows:
         return pl.DataFrame()
     out = pl.DataFrame(rows)
     out = out.with_columns(pl.Series("p_holm", holm(out["p"].to_numpy())))
-    return out.with_columns(
-        (pl.col("p_holm") < alpha).fill_null(False).alias("excludes_zero")
-    )
+    return out.with_columns((pl.col("p_holm") < alpha).fill_null(False).alias("excludes_zero"))

@@ -46,9 +46,7 @@ def _write_world(run_dir: pathlib.Path, polygon: list[list[float]]) -> pathlib.P
 
 @pytest.fixture
 def open_run_dir(tmp_path: pathlib.Path) -> pathlib.Path:
-    return _write_world(
-        tmp_path, [[-5.0, -5.0], [15.0, -5.0], [15.0, 15.0], [-5.0, 15.0]]
-    )
+    return _write_world(tmp_path, [[-5.0, -5.0], [15.0, -5.0], [15.0, 15.0], [-5.0, 15.0]])
 
 
 def _times_and_xy(
@@ -72,9 +70,7 @@ def _robot_table(samples: list[tuple[float, float, float]]) -> pl.DataFrame:
     )
 
 
-def _ped_table(
-    samples: list[tuple[float, float, float]], radius_m: float | None = PED_RADIUS_M
-) -> pl.DataFrame:
+def _ped_table(samples: list[tuple[float, float, float]], radius_m: float | None = PED_RADIUS_M) -> pl.DataFrame:
     t, x, y = _times_and_xy(samples)
     count = len(t)
     return pl.DataFrame(
@@ -92,13 +88,9 @@ def _ped_table(
     )
 
 
-def _power_table(
-    samples: list[tuple[float, float, float]], watts: float
-) -> pl.DataFrame:
+def _power_table(samples: list[tuple[float, float, float]], watts: float) -> pl.DataFrame:
     t, _, _ = _times_and_xy(samples)
-    return pl.DataFrame(
-        {"t_ns": (t * SEC).astype(np.int64), "total_power_w": [watts] * len(t)}
-    )
+    return pl.DataFrame({"t_ns": (t * SEC).astype(np.int64), "total_power_w": [watts] * len(t)})
 
 
 def _episode(
@@ -125,9 +117,7 @@ def _episode(
     )
 
 
-def _window(
-    start_s: float, end_s: float, actor_kind: str = "pedestrian"
-) -> SimpleNamespace:
+def _window(start_s: float, end_s: float, actor_kind: str = "pedestrian") -> SimpleNamespace:
     return SimpleNamespace(
         scope=MetricScope.ENCOUNTER,
         identity={"actor_2": "p1", "actor_2_kind": actor_kind},
@@ -137,9 +127,7 @@ def _window(
 
 
 def _calculator() -> EncounterCostsCalculator:
-    calculator = EncounterCostsCalculator(
-        make_robot_params(model="jackal", robot_radius=ROBOT_RADIUS_M)
-    )
+    calculator = EncounterCostsCalculator(make_robot_params(model="jackal", robot_radius=ROBOT_RADIUS_M))
     calculator.metrics_config = {}
     return calculator
 
@@ -193,15 +181,11 @@ def test_robot_detour_gives_its_excess_deviation_and_mar_one(
         (4.0, 4.0, 0.0),
     ]
     ped_samples = [(t, t - 2.0, 4.0) for t, _, _ in robot_samples]
-    episode = _episode(
-        _robot_table(robot_samples), _ped_table(ped_samples), run_dir=open_run_dir
-    )
+    episode = _episode(_robot_table(robot_samples), _ped_table(ped_samples), run_dir=open_run_dir)
 
     outputs = _calculator().calculate_for_scope(episode, {}, _window(1.0, 3.0))
 
-    assert outputs["robot_path_excess_m"] == pytest.approx(
-        2.0 * np.sqrt(2.0) - 2.0, abs=1e-6
-    )
+    assert outputs["robot_path_excess_m"] == pytest.approx(2.0 * np.sqrt(2.0) - 2.0, abs=1e-6)
     assert outputs["robot_path_deviation_vs_planned_m"] == pytest.approx(1.0, abs=1e-6)
     assert outputs["ped_path_excess_m"] == pytest.approx(0.0, abs=1e-9)
     assert outputs["mar_vs_planned_route"] == pytest.approx(1.0, abs=1e-6)
@@ -222,9 +206,7 @@ def test_endpoint_in_a_lethal_cell_gives_reference_missing_for_the_robot_only(
         ],
     )
     robot_samples, ped_samples = _straight_pair()
-    episode = _episode(
-        _robot_table(robot_samples), _ped_table(ped_samples), run_dir=run_dir
-    )
+    episode = _episode(_robot_table(robot_samples), _ped_table(ped_samples), run_dir=run_dir)
 
     outputs = _calculator().calculate_for_scope(episode, {}, _window(1.0, 3.0))
 
@@ -252,10 +234,5 @@ def test_pedestrian_without_a_radius_has_no_planned_route(
 
 
 def test_the_calculator_publishes_only_encounter_scope_outputs() -> None:
-    assert {metric.name for metric in EncounterCostsCalculator.OUTPUTS} == set(
-        ENCOUNTER_OUTPUTS
-    )
-    assert all(
-        metric.scopes == (MetricScope.ENCOUNTER,)
-        for metric in EncounterCostsCalculator.OUTPUTS
-    )
+    assert {metric.name for metric in EncounterCostsCalculator.OUTPUTS} == set(ENCOUNTER_OUTPUTS)
+    assert all(metric.scopes == (MetricScope.ENCOUNTER,) for metric in EncounterCostsCalculator.OUTPUTS)

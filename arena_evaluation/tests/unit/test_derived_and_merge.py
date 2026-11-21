@@ -52,9 +52,7 @@ _ROWS = [
 ]
 
 
-def _save(
-    bench: pathlib.Path, frame: pl.DataFrame, version_label: str
-) -> dict[str, object]:
+def _save(bench: pathlib.Path, frame: pl.DataFrame, version_label: str) -> dict[str, object]:
     return save_derived_table(
         bench,
         name="lead",
@@ -84,9 +82,7 @@ def test_derived_table_archives_each_replaced_version(tmp_path: pathlib.Path) ->
     assert pl.read_parquet(root / "lead.parquet").equals(third)
 
     entries = list_derived_tables(bench, current_snapshot_id="snap-aaaaaaaaaaaa")
-    assert [
-        (entry["name"], entry["version"], entry["status"]) for entry in entries
-    ] == [("lead", 3, "fresh")]
+    assert [(entry["name"], entry["version"], entry["status"]) for entry in entries] == [("lead", 3, "fresh")]
     stale = list_derived_tables(bench, current_snapshot_id="snap-bbbbbbbbbbbb")
     assert [entry["status"] for entry in stale] == ["stale"]
 

@@ -48,7 +48,5 @@ class TopicParquetStore:
         try:
             return load_bundles(source_dir) or None
         except (OSError, pl.exceptions.PolarsError) as error:
-            _log.warning(
-                f"{source_dir}: cached telemetry unreadable, extracting again: {error}"
-            )
+            _log.warning(f"{source_dir}: cached telemetry unreadable, extracting again: {error}")
             return None

@@ -30,13 +30,9 @@ def _aligned_values(t_ns: np.ndarray, frame: pl.DataFrame, column: str) -> np.nd
     """`frame[column]` reindexed onto the episode's sample times, NaN where the sample is absent."""
     if frame.height == 0:
         return np.full(len(t_ns), np.nan, dtype=np.float64)
-    values = frame.select(
-        pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64)
-    ).drop_nulls("t_ns")
+    values = frame.select(pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64)).drop_nulls("t_ns")
     values = values.unique(subset=["t_ns"], keep="last")
-    joined = pl.DataFrame({"t_ns": t_ns.astype(np.int64)}).join(
-        values, on="t_ns", how="left"
-    )
+    joined = pl.DataFrame({"t_ns": t_ns.astype(np.int64)}).join(values, on="t_ns", how="left")
     return joined.get_column(column).to_numpy().astype(np.float64, copy=False)
 
 
@@ -104,24 +100,16 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["e_cot"]
 
-    def _level_series(
-        self, episode: AlignedEpisodeBundle, t_ns: np.ndarray
-    ) -> np.ndarray | None:
+    def _level_series(self, episode: AlignedEpisodeBundle, t_ns: np.ndarray) -> np.ndarray | None:
         """Per-frame dBA: the loudest pedestrian exposure at each sample time from the published series."""
         frame = self.series_frame(episode, "acoustic_exposure")
         if frame is None:
             return None
-        per_frame = (
-            frame.group_by("t_ns")
-            .agg(pl.col("exposure_dba").max().alias("level_dba"))
-            .sort("t_ns")
-        )
+        per_frame = frame.group_by("t_ns").agg(pl.col("exposure_dba").max().alias("level_dba")).sort("t_ns")
         levels = _aligned_values(t_ns, per_frame, "level_dba")
         return levels if np.isfinite(levels).any() else None
 
-    def _clearance_series(
-        self, episode: AlignedEpisodeBundle, t_ns: np.ndarray
-    ) -> np.ndarray | None:
+    def _clearance_series(self, episode: AlignedEpisodeBundle, t_ns: np.ndarray) -> np.ndarray | None:
         """Per-frame nearest-pedestrian clearance from the published proxemics-extended series."""
         frame = self.series_frame(episode, "proxemics_extended")
         if frame is None:
@@ -136,9 +124,7 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
             return None
         return episode.data.get_column("t_ns").to_numpy().astype(np.int64)
 
-    def _acoustic_proxemic_integrals(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[float | None, float | None]:
+    def _acoustic_proxemic_integrals(self, episode: AlignedEpisodeBundle) -> tuple[float | None, float | None]:
         """AEPS and APA from one aligned clearance + acoustic-exposure pass."""
         t_ns = self._t_ns_axis(episode)
         if t_ns is None or len(t_ns) == 0:
@@ -156,11 +142,7 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
         d_finite = clearance[finite]
         dt_finite = step_s[finite]
         intruded = d_finite < PERSONAL_SPACE_CLEARANCE_M
-        aeps = (
-            float(np.sum(linear_power[intruded] * dt_finite[intruded]))
-            if np.any(intruded)
-            else 0.0
-        )
+        aeps = float(np.sum(linear_power[intruded] * dt_finite[intruded])) if np.any(intruded) else 0.0
         d_clamped = np.maximum(d_finite, APA_MIN_DISTANCE_M)
         apa = float(np.sum((linear_power / (d_clamped * d_clamped)) * dt_finite))
         return aeps, apa
@@ -174,20 +156,11 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
         collisions = prior_results.get("collision_amount")
         intrusion_integral = prior_results.get("personal_space_intrusion_integral")
         time_to_goal = prior_results.get("time_to_goal")
-        if (
-            cost_of_transport is None
-            or collisions is None
-            or intrusion_integral is None
-            or time_to_goal is None
-        ):
+        if cost_of_transport is None or collisions is None or intrusion_integral is None or time_to_goal is None:
             return None
         if float(cost_of_transport) <= 0.0 or float(time_to_goal) <= 0.0:
             return None
-        value = float(cost_of_transport) * (
-            1.0
-            + COLLISION_PENALTY * int(collisions)
-            + INTRUSION_WEIGHT * float(intrusion_integral) / float(time_to_goal)
-        )
+        value = float(cost_of_transport) * (1.0 + COLLISION_PENALTY * int(collisions) + INTRUSION_WEIGHT * float(intrusion_integral) / float(time_to_goal))
         return round(value, COT_DECIMALS)
 
     def _episode_metrics(
@@ -205,8 +178,6 @@ class HolisticMetricsCalculator(BaseMetricCalculator):
             f"relative_social_compliance_cost{NULL_REASON_SUFFIX}": NullReason.REFERENCE_MISSING.value,
         }
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Holistic values over the bundle's own samples, at whichever scope the bundle was sliced for."""
         return self._episode_metrics(episode, prior_results)

@@ -22,9 +22,7 @@ def test_group_members_stand_on_the_formation_circle_facing_its_center() -> None
     assert len(poses) == 3
     for x, y, yaw in poses:
         assert math.hypot(x - 4.0, y - 17.5) == pytest.approx(social.GROUP_RADIUS_M)
-        assert math.atan2(math.sin(yaw), math.cos(yaw)) == pytest.approx(
-            math.atan2(17.5 - y, 4.0 - x)
-        )
+        assert math.atan2(math.sin(yaw), math.cos(yaw)) == pytest.approx(math.atan2(17.5 - y, 4.0 - x))
     assert poses[0] == pytest.approx((4.94, 17.5, math.pi))
 
 
@@ -38,12 +36,8 @@ def test_write_scenario_emits_one_agent_file_per_person_with_rounded_poses(
         layout,
         [(3.85, 17.5, 0.0), (4.15, 17.5, 3.14159)],
     )
-    scenario = yaml.safe_load(
-        (tmp_path / "contact_hug_ward" / "scenario.yaml").read_text()
-    )
-    assert scenario["robots"] == [
-        {"start": [4.0, 12.0, 1.5708], "phases": [{"goto": [4.0, 23.0, 1.5708]}]}
-    ]
+    scenario = yaml.safe_load((tmp_path / "contact_hug_ward" / "scenario.yaml").read_text())
+    assert scenario["robots"] == [{"start": [4.0, 12.0, 1.5708], "phases": [{"goto": [4.0, 23.0, 1.5708]}]}]
     assert [d["name"] for d in scenario["dynamic"]] == ["person_0", "person_1"]
     assert [d["model"] for d in scenario["dynamic"]] == list(social.MODELS[:2])
     assert [d["pose"] for d in scenario["dynamic"]] == [
@@ -52,9 +46,7 @@ def test_write_scenario_emits_one_agent_file_per_person_with_rounded_poses(
     ]
     assert scenario["dynamic"][1]["agent"] == {"agent_type": "./person_1.yaml"}
     assert scenario["dynamic"][1]["waypoints"] == [[4.15, 17.5]]
-    agent = yaml.safe_load(
-        (tmp_path / "contact_hug_ward" / "person_1.yaml").read_text()
-    )
+    agent = yaml.safe_load((tmp_path / "contact_hug_ward" / "person_1.yaml").read_text())
     steps = agent["sequences"]["seq"]["steps"]
     assert (agent["name"], agent["initial_sequence"], list(steps)) == (
         "person_1",
@@ -103,9 +95,7 @@ def _rows(
                         "episode_id": episode,
                         "result": "GOAL_REACHED",
                         "success": True,
-                        "min_ped_clearance_m": 0.5
-                        + 0.1 * seed
-                        + (0.0 if through else 1.0),
+                        "min_ped_clearance_m": 0.5 + 0.1 * seed + (0.0 if through else 1.0),
                         "time_in_intimate_zone": 2.0 + 0.5 * seed,
                         "time_in_personal_zone": 5.0 + 0.5 * seed,
                         "path_length_m": 6.0 + seed,
@@ -143,9 +133,7 @@ def _run(tmp_path: pathlib.Path, arm: str, **kwargs: object) -> pathlib.Path:
     )
 
 
-def test_analyze_pairs_the_arms_by_seed_within_each_case(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_analyze_pairs_the_arms_by_seed_within_each_case(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     on = _run(tmp_path, "on")
     off = _run(tmp_path, "off", through=True)
     tables = social.analyze(on, off, n_boot=100, out_dir=tmp_path / "out")
@@ -164,14 +152,10 @@ def test_analyze_pairs_the_arms_by_seed_within_each_case(
         2,
         4,
     )
-    clearance = paired.filter(pl.col("metric") == "min_ped_clearance_m").row(
-        0, named=True
-    )
+    clearance = paired.filter(pl.col("metric") == "min_ped_clearance_m").row(0, named=True)
     assert clearance["off_minus_on"] == pytest.approx(-1.0)
     # The two proxemics time metrics are paired like every other metric (L3-071/B-016).
-    intimate = paired.filter(pl.col("metric") == "time_in_intimate_zone").row(
-        0, named=True
-    )
+    intimate = paired.filter(pl.col("metric") == "time_in_intimate_zone").row(0, named=True)
     assert intimate["off_minus_on"] == pytest.approx(0.0)
     assert tables["descriptive"].select("intimate_s", "personal_s").columns == [
         "intimate_s",
@@ -192,13 +176,8 @@ def test_analyze_pairs_the_arms_by_seed_within_each_case(
     assert "== descriptive" in out and "== matched" in out and "== paired" in out
 
 
-def test_main_analyze_returns_zero(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_analyze_returns_zero(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     on = _run(tmp_path, "on")
     off = _run(tmp_path, "off", through=True)
-    assert (
-        social.main(["analyze", "--on", str(on), "--off", str(off), "--boot", "50"])
-        == 0
-    )
+    assert social.main(["analyze", "--on", str(on), "--off", str(off), "--boot", "50"]) == 0
     assert "== paired" in capsys.readouterr().out

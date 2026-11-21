@@ -53,11 +53,7 @@ def _write_tables(benchmark_dir: pathlib.Path, tables: dict[str, pl.DataFrame]) 
     ep_ids: set[int] = set()
     for name in FACT_TABLES:
         fact_name = f"fact_{name}"
-        if (
-            fact_name in tables
-            and tables[fact_name].height > 0
-            and "episode_id" in tables[fact_name].columns
-        ):
+        if fact_name in tables and tables[fact_name].height > 0 and "episode_id" in tables[fact_name].columns:
             ep_ids.update(int(x) for x in tables[fact_name]["episode_id"].to_list())
     if not ep_ids and "dim_episodes" in tables and tables["dim_episodes"].height > 0:
         ep_ids.update(int(x) for x in tables["dim_episodes"]["episode_id"].to_list())
@@ -106,9 +102,7 @@ def _column_names(schema: pl.Schema | Mapping[str, pl.DataType]) -> list[str]:
     return list(schema) if isinstance(schema, Mapping) else schema.names()
 
 
-def _row(
-    schema: pl.Schema | Mapping[str, pl.DataType], **values: Any
-) -> dict[str, Any]:
+def _row(schema: pl.Schema | Mapping[str, pl.DataType], **values: Any) -> dict[str, Any]:
     """One table row holding every declared column, null unless a value is given."""
     return {name: values.get(name) for name in _column_names(schema)}
 
@@ -423,9 +417,7 @@ def run(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
 
 
 def _persisted(run_dir: pathlib.Path, table: str) -> pl.DataFrame:
-    return pl.read_parquet(
-        run_dir / "episodes" / "episode_000" / "metrics" / f"{table}.parquet"
-    )
+    return pl.read_parquet(run_dir / "episodes" / "episode_000" / "metrics" / f"{table}.parquet")
 
 
 def test_contact_slice_explains_the_attributed_contact(run: pathlib.Path) -> None:
@@ -473,14 +465,10 @@ def test_encounter_slice_previews_its_contact_and_pedestrian_rows(
     assert response.contacts.n_rows == 1
     assert response.pedestrians.n_rows == 1
     assert response.pedestrians.rows[0]["ped_id"] == PEDESTRIAN_NEAR
-    pedestrian_frame = pl.DataFrame(
-        response.pedestrians.rows, schema=FACT_PEDESTRIANS_SCHEMA
-    )
+    pedestrian_frame = pl.DataFrame(response.pedestrians.rows, schema=FACT_PEDESTRIANS_SCHEMA)
     assert_frame_equal(
         pedestrian_frame.select("ped_id", "ped_name", "total_intrusions_personal"),
-        _persisted(run, "fact_pedestrians")
-        .filter(pl.col("ped_id") == PEDESTRIAN_NEAR)
-        .select("ped_id", "ped_name", "total_intrusions_personal"),
+        _persisted(run, "fact_pedestrians").filter(pl.col("ped_id") == PEDESTRIAN_NEAR).select("ped_id", "ped_name", "total_intrusions_personal"),
     )
 
 
@@ -504,9 +492,7 @@ def test_episode_slice_lists_every_interaction(run: pathlib.Path) -> None:
     ],
     ids=["unknown_encounter", "unknown_contact", "no_ids"],
 )
-def test_slice_rejects_unknown_ids_with_a_typed_error(
-    run: pathlib.Path, ids: dict[str, str], message: str
-) -> None:
+def test_slice_rejects_unknown_ids_with_a_typed_error(run: pathlib.Path, ids: dict[str, str], message: str) -> None:
     with pytest.raises(ToolError, match=message):
         evaluation_slice(RUN_ID, **ids)
 
@@ -567,15 +553,11 @@ def test_finding_create_list_review_and_attach(run: pathlib.Path) -> None:
     assert listed.findings[0].model_dump() == finding.model_dump()
 
     evaluation_finding_verify(RUN_ID, finding.finding_id)
-    reviewed = evaluation_finding_status(
-        RUN_ID, finding.finding_id, "verified", by="verifier"
-    )
+    reviewed = evaluation_finding_status(RUN_ID, finding.finding_id, "verified", by="verifier")
     assert reviewed.status is FindingStatus.VERIFIED
     assert evaluation_findings(RUN_ID).findings[0].status is FindingStatus.VERIFIED
 
-    attached = evaluation_finding_attach(
-        RUN_ID, finding.finding_id, report="report.html"
-    )
+    attached = evaluation_finding_attach(RUN_ID, finding.finding_id, report="report.html")
     assert attached.finding.report == "report.html"
     assert attached.note_label == f"finding:{finding.finding_id}"
     notes = yaml.safe_load((run / "notes.yaml").read_text(encoding="utf-8"))

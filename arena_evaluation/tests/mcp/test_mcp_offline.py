@@ -48,9 +48,7 @@ def _write_star_run(tmp_path: Path) -> str:
     ]
     enc_dir = run_dir / "episodes" / "episode_000" / "metrics"
     enc_dir.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame(enc_rows, schema=enc_schema).write_parquet(
-        enc_dir / "fact_encounters.parquet"
-    )
+    pl.DataFrame(enc_rows, schema=enc_schema).write_parquet(enc_dir / "fact_encounters.parquet")
     return run_dir.name
 
 
@@ -103,9 +101,7 @@ def test_benchmark_argv_renders_runner_options_and_launch_args():
 
 
 def test_benchmark_argv_resume_names_the_run_and_refuses_configs():
-    assert runs.benchmark_argv(
-        suite=None, contest=None, run_id="old", resume=True, retry_failed=True
-    ) == ["--resume", "old", "--retry-failed"]
+    assert runs.benchmark_argv(suite=None, contest=None, run_id="old", resume=True, retry_failed=True) == ["--resume", "old", "--retry-failed"]
     with pytest.raises(ToolError, match="replays its stored suite"):
         runs.benchmark_argv(suite="basic", contest=None, run_id="old", resume=True)
 
@@ -120,22 +116,13 @@ def test_launch_tokens_reject_a_key_given_twice_and_reject_traversing_names():
 def test_compare_groups_by_contestant_and_drops_references(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
-    result = analysis.evaluation_compare_planners(
-        run_id, metrics=["success", "time_to_goal", "path_efficiency"]
-    )
+    result = analysis.evaluation_compare_planners(run_id, metrics=["success", "time_to_goal", "path_efficiency"])
     names = [row["planner"] for row in result["rankings"]]
     assert sorted(names) == ["dwb", "dwb_social"]
     assert names[0] == "dwb"
     assert result["rankings"][0]["rank"] == 1
-    assert all(
-        0.0 <= row[key] <= 1.0
-        for row in result["rankings"]
-        for key in row
-        if key.endswith("_norm")
-    )
-    with_refs = analysis.evaluation_compare_planners(
-        run_id, metrics=["success"], include_references=True
-    )
+    assert all(0.0 <= row[key] <= 1.0 for row in result["rankings"] for key in row if key.endswith("_norm"))
+    with_refs = analysis.evaluation_compare_planners(run_id, metrics=["success"], include_references=True)
     assert "unhindered_peds" in [row["planner"] for row in with_refs["rankings"]]
 
 
@@ -143,9 +130,7 @@ def test_metrics_without_a_declared_direction_raise_hinted_tool_error(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
     with pytest.raises(ToolError, match="direction"):
-        analysis.evaluation_compare_planners(
-            run_id, metrics=["success", "num_pedestrians"]
-        )
+        analysis.evaluation_compare_planners(run_id, metrics=["success", "num_pedestrians"])
     with pytest.raises(ToolError, match="direction"):
         slices.evaluation_worst_encounters(run_id, metric="num_pedestrians")
 
@@ -155,9 +140,7 @@ def test_a_canonical_measure_with_a_declared_direction_ranks_higher_is_better(tm
     run_id = _write_star_run(tmp_path)
     desc = analysis.evaluation_describe_metric("mar_vs_planned_route", run_id=run_id)
     assert desc["direction"] == "higher"
-    top = analysis.evaluation_compare_planners(
-        run_id, n=1, metrics=["success", "time_to_goal"]
-    )
+    top = analysis.evaluation_compare_planners(run_id, n=1, metrics=["success", "time_to_goal"])
     assert top["rankings"][0]["planner"] in {"dwb", "dwb_social"}
 
 
@@ -165,29 +148,18 @@ def test_compare_planners_weights_must_match_the_metrics(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
     with pytest.raises(ToolError, match="2 weights for 1 metrics"):
-        analysis.evaluation_compare_planners(
-            run_id, n=1, metrics=["success"], weights=[1.0, 2.0]
-        )
-    weighted = analysis.evaluation_compare_planners(
-        run_id, n=2, metrics=["success", "time_to_goal"], weights=[0.0, 1.0]
-    )
+        analysis.evaluation_compare_planners(run_id, n=1, metrics=["success"], weights=[1.0, 2.0])
+    weighted = analysis.evaluation_compare_planners(run_id, n=2, metrics=["success", "time_to_goal"], weights=[0.0, 1.0])
     assert weighted["rankings"][0]["planner"] == "dwb"
 
 
 def test_correlation_is_bounded_and_worst_encounters_reads_dim_metrics(tmp_path):
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     run_id = _write_star_run(tmp_path)
-    result = analysis.evaluation_correlation(
-        run_id, ["success", "time_to_goal", "path_efficiency"]
-    )
+    result = analysis.evaluation_correlation(run_id, ["success", "time_to_goal", "path_efficiency"])
     matrix = result["correlation_matrix"]
     assert matrix["success"]["success"] == 1.0
-    assert all(
-        -1.0 <= value <= 1.0
-        for row in matrix.values()
-        for value in row.values()
-        if value is not None
-    )
+    assert all(-1.0 <= value <= 1.0 for row in matrix.values() for value in row.values() if value is not None)
     worst = slices.evaluation_worst_encounters(run_id, metric="min_clearance_m")
     assert worst.direction == "higher"
     assert worst.rows[0]["encounter_id"] == "e1"

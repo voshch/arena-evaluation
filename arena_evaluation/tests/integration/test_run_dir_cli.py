@@ -5,13 +5,7 @@ import sys
 
 import polars as pl
 
-FIXTURE = (
-    pathlib.Path(__file__).parent.parent
-    / "fixtures"
-    / "sample_benchmark"
-    / "episodes"
-    / "episode_000"
-)
+FIXTURE = pathlib.Path(__file__).parent.parent / "fixtures" / "sample_benchmark" / "episodes" / "episode_000"
 
 
 def _episode(tmp_path: pathlib.Path) -> pathlib.Path:

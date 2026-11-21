@@ -32,9 +32,7 @@ INTERACTION_EVENT_NAMES = {
 }
 
 
-def record_collision_events(
-    sink: TableSink, envelope: Envelope[CollisionEvents]
-) -> None:
+def record_collision_events(sink: TableSink, envelope: Envelope[CollisionEvents]) -> None:
     events = envelope.body.events
     sink.append(
         "robot_collision_events",
@@ -62,9 +60,7 @@ def record_collision_events(
         )
 
 
-def record_collision_monitor(
-    sink: TableSink, envelope: Envelope[CollisionMonitorState]
-) -> None:
+def record_collision_monitor(sink: TableSink, envelope: Envelope[CollisionMonitorState]) -> None:
     monitor = envelope.body
     sink.append(
         "robot_collision_monitor",
@@ -103,9 +99,7 @@ def record_interactions(sink: TableSink, envelope: Envelope[InteractionFrame]) -
             ),
         )
         start, end = offsets[index], offsets[index + 1]
-        for member, role in zip(
-            member_ids[start:end], member_roles[start:end], strict=True
-        ):
+        for member, role in zip(member_ids[start:end], member_roles[start:end], strict=True):
             role_name = MEMBER_ROLE_NAMES.get(role)
             if role_name is not None:
                 sink.append(
@@ -119,14 +113,10 @@ def record_interactions(sink: TableSink, envelope: Envelope[InteractionFrame]) -
                 )
 
 
-def record_interaction_events(
-    sink: TableSink, envelope: Envelope[InteractionFrame]
-) -> None:
+def record_interaction_events(sink: TableSink, envelope: Envelope[InteractionFrame]) -> None:
     for event in envelope.body.events:
         event_code = int(event.event)
-        participants: list[int | None] = [
-            int(participant) for participant in event.participants
-        ] or [None]
+        participants: list[int | None] = [int(participant) for participant in event.participants] or [None]
         for participant in participants:
             sink.append(
                 "pedestrian_interaction_events",
@@ -145,9 +135,7 @@ def record_animations(sink: TableSink, envelope: Envelope[AnimationStates]) -> N
     for ped in envelope.body.peds:
         ped_id = pedestrian_id(int(ped.id))
         for slot in list(ped.slots) or [None]:
-            sink.append(
-                "pedestrian_animations", _animation_row(envelope, ped_id, ped, slot)
-            )
+            sink.append("pedestrian_animations", _animation_row(envelope, ped_id, ped, slot))
 
 
 def _count_kind(events: Iterable[CollisionEvent], kind: str) -> int:
@@ -159,9 +147,7 @@ def _position(event: CollisionEvent) -> tuple[float, float, float]:
     return float(position.x), float(position.y), float(position.z)
 
 
-def _animation_row(
-    envelope: Envelope, ped_id: str, ped: AnimationState, slot: AnimationSlot | None
-) -> dict[str, object]:
+def _animation_row(envelope: Envelope, ped_id: str, ped: AnimationState, slot: AnimationSlot | None) -> dict[str, object]:
     base = {
         "ped_id": ped_id,
         "ped_name": str(ped.name),

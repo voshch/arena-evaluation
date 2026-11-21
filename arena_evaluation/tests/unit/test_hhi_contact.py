@@ -22,9 +22,7 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
     t = np.arange(0.0, 22.0, 0.05)
     x = np.empty_like(t)
     for i, ti in enumerate(t):
-        x[i] = (
-            min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
-        )
+        x[i] = min(ti, 12.0) if ti < 12.0 else (12.0 if ti < 16.0 else 12.0 + (ti - 16.0))
     y = np.zeros_like(t)
     data = pl.DataFrame(
         {
@@ -46,9 +44,7 @@ def _episode(release: bool = True) -> AlignedEpisodeBundle:
             for ti in t
         ]
     )
-    steps = [("ACTIVATED", 0, 4.0), ("HOLD_ONSET", 1, 5.0)] + (
-        [("RELEASED", 2, 11.0)] if release else []
-    )
+    steps = [("ACTIVATED", 0, 4.0), ("HOLD_ONSET", 1, 5.0)] + ([("RELEASED", 2, 11.0)] if release else [])
     events = pl.DataFrame(
         [
             {
@@ -83,9 +79,7 @@ def test_calculator_on_a_synthetic_episode() -> None:
         pytest.approx(11.0),
     )
     assert out["hhi_stall_count"] == 1
-    assert contact.series_table(episode).get_column("onset_s")[0] == pytest.approx(
-        12.0, abs=0.2
-    )
+    assert contact.series_table(episode).get_column("onset_s")[0] == pytest.approx(12.0, abs=0.2)
     assert (
         out["hhi_stalls_approach"],
         out["hhi_stalls_hold"],
@@ -102,9 +96,7 @@ def test_calculator_on_a_synthetic_episode() -> None:
 
 
 def test_calculator_without_a_release_holds_to_the_end() -> None:
-    out = ContactInteractionCalculator(make_robot_params()).calculate(
-        _episode(release=False), {}
-    )
+    out = ContactInteractionCalculator(make_robot_params()).calculate(_episode(release=False), {})
     assert out["hhi_release_s"] is None
     assert out["hhi_stalls_hold"] == 1 and out["hhi_stalls_post"] == 0
 
@@ -131,16 +123,11 @@ def test_calculator_without_contact_events_reports_unknown_windows() -> None:
         assert out[f"hhi_stalls_{window}"] is None
         assert out[f"hhi_share_{window}"] is None
     provenance = calc.missing_input_provenance(ep)
-    assert (
-        provenance["hhi_stall_count"]
-        == "hhi_stall_count:topic_missing:pedestrian_interaction_events"
-    )
+    assert provenance["hhi_stall_count"] == "hhi_stall_count:topic_missing:pedestrian_interaction_events"
 
 
 def test_speed_of_a_single_sample_is_zero() -> None:
-    assert smoothed_speed(
-        np.array([0.0]), np.array([1.0]), np.array([2.0])
-    ).tolist() == [0.0]
+    assert smoothed_speed(np.array([0.0]), np.array([1.0]), np.array([2.0])).tolist() == [0.0]
 
 
 def test_no_stalls_without_samples_or_prior_motion() -> None:
@@ -149,26 +136,17 @@ def test_no_stalls_without_samples_or_prior_motion() -> None:
 
 
 def test_crossings_need_a_robot_move() -> None:
-    assert (
-        segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist()
-        == []
-    )
+    assert segment_crossings(np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2))).tolist() == []
 
 
 def test_calculator_without_an_activation_edge_sees_no_interaction() -> None:
     ep = _episode()
     ep.topics = {
         **ep.topics,
-        "pedestrian_interaction_events": ep.topics[
-            "pedestrian_interaction_events"
-        ].filter(pl.col("event_name") == "RELEASED"),
+        "pedestrian_interaction_events": ep.topics["pedestrian_interaction_events"].filter(pl.col("event_name") == "RELEASED"),
     }
     out = ContactInteractionCalculator(make_robot_params()).calculate(ep, {})
-    assert (
-        out["hhi_interaction"] is None
-        and out["hhi_hold_onset_s"] is None
-        and out["hhi_release_s"] is None
-    )
+    assert out["hhi_interaction"] is None and out["hhi_hold_onset_s"] is None and out["hhi_release_s"] is None
     assert out["hhi_stall_count"] == 1
 
 
@@ -180,18 +158,12 @@ def test_calculator_on_too_short_or_unlocatable_data_is_all_none() -> None:
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[1.0, 0.0],
     )
-    assert (
-        ContactInteractionCalculator(make_robot_params()).calculate(short, {}) == empty
-    )
+    assert ContactInteractionCalculator(make_robot_params()).calculate(short, {}) == empty
     nan = float("nan")
     lost = AlignedEpisodeBundle(
         episode_id=0,
-        data=pl.DataFrame(
-            {"t_ns": [0, SEC], "x": [nan, nan], "y": [nan, nan], "yaw": [0.0, 0.0]}
-        ),
+        data=pl.DataFrame({"t_ns": [0, SEC], "x": [nan, nan], "y": [nan, nan], "yaw": [0.0, 0.0]}),
         start_pos=[0.0, 0.0, 0.0],
         goal_pos=[1.0, 0.0],
     )
-    assert (
-        ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty
-    )
+    assert ContactInteractionCalculator(make_robot_params()).calculate(lost, {}) == empty

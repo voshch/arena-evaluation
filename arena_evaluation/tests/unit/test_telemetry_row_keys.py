@@ -34,9 +34,7 @@ def test_discriminator_tables_pin_their_row_key() -> None:
     )
 
 
-def _benchmark_with_telemetry(
-    tmp_path: pathlib.Path, frame: pl.DataFrame
-) -> pathlib.Path:
+def _benchmark_with_telemetry(tmp_path: pathlib.Path, frame: pl.DataFrame) -> pathlib.Path:
     """A benchmark whose only stored table is one episode's robot telemetry."""
     topics = tmp_path / "episodes" / "episode_000" / "topics"
     topics.mkdir(parents=True)

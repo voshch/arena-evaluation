@@ -52,11 +52,7 @@ def _write_tables(benchmark_dir: pathlib.Path, tables: dict[str, pl.DataFrame]) 
     ep_ids: set[int] = set()
     for name in FACT_TABLES:
         fact_name = f"fact_{name}"
-        if (
-            fact_name in tables
-            and tables[fact_name].height > 0
-            and "episode_id" in tables[fact_name].columns
-        ):
+        if fact_name in tables and tables[fact_name].height > 0 and "episode_id" in tables[fact_name].columns:
             ep_ids.update(int(x) for x in tables[fact_name]["episode_id"].to_list())
     if not ep_ids and "dim_episodes" in tables and tables["dim_episodes"].height > 0:
         ep_ids.update(int(x) for x in tables["dim_episodes"]["episode_id"].to_list())
@@ -311,9 +307,7 @@ def test_mcp_evaluation_save_plot_declaration(tmp_path: pathlib.Path) -> None:
     assert save_res["type"] == "bar"
 
     # Verify readable via read tool
-    read_res = evaluation_read_plot_declaration(
-        "mcp_custom_density_bar", run_id="run-pres-save"
-    )
+    read_res = evaluation_read_plot_declaration("mcp_custom_density_bar", run_id="run-pres-save")
     assert read_res["spec"]["id"] == "mcp_custom_density_bar"
     assert read_res["spec"]["type"] == "bar"
 
@@ -341,10 +335,7 @@ def test_mcp_evaluation_render_plot_recipe(
     )
     from mcp.types import ImageContent
 
-    assert any(
-        isinstance(c, ImageContent) and c.mime_type == "image/png"
-        for c in res_png.content
-    )
+    assert any(isinstance(c, ImageContent) and c.mime_type == "image/png" for c in res_png.content)
     sc_png = res_png.structured_content
     assert sc_png is not None
     assert sc_png["format"] == "png"
@@ -429,23 +420,15 @@ def test_mcp_evaluation_render_plot_error_handling(
     os.environ["ARENA_DATA_DIR"] = str(tmp_path / "data")
 
     # Error: Neither declaration nor spec_yaml
-    with pytest.raises(
-        ToolError, match="Must provide either 'declaration' or 'spec_yaml'"
-    ):
+    with pytest.raises(ToolError, match="Must provide either 'declaration' or 'spec_yaml'"):
         evaluation_render_plot(run_id="run-pres-003")
 
     # Error: Both declaration and spec_yaml
-    with pytest.raises(
-        ToolError, match="Cannot provide both 'declaration' and 'spec_yaml'"
-    ):
-        evaluation_render_plot(
-            run_id="run-pres-003", declaration="foo", spec_yaml="bar"
-        )
+    with pytest.raises(ToolError, match="Cannot provide both 'declaration' and 'spec_yaml'"):
+        evaluation_render_plot(run_id="run-pres-003", declaration="foo", spec_yaml="bar")
 
     # Error: Non-existent declaration
-    with pytest.raises(
-        ToolError, match="Plot declaration 'non_existent_rec' not found"
-    ):
+    with pytest.raises(ToolError, match="Plot declaration 'non_existent_rec' not found"):
         evaluation_render_plot(run_id="run-pres-003", declaration="non_existent_rec")
 
 
@@ -481,7 +464,4 @@ def test_mcp_evaluation_render_plot_zero_row_diagnostic(
 
     err = exc_info.value
     assert "returned 0 rows; cannot render plot with an empty dataset" in str(err)
-    assert (
-        "Verify filter conditions or run 'evaluation_query' to check row counts."
-        in (err.hint or "")
-    )
+    assert "Verify filter conditions or run 'evaluation_query' to check row counts." in (err.hint or "")

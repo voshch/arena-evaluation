@@ -68,15 +68,11 @@ class PathEfficiencyCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["path_efficiency", "relative_throughput"]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Geodesic reference over travelled length; relative_throughput is left null here and computed in Layer 3 against is_reference runs."""
         results = self._path_efficiency(prior_results)
         results["relative_throughput"] = None
-        results[f"relative_throughput{NULL_REASON_SUFFIX}"] = (
-            NullReason.REFERENCE_MISSING.value
-        )
+        results[f"relative_throughput{NULL_REASON_SUFFIX}"] = NullReason.REFERENCE_MISSING.value
         return results
 
     @staticmethod

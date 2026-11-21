@@ -21,11 +21,7 @@ class FolderManager:
         environ: Mapping[str, str] = os.environ,
         share_directory: Callable[[str], str] = get_package_share_directory,
     ):
-        root = (
-            pathlib.Path(data_root)
-            if data_root is not None
-            else benchmarks_root(environ=environ, share_directory=share_directory)
-        )
+        root = pathlib.Path(data_root) if data_root is not None else benchmarks_root(environ=environ, share_directory=share_directory)
         self.data_root = root.resolve()
         self.data_root.mkdir(parents=True, exist_ok=True)
 
@@ -35,9 +31,7 @@ class FolderManager:
         try:
             resolved.relative_to(self.data_root)
         except ValueError:
-            raise ValueError(
-                f"Path {resolved} is outside data_root {self.data_root}"
-            ) from None
+            raise ValueError(f"Path {resolved} is outside data_root {self.data_root}") from None
         return resolved
 
     def benchmark_dir(self, benchmark_id: str) -> pathlib.Path:
@@ -50,9 +44,7 @@ class FolderManager:
 
     def episode_dir(self, benchmark_id: str, episode_id: int) -> pathlib.Path:
         """Return the directory for a specific episode."""
-        return self._safe_resolve(
-            self.episodes_dir(benchmark_id) / f"episode_{episode_id:03d}"
-        )
+        return self._safe_resolve(self.episodes_dir(benchmark_id) / f"episode_{episode_id:03d}")
 
     def discover_episodes(self, benchmark_id: str) -> list[EpisodeDescriptor]:
         """Discover valid episode directories and their metadata."""
@@ -68,9 +60,7 @@ class FolderManager:
         return episodes
 
     @staticmethod
-    def describe_episode(
-        ep_dir: pathlib.Path, benchmark_id: str | None = None
-    ) -> EpisodeDescriptor | None:
+    def describe_episode(ep_dir: pathlib.Path, benchmark_id: str | None = None) -> EpisodeDescriptor | None:
         """Descriptor of one `episode_NNN` directory, None when it is not a readable episode."""
         if not ep_dir.is_dir() or not ep_dir.name.startswith("episode_"):
             return None
@@ -102,15 +92,11 @@ class FolderManager:
         canonical = episode_dir / f"{episode_dir.name}.mcap"
         if canonical.exists():
             return self._safe_resolve(canonical)
-        candidates = sorted(
-            p for p in episode_dir.glob("*.mcap") if p.stat().st_size > 0
-        )
+        candidates = sorted(p for p in episode_dir.glob("*.mcap") if p.stat().st_size > 0)
         if candidates:
             return self._safe_resolve(candidates[0])
         return self._safe_resolve(canonical)
 
-    def extracted_topics_path_for_episode(
-        self, episode_dir: pathlib.Path
-    ) -> pathlib.Path:
+    def extracted_topics_path_for_episode(self, episode_dir: pathlib.Path) -> pathlib.Path:
         """Return topics directory for an episode."""
         return self._safe_resolve(episode_dir / "topics")

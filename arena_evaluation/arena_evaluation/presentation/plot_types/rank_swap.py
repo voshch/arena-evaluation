@@ -34,15 +34,11 @@ class RankSwapRenderer(BasePlotRenderer):
         x_col, y_col = self.resolve_channel("x"), self.resolve_channel("y")
         if x_col is None or y_col is None:
             channel = "x" if x_col is None else "y"
-            raise ValueError(
-                f"Plot {self.spec.id!r}: rank_swap plot requires channel {channel!r}."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: rank_swap plot requires channel {channel!r}.")
         self.validate_unique_cells(df, [x_col])
         return x_col, y_col
 
-    def _plot_data(
-        self, df: pl.DataFrame
-    ) -> tuple[list[str], np.ndarray, str, str] | None:
+    def _plot_data(self, df: pl.DataFrame) -> tuple[list[str], np.ndarray, str, str] | None:
         if df.is_empty():
             return None
         x_col, y_col = self._resolve_columns(df)
@@ -81,11 +77,7 @@ class RankSwapRenderer(BasePlotRenderer):
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly rank-swap bar chart."""
         fig = self.build_plotly_figure(df)
-        return (
-            None
-            if fig is None
-            else fig.to_html(include_plotlyjs=False, full_html=False)
-        )
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static rank-swap figure without writing it."""

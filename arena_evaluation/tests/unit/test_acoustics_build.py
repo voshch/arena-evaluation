@@ -71,17 +71,12 @@ def _attenuations(measure: float) -> np.ndarray:
 
 def test_the_default_library_sits_next_to_the_module() -> None:
     """Without an override the loader looks where the build writes."""
-    assert impedance_grid.solver_library_path() == (
-        Path(impedance_grid.__file__).resolve().parent / "solver.so"
-    )
+    assert impedance_grid.solver_library_path() == (Path(impedance_grid.__file__).resolve().parent / "solver.so")
 
 
 def test_the_loaded_library_exports_the_wrappers_abi() -> None:
     """The library in the package tree is the one this wrapper binds."""
-    assert (
-        impedance_grid.solver_abi(impedance_grid._solver_library())
-        == ACOUSTIC_SOLVER_ABI
-    )
+    assert impedance_grid.solver_abi(impedance_grid._solver_library()) == ACOUSTIC_SOLVER_ABI
 
 
 def test_the_solver_source_declares_the_wrappers_abi() -> None:
@@ -90,30 +85,18 @@ def test_the_solver_source_declares_the_wrappers_abi() -> None:
     assert f"#define ARENA_ACOUSTIC_SOLVER_ABI {ACOUSTIC_SOLVER_ABI}" in source
 
 
-def test_a_library_with_another_abi_version_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_a_library_with_another_abi_version_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A library built from a different model does not publish numbers under this ABI."""
-    exports = (
-        f'extern "C" int {ACOUSTIC_SOLVER_ABI_SYMBOL}(void) {{ return 999; }}\n'
-        + "".join(
-            f'extern "C" void {symbol}() {{}}\n' for symbol in ACOUSTIC_SOLVER_SYMBOLS
-        )
-    )
+    exports = f'extern "C" int {ACOUSTIC_SOLVER_ABI_SYMBOL}(void) {{ return 999; }}\n' + "".join(f'extern "C" void {symbol}() {{}}\n' for symbol in ACOUSTIC_SOLVER_SYMBOLS)
     foreign = _compile(tmp_path, "foreign", exports)
     _use_library(monkeypatch, foreign)
     with pytest.raises(MetricInputError, match="ABI 999"):
         impedance_grid._solver_library()
 
 
-def test_a_library_missing_a_solver_symbol_is_refused(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_a_library_missing_a_solver_symbol_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """An ABI match without the full symbol set is still not loadable."""
-    exports = (
-        f'extern "C" int {ACOUSTIC_SOLVER_ABI_SYMBOL}(void) {{ return {ACOUSTIC_SOLVER_ABI}; }}\n'
-        'extern "C" void solve_acoustic_field() {}\n'
-    )
+    exports = f'extern "C" int {ACOUSTIC_SOLVER_ABI_SYMBOL}(void) {{ return {ACOUSTIC_SOLVER_ABI}; }}\nextern "C" void solve_acoustic_field() {{}}\n'
     partial = _compile(tmp_path, "partial", exports)
     _use_library(monkeypatch, partial)
     with pytest.raises(MetricInputError, match="solve_acoustic_grid"):
@@ -139,9 +122,7 @@ def test_setup_py_builds_the_solvers_through_cmake() -> None:
     assert "ARENA_SOLVERS_ONLY=ON" in package
 
 
-def test_pareto_truncation_matches_a_wide_frontier(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_pareto_truncation_matches_a_wide_frontier(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """K=2 truncates nothing observable: it matches a 32-label frontier."""
     _use_library(monkeypatch, _solver_from(tmp_path, "k2", "PARETO_K=2"))
     narrow = _attenuations(47.0)

@@ -17,13 +17,7 @@ def _mcp_tools_taking(option: str) -> list[str]:
     """Names of the evaluation tools in the runs module whose signature has the option."""
     from arena_evaluation.mcp import runs
 
-    return [
-        name
-        for name, fn in vars(runs).items()
-        if name.startswith("evaluation_")
-        and callable(fn)
-        and option in inspect.signature(fn).parameters
-    ]
+    return [name for name, fn in vars(runs).items() if name.startswith("evaluation_") and callable(fn) and option in inspect.signature(fn).parameters]
 
 
 def test_the_helper_sees_the_pipeline_tools():

@@ -97,9 +97,7 @@ class MigrationReport:
 
     def failure_message(self) -> str:
         """One line per failed episode, for the caller's loud exit."""
-        lines = [
-            f"{episode.episode.name}: {episode.error}" for episode in self.failures
-        ]
+        lines = [f"{episode.episode.name}: {episode.error}" for episode in self.failures]
         return f"{len(lines)} episode(s) failed to migrate:\n" + "\n".join(lines)
 
     def as_dict(self) -> dict[str, object]:
@@ -123,15 +121,11 @@ class MigrationReport:
         }
 
 
-def legacy_modes(
-    *, robots: str | None, obstacles: str | None, modules: Iterable[str] | None
-) -> TaskModes:
+def legacy_modes(*, robots: str | None, obstacles: str | None, modules: Iterable[str] | None) -> TaskModes:
     """`modes` of a record made before modes: the tm_* fields it carried, an absent field leaves its axis out."""
     return typing.cast(
         "TaskModes",
-        legacy_schemas.legacy_modes(
-            robots=robots, obstacles=obstacles, modules=modules
-        ),
+        legacy_schemas.legacy_modes(robots=robots, obstacles=obstacles, modules=modules),
     )
 
 
@@ -144,9 +138,7 @@ def legacy_params(
     return legacy_schemas.legacy_params(modes, robots_params, obstacles_params)
 
 
-def flatten_params(
-    nested: Mapping[str, typing.Any], prefix: str = ""
-) -> dict[str, typing.Any]:
+def flatten_params(nested: Mapping[str, typing.Any], prefix: str = "") -> dict[str, typing.Any]:
     """Dotted leaf names of a nested params mapping."""
     return legacy_schemas.flatten_params(nested, prefix)
 
@@ -157,19 +149,13 @@ def environment_of(recording: pathlib.Path) -> str:
     if len(topic_environments) == 1:
         return topic_environments.pop()
     if len(topic_environments) > 1:
-        raise MigrationError(
-            f"{recording}: its topics name several environments {sorted(topic_environments)}"
-        )
+        raise MigrationError(f"{recording}: its topics name several environments {sorted(topic_environments)}")
     frame_environments = _frame_environments(recording)
     if len(frame_environments) == 1:
         return frame_environments.pop()
     if not frame_environments:
-        raise MigrationError(
-            f"{recording}: no topic or transform frame names an environment"
-        )
-    raise MigrationError(
-        f"{recording}: its transform frames name several environments {sorted(frame_environments)}"
-    )
+        raise MigrationError(f"{recording}: no topic or transform frame names an environment")
+    raise MigrationError(f"{recording}: its transform frames name several environments {sorted(frame_environments)}")
 
 
 def migrate_episode(episode_dir: pathlib.Path, *, force: bool = False) -> RunMetadata:
@@ -187,9 +173,7 @@ def migrate_run(
     report_path: pathlib.Path | None = None,
 ) -> list[pathlib.Path]:
     """Migrate every episode of a benchmark or one episode directory; a failure is reported and the rest continue."""
-    report = migrate_benchmark(
-        run_dir, dry_run=dry_run, force=force, report_path=report_path
-    )
+    report = migrate_benchmark(run_dir, dry_run=dry_run, force=force, report_path=report_path)
     if report.failures:
         raise MigrationError(report.failure_message())
     return [episode.episode for episode in report.episodes if episode.migrated]
@@ -206,10 +190,7 @@ def migrate_benchmark(
     root = pathlib.Path(run_dir)
     episode_dirs = _episode_directories(root)
     if not episode_dirs:
-        raise MigrationError(
-            f"{root}: no episode to migrate; expected {root}/episodes/episode_* or one episode directory "
-            "holding its recording and its episode YAML"
-        )
+        raise MigrationError(f"{root}: no episode to migrate; expected {root}/episodes/episode_* or one episode directory holding its recording and its episode YAML")
     retired = () if dry_run else retire_legacy_outputs(root)
     results: list[EpisodeMigration] = []
     for episode_dir in episode_dirs:
@@ -241,27 +222,20 @@ def migrate_benchmark(
     return report
 
 
-def _migrate_episode(
-    episode_dir: pathlib.Path, *, force: bool, dry_run: bool
-) -> EpisodeMigration:
+def _migrate_episode(episode_dir: pathlib.Path, *, force: bool, dry_run: bool) -> EpisodeMigration:
     metadata_path = _metadata_path(episode_dir)
     metadata = _current_metadata(metadata_path)
     recording = _recording_path(episode_dir)
     generation = legacy_schemas.detect(recording)
     if generation.name == legacy_schemas.UNKNOWN:
-        raise MigrationError(
-            f"{recording}: unsupported recording generation: "
-            + "; ".join(generation.unsupported)
-        )
+        raise MigrationError(f"{recording}: unsupported recording generation: " + "; ".join(generation.unsupported))
     mapped = _mapped_names(metadata_path)
     topics = episode_dir / "topics"
     fallbacks: list[str] = []
     needs_extraction = force or not TopicParquetStore.is_current(topics)
     if dry_run:
         if generation.fleet_schema is None and not _descriptor_present(topics):
-            for _robot, model in _descriptor_assignment(
-                recording, metadata, environment_of(recording)
-            ).items():
+            for _robot, model in _descriptor_assignment(recording, metadata, environment_of(recording)).items():
                 _installed_parameters(model)
         return EpisodeMigration(
             episode=episode_dir,
@@ -280,11 +254,7 @@ def _migrate_episode(
             MCAPReader(recording, environment=environment).read(staged)
         except legacy_schemas.LegacySchemaError as error:
             shutil.rmtree(staged, ignore_errors=True)
-            raise MigrationError(
-                f"{recording}: {error}. Run `evaluation migrate` on a recording whose "
-                "EpisodeRecord schema this migration maps, or report the unsupported "
-                "construct to the Arena Evaluation owners."
-            ) from error
+            raise MigrationError(f"{recording}: {error}. Run `evaluation migrate` on a recording whose EpisodeRecord schema this migration maps, or report the unsupported construct to the Arena Evaluation owners.") from error
         if topics.exists():
             shutil.rmtree(topics)
         staged.rename(topics)
@@ -294,10 +264,7 @@ def _migrate_episode(
     if generation.fleet_schema is None:
         synthesized = _synthesize_descriptor(topics, recording, metadata)
         if synthesized:
-            fallbacks.append(
-                "synthesised robot_descriptor/robot_params from RunMetadata.robot_model and "
-                "the installed arena_robots definition for " + ", ".join(synthesized)
-            )
+            fallbacks.append("synthesised robot_descriptor/robot_params from RunMetadata.robot_model and the installed arena_robots definition for " + ", ".join(synthesized))
     backfilled: tuple[str, ...] = ()
     if generation.name in (
         legacy_schemas.LEGACY_2026_09,
@@ -305,11 +272,7 @@ def _migrate_episode(
     ):
         backfilled = _backfill_robot_parameters(topics)
         if backfilled:
-            fallbacks.append(
-                "backfilled " + ", ".join(backfilled) + " from the installed "
-                "arena_robots definition; the September fleet recorded no physical "
-                "parameters"
-            )
+            fallbacks.append("backfilled " + ", ".join(backfilled) + " from the installed arena_robots definition; the September fleet recorded no physical parameters")
     changed = needs_extraction or bool(synthesized) or bool(mapped) or bool(backfilled)
     if changed:
         MetadataWriter.write(metadata, metadata_path)
@@ -332,33 +295,22 @@ def _current_metadata(metadata_path: pathlib.Path) -> RunMetadata:
     try:
         return RunMetadata.model_validate(data)
     except ValueError as error:
-        raise MigrationError(
-            f"{metadata_path}: the mapped metadata is incomplete: {error}"
-        ) from error
+        raise MigrationError(f"{metadata_path}: the mapped metadata is incomplete: {error}") from error
 
 
-def _mapped_fields(
-    raw: dict[str, typing.Any], metadata_path: pathlib.Path
-) -> dict[str, typing.Any]:
+def _mapped_fields(raw: dict[str, typing.Any], metadata_path: pathlib.Path) -> dict[str, typing.Any]:
     from arena_runtime.env.task_layer import TM_AXES
 
     legacy = any(f"tm_{axis}" in raw for axis in TM_AXES)
     if "modes" not in raw and not legacy:
-        raise MigrationError(
-            f"{metadata_path}: records neither modes nor the tm_* fields; "
-            "this metadata predates both the migration and the native layout"
-        )
+        raise MigrationError(f"{metadata_path}: records neither modes nor the tm_* fields; this metadata predates both the migration and the native layout")
     data = dict(raw)
     robots, obstacles, modules = (data.pop(f"tm_{axis}", None) for axis in TM_AXES)
     robots_params = flatten_params(data.pop("robots_params", None) or {})
     obstacles_params = flatten_params(data.pop("obstacles_params", None) or {})
-    modes = data.get("modes") or legacy_modes(
-        robots=robots, obstacles=obstacles, modules=modules
-    )
+    modes = data.get("modes") or legacy_modes(robots=robots, obstacles=obstacles, modules=modules)
     data["modes"] = modes
-    data["params"] = data.get("params") or legacy_params(
-        modes, robots_params, obstacles_params
-    )
+    data["params"] = data.get("params") or legacy_params(modes, robots_params, obstacles_params)
     return data
 
 
@@ -375,9 +327,7 @@ def _mapped_names(metadata_path: pathlib.Path) -> tuple[str, ...]:
 def _episode_directories(root: pathlib.Path) -> tuple[pathlib.Path, ...]:
     """The episode directories a benchmark root holds, by its episodes/ layout or as one episode."""
     if (root / "episodes").is_dir():
-        candidates = sorted(
-            path for path in (root / "episodes").iterdir() if path.is_dir()
-        )
+        candidates = sorted(path for path in (root / "episodes").iterdir() if path.is_dir())
     else:
         candidates = [root]
     return tuple(path for path in candidates if _looks_like_episode(path))
@@ -385,46 +335,28 @@ def _episode_directories(root: pathlib.Path) -> tuple[pathlib.Path, ...]:
 
 def _looks_like_episode(directory: pathlib.Path) -> bool:
     """An episode directory holds one recording and one non-benchmark YAML."""
-    return bool(list(directory.glob("*.mcap"))) and bool(
-        _metadata_candidates(directory)
-    )
+    return bool(list(directory.glob("*.mcap"))) and bool(_metadata_candidates(directory))
 
 
 def _metadata_candidates(episode_dir: pathlib.Path) -> list[pathlib.Path]:
-    return (
-        sorted(
-            path
-            for path in episode_dir.glob("*.yaml")
-            if path.is_file() and path.name not in _BENCHMARK_YAMLS
-        )
-        if episode_dir.is_dir()
-        else []
-    )
+    return sorted(path for path in episode_dir.glob("*.yaml") if path.is_file() and path.name not in _BENCHMARK_YAMLS) if episode_dir.is_dir() else []
 
 
 def _metadata_path(episode_dir: pathlib.Path) -> pathlib.Path:
     candidates = _metadata_candidates(episode_dir)
     if not candidates:
-        raise MigrationError(
-            f"{episode_dir}: no episode metadata YAML; expected {episode_dir.name}.yaml "
-            "or metadata.yaml"
-        )
+        raise MigrationError(f"{episode_dir}: no episode metadata YAML; expected {episode_dir.name}.yaml or metadata.yaml")
     named = [path for path in candidates if path.stem == episode_dir.name]
     chosen = named or candidates
     if len(chosen) != 1:
-        raise MigrationError(
-            f"{episode_dir}: expected one episode metadata file, found "
-            f"{[path.name for path in chosen]}"
-        )
+        raise MigrationError(f"{episode_dir}: expected one episode metadata file, found {[path.name for path in chosen]}")
     return chosen[0]
 
 
 def _recording_path(episode_dir: pathlib.Path) -> pathlib.Path:
     recordings = sorted(episode_dir.glob("*.mcap"))
     if len(recordings) != 1:
-        raise MigrationError(
-            f"{episode_dir}: expected one recording, found {len(recordings)}"
-        )
+        raise MigrationError(f"{episode_dir}: expected one recording, found {len(recordings)}")
     return recordings[0]
 
 
@@ -436,40 +368,27 @@ def _descriptor_present(topics: pathlib.Path) -> bool:
     return pl.scan_parquet(path).select(pl.len()).collect().item() > 0
 
 
-def _descriptor_assignment(
-    recording: pathlib.Path, metadata: RunMetadata, environment: str
-) -> dict[str, str]:
+def _descriptor_assignment(recording: pathlib.Path, metadata: RunMetadata, environment: str) -> dict[str, str]:
     """Robot name -> model for a fleet-less recording, from its robot topics and the recorded model list."""
     names = _robot_names(recording, environment)
     models = list(metadata.robot_model)
     if not models:
-        raise MigrationError(
-            f"{recording}: no /state/robots fleet and RunMetadata.robot_model is empty; "
-            "the robot descriptor cannot be synthesised (record a fleet message or the model list)"
-        )
+        raise MigrationError(f"{recording}: no /state/robots fleet and RunMetadata.robot_model is empty; the robot descriptor cannot be synthesised (record a fleet message or the model list)")
     if not names:
         if len(models) == 1:
             # A single-robot recording with no fleet and no robot topic name: the recorded model is
             # the only robot identity there is, so the robot keeps the model's base name.
             base = models[0].partition("[")[0]
             return {base: models[0]}
-        raise MigrationError(
-            f"{recording}: no /state/robots fleet and no robot topic names a robot; "
-            f"the recorded models {models} cannot be assigned to robots"
-        )
+        raise MigrationError(f"{recording}: no /state/robots fleet and no robot topic names a robot; the recorded models {models} cannot be assigned to robots")
     if len(models) == 1:
         return {name: models[0] for name in names}
     if len(names) == len(models):
         return dict(zip(names, models, strict=True))
-    raise MigrationError(
-        f"{recording}: {len(models)} recorded robot models {models} do not match "
-        f"the {len(names)} robot topic names {list(names)}"
-    )
+    raise MigrationError(f"{recording}: {len(models)} recorded robot models {models} do not match the {len(names)} robot topic names {list(names)}")
 
 
-def _synthesize_descriptor(
-    topics: pathlib.Path, recording: pathlib.Path, metadata: RunMetadata
-) -> tuple[str, ...]:
+def _synthesize_descriptor(topics: pathlib.Path, recording: pathlib.Path, metadata: RunMetadata) -> tuple[str, ...]:
     """Write robot_descriptor/robot_params from the metadata model and the installed definition, once."""
     if _descriptor_present(topics):
         return ()
@@ -517,19 +436,9 @@ def _backfill_robot_parameters(topics: pathlib.Path) -> tuple[str, ...]:
     parameters = pl.read_parquet(params_path)
     if descriptors.height == 0:
         return ()
-    installed = pl.DataFrame(
-        [
-            {"model": str(model), "param_key": key, "param_value": value}
-            for model in descriptors.get_column("model").unique()
-            for key, value in _installed_parameters(str(model)).items()
-        ]
-    )
+    installed = pl.DataFrame([{"model": str(model), "param_key": key, "param_value": value} for model in descriptors.get_column("model").unique() for key, value in _installed_parameters(str(model)).items()])
     recorded = parameters.select("robot_id", "param_key").unique()
-    expected = (
-        descriptors.select("robot_id", "model")
-        .unique()
-        .join(pl.DataFrame({"param_key": list(_PHYSICAL_PARAMETER_KEYS)}), how="cross")
-    )
+    expected = descriptors.select("robot_id", "model").unique().join(pl.DataFrame({"param_key": list(_PHYSICAL_PARAMETER_KEYS)}), how="cross")
     missing = expected.join(recorded, on=["robot_id", "param_key"], how="anti")
     if missing.height == 0:
         return ()
@@ -552,10 +461,7 @@ def _backfill_robot_parameters(topics: pathlib.Path) -> tuple[str, ...]:
                 strict=True,
             )
         )
-        raise MigrationError(
-            f"the installed arena_robots definition of {pairs} lacks a physical "
-            "parameter; the legacy fleet parameter cannot be filled"
-        )
+        raise MigrationError(f"the installed arena_robots definition of {pairs} lacks a physical parameter; the legacy fleet parameter cannot be filled")
     _write_frame(
         params_path,
         pl.concat(
@@ -567,9 +473,7 @@ def _backfill_robot_parameters(topics: pathlib.Path) -> tuple[str, ...]:
         ),
         RobotParamRows,
     )
-    robots = ", ".join(
-        sorted(str(robot) for robot in filled.get_column("robot_id").unique())
-    )
+    robots = ", ".join(sorted(str(robot) for robot in filled.get_column("robot_id").unique()))
     return (f"robot_radius/robot_mass_kg for {robots}",)
 
 
@@ -581,23 +485,13 @@ def _installed_parameters(model: str) -> dict[str, str]:
     try:
         share = pathlib.Path(get_package_share_directory("arena_robots"))
     except (ImportError, OSError, KeyError) as error:
-        raise MigrationError(
-            f"arena_robots is not installed, so the parameters of {model!r} cannot be resolved; "
-            "record a /state/robots fleet in the episode"
-        ) from error
+        raise MigrationError(f"arena_robots is not installed, so the parameters of {model!r} cannot be resolved; record a /state/robots fleet in the episode") from error
     root = share / "robots" / base
     radius = _yaml_value(root / "caps" / "mobile.yaml", ("radius",))
     mass = _yaml_value(root / "model_params.yaml", ("mass", "base_kg"))
-    missing = [
-        name
-        for name, value in (("radius", radius), ("mass.base_kg", mass))
-        if value is None
-    ]
+    missing = [name for name, value in (("radius", radius), ("mass.base_kg", mass)) if value is None]
     if missing:
-        raise MigrationError(
-            f"the installed arena_robots definition of {model!r} lacks {missing}; "
-            "the descriptor cannot be synthesised with an invented value"
-        )
+        raise MigrationError(f"the installed arena_robots definition of {model!r} lacks {missing}; the descriptor cannot be synthesised with an invented value")
     parameters = {"robot_radius": str(radius), "robot_mass_kg": str(mass)}
     angular = _yaml_value(root / "caps" / "mobile.yaml", ("velocity_limits", "angular"))
     if isinstance(angular, list) and angular:
@@ -643,9 +537,7 @@ def _write_frame(path: pathlib.Path, frame: pl.DataFrame, table: type) -> None:
         frame.write_parquet(temporary, compression="zstd")
 
 
-def _write_rows(
-    path: pathlib.Path, rows: Iterable[Mapping[str, typing.Any]], table: type
-) -> None:
+def _write_rows(path: pathlib.Path, rows: Iterable[Mapping[str, typing.Any]], table: type) -> None:
     """Write one telemetry table from its row mappings, in one rename."""
     _write_frame(path, pl.DataFrame(list(rows)), table)
 
@@ -662,9 +554,7 @@ def _write_report(report: MigrationReport, path: pathlib.Path) -> None:
 def _topic_environments(recording: pathlib.Path) -> set[str]:
     environments: set[str] = set()
     with recording.open("rb") as handle:
-        for _schema, channel, _message in NonSeekingReader(handle).iter_messages(
-            log_time_order=False
-        ):
+        for _schema, channel, _message in NonSeekingReader(handle).iter_messages(log_time_order=False):
             token = env_id_in(channel.topic)
             if token is not None:
                 environments.add(token)
@@ -675,16 +565,12 @@ def _frame_environments(recording: pathlib.Path) -> set[str]:
     factory = DecoderFactory()
     environments: set[str] = set()
     with recording.open("rb") as handle:
-        for schema, channel, message in NonSeekingReader(handle).iter_messages(
-            log_time_order=False
-        ):
+        for schema, channel, message in NonSeekingReader(handle).iter_messages(log_time_order=False):
             if schema is None or not _is_transform_topic(channel.topic):
                 continue
             decoder = factory.decoder_for(channel.message_encoding, schema)
             if decoder is None:
-                raise MigrationError(
-                    f"{recording}: transform schema {schema.name!r} cannot be decoded"
-                )
+                raise MigrationError(f"{recording}: transform schema {schema.name!r} cannot be decoded")
             for transform in decoder(message.data).transforms:
                 for frame in (transform.header.frame_id, transform.child_frame_id):
                     token = env_id_in(frame)

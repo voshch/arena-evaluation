@@ -46,10 +46,7 @@ BEHAVIORS = (
     "crossing",
     "gesturing",
 )
-REACTIVE_LAYOUT = {
-    behavior: "crosswalk" if behavior == "crossing" else "straight"
-    for behavior in BEHAVIORS
-}
+REACTIVE_LAYOUT = {behavior: "crosswalk" if behavior == "crossing" else "straight" for behavior in BEHAVIORS}
 SCENE_KINDS = ("straight", "curve", "crosswalk", "long")
 WORLD_PREFIX = "sidewalkbench_"
 GENERATED_PREFIX = "sidewalk_"
@@ -107,13 +104,9 @@ def route_length(scenario: dict) -> float:
     robot = scenario["robots"][0]
     points = [pose_xy(robot["start"])]
     for phase in robot.get("phases", []):
-        points.append(
-            pose_xy(phase.get("goto")) if isinstance(phase, Mapping) else None
-        )
+        points.append(pose_xy(phase.get("goto")) if isinstance(phase, Mapping) else None)
     route = [point for point in points if point is not None]
-    return float(
-        sum(math.dist(a, b) for a, b in zip(route[:-1], route[1:], strict=True))
-    )
+    return float(sum(math.dist(a, b) for a, b in zip(route[:-1], route[1:], strict=True)))
 
 
 def scenario_kind(name: str) -> str:
@@ -164,9 +157,7 @@ def scene_stages(scene: str, scenarios: Sequence[tuple[str, float]]) -> list[dic
     for name, length in scenarios:
         timeout = route_budget_s(length)
         binding = {"modes": {}, "params": {"robots": {"file": name}}}
-        stages.append(
-            stage(f"{scene}_{name}", f"{WORLD_PREFIX}{scene}", binding, timeout)
-        )
+        stages.append(stage(f"{scene}_{name}", f"{WORLD_PREFIX}{scene}", binding, timeout))
     return stages
 
 
@@ -178,9 +169,7 @@ def classify(stage_name: str) -> tuple[str, str | None]:
     return GROUP_OF_KIND[stage_name.rsplit("_", 2)[-2]], None
 
 
-def _table(
-    plot_id: str, title: str, group: str, members: Sequence[str], columns: list[dict]
-) -> dict:
+def _table(plot_id: str, title: str, group: str, members: Sequence[str], columns: list[dict]) -> dict:
     stage_list = ", ".join(repr(str(m)) for m in members)
     return {
         "id": plot_id,
@@ -212,9 +201,7 @@ def manifest(stage_names: Sequence[str]) -> dict:
     ]
     plots: list[dict] = []
     for group, title in GROUP_TITLES.items():
-        members = [
-            n for n, (g, behavior) in labels.items() if g == group and behavior is None
-        ]
+        members = [n for n, (g, behavior) in labels.items() if g == group and behavior is None]
         if members:
             plots.append(
                 _table(
@@ -243,9 +230,7 @@ def manifest(stage_names: Sequence[str]) -> dict:
                     ],
                 )
             )
-    long_members = [
-        n for n, (g, behavior) in labels.items() if g == "long" and behavior is None
-    ]
+    long_members = [n for n, (g, behavior) in labels.items() if g == "long" and behavior is None]
     if long_members:
         columns = [
             {
@@ -397,14 +382,10 @@ class SidewalkBench(Importer):
             save_generated(WorldView(suite_dir / "worlds" / name), built, files)
             binding = generator.params()
             file = binding["params"]["robots"]["file"]
-            timeout = route_budget_s(
-                route_length(yaml.safe_load(files[f"scenarios/{file}/scenario.yaml"]))
-            )
+            timeout = route_budget_s(route_length(yaml.safe_load(files[f"scenarios/{file}/scenario.yaml"])))
             stages.append(stage(name, name, binding, timeout))
 
-        scenes = (
-            self.scenes if self.scenes is not None else list(self._worlds(src).items())
-        )
+        scenes = self.scenes if self.scenes is not None else list(self._worlds(src).items())
         if scenes:
             worlds = self._worlds(src)
             for scene in scenes:

@@ -9,8 +9,8 @@ import json
 import pathlib
 from typing import Annotated, Any, Literal
 
-import polars.exceptions
 import matplotlib
+import polars.exceptions
 
 matplotlib.use("Agg")
 import pydantic
@@ -19,7 +19,6 @@ from arena_mcp.core import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from arena_evaluation.analytics.catalog import BenchmarkCatalog
-from arena_evaluation.storage.exceptions import ArenaEvaluationError
 from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
@@ -37,6 +36,7 @@ from arena_evaluation.storage.config_layout import (
     get_config_kind,
     run_analysis_root,
 )
+from arena_evaluation.storage.exceptions import ArenaEvaluationError
 from arena_evaluation.storage.star_schema import has_star_schema
 
 from .base import (
@@ -125,9 +125,7 @@ def evaluation_plot_declarations() -> dict[str, Any]:
                     "title": spec.title,
                     "type": spec.type,
                     "source": spec.data.source if spec.data else None,
-                    "stored_query": (spec.data.stored_query or None)
-                    if spec.data
-                    else None,
+                    "stored_query": (spec.data.stored_query or None) if spec.data else None,
                     "encodings": spec.channels.model_dump(exclude_unset=True),
                     "options": dict(spec.options),
                 }
@@ -149,9 +147,7 @@ def evaluation_read_plot_declaration(
     extra = (run_analysis_root(run_path(run_id)),) if run_id is not None else ()
     path = find_recipe_path(safe_name, extra_dirs=extra)
     if path is None:
-        raise _not_found(
-            name, "evaluation_plot_declarations lists available declarations"
-        )
+        raise _not_found(name, "evaluation_plot_declarations lists available declarations")
 
     text = path.read_text(encoding="utf-8")
     parsed = _as_mapping(
@@ -215,9 +211,7 @@ def evaluation_render_plot(
     *,
     declaration: Annotated[
         str | None,
-        pydantic.Field(
-            description="Name of registered plot recipe/declaration to render"
-        ),
+        pydantic.Field(description="Name of registered plot recipe/declaration to render"),
     ] = None,
     spec_yaml: Annotated[
         str | None,
@@ -225,9 +219,7 @@ def evaluation_render_plot(
     ] = None,
     overrides: Annotated[
         dict[str, Any] | None,
-        pydantic.Field(
-            description="Optional dictionary to deep-merge over declaration"
-        ),
+        pydantic.Field(description="Optional dictionary to deep-merge over declaration"),
     ] = None,
     output_format: Annotated[
         Literal["png", "svg", "pdf", "html"],
@@ -255,13 +247,9 @@ def evaluation_render_plot(
 
     if declaration is not None:
         safe_decl = _plot_name(declaration, "declaration")
-        recipe_path = find_recipe_path(
-            safe_decl, extra_dirs=(run_analysis_root(benchmark_path),)
-        )
+        recipe_path = find_recipe_path(safe_decl, extra_dirs=(run_analysis_root(benchmark_path),))
         if recipe_path is None:
-            raise _not_found(
-                declaration, "evaluation_plot_declarations lists available recipes"
-            )
+            raise _not_found(declaration, "evaluation_plot_declarations lists available recipes")
         raw = _as_mapping(
             yaml.safe_load(recipe_path.read_text(encoding="utf-8")),
             f"Recipe '{safe_decl}' is not a valid YAML mapping",
@@ -324,9 +312,7 @@ def evaluation_render_plot(
         import plotly.offline
 
         try:
-            html_body = PlotlyRenderer(units={}).render(
-                spec, df, run_dir=benchmark_path
-            )
+            html_body = PlotlyRenderer(units={}).render(spec, df, run_dir=benchmark_path)
         except (
             ValueError,
             KeyError,
@@ -343,12 +329,7 @@ def evaluation_render_plot(
             html_body = "\n".join(html_body)
 
         plotly_js = plotly.offline.get_plotlyjs()
-        full_html = (
-            f"<!DOCTYPE html>\n<html>\n<head>\n<title>{html.escape(spec.title or clean_stem)}</title>\n"
-            f"<script>{plotly_js}</script>\n"
-            "</head>\n<body style='margin: 0; padding: 12px; font-family: sans-serif;'>\n"
-            f"{html_body}\n</body>\n</html>\n"
-        )
+        full_html = f"<!DOCTYPE html>\n<html>\n<head>\n<title>{html.escape(spec.title or clean_stem)}</title>\n<script>{plotly_js}</script>\n</head>\n<body style='margin: 0; padding: 12px; font-family: sans-serif;'>\n{html_body}\n</body>\n</html>\n"
         atomic_write_text(out_file, full_html)
     else:
         try:

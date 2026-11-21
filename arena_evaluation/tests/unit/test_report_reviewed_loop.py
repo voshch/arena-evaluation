@@ -23,10 +23,7 @@ def _run(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Pat
 def _pinned_query(run_id: str) -> str:
     result = query_tool.evaluation_query(
         run_id=run_id,
-        query=(
-            "SELECT planner, AVG(time_to_goal) AS mean_ttg FROM v_episode_summary "
-            "GROUP BY planner ORDER BY planner"
-        ),
+        query=("SELECT planner, AVG(time_to_goal) AS mean_ttg FROM v_episode_summary GROUP BY planner ORDER BY planner"),
         pin_evidence=True,
         save_as="planner_ttg",
     )
@@ -75,9 +72,7 @@ def _failing_plot(draft_id: str) -> str:
     return plot_id
 
 
-def test_failed_and_unverified_items_are_listed_not_dropped(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failed_and_unverified_items_are_listed_not_dropped(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _run(tmp_path, monkeypatch)
     evidence_id = _pinned_query("reviewed_run")
     findings_tool.evaluation_finding_create(
@@ -86,15 +81,11 @@ def test_failed_and_unverified_items_are_listed_not_dropped(
         evidence_ids=[evidence_id],
         author="analyst",
     )
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
+    draft_id = reporting.evaluation_report_draft(run_id="reviewed_run", title="Reviewed")["draft_id"]
     _approved_bar(draft_id)
     broken = _failing_plot(draft_id)
 
-    assembled = reporting.evaluation_report_assemble(
-        run_id="reviewed_run", draft_id=draft_id, name="honest"
-    )
+    assembled = reporting.evaluation_report_assemble(run_id="reviewed_run", draft_id=draft_id, name="honest")
 
     assert assembled["complete"] is True
     assert assembled["plots_failed"] == [broken]
@@ -108,19 +99,13 @@ def test_failed_and_unverified_items_are_listed_not_dropped(
     assert "A claim nobody verified" not in page
 
 
-def test_assemble_without_an_approved_plot_is_incomplete(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_assemble_without_an_approved_plot_is_incomplete(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _run(tmp_path, monkeypatch)
     _pinned_query("reviewed_run")
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
+    draft_id = reporting.evaluation_report_draft(run_id="reviewed_run", title="Reviewed")["draft_id"]
     _failing_plot(draft_id)
 
-    assembled = reporting.evaluation_report_assemble(
-        run_id="reviewed_run", draft_id=draft_id, name="empty", exports=["svg"]
-    )
+    assembled = reporting.evaluation_report_assemble(run_id="reviewed_run", draft_id=draft_id, name="empty", exports=["svg"])
 
     assert assembled["complete"] is False
     assert assembled["plots_used"] == []
@@ -129,14 +114,10 @@ def test_assemble_without_an_approved_plot_is_incomplete(
     assert pathlib.Path(assembled["report_path"]).is_file()
 
 
-def test_requested_exports_are_written_and_validated(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_requested_exports_are_written_and_validated(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _run(tmp_path, monkeypatch)
     _pinned_query("reviewed_run")
-    draft_id = reporting.evaluation_report_draft(
-        run_id="reviewed_run", title="Reviewed"
-    )["draft_id"]
+    draft_id = reporting.evaluation_report_draft(run_id="reviewed_run", title="Reviewed")["draft_id"]
     _approved_bar(draft_id)
 
     assembled = reporting.evaluation_report_assemble(

@@ -48,9 +48,7 @@ def _other_robot_task_poses() -> pl.DataFrame:
     )
 
 
-def _bundle(
-    topics: dict[str, pl.DataFrame], fleet: dict[str, pl.DataFrame] | None = None
-) -> AlignedEpisodeBundle:
+def _bundle(topics: dict[str, pl.DataFrame], fleet: dict[str, pl.DataFrame] | None = None) -> AlignedEpisodeBundle:
     return AlignedEpisodeBundle(
         episode_id=0,
         data=pl.DataFrame(),
@@ -110,15 +108,11 @@ def test_a_robot_contact_window_carries_the_other_robots_track(
     assert actor_track["x"].to_list() == [OTHER_ROBOT_X_M]
 
 
-def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_is_recorded() -> (
-    None
-):
+def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_is_recorded() -> None:
     episode = _bundle(
         {
             "robot_tracks": _robot_track(),
-            "robot_collision_events": pl.DataFrame(
-                {"t_ns": [5 * NS_PER_S], "wall_count": [1], "static_count": [0]}
-            ),
+            "robot_collision_events": pl.DataFrame({"t_ns": [5 * NS_PER_S], "wall_count": [1], "static_count": [0]}),
         }
     )
 
@@ -137,9 +131,7 @@ def test_the_contact_count_matches_the_contact_rows_when_only_the_bumper_stream_
     assert len(result.facts.contacts) == result.episode_metrics["contact_count"]
 
 
-def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles() -> (
-    None
-):
+def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles() -> None:
     contacts = pl.DataFrame(
         {
             "t_ns": [5 * NS_PER_S],
@@ -153,13 +145,9 @@ def test_the_collisions_table_reads_the_recorded_contact_stream_of_its_obstacles
             "distance": [0.0],
         }
     )
-    episode = _bundle(
-        {"robot_tracks": _robot_track(), "robot_collision_contacts": contacts}
-    )
+    episode = _bundle({"robot_tracks": _robot_track(), "robot_collision_contacts": contacts})
 
-    frame = ScopedEvaluator(
-        make_robot_params(robot_radius=ROBOT_RADIUS_M)
-    )._collision_fact_frame(
+    frame = ScopedEvaluator(make_robot_params(robot_radius=ROBOT_RADIUS_M))._collision_fact_frame(
         episode,
         run_id="run",
         episode_id=0,
@@ -197,11 +185,7 @@ def _evaluated_contact_window_lengths_ns(episode: AlignedEpisodeBundle) -> list[
         pedsim_available=False,
         available_topics=set(episode.topics or {}),
     )
-    return (
-        result.facts.contacts.select(pl.col("t_end_ns") - pl.col("t_onset_ns"))
-        .to_series()
-        .to_list()
-    )
+    return result.facts.contacts.select(pl.col("t_end_ns") - pl.col("t_onset_ns")).to_series().to_list()
 
 
 def test_a_pedestrian_contact_seen_at_one_robot_sample_lasts_one_robot_period() -> None:
@@ -219,9 +203,7 @@ def test_a_bumper_contact_seen_at_one_robot_sample_lasts_one_robot_period() -> N
     episode = _bundle(
         {
             "robot_tracks": _robot_track(),
-            "robot_collision_events": pl.DataFrame(
-                {"t_ns": [5 * NS_PER_S], "wall_count": [1], "static_count": [0]}
-            ),
+            "robot_collision_events": pl.DataFrame({"t_ns": [5 * NS_PER_S], "wall_count": [1], "static_count": [0]}),
         }
     )
 
@@ -233,9 +215,7 @@ def test_a_contact_spanning_several_robot_samples_keeps_its_span() -> None:
     episode = _bundle(
         {
             "robot_tracks": _robot_track(samples=80, step_ns=tenth_s_ns),
-            "robot_collision_contacts": _pedestrian_contact_messages(
-                [5 * NS_PER_S, 5 * NS_PER_S + tenth_s_ns, 5 * NS_PER_S + 2 * tenth_s_ns]
-            ),
+            "robot_collision_contacts": _pedestrian_contact_messages([5 * NS_PER_S, 5 * NS_PER_S + tenth_s_ns, 5 * NS_PER_S + 2 * tenth_s_ns]),
         }
     )
 

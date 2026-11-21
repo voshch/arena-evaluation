@@ -44,9 +44,7 @@ class LintReport:
         return self.valid
 
 
-def _collect_bundle_files(
-    kind: str, extra_roots: tuple[pathlib.Path, ...]
-) -> list[pathlib.Path]:
+def _collect_bundle_files(kind: str, extra_roots: tuple[pathlib.Path, ...]) -> list[pathlib.Path]:
     spec = CONFIG_KINDS[kind]
     seen: dict[str, pathlib.Path] = {}
     for root in (*package_config_roots(), *extra_roots):
@@ -83,26 +81,15 @@ def _validate_plot_spec(
                 return problems
             for channel, field in spec.channels.model_dump(exclude_none=True).items():
                 if isinstance(field, str) and field not in cols and not spec.data.query:
-                    problems.append(
-                        f"{label}: channel {channel}={field!r} missing from {spec.data.source!r}"
-                    )
+                    problems.append(f"{label}: channel {channel}={field!r} missing from {spec.data.source!r}")
     return problems
 
 
 def _lint_catalog(benchmark_dir: pathlib.Path | None) -> BenchmarkCatalog:
-    catalog = (
-        BenchmarkCatalog.open(benchmark_dir)
-        if benchmark_dir is not None
-        else BenchmarkCatalog()
-    )
+    catalog = BenchmarkCatalog.open(benchmark_dir) if benchmark_dir is not None else BenchmarkCatalog()
     existing = set(catalog.table_names())
     for tbl in registered_tables():
-        tname = (
-            f"fact_{tbl.table_name}"
-            if tbl.table_kind is TableKind.FACT
-            and not tbl.table_name.startswith("fact_")
-            else tbl.table_name
-        )
+        tname = f"fact_{tbl.table_name}" if tbl.table_kind is TableKind.FACT and not tbl.table_name.startswith("fact_") else tbl.table_name
         if tname not in existing:
             schema = dict(tbl.polars_schema())
             if tbl.table_kind is TableKind.TELEMETRY and "episode_id" not in schema:
@@ -146,9 +133,7 @@ def _binding_problems(
     for plot in manifest.plots:
         try:
             spec = resolver.resolve_spec(plot)
-            frame, diagnostics = resolver.resolve(
-                spec, default_source=manifest.data_source
-            )
+            frame, diagnostics = resolver.resolve(spec, default_source=manifest.data_source)
         except Exception as exc:  # noqa: BLE001 - every resolver failure is a lint finding
             problems.append(f"report {name!r} plot {plot.id!r}: cannot bind ({exc})")
             continue
@@ -160,14 +145,10 @@ def _binding_problems(
     return problems, bound
 
 
-def lint_manifest_bindings(
-    manifest: VizManifest, benchmark_dir: pathlib.Path
-) -> tuple[str, ...]:
+def lint_manifest_bindings(manifest: VizManifest, benchmark_dir: pathlib.Path) -> tuple[str, ...]:
     """Resolve every plot of one manifest against a run; return the unbound-plot findings."""
     catalog = _lint_catalog(benchmark_dir)
-    problems, _ = _binding_problems(
-        manifest.name or "inline", manifest, catalog, benchmark_dir
-    )
+    problems, _ = _binding_problems(manifest.name or "inline", manifest, catalog, benchmark_dir)
     return tuple(problems)
 
 
@@ -175,9 +156,7 @@ def lint_declarations(benchmark_dir: pathlib.Path | None = None) -> LintReport:
     """Validate stored queries, plot recipes and report manifests; bind them when a run is given."""
     catalog = _lint_catalog(benchmark_dir)
     engine = PolarsSQLEngine(catalog)
-    extra_roots = (
-        (run_analysis_root(benchmark_dir),) if benchmark_dir is not None else ()
-    )
+    extra_roots = (run_analysis_root(benchmark_dir),) if benchmark_dir is not None else ()
     extra_recipe_dirs = extra_roots
     problems: list[str] = []
     unbound: list[str] = []
@@ -204,9 +183,7 @@ def lint_declarations(benchmark_dir: pathlib.Path | None = None) -> LintReport:
         except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
             problems.append(f"plot {name!r}: invalid PlotSpec ({exc})")
             continue
-        problems.extend(
-            _validate_plot_spec(f"plot {name!r}", spec, catalog, extra_recipe_dirs)
-        )
+        problems.extend(_validate_plot_spec(f"plot {name!r}", spec, catalog, extra_recipe_dirs))
 
     manifest_files = _collect_bundle_files("report", extra_roots)
     for path in manifest_files:
@@ -227,9 +204,7 @@ def lint_declarations(benchmark_dir: pathlib.Path | None = None) -> LintReport:
                 )
             )
         if benchmark_dir is not None:
-            binding_problems, bound = _binding_problems(
-                name, manifest, catalog, benchmark_dir
-            )
+            binding_problems, bound = _binding_problems(name, manifest, catalog, benchmark_dir)
             unbound.extend(binding_problems)
             bound_plots += bound
 

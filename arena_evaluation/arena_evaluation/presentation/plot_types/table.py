@@ -15,9 +15,7 @@ from arena_evaluation.presentation.plot_types.base import BasePlotRenderer
 _STAT_VALUE_COLS = frozenset({"mean", "std", "err_plus", "err_minus"})
 
 
-def _format_cell(
-    value: object, *, reason: object = None, fmt: str | None = None
-) -> str:
+def _format_cell(value: object, *, reason: object = None, fmt: str | None = None) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return str(reason) if reason is not None else "NULL"
     if fmt:
@@ -57,28 +55,15 @@ def _formatted_cells(
         col_fmt = per_col_fmt.get(col, default_fmt)
         reason_col = f"{col}_null_reason"
         values = df[col].to_list()  # agent-contracts: ignore AC004 - cell export
-        if (
-            reason_col in df.columns
-        ):  # agent-contracts: ignore AC003 - optional companion null_reason column
-            reasons = df[
-                reason_col
-            ].to_list()  # agent-contracts: ignore AC004 - explicit table cell serialization boundary
+        if reason_col in df.columns:  # agent-contracts: ignore AC003 - optional companion null_reason column
+            reasons = df[reason_col].to_list()  # agent-contracts: ignore AC004 - explicit table cell serialization boundary
         else:
             reasons = [None] * len(values)
         if metric_names is not None and col in _STAT_VALUE_COLS:
             fmts = [per_col_fmt.get(metric, col_fmt) for metric in metric_names]
         else:
             fmts = [col_fmt] * len(values)
-        cells_by_col.append(
-            [
-                (
-                    _metric_label(value, reason, labels)
-                    if col == "metric" and labels
-                    else _format_cell(value, reason=reason, fmt=fmt)
-                )
-                for value, reason, fmt in zip(values, reasons, fmts, strict=True)
-            ]
-        )
+        cells_by_col.append([(_metric_label(value, reason, labels) if col == "metric" and labels else _format_cell(value, reason=reason, fmt=fmt)) for value, reason, fmt in zip(values, reasons, fmts, strict=True)])
     return cells_by_col
 
 
@@ -105,9 +90,7 @@ class TableRenderer(BasePlotRenderer):
             )
         )
         if not cols:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: table plot requires declared 'x'/'y'/'color' channels."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: table plot requires declared 'x'/'y'/'color' channels.")
         labels = _string_map(self.spec.options.get("labels"))
         headers = [labels.get(col, col.replace("_", " ").title()) for col in cols]
         cells = _formatted_cells(df, cols, self.spec.options.get("format"), labels)
@@ -154,9 +137,7 @@ class TableRenderer(BasePlotRenderer):
             return
         headers, rows = self.tableau(df)
 
-        fig, ax = plt.subplots(
-            figsize=(max(8.0, len(headers) * 1.6), max(2.5, 0.8 + len(rows) * 0.4))
-        )
+        fig, ax = plt.subplots(figsize=(max(8.0, len(headers) * 1.6), max(2.5, 0.8 + len(rows) * 0.4)))
         ax.axis("off")
         tbl = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="left")
         tbl.auto_set_font_size(False)

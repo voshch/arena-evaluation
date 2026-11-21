@@ -40,11 +40,7 @@ def _episode(
 
 def _levels(pairs: list[tuple[float, list[float]]]) -> pl.DataFrame:
     """Acoustic exposure rows: one per (t_ns, ped_id, exposure_dba)."""
-    rows = [
-        (int(seconds * S), f"ped_{index}", value)
-        for seconds, values in pairs
-        for index, value in enumerate(values)
-    ]
+    rows = [(int(seconds * S), f"ped_{index}", value) for seconds, values in pairs for index, value in enumerate(values)]
     return pl.DataFrame(
         {
             "t_ns": [row[0] for row in rows],
@@ -70,9 +66,7 @@ def _aeps(
     levels: pl.DataFrame | None,
     clearances: pl.DataFrame | None,
 ) -> float | None:
-    return HolisticMetricsCalculator(make_robot_params()).calculate(
-        _episode(times_s, levels=levels, clearances=clearances), {}
-    )["aeps_linear_s"]
+    return HolisticMetricsCalculator(make_robot_params()).calculate(_episode(times_s, levels=levels, clearances=clearances), {})["aeps_linear_s"]
 
 
 def test_declares_the_published_series_dependencies() -> None:
@@ -85,12 +79,8 @@ def test_declares_the_published_series_dependencies() -> None:
 
 _LEVELS = _levels([(0, [90.0]), (1, [90.0])])
 _CLEARANCES = _clearances([(0, 0.5), (1, 0.5)])
-_EMPTY_LEVELS = pl.DataFrame(
-    schema={"t_ns": pl.Int64, "ped_id": pl.String, "exposure_dba": pl.Float64}
-)
-_EMPTY_CLEARANCES = pl.DataFrame(
-    schema={"t_ns": pl.Int64, "min_ped_clearance_m": pl.Float64}
-)
+_EMPTY_LEVELS = pl.DataFrame(schema={"t_ns": pl.Int64, "ped_id": pl.String, "exposure_dba": pl.Float64})
+_EMPTY_CLEARANCES = pl.DataFrame(schema={"t_ns": pl.Int64, "min_ped_clearance_m": pl.Float64})
 
 
 @pytest.mark.parametrize(
@@ -145,15 +135,10 @@ def test_registry_reports_the_missing_series_and_never_returns_a_value() -> None
         scope_slice=robot_slice,
     )
     assert outcome["aeps_linear_s"] is None
-    assert (
-        outcome.provenance.get("aeps_linear_s")
-        == "aeps_linear_s:not_recorded:acoustic_exposure"
-    )
+    assert outcome.provenance.get("aeps_linear_s") == "aeps_linear_s:not_recorded:acoustic_exposure"
 
 
-def _robot_slice(
-    window: AlignedEpisodeBundle, full: AlignedEpisodeBundle
-) -> ScopeSlice:
+def _robot_slice(window: AlignedEpisodeBundle, full: AlignedEpisodeBundle) -> ScopeSlice:
     return ScopeSlice(
         scope=MetricScope.ROBOT,
         slice_id="robot_1",
@@ -223,7 +208,5 @@ def test_pedestrian_summary_integrates_poi_psychoacoustic_exposure() -> None:
         AcousticExposureCalculator,
     )
 
-    summary = AcousticExposureCalculator.pedestrian_summary(
-        [(0, 60.0), (1_000_000_000, 60.0), (2_000_000_000, 60.0)]
-    )
+    summary = AcousticExposureCalculator.pedestrian_summary([(0, 60.0), (1_000_000_000, 60.0), (2_000_000_000, 60.0)])
     assert summary["poi_psychoacoustic_exposure"] == pytest.approx(3.0 * 1e6)

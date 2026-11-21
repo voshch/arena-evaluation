@@ -114,24 +114,12 @@ def test_launch_args_forward_passthrough_except_runner_owned_and_stage_keys():
 
     assert "viz.view:=robot" in args
     assert "world:=map1" in args
-    assert not any(
-        a.startswith(("headless:=", "env.n:=", "env_n:=", "world:=other")) for a in args
-    )
+    assert not any(a.startswith(("headless:=", "env.n:=", "env_n:=", "world:=other")) for a in args)
 
 
 def test_runtime_launch_args_keep_an_explicit_paused_lockstep():
-    assert (
-        runtime_launch_args({"lockstep": "True", "lockstep.paused": "True"}, {})[
-            "lockstep.paused"
-        ]
-        == "True"
-    )
-    assert (
-        runtime_launch_args({"lockstep": "True"}, {"lockstep.paused": "true"})[
-            "lockstep.paused"
-        ]
-        == "true"
-    )
+    assert runtime_launch_args({"lockstep": "True", "lockstep.paused": "True"}, {})["lockstep.paused"] == "True"
+    assert runtime_launch_args({"lockstep": "True"}, {"lockstep.paused": "true"})["lockstep.paused"] == "true"
 
 
 def test_pending_skips_ok_and_plain_failures_but_retries_systemic_ones(
@@ -175,9 +163,7 @@ def test_planner_identity_prefers_the_mobile_cap_planners():
             args={"mobile": {"local_planner": "dwb", "inter_planner": "spline"}},
         )
     ) == ("dwb", "spline")
-    assert resolve_planner_identity(
-        Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})
-    ) == ("mppi", "none")
+    assert resolve_planner_identity(Contestant(name="x", args={"mobile": {"local_planner": "mppi"}})) == ("mppi", "none")
 
 
 def test_planner_identity_falls_back_to_the_contestant_name():
@@ -186,9 +172,7 @@ def test_planner_identity_falls_back_to_the_contestant_name():
     contestant = Contestant(name="teb-spline", args={"mobile": {"driver": "nav2"}})
 
     assert resolve_planner_identity(contestant) == split_planner_name("teb-spline")
-    assert resolve_planner_identity(
-        Contestant(name="teb-spline", args={})
-    ) == split_planner_name("teb-spline")
+    assert resolve_planner_identity(Contestant(name="teb-spline", args={})) == split_planner_name("teb-spline")
 
 
 def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
@@ -230,9 +214,7 @@ def test_default_run_id_names_lane_and_config_stems():
 
 
 def test_default_run_id_without_lane():
-    assert _default_run_id("{stages: []}", "allplanners", None).endswith(
-        "-inline-allplanners"
-    )
+    assert _default_run_id("{stages: []}", "allplanners", None).endswith("-inline-allplanners")
 
 
 def _manifest(config_hash: str) -> Manifest:

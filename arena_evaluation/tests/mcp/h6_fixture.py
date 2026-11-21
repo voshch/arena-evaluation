@@ -57,9 +57,7 @@ def write_noisy_benchmark(directory: pathlib.Path) -> dict[str, Any]:
                             "success": True,
                             "invalid_reason": None,
                             "time_to_goal": _time_to_goal(seed, world, planner, noise),
-                            "path_efficiency": (
-                                0.9 if planner == "planner_a" else 0.75
-                            ),
+                            "path_efficiency": (0.9 if planner == "planner_a" else 0.75),
                             "energy_total_wh": 2.0 if planner == "planner_a" else 3.0,
                             "collision_amount_wall": 0,
                             "collision_amount_static": 0,

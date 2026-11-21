@@ -17,13 +17,9 @@ def manifests_dir(tmp_path: pathlib.Path) -> pathlib.Path:
     cfg_dir = tmp_path / "configs"
     d = cfg_dir / "reports"
     (d / "foo").mkdir(parents=True)
-    (d / "foo" / "report.yaml").write_text(
-        "manifest_version: '1.0'\nname: foo\ntitle: Foo Report\ndata_source: v_episode_summary\nplots: []\n"
-    )
+    (d / "foo" / "report.yaml").write_text("manifest_version: '1.0'\nname: foo\ntitle: Foo Report\ndata_source: v_episode_summary\nplots: []\n")
     (d / "standard").mkdir(parents=True)
-    (d / "standard" / "report.yaml").write_text(
-        "manifest_version: '1.0'\nname: standard\nplots: []\n"
-    )
+    (d / "standard" / "report.yaml").write_text("manifest_version: '1.0'\nname: standard\nplots: []\n")
     registered = ManifestIdentifier._resolvers
     ManifestIdentifier._resolvers = [ConfigPathResolver(ManifestIdentifier, cfg_dir)]
     try:
@@ -38,9 +34,7 @@ def test_resolve_inline_list_rejected():
 
 
 def test_flat_report_yaml_is_not_found(manifests_dir):
-    (manifests_dir / "flat_only.yaml").write_text(
-        "manifest_version: '1.0'\nname: flat_only\nplots: []\n"
-    )
+    (manifests_dir / "flat_only.yaml").write_text("manifest_version: '1.0'\nname: flat_only\nplots: []\n")
     with pytest.raises(registry.ManifestNotFoundError):
         registry.resolve_manifest("flat_only")
 

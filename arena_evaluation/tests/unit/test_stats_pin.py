@@ -46,9 +46,7 @@ def test_cluster_bootstrap_ci_validation_empty_ungrouped_and_single_cluster() ->
     assert empty.is_empty()
     assert empty.schema == pl.Schema({"planner": pl.String, **CLUSTER_BOOTSTRAP_SCHEMA})
 
-    grouped = cluster_bootstrap_ci(
-        df, "val", group_cols=("planner",), n_boot=200, ci_level=0.90, random_seed=42
-    ).sort("planner")
+    grouped = cluster_bootstrap_ci(df, "val", group_cols=("planner",), n_boot=200, ci_level=0.90, random_seed=42).sort("planner")
     dwb, teb = grouped.to_dicts()
     # dwb: 4 clusters [1, 2, 3, 6], mean=3.0; bootstrap quantiles/SE pinned at seed=42, n_boot=200
     assert dwb["n_obs"] == 4
@@ -70,9 +68,7 @@ def test_cluster_bootstrap_ci_validation_empty_ungrouped_and_single_cluster() ->
     assert teb["basic_low"] == 6.0
     assert teb["basic_high"] == 6.0
 
-    ungrouped = cluster_bootstrap_ci(
-        df, "val", group_cols=(), n_boot=200, ci_level=0.90, random_seed=42
-    )
+    ungrouped = cluster_bootstrap_ci(df, "val", group_cols=(), n_boot=200, ci_level=0.90, random_seed=42)
     row = ungrouped.to_dicts()[0]
     # ungrouped: 6 obs across 4 clusters, weighted mean (1+2+3+6+5+7)/6 = 4.0
     assert row["n_obs"] == 6
@@ -101,32 +97,23 @@ def test_paired_treatment_diff_edge_cases() -> None:
     with pytest.raises(ValueError, match="pair_cols must contain"):
         paired_treatment_diff(df, "val", treatment_a="a", treatment_b="b", pair_cols=())
 
-    empty_res = paired_treatment_diff(
-        df.filter(pl.col("planner") == "a"), "val", treatment_a="a", treatment_b="b"
-    )
+    empty_res = paired_treatment_diff(df.filter(pl.col("planner") == "a"), "val", treatment_a="a", treatment_b="b")
     assert empty_res.n_pairs == 0
     assert empty_res.n_clusters == 0
     assert empty_res.mean_diff is None
     assert empty_res.summary_frame.height == 1
 
     # A constant difference has no standardised effect size: dz is NULL with its reason (L3-034)
-    const_res = paired_treatment_diff(
-        df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42
-    )
+    const_res = paired_treatment_diff(df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42)
     assert const_res.mean_diff == 2.0
     assert const_res.std_diff == 0.0
     assert const_res.cohens_dz is None
-    assert (
-        const_res.summary_frame.item(0, "cohens_dz_null_reason")
-        == "std_diff:zero_denominator"
-    )
+    assert const_res.summary_frame.item(0, "cohens_dz_null_reason") == "std_diff:zero_denominator"
     assert const_res.p_value == pytest.approx(1.0 / 101.0)
 
     # Constant zero diff: no spread either, so dz stays NULL instead of a fabricated 0.0
     zero_df = df.with_columns(pl.lit(1.0).alias("val"))
-    zero_res = paired_treatment_diff(
-        zero_df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42
-    )
+    zero_res = paired_treatment_diff(zero_df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42)
     assert zero_res.cohens_dz is None
 
     # Single cluster: ci_low == ci_high == mean_diff, p_value == 1.0
@@ -171,9 +158,7 @@ def test_rank_swap_matrix_pin() -> None:
     assert empty.is_empty()
     assert empty.schema == RANK_SWAP_MATRIX_SCHEMA
 
-    single_regime = rank_swap_matrix(
-        df.filter(pl.col("crowd_condition") == "blind"), "score"
-    )
+    single_regime = rank_swap_matrix(df.filter(pl.col("crowd_condition") == "blind"), "score")
     assert single_regime.is_empty()
     assert single_regime.schema == RANK_SWAP_MATRIX_SCHEMA
 
@@ -196,9 +181,7 @@ def test_rank_swap_matrix_pin() -> None:
     ]
     assert [r["swap_count"] for r in rows] == [0, 1, 0]
     assert [r["swap_rate"] for r in rows] == pytest.approx([0.0, 1.0 / 3.0, 0.0])
-    assert [r["kendall_tau"] for r in rows] == pytest.approx(
-        [2.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0]
-    )
+    assert [r["kendall_tau"] for r in rows] == pytest.approx([2.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0])
 
 
 def test_kendalls_w_pin_all_df_branches() -> None:

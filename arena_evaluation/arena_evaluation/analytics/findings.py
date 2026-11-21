@@ -37,9 +37,7 @@ __all__ = [
 
 FINDINGS_SUBDIR: Final[str] = "findings"
 
-_ComputationRunners = Mapping[
-    str, Callable[[pathlib.Path, Mapping[str, Any]], pl.DataFrame]
-]
+_ComputationRunners = Mapping[str, Callable[[pathlib.Path, Mapping[str, Any]], pl.DataFrame]]
 
 
 class FindingError(ValueError):
@@ -60,22 +58,14 @@ class FindingStatus(StrEnum):
 
 
 ALLOWED_TRANSITIONS: Final[dict[FindingStatus, frozenset[FindingStatus]]] = {
-    FindingStatus.PROPOSED: frozenset(
-        {FindingStatus.VERIFIED, FindingStatus.REFUTED, FindingStatus.NEEDS_WORK}
-    ),
-    FindingStatus.NEEDS_WORK: frozenset(
-        {FindingStatus.PROPOSED, FindingStatus.VERIFIED, FindingStatus.REFUTED}
-    ),
-    FindingStatus.VERIFIED: frozenset(
-        {FindingStatus.REFUTED, FindingStatus.NEEDS_WORK}
-    ),
+    FindingStatus.PROPOSED: frozenset({FindingStatus.VERIFIED, FindingStatus.REFUTED, FindingStatus.NEEDS_WORK}),
+    FindingStatus.NEEDS_WORK: frozenset({FindingStatus.PROPOSED, FindingStatus.VERIFIED, FindingStatus.REFUTED}),
+    FindingStatus.VERIFIED: frozenset({FindingStatus.REFUTED, FindingStatus.NEEDS_WORK}),
     FindingStatus.REFUTED: frozenset(),
 }
 
 #: Status a failed verification forces a finding out of.
-_FAILED_VERIFICATION_STATUS: Final[dict[FindingStatus, FindingStatus]] = {
-    FindingStatus.VERIFIED: FindingStatus.NEEDS_WORK
-}
+_FAILED_VERIFICATION_STATUS: Final[dict[FindingStatus, FindingStatus]] = {FindingStatus.VERIFIED: FindingStatus.NEEDS_WORK}
 
 
 class Finding(pydantic.BaseModel):
@@ -157,17 +147,13 @@ def _read_finding(path: pathlib.Path, *, label: str, hint: str) -> Finding:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (yaml.YAMLError, OSError) as exc:
-        raise FindingError(
-            f"corrupt finding file {path.name}: {exc}", hint=hint
-        ) from exc
+        raise FindingError(f"corrupt finding file {path.name}: {exc}", hint=hint) from exc
     if not isinstance(raw, dict):
         raise FindingError(f"{label} is not a YAML mapping", hint=hint)
     try:
         return Finding.model_validate(raw)
     except pydantic.ValidationError as exc:
-        raise FindingError(
-            f"invalid finding schema in {path.name}: {exc}", hint=hint
-        ) from exc
+        raise FindingError(f"invalid finding schema in {path.name}: {exc}", hint=hint) from exc
 
 
 def load_findings(run_dir: pathlib.Path) -> list[Finding]:
@@ -175,12 +161,7 @@ def load_findings(run_dir: pathlib.Path) -> list[Finding]:
     fdir = findings_dir(run_dir)
     if not fdir.is_dir():
         return []
-    return [
-        _read_finding(
-            path, label=f"finding file {path.name}", hint=f"fix or remove {path}"
-        )
-        for path in sorted(fdir.glob("*.yaml"))
-    ]
+    return [_read_finding(path, label=f"finding file {path.name}", hint=f"fix or remove {path}") for path in sorted(fdir.glob("*.yaml"))]
 
 
 def load_finding(run_dir: pathlib.Path, finding_id: str) -> Finding:
@@ -253,11 +234,7 @@ def _checked_reference(run_dir: pathlib.Path, kind: str, value: str) -> str:
             resolved = candidate if candidate.is_absolute() else run_dir / candidate
             exists = resolved.is_file()
             if exists:
-                value = (
-                    str(resolved.relative_to(run_dir))
-                    if resolved.is_relative_to(run_dir)
-                    else str(resolved)
-                )
+                value = str(resolved.relative_to(run_dir)) if resolved.is_relative_to(run_dir) else str(resolved)
         case _:
             raise AssertionError(f"unknown finding reference kind {kind!r}")
     if not exists:
@@ -266,9 +243,7 @@ def _checked_reference(run_dir: pathlib.Path, kind: str, value: str) -> str:
     return value
 
 
-def _number_match(
-    series: pl.Series, value: float, tolerance: float
-) -> tuple[bool, float | None]:
+def _number_match(series: pl.Series, value: float, tolerance: float) -> tuple[bool, float | None]:
     """Return whether ``series`` holds ``value`` within ``tolerance`` and its closest entry."""
     series = series.drop_nulls().cast(pl.Float64)
     if series.is_empty():
@@ -279,9 +254,7 @@ def _number_match(
     return bool((diffs <= tolerance).any()), closest
 
 
-def _validate_structured_numbers(
-    run_dir: pathlib.Path, entries: list[dict[str, Any]] | None
-) -> list[dict[str, Any]]:
+def _validate_structured_numbers(run_dir: pathlib.Path, entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     if not entries:
         return []
     store = EvidenceStore(run_dir)
@@ -308,9 +281,7 @@ def _validate_structured_numbers(
                 f"number {val} for {col!r} not found in evidence {ev!r} within tolerance {tol}",
                 hint="quote a value actually present in the pinned evidence frame",
             )
-        verified.append(
-            {"evidence_id": ev, "column": col, "value": val, "tolerance": tol}
-        )
+        verified.append({"evidence_id": ev, "column": col, "value": val, "tolerance": tol})
     return verified
 
 
@@ -334,14 +305,10 @@ def create_finding(
     """Validate and persist a new finding in ``proposed`` status."""
     text = claim.strip()
     if not text:
-        raise FindingError(
-            "a finding needs a claim", hint="pass the empirical claim as one sentence"
-        )
+        raise FindingError("a finding needs a claim", hint="pass the empirical claim as one sentence")
     author_clean = author.strip()
     if not author_clean:
-        raise FindingError(
-            "a finding needs an author", hint="pass the authoring role or identifier"
-        )
+        raise FindingError("a finding needs an author", hint="pass the authoring role or identifier")
     if query is not None and stored_query is not None:
         raise FindingError(
             "pass the SQL or a stored query name, not both",
@@ -378,9 +345,7 @@ def create_finding(
             finding_id=_new_finding_id(existing),
             claim=text,
             status=FindingStatus.PROPOSED,
-            created_at=datetime.datetime.now(tz=datetime.UTC).isoformat(
-                timespec="seconds"
-            ),
+            created_at=datetime.datetime.now(tz=datetime.UTC).isoformat(timespec="seconds"),
             episode_id=episode_id,
             encounter_id=encounter_id,
             contact_id=contact_id,
@@ -409,9 +374,7 @@ def _rerun_evidence(
     if record.kind == "sql":
         sql = str(record.sql_text or "").strip()
         if not sql:
-            raise ValueError(
-                f"SQL evidence {record.evidence_id!r} has empty sql_text and cannot be rerun; re-pin via evaluation_query"
-            )
+            raise ValueError(f"SQL evidence {record.evidence_id!r} has empty sql_text and cannot be rerun; re-pin via evaluation_query")
         frame = PolarsSQLEngine(catalog).query(sql)
     elif record.kind == "computation":
         if computation_runners and record.operation in computation_runners:
@@ -423,9 +386,7 @@ def _rerun_evidence(
             )
 
             if record.operation not in {p["name"] for p in list_procedures()}:
-                raise ValueError(
-                    f"Unsupported computation evidence operation {record.operation!r}; cannot rerun"
-                )
+                raise ValueError(f"Unsupported computation evidence operation {record.operation!r}; cannot rerun")
             frame = run_procedure(record.operation, catalog, record.params).frame
     else:
         raise ValueError(f"Unsupported evidence kind {record.kind!r}; cannot rerun")
@@ -461,9 +422,7 @@ def verify_finding(
         passed = True
         rerun_frames: dict[str, pl.DataFrame] = {}
         seed_sets: list[tuple[str, set[object]]] = []
-        evidence_list = finding.evidence_ids or (
-            [finding.evidence_id] if finding.evidence_id else []
-        )
+        evidence_list = finding.evidence_ids or ([finding.evidence_id] if finding.evidence_id else [])
         for ev in evidence_list:
             try:
                 record = store.get(ev)
@@ -472,11 +431,7 @@ def verify_finding(
                 passed = False
                 checks.append(_check("evidence_exists", False, evidence_id=ev))
                 continue
-            checks.append(
-                _check(
-                    "evidence_exists", True, evidence_id=ev, rows=stored_frame.height
-                )
-            )
+            checks.append(_check("evidence_exists", True, evidence_id=ev, rows=stored_frame.height))
             with tempfile.TemporaryDirectory() as tmp_dir:
                 recomputed = EvidenceStore(pathlib.Path(tmp_dir)).record(
                     stored_frame,
@@ -510,9 +465,7 @@ def verify_finding(
                 )
             except (KeyError, ValueError, OSError, pl.exceptions.PolarsError) as exc:
                 passed = False
-                checks.append(
-                    _check("evidence_rerun", False, evidence_id=ev, hint=str(exc))
-                )
+                checks.append(_check("evidence_rerun", False, evidence_id=ev, hint=str(exc)))
                 continue
             rerun_frames[ev] = rerun_frame
             seed_sets.append((ev, seeds))
@@ -546,13 +499,7 @@ def verify_finding(
                 )
             )
         if len(seed_sets) >= 2:
-            overlaps = [
-                {"evidence_ids": [ev_a, ev_b], "seeds": common}
-                for idx, (ev_a, seeds_a) in enumerate(seed_sets)
-                if seeds_a
-                for ev_b, seeds_b in seed_sets[idx + 1 :]
-                if (common := sorted(seeds_a & seeds_b, key=str))
-            ]
+            overlaps = [{"evidence_ids": [ev_a, ev_b], "seeds": common} for idx, (ev_a, seeds_a) in enumerate(seed_sets) if seeds_a for ev_b, seeds_b in seed_sets[idx + 1 :] if (common := sorted(seeds_a & seeds_b, key=str))]
             checks.append(
                 _check(
                     "same_seed_overlap",
@@ -567,11 +514,7 @@ def verify_finding(
             val = float(entry["value"])
             tol = float(entry.get("tolerance", 1e-6))
             target_frame = rerun_frames.get(ev)
-            ok, rerun_val = (
-                (False, None)
-                if target_frame is None or col not in target_frame.columns
-                else _number_match(target_frame[col], val, tol)
-            )
+            ok, rerun_val = (False, None) if target_frame is None or col not in target_frame.columns else _number_match(target_frame[col], val, tol)
             if not ok:
                 passed = False
             checks.append(
@@ -584,11 +527,7 @@ def verify_finding(
                     rerun_value=rerun_val,
                 )
             )
-        status = (
-            finding.status
-            if passed
-            else _FAILED_VERIFICATION_STATUS.get(finding.status, finding.status)
-        )
+        status = finding.status if passed else _FAILED_VERIFICATION_STATUS.get(finding.status, finding.status)
         updated = finding.model_copy(
             update={
                 "status": status,
@@ -629,10 +568,7 @@ def transition_finding_status(
 
     with file_lock(findings_lock_path(run_dir)):
         finding = load_finding(run_dir, finding_id)
-        if (
-            finding.status is not target
-            and target not in ALLOWED_TRANSITIONS[finding.status]
-        ):
+        if finding.status is not target and target not in ALLOWED_TRANSITIONS[finding.status]:
             raise FindingError(
                 f"finding {finding_id} is {finding.status.value}, it cannot become {target.value}",
                 hint="proposed -> verified|refuted|needs_work; needs_work -> proposed|verified|refuted; verified -> refuted|needs_work",
@@ -640,9 +576,7 @@ def transition_finding_status(
         for violated, message, hint in _ENTRY_GATES.get(target, ()):
             if violated(finding, by):
                 raise FindingError(
-                    message.format(
-                        finding_id=finding.finding_id, author=finding.author
-                    ),
+                    message.format(finding_id=finding.finding_id, author=finding.author),
                     hint=hint,
                 )
         if finding.status is target and (note is None or note == finding.note):

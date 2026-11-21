@@ -46,9 +46,7 @@ def test_interactive_track_is_one_continuous_line_without_sample_markers() -> No
     assert "lines+markers" not in html
 
 
-def test_static_track_has_no_start_or_end_markers(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_static_track_has_no_start_or_end_markers(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     renderer = TrajectoryRenderer(_spec())
     figures: list[matplotlib.figure.Figure] = []
     monkeypatch.setattr(renderer, "save_figure", lambda fig, _path: figures.append(fig))

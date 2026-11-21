@@ -104,13 +104,9 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
     parameter_rows = _declared_rows(rows, RobotParamRows, robot_id)
     model = _descriptor_model(descriptor_rows, robot_id)
     recorded = _recorded_parameters(parameter_rows, robot_id)
-    missing = [
-        key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded
-    ]
+    missing = [key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded]
     if missing:
-        raise MetricInputError(
-            f"robot {robot_id!r} has no recorded parameter(s) {missing}"
-        )
+        raise MetricInputError(f"robot {robot_id!r} has no recorded parameter(s) {missing}")
     return RobotParams(
         model=model,
         robot_radius=recorded["robot_radius"],
@@ -121,16 +117,12 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
     )
 
 
-def _declared_rows(
-    rows: pl.DataFrame, table: type[Table], robot_id: str
-) -> pl.DataFrame:
+def _declared_rows(rows: pl.DataFrame, table: type[Table], robot_id: str) -> pl.DataFrame:
     """The robot's rows projected to one declared registry table; a frame without its columns names no such rows."""
     try:
         declared = rows.select(table.polars_schema().names())
     except pl.exceptions.ColumnNotFoundError as error:
-        raise MetricInputError(
-            f"robot {robot_id!r} has no recorded {table.table_name} rows: {error}"
-        ) from error
+        raise MetricInputError(f"robot {robot_id!r} has no recorded {table.table_name} rows: {error}") from error
     return declared.filter(pl.col("robot_id") == robot_id)
 
 
@@ -140,9 +132,7 @@ def _descriptor_model(rows: pl.DataFrame, robot_id: str) -> str:
     if models.len() == 0:
         raise MetricInputError(f"robot {robot_id!r} has no descriptor row")
     if models.len() > 1:
-        raise ContractViolationError(
-            f"robot {robot_id!r} has conflicting recorded models"
-        )
+        raise ContractViolationError(f"robot {robot_id!r} has conflicting recorded models")
     return str(models.item())
 
 
@@ -150,25 +140,12 @@ def _recorded_parameters(rows: pl.DataFrame, robot_id: str) -> dict[str, float]:
     """The recorded values of the RobotParams fields, from the declared long parameter rows only."""
     values: dict[str, float] = {}
     for parameter_field in dict.fromkeys(_RECORDED_PARAMETER_FIELDS.values()):
-        keys = [
-            key
-            for key, recorded_field in _RECORDED_PARAMETER_FIELDS.items()
-            if recorded_field == parameter_field
-        ]
-        recorded = (
-            rows.filter(pl.col("param_key").is_in(keys))
-            .get_column("param_value")
-            .drop_nulls()
-            .unique()
-        )
+        keys = [key for key, recorded_field in _RECORDED_PARAMETER_FIELDS.items() if recorded_field == parameter_field]
+        recorded = rows.filter(pl.col("param_key").is_in(keys)).get_column("param_value").drop_nulls().unique()
         if recorded.len() > 1:
-            raise ContractViolationError(
-                f"robot {robot_id!r} has conflicting recorded values of {parameter_field!r}"
-            )
+            raise ContractViolationError(f"robot {robot_id!r} has conflicting recorded values of {parameter_field!r}")
         if recorded.len() == 1:
-            values[parameter_field] = _parameter_number(
-                robot_id, keys[0], recorded.item()
-            )
+            values[parameter_field] = _parameter_number(robot_id, keys[0], recorded.item())
     return values
 
 
@@ -177,9 +154,7 @@ def _parameter_number(robot_id: str, key: str, value: str) -> float:
     try:
         return float(value)
     except (TypeError, ValueError) as error:
-        raise ContractViolationError(
-            f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}"
-        ) from error
+        raise ContractViolationError(f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {value!r}") from error
 
 
 @dataclass(frozen=True)

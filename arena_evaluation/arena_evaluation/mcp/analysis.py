@@ -23,13 +23,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import polars as pl
+
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
 CONTESTANT = "planner"
 _ROLLUP_RULE = "mean_over_episodes"
-_DIRECTION_HINT = (
-    "ensure every metric has a declared direction ('higher' or 'lower') in dim_metrics"
-)
+_DIRECTION_HINT = "ensure every metric has a declared direction ('higher' or 'lower') in dim_metrics"
 
 _DEFAULT_METRICS: tuple[str, ...] = (
     "success",
@@ -39,22 +38,16 @@ _DEFAULT_METRICS: tuple[str, ...] = (
 )
 Metrics = Annotated[
     list[str] | None,
-    pydantic.Field(
-        description="metric columns, the metrics' declared primary outputs when omitted"
-    ),
+    pydantic.Field(description="metric columns, the metrics' declared primary outputs when omitted"),
 ]
 References = Annotated[
     bool,
-    pydantic.Field(
-        description="keep reference episodes (is_reference), which are not contestant runs"
-    ),
+    pydantic.Field(description="keep reference episodes (is_reference), which are not contestant runs"),
 ]
 Scalar = str | int | float | bool
 Filter = Annotated[
     dict[str, Scalar | list[Scalar]] | None,
-    pydantic.Field(
-        description="equality filter, {column: value} or {column: [values]}"
-    ),
+    pydantic.Field(description="equality filter, {column: value} or {column: [values]}"),
 ]
 
 
@@ -97,9 +90,7 @@ def _group_summary(
     return run_computation("group_summary", catalog, params)
 
 
-def _computation_or_error(
-    kind: str, catalog: BenchmarkCatalog, params: dict[str, Any], hint: str
-) -> Any:
+def _computation_or_error(kind: str, catalog: BenchmarkCatalog, params: dict[str, Any], hint: str) -> Any:
     """Run a Layer 3 computation, turning its ValueError into a hinted ToolError."""
     try:
         return run_computation(kind, catalog, params)
@@ -142,13 +133,7 @@ def columns(frame: pl.DataFrame, names: list[str], what: str) -> list[str]:
 def numeric_columns(frame: pl.DataFrame) -> list[str]:
     import polars as pl
 
-    return [
-        name
-        for name, dtype in frame.schema.items()
-        if dtype.is_numeric()
-        or dtype == pl.Boolean
-        or (isinstance(dtype, pl.List) and dtype.inner.is_numeric())
-    ]
+    return [name for name, dtype in frame.schema.items() if dtype.is_numeric() or dtype == pl.Boolean or (isinstance(dtype, pl.List) and dtype.inner.is_numeric())]
 
 
 def column_stats(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
@@ -168,9 +153,7 @@ def column_stats(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
                 )
         elif isinstance(dtype, pl.List):
             entry["mean_length"] = jsonable(series.list.len().mean())
-        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(
-            dtype, pl.Enum
-        ):
+        elif dtype in (pl.String, pl.Boolean, pl.Categorical) or isinstance(dtype, pl.Enum):
             unique_s = series.drop_nulls().unique().sort()
             # agent-contracts: ignore JSON serialization boundary
             unique = unique_s.head(20).to_list()
@@ -179,16 +162,12 @@ def column_stats(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
     return stats
 
 
-def _pivot_group_summary(
-    summary_df: pl.DataFrame, group_cols: list[str], *, include_spread: bool = False
-) -> list[dict[str, Any]]:
+def _pivot_group_summary(summary_df: pl.DataFrame, group_cols: list[str], *, include_spread: bool = False) -> list[dict[str, Any]]:
     """Reshape long ``GroupSummaryAnalysis`` rows into one dict per group key."""
     grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
     for row in summary_df.to_dicts():
         key = tuple(row[col] for col in group_cols)
-        entry = grouped.setdefault(
-            key, {**{col: row[col] for col in group_cols}, "n_rows": int(row["n"])}
-        )
+        entry = grouped.setdefault(key, {**{col: row[col] for col in group_cols}, "n_rows": int(row["n"])})
         metric = str(row["metric"])
         entry[metric] = jsonable(row["mean"])
         if include_spread:
@@ -197,9 +176,7 @@ def _pivot_group_summary(
     return list(grouped.values())
 
 
-def _pivot_ranking(
-    ranking_df: pl.DataFrame, *, include_norm: bool = True
-) -> list[dict[str, Any]]:
+def _pivot_ranking(ranking_df: pl.DataFrame, *, include_norm: bool = True) -> list[dict[str, Any]]:
     """Reshape long ``CompositeRankingAnalysis`` rows into one ranked dict per planner."""
     grouped: dict[str, dict[str, Any]] = {}
     for row in ranking_df.to_dicts():
@@ -226,26 +203,20 @@ def _pivot_ranking(
     )
 
 
-def summary_of(
-    catalog: BenchmarkCatalog, include_references: bool = False
-) -> dict[str, Any]:
+def summary_of(catalog: BenchmarkCatalog, include_references: bool = False) -> dict[str, Any]:
     import polars as pl
 
     frame = catalog.get_table("v_episode_summary").collect()
     work = episodes(frame, include_references)
     exclude = not include_references
-    planner_res = _group_summary(
-        catalog, (CONTESTANT,), ("success",), exclude_references=exclude
-    )
+    planner_res = _group_summary(catalog, (CONTESTANT,), ("success",), exclude_references=exclude)
     contestants = [
         {
             "planner": row[CONTESTANT],
             "n_episodes": int(row["n"]),
             "success_rate": float(row["mean"]) if row["mean"] is not None else None,
         }
-        for row in planner_res.frame.filter(pl.col(CONTESTANT).is_not_null())
-        .sort(by=["mean", CONTESTANT], descending=[True, False], nulls_last=True)
-        .to_dicts()
+        for row in planner_res.frame.filter(pl.col(CONTESTANT).is_not_null()).sort(by=["mean", CONTESTANT], descending=[True, False], nulls_last=True).to_dicts()
     ]
     overall_res = _group_summary(catalog, (), ("success",), exclude_references=exclude)
     overall_val = overall_res.frame["mean"][0] if overall_res.frame.height else None
@@ -319,9 +290,7 @@ def evaluation_describe_metric(
             "name": metric_name,
             "unit": first.get("unit"),
             "direction": direction,
-            "lower_is_better": None
-            if direction not in ("higher", "lower")
-            else direction == "lower",
+            "lower_is_better": None if direction not in ("higher", "lower") else direction == "lower",
             "description": first.get("description"),
             "scopes": sorted({str(m["scope"]) for m in matched if m.get("scope")}),
             "fact_table": first.get("fact_table"),
@@ -341,14 +310,10 @@ def evaluation_describe_metric(
             "rollup_rule": _ROLLUP_RULE,
         }
 
-    known = sorted(
-        {str(r["metric"]) for r in dim_rows} | {m.name for m in defined_metrics()}
-    )
+    known = sorted({str(r["metric"]) for r in dim_rows} | {m.name for m in defined_metrics()})
     raise ToolError(
         f"no metric {metric_name!r}",
-        hint=f"metrics: {', '.join(known)}"
-        if known
-        else "pass run_id with Star Schema tables",
+        hint=f"metrics: {', '.join(known)}" if known else "pass run_id with Star Schema tables",
     )
 
 
@@ -357,15 +322,11 @@ def evaluation_aggregate(
     run_id: RunId,
     dimension: Annotated[
         list[str] | str,
-        pydantic.Field(
-            description="column or columns to group by, e.g. planner or ['stage', 'planner']"
-        ),
+        pydantic.Field(description="column or columns to group by, e.g. planner or ['stage', 'planner']"),
     ] = "planner",
     metrics: Metrics = None,
     filter: Filter = None,
-    sort_by: Annotated[
-        str | None, pydantic.Field(description="metric column to sort by")
-    ] = None,
+    sort_by: Annotated[str | None, pydantic.Field(description="metric column to sort by")] = None,
     descending: bool = True,
     include_references: References = False,
 ) -> dict[str, Any]:
@@ -382,15 +343,7 @@ def evaluation_aggregate(
     columns(frame, dimensions, "dimension")
     if filter:
         columns(frame, list(filter), "filter")
-    chosen = (
-        columns(frame, metrics, "metric")
-        if metrics
-        else [
-            name
-            for name in numeric_columns(frame)
-            if name not in dimensions and not isinstance(frame.schema[name], pl.List)
-        ]
-    )
+    chosen = columns(frame, metrics, "metric") if metrics else [name for name in numeric_columns(frame) if name not in dimensions and not isinstance(frame.schema[name], pl.List)]
     if sort_by is not None and sort_by not in chosen:
         raise ToolError(
             f"sort_by {sort_by!r} is not one of the metrics {chosen}",
@@ -433,22 +386,16 @@ def evaluation_compare_planners(
     group_by_stage: bool = False,
     normalize: Annotated[
         bool,
-        pydantic.Field(
-            description="include <metric>_norm in [0, 1] and composite rank"
-        ),
+        pydantic.Field(description="include <metric>_norm in [0, 1] and composite rank"),
     ] = True,
     include_references: References = False,
     n: Annotated[
         int | None,
-        pydantic.Field(
-            description="return only the n best contestants by weighted normalized score (the former evaluation_top_n)"
-        ),
+        pydantic.Field(description="return only the n best contestants by weighted normalized score (the former evaluation_top_n)"),
     ] = None,
     weights: Annotated[
         list[float] | None,
-        pydantic.Field(
-            description="one weight per metric when n is set, equal weights when omitted"
-        ),
+        pydantic.Field(description="one weight per metric when n is set, equal weights when omitted"),
     ] = None,
 ) -> dict[str, Any]:
     """Contestants side by side on metric means and composite ranking via Layer 3 ``composite_ranking``; ``n`` returns the top contestants."""
@@ -462,11 +409,7 @@ def evaluation_compare_planners(
                 f"{len(weights)} weights for {len(chosen)} metrics",
                 hint="give one weight per metric, in the same order",
             )
-        weight_map = (
-            dict(zip(chosen, weights, strict=True))
-            if weights is not None
-            else {metric: 1.0 for metric in chosen}
-        )
+        weight_map = dict(zip(chosen, weights, strict=True)) if weights is not None else {metric: 1.0 for metric in chosen}
         top_res = _computation_or_error(
             "top_n_ranking",
             catalog,
@@ -517,16 +460,12 @@ def evaluation_compare_planners(
             filter=row_filter,
             exclude_references=exclude,
         )
-        out["by_stage"] = _pivot_group_summary(
-            stage_res.frame, ["stage", CONTESTANT], include_spread=True
-        )
+        out["by_stage"] = _pivot_group_summary(stage_res.frame, ["stage", CONTESTANT], include_spread=True)
     return out
 
 
 @domain.tool(read_only=True)
-def evaluation_correlation(
-    run_id: RunId, metrics: list[str], include_references: References = False
-) -> dict[str, Any]:
+def evaluation_correlation(run_id: RunId, metrics: list[str], include_references: References = False) -> dict[str, Any]:
     """Pairwise Pearson correlation matrix of scalar metrics via Layer 3 ``correlation_matrix``."""
     import polars as pl
 
@@ -564,9 +503,7 @@ def evaluation_correlation(
 
 
 @domain.tool(read_only=True)
-def evaluation_summarize(
-    run_id: RunId, include_references: References = False
-) -> dict[str, Any]:
+def evaluation_summarize(run_id: RunId, include_references: References = False) -> dict[str, Any]:
     """A run's progress and results: step counts, contestants, stages and maps via Layer 3 ``group_summary``."""
     from .runs import run_status
 
@@ -581,19 +518,9 @@ def evaluation_summarize(
         f"Contestants: {', '.join(map(str, summary['planners']))}",
         f"Stages: {', '.join(map(str, summary['stages']))}",
         f"Maps: {', '.join(map(str, summary['maps']))}",
-        f"Episodes: {summary['n_episodes']} ({summary['n_references']} reference rows left out)"
-        if not include_references
-        else f"Episodes: {summary['n_episodes']} including references",
+        f"Episodes: {summary['n_episodes']} ({summary['n_references']} reference rows left out)" if not include_references else f"Episodes: {summary['n_episodes']} including references",
     ]
-    lines += [
-        f"  {entry['planner']}: {entry['n_episodes']} episodes, success "
-        + (
-            "n/a"
-            if entry["success_rate"] is None
-            else f"{entry['success_rate'] * 100:.1f}%"
-        )
-        for entry in per_planner
-    ]
+    lines += [f"  {entry['planner']}: {entry['n_episodes']} episodes, success " + ("n/a" if entry["success_rate"] is None else f"{entry['success_rate'] * 100:.1f}%") for entry in per_planner]
     return {
         "run_id": run_id,
         "snapshot_id": snapshot_id,
@@ -637,9 +564,7 @@ def metrics_summary_resource(run_id: str) -> dict[str, Any]:
 def evaluation_analysis(
     procedure: Annotated[
         str | None,
-        pydantic.Field(
-            description="Named analysis procedure to run; omit to list all procedures and parameter schemas"
-        ),
+        pydantic.Field(description="Named analysis procedure to run; omit to list all procedures and parameter schemas"),
     ] = None,
     params: Annotated[
         dict[str, Any] | None,
@@ -735,20 +660,14 @@ def evaluation_analysis(
         "excluded_rows": dict(result.excluded_rows),
         "seeds_used": list(result.seeds_used),
         **({"derived_table": derived_table} if derived_table else {}),
-        **(
-            {"derived_summary_table": derived_summary_table}
-            if derived_summary_table
-            else {}
-        ),
+        **({"derived_summary_table": derived_summary_table} if derived_summary_table else {}),
     }
 
 
 def rerun_sensitivity_params(run_dir: pathlib.Path, params: Mapping[str, Any]) -> Any:
     """Rerun sensitivity telemetry from persisted evidence parameters."""
     raw_episodes = params.get("episodes")
-    episodes = (
-        [int(e) for e in raw_episodes] if isinstance(raw_episodes, list) else None
-    )
+    episodes = [int(e) for e in raw_episodes] if isinstance(raw_episodes, list) else None
     raw_dp = params.get("detector_params")
     dp = raw_dp if isinstance(raw_dp, dict) else None
     return rerun_sensitivity(run_dir, episode_ids=episodes, detector_params=dp)
@@ -765,9 +684,7 @@ def evaluation_sensitivity(
         dict[str, Any] | None,
         pydantic.Field(description="Detector parameters for sensitivity rerun"),
     ] = None,
-    save_as: Annotated[
-        str | None, pydantic.Field(description="Optional label for pinned evidence")
-    ] = None,
+    save_as: Annotated[str | None, pydantic.Field(description="Optional label for pinned evidence")] = None,
 ) -> dict[str, Any]:
     """Run an in-memory detector-level sensitivity rerun over telemetry; it writes no variant and no published file."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
@@ -775,9 +692,7 @@ def evaluation_sensitivity(
 
     path = run_path(run_id)
     catalog = BenchmarkCatalog.open(path, variant="sensitivity")
-    frame = rerun_sensitivity(
-        path, episode_ids=episodes, detector_params=detector_params
-    )
+    frame = rerun_sensitivity(path, episode_ids=episodes, detector_params=detector_params)
     store = EvidenceStore(path)
     record = store.record(
         frame,

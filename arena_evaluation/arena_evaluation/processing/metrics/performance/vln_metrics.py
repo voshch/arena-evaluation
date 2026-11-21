@@ -100,9 +100,7 @@ GOAL_INPUTS = define_metric(
 )
 
 
-def geodesic_field(
-    blocked: np.ndarray, goal_cell: tuple[int, int], resolution: float
-) -> np.ndarray:
+def geodesic_field(blocked: np.ndarray, goal_cell: tuple[int, int], resolution: float) -> np.ndarray:
     """Meters from each cell to goal_cell (gx, gy) over free 8-connected cells without corner cutting, inf if unreachable."""
     h, w = blocked.shape
     gx, gy = goal_cell
@@ -141,12 +139,8 @@ def geodesic_distances(
     xs = np.asarray(xs, dtype=np.float64)
     ys = np.asarray(ys, dtype=np.float64)
     finite = np.isfinite(xs) & np.isfinite(ys)
-    gx = np.floor((np.where(finite, xs, origin[0]) - origin[0]) / resolution).astype(
-        np.int64
-    )
-    gy = np.floor((np.where(finite, ys, origin[1]) - origin[1]) / resolution).astype(
-        np.int64
-    )
+    gx = np.floor((np.where(finite, xs, origin[0]) - origin[0]) / resolution).astype(np.int64)
+    gy = np.floor((np.where(finite, ys, origin[1]) - origin[1]) / resolution).astype(np.int64)
     h, w = field.shape
     inside = finite & (gx >= 0) & (gx < w) & (gy >= 0) & (gy < h)
     out = np.full(len(gx), np.inf)
@@ -172,9 +166,7 @@ def resample_path(points: np.ndarray, spacing: float) -> np.ndarray:
     )
 
 
-def ndtw(
-    reference: np.ndarray, query: np.ndarray, threshold: float, spacing: float
-) -> float:
+def ndtw(reference: np.ndarray, query: np.ndarray, threshold: float, spacing: float) -> float:
     """exp(-DTW(R, Q) / (|R| * threshold)) on both paths resampled at `spacing` (Ilharco et al. 2019)."""
     r = resample_path(reference, spacing)
     q = resample_path(query, spacing)
@@ -185,9 +177,7 @@ def ndtw(
     for k in range(2, n + m + 1):
         i = np.arange(max(1, k - m), min(n, k - 1) + 1)
         j = k - i
-        cost[i, j] = d[i - 1, j - 1] + np.minimum(
-            np.minimum(cost[i - 1, j], cost[i, j - 1]), cost[i - 1, j - 1]
-        )
+        cost[i, j] = d[i - 1, j - 1] + np.minimum(np.minimum(cost[i - 1, j], cost[i, j - 1]), cost[i - 1, j - 1])
     return float(np.exp(-cost[n, m] / (n * threshold)))
 
 
@@ -214,45 +204,23 @@ def route(phases: dict | None) -> tuple[list[tuple[float, float]], float | None]
     """Map-frame (x, y) of every goto in the robot's EpisodeRecord.phases entry, in order, and the last one's tolerance radius."""
     if not phases:
         return [], None
-    legs = [
-        (phase, pose)
-        for phase, pose in zip(phases["phases"], phases["map_poses"], strict=True)
-        if pose is not None
-    ]
+    legs = [(phase, pose) for phase, pose in zip(phases["phases"], phases["map_poses"], strict=True) if pose is not None]
     if not legs:
         return [], None
-    return [(float(pose[0]), float(pose[1])) for _, pose in legs], legs[-1][0].get(
-        "tolerance_radius"
-    ) or None
+    return [(float(pose[0]), float(pose[1])) for _, pose in legs], legs[-1][0].get("tolerance_radius") or None
 
 
 def goal_inputs(phases: dict | None) -> str | None:
     """What the planner was given, joined by `+`: `pose`, `pose:oracle` (a pose inside a named target), `instruction`, `instruction:route` or `instruction:coordinates` (rendered from the goal pose), None when the record names no inputs."""
     if not phases or not phases.get("goal_inputs"):
         return None
-    gotos = [
-        (phase, told)
-        for phase, pose, told in zip(
-            phases["phases"], phases["map_poses"], phases["instructions"], strict=True
-        )
-        if pose is not None
-    ]
+    gotos = [(phase, told) for phase, pose, told in zip(phases["phases"], phases["map_poses"], phases["instructions"], strict=True) if pose is not None]
     labels = []
     if "pose" in phases["goal_inputs"]:
-        labels.append(
-            "pose:oracle"
-            if any(isinstance(phase.get("goto"), str) for phase, _ in gotos)
-            else "pose"
-        )
+        labels.append("pose:oracle" if any(isinstance(phase.get("goto"), str) for phase, _ in gotos) else "pose")
     if "instruction" in phases["goal_inputs"]:
         sources = {told["source"] for _, told in gotos if told}
-        labels.append(
-            "instruction:coordinates"
-            if "coordinates" in sources
-            else "instruction:route"
-            if "route" in sources
-            else "instruction"
-        )
+        labels.append("instruction:coordinates" if "coordinates" in sources else "instruction:route" if "route" in sources else "instruction")
     return "+".join(labels)
 
 
@@ -294,14 +262,10 @@ class VlnMetricsCalculator(BaseMetricCalculator):
     STUCK_SHIFT_M = 0.2
     STUCK_TURN_DEG = 15.0
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Route metrics on the episode's world grid; a world asset that is not on disk nulls them with its reason."""
         try:
-            grid = grid_for_map(
-                episode.map, episode.run_dir, self.robot_params.robot_radius
-            )
+            grid = grid_for_map(episode.map, episode.run_dir, self.robot_params.robot_radius)
         except FileNotFoundError:
             results = self.calculate_on_grid(episode, prior_results, None)
             for key in _ROUTE_OUTPUTS:
@@ -375,30 +339,20 @@ class VlnMetricsCalculator(BaseMetricCalculator):
                 results["osr_null_reason"] = final_route.null_reason
             return
         field = geodesic_field(grid.lethal, goal_cell, grid.resolution_m)
-        dists = geodesic_distances(
-            field, pos_x, pos_y, grid.resolution_m, grid.origin_xy
-        )
+        dists = geodesic_distances(field, pos_x, pos_y, grid.resolution_m, grid.origin_xy)
 
         finite = np.isfinite(dists)
         if threshold is None:
             return
 
-        near = np.flatnonzero(
-            finite
-            & (
-                dists
-                <= threshold * _OCTILE_MAX_RATIO + grid.resolution_m * math.sqrt(2.0)
-            )
-        )
+        near = np.flatnonzero(finite & (dists <= threshold * _OCTILE_MAX_RATIO + grid.resolution_m * math.sqrt(2.0)))
         euclid = np.hypot(pos_x[near] - goal_xy[0], pos_y[near] - goal_xy[1])
         within_tolerance = euclid <= threshold
         near = near[within_tolerance][np.argsort(euclid[within_tolerance])]
         results["osr"] = False
         refusal: str | None = None
         for i in near:
-            inside, reason = _within(
-                grid, (float(pos_x[i]), float(pos_y[i])), goal_xy, threshold
-            )
+            inside, reason = _within(grid, (float(pos_x[i]), float(pos_y[i])), goal_xy, threshold)
             if inside:
                 results["osr"] = True
                 break
@@ -419,9 +373,7 @@ class VlnMetricsCalculator(BaseMetricCalculator):
         if results["success_geodesic"] is not None and path_length is not None:
             reference_length = float(mission.length_m)
             travelled_length = float(path_length)
-            ratio = (
-                reference_length / travelled_length if travelled_length > 0.0 else 1.0
-            )
+            ratio = reference_length / travelled_length if travelled_length > 0.0 else 1.0
             if ratio > 1.0:
                 if results["success_geodesic"]:
                     # The sampled path came out shorter than the route: out of range, never clamped to one.

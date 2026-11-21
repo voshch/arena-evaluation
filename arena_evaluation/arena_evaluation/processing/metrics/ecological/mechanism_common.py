@@ -40,13 +40,7 @@ def _norm_path(name: str) -> str:
 
 def _norm_path_expr(column: str) -> pl.Expr:
     """``_norm_path`` as a column expression: no leading, trailing or doubled slashes."""
-    return (
-        pl.col(column)
-        .cast(pl.String)
-        .str.split("/")
-        .list.eval(pl.element().filter(pl.element() != ""))
-        .list.join("/")
-    )
+    return pl.col(column).cast(pl.String).str.split("/").list.eval(pl.element().filter(pl.element() != "")).list.join("/")
 
 
 def entity_env(entity: str) -> str | None:
@@ -121,11 +115,7 @@ class RobotIdentity:
         else:
             name_env = name.str.extract(_ENV_PREFIX.pattern, 1)
             env_ok = name_env.is_null() | (name_env == self.env)
-        return (
-            name.is_in(sorted(self._aliases))
-            | (name.str.replace_all("/", "_") == self.robot_name)
-            | (env_ok & (name.str.split("/").list.last() == self.base.split("/")[-1]))
-        )
+        return name.is_in(sorted(self._aliases)) | (name.str.replace_all("/", "_") == self.robot_name) | (env_ok & (name.str.split("/").list.last() == self.base.split("/")[-1]))
 
 
 def robot_identity(episode: AlignedEpisodeBundle) -> RobotIdentity | None:
@@ -139,9 +129,7 @@ def episode_end_t_ns(episode: AlignedEpisodeBundle) -> int | None:
     return int(episode.data["t_ns"].to_numpy().max())
 
 
-def robot_env_snapshot(
-    snapshot: pl.DataFrame | pl.LazyFrame | None, robot_name: str | None
-) -> pl.DataFrame | None:
+def robot_env_snapshot(snapshot: pl.DataFrame | pl.LazyFrame | None, robot_name: str | None) -> pl.DataFrame | None:
     """The snapshot restricted to the robot's env when it carries several envs, unchanged otherwise."""
     if snapshot is None:
         return None
@@ -152,11 +140,7 @@ def robot_env_snapshot(
     env = RobotIdentity(robot_name).env
     if env is None:
         return snapshot
-    envs = set(
-        snapshot.select(
-            pl.col("entity_name").str.extract(r"^/*(env_\d+)/", 1).unique()
-        )["entity_name"]
-    )
+    envs = set(snapshot.select(pl.col("entity_name").str.extract(r"^/*(env_\d+)/", 1).unique())["entity_name"])
     if env not in envs or len(envs) < 2:
         return snapshot
     return snapshot.filter(pl.col("entity_name").str.contains(rf"^/*{env}/"))
@@ -191,22 +175,14 @@ class SemanticView:
         self.series: dict[tuple[str, str], FieldSeries] = {}
         if len(events) == 0:
             return
-        for (entity, kind, field), group in events.group_by(
-            ["entity", "kind", "field"]
-        ):
+        for (entity, kind, field), group in events.group_by(["entity", "kind", "field"]):
             g = group.sort("t_ns")
             self.kinds.setdefault(entity, kind)
-            self.series[(entity, field)] = FieldSeries(
-                g["t_ns"].to_numpy().astype(np.int64), list(g["current"])
-            )
+            self.series[(entity, field)] = FieldSeries(g["t_ns"].to_numpy().astype(np.int64), list(g["current"]))
 
     @classmethod
     def from_episode(cls, episode: AlignedEpisodeBundle) -> SemanticView:
-        return cls(
-            reconstruct_events(
-                robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-            )
-        )
+        return cls(reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)))
 
     def entities(self, kind: str) -> list[str]:
         return sorted(e for e, k in self.kinds.items() if k == kind)
@@ -307,9 +283,7 @@ class MechanismWorld:
     egress_zones: list[EgressZone] = dataclasses.field(default_factory=list)
 
     @staticmethod
-    def _pick[G: (DoorGeom, ElevatorGeom, SignalGeom)](
-        items: list[G], name: str, level: str | None
-    ) -> G | None:
+    def _pick[G: (DoorGeom, ElevatorGeom, SignalGeom)](items: list[G], name: str, level: str | None) -> G | None:
         candidates = [item for item in items if item.name == name]
         if level is not None:
             on_level = [item for item in candidates if item.level == level]
@@ -327,9 +301,7 @@ class MechanismWorld:
         return self._pick(self.signals, entity_name(entity), entity_level(entity))
 
 
-def _cabin_door_segment(
-    cx: float, cy: float, hw: float, hh: float, side: str
-) -> tuple[tuple[float, float], tuple[float, float]]:
+def _cabin_door_segment(cx: float, cy: float, hw: float, hh: float, side: str) -> tuple[tuple[float, float], tuple[float, float]]:
     if side == "-x":
         return (cx - hw, cy - hh), (cx - hw, cy + hh)
     if side == "+y":
@@ -339,9 +311,7 @@ def _cabin_door_segment(
     return (cx + hw, cy - hh), (cx + hw, cy + hh)
 
 
-def _signal_geometry(
-    signal: Signal, world: World, origins: dict[str, tuple[float, float]]
-) -> SignalGeom | None:
+def _signal_geometry(signal: Signal, world: World, origins: dict[str, tuple[float, float]]) -> SignalGeom | None:
     """Stop line from the signal params in the frame of the level whose zones cover it (else the first level), None when unplaced."""
     try:
         position = signal.stop_position
@@ -351,29 +321,15 @@ def _signal_geometry(
         return None
     x, y = position
     level_id = next(
-        (
-            lid
-            for lid, level in world.levels.items()
-            if any(
-                in_polygon(
-                    np.array([x]), np.array([y]), [(c.x, c.y) for c in zone.polygon]
-                )[0]
-                for zone in level.zones
-            )
-        ),
+        (lid for lid, level in world.levels.items() if any(in_polygon(np.array([x]), np.array([y]), [(c.x, c.y) for c in zone.polygon])[0] for zone in level.zones)),
         next(iter(world.levels), ""),
     )
     origin = origins.get(level_id, (0.0, 0.0))
-    return SignalGeom(
-        signal.name, level_id, x + origin[0], y + origin[1], signal.stop_radius
-    )
+    return SignalGeom(signal.name, level_id, x + origin[0], y + origin[1], signal.stop_radius)
 
 
 def _is_egress(zone: Zone) -> bool:
-    return any(
-        cfg.role == "predicate" and cfg.name == "egress" and cfg.value is not False
-        for cfg in zone.semantics
-    )
+    return any(cfg.role == "predicate" and cfg.name == "egress" and cfg.value is not False for cfg in zone.semantics)
 
 
 def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
@@ -392,9 +348,7 @@ def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
     for elevator in level.all_elevators:
         cx, cy = elevator.position.x, elevator.position.y
         hw, hh = elevator.size[0] / 2.0, elevator.size[1] / 2.0
-        door_start, door_end = _cabin_door_segment(
-            cx, cy, hw, hh, elevator.door_side or "+x"
-        )
+        door_start, door_end = _cabin_door_segment(cx, cy, hw, hh, elevator.door_side or "+x")
         out.elevators.append(
             ElevatorGeom(
                 name=elevator.name,
@@ -409,20 +363,14 @@ def _level_geometry(out: MechanismWorld, level_id: str, level: Level) -> None:
         )
     for zone in level.zones:
         if len(zone.polygon) >= 3 and _is_egress(zone):
-            out.egress_zones.append(
-                EgressZone(zone.name, level_id, [(c.x, c.y) for c in zone.polygon])
-            )
+            out.egress_zones.append(EgressZone(zone.name, level_id, [(c.x, c.y) for c in zone.polygon]))
 
 
-def mechanism_world_from_description(
-    world: World, origins: dict[str, tuple[float, float]]
-) -> MechanismWorld:
+def mechanism_world_from_description(world: World, origins: dict[str, tuple[float, float]]) -> MechanismWorld:
     """Extract mechanism geometry per level, shifted by each level's origin like `compact_world`."""
     out = MechanismWorld()
     for level_id, level in world.levels.items():
-        _level_geometry(
-            out, level_id, level.shifted(*origins.get(level_id, (0.0, 0.0)))
-        )
+        _level_geometry(out, level_id, level.shifted(*origins.get(level_id, (0.0, 0.0))))
     for signal in world.signals:
         geom = _signal_geometry(signal, world, origins)
         if geom is not None:
@@ -438,9 +386,7 @@ def load_mechanism_world(world_name: str) -> MechanismWorld | None:
         view = WorldIdentifier(world_name).resolve_sync()
         world = view.load()
     except FileNotFoundError as e:
-        logger.warning(
-            "mechanism metrics: world '%s' not available locally: %s", world_name, e
-        )
+        logger.warning("mechanism metrics: world '%s' not available locally: %s", world_name, e)
         return None
 
     origins = view.level_origins()
@@ -449,9 +395,7 @@ def load_mechanism_world(world_name: str) -> MechanismWorld | None:
     return mechanism_world_from_description(world, origins)
 
 
-def segment_distance(
-    px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]
-) -> np.ndarray:
+def segment_distance(px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
     """Euclidean distance of points to the segment a-b."""
     px = np.asarray(px, dtype=np.float64)
     py = np.asarray(py, dtype=np.float64)
@@ -465,19 +409,13 @@ def segment_distance(
     return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def side_of(
-    px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]
-) -> np.ndarray:
+def side_of(px: np.ndarray, py: np.ndarray, a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
     """Signed side of points relative to the directed line a->b (+1 left, -1 right, 0 on it)."""
-    cross = (b[0] - a[0]) * (np.asarray(py, dtype=np.float64) - a[1]) - (
-        b[1] - a[1]
-    ) * (np.asarray(px, dtype=np.float64) - a[0])
+    cross = (b[0] - a[0]) * (np.asarray(py, dtype=np.float64) - a[1]) - (b[1] - a[1]) * (np.asarray(px, dtype=np.float64) - a[0])
     return np.sign(cross)
 
 
-def in_polygon(
-    px: np.ndarray, py: np.ndarray, polygon: list[tuple[float, float]]
-) -> np.ndarray:
+def in_polygon(px: np.ndarray, py: np.ndarray, polygon: list[tuple[float, float]]) -> np.ndarray:
     """Vectorised even-odd point-in-polygon."""
     px = np.asarray(px, dtype=np.float64)
     py = np.asarray(py, dtype=np.float64)
@@ -518,9 +456,7 @@ def hold_dt(t_ns: np.ndarray) -> np.ndarray:
     return dt
 
 
-def robot_track(
-    calc: BaseMetricCalculator, episode: AlignedEpisodeBundle
-) -> RobotTrack | None:
+def robot_track(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> RobotTrack | None:
     """Resolved map-frame robot track, None when the episode has no usable pose or start pose."""
     if episode.data is None or len(episode.data) == 0 or not episode.start_pos:
         return None
@@ -556,10 +492,7 @@ class PedTracks:
 
 def _ped_frames(peds: pl.DataFrame) -> list[pl.DataFrame]:
     """The pedestrians of each recorded frame, frames in time order."""
-    return [
-        frame
-        for (_t_ns,), frame in peds.sort("t_ns").group_by("t_ns", maintain_order=True)
-    ]
+    return [frame for (_t_ns,), frame in peds.sort("t_ns").group_by("t_ns", maintain_order=True)]
 
 
 def ped_tracks(peds: pl.DataFrame | None, t_ns: np.ndarray) -> PedTracks | None:

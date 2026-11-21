@@ -71,9 +71,7 @@ _CASES: dict[str, tuple[PlotSpec, pl.DataFrame]] = {
 
 
 @pytest.mark.parametrize("plot_type", sorted(_CASES))
-def test_new_type_dispatches_through_both_renderers(
-    plot_type: str, tmp_path: pathlib.Path
-) -> None:
+def test_new_type_dispatches_through_both_renderers(plot_type: str, tmp_path: pathlib.Path) -> None:
     spec, frame = _CASES[plot_type]
     png = tmp_path / f"{plot_type}.png"
 

@@ -42,17 +42,11 @@ def _load_level(world_dir: str) -> Level:
     from arena_simulation_setup.tree.World import WorldView
 
     world = WorldView(pathlib.Path(world_dir)).load(validate=False)
-    origins = (
-        world.level_origins()
-        if len(world.levels) > 1
-        else dict.fromkeys(world.level_ids, (0.0, 0.0))
-    )
+    origins = world.level_origins() if len(world.levels) > 1 else dict.fromkeys(world.level_ids, (0.0, 0.0))
     return world.compact_world(origins)
 
 
-def _world_candidates(
-    map_name: str, run_dir: pathlib.Path | str | None = None
-) -> list[tuple[str, pathlib.Path | None]]:
+def _world_candidates(map_name: str, run_dir: pathlib.Path | str | None = None) -> list[tuple[str, pathlib.Path | None]]:
     """Where a map's world may live, in declared lookup order, labelled for errors and provenance.
 
     Order: the episode run snapshot (``run_dir/worlds/<map>``), then the installed
@@ -61,9 +55,7 @@ def _world_candidates(
     """
     candidates: list[tuple[str, pathlib.Path | None]] = []
     if run_dir is not None:
-        candidates.append(
-            ("run directory", pathlib.Path(run_dir) / "worlds" / map_name)
-        )
+        candidates.append(("run directory", pathlib.Path(run_dir) / "worlds" / map_name))
 
     try:
         installed = installed_world_dir(map_name)
@@ -80,18 +72,13 @@ def _world_candidates(
         candidates.append(
             (
                 "ARENA_DIR source tree",
-                pathlib.Path(arena_dir)
-                / "arena_simulation_setup"
-                / "worlds"
-                / map_name,
+                pathlib.Path(arena_dir) / "arena_simulation_setup" / "worlds" / map_name,
             )
         )
     return candidates
 
 
-def resolve_world_dir(
-    map_name: str, run_dir: pathlib.Path | str | None = None
-) -> tuple[pathlib.Path, str] | None:
+def resolve_world_dir(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, str] | None:
     """The world directory used for a map and the label of the copy it came from.
 
     Lookup order is the declared legacy path: run snapshot, installed package, then ARENA_DIR
@@ -109,9 +96,7 @@ def resolve_world_dir(
     return None
 
 
-def _find_world_level(
-    map_name: str, run_dir: pathlib.Path | str | None = None
-) -> tuple[pathlib.Path, Level] | None:
+def _find_world_level(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, Level] | None:
     """The first candidate directory holding a world, and that world's level."""
     resolved = resolve_world_dir(map_name, run_dir=run_dir)
     if resolved is None:
@@ -123,10 +108,7 @@ def _find_world_level(
 @functools.lru_cache(maxsize=8)
 def _barrier_map_for_world(world_dir: str, resolution: float) -> BarrierMap:
     level = _load_level(world_dir)
-    walls = [
-        WallSegment(start=(wall.start.x, wall.start.y), end=(wall.end.x, wall.end.y))
-        for wall in level.all_walls
-    ]
+    walls = [WallSegment(start=(wall.start.x, wall.start.y), end=(wall.end.x, wall.end.y)) for wall in level.all_walls]
     doors = [
         DoorOpening(
             name=door.name,
@@ -138,9 +120,7 @@ def _barrier_map_for_world(world_dir: str, resolution: float) -> BarrierMap:
     ]
     # Zones give the walkable extent, so that agents standing in open space are on the grid. They are not barriers.
     extent = [(point.x, point.y) for zone in level.zones for point in zone.polygon]
-    return derive_barrier_map(
-        walls=walls, doors=doors, extent=extent, resolution=resolution
-    )
+    return derive_barrier_map(walls=walls, doors=doors, extent=extent, resolution=resolution)
 
 
 def load_barrier_map(
@@ -154,13 +134,8 @@ def load_barrier_map(
     """
     resolved = resolve_world_dir(map_name, run_dir=run_dir)
     if resolved is None:
-        searched = "; ".join(
-            label if path is None else f"{label} at {path}"
-            for label, path in _world_candidates(map_name, run_dir=run_dir)
-        )
-        raise MetricInputError(
-            f"AcousticExposureCalculator: missing world map {map_name!r}; searched {searched}"
-        )
+        searched = "; ".join(label if path is None else f"{label} at {path}" for label, path in _world_candidates(map_name, run_dir=run_dir))
+        raise MetricInputError(f"AcousticExposureCalculator: missing world map {map_name!r}; searched {searched}")
     world_dir, source = resolved
     logger.info(
         "AcousticExposureCalculator: world %r read from %s at %s",
@@ -171,9 +146,7 @@ def load_barrier_map(
     return _barrier_map_for_world(str(world_dir), float(resolution))
 
 
-def barrier_door_tl(
-    barrier: BarrierMap, *, door_tl_db: float = DEFAULT_DOOR_TL_DB
-) -> dict[str, tuple[np.ndarray, float]]:
+def barrier_door_tl(barrier: BarrierMap, *, door_tl_db: float = DEFAULT_DOOR_TL_DB) -> dict[str, tuple[np.ndarray, float]]:
     """Door masks keyed as the door-state timeline names them (``world/<name>``), with the closed-door TL per cell.
 
     ``door_tl_db`` is a declared model parameter, defaulting to ``DEFAULT_DOOR_TL_DB`` (from
@@ -183,10 +156,7 @@ def barrier_door_tl(
     pays the full TL once, and a grazing path that clips fewer of those cells pays only the
     corresponding fraction, as an approximation of the closed-door transmission loss.
     """
-    return {
-        f"world/{name}": (mask, door_tl_db / barrier.door_cells_across[name])
-        for name, mask in barrier.door_masks.items()
-    }
+    return {f"world/{name}": (mask, door_tl_db / barrier.door_cells_across[name]) for name, mask in barrier.door_masks.items()}
 
 
 _ENV_PREFIX = re.compile(r"^env_\d+/")

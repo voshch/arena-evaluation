@@ -10,14 +10,17 @@ import pathlib
 import uuid
 from typing import Annotated, Any, Final, Literal
 
-import polars.exceptions
 import matplotlib
+import polars.exceptions
 
 matplotlib.use("Agg")
 import pydantic
 import yaml
 from arena_mcp.core import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
+
+from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
+from arena_evaluation.storage.exceptions import ArenaEvaluationError
 
 from .base import (
     RunId,
@@ -29,8 +32,6 @@ from .base import (
     file_lock,
     run_path,
 )
-from arena_evaluation.analytics.findings import Finding, FindingStatus, load_findings
-from arena_evaluation.storage.exceptions import ArenaEvaluationError
 
 _EXPORT_FORMATS: Final[tuple[str, str]] = ("svg", "pdf")
 _DRAFT_FILE: Final[str] = "draft.yaml"
@@ -66,14 +67,10 @@ def _load_draft(draft_dir: pathlib.Path) -> dict[str, Any]:
 
 
 def _write_yaml(path: pathlib.Path, payload: dict[str, Any]) -> None:
-    atomic_write_text(
-        path, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
-    )
+    atomic_write_text(path, yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
 
-def _save_draft(
-    run_dir: pathlib.Path, draft_dir: pathlib.Path, data: dict[str, Any]
-) -> None:
+def _save_draft(run_dir: pathlib.Path, draft_dir: pathlib.Path, data: dict[str, Any]) -> None:
     path = draft_dir / _DRAFT_FILE
     assert_safe_analysis_write(run_dir, path)
     _write_yaml(path, data)
@@ -102,19 +99,13 @@ def _resolver(run_dir: pathlib.Path, catalog: Any) -> Any:
     )
 
 
-def _derived_table_provenance(
-    run_dir: pathlib.Path, source: str | None
-) -> dict[str, str]:
+def _derived_table_provenance(run_dir: pathlib.Path, source: str | None) -> dict[str, str]:
     """The snapshot recorded by a ``derived_*`` table's sidecar, for the report card (H-022)."""
     if not source or not source.startswith("derived_"):
         return {}
     stem = component(source.removeprefix("derived_"), "derived table name")
     sidecar = run_dir / "analysis" / "derived" / f"{stem}.yaml"
-    raw = (
-        yaml.safe_load(sidecar.read_text(encoding="utf-8"))
-        if sidecar.is_file()
-        else None
-    )
+    raw = yaml.safe_load(sidecar.read_text(encoding="utf-8")) if sidecar.is_file() else None
     if not isinstance(raw, dict):
         return {}
     return {
@@ -123,9 +114,7 @@ def _derived_table_provenance(
     }
 
 
-def _render_outcome(
-    body: str, out_png: pathlib.Path, plot_id: str, diagnostics: Any
-) -> tuple[str, str | None]:
+def _render_outcome(body: str, out_png: pathlib.Path, plot_id: str, diagnostics: Any) -> tuple[str, str | None]:
     """The rendered/failed status of one plot, naming the first render defect it finds."""
     from arena_evaluation.presentation.checks import image_is_blank
 
@@ -150,13 +139,9 @@ def evaluation_report_draft(
     run_id: RunId,
     from_manifest: Annotated[
         str | None,
-        pydantic.Field(
-            description="Optional existing manifest name to seed plots from"
-        ),
+        pydantic.Field(description="Optional existing manifest name to seed plots from"),
     ] = None,
-    title: Annotated[
-        str, pydantic.Field(description="Report title")
-    ] = "Evaluation Report",
+    title: Annotated[str, pydantic.Field(description="Report title")] = "Evaluation Report",
 ) -> dict[str, Any]:
     """Create a new report draft under ``<run>/analysis/report_drafts/<id>/``."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
@@ -192,9 +177,7 @@ def evaluation_report_draft(
                 f"manifest {from_manifest!r} not found",
                 hint="evaluation_manifests lists available report manifests",
             )
-        manifest = VizManifest.model_validate(
-            yaml.safe_load(found.read_text(encoding="utf-8"))
-        )
+        manifest = VizManifest.model_validate(yaml.safe_load(found.read_text(encoding="utf-8")))
         plots = [p.model_dump(mode="json", exclude_none=True) for p in manifest.plots]
 
     data = {
@@ -228,9 +211,7 @@ def evaluation_report_plot(
     draft_id: str,
     plot: Annotated[
         dict[str, Any],
-        pydantic.Field(
-            description="PlotSpec mapping with id, type, title, data, channels"
-        ),
+        pydantic.Field(description="PlotSpec mapping with id, type, title, data, channels"),
     ],
 ) -> dict[str, Any]:
     """Add or replace one plot in a report draft and render it to PNG and HTML plus checks."""
@@ -246,9 +227,7 @@ def evaluation_report_plot(
 
     spec = PlotSpec.model_validate(plot)
     if not spec.id:
-        raise ToolError(
-            "plot.id must be non-empty", hint="set plot['id'] to a short identifier"
-        )
+        raise ToolError("plot.id must be non-empty", hint="set plot['id'] to a short identifier")
 
     catalog = BenchmarkCatalog.open(run_dir)
     resolver = _resolver(run_dir, catalog)
@@ -266,9 +245,7 @@ def evaluation_report_plot(
 
     try:
         df, diagnostics = resolver.resolve(spec)
-        derived = _derived_table_provenance(
-            run_dir, spec.data.source if spec.data is not None else None
-        )
+        derived = _derived_table_provenance(run_dir, spec.data.source if spec.data is not None else None)
         if derived.get("snapshot_id") and not diagnostics.snapshot_id:
             diagnostics.snapshot_id = derived["snapshot_id"]
         evidence_id = diagnostics.evidence_id
@@ -277,12 +254,8 @@ def evaluation_report_plot(
             status = "failed"
             error_message = "; ".join(diagnostics.issues) or "quality gate rejected"
         else:
-            StaticRenderer(units={}).render(
-                spec, df, out_png, run_dir=run_dir, diagnostics=diagnostics
-            )
-            body = PlotlyRenderer(units={}).render(
-                spec, df, run_dir=run_dir, diagnostics=diagnostics
-            )
+            StaticRenderer(units={}).render(spec, df, out_png, run_dir=run_dir, diagnostics=diagnostics)
+            body = PlotlyRenderer(units={}).render(spec, df, run_dir=run_dir, diagnostics=diagnostics)
             if isinstance(body, list):
                 body = "\n".join(body)
             status, error_message = _render_outcome(body, out_png, spec.id, diagnostics)
@@ -372,9 +345,7 @@ def evaluation_report_view(
     content: list[Any] = [TextContent(type="text", text=json.dumps(summary_payload))]
     img_path_str = review.get("image_path")
     if img_path_str and pathlib.Path(img_path_str).is_file():
-        encoded = base64.b64encode(pathlib.Path(img_path_str).read_bytes()).decode(
-            "ascii"
-        )
+        encoded = base64.b64encode(pathlib.Path(img_path_str).read_bytes()).decode("ascii")
         content.append(ImageContent(type="image", data=encoded, mimeType="image/png"))
     return CallToolResult(content=content, structuredContent=summary_payload)
 
@@ -408,9 +379,7 @@ def evaluation_report_review(
                 "reason": reason,
                 "note": note,
                 "by": by,
-                "reviewed_at": datetime.datetime.now(datetime.UTC).isoformat(
-                    timespec="seconds"
-                ),
+                "reviewed_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
             }
         )
         _save_draft(run_dir, ddir, data)
@@ -436,9 +405,7 @@ def evaluation_report_review(
     }
 
 
-def _verified_findings(
-    run_dir: pathlib.Path, snapshot_id: str
-) -> tuple[list[Finding], list[dict[str, str]], list[dict[str, str]]]:
+def _verified_findings(run_dir: pathlib.Path, snapshot_id: str) -> tuple[list[Finding], list[dict[str, str]], list[dict[str, str]]]:
     """Split findings into used / left out (mechanical, stale) / not used (status)."""
     verified: list[Finding] = []
     left_out: list[dict[str, str]] = []
@@ -450,16 +417,12 @@ def _verified_findings(
         elif finding.mechanical_passed is not True:
             reason = left_out_reason = "latest mechanical verification did not pass"
         elif finding.snapshot_id != snapshot_id:
-            reason = left_out_reason = (
-                f"verified at snapshot {finding.snapshot_id!r}, the run is at {snapshot_id!r}"
-            )
+            reason = left_out_reason = f"verified at snapshot {finding.snapshot_id!r}, the run is at {snapshot_id!r}"
         else:
             verified.append(finding)
             continue
         if left_out_reason is not None:
-            left_out.append(
-                {"finding_id": finding.finding_id, "reason": left_out_reason}
-            )
+            left_out.append({"finding_id": finding.finding_id, "reason": left_out_reason})
         not_used.append(
             {
                 "finding_id": finding.finding_id,
@@ -529,10 +492,7 @@ def _write_exports(
                 warnings.append(f"{pid}: cannot resolve for export ({exc})")
                 continue
             if diagnostics.status == "FAILED":
-                warnings.append(
-                    f"{pid}: quality gate rejected the export frame "
-                    f"({'; '.join(diagnostics.issues)})"
-                )
+                warnings.append(f"{pid}: quality gate rejected the export frame ({'; '.join(diagnostics.issues)})")
                 continue
             for fmt in sorted(wanted & set(_EXPORT_FORMATS)):
                 target = exports_dir / f"{pid}.{fmt}"
@@ -602,31 +562,20 @@ def evaluation_report_assemble(
     catalog = BenchmarkCatalog.open(run_dir)
     snapshot_id = catalog.snapshot_id
     plots_by_id = {p["id"]: p for p in data.get("plots", []) if "id" in p}
-    approved_ids, plots_dropped, draft_failed, excluded_plots = _classify_reviews(
-        data.get("reviews", {})
-    )
+    approved_ids, plots_dropped, draft_failed, excluded_plots = _classify_reviews(data.get("reviews", {}))
 
-    findings_used, findings_left_out, findings_not_used = _verified_findings(
-        run_dir, snapshot_id
-    )
+    findings_used, findings_left_out, findings_not_used = _verified_findings(run_dir, snapshot_id)
     findings_payload = [
         {
             "finding_id": finding.finding_id,
             "status": finding.status.value,
             "claim": finding.claim,
-            "evidence": ", ".join(
-                finding.evidence_ids
-                or ([finding.evidence_id] if finding.evidence_id else [])
-            ),
+            "evidence": ", ".join(finding.evidence_ids or ([finding.evidence_id] if finding.evidence_id else [])),
         }
         for finding in findings_used
     ]
 
-    approved_specs = [
-        PlotSpec.model_validate(plots_by_id[pid])
-        for pid in approved_ids
-        if pid in plots_by_id
-    ]
+    approved_specs = [PlotSpec.model_validate(plots_by_id[pid]) for pid in approved_ids if pid in plots_by_id]
     manifest = VizManifest(
         name=report_name,
         title=str(data.get("title") or report_name),
@@ -645,19 +594,11 @@ def evaluation_report_assemble(
     build = builder.build_result
     assert build is not None and report_path is not None
 
-    build_failed = {
-        failure.plot_id
-        for failure in builder.build_checks.failures
-        if failure.plot_id != "summary"
-    }
+    build_failed = {failure.plot_id for failure in builder.build_checks.failures if failure.plot_id != "summary"}
     plots_used = [record.plot_id for record in build.plots if record.passed]
     plots_failed = [
         *draft_failed,
-        *(
-            pid
-            for pid in approved_ids
-            if pid in build_failed and pid not in draft_failed
-        ),
+        *(pid for pid in approved_ids if pid in build_failed and pid not in draft_failed),
     ]
 
     export_paths, export_warnings = _write_exports(

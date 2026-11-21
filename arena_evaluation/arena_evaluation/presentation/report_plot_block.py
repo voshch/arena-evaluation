@@ -67,10 +67,4 @@ def plot_block(
     """
     label = html.escape(title or plot_id)
     source = html.escape(png_src) if png_src else png_data_uri(png_path)
-    return (
-        f"<figure class='plot-block' data-plot-id='{html.escape(plot_id)}'>"
-        f"<div class='plot-interactive'>{interactive_html}</div>"
-        f"<div class='plot-static'>"
-        f"<img src='{source}' alt='{label} static render'/>"
-        "</div></figure>"
-    )
+    return f"<figure class='plot-block' data-plot-id='{html.escape(plot_id)}'><div class='plot-interactive'>{interactive_html}</div><div class='plot-static'><img src='{source}' alt='{label} static render'/></div></figure>"

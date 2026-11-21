@@ -22,10 +22,7 @@ UNIT_EXTENT = [(0.0, 0.0), (1.0, 1.0)]
 
 def _box(size: float = 1.0) -> list[WallSegment]:
     corners = [(0.0, 0.0), (size, 0.0), (size, size), (0.0, size)]
-    return [
-        WallSegment(start=corners[index], end=corners[(index + 1) % 4])
-        for index in range(4)
-    ]
+    return [WallSegment(start=corners[index], end=corners[(index + 1) % 4]) for index in range(4)]
 
 
 _ORACLE_SUBSAMPLE_FRACTIONS = (0.125, 0.375, 0.625, 0.875)
@@ -53,24 +50,14 @@ def _oracle_door_mask(door: DoorOpening, barrier_map: BarrierMap) -> np.ndarray:
         for fraction_y in _ORACLE_SUBSAMPLE_FRACTIONS:
             point_x = left + fraction_x * resolution
             point_y = bottom + fraction_y * resolution
-            along = (point_x - start[0]) * direction[0] + (
-                point_y - start[1]
-            ) * direction[1]
-            across = (point_y - start[1]) * direction[0] - (
-                point_x - start[0]
-            ) * direction[1]
-            mask |= (
-                (along >= -_ORACLE_EDGE_TOLERANCE_M)
-                & (along <= length + _ORACLE_EDGE_TOLERANCE_M)
-                & (np.abs(across) <= half_width + _ORACLE_EDGE_TOLERANCE_M)
-            )
+            along = (point_x - start[0]) * direction[0] + (point_y - start[1]) * direction[1]
+            across = (point_y - start[1]) * direction[0] - (point_x - start[0]) * direction[1]
+            mask |= (along >= -_ORACLE_EDGE_TOLERANCE_M) & (along <= length + _ORACLE_EDGE_TOLERANCE_M) & (np.abs(across) <= half_width + _ORACLE_EDGE_TOLERANCE_M)
     return mask
 
 
 def test_sloped_wall_marks_the_cells_it_crosses():
-    barrier_map = derive_barrier_map(
-        walls=[WallSegment(start=(0.0, 0.0), end=(1.0, 1.0))], doors=[]
-    )
+    barrier_map = derive_barrier_map(walls=[WallSegment(start=(0.0, 0.0), end=(1.0, 1.0))], doors=[])
 
     assert barrier_map.occupancy[PAD + 10, PAD + 10] == 1
 
@@ -114,11 +101,7 @@ def _large_world() -> tuple[list[WallSegment], list[DoorOpening]]:
         walls.append(WallSegment(start=(0.0, y), end=(size, y)))
         for col in range(4):
             x = 1.5 + col * 3.5
-            doors.append(
-                DoorOpening(
-                    name=f"d{row}_{col}", start=(x, y), end=(x + 1.2, y), width=0.1
-                )
-            )
+            doors.append(DoorOpening(name=f"d{row}_{col}", start=(x, y), end=(x + 1.2, y), width=0.1))
     return walls, doors
 
 

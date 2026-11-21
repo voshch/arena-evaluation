@@ -57,9 +57,7 @@ def _write_episode(
     ep_dir = root / benchmark_id / "episodes" / name
     ep_dir.mkdir(parents=True, exist_ok=True)
     if valid:
-        meta = _make_metadata(
-            benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs
-        )
+        meta = _make_metadata(benchmark_id=benchmark_id, episode_id=episode_id, **meta_kwargs)
         sidecar = ep_dir / ("metadata.yaml" if legacy else f"{name}.yaml")
         MetadataWriter.write(meta, sidecar)
     return ep_dir

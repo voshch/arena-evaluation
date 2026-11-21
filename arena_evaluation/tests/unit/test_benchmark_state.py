@@ -53,9 +53,7 @@ def _make_episode_record(*, episode_id: int = 1) -> types.SimpleNamespace:
         episode_id=episode_id,
         world="map1",
         seed=42,
-        modes=encode_modes(
-            {"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}
-        ),
+        modes=encode_modes({"robots": ["random"], "obstacles": ["random"], "modules": ["benchmark"]}),
         robots=["turtlebot3_burger"],
         outcome_state=1,
         outcome_info="",
@@ -98,15 +96,9 @@ def _make_resumable_run(
     """Create a run dir that is structurally resumable (manifest + state)."""
     run_path = root / name
     run_path.mkdir(parents=True)
-    (run_path / "manifest.yaml").write_text(
-        manifest_text
-        if manifest_text is not None
-        else _make_manifest(run_id=name).to_yaml()
-    )
+    (run_path / "manifest.yaml").write_text(manifest_text if manifest_text is not None else _make_manifest(run_id=name).to_yaml())
     if with_state:
-        (run_path / ".benchmark_state.json").write_text(
-            json.dumps({"steps": state_steps or {}})
-        )
+        (run_path / ".benchmark_state.json").write_text(json.dumps({"steps": state_steps or {}}))
     return run_path
 
 
@@ -125,12 +117,8 @@ def test_find_resumable_skips_missing_manifest(tmp_path: pathlib.Path):
 
 
 def test_find_resumable_skips_corrupt_manifest(tmp_path: pathlib.Path):
-    _make_resumable_run(
-        tmp_path, "r1", manifest_text="not: [valid yaml\n", with_state=False
-    )
-    _make_resumable_run(
-        tmp_path, "r2", manifest_text="run_id: only_one_field\n", with_state=False
-    )
+    _make_resumable_run(tmp_path, "r1", manifest_text="not: [valid yaml\n", with_state=False)
+    _make_resumable_run(tmp_path, "r2", manifest_text="run_id: only_one_field\n", with_state=False)
     assert find_most_recent_resumable(tmp_path) is None
 
 
@@ -156,9 +144,7 @@ def test_find_resumable_corrupt_state_is_candidate(tmp_path: pathlib.Path):
 
 
 def _init_git_repo(repo: pathlib.Path) -> str:
-    subprocess.run(
-        ["git", "init", str(repo)], check=True, capture_output=True, text=True
-    )
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
         check=True,
@@ -219,9 +205,7 @@ def _msg_param(name: str, ptype: int, value) -> MsgParameter:
 
 def test_params_to_json_array_tolist():
     """numpy array values are converted with .tolist() before serialization."""
-    out = _params_to_json(
-        [_msg_param("a_arr", ParameterType.PARAMETER_INTEGER_ARRAY, [1, 2, 3])]
-    )
+    out = _params_to_json([_msg_param("a_arr", ParameterType.PARAMETER_INTEGER_ARRAY, [1, 2, 3])])
     assert json.loads(out) == [{"name": "a_arr", "value": [1, 2, 3]}]
 
 

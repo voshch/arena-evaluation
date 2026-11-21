@@ -34,9 +34,7 @@ ROBOT_TRACK_SCHEMA = pl.Schema(
 
 def _sfm(distance: float) -> float:
     """Helbing SFM magnitude for one pedestrian at center distance `distance`."""
-    return SFM_INTERACTION_STRENGTH_N * math.exp(
-        (RADIUS + PED_RADIUS_M - distance) / SFM_INTERACTION_RANGE_M
-    )
+    return SFM_INTERACTION_STRENGTH_N * math.exp((RADIUS + PED_RADIUS_M - distance) / SFM_INTERACTION_RANGE_M)
 
 
 def _episode(
@@ -57,9 +55,7 @@ def _episode(
                 ped["yaw"] = headings[i][j]
             pedestrians.append(ped)
         frames.append((t, pedestrians))
-    peds = flat_peds(frames).with_columns(
-        radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64)
-    )
+    peds = flat_peds(frames).with_columns(radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64))
     robot_times = times_ns if robot_times_ns is None else robot_times_ns
     robot = pl.DataFrame(
         {
@@ -124,15 +120,9 @@ def test_a_frame_without_robot_state_is_skipped_in_the_cumulative_force(
         robot_times_ns=[0, 2 * SEC],
     )
     frames = calc._geometry(episode).frames
-    duration_s = dict(
-        zip(frames.get_column("t_ns").to_list(), frames.get_column("dt_s").to_list())
-    )
-    expected = sum(
-        _sfm(1.0) * duration_s[t] for t in (0, 2 * SEC) if duration_s[t] is not None
-    )
-    assert calc.calculate(episode, {})["sfm_cumulative_force"] == pytest.approx(
-        expected
-    )
+    duration_s = dict(zip(frames.get_column("t_ns").to_list(), frames.get_column("dt_s").to_list()))
+    expected = sum(_sfm(1.0) * duration_s[t] for t in (0, 2 * SEC) if duration_s[t] is not None)
+    assert calc.calculate(episode, {})["sfm_cumulative_force"] == pytest.approx(expected)
 
 
 def _slice(scope: MetricScope, bundle: AlignedEpisodeBundle) -> ScopeSlice:
@@ -153,11 +143,6 @@ def test_episode_scope_recomputes_and_unserved_scopes_do_not_masquerade(
 ):
     """The EPISODE scope is the calculator's own population; a scope it does not serve yields typed nulls."""
     episode = _episode([0, SEC], [[1.0, 0.0]] * 2, [(0.0, 0.0)] * 2, [0.0, 0.0])
-    assert calc.calculate_for_scope(
-        episode, {}, _slice(MetricScope.EPISODE, episode)
-    ) == calc.calculate(episode, {})
+    assert calc.calculate_for_scope(episode, {}, _slice(MetricScope.EPISODE, episode)) == calc.calculate(episode, {})
     pedestrian_slice = _slice(MetricScope.PEDESTRIAN, episode)
-    assert all(
-        value is None
-        for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values()
-    )
+    assert all(value is None for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values())

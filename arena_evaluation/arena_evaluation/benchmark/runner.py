@@ -91,16 +91,12 @@ __all__ = [
 _log = logging.getLogger(__name__)
 
 
-class BenchmarkRunner(
-    runner_impl._RunnerEnvMixin, runner_impl._RunnerExecMixin, ArenaMixinNode
-):
+class BenchmarkRunner(runner_impl._RunnerEnvMixin, runner_impl._RunnerExecMixin, ArenaMixinNode):
     exit_code: typing.ClassVar[int] = 0
     shutdown_deadline_s: typing.ClassVar[float] = runner_plan._SHUTDOWN_DEADLINE_S
 
     @classmethod
-    def run_main(
-        cls, *args: object, aiomonitor: bool = False, **kwargs: object
-    ) -> None:
+    def run_main(cls, *args: object, aiomonitor: bool = False, **kwargs: object) -> None:
         """Run benchmark runner with clean lifecycle, non-blocking executor, and instant shutdown on Ctrl+C."""
         from arena_rclpy_mixins.spin import create_executor
         from rclpy.executors import ExternalShutdownException
@@ -168,9 +164,7 @@ class BenchmarkRunner(
                 task.cancel()
             if pending:
                 with contextlib.suppress(Exception):
-                    loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             executor.shutdown()
             with contextlib.suppress(Exception):
                 loop.run_until_complete(spin_future)
@@ -233,9 +227,7 @@ class BenchmarkRunner(
         )
         self._shared = shared
         self._arena_passthrough: dict[str, str] = dict(arena_passthrough or {})
-        self._viz = self._arena_passthrough.get(
-            "viz", str(not self._headless)
-        ).lower() in ("true", "1")
+        self._viz = self._arena_passthrough.get("viz", str(not self._headless)).lower() in ("true", "1")
         self._viz_proc: subprocess.Popen | None = None
         self._lockstep = LockstepMonitor()
         self._total_groups = self._completed_groups = 0
@@ -261,9 +253,7 @@ class BenchmarkRunner(
         self._sim_dead_reason = ""
         self._sim_generation = self._envs_spawned = 0
         self._sim_recover_lock = asyncio.Lock()
-        self._retry_budget = runner_plan._RetryBudget(
-            retries=self._retries, max_sim_deaths=self._max_sim_deaths
-        )
+        self._retry_budget = runner_plan._RetryBudget(retries=self._retries, max_sim_deaths=self._max_sim_deaths)
         self._runtime_started_at = 0.0
         self._runtime_up = asyncio.Event()
         self._arena_watch: asyncio.Task | None = None
@@ -275,12 +265,8 @@ class BenchmarkRunner(
             (LockstepStatus, "/arena/state/lockstep", self._on_lockstep),
             (HoldRegistry, "/arena/state/holders", self._on_holders),
         ):
-            self.create_subscription(
-                message_type, topic, callback, runner_plan._LATCHED
-            )
-        self._state_pub = self.create_publisher(
-            BenchmarkState, STATE_TOPIC, runner_plan._LATCHED
-        )
+            self.create_subscription(message_type, topic, callback, runner_plan._LATCHED)
+        self._state_pub = self.create_publisher(BenchmarkState, STATE_TOPIC, runner_plan._LATCHED)
 
     def _build_pending(self) -> list[Step]:
         return build_pending(
@@ -309,11 +295,7 @@ class BenchmarkRunner(
 def cli_main(argv: list[str] | None = None) -> int:
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.WARNING if sys.stderr.isatty() else logging.INFO)
-    console_handler.setFormatter(
-        logging.Formatter(
-            "[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s", datefmt="%H:%M:%S"
-        )
-    )
+    console_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s", datefmt="%H:%M:%S"))
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.handlers = [console_handler]
@@ -330,15 +312,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     try:
         share = pathlib.Path(get_package_share_directory("arena_evaluation"))
         root = data_root(share, args.data_root)
-        if (
-            args.viz
-            and (
-                problem := dashboard.port_problem(
-                    dashboard.DEFAULT_HOST, args.viz_port, root
-                )
-            )
-            is not None
-        ):
+        if args.viz and (problem := dashboard.port_problem(dashboard.DEFAULT_HOST, args.viz_port, root)) is not None:
             print(f"benchmark: --viz: {problem}", file=sys.stderr)
             return 2
         fresh = None
@@ -349,22 +323,16 @@ def cli_main(argv: list[str] | None = None) -> int:
                 if resolved is None:
                     print(f"benchmark: no resumable runs in {root}", file=sys.stderr)
                     return 2
-                print(
-                    f"benchmark: auto-resume picked run_id={resolved}", file=sys.stderr
-                )
+                print(f"benchmark: auto-resume picked run_id={resolved}", file=sys.stderr)
                 resume_id = resolved
             run_dir = RunDir.open(root, resume_id, lane=lane)
             manifest = run_dir.manifest
-            suite, contest, scale_episodes, simulator = (
-                runner_plan._resolve_resume_config(manifest)
-            )
+            suite, contest, scale_episodes, simulator = runner_plan._resolve_resume_config(manifest)
             suite_bundle_dir = runner_plan._suite_bundle_dir(manifest.suite_name)
             if simulator is not None:
                 arena_passthrough["sim"] = simulator
             runner_plan._warn_config_drift(manifest)
-            run_dir.progress.write_comment(
-                f"resumed at {datetime.datetime.now(tz=datetime.UTC).isoformat()}"
-            )
+            run_dir.progress.write_comment(f"resumed at {datetime.datetime.now(tz=datetime.UTC).isoformat()}")
         else:
             (
                 suite,
@@ -405,12 +373,8 @@ def cli_main(argv: list[str] | None = None) -> int:
                 return 2
             seen.add(step.key)
         if fresh is not None:
-            suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = (
-                fresh
-            )
-            run_id = args.run_id or _default_run_id(
-                args.suite, args.contest, os.environ.get("ARENA_LANE")
-            )
+            suite_dict, contest_dict, suite_provenance, contest_provenance, cfg_hash = fresh
+            run_id = args.run_id or _default_run_id(args.suite, args.contest, os.environ.get("ARENA_LANE"))
             sha, dirty = runner_plan._arena_git_provenance(share)
             manifest = runner_cli.fresh_manifest(
                 run_id=run_id,
@@ -444,24 +408,18 @@ def cli_main(argv: list[str] | None = None) -> int:
     viz = None
     if args.viz:
         try:
-            viz_url, viz = dashboard.start_child(
-                dashboard.DEFAULT_HOST, args.viz_port, root, run_dir.manifest.run_id
-            )
+            viz_url, viz = dashboard.start_child(dashboard.DEFAULT_HOST, args.viz_port, root, run_dir.manifest.run_id)
         except dashboard.DashboardError as exc:
             print(f"benchmark: --viz: {exc}", file=sys.stderr)
             return 2
         print(f"{dashboard.VIZ_PREFIX}{viz_url}", file=sys.stderr, flush=True)
         with run_dir.log_path.open("a") as handle:
-            handle.write(
-                f"{datetime.datetime.now(tz=datetime.UTC).isoformat()} INFO benchmark: {dashboard.VIZ_PREFIX}{viz_url}\n"
-            )
+            handle.write(f"{datetime.datetime.now(tz=datetime.UTC).isoformat()} INFO benchmark: {dashboard.VIZ_PREFIX}{viz_url}\n")
     print(
         f"{PREPARED}{run_dir.manifest.run_id} steps={len(steps)} dir={run_dir.path}",
         file=sys.stderr,
     )
-    runner_plan._snapshot_bundle_worlds(
-        suite_bundle_dir, (step.stage.map for step in steps), run_dir.path
-    )
+    runner_plan._snapshot_bundle_worlds(suite_bundle_dir, (step.stage.map for step in steps), run_dir.path)
     run_dir.attach_log_handler(logging.getLogger())
     if lane is not None:
         run_dir.pid_path.write_text(f"{os.getpid()}\n")

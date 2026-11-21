@@ -55,9 +55,7 @@ def test_breakdown_refuses_a_spec_without_a_colour_channel() -> None:
             "share": [1.0, 1.0],
         }
     )
-    renderer = BreakdownRenderer(
-        _spec("breakdown", {"x": "planner", "y": "share"}), units={}
-    )
+    renderer = BreakdownRenderer(_spec("breakdown", {"x": "planner", "y": "share"}), units={})
 
     with pytest.raises(ValueError, match="requires channel 'color'"):
         renderer.validate_frame(frame)

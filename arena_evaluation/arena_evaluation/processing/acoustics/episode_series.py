@@ -36,12 +36,7 @@ def load_aligned_episode(
     if tracks_table is None:
         return None
 
-    tracks = (
-        tracks_table.filter(pl.col("episode_id") == ep_num)
-        .select("t_ns", "x", "y")
-        .sort("t_ns")
-        .collect()
-    )
+    tracks = tracks_table.filter(pl.col("episode_id") == ep_num).select("t_ns", "x", "y").sort("t_ns").collect()
     if tracks.is_empty():
         return None
 
@@ -60,12 +55,7 @@ def _join_acoustics(
     acoustics_table = tables.get("robot_acoustics")
     if acoustics_table is None:
         return frame
-    acoustics = (
-        acoustics_table.filter(pl.col("episode_id") == ep_num)
-        .select("t_ns", pl.col("total_level_af_dba").alias("source_dba"))
-        .sort("t_ns")
-        .collect()
-    )
+    acoustics = acoustics_table.filter(pl.col("episode_id") == ep_num).select("t_ns", pl.col("total_level_af_dba").alias("source_dba")).sort("t_ns").collect()
     if acoustics.is_empty():
         return frame
     return asof_join(frame, acoustics, tolerance_ns=tolerance_ns)
@@ -81,12 +71,7 @@ def _join_collisions(
     collisions_table = tables.get("robot_collision_events")
     if collisions_table is None:
         return frame
-    collisions = (
-        collisions_table.filter(pl.col("episode_id") == ep_num)
-        .select("t_ns", (pl.col("event_count") > 0).alias("has_collision"))
-        .sort("t_ns")
-        .collect()
-    )
+    collisions = collisions_table.filter(pl.col("episode_id") == ep_num).select("t_ns", (pl.col("event_count") > 0).alias("has_collision")).sort("t_ns").collect()
     if collisions.is_empty():
         return frame
     return asof_join(frame, collisions, tolerance_ns=tolerance_ns)
@@ -102,12 +87,7 @@ def _join_pedestrian_positions(
     peds_table = tables.get("pedestrian_arena_peds")
     if peds_table is None:
         return frame
-    peds = (
-        peds_table.filter(pl.col("episode_id") == ep_num)
-        .select(["t_ns", "x", "y"])
-        .sort("t_ns")
-        .collect()
-    )
+    peds = peds_table.filter(pl.col("episode_id") == ep_num).select(["t_ns", "x", "y"]).sort("t_ns").collect()
     if peds.is_empty():
         return frame
 
@@ -118,9 +98,7 @@ def _join_pedestrian_positions(
         rows.append(
             {
                 "t_ns": int(part["t_ns"][0]),
-                "peds_positions": [
-                    (float(x), float(y)) for x, y in zip(xs, ys, strict=True)
-                ],
+                "peds_positions": [(float(x), float(y)) for x, y in zip(xs, ys, strict=True)],
             }
         )
     grouped = pl.DataFrame(rows).sort("t_ns")

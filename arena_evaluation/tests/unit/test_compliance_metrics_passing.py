@@ -28,9 +28,7 @@ RIGHT = -0.5
 
 
 def _calc(convention: str = "right") -> ComplianceMetricsCalculator:
-    calc = ComplianceMetricsCalculator(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    calc = ComplianceMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
     calc.passing_convention = convention
     return calc
 
@@ -47,9 +45,7 @@ def _robot(xs: list[float]) -> pl.DataFrame:
     )
 
 
-def _peds(
-    positions: list[list[list[float]]], twists: list[list[list[float]]] | None = None
-) -> pl.DataFrame:
+def _peds(positions: list[list[list[float]]], twists: list[list[list[float]]] | None = None) -> pl.DataFrame:
     """Per 1 Hz sample the pedestrians as [x, y] pairs, with optional [vx, vy, vz] twists per pedestrian."""
     frames = []
     for i, sample in enumerate(positions):
@@ -80,9 +76,7 @@ def _episode(
                 "pose_source": ["tf_gt"] * len(robot),
             }
         )
-    start_pos = (
-        [float(robot["x"][0]), float(robot["y"][0]), 0.0] if robot is not None else []
-    )
+    start_pos = [float(robot["x"][0]), float(robot["y"][0]), 0.0] if robot is not None else []
     return AlignedEpisodeBundle(
         1,
         data,
@@ -121,14 +115,10 @@ def _head_on(side: float, closed: bool) -> tuple[pl.DataFrame, pl.DataFrame]:
         (LEFT, "left", False, 0.0),
     ],
 )
-def test_head_on_encounter_is_judged_by_the_side_at_closest_approach(
-    side: float, convention: str, closed: bool, expected: float
-):
+def test_head_on_encounter_is_judged_by_the_side_at_closest_approach(side: float, convention: str, closed: bool, expected: float):
     peds, robot = _head_on(side, closed)
 
-    assert (
-        _calc(convention)._compute_passing_compliance(_episode(peds, robot)) == expected
-    )
+    assert _calc(convention)._compute_passing_compliance(_episode(peds, robot)) == expected
 
 
 def test_two_encounters_on_opposite_sides_score_one_half():
@@ -149,19 +139,11 @@ def test_two_encounters_on_opposite_sides_score_one_half():
         [[0.0, 0.0]],
     ]
 
-    assert (
-        _calc()._compute_passing_compliance(
-            _episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
-        )
-        == 0.5
-    )
+    assert _calc()._compute_passing_compliance(_episode(_peds(positions, twists), _robot([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))) == 0.5
 
 
 def test_passing_compliance_needs_a_robot_pose():
-    assert (
-        _calc()._compute_passing_compliance(_episode(_peds([[[1.0, 0.0]]]), None))
-        is None
-    )
+    assert _calc()._compute_passing_compliance(_episode(_peds([[[1.0, 0.0]]]), None)) is None
 
 
 def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
@@ -204,15 +186,9 @@ def test_a_missing_pedestrian_radius_leaves_the_zone_metrics_intact():
 
 
 def test_speed_violations_ignore_samples_outside_every_zone():
-    zones = [
-        _ZoneGeometry(
-            name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False
-        )
-    ]
+    zones = [_ZoneGeometry(name="corridor", polygon=None, max_speed=1.0, quiet=False, restricted=False)]
 
-    violations, seconds = _speed_zone_metrics(
-        np.array([-1, 0, -1]), np.array([5.0, 2.0, 5.0]), np.array([1.0, 1.0]), zones
-    )
+    violations, seconds = _speed_zone_metrics(np.array([-1, 0, -1]), np.array([5.0, 2.0, 5.0]), np.array([1.0, 1.0]), zones)
 
     assert (violations, seconds) == (1, pytest.approx(1.0))
 
@@ -235,9 +211,7 @@ def _snapshot(entity: str, state: str) -> pl.DataFrame:
     return snapshot_frame([(0, entity, "door", "state", "discrete", state)])
 
 
-def _door_episode(
-    xs: list[float], ys: list[float], vel: list[float], snapshot: pl.DataFrame | None
-) -> AlignedEpisodeBundle:
+def _door_episode(xs: list[float], ys: list[float], vel: list[float], snapshot: pl.DataFrame | None) -> AlignedEpisodeBundle:
     n = len(xs)
     data = pl.DataFrame(
         {
@@ -248,9 +222,7 @@ def _door_episode(
             "speed_mps": vel,
         }
     )
-    return AlignedEpisodeBundle(
-        1, data, [xs[0], ys[0], 0.0], [], semantic_snapshot=snapshot
-    )
+    return AlignedEpisodeBundle(1, data, [xs[0], ys[0], 0.0], [], semantic_snapshot=snapshot)
 
 
 def _blocking(episode: AlignedEpisodeBundle, doors: list[_DoorGeometry]) -> float:

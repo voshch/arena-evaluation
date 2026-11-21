@@ -46,9 +46,7 @@ def test_record_conditions_skip_the_next_episodes_empty_reset_records() -> None:
             "conditions_yaml": ["[]", kept, "[]", "not json"],
         }
     )
-    assert _record_conditions(record) == [
-        {"op": "always", "p": {"each": "chest.openness", "le": 0.05}}
-    ]
+    assert _record_conditions(record) == [{"op": "always", "p": {"each": "chest.openness", "le": 0.05}}]
     ended = pl.DataFrame(
         {
             "episode_id": [3, 3, 3, 4],
@@ -63,9 +61,7 @@ def test_record_conditions_skip_the_next_episodes_empty_reset_records() -> None:
             ],
         }
     )
-    assert _record_conditions(ended) == [
-        {"op": "always", "p": {"each": "chest.openness", "le": 0.05}}
-    ]
+    assert _record_conditions(ended) == [{"op": "always", "p": {"each": "chest.openness", "le": 0.05}}]
     assert (
         _record_conditions(
             pl.DataFrame(
@@ -106,9 +102,7 @@ def test_record_conditions_skip_the_next_episodes_empty_reset_records() -> None:
         is None
     )
     with pytest.raises(pl.exceptions.ColumnNotFoundError):
-        _record_conditions(
-            pl.DataFrame({"episode_id": [1], "t_ns": [0], "outcome_state": [1]})
-        )
+        _record_conditions(pl.DataFrame({"episode_id": [1], "t_ns": [0], "outcome_state": [1]}))
 
 
 def test_metadata_robot_uses_bundle_key_style() -> None:

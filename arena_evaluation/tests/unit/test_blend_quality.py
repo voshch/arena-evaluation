@@ -51,9 +51,7 @@ def _bag(uri: pathlib.Path, transition: bool = True) -> pathlib.Path:
 
     def anim(phase: str) -> AnimationStates:
         state = AnimationState(id=1, name="walker", base="walk")
-        state.slots = [
-            AnimationSlot(slot="arm", animation="gesture:point", phase=phase)
-        ]
+        state.slots = [AnimationSlot(slot="arm", animation="gesture:point", phase=phase)]
         return AnimationStates(peds=[state])
 
     messages = [
@@ -105,9 +103,7 @@ def test_analyze_episode_flags_a_snap_inside_a_transition_window(
     ) == ("bag", 1, 1, 1)
     assert result["trans"].tolist() == pytest.approx([0.3, 0.0])
     assert result["steady"].tolist() == []
-    steady = B.analyze_episode(
-        _bag(tmp_path / "flat", transition=False), _fk, None, source="recorded"
-    )
+    steady = B.analyze_episode(_bag(tmp_path / "flat", transition=False), _fk, None, source="recorded")
     assert (steady["events"], steady["events_over_gate"]) == (0, 0)
     assert steady["steady"].tolist() == pytest.approx([0.3, 0.0])
     assert steady["trans"].tolist() == []
@@ -116,17 +112,13 @@ def test_analyze_episode_flags_a_snap_inside_a_transition_window(
 def test_replay_runs_the_recorded_inputs_through_the_current_layer() -> None:
     pytest.importorskip("arena_people_msgs.msg")
     pytest.importorskip("arena_runtime.humans.animation_manager")
-    inputs = {
-        1: [(1.0, 0, 0.0, (1.0, 2.0, 0.0), ()), (1.05, 0, 0.0, (1.0, 2.0, 0.0), ())]
-    }
+    inputs = {1: [(1.0, 0, 0.0, (1.0, 2.0, 0.0), ()), (1.05, 0, 0.0, (1.0, 2.0, 0.0), ())]}
     out = B.replay(inputs)
     assert [t for t, _ in out[1]] == [1.0, 1.05]
     assert all(set(B._joint_names()) <= set(angles) for _, angles in out[1])
 
 
-def test_main_writes_the_summary_and_skips_unreadable_episodes(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_writes_the_summary_and_skips_unreadable_episodes(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     pytest.importorskip("arena_runtime.humans.pointing.skeleton")
     pytest.importorskip("arena_runtime.humans.gestures")
     bench = tmp_path / "bench"
@@ -171,10 +163,7 @@ def test_ped_angles_read_the_body_pose_and_fall_back_to_the_recorded_joint_state
     assert ped_angles(ped) == {"l_elbow": 0.4}
     rotations = semantic_to_body({"l_knee": -0.7})
     ped.body.joints = list(rotations)
-    ped.body.rotations = [
-        Quaternion(x=float(q[0]), y=float(q[1]), z=float(q[2]), w=float(q[3]))
-        for q in rotations.values()
-    ]
+    ped.body.rotations = [Quaternion(x=float(q[0]), y=float(q[1]), z=float(q[2]), w=float(q[3])) for q in rotations.values()]
     assert ped_angles(ped)["l_knee"] == pytest.approx(-0.7)
     recorded = SimpleNamespace(joint_state=ped.joint_state)
     assert ped_angles(recorded) == {"l_elbow": 0.4}

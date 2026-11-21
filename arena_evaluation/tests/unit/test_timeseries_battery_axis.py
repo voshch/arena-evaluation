@@ -19,9 +19,7 @@ def _spec() -> PlotSpec:
         id="timeseries_power",
         type="timeseries",
         data={"source": "v_series_energy"},
-        channels=PlotChannels(
-            x="time_s", y="power_total_w", y2="battery_soc_pct", color="robot_id"
-        ),
+        channels=PlotChannels(x="time_s", y="power_total_w", y2="battery_soc_pct", color="robot_id"),
     )
 
 
@@ -50,9 +48,7 @@ def test_battery_is_a_second_axis_in_the_interactive_plot() -> None:
     assert len(re.findall(r'"mode":\s*"lines"', html)) == 2
 
 
-def test_battery_is_a_second_axis_in_the_static_plot(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_battery_is_a_second_axis_in_the_static_plot(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     renderer = TimeseriesRenderer(_spec())
     figures: list[matplotlib.figure.Figure] = []
     monkeypatch.setattr(renderer, "save_figure", lambda fig, _path: figures.append(fig))

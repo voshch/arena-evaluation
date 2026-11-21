@@ -99,9 +99,7 @@ def anchor_at(anchors: list[Anchor], t_ns: int) -> tuple[float, float]:
     return ox, oy
 
 
-def by_anchor(
-    anchors: list[Anchor], value: Callable[[float, float], pl.Expr]
-) -> pl.Expr:
+def by_anchor(anchors: list[Anchor], value: Callable[[float, float], pl.Expr]) -> pl.Expr:
     """`value(ox, oy)` of the anchor in effect at each row's t_ns, as in anchor_at."""
     (_, ox, oy), *later = anchors
     if not later:
@@ -109,27 +107,19 @@ def by_anchor(
     chain = None
     for t, ax, ay in reversed(later):
         cond = pl.col("t_ns") >= t
-        chain = (
-            pl.when(cond).then(value(ax, ay))
-            if chain is None
-            else chain.when(cond).then(value(ax, ay))
-        )
+        chain = pl.when(cond).then(value(ax, ay)) if chain is None else chain.when(cond).then(value(ax, ay))
     assert chain is not None
     return chain.otherwise(value(ox, oy))
 
 
 def _topic(*suffixes: str, schema: str | None = None) -> Predicate:
     """Match a topic suffix, and optionally the schema name that the recorder understands."""
-    return lambda topic, message_schema: (
-        topic.endswith(suffixes) and (schema is None or message_schema.name == schema)
-    )
+    return lambda topic, message_schema: topic.endswith(suffixes) and (schema is None or message_schema.name == schema)
 
 
 def _is_transform_topic(topic: str, _schema: Schema) -> bool:
     """The global and per-environment /tf and /tf_static topics; human skeleton transforms are never robot ground truth."""
-    return topic in ("tf", "tf_static") or (
-        topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic
-    )
+    return topic in ("tf", "tf_static") or (topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic)
 
 
 class MCAPReader:
@@ -151,9 +141,7 @@ class MCAPReader:
         if self.data_path.is_dir():
             files = sorted(self.data_path.glob("*.mcap"))
             if not files:
-                raise FileNotFoundError(
-                    f"No MCAP file found in directory: {self.data_path}"
-                )
+                raise FileNotFoundError(f"No MCAP file found in directory: {self.data_path}")
         else:
             files = [self.data_path]
         for path in files:
@@ -175,30 +163,20 @@ class MCAPReader:
         factory = DecoderFactory()
         decoders: dict[int, Decoder | None] = {}
         with path.open("rb") as handle:
-            for schema, channel, message in NonSeekingReader(handle).iter_messages(
-                log_time_order=False
-            ):
+            for schema, channel, message in NonSeekingReader(handle).iter_messages(log_time_order=False):
                 if schema is None:
                     continue
                 if message.channel_id not in decoders:
-                    decoders[message.channel_id] = factory.decoder_for(
-                        channel.message_encoding, schema
-                    )
-                    if decoders[message.channel_id] is None and ingest.accepts(
-                        channel.topic, schema
-                    ):
-                        _log.warning(
-                            f"{channel.topic}: schema {schema.name!r} ({schema.encoding}) cannot be decoded; its messages are skipped"
-                        )
+                    decoders[message.channel_id] = factory.decoder_for(channel.message_encoding, schema)
+                    if decoders[message.channel_id] is None and ingest.accepts(channel.topic, schema):
+                        _log.warning(f"{channel.topic}: schema {schema.name!r} ({schema.encoding}) cannot be decoded; its messages are skipped")
                 decoder = decoders[message.channel_id]
                 if decoder is None:
                     continue
                 try:
                     body = decoder(message.data)
                 except Exception as error:
-                    _log.warning(
-                        f"Error reading MCAP message on {channel.topic}: {error}"
-                    )
+                    _log.warning(f"Error reading MCAP message on {channel.topic}: {error}")
                     continue
                 ingest.route(channel.topic, schema, body, message.log_time)
 
@@ -215,16 +193,12 @@ def _recorder(attribute: str) -> Handler:
 
 def _frame(table: str) -> Handler:
     """Route an agent frame to a pedestrian table."""
-    return lambda ingest, _topic, envelope: ingest._pedestrians.record_frame(
-        table, envelope
-    )
+    return lambda ingest, _topic, envelope: ingest._pedestrians.record_frame(table, envelope)
 
 
 def _grid(kind: str) -> Handler:
     """Route an occupancy grid to its table."""
-    return lambda ingest, _topic, envelope: context.record_occupancy_grid(
-        ingest._sink, envelope, kind
-    )
+    return lambda ingest, _topic, envelope: context.record_occupancy_grid(ingest._sink, envelope, kind)
 
 
 def _both_events(first: Callable[..., None], second: Callable[..., None]) -> Handler:
@@ -241,19 +215,13 @@ def _odometry(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
 
 
 def _command(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
-    table = (
-        "robot_cmd_vel_controller" if is_controller_topic(topic) else "robot_cmd_vel"
-    )
+    table = "robot_cmd_vel_controller" if is_controller_topic(topic) else "robot_cmd_vel"
     ingest._kinematics.record_command(table, envelope)
 
 
 def _agent_meta(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
     schema_text = envelope.schema.data.decode("utf-8", "replace")
-    meta = (
-        agent_meta(envelope.body)
-        if legacy_schemas.agent_meta_has_crowd(schema_text)
-        else agent_meta_without_robot_fields(envelope.body)
-    )
+    meta = agent_meta(envelope.body) if legacy_schemas.agent_meta_has_crowd(schema_text) else agent_meta_without_robot_fields(envelope.body)
     ingest._pedestrians.record_meta(envelope, meta)
 
 
@@ -265,9 +233,7 @@ def _episode(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
     )
 
 
-def _fleet_snapshot(
-    ingest: _Ingest, topic: str, envelope: Envelope[RobotFleet]
-) -> None:
+def _fleet_snapshot(ingest: _Ingest, topic: str, envelope: Envelope[RobotFleet]) -> None:
     env_id = env_id_in(topic) or ingest._environment
     if env_id is None:
         raise ValueError(f"fleet topic {topic!r} names no environment")
@@ -287,9 +253,7 @@ def _initial_pose(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
 
 
 def _transforms(ingest: _Ingest, topic: str, envelope: Envelope[TFMessage]) -> None:
-    context.record_transforms(
-        ingest._sink, "tf_static" if "static" in topic else "tf", envelope
-    )
+    context.record_transforms(ingest._sink, "tf_static" if "static" in topic else "tf", envelope)
     for transform in envelope.body.transforms:
         parent, child = transform.header.frame_id, transform.child_frame_id
         if not is_ground_truth(parent, child):
@@ -375,9 +339,7 @@ class _Ingest:
         return self._handler(topic, schema) is not None
 
     def _handler(self, topic: str, schema: Schema) -> Handler | None:
-        return next(
-            (handle for accepts, handle in _ROUTES if accepts(topic, schema)), None
-        )
+        return next((handle for accepts, handle in _ROUTES if accepts(topic, schema)), None)
 
     def route(self, topic: str, schema: Schema, body: object, t_ns: int) -> None:
         """Dispatch a decoded message to the recorder that accepts its topic, or skip it."""
@@ -385,20 +347,10 @@ class _Ingest:
         if handler is None:
             return
         env_id = env_id_in(topic) or self._environment
-        if (
-            env_id is None
-            and not _is_transform_topic(topic, schema)
-            and not topic.endswith("/state/semantics")
-        ):
+        if env_id is None and not _is_transform_topic(topic, schema) and not topic.endswith("/state/semantics"):
             self._warn_skipped(topic, "names no environment")
             return
-        ref = (
-            None
-            if env_id is None or _is_transform_topic(topic, schema)
-            else RobotRef(
-                env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id)
-            )
-        )
+        ref = None if env_id is None or _is_transform_topic(topic, schema) else RobotRef(env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id))
         handler(self, topic, Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body))
 
     def _warn_skipped(self, topic: str, reason: str) -> None:
@@ -417,9 +369,7 @@ class _Ingest:
         self._sink.close()
 
 
-def _scoped(
-    out_dir: pathlib.Path, name: str, column: str, value: str
-) -> pl.LazyFrame | None:
+def _scoped(out_dir: pathlib.Path, name: str, column: str, value: str) -> pl.LazyFrame | None:
     """The table when it exists and holds a row for this scope value."""
     path = out_dir / f"{name}.parquet"
     if not path.exists():
@@ -431,10 +381,7 @@ def _scoped(
 def load_bundles(out_dir: pathlib.Path) -> dict[str, TopicBundle]:
     """One TopicBundle per robot: the episode's stored tables, filtered to that robot and its environment."""
     global_frames = {name: _lazy_table(out_dir, name) for name in GLOBAL_TABLES}
-    return {
-        robot_id: _robot_bundle(out_dir, global_frames, env_id, robot_id)
-        for env_id, robot_id in _robot_refs(out_dir)
-    }
+    return {robot_id: _robot_bundle(out_dir, global_frames, env_id, robot_id) for env_id, robot_id in _robot_refs(out_dir)}
 
 
 def _robot_bundle(
@@ -443,16 +390,12 @@ def _robot_bundle(
     env_id: str,
     robot_id: str,
 ) -> TopicBundle:
-    frames: dict[str, pl.LazyFrame | None] = {
-        name: _scoped(out_dir, name, "robot_id", robot_id) for name in ROBOT_TABLES
-    }
+    frames: dict[str, pl.LazyFrame | None] = {name: _scoped(out_dir, name, "robot_id", robot_id) for name in ROBOT_TABLES}
     frames |= {name: _scoped(out_dir, name, "env_id", env_id) for name in ENV_TABLES}
     odom_controller = frames.pop("robot_odom_controller")
     cmd_vel_controller = frames.pop("robot_cmd_vel_controller")
     frames["robot_odom"] = _first_present(odom_controller, frames["robot_odom"])
-    frames["robot_cmd_vel"] = _first_present(
-        frames["robot_cmd_vel"], cmd_vel_controller
-    )
+    frames["robot_cmd_vel"] = _first_present(frames["robot_cmd_vel"], cmd_vel_controller)
     return TopicBundle(**global_frames, **frames)
 
 
@@ -462,21 +405,13 @@ def _check_map_frames(
     pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
 ) -> None:
     for table in (ARENA_TABLE,):
-        unmapped = sorted(
-            frame
-            for frame in pedestrian_frames.get((env_id, table), frozenset())
-            if frame not in _UNMAPPED_FRAMES
-        )
+        unmapped = sorted(frame for frame in pedestrian_frames.get((env_id, table), frozenset()) if frame not in _UNMAPPED_FRAMES)
         if unmapped:
             offsets = [anchor[1:] for anchor in shifts]
-            raise ValueError(
-                f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map"
-            )
+            raise ValueError(f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map")
 
 
-def align_to_environment(
-    out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]
-) -> None:
+def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]) -> None:
     """Move the map-frame positions of the stored tables into their environment frame, once, in place.
 
     An environment's offset is its recorded map -> env/map transform (tf_static, else tf). Each position
@@ -485,17 +420,13 @@ def align_to_environment(
     positions as recorded. The recorded transforms whose parent is the map frame (tf_static and tf) move
     with the anchor too; a rotated environment frame, or an odometry frame that is not the map frame, is refused.
     """
-    anchors = _env_anchors(
-        _lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static")
-    )
+    anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"))
     if not anchors:
         return
     _refuse_rotated_or_unaligned_frames(out_dir, anchors)
     for env_id in sorted({env_id for env_id, _robot_id in _robot_refs(out_dir)}):
         if env_id not in anchors:
-            raise ValueError(
-                f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}"
-            )
+            raise ValueError(f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}")
         shifts = anchors[env_id]
         if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
             _check_map_frames(env_id, shifts, pedestrian_frames)
@@ -506,12 +437,8 @@ def align_to_environment(
                 path,
                 [x_column, y_column],
                 lambda frame: frame.with_columns(
-                    _in_environment(
-                        anchors, x_column, lambda value, ox, _oy: value - ox
-                    ),
-                    _in_environment(
-                        anchors, y_column, lambda value, _ox, oy: value - oy
-                    ),
+                    _in_environment(anchors, x_column, lambda value, ox, _oy: value - ox),
+                    _in_environment(anchors, y_column, lambda value, _ox, oy: value - oy),
                 ),
             )
     lifecycle = out_dir / "episode_lifecycle.parquet"
@@ -562,22 +489,14 @@ def _in_environment(
     return expr.alias(column)
 
 
-def _shift_episode_phases(
-    frame: pl.DataFrame, anchors: Mapping[str, list[Anchor]]
-) -> pl.DataFrame:
+def _shift_episode_phases(frame: pl.DataFrame, anchors: Mapping[str, list[Anchor]]) -> pl.DataFrame:
     def shifted(row: Mapping[str, typing.Any]) -> str:
         env_anchors = anchors.get(row["env_id"])
         if env_anchors is None:
             return row["phases_yaml"]
-        return _shift_map_poses(
-            row["phases_yaml"], *anchor_at(env_anchors, int(row["t_ns"]))
-        )
+        return _shift_map_poses(row["phases_yaml"], *anchor_at(env_anchors, int(row["t_ns"])))
 
-    return frame.with_columns(
-        pl.struct(["env_id", "t_ns", "phases_yaml"])
-        .map_elements(shifted, return_dtype=pl.String)
-        .alias("phases_yaml")
-    )
+    return frame.with_columns(pl.struct(["env_id", "t_ns", "phases_yaml"]).map_elements(shifted, return_dtype=pl.String).alias("phases_yaml"))
 
 
 def _rewrite_columns(
@@ -599,53 +518,28 @@ def _rewrite_columns(
 
 def _map_parented_transforms(out_dir: pathlib.Path) -> pl.DataFrame | None:
     """Every recorded transform whose parent is the map frame, static and dynamic, with its yaw in degrees."""
-    frames = [
-        frame.select("parent_frame", "child_frame", "t_ns", "tx", "ty", "qz", "qw")
-        for name in ("tf_static", "tf")
-        if (frame := _lazy_table(out_dir, name)) is not None
-    ]
+    frames = [frame.select("parent_frame", "child_frame", "t_ns", "tx", "ty", "qz", "qw") for name in ("tf_static", "tf") if (frame := _lazy_table(out_dir, name)) is not None]
     if not frames:
         return None
     transforms = pl.concat(frames).filter(_MAP_PARENT).collect()
-    yaw_deg = np.degrees(
-        2.0 * np.arctan2(transforms["qz"].to_numpy(), transforms["qw"].to_numpy())
-    )
+    yaw_deg = np.degrees(2.0 * np.arctan2(transforms["qz"].to_numpy(), transforms["qw"].to_numpy()))
     return transforms.with_columns(pl.Series("yaw_deg", yaw_deg))
 
 
-def _refuse_rotated_or_unaligned_frames(
-    out_dir: pathlib.Path, anchors: Mapping[str, list[Anchor]]
-) -> None:
+def _refuse_rotated_or_unaligned_frames(out_dir: pathlib.Path, anchors: Mapping[str, list[Anchor]]) -> None:
     """Refuse the recorded map frames a translation-only alignment cannot place: a rotated environment frame, or an odometry frame that is not the map frame."""
     transforms = _map_parented_transforms(out_dir)
     if transforms is None:
         return
     for env_id in anchors:
-        rotated = transforms.filter(
-            (pl.col("child_frame") == f"{env_id}/map")
-            & (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)
-        ).head(1)
+        rotated = transforms.filter((pl.col("child_frame") == f"{env_id}/map") & (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)).head(1)
         if rotated.height > 0:
             yaw_deg = float(rotated["yaw_deg"][0])
-            raise ValueError(
-                f"{env_id}: the recorded map -> {env_id}/map transform is rotated ({yaw_deg:.3f} deg); "
-                "only translated environment frames are supported"
-            )
-    unaligned = transforms.filter(
-        pl.col("child_frame").str.contains("odom")
-        & (
-            (pl.col("tx").abs() > _ALIGNED_TOLERANCE)
-            | (pl.col("ty").abs() > _ALIGNED_TOLERANCE)
-            | (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)
-        )
-    )
+            raise ValueError(f"{env_id}: the recorded map -> {env_id}/map transform is rotated ({yaw_deg:.3f} deg); only translated environment frames are supported")
+    unaligned = transforms.filter(pl.col("child_frame").str.contains("odom") & ((pl.col("tx").abs() > _ALIGNED_TOLERANCE) | (pl.col("ty").abs() > _ALIGNED_TOLERANCE) | (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)))
     if unaligned.height:
         row = unaligned.row(0, named=True)
-        raise ValueError(
-            f"{row['child_frame']}: the recorded map -> odom transform is not the identity "
-            f"(translation {row['tx']}, {row['ty']}; yaw {row['yaw_deg']:.3f} deg), so odometry and ground truth "
-            "cannot be placed in the environment frame by the anchor alone"
-        )
+        raise ValueError(f"{row['child_frame']}: the recorded map -> odom transform is not the identity (translation {row['tx']}, {row['ty']}; yaw {row['yaw_deg']:.3f} deg), so odometry and ground truth cannot be placed in the environment frame by the anchor alone")
 
 
 def _lazy_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
@@ -660,35 +554,21 @@ def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
     try:
         robots = json.loads(payload)
         for entry in robots.values():
-            entry["map_poses"] = [
-                None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]]
-                for pose in entry["map_poses"]
-            ]
+            entry["map_poses"] = [None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]] for pose in entry["map_poses"]]
         return json.dumps(robots)
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         _log.warning(f"Failed to offset episode phases: {error}")
         return payload
 
 
-def _env_anchors(
-    tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None
-) -> dict[str, list[Anchor]]:
+def _env_anchors(tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None) -> dict[str, list[Anchor]]:
     anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD)
     for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD).items():
         anchors.setdefault(env_id, dynamic)
-    return {
-        env_id: [
-            anchor
-            for index, anchor in enumerate(values)
-            if index == 0 or anchor[1:] != values[index - 1][1:]
-        ]
-        for env_id, values in anchors.items()
-    }
+    return {env_id: [anchor for index, anchor in enumerate(values) if index == 0 or anchor[1:] != values[index - 1][1:]] for env_id, values in anchors.items()}
 
 
-def _anchors_by_env(
-    frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]
-) -> dict[str, list[Anchor]]:
+def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]) -> dict[str, list[Anchor]]:
     anchors: defaultdict[str, list[Anchor]] = defaultdict(list)
     if frame is None:
         return dict(anchors)
@@ -697,21 +577,8 @@ def _anchors_by_env(
     env = child.str.extract(f"^{child_pattern.pattern}$", 1)
     world_re = "|".join(re.escape(name) for name in _WORLD_FRAMES)
     base_re = "|".join(re.escape(marker) for marker in _BASE_FRAME_MARKERS)
-    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(
-        rf"/(?:{world_re})$"
-    )
-    filtered = (
-        frame.with_columns(
-            parent.alias("_parent"), child.alias("_child"), env.alias("_env")
-        )
-        .filter(
-            pl.col("_env").is_not_null()
-            & ((pl.col("_parent") == "") | world_match)
-            & ~child.str.contains(base_re)
-        )
-        .select("_env", "t_ns", "tx", "ty")
-        .collect()
-    )
+    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(rf"/(?:{world_re})$")
+    filtered = frame.with_columns(parent.alias("_parent"), child.alias("_child"), env.alias("_env")).filter(pl.col("_env").is_not_null() & ((pl.col("_parent") == "") | world_match) & ~child.str.contains(base_re)).select("_env", "t_ns", "tx", "ty").collect()
     # agent-contracts: ignore materialize anchor tuples from filtered tf frame
     for env_id, t_ns, tx, ty in filtered.iter_rows():
         anchors[env_id].append((t_ns, tx, ty))
@@ -719,11 +586,7 @@ def _anchors_by_env(
 
 
 def _robot_refs(out_dir: pathlib.Path) -> list[tuple[str, str]]:
-    frames = [
-        pl.scan_parquet(out_dir / f"{name}.parquet").select("env_id", "robot_id")
-        for name in ROBOT_TABLES
-        if (out_dir / f"{name}.parquet").exists()
-    ]
+    frames = [pl.scan_parquet(out_dir / f"{name}.parquet").select("env_id", "robot_id") for name in ROBOT_TABLES if (out_dir / f"{name}.parquet").exists()]
     if not frames:
         return []
     refs = pl.concat(frames).unique().sort("robot_id").collect()

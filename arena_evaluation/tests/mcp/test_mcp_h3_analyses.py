@@ -118,30 +118,21 @@ def test_h3_lead_measures_and_attribution_shares_and_triage(
     truth = write_synthetic_benchmark(run_dir, include_swap=True)
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
 
-    triage_res = analysis.evaluation_analysis(
-        procedure="triage", run_id="syn_swap", params={}
-    )
+    triage_res = analysis.evaluation_analysis(procedure="triage", run_id="syn_swap", params={})
     assert triage_res["n_rows"] > 0
 
-    lead_res = analysis.evaluation_analysis(
-        procedure="lead_measures", run_id="syn_swap", params={}
-    )
+    lead_res = analysis.evaluation_analysis(procedure="lead_measures", run_id="syn_swap", params={})
     disc = set(lead_res["summary"]["discovery_seeds"])
     ver = set(lead_res["summary"]["verification_seeds"])
     assert disc and ver and disc.isdisjoint(ver)
 
-    attr_res = analysis.evaluation_analysis(
-        procedure="attribution_shares", run_id="syn_swap", params={}
-    )
+    attr_res = analysis.evaluation_analysis(procedure="attribution_shares", run_id="syn_swap", params={})
     pa_rows = [r for r in attr_res["preview"] if r["planner"] == "planner_a"]
     assert pa_rows
     total_robot = sum(r["robot_closing_sum"] for r in pa_rows)
     total_target = sum(r["target_closing_sum"] for r in pa_rows)
     robot_share = total_robot / (total_robot + total_target)
-    assert (
-        abs(robot_share - truth.closer_shares["planner_a"]["robot_closing_share"])
-        < 1e-6
-    )
+    assert abs(robot_share - truth.closer_shares["planner_a"]["robot_closing_share"]) < 1e-6
 
 
 def test_h3_sensitivity_leaves_published_files_byte_identical(
@@ -154,11 +145,7 @@ def test_h3_sensitivity_leaves_published_files_byte_identical(
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
 
     def _published_hashes() -> dict[pathlib.Path, str]:
-        return {
-            p.relative_to(run_dir): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(run_dir.rglob("*.parquet"))
-            if p.relative_to(run_dir).parts[0] != "analysis"
-        }
+        return {p.relative_to(run_dir): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(run_dir.rglob("*.parquet")) if p.relative_to(run_dir).parts[0] != "analysis"}
 
     before = _published_hashes()
     res = analysis.evaluation_sensitivity(

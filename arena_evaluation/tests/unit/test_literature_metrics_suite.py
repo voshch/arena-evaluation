@@ -25,9 +25,7 @@ PED_RADIUS_M = 0.3
 
 def _peds(frames: Sequence[tuple[int, Sequence[Mapping[str, object]]]]) -> pl.DataFrame:
     """Flat pedestrian rows with each pedestrian's recorded body radius."""
-    return flat_peds(frames).with_columns(
-        pl.lit(PED_RADIUS_M, dtype=pl.Float64).alias("radius_m")
-    )
+    return flat_peds(frames).with_columns(pl.lit(PED_RADIUS_M, dtype=pl.Float64).alias("radius_m"))
 
 
 def _robot_tracks(df: pl.DataFrame) -> pl.DataFrame:
@@ -62,11 +60,7 @@ def test_literature_spl_and_path_efficiency() -> None:
         [0, 0, 0],
         [10, 0, 0],
         outcome_state=2,
-        topics={
-            "robot_collision_events": pl.DataFrame(
-                {"t_ns": [0, 1, 2], "event_count": [0, 0, 0]}
-            )
-        },
+        topics={"robot_collision_events": pl.DataFrame({"t_ns": [0, 1, 2], "event_count": [0, 0, 0]})},
     )
 
     # Case 1: Optimal traversal. The episode SPL comes from the evaluator, carried on the contact row.
@@ -102,11 +96,7 @@ def test_literature_spl_and_path_efficiency() -> None:
         [0, 0, 0],
         [10, 0, 0],
         outcome_info="collision",
-        topics={
-            "robot_collision_events": pl.DataFrame(
-                {"t_ns": [0, 1], "event_count": [0, 1]}
-            )
-        },
+        topics={"robot_collision_events": pl.DataFrame({"t_ns": [0, 1], "event_count": [0, 1]})},
     )
     prior_fail = {
         "path_length_m": 10.0,

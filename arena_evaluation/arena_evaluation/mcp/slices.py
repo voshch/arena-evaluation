@@ -31,9 +31,7 @@ SERIES_IDENTITY_COLUMNS: Final[tuple[str, ...]] = (
     "robot_id",
     "t_ns",
 )
-SERIES_TABLE_NAMES: Final[frozenset[str]] = frozenset(
-    table.table_name for table in SERIES_TABLES.values()
-)
+SERIES_TABLE_NAMES: Final[frozenset[str]] = frozenset(table.table_name for table in SERIES_TABLES.values())
 PEDESTRIAN_ACTOR_KIND: Final[str] = "pedestrian"
 SLICE_FACT_KEYS: Final[tuple[str, ...]] = (
     "episodes",
@@ -47,9 +45,7 @@ PreviewLimit = Annotated[
     int,
     pydantic.Field(description="rows previewed per Star Schema table", ge=1, le=500),
 ]
-RankLimit = Annotated[
-    int, pydantic.Field(description="encounters returned by the ranking", ge=1, le=100)
-]
+RankLimit = Annotated[int, pydantic.Field(description="encounters returned by the ranking", ge=1, le=100)]
 
 
 class TablePreview(pydantic.BaseModel):
@@ -114,10 +110,7 @@ def _catalog(run_id: str) -> BenchmarkCatalog:
 
 def _facts(catalog: BenchmarkCatalog, *keys: str) -> tuple[pl.DataFrame, ...]:
     """The declared fact tables named by ``keys``, in order; absent files use the canonical schema."""
-    return tuple(
-        catalog.get_table(f"fact_{FACT_TABLES[key].table_name}").collect()
-        for key in keys
-    )
+    return tuple(catalog.get_table(f"fact_{FACT_TABLES[key].table_name}").collect() for key in keys)
 
 
 def _preview(table: str, frame: pl.DataFrame, limit: int) -> TablePreview:
@@ -136,20 +129,11 @@ def _null_reasons(frames: list[pl.DataFrame]) -> list[str]:
     A fact row carries its missing fields as one ``field:code;field:code`` string; the slice
     reports the individual tokens so an analyst can filter and count them.
     """
-    tokens = (
-        token
-        for frame in frames
-        if len(frame) > 0
-        for value in frame.get_column("null_reason").drop_nulls()
-        for token in str(value).split(";")
-        if token
-    )
+    tokens = (token for frame in frames if len(frame) > 0 for value in frame.get_column("null_reason").drop_nulls() for token in str(value).split(";") if token)
     return sorted(set(tokens))
 
 
-def _identity_row(
-    frame: pl.DataFrame, column: str, value: str, what: str
-) -> dict[str, Any]:
+def _identity_row(frame: pl.DataFrame, column: str, value: str, what: str) -> dict[str, Any]:
     """The one row whose identity column equals ``value``; a ToolError when it is absent."""
     rows = frame.filter(pl.col(column) == value)
     if len(rows) == 0:
@@ -164,13 +148,7 @@ def _pedestrian_refs(frame: pl.DataFrame, kind_column: str, id_column: str) -> s
     """Pedestrian identities named by one ``(kind, id)`` column pair."""
     if len(frame) == 0:
         return set()
-    return {
-        str(value)
-        for kind, value in zip(
-            frame.get_column(kind_column), frame.get_column(id_column), strict=True
-        )
-        if kind == PEDESTRIAN_ACTOR_KIND and value
-    }
+    return {str(value) for kind, value in zip(frame.get_column(kind_column), frame.get_column(id_column), strict=True) if kind == PEDESTRIAN_ACTOR_KIND and value}
 
 
 @domain.tool(read_only=True)
@@ -180,17 +158,11 @@ def evaluation_slice(
         str | None,
         pydantic.Field(description="encounter to explain, from fact_encounters"),
     ] = None,
-    contact_id: Annotated[
-        str | None, pydantic.Field(description="contact to explain, from fact_contacts")
-    ] = None,
-    pedestrian_id: Annotated[
-        str | None, pydantic.Field(description="pedestrian identity to include")
-    ] = None,
+    contact_id: Annotated[str | None, pydantic.Field(description="contact to explain, from fact_contacts")] = None,
+    pedestrian_id: Annotated[str | None, pydantic.Field(description="pedestrian identity to include")] = None,
     episode_id: Annotated[
         int | None,
-        pydantic.Field(
-            description="episode to slice when no encounter or contact id is given"
-        ),
+        pydantic.Field(description="episode to slice when no encounter or contact id is given"),
     ] = None,
     preview_limit: PreviewLimit = PREVIEW_ROWS,
 ) -> SliceResponse:
@@ -206,9 +178,7 @@ def evaluation_slice(
             hint="evaluation_worst_encounters lists encounter ids; evaluation_query reads fact_contacts",
         )
     catalog = _catalog(run_id)
-    episodes, encounters, contacts, pedestrians, collisions = _facts(
-        catalog, *SLICE_FACT_KEYS
-    )
+    episodes, encounters, contacts, pedestrians, collisions = _facts(catalog, *SLICE_FACT_KEYS)
 
     contact_row: dict[str, Any] | None = None
     encounter_row: dict[str, Any] | None = None
@@ -216,11 +186,7 @@ def evaluation_slice(
         contact_row = _identity_row(contacts, "contact_id", contact_id, "contact")
         episode_id = int(contact_row["episode_id"])
         linked_encounter = contact_row["encounter_id"]
-        if (
-            encounter_id is not None
-            and linked_encounter is not None
-            and linked_encounter != encounter_id
-        ):
+        if encounter_id is not None and linked_encounter is not None and linked_encounter != encounter_id:
             raise ToolError(
                 f"contact {contact_id!r} belongs to encounter {linked_encounter!r}, not {encounter_id!r}",
                 hint=f"pass encounter_id {linked_encounter!r} or omit it",
@@ -228,9 +194,7 @@ def evaluation_slice(
         if encounter_id is None:
             encounter_id = linked_encounter
     if encounter_id is not None:
-        encounter_row = _identity_row(
-            encounters, "encounter_id", encounter_id, "encounter"
-        )
+        encounter_row = _identity_row(encounters, "encounter_id", encounter_id, "encounter")
         episode_id = int(encounter_row["episode_id"])
     if episode_id is None:
         raise ToolError(
@@ -245,9 +209,7 @@ def evaluation_slice(
         contact_rows = contact_rows.filter(pl.col("encounter_id") == encounter_id)
     contact_rows = contact_rows.sort("t_onset_ns")
 
-    encounter_rows = encounters.filter(pl.col("episode_id") == episode_id).sort(
-        "t_start_ns"
-    )
+    encounter_rows = encounters.filter(pl.col("episode_id") == episode_id).sort("t_start_ns")
     if encounter_id is not None:
         encounter_rows = encounter_rows.filter(pl.col("encounter_id") == encounter_id)
     episode_rows = episodes.filter(pl.col("episode_id") == episode_id)
@@ -257,31 +219,11 @@ def evaluation_slice(
             hint="evaluation_progress lists the recorded episodes",
         )
 
-    pedestrian_ids = sorted(
-        (set() if pedestrian_id is None else {pedestrian_id})
-        | _pedestrian_refs(encounter_rows, "actor_2_kind", "actor_2")
-        | _pedestrian_refs(contact_rows, "collider_kind", "obstacle_id")
-    )
-    pedestrian_rows = (
-        pedestrians.filter(
-            (pl.col("episode_id") == episode_id)
-            & (
-                pl.col("ped_id").is_in(pedestrian_ids)
-                | pl.col("ped_name").is_in(pedestrian_ids)
-            )
-        ).sort("ped_id")
-        if pedestrian_ids
-        else pedestrians.head(0)
-    )
-    collision_rows = collisions.filter(pl.col("episode_id") == episode_id).sort(
-        "collision_idx"
-    )
+    pedestrian_ids = sorted((set() if pedestrian_id is None else {pedestrian_id}) | _pedestrian_refs(encounter_rows, "actor_2_kind", "actor_2") | _pedestrian_refs(contact_rows, "collider_kind", "obstacle_id"))
+    pedestrian_rows = pedestrians.filter((pl.col("episode_id") == episode_id) & (pl.col("ped_id").is_in(pedestrian_ids) | pl.col("ped_name").is_in(pedestrian_ids))).sort("ped_id") if pedestrian_ids else pedestrians.head(0)
+    collision_rows = collisions.filter(pl.col("episode_id") == episode_id).sort("collision_idx")
 
-    anchor, start_column = (
-        (contact_row, "t_onset_ns")
-        if contact_row is not None
-        else (encounter_row, "t_start_ns")
-    )
+    anchor, start_column = (contact_row, "t_onset_ns") if contact_row is not None else (encounter_row, "t_start_ns")
     t_start_ns = int(anchor[start_column]) if anchor is not None else None
     t_end_ns = int(anchor["t_end_ns"]) if anchor is not None else None
     if anchor is not None:
@@ -294,9 +236,7 @@ def evaluation_slice(
     for name in sorted(catalog.table_names()):
         if name not in SERIES_TABLE_NAMES:
             continue
-        window = (
-            catalog.get_table(name).collect().filter(pl.col("episode_id") == episode_id)
-        )
+        window = catalog.get_table(name).collect().filter(pl.col("episode_id") == episode_id)
         if t_start_ns is not None and t_end_ns is not None:
             window = window.filter(
                 pl.col("t_ns").is_between(
@@ -305,9 +245,7 @@ def evaluation_slice(
                 )
             )
         if len(window) > 0:
-            series.append(
-                _preview(name, window.sort(*SERIES_IDENTITY_COLUMNS), preview_limit)
-            )
+            series.append(_preview(name, window.sort(*SERIES_IDENTITY_COLUMNS), preview_limit))
 
     sliced = {
         "fact_episodes": episode_rows,
@@ -316,9 +254,7 @@ def evaluation_slice(
         "fact_pedestrians": pedestrian_rows,
         "fact_collisions": collision_rows,
     }
-    previews = {
-        name: _preview(name, frame, preview_limit) for name, frame in sliced.items()
-    }
+    previews = {name: _preview(name, frame, preview_limit) for name, frame in sliced.items()}
     encounter_visible = encounter_row is not None or contact_row is None
     return SliceResponse(
         identity=SliceIdentity(
@@ -333,9 +269,7 @@ def evaluation_slice(
         ),
         snapshot_id=catalog.snapshot_id,
         episode=previews["fact_episodes"],
-        encounter=previews["fact_encounters"]
-        if encounter_visible and len(encounter_rows) > 0
-        else None,
+        encounter=previews["fact_encounters"] if encounter_visible and len(encounter_rows) > 0 else None,
         contacts=previews["fact_contacts"],
         pedestrians=previews["fact_pedestrians"],
         collisions=previews["fact_collisions"],
@@ -349,19 +283,13 @@ def evaluation_worst_encounters(
     run_id: RunId,
     metric: Annotated[
         str,
-        pydantic.Field(
-            description="declared fact_encounters measure column to rank by"
-        ),
+        pydantic.Field(description="declared fact_encounters measure column to rank by"),
     ] = "min_clearance_m",
     limit: RankLimit = PREVIEW_ROWS,
-    episode_id: Annotated[
-        int | None, pydantic.Field(description="only this episode's encounters")
-    ] = None,
+    episode_id: Annotated[int | None, pydantic.Field(description="only this episode's encounters")] = None,
     direction: Annotated[
         Literal["higher", "lower"] | None,
-        pydantic.Field(
-            description="override direction when dim_metrics has NULL direction"
-        ),
+        pydantic.Field(description="override direction when dim_metrics has NULL direction"),
     ] = None,
 ) -> EncounterRankingResponse:
     """The encounters ranked worst first by one declared measure, reading direction from dim_metrics.
@@ -378,12 +306,7 @@ def evaluation_worst_encounters(
     catalog = _catalog(run_id)
     resolved_direction = direction
     if resolved_direction is None:
-        direction_col = (
-            catalog.get_table("dim_metrics")
-            .collect()
-            .filter(pl.col("metric") == metric)
-            .get_column("direction")
-        )
+        direction_col = catalog.get_table("dim_metrics").collect().filter(pl.col("metric") == metric).get_column("direction")
         # agent-contracts: ignore AC004 - MCP scalar lookup from collected dim_metrics
         declared_directions = direction_col.to_list()
         resolved_direction = next(
@@ -403,9 +326,7 @@ def evaluation_worst_encounters(
             f"run {run_id!r} has no encounter rows",
             hint="a run without detected encounters has an empty fact_encounters",
         )
-    ranked = encounters.sort(
-        metric, descending=resolved_direction == "lower", nulls_last=True
-    ).head(limit)
+    ranked = encounters.sort(metric, descending=resolved_direction == "lower", nulls_last=True).head(limit)
     return EncounterRankingResponse(
         run_id=run_id,
         metric=metric,

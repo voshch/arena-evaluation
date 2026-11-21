@@ -43,9 +43,7 @@ class _BarContext(NamedTuple):
     palette: list[str]
 
 
-def _error_arrays(
-    frame: pl.DataFrame, *, plus_col: str | None, minus_col: str | None
-) -> tuple[np.ndarray | None, np.ndarray | None]:
+def _error_arrays(frame: pl.DataFrame, *, plus_col: str | None, minus_col: str | None) -> tuple[np.ndarray | None, np.ndarray | None]:
     """Read pre-computed upper/lower error arrays without filling NULLs with 0.0."""
     if plus_col is None:
         return None, None
@@ -53,9 +51,7 @@ def _error_arrays(
     return plus, series_values(frame, minus_col) if minus_col is not None else plus
 
 
-def _plotly_error(
-    plus: np.ndarray | None, minus: np.ndarray | None
-) -> dict[str, object] | None:
+def _plotly_error(plus: np.ndarray | None, minus: np.ndarray | None) -> dict[str, object] | None:
     if plus is None or minus is None:
         return None
     return {
@@ -88,9 +84,7 @@ def _draw_errorbars(
     )
 
 
-def _bar_groups(
-    frame: pl.DataFrame, context: _BarContext
-) -> tuple[list[str], list[_BarGroup]]:
+def _bar_groups(frame: pl.DataFrame, context: _BarContext) -> tuple[list[str], list[_BarGroup]]:
     """Ordered bar series shared by the Plotly and Matplotlib panels.
 
     ``palette_index`` is ``None`` for a single series, which paints each bar
@@ -98,28 +92,15 @@ def _bar_groups(
     """
     x_labels = label_values(frame, context.group_col).tolist()
     if len(context.y_cols) > 1:
-        return x_labels, [
-            _BarGroup(y_col, x_labels, series_values(frame, y_col), None, None, idx)
-            for idx, y_col in enumerate(context.y_cols)
-        ]
+        return x_labels, [_BarGroup(y_col, x_labels, series_values(frame, y_col), None, None, idx) for idx, y_col in enumerate(context.y_cols)]
     y_col = context.y_cols[0]
     if not (context.x_col and context.color_col and context.color_col != context.x_col):
-        plus, minus = _error_arrays(
-            frame, plus_col=context.err_plus_col, minus_col=context.err_minus_col
-        )
-        return x_labels, [
-            _BarGroup(y_col, x_labels, series_values(frame, y_col), plus, minus, None)
-        ]
-    tagged = frame.with_columns(
-        pl.Series("_bar_color_label", label_values(frame, context.color_col))
-    )
+        plus, minus = _error_arrays(frame, plus_col=context.err_plus_col, minus_col=context.err_minus_col)
+        return x_labels, [_BarGroup(y_col, x_labels, series_values(frame, y_col), plus, minus, None)]
+    tagged = frame.with_columns(pl.Series("_bar_color_label", label_values(frame, context.color_col)))
     groups: list[_BarGroup] = []
-    for idx, sub in enumerate(
-        tagged.partition_by("_bar_color_label", maintain_order=True)
-    ):
-        plus, minus = _error_arrays(
-            sub, plus_col=context.err_plus_col, minus_col=context.err_minus_col
-        )
+    for idx, sub in enumerate(tagged.partition_by("_bar_color_label", maintain_order=True)):
+        plus, minus = _error_arrays(sub, plus_col=context.err_plus_col, minus_col=context.err_minus_col)
         groups.append(
             _BarGroup(
                 str(sub["_bar_color_label"][0]),
@@ -144,9 +125,7 @@ class BarRenderer(BasePlotRenderer):
         "error_col",
         "orientation",
     }
-    COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset(
-        {"err_plus", "err_minus", "error_col"}
-    )
+    COLUMN_OPTIONS: ClassVar[frozenset[str]] = frozenset({"err_plus", "err_minus", "error_col"})
 
     def _resolve_columns(self, df: pl.DataFrame) -> _BarContext:
         x_col = self.resolve_channel("x")
@@ -158,25 +137,15 @@ class BarRenderer(BasePlotRenderer):
         facet_row = self.resolve_channel("facet_row")
         group_col = x_col or color_col
         if group_col is None:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: bar plot requires channel 'x' or 'color'."
-            )
-        cell_keys = [
-            c for c in dict.fromkeys((group_col, color_col, facet_col, facet_row)) if c
-        ]
+            raise ValueError(f"Plot {self.spec.id!r}: bar plot requires channel 'x' or 'color'.")
+        cell_keys = [c for c in dict.fromkeys((group_col, color_col, facet_col, facet_row)) if c]
         self.validate_unique_cells(df, cell_keys)
 
         opts = self.spec.options
         err_plus = opts.get("err_plus") or opts.get("error_col")
-        err_plus_col = (
-            err_plus.strip() if isinstance(err_plus, str) and err_plus.strip() else None
-        )
+        err_plus_col = err_plus.strip() if isinstance(err_plus, str) and err_plus.strip() else None
         err_minus = opts.get("err_minus")
-        err_minus_col = (
-            str(err_minus).strip()
-            if isinstance(err_minus, str) and err_minus.strip()
-            else err_plus_col
-        )
+        err_minus_col = str(err_minus).strip() if isinstance(err_minus, str) and err_minus.strip() else err_plus_col
         return _BarContext(
             x_col,
             y_cols,
@@ -189,22 +158,12 @@ class BarRenderer(BasePlotRenderer):
             get_color_palette(),
         )
 
-    def _panels(
-        self, df: pl.DataFrame, context: _BarContext
-    ) -> tuple[bool, list[tuple[int, int, str, pl.DataFrame]]]:
+    def _panels(self, df: pl.DataFrame, context: _BarContext) -> tuple[bool, list[tuple[int, int, str, pl.DataFrame]]]:
         """Facet panels in row-major order, or a single unsplit panel."""
         if not context.facet_col and not context.facet_row:
             return False, [(1, 1, "", df)]
-        col_vals = (
-            list(dict.fromkeys(label_values(df, context.facet_col).tolist()))
-            if context.facet_col
-            else [""]
-        )
-        row_vals = (
-            list(dict.fromkeys(label_values(df, context.facet_row).tolist()))
-            if context.facet_row
-            else [""]
-        )
+        col_vals = list(dict.fromkeys(label_values(df, context.facet_col).tolist())) if context.facet_col else [""]
+        row_vals = list(dict.fromkeys(label_values(df, context.facet_row).tolist())) if context.facet_row else [""]
         tagged = df
         for alias, column in (
             ("_bar_fcol", context.facet_col),
@@ -245,14 +204,7 @@ class BarRenderer(BasePlotRenderer):
         for group in groups:
             error_kw = _plotly_error(group.plus, group.minus)
             values = group.values.tolist()
-            marker_color: object = (
-                palette_color(context.palette, group.palette_index)
-                if group.palette_index is not None
-                else [
-                    palette_color(context.palette, i)
-                    for i in range(len(group.x_labels))
-                ]
-            )
+            marker_color: object = palette_color(context.palette, group.palette_index) if group.palette_index is not None else [palette_color(context.palette, i) for i in range(len(group.x_labels))]
             fig.add_trace(
                 go.Bar(
                     name=group.label,
@@ -292,9 +244,7 @@ class BarRenderer(BasePlotRenderer):
                 show_legend=not faceted or idx == 0,
             )
 
-        y_title = self.format_label(
-            context.y_cols[0].replace("_", " ").title(), context.y_cols[0]
-        )
+        y_title = self.format_label(context.y_cols[0].replace("_", " ").title(), context.y_cols[0])
         x_title = context.group_col.replace("_", " ").title()
         horizontal = str(self.spec.options.get("orientation", "v")) == "h"
         fig.update_layout(
@@ -307,9 +257,7 @@ class BarRenderer(BasePlotRenderer):
         )
         return fig.to_html(include_plotlyjs=False, full_html=False)
 
-    def _draw_static_panel(
-        self, ax: plt.Axes, sub_df: pl.DataFrame, context: _BarContext
-    ) -> str:
+    def _draw_static_panel(self, ax: plt.Axes, sub_df: pl.DataFrame, context: _BarContext) -> str:
         if sub_df.is_empty():
             return "Value"
         x_labels, groups = _bar_groups(sub_df, context)
@@ -340,9 +288,7 @@ class BarRenderer(BasePlotRenderer):
             ax.set_xticks(xs)
             ax.set_xticklabels(x_labels)
             if group.plus is not None and group.minus is not None:
-                _draw_errorbars(
-                    ax, xs, group.values, group.plus, group.minus, capsize=4
-                )
+                _draw_errorbars(ax, xs, group.values, group.plus, group.minus, capsize=4)
             return y_label
 
         uniq_x = list(dict.fromkeys(x_labels))

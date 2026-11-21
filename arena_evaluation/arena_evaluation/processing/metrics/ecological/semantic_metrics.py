@@ -93,13 +93,9 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
     @staticmethod
     def _events(episode: AlignedEpisodeBundle) -> pl.DataFrame:
         """Semantic events reconstructed from the robot's env snapshot."""
-        return _reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        return _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Episode scope: door waiting and rides by anyone aboard; NULL when no semantic snapshot was recorded."""
         del prior_results
         if episode.semantic_snapshot is None:
@@ -109,9 +105,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
             }
         events = self._events(episode)
         return {
-            "time_waiting_at_doors_anyone": self._time_waiting_at_doors(
-                events, episode_end_t_ns(episode), None
-            ),
+            "time_waiting_at_doors_anyone": self._time_waiting_at_doors(events, episode_end_t_ns(episode), None),
             "elevator_rides_anyone": self._elevator_rides(events),
         }
 
@@ -133,35 +127,20 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
         end_t_ns = episode_end_t_ns(episode)
         anyone_waiting = self._time_waiting_at_doors(events, end_t_ns, None)
         anyone_rides = self._elevator_rides(events)
-        robot_waiting_defined = self._has_kind(events, "door") and (
-            anyone_waiting == 0.0 or _members_recorded(events, "door")
-        )
-        robot_rides_defined = self._has_kind(events, "elevator") and (
-            anyone_rides == 0 or _members_recorded(events, "elevator")
-        )
+        robot_waiting_defined = self._has_kind(events, "door") and (anyone_waiting == 0.0 or _members_recorded(events, "door"))
+        robot_rides_defined = self._has_kind(events, "elevator") and (anyone_rides == 0 or _members_recorded(events, "elevator"))
         return {
-            "time_waiting_at_doors_robot": self._time_waiting_at_doors(
-                events, end_t_ns, identity
-            )
-            if robot_waiting_defined
-            else None,
-            "elevator_rides_robot": self._elevator_rides_robot(events, identity)
-            if robot_rides_defined
-            else None,
+            "time_waiting_at_doors_robot": self._time_waiting_at_doors(events, end_t_ns, identity) if robot_waiting_defined else None,
+            "elevator_rides_robot": self._elevator_rides_robot(events, identity) if robot_rides_defined else None,
         }
 
     @staticmethod
     def _has_kind(events: pl.DataFrame, kind: str) -> bool:
         return len(events.filter(pl.col("kind") == kind)) > 0
 
-    def _time_waiting_at_doors(
-        self, events: pl.DataFrame, end_t_ns: int | None, identity: RobotIdentity | None
-    ) -> float:
+    def _time_waiting_at_doors(self, events: pl.DataFrame, end_t_ns: int | None, identity: RobotIdentity | None) -> float:
         """Seconds each door is triggered and not open while the waiting party is present: anyone when `identity` is None."""
-        door_events = events.filter(
-            (pl.col("kind") == "door")
-            & pl.col("field").is_in(["state", "triggered", "members"])
-        ).sort("t_ns")
+        door_events = events.filter((pl.col("kind") == "door") & pl.col("field").is_in(["state", "triggered", "members"])).sort("t_ns")
 
         total_s = 0.0
         for _entity, group in door_events.group_by("entity"):
@@ -180,12 +159,7 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
                 if current is None:
                     continue
                 t = int(t_raw)
-                if (
-                    prev_time_ns is not None
-                    and triggered
-                    and in_party
-                    and state != "open"
-                ):
+                if prev_time_ns is not None and triggered and in_party and state != "open":
                     total_s += (t - prev_time_ns) / 1e9
 
                 if field == "state":
@@ -196,32 +170,17 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
                     in_party = identity.any_of(parse_members(current))
                 prev_time_ns = t
 
-            if (
-                end_t_ns is not None
-                and prev_time_ns is not None
-                and end_t_ns > prev_time_ns
-                and triggered
-                and in_party
-                and state != "open"
-            ):
+            if end_t_ns is not None and prev_time_ns is not None and end_t_ns > prev_time_ns and triggered and in_party and state != "open":
                 total_s += (end_t_ns - prev_time_ns) / 1e9
 
         return total_s
 
-    def _elevator_rides_robot(
-        self, events: pl.DataFrame, identity: RobotIdentity
-    ) -> int:
+    def _elevator_rides_robot(self, events: pl.DataFrame, identity: RobotIdentity) -> int:
         window_ns = int(ARRIVAL_MEMBER_WINDOW_S * 1e9)
         rides = 0
-        for _entity, group in events.filter(pl.col("kind") == "elevator").group_by(
-            "entity"
-        ):
+        for _entity, group in events.filter(pl.col("kind") == "elevator").group_by("entity"):
             g = group.sort("t_ns")
-            arrivals = g.filter(
-                (pl.col("field") == "just_arrived")
-                & (pl.col("current") == "true")
-                & (pl.col("previous") != "true")
-            )
+            arrivals = g.filter((pl.col("field") == "just_arrived") & (pl.col("current") == "true") & (pl.col("previous") != "true"))
             members = g.filter(pl.col("field") == "members")
             if len(arrivals) == 0 or len(members) == 0:
                 continue
@@ -235,18 +194,13 @@ class SemanticInteractionMetricsCalculator(BaseMetricCalculator):
         return rides
 
     def _elevator_rides(self, events: pl.DataFrame) -> int:
-        elevator_events = events.filter(
-            (pl.col("kind") == "elevator")
-            & pl.col("field").is_in(["occupants", "just_arrived"])
-        ).sort("t_ns")
+        elevator_events = events.filter((pl.col("kind") == "elevator") & pl.col("field").is_in(["occupants", "just_arrived"])).sort("t_ns")
 
         rides = 0
         for _entity, group in elevator_events.group_by("entity"):
             occupants = 0.0
             g = group.sort("t_ns")
-            for field, current in zip(
-                g["field"].to_numpy(), g["current"].to_numpy(), strict=True
-            ):
+            for field, current in zip(g["field"].to_numpy(), g["current"].to_numpy(), strict=True):
                 if current is None:
                     continue
                 if field == "occupants":

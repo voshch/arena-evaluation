@@ -12,7 +12,5 @@ def installed_world_dir(map_name: str) -> pathlib.Path:
 
         share = pathlib.Path(get_package_share_directory("arena_simulation_setup"))
     except (ImportError, OSError, KeyError) as error:
-        raise FileNotFoundError(
-            f"arena_simulation_setup is not installed, so the world {map_name!r} cannot be located"
-        ) from error
+        raise FileNotFoundError(f"arena_simulation_setup is not installed, so the world {map_name!r} cannot be located") from error
     return share / "worlds" / map_name

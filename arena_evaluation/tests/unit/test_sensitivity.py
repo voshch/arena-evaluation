@@ -57,11 +57,7 @@ def _write(path: pathlib.Path, frame: pl.DataFrame) -> None:
 
 
 def _robot_frame(robots: Sequence[tuple[str, str, float, float]]) -> pl.DataFrame:
-    rows = [
-        (stamp, env_id, robot_id, x, y)
-        for env_id, robot_id, x, y in robots
-        for stamp in TIMES_NS
-    ]
+    rows = [(stamp, env_id, robot_id, x, y) for env_id, robot_id, x, y in robots for stamp in TIMES_NS]
     count = len(rows)
     return pl.DataFrame(
         {
@@ -79,9 +75,7 @@ def _robot_frame(robots: Sequence[tuple[str, str, float, float]]) -> pl.DataFram
 
 
 def _ped_frame(peds: Sequence[tuple[str, float, float, float]]) -> pl.DataFrame:
-    rows = [
-        (stamp, name, x, y, radius) for name, x, y, radius in peds for stamp in TIMES_NS
-    ]
+    rows = [(stamp, name, x, y, radius) for name, x, y, radius in peds for stamp in TIMES_NS]
     count = len(rows)
     return pl.DataFrame(
         {
@@ -113,9 +107,7 @@ def _write_episode(
         _write(episode_dir / ped_table.relative_path(), _ped_frame(peds))
 
 
-def _write_robot_radii(
-    root: pathlib.Path, rows: Sequence[tuple[int, str, str, float]]
-) -> None:
+def _write_robot_radii(root: pathlib.Path, rows: Sequence[tuple[int, str, str, float]]) -> None:
     _write(
         root / DIMENSION_TABLES["dim_robots"].relative_path(),
         pl.DataFrame(
@@ -219,10 +211,7 @@ def test_the_published_side_counts_the_pedestrian_encounters_of_the_episode(
         peds=[("Pedestrian_0", 1.0, 0.0, 0.3)],
     )
     _write(
-        tmp_path
-        / "episodes"
-        / "episode_000"
-        / FACT_TABLES["encounters"].relative_path(),
+        tmp_path / "episodes" / "episode_000" / FACT_TABLES["encounters"].relative_path(),
         pl.DataFrame(
             {
                 "episode_id": [0, 0, 0],
@@ -242,8 +231,6 @@ def test_the_published_side_counts_the_pedestrian_encounters_of_the_episode(
 
 def test_the_rerun_reads_the_recorded_layout_only_through_the_storage_api() -> None:
     tree = ast.parse(pathlib.Path(sensitivity.__file__).read_text(encoding="utf-8"))
-    attributes = {
-        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
-    }
+    attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
 
     assert not {"read_parquet", "scan_parquet"} & attributes

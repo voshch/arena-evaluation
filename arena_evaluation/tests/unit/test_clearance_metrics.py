@@ -26,29 +26,16 @@ def _episode(times_ns, scan=None, peds=None, radius_m=PED_RADIUS, radii=None):
             "yaw": [0.0] * n,
         }
     )
-    topics = {
-        "robot_tracks": pl.DataFrame(
-            {"t_ns": times_ns, "x": [0.0] * n, "y": [0.0] * n, "yaw": [0.0] * n}
-        )
-    }
+    topics = {"robot_tracks": pl.DataFrame({"t_ns": times_ns, "x": [0.0] * n, "y": [0.0] * n, "yaw": [0.0] * n})}
     if scan is not None:
         topics["robot_scan_summary"] = pl.DataFrame({"t_ns": times_ns, **scan})
     frames = None
     if peds is not None:
-        frames = flat_peds(
-            [
-                (t, [{"x": x, "y": y} for x, y in sample])
-                for t, sample in zip(times_ns, peds, strict=True)
-            ]
-        )
+        frames = flat_peds([(t, [{"x": x, "y": y} for x, y in sample]) for t, sample in zip(times_ns, peds, strict=True)])
         if radius_m is not None:
             radius_expr = pl.lit(radius_m, dtype=pl.Float64)
             for ped_id, ped_radius in (radii or {}).items():
-                radius_expr = (
-                    pl.when(pl.col("ped_id") == ped_id)
-                    .then(pl.lit(ped_radius, dtype=pl.Float64))
-                    .otherwise(radius_expr)
-                )
+                radius_expr = pl.when(pl.col("ped_id") == ped_id).then(pl.lit(ped_radius, dtype=pl.Float64)).otherwise(radius_expr)
             frames = frames.with_columns(radius_m=radius_expr)
         topics["pedestrian_arena_peds"] = frames
     return AlignedEpisodeBundle(

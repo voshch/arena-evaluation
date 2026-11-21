@@ -37,9 +37,7 @@ class RadarRenderer(BasePlotRenderer):
     PLOT_TYPE = "radar"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
 
-    def _axis_values(
-        self, frame: pl.DataFrame, x_col: str, y_col: str, axes: list[str]
-    ) -> list[float | None]:
+    def _axis_values(self, frame: pl.DataFrame, x_col: str, y_col: str, axes: list[str]) -> list[float | None]:
         by_axis = dict(
             zip(
                 label_values(frame, x_col).tolist(),
@@ -57,33 +55,23 @@ class RadarRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_cols = self.resolve_channel_list("y")
         if x_col is None or len(y_cols) != 1:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: radar plot requires channel 'x' and a single 'y' metric value column."
-            )
-        self.validate_unique_cells(
-            df, [c for c in dict.fromkeys((group_col, x_col)) if c is not None]
-        )
+            raise ValueError(f"Plot {self.spec.id!r}: radar plot requires channel 'x' and a single 'y' metric value column.")
+        self.validate_unique_cells(df, [c for c in dict.fromkeys((group_col, x_col)) if c is not None])
         y_col = y_cols[0]
         axes = sorted(dict.fromkeys(label_values(df, x_col).tolist()))
         if len(axes) < 3:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: radar plot requires at least 3 axes, got {len(axes)}: {axes!r}."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: radar plot requires at least 3 axes, got {len(axes)}: {axes!r}.")
         axis_labels = [axis.replace("_", " ").title() for axis in axes]
         if group_col is None:
             traces = [(y_col, self._axis_values(df, x_col, y_col, axes))]
         else:
-            tagged = df.with_columns(
-                pl.Series("_radar_group", label_values(df, group_col))
-            )
+            tagged = df.with_columns(pl.Series("_radar_group", label_values(df, group_col)))
             traces = [
                 (
                     str(sub["_radar_group"][0]),
                     self._axis_values(sub, x_col, y_col, axes),
                 )
-                for sub in tagged.sort("_radar_group").partition_by(
-                    "_radar_group", maintain_order=True
-                )
+                for sub in tagged.sort("_radar_group").partition_by("_radar_group", maintain_order=True)
             ]
         return _RadarData(axis_labels, traces)
 
@@ -119,16 +107,12 @@ class RadarRenderer(BasePlotRenderer):
         data = self._prepare(df)
         if data is None:
             return
-        angles = np.linspace(
-            0, 2 * np.pi, len(data.axis_labels), endpoint=False
-        ).tolist()
+        angles = np.linspace(0, 2 * np.pi, len(data.axis_labels), endpoint=False).tolist()
         angles_closed = angles + [angles[0]]
         fig, ax = plt.subplots(figsize=(7.5, 7.5), subplot_kw={"polar": True})
         palette = get_color_palette()
         for index, (label, values) in enumerate(data.traces):
-            arr = np.array(
-                [np.nan if value is None else value for value in values], dtype=float
-            )
+            arr = np.array([np.nan if value is None else value for value in values], dtype=float)
             arr_closed = np.append(arr, arr[0])
             color = palette_color(palette, index)
             ax.plot(angles_closed, arr_closed, linewidth=2, label=label, color=color)

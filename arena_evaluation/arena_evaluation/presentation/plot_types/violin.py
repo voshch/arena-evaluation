@@ -31,10 +31,7 @@ def _outlier_note(hidden: pl.DataFrame, groups: list[str]) -> str | None:
     counted = hidden.filter(pl.col("hidden") > 0).to_dicts()
     if not counted:
         return None
-    parts = [
-        f"{' · '.join('NULL' if row[group] is None else str(row[group]) for group in groups) or 'all'} {row['hidden']}"
-        for row in counted
-    ]
+    parts = [f"{' · '.join('NULL' if row[group] is None else str(row[group]) for group in groups) or 'all'} {row['hidden']}" for row in counted]
     return f"{_NOTE_LEAD} {', '.join(parts)}"
 
 
@@ -48,9 +45,7 @@ class ViolinRenderer(BasePlotRenderer):
     PLOT_TYPE = "violin"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
 
-    def _resolve_columns(
-        self, df: pl.DataFrame
-    ) -> tuple[str | None, str | None, str | None]:
+    def _resolve_columns(self, df: pl.DataFrame) -> tuple[str | None, str | None, str | None]:
         return (
             self.resolve_channel("x"),
             self.resolve_channel("y"),
@@ -64,28 +59,17 @@ class ViolinRenderer(BasePlotRenderer):
         return self.format_label(self._title(column), column)
 
     @staticmethod
-    def _drawn(
-        df: pl.DataFrame, x_col: str | None, y_col: str, color_col: str | None
-    ) -> tuple[pl.DataFrame, str | None]:
+    def _drawn(df: pl.DataFrame, x_col: str | None, y_col: str, color_col: str | None) -> tuple[pl.DataFrame, str | None]:
         """The rows to draw, and the note naming the rows that are left out."""
         groups = list(dict.fromkeys(col for col in (x_col, color_col) if col))
         drawn, hidden = split_display_outliers(df, value=y_col, groups=groups)
         return drawn, _outlier_note(hidden, groups)
 
-    def _grouped(
-        self, df: pl.DataFrame, trace_col: str | None, y_col: str
-    ) -> list[tuple[str, pl.DataFrame]]:
+    def _grouped(self, df: pl.DataFrame, trace_col: str | None, y_col: str) -> list[tuple[str, pl.DataFrame]]:
         if trace_col is None:
             return [(y_col, df)]
-        tagged = df.with_columns(
-            pl.Series("_violin_group", label_values(df, trace_col))
-        )
-        return [
-            (str(sub["_violin_group"][0]), sub)
-            for sub in tagged.sort("_violin_group").partition_by(
-                "_violin_group", maintain_order=True
-            )
-        ]
+        tagged = df.with_columns(pl.Series("_violin_group", label_values(df, trace_col)))
+        return [(str(sub["_violin_group"][0]), sub) for sub in tagged.sort("_violin_group").partition_by("_violin_group", maintain_order=True)]
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly violin plot."""
@@ -117,9 +101,7 @@ class ViolinRenderer(BasePlotRenderer):
             title=self.spec.title or y_label,
             yaxis_title=y_label,
             xaxis_title=self._title(x_col or trace_col),
-            violinmode="group"
-            if color_col and x_col and color_col != x_col
-            else "overlay",
+            violinmode="group" if color_col and x_col and color_col != x_col else "overlay",
             margin={"t": 55, "b": 90 if note else 60, "l": 65, "r": 30},
         )
         if note:

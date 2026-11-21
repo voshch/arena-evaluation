@@ -25,10 +25,7 @@ def _frame(rows: list[dict[str, object]], schema: pl.Schema) -> pl.DataFrame:
 
 def _write_multi_condition_benchmark(root: pathlib.Path) -> pathlib.Path:
     root.mkdir(parents=True)
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = _frame(
         [
             {

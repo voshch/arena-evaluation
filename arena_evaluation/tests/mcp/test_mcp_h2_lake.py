@@ -67,9 +67,7 @@ def test_h2_snapshot_id_propagates_across_tools_and_changes_on_reprocess(
     assert sl_res.snapshot_id == snap
 
     # Modify an episode parquet file to simulate reprocessing
-    ep0_robots = (
-        run_dir / "episodes" / "episode_000" / "metrics" / "fact_robots.parquet"
-    )
+    ep0_robots = run_dir / "episodes" / "episode_000" / "metrics" / "fact_robots.parquet"
     df = pl.read_parquet(ep0_robots)
     df.with_columns(pl.lit(999.0).alias("energy_total_wh")).write_parquet(ep0_robots)
 
@@ -142,15 +140,9 @@ def test_h2_declaration_lint_reports_unresolvable_source_and_unknown_column(
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
 
     roots = package_config_roots()
-    expected_queries = len(
-        {p.parent.name for r in roots for p in r.glob("queries/*/query.yaml")}
-    )
-    expected_plots = len(
-        {p.parent.name for r in roots for p in r.glob("plots/*/plot.yaml")}
-    )
-    expected_manifests = len(
-        {p.parent.name for r in roots for p in r.glob("reports/*/report.yaml")}
-    )
+    expected_queries = len({p.parent.name for r in roots for p in r.glob("queries/*/query.yaml")})
+    expected_plots = len({p.parent.name for r in roots for p in r.glob("plots/*/plot.yaml")})
+    expected_manifests = len({p.parent.name for r in roots for p in r.glob("reports/*/report.yaml")})
 
     clean_report = schema.evaluation_lint_declarations(run_id=run_dir.name)
     assert clean_report["valid"] is True
@@ -177,9 +169,7 @@ def test_h2_declaration_lint_reports_unresolvable_source_and_unknown_column(
     missing_source_dir = run_dir / "analysis" / "plots" / "missing_source_plot"
     missing_source_dir.mkdir(parents=True, exist_ok=True)
     (missing_source_dir / "plot.yaml").write_text(
-        "id: missing_source_plot\ntitle: Missing\ntype: bar\n"
-        "data:\n  source: v_no_such_view\n"
-        "channels:\n  x: planner\n  y: time_to_goal\n",
+        "id: missing_source_plot\ntitle: Missing\ntype: bar\ndata:\n  source: v_no_such_view\nchannels:\n  x: planner\n  y: time_to_goal\n",
         encoding="utf-8",
     )
 
@@ -196,17 +186,12 @@ def test_h2_declaration_lint_reports_unresolvable_source_and_unknown_column(
     unresolvable_plot_dir = run_dir / "analysis" / "plots" / "unresolvable_source_plot"
     unresolvable_plot_dir.mkdir(parents=True, exist_ok=True)
     (unresolvable_plot_dir / "plot.yaml").write_text(
-        "id: unresolvable_source_plot\ntitle: Unresolvable\ntype: bar\n"
-        "data:\n  source: v_encounter_summary\n"
-        "channels:\n  x: planner\n  y: min_clearance_m\n",
+        "id: unresolvable_source_plot\ntitle: Unresolvable\ntype: bar\ndata:\n  source: v_encounter_summary\nchannels:\n  x: planner\n  y: min_clearance_m\n",
         encoding="utf-8",
     )
     unresolvable = schema.evaluation_lint_declarations(run_id=run_dir.name)
     assert not unresolvable["valid"]
-    assert any(
-        "unresolvable_source_plot" in p and "cannot resolve" in p
-        for p in unresolvable["problems"]
-    )
+    assert any("unresolvable_source_plot" in p and "cannot resolve" in p for p in unresolvable["problems"])
 
 
 def test_h2_schema_resource_via_mcp_session(tmp_path: pathlib.Path) -> None:
@@ -214,9 +199,7 @@ def test_h2_schema_resource_via_mcp_session(tmp_path: pathlib.Path) -> None:
     run_dir = build_runs(tmp_path / "data" / "benchmarks")
 
     async def body(client):
-        res = await client.read_resource(
-            f"arena://evaluation/runs/{run_dir.name}/schema"
-        )
+        res = await client.read_resource(f"arena://evaluation/runs/{run_dir.name}/schema")
         return json.loads(res.contents[0].text)
 
     out = run_session(body, server_env(tmp_path), ("evaluation",))

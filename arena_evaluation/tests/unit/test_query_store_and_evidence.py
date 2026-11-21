@@ -29,10 +29,7 @@ def _frame(rows: list[dict[str, object]], schema: pl.Schema) -> pl.DataFrame:
 
 def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
     root.mkdir(parents=True)
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = _frame(
         [
             {
@@ -391,9 +388,7 @@ def test_evidence_store_writes_under_analysis_is_order_and_purpose_insensitive_a
     assert r1.evidence_id == r2.evidence_id
 
     empty_df = pl.DataFrame(schema={"a": pl.Int64, "b": pl.String})
-    r_empty = store.record(
-        empty_df, kind="computation", operation="empty_op", snapshot_id=snap
-    )
+    r_empty = store.record(empty_df, kind="computation", operation="empty_op", snapshot_id=snap)
     assert r_empty.row_count == 0
 
     from arena_evaluation.storage.registry.analysis import EvidenceIndex
@@ -442,12 +437,7 @@ def test_snapshot_id_determinism_invalidation_caching_and_frame_backed(
     computations.run_computation("distribution_bins", c1, {"metric": "time_to_goal"})
     assert c1.snapshot_id == cached_id
 
-    fact_path = (
-        bench
-        / "episodes"
-        / "episode_000"
-        / FACT_TABLES[FactTable.EPISODES].relative_path()
-    )
+    fact_path = bench / "episodes" / "episode_000" / FACT_TABLES[FactTable.EPISODES].relative_path()
     df_ep = pl.read_parquet(fact_path).with_columns(pl.lit("TIMEOUT").alias("result"))
     df_ep.write_parquet(fact_path)
     assert c1.snapshot_id == cached_id

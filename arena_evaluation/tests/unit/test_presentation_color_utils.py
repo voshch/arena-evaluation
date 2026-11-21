@@ -47,9 +47,7 @@ def theme():
 
 
 def _cycle() -> list[str]:
-    return [
-        to_hex(color) for color in mpl.rcParams["axes.prop_cycle"].by_key()["color"]
-    ]
+    return [to_hex(color) for color in mpl.rcParams["axes.prop_cycle"].by_key()["color"]]
 
 
 def test_default_palette_when_config_missing(tmp_path):

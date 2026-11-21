@@ -50,9 +50,7 @@ def test_extract_episode_reextracts_a_cache_written_by_an_older_layout(
     pipeline, episode, _ = _episode(tmp_path)
     topics = pathlib.Path(episode.episode_dir) / "topics"
     (topics / "env_0_jackal").mkdir(parents=True)
-    pl.DataFrame({"time_ns": [1], "pos_x": [999.0]}).write_parquet(
-        topics / "env_0_jackal" / "odom.parquet"
-    )
+    pl.DataFrame({"time_ns": [1], "pos_x": [999.0]}).write_parquet(topics / "env_0_jackal" / "odom.parquet")
     assert not TopicParquetStore.is_current(topics)
 
     bundles = pipeline.extract_episode(episode)

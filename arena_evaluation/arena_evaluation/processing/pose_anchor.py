@@ -25,9 +25,7 @@ class PoseSource:
     median_gap_s: float | None
 
 
-def resolve_pose_source(
-    bundle: TopicBundle, window: tuple[int | None, int | None]
-) -> tuple[pl.DataFrame | None, PoseSource]:
+def resolve_pose_source(bundle: TopicBundle, window: tuple[int | None, int | None]) -> tuple[pl.DataFrame | None, PoseSource]:
     """The ground-truth track inside the window, kept as recorded, with how it was classified."""
     track = _windowed(bundle.robot_tracks, window)
     if track is None or track.height == 0:

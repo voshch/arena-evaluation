@@ -63,9 +63,7 @@ def topic_parts(topic: str) -> list[str]:
 def robot_id_of(parts: Sequence[str], env_id: str) -> str:
     """Robot named by the segment before the topic name; controller and power-publisher segments name their robot's parent."""
     if len(parts) < 2:
-        raise ValueError(
-            f"{'/'.join(parts)!r} names no robot; a robot topic has a robot segment before its name"
-        )
+        raise ValueError(f"{'/'.join(parts)!r} names no robot; a robot topic has a robot segment before its name")
     segment = parts[-2]
     if segment == env_id:
         return env_id
@@ -111,10 +109,7 @@ _PARAM_EXTRACTORS: dict[int, typing.Callable[[ParameterValue], object]] = {
     2: lambda value: value.integer_value,
     3: lambda value: value.double_value,
     4: lambda value: value.string_value,
-    5: lambda value: [
-        byte[0] if isinstance(byte, bytes) else int(byte)
-        for byte in value.byte_array_value
-    ],
+    5: lambda value: [byte[0] if isinstance(byte, bytes) else int(byte) for byte in value.byte_array_value],
     6: lambda value: list(value.bool_array_value),
     7: lambda value: list(value.integer_array_value),
     8: lambda value: list(value.double_array_value),

@@ -72,9 +72,7 @@ def test_latex_export_writes_only_approved_blocks(tmp_path: pathlib.Path) -> Non
             },
         ],
     )
-    builder = ReportBuilder(
-        bench_dir, output_dir=tmp_path / "out", manifest=_manifest()
-    )
+    builder = ReportBuilder(bench_dir, output_dir=tmp_path / "out", manifest=_manifest())
     builder.build()
 
     exported = builder.export_latex(tmp_path / "report.tex")

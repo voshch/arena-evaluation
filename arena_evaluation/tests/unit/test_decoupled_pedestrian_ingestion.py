@@ -33,15 +33,11 @@ SEC = 1_000_000_000
 MS = 1_000_000
 
 
-def _write_mcap(
-    path: pathlib.Path, messages: list[tuple[str, object, int]]
-) -> pathlib.Path:
+def _write_mcap(path: pathlib.Path, messages: list[tuple[str, object, int]]) -> pathlib.Path:
     writer = rosbag2_py.SequentialWriter()
     writer.open(
         rosbag2_py.StorageOptions(uri=str(path), storage_id="mcap"),
-        rosbag2_py.ConverterOptions(
-            input_serialization_format="cdr", output_serialization_format="cdr"
-        ),
+        rosbag2_py.ConverterOptions(input_serialization_format="cdr", output_serialization_format="cdr"),
     )
     created: set[str] = set()
     for topic, msg, t_ns in messages:
@@ -117,9 +113,7 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
     assert arena_peds_file.exists()
     assert not pedestrians_file.exists()
     assert gestures_file.exists()
-    assert pq.read_schema(arena_peds_file).equals(
-        TABLE_SCHEMAS["pedestrian_arena_peds"], check_metadata=False
-    )
+    assert pq.read_schema(arena_peds_file).equals(TABLE_SCHEMAS["pedestrian_arena_peds"], check_metadata=False)
 
     df = pl.read_parquet(arena_peds_file)
     assert df.height == 1

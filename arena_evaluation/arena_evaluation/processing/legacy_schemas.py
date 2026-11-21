@@ -87,18 +87,10 @@ _LEGACY_OPTIONAL_FIELDS: typing.Final[tuple[str, ...]] = (
     "conditions",
     "phases",
 )
-_LEGACY_EPISODE_FIELDS: typing.Final[frozenset[str]] = (
-    _LEGACY_REQUIRED_FIELDS | frozenset(_LEGACY_OPTIONAL_FIELDS)
-)
-_DESCRIPTOR_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
-    {"name", "model", "ns", "frame"}
-)
-_DESCRIPTOR_FIELDS: typing.Final[frozenset[str]] = _DESCRIPTOR_REQUIRED_FIELDS | {
-    "base_frame"
-}
-_PEDESTRIAN_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
-    {"name", "id", "pose", "twist", "animation_state"}
-)
+_LEGACY_EPISODE_FIELDS: typing.Final[frozenset[str]] = _LEGACY_REQUIRED_FIELDS | frozenset(_LEGACY_OPTIONAL_FIELDS)
+_DESCRIPTOR_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset({"name", "model", "ns", "frame"})
+_DESCRIPTOR_FIELDS: typing.Final[frozenset[str]] = _DESCRIPTOR_REQUIRED_FIELDS | {"base_frame"}
+_PEDESTRIAN_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset({"name", "id", "pose", "twist", "animation_state"})
 _PEDESTRIAN_FIELDS: typing.Final[frozenset[str]] = _PEDESTRIAN_REQUIRED_FIELDS | {
     "joint_state",
     "gait_phase",
@@ -199,9 +191,7 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     crowd = "robot_awareness" in agent_text
     unsupported: list[str] = []
     if episode is None:
-        unsupported.append(
-            "no /state/episode topic; the generation is inferred from the present schemas"
-        )
+        unsupported.append("no /state/episode topic; the generation is inferred from the present schemas")
         if agent_meta is not None and not crowd:
             name = LEGACY_2026_11
         elif fleet is not None and fleet.startswith("task_generator_msgs/"):
@@ -222,11 +212,7 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
             unsupported.append(str(error))
             name = UNKNOWN
         else:
-            unsupported.extend(
-                f"EpisodeRecord does not carry {field}; the migrated value is NULL "
-                "(not_recorded)"
-                for field in _legacy_not_recorded(parsed)
-            )
+            unsupported.extend(f"EpisodeRecord does not carry {field}; the migrated value is NULL (not_recorded)" for field in _legacy_not_recorded(parsed))
     if fleet is None:
         unsupported.append("no /state/robots topic; the descriptor must be synthesised")
     elif fleet not in _SUPPORTED_FLEETS:
@@ -234,9 +220,7 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     if agent_meta is None:
         unsupported.append("no /agent_meta topic; the crowd settings are NULL")
     elif not crowd:
-        unsupported.append(
-            "AgentMeta has no robot_* fields; the crowd settings are NULL"
-        )
+        unsupported.append("AgentMeta has no robot_* fields; the crowd settings are NULL")
     return RecordingGeneration(
         name=name,
         episode_schema=episode,
@@ -267,20 +251,14 @@ def _validated_fields(
     """One recorded message's fields, refusing any field the migration does not map and any missing required field."""
     unsupported = sorted(set(fields) - known)
     if unsupported:
-        raise LegacySchemaError(
-            f"the {name} recording declares unsupported {noun} field(s) {unsupported}; "
-            f"the migration maps only the known generation's fields"
-        )
+        raise LegacySchemaError(f"the {name} recording declares unsupported {noun} field(s) {unsupported}; the migration maps only the known generation's fields")
     missing = sorted(required - set(fields))
     if missing:
-        raise LegacySchemaError(
-            f"the {name} recording lacks required {noun} field(s) {missing}; "
-            "the migration cannot map this construction"
-        )
+        raise LegacySchemaError(f"the {name} recording lacks required {noun} field(s) {missing}; the migration cannot map this construction")
     return dict(fields)
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def episode_schema(name: str, definition: str) -> EpisodeSchema:
     """The declared fields of one recorded EpisodeRecord schema; loud on an unsupported construction."""
     if name == NATIVE_EPISODE_SCHEMA:
@@ -288,10 +266,7 @@ def episode_schema(name: str, definition: str) -> EpisodeSchema:
     elif name == LEGACY_EPISODE_SCHEMA:
         known, required = _LEGACY_EPISODE_FIELDS, _LEGACY_REQUIRED_FIELDS
     else:
-        raise LegacySchemaError(
-            f"episode schema {name!r} is not a supported generation; "
-            "the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord"
-        )
+        raise LegacySchemaError(f"episode schema {name!r} is not a supported generation; the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord")
     types = _field_types(definition.split("\n====", 1)[0].splitlines())
     if not types:
         raise LegacySchemaError("the EpisodeRecord schema declares no field")
@@ -310,10 +285,7 @@ def _field_types(lines: Iterable[str]) -> dict[str, str]:
             continue
         match = _EPISODE_FIELD_LINE.fullmatch(stripped)
         if match is None:
-            raise LegacySchemaError(
-                f"cannot parse the message schema line {stripped!r}; "
-                "the migration maps plain fields and constants only"
-            )
+            raise LegacySchemaError(f"cannot parse the message schema line {stripped!r}; the migration maps plain fields and constants only")
         fields[match["name"]] = match["type"]
     return fields
 
@@ -327,13 +299,10 @@ def _dependency_fields(definition: str, message: str) -> dict[str, str]:
         header = lines[0].strip().removeprefix("MSG:").strip()
         if header.rsplit("/", 1)[-1] == message:
             return _field_types(lines[1:])
-    raise LegacySchemaError(
-        f"the recorded schema declares no {message} definition; "
-        "the migration cannot map the fleet descriptor"
-    )
+    raise LegacySchemaError(f"the recorded schema declares no {message} definition; the migration cannot map the fleet descriptor")
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _descriptor_fields(schema_name: str, definition: str) -> frozenset[str]:
     """The RobotDescriptor fields the recording declared, loud on an unsupported identity shape."""
     return frozenset(
@@ -354,19 +323,12 @@ def episode_fields(record: object, schema: Schema) -> EpisodeFields:
         return _episode_fields(record, parsed, legacy=False)
     if parsed.name == LEGACY_EPISODE_SCHEMA:
         return _episode_fields(record, parsed, legacy=True)
-    raise LegacySchemaError(
-        f"episode schema {parsed.name!r} is not a supported generation; "
-        "the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord"
-    )
+    raise LegacySchemaError(f"episode schema {parsed.name!r} is not a supported generation; the migration supports arena_runtime_msgs and task_generator_msgs EpisodeRecord")
 
 
 def _legacy_not_recorded(schema: EpisodeSchema) -> tuple[str, ...]:
     """The native fields one legacy generation never recorded, keyed on that generation's schema."""
-    return tuple(
-        field
-        for field in ("task_layer", *_LEGACY_OPTIONAL_FIELDS)
-        if not schema.carries(field)
-    )
+    return tuple(field for field in ("task_layer", *_LEGACY_OPTIONAL_FIELDS) if not schema.carries(field))
 
 
 def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
@@ -378,9 +340,7 @@ def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
     elif isinstance(fleet, Sequence):
         states = tuple(fleet)
     else:
-        raise LegacySchemaError(
-            f"fleet schema {schema.name!r} carries no RobotState sequence"
-        )
+        raise LegacySchemaError(f"fleet schema {schema.name!r} carries no RobotState sequence")
     fields = _descriptor_fields(schema.name, schema.data.decode("utf-8", "replace"))
     return tuple(
         FleetRobot(
@@ -389,9 +349,7 @@ def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
                 model=str(state.descriptor.model),
                 ns=str(state.descriptor.ns),
                 frame=str(state.descriptor.frame),
-                base_frame=(
-                    str(state.descriptor.base_frame) if "base_frame" in fields else None
-                ),
+                base_frame=(str(state.descriptor.base_frame) if "base_frame" in fields else None),
             ),
             params=tuple(state.params),
         )
@@ -399,7 +357,7 @@ def fleet_robots(fleet: object, schema: Schema) -> tuple[FleetRobot, ...]:
     )
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def pedestrian_schema(name: str, definition: str) -> EpisodeSchema:
     """The Pedestrian fields the recording declared, loud on an unsupported construction."""
     return EpisodeSchema(
@@ -419,18 +377,12 @@ def pedestrian_fields(schema: Schema) -> EpisodeSchema:
     return pedestrian_schema(schema.name, schema.data.decode("utf-8", "replace"))
 
 
-def legacy_modes(
-    *, robots: str | None, obstacles: str | None, modules: Iterable[str] | None
-) -> dict[str, list[str]]:
+def legacy_modes(*, robots: str | None, obstacles: str | None, modules: Iterable[str] | None) -> dict[str, list[str]]:
     """`modes` of a record made before modes: the tm_* fields it carried, an absent field leaves its axis out."""
     from arena_runtime.env.task_layer import TM_AXES
 
     given = dict(zip(TM_AXES, (robots, obstacles, modules), strict=True))
-    return {
-        axis: [name for name in ([value] if isinstance(value, str) else value) if name]
-        for axis, value in given.items()
-        if value is not None
-    }
+    return {axis: [name for name in ([value] if isinstance(value, str) else value) if name] for axis, value in given.items() if value is not None}
 
 
 def legacy_params(
@@ -453,9 +405,7 @@ def legacy_params(
     }
 
 
-def flatten_params(
-    nested: Mapping[str, typing.Any], prefix: str = ""
-) -> dict[str, typing.Any]:
+def flatten_params(nested: Mapping[str, typing.Any], prefix: str = "") -> dict[str, typing.Any]:
     """Dotted leaf names of a nested params mapping."""
     flat: dict[str, typing.Any] = {}
     for key, value in nested.items():
@@ -468,11 +418,7 @@ def flatten_params(
 
 def modes_json(modes: Mapping[str, Sequence[str]]) -> str | None:
     """The recorded `modes_json` payload, None when the generation carried no mode."""
-    return (
-        json.dumps({axis: ",".join(names) for axis, names in modes.items()})
-        if modes
-        else None
-    )
+    return json.dumps({axis: ",".join(names) for axis, names in modes.items()}) if modes else None
 
 
 def params_yaml(params: Mapping[str, typing.Any]) -> str | None:
@@ -484,9 +430,7 @@ def _parameter_values(parameters: Iterable[object]) -> dict[str, object]:
     """The recorded name -> value of one rcl_interfaces Parameter sequence."""
     from arena_evaluation.processing.telemetry.messages import parameter_value
 
-    return {
-        parameter.name: parameter_value(parameter.value) for parameter in parameters
-    }
+    return {parameter.name: parameter_value(parameter.value) for parameter in parameters}
 
 
 def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
@@ -496,18 +440,11 @@ def _integrity_flags(record: object, schema: EpisodeSchema) -> tuple[str, ...]:
     if schema.is_single_bool("integrity"):
         return ("recording_integrity_flag",) if record.integrity else ()
     if schema.types["integrity"] != "string[]":
-        raise LegacySchemaError(
-            f"the {schema.name} recording stores integrity as "
-            f"{schema.types['integrity']!r}; the migration maps bool and string[] only"
-        )
-    return tuple(
-        str(flag) for flag in typing.cast(typing.Iterable[object], record.integrity)
-    )
+        raise LegacySchemaError(f"the {schema.name} recording stores integrity as {schema.types['integrity']!r}; the migration maps bool and string[] only")
+    return tuple(str(flag) for flag in typing.cast(typing.Iterable[object], record.integrity))
 
 
-def _episode_fields(
-    record: object, schema: EpisodeSchema, *, legacy: bool
-) -> EpisodeFields:
+def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> EpisodeFields:
     """The shared native field set, with the generation-specific modes/params/optional fields filled in."""
     robot_names = tuple(str(robot) for robot in record.robots)
     integrity = _integrity_flags(record, schema)
@@ -522,19 +459,13 @@ def _episode_fields(
             flatten_params(_parameter_values(record.robots_params)),
             flatten_params(_parameter_values(record.obstacles_params)),
         )
-        human = (
-            _parameter_values(record.human_params)
-            if schema.carries("human_params")
-            else {}
-        )
+        human = _parameter_values(record.human_params) if schema.carries("human_params") else {}
         task_layer, modes_payload, params_payload = (
             None,
             modes_json(modes),
             params_yaml(params),
         )
-        conditions = (
-            (str(record.conditions) or None) if schema.carries("conditions") else None
-        )
+        conditions = (str(record.conditions) or None) if schema.carries("conditions") else None
         phases = (str(record.phases) or None) if schema.carries("phases") else None
         not_recorded = _legacy_not_recorded(schema)
     else:
@@ -560,8 +491,7 @@ def _episode_fields(
         goal_dist_start=float(record.goal_dist_start),
         goal_dist_min=float(record.goal_dist_min),
         path_length=float(record.path_length),
-        start_t_ns=int(record.start_time.sec) * 1_000_000_000
-        + int(record.start_time.nanosec),
+        start_t_ns=int(record.start_time.sec) * 1_000_000_000 + int(record.start_time.nanosec),
         integrity=integrity,
         params_yaml=params_payload,
         human_params_json=json.dumps(human) if human else None,
@@ -587,9 +517,7 @@ def _topic_schemas(recording: pathlib.Path) -> dict[str, tuple[str, str]]:
         }
     topics: dict[str, tuple[str, str]] = {}
     with recording.open("rb") as handle:
-        for schema, channel, _message in NonSeekingReader(handle).iter_messages(
-            log_time_order=False
-        ):
+        for schema, channel, _message in NonSeekingReader(handle).iter_messages(log_time_order=False):
             if schema is not None and channel.topic not in topics:
                 topics[channel.topic] = (
                     schema.name,

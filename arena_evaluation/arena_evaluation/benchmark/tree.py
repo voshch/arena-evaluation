@@ -43,9 +43,7 @@ class SuiteIdentifier(AssetIdentifier["Suite"]):
         del kwargs
         from .config import Suite
 
-        return Suite.parse(
-            self.name, yaml.safe_load(bundle_config_file(path, "suite").read_text())
-        )
+        return Suite.parse(self.name, yaml.safe_load(bundle_config_file(path, "suite").read_text()))
 
 
 class ContestIdentifier(AssetIdentifier["Contest"]):
@@ -61,9 +59,7 @@ class ContestIdentifier(AssetIdentifier["Contest"]):
         del kwargs
         from .config import Contest
 
-        return Contest.parse(
-            self.name, yaml.safe_load(bundle_config_file(path, "contest").read_text())
-        )
+        return Contest.parse(self.name, yaml.safe_load(bundle_config_file(path, "contest").read_text()))
 
 
 register_config_identifier(SuiteIdentifier)

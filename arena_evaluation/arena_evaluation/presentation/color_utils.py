@@ -44,10 +44,7 @@ def get_color_palette() -> list[str]:
     if _PALETTE_CACHE is None:
         path = find_config_asset("palette")
         if path is None:
-            raise FileNotFoundError(
-                "color_palette.yaml is absent from every config root; the palette is a "
-                "required presentation asset"
-            )
+            raise FileNotFoundError("color_palette.yaml is absent from every config root; the palette is a required presentation asset")
         _PALETTE_CACHE = load_color_palette(path)
     return _PALETTE_CACHE
 
@@ -66,9 +63,7 @@ def set_global_color_palette(palette: list[str] | None = None) -> None:
             assert isinstance(layout, go.Layout)
             layout.colorway = palette
         else:
-            pio.templates["plotly_white"] = go.layout.Template(
-                layout=dict(colorway=palette)
-            )
+            pio.templates["plotly_white"] = go.layout.Template(layout=dict(colorway=palette))
         pio.templates.default = "plotly_white"
     except ImportError:
         pass

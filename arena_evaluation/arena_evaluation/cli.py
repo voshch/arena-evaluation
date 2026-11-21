@@ -32,9 +32,7 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        pkg_data = (
-            pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
-        )
+        pkg_data = pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
         if pkg_data.is_dir():
             search_roots.append(pkg_data)
     except Exception:
@@ -80,11 +78,7 @@ def _validate_config(path: pathlib.Path, kind: str) -> tuple[str, tuple[str, ...
     if not config_path.is_file():
         raise ValueError(f"{path}: no {kind}.yaml")
     data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    name = (
-        config_path.parent.name
-        if config_path.name == f"{kind}.yaml"
-        else config_path.stem
-    )
+    name = config_path.parent.name if config_path.name == f"{kind}.yaml" else config_path.stem
     if kind == "contest":
         return Contest.parse(name, data).name, ()
     if not isinstance(data, dict) or not isinstance(data.get("stages"), list):
@@ -176,18 +170,12 @@ Examples:
         action="append",
         choices=("svg", "pdf", "latex"),
         default=None,
-        help=(
-            "Also export every approved plot as SVG or PDF, and/or the approved "
-            "tables and figures as LaTeX. Repeatable."
-        ),
+        help=("Also export every approved plot as SVG or PDF, and/or the approved tables and figures as LaTeX. Repeatable."),
     )
     run_parent.add_argument(
         "--generate-gifs",
         action="store_true",
-        help=(
-            "Render each trajectory or animation plot's GIF side artefact "
-            "during the report build."
-        ),
+        help=("Render each trajectory or animation plot's GIF side artefact during the report build."),
     )
     run_parent.set_defaults(force_extract=False, force_process=False)
 
@@ -368,9 +356,7 @@ Examples:
         if args.run_dir:
             for run_dir in args.run_dir:
                 fm = FolderManager(data_root=run_dir.parent)
-                pipeline = ProcessingPipeline(
-                    fm, profiler=profiler, workers=args.workers
-                )
+                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
 
                 if args.command == "extract":
                     print(f"Extracting single run: {run_dir}")
@@ -391,9 +377,7 @@ Examples:
         else:
             for benchmark_dir in target_dirs:
                 fm = FolderManager(data_root=benchmark_dir.parent)
-                pipeline = ProcessingPipeline(
-                    fm, profiler=profiler, workers=args.workers
-                )
+                pipeline = ProcessingPipeline(fm, profiler=profiler, workers=args.workers)
 
                 if args.command == "extract":
                     print(f"Extracting benchmark: {benchmark_dir.name}")
@@ -408,9 +392,7 @@ Examples:
                         )
                         is None
                     ):
-                        print(
-                            f"Processing failed for {benchmark_dir} - no Star Schema tables written."
-                        )
+                        print(f"Processing failed for {benchmark_dir} - no Star Schema tables written.")
                         failed.append(benchmark_dir)
 
     if args.command in ("run", "report", "plot"):
@@ -421,13 +403,9 @@ Examples:
         from arena_evaluation.presentation.manifest_registry import resolve_manifest
         from arena_evaluation.presentation.report_builder import ReportBuilder
 
-        manifest_obj = resolve_manifest(
-            args.report_manifest, benchmark_dir=target_dirs[0]
-        )
+        manifest_obj = resolve_manifest(args.report_manifest, benchmark_dir=target_dirs[0])
 
-        print(
-            f"Building report/plots from {len(target_dirs)} sources into: {output_dir}"
-        )
+        print(f"Building report/plots from {len(target_dirs)} sources into: {output_dir}")
         _ctx = profiler.phase("report") if profiler else contextlib.nullcontext()
         with _ctx:
             requested_exports = tuple(args.export or ())
@@ -436,17 +414,12 @@ Examples:
                 output_dir=output_dir,
                 manifest=manifest_obj,
                 generate_gifs=args.generate_gifs,
-                vector_formats=tuple(
-                    name for name in requested_exports if name in ("svg", "pdf")
-                ),
+                vector_formats=tuple(name for name in requested_exports if name in ("svg", "pdf")),
             )
             builder.build()
             if "latex" in requested_exports:
                 latex = builder.export_latex(builder.output_dir / "report.tex")
-                print(
-                    f"Exported {len(latex.tables)} table(s) and "
-                    f"{len(latex.figures)} figure(s) to {latex.path}"
-                )
+                print(f"Exported {len(latex.tables)} table(s) and {len(latex.figures)} figure(s) to {latex.path}")
         print("Report generation complete.")
 
     if profiler is not None:

@@ -58,28 +58,20 @@ def test_the_band_spans_the_tenth_to_ninetieth_percentile_over_the_episodes() ->
     assert aggregated["high"].to_list() == pytest.approx([0.54, 0.86, 1.36])
 
 
-def test_interactive_plot_draws_one_mean_line_and_band_per_colour_not_per_episode() -> (
-    None
-):
+def test_interactive_plot_draws_one_mean_line_and_band_per_colour_not_per_episode() -> None:
     html = TimeseriesRenderer(_spec()).render_plotly(_three_episodes_of_one_planner())
 
     assert html is not None
     assert len(re.findall(r'"mode":\s*"lines"', html)) == 2
 
 
-def test_static_plot_draws_one_mean_line_per_colour(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_static_plot_draws_one_mean_line_per_colour(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     renderer = TimeseriesRenderer(_spec())
     figures: list[matplotlib.figure.Figure] = []
     monkeypatch.setattr(renderer, "save_figure", lambda fig, _path: figures.append(fig))
 
-    renderer.render_static(
-        _three_episodes_of_one_planner(), tmp_path / "timeseries.png"
-    )
+    renderer.render_static(_three_episodes_of_one_planner(), tmp_path / "timeseries.png")
 
     lines = figures[0].axes[0].lines
     assert len(lines) == 1
-    assert [float(value) for value in lines[0].get_ydata()] == pytest.approx(
-        [0.3, 0.7, 1.2]
-    )
+    assert [float(value) for value in lines[0].get_ydata()] == pytest.approx([0.3, 0.7, 1.2])

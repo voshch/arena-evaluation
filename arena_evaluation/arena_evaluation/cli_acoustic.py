@@ -65,10 +65,7 @@ def _load_pedestrian_exposure(benchmark_dir: pathlib.Path) -> pl.DataFrame | Non
         .agg(
             pl.col("ped_max_exposure_dba").max().alias("max_exposure_dba"),
             pl.col("ped_leq_exposure_dba").max().alias("leq_exposure_dba"),
-            pl.when(measured.any())
-            .then(pl.col("ped_max_exposure_dba").sum())
-            .otherwise(None)
-            .alias("total_exposure_dba"),
+            pl.when(measured.any()).then(pl.col("ped_max_exposure_dba").sum()).otherwise(None).alias("total_exposure_dba"),
         )
         .collect()
     )
@@ -99,10 +96,7 @@ def _acoustic_list(df: pl.DataFrame, benchmark_dir: pathlib.Path) -> None:
     """Print one row per episode with its pedestrian exposure and equivalent sound level."""
     exposure = _load_pedestrian_exposure(benchmark_dir)
     if exposure is None:
-        print(
-            "Notice: fact_pedestrians has no pedestrian acoustic exposure columns; "
-            "the exposure columns are left blank."
-        )
+        print("Notice: fact_pedestrians has no pedestrian acoustic exposure columns; the exposure columns are left blank.")
         work = df.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("max_exposure_dba"),
             pl.lit(None, dtype=pl.Float64).alias("leq_exposure_dba"),
@@ -112,10 +106,7 @@ def _acoustic_list(df: pl.DataFrame, benchmark_dir: pathlib.Path) -> None:
         work = df.join(exposure, on="episode_id", how="left")
     work = work.filter(pl.col("l_aeq_t").is_not_null()).sort("l_aeq_t", descending=True)
 
-    print(
-        f"{'EPISODE':<16} {'MAX_DBA':>10} {'LEQ_DBA':>10} {'TOTAL_EXP':>10} "
-        f"{'L_AEQ_T_DBA':>14} {'SUCCESS':>8}"
-    )
+    print(f"{'EPISODE':<16} {'MAX_DBA':>10} {'LEQ_DBA':>10} {'TOTAL_EXP':>10} {'L_AEQ_T_DBA':>14} {'SUCCESS':>8}")
     print("-" * 74)
     for (
         ep_id,
@@ -133,17 +124,10 @@ def _acoustic_list(df: pl.DataFrame, benchmark_dir: pathlib.Path) -> None:
         work["success"].to_numpy(),
         strict=True,
     ):
-        print(
-            f"{'episode_' + format(int(ep_id), '03d'):<16} "
-            f"{_format_level(max_exposure):>10} {_format_level(leq_exposure):>10} "
-            f"{_format_level(total_exposure):>10} {float(level):>14.2f} "
-            f"{str(bool(success)):>8}"
-        )
+        print(f"{'episode_' + format(int(ep_id), '03d'):<16} {_format_level(max_exposure):>10} {_format_level(leq_exposure):>10} {_format_level(total_exposure):>10} {float(level):>14.2f} {str(bool(success)):>8}")
 
 
-def _resolve_episode(
-    df: pl.DataFrame, episode_spec: str, benchmark_dir: pathlib.Path
-) -> str | None:
+def _resolve_episode(df: pl.DataFrame, episode_spec: str, benchmark_dir: pathlib.Path) -> str | None:
     """Resolve an episode specifier ('worst', 'max-total', 'loudest-source', or 'episode_NNN')."""
     match episode_spec:
         case str() if episode_spec.startswith("episode_"):
@@ -183,30 +167,19 @@ def _episode_of_max_exposure(
     """Episode with the largest pedestrian exposure roll-up value in one column."""
     exposure = _load_pedestrian_exposure(benchmark_dir)
     if exposure is None:
-        print(
-            "Error: fact_pedestrians has no pedestrian acoustic exposure columns. "
-            f"Cannot resolve the '{selector}' episode."
-        )
+        print(f"Error: fact_pedestrians has no pedestrian acoustic exposure columns. Cannot resolve the '{selector}' episode.")
         return None
     measured = exposure.filter(pl.col(column).is_not_null())
     if measured.is_empty():
-        print(
-            f"Error: fact_pedestrians has no {metric_label} values. "
-            f"Cannot resolve the '{selector}' episode."
-        )
+        print(f"Error: fact_pedestrians has no {metric_label} values. Cannot resolve the '{selector}' episode.")
         return None
     best = measured.sort(column, descending=True).row(0, named=True)
     episode = int(best["episode_id"])
-    print(
-        f"Using {selector} episode: episode_{episode:03d} "
-        f"({metric_label}={float(best[column]):.2f} dBA)"
-    )
+    print(f"Using {selector} episode: episode_{episode:03d} ({metric_label}={float(best[column]):.2f} dBA)")
     return f"episode_{episode:03d}"
 
 
-def _loudest_source_episode(
-    df: pl.DataFrame, benchmark_dir: pathlib.Path
-) -> str | None:
+def _loudest_source_episode(df: pl.DataFrame, benchmark_dir: pathlib.Path) -> str | None:
     """Episode holding the loudest instantaneous source level from its recorded telemetry."""
     from arena_evaluation.processing.acoustics.episode_series import (
         load_aligned_episode,
@@ -229,9 +202,7 @@ def _loudest_source_episode(
     if best_episode is None:
         print("Error: no recorded acoustic field frame found.")
         return None
-    print(
-        f"Using loudest-source episode: episode_{best_episode:03d} (source={best_source:.1f} dBA)"
-    )
+    print(f"Using loudest-source episode: episode_{best_episode:03d} (source={best_source:.1f} dBA)")
     return f"episode_{best_episode:03d}"
 
 
@@ -251,9 +222,7 @@ def _animation_spec(args: argparse.Namespace) -> PlotSpec:
     }
     if args.vmax is not None:
         options["vmax"] = args.vmax
-    return PlotSpec(
-        id=_ACOUSTIC_SPEC_ID, type="acoustic_field", title="", options=options
-    )
+    return PlotSpec(id=_ACOUSTIC_SPEC_ID, type="acoustic_field", title="", options=options)
 
 
 def _snapshot_spec(args: argparse.Namespace) -> PlotSpec:
@@ -265,9 +234,7 @@ def _snapshot_spec(args: argparse.Namespace) -> PlotSpec:
     }
     if args.vmax is not None:
         options["vmax"] = args.vmax
-    return PlotSpec(
-        id=_ACOUSTIC_SPEC_ID, type="acoustic_field", title="", options=options
-    )
+    return PlotSpec(id=_ACOUSTIC_SPEC_ID, type="acoustic_field", title="", options=options)
 
 
 def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
@@ -283,9 +250,7 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     map_name = _map_for_episode(df, episode_id)
     if not map_name:
-        print(
-            "Error: could not determine the episode's world from the episode summary."
-        )
+        print("Error: could not determine the episode's world from the episode summary.")
         sys.exit(1)
 
     episode_df = load_aligned_episode(args.benchmark_dir, episode_id)
@@ -311,19 +276,12 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
     else:
         plots_dir = args.benchmark_dir / "plots"
         extension = args.format if args.format != "frames" else ""
-        out_path = (
-            plots_dir / f"{episode_id}_acoustic.{extension}"
-            if extension
-            else plots_dir / f"{episode_id}_acoustic_frames"
-        )
+        out_path = plots_dir / f"{episode_id}_acoustic.{extension}" if extension else plots_dir / f"{episode_id}_acoustic_frames"
 
     print(f"Rendering animation for {episode_id} ({len(episode_df)} data frames)...")
     print(f"  fps={args.fps}, max_frames={args.max_frames}, stride={args.stride}")
     print(f"  downsample={args.downsample}, format={args.format}")
-    print(
-        f"  doors: {len(doors)} found"
-        + (f", timeline: {'present' if state_timeline else 'ABSENT'}" if doors else "")
-    )
+    print(f"  doors: {len(doors)} found" + (f", timeline: {'present' if state_timeline else 'ABSENT'}" if doors else ""))
 
     try:
         result_path = renderer.render_animation(
@@ -358,9 +316,7 @@ def _acoustic_animate(df: pl.DataFrame, args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _pedestrian_worst_case_t_ns(
-    benchmark_dir: pathlib.Path, episode_id: str
-) -> int | None:
+def _pedestrian_worst_case_t_ns(benchmark_dir: pathlib.Path, episode_id: str) -> int | None:
     """The worst-exposure pedestrian's own worst acoustic instant, None when not published."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
@@ -369,40 +325,20 @@ def _pedestrian_worst_case_t_ns(
     names = set(table.collect_schema().names())
     if not {"episode_id", *_EXPOSURE_COLUMNS, "worst_case_acoustic_t_ns"} <= names:
         return None
-    rows = (
-        table.filter(
-            (pl.col("episode_id") == _episode_number(episode_id))
-            & pl.col("ped_max_exposure_dba").is_not_null()
-            & pl.col("worst_case_acoustic_t_ns").is_not_null()
-        )
-        .sort("ped_max_exposure_dba", descending=True)
-        .select("worst_case_acoustic_t_ns")
-        .limit(1)
-        .collect()
-    )
+    rows = table.filter((pl.col("episode_id") == _episode_number(episode_id)) & pl.col("ped_max_exposure_dba").is_not_null() & pl.col("worst_case_acoustic_t_ns").is_not_null()).sort("ped_max_exposure_dba", descending=True).select("worst_case_acoustic_t_ns").limit(1).collect()
     if rows.is_empty():
         return None
     return int(rows["worst_case_acoustic_t_ns"][0])
 
 
-def _series_worst_exposure_t_ns(
-    benchmark_dir: pathlib.Path, episode_id: str
-) -> int | None:
+def _series_worst_exposure_t_ns(benchmark_dir: pathlib.Path, episode_id: str) -> int | None:
     """The instant of maximum pedestrian exposure in the recorded exposure series."""
     from arena_evaluation.analytics.catalog import BenchmarkCatalog
 
     catalog = BenchmarkCatalog.open(benchmark_dir)
     if "series_acoustic_exposure" not in catalog.table_names():
         return None
-    rows = (
-        catalog.get_table("series_acoustic_exposure")
-        .filter(pl.col("episode_id") == _episode_number(episode_id))
-        .select(["t_ns", "exposure_dba"])
-        .filter(pl.col("exposure_dba").is_not_null())
-        .sort("exposure_dba", descending=True)
-        .limit(1)
-        .collect()
-    )
+    rows = catalog.get_table("series_acoustic_exposure").filter(pl.col("episode_id") == _episode_number(episode_id)).select(["t_ns", "exposure_dba"]).filter(pl.col("exposure_dba").is_not_null()).sort("exposure_dba", descending=True).limit(1).collect()
     if rows.is_empty():
         return None
     return int(rows["t_ns"][0])
@@ -455,9 +391,7 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     map_name = _map_for_episode(df, episode_id)
     if not map_name:
-        print(
-            "Error: could not determine the episode's world from the episode summary."
-        )
+        print("Error: could not determine the episode's world from the episode summary.")
         sys.exit(1)
 
     episode_df = load_aligned_episode(args.benchmark_dir, episode_id)
@@ -483,21 +417,14 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
         frame_idx = args.frame
         row = rows[frame_idx]
     else:
-        frame_idx, row, reason = _default_snapshot_frame(
-            episode_df, rows, args.benchmark_dir, episode_id
-        )
-        print(
-            f"Using frame {frame_idx} ({reason}). "
-            "Use --frame N to pick a specific frame."
-        )
+        frame_idx, row, reason = _default_snapshot_frame(episode_df, rows, args.benchmark_dir, episode_id)
+        print(f"Using frame {frame_idx} ({reason}). Use --frame N to pick a specific frame.")
 
     rx_m_raw = row.get("x")
     ry_m_raw = row.get("y")
     src_raw = row.get("source_dba")
     if rx_m_raw is None or ry_m_raw is None or src_raw is None:
-        print(
-            f"Error: frame {frame_idx} of {episode_id} is missing pose or source_dba."
-        )
+        print(f"Error: frame {frame_idx} of {episode_id} is missing pose or source_dba.")
         sys.exit(1)
 
     rx_m = float(rx_m_raw)
@@ -507,21 +434,12 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     peds = renderer.parse_pedestrian_positions(row.get("peds_positions"))
 
-    open_set = (
-        state_timeline.open_doors_at(t_ns)
-        if state_timeline is not None
-        else frozenset()
-    )
+    open_set = state_timeline.open_doors_at(t_ns) if state_timeline is not None else frozenset()
 
-    out_path = args.output or (
-        args.benchmark_dir / "plots" / f"{episode_id}_acoustic_snapshot.png"
-    )
+    out_path = args.output or (args.benchmark_dir / "plots" / f"{episode_id}_acoustic_snapshot.png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(
-        f"Rendering snapshot: frame {frame_idx}, t={t_ns / 1e9:.1f}s, "
-        f"source={source_dba:.0f} dBA, {len(open_set)} doors open"
-    )
+    print(f"Rendering snapshot: frame {frame_idx}, t={t_ns / 1e9:.1f}s, source={source_dba:.0f} dBA, {len(open_set)} doors open")
 
     traj_data = (
         renderer.trajectory_data(
@@ -535,11 +453,7 @@ def _acoustic_snapshot(df: pl.DataFrame, args: argparse.Namespace) -> None:
 
     open_doors = frozenset(open_set) if doors else None
     vmin = float(spec.options["vmin"])
-    vmax = (
-        float(spec.options["vmax"])
-        if "vmax" in spec.options
-        else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
-    )
+    vmax = float(spec.options["vmax"]) if "vmax" in spec.options else max(vmin + 20.0, float(np.ceil(source_dba / 5.0) * 5.0))
 
     ok = renderer.render_cell_png(
         CellRenderRequest(
@@ -574,13 +488,9 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         "acoustic",
         help="Acoustic field visualization: list episodes, animate fields, render snapshots.",
     )
-    acoustic_sub = acoustic_parser.add_subparsers(
-        dest="acoustic_command", required=True
-    )
+    acoustic_sub = acoustic_parser.add_subparsers(dest="acoustic_command", required=True)
 
-    acoustic_list = acoustic_sub.add_parser(
-        "list", help="List episodes with acoustic metrics."
-    )
+    acoustic_list = acoustic_sub.add_parser("list", help="List episodes with acoustic metrics.")
     acoustic_list.add_argument(
         "--benchmark-dir",
         type=pathlib.Path,
@@ -589,15 +499,9 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         help="Path to benchmark directory.",
     )
 
-    episode_help = (
-        "Episode ID or selector: 'worst' (max pedestrian exposure), "
-        "'max-total' (largest summed pedestrian exposure), "
-        "'loudest-source' (highest recorded source level) (default: worst)."
-    )
+    episode_help = "Episode ID or selector: 'worst' (max pedestrian exposure), 'max-total' (largest summed pedestrian exposure), 'loudest-source' (highest recorded source level) (default: worst)."
 
-    acoustic_anim = acoustic_sub.add_parser(
-        "animate", help="Generate animated GIF/MP4 of acoustic field."
-    )
+    acoustic_anim = acoustic_sub.add_parser("animate", help="Generate animated GIF/MP4 of acoustic field.")
     acoustic_anim.add_argument(
         "--benchmark-dir",
         type=pathlib.Path,
@@ -612,9 +516,7 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         metavar="EP",
         help=episode_help,
     )
-    acoustic_anim.add_argument(
-        "--fps", type=int, default=10, help="Output frame rate (default: 10)."
-    )
+    acoustic_anim.add_argument("--fps", type=int, default=10, help="Output frame rate (default: 10).")
     acoustic_anim.add_argument(
         "--max-frames",
         type=int,
@@ -640,9 +542,7 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         choices=["gif", "mp4", "frames"],
         help="Output format (default: gif); mp4 requires ffmpeg on PATH.",
     )
-    acoustic_anim.add_argument(
-        "--dpi", type=int, default=150, help="Output resolution (default: 150)."
-    )
+    acoustic_anim.add_argument("--dpi", type=int, default=150, help="Output resolution (default: 150).")
     acoustic_anim.add_argument(
         "--vmin",
         type=float,
@@ -655,9 +555,7 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         default=None,
         help="Color-scale ceiling in dBA (default: auto).",
     )
-    acoustic_anim.add_argument(
-        "--no-door-overlay", action="store_true", help="Hide door contours."
-    )
+    acoustic_anim.add_argument("--no-door-overlay", action="store_true", help="Hide door contours.")
     acoustic_anim.add_argument(
         "--no-trajectories",
         action="store_false",
@@ -678,9 +576,7 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         help="Override output path (default: plots/{episode}_acoustic.{format}).",
     )
 
-    acoustic_snap = acoustic_sub.add_parser(
-        "snapshot", help="Render a single acoustic field frame."
-    )
+    acoustic_snap = acoustic_sub.add_parser("snapshot", help="Render a single acoustic field frame.")
     acoustic_snap.add_argument(
         "--benchmark-dir",
         type=pathlib.Path,
@@ -699,12 +595,7 @@ def add_acoustic_commands(subparsers: argparse._SubParsersAction) -> None:
         "--frame",
         type=int,
         default=None,
-        help=(
-            "Frame index. Default resolution order: (1) the frame nearest the "
-            "max-exposure pedestrian's worst_case_acoustic_t_ns from fact_pedestrians, "
-            "(2) the frame of maximum exposure in series_acoustic_exposure, "
-            "(3) the frame with the highest recorded source level."
-        ),
+        help=("Frame index. Default resolution order: (1) the frame nearest the max-exposure pedestrian's worst_case_acoustic_t_ns from fact_pedestrians, (2) the frame of maximum exposure in series_acoustic_exposure, (3) the frame with the highest recorded source level."),
     )
     acoustic_snap.add_argument(
         "--downsample",

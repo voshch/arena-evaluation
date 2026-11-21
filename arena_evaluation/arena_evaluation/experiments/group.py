@@ -72,15 +72,11 @@ def summarize(routes: pl.DataFrame) -> pl.DataFrame:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     measure = sub.add_parser("measure")
     measure.add_argument("--benchmark-dir", type=pathlib.Path, required=True, nargs="+")
-    measure.add_argument(
-        "--center", type=float, nargs=2, required=True, metavar=("X", "Y")
-    )
+    measure.add_argument("--center", type=float, nargs=2, required=True, metavar=("X", "Y"))
     measure.add_argument("--members", type=int, default=3)
     measure.add_argument("--scale", type=float, default=1.0)
     args = parser.parse_args(argv)
@@ -92,13 +88,9 @@ def main(argv: list[str] | None = None) -> int:
             summary = episode_summary(directory)
         except FileNotFoundError as exc:
             raise SystemExit(str(exc)) from exc
-        frames.append(
-            episode_routes(summary, robot_tracks(directory), tuple(args.center), radius)
-        )
+        frames.append(episode_routes(summary, robot_tracks(directory), tuple(args.center), radius))
     routes = pl.concat(frames)
-    print(
-        f"formation radius {radius:.2f} m about ({args.center[0]}, {args.center[1]})\n"
-    )
+    print(f"formation radius {radius:.2f} m about ({args.center[0]}, {args.center[1]})\n")
     print(routes)
     print()
     print(summarize(routes))

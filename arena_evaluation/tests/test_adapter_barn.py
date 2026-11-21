@@ -110,13 +110,8 @@ def _subprocess(script: str, *args: str, **env: str) -> dict:
 def assets(tmp_path_factory: pytest.TempPathFactory) -> Path:
     _ros_gate()
     root = tmp_path_factory.mktemp("assets")
-    importer = BARN(
-        cache=root / ".import" / "barn", provider=Http(FIXTURE.as_uri()), worlds=1
-    )
-    assert (
-        importer.import_item("barn", root / "_imported")
-        == root / "_imported" / "suites" / "barn"
-    )
+    importer = BARN(cache=root / ".import" / "barn", provider=Http(FIXTURE.as_uri()), worlds=1)
+    assert importer.import_item("barn", root / "_imported") == root / "_imported" / "suites" / "barn"
     return root
 
 
@@ -131,9 +126,7 @@ def suite(out: Path) -> dict:
 
 
 def _files(root: Path) -> list[str]:
-    return sorted(
-        f.relative_to(root).as_posix() for f in root.rglob("*") if f.is_file()
-    )
+    return sorted(f.relative_to(root).as_posix() for f in root.rglob("*") if f.is_file())
 
 
 def test_registry_loads_this_class():
@@ -141,15 +134,10 @@ def test_registry_loads_this_class():
     assert BARN.meta.kind == "suite"
     assert list(BARN(cache=Path("/nonexistent")).items()) == ["barn"]
     assert BARN(cache=Path("/nonexistent")).worlds == 300
-    assert (
-        BARN.default_provider().url("jackal_helper/worlds/BARN/world_0.world")
-        == "https://raw.githubusercontent.com/Daffan/the-barn-challenge/main/jackal_helper/worlds/BARN/world_0.world"
-    )
+    assert BARN.default_provider().url("jackal_helper/worlds/BARN/world_0.world") == "https://raw.githubusercontent.com/Daffan/the-barn-challenge/main/jackal_helper/worlds/BARN/world_0.world"
 
 
-def test_import_fetches_into_the_cache_and_writes_the_bucket_bundle_layout(
-    assets: Path, out: Path
-):
+def test_import_fetches_into_the_cache_and_writes_the_bucket_bundle_layout(assets: Path, out: Path):
     assert _files(assets / ".import" / "barn") == [
         "path_files/path_0.npy",
         "worlds/world_0.world",
@@ -191,18 +179,7 @@ def test_stage_carries_the_native_stage_keys(suite: dict):
 
 
 def test_bundled_scenario_holds_challenge_start_and_goal(out: Path):
-    scenario = yaml.safe_load(
-        (
-            out
-            / "suites"
-            / "barn"
-            / "worlds"
-            / "barn_0"
-            / "scenarios"
-            / "barn"
-            / "scenario.yaml"
-        ).read_text()
-    )
+    scenario = yaml.safe_load((out / "suites" / "barn" / "worlds" / "barn_0" / "scenarios" / "barn" / "scenario.yaml").read_text())
     assert scenario.keys() == {"format", "robots"}
     robot = scenario["robots"][0]
     assert robot["start"][:2] == [2.25, 3.0]
@@ -269,9 +246,7 @@ def test_stages_follow_numeric_index_order(tmp_path: Path):
         "barn_2",
         "barn_10",
     ]
-    assert sorted(
-        world.name for world in (out / "suites" / "barn" / "worlds").iterdir()
-    ) == ["barn_0", "barn_10", "barn_2"]
+    assert sorted(world.name for world in (out / "suites" / "barn" / "worlds").iterdir()) == ["barn_0", "barn_10", "barn_2"]
 
 
 def test_convert_replaces_a_previous_bundle(tmp_path: Path):
@@ -284,9 +259,7 @@ def test_convert_replaces_a_previous_bundle(tmp_path: Path):
     stale.mkdir(parents=True)
     BARN(cache=tmp_path / "cache").convert("barn", src, tmp_path / "barn")
     assert not stale.exists()
-    assert (
-        tmp_path / "barn" / "suites" / "barn" / "worlds" / "barn_0" / "world.yaml"
-    ).is_file()
+    assert (tmp_path / "barn" / "suites" / "barn" / "worlds" / "barn_0" / "world.yaml").is_file()
 
 
 def test_convert_rejects_unknown_item(tmp_path: Path):
@@ -298,9 +271,7 @@ def test_convert_rejects_empty_source(tmp_path: Path):
     _ros_gate()
     (tmp_path / "empty").mkdir()
     with pytest.raises(FileNotFoundError):
-        BARN(cache=tmp_path / "cache").convert(
-            "barn", tmp_path / "empty", tmp_path / "out"
-        )
+        BARN(cache=tmp_path / "cache").convert("barn", tmp_path / "empty", tmp_path / "out")
 
 
 def test_report_manifest_loads_through_the_manifest_identifier(out: Path):
@@ -322,27 +293,16 @@ def test_report_manifest_loads_through_the_manifest_identifier(out: Path):
         "Avg Timeout",
     ]
     assert {plot.type for plot in manifest.plots} == {"table"}
-    assert {plot.layout_group for plot in manifest.plots} == {
-        group.id for group in manifest.groups
-    }
-    per_world = next(
-        plot for plot in manifest.plots if plot.id == "barn_score_per_world"
-    )
+    assert {plot.layout_group for plot in manifest.plots} == {group.id for group in manifest.groups}
+    per_world = next(plot for plot in manifest.plots if plot.id == "barn_score_per_world")
     assert per_world.data.params["group_cols"] == ["planner", "world"]
     native = {"success", "collision_amount", "time_to_goal"}
-    columns = {column.metric for column in manifest.summary} | {
-        metric for plot in manifest.plots for metric in plot.data.params["metrics"]
-    }
+    columns = {column.metric for column in manifest.summary} | {metric for plot in manifest.plots for metric in plot.data.params["metrics"]}
     assert columns - native == set(BARNScoreCalculator.output_keys())
-    assert (
-        yaml.safe_load((out / "reports" / "barn" / "report.yaml").read_text())
-        == barn.MANIFEST
-    )
+    assert yaml.safe_load((out / "reports" / "barn" / "report.yaml").read_text()) == barn.MANIFEST
 
 
-def test_report_renders_the_score_per_contestant_and_per_world(
-    assets: Path, out: Path, tmp_path: Path
-):
+def test_report_renders_the_score_per_contestant_and_per_world(assets: Path, out: Path, tmp_path: Path):
     import polars as pl
 
     run = tmp_path / "20261007-000000-barn-barn"
@@ -377,10 +337,7 @@ def test_report_renders_the_score_per_contestant_and_per_world(
 
     content = (run / "reports" / "barn" / "report.html").read_text()
     assert "BARN Challenge Report" in content
-    rows = [
-        re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)
-        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)
-    ]
+    rows = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)]
     assert [
         "planner",
         "Avg Metric",
@@ -438,9 +395,7 @@ def test_written_suite_and_contest_parse(out: Path):
 
     from arena_evaluation.benchmark.config import Contest, Suite
 
-    suite = Suite.parse(
-        "barn", yaml.safe_load((out / "suites" / "barn" / "suite.yaml").read_text())
-    )
+    suite = Suite.parse("barn", yaml.safe_load((out / "suites" / "barn" / "suite.yaml").read_text()))
     assert len(suite.stages) == 1
     stage = suite.stages[0]
     assert stage.map == "barn_0"
@@ -451,9 +406,7 @@ def test_written_suite_and_contest_parse(out: Path):
     assert suite.launch_args == {}
     assert suite.references is False
 
-    contest = Contest.parse(
-        "barn", yaml.safe_load((out / "contests" / "barn" / "contest.yaml").read_text())
-    )
+    contest = Contest.parse("barn", yaml.safe_load((out / "contests" / "barn" / "contest.yaml").read_text()))
     assert [c.name for c in contest.contestants] == ["dwb"]
     assert contest.contestants[0].args["mobile"]["driver"] == "nav2"
 
@@ -462,18 +415,7 @@ def test_scenario_parses_as_robot_goal(out: Path):
     from arena_simulation_setup.shared.task import GoToPhase
     from arena_simulation_setup.tree.World.Scenario import RobotGoal
 
-    scenario = yaml.safe_load(
-        (
-            out
-            / "suites"
-            / "barn"
-            / "worlds"
-            / "barn_0"
-            / "scenarios"
-            / "barn"
-            / "scenario.yaml"
-        ).read_text()
-    )
+    scenario = yaml.safe_load((out / "suites" / "barn" / "worlds" / "barn_0" / "scenarios" / "barn" / "scenario.yaml").read_text())
     goal = RobotGoal.parse(scenario["robots"][0])
     phases = goal.phase_list()
     assert isinstance(phases[0], GoToPhase)
@@ -489,7 +431,5 @@ def test_fetch_downloads_one_world_and_its_path(tmp_path: Path):
     assert _files(src) == ["path_files/path_0.npy", "worlds/world_0.world"]
     path = np.load(src / "path_files" / "path_0.npy")
     assert path.shape[1] == 2
-    assert (src / "worlds" / "world_0.world").read_bytes() == (
-        UPSTREAM / "world_0.world"
-    ).read_bytes()
+    assert (src / "worlds" / "world_0.world").read_bytes() == (UPSTREAM / "world_0.world").read_bytes()
     assert src == importer.fetch("barn")

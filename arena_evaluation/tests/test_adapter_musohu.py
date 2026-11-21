@@ -70,13 +70,9 @@ def extract(run: Path) -> dict:
 
     folders = FolderManager(run.parent)
     (episode,) = folders.discover_episodes(run.name)
-    ((robot, bundle),) = (
-        ProcessingPipeline(folders, workers=1).extract_episode(episode).items()
-    )
+    ((robot, bundle),) = ProcessingPipeline(folders, workers=1).extract_episode(episode).items()
     assert robot == "env_0_human"
-    return {
-        name: getattr(bundle, name).collect() for name in sorted(bundle.available())
-    }
+    return {name: getattr(bundle, name).collect() for name in sorted(bundle.available())}
 
 
 def decoded(run: Path) -> dict[str, list]:
@@ -85,9 +81,7 @@ def decoded(run: Path) -> dict[str, list]:
 
     messages: dict[str, list] = {}
     with open(run / MCAP, "rb") as f:
-        for _, channel, message, msg in make_reader(
-            f, decoder_factories=[DecoderFactory()]
-        ).iter_decoded_messages():
+        for _, channel, message, msg in make_reader(f, decoder_factories=[DecoderFactory()]).iter_decoded_messages():
             messages.setdefault(channel.topic, []).append((message.log_time, msg))
     return messages
 
@@ -100,9 +94,7 @@ def test_registry_resolves_musohu():
 
 def test_convert_writes_recorder_layout(converted: Path):
     assert converted.name == "run"
-    assert sorted(
-        p.relative_to(converted).as_posix() for p in converted.rglob("*") if p.is_file()
-    ) == [MCAP, META]
+    assert sorted(p.relative_to(converted).as_posix() for p in converted.rglob("*") if p.is_file()) == [MCAP, META]
 
 
 def test_topic_rows_keep_their_own_clock(converted: Path):
@@ -128,19 +120,13 @@ def test_topic_rows_keep_their_own_clock(converted: Path):
     ]
     row = odom.row(7, named=True)
     assert (row["pos_x"], row["pos_y"], row["yaw"]) == pytest.approx(pose(7))
-    assert (row["speed_mps"], row["omega_z"]) == pytest.approx(
-        (velocity(7)[0], velocity(7)[2])
-    )
+    assert (row["speed_mps"], row["omega_z"]) == pytest.approx((velocity(7)[0], velocity(7)[2]))
     command = topics["cmd_vel"]
-    assert (command["linear_x"][5], command["angular_z"][5]) == pytest.approx(
-        cmd_vel(5)
-    )
+    assert (command["linear_x"][5], command["angular_z"][5]) == pytest.approx(cmd_vel(5))
     assert odom["stamp_ns"].to_list() == [i * STEP_NS for i in range(COUNT)]
     assert odom["time_ns"].to_list() == odom["stamp_ns"].to_list()
     assert scan["time_ns"].to_list() == odom["time_ns"].to_list()
-    assert command["time_ns"].to_list() == [
-        i * STEP_NS + STAMP_LAG_NS + CMD_OFFSET_NS for i in range(COUNT)
-    ]
+    assert command["time_ns"].to_list() == [i * STEP_NS + STAMP_LAG_NS + CMD_OFFSET_NS for i in range(COUNT)]
 
 
 def test_messages_carry_robot_frames_and_the_paired_twist(converted: Path):
@@ -231,9 +217,7 @@ def test_other_bag_topics_pass_through_in_robot_frames(tmp_path: Path):
         mount.transform.translation.z,
     ) == ("env_0/human/base_link", "env_0/human/velodyne", 0.5)
     _, trail = messages[f"{ROBOT_NS}{PATH}"][3]
-    assert [(pose_.header.frame_id, _stamp(pose_.header)) for pose_ in trail.poses] == [
-        ("env_0/human/odom", j * STEP_NS) for j in range(4)
-    ]
+    assert [(pose_.header.frame_id, _stamp(pose_.header)) for pose_ in trail.poses] == [("env_0/human/odom", j * STEP_NS) for j in range(4)]
     _, camera = messages[f"{ROBOT_NS}{CAMERA}"][3]
     assert (
         camera.header.frame_id,
@@ -259,11 +243,7 @@ def test_other_bag_topics_pass_through_in_robot_frames(tmp_path: Path):
     }
     assert counts[f"{ROBOT_NS}{POINTS}"] == ("sensor_msgs/msg/PointCloud2", COUNT)
     assert counts["tf_static"] == ("tf2_msgs/msg/TFMessage", 1)
-    assert (
-        meta["rosbag2_message_count"]
-        == sum(len(listed) for listed in messages.values())
-        == 3 * COUNT + 5 * COUNT + 1
-    )
+    assert meta["rosbag2_message_count"] == sum(len(listed) for listed in messages.values()) == 3 * COUNT + 5 * COUNT + 1
     assert {"cmd_vel", "odom", "scan"} <= set(extract(run))
 
 
@@ -277,10 +257,7 @@ def test_passed_through_messages_are_written_in_time_order(tmp_path: Path):
         cmd_vel=CMD_VEL,
     )
     with open(run / MCAP, "rb") as f:
-        times = [
-            message.log_time
-            for _, _, message in make_reader(f).iter_messages(log_time_order=False)
-        ]
+        times = [message.log_time for _, _, message in make_reader(f).iter_messages(log_time_order=False)]
     assert times == sorted(times)
     assert len(times) == 8 * COUNT + 1
 
@@ -325,10 +302,7 @@ def test_metadata_agrees_with_recording(converted: Path):
         f"{ROBOT_NS}/odom": ("nav_msgs/msg/Odometry", COUNT),
         f"{ROBOT_NS}/scan": ("sensor_msgs/msg/LaserScan", COUNT),
     }
-    assert (
-        sum(frame.height for frame in extract(converted).values())
-        == meta["rosbag2_message_count"]
-    )
+    assert sum(frame.height for frame in extract(converted).values()) == meta["rosbag2_message_count"]
 
 
 def test_metadata_reads_as_run_metadata(converted: Path):
@@ -367,9 +341,7 @@ def test_evaluation_pipeline_scores_the_episode(converted: Path):
     assert (row["is_reference"], row["reference_type"]) == (True, "human_demonstration")
     assert row["path_length"] == pytest.approx(0.1 * (COUNT - 1))
     assert row["time_to_goal"] == pytest.approx(0.1 * (COUNT - 1))
-    assert row["velocity_mean"] == pytest.approx(
-        np.mean([velocity(i)[0] for i in range(COUNT)])
-    )
+    assert row["velocity_mean"] == pytest.approx(np.mean([velocity(i)[0] for i in range(COUNT)]))
     assert row["start"] == pytest.approx(pose(0))
     assert row["goal"] == pytest.approx(pose(COUNT - 1))
     assert row["num_pedestrians"] == 0
@@ -392,20 +364,14 @@ def test_stray_cmd_vel_adds_no_frame(tmp_path: Path):
 def test_without_cmd_vel_the_velocity_stays_in_odom(tmp_path: Path, bag: Path):
     topics = extract(convert(bag, tmp_path / "musohu"))
     assert sorted(topics) == ["odom", "scan"]
-    np.testing.assert_allclose(
-        topics["odom"]["speed_mps"].to_numpy(), [velocity(i)[0] for i in range(COUNT)]
-    )
+    np.testing.assert_allclose(topics["odom"]["speed_mps"].to_numpy(), [velocity(i)[0] for i in range(COUNT)])
     assert topics["scan"]["time_ns"].to_list() == [i * STEP_NS for i in range(COUNT)]
 
 
 def test_odom_without_velocity_partner_is_dropped(tmp_path: Path):
     pytest.importorskip("rosbags")
-    odom = extract(
-        convert(write_bag(tmp_path / "gaps.bag", unpaired=(7, 8)), tmp_path / "musohu")
-    )["odom"]
-    assert odom["stamp_ns"].to_list() == [
-        i * STEP_NS for i in range(COUNT) if i not in (7, 8)
-    ]
+    odom = extract(convert(write_bag(tmp_path / "gaps.bag", unpaired=(7, 8)), tmp_path / "musohu"))["odom"]
+    assert odom["stamp_ns"].to_list() == [i * STEP_NS for i in range(COUNT) if i not in (7, 8)]
     np.testing.assert_allclose(odom["omega_z"].to_numpy(), velocity(0)[2])
 
 
@@ -418,15 +384,11 @@ def test_velocity_none_keeps_the_odom_twist(tmp_path: Path):
             velocity=None,
         )
     )["odom"]
-    np.testing.assert_allclose(
-        odom["speed_mps"].to_numpy(), [velocity(i)[0] for i in range(COUNT)]
-    )
+    np.testing.assert_allclose(odom["speed_mps"].to_numpy(), [velocity(i)[0] for i in range(COUNT)])
 
 
 def test_default_topics_name_the_live_bag_layout():
-    assert Topics() == Topics(
-        scan="/scan", odom="/zed2/zed_node/odom", velocity="/action", cmd_vel=None
-    )
+    assert Topics() == Topics(scan="/scan", odom="/zed2/zed_node/odom", velocity="/action", cmd_vel=None)
     assert (SCAN, ODOM, VELOCITY) == attrs.astuple(Topics())[:3]
 
 
@@ -465,11 +427,7 @@ def test_topic_whose_ros2_type_has_fields_the_ros1_message_lacks_is_left_out_who
     pytest.importorskip("rosbag2_py")
     from visualization_msgs.msg import Marker
 
-    lacking = [
-        name
-        for name in Marker.get_fields_and_field_types()
-        if name in ("texture_resource", "texture", "uv_coordinates", "mesh_file")
-    ]
+    lacking = [name for name in Marker.get_fields_and_field_types() if name in ("texture_resource", "texture", "uv_coordinates", "mesh_file")]
     if not lacking:
         pytest.skip("this ROS 2 Marker has no field the ROS 1 Marker lacks")
     bag = write_bag(tmp_path / "run.bag", cmd=True, markers=True)
@@ -506,9 +464,7 @@ def test_unknown_item_is_refused_before_any_path_is_built(tmp_path: Path, bag: P
             match=r"no bag '.*run1' in the MuSoHu dataset, list the items with: import episode musohu",
         ):
             importer.import_item(item, out)
-        with pytest.raises(
-            KeyError, match="list the items with: import episode musohu"
-        ):
+        with pytest.raises(KeyError, match="list the items with: import episode musohu"):
             importer.convert(item, victim.with_suffix(".bag"), out)
     assert (victim / "keep.txt").read_text() == "keep"
     assert victim.with_suffix(".bag").read_bytes() == bag.read_bytes()
@@ -522,10 +478,7 @@ def test_live_listing_names_bags_and_license(tmp_path: Path):
     assert len(items) >= 287
     assert LIVE_ITEM in items
     assert importer.files()[LIVE_ITEM]["id"] == LIVE_FILE_ID
-    assert (
-        importer.listing()["license"]["rightsIdentifier"]
-        == importer.attribution(LIVE_ITEM).license
-    )
+    assert importer.listing()["license"]["rightsIdentifier"] == importer.attribution(LIVE_ITEM).license
     assert (tmp_path / "cache" / "dataset.json").stat().st_size < 1_000_000
 
 
@@ -541,9 +494,7 @@ def test_live_probe_refuses_a_bag_without_action(tmp_path: Path):
         importer.fetch(LIVE_REFUSED)
     probe = json.loads((cache / f"{LIVE_REFUSED}.topics.json").read_text())
     assert probe["bytes"] < 200_000 < entry["filesize"]
-    assert sorted(p.name for p in cache.iterdir()) == sorted(
-        ["dataset.json", f"{LIVE_REFUSED}.topics.json"]
-    )
+    assert sorted(p.name for p in cache.iterdir()) == sorted(["dataset.json", f"{LIVE_REFUSED}.topics.json"])
 
 
 class RangeServer(http.server.ThreadingHTTPServer):
@@ -564,9 +515,7 @@ class RangeHandler(http.server.BaseHTTPRequestHandler):
             first, last = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", ranged).groups())
             body = data[first : last + 1]
             self.send_response(206)
-            self.send_header(
-                "Content-Range", f"bytes {first}-{first + len(body) - 1}/{len(data)}"
-            )
+            self.send_header("Content-Range", f"bytes {first}-{first + len(body) - 1}/{len(data)}")
         else:
             body = data
             self.send_response(200)
@@ -596,9 +545,7 @@ def host(tmp_path: Path):
     thread.join()
 
 
-def hosted(
-    host: RangeServer, cache: Path, item: str, **bag: object
-) -> tuple[MuSoHu, Path]:
+def hosted(host: RangeServer, cache: Path, item: str, **bag: object) -> tuple[MuSoHu, Path]:
     source = write_bag(host.root / "41", **bag)
     cache.mkdir()
     listing = {
@@ -617,9 +564,7 @@ def hosted(
         }
     }
     (cache / "dataset.json").write_text(json.dumps(listing))
-    return MuSoHu(
-        cache=cache, provider=Http(f"http://127.0.0.1:{host.server_address[1]}")
-    ), source
+    return MuSoHu(cache=cache, provider=Http(f"http://127.0.0.1:{host.server_address[1]}")), source
 
 
 def test_probe_refuses_a_bag_without_velocity_before_its_body(tmp_path: Path, host):
@@ -708,9 +653,7 @@ def _served_listing(host: RangeServer, cache: Path) -> MuSoHu:
     return MuSoHu(cache=cache, provider=Http(base), dataset_api=f"{base}/dataset.json")
 
 
-def test_listing_fetches_again_over_a_truncated_cache_and_replaces_it_whole(
-    tmp_path: Path, host
-):
+def test_listing_fetches_again_over_a_truncated_cache_and_replaces_it_whole(tmp_path: Path, host):
     record = json.dumps(_record("run"))
     (host.root / "dataset.json").write_text(record)
     cache = tmp_path / "cache"

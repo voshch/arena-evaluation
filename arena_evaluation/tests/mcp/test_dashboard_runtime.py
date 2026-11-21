@@ -65,9 +65,7 @@ def _ros_envs() -> Iterator[dict[str, str]]:
         }
 
 
-def _wait_for_line(
-    proc: subprocess.Popen[str], expected: str, timeout: float = 20.0
-) -> None:
+def _wait_for_line(proc: subprocess.Popen[str], expected: str, timeout: float = 20.0) -> None:
     """Read the child's stdout until a line equals `expected`, failing with every line seen when the deadline passes."""
     assert proc.stdout is not None
     fd = proc.stdout.fileno()
@@ -84,9 +82,7 @@ def _wait_for_line(
         seen += [line.decode(errors="replace") for line in lines]
         if expected in seen:
             return
-    pytest.fail(
-        f"no {expected!r} line from the child within {timeout:.0f}s, it printed: {seen!r} then {pending!r}"
-    )
+    pytest.fail(f"no {expected!r} line from the child within {timeout:.0f}s, it printed: {seen!r} then {pending!r}")
 
 
 def _free_port() -> int:
@@ -98,9 +94,7 @@ def _free_port() -> int:
 BLOCK_VIEW_TOOLS = "import sys; sys.modules['rerun_utils.mcp'] = None; from arena_evaluation.benchmark.cli import main; raise SystemExit(main(sys.argv[1:]))"
 
 
-def _serve(
-    tmp_path: pathlib.Path, launcher: list[str]
-) -> Iterator[tuple[str, dict[str, str]]]:
+def _serve(tmp_path: pathlib.Path, launcher: list[str]) -> Iterator[tuple[str, dict[str, str]]]:
     for env in _ros_envs():
         port = _free_port()
         proc = subprocess.Popen(
@@ -120,9 +114,7 @@ def _serve(
         )
         try:
             _wait_for_line(proc, f"viz: http://127.0.0.1:{port}/runtime")
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/api/runtime", timeout=60
-            ) as response:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runtime", timeout=60) as response:
                 busy = json.loads(response.read())["running"]
             if not busy:
                 yield f"http://127.0.0.1:{port}", env
@@ -147,9 +139,7 @@ def dashboard_without_view_tools(
     yield from _serve(tmp_path, ["-c", BLOCK_VIEW_TOOLS])
 
 
-def _call(
-    url: str, body: object | None = None, header: bool = True
-) -> tuple[int, dict]:
+def _call(url: str, body: object | None = None, header: bool = True) -> tuple[int, dict]:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
         url,
@@ -177,35 +167,23 @@ def test_runtime_page_reports_no_runtime_and_refuses_controls(
     hold_status, hold = _call(f"{base}/api/runtime/hold", {})
     forged_status, forged = _call(f"{base}/api/runtime/hold", {}, header=False)
     count_status, count = _call(f"{base}/api/runtime/spawn", {"count": 99})
-    args_status, args = _call(
-        f"{base}/api/runtime/spawn", {"launch_args": {"robot": 3}}
-    )
+    args_status, args = _call(f"{base}/api/runtime/spawn", {"launch_args": {"robot": 3}})
     unknown_status, unknown = _call(f"{base}/api/runtime/explode", {})
     misrouted_status, misrouted = _call(f"{base}/api/runtime/envs/1/hold", {})
     env_status, env_error = _call(f"{base}/api/runtime/envs/x/reset", {})
 
     assert status == 200 and identity["runtime"] is True
-    assert (
-        snapshot_status == 200
-        and snapshot["running"] is False
-        and snapshot["domain"] == env["ROS_DOMAIN_ID"]
-        and snapshot["envs"] == []
-    )
+    assert snapshot_status == 200 and snapshot["running"] is False and snapshot["domain"] == env["ROS_DOMAIN_ID"] and snapshot["envs"] == []
     assert hold_status == 409 and "not available" in hold["error"]
     assert forged_status == 403 and "X-Arena-Dashboard" in forged["error"]
-    assert (
-        count_status == 400
-        and "count must be an integer from 1 to 16" in count["error"]
-    )
+    assert count_status == 400 and "count must be an integer from 1 to 16" in count["error"]
     assert args_status == 400 and "launch_args" in args["error"]
     assert unknown_status == 404 and "spawn" in unknown["hint"]
     assert misrouted_status == 404 and misrouted["error"] == "hold is a runtime action"
     assert env_status == 404 and "is not a number" in env_error["error"]
 
 
-def test_options_seed_and_benchmark_starts_are_checked(
-    dashboard: tuple[str, dict[str, str]], tmp_path: pathlib.Path
-):
+def test_options_seed_and_benchmark_starts_are_checked(dashboard: tuple[str, dict[str, str]], tmp_path: pathlib.Path):
     base, _ = dashboard
     (tmp_path / "taken").mkdir()
     status, options = _call(f"{base}/api/runtime/options")
@@ -215,16 +193,12 @@ def test_options_seed_and_benchmark_starts_are_checked(
         f"{base}/api/runs",
         {"suite": "basic", "contest": "basic", "run_id": "../escape"},
     )
-    taken = _call(
-        f"{base}/api/runs", {"suite": "basic", "contest": "basic", "run_id": "taken"}
-    )
+    taken = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic", "run_id": "taken"})
     bad_args = _call(
         f"{base}/api/runs",
         {"suite": "basic", "contest": "basic", "args": "sim:=flatsim oops"},
     )
-    forged = _call(
-        f"{base}/api/runs", {"suite": "basic", "contest": "basic"}, header=False
-    )
+    forged = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic"}, header=False)
 
     assert status == 200 and {
         "robots",
@@ -236,18 +210,9 @@ def test_options_seed_and_benchmark_starts_are_checked(
         "suites",
         "contests",
     } <= set(options)
-    assert {"robot", "world", "robot.planner", "task.robots"} <= {
-        arg["name"] for arg in options["launch_args"]
-    }
-    assert (
-        options["sims"][-1] == "dummy"
-        and "basic" in options["suites"]
-        and "basic" in options["contests"]
-    )
-    assert (
-        set(options["task_modes"]) <= {"robots", "obstacles", "modules"}
-        and options["task_modes"]
-    )
+    assert {"robot", "world", "robot.planner", "task.robots"} <= {arg["name"] for arg in options["launch_args"]}
+    assert options["sims"][-1] == "dummy" and "basic" in options["suites"] and "basic" in options["contests"]
+    assert set(options["task_modes"]) <= {"robots", "obstacles", "modules"} and options["task_modes"]
     for axis in options["task_modes"].values():
         assert isinstance(axis["multi"], bool) and axis["modes"]
         for mode in axis["modes"].values():
@@ -264,17 +229,10 @@ def test_options_seed_and_benchmark_starts_are_checked(
                     "read_only",
                 } <= set(param)
                 assert param["label"]
-    assert all(
-        "pair" not in param or param["pair"] in ("int_pair", "float_pair")
-        for axis in options["task_modes"].values()
-        for mode in axis["modes"].values()
-        for param in mode["params"]
-    )
+    assert all("pair" not in param or param["pair"] in ("int_pair", "float_pair") for axis in options["task_modes"].values() for mode in axis["modes"].values() for param in mode["params"])
     assert "docs" not in options
     assert {"worlds", "scenarios", "robots"} <= set(options["catalogs"])
-    assert (
-        seed[0] == 400 and "seed: Input should be a valid integer" in seed[1]["error"]
-    )
+    assert seed[0] == 400 and "seed: Input should be a valid integer" in seed[1]["error"]
     assert no_suite[0] == 400 and "suite must be a suite name" in no_suite[1]["error"]
     assert bad_id[0] == 400 and "run ids are" in bad_id[1]["error"]
     assert taken[0] == 409 and "run taken already exists" in taken[1]["error"]
@@ -303,11 +261,7 @@ def test_a_benchmark_runner_locks_the_controls(dashboard: tuple[str, dict[str, s
             status, out = _call(f"{base}/api/runtime/release", {})
     finally:
         runner.communicate("", timeout=30)
-    assert (
-        status == 409
-        and out["error"]
-        == "benchmark run r-owner owns this runtime, the dashboard only watches it"
-    )
+    assert status == 409 and out["error"] == "benchmark run r-owner owns this runtime, the dashboard only watches it"
 
 
 def test_catalog_answers_every_kind_offline_from_the_asset_tree(
@@ -321,23 +275,13 @@ def test_catalog_answers_every_kind_offline_from_the_asset_tree(
     no_world = _call(f"{base}/api/runtime/catalog?kind=scenarios")
     environments = _call(f"{base}/api/runtime/catalog?kind=environments")
     scenarios = _call(f"{base}/api/runtime/catalog?kind=scenarios&world=map_empty")
-    missing_world = _call(
-        f"{base}/api/runtime/catalog?kind=scenarios&world=no_such_world_at_all"
-    )
+    missing_world = _call(f"{base}/api/runtime/catalog?kind=scenarios&world=no_such_world_at_all")
     unknown = _call(f"{base}/api/runtime/catalog?kind=nothing")
 
-    assert (
-        worlds_status == 200
-        and worlds["kind"] == "worlds"
-        and worlds["items"] == options["worlds"]
-    )
+    assert worlds_status == 200 and worlds["kind"] == "worlds" and worlds["items"] == options["worlds"]
     assert robots_status == 200 and robots["items"] == options["robots"]
     assert no_world[0] == 400 and "world" in no_world[1]["error"]
-    assert (
-        environments[0] == 200
-        and environments[1]["kind"] == "environments"
-        and isinstance(environments[1]["items"], list)
-    )
+    assert environments[0] == 200 and environments[1]["kind"] == "environments" and isinstance(environments[1]["items"], list)
     assert scenarios[0] == 200 and "preflight" in scenarios[1]["items"]
     assert missing_world[0] == 404
     assert unknown[0] == 400 and "kinds:" in unknown[1]["hint"]
@@ -384,9 +328,7 @@ def test_snapshot_reports_its_age_and_the_answer_time(
     assert second["now"] - second["age_s"] > taken
 
 
-def test_stopping_an_unknown_run_is_404_and_a_forged_stop_is_403(
-    dashboard: tuple[str, dict[str, str]], tmp_path: pathlib.Path
-):
+def test_stopping_an_unknown_run_is_404_and_a_forged_stop_is_403(dashboard: tuple[str, dict[str, str]], tmp_path: pathlib.Path):
     base, _ = dashboard
 
     unknown = _call(f"{base}/api/runs/nothing/stop", {})
@@ -440,35 +382,13 @@ def test_actions_describe_each_tool_with_the_bounds_of_its_own_signature(
     reset = {param["name"]: param for param in actions["reset"]["params"]}
 
     assert list(actions)[:3] == ["spawn", "despawn", "despawn_all"]
-    assert (
-        actions["step"]["tool"] == "runtime_step"
-        and actions["step"]["scope"] == "runtime"
-        and actions["step"]["doc"]
-    )
-    assert (
-        actions["reset"]["scope"] == "env"
-        and actions["despawn_all"]["scope"] == "runtime"
-    )
-    assert (
-        step["seconds"]["exclusiveMinimum"] == 0
-        and step["seconds"]["type"] == "number"
-        and "timeout_s" not in step
-    )
-    assert (
-        lockstep["rtf"]["minimum"] == 0
-        and lockstep["gated"]["type"] == "boolean"
-        and lockstep["gated"]["default"] is True
-    )
-    assert (
-        reset["seed"]["minimum"] == -1
-        and reset["seed"]["maximum"] == 2**31 - 1
-        and reset["seed"]["default"] == -1
-    )
+    assert actions["step"]["tool"] == "runtime_step" and actions["step"]["scope"] == "runtime" and actions["step"]["doc"]
+    assert actions["reset"]["scope"] == "env" and actions["despawn_all"]["scope"] == "runtime"
+    assert step["seconds"]["exclusiveMinimum"] == 0 and step["seconds"]["type"] == "number" and "timeout_s" not in step
+    assert lockstep["rtf"]["minimum"] == 0 and lockstep["gated"]["type"] == "boolean" and lockstep["gated"]["default"] is True
+    assert reset["seed"]["minimum"] == -1 and reset["seed"]["maximum"] == 2**31 - 1 and reset["seed"]["default"] == -1
     assert set(reset) == {"world", "seed"} and reset["world"]["type"] == "string"
-    assert (
-        actions["stop_run"]["params"]
-        and actions["stop_run"]["params"][0]["name"] == "grace_s"
-    )
+    assert actions["stop_run"]["params"] and actions["stop_run"]["params"][0]["name"] == "grace_s"
     assert actions["start_run"]["params"] == [] and actions["hold"]["params"] == []
     assert all(entry["doc"] for entry in actions.values())
 
@@ -484,19 +404,11 @@ def test_request_bodies_are_checked_against_the_tools_own_bounds(
     gated = _call(f"{base}/api/runtime/lockstep_start", {"gated": "yes"})
     seed = _call(f"{base}/api/runtime/envs/0/reset", {"seed": 2**31})
 
-    assert (
-        step[0] == 400 and step[1]["error"] == "seconds: Input should be greater than 0"
-    )
+    assert step[0] == 400 and step[1]["error"] == "seconds: Input should be greater than 0"
     assert missing[0] == 400 and "seconds: Field required" in missing[1]["error"]
-    assert (
-        rtf[0] == 400
-        and rtf[1]["error"] == "rtf: Input should be greater than or equal to 0"
-    )
+    assert rtf[0] == 400 and rtf[1]["error"] == "rtf: Input should be greater than or equal to 0"
     assert gated[0] == 400 and gated[1]["error"].startswith("gated:")
-    assert (
-        seed[0] == 400
-        and "seed: Input should be less than or equal to 2147483647" in seed[1]["error"]
-    )
+    assert seed[0] == 400 and "seed: Input should be less than or equal to 2147483647" in seed[1]["error"]
 
 
 def test_options_name_the_spawn_fields_with_their_catalogs_and_the_layers_multi_axes(
@@ -508,19 +420,10 @@ def test_options_name_the_spawn_fields_with_their_catalogs_and_the_layers_multi_
     fields = {field["name"]: field for field in options["spawn_fields"]}
 
     assert list(fields) == ["robot", "world", "robot.planner"]
-    assert (
-        fields["robot"]["catalog"] == "robots"
-        and fields["world"]["catalog"] == "worlds"
-    )
-    assert (
-        fields["robot.planner"]["catalog"] is None
-        and fields["robot.planner"]["items"] == options["planners"]
-    )
+    assert fields["robot"]["catalog"] == "robots" and fields["world"]["catalog"] == "worlds"
+    assert fields["robot.planner"]["catalog"] is None and fields["robot.planner"]["items"] == options["planners"]
     assert fields["robot"]["description"]
-    assert (
-        options["task_modes"]["modules"]["multi"] is True
-        and options["task_modes"]["robots"]["multi"] is False
-    )
+    assert options["task_modes"]["modules"]["multi"] is True and options["task_modes"]["robots"]["multi"] is False
 
 
 def test_spawn_params_are_checked_against_their_declared_type(
@@ -538,23 +441,14 @@ def test_spawn_params_are_checked_against_their_declared_type(
         "double_array": "x",
         "string_array": "x",
     }
-    axis, mode, param = next(
-        (axis, name, param)
-        for axis, spec in options["task_modes"].items()
-        for name, mode in spec["modes"].items()
-        for param in mode["params"]
-        if param["type"] in wrong and not param["read_only"]
-    )
+    axis, mode, param = next((axis, name, param) for axis, spec in options["task_modes"].items() for name, mode in spec["modes"].items() for param in mode["params"] if param["type"] in wrong and not param["read_only"])
 
     answer = _call(
         f"{base}/api/runtime/spawn",
         {"modes": {axis: [mode]}, "params": {param["name"]: wrong[param["type"]]}},
     )
 
-    assert (
-        answer[0] == 400
-        and f"{param['name']} is declared as {param['type']}" in answer[1]["error"]
-    )
+    assert answer[0] == 400 and f"{param['name']} is declared as {param['type']}" in answer[1]["error"]
 
 
 def test_actions_carry_the_annotations_of_their_tools_registration(
@@ -575,10 +469,7 @@ def test_actions_carry_the_annotations_of_their_tools_registration(
         "idempotent": False,
     }
     assert actions["lockstep_stop"]["annotations"]["idempotent"] is True
-    assert all(
-        set(entry["annotations"]) == {"destructive", "read_only", "idempotent"}
-        for entry in actions.values()
-    )
+    assert all(set(entry["annotations"]) == {"destructive", "read_only", "idempotent"} for entry in actions.values())
 
 
 def test_options_leave_out_the_view_actions_when_rerun_utils_has_no_tools(
@@ -590,9 +481,7 @@ def test_options_leave_out_the_view_actions_when_rerun_utils_has_no_tools(
     hold_status, _ = _call(f"{base}/api/runtime/hold", {})
     view_status, view = _call(f"{base}/api/runtime/envs/0/view", {})
 
-    assert status == 200 and {"spawn", "despawn", "reset", "step"} <= set(
-        options["actions"]
-    )
+    assert status == 200 and {"spawn", "despawn", "reset", "step"} <= set(options["actions"])
     assert "view" not in options["actions"] and "view_stop" not in options["actions"]
     assert hold_status == 409
     assert view_status == 404 and "no runtime action 'view'" in view["error"]
@@ -607,13 +496,7 @@ def test_view_actions_come_from_the_rerun_tools_registration(
     _, options = _call(f"{base}/api/runtime/options")
     actions = options["actions"]
 
-    assert (
-        actions["view"]["tool"] == "viz_rerun_start"
-        and actions["view"]["scope"] == "env"
-    )
-    assert (
-        actions["view_stop"]["tool"] == "viz_rerun_stop"
-        and actions["view_stop"]["scope"] == "env"
-    )
+    assert actions["view"]["tool"] == "viz_rerun_start" and actions["view"]["scope"] == "env"
+    assert actions["view_stop"]["tool"] == "viz_rerun_stop" and actions["view_stop"]["scope"] == "env"
     assert {param["name"] for param in actions["view"]["params"]} == set()
     assert actions["view"]["doc"] and actions["view_stop"]["doc"]

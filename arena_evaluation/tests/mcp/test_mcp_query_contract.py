@@ -82,9 +82,7 @@ def test_query_below_and_above_a_caller_limit(tmp_path):
         ("SELECT plannr FROM dim_episodes", "plannr", "planner"),
     ),
 )
-def test_an_unknown_name_names_the_closest_valid_one(
-    tmp_path, sql, missing, suggestion
-):
+def test_an_unknown_name_names_the_closest_valid_one(tmp_path, sql, missing, suggestion):
     build_query_run(tmp_path / "data" / "benchmarks", RUN_ID)
 
     with arena_data(tmp_path), pytest.raises(ToolError) as caught:

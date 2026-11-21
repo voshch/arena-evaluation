@@ -30,9 +30,7 @@ _ROBOT_PARAMETERS = (
     "goal_y",
 )
 _TEXT_PARAMETERS = frozenset({"lidar_variant"})
-_NUMERIC_PARAMETERS = tuple(
-    name for name in _ROBOT_PARAMETERS if name not in _TEXT_PARAMETERS
-)
+_NUMERIC_PARAMETERS = tuple(name for name in _ROBOT_PARAMETERS if name not in _TEXT_PARAMETERS)
 _NS_PER_SECOND = 1_000_000_000
 _ENTITY_FIELDS = ("zone", "activation_dist", "acoustic_tl_db", "initial_state")
 _PEDESTRIAN_CORE_FIELDS = {
@@ -70,12 +68,8 @@ def episode_dimensions(
     for bundle in bundles.values():
         env_id, robot_id = _identity(bundle)
         _, pose = resolve_pose_source(bundle, (None, None))
-        episodes.append(
-            _episode_row(run_id, episode_id, metadata, env_id, robot_id, pose, bundle)
-        )
-        robots.append(
-            _robot_frame(run_id, episode_id, metadata, env_id, robot_id, bundle)
-        )
+        episodes.append(_episode_row(run_id, episode_id, metadata, env_id, robot_id, pose, bundle))
+        robots.append(_robot_frame(run_id, episode_id, metadata, env_id, robot_id, bundle))
         if env_id in environments:
             continue
         environments.add(env_id)
@@ -87,19 +81,14 @@ def episode_dimensions(
         "dim_pedestrians": pl.concat(pedestrians) if pedestrians else pl.DataFrame(),
         "dim_world_entities": pl.concat(entities) if entities else pl.DataFrame(),
     }
-    return {
-        name: _finish(frame, DIMENSION_TABLES[name]) for name, frame in frames.items()
-    }
+    return {name: _finish(frame, DIMENSION_TABLES[name]) for name, frame in frames.items()}
 
 
 def _finish(frame: pl.DataFrame, table: type[Table]) -> pl.DataFrame:
     conformed = conform(frame, table)
     if conformed.height == 0:
         return conformed
-    reasons = [
-        pl.when(pl.col(column).is_null()).then(pl.lit(f"{column}:{_NOT_RECORDED}"))
-        for column in table.null_reason_columns()
-    ]
+    reasons = [pl.when(pl.col(column).is_null()).then(pl.lit(f"{column}:{_NOT_RECORDED}")) for column in table.null_reason_columns()]
     text = pl.concat_str(reasons, separator=";", ignore_nulls=True)
     return conformed.with_columns(null_reason=pl.when(text != "").then(text))
 
@@ -114,9 +103,7 @@ def _episode_row(
     bundle: TopicBundle,
 ) -> dict[str, typing.Any]:
     lifecycle = _frame(bundle.episode_lifecycle)
-    peds = _first_frame(
-        bundle, bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds
-    )
+    peds = _first_frame(bundle, bundle.pedestrian_agent_states, bundle.pedestrian_arena_peds)
     seed, duration_s = _seed_and_duration(lifecycle)
     return {
         "run_id": run_id,
@@ -159,11 +146,7 @@ def _robot_frame(
             "episode_id": [episode_id],
             "env_id": [env_id],
             "robot_id": [robot_id],
-            "robot_model": [
-                descriptor.get_column("model")[0]
-                if descriptor is not None and descriptor.height
-                else None
-            ],
+            "robot_model": [descriptor.get_column("model")[0] if descriptor is not None and descriptor.height else None],
             "planner": [metadata.planner],
             "inter_planner": [metadata.inter_planner or None],
         }
@@ -174,50 +157,34 @@ def _robot_frame(
         return conform(base, table)
     _refuse_non_numeric_parameters(params, robot_id)
     return conform(
-        base.hstack(
-            params.select(*(_parameter(name).alias(name) for name in _ROBOT_PARAMETERS))
-        ),
+        base.hstack(params.select(*(_parameter(name).alias(name) for name in _ROBOT_PARAMETERS))),
         table,
     )
 
 
 def _parameter(name: str) -> pl.Expr:
     held = pl.col("param_value").filter(pl.col("param_key") == name).first()
-    return (
-        held if name in _TEXT_PARAMETERS else held.cast(pl.Float64, strict=True)
-    ).alias(name)
+    return (held if name in _TEXT_PARAMETERS else held.cast(pl.Float64, strict=True)).alias(name)
 
 
 def _refuse_non_numeric_parameters(params: pl.DataFrame, robot_id: str) -> None:
     """Refuse a recorded numeric parameter that does not parse, instead of casting it to a silent NULL."""
     for key in _NUMERIC_PARAMETERS:
-        recorded = (
-            params.filter(pl.col("param_key") == key)
-            .get_column("param_value")
-            .drop_nulls()
-        )
+        recorded = params.filter(pl.col("param_key") == key).get_column("param_value").drop_nulls()
         invalid = recorded.filter(recorded.cast(pl.Float64, strict=False).is_null())
         if invalid.len():
-            raise ContractViolationError(
-                f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {invalid[0]!r}"
-            )
+            raise ContractViolationError(f"robot {robot_id!r}: recorded parameter {key!r} is not a number: {invalid[0]!r}")
 
 
 def _identity(bundle: TopicBundle) -> tuple[str, str]:
-    frame = _first_frame(
-        bundle, bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom
-    )
+    frame = _first_frame(bundle, bundle.robot_descriptor, bundle.robot_tracks, bundle.robot_odom)
     if frame is None:
-        raise ValueError(
-            "a robot bundle has no table that names its environment and robot"
-        )
+        raise ValueError("a robot bundle has no table that names its environment and robot")
     env_id, robot_id = frame.select("env_id", "robot_id").row(0)
     return str(env_id), str(robot_id)
 
 
-def _entity_frame(
-    run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
-) -> pl.DataFrame:
+def _entity_frame(run_id: str, episode_id: int, env_id: str, bundle: TopicBundle) -> pl.DataFrame:
     frame = _first_frame(bundle, bundle.world_semantics)
     if frame is None:
         return pl.DataFrame()
@@ -228,10 +195,7 @@ def _entity_frame(
     return _stamped(
         frame.group_by("entity_name", maintain_order=True).agg(
             pl.col("kind").first().alias("entity_kind"),
-            *(
-                value.filter(pl.col("field_name") == field).first().alias(field)
-                for field in _ENTITY_FIELDS
-            ),
+            *(value.filter(pl.col("field_name") == field).first().alias(field) for field in _ENTITY_FIELDS),
         ),
         run_id,
         episode_id,
@@ -239,22 +203,13 @@ def _entity_frame(
     )
 
 
-def _pedestrian_rows(
-    run_id: str, episode_id: int, env_id: str, bundle: TopicBundle
-) -> pl.DataFrame:
+def _pedestrian_rows(run_id: str, episode_id: int, env_id: str, bundle: TopicBundle) -> pl.DataFrame:
     agent_states = _first_frame(bundle, bundle.pedestrian_agent_states)
-    frame = (
-        agent_states
-        if agent_states is not None
-        else _first_frame(bundle, bundle.pedestrian_arena_peds)
-    )
+    frame = agent_states if agent_states is not None else _first_frame(bundle, bundle.pedestrian_arena_peds)
     if frame is None:
         return pl.DataFrame()
     fields = _PEDESTRIAN_FIELDS if agent_states is not None else _PEDESTRIAN_CORE_FIELDS
-    first_values = [
-        pl.col(source).drop_nulls().first().alias(dimension)
-        for dimension, source in fields.items()
-    ]
+    first_values = [pl.col(source).drop_nulls().first().alias(dimension) for dimension, source in fields.items()]
     return _stamped(
         frame.sort("t_ns").group_by("ped_id", maintain_order=True).agg(first_values),
         run_id,
@@ -263,12 +218,8 @@ def _pedestrian_rows(
     )
 
 
-def _stamped(
-    frame: pl.DataFrame, run_id: str, episode_id: int, env_id: str
-) -> pl.DataFrame:
-    return frame.with_columns(
-        run_id=pl.lit(run_id), episode_id=pl.lit(episode_id), env_id=pl.lit(env_id)
-    )
+def _stamped(frame: pl.DataFrame, run_id: str, episode_id: int, env_id: str) -> pl.DataFrame:
+    return frame.with_columns(run_id=pl.lit(run_id), episode_id=pl.lit(episode_id), env_id=pl.lit(env_id))
 
 
 def _seed_and_duration(

@@ -11,14 +11,11 @@ import sys
 import attrs
 
 from .config import Contest, Suite
-from .runner_plan import _MAX_SIM_DEATHS, _KV_RE
+from .runner_plan import _KV_RE, _MAX_SIM_DEATHS
 from .state import Manifest
 from .step import Step
 
-_EPILOG = (
-    "exit codes: 0 ok, 1 systemic abort, 2 config error or crash, "
-    "3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted"
-)
+_EPILOG = "exit codes: 0 ok, 1 systemic abort, 2 config error or crash, 3 lockstep, strict or efficacy verdict, 4 runner hung (deadman), 130 interrupted"
 
 _OPTIONS: tuple[tuple[tuple[str, ...], dict[str, object]], ...] = (
     (("--suite",), {"default": "basic"}),

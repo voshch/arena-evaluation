@@ -12,7 +12,6 @@ import numpy as np
 import polars as pl
 import yaml
 
-from arena_evaluation.storage.registry.series import SeriesEnergy
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
     Direction,
@@ -23,6 +22,7 @@ from arena_evaluation.processing.metrics.common.alignment import (
     asof_values,
 )
 from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry.series import SeriesEnergy
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
 JOULES_PER_WH: Final[float] = 3600.0
@@ -190,9 +190,7 @@ _METRICS: Final[tuple[typing.Any, ...]] = (
     POWER_PEAK_W,
     ENERGY_SURGE_RATIO,
 )
-_NOT_LOWER_IS_BETTER: Final[frozenset[str]] = frozenset(
-    {"energy_static_wh", "battery_soc_final"}
-)
+_NOT_LOWER_IS_BETTER: Final[frozenset[str]] = frozenset({"energy_static_wh", "battery_soc_final"})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -221,11 +219,7 @@ class EnergyCalculator(BaseMetricCalculator):
     PARAMS = ()
 
     OUTPUTS = _METRICS
-    DIRECTIONS = {
-        metric.name: Direction.LOWER
-        for metric in _METRICS
-        if metric.name not in _NOT_LOWER_IS_BETTER
-    }
+    DIRECTIONS = {metric.name: Direction.LOWER for metric in _METRICS if metric.name not in _NOT_LOWER_IS_BETTER}
     PRIMARY_OUTPUTS = [
         "energy_total_wh",
         "energy_mechanical_wh",
@@ -242,20 +236,12 @@ class EnergyCalculator(BaseMetricCalculator):
         self._rolling_resistance = _load_rolling_resistance(robot_params.model)
 
     @classmethod
-    def required_topics_for_scope(
-        cls, scope: MetricScope
-    ) -> tuple[str | tuple[str, ...], ...]:
+    def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
         # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
         # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
-        return (
-            ()
-            if scope == MetricScope.ENCOUNTER
-            else super().required_topics_for_scope(scope)
-        )
+        return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         series = _episode_series(episode)
         if series is None:
             return dict.fromkeys(self.output_keys())
@@ -263,9 +249,7 @@ class EnergyCalculator(BaseMetricCalculator):
         return self._outputs(
             series,
             path_m=prior_results.get("path_length_m"),
-            duration_s=None
-            if span_ns is None
-            else float(span_ns) / NANOSECONDS_PER_SECOND,
+            duration_s=None if span_ns is None else float(span_ns) / NANOSECONDS_PER_SECOND,
             episode_mean_w=None,
         )
 
@@ -278,14 +262,10 @@ class EnergyCalculator(BaseMetricCalculator):
         if scope_slice is None or scope_slice.scope == MetricScope.ROBOT:
             return self.calculate(episode, prior_results)
         if scope_slice.scope == MetricScope.ENCOUNTER:
-            return self._window_summary(
-                episode, scope_slice.full_episode, prior_results
-            )
+            return self._window_summary(episode, scope_slice.full_episode, prior_results)
         raise ValueError(f"energy does not serve the {scope_slice.scope.value} scope")
 
-    def series_table(
-        self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = ""
-    ) -> pl.DataFrame:
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
         """1NF flat series table of the power, energy and velocity samples, one row per sample."""
         series = _episode_series(episode)
         if series is None:
@@ -334,18 +314,12 @@ class EnergyCalculator(BaseMetricCalculator):
         if episode_mean_w is None:
             # A direct call has no ROBOT-scope prior; read the episode through the same series path.
             full_series = _window_series(self.native_topics(full_episode))
-            episode_mean_w = (
-                _reduce_or_none(full_series.total_w, np.nanmean)
-                if full_series is not None
-                else None
-            )
+            episode_mean_w = _reduce_or_none(full_series.total_w, np.nanmean) if full_series is not None else None
         return self._outputs(
             series,
             path_m=prior_results.get("path_length_m"),
             duration_s=None,
-            episode_mean_w=float(episode_mean_w)
-            if episode_mean_w is not None
-            else None,
+            episode_mean_w=float(episode_mean_w) if episode_mean_w is not None else None,
         )
 
     def _outputs(
@@ -372,104 +346,48 @@ class EnergyCalculator(BaseMetricCalculator):
             "battery_soc_final": battery_final,
             "battery_soc_drop_pct": battery_drop,
             "specific_cost_of_transport": self._cost_of_transport(energy_wh, path_m),
-            "energy_per_meter": (
-                energy_wh / path_m
-                if energy_wh is not None
-                and path_m is not None
-                and path_m > MIN_PATH_LENGTH_M
-                and energy_wh > 0.0
-                else None
-            ),
+            "energy_per_meter": (energy_wh / path_m if energy_wh is not None and path_m is not None and path_m > MIN_PATH_LENGTH_M and energy_wh > 0.0 else None),
             "peak_to_mean_power_ratio": _peak_to_mean_ratio(series.total_w),
-            "standstill_energy_penalty_wh": _standstill_energy_wh(
-                series.velocity_mps, series.total_w, dt_s
-            ),
-            "kinetic_energy_demand_j": self._kinetic_energy_demand_j(
-                series.velocity_mps, series.angular_velocity_radps
-            ),
+            "standstill_energy_penalty_wh": _standstill_energy_wh(series.velocity_mps, series.total_w, dt_s),
+            "kinetic_energy_demand_j": self._kinetic_energy_demand_j(series.velocity_mps, series.angular_velocity_radps),
             "friction_dissipation_j": friction_j,
-            "mean_power_w": (
-                energy_wh * JOULES_PER_WH / float(duration_s)
-                if energy_wh is not None
-                and duration_s is not None
-                and float(duration_s) > 0.0
-                else mean_w
-            ),
+            "mean_power_w": (energy_wh * JOULES_PER_WH / float(duration_s) if energy_wh is not None and duration_s is not None and float(duration_s) > 0.0 else mean_w),
             "power_peak_w": _reduce_or_none(series.total_w, np.nanmax),
-            "energy_surge_ratio": (
-                mean_w / episode_mean_w
-                if mean_w is not None
-                and episode_mean_w is not None
-                and episode_mean_w > 0.0
-                else None
-            ),
+            "energy_surge_ratio": (mean_w / episode_mean_w if mean_w is not None and episode_mean_w is not None and episode_mean_w > 0.0 else None),
         }
 
-    def _cost_of_transport(
-        self, energy_wh: float | None, path_m: float | None
-    ) -> float | None:
+    def _cost_of_transport(self, energy_wh: float | None, path_m: float | None) -> float | None:
         mass_kg = self.robot_params.mass
-        if (
-            energy_wh is None
-            or path_m is None
-            or mass_kg <= 0.0
-            or path_m <= MIN_PATH_LENGTH_M
-            or energy_wh <= 0.0
-        ):
+        if energy_wh is None or path_m is None or mass_kg <= 0.0 or path_m <= MIN_PATH_LENGTH_M or energy_wh <= 0.0:
             return None
         return energy_wh * JOULES_PER_WH / (mass_kg * GRAVITY_MPS2 * path_m)
 
-    def _kinetic_energy_demand_j(
-        self, velocity_mps: np.ndarray, angular_velocity_radps: np.ndarray
-    ) -> float | None:
+    def _kinetic_energy_demand_j(self, velocity_mps: np.ndarray, angular_velocity_radps: np.ndarray) -> float | None:
         mass_kg = self.robot_params.mass
         if mass_kg <= 0.0 or len(velocity_mps) < 2:
             return None
         inertia_kgm2 = 0.5 * mass_kg * self.robot_params.robot_radius**2
-        kinetic_j = (
-            0.5 * mass_kg * velocity_mps**2
-            + 0.5 * inertia_kgm2 * angular_velocity_radps**2
-        )
+        kinetic_j = 0.5 * mass_kg * velocity_mps**2 + 0.5 * inertia_kgm2 * angular_velocity_radps**2
         demand_j = float(np.sum(np.abs(np.diff(kinetic_j))))
         return demand_j if np.isfinite(demand_j) else None
 
-    def _friction_dissipation_j(
-        self, velocity_mps: np.ndarray, dt_s: np.ndarray
-    ) -> float | None:
+    def _friction_dissipation_j(self, velocity_mps: np.ndarray, dt_s: np.ndarray) -> float | None:
         mass_kg = self.robot_params.mass
         if self._rolling_resistance is None or mass_kg <= 0.0 or len(velocity_mps) < 2:
             return None
-        return float(
-            np.sum(
-                self._rolling_resistance
-                * mass_kg
-                * GRAVITY_MPS2
-                * np.abs(velocity_mps)
-                * dt_s
-            )
-        )
+        return float(np.sum(self._rolling_resistance * mass_kg * GRAVITY_MPS2 * np.abs(velocity_mps) * dt_s))
 
 
 def _load_rolling_resistance(model: str) -> float | None:
     try:
         from ament_index_python.packages import get_package_share_directory
 
-        power_path = (
-            Path(get_package_share_directory("arena_robots"))
-            / "robots"
-            / model
-            / "telemetry"
-            / "power.yaml"
-        )
+        power_path = Path(get_package_share_directory("arena_robots")) / "robots" / model / "telemetry" / "power.yaml"
         data = yaml.safe_load(power_path.read_text())
     except (OSError, ImportError, KeyError, yaml.YAMLError):
         return None
     power_system = data.get("power_system") if isinstance(data, dict) else None
-    coefficient = (
-        power_system.get("rolling_resistance_crr")
-        if isinstance(power_system, dict)
-        else None
-    )
+    coefficient = power_system.get("rolling_resistance_crr") if isinstance(power_system, dict) else None
     try:
         return float(coefficient) if coefficient is not None else None
     except (TypeError, ValueError):
@@ -482,16 +400,10 @@ def _column(frame: pl.DataFrame, name: str) -> np.ndarray:
     return frame[name].cast(pl.Float64).to_numpy()
 
 
-def _asof_values(
-    time_ns: np.ndarray, table: pl.DataFrame | None, column: str
-) -> np.ndarray:
+def _asof_values(time_ns: np.ndarray, table: pl.DataFrame | None, column: str) -> np.ndarray:
     if table is None or table.height == 0 or column not in table.columns:
         return np.full(len(time_ns), np.nan)
-    reference = (
-        table.select(pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64))
-        .drop_nulls("t_ns")
-        .sort("t_ns")
-    )
+    reference = table.select(pl.col("t_ns").cast(pl.Int64), pl.col(column).cast(pl.Float64)).drop_nulls("t_ns").sort("t_ns")
     return asof_values(
         reference["t_ns"].to_numpy(),
         reference[column].to_numpy(),
@@ -553,13 +465,9 @@ def _window_series(topics: Mapping[str, pl.DataFrame | None]) -> _Series | None:
         static_w=_column(power, "static_power_w"),
         mechanical_w=_column(power, "total_mech_power_w"),
         thermal_w=_column(power, "total_thermal_power_w"),
-        battery_pct=_asof_values(
-            time_ns, topics.get("robot_energy"), "battery_soc_percent"
-        ),
+        battery_pct=_asof_values(time_ns, topics.get("robot_energy"), "battery_soc_percent"),
         velocity_mps=_asof_values(time_ns, topics.get("robot_tracks"), "speed_mps"),
-        angular_velocity_radps=_asof_values(
-            time_ns, topics.get("robot_tracks"), "omega_z"
-        ),
+        angular_velocity_radps=_asof_values(time_ns, topics.get("robot_tracks"), "omega_z"),
     )
 
 
@@ -613,18 +521,12 @@ def _integral_wh(values: np.ndarray, dt_s: np.ndarray) -> float | None:
     return float(np.sum(values * dt_s) / JOULES_PER_WH)
 
 
-def _reduce_or_none(
-    values: np.ndarray, reducer: typing.Callable[[np.ndarray], typing.Any]
-) -> float | None:
+def _reduce_or_none(values: np.ndarray, reducer: typing.Callable[[np.ndarray], typing.Any]) -> float | None:
     return None if np.isnan(values).all() else float(reducer(values))
 
 
 def _battery_soc(battery_pct: np.ndarray) -> tuple[float | None, float | None]:
-    if (
-        np.isnan(battery_pct).all()
-        or not np.isfinite(battery_pct[0])
-        or not np.isfinite(battery_pct[-1])
-    ):
+    if np.isnan(battery_pct).all() or not np.isfinite(battery_pct[0]) or not np.isfinite(battery_pct[-1]):
         return None, None
     return float(battery_pct[-1]), max(float(battery_pct[0] - battery_pct[-1]), 0.0)
 
@@ -640,20 +542,14 @@ def _peak_to_mean_ratio(total_w: np.ndarray) -> float | None:
     return float(np.max(filtered)) / mean_w
 
 
-def _standstill_energy_wh(
-    velocity_mps: np.ndarray, total_w: np.ndarray, dt_s: np.ndarray
-) -> float | None:
+def _standstill_energy_wh(velocity_mps: np.ndarray, total_w: np.ndarray, dt_s: np.ndarray) -> float | None:
     if len(velocity_mps) == 0 or np.isnan(velocity_mps).all():
         return None
     stationary = np.abs(velocity_mps) < STANDSTILL_SPEED_MPS
     if not stationary.any():
         return 0.0
-    blocks = pl.DataFrame(
-        {"stationary": stationary, "power_w": total_w, "dt_s": dt_s}
-    ).with_columns(
-        block_id=(pl.col("stationary") != pl.col("stationary").shift(1))
-        .fill_null(True)
-        .cum_sum(),
+    blocks = pl.DataFrame({"stationary": stationary, "power_w": total_w, "dt_s": dt_s}).with_columns(
+        block_id=(pl.col("stationary") != pl.col("stationary").shift(1)).fill_null(True).cum_sum(),
     )
     billed = (
         blocks.filter(pl.col("stationary"))

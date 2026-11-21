@@ -39,9 +39,7 @@ def recipe_search_dirs() -> tuple[pathlib.Path, ...]:
     return tuple(config_dirs())
 
 
-def find_recipe_path(
-    name: str, extra_dirs: Sequence[pathlib.Path] | None = None
-) -> pathlib.Path | None:
+def find_recipe_path(name: str, extra_dirs: Sequence[pathlib.Path] | None = None) -> pathlib.Path | None:
     """Locate a plot bundle ``<root>/plots/<name>/plot.yaml`` in the configured roots."""
     stem = name.removesuffix(".yaml").removesuffix(".yml")
     for root in (*(extra_dirs or ()), *recipe_search_dirs()):
@@ -57,9 +55,7 @@ def find_recipe_path(
     return None if located is None else bundle_config_file(located, "plot")
 
 
-def load_recipe(
-    name: str, extra_dirs: Sequence[pathlib.Path] | None = None
-) -> dict[str, object]:
+def load_recipe(name: str, extra_dirs: Sequence[pathlib.Path] | None = None) -> dict[str, object]:
     """Load a recipe dictionary from its YAML declaration."""
     path = find_recipe_path(name, extra_dirs=extra_dirs)
     if path is None:
@@ -67,15 +63,11 @@ def load_recipe(
 
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Recipe '{name}' must be a YAML mapping, got {type(data).__name__}."
-        )
+        raise ValueError(f"Recipe '{name}' must be a YAML mapping, got {type(data).__name__}.")
     return data
 
 
-def deep_merge(
-    base: Mapping[str, object], overrides: Mapping[str, object]
-) -> dict[str, object]:
+def deep_merge(base: Mapping[str, object], overrides: Mapping[str, object]) -> dict[str, object]:
     """Recursively merge overrides into a base mapping without mutating either input."""
     result: dict[str, object] = dict(base)
     for key, value in overrides.items():
@@ -100,43 +92,15 @@ class DataResolver:
         benchmark_dir: pathlib.Path | None = None,
         recipe_dirs: Sequence[pathlib.Path] | None = None,
     ) -> None:
-        self.benchmark_dir = (
-            pathlib.Path(benchmark_dir) if benchmark_dir is not None else None
-        )
-        self.recipe_dirs: list[pathlib.Path] = (
-            list(recipe_dirs) if recipe_dirs is not None else []
-        )
+        self.benchmark_dir = pathlib.Path(benchmark_dir) if benchmark_dir is not None else None
+        self.recipe_dirs: list[pathlib.Path] = list(recipe_dirs) if recipe_dirs is not None else []
         if self.benchmark_dir is not None:
             self.recipe_dirs.append(run_analysis_root(self.benchmark_dir))
 
-        self.catalog = (
-            catalog
-            if catalog is not None
-            else (
-                BenchmarkCatalog.open(self.benchmark_dir)
-                if self.benchmark_dir is not None
-                else None
-            )
-        )
-        self.sql_engine = (
-            sql_engine
-            if sql_engine is not None
-            else (PolarsSQLEngine(self.catalog) if self.catalog is not None else None)
-        )
-        self.evidence_store = (
-            evidence_store
-            if evidence_store is not None
-            else (
-                EvidenceStore(self.benchmark_dir)
-                if self.benchmark_dir is not None
-                else None
-            )
-        )
-        self.query_catalog = (
-            query_catalog
-            if query_catalog is not None
-            else QueryCatalog(run_dir=self.benchmark_dir)
-        )
+        self.catalog = catalog if catalog is not None else (BenchmarkCatalog.open(self.benchmark_dir) if self.benchmark_dir is not None else None)
+        self.sql_engine = sql_engine if sql_engine is not None else (PolarsSQLEngine(self.catalog) if self.catalog is not None else None)
+        self.evidence_store = evidence_store if evidence_store is not None else (EvidenceStore(self.benchmark_dir) if self.benchmark_dir is not None else None)
+        self.query_catalog = query_catalog if query_catalog is not None else QueryCatalog(run_dir=self.benchmark_dir)
 
     def resolve_spec(self, spec: PlotSpec) -> PlotSpec:
         """Resolve ``uses: <recipe>`` reference and return the merged PlotSpec."""
@@ -187,9 +151,7 @@ class DataResolver:
 
         if data_spec is not None and data_spec.computation:
             if self.catalog is None:
-                raise RuntimeError(
-                    f"Cannot run computation for plot '{spec.id}': catalog not initialized."
-                )
+                raise RuntimeError(f"Cannot run computation for plot '{spec.id}': catalog not initialized.")
             params = dict(data_spec.params or {})
             if default_source and "source" not in params:
                 params["source"] = default_source
@@ -205,45 +167,27 @@ class DataResolver:
             snapshot_id = result.snapshot_id
         elif data_spec is not None and data_spec.stored_query:
             if self.sql_engine is None:
-                raise RuntimeError(
-                    f"Cannot execute stored query for plot '{spec.id}': SQL engine not initialized."
-                )
-            df = self.query_catalog.execute(
-                data_spec.stored_query, self.sql_engine, params=data_spec.params
-            )
+                raise RuntimeError(f"Cannot execute stored query for plot '{spec.id}': SQL engine not initialized.")
+            df = self.query_catalog.execute(data_spec.stored_query, self.sql_engine, params=data_spec.params)
         elif data_spec is not None and data_spec.query:
             if self.sql_engine is None:
-                raise RuntimeError(
-                    f"Cannot execute SQL query for plot '{spec.id}': SQL engine not initialized."
-                )
+                raise RuntimeError(f"Cannot execute SQL query for plot '{spec.id}': SQL engine not initialized.")
             df = self.sql_engine.query(data_spec.query)
         elif data_spec is not None and data_spec.evidence_id:
             if self.evidence_store is None:
-                raise RuntimeError(
-                    f"Cannot fetch evidence '{data_spec.evidence_id}' for plot '{spec.id}': EvidenceStore not initialized."
-                )
+                raise RuntimeError(f"Cannot fetch evidence '{data_spec.evidence_id}' for plot '{spec.id}': EvidenceStore not initialized.")
             df = self.evidence_store.read_frame(data_spec.evidence_id)
             evidence_id = data_spec.evidence_id
         else:
-            table_source = (
-                data_spec.source
-                if (data_spec is not None and data_spec.source)
-                else default_source
-            )
+            table_source = data_spec.source if (data_spec is not None and data_spec.source) else default_source
             if not table_source:
-                raise ValueError(
-                    f"Cannot resolve data for plot '{spec.id}': no source, query, stored_query, computation, or evidence_id provided."
-                )
+                raise ValueError(f"Cannot resolve data for plot '{spec.id}': no source, query, stored_query, computation, or evidence_id provided.")
             if self.catalog is None:
-                raise RuntimeError(
-                    f"Cannot fetch table '{table_source}' for plot '{spec.id}': catalog not initialized."
-                )
+                raise RuntimeError(f"Cannot fetch table '{table_source}' for plot '{spec.id}': catalog not initialized.")
             df = self.catalog.get_table(table_source).collect()
 
         return (
-            self._apply_where_eager(
-                df, data_spec.where if data_spec is not None else None
-            ),
+            self._apply_where_eager(df, data_spec.where if data_spec is not None else None),
             evidence_id,
             snapshot_id,
         )
@@ -269,8 +213,6 @@ class DataResolver:
             if value is None:
                 continue
             if field_name not in schema:
-                raise ValueError(
-                    f"Plot '{spec.id}': slice '{field_name}' requires missing column '{field_name}'."
-                )
+                raise ValueError(f"Plot '{spec.id}': slice '{field_name}' requires missing column '{field_name}'.")
             res_df = res_df.filter(pl.col(field_name) == value)
         return res_df

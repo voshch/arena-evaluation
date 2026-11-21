@@ -4,9 +4,7 @@ from typing import Final
 
 # Air and reference quantities.
 ACOUSTIC_REFERENCE_PRESSURE_PA: Final[float] = 20e-6
-ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2: Final[float] = (
-    ACOUSTIC_REFERENCE_PRESSURE_PA * ACOUSTIC_REFERENCE_PRESSURE_PA
-)
+ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2: Final[float] = ACOUSTIC_REFERENCE_PRESSURE_PA * ACOUSTIC_REFERENCE_PRESSURE_PA
 
 # Propagation model: a wall crossing pays the full loss once, the microphone sits 1 m
 # from the robot so closer targets never exceed free-space at that distance.

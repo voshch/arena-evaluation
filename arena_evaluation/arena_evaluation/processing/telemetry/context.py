@@ -19,19 +19,18 @@ from arena_evaluation.processing.telemetry.messages import (
 from arena_evaluation.processing.telemetry.writer import TableSink
 
 if TYPE_CHECKING:
-    from arena_evaluation.processing.legacy_schemas import EpisodeFields, FleetRobot
     from arena_runtime_msgs.msg import SemanticSnapshot
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
     from nav_msgs.msg import OccupancyGrid, Path
     from std_msgs.msg import String as RosString
     from tf2_msgs.msg import TFMessage
 
+    from arena_evaluation.processing.legacy_schemas import EpisodeFields, FleetRobot
+
 _log = logging.getLogger(__name__)
 
 
-def record_episode(
-    sink: TableSink, envelope: Envelope[object], fields: EpisodeFields
-) -> None:
+def record_episode(sink: TableSink, envelope: Envelope[object], fields: EpisodeFields) -> None:
     """One lifecycle row and its integrity flags from the generation-normalised episode record."""
     sink.append(
         "episode_lifecycle",
@@ -57,9 +56,7 @@ def record_episode(
         ),
     )
     for flag_idx, flag in enumerate(fields.integrity):
-        sink.append(
-            "episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=flag)
-        )
+        sink.append("episode_integrity", env_row(envelope, flag_idx=flag_idx, flag=flag))
 
 
 class FleetRecorder:
@@ -75,9 +72,7 @@ class FleetRecorder:
             if (env_id, name) in self._recorded:
                 continue
             self._recorded.add((env_id, name))
-            robot_id = (
-                f"{env_id}_{name}"  # the name robot_id_of gives this robot's own topics
-            )
+            robot_id = f"{env_id}_{name}"  # the name robot_id_of gives this robot's own topics
             self._sink.append(
                 "robot_descriptor",
                 {
@@ -115,9 +110,7 @@ def record_semantics(sink: TableSink, envelope: Envelope[SemanticSnapshot]) -> N
             "entity_name": str(entity.entity),
             "kind": str(entity.kind),
         }
-        for name, value in zip(
-            entity.discrete_names, entity.discrete_values, strict=True
-        ):
+        for name, value in zip(entity.discrete_names, entity.discrete_values, strict=True):
             sink.append(
                 "world_semantics",
                 {
@@ -129,9 +122,7 @@ def record_semantics(sink: TableSink, envelope: Envelope[SemanticSnapshot]) -> N
                     "value_bool": None,
                 },
             )
-        for name, value in zip(
-            entity.continuous_names, entity.continuous_values, strict=True
-        ):
+        for name, value in zip(entity.continuous_names, entity.continuous_values, strict=True):
             sink.append(
                 "world_semantics",
                 {
@@ -143,9 +134,7 @@ def record_semantics(sink: TableSink, envelope: Envelope[SemanticSnapshot]) -> N
                     "value_bool": None,
                 },
             )
-        for name, value in zip(
-            entity.predicate_names, entity.predicate_values, strict=True
-        ):
+        for name, value in zip(entity.predicate_names, entity.predicate_values, strict=True):
             sink.append(
                 "world_semantics",
                 {
@@ -196,9 +185,7 @@ class PlanRecorder:
             )
 
 
-def record_characterization_phase(
-    sink: TableSink, envelope: Envelope[RosString]
-) -> None:
+def record_characterization_phase(sink: TableSink, envelope: Envelope[RosString]) -> None:
     sink.append(
         "robot_characterization_phase",
         robot_row(envelope, label=str(envelope.body.data)),
@@ -231,9 +218,7 @@ class ScheduleRecorder:
                 )
 
 
-def record_initial_pose(
-    sink: TableSink, envelope: Envelope[PoseWithCovarianceStamped]
-) -> None:
+def record_initial_pose(sink: TableSink, envelope: Envelope[PoseWithCovarianceStamped]) -> None:
     pose = envelope.body.pose.pose
     sink.append(
         "robot_initialpose",
@@ -275,9 +260,7 @@ def record_goal_pose(sink: TableSink, envelope: Envelope[PoseStamped]) -> None:
     )
 
 
-def record_occupancy_grid(
-    sink: TableSink, envelope: Envelope[OccupancyGrid], kind: str
-) -> None:
+def record_occupancy_grid(sink: TableSink, envelope: Envelope[OccupancyGrid], kind: str) -> None:
     """One metadata row and one row per non-free cell of a latched occupancy-grid snapshot."""
     grid = envelope.body
     info = grid.info
@@ -313,9 +296,7 @@ def record_occupancy_grid(
         )
 
 
-def record_transforms(
-    sink: TableSink, table: str, envelope: Envelope[TFMessage]
-) -> None:
+def record_transforms(sink: TableSink, table: str, envelope: Envelope[TFMessage]) -> None:
     for transform in envelope.body.transforms:
         translation, rotation = (
             transform.transform.translation,

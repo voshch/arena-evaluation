@@ -60,11 +60,7 @@ ROLES: Final[dict[str, dict[str, Any]]] = {
         ],
     },
     "diagnostician": {
-        "purpose": (
-            "Detect counter-intuitive aggregate results (survivorship bias, "
-            "early-termination truncation, Simpson's paradox), form competing hypotheses, "
-            "and test them with paired-seed, stratified, and encounter-level queries."
-        ),
+        "purpose": ("Detect counter-intuitive aggregate results (survivorship bias, early-termination truncation, Simpson's paradox), form competing hypotheses, and test them with paired-seed, stratified, and encounter-level queries."),
         "tools": [
             "evaluation_schema",
             *_QUERY_PAIR,

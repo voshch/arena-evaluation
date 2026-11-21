@@ -13,9 +13,7 @@ from snapshot_rows import snapshot_frame
 
 
 def _calc():
-    return SemanticInteractionMetricsCalculator(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    return SemanticInteractionMetricsCalculator(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def _episode(snapshot, end_t_ns=6_000_000_000):
@@ -51,9 +49,7 @@ def test_no_semantic_snapshot_is_undefined():
 
 def _members(rows):
     """Members rows: (t_ns, entity, kind, [names])."""
-    return snapshot_frame(
-        [(r[0], r[1], r[2], "members", "members", r[3]) for r in rows]
-    )
+    return snapshot_frame([(r[0], r[1], r[2], "members", "members", r[3]) for r in rows])
 
 
 def _with_members(snapshot, members):
@@ -91,21 +87,14 @@ def test_time_waiting_at_doors_robot_only_while_robot_is_member():
     )
     episode = _robot_episode(_with_members(_door_snapshot(), members))
 
-    assert _calc().calculate(episode, {})[
-        "time_waiting_at_doors_anyone"
-    ] == pytest.approx(3.0)
+    assert _calc().calculate(episode, {})["time_waiting_at_doors_anyone"] == pytest.approx(3.0)
     assert _robot_scope(episode)["time_waiting_at_doors_robot"] == pytest.approx(2.0)
 
 
 def test_time_waiting_at_doors_robot_none_without_robot_name():
     members = _members([(2_000_000_000, "env_0/door_1/0", "door", ["env_0/jackal"])])
 
-    assert (
-        _robot_scope(_episode(_with_members(_door_snapshot(), members)))[
-            "time_waiting_at_doors_robot"
-        ]
-        is None
-    )
+    assert _robot_scope(_episode(_with_members(_door_snapshot(), members)))["time_waiting_at_doors_robot"] is None
 
 
 def test_elevator_rides_robot_counts_arrivals_with_robot_aboard():
@@ -154,9 +143,7 @@ def test_elevator_rides_robot_counts_arrivals_with_robot_aboard():
 
 
 def test_elevator_rides_robot_zero_when_no_rides():
-    snapshot = snapshot_frame(
-        [(0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False)]
-    )
+    snapshot = snapshot_frame([(0, "env_0/elev/1", "elevator", "just_arrived", "predicate", False)])
     members = _members([(0, "env_0/elev/1", "elevator", [])])
     robot = _robot_scope(_robot_episode(_with_members(snapshot, members)))
 

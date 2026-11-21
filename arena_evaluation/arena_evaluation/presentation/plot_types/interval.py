@@ -74,19 +74,10 @@ class IntervalRenderer(BasePlotRenderer):
         options = self.spec.options
         raw_low = options.get(_LOW_OPTION)
         raw_high = options.get(_HIGH_OPTION)
-        low_col = (
-            raw_low.strip() if isinstance(raw_low, str) and raw_low.strip() else ""
-        )
-        high_col = (
-            raw_high.strip() if isinstance(raw_high, str) and raw_high.strip() else ""
-        )
+        low_col = raw_low.strip() if isinstance(raw_low, str) and raw_low.strip() else ""
+        high_col = raw_high.strip() if isinstance(raw_high, str) and raw_high.strip() else ""
         if not low_col or not high_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: interval plot requires options "
-                f"{_LOW_OPTION!r} and {_HIGH_OPTION!r} naming the lower and upper "
-                "bound columns, e.g. options: "
-                "{'low': 'ci_low', 'high': 'ci_high'}."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: interval plot requires options {_LOW_OPTION!r} and {_HIGH_OPTION!r} naming the lower and upper bound columns, e.g. options: {{'low': 'ci_low', 'high': 'ci_high'}}.")
         return low_col, high_col
 
     def _plot_data(self, df: pl.DataFrame) -> _IntervalData:
@@ -94,13 +85,9 @@ class IntervalRenderer(BasePlotRenderer):
         x_col = self.resolve_channel("x")
         y_col = self.resolve_channel("y")
         if x_col is None:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: interval plot requires channel 'x'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: interval plot requires channel 'x'.")
         if y_col is None:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: interval plot requires channel 'y'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: interval plot requires channel 'y'.")
         color_col = self.resolve_channel("color")
         low_col, high_col = self._bound_columns()
         self.validate_unique_cells(df, [x_col, color_col] if color_col else [x_col])
@@ -129,9 +116,7 @@ class IntervalRenderer(BasePlotRenderer):
         step = _DODGE_WIDTH / max(n_groups - 1, 1) if n_groups > 1 else 0.0
         for group_index, (group, indices) in enumerate(groups):
             values = data.values[indices].astype(float)
-            offset = (
-                (group_index - (n_groups - 1) / 2.0) * step if n_groups > 1 else 0.0
-            )
+            offset = (group_index - (n_groups - 1) / 2.0) * step if n_groups > 1 else 0.0
             fig.add_trace(
                 go.Scatter(
                     x=[positions[data.labels[index]] + offset for index in indices],
@@ -160,19 +145,13 @@ class IntervalRenderer(BasePlotRenderer):
             },
         )
         if data.color_col:
-            fig.update_layout(
-                legend_title_text=data.color_col.replace("_", " ").title()
-            )
+            fig.update_layout(legend_title_text=data.color_col.replace("_", " ").title())
         return fig
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly interval chart with error bars."""
         fig = self.build_plotly_figure(df)
-        return (
-            None
-            if fig is None
-            else fig.to_html(include_plotlyjs=False, full_html=False)
-        )
+        return None if fig is None else fig.to_html(include_plotlyjs=False, full_html=False)
 
     def build_static_figure(self, df: pl.DataFrame) -> plt.Figure | None:
         """Build the static interval figure without writing it."""
@@ -183,9 +162,7 @@ class IntervalRenderer(BasePlotRenderer):
             plot_type=self.PLOT_TYPE,
         )
         data = self._plot_data(df)
-        positions_by_label = {
-            label: index for index, label in enumerate(dict.fromkeys(data.labels))
-        }
+        positions_by_label = {label: index for index, label in enumerate(dict.fromkeys(data.labels))}
         groups = data.groups_with_indices()
         dodge = _DODGE_WIDTH if len(groups) > 1 else 0.0
         palette = get_color_palette()
@@ -193,9 +170,7 @@ class IntervalRenderer(BasePlotRenderer):
         for group_index, (group, indices) in enumerate(groups):
             offset = (group_index - (len(groups) - 1) / 2.0) * dodge
             colour = palette_color(palette, group_index)
-            positions = [
-                positions_by_label[data.labels[index]] + offset for index in indices
-            ]
+            positions = [positions_by_label[data.labels[index]] + offset for index in indices]
             values = data.values[indices].astype(float)
             lowers = data.low[indices].astype(float)
             uppers = data.high[indices].astype(float)

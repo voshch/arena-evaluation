@@ -125,16 +125,9 @@ DEFAULT_DETECTOR_PARAMS = DetectorParams()
 def _require_radius(actors: pl.DataFrame | pl.LazyFrame, column: str) -> None:
     """Refuse actor samples whose radius column is null or NaN: the detector never invents a body size."""
     radius = pl.col(column)
-    missing = (
-        actors.lazy()
-        .select((radius.is_null() | radius.is_nan()).any())
-        .collect()
-        .item()
-    )
+    missing = actors.lazy().select((radius.is_null() | radius.is_nan()).any()).collect().item()
     if missing:
-        raise MetricInputError(
-            f"an actor sample has no usable {column}; each body needs its own recorded radius"
-        )
+        raise MetricInputError(f"an actor sample has no usable {column}; each body needs its own recorded radius")
 
 
 def _sample_dt_s() -> pl.Expr:
@@ -234,12 +227,7 @@ def _pairs_lf(
         )
         .sort("robot_t_ns")
     )
-    centre_m = (
-        (pl.col("actor_x") - pl.col("robot_x"))
-        .pow(2)
-        .add((pl.col("actor_y") - pl.col("robot_y")).pow(2))
-        .sqrt()
-    )
+    centre_m = (pl.col("actor_x") - pl.col("robot_x")).pow(2).add((pl.col("actor_y") - pl.col("robot_y")).pow(2)).sqrt()
     return (
         asof_join(
             actors,
@@ -251,16 +239,13 @@ def _pairs_lf(
         .filter(pl.col("robot_x").is_not_null() & pl.col("actor_x").is_not_null())
         .with_columns(
             distance_m=centre_m,
-            edge_clearance_m=centre_m
-            - (pl.lit(robot_radius_m) + pl.col("actor_radius_m")),
+            edge_clearance_m=centre_m - (pl.lit(robot_radius_m) + pl.col("actor_radius_m")),
         )
         .select(PAIR_SCHEMA.names())
     )
 
 
-def detect_encounter_windows_lf(
-    pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS
-) -> pl.LazyFrame:
+def detect_encounter_windows_lf(pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.LazyFrame:
     """Contiguous bouts whose surface clearance <= encounter_edge_distance_m, near gaps bridged.
 
     Run-length ids over the boolean clearance mask give the bouts; a second run-length id over the
@@ -269,13 +254,7 @@ def detect_encounter_windows_lf(
     shorter than the merge gap. The onset row of each bout keeps the kinematics that classify the approach.
     """
     merge_gap_ns = int(params.encounter_merge_gap_s * NS_PER_S)
-    samples = (
-        pairs.sort(["actor_id", "t_ns"])
-        .with_columns(
-            in_encounter=pl.col("edge_clearance_m") <= params.encounter_edge_distance_m
-        )
-        .with_columns(run_id=pl.col("in_encounter").rle_id().over("actor_id"))
-    )
+    samples = pairs.sort(["actor_id", "t_ns"]).with_columns(in_encounter=pl.col("edge_clearance_m") <= params.encounter_edge_distance_m).with_columns(run_id=pl.col("in_encounter").rle_id().over("actor_id"))
     runs = (
         samples.group_by(["actor_id", "run_id"])
         .agg(
@@ -285,33 +264,14 @@ def detect_encounter_windows_lf(
         )
         .sort(["actor_id", "run_id"])
         .with_columns(
-            previous=pl.col("run_in_encounter")
-            .shift(1)
-            .over("actor_id")
-            .fill_null(False),
-            following=pl.col("run_in_encounter")
-            .shift(-1)
-            .over("actor_id")
-            .fill_null(False),
-            gap_ns=pl.col("run_start_ns").shift(-1).over("actor_id")
-            - pl.col("run_end_ns").shift(1).over("actor_id"),
+            previous=pl.col("run_in_encounter").shift(1).over("actor_id").fill_null(False),
+            following=pl.col("run_in_encounter").shift(-1).over("actor_id").fill_null(False),
+            gap_ns=pl.col("run_start_ns").shift(-1).over("actor_id") - pl.col("run_end_ns").shift(1).over("actor_id"),
         )
-        .with_columns(
-            bridgeable=(~pl.col("run_in_encounter"))
-            & pl.col("previous")
-            & pl.col("following")
-            & (pl.col("gap_ns") < merge_gap_ns)
-        )
+        .with_columns(bridgeable=(~pl.col("run_in_encounter")) & pl.col("previous") & pl.col("following") & (pl.col("gap_ns") < merge_gap_ns))
         .select("actor_id", "run_id", "bridgeable")
     )
-    flagged = (
-        samples.join(runs, on=["actor_id", "run_id"], how="left")
-        .with_columns(
-            bridged=pl.col("in_encounter") | pl.col("bridgeable").fill_null(False)
-        )
-        .with_columns(encounter_run=pl.col("bridged").rle_id().over("actor_id"))
-        .filter(pl.col("bridged"))
-    )
+    flagged = samples.join(runs, on=["actor_id", "run_id"], how="left").with_columns(bridged=pl.col("in_encounter") | pl.col("bridgeable").fill_null(False)).with_columns(encounter_run=pl.col("bridged").rle_id().over("actor_id")).filter(pl.col("bridged"))
     windows = flagged.group_by(["actor_id", "encounter_run"]).agg(
         robot_id=pl.col("robot_id").first(),
         actor_name=pl.col("actor_name").first(),
@@ -335,23 +295,12 @@ def detect_encounter_windows_lf(
             )
         ],
     )
-    bearing_rad = pl.arctan2(
-        pl.col("actor_y") - pl.col("robot_y"), pl.col("actor_x") - pl.col("robot_x")
-    )
-    heading_error_rad = (
-        (pl.col("robot_yaw") - bearing_rad + pl.lit(3.141592653589793))
-        % pl.lit(TWO_PI_RAD)
-        - pl.lit(3.141592653589793)
-    ).abs()
+    bearing_rad = pl.arctan2(pl.col("actor_y") - pl.col("robot_y"), pl.col("actor_x") - pl.col("robot_x"))
+    heading_error_rad = ((pl.col("robot_yaw") - bearing_rad + pl.lit(3.141592653589793)) % pl.lit(TWO_PI_RAD) - pl.lit(3.141592653589793)).abs()
     ped_speed_mps = pl.col("actor_vx").pow(2).add(pl.col("actor_vy").pow(2)).sqrt()
     robot_speed_mps = pl.col("robot_vx").pow(2).add(pl.col("robot_vy").pow(2)).sqrt()
-    robot_toward_actor = (
-        pl.col("robot_vx") * bearing_rad.cos() + pl.col("robot_vy") * bearing_rad.sin()
-    ) > 0.0
-    same_direction = (
-        pl.col("actor_vx") * pl.col("robot_vx")
-        + pl.col("actor_vy") * pl.col("robot_vy")
-    ) > (pl.lit(params.overtaking_alignment) * ped_speed_mps * robot_speed_mps)
+    robot_toward_actor = (pl.col("robot_vx") * bearing_rad.cos() + pl.col("robot_vy") * bearing_rad.sin()) > 0.0
+    same_direction = (pl.col("actor_vx") * pl.col("robot_vx") + pl.col("actor_vy") * pl.col("robot_vy")) > (pl.lit(params.overtaking_alignment) * ped_speed_mps * robot_speed_mps)
     speeds_known = ped_speed_mps.is_not_null() & robot_speed_mps.is_not_null()
     classified = (
         pl.when(ped_speed_mps < params.stationary_speed_mps)
@@ -362,14 +311,8 @@ def detect_encounter_windows_lf(
         .then(pl.lit(APPROACH_OVERTAKING))
         .otherwise(pl.lit(APPROACH_CROSSING))
     )
-    approach_type = (
-        pl.when(speeds_known).then(classified).otherwise(pl.lit(None, dtype=pl.String))
-    )
-    approach_null_reason = (
-        pl.when(speeds_known)
-        .then(pl.lit(None, dtype=pl.String))
-        .otherwise(pl.lit(f"approach_type:{NullReason.NO_SAMPLES}", dtype=pl.String))
-    )
+    approach_type = pl.when(speeds_known).then(classified).otherwise(pl.lit(None, dtype=pl.String))
+    approach_null_reason = pl.when(speeds_known).then(pl.lit(None, dtype=pl.String)).otherwise(pl.lit(f"approach_type:{NullReason.NO_SAMPLES}", dtype=pl.String))
     return (
         windows.with_columns(
             approach_type=approach_type.cast(APPROACH_TYPE_DTYPE),
@@ -396,39 +339,12 @@ def contact_windows_lf(
     The bouts come from the contact calculator's detector; each row is stamped with the detector version and parameters.
     """
     normalized_kind = pl.col("collider_kind").fill_null("static").str.to_lowercase()
-    collider_kind = (
-        pl.when(normalized_kind.str.contains(PEDESTRIAN_KIND_PATTERN))
-        .then(pl.lit(ACTOR_PEDESTRIAN))
-        .when(normalized_kind.str.contains(ROBOT_KIND_PATTERN))
-        .then(pl.lit(ACTOR_ROBOT))
-        .when(normalized_kind.str.contains(WALL_KIND_PATTERN))
-        .then(pl.lit("wall"))
-        .otherwise(pl.lit("static"))
-    )
-    entity_id = (
-        pl.col("obstacle_id")
-        .fill_null("")
-        .str.replace(r"^env_[0-9]+/", "")
-        .str.split("/")
-        .list.first()
-        .fill_null("")
-    )
+    collider_kind = pl.when(normalized_kind.str.contains(PEDESTRIAN_KIND_PATTERN)).then(pl.lit(ACTOR_PEDESTRIAN)).when(normalized_kind.str.contains(ROBOT_KIND_PATTERN)).then(pl.lit(ACTOR_ROBOT)).when(normalized_kind.str.contains(WALL_KIND_PATTERN)).then(pl.lit("wall")).otherwise(pl.lit("static"))
+    entity_id = pl.col("obstacle_id").fill_null("").str.replace(r"^env_[0-9]+/", "").str.split("/").list.first().fill_null("")
     enc_lf = encounters.lazy()
-    by_id = enc_lf.group_by(pl.col("actor_id").alias("entity_id")).agg(
-        resolved_by_id=pl.col("actor_id").first()
-    )
-    by_name = (
-        enc_lf.filter(pl.col("actor_name").is_not_null() & (pl.col("actor_name") != ""))
-        .group_by(pl.col("actor_name").alias("entity_id"))
-        .agg(resolved_by_name=pl.col("actor_id").first())
-    )
-    by_suffix = (
-        enc_lf.filter(pl.col("actor_kind") == ACTOR_PEDESTRIAN)
-        .with_columns(suffix_id=pl.col("actor_id").str.extract(r"(\d+)$", 1))
-        .filter(pl.col("suffix_id").is_not_null())
-        .group_by("suffix_id")
-        .agg(resolved_by_suffix=pl.col("actor_id").first())
-    )
+    by_id = enc_lf.group_by(pl.col("actor_id").alias("entity_id")).agg(resolved_by_id=pl.col("actor_id").first())
+    by_name = enc_lf.filter(pl.col("actor_name").is_not_null() & (pl.col("actor_name") != "")).group_by(pl.col("actor_name").alias("entity_id")).agg(resolved_by_name=pl.col("actor_id").first())
+    by_suffix = enc_lf.filter(pl.col("actor_kind") == ACTOR_PEDESTRIAN).with_columns(suffix_id=pl.col("actor_id").str.extract(r"(\d+)$", 1)).filter(pl.col("suffix_id").is_not_null()).group_by("suffix_id").agg(resolved_by_suffix=pl.col("actor_id").first())
     resolved = (
         intervals.lazy()
         .select(
@@ -439,9 +355,7 @@ def contact_windows_lf(
             pl.col("obstacle_x").cast(pl.Float64),
             pl.col("obstacle_y").cast(pl.Float64),
         )
-        .with_columns(
-            entity_id=entity_id, suffix_id=entity_id.str.extract(r"(\d+)$", 1)
-        )
+        .with_columns(entity_id=entity_id, suffix_id=entity_id.str.extract(r"(\d+)$", 1))
         .join(by_id, on="entity_id", how="left")
         .join(by_name, on="entity_id", how="left")
         .join(by_suffix, on="suffix_id", how="left")
@@ -474,10 +388,7 @@ def contact_windows_lf(
             on="obstacle_id",
             how="inner",
         )
-        .filter(
-            (pl.col("t_onset_ns") >= pl.col("encounter_start_ns"))
-            & (pl.col("t_onset_ns") <= pl.col("encounter_end_ns"))
-        )
+        .filter((pl.col("t_onset_ns") >= pl.col("encounter_start_ns")) & (pl.col("t_onset_ns") <= pl.col("encounter_end_ns")))
         .group_by("contact_idx")
         .agg(encounter_idx=pl.col("encounter_idx").min())
     )

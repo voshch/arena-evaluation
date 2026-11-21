@@ -27,9 +27,7 @@ def _episode(
         count = len(x)
         data = pl.DataFrame(
             {
-                "t_ns": pl.Series(
-                    "t_ns", [index * SEC for index in range(count)], dtype=pl.Int64
-                ),
+                "t_ns": pl.Series("t_ns", [index * SEC for index in range(count)], dtype=pl.Int64),
                 "x": pl.Series("x", x, dtype=pl.Float64),
                 "y": pl.Series("y", [0.0] * count, dtype=pl.Float64),
                 "yaw": pl.Series("yaw", [0.0] * count, dtype=pl.Float64),
@@ -39,9 +37,7 @@ def _episode(
         count = len(speed_mps) if speed_mps is not None else (sample_count or 0)
         data = pl.DataFrame(
             {
-                "t_ns": pl.Series(
-                    "t_ns", [index * SEC for index in range(count)], dtype=pl.Int64
-                ),
+                "t_ns": pl.Series("t_ns", [index * SEC for index in range(count)], dtype=pl.Int64),
                 "speed_mps": pl.Series(
                     "speed_mps",
                     speed_mps if speed_mps is not None else [None] * count,
@@ -56,9 +52,7 @@ def _calculator() -> MotionMetricsCalculator:
     return MotionMetricsCalculator(make_robot_params(robot_radius=0.2))
 
 
-def _dense_speed_episode(
-    speed_mps: float, *, rate_hz: float = 50.0, duration_s: float = 6.0
-) -> AlignedEpisodeBundle:
+def _dense_speed_episode(speed_mps: float, *, rate_hz: float = 50.0, duration_s: float = 6.0) -> AlignedEpisodeBundle:
     """Constant-speed episode on a grid fine enough for the declared 1.0 s smoothing window."""
     count = int(round(duration_s * rate_hz))
     t_ns = (np.arange(count, dtype=np.float64) / rate_hz * SEC).astype(np.int64)
@@ -67,9 +61,7 @@ def _dense_speed_episode(
         data=pl.DataFrame(
             {
                 "t_ns": pl.Series("t_ns", t_ns, dtype=pl.Int64),
-                "speed_mps": pl.Series(
-                    "speed_mps", np.full(count, speed_mps), dtype=pl.Float64
-                ),
+                "speed_mps": pl.Series("speed_mps", np.full(count, speed_mps), dtype=pl.Float64),
             }
         ),
         start_pos=[],
@@ -94,9 +86,7 @@ def test_without_an_aligned_frame_aggregates_and_series_are_empty():
     calculator = _calculator()
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
 
-    assert calculator.calculate(episode, {}) == dict.fromkeys(
-        MotionMetricsCalculator.output_keys()
-    )
+    assert calculator.calculate(episode, {}) == dict.fromkeys(MotionMetricsCalculator.output_keys())
     assert_frame_equal(
         calculator.series_table(episode),
         pl.DataFrame(schema=SERIES_SCHEMA),
@@ -125,9 +115,7 @@ def _ramp_episode(
         episode_id=1,
         data=pl.DataFrame(
             {
-                "t_ns": pl.Series(
-                    "t_ns", (time_s * SEC).astype(np.int64), dtype=pl.Int64
-                ),
+                "t_ns": pl.Series("t_ns", (time_s * SEC).astype(np.int64), dtype=pl.Int64),
                 "x": pl.Series("x", x_m, dtype=pl.Float64),
                 "y": pl.Series("y", np.zeros(count), dtype=pl.Float64),
                 "yaw": pl.Series("yaw", np.zeros(count), dtype=pl.Float64),

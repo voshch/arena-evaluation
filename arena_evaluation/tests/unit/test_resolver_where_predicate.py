@@ -98,9 +98,7 @@ def _episode_ids(resolver: DataResolver, where: str) -> list[int]:
         ("not is_reference", [0, 1, 3]),
     ],
 )
-def test_where_predicate_filters_the_bound_table(
-    tmp_path: pathlib.Path, where: str, expected: list[int]
-) -> None:
+def test_where_predicate_filters_the_bound_table(tmp_path: pathlib.Path, where: str, expected: list[int]) -> None:
     assert _episode_ids(_resolver(tmp_path), where) == expected
 
 
@@ -117,9 +115,7 @@ def test_where_predicate_filters_the_bound_table(
         "planner = 'dwb' and",
     ],
 )
-def test_injection_and_malformed_predicates_are_rejected(
-    tmp_path: pathlib.Path, where: str
-) -> None:
+def test_injection_and_malformed_predicates_are_rejected(tmp_path: pathlib.Path, where: str) -> None:
     with pytest.raises(ValueError, match="unsupported where predicate") as error:
         _resolver(tmp_path).resolve(_spec(where))
     assert "Hint:" in str(error.value)
@@ -146,9 +142,7 @@ def test_an_unknown_column_names_the_bound_columns(tmp_path: pathlib.Path) -> No
         ("success = true or planner = 'mppi' and", "does not parse"),
     ],
 )
-def test_predicates_type_check_the_column_dtype(
-    tmp_path: pathlib.Path, where: str, reason: str
-) -> None:
+def test_predicates_type_check_the_column_dtype(tmp_path: pathlib.Path, where: str, reason: str) -> None:
     with pytest.raises(ValueError, match=reason):
         _resolver(tmp_path).resolve(_spec(where))
 

@@ -61,17 +61,11 @@ class _LowerAtRobot(BaseMetricCalculator):
 
 
 def _store_pairs() -> set[tuple[str, str]]:
-    return {
-        (metric.name, scope.value)
-        for metric in defined_metrics()
-        for scope in metric.scopes
-    }
+    return {(metric.name, scope.value) for metric in defined_metrics() for scope in metric.scopes}
 
 
 def test_two_calculators_giving_one_metric_different_directions_is_an_error() -> None:
-    with pytest.raises(
-        SchemaViolationError, match="planted_distance_m.*two directions"
-    ):
+    with pytest.raises(SchemaViolationError, match="planted_distance_m.*two directions"):
         metric_dictionary((*shipped_calculators(), _HigherAtEpisode, _LowerAtRobot))
 
 

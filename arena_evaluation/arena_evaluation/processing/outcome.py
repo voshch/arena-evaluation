@@ -14,9 +14,7 @@ _VERDICTS: Final[dict[int, tuple[str, bool]]] = {
 UNRESOLVED: Final[str] = "UNRESOLVED"
 
 
-def outcome_verdict(
-    outcome_state: int | None, outcome_info: str | None
-) -> tuple[str, bool]:
+def outcome_verdict(outcome_state: int | None, outcome_info: str | None) -> tuple[str, bool]:
     """(result, success) the runtime recorded; a state it never resolved is UNRESOLVED and no success."""
     if outcome_info == "collision":
         return "COLLISION", False

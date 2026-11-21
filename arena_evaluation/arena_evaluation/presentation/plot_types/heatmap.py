@@ -35,9 +35,7 @@ class HeatmapRenderer(BasePlotRenderer):
         labels = sorted(set(values.tolist()))
         return labels, {label: index for index, label in enumerate(labels)}
 
-    def _extract_matrix(
-        self, df: pl.DataFrame
-    ) -> tuple[list[str], list[str], np.ndarray] | None:
+    def _extract_matrix(self, df: pl.DataFrame) -> tuple[list[str], list[str], np.ndarray] | None:
         if df.is_empty():
             return None
         x_col = self.resolve_channel("x")
@@ -45,23 +43,15 @@ class HeatmapRenderer(BasePlotRenderer):
         z_col = self.resolve_channel("color")
         if not z_col:
             value_col = self.spec.options.get("value_col")
-            z_col = (
-                value_col.strip()
-                if isinstance(value_col, str) and value_col.strip()
-                else None
-            )
+            z_col = value_col.strip() if isinstance(value_col, str) and value_col.strip() else None
         if not (x_col and y_col and z_col):
-            raise ValueError(
-                f"Plot {self.spec.id!r}: heatmap requires channels 'x', 'y', and 'color' (or option 'value_col')."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: heatmap requires channels 'x', 'y', and 'color' (or option 'value_col').")
         self.validate_unique_cells(df, [x_col, y_col])
         x_arr, y_arr = label_values(df, x_col), label_values(df, y_col)
         x_labels, x_idx = self._axis_index(x_arr)
         y_labels, y_idx = self._axis_index(y_arr)
         matrix = np.full((len(y_labels), len(x_labels)), np.nan, dtype=float)
-        for xv, yv, zv in zip(
-            x_arr, y_arr, df[z_col].cast(pl.Float64).to_numpy(), strict=True
-        ):
+        for xv, yv, zv in zip(x_arr, y_arr, df[z_col].cast(pl.Float64).to_numpy(), strict=True):
             if zv is not None and not np.isnan(zv):
                 matrix[y_idx[yv], x_idx[xv]] = float(zv)
         return x_labels, y_labels, matrix

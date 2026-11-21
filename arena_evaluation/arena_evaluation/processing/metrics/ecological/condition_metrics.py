@@ -28,7 +28,11 @@ from arena_evaluation.processing.metrics.common.resampling import (
 )
 from arena_evaluation.processing.metrics.common.rosters import (
     entity_roster as _entity_roster,
+)
+from arena_evaluation.processing.metrics.common.rosters import (
     ped_roster as _ped_roster,
+)
+from arena_evaluation.processing.metrics.common.rosters import (
     strip_env,
 )
 from arena_evaluation.processing.metrics.common.zones import (
@@ -92,13 +96,7 @@ def judge_zone_geometry(flattened: Level) -> list[ZoneGeometry]:
     """Every polygon the online judge resolves by name on a flattened world: zones, doors and elevator cabins."""
     zones = extract_zone_geometry(flattened, require_annotation=False)
     known = {zone.name for zone in zones}
-    zones.extend(
-        ZoneGeometry(
-            name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False
-        )
-        for name, polygon in zone_polygons(flattened).items()
-        if name not in known
-    )
+    zones.extend(ZoneGeometry(name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False) for name, polygon in zone_polygons(flattened).items() if name not in known)
     return zones
 
 
@@ -128,9 +126,7 @@ def load_wall_grid(world_name: str) -> WallGrid | None:
     return walls
 
 
-def clips_on_axis(
-    peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray
-) -> list[dict[str, frozenset[str]]] | None:
+def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
     """Per instant, the gesture clips of every pedestrian in the frame held at it, None when the recording carries no pedestrian_gestures table."""
     if gestures is None or peds is None or len(peds) == 0:
         return None
@@ -150,14 +146,7 @@ def clips_on_axis(
     times = np.array([int(frame["t_ns"][0]) for frame in frames], dtype=np.int64)
     rows: list[dict[str, frozenset[str]]] = []
     for k, frame in enumerate(frames):
-        rows.append(
-            {
-                strip_env(str(name)): frozenset(
-                    playing.get(int(times[k]), {}).get(str(ped_id), ())
-                )
-                for name, ped_id in zip(frame["ped_name"], frame["ped_id"], strict=True)
-            }
-        )
+        rows.append({strip_env(str(name)): frozenset(playing.get(int(times[k]), {}).get(str(ped_id), ())) for name, ped_id in zip(frame["ped_name"], frame["ped_id"], strict=True)})
     idx = asof_index(times, t_ns)
     return [rows[i] if i >= 0 else {} for i in idx]
 
@@ -260,9 +249,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             return empty
 
         peds_df = self.native_ped_frame(episode)
-        peds_frames = (
-            frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
-        )
+        peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
         ctx = _EvalContext(
             events=_reconstruct_events(episode.semantic_snapshot),
             t_ns=t_ns,
@@ -282,9 +269,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
                 t_ns,
             ),
             peds_frames=peds_frames,
-            peds_times=np.array(
-                [int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64
-            ),
+            peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )
 
         verdicts = [_clause_verdict(clause, ctx) for clause in conditions]

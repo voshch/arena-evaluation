@@ -74,17 +74,11 @@ class _BaseParams(BaseModel):
     exclude_references: bool = True
     valid_only: bool = Field(
         default=True,
-        description=(
-            "Drop every episode the benchmark flagged invalid for ranking; the excluded count and "
-            "each NULL metric's reason are returned with the result."
-        ),
+        description=("Drop every episode the benchmark flagged invalid for ranking; the excluded count and each NULL metric's reason are returned with the result."),
     )
     directions: dict[str, str] | None = Field(
         default=None,
-        description=(
-            "Better-side override per metric; a metric left out resolves from dim_metrics and then "
-            "from the metric registry."
-        ),
+        description=("Better-side override per metric; a metric left out resolves from dim_metrics and then from the metric registry."),
     )
 
     @property
@@ -194,9 +188,7 @@ def register_computation(
     """Register a computation function under ``name`` with its param model and output table."""
 
     def _decorator(fn: _ComputeFn) -> _ComputeFn:
-        COMPUTATIONS[name] = Computation(
-            name=name, params=params, output=output, description=description, fn=fn
-        )
+        COMPUTATIONS[name] = Computation(name=name, params=params, output=output, description=description, fn=fn)
         return fn
 
     return _decorator
@@ -205,9 +197,7 @@ def register_computation(
 def get_computation(name: str) -> Computation:
     """Look up a registered computation by name."""
     if name not in COMPUTATIONS:
-        raise KeyError(
-            f"Unknown computation '{name}'. Available: {sorted(COMPUTATIONS)}"
-        )
+        raise KeyError(f"Unknown computation '{name}'. Available: {sorted(COMPUTATIONS)}")
     return COMPUTATIONS[name]
 
 
@@ -237,10 +227,7 @@ class MetricDirections:
         """One line per non-default direction source, carried on the analysis result."""
         if not self.from_override:
             return ()
-        return (
-            f"directions_from_param={len(self.from_override)}:"
-            f"{','.join(self.from_override)}",
-        )
+        return (f"directions_from_param={len(self.from_override)}:{','.join(self.from_override)}",)
 
 
 def resolve_metric_directions(
@@ -263,9 +250,7 @@ def resolve_metric_directions(
         override = overrides.get(metric)
         if override is not None:
             if override not in _DIRECTIONS:
-                raise ValueError(
-                    f"Metric '{metric}' declares direction {override!r}; expected one of {list(_DIRECTIONS)}."
-                )
+                raise ValueError(f"Metric '{metric}' declares direction {override!r}; expected one of {list(_DIRECTIONS)}.")
             by_metric[metric] = override
             from_override.append(metric)
             continue
@@ -275,41 +260,25 @@ def resolve_metric_directions(
             continue
         unresolved.append(metric)
     if unresolved:
-        raise ValueError(
-            f"{len(unresolved)} metric(s) have no 'higher'/'lower' direction in dim_metrics: "
-            f"{unresolved}. Publish them in the metric dictionary or pass them through the "
-            "computation's directions parameter."
-        )
+        raise ValueError(f"{len(unresolved)} metric(s) have no 'higher'/'lower' direction in dim_metrics: {unresolved}. Publish them in the metric dictionary or pass them through the computation's directions parameter.")
     return MetricDirections(by_metric=by_metric, from_override=tuple(from_override))
 
 
-def resolve_metric_units(
-    catalog: BenchmarkCatalog, metrics: Sequence[str]
-) -> dict[str, str]:
+def resolve_metric_units(catalog: BenchmarkCatalog, metrics: Sequence[str]) -> dict[str, str]:
     """Resolve metric unit strings from ``dim_metrics`` (empty string if NULL/absent)."""
     rows = _dim_metrics_rows(catalog)
-    return {
-        metric: (rows[metric][1] or "") if metric in rows else "" for metric in metrics
-    }
+    return {metric: (rows[metric][1] or "") if metric in rows else "" for metric in metrics}
 
 
-def null_reason_counts(
-    df: pl.DataFrame, columns: Sequence[str], reason_columns: Sequence[str]
-) -> dict[str, int]:
+def null_reason_counts(df: pl.DataFrame, columns: Sequence[str], reason_columns: Sequence[str]) -> dict[str, int]:
     """Count NULL cells of every ``columns`` entry by the ``<column>:<code>`` reason its row carries.
 
     The one per-reason breakdown shared by the computations and the analysis procedures.
     """
     if df.is_empty():
         return {}
-    reasons = df.select(
-        pl.concat_str(
-            [pl.col(name).fill_null("") for name in reason_columns], separator=";"
-        ).alias("_reason")
-    )
-    frame = df.select(*[pl.col(name) for name in dict.fromkeys(columns)]).with_columns(
-        reasons.get_column("_reason")
-    )
+    reasons = df.select(pl.concat_str([pl.col(name).fill_null("") for name in reason_columns], separator=";").alias("_reason"))
+    frame = df.select(*[pl.col(name) for name in dict.fromkeys(columns)]).with_columns(reasons.get_column("_reason"))
     counts: dict[str, int] = {}
     for column in dict.fromkeys(columns):
         null_rows = frame.filter(pl.col(column).is_null()).with_row_index("_row")
@@ -351,9 +320,7 @@ def _prepare(
         *(n for n in sorted(catalog.table_names()) if n.startswith("v_series_")),
     ]
     if params.source not in allowed:
-        raise ValueError(
-            f"Unsupported computation source {params.source!r}. Allowed: {allowed}"
-        )
+        raise ValueError(f"Unsupported computation source {params.source!r}. Allowed: {allowed}")
     lf = catalog.get_table(params.source)
     row_filter = params.filter or {}
     available = lf.collect_schema().names()
@@ -372,11 +339,7 @@ def _prepare(
     )
     lf = lf.select(select_cols)
     for col, val in row_filter.items():
-        lf = lf.filter(
-            pl.col(col).is_in(list(val))
-            if isinstance(val, tuple)
-            else pl.col(col) == val
-        )
+        lf = lf.filter(pl.col(col).is_in(list(val)) if isinstance(val, tuple) else pl.col(col) == val)
     df = lf.collect()
 
     excluded: dict[str, int] = {}
@@ -396,32 +359,22 @@ def _prepare(
         excluded.update(null_reason_counts(df, needed_cols, reason_cols))
         df = df.drop(reason_cols)
 
-    seeds = tuple(
-        int(s) for s in df.get_column("seed").drop_nulls().unique().sort().to_numpy()
-    )
+    seeds = tuple(int(s) for s in df.get_column("seed").drop_nulls().unique().sort().to_numpy())
     return df.drop(_VALIDITY_COLUMN), excluded, seeds
 
 
-def _validate_output_schema(
-    df: pl.DataFrame, table_cls: type[Table], group_cols: Sequence[str] = ()
-) -> None:
+def _validate_output_schema(df: pl.DataFrame, table_cls: type[Table], group_cols: Sequence[str] = ()) -> None:
     """Enforce exact column order and Polars dtypes against a registered ``TableKind.ANALYSIS`` schema."""
     expected_tail = table_cls.polars_schema()
     expected_cols = [*group_cols, *expected_tail.names()]
     if df.columns != expected_cols:
-        raise AssertionError(
-            f"{table_cls.table_name} columns {df.columns} != expected {expected_cols}"
-        )
+        raise AssertionError(f"{table_cls.table_name} columns {df.columns} != expected {expected_cols}")
     for col, dtype in expected_tail.items():
         if df.schema[col] != dtype:
-            raise AssertionError(
-                f"{table_cls.table_name}.{col} dtype {df.schema[col]} != {dtype}"
-            )
+            raise AssertionError(f"{table_cls.table_name}.{col} dtype {df.schema[col]} != {dtype}")
 
 
-def _compute_group_summary(
-    catalog: BenchmarkCatalog, p: GroupSummaryParams
-) -> AnalysisResult:
+def _compute_group_summary(catalog: BenchmarkCatalog, p: GroupSummaryParams) -> AnalysisResult:
     df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, *p.metrics])
     units = resolve_metric_units(catalog, p.metrics)
     analysis_cols = GroupSummaryAnalysis.polars_schema().names()
@@ -434,9 +387,7 @@ def _compute_group_summary(
             bounds = [pl.col(metric).quantile(q) for q in (low_q, high_q)]
             if p.group_cols:
                 bounds = [bound.over(p.group_cols) for bound in bounds]
-            work = work.filter(
-                (pl.col(metric) >= bounds[0]) & (pl.col(metric) <= bounds[1])
-            )
+            work = work.filter((pl.col(metric) >= bounds[0]) & (pl.col(metric) <= bounds[1]))
 
         if work.schema[metric] == pl.Boolean:
             prob = pl.col(metric).cast(pl.Float64).mean()
@@ -466,18 +417,9 @@ def _compute_group_summary(
             mean_expr = val.mean()
             raw_std = val.std()
             std_expr = pl.when(cnt >= 2).then(raw_std).otherwise(None).cast(pl.Float64)
-            sem_expr = (
-                pl.when(cnt >= 2)
-                .then(raw_std / cnt.cast(pl.Float64).sqrt())
-                .otherwise(None)
-                .cast(pl.Float64)
-            )
+            sem_expr = pl.when(cnt >= 2).then(raw_std / cnt.cast(pl.Float64).sqrt()).otherwise(None).cast(pl.Float64)
             ci_half = _WILSON_Z * sem_expr
-            err_expr = (
-                ci_half
-                if p.error_mode == "ci95"
-                else (sem_expr if p.error_mode == "sem" else std_expr)
-            )
+            err_expr = ci_half if p.error_mode == "ci95" else (sem_expr if p.error_mode == "sem" else std_expr)
             aggs = [
                 cnt.alias("n"),
                 mean_expr.alias("mean"),
@@ -489,11 +431,7 @@ def _compute_group_summary(
                 err_expr.alias("err_minus"),
             ]
 
-        grouped = (
-            work.group_by(list(p.group_cols)).agg(aggs)
-            if p.group_cols
-            else work.select(aggs)
-        )
+        grouped = work.group_by(list(p.group_cols)).agg(aggs) if p.group_cols else work.select(aggs)
         parts.append(
             grouped.with_columns(
                 pl.lit(metric).cast(pl.String).alias("metric"),
@@ -502,14 +440,10 @@ def _compute_group_summary(
         )
 
     out = pl.concat(parts).sort([*p.group_cols, "metric"])
-    return AnalysisResult(
-        frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
-    )
+    return AnalysisResult(frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds)
 
 
-def _compute_distribution_bins(
-    catalog: BenchmarkCatalog, p: DistributionBinsParams
-) -> AnalysisResult:
+def _compute_distribution_bins(catalog: BenchmarkCatalog, p: DistributionBinsParams) -> AnalysisResult:
     df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     schema = {
@@ -520,9 +454,7 @@ def _compute_distribution_bins(
     valid = df.filter(metric_f64.is_not_null() & ~metric_f64.is_nan())
     if valid.is_empty():
         empty = pl.DataFrame(schema=schema)
-        return AnalysisResult(
-            frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
-        )
+        return AnalysisResult(frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds)
 
     all_vals = valid.get_column(p.metric).cast(pl.Float64).to_numpy()
     low, high = float(all_vals.min()), float(all_vals.max())
@@ -535,9 +467,7 @@ def _compute_distribution_bins(
 
     groups: list[tuple[dict[str, object], np.ndarray]] = []
     if p.group_cols:
-        for keys, sub in valid.sort(list(p.group_cols)).group_by(
-            list(p.group_cols), maintain_order=True
-        ):
+        for keys, sub in valid.sort(list(p.group_cols)).group_by(list(p.group_cols), maintain_order=True):
             groups.append(
                 (
                     dict(zip(p.group_cols, keys, strict=True)),
@@ -553,9 +483,7 @@ def _compute_distribution_bins(
         total = float(counts.sum())
         for idx in range(p.nbins):
             cnt = int(counts[idx])
-            scale = (
-                total * width if p.density and total > 0.0 and width > 0.0 else total
-            )
+            scale = total * width if p.density and total > 0.0 and width > 0.0 else total
             density = cnt / scale if scale > 0.0 else 0.0
             rows.append(
                 {
@@ -572,22 +500,14 @@ def _compute_distribution_bins(
             )
 
     out = pl.DataFrame(rows, schema=schema)
-    return AnalysisResult(
-        frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
-    )
+    return AnalysisResult(frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds)
 
 
-def _compute_radar_profile(
-    catalog: BenchmarkCatalog, p: RadarProfileParams
-) -> AnalysisResult:
+def _compute_radar_profile(catalog: BenchmarkCatalog, p: RadarProfileParams) -> AnalysisResult:
     directions = resolve_metric_directions(catalog, p.metrics, declared=p.directions)
     units = resolve_metric_units(catalog, p.metrics)
     df, excluded, seeds = _prepare(catalog, p, [p.group_col, *p.metrics])
-    grouped = (
-        df.group_by(p.group_col)
-        .agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics])
-        .sort(p.group_col)
-    )
+    grouped = df.group_by(p.group_col).agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics]).sort(p.group_col)
     if grouped.is_empty():
         empty = pl.DataFrame(
             schema={
@@ -595,9 +515,7 @@ def _compute_radar_profile(
                 **RadarProfileAnalysis.polars_schema(),
             }
         )
-        return AnalysisResult(
-            frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
-        )
+        return AnalysisResult(frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds)
 
     raw = grouped.select(list(p.metrics)).to_numpy().astype(np.float64, copy=False)
     norm = np.full_like(raw, np.nan, dtype=np.float64)
@@ -615,9 +533,7 @@ def _compute_radar_profile(
             loggable = valid & (col > -1.0)
             rejected = int(np.count_nonzero(valid & ~loggable))
             if rejected:
-                untransformable["log1p_domain"] = (
-                    untransformable.get("log1p_domain", 0) + rejected
-                )
+                untransformable["log1p_domain"] = untransformable.get("log1p_domain", 0) + rejected
             col = np.log1p(np.where(loggable, col, np.nan))
             valid = loggable
         if not np.any(valid):
@@ -626,16 +542,12 @@ def _compute_radar_profile(
         high = float(col_valid.max())
         low = float(col_valid.min())
         match direction:
-            case MetricDirection.HIGHER | MetricDirection.LOWER if (
-                high == 0.0 and low == 0.0
-            ):
+            case MetricDirection.HIGHER | MetricDirection.LOWER if high == 0.0 and low == 0.0:
                 normalized = np.ones_like(col_valid)
             case MetricDirection.HIGHER if high > 0.0:
                 normalized = col_valid / high
             case MetricDirection.HIGHER:
-                untransformable[metric] = untransformable.get(metric, 0) + int(
-                    col_valid.size
-                )
+                untransformable[metric] = untransformable.get(metric, 0) + int(col_valid.size)
                 continue
             case MetricDirection.LOWER if low > 0.0:
                 normalized = low / col_valid
@@ -644,10 +556,7 @@ def _compute_radar_profile(
             case MetricDirection.LOWER:
                 normalized = 1.0 - col_valid / high
             case _:
-                raise ValueError(
-                    f"metric {metric!r} declares direction {direction!r}; "
-                    f"expected one of {list(_DIRECTIONS)}"
-                )
+                raise ValueError(f"metric {metric!r} declares direction {direction!r}; expected one of {list(_DIRECTIONS)}")
         column = np.full(col.shape, np.nan, dtype=np.float64)
         column[valid] = np.clip(normalized, 0.0, 1.0)
         norm[:, col_idx] = column
@@ -655,10 +564,7 @@ def _compute_radar_profile(
     norm_df = pl.DataFrame(
         {
             p.group_col: grouped.get_column(p.group_col),
-            **{
-                m: pl.Series(m, norm[:, idx], dtype=pl.Float64).fill_nan(None)
-                for idx, m in enumerate(p.metrics)
-            },
+            **{m: pl.Series(m, norm[:, idx], dtype=pl.Float64).fill_nan(None) for idx, m in enumerate(p.metrics)},
         }
     )
     raw_long = grouped.unpivot(
@@ -680,14 +586,7 @@ def _compute_radar_profile(
             "direction": [directions.by_metric[m] for m in p.metrics],
         }
     )
-    out = (
-        raw_long.join(
-            norm_long, on=[p.group_col, "metric"], how="inner", nulls_equal=True
-        )
-        .join(meta_df, on="metric", how="inner")
-        .select([p.group_col, *RadarProfileAnalysis.polars_schema().names()])
-        .sort([p.group_col, "metric"])
-    )
+    out = raw_long.join(norm_long, on=[p.group_col, "metric"], how="inner", nulls_equal=True).join(meta_df, on="metric", how="inner").select([p.group_col, *RadarProfileAnalysis.polars_schema().names()]).sort([p.group_col, "metric"])
     return AnalysisResult(
         frame=out,
         summary=out,
@@ -695,10 +594,7 @@ def _compute_radar_profile(
         seeds_used=seeds,
         diagnostics=(
             *directions.diagnostics,
-            *(
-                f"radar_untransformable:{metric}={count}"
-                for metric, count in sorted(untransformable.items())
-            ),
+            *(f"radar_untransformable:{metric}={count}" for metric, count in sorted(untransformable.items())),
         ),
     )
 
@@ -713,11 +609,7 @@ def _run_composite_ranking(
     units = resolve_metric_units(catalog, p.metrics)
     weights = {m: float(p.weights.get(m, 1.0)) if p.weights else 1.0 for m in p.metrics}
     df, excluded, seeds = _prepare(catalog, p, [p.group_col, *p.metrics])
-    grouped = (
-        df.group_by(p.group_col)
-        .agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics])
-        .sort(p.group_col)
-    )
+    grouped = df.group_by(p.group_col).agg([pl.col(m).cast(pl.Float64).mean().alias(m) for m in p.metrics]).sort(p.group_col)
     group_rows = grouped.to_dicts()
     norm_scores: dict[tuple[int, str], float | None] = {}
     for metric in p.metrics:
@@ -725,39 +617,20 @@ def _run_composite_ranking(
         if not vals:
             continue
         low, high = min(vals), max(vals)
-        higher_is_better = (
-            MetricDirection(directions.by_metric[metric]) is MetricDirection.HIGHER
-        )
+        higher_is_better = MetricDirection(directions.by_metric[metric]) is MetricDirection.HIGHER
         for idx, row in enumerate(group_rows):
             value = row[metric]
-            normalized = (
-                None
-                if value is None
-                else 0.5
-                if high == low
-                else (value - low) / (high - low)
-            )
-            norm_scores[(idx, metric)] = (
-                normalized
-                if normalized is None or higher_is_better
-                else 1.0 - normalized
-            )
+            normalized = None if value is None else 0.5 if high == low else (value - low) / (high - low)
+            norm_scores[(idx, metric)] = normalized if normalized is None or higher_is_better else 1.0 - normalized
 
     scored: list[tuple[int, float | None]] = []
     for idx in range(len(group_rows)):
-        pairs = [
-            (weights[metric], norm_scores[(idx, metric)])
-            for metric in p.metrics
-            if norm_scores.get((idx, metric)) is not None
-        ]
+        pairs = [(weights[metric], norm_scores[(idx, metric)]) for metric in p.metrics if norm_scores.get((idx, metric)) is not None]
         total_w = sum(weight for weight, _ in pairs)
         scored.append(
             (
                 idx,
-                sum(weight * value for weight, value in pairs if value is not None)
-                / total_w
-                if pairs and total_w > 0.0
-                else None,
+                sum(weight * value for weight, value in pairs if value is not None) / total_w if pairs and total_w > 0.0 else None,
             )
         )
 
@@ -800,18 +673,14 @@ def _run_composite_ranking(
     )
 
 
-def _compute_correlation_matrix(
-    catalog: BenchmarkCatalog, p: CorrelationMatrixParams
-) -> AnalysisResult:
+def _compute_correlation_matrix(catalog: BenchmarkCatalog, p: CorrelationMatrixParams) -> AnalysisResult:
     df, excluded, seeds = _prepare(catalog, p, p.metrics)
     work = df.select([pl.col(m).cast(pl.Float64) for m in p.metrics])
     rows: list[dict[str, object]] = []
     for mx in p.metrics:
         for my in p.metrics:
             pair = work.select(
-                n_pairs=(pl.col(mx).is_not_null() & pl.col(my).is_not_null())
-                .sum()
-                .cast(pl.Int64),
+                n_pairs=(pl.col(mx).is_not_null() & pl.col(my).is_not_null()).sum().cast(pl.Int64),
                 r=pl.corr(mx, my).cast(pl.Float64),
             )
             raw_r = pair["r"][0]
@@ -819,28 +688,16 @@ def _compute_correlation_matrix(
                 {
                     "metric_x": mx,
                     "metric_y": my,
-                    "pearson_r": (
-                        float(raw_r)
-                        if raw_r is not None and math.isfinite(float(raw_r))
-                        else None
-                    ),
+                    "pearson_r": (float(raw_r) if raw_r is not None and math.isfinite(float(raw_r)) else None),
                     "n_pairs": int(pair["n_pairs"][0]),
                 }
             )
-    out = pl.DataFrame(rows, schema=CorrelationMatrixAnalysis.polars_schema()).sort(
-        ["metric_x", "metric_y"]
-    )
-    return AnalysisResult(
-        frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
-    )
+    out = pl.DataFrame(rows, schema=CorrelationMatrixAnalysis.polars_schema()).sort(["metric_x", "metric_y"])
+    return AnalysisResult(frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds)
 
 
-def _compute_paired_diff(
-    catalog: BenchmarkCatalog, p: PairedDiffParams
-) -> AnalysisResult:
-    df, excluded, seeds = _prepare(
-        catalog, p, [p.arm_col, *p.pair_cols, p.cluster_col, p.metric]
-    )
+def _compute_paired_diff(catalog: BenchmarkCatalog, p: PairedDiffParams) -> AnalysisResult:
+    df, excluded, seeds = _prepare(catalog, p, [p.arm_col, *p.pair_cols, p.cluster_col, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     res = paired_treatment_diff(
         df,
@@ -864,11 +721,7 @@ def _compute_paired_diff(
         pl.col("p_value").cast(pl.Float64),
         pl.col("n_clusters").cast(pl.Int64),
     )
-    effect_note = (
-        (f"cohens_dz_undefined:std_diff:{NullReason.ZERO_DENOMINATOR.value}",)
-        if res.cohens_dz is None and res.n_pairs > 0
-        else ()
-    )
+    effect_note = (f"cohens_dz_undefined:std_diff:{NullReason.ZERO_DENOMINATOR.value}",) if res.cohens_dz is None and res.n_pairs > 0 else ()
     return AnalysisResult(
         frame=res.pairs_frame,
         summary=summary,
@@ -878,9 +731,7 @@ def _compute_paired_diff(
     )
 
 
-def _compute_cluster_bootstrap_ci(
-    catalog: BenchmarkCatalog, p: ClusterBootstrapCIParams
-) -> AnalysisResult:
+def _compute_cluster_bootstrap_ci(catalog: BenchmarkCatalog, p: ClusterBootstrapCIParams) -> AnalysisResult:
     df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.cluster_col, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     raw = cluster_bootstrap_ci(
@@ -906,14 +757,10 @@ def _compute_cluster_bootstrap_ci(
     dropped = int(raw["dropped_rows"][0]) if raw.height else 0
     if dropped:
         excluded = {**excluded, f"{p.metric}:{NullReason.NOT_RECORDED}": dropped}
-    return AnalysisResult(
-        frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
-    )
+    return AnalysisResult(frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds)
 
 
-def _compute_series_profile(
-    catalog: BenchmarkCatalog, p: SeriesProfileParams
-) -> AnalysisResult:
+def _compute_series_profile(catalog: BenchmarkCatalog, p: SeriesProfileParams) -> AnalysisResult:
     df, excluded, seeds = _prepare(catalog, p, [*p.group_cols, p.x, p.metric])
     unit = resolve_metric_units(catalog, (p.metric,))[p.metric]
     out_cols = [*p.group_cols, *SeriesProfileAnalysis.polars_schema().names()]
@@ -925,30 +772,21 @@ def _compute_series_profile(
                 **SeriesProfileAnalysis.polars_schema(),
             }
         ).select(out_cols)
-        return AnalysisResult(
-            frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds
-        )
+        return AnalysisResult(frame=empty, summary=empty, excluded_rows=excluded, seeds_used=seeds)
 
     x_col = pl.col(p.x).cast(pl.Float64)
-    x_expr = (
-        (x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col
-    ).alias("x")
+    x_expr = ((x_col / p.bin_x).round(0) * p.bin_x if p.bin_x is not None else x_col).alias("x")
     work = work.with_columns(x_expr, pl.col(p.metric).cast(pl.Float64).alias("_y"))
 
     cell_keys = [*p.group_cols, "x"]
     if p.trim_percentile > 0.0:
         low_q = p.trim_percentile / 2.0
         high_q = 1.0 - low_q
-        work = work.filter(
-            (pl.col("_y") >= pl.col("_y").quantile(low_q).over(cell_keys))
-            & (pl.col("_y") <= pl.col("_y").quantile(high_q).over(cell_keys))
-        )
+        work = work.filter((pl.col("_y") >= pl.col("_y").quantile(low_q).over(cell_keys)) & (pl.col("_y") <= pl.col("_y").quantile(high_q).over(cell_keys)))
 
     n_expr = pl.col("_y").count().cast(pl.Int64).alias("n")
     if p.reduce == "leq":
-        value_expr = (10.0 * (10.0 ** (pl.col("_y") / 10.0)).mean().log10()).alias(
-            "value"
-        )
+        value_expr = (10.0 * (10.0 ** (pl.col("_y") / 10.0)).mean().log10()).alias("value")
     elif p.reduce == "max":
         value_expr = pl.col("_y").max().alias("value")
     else:
@@ -964,11 +802,7 @@ def _compute_series_profile(
             "sem": std_expr / count_f64.sqrt(),
             "ci95": _WILSON_Z * std_expr / count_f64.sqrt(),
         }
-        err_expr = (
-            pl.when(pl.col("_y").count() >= 2)
-            .then(error_terms[p.error_mode])
-            .otherwise(pl.lit(None, dtype=pl.Float64))
-        )
+        err_expr = pl.when(pl.col("_y").count() >= 2).then(error_terms[p.error_mode]).otherwise(pl.lit(None, dtype=pl.Float64))
 
     agg = (
         work.group_by(cell_keys)
@@ -985,25 +819,14 @@ def _compute_series_profile(
 
         def _smooth_window(col_name: str, width: int) -> pl.Expr:
             pad_left = width // 2
-            terms = [
-                pl.when(pl.int_range(pl.len()) + offset < 0)
-                .then(pl.col(col_name).first())
-                .when(pl.int_range(pl.len()) + offset >= pl.len())
-                .then(pl.col(col_name).last())
-                .otherwise(pl.col(col_name).shift(-offset))
-                for offset in range(-pad_left, width - pad_left)
-            ]
+            terms = [pl.when(pl.int_range(pl.len()) + offset < 0).then(pl.col(col_name).first()).when(pl.int_range(pl.len()) + offset >= pl.len()).then(pl.col(col_name).last()).otherwise(pl.col(col_name).shift(-offset)) for offset in range(-pad_left, width - pad_left)]
             return sum(terms[1:], terms[0]) / float(width)
 
         exprs: list[pl.Expr] = []
         for col_name in ("value", "err_plus", "err_minus"):
             branch: pl.Expr = _smooth_window(col_name, max_w)
             for width in range(max_w - 1, 2, -1):
-                branch = (
-                    pl.when(pl.len() == width)
-                    .then(_smooth_window(col_name, width))
-                    .otherwise(branch)
-                )
+                branch = pl.when(pl.len() == width).then(_smooth_window(col_name, width)).otherwise(branch)
             expr = pl.when(pl.len() < 3).then(pl.col(col_name)).otherwise(branch)
             if p.group_cols:
                 expr = expr.over(list(p.group_cols))
@@ -1014,9 +837,7 @@ def _compute_series_profile(
         pl.lit(p.metric, dtype=pl.String).alias("metric"),
         pl.lit(unit, dtype=pl.String).alias("unit"),
     ).select(out_cols)
-    return AnalysisResult(
-        frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds
-    )
+    return AnalysisResult(frame=out, summary=out, excluded_rows=excluded, seeds_used=seeds)
 
 
 def run_computation(
@@ -1070,9 +891,7 @@ _COMPUTATION_SPECS: tuple[_ComputationSpec, ...] = (
         DistributionBinsParams,
         DistributionBinsAnalysis,
         _compute_distribution_bins,
-        "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); "
-        "the density column holds a probability mass per bin (count / total) unless density=True, "
-        "which divides by the bin width to give a probability density.",
+        "Fixed-edge histogram bins matching HistogramRenderer (nbins=15, +-1 flat widening); the density column holds a probability mass per bin (count / total) unless density=True, which divides by the bin width to give a probability density.",
     ),
     (
         "radar_profile",

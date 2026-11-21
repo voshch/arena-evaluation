@@ -83,9 +83,7 @@ def main() -> None:
 
         # Build door masks for contour rendering
         door_mask = _door_mask(grid, spec)
-        open_door_mask = (
-            door_mask & (tl == 0.0) if open_door else np.zeros_like(door_mask)
-        )
+        open_door_mask = door_mask & (tl == 0.0) if open_door else np.zeros_like(door_mask)
 
         import matplotlib
 
@@ -97,13 +95,9 @@ def main() -> None:
         ax.grid(False)
 
         # Main heatmap: inferno, walls NaN -> black background
-        im = ax.imshow(
-            np.flipud(field_dba), cmap="inferno", origin="upper", vmin=0, vmax=SOURCE
-        )
+        im = ax.imshow(np.flipud(field_dba), cmap="inferno", origin="upper", vmin=0, vmax=SOURCE)
         # 3 dB ticks = double-energy steps
-        cb = plt.colorbar(
-            im, ax=ax, label="Received level (dBA)", ticks=np.arange(0, SOURCE + 1, 3)
-        )
+        cb = plt.colorbar(im, ax=ax, label="Received level (dBA)", ticks=np.arange(0, SOURCE + 1, 3))
         cb.set_ticklabels([f"{t:.0f}" for t in np.arange(0, SOURCE + 1, 3)])
 
         # Door contours (matching AcousticFieldRenderer._render_cell_png style)
@@ -141,9 +135,7 @@ def main() -> None:
         OUT.mkdir(parents=True, exist_ok=True)
         fig.savefig(OUT / f"{name}.png", dpi=120)
         plt.close(fig)
-        print(
-            f"  {name:32s} received@target = {recv_target:6.1f} dBA  -> {OUT / name}.png"
-        )
+        print(f"  {name:32s} received@target = {recv_target:6.1f} dBA  -> {OUT / name}.png")
 
     print(f"\nFields (dBA) written to {OUT}")
 

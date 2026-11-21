@@ -75,13 +75,7 @@ class BuildChecks:
     @property
     def failed_count(self) -> int:
         """Declared plots that failed at least one build step (the summary pseudo-plot excluded)."""
-        return len(
-            {
-                failure.plot_id
-                for failure in self.failures
-                if failure.plot_id != _SUMMARY_PLOT_ID
-            }
-        )
+        return len({failure.plot_id for failure in self.failures if failure.plot_id != _SUMMARY_PLOT_ID})
 
     @property
     def passed_count(self) -> int:
@@ -116,11 +110,7 @@ def _declared_value_columns(spec: PlotSpec) -> tuple[str, ...]:
     names: list[str] = []
     for value in (channels.x, channels.y, channels.color, channels.size):
         candidates = [value] if isinstance(value, str) else (value or ())
-        names.extend(
-            name.strip()
-            for name in candidates
-            if isinstance(name, str) and name.strip()
-        )
+        names.extend(name.strip() for name in candidates if isinstance(name, str) and name.strip())
     return tuple(dict.fromkeys(names))
 
 
@@ -168,9 +158,7 @@ class DiagnosticInspector:
                     suffix = f" (reason: {reason})" if reason else ""
                     issues.append(f"Declared metric '{column}' is 100% NULL{suffix}")
             if checks.min_rows is not None and row_count < checks.min_rows:
-                issues.append(
-                    f"Row count {row_count} is below min_rows={checks.min_rows}"
-                )
+                issues.append(f"Row count {row_count} is below min_rows={checks.min_rows}")
 
         return PlotDiagnostics(
             status="FAILED" if issues else "PASSED",

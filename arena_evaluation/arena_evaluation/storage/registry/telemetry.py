@@ -610,9 +610,7 @@ class TfStatic(
     row_key: ClassVar[tuple[str, ...]] = ("t_ns", "parent_frame", "child_frame")
 
 
-class WorldSemantics(
-    _GlobalTelemetry, name="world_semantics", kind=TableKind.TELEMETRY
-):
+class WorldSemantics(_GlobalTelemetry, name="world_semantics", kind=TableKind.TELEMETRY):
     """Semantic state of the world's entities, one field per row."""
 
     row_key: ClassVar[tuple[str, ...]] = (
@@ -668,9 +666,7 @@ class EnvironmentMapCells(
     occupancy = _INT
 
 
-_TelemetryTable = (
-    type[_RobotTelemetry] | type[_EnvironmentTelemetry] | type[_GlobalTelemetry]
-)
+_TelemetryTable = type[_RobotTelemetry] | type[_EnvironmentTelemetry] | type[_GlobalTelemetry]
 
 
 def duplicate_row_keys(table: type[Table], frame: pl.DataFrame) -> pl.DataFrame:
@@ -682,6 +678,4 @@ def duplicate_row_keys(table: type[Table], frame: pl.DataFrame) -> pl.DataFrame:
 def null_row_keys(table: type[Table], frame: pl.DataFrame) -> pl.DataFrame:
     """Rows of a telemetry frame whose row key carries a null, with their key columns."""
     keys = cast(_TelemetryTable, table).row_key
-    return frame.filter(
-        pl.any_horizontal([pl.col(key).is_null() for key in keys])
-    ).select(keys)
+    return frame.filter(pl.any_horizontal([pl.col(key).is_null() for key in keys])).select(keys)

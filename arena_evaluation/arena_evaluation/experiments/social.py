@@ -72,9 +72,7 @@ def _world_dir() -> pathlib.Path:
         candidate = parent / "arena_simulation_setup" / "worlds" / WORLD
         if candidate.is_dir():
             return candidate
-    raise FileNotFoundError(
-        f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}"
-    )
+    raise FileNotFoundError(f"arena_simulation_setup/worlds/{WORLD} not found above {_ROOT}")
 
 
 def _agent(name: str, interaction: str) -> dict:
@@ -98,16 +96,12 @@ def _agent(name: str, interaction: str) -> dict:
     }
 
 
-def contact_positions(
-    center: tuple[float, float], separation: float
-) -> list[tuple[float, float, float]]:
+def contact_positions(center: tuple[float, float], separation: float) -> list[tuple[float, float, float]]:
     half = separation / 2.0
     return [(center[0] - half, center[1], 0.0), (center[0] + half, center[1], 3.14159)]
 
 
-def group_positions(
-    center: tuple[float, float], members: int = 3
-) -> list[tuple[float, float, float]]:
+def group_positions(center: tuple[float, float], members: int = 3) -> list[tuple[float, float, float]]:
     out = []
     for i in range(members):
         angle = 2.0 * np.pi * i / members
@@ -130,9 +124,7 @@ def write_scenario(
     directory.mkdir(parents=True, exist_ok=True)
     names = [f"person_{i}" for i in range(len(poses))]
     for name in names:
-        (directory / f"{name}.yaml").write_text(
-            yaml.safe_dump(_agent(name, interaction), sort_keys=False)
-        )
+        (directory / f"{name}.yaml").write_text(yaml.safe_dump(_agent(name, interaction), sort_keys=False))
     (directory / "scenario.yaml").write_text(
         yaml.safe_dump(
             {
@@ -172,9 +164,7 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
         for layout_name, layout in LAYOUTS.items():
             case = f"contact_{interaction}_{layout_name}"
             poses = contact_positions(layout["center"], separation)
-            write_scenario(
-                scenarios_dir / case, INTERACTION_TYPES[interaction], layout, poses
-            )
+            write_scenario(scenarios_dir / case, INTERACTION_TYPES[interaction], layout, poses)
             catalog.append(
                 (
                     case,
@@ -203,9 +193,7 @@ def generate(*, episodes: int = EPISODES) -> dict[str, int]:
     for arm in ("on", "off"):
         path = _ROOT.parents[1] / "configs" / "suites" / f"social_{arm}" / "suite.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False)
-        )
+        path.write_text(header + yaml.safe_dump({"stages": stages[arm]}, sort_keys=False))
     for case, description in catalog:
         print(f"  {case:28s} {description}")
     print(f"\n{len(stages['on'])} stages per arm x {episodes} episodes per contestant")
@@ -222,15 +210,11 @@ def _stage(case: str, arm: str, mode: str, seed: int, episodes: int) -> dict:
         "episodes": episodes,
         "seed": seed,
         "timeout": "90s",
-        "config": {
-            "scenario": {"file": case, "gesture_mode": mode, "contact_mode": "enabled"}
-        },
+        "config": {"scenario": {"file": case, "gesture_mode": mode, "contact_mode": "enabled"}},
     }
 
 
-CENTERS = {
-    f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()
-} | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
+CENTERS = {f"contact_{i}_{k}": v["center"] for i in CONTACT for k, v in LAYOUTS.items()} | {f"group_{k}": v["center"] for k, v in GROUP_LAYOUTS.items()}
 METRICS = (
     "min_ped_clearance_m",
     "path_length_m",
@@ -268,22 +252,9 @@ def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
         )
         .alias("center_y")
     )
-    radius = (
-        pl.when(pl.col("case").str.starts_with("group"))
-        .then(GROUP_RADIUS_M)
-        .otherwise(0.8)
-        .alias("radius")
-    )
-    points = (
-        cases.select("episode_id", "case")
-        .lazy()
-        .join(tracks.select("episode_id", "x", "y"), on="episode_id", how="inner")
-        .with_columns(center_x, center_y, radius)
-    )
-    distance = (
-        (pl.col("x") - pl.col("center_x")) ** 2
-        + (pl.col("y") - pl.col("center_y")) ** 2
-    ).sqrt()
+    radius = pl.when(pl.col("case").str.starts_with("group")).then(GROUP_RADIUS_M).otherwise(0.8).alias("radius")
+    points = cases.select("episode_id", "case").lazy().join(tracks.select("episode_id", "x", "y"), on="episode_id", how="inner").with_columns(center_x, center_y, radius)
+    distance = ((pl.col("x") - pl.col("center_x")) ** 2 + (pl.col("y") - pl.col("center_y")) ** 2).sqrt()
     per_episode = (
         points.group_by("episode_id")
         .agg(
@@ -300,14 +271,8 @@ def load(run: pathlib.Path, arm: str) -> pl.DataFrame:
 
 def matched(df: pl.DataFrame) -> pl.DataFrame:
     """Per planner and arm, pooled over the cases that produced episodes in both arms."""
-    have = (
-        df.group_by(["planner", "case", "arm"])
-        .agg(pl.len())
-        .pivot(on="arm", index=["planner", "case"], values="len")
-    )
-    both = have.filter(pl.col("on").is_not_null() & pl.col("off").is_not_null()).select(
-        ["planner", "case"]
-    )
+    have = df.group_by(["planner", "case", "arm"]).agg(pl.len()).pivot(on="arm", index=["planner", "case"], values="len")
+    both = have.filter(pl.col("on").is_not_null() & pl.col("off").is_not_null()).select(["planner", "case"])
     return (
         df.join(both, on=["planner", "case"], how="inner")
         .group_by(["planner", "arm"], maintain_order=True)
@@ -332,11 +297,7 @@ def analyze(
     out_dir: pathlib.Path | None = None,
 ) -> dict[str, pl.DataFrame]:
     df = pl.concat([load(on, "on"), load(off, "off")], how="diagonal")
-    df = df.with_columns(
-        (pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1)
-        .cast(pl.Int64)
-        .alias("seed")
-    )
+    df = df.with_columns((pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
 
     descriptive = (
         df.group_by(["case", "planner", "arm"], maintain_order=True)
@@ -360,12 +321,8 @@ def analyze(
             clusters = []
             for (_case,), case_group in group.group_by(["case"], maintain_order=True):
                 valid = case_group.filter(pl.col(metric).is_not_null())
-                off_df = valid.filter(pl.col("arm") == "off").select(
-                    "seed", pl.col(metric).cast(pl.Float64).alias("off_val")
-                )
-                on_df = valid.filter(pl.col("arm") == "on").select(
-                    "seed", pl.col(metric).cast(pl.Float64).alias("on_val")
-                )
+                off_df = valid.filter(pl.col("arm") == "off").select("seed", pl.col(metric).cast(pl.Float64).alias("off_val"))
+                on_df = valid.filter(pl.col("arm") == "on").select("seed", pl.col(metric).cast(pl.Float64).alias("on_val"))
                 pairs = off_df.join(on_df, on="seed", how="inner")
                 if pairs.height:
                     clusters.append((pairs["off_val"] - pairs["on_val"]).to_numpy())
@@ -401,9 +358,7 @@ def analyze(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     gen = sub.add_parser("generate")
     gen.add_argument("--episodes", type=int, default=EPISODES)

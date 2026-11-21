@@ -98,7 +98,4 @@ def test_trajectory_renderer_with_world_geometry_and_missing_world_notice(
     out_missing = tmp_path / "traj_missing.png"
     renderer_missing.render_static(df, out_missing)
     assert out_missing.exists() and out_missing.stat().st_size > 1000
-    assert any(
-        "dim_world_geometry has no rows" in w
-        for w in renderer_missing.diagnostics.issues
-    )
+    assert any("dim_world_geometry has no rows" in w for w in renderer_missing.diagnostics.issues)

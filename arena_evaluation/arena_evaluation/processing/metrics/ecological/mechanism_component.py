@@ -115,9 +115,7 @@ class MechanismComponentCalculator(BaseMetricCalculator):
     DIRECTIONS = {"mechanism_score": Direction.HIGHER}
     PRIMARY_OUTPUTS = ["mechanism_score"]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del episode
         score, used = mechanism_score(prior_results)
         return {"mechanism_score": score, "mechanism_components": used}

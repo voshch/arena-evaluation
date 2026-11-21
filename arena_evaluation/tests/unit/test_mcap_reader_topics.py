@@ -72,9 +72,7 @@ TWIST_MSG = (
 )
 TWIST_STAMPED = (
     "geometry_msgs/msg/TwistStamped",
-    _msgdef(
-        "std_msgs/Header header\ngeometry_msgs/Twist twist", HEADER, TIME, TWIST, VEC3
-    ),
+    _msgdef("std_msgs/Header header\ngeometry_msgs/Twist twist", HEADER, TIME, TWIST, VEC3),
 )
 JOINT_STATE = (
     "sensor_msgs/msg/JointState",
@@ -223,9 +221,7 @@ YAW_HALF_PI = {
 }
 
 
-def _write_bag(
-    path: pathlib.Path, records: list[tuple[str, tuple[str, str], dict, int]]
-) -> pathlib.Path:
+def _write_bag(path: pathlib.Path, records: list[tuple[str, tuple[str, str], dict, int]]) -> pathlib.Path:
     with path.open("wb") as fh:
         writer = Writer(fh)
         schemas = {}
@@ -245,9 +241,7 @@ def _param(name: str, kind: int, **value: object) -> dict:
     return {"name": name, "value": {"type": kind, **value}}
 
 
-def _transform(
-    parent: str, child: str, x: float, y: float, yaw: dict | None = None
-) -> dict:
+def _transform(parent: str, child: str, x: float, y: float, yaw: dict | None = None) -> dict:
     return {
         "header": _header(frame_id=parent),
         "child_frame_id": child,
@@ -283,9 +277,7 @@ def _schedule(*phases: tuple[str, float]) -> dict:
 def _every_topic_bag(path: pathlib.Path) -> pathlib.Path:
     odom = {
         "header": _header(1, 5, "odom"),
-        "pose": {
-            "pose": {"position": {"x": 1.0, "y": 2.0}, "orientation": YAW_HALF_PI}
-        },
+        "pose": {"pose": {"position": {"x": 1.0, "y": 2.0}, "orientation": YAW_HALF_PI}},
         "twist": {"twist": {"linear": {"x": 0.5}, "angular": {"z": 0.1}}},
     }
     controller_odom = {
@@ -696,9 +688,7 @@ def test_odometry_prefers_the_controller_topic(every_topic: tuple[pathlib.Path, 
     out, bundles = every_topic
 
     controller = bundles["env_0_jackal"].robot_odom.collect()
-    raw = pl.read_parquet(out / "robot_odom.parquet").filter(
-        pl.col("robot_id") == "env_0_jackal"
-    )
+    raw = pl.read_parquet(out / "robot_odom.parquet").filter(pl.col("robot_id") == "env_0_jackal")
     assert controller["odom_x"].to_list() == [7.0]
     assert raw.row(0, named=True) == {
         "t_ns": SEC,
@@ -755,9 +745,7 @@ def test_arena_peds_win_over_engine_agent_states(
 
     peds = bundles["env_0_jackal"].pedestrian_arena_peds.collect()
     physics = pl.read_parquet(out / "pedestrian_agent_states.parquet")
-    assert peds.select(
-        "t_ns", "env_id", "ped_id", "ped_name", "x", "y", "yaw", "vx", "vy"
-    ).to_dicts() == [
+    assert peds.select("t_ns", "env_id", "ped_id", "ped_name", "x", "y", "yaw", "vx", "vy").to_dicts() == [
         {
             "t_ns": 2 * SEC,
             "env_id": "env_0",
@@ -780,14 +768,8 @@ def test_acoustics_and_characterization_topics(every_topic: tuple[pathlib.Path, 
     acoustics = jackal.robot_acoustics.collect().row(0, named=True)
     assert acoustics["total_level_af_dba"] == pytest.approx(55.5)
     assert acoustics["validity_flags"] == 2
-    assert jackal.robot_characterization_phase.collect()["label"].to_list() == [
-        "ramp_up"
-    ]
-    schedule = (
-        jackal.robot_characterization_schedule.collect()
-        .drop(["t_ns", "env_id", "robot_id"])
-        .to_dicts()
-    )
+    assert jackal.robot_characterization_phase.collect()["label"].to_list() == ["ramp_up"]
+    schedule = jackal.robot_characterization_schedule.collect().drop(["t_ns", "env_id", "robot_id"]).to_dicts()
     assert schedule == [
         {
             "phase_idx": 0,
@@ -819,9 +801,7 @@ def test_episode_record_stores_the_full_name_params_as_yaml(
         record["goal_uuid"],
     ) == (7, 2, "done", "g")
     assert record["phases_yaml"] == '{"jackal": {"map_poses": []}}'
-    assert {
-        name: value for name, value in params.items() if name.startswith("jackal.")
-    } == {
+    assert {name: value for name, value in params.items() if name.startswith("jackal.")} == {
         "jackal.enabled": True,
         "jackal.count": 3,
         "jackal.radius": 0.25,
@@ -840,12 +820,7 @@ def test_semantic_snapshot_flattens_each_entity_field_into_a_row(
 ):
     _, bundles = every_topic
 
-    rows = (
-        bundles["env_0_jackal"]
-        .world_semantics.collect()
-        .select("field_name", "field_kind", "value_str", "value_num", "value_bool")
-        .to_dicts()
-    )
+    rows = bundles["env_0_jackal"].world_semantics.collect().select("field_name", "field_kind", "value_str", "value_num", "value_bool").to_dicts()
     assert rows == [
         {
             "field_name": "state",
@@ -882,9 +857,7 @@ def test_collision_events_count_kinds(every_topic: tuple[pathlib.Path, dict]):
     _, bundles = every_topic
 
     events = bundles["env_0_jackal"].robot_collision_events.collect()
-    assert events.select(
-        "event_count", "wall_count", "static_count", "ped_count"
-    ).rows() == [(4, 1, 1, 1), (0, 0, 0, 0)]
+    assert events.select("event_count", "wall_count", "static_count", "ped_count").rows() == [(4, 1, 1, 1), (0, 0, 0, 0)]
     burger = bundles["env_0_burger"].robot_collision_events.collect().row(0, named=True)
     assert (
         burger["event_count"],
@@ -892,34 +865,22 @@ def test_collision_events_count_kinds(every_topic: tuple[pathlib.Path, dict]):
         burger["static_count"],
         burger["ped_count"],
     ) == (1, 1, 0, 0)
-    assert sorted(
-        set(
-            bundles["env_0_jackal"]
-            .robot_collision_contacts.collect()["obstacle_id"]
-            .to_list()
-        )
-    ) == ["p1", "s1", "w1"]
+    assert sorted(set(bundles["env_0_jackal"].robot_collision_contacts.collect()["obstacle_id"].to_list())) == ["p1", "s1", "w1"]
 
 
 def test_monitor_power_energy_and_plan_topics(every_topic: tuple[pathlib.Path, dict]):
     _, bundles = every_topic
     jackal = bundles["env_0_jackal"]
 
-    assert jackal.robot_collision_monitor.collect().select(
-        "action_type", "polygon_name"
-    ).row(0) == (2, "stop_zone")
+    assert jackal.robot_collision_monitor.collect().select("action_type", "polygon_name").row(0) == (2, "stop_zone")
     power = jackal.robot_power.collect().row(0, named=True)
     assert (
         power["total_power_w"],
         power["total_mech_power_w"],
         power["total_thermal_power_w"],
     ) == (12.0, 6.0, 1.0)
-    assert jackal.robot_joint_power.collect().select("joint_name", "total_power_w").row(
-        0
-    ) == ("left", 7.0)
-    assert jackal.robot_energy.collect().select(
-        "total_energy_consumed_wh", "battery_soc_percent"
-    ).row(0) == (0.5, 99.0)
+    assert jackal.robot_joint_power.collect().select("joint_name", "total_power_w").row(0) == ("left", 7.0)
+    assert jackal.robot_energy.collect().select("total_energy_consumed_wh", "battery_soc_percent").row(0) == (0.5, 99.0)
     plan = jackal.robot_plans.collect().sort("waypoint_idx")
     assert plan["x"].to_list() == [0.0, 1.0]
     assert plan["yaw"].to_list() == pytest.approx([0.0, math.pi / 2])
@@ -936,9 +897,7 @@ def test_task_pose_and_initialpose_topics(every_topic: tuple[pathlib.Path, dict]
         2.5,
     )
     assert task_pose["yaw"] == pytest.approx(math.pi / 2)
-    assert jackal.robot_initialpose.collect().select("pos_x", "pos_y", "yaw").row(
-        0
-    ) == (0.5, 0.25, 0.0)
+    assert jackal.robot_initialpose.collect().select("pos_x", "pos_y", "yaw").row(0) == (0.5, 0.25, 0.0)
 
 
 def test_tf_keeps_every_transform_and_extracts_map_to_base_ground_truth(
@@ -970,24 +929,12 @@ def _foreign_bag(path: pathlib.Path) -> pathlib.Path:
     with path.open("wb") as fh:
         writer_ = McapWriter(fh)
         writer_.start()
-        json_schema = writer_.register_schema(
-            name="Status", encoding="jsonschema", data=b"{}"
-        )
-        json_channel = writer_.register_channel(
-            topic="/env_0/jackal/odom", message_encoding="json", schema_id=json_schema
-        )
-        writer_.add_message(
-            channel_id=json_channel, log_time=SEC, publish_time=SEC, data=b"{}"
-        )
-        cdr_schema = writer_.register_schema(
-            name="nav_msgs/msg/Odometry", encoding="ros2msg", data=ODOMETRY[1].encode()
-        )
-        cdr_channel = writer_.register_channel(
-            topic="/env_0/burger/odom", message_encoding="cdr", schema_id=cdr_schema
-        )
-        writer_.add_message(
-            channel_id=cdr_channel, log_time=SEC, publish_time=SEC, data=b"\x00\x01"
-        )
+        json_schema = writer_.register_schema(name="Status", encoding="jsonschema", data=b"{}")
+        json_channel = writer_.register_channel(topic="/env_0/jackal/odom", message_encoding="json", schema_id=json_schema)
+        writer_.add_message(channel_id=json_channel, log_time=SEC, publish_time=SEC, data=b"{}")
+        cdr_schema = writer_.register_schema(name="nav_msgs/msg/Odometry", encoding="ros2msg", data=ODOMETRY[1].encode())
+        cdr_channel = writer_.register_channel(topic="/env_0/burger/odom", message_encoding="cdr", schema_id=cdr_schema)
+        writer_.add_message(channel_id=cdr_channel, log_time=SEC, publish_time=SEC, data=b"\x00\x01")
         writer_.finish()
     return path
 
@@ -1042,9 +989,7 @@ def test_global_and_env_writers_append_across_buffer_flushes(tmp_path: pathlib.P
         records.append(("/env_0/peds", PEDESTRIANS, peds, i + 1))
     records.append(("/env_0/jackal/odom", ODOMETRY, odom, 6000))
 
-    bundles = MCAPReader(
-        _write_bag(tmp_path / "long.mcap", records), flush_rows=1_000
-    ).read(tmp_path / "out")
+    bundles = MCAPReader(_write_bag(tmp_path / "long.mcap", records), flush_rows=1_000).read(tmp_path / "out")
 
     assert len(bundles["env_0_jackal"].tf.collect()) == 5001
     assert len(bundles["env_0_jackal"].pedestrian_arena_peds.collect()) == 5001

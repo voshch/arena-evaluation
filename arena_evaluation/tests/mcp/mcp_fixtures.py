@@ -141,18 +141,9 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
     _ensure_calculators_loaded()
 
     benchmark_dir.mkdir(parents=True, exist_ok=True)
-    resolved = [
-        {"run_id": "run", "robot_id": "robot_0", "env_id": "env_0", **row}
-        for row in rows
-    ]
+    resolved = [{"run_id": "run", "robot_id": "robot_0", "env_id": "env_0", **row} for row in rows]
     pl.DataFrame(
-        [
-            {
-                name: row.get(name)
-                for name in DIMENSION_TABLES["dim_episodes"].polars_schema().names()
-            }
-            for row in resolved
-        ],
+        [{name: row.get(name) for name in DIMENSION_TABLES["dim_episodes"].polars_schema().names()} for row in resolved],
         schema=DIMENSION_TABLES["dim_episodes"].polars_schema(),
     ).write_parquet(benchmark_dir / "dim_episodes.parquet")
     for episode_id in sorted({int(row["episode_id"]) for row in resolved}):
@@ -162,10 +153,7 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
         pl.DataFrame(
             [
                 {
-                    **{
-                        name: row.get(name)
-                        for name in FACT_TABLES["episodes"].polars_schema().names()
-                    },
+                    **{name: row.get(name) for name in FACT_TABLES["episodes"].polars_schema().names()},
                     # A written fact_episodes row is evaluated: the empty reason marks it
                     # valid for ranking (L3-002), never NULL.
                     "invalid_reason": row.get("invalid_reason") or "",
@@ -175,13 +163,8 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
             schema=FACT_TABLES["episodes"].polars_schema(),
         ).write_parquet(metrics / "fact_episodes.parquet")
         robots_schema = FACT_TABLES["robots"].polars_schema()
-        robot_rows = [
-            {name: row.get(name) for name in robots_schema.names()}
-            for row in episode_rows
-        ]
-        pl.DataFrame(robot_rows, schema=robots_schema).write_parquet(
-            metrics / "fact_robots.parquet"
-        )
+        robot_rows = [{name: row.get(name) for name in robots_schema.names()} for row in episode_rows]
+        pl.DataFrame(robot_rows, schema=robots_schema).write_parquet(metrics / "fact_robots.parquet")
         encounters_schema = FACT_TABLES["encounters"].polars_schema()
         encounter_rows = [
             {
@@ -199,17 +182,9 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
             }
             for row in episode_rows
         ]
-        pl.DataFrame(encounter_rows, schema=encounters_schema).write_parquet(
-            metrics / "fact_encounters.parquet"
-        )
+        pl.DataFrame(encounter_rows, schema=encounters_schema).write_parquet(metrics / "fact_encounters.parquet")
         tracks_schema = RobotTracks.polars_schema()
-        tracks_path = (
-            benchmark_dir
-            / "episodes"
-            / f"episode_{episode_id:03d}"
-            / "topics"
-            / "robot_tracks.parquet"
-        )
+        tracks_path = benchmark_dir / "episodes" / f"episode_{episode_id:03d}" / "topics" / "robot_tracks.parquet"
         tracks_path.parent.mkdir(parents=True, exist_ok=True)
         track_rows = [
             {
@@ -401,9 +376,7 @@ def build_run(
     """One run folder with a manifest and its empty state and progress writers."""
     from arena_evaluation.benchmark.state import RunDir
 
-    run = RunDir.create(
-        root, folder, manifest(manifest_run_id or folder, steps, created_at=created_at)
-    )
+    run = RunDir.create(root, folder, manifest(manifest_run_id or folder, steps, created_at=created_at))
     run.progress.close()
     return run.path
 
@@ -421,12 +394,8 @@ def build_runs(root: pathlib.Path) -> pathlib.Path:
     run = RunDir.create(root, RUN_ID, manifest_record)
     run.state.write(
         {
-            "dwb/s1": StepResult(
-                "dwb/s1", "ok", 0, now - 60, now - 30, None, None, episodes_run=2
-            ),
-            "unhindered_peds/s1": StepResult(
-                "unhindered_peds/s1", "in_progress", 0, now - 10, None, None, None
-            ),
+            "dwb/s1": StepResult("dwb/s1", "ok", 0, now - 60, now - 30, None, None, episodes_run=2),
+            "unhindered_peds/s1": StepResult("unhindered_peds/s1", "in_progress", 0, now - 10, None, None, None),
         }
     )
     for episode in range(2):
@@ -470,9 +439,7 @@ def build_runs(root: pathlib.Path) -> pathlib.Path:
         ended_at=now - 20,
     )
     lane.progress.close()
-    (run.path / "runner.log").write_text(
-        "".join(f"runner line {index}\n" for index in range(300))
-    )
+    (run.path / "runner.log").write_text("".join(f"runner line {index}\n" for index in range(300)))
     (run.path / "runner.p2.log").write_text("lane p2 started\nlane p2 sim died\n")
     episode_dir = run.path / "episodes" / "episode_000"
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -510,9 +477,7 @@ def arena_data(tmp_path: pathlib.Path) -> object:
             os.environ["ARENA_DATA_DIR"] = previous
 
 
-def build_query_run(
-    root: pathlib.Path, run_id: str = "query-run", rows: int = 10_000
-) -> pathlib.Path:
+def build_query_run(root: pathlib.Path, run_id: str = "query-run", rows: int = 10_000) -> pathlib.Path:
     """A run directory whose dim_episodes has rows episodes, the table a capped SELECT reads."""
     from arena_evaluation.storage.registry.dimensions import DIMENSION_TABLES
 
@@ -545,9 +510,7 @@ def build_query_run(
         }
         for episode in range(rows)
     ]
-    pl.DataFrame(
-        records, schema=DIMENSION_TABLES["dim_episodes"].polars_schema()
-    ).write_parquet(run_dir / "dim_episodes.parquet")
+    pl.DataFrame(records, schema=DIMENSION_TABLES["dim_episodes"].polars_schema()).write_parquet(run_dir / "dim_episodes.parquet")
     return run_dir
 
 
@@ -555,14 +518,10 @@ def server_env(tmp_path: pathlib.Path, **extra: str) -> dict[str, str]:
     return {**os.environ, "ARENA_DATA_DIR": str(tmp_path / "data"), **extra}
 
 
-async def session(
-    body: object, env: dict[str, str], domains: tuple[str, ...] = ("evaluation", "jobs")
-) -> object:
+async def session(body: object, env: dict[str, str], domains: tuple[str, ...] = ("evaluation", "jobs")) -> object:
     from mcp import ClientSession, StdioServerParameters, stdio_client
 
-    params = StdioServerParameters(
-        command=sys.executable, args=["-m", "arena_mcp", "serve", *domains], env=env
-    )
+    params = StdioServerParameters(command=sys.executable, args=["-m", "arena_mcp", "serve", *domains], env=env)
     async with (
         stdio_client(params) as (read, write),
         ClientSession(read, write) as client,
@@ -571,9 +530,7 @@ async def session(
         return await body(client)
 
 
-def run_session(
-    body: object, env: dict[str, str], domains: tuple[str, ...] = ("evaluation", "jobs")
-) -> object:
+def run_session(body: object, env: dict[str, str], domains: tuple[str, ...] = ("evaluation", "jobs")) -> object:
     return asyncio.run(session(body, env, domains))
 
 

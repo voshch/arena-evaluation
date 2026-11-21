@@ -284,10 +284,7 @@ class TestPipelineProfiler:
         data = yaml.safe_load((tmp_output / "pipeline_profile.yaml").read_text())
         phase = data["pipeline_profile"]["phases"]["work"]
 
-        if (
-            phase["cpu_percent_max"] is not None
-            and phase["cpu_percent_mean"] is not None
-        ):
+        if phase["cpu_percent_max"] is not None and phase["cpu_percent_mean"] is not None:
             assert phase["cpu_percent_max"] >= phase["cpu_percent_mean"]
 
 

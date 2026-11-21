@@ -34,9 +34,7 @@ def test_a_saved_query_lands_in_its_run_and_is_listed_for_that_run(tmp_path):
         )
         listed = evaluation_queries(run_id=RUN_ID)
 
-    assert (
-        run_analysis_root(run_dir) / "queries" / "episode_ids" / "query.yaml"
-    ).is_file()
+    assert (run_analysis_root(run_dir) / "queries" / "episode_ids" / "query.yaml").is_file()
     for root in package_config_roots():
         assert not (root / "queries" / "episode_ids").exists()
     assert "episode_ids" in [q["name"] for q in listed["queries"]]

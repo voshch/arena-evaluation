@@ -24,9 +24,7 @@ from arena_evaluation.experiments.stats import (
 
 KINDS = {"hug": "HUG", "shake": "SHAKE_HAND"}
 ARMS = {"contact": "enabled", "loco": "locomotion_only"}
-STAGE_RE = re.compile(
-    r"^hhi_(?P<kind>hug|shake)_(?P<scenario>\d+)_(?P<arm>contact|loco)$"
-)
+STAGE_RE = re.compile(r"^hhi_(?P<kind>hug|shake)_(?P<scenario>\d+)_(?P<arm>contact|loco)$")
 
 MAP = "map_empty"
 BOUNDS = (1.5, 1.5, 28.5, 21.5)
@@ -47,9 +45,7 @@ def _default_scenarios_dir() -> pathlib.Path:
         candidate = parent / "arena_simulation_setup" / "worlds" / MAP / "scenarios"
         if candidate.is_dir():
             return candidate
-    raise FileNotFoundError(
-        f"arena_simulation_setup/worlds/{MAP}/scenarios not found above {_ROOT}"
-    )
+    raise FileNotFoundError(f"arena_simulation_setup/worlds/{MAP}/scenarios not found above {_ROOT}")
 
 
 def _default_suite_path() -> pathlib.Path:
@@ -174,9 +170,7 @@ def agent_yaml(
 def scenario_yaml(geo: Geometry) -> dict:
     models = ("Office/office_female_caucasian_young", "worker_male_caucasian_young")
     return {
-        "robots": [
-            {"start": [_r(v) for v in geo.start], "goal": [_r(v) for v in geo.goal]}
-        ],
+        "robots": [{"start": [_r(v) for v in geo.start], "goal": [_r(v) for v in geo.goal]}],
         "dynamic": [
             {
                 "name": f"partner_{i}",
@@ -234,9 +228,7 @@ def generate(
                         sort_keys=False,
                     )
                 )
-            (out / "scenario.yaml").write_text(
-                yaml.safe_dump(scenario_yaml(geo), sort_keys=False)
-            )
+            (out / "scenario.yaml").write_text(yaml.safe_dump(scenario_yaml(geo), sort_keys=False))
             scenario_seed = SEED_BASE + 100 * len(manifest)
             manifest.append(
                 {
@@ -277,9 +269,7 @@ def generate(
     )
     suite_path.parent.mkdir(parents=True, exist_ok=True)
     suite_path.write_text(header + yaml.safe_dump(suite, sort_keys=False))
-    (suite_path.parent / "scenarios.yaml").write_text(
-        yaml.safe_dump(manifest, sort_keys=False)
-    )
+    (suite_path.parent / "scenarios.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return suite
 
 
@@ -296,21 +286,9 @@ HHI_FAMILY_METRICS = {
 
 def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
     """Tag every HHI episode row with interaction / scenario / arm / seed index, dropping other stages."""
-    parsed = (
-        metrics.drop("scenario")
-        .with_columns(pl.col("stage").str.extract_groups(STAGE_RE.pattern).alias("_m"))
-        .unnest("_m")
-    )
-    parsed = parsed.filter(
-        pl.col("kind").is_not_null()
-        & ~pl.col("is_reference").fill_null(False)
-        & pl.col("success").is_not_null()
-    )
-    parsed = parsed.sort("episode_id").with_columns(
-        (pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1)
-        .cast(pl.Int64)
-        .alias("seed")
-    )
+    parsed = metrics.drop("scenario").with_columns(pl.col("stage").str.extract_groups(STAGE_RE.pattern).alias("_m")).unnest("_m")
+    parsed = parsed.filter(pl.col("kind").is_not_null() & ~pl.col("is_reference").fill_null(False) & pl.col("success").is_not_null())
+    parsed = parsed.sort("episode_id").with_columns((pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
     return parsed.with_columns(
         pl.col("scenario").cast(pl.Int64),
         pl.col("kind").replace({"shake": "shake_hand"}).alias("interaction"),
@@ -319,26 +297,15 @@ def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
 
 def paper_outcomes(df: pl.DataFrame) -> pl.DataFrame:
     """Success is the goal before the timeout with zero collisions, and time to goal is kept only over successes."""
-    collisions = (
-        pl.when(pl.col("collision_amount") == 0)
-        .then(False)
-        .when(pl.col("collision_amount") > 0)
-        .then(True)
-        .otherwise(None)
-    )
+    collisions = pl.when(pl.col("collision_amount") == 0).then(False).when(pl.col("collision_amount") > 0).then(True).otherwise(None)
     success = (pl.col("success").cast(pl.Float64) > 0.5) & ~collisions
     return df.with_columns(
         success.alias("success"),
-        pl.when(success)
-        .then(pl.col("time_to_goal"))
-        .otherwise(None)
-        .alias("time_to_goal"),
+        pl.when(success).then(pl.col("time_to_goal")).otherwise(None).alias("time_to_goal"),
     )
 
 
-def window_table(
-    episodes: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0
-) -> pl.DataFrame:
+def window_table(episodes: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
     """Contact arm, per planner: pooled post-release share of stall onsets minus pooled post-release share of time, resampled by scenario."""
     need = {
         "hhi_stalls_post",
@@ -352,9 +319,7 @@ def window_table(
         raise ValueError(f"window_table missing required columns: {missing}")
     if episodes.is_empty():
         return pl.DataFrame()
-    contact = episodes.filter(
-        (pl.col("arm") == "contact") & pl.col("hhi_release_s").is_not_null()
-    )
+    contact = episodes.filter((pl.col("arm") == "contact") & pl.col("hhi_release_s").is_not_null())
     if contact.is_empty():
         return pl.DataFrame()
     rows: list[dict[str, object]] = []
@@ -364,11 +329,7 @@ def window_table(
         m = np.concatenate(drawn)
         stalls = m[:, 1].sum()
         ep_s = m[:, 3].sum()
-        return (
-            float(m[:, 0].sum() / stalls - m[:, 2].sum() / ep_s)
-            if stalls > 0 and ep_s > 0
-            else float("nan")
-        )
+        return float(m[:, 0].sum() / stalls - m[:, 2].sum() / ep_s) if stalls > 0 and ep_s > 0 else float("nan")
 
     for (planner,), group in contact.group_by(["planner"], maintain_order=True):
         clusters = []
@@ -389,12 +350,8 @@ def window_table(
         rows.append(
             {
                 "planner": planner,
-                "stall_share_post": float(m[:, 0].sum() / m[:, 1].sum())
-                if m[:, 1].sum() > 0
-                else None,
-                "time_share_post": float(m[:, 2].sum() / m[:, 3].sum())
-                if m[:, 3].sum() > 0
-                else None,
+                "stall_share_post": float(m[:, 0].sum() / m[:, 1].sum()) if m[:, 1].sum() > 0 else None,
+                "time_share_post": float(m[:, 2].sum() / m[:, 3].sum()) if m[:, 3].sum() > 0 else None,
                 "excess": res.estimate,
                 "ci_low": res.ci_low,
                 "ci_high": res.ci_high,
@@ -404,11 +361,7 @@ def window_table(
             }
         )
     out = pl.DataFrame(rows)
-    return (
-        out.with_columns(pl.Series("p_holm", holm(out["p"].to_numpy())))
-        if out.height
-        else out
-    )
+    return out.with_columns(pl.Series("p_holm", holm(out["p"].to_numpy()))) if out.height else out
 
 
 def manipulation_check(episodes: pl.DataFrame) -> pl.DataFrame:
@@ -493,9 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("generate", help="write the scenarios and the paired suite")
-    g.add_argument(
-        "--scenarios", type=int, default=15, help="scenarios per contact kind (L)"
-    )
+    g.add_argument("--scenarios", type=int, default=15, help="scenarios per contact kind (L)")
     g.add_argument("--seed", type=int, default=0)
     g.add_argument("--episodes", type=int, default=EPISODES, help="seeds per scenario")
     g.add_argument("--scenarios-dir", type=pathlib.Path, default=None)
@@ -513,14 +464,10 @@ def main(argv: list[str] | None = None) -> int:
             suite_path=args.suite,
             episodes=args.episodes,
         )
-        print(
-            f"{len(suite['stages'])} stages x {args.episodes} episodes per contestant"
-        )
+        print(f"{len(suite['stages'])} stages x {args.episodes} episodes per contestant")
         return 0
     with pl.Config(tbl_rows=200, tbl_cols=20, fmt_str_lengths=40):
-        for name, table in analyze(
-            args.benchmark_dir, n_boot=args.boot, out_dir=args.out
-        ).items():
+        for name, table in analyze(args.benchmark_dir, n_boot=args.boot, out_dir=args.out).items():
             print(f"\n== {name}\n{table}")
     return 0
 

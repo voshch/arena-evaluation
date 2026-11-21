@@ -93,11 +93,7 @@ class DeepLintReport:
     @property
     def problems(self) -> tuple[str, ...]:
         """Failed verdicts rendered as ``<label>: <reason>`` lines."""
-        return tuple(
-            f"{verdict.name}: {verdict.reason}"
-            for verdict in self.plots
-            if not verdict.passed
-        )
+        return tuple(f"{verdict.name}: {verdict.reason}" for verdict in self.plots if not verdict.passed)
 
     @property
     def checked(self) -> int:
@@ -113,12 +109,7 @@ def _resolver(benchmark_dir: pathlib.Path | None) -> DataResolver:
         catalog = BenchmarkCatalog()
         existing = set(catalog.table_names())
         for tbl in registered_tables():
-            table_name = (
-                f"fact_{tbl.table_name}"
-                if tbl.table_kind is TableKind.FACT
-                and not tbl.table_name.startswith("fact_")
-                else tbl.table_name
-            )
+            table_name = f"fact_{tbl.table_name}" if tbl.table_kind is TableKind.FACT and not tbl.table_name.startswith("fact_") else tbl.table_name
             if table_name in existing:
                 continue
             schema = dict(tbl.polars_schema())
@@ -132,15 +123,11 @@ def _resolver(benchmark_dir: pathlib.Path | None) -> DataResolver:
         evidence_store=None,
         query_catalog=QueryCatalog(run_dir=benchmark_dir),
         benchmark_dir=None,
-        recipe_dirs=(run_analysis_root(benchmark_dir),)
-        if benchmark_dir is not None
-        else (),
+        recipe_dirs=(run_analysis_root(benchmark_dir),) if benchmark_dir is not None else (),
     )
 
 
-def _bundle_files(
-    kind: str, roots: tuple[pathlib.Path, ...]
-) -> list[tuple[str, pathlib.Path]]:
+def _bundle_files(kind: str, roots: tuple[pathlib.Path, ...]) -> list[tuple[str, pathlib.Path]]:
     """Return ``(name, yaml_path)`` for every bundle of ``kind`` under ``roots``."""
     spec = CONFIG_KINDS[kind]
     seen: dict[str, pathlib.Path] = {}
@@ -188,11 +175,7 @@ def _lint_plot(
     except _RESOLVE_ERRORS as exc:
         return PlotVerdict.failed(label, f"cannot bind data: {exc}")
 
-    missing = [
-        f"{channel}={column!r}"
-        for channel, column in _channel_columns(resolved)
-        if column not in frame.columns
-    ]
+    missing = [f"{channel}={column!r}" for channel, column in _channel_columns(resolved) if column not in frame.columns]
     if missing:
         return PlotVerdict.failed(
             label,
@@ -202,9 +185,7 @@ def _lint_plot(
     return PlotVerdict.ok(label, frame.height)
 
 
-def _load_declaration(
-    model: type[PlotSpec] | type[VizManifest], path: pathlib.Path
-) -> tuple[PlotSpec | VizManifest | None, str]:
+def _load_declaration(model: type[PlotSpec | VizManifest], path: pathlib.Path) -> tuple[PlotSpec | VizManifest | None, str]:
     """Load and validate one declaration, returning it or the reason it failed."""
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -231,10 +212,7 @@ def _declaration_verdicts(
         elif isinstance(declaration, PlotSpec):
             yield _lint_plot(label, declaration, resolver)
         else:
-            yield from (
-                _lint_plot(f"{label} plot {plot.id!r}", plot, resolver)
-                for plot in declaration.plots
-            )
+            yield from (_lint_plot(f"{label} plot {plot.id!r}", plot, resolver) for plot in declaration.plots)
 
 
 def deep_lint_declarations(

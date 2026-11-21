@@ -210,9 +210,7 @@ def test_parse_pedestrian_positions_keeps_the_pair_list_encoding(
         (0.0, 1.0),
         (2.0, 3.0),
     ]
-    assert renderer.parse_pedestrian_positions([(1.0, 2.0), (float("nan"), 3.0)]) == [
-        (1.0, 2.0)
-    ]
+    assert renderer.parse_pedestrian_positions([(1.0, 2.0), (float("nan"), 3.0)]) == [(1.0, 2.0)]
     assert renderer.parse_pedestrian_positions([0.0, 1.0, 2.0, 3.0]) == []
     assert renderer.parse_pedestrian_positions([{"x": 1.0, "y": 2.0}]) == []
     assert renderer.parse_pedestrian_positions(None) == []
@@ -225,25 +223,17 @@ def test_load_episode_data_never_substitutes_odometry(tmp_path: pathlib.Path) ->
 
 def test_render_plotly_single_and_grid_write_pngs(tmp_path: pathlib.Path) -> None:
     _write_test_world(tmp_path)
-    single_html = _new_renderer(
-        _af_spec(spec_id="af_single", mode="single"), tmp_path
-    ).render_plotly(_af_df())
+    single_html = _new_renderer(_af_spec(spec_id="af_single", mode="single"), tmp_path).render_plotly(_af_df())
     assert isinstance(single_html, str)
     assert "plots/af_single.png" in single_html
     single_png = tmp_path / "plots" / "af_single.png"
     assert single_png.read_bytes().startswith(_PNG_MAGIC)
 
-    grid_html = _new_renderer(
-        _af_spec(spec_id="af_grid", mode="grid"), tmp_path
-    ).render_plotly(_af_df())
+    grid_html = _new_renderer(_af_spec(spec_id="af_grid", mode="grid"), tmp_path).render_plotly(_af_df())
     assert isinstance(grid_html, str)
     assert "plots/af_grid_dwb_hall.png" in grid_html
     assert "plots/af_grid_teb_hall.png" in grid_html
-    assert (
-        (tmp_path / "plots" / "af_grid_dwb_hall.png")
-        .read_bytes()
-        .startswith(_PNG_MAGIC)
-    )
+    assert (tmp_path / "plots" / "af_grid_dwb_hall.png").read_bytes().startswith(_PNG_MAGIC)
 
 
 def test_render_static_writes_png_with_trajectory_overlay(
@@ -322,9 +312,7 @@ def test_facet_grid_renders_every_cell_and_static_renders_the_worst_frame(
         }
     )
 
-    grid_html = _new_renderer(
-        _af_spec(spec_id="af_facets", mode="grid"), tmp_path
-    ).render_plotly(faceted)
+    grid_html = _new_renderer(_af_spec(spec_id="af_facets", mode="grid"), tmp_path).render_plotly(faceted)
     assert isinstance(grid_html, str)
     for planner in ("dwb", "teb"):
         for stage in ("hall", "door"):
@@ -333,9 +321,7 @@ def test_facet_grid_renders_every_cell_and_static_renders_the_worst_frame(
             assert png.read_bytes().startswith(_PNG_MAGIC), png
 
     static_out = tmp_path / "facets_static.png"
-    _new_renderer(_af_spec(spec_id="af_facets_static"), bench).render_static(
-        faceted, static_out
-    )
+    _new_renderer(_af_spec(spec_id="af_facets_static"), bench).render_static(faceted, static_out)
     assert static_out.read_bytes().startswith(_PNG_MAGIC)
 
 
@@ -467,9 +453,7 @@ def test_field_timeseries_skips_frames_without_a_recorded_source(
             "source_dba": [70.0, None],
         }
     )
-    frames = _new_renderer(_af_spec(), tmp_path).compute_field_timeseries(
-        df, grid, 0.1, 0.0, 0.0, {}
-    )
+    frames = _new_renderer(_af_spec(), tmp_path).compute_field_timeseries(df, grid, 0.1, 0.0, 0.0, {})
     assert frames[0] is not None
     assert frames[1] is None
 
@@ -497,9 +481,5 @@ def test_animation_collision_flags_come_from_recorded_collision_events(
             "has_collision": [False],
         }
     )
-    assert renderer._animation_metadata(
-        collided, [(0, field)], 1, 120
-    ).collision_per_frame == [True]
-    assert renderer._animation_metadata(
-        quiet, [(0, field)], 1, 120
-    ).collision_per_frame == [False]
+    assert renderer._animation_metadata(collided, [(0, field)], 1, 120).collision_per_frame == [True]
+    assert renderer._animation_metadata(quiet, [(0, field)], 1, 120).collision_per_frame == [False]

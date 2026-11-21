@@ -35,10 +35,7 @@ class DenseGrid:
     def static_grid(self, robot_radius_m: float = 0.0) -> StaticGrid:
         """The lethal mask inflated by a robot radius, as theta* consumes it; a rotated snapshot is refused."""
         if abs(self.origin_yaw) > _UNROTATED_TOLERANCE_RAD:
-            raise ValueError(
-                f"the recorded {self.kind} snapshot is rotated by {self.origin_yaw} rad; "
-                "a StaticGrid is axis-aligned"
-            )
+            raise ValueError(f"the recorded {self.kind} snapshot is rotated by {self.origin_yaw} rad; a StaticGrid is axis-aligned")
         # Free is 0; occupied and unknown cells both block a route.
         lethal = self.cells != 0
         if robot_radius_m > 0.0:
@@ -51,9 +48,7 @@ class DenseGrid:
         )
 
 
-def load_snapshot(
-    source_dir: pathlib.Path, *, kind: str = DEFAULT_KIND, t_ns: int | None = None
-) -> DenseGrid | None:
+def load_snapshot(source_dir: pathlib.Path, *, kind: str = DEFAULT_KIND, t_ns: int | None = None) -> DenseGrid | None:
     """The latest dense snapshot of one kind at or before t_ns, None when the recording has none."""
     root = pathlib.Path(source_dir)
     metadata_path = root / f"{MAP_TABLE}.parquet"
@@ -70,12 +65,8 @@ def load_snapshot(
     cells = np.zeros((height, width), dtype=np.int8)
     cells_path = root / f"{CELLS_TABLE}.parquet"
     if cells_path.is_file():
-        sparse = pl.read_parquet(cells_path).filter(
-            (pl.col("kind") == kind) & (pl.col("t_ns") == row["t_ns"])
-        )
-        cells[sparse["row"].to_numpy(), sparse["col"].to_numpy()] = sparse[
-            "occupancy"
-        ].to_numpy()
+        sparse = pl.read_parquet(cells_path).filter((pl.col("kind") == kind) & (pl.col("t_ns") == row["t_ns"]))
+        cells[sparse["row"].to_numpy(), sparse["col"].to_numpy()] = sparse["occupancy"].to_numpy()
     return DenseGrid(
         kind=kind,
         frame_id=row["frame_id"],

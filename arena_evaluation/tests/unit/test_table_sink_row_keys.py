@@ -40,7 +40,5 @@ def test_later_record_wins_when_its_key_straddles_a_flush(
 
     stored = pl.read_parquet(out / "tf.parquet")
 
-    assert stored.filter(pl.col("child_frame") == "body_env_0_agent_6")[
-        "tx"
-    ].to_list() == [3.0]
+    assert stored.filter(pl.col("child_frame") == "body_env_0_agent_6")["tx"].to_list() == [3.0]
     assert stored.height == 2

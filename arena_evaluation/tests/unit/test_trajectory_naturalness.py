@@ -48,9 +48,7 @@ def _calc() -> TrajectoryMetricsCalculator:
     return TrajectoryMetricsCalculator(make_robot_params(robot_radius=0.25))
 
 
-def _gt(
-    xs: list[float], ys: list[float], yaws: list[float] | None = None
-) -> pl.DataFrame:
+def _gt(xs: list[float], ys: list[float], yaws: list[float] | None = None) -> pl.DataFrame:
     n = len(xs)
     times = [i * SEC for i in range(n)]
     return pl.DataFrame(
@@ -78,9 +76,7 @@ def _episode(
         topics["peds"] = peds
     if plans is not None:
         topics["robot_plans"] = plans
-    return AlignedEpisodeBundle(
-        1, gt, [], goal, map=map_name, topics=topics, peds=peds, run_dir=run_dir
-    )
+    return AlignedEpisodeBundle(1, gt, [], goal, map=map_name, topics=topics, peds=peds, run_dir=run_dir)
 
 
 def test_frechet_of_an_empty_curve_is_zero():
@@ -203,9 +199,7 @@ def test_the_reference_route_follows_every_commanded_goal_even_unvisited(
     gt = _gt([0.0, 1.0, 2.0, 1.0, 0.0], [0.0] * 5)
 
     res = _calc().calculate(
-        _episode(
-            gt, [0.0, 0.0], map_name=OPEN_ROOM, plans=plans, run_dir=open_room_run_dir
-        ),
+        _episode(gt, [0.0, 0.0], map_name=OPEN_ROOM, plans=plans, run_dir=open_room_run_dir),
         {},
     )
 
@@ -228,9 +222,7 @@ def test_unreached_first_leg_falls_back_to_the_commanded_mission_target(
     gt = _gt([0.0, 1.0, 2.0], [0.0, 0.0, 0.0])
 
     res = _calc().calculate(
-        _episode(
-            gt, [4.0, 0.0], map_name=OPEN_ROOM, plans=plans, run_dir=open_room_run_dir
-        ),
+        _episode(gt, [4.0, 0.0], map_name=OPEN_ROOM, plans=plans, run_dir=open_room_run_dir),
         {},
     )
 

@@ -34,9 +34,7 @@ string phases
 rcl_interfaces/Parameter[] params
 rcl_interfaces/Parameter[] human_params"""
 
-CURRENT = _msgdef(
-    _BASE_FIELDS + "\nstring[] integrity", KEY_VALUE, PARAM, PARAM_VALUE, TIME
-)
+CURRENT = _msgdef(_BASE_FIELDS + "\nstring[] integrity", KEY_VALUE, PARAM, PARAM_VALUE, TIME)
 
 
 def _bag(path: pathlib.Path, records: list[tuple[str, str, dict, int]]) -> pathlib.Path:

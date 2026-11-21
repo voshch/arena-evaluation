@@ -19,6 +19,8 @@ from arena_evaluation.storage.registry import (
     NullReason,
     dimensions,
     series,
+)
+from arena_evaluation.storage.registry import (
     table as registry_table,
 )
 from arena_evaluation.storage.registry.analysis import EvidenceIndex
@@ -81,11 +83,7 @@ _PROTECTED_BASE_NAMES: Final[frozenset[str]] = frozenset(
     {
         *_STAR_SCHEMAS,
         *(tbl.table_name for tbl in series.SERIES_TABLES.values()),
-        *(
-            tbl.table_name
-            for tbl in registry_table.registered_tables()
-            if tbl.table_kind is registry_table.TableKind.TELEMETRY
-        ),
+        *(tbl.table_name for tbl in registry_table.registered_tables() if tbl.table_kind is registry_table.TableKind.TELEMETRY),
         "evidence_index",
         *CANONICAL_VIEW_NAMES,
     }
@@ -139,29 +137,17 @@ def _to_lazy(frame: pl.LazyFrame | pl.DataFrame) -> pl.LazyFrame:
     return frame.lazy() if isinstance(frame, pl.DataFrame) else frame
 
 
-def _stream_total(
-    column: str, alias: str, token: str, topic: str
-) -> tuple[pl.Expr, pl.Expr | None]:
+def _stream_total(column: str, alias: str, token: str, topic: str) -> tuple[pl.Expr, pl.Expr | None]:
     """Sum a per-episode stream count, NULL when no episode of the group recorded that stream.
 
     The optional companion names the missing stream: a sum of zeros and a stream nobody recorded
     look identical. It is only emitted for the mandatory encounter and contact streams.
     """
     missing = pl.col(column).is_null().sum() == pl.len()
-    total = (
-        pl.when(missing)
-        .then(pl.lit(None, dtype=pl.Int64))
-        .otherwise(pl.col(column).fill_null(0).sum().cast(pl.Int64))
-        .alias(alias)
-    )
+    total = pl.when(missing).then(pl.lit(None, dtype=pl.Int64)).otherwise(pl.col(column).fill_null(0).sum().cast(pl.Int64)).alias(alias)
     if not token:
         return total, None
-    reason = (
-        pl.when(missing)
-        .then(pl.lit(f"{token}:{NullReason.TOPIC_MISSING.value}"))
-        .otherwise(pl.lit(None, dtype=pl.String))
-        .alias(f"total_{topic}_null_reason")
-    )
+    reason = pl.when(missing).then(pl.lit(f"{token}:{NullReason.TOPIC_MISSING.value}")).otherwise(pl.lit(None, dtype=pl.String)).alias(f"total_{topic}_null_reason")
     return total, reason
 
 
@@ -172,22 +158,8 @@ def _crowd_condition_view(dim_peds: pl.LazyFrame) -> pl.LazyFrame:
         pl.col("robot_awareness").min(),
         pl.col("robot_awareness").max(),
     )
-    condition = (
-        pl.when(non_null == 0)
-        .then(pl.lit(None, dtype=pl.String))
-        .when((min_aw == 0.0) & (max_aw == 0.0))
-        .then(pl.lit("blind"))
-        .when((min_aw == 1.0) & (max_aw == 1.0))
-        .then(pl.lit("visible"))
-        .otherwise(pl.lit("mixed"))
-        .alias("crowd_condition")
-    )
-    reason = (
-        pl.when(non_null == 0)
-        .then(pl.lit(str(NullReason.NOT_RECORDED)))
-        .otherwise(pl.lit(None, dtype=pl.String))
-        .alias("crowd_condition_null_reason")
-    )
+    condition = pl.when(non_null == 0).then(pl.lit(None, dtype=pl.String)).when((min_aw == 0.0) & (max_aw == 0.0)).then(pl.lit("blind")).when((min_aw == 1.0) & (max_aw == 1.0)).then(pl.lit("visible")).otherwise(pl.lit("mixed")).alias("crowd_condition")
+    reason = pl.when(non_null == 0).then(pl.lit(str(NullReason.NOT_RECORDED))).otherwise(pl.lit(None, dtype=pl.String)).alias("crowd_condition_null_reason")
     return dim_peds.group_by("run_id", "episode_id", "env_id").agg(condition, reason)
 
 
@@ -199,11 +171,7 @@ def _select_with_reason(
     exclude: set[str] | frozenset[str] = frozenset(),
 ) -> list[pl.Expr]:
     """Project every column but the raw ``null_reason``, which is renamed to ``reason_alias``."""
-    names = (
-        name
-        for name in frame.collect_schema().names()
-        if name not in exclude and name != "null_reason"
-    )
+    names = (name for name in frame.collect_schema().names() if name not in exclude and name != "null_reason")
     return [
         *(pl.col(name) for name in keys),
         *(pl.col(name) for name in names),
@@ -211,9 +179,7 @@ def _select_with_reason(
     ]
 
 
-def _merged_tables(
-    source_dir: pathlib.Path, manifest: object
-) -> dict[str, pl.LazyFrame]:
+def _merged_tables(source_dir: pathlib.Path, manifest: object) -> dict[str, pl.LazyFrame]:
     """Compose the source runs of a merged benchmark lazily, without copying episodes."""
     from arena_evaluation.analytics.merge import MergeManifest
 
@@ -223,10 +189,7 @@ def _merged_tables(
     for src in manifest.sources:
         src_path = pathlib.Path(src.run_dir)
         if not src_path.is_dir():
-            raise FileNotFoundError(
-                f"Merged benchmark {source_dir.name!r} references source run {src.run_id!r} at "
-                f"{src_path}, which does not exist"
-            )
+            raise FileNotFoundError(f"Merged benchmark {source_dir.name!r} references source run {src.run_id!r} at {src_path}, which does not exist")
         tables = {
             **scan_star_schema(src_path),
             **scan_series_tables(src_path),
@@ -235,23 +198,13 @@ def _merged_tables(
         if "dim_episodes" in tables:
             tables["dim_episodes"] = tables["dim_episodes"].with_columns(
                 pl.lit(src.run_id, dtype=pl.String).alias("source_run_id"),
-                *(
-                    pl.lit(src.labels.get(k), dtype=pl.String).alias(k)
-                    for k in label_keys
-                ),
+                *(pl.lit(src.labels.get(k), dtype=pl.String).alias(k) for k in label_keys),
             )
         # Every merged frame carries its source-run key, telemetry included: a telemetry row has no
         # run of its own and would otherwise be attributed to whichever run happened to be first.
         for name, frame in tables.items():
-            per_table.setdefault(name, []).append(
-                frame.with_columns(pl.lit(src.run_id, dtype=pl.String).alias("run_id"))
-            )
-    return {
-        name: frames[0]
-        if len(frames) == 1
-        else pl.concat(frames, how="diagonal_relaxed")
-        for name, frames in per_table.items()
-    }
+            per_table.setdefault(name, []).append(frame.with_columns(pl.lit(src.run_id, dtype=pl.String).alias("run_id")))
+    return {name: frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed") for name, frames in per_table.items()}
 
 
 class BenchmarkCatalog:
@@ -264,13 +217,9 @@ class BenchmarkCatalog:
         variant: str | None = None,
     ) -> None:
         self._tables: dict[str, pl.LazyFrame] = {}
-        self._source_dir: pathlib.Path | None = (
-            source if isinstance(source, pathlib.Path) else None
-        )
+        self._source_dir: pathlib.Path | None = source if isinstance(source, pathlib.Path) else None
         if variant not in (None, "sensitivity"):
-            raise ValueError(
-                f"Unsupported catalog variant {variant!r}; expected None or 'sensitivity'"
-            )
+            raise ValueError(f"Unsupported catalog variant {variant!r}; expected None or 'sensitivity'")
         self._variant = variant
         self._snapshot_id: str | None = None
         self._load_source(source)
@@ -299,9 +248,7 @@ class BenchmarkCatalog:
                 hasher = hashlib.sha256()
                 for src in merge_manifest.sources:
                     hasher.update(src.run_id.encode())
-                    hasher.update(
-                        compute_snapshot_id(pathlib.Path(src.run_dir)).encode()
-                    )
+                    hasher.update(compute_snapshot_id(pathlib.Path(src.run_dir)).encode())
                     for key, value in sorted(src.labels.items()):
                         hasher.update(f"{key}={value}".encode())
                 self._snapshot_id = f"snap-{hasher.hexdigest()[:12]}"
@@ -331,20 +278,10 @@ class BenchmarkCatalog:
         """Populate the empty Star Schema, overlaying any frame a mapping source provides."""
         for name, schema in _STAR_SCHEMAS.items():
             raw = None if source is None else source.get(name)
-            self._tables[name] = (
-                _to_lazy(raw) if raw is not None else pl.LazyFrame(schema=schema)
-            )
+            self._tables[name] = _to_lazy(raw) if raw is not None else pl.LazyFrame(schema=schema)
         if source is not None:
-            self._tables.update(
-                {
-                    name: _to_lazy(frame)
-                    for name, frame in source.items()
-                    if name not in self._tables
-                }
-            )
-        self._tables.setdefault(
-            "evidence_index", pl.LazyFrame(schema=EVIDENCE_INDEX_SCHEMA)
-        )
+            self._tables.update({name: _to_lazy(frame) for name, frame in source.items() if name not in self._tables})
+        self._tables.setdefault("evidence_index", pl.LazyFrame(schema=EVIDENCE_INDEX_SCHEMA))
 
     def _load_directory(self, source_dir: pathlib.Path) -> None:
         """Scan Star Schema, series, telemetry, and derived tables from ``source_dir``."""
@@ -359,11 +296,7 @@ class BenchmarkCatalog:
         else:
             self._tables.update(_merged_tables(source_dir, merge_manifest))
         index_path = source_dir / EvidenceIndex.relative_path()
-        self._tables["evidence_index"] = (
-            pl.scan_parquet(index_path)
-            if index_path.is_file()
-            else pl.LazyFrame(schema=EVIDENCE_INDEX_SCHEMA)
-        )
+        self._tables["evidence_index"] = pl.scan_parquet(index_path) if index_path.is_file() else pl.LazyFrame(schema=EVIDENCE_INDEX_SCHEMA)
         if merge_manifest is not None:
             self._tables.update(scan_derived_tables(source_dir))
 
@@ -383,9 +316,7 @@ class BenchmarkCatalog:
         ``dim_metrics`` is the one table every consumer reads metric metadata from, so the catalog offers one
         projection of it instead of each caller reshaping the table itself.
         """
-        return self.get_table("dim_metrics").select(
-            "metric", "scope", "fact_table", "dtype", "unit", "description", "direction"
-        )
+        return self.get_table("dim_metrics").select("metric", "scope", "fact_table", "dtype", "unit", "description", "direction")
 
     def is_protected_table(self, name: str) -> bool:
         """Return whether ``name`` is a registered base table or canonical view."""
@@ -402,9 +333,7 @@ class BenchmarkCatalog:
     def get_table(self, name: str) -> pl.LazyFrame:
         """Return the ``LazyFrame`` registered under ``name``."""
         if name not in self._tables:
-            raise KeyError(
-                f"Unknown table or view '{name}'. Available: {sorted(self._tables)}"
-            )
+            raise KeyError(f"Unknown table or view '{name}'. Available: {sorted(self._tables)}")
         return self._tables[name]
 
     def table_names(self) -> tuple[str, ...]:
@@ -421,18 +350,12 @@ class BenchmarkCatalog:
 
     def _register_series_views(self) -> None:
         """Expose every ``series_*`` table joined with episode identity columns."""
-        series_names = [
-            name for name in self._tables if name.startswith(SERIES_TABLE_PREFIX)
-        ]
+        series_names = [name for name in self._tables if name.startswith(SERIES_TABLE_PREFIX)]
         if not series_names:
             return
-        identity = self._tables["v_episode_summary"].select(
-            *_JOIN_KEYS, *_SERIES_IDENTITY_COLUMNS
-        )
+        identity = self._tables["v_episode_summary"].select(*_JOIN_KEYS, *_SERIES_IDENTITY_COLUMNS)
         for name in series_names:
-            self._tables[f"v_{name}"] = self._tables[name].join(
-                identity, on=list(_JOIN_KEYS), how="left"
-            )
+            self._tables[f"v_{name}"] = self._tables[name].join(identity, on=list(_JOIN_KEYS), how="left")
 
     def _register_canonical_views(self) -> None:
         tables = self._tables
@@ -447,9 +370,7 @@ class BenchmarkCatalog:
 
         dim_ep_cols = set(dim_ep.collect_schema().names())
         dim_ep_select = _select_with_reason(dim_ep, "dim_episode_null_reason")
-        dim_rob_select = _select_with_reason(
-            dim_rob, "dim_robot_null_reason", keys=_JOIN_KEYS, exclude=dim_ep_cols
-        )
+        dim_rob_select = _select_with_reason(dim_rob, "dim_robot_null_reason", keys=_JOIN_KEYS, exclude=dim_ep_cols)
         fact_ep_select = _select_with_reason(fact_ep, "fact_episode_null_reason")
         fact_rob_select = _select_with_reason(
             fact_rob,
@@ -461,16 +382,9 @@ class BenchmarkCatalog:
         ped_cond = _crowd_condition_view(dim_ped)
         con_counts = fact_con.group_by(_JOIN_KEYS).agg(
             contact_rows=pl.len().cast(pl.Int64),
-            pedestrian_contact_rows=(pl.col("collider_kind") == "pedestrian")
-            .sum()
-            .cast(pl.Int64),
-            static_contact_rows=pl.col("collider_kind")
-            .is_in(["wall", "static"])
-            .sum()
-            .cast(pl.Int64),
-            other_robot_contact_rows=(pl.col("collider_kind") == "other_robot")
-            .sum()
-            .cast(pl.Int64),
+            pedestrian_contact_rows=(pl.col("collider_kind") == "pedestrian").sum().cast(pl.Int64),
+            static_contact_rows=pl.col("collider_kind").is_in(["wall", "static"]).sum().cast(pl.Int64),
+            other_robot_contact_rows=(pl.col("collider_kind") == "other_robot").sum().cast(pl.Int64),
         )
 
         v_episode_summary = (
@@ -481,74 +395,22 @@ class BenchmarkCatalog:
             .join(ped_cond, on=["run_id", "episode_id", "env_id"], how="left")
             .join(con_counts, on=list(_JOIN_KEYS), how="left")
             .with_columns(
-                pl.when(
-                    pl.col("local_planner").is_not_null()
-                    & (pl.col("local_planner") != "")
-                )
-                .then(pl.col("local_planner"))
-                .when(pl.col("planner") != "")
-                .then(pl.col("planner"))
-                .otherwise(pl.lit(None, dtype=pl.String))
-                .alias("local_planner"),
+                pl.when(pl.col("local_planner").is_not_null() & (pl.col("local_planner") != "")).then(pl.col("local_planner")).when(pl.col("planner") != "").then(pl.col("planner")).otherwise(pl.lit(None, dtype=pl.String)).alias("local_planner"),
             )
             .with_columns(
-                pl.concat_str(
-                    [pl.col("local_planner"), pl.col("world")], separator=" · "
-                ).alias("planner_world"),
-                (
-                    pl.col("invalid_reason").is_not_null()
-                    & (pl.col("invalid_reason") == "")
-                ).alias("is_valid_for_ranking"),
-                pl.when(pl.col("success").is_null() | pl.col("contact_rows").is_null())
-                .then(pl.lit(None, dtype=pl.Boolean))
-                .otherwise(pl.col("success") & (pl.col("pedestrian_contact_rows") == 0))
-                .alias("success_without_pedestrian_contact"),
-                pl.when(pl.col("success").is_null())
-                .then(pl.lit(f"success:{NullReason.NOT_RECORDED}"))
-                .when(pl.col("contact_rows").is_null())
-                .then(pl.lit(f"contact_count:{NullReason.TOPIC_MISSING}"))
-                .otherwise(pl.lit(None, dtype=pl.String))
-                .alias("success_without_pedestrian_contact_null_reason"),
-                pl.when(pl.col("crowd_condition").is_null())
-                .then(
-                    pl.col("crowd_condition_null_reason").fill_null(
-                        str(NullReason.NOT_RECORDED)
-                    )
-                )
-                .otherwise(pl.lit(None, dtype=pl.String))
-                .alias("crowd_condition_null_reason"),
-                (
-                    pl.col("collision_amount_wall") + pl.col("collision_amount_static")
-                ).alias("collision_amount_wall_and_static"),
+                pl.concat_str([pl.col("local_planner"), pl.col("world")], separator=" · ").alias("planner_world"),
+                (pl.col("invalid_reason").is_not_null() & (pl.col("invalid_reason") == "")).alias("is_valid_for_ranking"),
+                pl.when(pl.col("success").is_null() | pl.col("contact_rows").is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(pl.col("success") & (pl.col("pedestrian_contact_rows") == 0)).alias("success_without_pedestrian_contact"),
+                pl.when(pl.col("success").is_null()).then(pl.lit(f"success:{NullReason.NOT_RECORDED}")).when(pl.col("contact_rows").is_null()).then(pl.lit(f"contact_count:{NullReason.TOPIC_MISSING}")).otherwise(pl.lit(None, dtype=pl.String)).alias("success_without_pedestrian_contact_null_reason"),
+                pl.when(pl.col("crowd_condition").is_null()).then(pl.col("crowd_condition_null_reason").fill_null(str(NullReason.NOT_RECORDED))).otherwise(pl.lit(None, dtype=pl.String)).alias("crowd_condition_null_reason"),
+                (pl.col("collision_amount_wall") + pl.col("collision_amount_static")).alias("collision_amount_wall_and_static"),
             )
             .with_columns(
-                pl.when(
-                    pl.col("is_reference").fill_null(False)
-                    & pl.col("success").fill_null(False)
-                    & (pl.col("time_to_goal") > 0.0)
-                )
-                .then(pl.col("time_to_goal"))
-                .median()
-                .over(["planner"])
-                .alias("_ref_time_to_goal"),
-                pl.when(
-                    pl.col("is_reference").fill_null(False)
-                    & pl.col("success").fill_null(False)
-                    & (pl.col("energy_total_wh") > 0.0)
-                )
-                .then(pl.col("energy_total_wh"))
-                .median()
-                .over(["planner"])
-                .alias("_ref_energy_total_wh"),
+                pl.when(pl.col("is_reference").fill_null(False) & pl.col("success").fill_null(False) & (pl.col("time_to_goal") > 0.0)).then(pl.col("time_to_goal")).median().over(["planner"]).alias("_ref_time_to_goal"),
+                pl.when(pl.col("is_reference").fill_null(False) & pl.col("success").fill_null(False) & (pl.col("energy_total_wh") > 0.0)).then(pl.col("energy_total_wh")).median().over(["planner"]).alias("_ref_energy_total_wh"),
             )
             .with_columns(
-                pl.when(
-                    ~pl.col("is_reference").fill_null(False)
-                    & pl.col("success").fill_null(False)
-                    & (pl.col("time_to_goal") > 0.0)
-                    & pl.col("_ref_time_to_goal").is_not_null()
-                    & (pl.col("_ref_time_to_goal") > 0.0)
-                )
+                pl.when(~pl.col("is_reference").fill_null(False) & pl.col("success").fill_null(False) & (pl.col("time_to_goal") > 0.0) & pl.col("_ref_time_to_goal").is_not_null() & (pl.col("_ref_time_to_goal") > 0.0))
                 .then(pl.col("_ref_time_to_goal") / pl.col("time_to_goal"))
                 .otherwise(pl.lit(None, dtype=pl.Float64))
                 .alias("relative_throughput"),
@@ -560,17 +422,8 @@ class BenchmarkCatalog:
                 .then(pl.lit("not_successful"))
                 .otherwise(pl.lit(None, dtype=pl.String))
                 .alias("relative_throughput_null_reason"),
-                pl.when(
-                    ~pl.col("is_reference").fill_null(False)
-                    & pl.col("success").fill_null(False)
-                    & (pl.col("energy_total_wh") > 0.0)
-                    & pl.col("_ref_energy_total_wh").is_not_null()
-                    & (pl.col("_ref_energy_total_wh") > 0.0)
-                )
-                .then(
-                    (pl.col("energy_total_wh") - pl.col("_ref_energy_total_wh"))
-                    / pl.col("_ref_energy_total_wh")
-                )
+                pl.when(~pl.col("is_reference").fill_null(False) & pl.col("success").fill_null(False) & (pl.col("energy_total_wh") > 0.0) & pl.col("_ref_energy_total_wh").is_not_null() & (pl.col("_ref_energy_total_wh") > 0.0))
+                .then((pl.col("energy_total_wh") - pl.col("_ref_energy_total_wh")) / pl.col("_ref_energy_total_wh"))
                 .otherwise(pl.lit(None, dtype=pl.Float64))
                 .alias("relative_social_compliance_cost"),
                 pl.when(pl.col("_ref_energy_total_wh").is_null())
@@ -586,14 +439,8 @@ class BenchmarkCatalog:
         )
         tables["v_episode_summary"] = v_episode_summary
 
-        enc_counts = fact_enc.group_by(_JOIN_KEYS).agg(
-            encounter_count=pl.len().cast(pl.Int64)
-        )
-        merged_extras = tuple(
-            n
-            for n in dim_ep.collect_schema().names()
-            if n not in dimensions.DimEpisodes.polars_schema()
-        )
+        enc_counts = fact_enc.group_by(_JOIN_KEYS).agg(encounter_count=pl.len().cast(pl.Int64))
+        merged_extras = tuple(n for n in dim_ep.collect_schema().names() if n not in dimensions.DimEpisodes.polars_schema())
         # A merged catalog adds the source-run key and its labels to dim_episodes; they are part of
         # the identity of every aggregate, not a column the scorecard may drop (L3-060).
         common_group_cols = (
@@ -617,27 +464,10 @@ class BenchmarkCatalog:
                 episodes_count=pl.len().cast(pl.Int64),
                 valid_episodes=valid_for_ranking.sum().cast(pl.Int64),
                 excluded_episodes=(pl.len() - valid_for_ranking.sum()).cast(pl.Int64),
-                success_rate=pl.col("success")
-                .cast(pl.Float64)
-                .filter(valid_for_ranking)
-                .mean(),
-                success_without_pedestrian_contact_rate=(
-                    pl.col("success_without_pedestrian_contact")
-                    .cast(pl.Float64)
-                    .filter(valid_for_ranking)
-                    .mean()
-                ),
-                *(
-                    pl.col(metric)
-                    .filter(valid_for_ranking)
-                    .mean()
-                    .alias(f"mean_{metric}")
-                    for metric in _SCORECARD_MEAN_METRICS
-                ),
-                episodes_without_contacts=pl.col("contact_rows")
-                .is_null()
-                .sum()
-                .cast(pl.Int64),
+                success_rate=pl.col("success").cast(pl.Float64).filter(valid_for_ranking).mean(),
+                success_without_pedestrian_contact_rate=(pl.col("success_without_pedestrian_contact").cast(pl.Float64).filter(valid_for_ranking).mean()),
+                *(pl.col(metric).filter(valid_for_ranking).mean().alias(f"mean_{metric}") for metric in _SCORECARD_MEAN_METRICS),
+                episodes_without_contacts=pl.col("contact_rows").is_null().sum().cast(pl.Int64),
                 *(total for total, _ in stream_totals),
                 *(reason for _, reason in stream_totals if reason is not None),
             )
@@ -673,9 +503,7 @@ class BenchmarkCatalog:
                 total_contacts=pl.len().cast(pl.Int64),
                 mean_robot_closing_share=pl.col("robot_closing_share").mean(),
                 mean_target_closing_share=pl.col("target_closing_share").mean(),
-                mean_relative_impact_speed_mps=pl.col(
-                    "relative_impact_speed_mps"
-                ).mean(),
+                mean_relative_impact_speed_mps=pl.col("relative_impact_speed_mps").mean(),
                 mean_freeze_clearance_m=pl.col("freeze_clearance_m").mean(),
             )
             .sort(common_group_cols)
@@ -688,10 +516,7 @@ class BenchmarkCatalog:
             .group_by(encounter_group_cols)
             .agg(
                 encounter_count=pl.len().cast(pl.Int64),
-                *(
-                    pl.col(metric).mean().alias(f"mean_{metric}")
-                    for metric in _ENCOUNTER_MEAN_METRICS
-                ),
+                *(pl.col(metric).mean().alias(f"mean_{metric}") for metric in _ENCOUNTER_MEAN_METRICS),
                 contact_encounters=had_contact.sum().cast(pl.Int64),
             )
             .sort(encounter_group_cols)
@@ -715,10 +540,7 @@ class BenchmarkCatalog:
             .agg(
                 pedestrians=pl.len().cast(pl.Int64),
                 episodes=pl.col("episode_id").n_unique().cast(pl.Int64),
-                *(
-                    pl.col(metric).mean().alias(f"mean_{metric}")
-                    for metric in _PEDESTRIAN_MEAN_METRICS
-                ),
+                *(pl.col(metric).mean().alias(f"mean_{metric}") for metric in _PEDESTRIAN_MEAN_METRICS),
             )
             .sort(pedestrian_group_cols)
         )

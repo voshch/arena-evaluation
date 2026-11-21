@@ -30,9 +30,7 @@ def _known_metrics() -> frozenset[str]:
 
 
 def _migrate(path: pathlib.Path):
-    return convert_legacy_file(
-        path, metric_map=load_metric_map(), known_metrics=_known_metrics()
-    )
+    return convert_legacy_file(path, metric_map=load_metric_map(), known_metrics=_known_metrics())
 
 
 def test_every_old_plot_is_accounted_for_and_converted_plots_are_valid() -> None:
@@ -138,9 +136,7 @@ def test_converted_social_plots_render_a_non_blank_png(tmp_path: pathlib.Path) -
 
 def test_legacy_plot_declaration_files_are_classified(tmp_path: pathlib.Path) -> None:
     code_schema = tmp_path / "my_plots.yaml"
-    code_schema.write_text(
-        yaml.safe_dump({"show_plots": ["a"], "datasets": []}), encoding="utf-8"
-    )
+    code_schema.write_text(yaml.safe_dump({"show_plots": ["a"], "datasets": []}), encoding="utf-8")
     documentation = tmp_path / "sample_schema.yaml"
     documentation.write_text("plot_key: [unclosed\n", encoding="utf-8")
 

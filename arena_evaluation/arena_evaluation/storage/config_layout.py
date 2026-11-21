@@ -136,8 +136,7 @@ def find_config_asset(kind: str) -> pathlib.Path | None:
             return candidate
     searched = ", ".join(str(root) for root in roots) or "(no config root)"
     _log.warning(
-        "config asset %r (%s) is absent from every config root: %s; the consumer falls back "
-        "to its built-in default",
+        "config asset %r (%s) is absent from every config root: %s; the consumer falls back to its built-in default",
         kind,
         spec.filename,
         searched,
@@ -183,11 +182,7 @@ def find_rendered_reports(output_root: pathlib.Path) -> list[pathlib.Path]:
     reports_dir = run_reports_root(output_root)
     if not reports_dir.is_dir():
         return []
-    return sorted(
-        entry / "report.html"
-        for entry in reports_dir.iterdir()
-        if entry.is_dir() and (entry / "report.html").is_file()
-    )
+    return sorted(entry / "report.html" for entry in reports_dir.iterdir() if entry.is_dir() and (entry / "report.html").is_file())
 
 
 def find_rendered_plots(output_root: pathlib.Path) -> list[pathlib.Path]:
@@ -195,12 +190,7 @@ def find_rendered_plots(output_root: pathlib.Path) -> list[pathlib.Path]:
     reports_dir = run_reports_root(output_root)
     if not reports_dir.is_dir():
         return []
-    return sorted(
-        plot
-        for entry in reports_dir.iterdir()
-        if entry.is_dir() and (entry / "plots").is_dir()
-        for plot in (entry / "plots").glob("*.png")
-    )
+    return sorted(plot for entry in reports_dir.iterdir() if entry.is_dir() and (entry / "plots").is_dir() for plot in (entry / "plots").glob("*.png"))
 
 
 def configs_readme_path() -> pathlib.Path | None:

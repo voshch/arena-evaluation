@@ -145,11 +145,7 @@ def _snap(rows):
         values["kind"].append(kind)
         values["field_name"].append(field)
         values["field_kind"].append(field_kind)
-        values["value_str"].append(
-            ",".join(sorted(value))
-            if field_kind == "members"
-            else (value if field_kind == "discrete" else None)
-        )
+        values["value_str"].append(",".join(sorted(value)) if field_kind == "members" else (value if field_kind == "discrete" else None))
         values["value_num"].append(float(value) if field_kind == "continuous" else None)
         values["value_bool"].append(bool(value) if field_kind == "predicate" else None)
     return pl.DataFrame(values, schema=_SNAPSHOT_SCHEMA)
@@ -221,16 +217,10 @@ def _door(name="door_1", level="0"):
         ("jackal/robot", "env_2/jackal/robot"),
     ],
 )
-def test_the_entity_match_expression_agrees_with_matches(
-    robot: str, member: str
-) -> None:
+def test_the_entity_match_expression_agrees_with_matches(robot: str, member: str) -> None:
     """The vectorized predicate decides exactly what the row-wise ``matches`` decides."""
     identity = RobotIdentity(robot)
-    matched = (
-        pl.DataFrame({"entity": [member]})
-        .select(identity.entity_match_expr().alias("matched"))
-        .item()
-    )
+    matched = pl.DataFrame({"entity": [member]}).select(identity.entity_match_expr().alias("matched")).item()
 
     assert matched == identity.matches(member)
 
@@ -288,24 +278,9 @@ def _ride_snapshot(ped_exits_at=None, capacity=None):
 
 
 def test_entered_full_cabin_with_capacity():
-    assert (
-        _calc().calculate(
-            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=1.0)), {}
-        )["entered_full_cabin"]
-        == 1
-    )
-    assert (
-        _calc().calculate(
-            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=2.0)), {}
-        )["entered_full_cabin"]
-        == 0
-    )
-    assert (
-        _calc().calculate(
-            _episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=-1.0)), {}
-        )["entered_full_cabin"]
-        == 0
-    )
+    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=1.0)), {})["entered_full_cabin"] == 1
+    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=2.0)), {})["entered_full_cabin"] == 0
+    assert _calc().calculate(_episode(_data([(9, 9)] * 9), _ride_snapshot(capacity=-1.0)), {})["entered_full_cabin"] == 0
 
 
 def test_entered_full_cabin_from_full_predicate():
@@ -320,10 +295,7 @@ def test_entered_full_cabin_from_full_predicate():
             ),
         ]
     )
-    assert (
-        _calc().calculate(_episode(_data([(9, 9)] * 9), snap), {})["entered_full_cabin"]
-        == 1
-    )
+    assert _calc().calculate(_episode(_data([(9, 9)] * 9), snap), {})["entered_full_cabin"] == 1
 
 
 def test_boardings_exclude_ride_arrivals():
@@ -411,22 +383,12 @@ def test_cabin_door_blocking_seconds():
             (0, ELEV, "elevator", "members", "members", []),
         ]
     )
-    assert (
-        _calc(world).calculate(_episode(_data(points), closed), {})[
-            "cabin_door_blocking_s"
-        ]
-        == 0.0
-    )
+    assert _calc(world).calculate(_episode(_data(points), closed), {})["cabin_door_blocking_s"] == 0.0
 
 
 def test_cabin_door_blocking_none_without_world():
     snap = _snap([(0, ELEV, "elevator", "cabin_door", "discrete", "open")])
-    assert (
-        _calc().calculate(_episode(_data([(2.1, 1)] * 3), snap), {})[
-            "cabin_door_blocking_s"
-        ]
-        is None
-    )
+    assert _calc().calculate(_episode(_data([(2.1, 1)] * 3), snap), {})["cabin_door_blocking_s"] is None
 
 
 def _queue_episode(ped_leaves):
@@ -451,22 +413,12 @@ def _queue_episode(ped_leaves):
 
 def test_elevator_queue_jump_over_waiting_ped():
     world = MechanismWorld(elevators=[_elevator()])
-    assert (
-        _calc(world).calculate(_queue_episode(ped_leaves=False), {})[
-            "elevator_queue_jumps"
-        ]
-        == 1
-    )
+    assert _calc(world).calculate(_queue_episode(ped_leaves=False), {})["elevator_queue_jumps"] == 1
 
 
 def test_elevator_no_queue_jump_when_ped_left():
     world = MechanismWorld(elevators=[_elevator()])
-    assert (
-        _calc(world).calculate(_queue_episode(ped_leaves=True), {})[
-            "elevator_queue_jumps"
-        ]
-        == 0
-    )
+    assert _calc(world).calculate(_queue_episode(ped_leaves=True), {})["elevator_queue_jumps"] == 0
 
 
 def test_blocked_closing_door_count_and_seconds():
@@ -515,9 +467,7 @@ def test_blocked_closing_door_members_fallback_without_geometry():
 
 def test_blocked_closing_door_none_when_unattributable():
     snap = _snap([(0, DOOR, "door", "blocked_close", "predicate", True)])
-    results = _calc().calculate(
-        _episode(_data([(0, 0)] * 3), snap, robot_name=None), {}
-    )
+    results = _calc().calculate(_episode(_data([(0, 0)] * 3), snap, robot_name=None), {})
     assert results["blocked_closing_door"] is None
     assert results["blocked_closing_door_s"] is None
 
@@ -538,36 +488,17 @@ def _crossing(ped):
 
 def test_door_yield_violation_ped_approaching_from_far_side():
     world = MechanismWorld(doors=[_door()])
-    assert (
-        _calc(world).calculate(_crossing((PED, 1.5, 1.2, -0.5, 0.0)), {})[
-            "door_yield_violations"
-        ]
-        == 1
-    )
+    assert _calc(world).calculate(_crossing((PED, 1.5, 1.2, -0.5, 0.0)), {})["door_yield_violations"] == 1
 
 
 def test_door_yield_no_violation_ped_moving_away_or_same_side():
     world = MechanismWorld(doors=[_door()])
-    assert (
-        _calc(world).calculate(_crossing((PED, 1.5, 1.2, 0.5, 0.0)), {})[
-            "door_yield_violations"
-        ]
-        == 0
-    )
-    assert (
-        _calc(world).calculate(_crossing((PED, -1.5, 1.2, 0.5, 0.0)), {})[
-            "door_yield_violations"
-        ]
-        == 0
-    )
+    assert _calc(world).calculate(_crossing((PED, 1.5, 1.2, 0.5, 0.0)), {})["door_yield_violations"] == 0
+    assert _calc(world).calculate(_crossing((PED, -1.5, 1.2, 0.5, 0.0)), {})["door_yield_violations"] == 0
 
 
 def test_alarm_egress_blocking_seconds():
-    world = MechanismWorld(
-        egress_zones=[
-            EgressZone("exit_corridor", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])
-        ]
-    )
+    world = MechanismWorld(egress_zones=[EgressZone("exit_corridor", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])])
     snap = _snap(
         [
             (0, "env_0/fire_alarm/0", "schedule", "active", "predicate", False),
@@ -583,22 +514,10 @@ def test_alarm_egress_blocking_seconds():
 
 def test_alarm_egress_blocking_none_without_egress_zones_or_schedule():
     snap = _snap([(0, "env_0/fire_alarm/0", "schedule", "active", "predicate", True)])
-    assert (
-        _calc(MechanismWorld()).calculate(_episode(_data([(1, 1)] * 3), snap), {})[
-            "alarm_egress_blocking_s"
-        ]
-        is None
-    )
-    world = MechanismWorld(
-        egress_zones=[EgressZone("exit", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])]
-    )
+    assert _calc(MechanismWorld()).calculate(_episode(_data([(1, 1)] * 3), snap), {})["alarm_egress_blocking_s"] is None
+    world = MechanismWorld(egress_zones=[EgressZone("exit", "0", [(0, 0), (4, 0), (4, 4), (0, 4)])])
     door_only = _snap([(0, DOOR, "door", "state", "discrete", "open")])
-    assert (
-        _calc(world).calculate(_episode(_data([(1, 1)] * 3), door_only), {})[
-            "alarm_egress_blocking_s"
-        ]
-        is None
-    )
+    assert _calc(world).calculate(_episode(_data([(1, 1)] * 3), door_only), {})["alarm_egress_blocking_s"] is None
 
 
 def test_multi_env_snapshot_scoped_to_robot_env():
@@ -611,7 +530,5 @@ def test_multi_env_snapshot_scoped_to_robot_env():
     )
     results = _calc(world).calculate(_episode(_data([(1, 1)] * 3), snap), {})
     assert results["door_freeze_s"] == 0.0
-    other_env = _calc(world).calculate(
-        _episode(_data([(1, 1)] * 3), snap, robot_name="env_1_jackal"), {}
-    )
+    other_env = _calc(world).calculate(_episode(_data([(1, 1)] * 3), snap, robot_name="env_1_jackal"), {})
     assert other_env["door_freeze_s"] == pytest.approx(1.0)

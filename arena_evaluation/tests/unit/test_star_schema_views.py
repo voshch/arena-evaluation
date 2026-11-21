@@ -16,10 +16,7 @@ from arena_evaluation.storage.star_schema import (
 
 
 def _write_two_episode_benchmark(root: pathlib.Path) -> pathlib.Path:
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = pl.DataFrame(
         [
             {
@@ -46,12 +43,7 @@ def _write_two_episode_benchmark(root: pathlib.Path) -> pathlib.Path:
         fact_ep = pl.DataFrame(
             [
                 {
-                    **{
-                        col: None
-                        for col in FACT_TABLES[FactTable.EPISODES]
-                        .polars_schema()
-                        .names()
-                    },
+                    **{col: None for col in FACT_TABLES[FactTable.EPISODES].polars_schema().names()},
                     "run_id": "run-1",
                     "episode_id": ep_id,
                     "robot_id": "robot_0",
@@ -66,10 +58,7 @@ def _write_two_episode_benchmark(root: pathlib.Path) -> pathlib.Path:
         pl.DataFrame(
             [
                 {
-                    **{
-                        col: None
-                        for col in series.SeriesClearance.polars_schema().names()
-                    },
+                    **{col: None for col in series.SeriesClearance.polars_schema().names()},
                     "run_id": "run-1",
                     "episode_id": ep_id,
                     "robot_id": "robot_0",

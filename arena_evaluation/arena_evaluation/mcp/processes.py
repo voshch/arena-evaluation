@@ -30,15 +30,11 @@ def evaluation_ps() -> dict[str, Any]:
 async def evaluation_kill(
     pids: Annotated[
         list[int] | None,
-        pydantic.Field(
-            description="pids from evaluation_ps, each must be a classified arena process"
-        ),
+        pydantic.Field(description="pids from evaluation_ps, each must be a classified arena process"),
     ] = None,
     kind: Annotated[
         Kind | None,
-        pydantic.Field(
-            description="every process of this kind, ignored when pids are given"
-        ),
+        pydantic.Field(description="every process of this kind, ignored when pids are given"),
     ] = None,
     grace_s: Annotated[
         float,
@@ -53,9 +49,7 @@ async def evaluation_kill(
     from arena_evaluation.benchmark.debug import kill_processes
 
     try:
-        results = await asyncio.to_thread(
-            kill_processes, pids=pids or None, kind=kind, grace_s=grace_s
-        )
+        results = await asyncio.to_thread(kill_processes, pids=pids or None, kind=kind, grace_s=grace_s)
     except ValueError as exc:
         raise ToolError(
             "pass pids or a kind, nothing is stopped by default",
@@ -70,9 +64,7 @@ def evaluation_console(
     lines: Annotated[int, pydantic.Field(ge=1, le=5000)] = 200,
     lane: Annotated[
         str | None,
-        pydantic.Field(
-            description="a shared run's lane, its runner.<lane>.log; every lane log when omitted"
-        ),
+        pydantic.Field(description="a shared run's lane, its runner.<lane>.log; every lane log when omitted"),
     ] = None,
 ) -> dict[str, Any]:
     """The tail of a run's console log, runner.log (written for every run) or the lane logs of a shared run, and whether its runner is alive, like `arena evaluation console`."""
@@ -86,18 +78,11 @@ def evaluation_console(
             if lane is not None
             else [
                 None,
-                *sorted(
-                    log.stem.removeprefix("runner.")
-                    for log in path.glob("runner.*.log")
-                ),
+                *sorted(log.stem.removeprefix("runner.") for log in path.glob("runner.*.log")),
             ]
         )
     ]
-    logs = {
-        pathlib.Path(tail["path"]).name: tail["lines"]
-        for tail in tails
-        if tail["exists"]
-    }
+    logs = {pathlib.Path(tail["path"]).name: tail["lines"] for tail in tails if tail["exists"]}
     if not logs:
         raise ToolError(
             f"run {path.name!r} has no console log yet",

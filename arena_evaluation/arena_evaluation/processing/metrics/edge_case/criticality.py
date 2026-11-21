@@ -57,9 +57,7 @@ class Criticality:
         return self.samples > 0 and self.min_clearance_m is not None
 
 
-def time_to_collision(
-    p_a: Point, v_a: Point, r_a: float, p_b: Point, v_b: Point, r_b: float
-) -> float | None:
+def time_to_collision(p_a: Point, v_a: Point, r_a: float, p_b: Point, v_b: Point, r_b: float) -> float | None:
     """Seconds until two discs on constant velocities touch, 0.0 when they already do, None when they never will."""
     dpx, dpy = p_b[0] - p_a[0], p_b[1] - p_a[1]
     dvx, dvy = v_b[0] - v_a[0], v_b[1] - v_a[1]
@@ -84,9 +82,7 @@ def time_to_collision(
     return None
 
 
-def post_encroachment_time(
-    samples: Sequence[Sample], encounter: Point, agent: str
-) -> float | None:
+def post_encroachment_time(samples: Sequence[Sample], encounter: Point, agent: str) -> float | None:
     """Time gap between the robot and `agent` passing `encounter`, None when either never comes within ENCOUNTER_NEAR_CENTRE_M of it."""
 
     def crossing_time(track: Iterable[tuple[float, Point]]) -> float | None:
@@ -104,9 +100,7 @@ def post_encroachment_time(
     return abs(t_agent - t_robot)
 
 
-def _first_collision(
-    s: Sample, p: Point, v: Point, t0: float, name: str
-) -> tuple[str, float, float, float]:
+def _first_collision(s: Sample, p: Point, v: Point, t0: float, name: str) -> tuple[str, float, float, float]:
     """The agent touched, the time of contact, and the robot and pedestrian closing speeds along the line of sight."""
     dx, dy = p[0] - s.robot[0], p[1] - s.robot[1]
     norm = math.hypot(dx, dy) or 1.0
@@ -172,18 +166,11 @@ def score(
 
     for i, s in enumerate(samples):
         dt = max(0.0, (samples[i + 1].t - s.t) if i + 1 < len(samples) else 0.0)
-        if (
-            s.t - t0 >= settle_s
-            and math.hypot(s.robot_vel[0], s.robot_vel[1]) < FREEZE_SPEED
-        ):
+        if s.t - t0 >= settle_s and math.hypot(s.robot_vel[0], s.robot_vel[1]) < FREEZE_SPEED:
             freeze += dt
 
-        sample_clear, sample_ttc, sample_collision, intruding = _sample_ped_stats(
-            s, t0, wanted
-        )
-        if sample_clear is not None and (
-            min_clear is None or sample_clear[0] < min_clear
-        ):
+        sample_clear, sample_ttc, sample_collision, intruding = _sample_ped_stats(s, t0, wanted)
+        if sample_clear is not None and (min_clear is None or sample_clear[0] < min_clear):
             min_clear, clear_with, clear_at = sample_clear
         if sample_ttc is not None and (min_ttc is None or sample_ttc[0] < min_ttc):
             min_ttc, ttc_with, ttc_at = sample_ttc

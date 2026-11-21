@@ -32,10 +32,7 @@ def test_component_list_includes_condition_success_and_is_well_formed():
     keys = [c.key for c in MECHANISM_COMPONENTS]
     assert "condition_success" in keys
     assert len(keys) == len(set(keys))
-    assert all(
-        c.direction in ("lower", "higher") and c.scale > 0 and c.weight > 0
-        for c in MECHANISM_COMPONENTS
-    )
+    assert all(c.direction in ("lower", "higher") and c.scale > 0 and c.weight > 0 for c in MECHANISM_COMPONENTS)
 
 
 def test_calculator_reads_prior_results():
@@ -50,12 +47,6 @@ def test_calculator_reads_prior_results():
 
 def test_calculator_runs_after_its_inputs():
     registry = MetricRegistry(make_robot_params())
-    stage_of = {
-        name: i
-        for i, stage in enumerate(
-            registry.get_execution_order_for_scope(MetricScope.ROBOT)
-        )
-        for name in stage
-    }
+    stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
     for dep in MechanismComponentCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of["mechanism_component"]

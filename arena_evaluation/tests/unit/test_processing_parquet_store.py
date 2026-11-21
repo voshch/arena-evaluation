@@ -49,9 +49,7 @@ def _meta(**overrides) -> RunMetadata:
 
 
 def test_metadata_exclude_none():
-    meta = _meta(
-        episode_id=None, arena_git_sha=None, outcome_info="", is_reference=False
-    )
+    meta = _meta(episode_id=None, arena_git_sha=None, outcome_info="", is_reference=False)
     dumped = meta.model_dump(exclude_none=True)
     assert "episode_id" not in dumped
     assert "arena_git_sha" not in dumped

@@ -10,11 +10,7 @@ from arena_evaluation.processing.metrics.dictionary import (
 PLACEHOLDER = "ecological metric of the"
 ECOLOGICAL_CALCULATORS = tuple(
     sorted(
-        (
-            calculator
-            for calculator in shipped_calculators()
-            if calculator.CATEGORY == "ecological"
-        ),
+        (calculator for calculator in shipped_calculators() if calculator.CATEGORY == "ecological"),
         key=lambda calculator: calculator.NAME,
     )
 )

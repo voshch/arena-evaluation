@@ -12,10 +12,7 @@ __all__ = ["compile_where_predicate"]
 
 type ScalarLiteral = bool | int | float | str | None
 
-_HINT: Final[str] = (
-    "Hint: write comparisons between a column of the bound table and a literal, combine them with and/or/not and parentheses, "
-    "e.g. \"is_reference is null and planner = 'dwb'\". Equality accepts = or ==, inequality <> or !=, and in (...) filters a list."
-)
+_HINT: Final[str] = "Hint: write comparisons between a column of the bound table and a literal, combine them with and/or/not and parentheses, e.g. \"is_reference is null and planner = 'dwb'\". Equality accepts = or ==, inequality <> or !=, and in (...) filters a list."
 
 _BOOLEAN_LITERALS: Final[dict[str, bool]] = {"true": True, "false": False}
 _NULL_LITERALS: Final[frozenset[str]] = frozenset({"null", "none"})
@@ -87,17 +84,9 @@ def _literal(where: str, node: ast.expr) -> ScalarLiteral:
         if lowered in _BOOLEAN_LITERALS:
             return _BOOLEAN_LITERALS[lowered]
         _reject(where, f"{node.id!r} is a column, not a literal; quote a text value")
-    if isinstance(node, ast.Constant) and isinstance(
-        node.value, (bool, int, float, str, type(None))
-    ):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (bool, int, float, str, type(None))):
         return node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, ast.USub)
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, (int, float))
-        and not isinstance(node.operand.value, bool)
-    ):
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, (int, float)) and not isinstance(node.operand.value, bool):
         return -node.operand.value
     _reject(where, f"{ast.unparse(node)!r} is not a literal")
 
@@ -110,9 +99,7 @@ def _ensure_fits(where: str, dtype: pl.DataType, value: ScalarLiteral) -> Scalar
     elif isinstance(value, (int, float)):
         fits = dtype.is_numeric()
     elif isinstance(value, str):
-        fits = (
-            dtype == pl.String or dtype == pl.Categorical or isinstance(dtype, pl.Enum)
-        )
+        fits = dtype == pl.String or dtype == pl.Categorical or isinstance(dtype, pl.Enum)
     else:
         fits = False
     if not fits:
@@ -121,26 +108,20 @@ def _ensure_fits(where: str, dtype: pl.DataType, value: ScalarLiteral) -> Scalar
 
 
 def _membership(where: str, literal_node: ast.expr) -> list[ScalarLiteral]:
-    elements = (
-        literal_node.elts if isinstance(literal_node, _SET_LITERALS) else [literal_node]
-    )
+    elements = literal_node.elts if isinstance(literal_node, _SET_LITERALS) else [literal_node]
     if not elements:
         _reject(where, "in needs at least one literal")
     return [_literal(where, element) for element in elements]
 
 
-def _comparison(
-    where: str, left: ast.expr, op: ast.cmpop, right: ast.expr, schema: pl.Schema
-) -> pl.Expr:
+def _comparison(where: str, left: ast.expr, op: ast.cmpop, right: ast.expr, schema: pl.Schema) -> pl.Expr:
     column_on_left = isinstance(left, ast.Name)
     column_node, literal_node = (left, right) if column_on_left else (right, left)
 
     if isinstance(op, (ast.Is, ast.IsNot)):
         column = pl.col(_column_name(where, column_node, schema))
         if _literal(where, literal_node) is not None:
-            _reject(
-                where, "is / is not compares against null only, use = or != for a value"
-            )
+            _reject(where, "is / is not compares against null only, use = or != for a value")
         is_null = column.is_null()
         return is_null if isinstance(op, ast.Is) else is_null.not_()
 
@@ -153,10 +134,7 @@ def _comparison(
                 where,
                 "in needs the column on the left and a list of literals on the right",
             )
-        values = [
-            _ensure_fits(where, dtype, value)
-            for value in _membership(where, literal_node)
-        ]
+        values = [_ensure_fits(where, dtype, value) for value in _membership(where, literal_node)]
         membership = pl.col(name).is_in(values)
         return membership if isinstance(op, ast.In) else membership.not_()
 

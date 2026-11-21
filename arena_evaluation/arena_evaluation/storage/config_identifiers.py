@@ -35,9 +35,7 @@ _BENCH_TTL_S = 365 * 86400
 
 def bundle_filename(asset_type: str) -> str:
     """The yaml a directory bundle holds, found by its folder: ``suites`` -> ``suite.yaml``, ``queries`` -> ``query.yaml``."""
-    return next(
-        spec.filename for spec in CONFIG_KINDS.values() if spec.folder == asset_type
-    )
+    return next(spec.filename for spec in CONFIG_KINDS.values() if spec.folder == asset_type)
 
 
 class ConfigPathResolver(SimplePathResolver):
@@ -72,11 +70,7 @@ def bucket_cache_dirs() -> list[Path]:
     """The local cache root of each benchmark bucket that has been fetched into before."""
     if ARENA_ASSETS_DIR == NO_ASSETS_DIR:
         return []
-    return [
-        ARENA_ASSETS_DIR / provider
-        for provider in BENCHMARK_PROVIDERS
-        if (ARENA_ASSETS_DIR / provider).is_dir()
-    ]
+    return [ARENA_ASSETS_DIR / provider for provider in BENCHMARK_PROVIDERS if (ARENA_ASSETS_DIR / provider).is_dir()]
 
 
 def register_config_identifier(cls: type[AssetIdentifier]) -> None:

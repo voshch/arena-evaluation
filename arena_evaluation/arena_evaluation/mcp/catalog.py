@@ -49,9 +49,7 @@ def config_identifier(kind: str) -> type[AssetIdentifier]:
 
 def config_names(kind: str, *, network: bool = False) -> list[str]:
     """Return sorted config names for ``kind``."""
-    return sorted(
-        {item.shortname for item in config_identifier(kind).listall(network=network)}
-    )
+    return sorted({item.shortname for item in config_identifier(kind).listall(network=network)})
 
 
 def config_file(kind: str, name: str) -> pathlib.Path:
@@ -110,9 +108,7 @@ def evaluation_manifests(
     network: Network = False,
     run_id: Annotated[
         str | None,
-        pydantic.Field(
-            description="also list the custom manifests written into this run"
-        ),
+        pydantic.Field(description="also list the custom manifests written into this run"),
     ] = None,
 ) -> dict[str, Any]:
     """Report manifest names: the resolvable ones and, for a run, the custom ones in its analysis directory."""
@@ -138,9 +134,7 @@ def evaluation_config_template(
     name: str,
     run_id: Annotated[
         str | None,
-        pydantic.Field(
-            description="for a manifest, look in this run's analysis directory first"
-        ),
+        pydantic.Field(description="for a manifest, look in this run's analysis directory first"),
     ] = None,
 ) -> dict[str, Any]:
     """The full YAML of a suite, contest or report manifest by name, and where it resolved from."""
@@ -155,17 +149,10 @@ def evaluation_config_template(
 def _readme_section(word: str) -> str:
     """Return matching sections from ``configs/README.md``."""
     for base in (share_dir(), source_tree_dir()):
-        if (
-            base is None
-            or not (readme := base / CONFIGS_DIR_NAME / "README.md").is_file()
-        ):
+        if base is None or not (readme := base / CONFIGS_DIR_NAME / "README.md").is_file():
             continue
         sections = readme.read_text(encoding="utf-8").split("\n## ")
-        return "\n\n".join(
-            f"## {section}"
-            for section in sections[1:]
-            if word.lower() in section.splitlines()[0].lower()
-        )
+        return "\n\n".join(f"## {section}" for section in sections[1:] if word.lower() in section.splitlines()[0].lower())
     return ""
 
 
@@ -191,11 +178,7 @@ def evaluation_config_schema(
             "stage_fields": {
                 field: {
                     "type": str(stage.__annotations__.get(field)),
-                    **(
-                        {"default": jsonable(stage._field_defaults[field])}
-                        if field in stage._field_defaults
-                        else {}
-                    ),
+                    **({"default": jsonable(stage._field_defaults[field])} if field in stage._field_defaults else {}),
                 }
                 for field in stage._fields
             },
@@ -215,9 +198,7 @@ def evaluation_config_schema(
         }
     else:
         out = {
-            "contestant_fields": [
-                field.name for field in attrs.fields(config.Contestant)
-            ],
+            "contestant_fields": [field.name for field in attrs.fields(config.Contestant)],
             "forms": [
                 "list of {name, <args>}",
                 "mapping {name, description, contestants: [...]}",

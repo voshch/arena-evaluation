@@ -19,9 +19,7 @@ def _open_catalog(resolved_dir: pathlib.Path) -> BenchmarkCatalog:
     Re-processing a benchmark in the same Python process will continue serving the cached catalog.
     """
     if not (resolved_dir / "dim_episodes.parquet").is_file():
-        raise FileNotFoundError(
-            f"no Star Schema tables under {resolved_dir}; run `arena evaluation process --benchmark-dir {resolved_dir}` first"
-        )
+        raise FileNotFoundError(f"no Star Schema tables under {resolved_dir}; run `arena evaluation process --benchmark-dir {resolved_dir}` first")
     return BenchmarkCatalog.open(resolved_dir)
 
 

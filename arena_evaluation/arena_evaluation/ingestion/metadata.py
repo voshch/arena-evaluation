@@ -52,11 +52,7 @@ class IngestionMetadata:
         """
         start = Path(workspace_dir).expanduser().resolve()
         ancestry = [start, *start.parents]
-        candidates = [
-            candidate
-            for parent in ancestry
-            for candidate in (parent, parent / "src" / "Arena")
-        ]
+        candidates = [candidate for parent in ancestry for candidate in (parent, parent / "src" / "Arena")]
         for candidate in candidates:
             if (candidate / ".git").exists():
                 return str(candidate)

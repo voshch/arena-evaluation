@@ -158,10 +158,7 @@ class TriageParams(BaseModel):
     include_references: bool = False
     metrics: list[str] = Field(
         default_factory=list,
-        description=(
-            "Per-metric missingness to break down; empty takes every metric the metric dictionary "
-            "publishes at episode or robot scope."
-        ),
+        description=("Per-metric missingness to break down; empty takes every metric the metric dictionary publishes at episode or robot scope."),
     )
 
 
@@ -203,9 +200,7 @@ class VisibilityEffectParams(BaseModel):
 class LeadMeasuresParams(BaseModel):
     """Parameters for discovery/verification seed-split lead measure selection."""
 
-    metrics: list[str] = Field(
-        default_factory=lambda: ["time_to_goal", "energy_total_wh", "path_efficiency"]
-    )
+    metrics: list[str] = Field(default_factory=lambda: ["time_to_goal", "energy_total_wh", "path_efficiency"])
     n_boot: int = Field(default=500, ge=50)
     ci_level: float = Field(default=0.95, gt=0.5, lt=1.0)
     seed: int = 42
@@ -231,9 +226,7 @@ class ProcedureSpec:
     fn: Callable[[BenchmarkCatalog, BaseModel], AnalysisResult]
 
 
-def _valid_episodes(
-    catalog: BenchmarkCatalog, *, include_references: bool
-) -> tuple[pl.DataFrame, dict[str, int]]:
+def _valid_episodes(catalog: BenchmarkCatalog, *, include_references: bool) -> tuple[pl.DataFrame, dict[str, int]]:
     """The usable episode rows: non-reference (unless asked) and flagged valid for ranking."""
     frame = catalog.get_table("v_episode_summary").collect()
     excluded: dict[str, int] = {}
@@ -242,17 +235,13 @@ def _valid_episodes(
         frame = frame.filter(~pl.col("is_reference").fill_null(False).cast(pl.Boolean))
         if before > frame.height:
             excluded[_REFERENCE_FILTER] = before - frame.height
-    valid = frame.filter(
-        pl.col("is_valid_for_ranking").fill_null(False).cast(pl.Boolean)
-    )
+    valid = frame.filter(pl.col("is_valid_for_ranking").fill_null(False).cast(pl.Boolean))
     if frame.height > valid.height:
         excluded["invalid_for_ranking"] = frame.height - valid.height
     return valid, excluded
 
 
-def _orientation(
-    catalog: BenchmarkCatalog, metric: str
-) -> tuple[str, bool, MetricDirections]:
+def _orientation(catalog: BenchmarkCatalog, metric: str) -> tuple[str, bool, MetricDirections]:
     """Resolve a metric's ``stats`` direction text, higher-is-better flag, and source."""
     directions = resolve_metric_directions(catalog, (metric,))
     higher = directions.by_metric[metric] == "higher"
@@ -271,12 +260,7 @@ def _seed_half_frame(
     seeds = _seeds(frame)
     middle = len(seeds) // 2
     first, second = seeds[:middle], seeds[middle:]
-    tagged = frame.with_columns(
-        pl.when(pl.col("seed").is_in(list(first)))
-        .then(pl.lit("h1"))
-        .otherwise(pl.lit("h2"))
-        .alias("__seed_half")
-    )
+    tagged = frame.with_columns(pl.when(pl.col("seed").is_in(list(first))).then(pl.lit("h1")).otherwise(pl.lit("h2")).alias("__seed_half"))
     return tagged, first, second
 
 
@@ -291,32 +275,9 @@ def _swap_count(
     weight_col: str | None = None,
 ) -> int:
     """Rank entities in two regimes and count the pairs whose order the regimes swap."""
-    mean = (
-        (pl.col(metric).cast(pl.Float64) * pl.col(weight_col)).sum()
-        / pl.col(weight_col).sum()
-        if weight_col is not None
-        else pl.col(metric).cast(pl.Float64).mean()
-    )
-    ranked = (
-        frame.filter(
-            pl.col(metric).is_not_null()
-            & pl.col(regime_col).is_not_null()
-            & pl.col(entity_col).is_not_null()
-        )
-        .group_by(regime_col, entity_col)
-        .agg(mean.alias("__mean"))
-        .with_columns(
-            rank=pl.col("__mean")
-            .rank(method="average", descending=direction == "desc")
-            .over(regime_col)
-        )
-    )
-    sides = [
-        ranked.filter(pl.col(regime_col).cast(pl.String) == str(regime)).select(
-            pl.col(entity_col).cast(pl.String).alias("entity"), pl.col("rank")
-        )
-        for regime in regimes
-    ]
+    mean = (pl.col(metric).cast(pl.Float64) * pl.col(weight_col)).sum() / pl.col(weight_col).sum() if weight_col is not None else pl.col(metric).cast(pl.Float64).mean()
+    ranked = frame.filter(pl.col(metric).is_not_null() & pl.col(regime_col).is_not_null() & pl.col(entity_col).is_not_null()).group_by(regime_col, entity_col).agg(mean.alias("__mean")).with_columns(rank=pl.col("__mean").rank(method="average", descending=direction == "desc").over(regime_col))
+    sides = [ranked.filter(pl.col(regime_col).cast(pl.String) == str(regime)).select(pl.col(entity_col).cast(pl.String).alias("entity"), pl.col("rank")) for regime in regimes]
     joined = sides[0].join(sides[1], on="entity", how="inner", suffix="_b")
     if joined.height < 2:
         return 0
@@ -337,9 +298,7 @@ def _planner_intervals(
     cluster_col: str = "seed",
 ) -> dict[str, tuple[float, float]]:
     """Per-planner seed-clustered interval of the metric mean: the seed spread D-12 asks for."""
-    usable = frame.filter(
-        pl.col(metric).is_not_null() & pl.col(cluster_col).is_not_null()
-    )
+    usable = frame.filter(pl.col(metric).is_not_null() & pl.col(cluster_col).is_not_null())
     if usable.is_empty():
         return {}
     estimates = cluster_bootstrap_ci(
@@ -362,30 +321,17 @@ def _planner_intervals(
     return intervals
 
 
-def _separated_pairs(
-    intervals: Mapping[str, tuple[float, float]], *, higher_is_better: bool
-) -> int:
+def _separated_pairs(intervals: Mapping[str, tuple[float, float]], *, higher_is_better: bool) -> int:
     """Count planner pairs whose seed intervals do not overlap in the better direction."""
     lows = np.array([low for low, _ in intervals.values()], dtype=np.float64)
     highs = np.array([high for _, high in intervals.values()], dtype=np.float64)
-    separated = (
-        lows[:, None] > highs[None, :]
-        if higher_is_better
-        else highs[:, None] < lows[None, :]
-    )
+    separated = lows[:, None] > highs[None, :] if higher_is_better else highs[:, None] < lows[None, :]
     return int(np.count_nonzero(separated))
 
 
-def _selection(
-    frame: pl.DataFrame, metric: str, n_boot: int, ci_level: float, seed: int
-) -> tuple[float, float, dict[str, tuple[float, float]]] | None:
+def _selection(frame: pl.DataFrame, metric: str, n_boot: int, ci_level: float, seed: int) -> tuple[float, float, dict[str, tuple[float, float]]] | None:
     """Discovery separation and the seed-interval noise it must exceed, or ``None`` if unrankable."""
-    means = (
-        frame.filter(pl.col(metric).is_not_null())
-        .group_by("planner")
-        .agg(pl.col(metric).cast(pl.Float64).mean().alias("value"))
-        .sort("planner")
-    )
+    means = frame.filter(pl.col(metric).is_not_null()).group_by("planner").agg(pl.col(metric).cast(pl.Float64).mean().alias("value")).sort("planner")
     by_planner = {
         str(name): float(value)
         for name, value in means.iter_rows()  # agent-contracts: ignore metadata dict boundary
@@ -394,32 +340,15 @@ def _selection(
     if len(by_planner) < 2:
         return None
     intervals = _planner_intervals(frame, metric, n_boot, ci_level, seed)
-    noise = (
-        max((high - low) / 2.0 for low, high in intervals.values())
-        if intervals
-        else 0.0
-    )
+    noise = max((high - low) / 2.0 for low, high in intervals.values()) if intervals else 0.0
     return max(by_planner.values()) - min(by_planner.values()), noise, intervals
 
 
-def _project_rows(
-    frame: pl.DataFrame, schema: pl.Schema, **values: object
-) -> pl.DataFrame:
+def _project_rows(frame: pl.DataFrame, schema: pl.Schema, **values: object) -> pl.DataFrame:
     """Add typed NULLs for absent columns, apply literals, and cast to the declared schema."""
-    present = frame.with_columns(
-        [
-            pl.lit(value, dtype=schema[name]).alias(name)
-            for name, value in values.items()
-        ]
-    )
-    nulls = [
-        pl.lit(None, dtype=dtype).alias(name)
-        for name, dtype in schema.items()
-        if name not in present.columns
-    ]
-    return present.with_columns(nulls).select(
-        [pl.col(name).cast(dtype) for name, dtype in schema.items()]
-    )
+    present = frame.with_columns([pl.lit(value, dtype=schema[name]).alias(name) for name, value in values.items()])
+    nulls = [pl.lit(None, dtype=dtype).alias(name) for name, dtype in schema.items() if name not in present.columns]
+    return present.with_columns(nulls).select([pl.col(name).cast(dtype) for name, dtype in schema.items()])
 
 
 def _summary(**values: object) -> pl.DataFrame:
@@ -474,18 +403,12 @@ def _metric_null_rows(
         .group_by([*group_cols, "reason"])
         .agg(pl.len().cast(pl.Int64).alias("episodes"))
     )
-    attributed = tokens.group_by(group_cols).agg(
-        pl.col("episodes").sum().alias("__attributed")
-    )
+    attributed = tokens.group_by(group_cols).agg(pl.col("episodes").sum().alias("__attributed"))
     remainder = (
         nulls.group_by(group_cols)
         .agg(pl.len().cast(pl.Int64).alias("null_episodes"))
         .join(attributed, on=group_cols, how="left")
-        .with_columns(
-            (pl.col("null_episodes") - pl.col("__attributed").fill_null(0)).alias(
-                "episodes"
-            )
-        )
+        .with_columns((pl.col("null_episodes") - pl.col("__attributed").fill_null(0)).alias("episodes"))
         .filter(pl.col("episodes") > 0)
         .with_columns(pl.lit(_NULL_KEY_REASON, dtype=pl.String).alias("reason"))
     )
@@ -505,33 +428,15 @@ def _metric_null_rows(
 
 def _run_triage(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, TriageParams)
-    usable, excluded = _valid_episodes(
-        catalog, include_references=params.include_references
-    )
-    metrics = params.metrics or [
-        str(name)
-        for name in catalog.metric_dictionary()
-        .filter(pl.col("scope").is_in(["episodes", "robots"]))
-        .select("metric")
-        .unique()
-        .sort("metric")
-        .collect()
-        .get_column("metric")
-    ]
+    usable, excluded = _valid_episodes(catalog, include_references=params.include_references)
+    metrics = params.metrics or [str(name) for name in catalog.metric_dictionary().filter(pl.col("scope").is_in(["episodes", "robots"])).select("metric").unique().sort("metric").collect().get_column("metric")]
     group_cols = ["planner", "world", "crowd_condition"]
     counts = (
         usable.group_by(group_cols)
         .agg(
             pl.len().cast(pl.Int64).alias("total_episodes"),
-            pl.col("is_valid_for_ranking")
-            .fill_null(False)
-            .sum()
-            .cast(pl.Int64)
-            .alias("valid_episodes"),
-            (~pl.col("is_valid_for_ranking").fill_null(False))
-            .sum()
-            .cast(pl.Int64)
-            .alias("excluded_episodes"),
+            pl.col("is_valid_for_ranking").fill_null(False).sum().cast(pl.Int64).alias("valid_episodes"),
+            (~pl.col("is_valid_for_ranking").fill_null(False)).sum().cast(pl.Int64).alias("excluded_episodes"),
         )
         .sort(group_cols)
         .with_columns(episodes=pl.col("valid_episodes"))
@@ -546,27 +451,13 @@ def _run_triage(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
         .group_by([*group_cols, "reason"])
         .agg(pl.len().cast(pl.Int64).alias("episodes"))
     )
-    parts.append(
-        _project_rows(invalid_reasons, TRIAGE_SCHEMA, row_kind="invalid_reason").sort(
-            group_cols + ["reason"]
-        )
-    )
+    parts.append(_project_rows(invalid_reasons, TRIAGE_SCHEMA, row_kind="invalid_reason").sort(group_cols + ["reason"]))
     reason_columns = [name for name in usable.columns if name.endswith("_null_reason")]
-    parts.extend(
-        part
-        for metric in metrics
-        if not (
-            part := _metric_null_rows(usable, metric, group_cols, reason_columns)
-        ).is_empty()
-    )
-    frame = pl.concat(
-        [part for part in parts if not part.is_empty()], how="vertical_relaxed"
-    )
+    parts.extend(part for metric in metrics if not (part := _metric_null_rows(usable, metric, group_cols, reason_columns)).is_empty())
+    frame = pl.concat([part for part in parts if not part.is_empty()], how="vertical_relaxed")
     summary = _summary(
         total_episodes=usable.height,
-        valid_episodes=int(
-            usable.filter(pl.col("is_valid_for_ranking").fill_null(False)).height
-        ),
+        valid_episodes=int(usable.filter(pl.col("is_valid_for_ranking").fill_null(False)).height),
         excluded_episodes=excluded.get("invalid_for_ranking", 0),
         metrics=len(metrics),
     )
@@ -575,9 +466,7 @@ def _run_triage(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
 
 def _run_compare(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, CompareParams)
-    usable, excluded = _valid_episodes(
-        catalog, include_references=params.include_references
-    )
+    usable, excluded = _valid_episodes(catalog, include_references=params.include_references)
     if params.metric not in usable.columns:
         return _result(
             catalog,
@@ -609,10 +498,7 @@ def _run_compare(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult
                 metric=params.metric,
                 n_pairs=0,
                 reason="no_pairing_key",
-                hint=(
-                    "the episode view carries none of "
-                    f"{list(_PAIRING_KEYS)}; pair on at least one blocking column"
-                ),
+                hint=(f"the episode view carries none of {list(_PAIRING_KEYS)}; pair on at least one blocking column"),
             ),
             excluded={f"{params.metric}:no_pairing_key": valid.height},
         )
@@ -657,11 +543,7 @@ def _run_compare(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult
     )
     hint = ""
     if res.n_pairs == 0:
-        hint = "no complete pair: " + (
-            f"the pairing keys {null_keys} are unrecorded"
-            if null_keys
-            else f"the two planners share no cell on {pairing}"
-        )
+        hint = "no complete pair: " + (f"the pairing keys {null_keys} are unrecorded" if null_keys else f"the two planners share no cell on {pairing}")
     elif null_keys:
         hint = f"{len(null_keys)} pairing key(s) had unrecorded rows: {null_keys}"
     summary = _summary(
@@ -695,16 +577,10 @@ def _run_compare(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult
     )
 
 
-def _run_ranking_stability(
-    catalog: BenchmarkCatalog, params: BaseModel
-) -> AnalysisResult:
+def _run_ranking_stability(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, RankingStabilityParams)
-    usable, excluded = _valid_episodes(
-        catalog, include_references=params.include_references
-    )
-    frame = usable.filter(
-        pl.col(params.metric).is_not_null() & pl.col("planner").is_not_null()
-    )
+    usable, excluded = _valid_episodes(catalog, include_references=params.include_references)
+    frame = usable.filter(pl.col(params.metric).is_not_null() & pl.col("planner").is_not_null())
     if frame.is_empty():
         return _result(
             catalog,
@@ -715,9 +591,7 @@ def _run_ranking_stability(
     direction, higher, directions = _orientation(catalog, params.metric)
 
     # Agreement across crowd conditions: the pair-swap count the H3 contract reports.
-    conditions = tuple(
-        str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort()
-    )
+    conditions = tuple(str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort())
     n_swaps = (
         _swap_count(
             frame,
@@ -822,16 +696,10 @@ def _run_ranking_stability(
     )
 
 
-def _run_visibility_effect(
-    catalog: BenchmarkCatalog, params: BaseModel
-) -> AnalysisResult:
+def _run_visibility_effect(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, VisibilityEffectParams)
-    usable, excluded = _valid_episodes(
-        catalog, include_references=params.include_references
-    )
-    frame = usable.filter(
-        pl.col(params.metric).is_not_null() & pl.col("planner").is_not_null()
-    )
+    usable, excluded = _valid_episodes(catalog, include_references=params.include_references)
+    frame = usable.filter(pl.col(params.metric).is_not_null() & pl.col("planner").is_not_null())
     direction, _, directions = _orientation(catalog, params.metric)
     if frame.is_empty():
         return _result(
@@ -845,9 +713,7 @@ def _run_visibility_effect(
             excluded=excluded,
         )
 
-    conditions = tuple(
-        str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort()
-    )
+    conditions = tuple(str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort())
     condition_swaps = (
         _swap_count(
             frame,
@@ -860,9 +726,7 @@ def _run_visibility_effect(
         else 0
     )
     tagged, first_half, second_half = _seed_half_frame(frame)
-    seed_half_swaps = _swap_count(
-        tagged, params.metric, "__seed_half", ("h1", "h2"), direction
-    )
+    seed_half_swaps = _swap_count(tagged, params.metric, "__seed_half", ("h1", "h2"), direction)
 
     # The difference needs an interval: resample whole seeds and recompute both swap counts.
     seeds = np.asarray(_seeds(frame), dtype=np.int64)
@@ -872,15 +736,8 @@ def _run_visibility_effect(
         drawn = rng.choice(seeds, size=len(seeds), replace=True)
         drawn_seeds, draw_counts = np.unique(drawn, return_counts=True)
         # One weight per drawn seed; a seed the replicate did not draw weighs 0 and drops out.
-        weights = {
-            int(seed): float(count)
-            for seed, count in zip(drawn_seeds, draw_counts, strict=True)
-        }
-        weighted = frame.with_columns(
-            pl.col("seed")
-            .replace_strict(weights, default=0.0, return_dtype=pl.Float64)
-            .alias("__weight")
-        ).filter(pl.col("__weight") > 0)
+        weights = {int(seed): float(count) for seed, count in zip(drawn_seeds, draw_counts, strict=True)}
+        weighted = frame.with_columns(pl.col("seed").replace_strict(weights, default=0.0, return_dtype=pl.Float64).alias("__weight")).filter(pl.col("__weight") > 0)
         boot_condition = _swap_count(
             weighted,
             params.metric,
@@ -907,9 +764,7 @@ def _run_visibility_effect(
             float(np.quantile(delta_values, 1.0 - (1.0 - params.ci_level) / 2.0)),
             observed,
         )
-        p_value = float(
-            (1 + int(np.count_nonzero(delta_values <= 0.0))) / (params.n_boot + 1)
-        )
+        p_value = float((1 + int(np.count_nonzero(delta_values <= 0.0))) / (params.n_boot + 1))
     else:
         low = high = p_value = None
     effect = bool(low is not None and low > 0.0)
@@ -943,9 +798,7 @@ def _run_visibility_effect(
 
 def _run_lead_measures(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, LeadMeasuresParams)
-    usable, excluded = _valid_episodes(
-        catalog, include_references=params.include_references
-    )
+    usable, excluded = _valid_episodes(catalog, include_references=params.include_references)
     if usable.is_empty() or usable["seed"].drop_nulls().n_unique() < 2:
         return _result(
             catalog,
@@ -970,20 +823,14 @@ def _run_lead_measures(catalog: BenchmarkCatalog, params: BaseModel) -> Analysis
     for metric in params.metrics:
         if metric not in usable.columns:
             continue
-        selection = _selection(
-            discovery, metric, params.n_boot, params.ci_level, params.seed
-        )
+        selection = _selection(discovery, metric, params.n_boot, params.ci_level, params.seed)
         if selection is None:
             continue
         separation, noise, _ = selection
-        verification_intervals = _planner_intervals(
-            verification, metric, params.n_boot, params.ci_level, params.seed
-        )
+        verification_intervals = _planner_intervals(verification, metric, params.n_boot, params.ci_level, params.seed)
         _, higher, _ = _orientation(catalog, metric)
         separated = _separated_pairs(verification_intervals, higher_is_better=higher)
-        pairs_total = (
-            len(verification_intervals) * (len(verification_intervals) - 1) // 2
-        )
+        pairs_total = len(verification_intervals) * (len(verification_intervals) - 1) // 2
         rows.append(
             {
                 "metric": metric,
@@ -992,10 +839,7 @@ def _run_lead_measures(catalog: BenchmarkCatalog, params: BaseModel) -> Analysis
                 "selected": bool(separation > noise),
                 "verification_separated_pairs": separated,
                 "verification_pairs_total": pairs_total,
-                "planner_intervals": ";".join(
-                    f"{name}[{low:.6g},{high:.6g}]"
-                    for name, (low, high) in sorted(verification_intervals.items())
-                ),
+                "planner_intervals": ";".join(f"{name}[{low:.6g},{high:.6g}]" for name, (low, high) in sorted(verification_intervals.items())),
             }
         )
 
@@ -1018,9 +862,7 @@ def _run_lead_measures(catalog: BenchmarkCatalog, params: BaseModel) -> Analysis
     )
 
 
-def _run_attribution_shares(
-    catalog: BenchmarkCatalog, params: BaseModel
-) -> AnalysisResult:
+def _run_attribution_shares(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult:
     assert isinstance(params, AttributionSharesParams)
     contacts = (
         catalog.get_table("v_contacts")
@@ -1052,22 +894,15 @@ def _run_attribution_shares(
     excluded: dict[str, int] = {}
     pedestrian = contacts.filter(pl.col("collider_kind") == "pedestrian")
     excluded["non_pedestrian_contacts"] = contacts.height - pedestrian.height
-    valid = pedestrian.filter(
-        pl.col("is_valid_for_ranking").fill_null(False).cast(pl.Boolean)
-    )
+    valid = pedestrian.filter(pl.col("is_valid_for_ranking").fill_null(False).cast(pl.Boolean))
     if pedestrian.height > valid.height:
         excluded["invalid_for_ranking"] = pedestrian.height - valid.height
     if not params.include_references:
-        without_references = valid.filter(
-            ~pl.col("is_reference").fill_null(False).cast(pl.Boolean)
-        )
+        without_references = valid.filter(~pl.col("is_reference").fill_null(False).cast(pl.Boolean))
         if valid.height > without_references.height:
             excluded[_REFERENCE_FILTER] = valid.height - without_references.height
         valid = without_references
-    recorded = valid.filter(
-        pl.col("v_close_robot_mps").is_not_null()
-        & pl.col("v_close_target_mps").is_not_null()
-    )
+    recorded = valid.filter(pl.col("v_close_robot_mps").is_not_null() & pl.col("v_close_target_mps").is_not_null())
     if valid.height > recorded.height:
         excluded["closing_speed:not_recorded"] = valid.height - recorded.height
     if recorded.is_empty():
@@ -1119,14 +954,8 @@ def _run_attribution_shares(
             pl.col("probst_E_actor2").mean().alias("probst_E_actor2_pooled"),
         )
         .with_columns(
-            (
-                pl.col("robot_closing_sum")
-                / (pl.col("robot_closing_sum") + pl.col("target_closing_sum"))
-            ).alias("robot_closing_share"),
-            (
-                pl.col("target_closing_sum")
-                / (pl.col("robot_closing_sum") + pl.col("target_closing_sum"))
-            ).alias("target_closing_share"),
+            (pl.col("robot_closing_sum") / (pl.col("robot_closing_sum") + pl.col("target_closing_sum"))).alias("robot_closing_share"),
+            (pl.col("target_closing_sum") / (pl.col("robot_closing_sum") + pl.col("target_closing_sum"))).alias("target_closing_share"),
         )
         .select(list(ATTRIBUTION_SHARES_SCHEMA.names()))
         .sort(["planner", "crowd_condition"])
@@ -1155,46 +984,37 @@ _PROCEDURES: dict[str, ProcedureSpec] = {
     for spec_name, description, model, fn in (
         (
             "triage",
-            "Episode usability per planner/world/condition with the invalid-reason "
-            "breakdown and each metric's missing counts.",
+            "Episode usability per planner/world/condition with the invalid-reason breakdown and each metric's missing counts.",
             TriageParams,
             _run_triage,
         ),
         (
             "compare",
-            "Paired planner comparison with cluster-bootstrap CI, exclusion counts, "
-            "and a typed reason when the cell has no complete pair.",
+            "Paired planner comparison with cluster-bootstrap CI, exclusion counts, and a typed reason when the cell has no complete pair.",
             CompareParams,
             _run_compare,
         ),
         (
             "ranking_stability",
-            "Rank repeatability: pair swaps across crowd conditions, "
-            "Kendall's W across worlds, seed-half agreement, and per-planner seed-bootstrap "
-            "rank intervals.",
+            "Rank repeatability: pair swaps across crowd conditions, Kendall's W across worlds, seed-half agreement, and per-planner seed-bootstrap rank intervals.",
             RankingStabilityParams,
             _run_ranking_stability,
         ),
         (
             "visibility_effect",
-            "Whether the crowd-condition rank swap count exceeds the seed-half "
-            "swap count, with a seed-clustered bootstrap interval on the difference.",
+            "Whether the crowd-condition rank swap count exceeds the seed-half swap count, with a seed-clustered bootstrap interval on the difference.",
             VisibilityEffectParams,
             _run_visibility_effect,
         ),
         (
             "lead_measures",
-            "Select measures by planner separation on the discovery seeds, then "
-            "count the separated planner pairs on the verification seeds using each planner's "
-            "seed interval.",
+            "Select measures by planner separation on the discovery seeds, then count the separated planner pairs on the verification seeds using each planner's seed interval.",
             LeadMeasuresParams,
             _run_lead_measures,
         ),
         (
             "attribution_shares",
-            "Pedestrian-contact closing shares of valid episodes, pooled from "
-            "the contact parts, with the frozen-robot persistence and the pooled Probst "
-            "responsibility.",
+            "Pedestrian-contact closing shares of valid episodes, pooled from the contact parts, with the frozen-robot persistence and the pooled Probst responsibility.",
             AttributionSharesParams,
             _run_attribution_shares,
         ),
@@ -1217,9 +1037,7 @@ def list_procedures() -> list[dict[str, Any]]:
 def get_procedure(name: str) -> ProcedureSpec:
     """Look up a named analysis procedure or raise KeyError."""
     if name not in _PROCEDURES:
-        raise KeyError(
-            f"Unknown analysis procedure {name!r}; available: {sorted(_PROCEDURES)}"
-        )
+        raise KeyError(f"Unknown analysis procedure {name!r}; available: {sorted(_PROCEDURES)}")
     return _PROCEDURES[name]
 
 
@@ -1233,11 +1051,7 @@ def run_procedure(
 ) -> AnalysisResult:
     """Execute a registered analysis procedure and optionally pin its result in EvidenceStore."""
     spec = get_procedure(name)
-    parsed = (
-        params
-        if isinstance(params, spec.params_model)
-        else spec.params_model.model_validate(params or {})
-    )
+    parsed = params if isinstance(params, spec.params_model) else spec.params_model.model_validate(params or {})
     result = spec.fn(catalog, parsed)
     if evidence_store is not None:
         record = evidence_store.record(

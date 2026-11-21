@@ -17,9 +17,7 @@ ENV = "env_3"
 PEDESTRIAN_FRAMES = {(ENV, "pedestrian_arena_peds"): frozenset({"map", ""})}
 
 
-def _tf_row(
-    t_ns: int, parent: str, child: str, tx: float, ty: float, yaw: float = 0.0
-) -> dict:
+def _tf_row(t_ns: int, parent: str, child: str, tx: float, ty: float, yaw: float = 0.0) -> dict:
     return {
         "t_ns": t_ns,
         "parent_frame": parent,
@@ -39,11 +37,7 @@ def _write(topics: pathlib.Path, name: str, rows: list[dict]) -> None:
 
 
 def _row(topics: pathlib.Path, name: str, child: str) -> dict:
-    return (
-        pl.read_parquet(topics / f"{name}.parquet")
-        .filter(pl.col("child_frame") == child)
-        .row(0, named=True)
-    )
+    return pl.read_parquet(topics / f"{name}.parquet").filter(pl.col("child_frame") == child).row(0, named=True)
 
 
 def test_recorded_transforms_from_the_map_frame_move_with_the_anchor(

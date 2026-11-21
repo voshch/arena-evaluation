@@ -35,18 +35,14 @@ from arena_runtime_msgs.srv import QueueEpisode  # noqa: E402
 T = typing.TypeVar("T")
 
 
-def _stage(
-    name: str = "s1", *, timeout_peds: float | None = None, config: dict | None = None
-) -> Suite.Stage:
+def _stage(name: str = "s1", *, timeout_peds: float | None = None, config: dict | None = None) -> Suite.Stage:
     return Suite.Stage(
         name=name,
         episodes=1,
         robot="jackal",
         map="map_empty",
         modes={"robots": "random", "obstacles": "random"},
-        config={"random": {"dynamic": {"min": 2, "max": 3}}}
-        if config is None
-        else config,
+        config={"random": {"dynamic": {"min": 2, "max": 3}}} if config is None else config,
         seed=3,
         timeout=45.0,
         timeout_peds=timeout_peds,
@@ -122,9 +118,7 @@ def _drive(
 
 
 def _registry(*env_ids: int) -> EnvRegistry:
-    return EnvRegistry(
-        envs=[EnvRecord(env_id=i, fqn=f"/arena/env_{i}", ready=True) for i in env_ids]
-    )
+    return EnvRegistry(envs=[EnvRecord(env_id=i, fqn=f"/arena/env_{i}", ready=True) for i in env_ids])
 
 
 def _dead(reason: str, sec: int = 0) -> SimState:
@@ -140,27 +134,13 @@ async def _settle() -> None:
 
 def _with_env_clients(runner: BenchmarkRunner, env_id: int) -> None:
     root = f"/arena/env_{env_id}"
-    runner._episode_action_clients[env_id] = runner.create_action_client_wrapper(
-        RunEpisode, f"{root}/lifecycle/run_episode"
-    )
+    runner._episode_action_clients[env_id] = runner.create_action_client_wrapper(RunEpisode, f"{root}/lifecycle/run_episode")
     runner._episode_records[env_id] = {}
-    runner._queue_clients[env_id] = runner.create_client_wrapper(
-        QueueEpisode, f"{root}/config/queue_episode"
-    )
-    runner._param_clients[env_id] = runner.create_client_wrapper(
-        SetParameters, f"{root}/set_parameters"
-    )
-    runner._param_get_clients[env_id] = runner.create_client_wrapper(
-        GetParameters, f"{root}/get_parameters"
-    )
-    runner._recorder_clients[env_id] = runner.create_client_wrapper(
-        RecordEpisode, f"{root}/start_episode"
-    )
-    runner._env_subs[env_id] = [
-        runner.create_subscription(
-            EpisodeRecord, f"{root}/state/episode", lambda _msg: None, 10
-        )
-    ]
+    runner._queue_clients[env_id] = runner.create_client_wrapper(QueueEpisode, f"{root}/config/queue_episode")
+    runner._param_clients[env_id] = runner.create_client_wrapper(SetParameters, f"{root}/set_parameters")
+    runner._param_get_clients[env_id] = runner.create_client_wrapper(GetParameters, f"{root}/get_parameters")
+    runner._recorder_clients[env_id] = runner.create_client_wrapper(RecordEpisode, f"{root}/start_episode")
+    runner._env_subs[env_id] = [runner.create_subscription(EpisodeRecord, f"{root}/state/episode", lambda _msg: None, 10)]
     runner._tf_namespaces[env_id] = root
     runner._triggered_episodes[env_id] = set()
 
@@ -213,11 +193,7 @@ def test_sim_state_latches_death_and_ignores_alive_and_stale_reports(
 def test_only_foreign_holders_count_as_env_holds(tmp_path: pathlib.Path):
     async def body(runner: BenchmarkRunner) -> list[bool]:
         seen = []
-        runner._on_holders(
-            HoldRegistry(
-                holds=[HoldEntry(caller_id=ARENA_NODE_FQN, reason="reset", count=1)]
-            )
-        )
+        runner._on_holders(HoldRegistry(holds=[HoldEntry(caller_id=ARENA_NODE_FQN, reason="reset", count=1)]))
         seen.append(runner._env_holds)
         runner._on_holders(
             HoldRegistry(
@@ -243,9 +219,7 @@ def test_lockstep_status_reaches_the_monitor(tmp_path: pathlib.Path):
 
 
 @pytest.mark.parametrize("method", ["_await_hb", "_await_activity"])
-def test_cancelling_a_wait_cancels_the_awaited_task(
-    tmp_path: pathlib.Path, method: str
-):
+def test_cancelling_a_wait_cancels_the_awaited_task(tmp_path: pathlib.Path, method: str):
     async def body(runner: BenchmarkRunner) -> bool:
         inner = asyncio.ensure_future(asyncio.Event().wait())
         outer = asyncio.create_task(getattr(runner, method)(inner, "never"))
@@ -272,12 +246,8 @@ def test_episode_budget_uses_the_ped_timeout_only_for_ped_references(
                     timeout_peds=90.0,
                 )
             ),
-            BenchmarkRunner._episode_budget(
-                _step("unhindered_peds", reference_type="unhindered_peds")
-            ),
-            BenchmarkRunner._episode_budget(
-                _step(reference_type="unobstructed_robot", timeout_peds=90.0)
-            ),
+            BenchmarkRunner._episode_budget(_step("unhindered_peds", reference_type="unhindered_peds")),
+            BenchmarkRunner._episode_budget(_step(reference_type="unobstructed_robot", timeout_peds=90.0)),
         ]
 
     assert _drive(tmp_path, body) == [45.0, 90.0, 45.0, 45.0]
@@ -303,10 +273,7 @@ def test_fail_remaining_drains_the_queue_and_reports_an_abort(tmp_path: pathlib.
         return runner._fail_remaining(q, 4, "spawn_env failed", flush), q.empty()
 
     assert _drive(tmp_path, body) == (True, True)
-    assert [
-        (r.key, r.status, r.env_id, r.error_kind, r.error_detail, r.episodes_total)
-        for r in flushed
-    ] == [
+    assert [(r.key, r.status, r.env_id, r.error_kind, r.error_detail, r.episodes_total) for r in flushed] == [
         ("a/s1", "failed", 4, StepErrorKind.ENV_SETUP, "spawn_env failed", 2),
         ("b/s1", "failed", 4, StepErrorKind.ENV_SETUP, "spawn_env failed", 2),
         ("c/s1", "failed", 4, StepErrorKind.ENV_SETUP, "spawn_env failed", 2),
@@ -328,15 +295,11 @@ def test_group_queue_aborts_when_the_sim_is_dead_before_the_env_spawns(
     flushed: list[StepResult] = []
 
     async def body(runner: BenchmarkRunner) -> tuple[bool, int, int]:
-        runner._progress = BenchmarkProgressDisplay(
-            title="t", total_steps=1, env_n=1, run_id="run"
-        )
+        runner._progress = BenchmarkProgressDisplay(title="t", total_steps=1, env_n=1, run_id="run")
         runner._mark_sim_dead("sim dead: gz exited")
         q: asyncio.Queue[Step] = asyncio.Queue()
         q.put_nowait(_step())
-        aborted = await runner._run_group_queue(
-            _step(), q, 0, lambda res: flushed.append(res) or False
-        )
+        aborted = await runner._run_group_queue(_step(), q, 0, lambda res: flushed.append(res) or False)
         return aborted, q.qsize(), runner._completed_groups
 
     assert _drive(tmp_path, body, max_sim_deaths=1) == (True, 1, 1)
@@ -369,9 +332,7 @@ def test_env_teardown_releases_every_client_and_setup_is_idempotent(
 
 def test_pending_steps_come_from_the_run_state(tmp_path: pathlib.Path):
     async def body(runner: BenchmarkRunner) -> list[str]:
-        runner._run_dir.state.write(
-            {"dwb/s1": StepResult("dwb/s1", "ok", 0, 0.0, 1.0, None, None)}
-        )
+        runner._run_dir.state.write({"dwb/s1": StepResult("dwb/s1", "ok", 0, 0.0, 1.0, None, None)})
         return [s.key for s in runner._build_pending()]
 
     assert _drive(tmp_path, body) == []
@@ -424,15 +385,11 @@ def test_stage_config_on_an_env_without_clients_fails_the_step(tmp_path: pathlib
         ("unobstructed_robot", {"random": "preset"}, "dwb_unobstructed_robot/s1"),
     ],
 )
-def test_env_vanishing_during_stage_config_fails_the_step(
-    tmp_path: pathlib.Path, reference_type: str | None, config: dict | None, key: str
-):
+def test_env_vanishing_during_stage_config_fails_the_step(tmp_path: pathlib.Path, reference_type: str | None, config: dict | None, key: str):
     async def body(runner: BenchmarkRunner) -> StepResult:
         _with_env_clients(runner, 3)
         runner._on_envs(_registry(3))
-        task = asyncio.create_task(
-            runner._run_step(_step(reference_type=reference_type, config=config), 3, 0)
-        )
+        task = asyncio.create_task(runner._run_step(_step(reference_type=reference_type, config=config), 3, 0))
         await _settle()
         runner._on_envs(_registry())
         return await asyncio.wait_for(task, 5.0)
@@ -468,13 +425,9 @@ def test_env_vanishing_before_the_episode_goal_is_accepted_fails_the_step(
 ):
     async def body(runner: BenchmarkRunner) -> StepResult:
         _with_env_clients(runner, 3)
-        runner._progress = BenchmarkProgressDisplay(
-            title="t", total_steps=1, env_n=1, run_id="run"
-        )
+        runner._progress = BenchmarkProgressDisplay(title="t", total_steps=1, env_n=1, run_id="run")
         runner._on_envs(_registry(3))
-        task = asyncio.create_task(
-            runner._run_episodes(_step(episodes=2), 3, slot_index=0)
-        )
+        task = asyncio.create_task(runner._run_episodes(_step(episodes=2), 3, slot_index=0))
         await _settle()
         assert runner._progress.active_slots[0]["state"] == "RUNNING"
         runner._on_envs(_registry())
@@ -493,9 +446,7 @@ def test_env_vanishing_before_the_episode_goal_is_accepted_fails_the_step(
     assert res.lockstep is not None
 
 
-def _write_after(
-    path: pathlib.Path, lines: list[tuple[float, str, str]]
-) -> typing.Awaitable[str]:
+def _write_after(path: pathlib.Path, lines: list[tuple[float, str, str]]) -> typing.Awaitable[str]:
     async def writer() -> str:
         for delay, mode, text in lines:
             await asyncio.sleep(delay)

@@ -86,9 +86,7 @@ def test_authored_box_overrides_the_asset_extent():
 
 
 def test_obstacle_whose_lowest_point_is_above_the_passage_clearance_does_not_block():
-    obstacle = _obstacle(
-        x=1.0, y=1.0, z=1.9, asset_box=((-0.5, 0.5), (-0.5, 0.5), (0.2, 0.75))
-    )
+    obstacle = _obstacle(x=1.0, y=1.0, z=1.9, asset_box=((-0.5, 0.5), (-0.5, 0.5), (0.2, 0.75)))
     assert obstacle_footprint(obstacle) is None
 
 
@@ -101,25 +99,17 @@ def test_gap_below_two_radii_is_blocked_and_gap_of_two_radii_is_passable():
     room = shapely.box(0.0, 0.0, 10.0, 10.0)
 
     def walls_with_gap(gap: float) -> shapely.Geometry:
-        return shapely.MultiLineString(
-            [((5.0, 0.0), (5.0, 4.0)), ((5.0, 4.0 + gap), (5.0, 10.0))]
-        )
+        return shapely.MultiLineString([((5.0, 0.0), (5.0, 4.0)), ((5.0, 4.0 + gap), (5.0, 10.0))])
 
-    blocked = plan_route(
-        _grid(free=room, walls=walls_with_gap(0.5)), (4.0, 4.25), (6.0, 4.25)
-    )
-    passable = plan_route(
-        _grid(free=room, walls=walls_with_gap(0.7)), (4.0, 4.35), (6.0, 4.35)
-    )
+    blocked = plan_route(_grid(free=room, walls=walls_with_gap(0.5)), (4.0, 4.25), (6.0, 4.25))
+    passable = plan_route(_grid(free=room, walls=walls_with_gap(0.7)), (4.0, 4.35), (6.0, 4.35))
     assert blocked.null_reason == "no_path"
     assert passable.null_reason is None
     assert passable.length_m == pytest.approx(2.0)
 
 
 def test_path_around_an_inner_corner_keeps_the_radius_clear_of_the_outside():
-    room = shapely.union(
-        shapely.box(0.0, 0.0, 10.0, 2.0), shapely.box(8.0, 0.0, 10.0, 10.0)
-    )
+    room = shapely.union(shapely.box(0.0, 0.0, 10.0, 2.0), shapely.box(8.0, 0.0, 10.0, 10.0))
     grid = _grid(free=room)
     path = plan_route(grid, (1.0, 1.0), (9.0, 9.0))
     assert path.null_reason is None

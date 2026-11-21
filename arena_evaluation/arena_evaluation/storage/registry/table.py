@@ -33,12 +33,8 @@ NULL_REASON_COLUMN: Final[str] = "null_reason"
 DIMENSION_PREFIX: Final[str] = "dim_"
 SERIES_PREFIX: Final[str] = "series_"
 _SERIES_NAME: Final[re.Pattern[str]] = re.compile(r"series_[a-z][a-z0-9_]*")
-GLOBAL_TELEMETRY_NAMES: Final[frozenset[str]] = frozenset(
-    {"tf", "tf_static", "world_semantics"}
-)
-_TELEMETRY_NAME: Final[re.Pattern[str]] = re.compile(
-    r"(robot|pedestrian|episode|environment)_[a-z][a-z0-9_]*"
-)
+GLOBAL_TELEMETRY_NAMES: Final[frozenset[str]] = frozenset({"tf", "tf_static", "world_semantics"})
+_TELEMETRY_NAME: Final[re.Pattern[str]] = re.compile(r"(robot|pedestrian|episode|environment)_[a-z][a-z0-9_]*")
 _NESTED_DTYPES: Final[tuple[type[pl.DataType], ...]] = (
     pl.List,
     pl.Array,
@@ -78,9 +74,7 @@ class TableKind(StrEnum):
 
 
 #: The kinds whose tables end with a null_reason column; telemetry and series hold measured samples without one.
-_KINDS_WITH_NULL_REASON: Final[frozenset[TableKind]] = frozenset(
-    {TableKind.FACT, TableKind.DIMENSION}
-)
+_KINDS_WITH_NULL_REASON: Final[frozenset[TableKind]] = frozenset({TableKind.FACT, TableKind.DIMENSION})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -96,9 +90,7 @@ class Column:
 
     def __post_init__(self) -> None:
         if self.null_reason and self.required:
-            raise SchemaViolationError(
-                f"a column cannot be required and carry a null_reason: {self.dtype!r}"
-            )
+            raise SchemaViolationError(f"a column cannot be required and carry a null_reason: {self.dtype!r}")
 
 
 NULL_REASON: Final[Column] = Column(
@@ -155,14 +147,8 @@ class MetricStore:
         _check_dtype(f"metric {name!r}", metric)
         _check_documentation(f"metric {name!r}", metric)
         for table in _REGISTERED:
-            if (
-                table.table_kind is TableKind.FACT
-                and table.table_scope in metric.scopes
-                and name in table._columns
-            ):
-                raise SchemaViolationError(
-                    f"metric {name!r} is already a declared column of {table.table_name!r}"
-                )
+            if table.table_kind is TableKind.FACT and table.table_scope in metric.scopes and name in table._columns:
+                raise SchemaViolationError(f"metric {name!r} is already a declared column of {table.table_name!r}")
         self._metrics[name] = metric
         return metric
 
@@ -172,9 +158,7 @@ class MetricStore:
 
     def at(self, scope: MetricScope) -> tuple[Metric, ...]:
         """The metrics stored at ``scope``, in definition order."""
-        return tuple(
-            metric for metric in self._metrics.values() if scope in metric.scopes
-        )
+        return tuple(metric for metric in self._metrics.values() if scope in metric.scopes)
 
 
 METRICS: Final[MetricStore] = MetricStore()
@@ -241,10 +225,7 @@ class Table:
         cls.table_kind = kind
         cls.table_scope = scope
         cls._columns = _collect_columns(cls)
-        if (
-            cls.table_kind in _KINDS_WITH_NULL_REASON
-            and NULL_REASON_COLUMN not in cls._columns
-        ):
+        if cls.table_kind in _KINDS_WITH_NULL_REASON and NULL_REASON_COLUMN not in cls._columns:
             cls._columns[NULL_REASON_COLUMN] = NULL_REASON
         _validate(cls)
         _REGISTERED.append(cls)
@@ -254,17 +235,13 @@ class Table:
         """The column of that name; a name the table does not store is refused."""
         columns = cls._all_columns()
         if name not in columns:
-            raise SchemaViolationError(
-                f"{cls.table_name}: column {name!r} is not declared"
-            )
+            raise SchemaViolationError(f"{cls.table_name}: column {name!r} is not declared")
         return columns[name]
 
     @classmethod
     def polars_schema(cls) -> pl.Schema:
         """The Polars schema of the table, columns in schema order."""
-        return pl.Schema(
-            {name: column.dtype for name, column in cls._all_columns().items()}
-        )
+        return pl.Schema({name: column.dtype for name, column in cls._all_columns().items()})
 
     @classmethod
     def arrow_schema(cls) -> pa.Schema:
@@ -283,9 +260,7 @@ class Table:
     @classmethod
     def null_reason_columns(cls) -> tuple[str, ...]:
         """The columns whose NULL cells must carry a null_reason."""
-        return tuple(
-            name for name, column in cls._all_columns().items() if column.null_reason
-        )
+        return tuple(name for name, column in cls._all_columns().items() if column.null_reason)
 
     @classmethod
     def file_name(cls) -> str:
@@ -317,11 +292,7 @@ class Table:
         """The declared columns; a fact table adds the metrics of its scope before its trailing null-reason column."""
         if cls.table_kind is not TableKind.FACT or cls.table_scope is None:
             return dict(cls._columns)
-        columns = {
-            name: column
-            for name, column in cls._columns.items()
-            if name != NULL_REASON_COLUMN
-        }
+        columns = {name: column for name, column in cls._columns.items() if name != NULL_REASON_COLUMN}
         for metric in METRICS.at(cls.table_scope):
             columns[metric.name] = metric
         if NULL_REASON_COLUMN in cls._columns:
@@ -336,15 +307,9 @@ def registered_tables() -> tuple[type[Table], ...]:
 
 def _refuse_table_attribute_columns(table: type[Table]) -> None:
     """Refuse a column named like a table attribute: the class assignment would overwrite it and the column would vanish."""
-    shadowing = sorted(
-        name
-        for name, value in vars(table).items()
-        if isinstance(value, Column) and name in _TABLE_ATTRIBUTES
-    )
+    shadowing = sorted(name for name, value in vars(table).items() if isinstance(value, Column) and name in _TABLE_ATTRIBUTES)
     if shadowing:
-        raise SchemaViolationError(
-            f"{table.__name__}: column(s) {shadowing} take the name of a table attribute"
-        )
+        raise SchemaViolationError(f"{table.__name__}: column(s) {shadowing} take the name of a table attribute")
 
 
 def _collect_columns(table: type[Table]) -> dict[str, Column]:
@@ -355,9 +320,7 @@ def _collect_columns(table: type[Table]) -> dict[str, Column]:
             if not isinstance(value, Column):
                 continue
             if attribute in columns:
-                raise SchemaViolationError(
-                    f"{table.__name__}: column {attribute!r} is declared twice"
-                )
+                raise SchemaViolationError(f"{table.__name__}: column {attribute!r} is declared twice")
             columns[attribute] = value
     return columns
 
@@ -380,40 +343,22 @@ def _validate_name(table: type[Table]) -> None:
     if not name:
         raise SchemaViolationError(f"{table.__name__}: a table needs a name")
     if any(registered.table_name == name for registered in _REGISTERED):
-        raise SchemaViolationError(
-            f"duplicate table name {name!r}: {table.__name__} and an earlier class"
-        )
-    if table.table_kind is TableKind.TELEMETRY and not (
-        _TELEMETRY_NAME.fullmatch(name) or name in GLOBAL_TELEMETRY_NAMES
-    ):
-        raise SchemaViolationError(
-            f"misnamed table {name!r}: telemetry names carry a scope prefix (robot_, pedestrian_, episode_) or are global"
-        )
-    if table.table_kind is TableKind.DIMENSION and not name.startswith(
-        DIMENSION_PREFIX
-    ):
-        raise SchemaViolationError(
-            f"misnamed table {name!r}: dimension names start with {DIMENSION_PREFIX}"
-        )
-    if table.table_kind is TableKind.FACT and name not in {
-        member.value for member in FactTable
-    }:
-        raise SchemaViolationError(
-            f"misnamed table {name!r}: a fact table carries the name of a FactTable member"
-        )
+        raise SchemaViolationError(f"duplicate table name {name!r}: {table.__name__} and an earlier class")
+    if table.table_kind is TableKind.TELEMETRY and not (_TELEMETRY_NAME.fullmatch(name) or name in GLOBAL_TELEMETRY_NAMES):
+        raise SchemaViolationError(f"misnamed table {name!r}: telemetry names carry a scope prefix (robot_, pedestrian_, episode_) or are global")
+    if table.table_kind is TableKind.DIMENSION and not name.startswith(DIMENSION_PREFIX):
+        raise SchemaViolationError(f"misnamed table {name!r}: dimension names start with {DIMENSION_PREFIX}")
+    if table.table_kind is TableKind.FACT and name not in {member.value for member in FactTable}:
+        raise SchemaViolationError(f"misnamed table {name!r}: a fact table carries the name of a FactTable member")
     if table.table_kind is TableKind.SERIES and not _SERIES_NAME.fullmatch(name):
-        raise SchemaViolationError(
-            f"misnamed table {name!r}: series names carry the {SERIES_PREFIX} prefix and a stem"
-        )
+        raise SchemaViolationError(f"misnamed table {name!r}: series names carry the {SERIES_PREFIX} prefix and a stem")
 
 
 def _validate_keys(table: type[Table]) -> None:
     """Every row-key column is declared by the table."""
     for column in table.key:
         if column not in table._columns:
-            raise SchemaViolationError(
-                f"{table.table_name}: key column {column!r} is not declared"
-            )
+            raise SchemaViolationError(f"{table.table_name}: key column {column!r} is not declared")
 
 
 def _validate_dtypes(table: type[Table]) -> None:
@@ -426,24 +371,16 @@ def _validate_no_metric_declarations(table: type[Table]) -> None:
     """A metric is defined in the metric store and reaches a fact table through its scopes, never as a table attribute."""
     for name, column in table._columns.items():
         if isinstance(column, Metric):
-            raise SchemaViolationError(
-                f"{table.table_name}.{name}: metric {column.name!r} is defined with define_metric, not declared in a table"
-            )
+            raise SchemaViolationError(f"{table.table_name}.{name}: metric {column.name!r} is defined with define_metric, not declared in a table")
 
 
 def _validate_time_column(table: type[Table]) -> None:
     """Telemetry is keyed by its native timestamp, a required Int64 column."""
     time_column = table._columns.get(TIME_COLUMN)
     if time_column is None:
-        raise SchemaViolationError(
-            f"{table.table_name}: {TIME_COLUMN} is not declared; telemetry is keyed by its native time"
-        )
-    if _base_class(time_column.dtype) is not pl.Int64 or not _is_required(
-        table, time_column
-    ):
-        raise SchemaViolationError(
-            f"{table.table_name}.{TIME_COLUMN}: must be a required Int64 column"
-        )
+        raise SchemaViolationError(f"{table.table_name}: {TIME_COLUMN} is not declared; telemetry is keyed by its native time")
+    if _base_class(time_column.dtype) is not pl.Int64 or not _is_required(table, time_column):
+        raise SchemaViolationError(f"{table.table_name}.{TIME_COLUMN}: must be a required Int64 column")
 
 
 def _validate_documentation(table: type[Table]) -> None:
@@ -455,9 +392,7 @@ def _validate_documentation(table: type[Table]) -> None:
 def _check_dtype(owner: str, column: Column) -> None:
     """No nested dtype, and every dtype has an Arrow type the writer can store."""
     if issubclass(_base_class(column.dtype), _NESTED_DTYPES):
-        raise SchemaViolationError(
-            f"{owner}: nested dtype {column.dtype!r} is not stored; declare a child table"
-        )
+        raise SchemaViolationError(f"{owner}: nested dtype {column.dtype!r} is not stored; declare a child table")
     _arrow_type(column.dtype)
 
 

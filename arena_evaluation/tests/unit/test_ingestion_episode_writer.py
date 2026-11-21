@@ -70,13 +70,9 @@ def test_open_episode_raises_when_the_bag_cannot_open(tmp_path: Path):
     from arena_evaluation.ingestion.episode_writer import EpisodeWriter
 
     (tmp_path / "share" / "config").mkdir(parents=True)
-    (tmp_path / "share" / "config" / "mcap_writer_options.yaml").write_text(
-        "compression: [unclosed\n"
-    )
+    (tmp_path / "share" / "config" / "mcap_writer_options.yaml").write_text("compression: [unclosed\n")
     with pytest.raises(RuntimeError, match="no MCAP writer"):
-        EpisodeWriter(base_dir=str(tmp_path / "share")).open_episode(
-            tmp_path / "run" / "episodes" / EPISODE, metadata()
-        )
+        EpisodeWriter(base_dir=str(tmp_path / "share")).open_episode(tmp_path / "run" / "episodes" / EPISODE, metadata())
 
 
 def test_bag_an_earlier_writer_left_unclosed_is_kept_aside(writer, tmp_path: Path):

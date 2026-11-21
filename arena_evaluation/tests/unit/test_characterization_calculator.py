@@ -24,26 +24,18 @@ def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:
             "t_ns": frame["t_ns"].cast(pl.Int64),
             "x": frame["x"].cast(pl.Float64),
             "y": frame["y"].cast(pl.Float64),
-            "yaw": frame["yaw"].cast(pl.Float64)
-            if "yaw" in frame.columns
-            else [0.0] * len(frame),
+            "yaw": frame["yaw"].cast(pl.Float64) if "yaw" in frame.columns else [0.0] * len(frame),
         }
     )
     topics: dict[str, pl.DataFrame] = {"robot_tracks": tracks}
     if "label" in frame.columns:
         topics["robot_characterization_phase"] = frame.select("t_ns", "label")
     if {"linear_x", "linear_y", "angular_z"} <= set(frame.columns):
-        topics["robot_cmd_vel"] = frame.select(
-            "t_ns", "linear_x", "linear_y", "angular_z"
-        )
+        topics["robot_cmd_vel"] = frame.select("t_ns", "linear_x", "linear_y", "angular_z")
     if "total_power_w" in frame.columns:
         if "total_mech_power_w" not in frame.columns:
-            frame = frame.with_columns(
-                pl.lit(None, dtype=pl.Float64).alias("total_mech_power_w")
-            )
-        topics["robot_power"] = frame.select(
-            "t_ns", "total_power_w", "total_mech_power_w"
-        )
+            frame = frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("total_mech_power_w"))
+        topics["robot_power"] = frame.select("t_ns", "total_power_w", "total_mech_power_w")
     if "total_level_af_dba" in frame.columns:
         topics["robot_acoustics"] = frame.select("t_ns", "total_level_af_dba")
     if "speed_mps" in frame.columns:
@@ -66,9 +58,7 @@ def _episode(frame: pl.DataFrame, **kwargs) -> AlignedEpisodeBundle:
     )
 
 
-def _series(
-    calc: CharacterizationCalculator, episode: AlignedEpisodeBundle
-) -> pl.DataFrame:
+def _series(calc: CharacterizationCalculator, episode: AlignedEpisodeBundle) -> pl.DataFrame:
     return calc.series_table(episode, run_id="run", robot_id="robot")
 
 
@@ -103,12 +93,8 @@ def _sample_episode() -> AlignedEpisodeBundle:
 def test_speed_falls_back_to_path_rate_without_speed_mps():
     frame = _sample_episode().data.drop("speed_mps")
     table = _series(_calc(), _episode(frame))
-    expected = pl.Series(
-        "energy_intensity_j_m", [None, 220.0, 120.0, 65.0], dtype=pl.Float64
-    )
-    assert_series_equal(
-        table["energy_intensity_j_m"], expected, check_names=False, rel_tol=1e-9
-    )
+    expected = pl.Series("energy_intensity_j_m", [None, 220.0, 120.0, 65.0], dtype=pl.Float64)
+    assert_series_equal(table["energy_intensity_j_m"], expected, check_names=False, rel_tol=1e-9)
 
 
 def test_arc_and_lateral_characterization_phases():
@@ -137,9 +123,7 @@ def test_arc_and_lateral_characterization_phases():
 def test_calculate_missing_power_and_acoustics_never_models_the_level():
     sample = _sample_episode()
     frame = sample.data.drop(["total_power_w", "total_level_af_dba"])
-    ep = _episode(
-        frame, topics={"robot_joint_states": sample.topics["robot_joint_states"]}
-    )
+    ep = _episode(frame, topics={"robot_joint_states": sample.topics["robot_joint_states"]})
     calc = _calc()
     out = calc.calculate(ep, {})
 
@@ -147,10 +131,7 @@ def test_calculate_missing_power_and_acoustics_never_models_the_level():
     assert out["char_mean_efficiency"] is None
     assert out["char_leq_dba"] is None
     assert _series(calc, ep)["dba"].is_null().all()
-    assert (
-        calc.missing_input_provenance(ep)["char_leq_dba"]
-        == "char_leq_dba:topic_missing:robot_acoustics"
-    )
+    assert calc.missing_input_provenance(ep)["char_leq_dba"] == "char_leq_dba:topic_missing:robot_acoustics"
 
 
 def test_unmatched_labels_lower_phase_coverage():

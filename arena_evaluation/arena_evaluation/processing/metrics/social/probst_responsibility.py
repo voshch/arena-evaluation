@@ -142,9 +142,7 @@ def _pos_vel(
 ) -> tuple[np.ndarray, np.ndarray]:
     """(position, velocity) of a state given as a (pos, vel) pair or a flat (x, y, vx, vy) array."""
     if isinstance(state, tuple):
-        return np.asarray(state[0], dtype=np.float64), np.asarray(
-            state[1], dtype=np.float64
-        )
+        return np.asarray(state[0], dtype=np.float64), np.asarray(state[1], dtype=np.float64)
     array = np.asarray(state, dtype=np.float64)
     return array[:2], array[2:4]
 
@@ -154,12 +152,8 @@ def compute_pdce_series(
     target_pos_vel: tuple[np.ndarray, np.ndarray],
 ) -> np.ndarray:
     """Vectorized Projected Distance of Closest Encounter (pDCE, Eq. 1) over (T, 2) trajectories."""
-    r_vec = np.asarray(target_pos_vel[0], dtype=np.float64) - np.asarray(
-        robot_pos_vel[0], dtype=np.float64
-    )
-    v_vec = np.asarray(target_pos_vel[1], dtype=np.float64) - np.asarray(
-        robot_pos_vel[1], dtype=np.float64
-    )
+    r_vec = np.asarray(target_pos_vel[0], dtype=np.float64) - np.asarray(robot_pos_vel[0], dtype=np.float64)
+    v_vec = np.asarray(target_pos_vel[1], dtype=np.float64) - np.asarray(robot_pos_vel[1], dtype=np.float64)
     denom = np.sum(v_vec * v_vec, axis=1)
     dot_rv = np.sum(r_vec * v_vec, axis=1)
     t_min = np.where(
@@ -193,20 +187,14 @@ def compute_normalization(pair: ProbstPair, idx_tce: int) -> np.ndarray | None:
 
     times_s = pair.robot.times_s
     dts = np.diff(times_s[: idx_tce + 1])
-    is_uniform = (
-        len(dts) > 0
-        and bool(np.all(dts > 0.0))
-        and (float(np.max(dts) - np.min(dts)) <= 1e-6 * max(1.0, float(np.mean(dts))))
-    )
+    is_uniform = len(dts) > 0 and bool(np.all(dts > 0.0)) and (float(np.max(dts) - np.min(dts)) <= 1e-6 * max(1.0, float(np.mean(dts))))
     if is_uniform:
         dt_mean = float(np.mean(dts))
         time_to_tce_s = (idx_tce - np.arange(idx_tce + 1, dtype=np.float64)) * dt_mean
     else:
         time_to_tce_s = float(times_s[idx_tce]) - times_s[: idx_tce + 1]
     normalization = np.zeros(n, dtype=np.float64)
-    normalization[: idx_tce + 1] = np.maximum(
-        0.0, 1.0 - time_to_tce_s / pair.window_size_s
-    )
+    normalization[: idx_tce + 1] = np.maximum(0.0, 1.0 - time_to_tce_s / pair.window_size_s)
     return normalization
 
 
@@ -264,11 +252,7 @@ def _result_from_parts(
 def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     """Evaluate Probst et al. (ICRA 2026) Eqs. 1-12 for an aligned ProbstPair at a given TCE index."""
     r_sum = pair.robot.radius_m + pair.target.radius_m
-    if (
-        len(pair.robot.t_ns) < 2
-        or len(pair.target.t_ns) != len(pair.robot.t_ns)
-        or r_sum <= 0.0
-    ):
+    if len(pair.robot.t_ns) < 2 or len(pair.target.t_ns) != len(pair.robot.t_ns) or r_sum <= 0.0:
         return ProbstResult()
 
     norm = compute_normalization(pair, idx_tce)
@@ -282,12 +266,8 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     cp = np.maximum(0.0, 1.0 - pdce / r_sum)
     conflict = cp * norm
 
-    pdce_r_no_change = compute_pdce_series(
-        (pos_r[1:], vel_r[:-1]), (pos_t[1:], vel_t[1:])
-    )
-    pdce_t_no_change = compute_pdce_series(
-        (pos_r[1:], vel_r[1:]), (pos_t[1:], vel_t[:-1])
-    )
+    pdce_r_no_change = compute_pdce_series((pos_r[1:], vel_r[:-1]), (pos_t[1:], vel_t[1:]))
+    pdce_t_no_change = compute_pdce_series((pos_r[1:], vel_r[1:]), (pos_t[1:], vel_t[:-1]))
     conflict_r_no_change = _conflict(pdce_r_no_change, norm[1:], r_sum)
     conflict_t_no_change = _conflict(pdce_t_no_change, norm[1:], r_sum)
 
@@ -301,9 +281,7 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
 
     # Time is the signed residual of the conflict change. Eqs. 8-9 as printed subtract the escalating
     # and the diminishing parts separately and then do not close: the shares would exceed 1.
-    conflict_diff_time = (
-        np.diff(conflict) - cc_plus_r - cc_plus_t + cc_minus_r + cc_minus_t
-    )
+    conflict_diff_time = np.diff(conflict) - cc_plus_r - cc_plus_t + cc_minus_r + cc_minus_t
     cc_plus_time = np.maximum(conflict_diff_time, 0.0)
     cc_minus_time = -np.minimum(conflict_diff_time, 0.0)
 
@@ -311,9 +289,7 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     # the conflict left at the last sample were caused by neither party's velocity change, so they
     # belong to the time share. They are what make the no-action case read R_Time = 100 %.
     parts = ProbstParts(
-        c_total=float(
-            np.sum(cc_plus_r) + np.sum(cc_plus_t) + np.sum(cc_plus_time) + conflict[0]
-        ),
+        c_total=float(np.sum(cc_plus_r) + np.sum(cc_plus_t) + np.sum(cc_plus_time) + conflict[0]),
         cc_minus_robot=float(np.sum(cc_minus_r)),
         cc_minus_target=float(np.sum(cc_minus_t)),
         cc_minus_time=float(np.sum(cc_minus_time) + conflict[-1]),
@@ -325,16 +301,8 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     times_s = pair.robot.times_s
     return _result_from_parts(
         parts,
-        cp_max=(
-            float(np.max(cp[active]))
-            if np.any(active)
-            else float(np.max(cp[: idx_tce + 1]))
-        ),
-        pdce_min_m=(
-            float(np.min(pdce[active]))
-            if np.any(active)
-            else float(np.min(pdce[: idx_tce + 1]))
-        ),
+        cp_max=(float(np.max(cp[active])) if np.any(active) else float(np.max(cp[: idx_tce + 1]))),
+        pdce_min_m=(float(np.min(pdce[active])) if np.any(active) else float(np.min(pdce[: idx_tce + 1]))),
         tce_s=float(times_s[idx_tce] - times_s[0]),
     )
 
@@ -421,9 +389,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         """Every published output key mapped to None, optionally with one shared null reason."""
         output: dict[str, typing.Any] = {metric.name: None for metric in cls.OUTPUTS}
         if null_reason is not None:
-            output.update(
-                {f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output}
-            )
+            output.update({f"{name}{NULL_REASON_SUFFIX}": null_reason for name in output})
         return output
 
     @staticmethod
@@ -439,9 +405,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
             "probst_E_time": coll.e_time,
         }
 
-    def _episode_inputs(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[Trajectory2D, dict[str, PedTrack]]:
+    def _episode_inputs(self, episode: AlignedEpisodeBundle) -> tuple[Trajectory2D, dict[str, PedTrack]]:
         """Resolved robot trajectory and pedestrian tracks the encounter evaluation reads."""
         robot, _ = resolve_robot_trajectory(self, episode)
         return robot, extract_episode_ped_tracks(episode)
@@ -462,20 +426,10 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         r_slice = robot.slice_ns(t_lo, t_hi)
         if len(r_slice.t_ns) < 2:
             return None
-        if (
-            track.radius_m is None
-            or not np.isfinite(track.radius_m)
-            or track.radius_m <= 0.0
-        ):
-            raise MetricInputError(
-                f"probst_responsibility requires a recorded radius_m for pedestrian {track.ped_id!r}"
-            )
-        t_slice = replace(
-            track.trajectory.resample_onto(r_slice.t_ns), radius_m=track.radius_m
-        )
-        return ProbstPair(
-            robot=r_slice, target=t_slice, window_size_s=NORMALIZATION_WINDOW_S
-        )
+        if track.radius_m is None or not np.isfinite(track.radius_m) or track.radius_m <= 0.0:
+            raise MetricInputError(f"probst_responsibility requires a recorded radius_m for pedestrian {track.ped_id!r}")
+        t_slice = replace(track.trajectory.resample_onto(r_slice.t_ns), radius_m=track.radius_m)
+        return ProbstPair(robot=r_slice, target=t_slice, window_size_s=NORMALIZATION_WINDOW_S)
 
     @staticmethod
     def _personal_space_pair(pair: ProbstPair) -> ProbstPair:
@@ -509,9 +463,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         target = tracks.get(target_ped_id)
         if len(robot.t_ns) < 2 or target is None:
             return self._null_output()
-        pre_s = float(
-            self.metrics_config.get("pre_contact_window_s", PRE_CONTACT_PROBST_WINDOW_S)
-        )
+        pre_s = float(self.metrics_config.get("pre_contact_window_s", PRE_CONTACT_PROBST_WINDOW_S))
         t_start_ns = int(t0_ns - round(pre_s * NS_PER_S))
         pair = self._build_pair(robot, target, (t_start_ns, int(t0_ns)))
         if pair is None:
@@ -550,17 +502,12 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
             float(self.robot_params.robot_radius),
             detector_params_from_config(self.metrics_config),
         )
-        evaluated = [
-            self.evaluate_encounter_track(robot, tracks[ped_id], (t_start_ns, t_end_ns))
-            for ped_id, t_start_ns, t_end_ns in spans
-        ]
+        evaluated = [self.evaluate_encounter_track(robot, tracks[ped_id], (t_start_ns, t_end_ns)) for ped_id, t_start_ns, t_end_ns in spans]
         if not evaluated:
             return self._null_output()
         coll_results = [coll for coll, _ in evaluated]
         ps_results = [ps for _, ps in evaluated]
-        return self._format_output(
-            rollup_probst_results(coll_results), rollup_probst_results(ps_results)
-        )
+        return self._format_output(rollup_probst_results(coll_results), rollup_probst_results(ps_results))
 
     def calculate_for_scope(
         self,
@@ -573,9 +520,7 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
             return self.calculate(episode, prior_results)
 
         actor_2 = scope_slice.identity.get("actor_2")
-        actor_2_kind = str(
-            scope_slice.identity.get("actor_2_kind", "pedestrian")
-        ).lower()
+        actor_2_kind = str(scope_slice.identity.get("actor_2_kind", "pedestrian")).lower()
         if actor_2 is None or actor_2_kind != "pedestrian":
             return self._null_output(NullReason.NOT_APPLICABLE.value)
 
@@ -585,7 +530,5 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         target = resolve_ped_track(tracks, actor_2)
         if target is None:
             return self._null_output()
-        coll, ps = self.evaluate_encounter_track(
-            robot, target, (scope_slice.t_start_ns, scope_slice.t_end_ns)
-        )
+        coll, ps = self.evaluate_encounter_track(robot, target, (scope_slice.t_start_ns, scope_slice.t_end_ns))
         return self._format_output(coll, ps)

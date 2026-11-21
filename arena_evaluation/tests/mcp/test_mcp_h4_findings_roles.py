@@ -44,9 +44,7 @@ def test_h4_structured_number_rejected_when_not_in_evidence(
             run_id="h4_run",
             claim="Fake claim",
             evidence_ids=[ev_id],
-            structured_numbers=[
-                {"evidence_id": ev_id, "column": "time_to_goal", "value": 99999.0}
-            ],
+            structured_numbers=[{"evidence_id": ev_id, "column": "time_to_goal", "value": 99999.0}],
             author="analyst",
         )
 
@@ -72,9 +70,7 @@ def test_h4_verify_gate_author_separation_and_attach_gate(
         run_id="h4_gate",
         claim="planner_a achieves lower mean time_to_goal",
         evidence_ids=[ev_id],
-        structured_numbers=[
-            {"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}
-        ],
+        structured_numbers=[{"evidence_id": ev_id, "column": "mean_ttg", "value": float(pa_val)}],
         author="analyst",
     )
     fid = created.finding_id
@@ -82,9 +78,7 @@ def test_h4_verify_gate_author_separation_and_attach_gate(
 
     # Proposed finding cannot be attached
     with pytest.raises(ToolError):
-        findings.evaluation_finding_attach(
-            run_id="h4_gate", finding_id=fid, report="standard"
-        )
+        findings.evaluation_finding_attach(run_id="h4_gate", finding_id=fid, report="standard")
 
     # Mechanical verification passes
     ver = findings.evaluation_finding_verify(run_id="h4_gate", finding_id=fid)
@@ -92,20 +86,14 @@ def test_h4_verify_gate_author_separation_and_attach_gate(
 
     # Author cannot verify own finding
     with pytest.raises(ToolError, match="author"):
-        findings.evaluation_finding_status(
-            run_id="h4_gate", finding_id=fid, status="verified", by="analyst"
-        )
+        findings.evaluation_finding_status(run_id="h4_gate", finding_id=fid, status="verified", by="analyst")
 
     # Different role (verifier) can set verified
-    updated = findings.evaluation_finding_status(
-        run_id="h4_gate", finding_id=fid, status="verified", by="verifier"
-    )
+    updated = findings.evaluation_finding_status(run_id="h4_gate", finding_id=fid, status="verified", by="verifier")
     assert updated.status == findings.FindingStatus.VERIFIED
 
     # Now attach succeeds
-    attached = findings.evaluation_finding_attach(
-        run_id="h4_gate", finding_id=fid, report="standard"
-    )
+    attached = findings.evaluation_finding_attach(run_id="h4_gate", finding_id=fid, report="standard")
     assert attached.finding.finding_id == fid
 
 
@@ -146,16 +134,12 @@ def test_h4_derived_table_lifecycle_stale_and_refresh_and_version_backup(
 
     # Modify an episode parquet -> snapshot changes -> derived table turns stale
     ep0 = run_dir / "episodes" / "episode_000" / "metrics" / "fact_robots.parquet"
-    pl.read_parquet(ep0).with_columns(
-        pl.lit(42.0).alias("energy_total_wh")
-    ).write_parquet(ep0)
+    pl.read_parquet(ep0).with_columns(pl.lit(42.0).alias("energy_total_wh")).write_parquet(ep0)
 
     listed_stale = analysis.evaluation_tables(run_id="h4_derived")
     assert listed_stale["tables"][0]["status"] == "stale"
 
-    refreshed = analysis.evaluation_refresh_table(
-        run_id="h4_derived", name="planner_counts"
-    )
+    refreshed = analysis.evaluation_refresh_table(run_id="h4_derived", name="planner_counts")
     assert refreshed["status"] == "fresh"
 
 
@@ -181,20 +165,14 @@ def test_h4_write_guard_refuses_episodes_and_audit_logs_mutations(
     )
     audit_path = run_dir / "analysis" / "audit.jsonl"
     assert audit_path.is_file()
-    entries = [
-        json.loads(line)
-        for line in audit_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert any(e["tool"] == "evaluation_query" for e in entries)
 
 
 def _shift_time_to_goal(run_dir: pathlib.Path, delta_s: float) -> None:
     for path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
         frame = pl.read_parquet(path)
-        frame.with_columns(
-            (pl.col("time_to_goal") + delta_s).alias("time_to_goal")
-        ).write_parquet(path)
+        frame.with_columns((pl.col("time_to_goal") + delta_s).alias("time_to_goal")).write_parquet(path)
 
 
 def test_h4_failed_verification_moves_verified_finding_to_needs_work(
@@ -207,10 +185,7 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
     pinned = query.evaluation_query(
         run_id="h4_stale",
-        query=(
-            "SELECT planner, AVG(time_to_goal) AS val FROM v_episode_summary "
-            "GROUP BY planner ORDER BY planner"
-        ),
+        query=("SELECT planner, AVG(time_to_goal) AS val FROM v_episode_summary GROUP BY planner ORDER BY planner"),
         pin_evidence=True,
     )
     value = float(pinned["data"][0]["val"])
@@ -237,10 +212,7 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
         by="verifier",
     )
     draft = reporting.evaluation_report_draft(run_id="h4_stale", title="stale finding")
-    verified_facts = {
-        path: path.read_bytes()
-        for path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet")
-    }
+    verified_facts = {path: path.read_bytes() for path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet")}
     _shift_time_to_goal(run_dir, 500.0)
 
     with pytest.raises(ToolError, match="snapshot"):
@@ -251,28 +223,18 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
         name="stale_report",
     )
     assert left_out["findings_used"] == []
-    assert [entry["finding_id"] for entry in left_out["findings_left_out"]] == [
-        finding_id
-    ]
+    assert [entry["finding_id"] for entry in left_out["findings_left_out"]] == [finding_id]
 
-    second = findings.evaluation_finding_verify(
-        run_id="h4_stale", finding_id=finding_id
-    )
+    second = findings.evaluation_finding_verify(run_id="h4_stale", finding_id=finding_id)
     assert second["mechanical_passed"] is False
-    stored = next(
-        finding
-        for finding in findings.evaluation_findings(run_id="h4_stale").findings
-        if finding.finding_id == finding_id
-    )
+    stored = next(finding for finding in findings.evaluation_findings(run_id="h4_stale").findings if finding.finding_id == finding_id)
     assert stored.status is findings.FindingStatus.NEEDS_WORK
     with pytest.raises(ToolError, match="needs_work"):
         findings.evaluation_finding_attach(run_id="h4_stale", finding_id=finding_id)
 
     for path, content in verified_facts.items():
         path.write_bytes(content)
-    restored = findings.evaluation_finding_verify(
-        run_id="h4_stale", finding_id=finding_id
-    )
+    restored = findings.evaluation_finding_verify(run_id="h4_stale", finding_id=finding_id)
     assert restored["mechanical_passed"] is True
     findings.evaluation_finding_status(
         run_id="h4_stale",
@@ -286,22 +248,12 @@ def test_h4_failed_verification_moves_verified_finding_to_needs_work(
         name="fresh_report",
     )
     assert assembled["findings_used"] == [finding_id]
-    attached = findings.evaluation_finding_attach(
-        run_id="h4_stale", finding_id=finding_id, report="fresh_report"
-    )
+    attached = findings.evaluation_finding_attach(run_id="h4_stale", finding_id=finding_id, report="fresh_report")
     assert attached.finding.status is findings.FindingStatus.VERIFIED
 
     audit_path = run_dir / "analysis" / "audit.jsonl"
-    audit_entries = [
-        json.loads(line)
-        for line in audit_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert any(
-        entry["tool"] == "evaluation_finding_status"
-        and entry["produced_ids"] == [finding_id]
-        for entry in audit_entries
-    )
+    audit_entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert any(entry["tool"] == "evaluation_finding_status" and entry["produced_ids"] == [finding_id] for entry in audit_entries)
 
 
 def test_h4_roles_resource_and_allowlists_valid(tmp_path: pathlib.Path) -> None:
@@ -311,23 +263,13 @@ def test_h4_roles_resource_and_allowlists_valid(tmp_path: pathlib.Path) -> None:
     by_name = {t.name: t for t in domain.tools}
     for role_name, spec in roles.ROLES.items():
         for tool_name in spec["tools"]:
-            assert tool_name in by_name, (
-                f"role {role_name} names unknown tool {tool_name}"
-            )
+            assert tool_name in by_name, f"role {role_name} names unknown tool {tool_name}"
             if by_name[tool_name].annotations.destructive_hint:
-                assert role_name == "operator" or (
-                    tool_name in roles.AGENT_AREA_TOOLS
-                ), f"destructive tool {tool_name} in non-operator role {role_name}"
+                assert role_name == "operator" or (tool_name in roles.AGENT_AREA_TOOLS), f"destructive tool {tool_name} in non-operator role {role_name}"
     for tool_name, area in roles.AGENT_AREA_TOOLS.items():
-        assert tool_name in by_name, (
-            f"AGENT_AREA_TOOLS names unregistered tool {tool_name}"
-        )
-        assert by_name[tool_name].annotations.destructive_hint, (
-            f"AGENT_AREA_TOOLS tool {tool_name} is not destructive"
-        )
-        assert area in {"analysis", "reports"}, (
-            f"AGENT_AREA_TOOLS tool {tool_name} has unexpected area {area!r}"
-        )
+        assert tool_name in by_name, f"AGENT_AREA_TOOLS names unregistered tool {tool_name}"
+        assert by_name[tool_name].annotations.destructive_hint, f"AGENT_AREA_TOOLS tool {tool_name} is not destructive"
+        assert area in {"analysis", "reports"}, f"AGENT_AREA_TOOLS tool {tool_name} has unexpected area {area!r}"
 
     async def body(client):
         res = await client.read_resource("arena://evaluation/roles")
@@ -366,15 +308,11 @@ def test_h4_derived_table_replace_and_describe_metric_null_fields(
         snapshot_id="snap-2",
         author="analyst",
     )
-    names = sorted(
-        p.name for p in derived_dir(run_dir).iterdir() if not p.name.endswith(".lock")
-    )
+    names = sorted(p.name for p in derived_dir(run_dir).iterdir() if not p.name.endswith(".lock"))
     assert names == ["r9_tbl.parquet", "r9_tbl.v1.parquet", "r9_tbl.yaml"]
 
     # Non-mapping derived sidecar raises ValueError on replace
-    (derived_dir(run_dir) / "r9_tbl.yaml").write_text(
-        "- not-a-mapping\n", encoding="utf-8"
-    )
+    (derived_dir(run_dir) / "r9_tbl.yaml").write_text("- not-a-mapping\n", encoding="utf-8")
     with pytest.raises(ValueError, match="not a YAML mapping"):
         save_derived_table(
             run_dir,
@@ -388,14 +326,8 @@ def test_h4_derived_table_replace_and_describe_metric_null_fields(
     # NULL producer / fact_table in dim_metrics returns None (not "")
     dm_path = run_dir / "dim_metrics.parquet"
     dm = pl.read_parquet(dm_path).with_columns(
-        pl.when(pl.col("metric") == "time_to_goal")
-        .then(pl.lit(None, dtype=pl.String))
-        .otherwise(pl.col("producer"))
-        .alias("producer"),
-        pl.when(pl.col("metric") == "time_to_goal")
-        .then(pl.lit(None, dtype=pl.String))
-        .otherwise(pl.col("fact_table"))
-        .alias("fact_table"),
+        pl.when(pl.col("metric") == "time_to_goal").then(pl.lit(None, dtype=pl.String)).otherwise(pl.col("producer")).alias("producer"),
+        pl.when(pl.col("metric") == "time_to_goal").then(pl.lit(None, dtype=pl.String)).otherwise(pl.col("fact_table")).alias("fact_table"),
     )
     dm.write_parquet(dm_path)
     desc = analysis.evaluation_describe_metric("time_to_goal", run_id="h4_r9")
@@ -418,9 +350,7 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
         pin_evidence=True,
     )
     ev_id = q_res["evidence_id"]
-    pa_val = next(
-        float(r["mean_ttg"]) for r in q_res["data"] if r["planner"] == "planner_a"
-    )
+    pa_val = next(float(r["mean_ttg"]) for r in q_res["data"] if r["planner"] == "planner_a")
     created = findings.evaluation_finding_create(
         run_id="h4_r12",
         claim="planner_a mean_ttg matches pinned query",
@@ -437,9 +367,7 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     )
 
     # (c) Untouched run passes with equal hashes
-    v_ok = findings.evaluation_finding_verify(
-        run_id="h4_r12", finding_id=created.finding_id
-    )
+    v_ok = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=created.finding_id)
     assert v_ok["mechanical_passed"] is True
     rerun_chk = next(c for c in v_ok["checks"] if c["check"] == "evidence_rerun")
     assert rerun_chk["mode"] == "hash"
@@ -448,56 +376,29 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     # (a) Edited evidence file fails evidence_integrity
     ev_parquet = run_dir / "analysis" / "evidence" / f"{ev_id}.parquet"
     ev_orig = pl.read_parquet(ev_parquet)
-    ev_edited = ev_orig.with_columns(
-        pl.when(pl.col("planner") == "planner_b")
-        .then(999.0)
-        .otherwise(pl.col("mean_ttg"))
-        .alias("mean_ttg")
-    )
+    ev_edited = ev_orig.with_columns(pl.when(pl.col("planner") == "planner_b").then(999.0).otherwise(pl.col("mean_ttg")).alias("mean_ttg"))
     ev_edited.write_parquet(ev_parquet)
-    v_tamper = findings.evaluation_finding_verify(
-        run_id="h4_r12", finding_id=created.finding_id
-    )
+    v_tamper = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=created.finding_id)
     assert v_tamper["mechanical_passed"] is False
-    assert any(
-        c["check"] == "evidence_integrity" and not c["passed"]
-        for c in v_tamper["checks"]
-    )
+    assert any(c["check"] == "evidence_integrity" and not c["passed"] for c in v_tamper["checks"])
     ev_orig.write_parquet(ev_parquet)
 
     # (d) Reprocess leaving planner_a intact passes and records new snapshot_id
-    planner_b_eps = (
-        pl.read_parquet(run_dir / "dim_episodes.parquet")
-        .filter(pl.col("planner") == "planner_b")["episode_id"]
-        .to_list()
-    )
+    planner_b_eps = pl.read_parquet(run_dir / "dim_episodes.parquet").filter(pl.col("planner") == "planner_b")["episode_id"].to_list()
     for rob_path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
-        df = pl.read_parquet(rob_path).with_columns(
-            pl.when(pl.col("episode_id").is_in(planner_b_eps))
-            .then(pl.col("time_to_goal") + 10.0)
-            .otherwise(pl.col("time_to_goal"))
-            .alias("time_to_goal")
-        )
+        df = pl.read_parquet(rob_path).with_columns(pl.when(pl.col("episode_id").is_in(planner_b_eps)).then(pl.col("time_to_goal") + 10.0).otherwise(pl.col("time_to_goal")).alias("time_to_goal"))
         df.write_parquet(rob_path)
-    v_reproc_ok = findings.evaluation_finding_verify(
-        run_id="h4_r12", finding_id=created.finding_id
-    )
+    v_reproc_ok = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=created.finding_id)
     assert v_reproc_ok["mechanical_passed"] is False
-    snapshot_chk = next(
-        c for c in v_reproc_ok["checks"] if c.get("mode") == "snapshot_changed"
-    )
+    snapshot_chk = next(c for c in v_reproc_ok["checks"] if c.get("mode") == "snapshot_changed")
     assert snapshot_chk["passed"] is False
     assert v_reproc_ok["snapshot_id"] != q_res["snapshot_id"]
 
     # (b) Changed data under claimed number fails and shows rerun_value
     for rob_path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
-        df = pl.read_parquet(rob_path).with_columns(
-            (pl.col("time_to_goal") + 500.0).alias("time_to_goal")
-        )
+        df = pl.read_parquet(rob_path).with_columns((pl.col("time_to_goal") + 500.0).alias("time_to_goal"))
         df.write_parquet(rob_path)
-    v_changed = findings.evaluation_finding_verify(
-        run_id="h4_r12", finding_id=created.finding_id
-    )
+    v_changed = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=created.finding_id)
     assert v_changed["mechanical_passed"] is False
     num_chk = next(c for c in v_changed["checks"] if c["check"] == "structured_number")
     assert num_chk["passed"] is False
@@ -520,9 +421,7 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
         evidence_ids=[ev1["evidence_id"], ev2["evidence_id"]],
         author="analyst",
     )
-    v_seed = findings.evaluation_finding_verify(
-        run_id="h4_r12", finding_id=f_seed.finding_id
-    )
+    v_seed = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=f_seed.finding_id)
     assert v_seed["mechanical_passed"] is True
     seed_chk = next(c for c in v_seed["checks"] if c["check"] == "same_seed_overlap")
     assert seed_chk["flagged"] is True

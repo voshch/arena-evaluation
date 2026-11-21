@@ -23,9 +23,7 @@ GATE_FILE = Path(__file__).resolve()
 FORBIDDEN: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "identity rename map",
-        re.compile(
-            r"\b(_TOPIC_NAMES|_PRIMARY|_GROUND_TRUTH_ALIASES|_SCAN|_COLLISIONS|_ACOUSTICS)\b"
-        ),
+        re.compile(r"\b(_TOPIC_NAMES|_PRIMARY|_GROUND_TRUTH_ALIASES|_SCAN|_COLLISIONS|_ACOUSTICS)\b"),
     ),
     (
         "aligned column",
@@ -37,16 +35,12 @@ FORBIDDEN: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "calculator topic key",
-        re.compile(
-            r'("pedestrian_tracks"|"pedestrian_tracks_physics"|"collision_event"|"collision_contacts")'
-        ),
+        re.compile(r'("pedestrian_tracks"|"pedestrian_tracks_physics"|"collision_event"|"collision_contacts")'),
     ),
     ("collision topic key", re.compile(r'"collision_events"')),
     (
         "metric key",
-        re.compile(
-            r'("used_elevator_during_alarm"|"time_waiting_at_doors"|"elevator_rides")'
-        ),
+        re.compile(r'("used_elevator_during_alarm"|"time_waiting_at_doors"|"elevator_rides")'),
     ),
     ("series flag", re.compile(r"\bis_worst_frame\b")),
     ("acoustics column", re.compile(r"\buncertainty_dba\b")),
@@ -172,12 +166,8 @@ def test_the_aligned_frame_speaks_registry_names() -> None:
     assert _calculator_topic_names(
         TopicBundle(
             robot_tracks=tracks,
-            pedestrian_arena_peds=pl.DataFrame(
-                {"t_ns": [0], "ped_id": ["p"], "x": [0.0], "y": [0.0]}
-            ),
-            pedestrian_agent_states=pl.DataFrame(
-                {"t_ns": [0], "ped_id": ["p"], "x": [0.0], "y": [0.0]}
-            ),
+            pedestrian_arena_peds=pl.DataFrame({"t_ns": [0], "ped_id": ["p"], "x": [0.0], "y": [0.0]}),
+            pedestrian_agent_states=pl.DataFrame({"t_ns": [0], "ped_id": ["p"], "x": [0.0], "y": [0.0]}),
             robot_collision_events=collisions,
             robot_collision_contacts=pl.DataFrame({"t_ns": [], "obstacle_id": []}),
         )

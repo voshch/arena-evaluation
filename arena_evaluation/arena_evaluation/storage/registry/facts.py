@@ -40,9 +40,7 @@ class _RunEpisodeEnvironment(_RunEpisode, abstract=True):
     env_id = Column(pl.String, description="Simulation environment the row describes.")
 
 
-class FactEpisodes(
-    _RunEpisodeRobot, name="episodes", kind=TableKind.FACT, scope=MetricScope.EPISODE
-):
+class FactEpisodes(_RunEpisodeRobot, name="episodes", kind=TableKind.FACT, scope=MetricScope.EPISODE):
     """Per-episode facts: one row per episode and robot."""
 
     key = ("run_id", "episode_id", "robot_id")
@@ -73,24 +71,16 @@ class FactEncounters(
 
     key = ("run_id", "episode_id", "robot_id", "encounter_id")
 
-    encounter_id = Column(
-        pl.String, description="Identity of the encounter within the episode."
-    )
+    encounter_id = Column(pl.String, description="Identity of the encounter within the episode.")
     actor_1 = Column(pl.String, description="First party of the encounter, the robot.")
     actor_2 = Column(
         pl.String,
         description="Second party of the encounter, a pedestrian or another robot.",
     )
     actor_2_kind = Column(pl.String, description="Kind of the second party.")
-    t_start_ns = Column(
-        pl.Int64, description="Start of the encounter window in nanoseconds."
-    )
-    t_end_ns = Column(
-        pl.Int64, description="End of the encounter window in nanoseconds."
-    )
-    contact_id = Column(
-        pl.String, description="Contact of the encounter, empty when there is none."
-    )
+    t_start_ns = Column(pl.Int64, description="Start of the encounter window in nanoseconds.")
+    t_end_ns = Column(pl.Int64, description="End of the encounter window in nanoseconds.")
+    contact_id = Column(pl.String, description="Contact of the encounter, empty when there is none.")
     approach_type = Column(
         pl.String,
         null_reason=True,
@@ -116,23 +106,15 @@ class FactEncounters(
     )
 
 
-class FactContacts(
-    _RunEpisodeRobot, name="contacts", kind=TableKind.FACT, scope=MetricScope.CONTACT
-):
+class FactContacts(_RunEpisodeRobot, name="contacts", kind=TableKind.FACT, scope=MetricScope.CONTACT):
     """Per-contact facts: one row per contact of one robot."""
 
     key = ("run_id", "episode_id", "robot_id", "contact_id")
 
-    contact_id = Column(
-        pl.String, description="Identity of the contact within the episode."
-    )
+    contact_id = Column(pl.String, description="Identity of the contact within the episode.")
     encounter_id = Column(pl.String, description="Encounter the contact belongs to.")
-    collider_kind = Column(
-        pl.String, description="Kind of the body the robot made contact with."
-    )
-    obstacle_id = Column(
-        pl.String, description="Identity of the body the robot made contact with."
-    )
+    collider_kind = Column(pl.String, description="Kind of the body the robot made contact with.")
+    obstacle_id = Column(pl.String, description="Identity of the body the robot made contact with.")
     t_onset_ns = Column(pl.Int64, description="Onset of the contact in nanoseconds.")
     t_end_ns = Column(pl.Int64, description="End of the contact in nanoseconds.")
     duration_s = Column(
@@ -152,13 +134,9 @@ class FactPedestrians(
 
     key = ("run_id", "episode_id", "env_id", "ped_id")
 
-    ped_id = Column(
-        pl.String, description="Identity of the pedestrian within the environment."
-    )
+    ped_id = Column(pl.String, description="Identity of the pedestrian within the environment.")
     ped_name = Column(pl.String, description="Name of the pedestrian agent.")
-    ped_policy = Column(
-        pl.String, null_reason=True, description="Behaviour policy the pedestrian ran."
-    )
+    ped_policy = Column(pl.String, null_reason=True, description="Behaviour policy the pedestrian ran.")
     desired_speed = Column(
         pl.Float64,
         null_reason=True,
@@ -191,16 +169,12 @@ class FactPedestrians(
     )
 
 
-class FactRobots(
-    _RunEpisodeEnvironment, name="robots", kind=TableKind.FACT, scope=MetricScope.ROBOT
-):
+class FactRobots(_RunEpisodeEnvironment, name="robots", kind=TableKind.FACT, scope=MetricScope.ROBOT):
     """Per-robot facts: one row per robot of one episode."""
 
     key = ("run_id", "episode_id", "env_id", "robot_id")
 
-    robot_id = Column(
-        pl.String, description="Identity of the robot within the environment."
-    )
+    robot_id = Column(pl.String, description="Identity of the robot within the environment.")
     robot_name = Column(pl.String, description="Name of the robot as launched.")
 
 
@@ -209,9 +183,7 @@ class FactEdgeCases(_RunEpisodeRobot, name="edge_cases", kind=TableKind.FACT):
 
     key = ("run_id", "episode_id", "robot_id", "case_idx", "kind", "ordinal")
 
-    case_idx = Column(
-        pl.Int64, description="Index of the edge case within the episode."
-    )
+    case_idx = Column(pl.Int64, description="Index of the edge case within the episode.")
     kind = Column(
         pl.String,
         description="Edge-case list the row came from: step, agent, missing or unplayed.",
@@ -226,12 +198,8 @@ class FactFormations(_RunEpisodeRobot, name="formations", kind=TableKind.FACT):
     key = ("run_id", "episode_id", "robot_id")
     unique_key = False
 
-    formation_idx = Column(
-        pl.Int64, description="Index of the formation within the episode."
-    )
-    role = Column(
-        pl.String, description="Role of the row in the formation: member or absent."
-    )
+    formation_idx = Column(pl.Int64, description="Index of the formation within the episode.")
+    role = Column(pl.String, description="Role of the row in the formation: member or absent.")
     element = Column(pl.String, description="The formation agent the row names.")
 
 
@@ -248,25 +216,19 @@ class FactPhaseOutcomes(_RunEpisodeRobot, name="phase_outcomes", kind=TableKind.
     met = Column(pl.Boolean, description="Whether the replay marks the phase met.")
 
 
-class FactJudgeDisagreements(
-    _RunEpisodeRobot, name="judge_disagreements", kind=TableKind.FACT
-):
+class FactJudgeDisagreements(_RunEpisodeRobot, name="judge_disagreements", kind=TableKind.FACT):
     """Judge rows: one row per disagreement between judges."""
 
     key = ("run_id", "episode_id", "robot_id", "disagreement_idx")
 
-    disagreement_idx = Column(
-        pl.Int64, description="Index of the disagreement within the episode."
-    )
+    disagreement_idx = Column(pl.Int64, description="Index of the disagreement within the episode.")
     disagreement = Column(
         pl.String,
         description="Text of the disagreement between the replay judge and the record.",
     )
 
 
-class FactMechanismStates(
-    _RunEpisodeRobot, name="mechanism_states", kind=TableKind.FACT
-):
+class FactMechanismStates(_RunEpisodeRobot, name="mechanism_states", kind=TableKind.FACT):
     """Mechanism rows: one row per change of a mechanism state."""
 
     key = ("run_id", "episode_id", "robot_id")
@@ -280,9 +242,7 @@ class FactMechanismStates(
     )
     kind = Column(pl.String, description="Kind of the entity.")
     field = Column(pl.String, description="Name of the state field that changed.")
-    t_ns = Column(
-        pl.Int64, null_reason=True, description="Time of the change in nanoseconds."
-    )
+    t_ns = Column(pl.Int64, null_reason=True, description="Time of the change in nanoseconds.")
     value = Column(
         pl.Float64,
         unit="per field",
@@ -295,9 +255,7 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
 
     key = ("run_id", "episode_id", "robot_id", "collision_idx")
 
-    collision_idx = Column(
-        pl.Int64, description="Index of the collision within the episode."
-    )
+    collision_idx = Column(pl.Int64, description="Index of the collision within the episode.")
     obstacle_id = Column(
         pl.String,
         null_reason=True,
@@ -308,9 +266,7 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
         null_reason=True,
         description="Kind of the obstacle the robot collided with.",
     )
-    t_ns = Column(
-        pl.Int64, null_reason=True, description="Time of the collision in nanoseconds."
-    )
+    t_ns = Column(pl.Int64, null_reason=True, description="Time of the collision in nanoseconds.")
     x_m = Column(
         pl.Float64,
         null_reason=True,
@@ -325,11 +281,5 @@ class FactCollisions(_RunEpisodeRobot, name="collisions", kind=TableKind.FACT):
     )
 
 
-FACT_TABLES: Final[dict[FactTable, type[Table]]] = {
-    FactTable(table.table_name): table
-    for table in registered_tables()
-    if table.table_kind is TableKind.FACT
-}
-FACT_KEY_COLUMNS: Final[dict[str, tuple[str, ...]]] = {
-    table.table_name: table.key for table in FACT_TABLES.values()
-}
+FACT_TABLES: Final[dict[FactTable, type[Table]]] = {FactTable(table.table_name): table for table in registered_tables() if table.table_kind is TableKind.FACT}
+FACT_KEY_COLUMNS: Final[dict[str, tuple[str, ...]]] = {table.table_name: table.key for table in FACT_TABLES.values()}

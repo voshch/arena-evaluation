@@ -68,32 +68,21 @@ class HierarchyRenderer(BasePlotRenderer):
         "variant",
     }
 
-    def _drawable_frame(
-        self, df: pl.DataFrame
-    ) -> tuple[list[str], str, pl.DataFrame] | None:
+    def _drawable_frame(self, df: pl.DataFrame) -> tuple[list[str], str, pl.DataFrame] | None:
         """Resolve the hierarchy columns and keep only positive finite tiles."""
         if df.is_empty():
             return None
         path_cols = self.resolve_channel_list("hierarchy")
         if not path_cols:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: hierarchy plot requires channel 'hierarchy'."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: hierarchy plot requires channel 'hierarchy'.")
         values_col = self.resolve_channel("y")
         if not values_col:
-            raise ValueError(
-                f"Plot {self.spec.id!r}: hierarchy plot requires channel 'y' for tile values."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: hierarchy plot requires channel 'y' for tile values.")
         self.validate_unique_cells(df, path_cols)
-        work = df.with_columns(
-            [pl.Series(column, label_values(df, column)) for column in path_cols]
-        )
+        work = df.with_columns([pl.Series(column, label_values(df, column)) for column in path_cols])
         numeric = work[values_col].cast(pl.Float64)
         if (numeric < 0).any():
-            raise ValueError(
-                f"Plot {self.spec.id!r}: hierarchy value column {values_col!r} "
-                "contains negative values."
-            )
+            raise ValueError(f"Plot {self.spec.id!r}: hierarchy value column {values_col!r} contains negative values.")
         work = work.filter(numeric.is_not_null() & numeric.is_finite() & (numeric > 0))
         if work.is_empty():
             return None
@@ -106,14 +95,8 @@ class HierarchyRenderer(BasePlotRenderer):
             return None
         path_cols, values_col, work = prepared
         color_col = self.resolve_channel("color")
-        selected = list(
-            dict.fromkeys([*path_cols, values_col, *([color_col] if color_col else [])])
-        )
-        mode = str(
-            self.spec.options.get("mode")
-            or self.spec.options.get("variant")
-            or _TREEMAP_MODE
-        ).lower()
+        selected = list(dict.fromkeys([*path_cols, values_col, *([color_col] if color_col else [])]))
+        mode = str(self.spec.options.get("mode") or self.spec.options.get("variant") or _TREEMAP_MODE).lower()
         draw = {"sunburst": px.sunburst}.get(mode, px.treemap)
         fig = draw(
             work.select(selected).to_pandas(),
@@ -192,11 +175,7 @@ class HierarchyRenderer(BasePlotRenderer):
                     mid_deg = cur + span / 2.0
                     mid_rad = math.radians(mid_deg)
                     r_mid = (r0 + r1) / 2.0
-                    rot = (
-                        mid_deg - 90.0
-                        if 0.0 <= (mid_deg % 360.0) <= 180.0
-                        else mid_deg + 90.0
-                    )
+                    rot = mid_deg - 90.0 if 0.0 <= (mid_deg % 360.0) <= 180.0 else mid_deg + 90.0
                     short_label = label if len(label) <= 22 else f"{label[:20]}.."
                     val_str = f"{int(val)}" if val.is_integer() else f"{val:.3g}"
                     ax.text(
@@ -231,11 +210,7 @@ class HierarchyRenderer(BasePlotRenderer):
         if prepared is None:
             return
         path_cols, values_col, work = prepared
-        mode = str(
-            self.spec.options.get("mode")
-            or self.spec.options.get("variant")
-            or _TREEMAP_MODE
-        ).lower()
+        mode = str(self.spec.options.get("mode") or self.spec.options.get("variant") or _TREEMAP_MODE).lower()
         if mode == "sunburst":
             self._render_sunburst_static(path_cols, values_col, work, out_path)
             return
@@ -253,10 +228,7 @@ class HierarchyRenderer(BasePlotRenderer):
             reverse=True,
         )
         top_rects = _split_treemap(
-            [
-                (label, value, color_index)
-                for color_index, (label, value) in enumerate(top_groups)
-            ],
+            [(label, value, color_index) for color_index, (label, value) in enumerate(top_groups)],
             0.0,
             0.0,
             1.0,
@@ -276,12 +248,7 @@ class HierarchyRenderer(BasePlotRenderer):
                     )
                     for row in sub.sort(values_col, descending=True).to_dicts()
                 ]
-                rects.extend(
-                    (lx, ly, lw, lh, f"{top_label}\n{child_label}", value, index)
-                    for lx, ly, lw, lh, child_label, value, index in _split_treemap(
-                        sub_nodes, rx, ry, rw, rh
-                    )
-                )
+                rects.extend((lx, ly, lw, lh, f"{top_label}\n{child_label}", value, index) for lx, ly, lw, lh, child_label, value, index in _split_treemap(sub_nodes, rx, ry, rw, rh))
         fig, ax = new_figure(width_in=10.0, height_in=6.5)
         for rx, ry, rw, rh, label, value, color_index in rects:
             ax.add_patch(

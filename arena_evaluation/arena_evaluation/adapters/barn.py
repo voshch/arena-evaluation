@@ -141,9 +141,7 @@ def reference_path_length(path: np.ndarray) -> float:
         *(challenge_xy(r, c) for r, c in np.asarray(path, dtype=float).tolist()),
         GOAL,
     ]
-    return float(
-        sum(math.dist(a, b) for a, b in zip(points[:-1], points[1:], strict=True))
-    )
+    return float(sum(math.dist(a, b) for a, b in zip(points[:-1], points[1:], strict=True)))
 
 
 def load_paths(src: Path) -> dict[int, np.ndarray]:
@@ -204,9 +202,7 @@ class BARN(Importer):
     def fetch(self, item: str) -> Path:
         self._check(item)
         for index in range(self.worlds):
-            self.provider.get(
-                f"{PATH_DIR}/path_{index}.npy", self.cache / PATHS / f"path_{index}.npy"
-            )
+            self.provider.get(f"{PATH_DIR}/path_{index}.npy", self.cache / PATHS / f"path_{index}.npy")
             self.provider.get(
                 f"{WORLD_DIR}/{world_file(index)}",
                 self.cache / SOURCES / world_file(index),

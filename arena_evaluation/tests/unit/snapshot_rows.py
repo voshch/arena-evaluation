@@ -18,9 +18,7 @@ def snapshot_frame(rows):
         kind.append(k)
         field_name.append(f)
         field_kind.append(fk)
-        value_str.append(
-            _members_value(v) if fk == "members" else (v if fk == "discrete" else None)
-        )
+        value_str.append(_members_value(v) if fk == "members" else (v if fk == "discrete" else None))
         value_num.append(float(v) if fk == "continuous" else None)
         value_bool.append(bool(v) if fk == "predicate" else None)
     return pl.DataFrame(

@@ -73,9 +73,7 @@ def walkable_area(
     zones: typing.Iterable[typing.Any],
 ) -> shapely.geometry.base.BaseGeometry | None:
     """Union of the sidewalk and crosswalk zone polygons, None when the world has none."""
-    polygons = [
-        shapely.make_valid(zone.polygon) for zone in zones if _WALKABLE.match(zone.name)
-    ]
+    polygons = [shapely.make_valid(zone.polygon) for zone in zones if _WALKABLE.match(zone.name)]
     return unary_union(polygons) if polygons else None
 
 
@@ -113,9 +111,7 @@ def _collisions(episode: AlignedEpisodeBundle) -> int:
     try:
         hits = frame.sort("t_ns")["event_count"].to_numpy().astype(float) > 0
     except pl.exceptions.ColumnNotFoundError as exc:
-        raise MetricInputError(
-            "robot_collision_events carries no event_count column"
-        ) from exc
+        raise MetricInputError("robot_collision_events carries no event_count column") from exc
     return len(_runs(hits))
 
 
@@ -142,9 +138,7 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
     }
     PRIMARY_OUTPUTS = ["sidewalk_route_completion", "sidewalk_failures_per_100m"]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         nulls = dict.fromkeys(self.output_keys())
         zones = load_zone_geometry(self.world) if self.world else None
@@ -174,9 +168,7 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
 
         outside = ~shapely.intersects(area, shapely.points(gx[:end], gy[:end]))
         off_entries = excursions(outside, round(EXCURSION_MERGE_S * SAMPLE_HZ))
-        n_freezes = freezes(
-            speed, round(FREEZE_GRACE_S * SAMPLE_HZ), end, round(FREEZE_S * SAMPLE_HZ)
-        )
+        n_freezes = freezes(speed, round(FREEZE_GRACE_S * SAMPLE_HZ), end, round(FREEZE_S * SAMPLE_HZ))
         n_collisions = _collisions(episode)
 
         completed = bool(len(hit)) and n_collisions == 0 and not outside.any()
@@ -184,10 +176,6 @@ class SidewalkMetricsCalculator(BaseMetricCalculator):
             "sidewalk_route_completion": completed if goal and len(goal) >= 2 else None,
             "sidewalk_off_sidewalk": bool(outside.any()),
             "sidewalk_freezes": n_freezes,
-            "sidewalk_failures_per_100m": (n_collisions + off_entries + n_freezes)
-            / path_m
-            * 100.0
-            if path_m >= MIN_PATH_M
-            else None,
+            "sidewalk_failures_per_100m": (n_collisions + off_entries + n_freezes) / path_m * 100.0 if path_m >= MIN_PATH_M else None,
             "sidewalk_mean_speed": path_m / duration_s if duration_s > 0 else None,
         }

@@ -98,9 +98,7 @@ def write_bag(
         )
 
     def twist(vx: float, vy: float, wz: float) -> object:
-        return Twist(
-            linear=Vector3(x=vx, y=vy, z=0.0), angular=Vector3(x=0.0, y=0.0, z=wz)
-        )
+        return Twist(linear=Vector3(x=vx, y=vy, z=0.0), angular=Vector3(x=0.0, y=0.0, z=wz))
 
     def odometry(
         i: int,
@@ -127,21 +125,9 @@ def write_bag(
     with Writer(path) as writer:
         scan_conn = writer.add_connection(SCAN, LaserScan.__msgtype__, typestore=ts)
         odom_conn = writer.add_connection(ODOM, Odometry.__msgtype__, typestore=ts)
-        velocity_conn = (
-            None
-            if twist_in_odom
-            else writer.add_connection(VELOCITY, Odometry.__msgtype__, typestore=ts)
-        )
-        cmd_conn = (
-            writer.add_connection(CMD_VEL, Twist.__msgtype__, typestore=ts)
-            if cmd or stray
-            else None
-        )
-        marker_conn = (
-            writer.add_connection(MARKERS, MarkerArray.__msgtype__, typestore=ts)
-            if markers
-            else None
-        )
+        velocity_conn = None if twist_in_odom else writer.add_connection(VELOCITY, Odometry.__msgtype__, typestore=ts)
+        cmd_conn = writer.add_connection(CMD_VEL, Twist.__msgtype__, typestore=ts) if cmd or stray else None
+        marker_conn = writer.add_connection(MARKERS, MarkerArray.__msgtype__, typestore=ts) if markers else None
         if sensors:
             for name, text in ROS1_DEFINITIONS.items():
                 if name not in ts.types:
@@ -160,20 +146,12 @@ def write_bag(
         sensor_conns = (
             {
                 IMU: writer.add_connection(IMU, Imu.__msgtype__, typestore=ts),
-                POINTS: writer.add_connection(
-                    POINTS, PointCloud2.__msgtype__, typestore=ts
-                ),
+                POINTS: writer.add_connection(POINTS, PointCloud2.__msgtype__, typestore=ts),
                 PATH: writer.add_connection(PATH, NavPath.__msgtype__, typestore=ts),
-                "/tf": writer.add_connection(
-                    "/tf", TFMessage.__msgtype__, typestore=ts
-                ),
-                "/tf_static": writer.add_connection(
-                    "/tf_static", TFMessage.__msgtype__, typestore=ts
-                ),
+                "/tf": writer.add_connection("/tf", TFMessage.__msgtype__, typestore=ts),
+                "/tf_static": writer.add_connection("/tf_static", TFMessage.__msgtype__, typestore=ts),
                 LOG: writer.add_connection(LOG, Log.__msgtype__, typestore=ts),
-                CAMERA: writer.add_connection(
-                    CAMERA, CameraInfo.__msgtype__, typestore=ts
-                ),
+                CAMERA: writer.add_connection(CAMERA, CameraInfo.__msgtype__, typestore=ts),
             }
             if sensors
             else {}
@@ -265,9 +243,7 @@ def write_bag(
                 writer.write(
                     marker_conn,
                     t + 7,
-                    ts.serialize_ros1(
-                        MarkerArray(markers=[marker]), MarkerArray.__msgtype__
-                    ),
+                    ts.serialize_ros1(MarkerArray(markers=[marker]), MarkerArray.__msgtype__),
                 )
             if sensors:
                 imu = Imu(
@@ -279,13 +255,8 @@ def write_bag(
                     linear_acceleration=Vector3(x=0.0, y=0.0, z=9.81),
                     linear_acceleration_covariance=np.zeros(9),
                 )
-                writer.write(
-                    sensor_conns[IMU], t + 1, ts.serialize_ros1(imu, Imu.__msgtype__)
-                )
-                fields = [
-                    PointField(name=axis, offset=4 * k, datatype=7, count=1)
-                    for k, axis in enumerate("xyz")
-                ]
+                writer.write(sensor_conns[IMU], t + 1, ts.serialize_ros1(imu, Imu.__msgtype__))
+                fields = [PointField(name=axis, offset=4 * k, datatype=7, count=1) for k, axis in enumerate("xyz")]
                 cloud = PointCloud2(
                     header=header(i, t, "velodyne"),
                     height=1,
@@ -314,9 +285,7 @@ def write_bag(
                 writer.write(
                     sensor_conns["/tf"],
                     t + 3,
-                    ts.serialize_ros1(
-                        TFMessage(transforms=[odom_to_base]), TFMessage.__msgtype__
-                    ),
+                    ts.serialize_ros1(TFMessage(transforms=[odom_to_base]), TFMessage.__msgtype__),
                 )
                 trail = NavPath(
                     header=header(i, t, "odom"),
@@ -346,9 +315,7 @@ def write_bag(
                     line=0,
                     topics=[],
                 )
-                writer.write(
-                    sensor_conns[LOG], t + 5, ts.serialize_ros1(log, Log.__msgtype__)
-                )
+                writer.write(sensor_conns[LOG], t + 5, ts.serialize_ros1(log, Log.__msgtype__))
                 camera = CameraInfo(
                     header=header(i, t, "zed2_left_camera_optical_frame"),
                     height=360,
@@ -375,9 +342,7 @@ def write_bag(
                     ),
                     binning_x=0,
                     binning_y=0,
-                    roi=RegionOfInterest(
-                        x_offset=0, y_offset=0, height=0, width=0, do_rectify=False
-                    ),
+                    roi=RegionOfInterest(x_offset=0, y_offset=0, height=0, width=0, do_rectify=False),
                 )
                 writer.write(
                     sensor_conns[CAMERA],
@@ -386,18 +351,13 @@ def write_bag(
                 )
         for k in range(stray):
             t = T0_NS + (count + 2 + k) * STEP_NS
-            writer.write(
-                cmd_conn, t, ts.serialize_ros1(twist(0.0, 0.0, 0.0), Twist.__msgtype__)
-            )
+            writer.write(cmd_conn, t, ts.serialize_ros1(twist(0.0, 0.0, 0.0), Twist.__msgtype__))
     return path
 
 
 def listed(cache: Path, *items: str) -> Path:
     """A fresh Dataverse dataset record in cache naming one bag per item."""
-    files = [
-        {"dataFile": {"id": index, "filename": f"{item}.bag", "filesize": 0}}
-        for index, item in enumerate(items)
-    ]
+    files = [{"dataFile": {"id": index, "filename": f"{item}.bag", "filesize": 0}} for index, item in enumerate(items)]
     cache.mkdir(parents=True, exist_ok=True)
     path = cache / "dataset.json"
     path.write_text(json.dumps({"data": {"latestVersion": {"files": files}}}))

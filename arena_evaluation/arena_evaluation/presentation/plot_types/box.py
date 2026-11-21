@@ -33,9 +33,7 @@ class BoxRenderer(BasePlotRenderer):
         "show_points",
     }
 
-    def _resolve_columns(
-        self, df: pl.DataFrame
-    ) -> tuple[str | None, str | None, str | None]:
+    def _resolve_columns(self, df: pl.DataFrame) -> tuple[str | None, str | None, str | None]:
         return (
             self.resolve_channel("x"),
             self.resolve_channel("y"),
@@ -48,18 +46,11 @@ class BoxRenderer(BasePlotRenderer):
     def _label(self, column: str) -> str:
         return self.format_label(self._title(column), column)
 
-    def _grouped(
-        self, df: pl.DataFrame, trace_col: str | None, y_col: str
-    ) -> list[tuple[str, pl.DataFrame]]:
+    def _grouped(self, df: pl.DataFrame, trace_col: str | None, y_col: str) -> list[tuple[str, pl.DataFrame]]:
         if trace_col is None:
             return [(y_col, df)]
         tagged = df.with_columns(pl.Series("_box_group", label_values(df, trace_col)))
-        return [
-            (str(sub["_box_group"][0]), sub)
-            for sub in tagged.sort("_box_group").partition_by(
-                "_box_group", maintain_order=True
-            )
-        ]
+        return [(str(sub["_box_group"][0]), sub) for sub in tagged.sort("_box_group").partition_by("_box_group", maintain_order=True)]
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly box plot."""
@@ -91,9 +82,7 @@ class BoxRenderer(BasePlotRenderer):
             title=self.spec.title or y_label,
             yaxis_title=y_label,
             xaxis_title=self._title(x_col or trace_col),
-            boxmode="group"
-            if color_col and x_col and color_col != x_col
-            else "overlay",
+            boxmode="group" if color_col and x_col and color_col != x_col else "overlay",
             margin={"t": 55, "b": 60, "l": 65, "r": 30},
         )
         return fig.to_html(include_plotlyjs=False, full_html=False)
@@ -102,9 +91,7 @@ class BoxRenderer(BasePlotRenderer):
         """Render a static Seaborn box plot."""
         x_col, y_col, color_col = self._resolve_columns(df)
         if not y_col:
-            raise PlotRenderError(
-                f"Plot {self.spec.id!r}: box plot requires channel 'y'."
-            )
+            raise PlotRenderError(f"Plot {self.spec.id!r}: box plot requires channel 'y'.")
         require_drawable(df, y_col, plot_id=self.spec.id, plot_type=self.PLOT_TYPE)
 
         axis_col = x_col or color_col

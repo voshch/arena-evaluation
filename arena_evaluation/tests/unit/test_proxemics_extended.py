@@ -54,9 +54,7 @@ def _episode(
                 ped["vx"], ped["vy"] = twists[i][3 * j], twists[i][3 * j + 1]
             pedestrians.append(ped)
         frames.append((t, pedestrians))
-    peds = flat_peds(frames).with_columns(
-        radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64)
-    )
+    peds = flat_peds(frames).with_columns(radius_m=pl.lit(PED_RADIUS_M, dtype=pl.Float64))
     robot_times = times_ns if robot_times_ns is None else robot_times_ns
     robot = pl.DataFrame(
         {
@@ -92,14 +90,10 @@ def calc() -> ProxemicsExtendedCalculator:
 
 
 @pytest.mark.parametrize("radius_m", [None, 0.0, -0.3])
-def test_a_pedestrian_without_a_positive_recorded_radius_is_refused(
-    calc: ProxemicsExtendedCalculator, radius_m: float | None
-):
+def test_a_pedestrian_without_a_positive_recorded_radius_is_refused(calc: ProxemicsExtendedCalculator, radius_m: float | None):
     """The calculator never invents a body size; a missing or non-positive recorded radius raises."""
     episode = _episode([0, SEC], [[1.0, 0.0], [1.0, 0.0]])
-    episode.topics["pedestrian_arena_peds"] = episode.topics[
-        "pedestrian_arena_peds"
-    ].with_columns(radius_m=pl.lit(radius_m, dtype=pl.Float64))
+    episode.topics["pedestrian_arena_peds"] = episode.topics["pedestrian_arena_peds"].with_columns(radius_m=pl.lit(radius_m, dtype=pl.Float64))
     with pytest.raises(MetricInputError):
         calc.calculate(episode, {})
 
@@ -122,11 +116,6 @@ def test_episode_scope_recomputes_and_unserved_scopes_do_not_masquerade(
 ):
     """The EPISODE scope is the calculator's own population; a scope it does not serve yields typed nulls."""
     episode = _episode([0, SEC], [_at_clearance(0.8), _at_clearance(0.8)])
-    assert calc.calculate_for_scope(
-        episode, {}, _slice(MetricScope.EPISODE, episode)
-    ) == calc.calculate(episode, {})
+    assert calc.calculate_for_scope(episode, {}, _slice(MetricScope.EPISODE, episode)) == calc.calculate(episode, {})
     pedestrian_slice = _slice(MetricScope.PEDESTRIAN, episode)
-    assert all(
-        value is None
-        for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values()
-    )
+    assert all(value is None for value in calc.calculate_for_scope(episode, {}, pedestrian_slice).values())

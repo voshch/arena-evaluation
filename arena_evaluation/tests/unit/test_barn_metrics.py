@@ -15,16 +15,7 @@ from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
-PATH_0 = (
-    Path(__file__).parent.parent
-    / "fixtures"
-    / "barn"
-    / "jackal_helper"
-    / "worlds"
-    / "BARN"
-    / "path_files"
-    / "path_0.npy"
-)
+PATH_0 = Path(__file__).parent.parent / "fixtures" / "barn" / "jackal_helper" / "worlds" / "BARN" / "path_files" / "path_0.npy"
 X_SHIFT = 4.5
 START = (-2.25 + X_SHIFT, 3.0)
 GOAL = (-2.25 + X_SHIFT, 13.0)
@@ -41,17 +32,12 @@ NULLS = {
 
 def _upstream_path_length() -> float:
     radius = 0.075
-    points = [
-        (x * radius * 2 - radius - 30 * radius * 2, y * radius * 2 + radius + 5)
-        for x, y in np.load(PATH_0)
-    ]
+    points = [(x * radius * 2 - radius - 30 * radius * 2, y * radius * 2 + radius + 5) for x, y in np.load(PATH_0)]
     points = [(-2.25, 3.0), *points, (-2.25, 13.0)]
     return sum(math.dist(a, b) for a, b in zip(points[:-1], points[1:], strict=True))
 
 
-def _upstream_run(
-    position, collision_at: float | None, start_time: float, path_length: float
-) -> tuple[bool, bool, bool, float, float]:
+def _upstream_run(position, collision_at: float | None, start_time: float, path_length: float) -> tuple[bool, bool, bool, float, float]:
     """run.py sections 2 and 3 on a position function of sim time, polled every 0.1 s."""
 
     def distance(p1, p2):
@@ -61,9 +47,7 @@ def _upstream_run(
     curr_coor = position(curr_time)
     collided = False
     poll = 0
-    while (
-        distance(GOAL, curr_coor) > 1 and not collided and curr_time - start_time < 100
-    ):
+    while distance(GOAL, curr_coor) > 1 and not collided and curr_time - start_time < 100:
         curr_time = start_time + 0.1 * poll
         curr_coor = position(curr_time)
         collided = collision_at is not None and collision_at <= curr_time
@@ -77,11 +61,7 @@ def _upstream_run(
         success = True
     optimal_time = path_length / 2
     actual_time = curr_time - start_time
-    nav_metric = (
-        int(success)
-        * optimal_time
-        / np.clip(actual_time, 2 * optimal_time, 8 * optimal_time)
-    )
+    nav_metric = int(success) * optimal_time / np.clip(actual_time, 2 * optimal_time, 8 * optimal_time)
     return (
         success,
         collided,
@@ -122,11 +102,7 @@ def _episode(
             "pose_source": ["tf_gt"] * len(stamps),
         }
     )
-    hits = (
-        np.zeros(len(stamps), dtype=np.int64)
-        if collision_at is None
-        else (stamps - t0 >= collision_at).astype(np.int64)
-    )
+    hits = np.zeros(len(stamps), dtype=np.int64) if collision_at is None else (stamps - t0 >= collision_at).astype(np.int64)
     collisions = pl.DataFrame({"t_ns": t_ns, "event_count": hits})
     return AlignedEpisodeBundle(
         episode_id=1,
@@ -185,12 +161,8 @@ def test_recorded_run_scores_what_the_challenge_loop_gives(
     path_length = _upstream_path_length()
     position = _drive(speed, wait, stop_at)
     start_time = _first_motion(position, wait)
-    success, collided, timeout, actual_time, nav_metric = _upstream_run(
-        position, collision_at, start_time, path_length
-    )
-    results = _calc(path_length).calculate(
-        _episode(position, duration, collision_at), {}
-    )
+    success, collided, timeout, actual_time, nav_metric = _upstream_run(position, collision_at, start_time, path_length)
+    results = _calc(path_length).calculate(_episode(position, duration, collision_at), {})
     assert results["barn_success"] is success
     assert results["barn_collided"] is collided
     assert results["barn_timeout"] is timeout
@@ -209,11 +181,7 @@ def test_parametrized_runs_cover_every_challenge_outcome():
         (1.0, 0.5, 5.0, None),
     ):
         position = _drive(speed, wait, stop_at)
-        outcomes.add(
-            _upstream_run(
-                position, collision_at, _first_motion(position, wait), path_length
-            )[:3]
-        )
+        outcomes.add(_upstream_run(position, collision_at, _first_motion(position, wait), path_length)[:3])
     assert outcomes == {
         (True, False, False),
         (False, True, False),
@@ -300,9 +268,7 @@ def _robot_slice(episode):
 def test_registry_reports_the_score_beside_the_native_metrics():
     episode = _episode(_drive(1.0), 10.0)
     topics = {"robot_tracks", "robot_odom", "robot_collision_events"}
-    with_reference = MetricRegistry(
-        make_robot_params(model="jackal"), metrics_config=_config(10.0)
-    )
+    with_reference = MetricRegistry(make_robot_params(model="jackal"), metrics_config=_config(10.0))
     assert with_reference.calculators["barn_score"].metrics_config == _config(10.0)
     results = {
         **with_reference.run(episode, available_topics=topics, pedsim_available=False),
@@ -320,9 +286,7 @@ def test_registry_reports_the_score_beside_the_native_metrics():
     without_registry = MetricRegistry(make_robot_params(model="jackal"))
     without_episode = _episode(_drive(1.0), 10.0)
     without = {
-        **without_registry.run(
-            without_episode, available_topics=topics, pedsim_available=False
-        ),
+        **without_registry.run(without_episode, available_topics=topics, pedsim_available=False),
         **without_registry.run_scope(
             MetricScope.ROBOT,
             without_episode,
@@ -347,7 +311,5 @@ def test_registry_reports_the_score_beside_the_native_metrics():
             scope_slice=_robot_slice(skipped_episode),
         ).results,
     }
-    assert {key: skipped[key] for key in NULLS if key != "barn_optimal_time"} == {
-        key: NULLS[key] for key in NULLS if key != "barn_optimal_time"
-    }
+    assert {key: skipped[key] for key in NULLS if key != "barn_optimal_time"} == {key: NULLS[key] for key in NULLS if key != "barn_optimal_time"}
     assert skipped["barn_optimal_time"] == pytest.approx(5.0)

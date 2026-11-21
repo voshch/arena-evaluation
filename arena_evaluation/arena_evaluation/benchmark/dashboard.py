@@ -11,9 +11,6 @@ import http.server
 import json
 import os
 import pathlib
-
-from arena_evaluation.storage.config_layout import find_rendered_reports
-from arena_evaluation.storage.star_schema import has_star_schema
 import re
 import socket
 import subprocess
@@ -23,6 +20,9 @@ import time
 import typing
 import urllib.parse
 import urllib.request
+
+from arena_evaluation.storage.config_layout import find_rendered_reports
+from arena_evaluation.storage.star_schema import has_star_schema
 
 if typing.TYPE_CHECKING:
     from .dashboard_runtime import RuntimeBridge
@@ -109,17 +109,13 @@ def load_manifest(path: pathlib.Path) -> Manifest:
             return cached[1]
         manifest = Manifest.from_yaml(file.read_text())
     except (OSError, TypeError, yaml.YAMLError) as exc:
-        raise RunStatusError(
-            f"run {path.name!r} has no readable manifest.yaml: {exc}"
-        ) from exc
+        raise RunStatusError(f"run {path.name!r} has no readable manifest.yaml: {exc}") from exc
     with _MANIFESTS_LOCK:
         _MANIFESTS[file] = (key, manifest)
     return manifest
 
 
-def runner_pids(
-    path: pathlib.Path, run_id: str, running: dict[str, int] | None = None
-) -> list[int]:
+def runner_pids(path: pathlib.Path, run_id: str, running: dict[str, int] | None = None) -> list[int]:
     """Live runner processes of a run: lane pid files and runners started with its --run-id."""
     from .debug import running_pids_by_run_id
 
@@ -135,9 +131,7 @@ def runner_pids(
     return sorted(pids)
 
 
-def run_status(
-    path: pathlib.Path, *, running: dict[str, int] | None = None, light: bool = False
-) -> dict[str, typing.Any]:
+def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, light: bool = False) -> dict[str, typing.Any]:
     """A run's progress from its manifest, the union of its lane states and, unless light, its progress rows."""
     from .cli import _count_by_status
     from .state import StateFile, progress_rows
@@ -148,13 +142,7 @@ def run_status(
     counts = _count_by_status(steps)
     pids = runner_pids(path, manifest.run_id, running)
     done = all(key in steps and steps[key].status in TERMINAL_STEPS for key in planned)
-    lanes = sorted(
-        {
-            name.split(".")[1]
-            for pattern in ("progress.*.csv", ".benchmark_state.*.json", "runner.*.log")
-            for name in (entry.name.lstrip(".") for entry in path.glob(pattern))
-        }
-    )
+    lanes = sorted({name.split(".")[1] for pattern in ("progress.*.csv", ".benchmark_state.*.json", "runner.*.log") for name in (entry.name.lstrip(".") for entry in path.glob(pattern))})
     return {
         "run_id": manifest.run_id,
         "run_dir": str(path),
@@ -169,17 +157,11 @@ def run_status(
         "state": "completed" if done else "running" if pids else "incomplete",
         "steps_total": len(planned),
         "steps": counts | {"pending": len(planned) - sum(counts.values())},
-        "active": [
-            {"key": step.key, "env_id": step.env_id, "started_at": step.started_at}
-            for step in steps.values()
-            if step.status == "in_progress"
-        ],
+        "active": [{"key": step.key, "env_id": step.env_id, "started_at": step.started_at} for step in steps.values() if step.status == "in_progress"],
         "failed": [
             {
                 "key": step.key,
-                "error_kind": None
-                if step.error_kind is None
-                else step.error_kind.value,
+                "error_kind": None if step.error_kind is None else step.error_kind.value,
                 "error_detail": step.error_detail,
             }
             for step in steps.values()
@@ -193,9 +175,7 @@ def run_status(
     }
 
 
-def live_lanes(
-    path: pathlib.Path, now: float | None = None
-) -> list[dict[str, typing.Any]]:
+def live_lanes(path: pathlib.Path, now: float | None = None) -> list[dict[str, typing.Any]]:
     """The live slot tables runners write, one per lane, with their age and whether they went stale."""
     now = time.time() if now is None else now
     lanes = []
@@ -232,20 +212,13 @@ def run_detail(path: pathlib.Path, now: float | None = None) -> dict[str, typing
     manifest = load_manifest(path)
     steps = StateFile.open(path).steps
     live = live_lanes(path, now)
-    busy = {
-        slot["step_key"]: slot["env_id"]
-        for lane in live
-        if not lane["finished"] and not lane["stale"]
-        for slot in lane["slots"]
-    }
+    busy = {slot["step_key"]: slot["env_id"] for lane in live if not lane["finished"] and not lane["stale"] for slot in lane["slots"]}
     grid = []
     for planned in manifest.steps:
         key = planned["key"]
         contestant, _, stage = key.partition("/")
         result = steps.get(key)
-        running = key in busy and (
-            result is None or result.status not in TERMINAL_STEPS
-        )
+        running = key in busy and (result is None or result.status not in TERMINAL_STEPS)
         grid.append(
             {
                 "key": key,
@@ -253,39 +226,19 @@ def run_detail(path: pathlib.Path, now: float | None = None) -> dict[str, typing
                 "stage": stage,
                 "world": planned["stage"]["map"],
                 "episodes_planned": planned["episodes_planned"],
-                "status": "in_progress"
-                if running
-                else "pending"
-                if result is None
-                else result.status,
-                "env_id": busy[key]
-                if running
-                else None
-                if result is None
-                else result.env_id,
+                "status": "in_progress" if running else "pending" if result is None else result.status,
+                "env_id": busy[key] if running else None if result is None else result.env_id,
                 "episodes_run": 0 if result is None else result.episodes_run,
                 "episodes_failed": 0 if result is None else result.episodes_failed,
-                "error_kind": None
-                if running or result is None or result.error_kind is None
-                else result.error_kind.value,
+                "error_kind": None if running or result is None or result.error_kind is None else result.error_kind.value,
             }
         )
     counts = collections.Counter(cell["status"] for cell in grid)
     rows = progress_rows(path)
-    outcomes = collections.Counter(
-        OUTCOMES.get(row["outcome_state"], row["outcome_state"]) for row in rows
-    )
+    outcomes = collections.Counter(OUTCOMES.get(row["outcome_state"], row["outcome_state"]) for row in rows)
     created = _wall(manifest.created_at)
-    window = (
-        min(max(now - created, MIN_RATE_WINDOW_S), RATE_WINDOW_S)
-        if created is not None
-        else RATE_WINDOW_S
-    )
-    recent_walls = [
-        wall
-        for wall in (_wall(row["ts_iso"]) for row in rows)
-        if wall is not None and now - wall <= window
-    ]
+    window = min(max(now - created, MIN_RATE_WINDOW_S), RATE_WINDOW_S) if created is not None else RATE_WINDOW_S
+    recent_walls = [wall for wall in (_wall(row["ts_iso"]) for row in rows) if wall is not None and now - wall <= window]
     rate = len(recent_walls) / (window / 60.0)
     planned_total = sum(cell["episodes_planned"] for cell in grid)
     remaining = max(planned_total - len(rows), 0)
@@ -300,9 +253,7 @@ def run_detail(path: pathlib.Path, now: float | None = None) -> dict[str, typing
             "outcomes": dict(outcomes),
             "per_min": round(rate, 2),
             "rate_window_s": round(window),
-            "eta_s": round(remaining / rate * 60.0)
-            if rate > 0 and status["state"] == "running"
-            else None,
+            "eta_s": round(remaining / rate * 60.0) if rate > 0 and status["state"] == "running" else None,
         },
         "recent": [
             {
@@ -329,17 +280,8 @@ def list_runs(data_root: pathlib.Path, limit: int = 100) -> list[dict[str, typin
         return []
     running = running_pids_by_run_id()
     runs = []
-    manifests = [
-        p / "manifest.yaml"
-        for p in data_root.iterdir()
-        if (p / "manifest.yaml").is_file()
-    ]
-    for path in [
-        m.parent
-        for m in sorted(manifests, key=lambda m: m.stat().st_mtime, reverse=True)[
-            :limit
-        ]
-    ]:
+    manifests = [p / "manifest.yaml" for p in data_root.iterdir() if (p / "manifest.yaml").is_file()]
+    for path in [m.parent for m in sorted(manifests, key=lambda m: m.stat().st_mtime, reverse=True)[:limit]]:
         try:
             status = run_status(path, running=running, light=True)
         except RunStatusError:
@@ -393,11 +335,7 @@ def _signature(
             if not entry.is_file() or entry.name.endswith(".tmp"):
                 continue
             stat = entry.stat()
-            (
-                live
-                if entry.name.startswith("live") and entry.name.endswith(".json")
-                else run
-            ).append((entry.name, stat.st_mtime_ns, stat.st_size))
+            (live if entry.name.startswith("live") and entry.name.endswith(".json") else run).append((entry.name, stat.st_mtime_ns, stat.st_size))
     return tuple(sorted(live)), tuple(sorted(run))
 
 
@@ -406,9 +344,7 @@ def public_host(host: str) -> str:
 
 
 def url(host: str, port: int, run_id: str | None = None) -> str:
-    return f"http://{public_host(host)}:{port}/" + (
-        f"runs/{urllib.parse.quote(run_id)}" if run_id else ""
-    )
+    return f"http://{public_host(host)}:{port}/" + (f"runs/{urllib.parse.quote(run_id)}" if run_id else "")
 
 
 class DashboardServer(http.server.ThreadingHTTPServer):
@@ -484,11 +420,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             pass
 
     def do_POST(self) -> None:
-        parts = [
-            urllib.parse.unquote(part)
-            for part in urllib.parse.urlsplit(self.path).path.split("/")
-            if part
-        ]
+        parts = [urllib.parse.unquote(part) for part in urllib.parse.urlsplit(self.path).path.split("/") if part]
         try:
             if self.headers.get(CONTROL_HEADER) != "1":
                 raise ControlError(
@@ -505,9 +437,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             bridge = self._bridge()
             if parts == ["api", "runs"]:
                 self._json(bridge.start_benchmark(self.dashboard.data_root, body))
-            elif (
-                len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "stop"
-            ):
+            elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "stop":
                 self._json(bridge.stop_run(self.dashboard.run_dir(parts[2]).name))
             elif parts == ["api", "runtime", "shutdown"]:
                 self._json(shutdown_runtime())
@@ -542,9 +472,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif rest == ["options"]:
             self._json(bridge.options())
         elif rest == ["catalog"]:
-            self._json(
-                bridge.catalog(query.get("kind", [""])[0], query.get("world", [""])[0])
-            )
+            self._json(bridge.catalog(query.get("kind", [""])[0], query.get("world", [""])[0]))
         elif len(rest) == 3 and rest[0] == "envs" and rest[2] == "camera.png":
             self._send(200, "image/png", bridge.camera(_env_id(rest[1])))
         elif len(rest) == 3 and rest[0] == "envs" and rest[2] == "task":
@@ -552,9 +480,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         else:
             raise ControlError(404, f"no runtime endpoint {'/'.join(rest)}")
 
-    def _run(
-        self, path: pathlib.Path, rest: list[str], query: dict[str, list[str]]
-    ) -> None:
+    def _run(self, path: pathlib.Path, rest: list[str], query: dict[str, list[str]]) -> None:
         if not rest:
             self._json(run_detail(path))
         elif rest == ["live"]:
@@ -593,11 +519,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             ]
             last_live, last_run = live, run
             if events:
-                self.wfile.write(
-                    "".join(
-                        f"event: {name}\ndata: {{}}\n\n" for name in events
-                    ).encode()
-                )
+                self.wfile.write("".join(f"event: {name}\ndata: {{}}\n\n" for name in events).encode())
             elif time.monotonic() - sent >= KEEPALIVE_S:
                 self.wfile.write(b": keepalive\n\n")
             else:
@@ -634,15 +556,11 @@ def probe(host: str, port: int) -> dict[str, typing.Any] | None:
     """The identity of the dashboard listening on host:port, None when the port holds something else."""
     target = "127.0.0.1" if host in _WILDCARD_HOSTS else host
     try:
-        with urllib.request.urlopen(
-            f"http://{target}:{port}/api/identity", timeout=2.0
-        ) as response:
+        with urllib.request.urlopen(f"http://{target}:{port}/api/identity", timeout=2.0) as response:
             identity = json.loads(response.read())
     except (OSError, ValueError):
         return None
-    return (
-        identity if isinstance(identity, dict) and identity.get("app") == APP else None
-    )
+    return identity if isinstance(identity, dict) and identity.get("app") == APP else None
 
 
 def shutdown_runtime() -> dict[str, typing.Any]:
@@ -720,11 +638,7 @@ def serve(
     try:
         server = DashboardServer((host, port), data_root)
     except OSError as exc:
-        problem = (
-            f"cannot listen on {host}:{port}: {exc.strerror}"
-            if exc.errno != errno.EADDRINUSE
-            else _held_problem(host, port, data_root)
-        )
+        problem = f"cannot listen on {host}:{port}: {exc.strerror}" if exc.errno != errno.EADDRINUSE else _held_problem(host, port, data_root)
         if problem is not None:
             print(f"dashboard: {problem}", file=sys.stderr)
             return 2
@@ -740,12 +654,7 @@ def serve(
         server.runtime = RuntimeBridge()
     bound = server.server_address[1]
     print(
-        VIZ_PREFIX
-        + (
-            url(host, bound, run_id)
-            if run_id or not runtime
-            else f"{url(host, bound)}runtime"
-        ),
+        VIZ_PREFIX + (url(host, bound, run_id) if run_id or not runtime else f"{url(host, bound)}runtime"),
         flush=True,
     )
     if exit_with is not None:
@@ -774,9 +683,7 @@ def serve(
     return 0
 
 
-def start_child(
-    host: str, port: int, data_root: pathlib.Path, run_id: str | None = None
-) -> tuple[str, subprocess.Popen[str]]:
+def start_child(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None) -> tuple[str, subprocess.Popen[str]]:
     """Start the dashboard as a child process and return its URL once it listens or reuses a running one."""
     argv = [
         sys.executable,
@@ -793,16 +700,12 @@ def start_child(
         str(os.getpid()),
         *(["--run-id", run_id] if run_id else []),
     ]
-    proc = subprocess.Popen(
-        argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True
-    )
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
     assert proc.stdout is not None
     line = proc.stdout.readline()
     proc.stdout.close()
     if not line.startswith(VIZ_PREFIX):
-        raise DashboardError(
-            f"dashboard exited rc={proc.wait()} before it listened on port {port}"
-        )
+        raise DashboardError(f"dashboard exited rc={proc.wait()} before it listened on port {port}")
     return line[len(VIZ_PREFIX) :].strip(), proc
 
 

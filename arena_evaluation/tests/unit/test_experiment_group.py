@@ -46,14 +46,10 @@ def _tracks() -> pl.DataFrame:
         ]
     ):
         rows.extend({"episode_id": episode_id, "x": x, "y": y} for x, y in points)
-    return pl.DataFrame(
-        rows, schema={"episode_id": pl.Int64, "x": pl.Float64, "y": pl.Float64}
-    )
+    return pl.DataFrame(rows, schema={"episode_id": pl.Int64, "x": pl.Float64, "y": pl.Float64})
 
 
-def test_main_measures_every_benchmark_dir_about_the_center(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_measures_every_benchmark_dir_about_the_center(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     run = tmp_path / "run"
     write_benchmark(run, _summary().to_dicts(), robot_tracks=_tracks().to_dicts())
     assert (

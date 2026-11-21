@@ -33,9 +33,7 @@ def test_caller_stands_then_calls_with_its_gaze_on_the_robot() -> None:
 
 def test_scenario_places_the_caller_at_its_pose_with_a_single_waypoint() -> None:
     scenario = beckon.scenario_yaml((9.0, 16.0, 0.0))
-    assert scenario["robots"] == [
-        {"start": [10.0, 2.0, 1.5708], "phases": beckon.robot_phases()}
-    ]
+    assert scenario["robots"] == [{"start": [10.0, 2.0, 1.5708], "phases": beckon.robot_phases()}]
     (caller,) = scenario["dynamic"]
     assert (caller["name"], caller["model"], caller["pose"]) == (
         "caller",
@@ -64,11 +62,7 @@ def _synthetic_world(tmp_path: pathlib.Path) -> pathlib.Path:
     grid = np.full((100, 100), 255, dtype=np.uint8)
     grid[:61, 50] = 0
     Image.fromarray(grid, mode="L").save(world / "0" / "map.png")
-    (world / "0" / "map.yaml").write_text(
-        yaml.safe_dump(
-            {"image": "map.png", "resolution": 0.1, "origin": [0.0, 0.0, 0.0]}
-        )
-    )
+    (world / "0" / "map.yaml").write_text(yaml.safe_dump({"image": "map.png", "resolution": 0.1, "origin": [0.0, 0.0, 0.0]}))
     return world
 
 
@@ -104,18 +98,14 @@ def test_route_window_names_the_visible_stretch_and_the_closest_approach(
     assert world_map.route_window(samples, (8.0, 2.0), 5.0) == ("nowhere", 6.0)
 
 
-def test_generate_writes_the_scenarios_and_the_paired_suites(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_generate_writes_the_scenarios_and_the_paired_suites(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     pytest.importorskip("PIL")
     try:
         world_dir = beckon._world_dir()
     except FileNotFoundError:
         pytest.skip(f"world {beckon.WORLD} is not in the source tree")
     if not (world_dir / "0" / "map.yaml").is_file():
-        pytest.skip(
-            f"world {beckon.WORLD} has no generated level map, its assets are not installed"
-        )
+        pytest.skip(f"world {beckon.WORLD} has no generated level map, its assets are not installed")
     (tmp_path / "suites").mkdir()
     suite = beckon.generate(
         scenarios_dir=tmp_path / "scenarios",
@@ -124,9 +114,7 @@ def test_generate_writes_the_scenarios_and_the_paired_suites(
     )
 
     stages = suite["stages"]
-    assert [s["name"] for s in stages] == [
-        beckon.stage_name(case, arm) for case in beckon.CALLERS for arm in beckon.ARMS
-    ]
+    assert [s["name"] for s in stages] == [beckon.stage_name(case, arm) for case in beckon.CALLERS for arm in beckon.ARMS]
     by_name = {s["name"]: s for s in stages}
     for index, (case, (pose, _)) in enumerate(beckon.CALLERS.items()):
         on, off = (
@@ -138,11 +126,7 @@ def test_generate_writes_the_scenarios_and_the_paired_suites(
             on["config"]["scenario"]["gesture_mode"],
             off["config"]["scenario"]["gesture_mode"],
         ) == ("enabled", "disabled")
-        assert (
-            on["config"]["scenario"]["file"]
-            == off["config"]["scenario"]["file"]
-            == f"beckon_{case}"
-        )
+        assert on["config"]["scenario"]["file"] == off["config"]["scenario"]["file"] == f"beckon_{case}"
         assert (on["map"], on["robot"], on["episodes"], on["timeout"]) == (
             beckon.WORLD,
             beckon.ROBOT,
@@ -150,24 +134,12 @@ def test_generate_writes_the_scenarios_and_the_paired_suites(
             "90s",
         )
         directory = tmp_path / "scenarios" / f"beckon_{case}"
-        assert yaml.safe_load(
-            (directory / "scenario.yaml").read_text()
-        ) == beckon.scenario_yaml(pose)
-        assert (
-            yaml.safe_load((directory / "caller.yaml").read_text())
-            == beckon.caller_agent_yaml()
-        )
-    assert (
-        yaml.safe_load((tmp_path / "suites" / "beckon_service.yaml").read_text())
-        == suite
-    )
+        assert yaml.safe_load((directory / "scenario.yaml").read_text()) == beckon.scenario_yaml(pose)
+        assert yaml.safe_load((directory / "caller.yaml").read_text()) == beckon.caller_agent_yaml()
+    assert yaml.safe_load((tmp_path / "suites" / "beckon_service.yaml").read_text()) == suite
     for arm in beckon.ARMS:
-        arm_suite = yaml.safe_load(
-            (tmp_path / "suites" / f"beckon_{arm}.yaml").read_text()
-        )
-        assert [s["name"] for s in arm_suite["stages"]] == [
-            beckon.stage_name(case, arm) for case in beckon.CALLERS
-        ]
+        arm_suite = yaml.safe_load((tmp_path / "suites" / f"beckon_{arm}.yaml").read_text())
+        assert [s["name"] for s in arm_suite["stages"]] == [beckon.stage_name(case, arm) for case in beckon.CALLERS]
     out = capsys.readouterr().out
     assert "beckon_hall_near" in out and "closest approach" in out
     assert "6 stages x 1 episodes per contestant" in out
@@ -191,9 +163,7 @@ def _summary(
                             "planner": planner,
                             "episode_id": episode,
                             "success": served,
-                            "time_to_goal": (20.0 if arm == "on" else 40.0) + seed
-                            if served
-                            else None,
+                            "time_to_goal": (20.0 if arm == "on" else 40.0) + seed if served else None,
                         }
                     )
                     episode += 1
@@ -232,9 +202,7 @@ def _run(tmp_path: pathlib.Path, **kwargs: object) -> pathlib.Path:
     return write_benchmark(tmp_path / "run", summary.to_dicts())
 
 
-def test_analyze_reads_the_canonical_episode_summary(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_analyze_reads_the_canonical_episode_summary(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     run = tmp_path / "run"
     run.mkdir()
     with pytest.raises(FileNotFoundError, match="Star Schema"):
@@ -246,9 +214,7 @@ def test_analyze_reads_the_canonical_episode_summary(
         "hall_near",
         "ward_door",
     ]
-    assert pl.read_csv(tmp_path / "out" / "planners.csv")["planner"].to_list() == [
-        "dwb"
-    ]
+    assert pl.read_csv(tmp_path / "out" / "planners.csv")["planner"].to_list() == ["dwb"]
     out = capsys.readouterr().out
     assert "== cases" in out and "== planners" in out
 
@@ -290,14 +256,8 @@ def test_stage_timeouts_come_from_the_run_manifest(tmp_path: pathlib.Path) -> No
 
 def test_case_table_leaves_an_unpaired_case_without_a_difference() -> None:
     episodes = beckon.paper_outcomes(beckon.load_episodes(_summary()))
-    one_armed = episodes.filter(
-        ~((pl.col("case") == "ward_door") & (pl.col("arm") == "off"))
-    )
-    ward = (
-        beckon.case_table(one_armed, n_boot=50)
-        .filter(pl.col("case") == "ward_door")
-        .row(0, named=True)
-    )
+    one_armed = episodes.filter(~((pl.col("case") == "ward_door") & (pl.col("arm") == "off")))
+    ward = beckon.case_table(one_armed, n_boot=50).filter(pl.col("case") == "ward_door").row(0, named=True)
     assert (
         ward["n_pairs"],
         ward["diff"],
@@ -309,9 +269,7 @@ def test_case_table_leaves_an_unpaired_case_without_a_difference() -> None:
     assert "p_holm" not in table.columns and table["n_pairs"].to_list() == [0, 0]
 
 
-def test_main_analyze_returns_zero_after_printing_the_tables(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_analyze_returns_zero_after_printing_the_tables(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     run = _run(tmp_path)
     assert (
         beckon.main(

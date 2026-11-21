@@ -119,9 +119,7 @@ def _legacy_file(tmp_path: pathlib.Path) -> pathlib.Path:
     return path
 
 
-def test_migrate_manifest_refuses_with_a_hint_when_the_converter_is_absent(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-) -> None:
+def test_migrate_manifest_refuses_with_a_hint_when_the_converter_is_absent(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     """Without the merged L4 converter the tool refuses loudly instead of inventing a migration."""
     monkeypatch.setitem(sys.modules, _CONVERTER, None)
     with pytest.raises(ToolError, match="legacy manifest converter"):
@@ -132,28 +130,17 @@ def test_migrate_manifest_runs_the_merged_converter_on_the_legacy_social_manifes
     run_dir: pathlib.Path,
 ) -> None:
     """On the merged tree the real converter migrates the old social manifest, dry run and write."""
-    source = (
-        pathlib.Path(__file__).parents[1]
-        / "unit"
-        / "fixtures"
-        / "legacy"
-        / "social.yaml"
-    )
+    source = pathlib.Path(__file__).parents[1] / "unit" / "fixtures" / "legacy" / "social.yaml"
 
     dry = migration.evaluation_migrate_manifest(str(source), dry_run=True)
 
     assert dry["summary"]["total"] == 31
     assert dry["summary"]["converted"] > 0
-    assert (
-        dry["summary"]["converted"] + dry["summary"]["dropped"] + dry["summary"]["todo"]
-        == 31
-    )
+    assert dry["summary"]["converted"] + dry["summary"]["dropped"] + dry["summary"]["todo"] == 31
     assert len(dry["migration_report"]["plots"]) == 31
     assert dry["written"] is None
 
-    written = migration.evaluation_migrate_manifest(
-        str(source), target="social_legacy", run_id=run_dir.name, dry_run=False
-    )
+    written = migration.evaluation_migrate_manifest(str(source), target="social_legacy", run_id=run_dir.name, dry_run=False)
 
     report = pathlib.Path(written["written"]["report"])
     assert report.is_file()
@@ -161,15 +148,11 @@ def test_migrate_manifest_runs_the_merged_converter_on_the_legacy_social_manifes
     assert pathlib.Path(written["written"]["migration_report"]).is_file()
 
 
-def test_migrate_manifest_dry_run_returns_skeleton_and_report_without_writing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path
-) -> None:
+def test_migrate_manifest_dry_run_returns_skeleton_and_report_without_writing(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path) -> None:
     monkeypatch.setitem(sys.modules, _CONVERTER, _stub_module())
     source = _legacy_file(tmp_path)
 
-    result = migration.evaluation_migrate_manifest(
-        str(source), run_id=run_dir.name, dry_run=True
-    )
+    result = migration.evaluation_migrate_manifest(str(source), run_id=run_dir.name, dry_run=True)
 
     assert result["summary"] == {
         "total": 2,
@@ -184,9 +167,7 @@ def test_migrate_manifest_dry_run_returns_skeleton_and_report_without_writing(
     assert not (run_dir / "analysis" / "reports").exists()
 
 
-def test_migrate_manifest_writes_into_the_run_analysis_reports_bundle(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path
-) -> None:
+def test_migrate_manifest_writes_into_the_run_analysis_reports_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path) -> None:
     monkeypatch.setitem(sys.modules, _CONVERTER, _stub_module())
     source = _legacy_file(tmp_path)
 
@@ -199,10 +180,7 @@ def test_migrate_manifest_writes_into_the_run_analysis_reports_bundle(
 
     report_path = pathlib.Path(result["written"]["report"])
     migration_path = pathlib.Path(result["written"]["migration_report"])
-    assert (
-        report_path
-        == run_dir / "analysis" / "reports" / "social_migrated" / "report.yaml"
-    )
+    assert report_path == run_dir / "analysis" / "reports" / "social_migrated" / "report.yaml"
     assert report_path.is_file()
     assert migration_path.is_file()
     assert "name: social_migrated" in report_path.read_text(encoding="utf-8")
@@ -225,25 +203,19 @@ def test_migrate_manifest_writes_into_the_run_analysis_reports_bundle(
     assert replaced["written"]["report"] == str(report_path)
 
 
-def test_migrate_manifest_requires_a_run_id_to_write_and_refuses_escaping_targets(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path
-) -> None:
+def test_migrate_manifest_requires_a_run_id_to_write_and_refuses_escaping_targets(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, run_dir: pathlib.Path) -> None:
     monkeypatch.setitem(sys.modules, _CONVERTER, _stub_module())
     source = _legacy_file(tmp_path)
 
     with pytest.raises(ToolError, match="needs a run id"):
         migration.evaluation_migrate_manifest(str(source), dry_run=False)
     with pytest.raises(ToolError, match="one path component"):
-        migration.evaluation_migrate_manifest(
-            str(source), target="../escape", run_id=run_dir.name, dry_run=False
-        )
+        migration.evaluation_migrate_manifest(str(source), target="../escape", run_id=run_dir.name, dry_run=False)
     with pytest.raises(ToolError, match="no legacy manifest file"):
         migration.evaluation_migrate_manifest(str(tmp_path / "missing.yaml"))
 
 
-def test_manifest_mappings_returns_metric_and_plot_tables(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-) -> None:
+def test_manifest_mappings_returns_metric_and_plot_tables(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     monkeypatch.setitem(sys.modules, _CONVERTER, _stub_module())
 
     mappings = migration.evaluation_manifest_mappings(str(_legacy_file(tmp_path)))

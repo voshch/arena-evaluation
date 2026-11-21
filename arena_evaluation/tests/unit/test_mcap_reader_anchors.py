@@ -85,12 +85,8 @@ def shifted_env(tmp_path: pathlib.Path) -> pathlib.Path:
         topics,
         "robot_plans",
         [
-            _robot(
-                150, ENV, JACKAL, plan_id=0, waypoint_idx=0, x=30.0, y=40.0, yaw=0.0
-            ),
-            _robot(
-                150, ENV, JACKAL, plan_id=0, waypoint_idx=1, x=31.0, y=42.0, yaw=0.0
-            ),
+            _robot(150, ENV, JACKAL, plan_id=0, waypoint_idx=0, x=30.0, y=40.0, yaw=0.0),
+            _robot(150, ENV, JACKAL, plan_id=0, waypoint_idx=1, x=31.0, y=42.0, yaw=0.0),
         ],
     )
     _write(
@@ -142,9 +138,7 @@ def shifted_env(tmp_path: pathlib.Path) -> pathlib.Path:
         topics,
         "episode_lifecycle",
         [
-            _env(
-                50, ENV, episode_id=1, outcome_state=2, phases_yaml=json.dumps(phases)
-            ),
+            _env(50, ENV, episode_id=1, outcome_state=2, phases_yaml=json.dumps(phases)),
             _env(150, ENV, episode_id=2, outcome_state=2, phases_yaml=""),
         ],
     )
@@ -152,11 +146,7 @@ def shifted_env(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def test_episode_phases_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    record = (
-        _load(shifted_env)[JACKAL]
-        .episode_lifecycle.collect()
-        .sort("t_ns", maintain_order=True)
-    )
+    record = _load(shifted_env)[JACKAL].episode_lifecycle.collect().sort("t_ns", maintain_order=True)
 
     assert json.loads(record["phases_yaml"][0])["jackal"]["map_poses"] == [
         [2.0, 3.0, 0.5],
@@ -207,11 +197,7 @@ def test_dynamic_tf_anchors_apply_when_tf_static_has_none(tmp_path: pathlib.Path
     _write(
         topics,
         "robot_tracks",
-        [
-            _robot(
-                0, "env_4", "env_4_jackal", x=5.0, y=5.0, yaw=0.0, pose_source="tf_gt"
-            )
-        ],
+        [_robot(0, "env_4", "env_4_jackal", x=5.0, y=5.0, yaw=0.0, pose_source="tf_gt")],
     )
 
     bundle = _load(topics, {})["env_4_jackal"]

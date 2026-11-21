@@ -55,23 +55,15 @@ class EvidenceIndex(Table, name="evidence_index", kind=TableKind.ANALYSIS):
         required=True,
         description="Dataset and registry snapshot identifier.",
     )
-    params_json = Column(
-        pl.String, required=True, description="Canonical JSON of parameters."
-    )
-    row_count = Column(
-        pl.Int64, required=True, description="Number of rows in the recorded frame."
-    )
-    schema_signature = Column(
-        pl.String, required=True, description="Sorted column:dtype schema signature."
-    )
+    params_json = Column(pl.String, required=True, description="Canonical JSON of parameters.")
+    row_count = Column(pl.Int64, required=True, description="Number of rows in the recorded frame.")
+    schema_signature = Column(pl.String, required=True, description="Sorted column:dtype schema signature.")
     artifact_path = Column(
         pl.String,
         required=True,
         description="Relative path to the evidence Parquet artifact.",
     )
-    created_at_ns = Column(
-        pl.Int64, required=True, description="Creation timestamp in nanoseconds."
-    )
+    created_at_ns = Column(pl.Int64, required=True, description="Creation timestamp in nanoseconds.")
 
 
 class GroupSummaryAnalysis(Table, name="group_summary", kind=TableKind.ANALYSIS):
@@ -84,29 +76,15 @@ class GroupSummaryAnalysis(Table, name="group_summary", kind=TableKind.ANALYSIS)
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
     n = Column(pl.Int64, required=True, description="Observation count.")
     mean = Column(pl.Float64, unit="metric_unit", description="Group mean.")
-    std = Column(
-        pl.Float64, unit="metric_unit", description="Group standard deviation."
-    )
-    sem = Column(
-        pl.Float64, unit="metric_unit", description="Standard error of the mean."
-    )
-    ci_low = Column(
-        pl.Float64, unit="metric_unit", description="Lower 95% confidence bound."
-    )
-    ci_high = Column(
-        pl.Float64, unit="metric_unit", description="Upper 95% confidence bound."
-    )
-    err_plus = Column(
-        pl.Float64, unit="metric_unit", description="Upper error-bar delta from mean."
-    )
-    err_minus = Column(
-        pl.Float64, unit="metric_unit", description="Lower error-bar delta from mean."
-    )
+    std = Column(pl.Float64, unit="metric_unit", description="Group standard deviation.")
+    sem = Column(pl.Float64, unit="metric_unit", description="Standard error of the mean.")
+    ci_low = Column(pl.Float64, unit="metric_unit", description="Lower 95% confidence bound.")
+    ci_high = Column(pl.Float64, unit="metric_unit", description="Upper 95% confidence bound.")
+    err_plus = Column(pl.Float64, unit="metric_unit", description="Upper error-bar delta from mean.")
+    err_minus = Column(pl.Float64, unit="metric_unit", description="Lower error-bar delta from mean.")
 
 
-class DistributionBinsAnalysis(
-    Table, name="distribution_bins", kind=TableKind.ANALYSIS
-):
+class DistributionBinsAnalysis(Table, name="distribution_bins", kind=TableKind.ANALYSIS):
     """Fixed statistic columns for ``distribution_bins`` (preceded by request group columns)."""
 
     key = ("metric", "bin_index")
@@ -115,19 +93,11 @@ class DistributionBinsAnalysis(
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
     bin_index = Column(pl.Int64, required=True, description="Zero-based bin index.")
-    bin_low = Column(
-        pl.Float64, unit="metric_unit", required=True, description="Lower bin edge."
-    )
-    bin_high = Column(
-        pl.Float64, unit="metric_unit", required=True, description="Upper bin edge."
-    )
-    bin_center = Column(
-        pl.Float64, unit="metric_unit", required=True, description="Bin midpoint."
-    )
+    bin_low = Column(pl.Float64, unit="metric_unit", required=True, description="Lower bin edge.")
+    bin_high = Column(pl.Float64, unit="metric_unit", required=True, description="Upper bin edge.")
+    bin_center = Column(pl.Float64, unit="metric_unit", required=True, description="Bin midpoint.")
     count = Column(pl.Int64, required=True, description="Observations in bin.")
-    density = Column(
-        pl.Float64, unit="1", required=True, description="Normalized bin density."
-    )
+    density = Column(pl.Float64, unit="1", required=True, description="Normalized bin density.")
 
 
 class RadarProfileAnalysis(Table, name="radar_profile", kind=TableKind.ANALYSIS):
@@ -138,12 +108,8 @@ class RadarProfileAnalysis(Table, name="radar_profile", kind=TableKind.ANALYSIS)
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
-    direction = Column(
-        pl.String, required=True, description="Optimization direction: higher or lower."
-    )
-    raw_mean = Column(
-        pl.Float64, unit="metric_unit", description="Unnormalized group mean."
-    )
+    direction = Column(pl.String, required=True, description="Optimization direction: higher or lower.")
+    raw_mean = Column(pl.Float64, unit="metric_unit", description="Unnormalized group mean.")
     normalized_score = Column(
         pl.Float64,
         unit="1",
@@ -151,35 +117,23 @@ class RadarProfileAnalysis(Table, name="radar_profile", kind=TableKind.ANALYSIS)
     )
 
 
-class CompositeRankingAnalysis(
-    Table, name="composite_ranking", kind=TableKind.ANALYSIS
-):
+class CompositeRankingAnalysis(Table, name="composite_ranking", kind=TableKind.ANALYSIS):
     """Fixed statistic columns for ``composite_ranking`` and ``top_n_ranking``."""
 
     key = ("metric",)
     unique_key = False
 
     rank = Column(pl.Int64, description="1-based composite rank (1 is best).")
-    composite_score = Column(
-        pl.Float64, unit="1", description="Weighted composite normalized score."
-    )
+    composite_score = Column(pl.Float64, unit="1", description="Weighted composite normalized score.")
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
-    direction = Column(
-        pl.String, required=True, description="Optimization direction: higher or lower."
-    )
-    raw_mean = Column(
-        pl.Float64, unit="metric_unit", description="Unnormalized group mean."
-    )
-    normalized_score = Column(
-        pl.Float64, unit="1", description="Min-max normalized metric score in [0, 1]."
-    )
+    direction = Column(pl.String, required=True, description="Optimization direction: higher or lower.")
+    raw_mean = Column(pl.Float64, unit="metric_unit", description="Unnormalized group mean.")
+    normalized_score = Column(pl.Float64, unit="1", description="Min-max normalized metric score in [0, 1].")
     weight = Column(pl.Float64, unit="1", required=True, description="Metric weight.")
 
 
-class CorrelationMatrixAnalysis(
-    Table, name="correlation_matrix", kind=TableKind.ANALYSIS
-):
+class CorrelationMatrixAnalysis(Table, name="correlation_matrix", kind=TableKind.ANALYSIS):
     """Fixed statistic columns for ``correlation_matrix``."""
 
     key = ("metric_x", "metric_y")
@@ -188,9 +142,7 @@ class CorrelationMatrixAnalysis(
     metric_x = Column(pl.String, required=True, description="First metric name.")
     metric_y = Column(pl.String, required=True, description="Second metric name.")
     pearson_r = Column(pl.Float64, unit="1", description="Pairwise-complete Pearson r.")
-    n_pairs = Column(
-        pl.Int64, required=True, description="Number of non-null observation pairs."
-    )
+    n_pairs = Column(pl.Int64, required=True, description="Number of non-null observation pairs.")
 
 
 class PairedDiffAnalysis(Table, name="paired_diff", kind=TableKind.ANALYSIS):
@@ -207,15 +159,9 @@ class PairedDiffAnalysis(Table, name="paired_diff", kind=TableKind.ANALYSIS):
         unit="metric_unit",
         description="Mean treatment minus control delta.",
     )
-    ci_low = Column(
-        pl.Float64, unit="metric_unit", description="Lower bootstrap CI bound."
-    )
-    ci_high = Column(
-        pl.Float64, unit="metric_unit", description="Upper bootstrap CI bound."
-    )
-    p_value = Column(
-        pl.Float64, unit="1", description="Two-sided shifted-null p-value."
-    )
+    ci_low = Column(pl.Float64, unit="metric_unit", description="Lower bootstrap CI bound.")
+    ci_high = Column(pl.Float64, unit="metric_unit", description="Upper bootstrap CI bound.")
+    p_value = Column(pl.Float64, unit="1", description="Two-sided shifted-null p-value.")
     n_clusters = Column(pl.Int64, required=True, description="Cluster count.")
 
 
@@ -254,9 +200,7 @@ class SeriesProfileAnalysis(Table, name="series_profile", kind=TableKind.ANALYSI
     )
 
 
-class ClusterBootstrapCIAnalysis(
-    Table, name="cluster_bootstrap_ci", kind=TableKind.ANALYSIS
-):
+class ClusterBootstrapCIAnalysis(Table, name="cluster_bootstrap_ci", kind=TableKind.ANALYSIS):
     """Fixed statistic columns for ``cluster_bootstrap_ci`` (preceded by group columns)."""
 
     key = ("metric",)
@@ -264,17 +208,9 @@ class ClusterBootstrapCIAnalysis(
 
     metric = Column(pl.String, required=True, description="Metric name.")
     unit = Column(pl.String, description="Metric unit from dim_metrics.")
-    estimate = Column(
-        pl.Float64, unit="metric_unit", description="Cluster-mean point estimate."
-    )
-    ci_low = Column(
-        pl.Float64, unit="metric_unit", description="Lower bootstrap CI bound."
-    )
-    ci_high = Column(
-        pl.Float64, unit="metric_unit", description="Upper bootstrap CI bound."
-    )
+    estimate = Column(pl.Float64, unit="metric_unit", description="Cluster-mean point estimate.")
+    ci_low = Column(pl.Float64, unit="metric_unit", description="Lower bootstrap CI bound.")
+    ci_high = Column(pl.Float64, unit="metric_unit", description="Upper bootstrap CI bound.")
     se = Column(pl.Float64, unit="metric_unit", description="Bootstrap standard error.")
     n_clusters = Column(pl.Int64, required=True, description="Cluster count.")
-    n_observations = Column(
-        pl.Int64, required=True, description="Total observation count."
-    )
+    n_observations = Column(pl.Int64, required=True, description="Total observation count.")

@@ -14,15 +14,11 @@ from arena_evaluation.storage.registry import MetricScope
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
-EMPTY_EPISODE = AlignedEpisodeBundle(
-    episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0
-)
+EMPTY_EPISODE = AlignedEpisodeBundle(episode_id=1, data=pl.DataFrame(), start_pos=[], goal_pos=[], num_pedestrians=0)
 
 
 def _calc(cls):
-    return cls(
-        make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0)
-    )
+    return cls(make_robot_params(robot_radius=0.2, laser_min_range=0.0, laser_max_range=10.0))
 
 
 def test_proxemics_no_peds():

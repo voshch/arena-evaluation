@@ -156,18 +156,14 @@ class _Ctx:
         key = ("values", entity, field)
         if key not in self._memo:
             series = self.view.get(entity, field)
-            self._memo[key] = (
-                series.sample(self.track.t_ns) if series is not None else None
-            )
+            self._memo[key] = series.sample(self.track.t_ns) if series is not None else None
         return self._memo[key]
 
     def members(self, entity: str) -> list[list[str]] | None:
         key = ("members", entity)
         if key not in self._memo:
             values = self.values(entity, "members")
-            self._memo[key] = (
-                [parse_members(v) for v in values] if values is not None else None
-            )
+            self._memo[key] = [parse_members(v) for v in values] if values is not None else None
         return self._memo[key]
 
     def others(self, entity: str, i: int) -> list[str]:
@@ -238,9 +234,7 @@ def _is_jump(track: RobotTrack, i: int) -> bool:
 def in_call_area(x: np.ndarray, y: np.ndarray, geom: ElevatorGeom) -> np.ndarray:
     """Within the elevator's activation distance of its cabin door centre and outside the cabin."""
     cx, cy = geom.door_center
-    return (
-        np.hypot(np.asarray(x) - cx, np.asarray(y) - cy) <= geom.activation_distance
-    ) & ~in_polygon(x, y, geom.polygon)
+    return (np.hypot(np.asarray(x) - cx, np.asarray(y) - cy) <= geom.activation_distance) & ~in_polygon(x, y, geom.polygon)
 
 
 def _cabin_masks(ctx: _Ctx) -> dict[str, np.ndarray]:
@@ -265,9 +259,7 @@ def _boardings(ctx: _Ctx, masks: dict[str, np.ndarray]) -> dict[str, list[int]]:
             if _is_jump(ctx.track, i):
                 continue
             lo = int(np.searchsorted(t, t[i] - window_ns, side="left"))
-            if any(
-                other is not mask and np.any(other[lo:i]) for other in masks.values()
-            ):
+            if any(other is not mask and np.any(other[lo:i]) for other in masks.values()):
                 continue
             indices.append(i)
         out[entity] = indices
@@ -307,9 +299,7 @@ def _boarded_before_exit(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | No
     return count
 
 
-def _elevator_boarding_stats(
-    ctx: _Ctx, boardings: dict[str, list[int]]
-) -> tuple[float | None, int | None]:
+def _elevator_boarding_stats(ctx: _Ctx, boardings: dict[str, list[int]]) -> tuple[float | None, int | None]:
     """(wait-to-board seconds, queue jumps) over the robot's boardings, both from the same call-area runs."""
     total = 0.0
     boarded = False
@@ -352,9 +342,7 @@ def _run_end_time(track: RobotTrack, e: int) -> int:
     return int(track.t_ns[e]) if e < len(track) else int(track.t_ns[-1]) + 1
 
 
-def _elevator_call_cycles(
-    ctx: _Ctx, masks: dict[str, np.ndarray], boardings: dict[str, list[int]]
-) -> tuple[int, int]:
+def _elevator_call_cycles(ctx: _Ctx, masks: dict[str, np.ndarray], boardings: dict[str, list[int]]) -> tuple[int, int]:
     """(missed open-close cycles, unnecessary calls) over the robot's call-area visits."""
     missed = 0
     calls = 0
@@ -396,14 +384,7 @@ def _peds_in_call_area(ctx: _Ctx, geom: ElevatorGeom, i: int) -> set[str]:
 
 def _entered_full_cabin(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | None:
     """Boardings into a cabin that was already at capacity just before the robot entered."""
-    has_info = (
-        ctx.view.has_field("elevator", "capacity")
-        or ctx.view.has_field("elevator", "full")
-        or (
-            ctx.world is not None
-            and any(g.capacity is not None for g in ctx.world.elevators)
-        )
-    )
+    has_info = ctx.view.has_field("elevator", "capacity") or ctx.view.has_field("elevator", "full") or (ctx.world is not None and any(g.capacity is not None for g in ctx.world.elevators))
     if not has_info:
         return None
     count = 0
@@ -420,11 +401,7 @@ def _entered_full_cabin(ctx: _Ctx, boardings: dict[str, list[int]]) -> int | Non
             elif geom is not None and geom.capacity is not None:
                 cap = float(geom.capacity)
             if cap is not None and cap > 0:
-                occupancy = (
-                    float(live[k])
-                    if live is not None
-                    else float(len(ctx.others(entity, k)))
-                )
+                occupancy = float(live[k]) if live is not None else float(len(ctx.others(entity, k)))
                 is_full = occupancy >= cap
             elif cap is not None:
                 is_full = False
@@ -448,10 +425,7 @@ def _cabin_door_blocking_s(ctx: _Ctx) -> float | None:
         door = ctx.values(entity, "cabin_door")
         if geom is None or door is None:
             continue
-        band = (
-            segment_distance(ctx.track.x, ctx.track.y, geom.door_start, geom.door_end)
-            <= ctx.doorway_band()
-        )
+        band = segment_distance(ctx.track.x, ctx.track.y, geom.door_start, geom.door_end) <= ctx.doorway_band()
         held = np.array([v in ("open", "closing") for v in door], dtype=bool)
         blocking |= band & held & stationary
     return float(np.sum(ctx.track.dt[blocking]))
@@ -472,12 +446,7 @@ def _door_stats(
         blocked = ctx.values(entity, "blocked_close")
         if blocked is not None:
             geom = ctx.door(entity)
-            band = (
-                segment_distance(ctx.track.x, ctx.track.y, geom.start, geom.end)
-                <= ctx.doorway_band()
-                if geom is not None
-                else ctx.robot_near_door(entity)
-            )
+            band = segment_distance(ctx.track.x, ctx.track.y, geom.start, geom.end) <= ctx.doorway_band() if geom is not None else ctx.robot_near_door(entity)
             if band is not None:
                 blocked_attributable = True
                 mask = np.array([v == "true" for v in blocked], dtype=bool)
@@ -494,13 +463,7 @@ def _door_stats(
         if series is None:
             continue
         for s, e in true_runs(near):
-            openings = sum(
-                1
-                for _t, v in series.changes_in(
-                    int(ctx.track.t_ns[s]), _run_end_time(ctx.track, e)
-                )
-                if v == "opening"
-            )
+            openings = sum(1 for _t, v in series.changes_in(int(ctx.track.t_ns[s]), _run_end_time(ctx.track, e)) if v == "opening")
             oscillations += max(openings - 1, 0)
     return (
         blocked_count if blocked_attributable else None,
@@ -538,9 +501,7 @@ def _door_yield_violations(ctx: _Ctx) -> int | None:
     """Robot door crossings with a pedestrian approaching from the far side within `YIELD_RADIUS_M` in the `YIELD_WINDOW_S` before."""
     if ctx.world is None or ctx.peds is None:
         return None
-    doors = [
-        g for g in (ctx.door(e) for e in ctx.view.entities("door")) if g is not None
-    ]
+    doors = [g for g in (ctx.door(e) for e in ctx.view.entities("door")) if g is not None]
     if not doors:
         return None
     t = ctx.track.t_ns
@@ -599,11 +560,7 @@ def _ped_mechanism_delay_seconds(ctx: _Ctx) -> float | None:
 
 def _alarm_egress_blocking_s(ctx: _Ctx) -> float | None:
     """Seconds the robot stands still inside an `egress` zone while any schedule is `active`."""
-    if (
-        ctx.world is None
-        or not ctx.world.egress_zones
-        or not ctx.view.has_field("schedule", "active")
-    ):
+    if ctx.world is None or not ctx.world.egress_zones or not ctx.view.has_field("schedule", "active"):
         return None
     alarm = np.zeros(len(ctx.track), dtype=bool)
     for entity in ctx.view.entities("schedule"):
@@ -655,9 +612,7 @@ class MechanismMetricsCalculator(BaseMetricCalculator):
             self._world_cache[self.world] = load_mechanism_world(self.world)
         return self._world_cache[self.world]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
 

@@ -50,9 +50,7 @@ def test_edge_case_rows_keep_each_list_element() -> None:
 
 
 def test_judge_disagreement_rows_keep_their_text() -> None:
-    frame = _evaluator()._judge_disagreement_fact_frame(
-        **_IDENTITY, metrics={"judge_disagreements": ["replay ends early"]}
-    )
+    frame = _evaluator()._judge_disagreement_fact_frame(**_IDENTITY, metrics={"judge_disagreements": ["replay ends early"]})
     assert frame.columns == _declared(FactTable.JUDGE_DISAGREEMENTS)
     expected = pl.DataFrame(
         {"disagreement_idx": [0], "disagreement": ["replay ends early"]},
@@ -62,9 +60,7 @@ def test_judge_disagreement_rows_keep_their_text() -> None:
 
 
 def test_collision_rows_keep_the_obstacle_identifier_without_a_contact_stream() -> None:
-    frame = _evaluator()._collision_fact_frame(
-        _episode([0]), **_IDENTITY, metrics={"collision_obstacles": ["wall_3"]}
-    )
+    frame = _evaluator()._collision_fact_frame(_episode([0]), **_IDENTITY, metrics={"collision_obstacles": ["wall_3"]})
     assert frame.columns == _declared(FactTable.COLLISIONS)
     expected = pl.DataFrame(
         {
@@ -95,9 +91,7 @@ def test_mechanism_rows_record_each_field_at_its_change_points() -> None:
         "progress": [0.0, 0.5],
         "locked": [False, True],
     }
-    frame = _evaluator()._mechanism_state_fact_frame(
-        _episode([0, _NS_PER_S]), **_IDENTITY, metrics={"mechanism_states": [state]}
-    )
+    frame = _evaluator()._mechanism_state_fact_frame(_episode([0, _NS_PER_S]), **_IDENTITY, metrics={"mechanism_states": [state]})
     assert frame.columns == _declared(FactTable.MECHANISM_STATES)
     expected = pl.DataFrame(
         {

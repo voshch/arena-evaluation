@@ -61,9 +61,7 @@ def _write(path: pathlib.Path, messages: list[tuple[str, object, int]]) -> pathl
 
 
 def _peds(x_a: float) -> Pedestrians:
-    a = Pedestrian(
-        name="hugger_1", id=1, animation_state=0, interaction_id=4, interaction_type=10
-    )
+    a = Pedestrian(name="hugger_1", id=1, animation_state=0, interaction_id=4, interaction_type=10)
     a.pose.position.x = x_a
     a.gestures = [Gesture(slot="body", clip="hug", render_pose_override=True)]
     b = Pedestrian(name="hugger_2", id=2, animation_state=1)
@@ -82,9 +80,7 @@ HUG = (4, 10, 1, "", [1, 2], [], True, True, 3.0)
 QUEUE_USE = (7, 6, 0, "counter", [3], [5, 8], False, False, -1.0)
 
 
-def _frame(
-    stamp_s: int, rows: list[tuple], events: Sequence[int] = ()
-) -> InteractionFrame:
+def _frame(stamp_s: int, rows: list[tuple], events: Sequence[int] = ()) -> InteractionFrame:
     msg = InteractionFrame()
     msg.header.stamp.sec = stamp_s
     offsets = [0]
@@ -110,12 +106,7 @@ def _frame(
         msg.member_role.extend([0] * len(participants) + [1] * len(queue))
         offsets.append(len(msg.member_id))
     msg.member_offset = offsets
-    msg.events = [
-        InteractionEvent(
-            interaction_id=4, interaction_type=10, event=e, participants=[1, 2]
-        )
-        for e in events
-    ]
+    msg.events = [InteractionEvent(interaction_id=4, interaction_type=10, event=e, participants=[1, 2]) for e in events]
     return msg
 
 

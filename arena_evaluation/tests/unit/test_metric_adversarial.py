@@ -79,13 +79,9 @@ def test_pedestrian_disturbance_adversarial_chaotic() -> None:
 
     # This should not raise ValueError or TypeError, and should not return NaN/Inf metrics
     results = calc.calculate(episode, prior)
-    assert results["ped_path_deflection_m"] is None or np.isfinite(
-        results["ped_path_deflection_m"]
-    )
+    assert results["ped_path_deflection_m"] is None or np.isfinite(results["ped_path_deflection_m"])
     assert not np.isnan(results["ped_velocity_delay_ratio"])
-    assert results["ped_path_deflection_m"] is None or not np.isinf(
-        results["ped_path_deflection_m"]
-    )
+    assert results["ped_path_deflection_m"] is None or not np.isinf(results["ped_path_deflection_m"])
 
 
 def test_gaze_adversarial_chaotic() -> None:

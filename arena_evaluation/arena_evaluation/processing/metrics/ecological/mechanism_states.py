@@ -39,9 +39,7 @@ class MechanismStatesCalculator(BaseMetricCalculator):
     CATEGORY = "ecological"
     REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
 
-    def calculate(
-        self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
         frame = episode.data
         if frame is None or len(frame) == 0:
@@ -61,9 +59,7 @@ class MechanismStatesCalculator(BaseMetricCalculator):
                         "level": entity_level(entity),
                         "kind": kind,
                         "progress": _floats(progress.sample(query)),
-                        "locked": [v == "true" for v in locked.sample(query)]
-                        if locked is not None
-                        else [None] * len(query),
+                        "locked": [v == "true" for v in locked.sample(query)] if locked is not None else [None] * len(query),
                     }
                 )
         return {"mechanism_states": states or None}

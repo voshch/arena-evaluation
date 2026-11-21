@@ -123,9 +123,7 @@ class ContractReport:
     def summary(self) -> str:
         """One line per violation, prefixed by the benchmark path."""
         head = f"benchmark contract failed for {self.benchmark_dir}: {len(self.violations)} violation(s)"
-        return "\n".join(
-            [head, *(f"- {violation.message()}" for violation in self.violations)]
-        )
+        return "\n".join([head, *(f"- {violation.message()}" for violation in self.violations)])
 
     def as_dict(self) -> dict[str, object]:
         """The report as plain data, for the YAML artifact."""
@@ -176,16 +174,8 @@ def _views(
     """Every fact table stacked over the episodes, and every dimension from memory, disk or empty."""
     views: dict[str, pl.LazyFrame] = {}
     for table in FACT_TABLES.values():
-        paths = [
-            episode / "metrics" / table.file_name()
-            for episode in episodes
-            if (episode / "metrics" / table.file_name()).is_file()
-        ]
-        views[_fact_key(table)] = (
-            pl.concat([pl.scan_parquet(path) for path in paths])
-            if paths
-            else _empty(table).lazy()
-        )
+        paths = [episode / "metrics" / table.file_name() for episode in episodes if (episode / "metrics" / table.file_name()).is_file()]
+        views[_fact_key(table)] = pl.concat([pl.scan_parquet(path) for path in paths]) if paths else _empty(table).lazy()
     for name, table in DIMENSION_TABLES.items():
         supplied = None if dimensions is None else dimensions.get(name)
         path = benchmark_dir / table.relative_path()
@@ -200,9 +190,7 @@ def _views(
 
 def _nested_columns(schema: Mapping[str, pl.DataType]) -> tuple[str, ...]:
     """Columns whose dtype is List, Struct, Object or Array."""
-    return tuple(
-        name for name, dtype in schema.items() if isinstance(dtype, _NESTED_DTYPES)
-    )
+    return tuple(name for name, dtype in schema.items() if isinstance(dtype, _NESTED_DTYPES))
 
 
 def _schema_violations(
@@ -212,27 +200,15 @@ def _schema_violations(
     describe: Callable[[pl.DataType], str],
 ) -> list[ContractViolation]:
     """Columns the stored schema adds, drops or types differently, plus every nested column."""
-    checked = [
-        (name, "schema_missing") for name in expected.names() if name not in actual
-    ]
-    checked += [
-        (name, "schema_unexpected") for name in actual.names() if name not in expected
-    ]
-    checked += [
-        (name, "schema_dtype")
-        for name in expected.names()
-        if name in actual and actual[name] != expected[name]
-    ]
+    checked = [(name, "schema_missing") for name in expected.names() if name not in actual]
+    checked += [(name, "schema_unexpected") for name in actual.names() if name not in expected]
+    checked += [(name, "schema_dtype") for name in expected.names() if name in actual and actual[name] != expected[name]]
     violations = [
         ContractViolation(
             table=table,
             column=column,
             check=kind,
-            detail=(
-                f"expected {expected[column]!r}, stored {actual[column]!r}"
-                if kind == "schema_dtype"
-                else f"declared columns: {list(expected.names())}"
-            ),
+            detail=(f"expected {expected[column]!r}, stored {actual[column]!r}" if kind == "schema_dtype" else f"declared columns: {list(expected.names())}"),
         )
         for column, kind in checked
     ]
@@ -248,14 +224,10 @@ def _schema_violations(
     return violations
 
 
-def _file_schema_violations(
-    table: str, path: pathlib.Path, expected: pl.Schema
-) -> list[ContractViolation]:
+def _file_schema_violations(table: str, path: pathlib.Path, expected: pl.Schema) -> list[ContractViolation]:
     """The schema and flatness checks of one stored Parquet file."""
     actual = pl.scan_parquet(path).collect_schema()
-    return _schema_violations(
-        table, actual, expected, lambda dtype: f"stored {dtype!r} in {path.name}"
-    )
+    return _schema_violations(table, actual, expected, lambda dtype: f"stored {dtype!r} in {path.name}")
 
 
 def _check_stored_schemas(
@@ -270,9 +242,7 @@ def _check_stored_schemas(
         for name, table in DIMENSION_TABLES.items():
             path = benchmark_dir / table.relative_path()
             if path.is_file():
-                violations.extend(
-                    _file_schema_violations(name, path, table.polars_schema())
-                )
+                violations.extend(_file_schema_violations(name, path, table.polars_schema()))
     known = {table.file_name(): table for table in FACT_TABLES.values()}
     for episode in episodes:
         metrics = episode / "metrics"
@@ -290,9 +260,7 @@ def _check_stored_schemas(
                     )
                 )
                 continue
-            violations.extend(
-                _file_schema_violations(_fact_key(table), path, table.polars_schema())
-            )
+            violations.extend(_file_schema_violations(_fact_key(table), path, table.polars_schema()))
     return violations
 
 
@@ -316,14 +284,9 @@ def _check_dimension_frames(
     return violations
 
 
-def _check_missing_dimensions(
-    benchmark_dir: pathlib.Path, views: Mapping[str, pl.LazyFrame]
-) -> list[ContractViolation]:
+def _check_missing_dimensions(benchmark_dir: pathlib.Path, views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation]:
     """A benchmark that stores facts must also store the dimensions they resolve against."""
-    has_facts = any(
-        views[_fact_key(table)].select(pl.len()).collect().item() > 0
-        for table in FACT_TABLES.values()
-    )
+    has_facts = any(views[_fact_key(table)].select(pl.len()).collect().item() > 0 for table in FACT_TABLES.values())
     if not has_facts:
         return []
     return [
@@ -357,10 +320,7 @@ def _check_episode_coverage(
     )
     unevaluated = (
         views["fact_episodes"]
-        .filter(
-            pl.col(_EPISODE_STATUS_COLUMN).is_not_null()
-            & ~pl.col(_EPISODE_STATUS_COLUMN).is_in(_EVALUATED_EPISODE_RESULTS)
-        )
+        .filter(pl.col(_EPISODE_STATUS_COLUMN).is_not_null() & ~pl.col(_EPISODE_STATUS_COLUMN).is_in(_EVALUATED_EPISODE_RESULTS))
         .select(
             pl.concat_str(
                 [
@@ -382,10 +342,7 @@ def _check_episode_coverage(
                 table="dim_episodes",
                 column="episode_id",
                 check="episode_uncovered",
-                detail=(
-                    f"{missing.height} episode(s) have no fact_episodes row; "
-                    f"first {_named_first(missing.get_column('episode_id'))}"
-                ),
+                detail=(f"{missing.height} episode(s) have no fact_episodes row; first {_named_first(missing.get_column('episode_id'))}"),
             )
         )
     if not unevaluated.is_empty():
@@ -394,10 +351,7 @@ def _check_episode_coverage(
                 table="fact_episodes",
                 column=_EPISODE_STATUS_COLUMN,
                 check="episode_not_evaluated",
-                detail=(
-                    f"{unevaluated.height} episode(s) have no evaluated result; "
-                    f"first {_named_first(unevaluated.get_column('episode'))}"
-                ),
+                detail=(f"{unevaluated.height} episode(s) have no evaluated result; first {_named_first(unevaluated.get_column('episode'))}"),
             )
         )
     return violations
@@ -410,11 +364,7 @@ def _check_row_keys(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation
         table_name = _fact_key(table)
         frame = views[table_name]
         keys = list(table.key)
-        null_counts = (
-            frame.select([pl.col(key).is_null().sum().alias(key) for key in keys])
-            .collect()
-            .row(0, named=True)
-        )
+        null_counts = frame.select([pl.col(key).is_null().sum().alias(key) for key in keys]).collect().row(0, named=True)
         for key, count in null_counts.items():
             if count:
                 violations.append(
@@ -427,22 +377,14 @@ def _check_row_keys(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation
                 )
         if not table.unique_key:
             continue
-        duplicates = (
-            frame.group_by(keys)
-            .agg(pl.len().alias("rows"))
-            .filter(pl.col("rows") > 1)
-            .collect()
-        )
+        duplicates = frame.group_by(keys).agg(pl.len().alias("rows")).filter(pl.col("rows") > 1).collect()
         if duplicates.height:
             violations.append(
                 ContractViolation(
                     table=table_name,
                     column=",".join(keys),
                     check="key_duplicate",
-                    detail=(
-                        f"{duplicates.height} duplicated keys, first "
-                        f"{duplicates.row(0, named=True)}"
-                    ),
+                    detail=(f"{duplicates.height} duplicated keys, first {duplicates.row(0, named=True)}"),
                 )
             )
     for name, table in DIMENSION_TABLES.items():
@@ -471,11 +413,7 @@ def _check_row_keys(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation
                 )
             )
         for column in table.null_reason_columns():
-            reasoned = (
-                pl.col(NULL_REASON_COLUMN)
-                .fill_null("")
-                .str.contains(column + ":", literal=True)
-            )
+            reasoned = pl.col(NULL_REASON_COLUMN).fill_null("").str.contains(column + ":", literal=True)
             unexplained = frame.filter(pl.col(column).is_null() & ~reasoned).height
             if unexplained:
                 violations.append(
@@ -495,14 +433,7 @@ def _check_orphans(views: Mapping[str, pl.LazyFrame]) -> list[ContractViolation]
     for name, (dimension, keys) in _FACT_PARENT.items():
         table_name = f"fact_{name}"
         dimension_keys = views[dimension].select(list(keys)).unique()
-        orphan_count = (
-            views[table_name]
-            .select(list(keys))
-            .join(dimension_keys, on=list(keys), how="anti")
-            .select(pl.len())
-            .collect()
-            .item()
-        )
+        orphan_count = views[table_name].select(list(keys)).join(dimension_keys, on=list(keys), how="anti").select(pl.len()).collect().item()
         if orphan_count:
             violations.append(
                 ContractViolation(
@@ -520,11 +451,7 @@ def _check_fact_windows(views: Mapping[str, pl.LazyFrame]) -> list[ContractViola
     violations: list[ContractViolation] = []
     for name, start_column, end_column in _WINDOW_COLUMNS:
         table_name = f"fact_{name}"
-        invalid = views[table_name].filter(
-            pl.col(start_column).is_not_null()
-            & pl.col(end_column).is_not_null()
-            & (pl.col(start_column) >= pl.col(end_column))
-        )
+        invalid = views[table_name].filter(pl.col(start_column).is_not_null() & pl.col(end_column).is_not_null() & (pl.col(start_column) >= pl.col(end_column)))
         count = invalid.select(pl.len()).collect().item()
         if count:
             violations.append(
@@ -535,9 +462,7 @@ def _check_fact_windows(views: Mapping[str, pl.LazyFrame]) -> list[ContractViola
                     detail=f"{count} rows with {start_column} >= {end_column}",
                 )
             )
-    invalid = views[f"fact_{FactTable.ENCOUNTERS.value}"].filter(
-        pl.col("actor_1").is_not_null() & (pl.col("actor_1") == pl.col("actor_2"))
-    )
+    invalid = views[f"fact_{FactTable.ENCOUNTERS.value}"].filter(pl.col("actor_1").is_not_null() & (pl.col("actor_1") == pl.col("actor_2")))
     count = invalid.select(pl.len()).collect().item()
     if count:
         violations.append(
@@ -559,23 +484,11 @@ def _check_null_reasons(views: Mapping[str, pl.LazyFrame]) -> list[ContractViola
         if not columns:
             continue
         frame = views[_fact_key(table)]
-        unexplained = frame.filter(
-            pl.any_horizontal([pl.col(column).is_null() for column in columns])
-            & (
-                pl.col(NULL_REASON_COLUMN).is_null()
-                | (pl.col(NULL_REASON_COLUMN) == "")
-            )
-        )
+        unexplained = frame.filter(pl.any_horizontal([pl.col(column).is_null() for column in columns]) & (pl.col(NULL_REASON_COLUMN).is_null() | (pl.col(NULL_REASON_COLUMN) == "")))
         count = unexplained.select(pl.len()).collect().item()
         if not count:
             continue
-        null_flags = (
-            unexplained.select(
-                [pl.col(column).is_null().any().alias(column) for column in columns]
-            )
-            .collect()
-            .row(0, named=True)
-        )
+        null_flags = unexplained.select([pl.col(column).is_null().any().alias(column) for column in columns]).collect().row(0, named=True)
         null_columns = [column for column, is_null in null_flags.items() if is_null]
         violations.append(
             ContractViolation(
@@ -586,12 +499,7 @@ def _check_null_reasons(views: Mapping[str, pl.LazyFrame]) -> list[ContractViola
             )
         )
     for table in FACT_TABLES.values():
-        emitted = (
-            views[_fact_key(table)]
-            .select(pl.col(NULL_REASON_COLUMN).drop_nulls().unique())
-            .collect()
-            .get_column(NULL_REASON_COLUMN)
-        )
+        emitted = views[_fact_key(table)].select(pl.col(NULL_REASON_COLUMN).drop_nulls().unique()).collect().get_column(NULL_REASON_COLUMN)
         unknown = [value for value in emitted if not is_known_null_reason(value)]
         if unknown:
             violations.append(
@@ -599,10 +507,7 @@ def _check_null_reasons(views: Mapping[str, pl.LazyFrame]) -> list[ContractViola
                     table=_fact_key(table),
                     column=NULL_REASON_COLUMN,
                     check="null_reason_unknown",
-                    detail=(
-                        f"{len(unknown)} code(s) outside the vocabulary, "
-                        f"first {unknown[0]!r}"
-                    ),
+                    detail=(f"{len(unknown)} code(s) outside the vocabulary, first {unknown[0]!r}"),
                 )
             )
     return violations
@@ -636,21 +541,10 @@ def _telemetry_robot_ids(
     episodes: tuple[pathlib.Path, ...],
 ) -> pl.LazyFrame | None:
     """The robot id column of every stored robot telemetry file, None when none is stored."""
-    paths = [
-        path
-        for episode in episodes
-        for path in sorted((episode / "topics").glob("robot_*.parquet"))
-    ]
+    paths = [path for episode in episodes for path in sorted((episode / "topics").glob("robot_*.parquet"))]
     if not paths:
         return None
-    return pl.concat(
-        [
-            pl.scan_parquet(path)
-            .select("robot_id")
-            .filter(pl.col("robot_id").is_not_null())
-            for path in paths
-        ]
-    ).unique()
+    return pl.concat([pl.scan_parquet(path).select("robot_id").filter(pl.col("robot_id").is_not_null()) for path in paths]).unique()
 
 
 def _check_robot_descriptors(
@@ -669,32 +563,20 @@ def _check_robot_descriptors(
                 detail=f"{count} robot(s) have no recorded robot_descriptor row",
             )
         )
-    robots = views["dim_robots"].select(
-        "robot_id", NULL_REASON_COLUMN, *_REQUIRED_ROBOT_PARAMETERS
-    )
+    robots = views["dim_robots"].select("robot_id", NULL_REASON_COLUMN, *_REQUIRED_ROBOT_PARAMETERS)
     reason = pl.col(NULL_REASON_COLUMN).fill_null("")
     for parameter in _REQUIRED_ROBOT_PARAMETERS:
-        unexplained = robots.filter(
-            pl.col(parameter).is_null()
-            & ~reason.str.contains(f"{parameter}:", literal=True)
-        )
-        robots_missing = (
-            unexplained.select(pl.col("robot_id").n_unique()).collect().item()
-        )
+        unexplained = robots.filter(pl.col(parameter).is_null() & ~reason.str.contains(f"{parameter}:", literal=True))
+        robots_missing = unexplained.select(pl.col("robot_id").n_unique()).collect().item()
         if not robots_missing:
             continue
-        names = _named_first(
-            unexplained.select("robot_id").unique().collect().get_column("robot_id")
-        )
+        names = _named_first(unexplained.select("robot_id").unique().collect().get_column("robot_id"))
         violations.append(
             ContractViolation(
                 table="dim_robots",
                 column=parameter,
                 check="descriptor_param_missing",
-                detail=(
-                    f"{robots_missing} robot(s) miss {parameter} without a null reason; "
-                    f"first {names}"
-                ),
+                detail=(f"{robots_missing} robot(s) miss {parameter} without a null reason; first {names}"),
             )
         )
     return violations
@@ -725,10 +607,7 @@ def _check_telemetry_descriptors(
             table="dim_robots",
             column="robot_id",
             check="descriptor_missing_telemetry",
-            detail=(
-                f"{undescribed.height} robot id(s) have telemetry but no dim_robots row; "
-                f"first {names}"
-            ),
+            detail=(f"{undescribed.height} robot id(s) have telemetry but no dim_robots row; first {names}"),
         )
     ]
 
@@ -774,26 +653,18 @@ def _check_telemetry_row_keys(
                         table=path.stem,
                         column=",".join(keys),
                         check="row_key_null",
-                        detail=(
-                            f"{nulls.height} row(s) in {episode.name} with a NULL key"
-                        ),
+                        detail=(f"{nulls.height} row(s) in {episode.name} with a NULL key"),
                     )
                 )
             duplicates = duplicate_row_keys(table, frame)
             if duplicates.height:
-                sample = ", ".join(
-                    f"{key}={value!r}"
-                    for key, value in duplicates.row(0, named=True).items()
-                )
+                sample = ", ".join(f"{key}={value!r}" for key, value in duplicates.row(0, named=True).items())
                 violations.append(
                     ContractViolation(
                         table=path.stem,
                         column=",".join(keys),
                         check="row_key_duplicate",
-                        detail=(
-                            f"{duplicates.height} duplicated row key(s) in "
-                            f"{episode.name}, first {sample}"
-                        ),
+                        detail=(f"{duplicates.height} duplicated row key(s) in {episode.name}, first {sample}"),
                     )
                 )
     return violations
@@ -816,15 +687,9 @@ def check_benchmark(
     views = _views(benchmark_dir, episode_dirs, dimensions)
     telemetry_robot_ids = _telemetry_robot_ids(episode_dirs)
     violations = [
-        *_check_stored_schemas(
-            benchmark_dir, episode_dirs, check_dimension_files=dimensions is None
-        ),
+        *_check_stored_schemas(benchmark_dir, episode_dirs, check_dimension_files=dimensions is None),
         *(_check_dimension_frames(dimensions) if dimensions is not None else []),
-        *(
-            _check_missing_dimensions(benchmark_dir, views)
-            if dimensions is None
-            else []
-        ),
+        *(_check_missing_dimensions(benchmark_dir, views) if dimensions is None else []),
         *_check_row_keys(views),
         *_check_orphans(views),
         *(_check_episode_coverage(views) if dimensions is None else []),

@@ -101,9 +101,7 @@ def _null_speed_metrics(result: dict[str, typing.Any], reason: str) -> None:
         result[f"{key}{NULL_REASON_SUFFIX}"] = reason
 
 
-def _speed_zone_metrics(
-    zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]
-) -> tuple[int, float]:
+def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> tuple[int, float]:
     mask = np.zeros(len(zone_idx), dtype=bool)
     for i, j in enumerate(zone_idx):
         if j == -1:
@@ -123,9 +121,7 @@ def _speed_zone_metrics(
     return violations, seconds
 
 
-def _quiet_zone_dwell(
-    zone_idx: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]
-) -> float:
+def _quiet_zone_dwell(zone_idx: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> float:
     total = 0.0
     for i in range(len(dt)):
         j = zone_idx[i]
@@ -147,9 +143,7 @@ def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[ZoneGeometry]) ->
 
 def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Per-door sorted (t_ns, is_open) event series keyed by authored door name."""
-    door_events = events.filter(
-        (pl.col("kind") == "door") & (pl.col("field") == "state")
-    ).sort("t_ns")
+    door_events = events.filter((pl.col("kind") == "door") & (pl.col("field") == "state")).sort("t_ns")
     result: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if len(door_events) == 0:
         return result
@@ -163,9 +157,7 @@ def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.nd
     return result
 
 
-def _is_open_at(
-    door_series: dict[str, tuple[np.ndarray, np.ndarray]], name: str, t_ns: int
-) -> bool:
+def _is_open_at(door_series: dict[str, tuple[np.ndarray, np.ndarray]], name: str, t_ns: int) -> bool:
     entry = door_series.get(name)
     if entry is None:
         return False
@@ -227,13 +219,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        self._world_cache: dict[
-            str, tuple[list[ZoneGeometry], list[DoorGeometry]] | None
-        ] = {}
+        self._world_cache: dict[str, tuple[list[ZoneGeometry], list[DoorGeometry]] | None] = {}
 
-    def _load_world(
-        self, world_name: str
-    ) -> tuple[list[ZoneGeometry], list[DoorGeometry]] | None:
+    def _load_world(self, world_name: str) -> tuple[list[ZoneGeometry], list[DoorGeometry]] | None:
         if world_name in self._world_cache:
             return self._world_cache[world_name]
 
@@ -260,9 +248,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         if not doors:
             return 0.0
 
-        events = reconstruct_events(
-            robot_env_snapshot(episode.semantic_snapshot, episode.robot_name)
-        )
+        events = reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         if len(events) == 0:
             return 0.0
 
@@ -281,9 +267,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             for door in doors:
                 dx = pos_x[i] - door.center_x
                 dy = pos_y[i] - door.center_y
-                if dx * dx + dy * dy <= door.radius**2 and _is_open_at(
-                    door_series, door.name, t
-                ):
+                if dx * dx + dy * dy <= door.radius**2 and _is_open_at(door_series, door.name, t):
                     total += dt[i]
                     break
         return total
@@ -299,9 +283,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         except pl.exceptions.ColumnNotFoundError:
             return None
 
-    def _passing_inputs(
-        self, episode: AlignedEpisodeBundle
-    ) -> tuple[pl.DataFrame | None, np.ndarray | None]:
+    def _passing_inputs(self, episode: AlignedEpisodeBundle) -> tuple[pl.DataFrame | None, np.ndarray | None]:
         """Pedestrian frame and recorded radii in frame order, radii None when a sample has no usable radius."""
         peds_df = self.native_ped_frame(episode)
         if peds_df is None or len(peds_df) == 0:
@@ -319,9 +301,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             return None
         return None if radii is not None else NullReason.NOT_RECORDED.value
 
-    def _compute_passing_compliance(
-        self, episode: AlignedEpisodeBundle
-    ) -> float | None:
+    def _compute_passing_compliance(self, episode: AlignedEpisodeBundle) -> float | None:
         peds_df, radii = self._passing_inputs(episode)
         if peds_df is None or radii is None:
             return None
@@ -362,12 +342,8 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
         # A first sample has no previous step, so its velocity stays NULL: it is unknown, not zero.
         peds_with_vel = peds_lf.with_columns(
-            vx=pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan())
-            .then(pl.col("x").diff().over("ped_id") / dt_ped_safe)
-            .otherwise(pl.col("vx")),
-            vy=pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan())
-            .then(pl.col("y").diff().over("ped_id") / dt_ped_safe)
-            .otherwise(pl.col("vy")),
+            vx=pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan()).then(pl.col("x").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vx")),
+            vy=pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan()).then(pl.col("y").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vy")),
         )
 
         joined = peds_with_vel.join(robot_interp_lf, on="t_ns", how="inner")
@@ -379,18 +355,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         speed_r = (pl.col("rvx").pow(2) + pl.col("rvy").pow(2)).sqrt()
         speed_p = (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
         denom = speed_r * speed_p
-        cos_angle = (
-            pl.when(denom > 1e-6)
-            .then((pl.col("rvx") * pl.col("vx") + pl.col("rvy") * pl.col("vy")) / denom)
-            .otherwise(0.0)
-        )
+        cos_angle = pl.when(denom > 1e-6).then((pl.col("rvx") * pl.col("vx") + pl.col("rvy") * pl.col("vy")) / denom).otherwise(0.0)
 
-        is_head_on = (
-            (edge_clearance <= ENCOUNTER_EDGE_DISTANCE_M)
-            & (speed_r > 0.05)
-            & (speed_p > 0.05)
-            & (cos_angle < -0.3)
-        )
+        is_head_on = (edge_clearance <= ENCOUNTER_EDGE_DISTANCE_M) & (speed_r > 0.05) & (speed_p > 0.05) & (cos_angle < -0.3)
         lat_offset = pl.col("rvx") * dy - pl.col("rvy") * dx
 
         pairs_analyzed = (
@@ -403,10 +370,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             .agg(
                 head_on_found=pl.col("is_head_on").any(),
                 curr_min_dist=pl.col("dist").filter(pl.col("is_head_on")).min(),
-                curr_lat=pl.col("lat_offset")
-                .filter(pl.col("is_head_on"))
-                .sort_by(pl.col("dist").filter(pl.col("is_head_on")))
-                .first(),
+                curr_lat=pl.col("lat_offset").filter(pl.col("is_head_on")).sort_by(pl.col("dist").filter(pl.col("is_head_on"))).first(),
             )
             .sort("t_ns")
             .with_columns(
@@ -418,9 +382,7 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             .collect()
         )
 
-        bouts = pairs_analyzed.filter(pl.col("head_on_found")).partition_by(
-            "bout_id", maintain_order=True
-        )
+        bouts = pairs_analyzed.filter(pl.col("head_on_found")).partition_by("bout_id", maintain_order=True)
         if not bouts:
             return None
 
@@ -439,17 +401,12 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
 
     @staticmethod
     def _world_semantics_recorded(episode: AlignedEpisodeBundle) -> bool:
-        return (
-            episode.semantic_snapshot is not None
-            and episode.semantic_snapshot.height > 0
-        )
+        return episode.semantic_snapshot is not None and episode.semantic_snapshot.height > 0
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
         """Zone and door compliance needs the recorded world semantics; without it the values are unknown."""
         if not self._world_semantics_recorded(episode):
-            return {
-                key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS
-            }
+            return {key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS}
         return {}
 
     def calculate(
@@ -483,12 +440,8 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                     if n > 0 and len(t_ns) == n:
                         dt = np.diff(t_ns) / 1e9
                         zone_idx = zone_membership(pos_x, pos_y, zones)
-                        result["quiet_zone_dwell_seconds"] = _quiet_zone_dwell(
-                            zone_idx, dt, zones
-                        )
-                        result["restricted_zone_entries"] = _restricted_zone_entries(
-                            zone_idx, zones
-                        )
+                        result["quiet_zone_dwell_seconds"] = _quiet_zone_dwell(zone_idx, dt, zones)
+                        result["restricted_zone_entries"] = _restricted_zone_entries(zone_idx, zones)
 
                         speed = self._recorded_speed(episode)
                         if speed is None:
@@ -499,15 +452,9 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                         elif len(speed) != n or not np.isfinite(speed).all():
                             _null_speed_metrics(result, NullReason.NO_SAMPLES.value)
                         else:
-                            violations, violation_seconds = _speed_zone_metrics(
-                                zone_idx, speed, dt, zones
-                            )
+                            violations, violation_seconds = _speed_zone_metrics(zone_idx, speed, dt, zones)
                             result["speed_zone_violations"] = violations
                             result["speed_zone_violation_seconds"] = violation_seconds
-                            result["doorway_blocking_time"] = (
-                                self._doorway_blocking_time(
-                                    episode, pos_x, pos_y, speed, t_ns, doors
-                                )
-                            )
+                            result["doorway_blocking_time"] = self._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
 
         return result

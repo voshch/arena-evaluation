@@ -21,9 +21,7 @@ def _ros_gate():
         (["migrate", "--help"], ("--dry-run", "--force", "--report")),
     ],
 )
-def test_evaluation_cli_lists_the_layer_flags(
-    argv: list[str], flags: tuple[str, ...], capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_evaluation_cli_lists_the_layer_flags(argv: list[str], flags: tuple[str, ...], capsys: pytest.CaptureFixture[str]) -> None:
     from arena_evaluation.cli import _main_impl
 
     with pytest.raises(SystemExit) as raised:
@@ -34,9 +32,7 @@ def test_evaluation_cli_lists_the_layer_flags(
         assert flag in help_text
 
 
-def test_migrate_run_root_with_an_empty_episode_reports_one_line(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_migrate_run_root_with_an_empty_episode_reports_one_line(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     from arena_evaluation.cli import _main_impl
 
     run = tmp_path / "run"
@@ -52,22 +48,12 @@ def test_migrate_run_root_with_an_empty_episode_reports_one_line(
     assert "Traceback" not in stderr
 
 
-def test_validate_suite_accepts_a_bundle(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_validate_suite_accepts_a_bundle(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     from arena_evaluation.cli import _main_impl
 
     bundle = tmp_path / "configs" / "suites" / "basic"
     bundle.mkdir(parents=True)
-    (bundle / "suite.yaml").write_text(
-        "stages:\n"
-        "  - name: preflight\n"
-        "    episodes: 1\n"
-        "    robot: jackal\n"
-        "    map: map_empty\n"
-        "    tm_robots: random\n"
-        "    tm_obstacles: random\n"
-    )
+    (bundle / "suite.yaml").write_text("stages:\n  - name: preflight\n    episodes: 1\n    robot: jackal\n    map: map_empty\n    tm_robots: random\n    tm_obstacles: random\n")
 
     assert _main_impl(["validate", "--suite", str(bundle)]) == 0
     captured = capsys.readouterr()
@@ -75,9 +61,7 @@ def test_validate_suite_accepts_a_bundle(
     assert "1 stage(s) without an explicit seed: preflight" in captured.err
 
 
-def test_validate_suite_rejects_a_non_mapping_root(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_validate_suite_rejects_a_non_mapping_root(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     from arena_evaluation.cli import _main_impl
 
     config = tmp_path / "bad" / "suite.yaml"
@@ -88,16 +72,12 @@ def test_validate_suite_rejects_a_non_mapping_root(
     assert "a suite needs a mapping with a stages list" in capsys.readouterr().err
 
 
-def test_validate_contest_rejects_a_duplicate_contestant(
-    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_validate_contest_rejects_a_duplicate_contestant(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
     from arena_evaluation.cli import _main_impl
 
     config = tmp_path / "dupe" / "contest.yaml"
     config.parent.mkdir()
-    config.write_text(
-        "- name: same\n  mobile.local_planner: dwa\n- name: same\n  mobile.local_planner: teb\n"
-    )
+    config.write_text("- name: same\n  mobile.local_planner: dwa\n- name: same\n  mobile.local_planner: teb\n")
 
     assert _main_impl(["validate", "--contest", str(config)]) == 1
     assert capsys.readouterr().err.startswith("Error: ")

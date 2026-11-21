@@ -61,9 +61,7 @@ def flat_peds(
                     "vx": vx,
                     "vy": vy,
                     "vz": 0.0,
-                    "speed_mps": None
-                    if vx is None or vy is None
-                    else math.hypot(vx, vy),
+                    "speed_mps": None if vx is None or vy is None else math.hypot(vx, vy),
                     "radius_m": None,
                     "desired_speed": None,
                     "policy": None,

@@ -31,24 +31,11 @@ def _row(
     }
 
 
-def _write_null_reason(
-    bench: pathlib.Path, episode_id: int, metric: str, reason: str
-) -> None:
+def _write_null_reason(bench: pathlib.Path, episode_id: int, metric: str, reason: str) -> None:
     """Mark the NULL cells of ``metric`` in one episode's fact table with their recorded reason."""
-    path = (
-        bench
-        / "episodes"
-        / f"episode_{episode_id:03d}"
-        / "metrics"
-        / f"fact_{FactTable.ROBOTS.value}.parquet"
-    )
+    path = bench / "episodes" / f"episode_{episode_id:03d}" / "metrics" / f"fact_{FactTable.ROBOTS.value}.parquet"
     frame = pl.read_parquet(path)
-    frame.with_columns(
-        pl.when(pl.col(metric).is_null())
-        .then(pl.lit(f"{metric}:{reason}"))
-        .otherwise(pl.col("null_reason"))
-        .alias("null_reason")
-    ).write_parquet(path)
+    frame.with_columns(pl.when(pl.col(metric).is_null()).then(pl.lit(f"{metric}:{reason}")).otherwise(pl.col("null_reason")).alias("null_reason")).write_parquet(path)
 
 
 def test_computation_drops_invalid_episodes_and_counts_them(

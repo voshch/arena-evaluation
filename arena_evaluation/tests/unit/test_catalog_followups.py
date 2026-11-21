@@ -25,9 +25,7 @@ def _frame(rows: list[dict[str, object]], schema: pl.Schema) -> pl.DataFrame:
     )
 
 
-def _write_benchmark(
-    root: pathlib.Path, *, include_pedestrians: bool = True
-) -> pathlib.Path:
+def _write_benchmark(root: pathlib.Path, *, include_pedestrians: bool = True) -> pathlib.Path:
     root.mkdir(parents=True)
     dim_ep_schema = dimensions.DimEpisodes.polars_schema()
     dim_rob_schema = dimensions.DimRobots.polars_schema()
@@ -36,10 +34,7 @@ def _write_benchmark(
     fact_rob_schema = FACT_TABLES[FactTable.ROBOTS].polars_schema()
     fact_con_schema = FACT_TABLES[FactTable.CONTACTS].polars_schema()
 
-    dims = {
-        name: pl.DataFrame(schema=tbl.polars_schema())
-        for name, tbl in dimensions.DIMENSION_TABLES.items()
-    }
+    dims = {name: pl.DataFrame(schema=tbl.polars_schema()) for name, tbl in dimensions.DIMENSION_TABLES.items()}
     dims["dim_episodes"] = _frame(
         [
             {
@@ -63,9 +58,7 @@ def _write_benchmark(
                 "duration_s": 10.0,
                 "outcome_state": 2,
                 "outcome_info": "finished",
-                "null_reason": None
-                if include_pedestrians
-                else f"robot_awareness:{NullReason.NOT_RECORDED}",
+                "null_reason": None if include_pedestrians else f"robot_awareness:{NullReason.NOT_RECORDED}",
             }
             for episode_id in (0, 1, 2)
         ],

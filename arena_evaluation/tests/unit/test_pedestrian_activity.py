@@ -21,15 +21,8 @@ PED_ID = "Pedestrian_0"
 def _track(xs: Sequence[float | None], ys: Sequence[float | None]) -> pl.DataFrame:
     """One pedestrian's samples at 1 s spacing, a sample may carry a null x or a null y."""
     assert len(xs) == len(ys)
-    frame = flat_peds(
-        [
-            (index * SEC, [{"ped_id": PED_ID, "x": 0.0, "y": 0.0}])
-            for index in range(len(xs))
-        ]
-    )
-    return frame.with_columns(
-        pl.Series("x", xs, dtype=pl.Float64), pl.Series("y", ys, dtype=pl.Float64)
-    )
+    frame = flat_peds([(index * SEC, [{"ped_id": PED_ID, "x": 0.0, "y": 0.0}]) for index in range(len(xs))])
+    return frame.with_columns(pl.Series("x", xs, dtype=pl.Float64), pl.Series("y", ys, dtype=pl.Float64))
 
 
 def _total_distance_m(peds: pl.DataFrame) -> float:

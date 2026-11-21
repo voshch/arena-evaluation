@@ -16,9 +16,7 @@ SPAWNED = "robot jackal spawned by hand"
 OLD_HEADER = ProgressLog._HEADER.removesuffix(",integrity")
 
 
-def _record(
-    *integrity: str, outcome_state: int = EpisodeRecord.SUCCESS, info: str = ""
-) -> EpisodeRecord:
+def _record(*integrity: str, outcome_state: int = EpisodeRecord.SUCCESS, info: str = "") -> EpisodeRecord:
     msg = EpisodeRecord()
     msg.world = "map_empty"
     msg.robots = ["jackal"]
@@ -71,9 +69,7 @@ def _result(key: str, run: int, compromised: int) -> StepResult:
 
 def _step(contestant: str, stage: str) -> Step:
     return Step(
-        contestant=Contestant(
-            name=contestant, args={"mobile.local_planner": contestant}
-        ),
+        contestant=Contestant(name=contestant, args={"mobile.local_planner": contestant}),
         stage=Suite.Stage(
             name=stage,
             episodes=2,
@@ -138,14 +134,8 @@ def test_episode_line_appends_integrity_reasons_only_when_compromised() -> None:
         70.0,
     )
 
-    assert (
-        intact
-        == "[1/2] dwb/preflight env=0 SUCCESS info='finished after 13.7s' sim=13.7s wall=20.0s"
-    )
-    assert (
-        compromised
-        == f"[1/2] dwb/preflight env=0 FAILED info='timeout' sim=60.0s wall=70.0s integrity={[SPAWNED, MOVED]!r}"
-    )
+    assert intact == "[1/2] dwb/preflight env=0 SUCCESS info='finished after 13.7s' sim=13.7s wall=20.0s"
+    assert compromised == f"[1/2] dwb/preflight env=0 FAILED info='timeout' sim=60.0s wall=70.0s integrity={[SPAWNED, MOVED]!r}"
 
 
 def test_episode_line_keeps_goal_progress_before_integrity() -> None:
@@ -153,9 +143,7 @@ def test_episode_line_keeps_goal_progress_before_integrity() -> None:
     rec.goal_dist_start = 4.0
     rec.goal_dist_min = 1.0
     rec.path_length = 3.5
-    assert episode_line("[2/2] dwb/preflight env=1", rec, 5.0, 6.0).endswith(
-        f" progress=75% path=3.5m integrity={[MOVED]!r}"
-    )
+    assert episode_line("[2/2] dwb/preflight env=1", rec, 5.0, 6.0).endswith(f" progress=75% path=3.5m integrity={[MOVED]!r}")
 
 
 def test_compromised_table_counts_per_contestant_across_stages() -> None:

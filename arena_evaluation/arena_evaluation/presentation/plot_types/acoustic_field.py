@@ -56,9 +56,7 @@ _DoorMap = dict[str, tuple[np.ndarray, float]]
 _ValidFrame = tuple[int, _FieldFrame]
 
 
-def _cell_extent(
-    origin_m: float, cells: int, cell_m: float, source_res_m: float
-) -> tuple[float, float]:
+def _cell_extent(origin_m: float, cells: int, cell_m: float, source_res_m: float) -> tuple[float, float]:
     """Edges of one grid axis starting half a source cell below the origin."""
     lower = origin_m - source_res_m / 2
     return lower, lower + cells * cell_m
@@ -113,28 +111,17 @@ def _downsample_scene(
     """Downsample occupancy and door masks together, keeping the effective cell size."""
     grid_ds = downsample_occupancy(grid, downsample) if downsample > 1 else grid
     eff_res_m = resolution_m * downsample if downsample > 1 else resolution_m
-    doors_ds = (
-        {
-            name: (downsample_mask(mask, downsample), tl_db)
-            for name, (mask, tl_db) in doors.items()
-        }
-        if doors
-        else {}
-    )
+    doors_ds = {name: (downsample_mask(mask, downsample), tl_db) for name, (mask, tl_db) in doors.items()} if doors else {}
     return grid_ds, eff_res_m, doors_ds
 
 
-def _masked_render_grid(
-    grid: np.ndarray, field_dba: np.ndarray, open_door_mask: np.ndarray
-) -> np.ndarray:
+def _masked_render_grid(grid: np.ndarray, field_dba: np.ndarray, open_door_mask: np.ndarray) -> np.ndarray:
     """Field with walls and unmeasured cells blanked, flipped for origin="upper"."""
     wall_or_closed = (grid == 1) & ~open_door_mask
     return np.flipud(np.where(wall_or_closed | np.isinf(field_dba), np.nan, field_dba))
 
 
-def _draw_wall_contour(
-    ax: typing.Any, cx: np.ndarray, cy: np.ndarray, wall_outline: np.ndarray
-) -> None:
+def _draw_wall_contour(ax: typing.Any, cx: np.ndarray, cy: np.ndarray, wall_outline: np.ndarray) -> None:
     """Outline the occupancy walls on a field axes."""
     ax.contour(
         cx,
@@ -255,32 +242,27 @@ class AcousticFieldRenderer(BasePlotRenderer):
     """Renders 2D barrier-aware acoustic propagation fields."""
 
     PLOT_TYPE = "acoustic_field"
-    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = (
-        BasePlotRenderer.SUPPORTED_OPTIONS
-        | frozenset(
-            {
-                "include_reference",
-                "downsample",
-                "vmin",
-                "vmax",
-                "mode",
-                "overlay_trajectories",
-                "fps",
-                "max_frames",
-                "stride",
-                "dpi",
-                "robot_trail",
-                "show_doors",
-                "format",
-                "per_episode",
-            }
-        )
+    SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | frozenset(
+        {
+            "include_reference",
+            "downsample",
+            "vmin",
+            "vmax",
+            "mode",
+            "overlay_trajectories",
+            "fps",
+            "max_frames",
+            "stride",
+            "dpi",
+            "robot_trail",
+            "show_doors",
+            "format",
+            "per_episode",
+        }
     )
 
     @staticmethod
-    def load_grid_and_meta(
-        world_name: str, run_dir: pathlib.Path | None = None
-    ) -> tuple[np.ndarray, dict[str, typing.Any]]:
+    def load_grid_and_meta(world_name: str, run_dir: pathlib.Path | None = None) -> tuple[np.ndarray, dict[str, typing.Any]]:
         """Occupancy grid and geometry of a world; raises MetricInputError if missing."""
         barrier = load_barrier_map(world_name, run_dir=run_dir)
         meta: dict[str, typing.Any] = {
@@ -290,9 +272,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         }
         return barrier.occupancy, meta
 
-    def _load_scene(
-        self, work_df: pl.DataFrame, *, default_downsample: int = 1
-    ) -> _FieldScene | None:
+    def _load_scene(self, work_df: pl.DataFrame, *, default_downsample: int = 1) -> _FieldScene | None:
         """World grid plus parsed field options; None when the frame declares no world."""
         world_name = work_df["world"][0] if "world" in work_df.schema else None
         if not world_name:
@@ -319,11 +299,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
     ) -> bool:
         """Render one worst-exposure row through the shared cell request."""
         door_states = worst.get("door_states") or {}
-        open_doors = (
-            frozenset(name for name, state in door_states.items() if state == "open")
-            if scene.doors
-            else None
-        )
+        open_doors = frozenset(name for name, state in door_states.items() if state == "open") if scene.doors else None
         overlay_trajectories = self._overlay_trajectories()
         return self.render_cell_png(
             CellRenderRequest(
@@ -341,11 +317,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 open_doors=open_doors,
                 doors=scene.doors,
                 overlay_trajectories=overlay_trajectories,
-                trajectory_data=(
-                    self._cell_trajectories(worst, work_df)
-                    if overlay_trajectories
-                    else None
-                ),
+                trajectory_data=(self._cell_trajectories(worst, work_df) if overlay_trajectories else None),
             )
         )
 
@@ -358,15 +330,9 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         ox, oy = request.origin_m
         rx_m, ry_m = request.robot_xy_m
-        grid_eval, eff_res, doors_eval = _downsample_scene(
-            request.grid, request.resolution_m, request.doors, request.downsample
-        )
+        grid_eval, eff_res, doors_eval = _downsample_scene(request.grid, request.resolution_m, request.doors, request.downsample)
 
-        pixel_tl = (
-            build_pixel_tl(grid_eval, doors_eval, open_doors=request.open_doors)
-            if doors_eval
-            else None
-        )
+        pixel_tl = build_pixel_tl(grid_eval, doors_eval, open_doors=request.open_doors) if doors_eval else None
         h, w = grid_eval.shape
         att_grid = compute_acoustic_field(
             grid_eval,
@@ -483,14 +449,8 @@ class AcousticFieldRenderer(BasePlotRenderer):
         peds: list[tuple[float, float]] = []
         door_states: dict[str, str] = {}
 
-        if (
-            (rx is None or ry is None or src_dba is None)
-            and self.run_dir is not None
-            and ep_id is not None
-        ):
-            ep_df = self.load_episode_data(
-                pathlib.Path(self.run_dir), f"episode_{int(ep_id):03d}"
-            )
+        if (rx is None or ry is None or src_dba is None) and self.run_dir is not None and ep_id is not None:
+            ep_df = self.load_episode_data(pathlib.Path(self.run_dir), f"episode_{int(ep_id):03d}")
             if ep_df is not None and not ep_df.is_empty():
                 if t_ns is not None:
                     frame_idx = int((ep_df["t_ns"] - int(t_ns)).abs().arg_min() or 0)
@@ -509,24 +469,15 @@ class AcousticFieldRenderer(BasePlotRenderer):
                     t_ns = ep_row.get("t_ns")
                 peds = self.parse_pedestrian_positions(ep_row.get("peds_positions"))
                 if t_ns is not None:
-                    timeline = self.load_door_timeline(
-                        pathlib.Path(self.run_dir), int(ep_id)
-                    )
+                    timeline = self.load_door_timeline(pathlib.Path(self.run_dir), int(ep_id))
                     if timeline is not None:
-                        door_states = {
-                            name: "open" for name in timeline.open_doors_at(int(t_ns))
-                        }
+                        door_states = {name: "open" for name in timeline.open_doors_at(int(t_ns))}
 
         if rx is None or ry is None:
             return None
         if src_dba is None or not np.isfinite(float(src_dba)):
-            episode = (
-                f"episode_{int(ep_id):03d}" if ep_id is not None else "the plot frame"
-            )
-            raise MetricInputError(
-                f"{self.PLOT_TYPE}: {episode} has no recorded "
-                f"{ROBOT_ACOUSTICS_TOPIC} total_level_af_dba; refusing to invent a source level."
-            )
+            episode = f"episode_{int(ep_id):03d}" if ep_id is not None else "the plot frame"
+            raise MetricInputError(f"{self.PLOT_TYPE}: {episode} has no recorded {ROBOT_ACOUSTICS_TOPIC} total_level_af_dba; refusing to invent a source level.")
 
         return {
             "robot_x": float(rx),
@@ -543,27 +494,15 @@ class AcousticFieldRenderer(BasePlotRenderer):
     def _prepared_df(self, df: pl.DataFrame) -> pl.DataFrame:
         include_ref = bool(self.spec.options.get("include_reference", False))
         if not include_ref and "is_reference" in df.schema:
-            return df.filter(
-                pl.col("is_reference").is_null() | (~pl.col("is_reference"))
-            )
+            return df.filter(pl.col("is_reference").is_null() | (~pl.col("is_reference")))
         return df
 
-    def _facet_cells(
-        self, work_df: pl.DataFrame
-    ) -> tuple[list[tuple[dict[str, typing.Any], str, str]], int]:
+    def _facet_cells(self, work_df: pl.DataFrame) -> tuple[list[tuple[dict[str, typing.Any], str, str]], int]:
         """Worst row per non-empty facet cell plus the facet grid's column count."""
         row_col = self.resolve_channel("facet_row")
         col_col = self.resolve_channel("facet_col")
-        row_values = (
-            list(dict.fromkeys(label_values(work_df, row_col).tolist()))
-            if row_col is not None
-            else [""]
-        )
-        col_values = (
-            list(dict.fromkeys(label_values(work_df, col_col).tolist()))
-            if col_col is not None
-            else [""]
-        )
+        row_values = list(dict.fromkeys(label_values(work_df, row_col).tolist())) if row_col is not None else [""]
+        col_values = list(dict.fromkeys(label_values(work_df, col_col).tolist())) if col_col is not None else [""]
         entries: list[tuple[dict[str, typing.Any], str, str]] = []
         for row_value in row_values:
             for col_value in col_values:
@@ -595,11 +534,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             return ""
 
         mode = str(self.spec.options.get("mode", "grid")).lower()
-        plots_dir = (
-            pathlib.Path(self.run_dir) / "plots"
-            if self.run_dir
-            else pathlib.Path("plots")
-        )
+        plots_dir = pathlib.Path(self.run_dir) / "plots" if self.run_dir else pathlib.Path("plots")
 
         if mode == "single":
             worst = self.pick_worst_row(work_df)
@@ -620,12 +555,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             )
             if not ok:
                 return ""
-            return (
-                f'<div style="text-align:center;">'
-                f'<img src="plots/{png_path.name}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}">'
-                f'<br><span style="font-size:0.78em;color:#475569;">'
-                f"{row_label} / {col_label} &mdash; {exposure:.0f} dBA</span></div>"
-            )
+            return f'<div style="text-align:center;"><img src="plots/{png_path.name}" style="max-width:100%;border-radius:4px;" alt="{self.spec.title}"><br><span style="font-size:0.78em;color:#475569;">{row_label} / {col_label} &mdash; {exposure:.0f} dBA</span></div>'
 
         entries, ncols = self._facet_cells(work_df)
         if not entries:
@@ -669,11 +599,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         ncols = max(ncols, 1)
         html = f'<div style="display:grid;grid-template-columns:repeat({ncols},1fr);gap:12px;margin-top:8px;">'
         for c in cells:
-            html += (
-                f'<div style="text-align:center;font-size:0.78em;color:#475569;">'
-                f'<img src="{c["img_rel_path"]}" style="width:100%;border-radius:4px;" alt="{c["row_val"]}/{c["col_label"]}">'
-                f"<br>{c['row_val']} / {c['col_label']} - {c['exposure']:.0f} dBA</div>"
-            )
+            html += f'<div style="text-align:center;font-size:0.78em;color:#475569;"><img src="{c["img_rel_path"]}" style="width:100%;border-radius:4px;" alt="{c["row_val"]}/{c["col_label"]}"><br>{c['row_val']} / {c['col_label']} - {c['exposure']:.0f} dBA</div>'
         html += "</div>"
         return html
 
@@ -690,9 +616,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         scene = self._load_scene(work_df)
         if scene is None:
-            raise MetricInputError(
-                f"{self.PLOT_TYPE}: the plot frame declares no world."
-            )
+            raise MetricInputError(f"{self.PLOT_TYPE}: the plot frame declares no world.")
 
         worst = self.pick_worst_row(work_df)
         if worst is None:
@@ -726,18 +650,12 @@ class AcousticFieldRenderer(BasePlotRenderer):
     def _overlay_trajectories(self) -> bool:
         return bool(self.spec.options.get("overlay_trajectories"))
 
-    def _cell_trajectories(
-        self, worst: dict[str, typing.Any], work_df: pl.DataFrame
-    ) -> dict[str, typing.Any]:
+    def _cell_trajectories(self, worst: dict[str, typing.Any], work_df: pl.DataFrame) -> dict[str, typing.Any]:
         ep_val = worst.get("episode_id")
         if ep_val is not None and self.run_dir:
-            ep_df = self.load_episode_data(
-                pathlib.Path(self.run_dir), f"episode_{int(ep_val):03d}"
-            )
+            ep_df = self.load_episode_data(pathlib.Path(self.run_dir), f"episode_{int(ep_val):03d}")
             if ep_df is not None:
-                return self.trajectory_data(
-                    ep_df, run_dir=self.run_dir, episode_id=ep_val
-                )
+                return self.trajectory_data(ep_df, run_dir=self.run_dir, episode_id=ep_val)
         return self.trajectory_data(work_df, run_dir=self.run_dir, episode_id=ep_val)
 
     @staticmethod
@@ -766,9 +684,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 rx_clean = rx[valid]
                 ry_clean = ry[valid]
                 traj_data["robot_path"] = (rx_clean, ry_clean)
-                traj_data["robot_start"] = _first_xy(
-                    df, schema, "start", "start_pos"
-                ) or (float(rx_clean[0]), float(ry_clean[0]))
+                traj_data["robot_start"] = _first_xy(df, schema, "start", "start_pos") or (float(rx_clean[0]), float(ry_clean[0]))
                 traj_data["robot_goal"] = _first_xy(df, schema, "goal", "goal_pos") or (
                     float(rx_clean[-1]),
                     float(ry_clean[-1]),
@@ -779,34 +695,19 @@ class AcousticFieldRenderer(BasePlotRenderer):
             if len(coll_df) > 0:
                 cx = coll_df[rx_col][0]
                 cy = coll_df[ry_col][0]
-                if (
-                    cx is not None
-                    and cy is not None
-                    and not np.isnan(cx)
-                    and not np.isnan(cy)
-                ):
+                if cx is not None and cy is not None and not np.isnan(cx) and not np.isnan(cy):
                     traj_data["collision_pos"] = (float(cx), float(cy))
 
         ped_trajs: dict[int, list[tuple[float, float]]] = {}
         if df is not None and len(df) > 0:
             if "pedestrian_path" in schema:
-                ped_trajs = AcousticFieldRenderer._ped_tracks_from_paths(
-                    df["pedestrian_path"][0]
-                )
+                ped_trajs = AcousticFieldRenderer._ped_tracks_from_paths(df["pedestrian_path"][0])
             if not ped_trajs:
-                peds_col = (
-                    "peds_positions"
-                    if "peds_positions" in schema
-                    else ("peds" if "peds" in schema else None)
-                )
+                peds_col = "peds_positions" if "peds_positions" in schema else ("peds" if "peds" in schema else None)
                 if peds_col:
-                    ped_trajs = AcousticFieldRenderer._ped_tracks_from_positions(
-                        list(df[peds_col])
-                    )
+                    ped_trajs = AcousticFieldRenderer._ped_tracks_from_positions(list(df[peds_col]))
         if not ped_trajs and run_dir is not None and episode_id is not None:
-            ped_trajs = AcousticFieldRenderer._ped_tracks_from_catalog(
-                pathlib.Path(run_dir), episode_id
-            )
+            ped_trajs = AcousticFieldRenderer._ped_tracks_from_catalog(pathlib.Path(run_dir), episode_id)
 
         traj_data["ped_trajectories"] = ped_trajs
         ped_wps = {}
@@ -946,11 +847,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 continue
             arr = np.array(p_arr)
             if arr.ndim == 2 and arr.shape[1] >= 2:
-                pts = [
-                    (float(pt[0]), float(pt[1]))
-                    for pt in arr
-                    if not np.isnan(pt[0]) and not np.isnan(pt[1])
-                ]
+                pts = [(float(pt[0]), float(pt[1])) for pt in arr if not np.isnan(pt[0]) and not np.isnan(pt[1])]
                 if pts:
                     tracks[k] = pts
         return tracks
@@ -964,54 +861,27 @@ class AcousticFieldRenderer(BasePlotRenderer):
             if frame_raw is None or len(frame_raw) == 0:
                 frames.append([])
             elif isinstance(frame_raw[0], (list, tuple, np.ndarray)):
-                frames.append(
-                    [[float(p[0]), float(p[1])] for p in frame_raw if len(p) >= 2]
-                )
+                frames.append([[float(p[0]), float(p[1])] for p in frame_raw if len(p) >= 2])
             elif isinstance(frame_raw[0], dict):
-                frames.append(
-                    [
-                        [float(p["x"]), float(p["y"])]
-                        for p in frame_raw
-                        if "x" in p and "y" in p
-                    ]
-                )
+                frames.append([[float(p["x"]), float(p["y"])] for p in frame_raw if "x" in p and "y" in p])
             else:
                 stride = 3 if len(frame_raw) % 3 == 0 and len(frame_raw) >= 3 else 2
-                frames.append(
-                    [
-                        [float(frame_raw[j]), float(frame_raw[j + 1])]
-                        for j in range(0, len(frame_raw) - 1, stride)
-                    ]
-                )
+                frames.append([[float(frame_raw[j]), float(frame_raw[j + 1])] for j in range(0, len(frame_raw) - 1, stride)])
         tracks: dict[int, list[tuple[float, float]]] = {}
         for p_idx in range(max((len(f) for f in frames), default=0)):
-            pts = [
-                (f[p_idx][0], f[p_idx][1])
-                for f in frames
-                if len(f) > p_idx
-                and not np.isnan(f[p_idx][0])
-                and not np.isnan(f[p_idx][1])
-            ]
+            pts = [(f[p_idx][0], f[p_idx][1]) for f in frames if len(f) > p_idx and not np.isnan(f[p_idx][0]) and not np.isnan(f[p_idx][1])]
             if len(pts) > 1:
                 tracks[p_idx] = pts
         return tracks
 
     @staticmethod
-    def _ped_tracks_from_catalog(
-        benchmark_dir: pathlib.Path, episode_id: str | int
-    ) -> dict[int, list[tuple[float, float]]]:
+    def _ped_tracks_from_catalog(benchmark_dir: pathlib.Path, episode_id: str | int) -> dict[int, list[tuple[float, float]]]:
         catalog = BenchmarkCatalog.open(benchmark_dir)
         names = set(catalog.table_names())
         if "pedestrian_arena_peds" not in names:
             return {}
         ep_num = episode_number(episode_id)
-        p_df = (
-            catalog.get_table("pedestrian_arena_peds")
-            .filter(pl.col("episode_id") == ep_num)
-            .select(["t_ns", "ped_id", "x", "y"])
-            .sort("t_ns")
-            .collect()
-        )
+        p_df = catalog.get_table("pedestrian_arena_peds").filter(pl.col("episode_id") == ep_num).select(["t_ns", "ped_id", "x", "y"]).sort("t_ns").collect()
         if p_df.is_empty():
             return {}
         parts = p_df.partition_by("ped_id", maintain_order=True)
@@ -1025,27 +895,19 @@ class AcousticFieldRenderer(BasePlotRenderer):
         return tracks
 
     @staticmethod
-    def load_door_timeline(
-        benchmark_dir: pathlib.Path, episode_id: str | int
-    ) -> DoorStateTimeline | None:
+    def load_door_timeline(benchmark_dir: pathlib.Path, episode_id: str | int) -> DoorStateTimeline | None:
         """Door-state timeline of one episode, None when its world semantics were not recorded."""
         catalog = BenchmarkCatalog.open(benchmark_dir)
         if "world_semantics" not in catalog.table_names():
             return None
         ep_num = episode_number(episode_id)
-        sem_df = (
-            catalog.get_table("world_semantics")
-            .filter(pl.col("episode_id") == ep_num)
-            .collect()
-        )
+        sem_df = catalog.get_table("world_semantics").filter(pl.col("episode_id") == ep_num).collect()
         if sem_df.is_empty():
             return None
         return DoorStateTimeline.from_semantic_frame(sem_df)
 
     @staticmethod
-    def load_episode_data(
-        benchmark_dir: pathlib.Path, episode_id: str | int
-    ) -> pl.DataFrame | None:
+    def load_episode_data(benchmark_dir: pathlib.Path, episode_id: str | int) -> pl.DataFrame | None:
         """Episode telemetry aligned to ground-truth pose by the processing alignment module."""
         return load_aligned_episode(benchmark_dir, episode_id)
 
@@ -1063,9 +925,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         max_frames: int = 120,
     ) -> list[_FieldFrame | None]:
         """Compute the 2D acoustic field for a sequence of episode frames."""
-        grid, resolution, doors_ds = _downsample_scene(
-            grid, resolution, doors, downsample
-        )
+        grid, resolution, doors_ds = _downsample_scene(grid, resolution, doors, downsample)
         h, w = grid.shape
         indices = _sampled_indices(len(df), stride, max_frames)
 
@@ -1092,11 +952,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
             rx_px = (float(rx_m) - ox) / resolution
             ry_px = (float(ry_m) - oy) / resolution
-            open_set = (
-                state_timeline.open_doors_at(t_ns)
-                if state_timeline is not None
-                else frozenset()
-            )
+            open_set = state_timeline.open_doors_at(t_ns) if state_timeline is not None else frozenset()
             tl_key = tuple(sorted(open_set))
             pixel_tl = tl_cache.get(tl_key)
             if pixel_tl is None:
@@ -1116,10 +972,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             results.append((field_dba, resolution, (h, w), open_set, float(source_dba)))
 
         if missing_source:
-            self.add_notice(
-                "acoustic_field: frames without a recorded "
-                f"{ROBOT_ACOUSTICS_TOPIC} source level were skipped"
-            )
+            self.add_notice(f"acoustic_field: frames without a recorded {ROBOT_ACOUSTICS_TOPIC} source level were skipped")
         return results
 
     def render_animation(
@@ -1158,17 +1011,13 @@ class AcousticFieldRenderer(BasePlotRenderer):
             stride=stride,
             max_frames=max_frames,
         )
-        valid = [
-            (index, field) for index, field in enumerate(fields) if field is not None
-        ]
+        valid = [(index, field) for index, field in enumerate(fields) if field is not None]
         if not valid:
             return None
         if vmin is None:
             vmin = _FIELD_VMIN_DBA
         if vmax is None:
-            field_maxima = np.sort(
-                np.array([np.nanmax(field[0]) for _, field in valid], dtype=float)
-            )
+            field_maxima = np.sort(np.array([np.nanmax(field[0]) for _, field in valid], dtype=float))
             p99_idx = int(0.99 * (len(field_maxima) - 1))
             all_max = float(field_maxima[p99_idx]) if len(field_maxima) > 0 else vmin
             vmax = _ceil_color_scale(all_max, vmin)
@@ -1262,16 +1111,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
         wall_outline = (grid_ds == 1).astype(np.uint8)
         _draw_wall_contour(ax, cx, cy, wall_outline)
 
-        open_door_contour = (
-            _draw_door_contours(ax, cx, cy, door_mask_all, open_door_masks[0])
-            if show_doors
-            else None
-        )
+        open_door_contour = _draw_door_contours(ax, cx, cy, door_mask_all, open_door_masks[0]) if show_doors else None
 
         if overlay_trajectories:
-            self._draw_trajectories_overlay(
-                ax, self.trajectory_data(df, run_dir=self.run_dir)
-            )
+            self._draw_trajectories_overlay(ax, self.trajectory_data(df, run_dir=self.run_dir))
 
         (robot_dot,) = ax.plot(
             [],
@@ -1356,9 +1199,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         collision_per_frame: list[bool] = []
         for orig_idx, _ in valid:
             row = rows[min(indices[orig_idx], total_rows - 1)]
-            peds_per_frame.append(
-                self.parse_pedestrian_positions(row.get("peds_positions"))
-            )
+            peds_per_frame.append(self.parse_pedestrian_positions(row.get("peds_positions")))
             collision_per_frame.append(row.get("has_collision") is True)
         return _AnimationFrames(
             rows=rows,
@@ -1420,9 +1261,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
             robot_ys.append(ry_m)
 
             if layers.trail_line is not None:
-                layers.trail_line.set_data(
-                    robot_xs[-robot_trail:], robot_ys[-robot_trail:]
-                )
+                layers.trail_line.set_data(robot_xs[-robot_trail:], robot_ys[-robot_trail:])
 
             peds = frames.peds_per_frame[rg_idx]
             if peds:
@@ -1449,10 +1288,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 )
 
             collision_label = " COLLISION!" if is_collision else ""
-            layers.title_text.set_text(
-                f"t={row.get('t_ns', 0) / 1e9:.1f}s  |  source={source_dba:.0f} dBA  |  "
-                f"{len(open_set)} doors open{collision_label}"
-            )
+            layers.title_text.set_text(f"t={row.get('t_ns', 0) / 1e9:.1f}s  |  source={source_dba:.0f} dBA  |  {len(open_set)} doors open{collision_label}")
             artists: list[Artist] = [
                 layers.im,
                 layers.robot_dot,
@@ -1505,10 +1341,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
 
         if output_format == "mp4":
             if not animation.FFMpegWriter.isAvailable():
-                raise MetricInputError(
-                    "acoustic_field_animation: mp4 output needs ffmpeg on PATH; "
-                    "install ffmpeg or request --format gif."
-                )
+                raise MetricInputError("acoustic_field_animation: mp4 output needs ffmpeg on PATH; install ffmpeg or request --format gif.")
             anim.save(str(out_path), writer="ffmpeg", fps=fps, dpi=dpi)
         else:
             anim.save(str(out_path), writer="pillow", fps=fps, dpi=dpi)
@@ -1533,11 +1366,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         import matplotlib.pyplot as plt
 
         field_dba, _, _, open_set, source_dba = field_data
-        open_dm = (
-            layers.open_door_masks[frame_index]
-            if show_doors
-            else np.zeros((layers.h, layers.w), dtype=bool)
-        )
+        open_dm = layers.open_door_masks[frame_index] if show_doors else np.zeros((layers.h, layers.w), dtype=bool)
         rg = _masked_render_grid(layers.grid_ds, field_dba, open_dm)
 
         fig_frame, ax_frame = plt.subplots(figsize=_CELL_FIGSIZE)
@@ -1580,15 +1409,10 @@ class AcousticFieldRenderer(BasePlotRenderer):
                 label="Peds",
             )
         if show_doors:
-            _draw_door_contours(
-                ax_frame, layers.cx, layers.cy, layers.door_mask_all, open_dm
-            )
-        collision_label = (
-            "  COLLISION!" if frames.collision_per_frame[frame_index] else ""
-        )
+            _draw_door_contours(ax_frame, layers.cx, layers.cy, layers.door_mask_all, open_dm)
+        collision_label = "  COLLISION!" if frames.collision_per_frame[frame_index] else ""
         ax_frame.set_title(
-            f"t={float(row.get('t_ns', 0)) / 1e9:.1f}s | src={source_dba:.0f} dBA | "
-            f"{len(open_set)} doors open{collision_label}",
+            f"t={float(row.get('t_ns', 0)) / 1e9:.1f}s | src={source_dba:.0f} dBA | {len(open_set)} doors open{collision_label}",
             fontsize=8,
         )
         ax_frame.set_xlabel("X (m)", fontsize=7)
@@ -1613,9 +1437,7 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             return
         scene = self._load_scene(work_df, default_downsample=2)
         if scene is None:
-            raise MetricInputError(
-                "acoustic_field_animation: the plot frame declares no world."
-            )
+            raise MetricInputError("acoustic_field_animation: the plot frame declares no world.")
 
         fps = int(self.spec.options.get("fps", 10))
         max_frames = int(self.spec.options.get("max_frames", 120))
@@ -1627,9 +1449,7 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
         artefact_path = self._animation_artefact_path(out_path, output_format)
         episode_ids = self._animation_episode_ids(work_df)
         if not episode_ids:
-            raise MetricInputError(
-                "acoustic_field_animation: the plot frame has no episode_id."
-            )
+            raise MetricInputError("acoustic_field_animation: the plot frame has no episode_id.")
 
         static_written = False
         for episode_id in episode_ids:
@@ -1639,13 +1459,7 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             if episode_df is None:
                 continue
             state_timeline = self.load_door_timeline(benchmark_dir, int(episode_id))
-            target = (
-                out_path.with_name(
-                    f"{out_path.stem}_{episode_dir_name}.{output_format}"
-                )
-                if per_episode
-                else artefact_path
-            )
+            target = out_path.with_name(f"{out_path.stem}_{episode_dir_name}.{output_format}") if per_episode else artefact_path
             result = self.render_animation(
                 episode_df,
                 scene.grid,
@@ -1665,23 +1479,16 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
                 show_doors=bool(scene.doors),
                 format=output_format,
                 overlay_trajectories=self._overlay_trajectories(),
-                first_frame_path=(
-                    out_path if static_image and not static_written else None
-                ),
+                first_frame_path=(out_path if static_image and not static_written else None),
             )
             if result is not None and static_image:
                 static_written = True
 
         if static_image and not static_written:
-            raise MetricInputError(
-                "acoustic_field_animation: no recorded acoustic field frame for "
-                f"{work_df['world'][0]}; the static report image cannot be rendered."
-            )
+            raise MetricInputError(f"acoustic_field_animation: no recorded acoustic field frame for {work_df['world'][0]}; the static report image cannot be rendered.")
 
     @staticmethod
-    def _animation_artefact_path(
-        out_path: pathlib.Path, output_format: str
-    ) -> pathlib.Path:
+    def _animation_artefact_path(out_path: pathlib.Path, output_format: str) -> pathlib.Path:
         """The animation artefact path a static output path implies."""
         if output_format == "frames":
             return out_path.with_suffix("") if out_path.suffix else out_path
@@ -1690,31 +1497,19 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
     def _animation_episode_ids(self, work_df: pl.DataFrame) -> list[int]:
         """Episodes to animate: every row when per_episode, else the worst-exposure episode."""
         if "episode_id" not in work_df.schema:
-            raise MetricInputError(
-                "acoustic_field_animation: the plot frame must carry an episode_id column."
-            )
+            raise MetricInputError("acoustic_field_animation: the plot frame must carry an episode_id column.")
         if bool(self.spec.options.get("per_episode", False)):
             return sorted(int(value) for value in work_df["episode_id"].unique())
         if "ped_max_exposure_dba" in work_df.schema:
             measured = work_df.filter(pl.col("ped_max_exposure_dba").is_not_null())
             if not measured.is_empty():
-                return [
-                    int(
-                        measured.sort("ped_max_exposure_dba", descending=True).row(
-                            0, named=True
-                        )["episode_id"]
-                    )
-                ]
-        self.add_notice(
-            "acoustic_field_animation: no pedestrian exposure row; animating the first episode."
-        )
+                return [int(measured.sort("ped_max_exposure_dba", descending=True).row(0, named=True)["episode_id"])]
+        self.add_notice("acoustic_field_animation: no pedestrian exposure row; animating the first episode.")
         return [int(work_df["episode_id"][0])]
 
     def _episode_benchmark_dir(self, episode_dir_name: str) -> pathlib.Path:
         """The benchmark root holding an episode directory, searched up from the run dir."""
-        benchmark_dir = (
-            pathlib.Path(self.run_dir) if self.run_dir else pathlib.Path(".")
-        )
+        benchmark_dir = pathlib.Path(self.run_dir) if self.run_dir else pathlib.Path(".")
         if (benchmark_dir / "episodes" / episode_dir_name).is_dir():
             return benchmark_dir
         for parent in benchmark_dir.parents:
@@ -1746,14 +1541,8 @@ class AcousticFieldAnimationRenderer(AcousticFieldRenderer):
             for ep_id in ep_ids:
                 rel = f"plots/{self.spec.id}_episode_{ep_id:03d}.{output_format}"
                 caption = f"{self.spec.title} - episode_{ep_id:03d}"
-                chunks.append(
-                    f'<div style="text-align:center;">{_media(rel)}<br>'
-                    f'<span style="font-size:0.78em;color:#475569;">{caption}</span></div>'
-                )
+                chunks.append(f'<div style="text-align:center;">{_media(rel)}<br><span style="font-size:0.78em;color:#475569;">{caption}</span></div>')
             return chunks
 
         rel = f"plots/{self.spec.id}.{output_format}"
-        return (
-            f'<div style="text-align:center;">{_media(rel)}<br>'
-            f'<span style="font-size:0.78em;color:#475569;">{self.spec.title}</span></div>'
-        )
+        return f'<div style="text-align:center;">{_media(rel)}<br><span style="font-size:0.78em;color:#475569;">{self.spec.title}</span></div>'

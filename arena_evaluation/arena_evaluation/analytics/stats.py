@@ -206,18 +206,12 @@ class _ClusterBootstrap:
     n_boot: int
     rng: np.random.Generator
 
-    def interval(
-        self, ci_level: float
-    ) -> tuple[int, int, float, float, float, float, float, float]:
+    def interval(self, ci_level: float) -> tuple[int, int, float, float, float, float, float, float]:
         """Point estimate, SE, percentile CI, and basic CI for this cluster partition."""
         n_clusters = len(self.sums)
         n_obs = int(np.sum(self.counts))
         total_count = float(np.sum(self.counts))
-        estimate = (
-            float(np.sum(self.sums) / total_count)
-            if total_count > 0.0
-            else float("nan")
-        )
+        estimate = float(np.sum(self.sums) / total_count) if total_count > 0.0 else float("nan")
         if n_clusters == 1:
             return (
                 n_obs,
@@ -231,9 +225,7 @@ class _ClusterBootstrap:
             )
 
         alpha = 1.0 - ci_level
-        boot_means = cluster_bootstrap_means(
-            self.sums, self.counts, n_boot=self.n_boot, rng=self.rng
-        )
+        boot_means = cluster_bootstrap_means(self.sums, self.counts, n_boot=self.n_boot, rng=self.rng)
         finite_means = boot_means[np.isfinite(boot_means)]
         if finite_means.size == 0:
             nan = float("nan")
@@ -288,9 +280,7 @@ def cluster_bootstrap_ci(
     source = _to_lazy(frame)
     total_rows = source.select(pl.len()).collect().item()
     cluster_df = (
-        source.filter(
-            pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null()
-        )
+        source.filter(pl.col(metric_col).is_not_null() & pl.col(cluster_col).is_not_null())
         .group_by(cluster_agg_cols)
         .agg(
             cluster_sum=pl.col(metric_col).cast(pl.Float64).sum(),
@@ -308,15 +298,9 @@ def cluster_bootstrap_ci(
     )
     if cluster_df.is_empty():
         return pl.DataFrame(schema=out_schema)
-    dropped_rows = int(total_rows) - int(
-        cluster_df.select(pl.col("cluster_count").sum()).item()
-    )
+    dropped_rows = int(total_rows) - int(cluster_df.select(pl.col("cluster_count").sum()).item())
 
-    partitions = (
-        cluster_df.partition_by(group_list, maintain_order=True)
-        if group_list
-        else [cluster_df]
-    )
+    partitions = cluster_df.partition_by(group_list, maintain_order=True) if group_list else [cluster_df]
     rng = np.random.default_rng(random_seed)
     rows: list[dict[str, object]] = []
     for part_df in partitions:
@@ -376,17 +360,11 @@ def cluster_bootstrap_p_value(
     ).p_value(observed)
 
 
-def _build_paired_diff_result(
-    fields: dict[str, object], pairs_df: pl.DataFrame
-) -> PairedDiffResult:
+def _build_paired_diff_result(fields: dict[str, object], pairs_df: pl.DataFrame) -> PairedDiffResult:
     """Build the scalar summary row and typed result from one field mapping."""
     row = {**fields}
     row["metric"] = row.pop("metric_col")
-    row["cohens_dz_null_reason"] = (
-        None
-        if fields["cohens_dz"] is not None or fields["n_pairs"] == 0
-        else f"std_diff:{NullReason.ZERO_DENOMINATOR.value}"
-    )
+    row["cohens_dz_null_reason"] = None if fields["cohens_dz"] is not None or fields["n_pairs"] == 0 else f"std_diff:{NullReason.ZERO_DENOMINATOR.value}"
     summary = pl.DataFrame([row], schema=PAIRED_DIFF_SUMMARY_SCHEMA)
     return PairedDiffResult(**fields, pairs_frame=pairs_df, summary_frame=summary)
 
@@ -411,27 +389,10 @@ def paired_treatment_diff(
     if not pair_list:
         raise ValueError("pair_cols must contain at least one blocking column.")
 
-    cell_means = (
-        _to_lazy(frame)
-        .filter(
-            pl.col(treatment_col).is_in([treatment_a, treatment_b])
-            & pl.col(metric_col).is_not_null()
-        )
-        .group_by([*pair_list, treatment_col])
-        .agg(cell_value=pl.col(metric_col).cast(pl.Float64).mean())
-    )
-    side_a = cell_means.filter(pl.col(treatment_col) == treatment_a).select(
-        [*pair_list, pl.col("cell_value").alias("value_a")]
-    )
-    side_b = cell_means.filter(pl.col(treatment_col) == treatment_b).select(
-        [*pair_list, pl.col("cell_value").alias("value_b")]
-    )
-    pairs_df = (
-        side_a.join(side_b, on=pair_list, how="inner")
-        .with_columns(diff=pl.col("value_a") - pl.col("value_b"))
-        .sort(pair_list)
-        .collect()
-    )
+    cell_means = _to_lazy(frame).filter(pl.col(treatment_col).is_in([treatment_a, treatment_b]) & pl.col(metric_col).is_not_null()).group_by([*pair_list, treatment_col]).agg(cell_value=pl.col(metric_col).cast(pl.Float64).mean())
+    side_a = cell_means.filter(pl.col(treatment_col) == treatment_a).select([*pair_list, pl.col("cell_value").alias("value_a")])
+    side_b = cell_means.filter(pl.col(treatment_col) == treatment_b).select([*pair_list, pl.col("cell_value").alias("value_b")])
+    pairs_df = side_a.join(side_b, on=pair_list, how="inner").with_columns(diff=pl.col("value_a") - pl.col("value_b")).sort(pair_list).collect()
 
     fields: dict[str, object] = dict.fromkeys(
         (
@@ -496,9 +457,7 @@ def paired_treatment_diff(
         cohens_dz=cohens_dz,
         ci_low=ci_low,
         ci_high=ci_high,
-        p_value=cluster_bootstrap_p_value(
-            c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed
-        ),
+        p_value=cluster_bootstrap_p_value(c_sums, c_cnts, observed=mean_diff, n_boot=n_boot, random_seed=random_seed),
     )
     return _build_paired_diff_result(fields, pairs_df)
 
@@ -515,18 +474,10 @@ def rank_swap_matrix(
     descending = _descending(direction)
     ranked_df = (
         _to_lazy(frame)
-        .filter(
-            pl.col(metric_col).is_not_null()
-            & pl.col(entity_col).is_not_null()
-            & pl.col(regime_col).is_not_null()
-        )
+        .filter(pl.col(metric_col).is_not_null() & pl.col(entity_col).is_not_null() & pl.col(regime_col).is_not_null())
         .group_by(regime_col, entity_col)
         .agg(metric_mean=pl.col(metric_col).cast(pl.Float64).mean())
-        .with_columns(
-            rank=pl.col("metric_mean")
-            .rank(method="average", descending=descending)
-            .over(regime_col)
-        )
+        .with_columns(rank=pl.col("metric_mean").rank(method="average", descending=descending).over(regime_col))
         .sort(regime_col, entity_col)
         .collect()
     )
@@ -544,11 +495,7 @@ def rank_swap_matrix(
     rows: list[dict[str, object]] = []
     for i, reg_a in enumerate(regimes):
         for reg_b in regimes[i + 1 :]:
-            joined = (
-                by_regime[reg_a]
-                .join(by_regime[reg_b], on="entity", how="inner", suffix="_b")
-                .sort("entity")
-            )
+            joined = by_regime[reg_a].join(by_regime[reg_b], on="entity", how="inner", suffix="_b").sort("entity")
             k = joined.height
             total_pairs = k * (k - 1) // 2
             row: dict[str, object] = {
@@ -558,9 +505,7 @@ def rank_swap_matrix(
                 "total_pairs": total_pairs,
             }
             if total_pairs == 0:
-                rows.append(
-                    row | {"swap_count": 0, "swap_rate": 0.0, "kendall_tau": 1.0}
-                )
+                rows.append(row | {"swap_count": 0, "swap_rate": 0.0, "kendall_tau": 1.0})
                 continue
             r_a = joined.get_column("rank").to_numpy().astype(np.float64)
             r_b = joined.get_column("rank_b").to_numpy().astype(np.float64)
@@ -593,11 +538,7 @@ def kendalls_w(
     descending = _descending(direction)
     cell_df = (
         _to_lazy(frame)
-        .filter(
-            pl.col(metric_col).is_not_null()
-            & pl.col(entity_col).is_not_null()
-            & pl.col(judge_col).is_not_null()
-        )
+        .filter(pl.col(metric_col).is_not_null() & pl.col(entity_col).is_not_null() & pl.col(judge_col).is_not_null())
         .group_by(
             pl.col(judge_col).cast(pl.String).alias("judge"),
             pl.col(entity_col).cast(pl.String).alias("entity"),
@@ -621,23 +562,8 @@ def kendalls_w(
         )
 
     total_judges = cell_df.get_column("judge").n_unique()
-    complete_entities = (
-        cell_df.group_by("entity")
-        .agg(j_cnt=pl.col("judge").n_unique())
-        .filter(pl.col("j_cnt") == total_judges)
-        .select("entity")
-    )
-    complete_df = (
-        cell_df.join(complete_entities, on="entity", how="inner")
-        .with_columns(
-            rank=pl.col("metric_mean")
-            .rank(method="average", descending=descending)
-            .over("judge")
-        )
-        .sort("judge", "entity")
-        .select(list(KENDALL_RANKINGS_SCHEMA.names()))
-        .cast(KENDALL_RANKINGS_SCHEMA)
-    )
+    complete_entities = cell_df.group_by("entity").agg(j_cnt=pl.col("judge").n_unique()).filter(pl.col("j_cnt") == total_judges).select("entity")
+    complete_df = cell_df.join(complete_entities, on="entity", how="inner").with_columns(rank=pl.col("metric_mean").rank(method="average", descending=descending).over("judge")).sort("judge", "entity").select(list(KENDALL_RANKINGS_SCHEMA.names())).cast(KENDALL_RANKINGS_SCHEMA)
 
     k = complete_df.get_column("entity").n_unique()
     m = complete_df.get_column("judge").n_unique()
@@ -654,28 +580,14 @@ def kendalls_w(
             df=max(0, k - 1),
             p_value=None,
             rankings_frame=complete_df,
-            note=(
-                f"{m} judge(s) and {k} complete entity(ies) cannot be tested for concordance; "
-                "at least two of each are required"
-            ),
+            note=(f"{m} judge(s) and {k} complete entity(ies) cannot be tested for concordance; at least two of each are required"),
         )
 
-    rank_sums = (
-        complete_df.group_by("entity")
-        .agg(r_sum=pl.col("rank").sum())
-        .sort("entity")
-        .get_column("r_sum")
-        .to_numpy()
-        .astype(np.float64)
-    )
+    rank_sums = complete_df.group_by("entity").agg(r_sum=pl.col("rank").sum()).sort("entity").get_column("r_sum").to_numpy().astype(np.float64)
     mean_r = 0.5 * m * (k + 1)
     s_dev = float(np.sum((rank_sums - mean_r) ** 2))
 
-    tie_groups = (
-        complete_df.group_by("judge", "rank")
-        .agg(t_cnt=pl.len().cast(pl.Int64))
-        .filter(pl.col("t_cnt") > 1)
-    )
+    tie_groups = complete_df.group_by("judge", "rank").agg(t_cnt=pl.len().cast(pl.Int64)).filter(pl.col("t_cnt") > 1)
     tie_sum = 0.0
     if not tie_groups.is_empty():
         t_vals = tie_groups.get_column("t_cnt").to_numpy().astype(np.float64)
@@ -694,9 +606,7 @@ def kendalls_w(
     else:
         # Wilson-Hilferty normal approximation for df > 2
         degrees = float(df)
-        z = (
-            (friedman_chi2 / degrees) ** (1.0 / 3.0) - (1.0 - 2.0 / (9.0 * degrees))
-        ) / math.sqrt(2.0 / (9.0 * degrees))
+        z = ((friedman_chi2 / degrees) ** (1.0 / 3.0) - (1.0 - 2.0 / (9.0 * degrees))) / math.sqrt(2.0 / (9.0 * degrees))
         p_value = float(0.5 * math.erfc(z / math.sqrt(2.0)))
 
     return KendallWResult(
@@ -727,32 +637,15 @@ def split_discovery_verification_seeds(
     instead of returning an empty verification side.
     """
     _require("discovery_fraction", discovery_fraction)
-    distinct_seeds = (
-        _to_lazy(frame).select(pl.col(seed_col).n_unique()).collect().item()
-    )
+    distinct_seeds = _to_lazy(frame).select(pl.col(seed_col).n_unique()).collect().item()
     if int(distinct_seeds) < 2:
-        raise ValueError(
-            f"cannot split {distinct_seeds} distinct seed(s) into discovery and verification cohorts; "
-            "at least two are required"
-        )
+        raise ValueError(f"cannot split {distinct_seeds} distinct seed(s) into discovery and verification cohorts; at least two are required")
 
     is_eager = isinstance(frame, pl.DataFrame)
     seed_rank_0 = pl.col(seed_col).rank(method="dense").cast(pl.Int64) - 1
     n_unique_seeds = pl.col(seed_col).n_unique().cast(pl.Int64)
-    cutoff = (
-        (n_unique_seeds.cast(pl.Float64) * discovery_fraction)
-        .round()
-        .cast(pl.Int64)
-        .clip(1, pl.max_horizontal(pl.lit(1, dtype=pl.Int64), n_unique_seeds - 1))
-    )
-    cohort_expr = (
-        pl.when(pl.col(seed_col).is_null())
-        .then(pl.lit(None, dtype=pl.String))
-        .when(seed_rank_0 < cutoff)
-        .then(pl.lit("discovery"))
-        .otherwise(pl.lit("verification"))
-        .alias(cohort_col)
-    )
+    cutoff = (n_unique_seeds.cast(pl.Float64) * discovery_fraction).round().cast(pl.Int64).clip(1, pl.max_horizontal(pl.lit(1, dtype=pl.Int64), n_unique_seeds - 1))
+    cohort_expr = pl.when(pl.col(seed_col).is_null()).then(pl.lit(None, dtype=pl.String)).when(seed_rank_0 < cutoff).then(pl.lit("discovery")).otherwise(pl.lit("verification")).alias(cohort_col)
     result_lf = _to_lazy(frame).with_columns(cohort_expr)
     return result_lf.collect() if is_eager else result_lf
 
@@ -765,27 +658,19 @@ def _quantile_per_group(values: pl.Expr, quantile: float, groups: list[str]) -> 
     return expr.over(groups) if groups else expr
 
 
-def split_display_outliers(
-    frame: pl.DataFrame, *, value: str, groups: Sequence[str]
-) -> tuple[pl.DataFrame, pl.DataFrame]:
+def split_display_outliers(frame: pl.DataFrame, *, value: str, groups: Sequence[str]) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Split off the rows whose ``value`` lies beyond 1.5 IQR of their group, for drawing only."""
     group_list = list(groups)
     values = pl.col(value).cast(pl.Float64)
     lower_quartile = _quantile_per_group(values, 0.25, group_list)
     upper_quartile = _quantile_per_group(values, 0.75, group_list)
     spread = upper_quartile - lower_quartile
-    beyond = (values < lower_quartile - 1.5 * spread) | (
-        values > upper_quartile + 1.5 * spread
-    )
+    beyond = (values < lower_quartile - 1.5 * spread) | (values > upper_quartile + 1.5 * spread)
     flagged = frame.with_columns(beyond.fill_null(value=False).alias(_BEYOND_FENCE))
     drawn = flagged.filter(~pl.col(_BEYOND_FENCE)).drop(_BEYOND_FENCE)
     if not group_list:
         return drawn, pl.DataFrame({"hidden": [int(flagged[_BEYOND_FENCE].sum())]})
-    hidden = (
-        flagged.group_by(group_list)
-        .agg(pl.col(_BEYOND_FENCE).sum().cast(pl.Int64).alias("hidden"))
-        .sort(group_list)
-    )
+    hidden = flagged.group_by(group_list).agg(pl.col(_BEYOND_FENCE).sum().cast(pl.Int64).alias("hidden")).sort(group_list)
     return drawn, hidden
 
 
@@ -811,9 +696,7 @@ def aggregate_timeseries_band(
 
     binned = frame.select(
         colour_expr,
-        ((pl.col(x_col).cast(pl.Float64) / bin_width_s).round() * bin_width_s).alias(
-            "x"
-        ),
+        ((pl.col(x_col).cast(pl.Float64) / bin_width_s).round() * bin_width_s).alias("x"),
         pl.col(y_col).cast(pl.Float64).fill_nan(None).alias("value"),
     ).drop_nulls(["x", "value"])
     return (
@@ -821,9 +704,7 @@ def aggregate_timeseries_band(
         .agg(
             pl.col("value").mean().alias("mean"),
             pl.col("value").quantile(low_quantile, interpolation="linear").alias("low"),
-            pl.col("value")
-            .quantile(high_quantile, interpolation="linear")
-            .alias("high"),
+            pl.col("value").quantile(high_quantile, interpolation="linear").alias("high"),
             pl.len().alias("n"),
         )
         .sort(["colour", "x"])
