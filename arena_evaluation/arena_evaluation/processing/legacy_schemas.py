@@ -97,6 +97,8 @@ _PEDESTRIAN_FIELDS: typing.Final[frozenset[str]] = _PEDESTRIAN_REQUIRED_FIELDS |
     "model_uri",
     "gestures",
     "body",
+    "radius",
+    "device",
     "interaction_id",
     "interaction_type",
     "agent_type",

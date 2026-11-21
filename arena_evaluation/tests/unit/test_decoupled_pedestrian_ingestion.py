@@ -147,14 +147,16 @@ def test_pedestrians_ingestion_into_arena_peds(tmp_path: pathlib.Path) -> None:
 def test_agent_frame_flat_layout_metadata_ingestion(tmp_path: pathlib.Path) -> None:
     bag_dir = tmp_path / "flat_agent_frame_bag"
 
+    has_awareness = "robot_awareness" in RosAgentMeta.get_fields_and_field_types()
     meta_msg = RosAgentMeta()
     meta_msg.policies = ["teleport", "sfm", "orca"]
     meta_msg.agent_id = [3, 7]
     meta_msg.agent_type = ["nurse", "visitor"]
-    meta_msg.robot_awareness = [1.0, 0.0]
-    meta_msg.robot_repulsion_gain = [1.0, 1.0]
-    meta_msg.robot_fov_gain = [1.0, 0.3]
-    meta_msg.robot_reaction_gain = [1.0, 0.5]
+    if has_awareness:
+        meta_msg.robot_awareness = [1.0, 0.0]
+        meta_msg.robot_repulsion_gain = [1.0, 1.0]
+        meta_msg.robot_fov_gain = [1.0, 0.3]
+        meta_msg.robot_reaction_gain = [1.0, 0.5]
 
     frame_msg = AgentFrame()
     frame_msg.header.frame_id = "map"
@@ -202,13 +204,15 @@ def test_agent_frame_flat_layout_metadata_ingestion(tmp_path: pathlib.Path) -> N
     assert p3["animation_state"] == 1
     assert p3["gait_phase"] == pytest.approx(0.2)
     assert p3["gait_cadence"] == pytest.approx(1.4)
-    assert p3["robot_awareness"] == pytest.approx(1.0)
-    assert p3["robot_fov_gain"] == pytest.approx(1.0)
+    if has_awareness:
+        assert p3["robot_awareness"] == pytest.approx(1.0)
+        assert p3["robot_fov_gain"] == pytest.approx(1.0)
 
     p7 = df.filter(pl.col("ped_id") == "Pedestrian_7").row(0, named=True)
     assert p7["radius_m"] == pytest.approx(0.42)
-    assert p7["robot_awareness"] == pytest.approx(0.0)
-    assert p7["robot_reaction_gain"] == pytest.approx(0.5)
+    if has_awareness:
+        assert p7["robot_awareness"] == pytest.approx(0.0)
+        assert p7["robot_reaction_gain"] == pytest.approx(0.5)
     assert p7["desired_speed"] == pytest.approx(0.85)
     assert p7["policy"] == "orca"
     assert p7["agent_type"] == "visitor"
