@@ -43,6 +43,8 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "world": "hospital",
                 "scenario": "corridor",
                 "planner": "dwb",
+                "local_planner": "dwb",
+                "inter_planner": "navigate_to_pose",
                 "dispatcher": "none",
                 "robot_model": "jackal",
                 "seed": 1,
