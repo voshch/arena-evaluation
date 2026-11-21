@@ -1,14 +1,4 @@
-"""Study B: a pedestrian calls a patrolling robot for help, with and without the gesture layer.
-
-The robot loops a fixed checkpoint route of the hospital. One pedestrian beckons for help and waits. Under
-``gesture_mode=enabled`` the call is rendered on the pedestrian's skeleton and published, so a robot that can
-perceive it leaves the loop and serves them; under ``disabled`` the same pedestrian stands in the same place at
-the same time and publishes nothing, so they are served only if the route happens to pass. The measured quantity
-is how long the pedestrian waits.
-
-    python -m arena_evaluation.experiments.beckon generate
-    python -m arena_evaluation.experiments.beckon analyze --benchmark-dir <data_root>/<run_id>
-"""
+"""Study B: a pedestrian calls a patrolling robot for help, with and without the gesture layer."""
 
 from __future__ import annotations
 

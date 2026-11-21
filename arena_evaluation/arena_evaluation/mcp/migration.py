@@ -1,10 +1,4 @@
-"""MCP migration gateway: pre-overhaul report and plot declarations to the current grammar.
-
-The conversion itself belongs to the L4 reporting layer (``presentation/legacy_manifest``)
-so the MCP can only *run* it, never re-implement its rules. Every entry the converter
-cannot bind deterministically stays ``todo``; this gateway never invents a binding, and it
-writes the converted bundle only when the caller explicitly asks for it.
-"""
+"""MCP migration gateway: pre-overhaul report and plot declarations to the current grammar."""
 
 from __future__ import annotations
 

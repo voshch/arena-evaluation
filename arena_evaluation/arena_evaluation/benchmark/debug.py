@@ -1,11 +1,4 @@
-"""Process introspection, process stopping and benchmark console logs.
-
-Shared by the evaluation CLI (``ps`` / ``kill`` / ``console``) and the
-evaluation MCP domain (``evaluation_ps`` / ``evaluation_kill`` /
-``evaluation_console``). The console log is the runner's own
-``benchmarks/<run_id>/runner.log``, ``runner.<lane>.log`` for a lane of a
-shared run, tailed in place.
-"""
+"""Process introspection, process stopping and benchmark console logs."""
 
 from __future__ import annotations
 

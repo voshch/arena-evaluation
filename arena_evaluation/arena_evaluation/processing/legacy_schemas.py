@@ -1,9 +1,4 @@
-"""Recognise the recorded message generations and normalise the legacy ones into the native field set.
-
-The tolerance lives here, keyed on the recorded schema, so the telemetry calculators only ever see
-the native shape. A legacy recording never raises ``AttributeError`` from a calculator; a field its
-generation did not record is NULL and named in ``not_recorded``.
-"""
+"""Recognise recorded message generations and normalise legacy ones into the native field set."""
 
 from __future__ import annotations
 

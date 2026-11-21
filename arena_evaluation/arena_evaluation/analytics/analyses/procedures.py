@@ -1,11 +1,4 @@
-"""Pure statistical analysis procedures built on BenchmarkCatalog and analytics.stats.
-
-Each procedure returns one declared output table (``frame``) and one summary row per subject
-(``summary``), so a consumer's column access never depends on what the run happens to contain.
-Every procedure filters episodes and contacts the same way the catalogue does: references are dropped
-unless asked for, ``is_valid_for_ranking`` is required, and a value that was never recorded stays NULL
-with its reason counted in ``excluded_rows`` instead of becoming a zero.
-"""
+"""Pure statistical analysis procedures built on BenchmarkCatalog and analytics.stats."""
 
 from __future__ import annotations
 

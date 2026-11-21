@@ -1,12 +1,4 @@
-"""CLI subcommands for acoustic field listing, animation, and snapshots.
-
-``list`` prints the per-episode pedestrian exposure roll-up (max, Leq and summed max exposure)
-beside the existing acoustic level and success columns. ``animate`` and ``snapshot`` obtain their
-renderer through the public ``prepare_renderer`` dispatch and call only its public methods.
-``snapshot --frame`` defaults, in order, to the frame nearest the max-exposure pedestrian's
-``worst_case_acoustic_t_ns`` from ``fact_pedestrians``, then to the frame of maximum exposure in
-``series_acoustic_exposure``, then to the frame with the highest recorded source level.
-"""
+"""CLI subcommands for acoustic field listing, animation, and snapshots."""
 
 from __future__ import annotations
 

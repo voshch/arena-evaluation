@@ -1,9 +1,4 @@
-"""Unit contracts for contact attribution as measured scalars.
-
-The six golden scenarios of the PR2 brief are asserted on scalars: closing speeds, the two
-closing shares (views of the stored speeds), impact speeds and the frozen-robot clearance.
-No test asserts a label, a fault verdict or a threshold cut.
-"""
+"""Unit contracts for contact attribution as measured scalars."""
 
 from __future__ import annotations
 

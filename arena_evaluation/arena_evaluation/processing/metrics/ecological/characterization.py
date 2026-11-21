@@ -1,14 +1,4 @@
-"""Open-loop characterization metrics (energy/acoustic profiles per working point).
-
-Per-episode calculator: attaches the recorded ``characterization_phase`` markers
-to every sample, resolves each label against the ``characterization_schedule``
-table the sweep published (rebuilt from the robot envelope only when a recording
-predates that topic), computes per-sample power / mechanical power / acoustic
-level / energy intensity, and keeps only scalar summaries in the metric row. The
-per-sample values are published by :meth:`CharacterizationCalculator.series_table`
-as a flat 1NF long table (native nanosecond timestamps, explicit nulls), never as
-list columns in Parquet.
-"""
+"""Open-loop characterization metrics (energy/acoustic profiles per working point)."""
 
 from __future__ import annotations
 

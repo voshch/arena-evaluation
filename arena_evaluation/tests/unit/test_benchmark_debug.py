@@ -1,9 +1,4 @@
-"""Tests for benchmark debug utilities: process introspection and console logs.
-
-Covers :mod:`arena_evaluation.benchmark.debug`. Process tables are served
-through ``subprocess.run``, the ``ps`` boundary, and name real child processes
-wherever the code reads ``/proc``.
-"""
+"""Tests for benchmark debug utilities: process introspection and console logs."""
 
 from __future__ import annotations
 

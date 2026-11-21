@@ -1,11 +1,4 @@
-"""Aligned acoustic episode series: the telemetry streams a field plot renders.
-
-The renderer consumes one frame per robot ground-truth sample: where the robot was, how loud the
-robot was, which pedestrian positions belonged to that instant and whether a collision was
-recorded. Every stream is matched to the ground-truth timeline with the named tracking tolerance,
-so a sample that is older than the tolerance stays NULL instead of being borrowed from a far-away
-instant.
-"""
+"""Aligned acoustic episode series: the telemetry streams a field plot renders."""
 
 from __future__ import annotations
 

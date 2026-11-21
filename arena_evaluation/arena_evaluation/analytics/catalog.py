@@ -1,15 +1,4 @@
-"""Benchmark OLAP Catalog (Layer 3).
-
-Registers the Star Schema base tables (``dim_*``, ``fact_*``, ``series_*``, and
-recorded telemetry) from the storage registry and exposes canonical analytical
-views as pure Polars ``LazyFrame`` query plans.
-
-Ranking rule of ``v_planner_scorecard``: ``episodes_count`` counts every episode
-in the group, ``valid_episodes`` counts those whose ``is_valid_for_ranking`` is TRUE,
-and ``excluded_episodes`` is the remainder. Success rates and metric means are
-computed over ``valid_episodes`` only (NULL when a group has no valid episode);
-encounter and contact totals cover every episode in the group.
-"""
+"""Benchmark OLAP Catalog (Layer 3)."""
 
 from __future__ import annotations
 

@@ -1,35 +1,5 @@
 #!/usr/bin/env python3
-"""Attenuation-solver verification tests.
-
-The solver is a Pareto Dijkstra with a line-of-sight pre-test: a target with a
-clear straight path to the source is answered in closed form, everything else
-comes out of the search. Both halves are verified here:
-
-  1. Radial symmetry / circular wavefront (line-of-sight pre-test): in an empty
-     grid, attenuation equals 20*log10(r) within tight tolerance for *all*
-     directions, not only the 8 grid-aligned ones.
-
-  2. True Euclidean distance recovery (line-of-sight pre-test): the solver
-     returns exactly 20*log10(max(d, mic)) for unobstructed point pairs; the old
-     staircase distance must NOT appear.
-
-  3. Single-wall crossing (search): after one air->wall transition the cost is
-     20*log10(max(euclidean_dist, mic)) + wall_TL within tolerance, at every
-     crossing height and not only on the axis through the source.
-
-  4. Multi-path wall routing (search): the solver prefers the shortest total-cost
-     path, around or through.
-
-  5. Searched targets are answered by the search: barriers accumulate, so two
-     walls pay two wall losses and the pre-test cannot produce that value.
-
-  6. No staircase regression: for pixels at non-45-degree angles the old
-     Dijkstra bias is > 0.3 dB; the solver stays within 0.15 dB of the
-     closed-form value.
-
-Reference: Daniel et al. (2010), "Theta*: Any-angle path planning on grids",
-Journal of Artificial Intelligence Research, 39, 533-579.
-"""
+"""Attenuation-solver verification tests."""
 
 from __future__ import annotations
 

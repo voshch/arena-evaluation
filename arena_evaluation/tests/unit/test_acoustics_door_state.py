@@ -1,14 +1,4 @@
-"""Unit tests for the door-state timeline (acoustics/door_state.py).
-
-DoorStateTimeline turns the long-format SemanticSnapshot table into a sorted
-(time, open-doors) series queried with backward-asof binary search.
-
-A door is open while its continuous 'progress' field (0 closed, 1 open) is above
-OPEN_PROGRESS_THRESHOLD. Opening and closing doors follow the same rule, so a closing
-door counts as open until it is closed more than 1 - OPEN_PROGRESS_THRESHOLD.
-Discrete state labels do not decide openness. A door reading without a progress row
-is an error, not a closed door.
-"""
+"""Unit tests for the door-state timeline (acoustics/door_state.py)."""
 
 from __future__ import annotations
 

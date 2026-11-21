@@ -1,11 +1,4 @@
-"""Repo-wide gate: the registry vocabulary is the only evaluation vocabulary.
-
-The rename closed L1-015/L1-031 in one pass: the pipeline publishes the aligned frame under the
-registry's own column names and the calculators read the registry's own topic keys. This test keeps
-the removed names from creeping back. ``pos_x``/``pos_y`` are deliberately not in the list: they
-remain the registry columns of ``robot_initialpose``, ``robot_goal_pose`` and ``robot_task_pose``.
-Fleet and task-pose readers therefore keep spelling them, while the aligned robot track is ``x``/``y``.
-"""
+"""Repo-wide gate: the registry vocabulary is the only evaluation vocabulary."""
 
 from __future__ import annotations
 

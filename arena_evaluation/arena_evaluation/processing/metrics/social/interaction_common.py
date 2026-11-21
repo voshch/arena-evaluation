@@ -1,8 +1,4 @@
-"""Shared flat-telemetry trajectory, encounter and pedestrian-track helpers.
-
-Unmeasured kinematics stay NaN: a missing velocity is never a zero, and an empty trajectory
-resamples to an undefined position rather than the origin.
-"""
+"""Shared flat-telemetry trajectory, encounter and pedestrian-track helpers."""
 
 from __future__ import annotations
 

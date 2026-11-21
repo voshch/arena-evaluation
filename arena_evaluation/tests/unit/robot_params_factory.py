@@ -1,11 +1,4 @@
-"""The one complete ``RobotParams`` builder for unit-test fixtures.
-
-``RobotParams`` deliberately declares no defaults: production builds it only from the
-recorded descriptor and parameter rows. Test fixtures still need a complete robot, so
-this module owns the single literal fixture value set (the historical defaults the
-registry used to assume) and every test constructs its robot through
-``make_robot_params(**overrides)`` instead of guessing the missing fields.
-"""
+"""The one complete RobotParams builder for unit-test fixtures."""
 
 from __future__ import annotations
 

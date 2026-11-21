@@ -1,13 +1,4 @@
-"""Hall proxemic-zone dwell, zone-entry events, closing time and personal-space intrusion integral.
-
-One vectorized plan: the robot track is sampled onto the pedestrian frame axis by a single
-backward asof join (:func:`~arena_evaluation.processing.pedestrian_frames.frame_geometry`),
-each pedestrian's recorded radius is joined from the flat pedestrian track, the pedestrian with
-the smallest edge clearance of every frame is picked with a per-frame rank, and every aggregate
-is a Polars expression over that frame table. There is no per-frame Python loop and no nested
-list column: the per-frame clearance series is emitted as a 1NF table by
-:meth:`ProxemicsExtendedCalculator.series_table`.
-"""
+"""Hall proxemic-zone dwell, zone-entry events, closing time and personal-space intrusion integral."""
 
 from __future__ import annotations
 

@@ -1,10 +1,4 @@
-"""Schema-keyed tolerance for the September EpisodeRecord, fleet and pedestrian generations.
-
-The September corpus predates ``human_params``, ``phases``, the fleet descriptor's
-``base_frame`` and the pedestrian gestures/interaction fields. These tests drive the adapters with
-recorded-shape schema texts, never with a real MCAP, so a regression shows up as a field access,
-not as a silent NULL.
-"""
+"""Schema-keyed tolerance for the September EpisodeRecord, fleet and pedestrian generations."""
 
 from __future__ import annotations
 

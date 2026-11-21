@@ -1,10 +1,4 @@
-"""Tests for the benchmark management CLI (list / status / tail / ps / console).
-
-Covers :mod:`arena_evaluation.benchmark.cli`. No subprocesses are executed:
-``tail``/``subprocess.run`` are stubbed, the ``status --watch`` ROS path is
-driven with in-memory stub modules (the real import stays lazy), and all
-filesystem state lives under ``tmp_path``.
-"""
+"""Tests for the benchmark management CLI (list / status / tail / ps / console)."""
 
 from __future__ import annotations
 

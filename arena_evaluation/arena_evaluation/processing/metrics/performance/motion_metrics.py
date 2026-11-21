@@ -1,19 +1,4 @@
-"""Robot speed, acceleration and jerk over the scope window's ground truth.
-
-Peak acceleration and jerk are estimated from the recorded ground-truth speed with a local
-polynomial (Savitzky-Golay) fit over a declared **1.0 s** window and **polynomial order 2**
-on a uniform grid of at most 20 Hz (a coarser recording keeps its own step). Differentiating the raw speed samples at the
-recording rate amplifies sample noise into physically impossible peaks — a jackal with a
-2.5 m/s² actuator limit showed median peak accelerations near 28 m/s² and median peak jerk
-near 900 m/s³ — so the declared window is what the reported peaks measure. That fit is the only
-derivative estimator: an episode with fewer samples than the smoothing fit needs publishes NULL
-acceleration and jerk (its speed stays measured) instead of a raw finite difference taken at the
-recording rate, which would make the two episodes' peaks incomparable.
-
-``calculate`` keeps only the scalar aggregates in the metric row. The per-sample kinematics
-are published as one flat 1NF table by :meth:`MotionMetricsCalculator.series_table`; both
-come from the same derivation, so the series and its summaries cannot disagree.
-"""
+"""Robot speed, acceleration and jerk over the scope window's ground truth."""
 
 from __future__ import annotations
 

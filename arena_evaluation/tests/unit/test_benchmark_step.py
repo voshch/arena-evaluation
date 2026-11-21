@@ -1,8 +1,4 @@
-"""Tests for the benchmark grid model: Step keys, StepErrorKind, StepResult.
-
-Covers :mod:`arena_evaluation.benchmark.step`. Contestants and stages are
-represented by lightweight stand-ins (only ``.name`` is ever read).
-"""
+"""Tests for the benchmark grid model: Step keys, StepErrorKind, StepResult."""
 
 from __future__ import annotations
 

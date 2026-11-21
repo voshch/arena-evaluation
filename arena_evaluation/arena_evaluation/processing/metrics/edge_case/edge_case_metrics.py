@@ -1,9 +1,4 @@
-"""Edge-case criticality and formation metrics, measured from recorded trajectories and scoped by the scenario's provenance.yaml.
-
-The case's provenance, its step, agent and missing/absent lists are table-valued child outputs
-(the edge_cases and formations fact rows are declared in storage/registry/facts.py); the
-numeric and categorical columns below are the EPISODE metrics.
-"""
+"""Edge-case criticality and formation metrics measured from recorded trajectories."""
 
 from __future__ import annotations
 

@@ -1,11 +1,4 @@
-"""Pedestrian trajectories as a flat 1NF series table.
-
-One row per recorded pedestrian sample ``(t_ns, ped_id)``, carrying the position and,
-when the recording published them, the velocity components. The series holds no held last
-position: consumers must use an as-of join to read a pedestrian at another time. The legacy
-per-pedestrian list column is the pre-1NF mirror and has no scalar replacement: this
-calculator publishes no metric-row outputs, only :meth:`series_table`.
-"""
+"""Pedestrian trajectories as a flat 1NF series table."""
 
 from __future__ import annotations
 

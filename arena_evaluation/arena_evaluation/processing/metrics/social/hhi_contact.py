@@ -1,12 +1,4 @@
-"""Two-person contact interactions (hug, handshake): stalls, release-time windows, passes-between.
-
-The episode is split at the pair's lifecycle edges (humansim `interaction_events`):
-approach = start -> HOLD_ONSET, hold = -> RELEASED, post = the POST_S after release, rest = after that.
-Every stall is bucketed by the window its onset falls in, next to that window's share of episode time.
-The stall onsets are a 1NF series table, never a list column inside the metrics row.
-The study has one two-person interaction per episode, so every output is declared at EPISODE scope:
-the episode row carries the interaction's windows and shares over the whole episode.
-"""
+"""Two-person contact interactions (hug, handshake): stalls, release-time windows, passes-between."""
 
 from __future__ import annotations
 

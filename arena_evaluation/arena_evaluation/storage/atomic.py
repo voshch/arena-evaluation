@@ -1,12 +1,4 @@
-"""Atomic replacement and advisory locking for files rewritten in place.
-
-``fcntl.flock`` is POSIX-only: the Arena evaluation pipeline runs on Linux, so the
-helper deliberately has no Windows fallback.
-
-Every read-modify-write of one file takes :func:`file_lock` around the read and the
-write, and :func:`staged_temp_path` replaces the file in one rename, so a reader never
-sees a partial document and concurrent writers never lose an update.
-"""
+"""Atomic replacement and advisory locking for files rewritten in place."""
 
 from __future__ import annotations
 

@@ -1,16 +1,4 @@
-"""Deep declaration lint: resolve every plot binding and report a per-plot verdict.
-
-The shallow lint in :mod:`arena_evaluation.presentation.lint` validates schemas and
-table names. This module closes the gap that let 152 of 297 shipped plots report
-``valid`` while their data binding could not produce a frame: it executes
-``data.query`` and ``data.stored_query``, runs ``data.computation`` with its
-``params.metrics``, and checks every channel against the resolved frame.
-
-The resolver is built with ``evidence_store=None`` on purpose: declaration lint is a
-read-only tool and must never write evidence artifacts. Plots bound to an
-``evidence_id`` are reported as *not checked* instead, because reading them needs a
-pinned artifact rather than a declaration.
-"""
+"""Deep declaration lint: resolve every plot binding and report a per-plot verdict."""
 
 from __future__ import annotations
 

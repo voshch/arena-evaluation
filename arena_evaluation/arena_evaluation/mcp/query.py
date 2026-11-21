@@ -1,8 +1,4 @@
-"""MCP Query Gateway and Evidence Store Tools (Layer 4).
-
-Exposes OLAP SQL query execution with a capped inline preview, transient vs. pinned
-evidence persistence, stored query declaration management, and evidence index querying.
-"""
+"""MCP Query Gateway and Evidence Store Tools (Layer 4)."""
 
 from __future__ import annotations
 

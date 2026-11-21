@@ -1,8 +1,4 @@
-"""Unit tests for arena_evaluation.storage.data_root.
-
-Covers $ARENA_DATA_DIR resolution in benchmarks_root() and the newest-by-``created_at``
-run lookup in latest_benchmark(), addressed by folder name (08 H1.7/H1.8).
-"""
+"""Unit tests for arena_evaluation.storage.data_root."""
 
 from __future__ import annotations
 

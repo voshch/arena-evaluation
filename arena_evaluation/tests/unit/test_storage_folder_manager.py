@@ -1,8 +1,4 @@
-"""Unit tests for arena_evaluation.storage.folder_manager.FolderManager.
-
-Covers path resolution, traversal protection (_safe_resolve), flat
-episodes/ discovery, MCAP path selection, and combined metrics paths.
-"""
+"""Unit tests for arena_evaluation.storage.folder_manager.FolderManager."""
 
 from __future__ import annotations
 

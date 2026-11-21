@@ -1,7 +1,4 @@
-"""Unit tests for the CharacterizationCalculator (ecological metric).
-
-Pure Python + Polars, no ROS, no Gazebo required.
-"""
+"""Unit tests for the CharacterizationCalculator (ecological metric)."""
 
 
 import polars as pl

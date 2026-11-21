@@ -1,11 +1,4 @@
-"""Helbing-Molnar social force and personal-space index on the pedestrian frame axis.
-
-One vectorized plan: the robot track is sampled onto the pedestrian frame axis by a single
-backward asof join (:func:`~arena_evaluation.processing.pedestrian_frames.frame_geometry`),
-every repulsive force, anisotropy weight, personal-space index and per-frame total is a
-Polars expression over the resulting frame x pedestrian table. The per-frame force and index
-series are emitted as a 1NF table by :meth:`SocialForcesCalculator.series_table`.
-"""
+"""Helbing-Molnar social force and personal-space index on the pedestrian frame axis."""
 
 from __future__ import annotations
 

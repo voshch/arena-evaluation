@@ -1,15 +1,4 @@
-"""
-All-Encompassing Literature Metrics Test Suite for Arena Evaluation 3.0.
-
-Verifies mathematical definitions and scientific specifications from foundational literature:
-- Hall (1966) & Gao & Huang (2022): Concentric Proxemic Zones & Monotonic PSII
-- Trautman & Krause (2010), Mavrogiannis et al. (2019/2022): Mutual Accommodation & DTW PFI
-- Anderson et al. (2018): Success Weighted by Path Length (SPL) & Path Efficiency
-- Helbing & Molnar (1995): Anisotropic Social Forces & Heading Potentials
-- Bhattacharya et al. (2012): Any-Angle Geometric Theta* and Topological Winding Loops
-- Selek / Albers / Master Spec: Multi-domain Energy, CoT, E-CoT, and Acoustic Personal Exposure
-- Continental Traffic Rules: Corridor Passing Rule Compliance
-"""
+"""All-encompassing literature metrics test suite for Arena Evaluation 3.0."""
 
 from __future__ import annotations
 

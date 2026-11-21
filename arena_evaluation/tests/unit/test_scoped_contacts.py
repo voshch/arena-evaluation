@@ -1,7 +1,4 @@
-"""Contact rows of the scoped evaluator: robot-actor frames, and one detector for count and rows.
-
-Every fixture is in memory: no disk I/O, no mocks.
-"""
+"""Contact rows of the scoped evaluator: robot-actor frames, and one detector for count and rows."""
 
 from __future__ import annotations
 

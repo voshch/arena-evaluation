@@ -1,10 +1,4 @@
-"""Reviewed report loop after Phase 2: one builder page, real exports, honest appendices.
-
-Covers the FIX7 rows in ``mcp/reporting.py``: X-020/H-016 (assemble through ReportBuilder),
-H-007 (complete flag), H-008 (requested-but-empty export warnings), L4-015 (export files and
-the quality gate), H-022 (derived-table provenance in the report card) and H-023
-(findings not used are counted and listed).
-"""
+"""Reviewed report loop after Phase 2: one builder page, real exports, honest appendices."""
 
 from __future__ import annotations
 

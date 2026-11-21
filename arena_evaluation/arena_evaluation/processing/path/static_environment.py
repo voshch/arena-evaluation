@@ -1,8 +1,4 @@
-"""Static environment of a map: walls and furniture footprints inflated by a robot's radius into the lethal mask that plan_route plans on.
-
-A cell is lethal when its centre lies within the robot radius of a blocking shape or outside the level's free space. Feasibility
-is this mask; clearance preference (nav2's inflation layer) is a separate quantity and is not used here.
-"""
+"""Static environment of a map: walls and furniture inflated into a lethal mask for plan_route."""
 
 from __future__ import annotations
 

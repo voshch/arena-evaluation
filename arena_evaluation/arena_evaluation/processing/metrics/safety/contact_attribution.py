@@ -1,9 +1,4 @@
-"""Contact attribution as measured scalars: closing speeds, impact speeds and the frozen-robot clearance.
-
-Nothing here declares fault, a label or a cut. The robot and target closing shares are views of the
-two stored closing speeds (:func:`closing_shares`), never stored copies, so each metric is stored
-once and an analysis compares the scalars instead of reading a verdict.
-"""
+"""Contact attribution as measured scalars: closing speeds, impact speeds and frozen-robot clearance."""
 
 from __future__ import annotations
 

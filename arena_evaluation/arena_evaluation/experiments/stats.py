@@ -1,14 +1,4 @@
-"""Shared statistics for the paired experiments (EVALUATION.md "Statistics").
-
-- Seeds are fixed per scenario and shared by both arms, so a difference is taken per (scenario, seed).
-- Resampling is a cluster bootstrap over scenarios: a drawn scenario brings all of its seeds.
-- 95 % percentile intervals, printed unadjusted, widened by the shared
-  :func:`arena_evaluation.analytics.stats.contain_estimate` rule so an interval always contains its estimate.
-- The two-sided p-value is the shifted-null cluster-bootstrap test implemented once in
-  :func:`arena_evaluation.analytics.stats.cluster_bootstrap_p_value`, so a difference and its
-  interval are reported by the same procedure the OLAP analytics use.
-- A difference "excludes zero" when its two-sided bootstrap p < alpha after Holm within its family.
-"""
+"""Shared statistics for the paired experiments (EVALUATION.md "Statistics")."""
 
 from __future__ import annotations
 

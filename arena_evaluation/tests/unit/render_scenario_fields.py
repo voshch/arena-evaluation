@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Render acoustic field overlays for each test scenario (visual inspection).
-
-Shows the RECEIVED level in dBA (source - attenuation), not raw attenuation,
-with a 3 dB (double-energy) colorbar. Source defaults to 60 dBA.
-
-Rendering matches the main AcousticFieldRenderer style:
-- Black background for walls (NaN in the field array)
-- Cyan contour outlines for all doors
-- Bright green contour outlines for open doors
-
-Usage:
-    python render_scenario_fields.py [out_dir] [--source-dba 60]
-"""
+"""Render acoustic field overlays for each test scenario (visual inspection)."""
 
 import argparse
 import pathlib

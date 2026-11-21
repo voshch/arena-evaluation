@@ -1,8 +1,4 @@
-"""Time alignment of recorded streams: the one owner of how a sample is matched to a query time.
-
-A stream is matched as-of (the last sample at or before the query, optionally no older than a
-tolerance) or interpolated linearly. Source times must be sorted ascending.
-"""
+"""Time alignment of recorded streams: the one owner of how a sample is matched to a query time."""
 
 from __future__ import annotations
 

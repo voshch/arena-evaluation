@@ -1,24 +1,4 @@
-"""Acoustic barrier grid derived from a world's walls and doors.
-
-Walls and doors are the only acoustic barriers. Everything else is free space: zones, static objects and the exterior
-of the building are not part of the grid. A world without walls and doors has no acoustic geometry.
-
-Conventions, one rule for walls, doors and agent positions:
-
-- Cell (row, col) covers [col, col + 1) x [row, row + 1) cell widths from the lattice origin. The lattice is anchored at
-  the world origin, so cell edges fall on multiples of ``resolution``. Coordinates are integer micrometres, so lattice
-  tests are exact.
-- ``origin`` is the world position of the centre of cell (0, 0). The solver rounds a position to the nearest cell
-  centre, which is the cell that contains the position.
-- A wall occupies the cells its centreline runs through. The ranges are half-open, so a wall on a cell edge belongs to
-  the cell above or to the right of it. Walls are one cell thick.
-- A door occupies the cells whose sub-points lie inside its rectangle (span by width), counting the across-range
-  half-open so that a sub-point on the far edge belongs to the next door. Doors override walls.
-  ``door_cells_across`` counts the cells a path crosses through a door's thickness, so the door's TL can be shared
-  among them.
-- Two free cells that meet only at a corner are closed by a barrier cell, because the solver moves diagonally without
-  checking the two cells beside a corner.
-"""
+"""Acoustic barrier grid derived from a world's walls and doors."""
 
 from __future__ import annotations
 

@@ -1,13 +1,4 @@
-"""Integration and unit tests for MCP Presentation Gateway (Layer 5).
-
-Verifies:
-1. `evaluation_plot_declarations`: Recipe discovery and catalog indexing.
-2. `evaluation_read_plot_declaration`: Reading YAML text and parsed PlotSpec.
-3. `evaluation_save_plot_declaration`: Schema validation and declaration persistence.
-4. `evaluation_render_plot`: Standalone visual artifact rendering (Plotly HTML,
-   Seaborn PNG/SVG/PDF) from recipes and inline spec YAML with quality diagnostics.
-5. Strict contract invariants and robust error handling.
-"""
+"""Integration and unit tests for MCP Presentation Gateway (Layer 5)."""
 
 from __future__ import annotations
 

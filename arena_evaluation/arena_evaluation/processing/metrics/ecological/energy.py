@@ -1,8 +1,4 @@
-"""Electrical energy, power and efficiency of the robot over an episode, a robot run or an encounter window.
-
-Each scope slice is reduced to one series of power, battery and speed samples and every output is read from
-that series. Energies are integrated in watt-hours; JOULES_PER_WH is the only Wh-to-joule conversion.
-"""
+"""Electrical energy, power and efficiency of the robot over an episode, run or encounter."""
 
 from __future__ import annotations
 

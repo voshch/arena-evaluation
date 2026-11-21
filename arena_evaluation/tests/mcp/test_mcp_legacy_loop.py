@@ -1,10 +1,4 @@
-"""End-to-end declaration migration on the merged tree (FIX11, item 7).
-
-Old jazzy social manifest -> ``evaluation_migrate_manifest`` (dry run and write) -> deep
-declaration lint -> draft/render/review -> ``evaluation_report_assemble``. The run carries
-the social metric columns so the converted plots that bind can be approved; the rest stay
-listed with their deep-lint reason instead of being dropped.
-"""
+"""End-to-end declaration migration on the merged tree (FIX11, item 7)."""
 
 from __future__ import annotations
 

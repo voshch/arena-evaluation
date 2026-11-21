@@ -1,11 +1,4 @@
-"""MCP WP5 slice tools: drill down one interaction through the Star Schema.
-
-An encounter or contact slice carries the evidence an analyst needs to explain one
-interaction: the encounter fact row, its contact rows, the pedestrian rows of the
-actors, the enclosing episode row, the collision records and the series rows inside
-the interaction window. Every table is read from the run's declared Star Schema and
-its 1NF series tables, never recomputed here, so a slice is exactly the published data.
-"""
+"""MCP WP5 slice tools: drill down one interaction through the Star Schema."""
 
 from __future__ import annotations
 

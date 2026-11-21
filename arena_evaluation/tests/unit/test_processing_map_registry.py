@@ -1,9 +1,4 @@
-"""Unit tests for map discovery / PGM->PNG caching (processing/map_registry.py).
-
-All filesystem state is confined to tmp_path: worlds come in through a run
-directory or $ARENA_DIR, the cache through $ARENA_DATA_DIR or an explicit path,
-and `rospack` answers through `subprocess.run`, the process boundary.
-"""
+"""Unit tests for map discovery / PGM->PNG caching (processing/map_registry.py)."""
 
 from __future__ import annotations
 

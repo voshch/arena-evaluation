@@ -1,10 +1,4 @@
-"""Noisy synthetic benchmark for the H6 proof: a known effect, a non-zero-width CI.
-
-``tests/unit/synthetic_benchmark.py`` plants constant per-pair offsets, so every bootstrap
-CI collapses to width zero and the proof cannot fail on a statistical error (H-001). This
-fixture keeps the same planted effect but adds a deterministic seeded noise term per
-episode, so the paired difference varies and its interval has a non-zero width.
-"""
+"""Noisy synthetic benchmark for the H6 proof: a known effect, a non-zero-width CI."""
 
 from __future__ import annotations
 

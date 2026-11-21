@@ -1,7 +1,4 @@
-"""The sensitivity rerun reads the published layout through the storage API and reruns each robot.
-
-Every fixture is written to disk in the published layout by these tests; no mocks.
-"""
+"""The sensitivity rerun reads the published layout through the storage API and reruns each robot."""
 
 from __future__ import annotations
 

@@ -1,12 +1,4 @@
-"""Ranking validity of one evaluated episode (08 H1.5).
-
-An episode is rankable when it will be measured, not merely when it ran: its ground-truth pose
-must move like a robot, its recording must reach a terminal outcome without lost sections, and
-the stream every episode metric needs must exist. Every defect is stored in the episode's
-``invalid_reason`` as an ``invalid_episode:<why>`` token of
-:data:`arena_evaluation.storage.registry.INVALID_EPISODE_REASONS`; a rankable episode carries
-NULL. ``is_valid_for_ranking`` is not stored: the analytics catalog derives it from that column.
-"""
+"""Ranking validity of one evaluated episode (08 H1.5)."""
 
 from __future__ import annotations
 

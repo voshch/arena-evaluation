@@ -1,10 +1,4 @@
-"""Built-in legacy metric map used when no external map file is configured.
-
-The overhaul's config roots admit only the five registered bundle kinds (`configs/README.md`),
-so the map ships with the converter; an operator can still point `--metric-map` at a YAML
-file with the same `renamed:`/`removed:` shape (and `load_metric_map` prefers one found in a
-config root at `legacy/legacy_metric_map.yaml`, so it can move there once that kind exists).
-"""
+"""Built-in legacy metric map used when no external map file is configured."""
 
 from __future__ import annotations
 

@@ -1,7 +1,4 @@
-"""A-028: the shipped acoustic-field recipe parses and is the one copy of its binding.
-
-The recipe lives in the asset store, so the test resolves it the way the report builder does and
-skips when neither a local root nor a benchmark bucket holds it."""
+"""A-028: the shipped acoustic-field recipe parses and is the one copy of its binding."""
 
 from __future__ import annotations
 

@@ -1,10 +1,4 @@
-"""Unit tests for the vectorized scope-window detectors.
-
-Covers ``processing/windows.py``: pedestrian / fleet pair construction, encounter-bout
-detection (distance threshold, interior-gap merging, ordering, approach classification,
-versioned detector metadata) and contact-bout kind normalization and encounter
-linkage. Every fixture is in-memory: no disk I/O, no mocks.
-"""
+"""Unit tests for the vectorized scope-window detectors."""
 
 from __future__ import annotations
 

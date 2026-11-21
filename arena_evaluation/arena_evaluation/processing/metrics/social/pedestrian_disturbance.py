@@ -1,10 +1,4 @@
-"""Pedestrian deflection, velocity delay and patrol rounds, per pedestrian and across the episode.
-
-The per-pedestrian geometry is one Polars group-by over the flat track (path length, straight
-chord, lateral deviation, displacement extremes); the two scopes share that frame and differ
-only in the population they reduce: the slice's own pedestrian for PEDESTRIAN, the pedestrian
-mean for EPISODE (the historical episode-wide value).
-"""
+"""Pedestrian deflection, velocity delay and patrol rounds, per pedestrian and across the episode."""
 
 from __future__ import annotations
 

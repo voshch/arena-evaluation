@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""Convert pre-overhaul report manifests into the single report grammar.
-
-The converter is deterministic: it maps the old ``data_key``/``differentiate``/``group_by``/
-``filter`` declarations onto the new grammar, translates metric names through
-``configs/legacy/legacy_metric_map.yaml`` and the metric registry, and accounts for every
-old plot in ``migration_report.yaml`` as converted, dropped-with-reason or ``TODO``.
-Bindings it cannot resolve deterministically stay TODO; nothing is guessed.
-
-Usage::
-
-    python scripts/migrate_legacy_manifests.py \\
-        configs/benchmark/manifests/social.yaml --dry-run
-
-    python scripts/migrate_legacy_manifests.py \\
-        configs/benchmark/manifests/*.yaml --output-dir /tmp/migrated
-
-    python scripts/migrate_legacy_manifests.py --legacy-plots plot_declarations/all_metrics.yaml
-"""
+"""Convert pre-overhaul report manifests into the single report grammar."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Unit tests for the Parquet layer (processing/parquet_store.py and the telemetry sink it reads).
-
-Covers TopicParquetStore (the flat telemetry cache: completion stamp, one bundle per
-robot over shared global tables, unreadable caches read as misses).
-"""
+"""Unit tests for the Parquet layer (processing/parquet_store.py and the telemetry sink it reads)."""
 
 from __future__ import annotations
 

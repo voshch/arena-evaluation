@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Diff a legacy report manifest against its hand-migrated replacement by plot intent.
-
-The shipped reports were hand-migrated from the 338 old plots; this tool proves that
-every old plot is either represented in the new report, intentionally superseded, or
-missing (a port candidate). Exact id matches are settled first, then the remaining plots
-are matched on the resolved metric set and, as a tie-breaker, on the title.
-
-Usage::
-
-    python scripts/reconcile_legacy_manifests.py \\
-        configs/benchmark/manifests/social.yaml configs/reports/social/report.yaml \\
-        --out /tmp/reconciliation_social.yaml
-"""
+"""Diff a legacy report manifest against its hand-migrated replacement by plot intent."""
 
 from __future__ import annotations
 

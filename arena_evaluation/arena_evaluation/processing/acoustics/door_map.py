@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Acoustic barrier grid and door transmission loss for a world.
-
-The solver works on a barrier grid derived from the world's walls and doors by
-``barrier_map.derive_barrier_map``. The grid is not read from the rendered map PNG, so walls and doors sit where the
-world puts them. This module loads a world, derives its grid, and gives each door its own cells with a closed
-transmission loss (TL) for the solver.
-
-The closed-door and wall transmission losses are declared model parameters
-(``constants.DOOR_TRANSMISSION_LOSS_DB`` and ``constants.WALL_TRANSMISSION_LOSS_DB``); ``barrier_door_tl`` and
-``build_pixel_tl`` accept a keyword to vary them for a what-if run without changing code.
-"""
+"""Acoustic barrier grid and door transmission loss for a world."""
 
 from __future__ import annotations
 

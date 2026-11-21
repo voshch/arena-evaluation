@@ -1,21 +1,4 @@
-"""Studies A' and C: what changes when a planner can read a social interaction.
-
-Both studies hold the scene fixed and vary only what reaches the planner:
-
-  on   ``gesture_mode=enabled``  + the social cost layer. The interaction is rendered on the skeletons, the
-       participants publish a shared interaction id, and the costmap treats them as one social unit.
-  off  ``gesture_mode=disabled`` + no social cost layer. The same people stand in the same places doing the
-       same thing, but publish no clip and no interaction id, so a planner sees unrelated bodies.
-
-The cost layer stands in for a planner that can recognize an interaction; training a recognizer is out of
-scope, so the layer is the consumer that makes the interaction actionable.
-
-Study A' is a two-person contact interaction (hug, handshake); Study C is a three-person conversation. Each
-runs in an open room, where the robot has space to choose, and in a corridor, where it may not.
-
-    python -m arena_evaluation.experiments.social generate
-    python -m arena_evaluation.experiments.social analyze --on <run_on> --off <run_off>
-"""
+"""Studies A' and C: what changes when a planner can read a social interaction."""
 
 from __future__ import annotations
 

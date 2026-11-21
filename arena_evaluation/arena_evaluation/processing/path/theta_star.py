@@ -1,12 +1,4 @@
-"""Theta* route planning on static lethal grids: the one route solver of the evaluator.
-
-A grid is a boolean lethal mask in a map frame. Cell (gx, gy) covers [origin + g * resolution, origin + (g + 1) * resolution)
-on each axis, so its centre is at origin + (g + 0.5) * resolution. The search is the C library built from solver.cpp by
-`arena build` (the arena_theta_star_solver CMake target) and loaded here through ctypes; its ABI is verified before any
-symbol is bound, so a library built from an older search raises instead of returning a different route. There is no second
-engine and no compile at first use. An endpoint that cannot be planned from, or a route that does not exist, is a
-RouteResult with a null reason; a missing library raises.
-"""
+"""Theta* route planning on static lethal grids: the one route solver of the evaluator."""
 
 from __future__ import annotations
 

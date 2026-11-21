@@ -1,8 +1,4 @@
-"""Episode duration, the robot's time to its goal, and idling dwell.
-
-The episode span is the aligned clock's duration and belongs to the episode. The time to goal is one robot's own
-first arrival at its mission goal on its ground-truth track, so it belongs to the robot. Idling is the robot's speed.
-"""
+"""Episode duration, the robot's time to its goal, and idling dwell."""
 
 from __future__ import annotations
 

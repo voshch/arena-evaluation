@@ -1,15 +1,4 @@
-"""Holistic cross-domain metrics: acoustic exposure inside personal space, and the effective cost of transport.
-
-AEPS integrates the published acoustic-exposure series over the frames whose nearest pedestrian is
-inside the personal-space band. Both inputs are declared 1NF series dependencies: `acoustic_exposure`
-carries the per-pedestrian level and `proxemics_extended` the per-frame nearest-pedestrian clearance,
-so the metric reads the same tables the report consumes instead of retired nested list outputs. The
-registry publishes `not_recorded:<stem>` and a null value when a declared table is absent or empty;
-the integral is never substituted with a nominal 45 dBA floor. That floor removal is the accuracy
-change of the port: a recording without an acoustic-exposure series now reports NULL for
-`aeps_linear_s` instead of an exposure estimated at 45 dBA per frame, so AEPS is comparable only
-across recordings that actually carry the acoustic series.
-"""
+"""Holistic cross-domain metrics: acoustic exposure in personal space and cost of transport."""
 
 from __future__ import annotations
 

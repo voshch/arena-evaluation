@@ -1,9 +1,4 @@
-"""Vectorized scope-window detectors for the multi-resolution evaluator.
-
-Every function here is a pure ``pl.LazyFrame -> pl.LazyFrame`` pipeline stage: encounter
-bouts are extracted with run-length ids over boolean clearance masks, never with Python
-row loops. The evaluator collects once, at the fact-table boundary.
-"""
+"""Vectorized scope-window detectors for the multi-resolution evaluator."""
 
 from __future__ import annotations
 

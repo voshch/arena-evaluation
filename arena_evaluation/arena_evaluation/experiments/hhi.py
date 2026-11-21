@@ -1,19 +1,4 @@
-"""Study A - two-person contact interactions, hug and handshake with the robot as bystander (EVALUATION.md section A).
-
-generate: L scenarios per contact kind on map_empty, each run in two arms that share scenario and seeds:
-  contact     - the pair walks to its meeting points, closes to contact, the clip plays, holds, releases
-  locomotion  - same approach and meeting points, holds at the standing distance, no clip (motion-matched control)
-  In both arms the pair then separates to its exit points and stands.
-
-analyze: paired contact - locomotion differences per (planner, interaction, metric), cluster bootstrap over
-  scenarios, Holm within the family. The family covers the two episode outcomes (success, time to goal) and the
-  two HHI metrics (stalls, passes between) carried by the episode rows. The study has one interaction per
-  episode, so the HHI metrics are EPISODE-scope; the window and manipulation checks read the same episode rows,
-  plus the release-time window check the episode metrics record.
-
-    python -m arena_evaluation.experiments.hhi generate --scenarios 15
-    python -m arena_evaluation.experiments.hhi analyze --benchmark-dir <data_root>/<run_id>
-"""
+"""Study A: two-person contact interactions (hug and handshake) with the robot as bystander."""
 
 from __future__ import annotations
 

@@ -1,7 +1,4 @@
-"""Ranking validity of one evaluated episode: the defects that exclude it, and none for a clean one.
-
-Every fixture is in memory: no disk I/O, no mocks.
-"""
+"""Ranking validity of one evaluated episode: the defects that exclude it, and none for a clean one."""
 
 from __future__ import annotations
 

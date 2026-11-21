@@ -1,11 +1,4 @@
-"""In-memory sensitivity rerun of the pedestrian encounter detector over the published layout.
-
-What this what-if reruns (the reduction of D-13 recorded in the FIX2 report): the encounter
-detector only, for pedestrian encounters, with ``encounter_edge_distance_m`` and
-``encounter_merge_gap_s`` overridden. Calculator reruns, variant tables and fleet (robot-robot)
-encounters are not rerun. Each episode is read through its own table scans, the radii come from
-the benchmark-root dimension, and nothing is written.
-"""
+"""In-memory sensitivity rerun of the pedestrian encounter detector over the published layout."""
 
 from __future__ import annotations
 

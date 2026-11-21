@@ -1,9 +1,4 @@
-"""Acoustic model constants shared by the solver wrapper, the metric and the plot.
-
-One definition per physical or modelling value (Playbook 5.1): the barriers, the door
-model, the propagation solve and the rendering must not drift apart when a modeller
-changes a number.
-"""
+"""Acoustic model constants shared by the solver wrapper, the metric and the plot."""
 
 from typing import Final
 

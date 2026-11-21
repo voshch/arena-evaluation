@@ -1,9 +1,4 @@
-"""Pedestrian frames of an episode: the peak count inside a window, and each robot time's pedestrian states from the flat table.
-
-``frame_geometry`` is the vectorized contract for calculators that need the robot state
-sampled onto the pedestrian frame axis: one asof join against the robot track, then a
-single long frame of frame x pedestrian rows.
-"""
+"""Pedestrian frames of an episode: peak counts in windows and per-robot-time pedestrian states."""
 
 from __future__ import annotations
 

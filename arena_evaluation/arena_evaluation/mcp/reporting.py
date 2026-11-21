@@ -1,10 +1,4 @@
-"""Reviewed report loop: draft, plot, view (image+checks), review, and assemble with exports.
-
-The assembled reviewed report is built by the one L4 renderer
-(:class:`arena_evaluation.presentation.report_builder.ReportBuilder`), the same code path as
-``arena evaluation report``: one HTML page writer, one failure model (``BuildChecks`` +
-appendix), one LaTeX export. The MCP layer keeps the draft/review store and the exports.
-"""
+"""Reviewed report loop: draft, plot, view (image+checks), review, and assemble with exports."""
 
 from __future__ import annotations
 

@@ -1,10 +1,4 @@
-"""Statistical Procedures for Benchmark OLAP Analytics (Layer 3).
-
-Provides vectorized cluster-bootstrap confidence intervals and their two-sided
-shifted-null p-value, paired treatment difference tests, rank-swap matrices,
-Kendall's coefficient of concordance W, and deterministic
-discovery/verification seed cohort partitioning.
-"""
+"""Statistical Procedures for Benchmark OLAP Analytics (Layer 3)."""
 
 from __future__ import annotations
 

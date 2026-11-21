@@ -1,11 +1,4 @@
-"""Door state timeline constructed from SemanticSnapshot messages.
-
-A door is open while its continuous ``progress`` field (0 closed, 1 open) is strictly above
-``OPEN_PROGRESS_THRESHOLD``, so a door exactly at the threshold counts as closed. The threshold is
-a declared model parameter (``constants.DOOR_OPEN_PROGRESS_THRESHOLD``) and
-``DoorStateTimeline.from_semantic_frame`` accepts an ``open_progress_threshold`` keyword for
-what-if runs; the default keeps every published number identical.
-"""
+"""Door state timeline constructed from SemanticSnapshot messages."""
 
 from __future__ import annotations
 

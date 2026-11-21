@@ -1,10 +1,4 @@
-"""Personal-space occupancy of the robot, and per-pedestrian zone-intrusion counts.
-
-Both the dwell and the intrusion counts use one personal-space definition: 1.20 m of
-edge-to-edge clearance, the centre distance after the robot's and the pedestrian's own
-recorded radii are removed. The per-sample occupancy is a 1NF table
-(:meth:`ProxemicsCalculator.series_table`), never a list column inside the metrics row.
-"""
+"""Personal-space occupancy of the robot, and per-pedestrian zone-intrusion counts."""
 
 from __future__ import annotations
 

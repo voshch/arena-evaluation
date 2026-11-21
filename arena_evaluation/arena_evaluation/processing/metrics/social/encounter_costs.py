@@ -1,11 +1,4 @@
-"""Per-encounter costs against planned routes.
-
-Each agent in an encounter window is compared with its planned route: the Theta* route on the static grid of the map, for its
-radius, between its positions at the window's first and last sample. The costs need no other recording.
-
-Walk the window with the agent's own samples: its path length minus the planned route length is the path excess; the
-window duration minus the planned route time (planned length over the agent's free speed) is the detour time. mar, pfi, kcsc_wh and robot_path_deviation are measured against the planned route only, since no robot-free reference run is recorded; their names carry the planned-route suffix.
-"""
+"""Per-encounter costs against planned routes."""
 
 from __future__ import annotations
 

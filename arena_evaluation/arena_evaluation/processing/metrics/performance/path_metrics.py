@@ -1,9 +1,4 @@
-"""Trajectory geometry over the native /tf ground-truth pose track.
-
-``calculate`` keeps only the scalar aggregates in the metric row. The per-sample
-path, curvature and roughness series are published as one flat 1NF table by
-:meth:`PathMetricsCalculator.series_table`, never as list columns in Parquet.
-"""
+"""Trajectory geometry over the native /tf ground-truth pose track."""
 
 from __future__ import annotations
 

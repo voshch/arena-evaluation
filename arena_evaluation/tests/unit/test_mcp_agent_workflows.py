@@ -1,10 +1,4 @@
-"""Unit tests for the WP5 analyst workflow MCP tools: interaction slices and findings.
-
-Both modules read and write the run's declared Star Schema artefacts only: a slice is a
-query over ``fact_*``/``series_*`` Parquet, and a finding is the ``findings.yaml`` document
-next to ``notes.yaml``. The fixtures build those artefacts with the package's own writers
-(:func:`write_star_schema`), so the tests exercise the published schema rather than a stub.
-"""
+"""Unit tests for the WP5 analyst workflow MCP tools: interaction slices and findings."""
 
 from __future__ import annotations
 

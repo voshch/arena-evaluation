@@ -1,9 +1,4 @@
-"""Unit tests for the accessibility colour palette (YAML-driven).
-
-Covers ``load_color_palette`` (real YAML files, white/black exclusion,
-fallbacks, failure paths) and ``set_global_color_palette`` (the real Plotly
-template colourway and Seaborn theme, import-error tolerance).
-"""
+"""Unit tests for the accessibility colour palette (YAML-driven)."""
 
 import matplotlib as mpl
 import plotly.io as pio

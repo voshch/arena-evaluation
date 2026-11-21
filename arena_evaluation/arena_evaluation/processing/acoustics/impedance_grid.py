@@ -1,10 +1,4 @@
-"""C++ acoustic attenuation solver wrapper.
-
-The solver is a C++17 shared library built from `solver.cpp` by `arena build` (the
-`arena_acoustics_solver` CMake target) and loaded here through ctypes. The library's ABI
-version is verified before any symbol is bound, so a library built from an older model
-raises instead of yielding a different number.
-"""
+"""C++ acoustic attenuation solver wrapper."""
 
 from __future__ import annotations
 

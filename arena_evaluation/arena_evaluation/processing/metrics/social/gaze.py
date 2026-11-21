@@ -1,11 +1,4 @@
-"""Mutual gaze cone metrics on the robot sample axis, with the per-sample counts as a 1NF series.
-
-The pedestrian state at each robot sample comes from one backward asof join
-(:func:`~arena_evaluation.processing.pedestrian_frames.pedestrians_at`) matched with the
-ground-truth robot row at the same timestamp; the cone tests are Polars expressions over that
-frame x pedestrian table, reduced per robot sample. The thresholds and the robot sample axis
-are the historical ones, so the totals stay comparable.
-"""
+"""Mutual gaze cone metrics on the robot sample axis, with per-sample counts as a 1NF series."""
 
 from __future__ import annotations
 

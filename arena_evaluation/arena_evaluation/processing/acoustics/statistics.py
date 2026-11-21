@@ -1,9 +1,4 @@
-"""Level statistics shared by the robot-level and the pedestrian-level acoustic metrics.
-
-An energy-equivalent level is one definition: the duration-weighted mean of the linear
-energy of the samples. Both calculators call `energy_equivalent_level_dba`, so the same
-physical quantity is never computed two ways.
-"""
+"""Level statistics shared by the robot-level and the pedestrian-level acoustic metrics."""
 
 from __future__ import annotations
 

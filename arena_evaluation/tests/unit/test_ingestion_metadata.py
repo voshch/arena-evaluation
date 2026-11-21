@@ -1,9 +1,4 @@
-"""Unit tests for arena_evaluation.ingestion.metadata (IngestionMetadata).
-
-Covers per-episode metadata generation: planner-name splitting, git
-workspace fingerprinting, environment-derived fields, and the flat
-RunMetadata record persisted to episode_XXX.yaml.
-"""
+"""Unit tests for arena_evaluation.ingestion.metadata (IngestionMetadata)."""
 
 from __future__ import annotations
 

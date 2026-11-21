@@ -1,22 +1,4 @@
-"""Declaration lint for stored queries, plot recipes, and report manifests.
-
-Two levels are reported and must not be confused:
-
-* **schema-valid** — every declaration parses into the grammar, names a known plot
-  type, recipe, source table or computation, and its declared channels exist on the
-  statically registered table schema. This works without any benchmark data.
-* **bound** — with ``benchmark_dir`` given, every manifest plot is resolved against the
-  real catalog (source/query/computation) and must return a frame. This level is reported
-  as ``unbound``: it is advisory, because a declaration can be schema-valid and still
-  legitimately need data the run does not carry (no telemetry, no acoustic world). A
-  consumer that needs "renderable on this run" asks for ``valid and not unbound``.
-
-``valid`` is the schema verdict; ``schema_valid`` is kept as an explicit alias for it.
-
-Known blind spots of the static level: series views are registered lazily by
-``BenchmarkCatalog``, and lint fabricates empty registry tables for tables no run
-wrote; a view that only exists for some runs passes lint and can fail at build time.
-"""
+"""Declaration lint for stored queries, plot recipes, and report manifests."""
 
 from __future__ import annotations
 

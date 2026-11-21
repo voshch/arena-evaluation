@@ -1,14 +1,4 @@
-"""Deterministic conversion of pre-overhaul report manifests into the single grammar.
-
-The pre-overhaul manifests declared a flat plot with ``data_key``/``differentiate``/
-``group_by``/``filter``/``auto_differentiate``; the overhaul rejects every one of those
-field names. This module reads such a manifest and produces a ``VizManifest`` in the new
-grammar plus a migration report that accounts for **every** old plot: converted, or
-dropped with a reason, or left as a ``TODO:`` marker that an agent must complete.
-
-Nothing is guessed: a binding that cannot be resolved deterministically becomes a TODO
-entry (and the plot is omitted from the skeleton), and the migration report lists it.
-"""
+"""Deterministic conversion of pre-overhaul report manifests into the single grammar."""
 
 from __future__ import annotations
 

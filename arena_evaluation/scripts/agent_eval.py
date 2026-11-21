@@ -1,11 +1,4 @@
-"""Standalone hypothesis-to-report evaluation script via an in-process MCPServer.
-
-The proof is allowed to fail. A hypothesis's verdict is direction aware (a lower-than
-claim needs a strictly negative interval, a two-sided claim only excludes zero), the
-interval must have a non-zero width, and every quoted number is recomputed from the pinned
-compare evidence before it is published. The run also writes its result table and tool
-transcript next to the run's analysis artifacts (H-001, L5-037).
-"""
+"""Standalone hypothesis-to-report evaluation script via an in-process MCPServer."""
 
 from __future__ import annotations
 

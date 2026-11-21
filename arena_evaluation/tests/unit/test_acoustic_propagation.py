@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Propagation physics tests for the acoustic Dijkstra solver.
-
-Builds scenario grids (see acoustic_scenarios.py) and asserts the solver
-respects the expected free-field / barrier physics:
-
-  - inverse-square law: +6 dB per doubling of distance (20*log10, point source)
-  - open door == line of sight through the doorway
-  - closed door / solid wall == barrier TL (~47 dB) on the straight path
-  - side-placed door == detour path, attenuation between LOS and blocked
-  - narrowing corridor == more attenuation than a uniform corridor
-"""
+"""Propagation physics tests for the acoustic Dijkstra solver."""
 
 from __future__ import annotations
 

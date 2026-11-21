@@ -1,9 +1,4 @@
-"""Sensitivity rerun facade of the runner layer (S2).
-
-The layer matrix lets S2 orchestrate L2 work and lets L5 import S2, while L5 may not import
-L2. The evaluation MCP therefore asks this module for the detector-level rerun; the one
-implementation stays in ``processing/sensitivity.py`` and is imported here, not in the MCP.
-"""
+"""Sensitivity rerun facade of the runner layer (S2)."""
 
 from __future__ import annotations
 

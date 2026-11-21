@@ -1,9 +1,4 @@
-"""Golden Arrow schemas of the recorded telemetry tables, as the writer stores them.
-
-Thirty-six tables are pinned: one native table per pedestrian topic (arena_peds, agent_states),
-the engine table carries the four crowd settings of its agents, and the environment map and goal
-pose the recorder writes are extracted as flattened tables.
-"""
+"""Golden Arrow schemas of the recorded telemetry tables, as the writer stores them."""
 
 from __future__ import annotations
 

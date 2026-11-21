@@ -1,9 +1,4 @@
-"""Unit tests for arena_evaluation.ingestion.recorder (DataRecorderNode).
-
-Pure-logic units run on a bare (uninitialized) node instance, everything that
-touches the graph on a constructed node. Writes go to a real rosbag2 writer under
-tmp_path and are read back from the bag.
-"""
+"""Unit tests for arena_evaluation.ingestion.recorder (DataRecorderNode)."""
 
 from __future__ import annotations
 

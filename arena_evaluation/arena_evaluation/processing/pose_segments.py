@@ -1,27 +1,4 @@
-"""Teleport detection on a recorded robot pose track.
-
-The longest-consistent-segment rule (``pipeline._consistent_pose_segment`` and
-``MetricCalculator.resolve_robot_pose``) splits a track wherever the robot
-"jumps" and keeps the longest piece, so a reset teleport caught in the
-recording does not stretch the path across the map. A jump used to be any
-step above 0.5 m between consecutive samples. That is fine on 20 Hz odometry
-and wrong on the ground-truth stream: the gz pose bridge publishes at a few
-Hz under load, with gaps of 1-2 s, so a robot driving at 1 m/s puts
-consecutive samples 0.5-2 m apart and a healthy episode is chopped into
-fragments, of which only one survives (observed: 24 m corridor transits
-reported as 4-13 m paths).
-
-A teleport is a step the platform cannot have driven: distance over the sample
-interval above ``MAX_SPEED_MPS``. The interval is the recorded log time
-(``t_ns``) of the flat telemetry. Sim-time header stamps are not part of that
-contract, so under lockstep a reset that happens with the sim paused can read
-as slow drift rather than a jump.
-
-An elevator ride or a stair crossing is a teleport too, but one that belongs to the episode. A
-jump landing within ``RIDE_ARRIVAL_TOLERANCE_NS`` of a ride arrival (`just_arrived` rising on an
-`elevator`, `just_crossed` rising on a `stairs` or `escalator` entity in the semantic snapshot,
-recorder log time) is exempt, so neither cuts the episode to one floor.
-"""
+"""Teleport detection on a recorded robot pose track."""
 
 from __future__ import annotations
 

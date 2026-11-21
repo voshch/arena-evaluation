@@ -1,9 +1,4 @@
-"""Publish-time contract checks: planted failures name the table and column.
-
-Every fixture writes real Parquet files in the canonical layout: facts once per episode,
-dimensions once at the benchmark root. A fact frame carries the metric columns of its
-scope, so a clean row explains its NULL metric cells with a vocabulary reason.
-"""
+"""Publish-time contract checks: planted failures name the table and column."""
 
 from __future__ import annotations
 

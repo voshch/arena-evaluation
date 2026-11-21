@@ -1,9 +1,4 @@
-"""Integration check: the pose-frame column reaches the episode rows, and no crowd label does.
-
-Explicit crowd visibility is a set of per-pedestrian settings (`dim_pedestrians`), not an episode
-label (D-21), so the row builder no longer publishes `crowd_visible`, `crowd_condition` or
-`crowd_visibility_source`.
-"""
+"""Integration check: the pose-frame column reaches the episode rows, and no crowd label does."""
 
 from __future__ import annotations
 

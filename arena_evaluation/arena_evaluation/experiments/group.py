@@ -1,18 +1,4 @@
-"""Study C: does the robot walk through a conversation when the layer cannot show it one?
-
-Three pedestrians hold a group conversation (F-formation) on the robot's straight line to its goal. The arms
-differ in everything the animation layer contributes and nothing else:
-
-  on   gesture_mode=enabled  + social cost layer: the clip plays, the interaction id is published, and the
-                             costmap fills the space between the participants
-  off  gesture_mode=disabled + no social cost layer: the same three people stand in the same places, but
-                             publish no clip and no interaction id, so a planner sees three unrelated bodies
-
-The outcome is the route: whether the robot's path passes inside the formation, and how close it comes to a
-person while doing so.
-
-    python -m arena_evaluation.experiments.group measure --benchmark-dir <data_root>/<run_id> --center 4.0 17.5
-"""
+"""Study C: evaluate robot routing around a group conversation with and without the social cost layer."""
 
 from __future__ import annotations
 

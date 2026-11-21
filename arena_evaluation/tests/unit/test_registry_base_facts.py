@@ -1,7 +1,4 @@
-"""Golden schemas of the eleven fact tables' identity and recorded columns, their row keys and their null-reason columns.
-
-The metric columns are not in these schemas: a metric reaches a fact table from the metric layer, by scope.
-"""
+"""Golden schemas of the eleven fact tables' identity, recorded columns, row keys, and null reasons."""
 
 from __future__ import annotations
 

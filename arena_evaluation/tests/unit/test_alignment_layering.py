@@ -1,7 +1,4 @@
-"""The alignment helpers sit at a level both the L1 pipeline and the L2 metrics may import.
-
-The L1 pedestrian frames must not reach into the L2 metric package for an as-of join.
-"""
+"""Tests verifying alignment helpers sit at a level both L1 pipeline and L2 metrics may import."""
 
 from __future__ import annotations
 

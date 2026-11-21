@@ -1,11 +1,4 @@
-"""Package metadata and the C++17 solver build.
-
-The two ctypes solvers (`processing/acoustics/solver.cpp`, `processing/path/solver.cpp`)
-are not CPython extensions, but they are compiled artefacts the package needs before it
-can compute an acoustic metric or a route. `arena build` installs this package through
-`setup.py develop`, so the `build_ext` command below is the hook that compiles them, and
-`CMakeLists.txt` is the only place their flags and output paths live.
-"""
+"""Package metadata and the C++17 solver build."""
 
 import os
 import shutil

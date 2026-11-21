@@ -1,10 +1,4 @@
-"""The acoustic solver build path and its ABI contract.
-
-The solver is a C++17 library the package loads through ctypes. These tests pin the
-wiring that makes a fresh checkout usable: `arena build` compiles both libraries through
-CMakeLists.txt, the loader refuses a library built from a different model, a missing
-library names the step that builds it, and the Pareto truncation is bounded.
-"""
+"""The acoustic solver build path and its ABI contract."""
 
 from __future__ import annotations
 

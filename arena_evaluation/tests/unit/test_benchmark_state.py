@@ -1,9 +1,4 @@
-"""Tests for the benchmark state layer: Manifest, StateFile, ProgressLog, RunDir,
-config hashing, git SHA capture, and resumability scanning.
-
-Covers :mod:`arena_evaluation.benchmark.state` (importable without a ROS graph;
-only ``rclpy.parameter`` is imported for parameter serialization).
-"""
+"""Tests for the benchmark state layer: Manifest, StateFile, ProgressLog, RunDir, and resumability."""
 
 from __future__ import annotations
 

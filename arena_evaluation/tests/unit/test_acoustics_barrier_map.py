@@ -1,8 +1,4 @@
-"""Unit tests for the acoustic barrier grid derived from walls and doors (acoustics/barrier_map.py).
-
-Geometry is built on the 5 cm lattice, so every expected cell is exact. The grid pads each side by five cells, so a
-wall at world x = 0 sits in column 5 and a wall at y = 0 in row 5.
-"""
+"""Unit tests for the acoustic barrier grid derived from walls and doors (acoustics/barrier_map.py)."""
 
 from __future__ import annotations
 

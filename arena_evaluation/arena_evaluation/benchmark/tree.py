@@ -1,9 +1,4 @@
-"""Suites, contests, report manifests, plot and query declarations as Identifiers.
-
-Every one of them resolves through the chain in :mod:`arena_evaluation.storage.config_identifiers`:
-the imported assets root, then the package configs, then the benchmark buckets. The asset kinds of
-``arena asset`` name this module for the benchmark family, so the classes are re-exported here.
-"""
+"""Suites, contests, report manifests, plot and query declarations as Identifiers."""
 
 from __future__ import annotations
 

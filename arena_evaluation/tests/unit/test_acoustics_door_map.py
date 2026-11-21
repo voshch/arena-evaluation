@@ -1,11 +1,4 @@
-"""Unit tests for the world-derived barrier map and door TL (acoustics/door_map.py).
-
-Covers world discovery (run_dir / ament / ws-root), loading the barrier grid derived from a world, the door TL
-mapping, entity-name matching, and the per-pixel TL assembly (walls 47 dB / doors 25 dB / open 0 dB).
-
-All worlds are synthesized in tmp_path; ARENA_DIR is pointed at tmp_path when
-the ws_root candidate must be exercised.
-"""
+"""Unit tests for the world-derived barrier map and door TL (acoustics/door_map.py)."""
 
 from __future__ import annotations
 

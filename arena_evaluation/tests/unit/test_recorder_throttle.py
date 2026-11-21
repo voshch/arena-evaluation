@@ -1,8 +1,4 @@
-"""Unit tests for the recorder's rate gate, its config contract, its tf stamping and its initial-pose attribution.
-
-The gate and the config loader are exercised as plain objects, the callbacks, the
-/tf writes and the initial-pose subscription through a bare node and a real bag.
-"""
+"""Unit tests for the recorder rate gate, config contract, tf stamping and initial-pose attribution."""
 
 from __future__ import annotations
 

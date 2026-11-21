@@ -1,9 +1,4 @@
-"""Ranking Stability and Clustered Bootstrap Procedures (Section 6).
-
-Provides deterministic seed-split rank stability analysis, contextual stability
-across operational regimes, and paired cluster bootstrap rank intervals for
-evaluating planner ranking concordance.
-"""
+"""Ranking Stability and Clustered Bootstrap Procedures (Section 6)."""
 
 from __future__ import annotations
 

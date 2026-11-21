@@ -1,10 +1,4 @@
-"""Config bundles as resolvable identifiers: one chain for every declaration kind.
-
-A suite, contest, report manifest, plot or query resolves in this order: the imported assets root,
-the package configs (installed share, then the source tree), the local cache of each benchmark
-bucket (BENCHMARK_BUCKETS), and the bucket itself. A local copy always shadows a bucket copy, so
-publishing a declaration never overrides a local one.
-"""
+"""Config bundles as resolvable identifiers: one chain for every declaration kind."""
 
 from __future__ import annotations
 

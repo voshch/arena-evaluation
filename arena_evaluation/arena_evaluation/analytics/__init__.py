@@ -1,8 +1,4 @@
-"""Polars OLAP Analytics Core (Layer 3).
-
-Exposes :class:`BenchmarkCatalog`, :class:`PolarsSQLEngine`, :class:`QueryCatalog`,
-:class:`QueryDeclaration`, :class:`EvidenceStore`, and the computation registry.
-"""
+"""Polars OLAP Analytics Core (Layer 3)."""
 
 from __future__ import annotations
 
