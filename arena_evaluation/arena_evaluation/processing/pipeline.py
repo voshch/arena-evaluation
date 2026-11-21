@@ -338,6 +338,7 @@ _METRIC_DTYPES = {
     "ndtw": pl.Float64,
     "sdtw": pl.Float64,
     "stuck": pl.Boolean,
+    "seed": pl.Int64,
     "search_found": pl.Boolean,
     "search_found_1m": pl.Boolean,
     "search_found_1_5m": pl.Boolean,
@@ -433,6 +434,15 @@ def _record_integrity(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunM
     return []
 
 
+def _record_seed(record: pl.DataFrame | pl.LazyFrame | None) -> int | None:
+    """Seed the episode's own records carry, None when no record does."""
+    df = record.collect() if isinstance(record, pl.LazyFrame) else record
+    if df is None or len(df) == 0 or "seed" not in df.columns or "time_ns" not in df.columns:
+        return None
+    seeds = _episode_rows(df)["seed"].drop_nulls()
+    return int(seeds[-1]) if len(seeds) else None
+
+
 def _planner_split(ep: EpisodeDescriptor, metadata: RunMetadata | None) -> tuple[str, str]:
     if metadata is not None and metadata.local_planner:
         return metadata.local_planner, metadata.inter_planner or ""
@@ -461,6 +471,7 @@ def _status_row(
         "robot": robot,
         "map": ep.map,
         "stage": ep.stage,
+        "seed": _record_seed(record),
         "benchmark_id": ep.benchmark_id,
         "start": [],
         "goal": [],
@@ -731,6 +742,7 @@ class ProcessingPipeline:
                         outcome_state, outcome_info = _record_outcome(er, metadata)
 
                 integrity = _record_integrity(bundle.episode_record, metadata)
+                seed = _record_seed(bundle.episode_record)
                 start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, phases)
 
                 fleet = _fleet_poses(robots, window)
@@ -796,6 +808,7 @@ class ProcessingPipeline:
                     ep_metrics["robot"] = aligned_ep.robot_name or robot_name
                     ep_metrics["map"] = ep.map
                     ep_metrics["stage"] = ep.stage
+                    ep_metrics["seed"] = seed
                     ep_metrics["benchmark_id"] = ep.benchmark_id
                     ep_metrics["start"] = aligned_ep.start_pos
                     ep_metrics["goal"] = aligned_ep.goal_pos

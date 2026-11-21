@@ -119,6 +119,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
         [
             ("time_ns", pa.int64()),
             ("episode_id", pa.int64()),
+            ("seed", pa.int64()),
             ("outcome_state", pa.int64()),
             ("outcome_info", pa.string()),
             ("goal_uuid", pa.string()),
@@ -397,6 +398,7 @@ class MCAPReader:
                     collision_kind_schema_cache: dict[int, bool] = {}
                     phases_schema_cache: dict[int, bool] = {}
                     integrity_schema_cache: dict[int, bool] = {}
+                    seed_schema_cache: dict[int, bool] = {}
 
                     schema_fields: dict[int, tuple[bool, bool, bool]] = {}
 
@@ -682,6 +684,13 @@ class MCAPReader:
                             target = env_data[env_key]["episode_record"]
                             target["time_ns"].append(ts_ns)
                             target["episode_id"].append(ros_msg.episode_id)
+
+                            has_seed = seed_schema_cache.get(schema.id)
+                            if has_seed is None:
+                                has_seed = re.search(r"^\s*int64\s+seed\b", schema.data.decode(), re.M) is not None
+                                seed_schema_cache[schema.id] = has_seed
+                            target["seed"].append(ros_msg.seed if has_seed else None)
+
                             target["outcome_state"].append(ros_msg.outcome_state)
                             target["outcome_info"].append(ros_msg.outcome_info)
                             target["goal_uuid"].append(ros_msg.goal_uuid)
