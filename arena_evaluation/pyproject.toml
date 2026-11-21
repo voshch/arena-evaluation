@@ -8,7 +8,7 @@ dependencies = [
     "matplotlib",
     "mcap",
     "mcap-ros2-support",
-    "mcp>=2.3",
+    "mcp>=2.0",
     "numpy",
     "pandas",
     "pillow",
