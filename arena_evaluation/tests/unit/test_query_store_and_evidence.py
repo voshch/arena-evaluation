@@ -15,6 +15,7 @@ from arena_evaluation.analytics.sql_engine import (
     validate_readonly_sql,
 )
 from arena_evaluation.storage.registry import FACT_TABLES, FactTable, dimensions
+from arena_evaluation.storage.registry.series import SeriesEnergy
 from arena_evaluation.storage.registry.telemetry import PedestrianArenaPeds, RobotTracks
 from arena_evaluation.storage.star_schema import write_benchmark_dimensions
 
@@ -216,6 +217,24 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
         ],
         RobotTracks.polars_schema(),
     ).write_parquet(ep_dir / RobotTracks.relative_path())
+
+    energy_path = ep_dir / SeriesEnergy.relative_path()
+    energy_path.parent.mkdir(parents=True, exist_ok=True)
+    _frame(
+        [
+            {
+                "run_id": "run-q",
+                "episode_id": 0,
+                "robot_id": "robot_0",
+                "t_ns": 0,
+                "power_total_w": 20.0,
+                "power_static_w": 10.0,
+                "power_mechanical_w": 8.0,
+                "power_thermal_w": 2.0,
+            }
+        ],
+        SeriesEnergy.polars_schema(),
+    ).write_parquet(energy_path)
     return root
 
 

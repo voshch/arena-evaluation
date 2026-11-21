@@ -645,12 +645,6 @@ plots:
   layout_group: smoothness
 - id: encounter_hierarchy_sunburst
   uses: encounter_hierarchy_treemap
-  channels:
-    hierarchy:
-    - world
-    - local_planner
-    - inter_planner
-    - approach_type
   title: Encounter Counts by Crowd Condition, Local Planner and Approach (Sunburst)
   layout_group: social
   options:
@@ -891,12 +885,6 @@ plots:
   layout_group: tradeoffs
 - id: encounter_hierarchy_treemap
   uses: encounter_hierarchy_treemap
-  channels:
-    hierarchy:
-    - world
-    - local_planner
-    - inter_planner
-    - approach_type
   title: Encounter Hierarchy Treemap
   layout_group: tradeoffs
 - id: scatter_spl_vs_energy

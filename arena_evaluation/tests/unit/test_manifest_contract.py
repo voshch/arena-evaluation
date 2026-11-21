@@ -48,6 +48,8 @@ levels:
         span: [[2.0, 1.5], [2.0, 2.5]]
         width: 0.2
 """
+
+
 def _bundles(folder: str, filename: str) -> list[pathlib.Path]:
     """One bundle file per name, the first config root that holds the name winning, as the store resolves it."""
     found: dict[str, pathlib.Path] = {}
@@ -159,6 +161,31 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                     "wz": 0.0,
                 }
             )
+
+    for ref_idx, planner_name in enumerate(planners):
+        ref_ep_id = 12 + ref_idx
+        ref_row: dict[str, object] = {}
+        for schema in schemas:
+            for name, dtype in schema.items():
+                ref_row.setdefault(name, _dummy_val(name, dtype, rng, ref_ep_id))
+        ref_row.update(
+            {
+                "run_id": "run",
+                "episode_id": ref_ep_id,
+                "robot_id": "robot_0",
+                "env_id": "env_0",
+                "planner": planner_name,
+                "robot_model": robots[0],
+                "world": "map_a",
+                "is_reference": True,
+                "reference_type": "unobstructed_robot",
+                "invalid_reason": "",
+                "success": True,
+                "time_to_goal": 10.0,
+                "energy_total_wh": 1.0,
+            }
+        )
+        rows.append(ref_row)
 
     write_benchmark(
         bench,
@@ -514,5 +541,3 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
             ("standard", "overview_table"): 7,
         },
     )
-
-
