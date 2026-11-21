@@ -3,7 +3,7 @@ import pathlib
 import polars as pl
 import pytest
 from arena_evaluation.processing.parquet_store import ParquetStore
-from arena_evaluation.processing.pipeline import _METRIC_DTYPES, _metadata_robot, _outcome_verdict, _record_conditions, _record_outcome, _status_row
+from arena_evaluation.processing.pipeline import _METRIC_DTYPES, _metadata_robot, _outcome_verdict, _record_conditions, _record_outcome, _record_seed, _status_row
 from arena_evaluation.storage.schemas import EpisodeDescriptor, RunMetadata, TopicBundle
 
 
@@ -104,3 +104,11 @@ def test_record_outcome_skips_the_previous_episodes_latched_record() -> None:
     assert _record_outcome(record, None) == (1, "")
     with_terminal = pl.DataFrame({"time_ns": [50, 100, 900], "outcome_state": [3, 1, 2], "outcome_info": ["timeout", "", "done"]})
     assert _record_outcome(with_terminal, _meta(3)) == (2, "done")
+
+
+def test_the_seed_is_the_episodes_own_not_the_latched_or_the_next_queued_one() -> None:
+    record = pl.DataFrame({"time_ns": [50, 60, 100, 900, 900], "outcome_state": [3, 0, 1, 2, 0], "outcome_info": ["timeout", "", "", "done", ""], "seed": [6, 7, 7, 7, 8]})
+    assert _record_seed(record) == 7
+    assert _status_row(_ep(), _meta(2), "jackal", "no_trajectory", "no odom rows", record)["seed"] == 7
+    assert _record_seed(record.drop("seed")) is None
+    assert _record_seed(None) is None

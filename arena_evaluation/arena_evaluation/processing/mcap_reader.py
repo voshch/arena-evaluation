@@ -120,6 +120,7 @@ _TOPIC_SCHEMAS: dict[str, pa.Schema] = {
         [
             ("time_ns", pa.int64()),
             ("episode_id", pa.int64()),
+            ("seed", pa.int64()),
             ("outcome_state", pa.int64()),
             ("outcome_info", pa.string()),
             ("goal_uuid", pa.string()),
@@ -317,6 +318,7 @@ class MCAPReader:
                 "tf_gt": defaultdict(list),
                 "characterization_phase": defaultdict(list),
                 "characterization_schedule": defaultdict(list),
+                "hearing_search_state": defaultdict(list),
             }
 
         def new_env_data() -> dict[str, defaultdict[str, list]]:
@@ -397,6 +399,7 @@ class MCAPReader:
                     collision_kind_schema_cache: dict[int, bool] = {}
                     phases_schema_cache: dict[int, bool] = {}
                     integrity_schema_cache: dict[int, bool] = {}
+                    seed_schema_cache: dict[int, bool] = {}
 
                     schema_fields: dict[int, tuple[bool, bool, bool]] = {}
 
@@ -669,11 +672,26 @@ class MCAPReader:
                                     target[column].extend(values)
                                 appended = True
 
+                        # Search driver state
+                        elif topic.endswith("/hearing/search_state"):
+                            robot_name = get_robot_name(parts[:-1], env_key)
+                            target = robot_data[robot_name]["hearing_search_state"]
+                            target["time_ns"].append(ts_ns)
+                            target["state"].append(str(ros_msg.data))
+                            appended = True
+
                         # Episode records
                         elif topic.endswith("/state/episode"):
                             target = env_data[env_key]["episode_record"]
                             target["time_ns"].append(ts_ns)
                             target["episode_id"].append(ros_msg.episode_id)
+
+                            has_seed = seed_schema_cache.get(schema.id)
+                            if has_seed is None:
+                                has_seed = re.search(r"^\s*int64\s+seed\b", schema.data.decode(), re.M) is not None
+                                seed_schema_cache[schema.id] = has_seed
+                            target["seed"].append(ros_msg.seed if has_seed else None)
+
                             target["outcome_state"].append(ros_msg.outcome_state)
                             target["outcome_info"].append(ros_msg.outcome_info)
                             target["goal_uuid"].append(ros_msg.goal_uuid)

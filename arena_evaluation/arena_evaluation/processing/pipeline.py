@@ -339,6 +339,24 @@ _METRIC_DTYPES = {
     "ndtw": pl.Float64,
     "sdtw": pl.Float64,
     "stuck": pl.Boolean,
+    "seed": pl.Int64,
+    "search_found": pl.Boolean,
+    "search_found_1m": pl.Boolean,
+    "search_found_1_5m": pl.Boolean,
+    "search_found_3m": pl.Boolean,
+    "search_time_to_find_s": pl.Float64,
+    "search_time_to_find_1m_s": pl.Float64,
+    "search_time_to_find_1_5m_s": pl.Float64,
+    "search_time_to_find_3m_s": pl.Float64,
+    "search_tsr": pl.Float64,
+    "search_spl": pl.Float64,
+    "search_stops": pl.Int64,
+    "search_listened_s": pl.Float64,
+    "search_goals_sent": pl.Int64,
+    "search_goals_failed": pl.Int64,
+    "search_calls": pl.Int64,
+    "search_stopped_s": pl.Float64,
+    "search_driving_s": pl.Float64,
     "start": pl.List(pl.Float64),
     "goal": pl.List(pl.Float64),
 }
@@ -417,6 +435,15 @@ def _record_integrity(record: pl.DataFrame | pl.LazyFrame | None, metadata: RunM
     return []
 
 
+def _record_seed(record: pl.DataFrame | pl.LazyFrame | None) -> int | None:
+    """Seed the episode's own records carry, None when no record does."""
+    df = record.collect() if isinstance(record, pl.LazyFrame) else record
+    if df is None or len(df) == 0 or "seed" not in df.columns or "time_ns" not in df.columns:
+        return None
+    seeds = _episode_rows(df)["seed"].drop_nulls()
+    return int(seeds[-1]) if len(seeds) else None
+
+
 def _planner_split(ep: EpisodeDescriptor, metadata: RunMetadata | None) -> tuple[str, str]:
     if metadata is not None and metadata.local_planner:
         return metadata.local_planner, metadata.inter_planner or ""
@@ -445,6 +472,7 @@ def _status_row(
         "robot": robot,
         "map": ep.map,
         "stage": ep.stage,
+        "seed": _record_seed(record),
         "benchmark_id": ep.benchmark_id,
         "start": [],
         "goal": [],
@@ -478,38 +506,66 @@ def _metadata_robot(metadata: RunMetadata | None, bundles: dict[str, TopicBundle
     return f"{env}_{model}" if env and model else model
 
 
+def _manifest_path(episode_dir: pathlib.Path, data_root: pathlib.Path) -> pathlib.Path | None:
+    """The run's manifest.yaml above the episode dir, None for bare run dirs."""
+    for parent in episode_dir.parents:
+        manifest_path = parent / "manifest.yaml"
+        if manifest_path.exists():
+            return manifest_path
+        if parent == data_root:
+            break
+    return None
+
+
 def _suite_metrics(episode_dir: pathlib.Path, data_root: pathlib.Path) -> dict[str, typing.Any]:
     """Suite-level metric overrides from the run's manifest.yaml, {} for bare run dirs and junk values."""
     import yaml
 
-    for parent in episode_dir.parents:
-        manifest_path = parent / "manifest.yaml"
-        if manifest_path.exists():
-            try:
-                suite = yaml.safe_load(manifest_path.read_text()).get("suite") or {}
-                raw = suite.get("metrics") or {}
-            except Exception as e:
-                _log.warning(f"{manifest_path}: unreadable, ignoring suite metrics: {e!r}")
-                return {}
-            metrics: dict[str, typing.Any] = {}
-            v = raw.get("max_collisions")
-            if v is not None:
-                try:
-                    metrics["max_collisions"] = int(v)
-                except (TypeError, ValueError):
-                    _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
-            barn = raw.get("barn")
-            if barn is not None:
-                from .metrics.performance.barn_metrics import parse_reference
+    manifest_path = _manifest_path(episode_dir, data_root)
+    if manifest_path is None:
+        return {}
+    try:
+        suite = yaml.safe_load(manifest_path.read_text()).get("suite") or {}
+        raw = suite.get("metrics") or {}
+    except Exception as e:
+        _log.warning(f"{manifest_path}: unreadable, ignoring suite metrics: {e!r}")
+        return {}
+    metrics: dict[str, typing.Any] = {}
+    v = raw.get("max_collisions")
+    if v is not None:
+        try:
+            metrics["max_collisions"] = int(v)
+        except (TypeError, ValueError):
+            _log.warning(f"{manifest_path}: suite metrics.max_collisions {v!r} is not an int, ignoring")
+    barn = raw.get("barn")
+    if barn is not None:
+        from .metrics.performance.barn_metrics import parse_reference
 
-                try:
-                    metrics["barn"] = parse_reference(barn)
-                except ValueError as e:
-                    _log.warning(f"{manifest_path}: suite metrics.barn ignored: {e}")
-            return metrics
-        if parent == data_root:
-            break
-    return {}
+        try:
+            metrics["barn"] = parse_reference(barn)
+        except ValueError as e:
+            _log.warning(f"{manifest_path}: suite metrics.barn ignored: {e}")
+    return metrics
+
+
+def _stage_budget(episode_dir: pathlib.Path, data_root: pathlib.Path, metadata: RunMetadata | None) -> float | None:
+    """Sim-second budget the runner gave the episode's stage (`timeout_peds` for an unhindered_peds reference), None without a manifest step for it."""
+    import yaml
+
+    manifest_path = _manifest_path(episode_dir, data_root)
+    if metadata is None or manifest_path is None:
+        return None
+    try:
+        steps = yaml.safe_load(manifest_path.read_text()).get("steps") or []
+        stage = next((step["stage"] for step in steps if step["stage"]["name"] == metadata.stage), None)
+        if stage is None:
+            return None
+        if metadata.reference_type == "unhindered_peds" and stage.get("timeout_peds") is not None:
+            return float(stage["timeout_peds"])
+        return float(stage["timeout"])
+    except Exception as e:
+        _log.warning(f"{manifest_path}: no stage budget for {metadata.stage!r}: {e!r}")
+        return None
 
 
 class ProcessingPipeline:
@@ -657,7 +713,7 @@ class ProcessingPipeline:
                     t0 = int(aligned_df["time_ns"][0])
                     t1 = int(aligned_df["time_ns"][-1])
                     tol = 100_000_000
-                    topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if "time_ns" in df.columns else df for name, df in topics.items()}
+                    topics = {name: df.filter((pl.col("time_ns") >= t0 - tol) & (pl.col("time_ns") <= t1 + tol)) if name != "hearing_search_state" and "time_ns" in df.columns else df for name, df in topics.items()}
 
                 num_pedestrians = peds_count if pose_source.kind == "odom" else 0
                 if "num_pedestrians" in aligned_df.columns:
@@ -669,6 +725,7 @@ class ProcessingPipeline:
                 if isinstance(semantic_snapshot_df, pl.LazyFrame):
                     semantic_snapshot_df = semantic_snapshot_df.collect()
 
+                phase_window = window
                 conditions = None
                 phases = None
                 outcome_state = None
@@ -680,10 +737,13 @@ class ProcessingPipeline:
                     if len(er) > 0:
                         conditions = _record_conditions(er)
                         if "outcome_state" in er.columns and "time_ns" in er.columns:
-                            phases = _robot_phases(_episode_rows(er), robot_name)
+                            episode_rows = _episode_rows(er)
+                            phases = _robot_phases(episode_rows, robot_name)
+                            phase_window = _episode_window(episode_rows)
                         outcome_state, outcome_info = _record_outcome(er, metadata)
 
                 integrity = _record_integrity(bundle.episode_record, metadata)
+                seed = _record_seed(bundle.episode_record)
                 start_pos, goal_pos = _episode_endpoints(aligned_df, bundle.plan, phases)
 
                 fleet = _fleet_poses(robots, window)
@@ -699,6 +759,8 @@ class ProcessingPipeline:
                     semantic_snapshot=semantic_snapshot_df,
                     conditions=conditions,
                     phases=phases,
+                    window_ns=phase_window,
+                    timeout_s=_stage_budget(episode_dir, self.folder_manager.data_root, metadata),
                     fleet=fleet,
                     outcome_state=outcome_state,
                     outcome_info=outcome_info,
@@ -747,6 +809,7 @@ class ProcessingPipeline:
                     ep_metrics["robot"] = aligned_ep.robot_name or robot_name
                     ep_metrics["map"] = ep.map
                     ep_metrics["stage"] = ep.stage
+                    ep_metrics["seed"] = seed
                     ep_metrics["benchmark_id"] = ep.benchmark_id
                     ep_metrics["start"] = aligned_ep.start_pos
                     ep_metrics["goal"] = aligned_ep.goal_pos

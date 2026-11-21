@@ -52,6 +52,7 @@ Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, epi
 | energy | `time_ns`, `total_energy_consumed_wh`, `battery_soc_percent` |
 | acoustics | `time_ns`, `total_level_af_dba`, `total_level_zf_db`, `baseline_level_dba`, `drivetrain_level_dba`, `uncertainty_1sigma_dba`, `validity_flags` |
 | characterization_phase | `time_ns`, `label` |
+| hearing_search_state | `time_ns`, `state` (the search driver's latched JSON, read by `search_metrics`) |
 | peds | `time_ns`, `peds_frame_id`, `num_pedestrians`, `peds_names`, `peds_ids`, `peds_positions`, `peds_headings`, `peds_twists`, `peds_animation_states`, `peds_interaction_ids`, `peds_interaction_types` (per-ped lists in `peds_ids` order) |
 | peds_physics | same as peds, from the crowd engine's `agent_states` in the engine frame |
 | ped_gestures | `time_ns`, `ped_id`, `slot`, `clip`, `hand`, `at_x`, `at_y`, `at_z`, `render_pose_override`, one row per playing gesture, present (possibly empty) whenever the recorded `Pedestrians` schema carries `gestures` |

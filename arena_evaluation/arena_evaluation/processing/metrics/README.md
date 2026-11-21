@@ -130,3 +130,21 @@ a "lower is better" value x maps to `1 / (1 + x / scale)` (0 -> 1, x == scale ->
 | `blocked_closing_door_s`, `cabin_door_blocking_s` | lower | 5 s |
 | `alarm_egress_blocking_s`, `door_freeze_s` | lower | 10 s |
 | `ped_mechanism_delay_seconds`, `elevator_wait_to_board_s`, `time_waiting_at_doors_robot` | lower | 30 s |
+
+## Search metrics (search_metrics)
+
+Scores an episode whose robot phases hold a judge-only goto on a named pedestrian (`dispatch: false`, the `search` task mode), the person being that goto's target, its radius the find radius. Code: `performance/search_metrics.py`. Every key is `None` on an episode without such a phase. Times are seconds since the first robot pose, the budget is the episode's stage `timeout` from the run's manifest (180 s without one), the value `collision_metrics` times out at. The find is the moment the robot's recorded `met` list first holds the phase, so `search_found`, `search_time_to_find_s`, `search_tsr`, `search_spl`, `search_stopped_s` and `search_driving_s` are `None` without a semantic snapshot; the `search_found_*` keys need the person's track in `peds` and the world's wall grid, `search_spl` the map and the track, the counters the `hearing_search_state` topic (`None` without it).
+
+| Key | Unit | Definition |
+|---|---|---|
+| `search_found` | bool | the search phase closed as met before the budget |
+| `search_time_to_find_s` | s | time of the find, the budget when not found |
+| `search_found_1m`, `search_found_1_5m`, `search_found_3m` | bool | the robot sees the person within 1, 1.5 and 3 m at some moment before the budget, replayed from the recorded paths with the same line-of-sight test as `robot sees` (`WallGrid.clear` on the segment, no find-radius or `line_of_sight` setting involved) |
+| `search_time_to_find_1m_s`, `search_time_to_find_1_5m_s`, `search_time_to_find_3m_s` | s | first such moment, the budget when never |
+| `search_tsr` | | time-weighted success, `search_found * (1 - search_time_to_find_s / budget)` (ESARBench) |
+| `search_spl` | | `search_found * L0 / max(L, L0)`, `L` the driven path to the find, `L0` the Theta* length from the start to the person's position at the find, less the find radius |
+| `search_stops`, `search_listened_s`, `search_goals_sent`, `search_goals_failed`, `search_calls` | count, s | the last `hearing_search_state` message of the episode, `None` without the topic |
+| `search_stopped_s` | s | time under 0.05 m/s before the find, all causes |
+| `search_driving_s` | s | `search_time_to_find_s - search_stopped_s` |
+
+`PRIMARY_OUTPUTS` are `search_time_to_find_s`, `search_found` and `search_tsr`.
