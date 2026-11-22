@@ -101,7 +101,7 @@ def test_single_sample_without_map_has_no_reference_length_and_says_why():
 
     assert res["fde"] == pytest.approx(5.0)
     assert res["theta_star_length"] is None
-    assert res["theta_star_length_null_reason"] == "no_map"
+    assert res["theta_star_length_null_reason"] == "not_recorded"
     assert res["path_irregularity"] is None
     assert res["topological_complexity"] is None
     assert res["ade"] is None

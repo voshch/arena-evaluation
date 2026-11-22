@@ -12,6 +12,7 @@ from arena_evaluation.processing.path.theta_star import (
     StaticGrid,
     plan_route,
 )
+from arena_evaluation.storage.registry import NullReason
 
 # Waypoints closer than 0.25 m are the same goal: below the planner's 0.5 m arrival tolerance.
 _ROUTE_WAYPOINT_TOLERANCE_M: typing.Final[float] = 0.25
@@ -121,9 +122,9 @@ def _truncate_to_goal_region(points: np.ndarray, goal: tuple[float, float], tole
 def plan_mission(*, grid: StaticGrid | None, waypoints: tuple[tuple[float, float], ...]) -> RouteResult:
     """Whole-mission route: the per-leg routes in order, each leg ending on its goal's arrival radius."""
     if grid is None:
-        return RouteResult(points=None, length_m=None, null_reason="no_map")
+        return RouteResult(points=None, length_m=None, null_reason=NullReason.NOT_RECORDED.value)
     if len(waypoints) < 2:
-        return RouteResult(points=None, length_m=None, null_reason="degenerate_mission")
+        return RouteResult(points=None, length_m=None, null_reason=NullReason.NOT_APPLICABLE.value)
     chunks: list[np.ndarray] = []
     length_m = 0.0
     leg_start = waypoints[0]

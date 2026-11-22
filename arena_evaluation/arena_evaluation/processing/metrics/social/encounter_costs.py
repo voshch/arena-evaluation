@@ -222,7 +222,7 @@ def _intimate_dwell_s(robot_window: Trajectory2D, track: PedTrack, robot_radius_
 
 def _planned(grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray) -> RouteResult:
     if grid is None:
-        return RouteResult(points=None, length_m=None, null_reason="no_map")
+        return RouteResult(points=None, length_m=None, null_reason=NullReason.NOT_RECORDED.value)
     return plan_route(
         grid,
         (float(start_xy[0]), float(start_xy[1])),

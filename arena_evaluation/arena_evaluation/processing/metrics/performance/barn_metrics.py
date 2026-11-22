@@ -9,7 +9,7 @@ import polars as pl
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.common.alignment import interpolate_values
 from arena_evaluation.storage.exceptions import MetricInputError
-from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 MAX_SPEED_MPS = 2.0
@@ -192,7 +192,7 @@ class BARNScoreCalculator(BaseMetricCalculator):
         reference = self.metrics_config.get("barn")
         if reference is not None and episode.map in reference["path_length"]:
             return {}
-        return {key: f"{key}:reference_missing:metrics.barn" for key in self.output_keys()}
+        return {key: f"{key}:{NullReason.REFERENCE_MISSING.value}" for key in self.output_keys()}
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
