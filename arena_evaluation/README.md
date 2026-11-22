@@ -169,7 +169,7 @@ arena evaluation process --run-dir <run>/episodes/episode_004
 
 Writes the per-episode `metrics/fact_*.parquet` and `metrics/series_*.parquet`, then the benchmark's
 dimensions and contract report. The extraction cache is reused; `--force-extract` re-reads the MCAP,
-and `--force-process` recomputes a run whose tables already carry the current layout stamp.
+and `--force-process` recomputes a run whose tables already carry the current layout stamp, replacing every episode's fact tables before the contract judges them.
 
 ### 4. Report
 

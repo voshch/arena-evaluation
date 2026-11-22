@@ -1150,6 +1150,10 @@ class ProcessingPipeline:
         if not episodes:
             print(f"No episodes found for benchmark '{benchmark_id}'")
             return None
+        if force_process:
+            for ep in episodes:
+                if (metrics_dir := pathlib.Path(ep.episode_dir) / "metrics").is_dir():
+                    shutil.rmtree(metrics_dir)
 
         with _phase_context(self.profiler, "extract"):
             self.extract_benchmark(benchmark_id, force_extract=force_extract)
