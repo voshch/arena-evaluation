@@ -28,6 +28,7 @@ from arena_evaluation.adapters.musohu import (
 from musohu_bag import (
     BEAMS,
     BODY,
+    BURST,
     CAMERA,
     CLOUD_POINTS,
     CMD_OFFSET_NS,
@@ -61,6 +62,7 @@ MCAP = f"{EPISODE}/episode_000.mcap"
 META = f"{EPISODE}/episode_000.yaml"
 ROBOT_NS = "arena/env_0/arena_env_node/human"
 FLEET = "arena/env_0/arena_env_node/state/robots"
+RECORD = "arena/env_0/arena_env_node/state/episode"
 LIVE_ITEM = "02182023_frontal_approach_13"
 LIVE_REFUSED = "02152023_front_avoid_passenger_1"
 LIVE_FILE_ID = 564
@@ -101,7 +103,7 @@ def test_convert_writes_recorder_layout(converted: Path):
 
 def test_topic_rows_keep_their_own_clock(converted: Path):
     topics = extract(converted)
-    assert sorted(topics) == ["robot_cmd_vel", "robot_descriptor", "robot_odom", "robot_params", "robot_scan_summary", "robot_tracks", "tf"]
+    assert sorted(topics) == ["episode_lifecycle", "robot_cmd_vel", "robot_descriptor", "robot_odom", "robot_params", "robot_scan_summary", "robot_tracks", "tf"]
     scan = topics["robot_scan_summary"]
     assert scan["scan_min_m"][3] == pytest.approx(scan_ranges(3)[1])
     assert scan["range_max_m"].unique().to_list() == [RANGE_MAX]
@@ -123,6 +125,7 @@ def test_messages_carry_robot_frames_and_the_paired_twist(converted: Path):
         f"{ROBOT_NS}/cmd_vel",
         f"{ROBOT_NS}/odom",
         f"{ROBOT_NS}/scan",
+        RECORD,
         FLEET,
         "tf",
     ]
@@ -170,6 +173,7 @@ def test_other_bag_topics_pass_through_in_robot_frames(tmp_path: Path):
             f"{ROBOT_NS}{IMU}",
             f"{ROBOT_NS}{PATH}",
             f"{ROBOT_NS}{POINTS}",
+            RECORD,
             FLEET,
         ]
     )
@@ -177,7 +181,7 @@ def test_other_bag_topics_pass_through_in_robot_frames(tmp_path: Path):
     assert (imu.header.frame_id, _stamp(imu.header), log_time) == (
         "env_0/human/zed2_imu_link",
         3 * STEP_NS,
-        3 * STEP_NS + STAMP_LAG_NS + 1,
+        3 * STEP_NS,
     )
     assert (
         imu.angular_velocity.z,
@@ -234,7 +238,7 @@ def test_other_bag_topics_pass_through_in_robot_frames(tmp_path: Path):
     }
     assert counts[f"{ROBOT_NS}{POINTS}"] == ("sensor_msgs/msg/PointCloud2", COUNT)
     assert counts["tf_static"] == ("tf2_msgs/msg/TFMessage", 1)
-    assert meta["rosbag2_message_count"] == sum(len(listed) for listed in messages.values()) == 3 * COUNT + 5 * COUNT + 2
+    assert meta["rosbag2_message_count"] == sum(len(listed) for listed in messages.values()) == 3 * COUNT + 5 * COUNT + 4
     assert {"robot_cmd_vel", "robot_odom", "robot_scan_summary"} <= set(extract(run))
 
 
@@ -250,7 +254,7 @@ def test_passed_through_messages_are_written_in_time_order(tmp_path: Path):
     with open(run / MCAP, "rb") as f:
         times = [message.log_time for _, _, message in make_reader(f).iter_messages(log_time_order=False)]
     assert times == sorted(times)
-    assert len(times) == 8 * COUNT + 2
+    assert len(times) == 8 * COUNT + 4
 
 
 def test_metadata_agrees_with_recording(converted: Path):
@@ -277,10 +281,11 @@ def test_metadata_agrees_with_recording(converted: Path):
             f"{ROBOT_NS}/cmd_vel",
             f"{ROBOT_NS}/odom",
             f"{ROBOT_NS}/scan",
+            RECORD,
             FLEET,
             "tf",
         ],
-        "rosbag2_message_count": 4 * COUNT + 1,
+        "rosbag2_message_count": 4 * COUNT + 3,
     }
     assert {key: meta[key] for key in expected} == expected
     counts = {
@@ -295,6 +300,7 @@ def test_metadata_agrees_with_recording(converted: Path):
         f"{ROBOT_NS}/odom": ("nav_msgs/msg/Odometry", COUNT),
         f"{ROBOT_NS}/scan": ("sensor_msgs/msg/LaserScan", COUNT),
         FLEET: ("arena_runtime_msgs/msg/RobotFleet", 1),
+        RECORD: ("arena_runtime_msgs/msg/EpisodeRecord", 2),
         "tf": ("tf2_msgs/msg/TFMessage", COUNT),
     }
     tables = extract(converted)
@@ -361,7 +367,7 @@ def test_stray_cmd_vel_adds_no_frame(tmp_path: Path):
 
 def test_without_cmd_vel_the_velocity_stays_in_odom(tmp_path: Path, bag: Path):
     topics = extract(convert(bag, tmp_path / "musohu"))
-    assert sorted(topics) == ["robot_descriptor", "robot_odom", "robot_params", "robot_scan_summary", "robot_tracks", "tf"]
+    assert sorted(topics) == ["episode_lifecycle", "robot_descriptor", "robot_odom", "robot_params", "robot_scan_summary", "robot_tracks", "tf"]
     np.testing.assert_allclose(topics["robot_odom"]["odom_vx"].to_numpy(), [velocity(i)[0] for i in range(COUNT)])
     assert topics["robot_scan_summary"]["t_ns"].to_list() == [i * STEP_NS for i in range(COUNT)]
 
@@ -436,7 +442,7 @@ def test_topic_whose_ros2_type_has_fields_the_ros1_message_lacks_is_left_out_who
     if not lacking:
         pytest.skip("this ROS 2 Marker has no field the ROS 1 Marker lacks")
     bag = write_bag(tmp_path / "run.bag", cmd=True, markers=True)
-    types, skipped, _ = passthrough_types(bag, wanted_topics(Topics(cmd_vel=CMD_VEL)))
+    types, skipped = passthrough_types(bag, wanted_topics(Topics(cmd_vel=CMD_VEL)))
     assert types == {}
     assert skipped == [
         (
@@ -449,11 +455,12 @@ def test_topic_whose_ros2_type_has_fields_the_ros1_message_lacks_is_left_out_who
         f"{ROBOT_NS}/cmd_vel",
         f"{ROBOT_NS}/odom",
         f"{ROBOT_NS}/scan",
+        RECORD,
         FLEET,
         "tf",
     ]
     with open(run / META) as f:
-        assert yaml.safe_load(f)["rosbag2_message_count"] == 4 * COUNT + 1
+        assert yaml.safe_load(f)["rosbag2_message_count"] == 4 * COUNT + 3
 
 
 def test_unknown_item_is_refused_before_any_path_is_built(tmp_path: Path, bag: Path):
@@ -705,3 +712,47 @@ def test_probe_runs_again_over_a_truncated_topics_cache(tmp_path: Path, host):
         "gaps.topics.json",
     ]
     assert len(host.served) == 2
+
+
+def test_messages_are_logged_at_their_header_stamp(converted: Path):
+    messages = decoded(converted)
+    for topic in (f"{ROBOT_NS}/scan", f"{ROBOT_NS}/odom"):
+        assert [(log_time, _stamp(msg.header)) for log_time, msg in messages[topic]] == [(i * STEP_NS, i * STEP_NS) for i in range(COUNT)]
+    assert [log_time for log_time, _ in messages[f"{ROBOT_NS}/cmd_vel"]] == [i * STEP_NS + STAMP_LAG_NS + CMD_OFFSET_NS for i in range(COUNT)]
+
+
+def test_episode_records_bracket_the_demonstration(converted: Path):
+    messages = decoded(converted)
+    (running_at, running), (done_at, done) = messages[RECORD]
+    assert (running_at, running.outcome_state, running.start_time.sec, running.start_time.nanosec) == (0, 1, 0, 0)
+    assert (done.outcome_state, done_at) == (2, max(log_time for topic, listed in messages.items() if topic != RECORD for log_time, _ in listed))
+
+
+def test_demonstration_is_a_complete_rankable_episode(converted: Path):
+    from arena_evaluation.processing.outcome import outcome_verdict
+    from arena_evaluation.processing.pipeline import ProcessingPipeline
+    from arena_evaluation.storage.folder_manager import FolderManager
+    from arena_evaluation.storage.registry.facts import FactEpisodes
+
+    lifecycle = extract(converted)["episode_lifecycle"]
+    assert lifecycle["outcome_state"].to_list() == [1, 2]
+    assert outcome_verdict(lifecycle["outcome_state"][-1], None) == ("GOAL_REACHED", True)
+    folders = FolderManager(converted.parent)
+    (episode,) = folders.discover_episodes(converted.name)
+    ProcessingPipeline(folders, workers=1).process_episode(episode)
+    facts = FactEpisodes.scan(converted / EPISODE).collect()
+    assert (facts["result"].to_list(), facts["invalid_reason"].to_list()) == (["GOAL_REACHED"], [""])
+
+
+def test_tf_burst_is_tracked_at_its_header_spacing(tmp_path: Path):
+    pytest.importorskip("rosbags")
+    run = convert(
+        write_bag(tmp_path / "run.bag", sensors=True, burst=True),
+        tmp_path / "musohu",
+    )
+    track = extract(run)["robot_tracks"]
+    t_ns = track["t_ns"].to_numpy()
+    assert BURST > 1
+    assert np.diff(t_ns).tolist() == [STEP_NS] * (COUNT - 1)
+    step = np.hypot(np.diff(track["x"].to_numpy()), np.diff(track["y"].to_numpy()))
+    assert (step / (np.diff(t_ns) / 1e9)).tolist() == pytest.approx([1.0] * (COUNT - 1))

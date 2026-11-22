@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import heapq
+import itertools
 import json
 import logging
 import os
@@ -39,11 +40,14 @@ ENV_NAMESPACE = "arena/env_0/arena_env_node"
 ROBOT_NAMESPACE = f"{ENV_NAMESPACE}/{ROBOT}"
 FRAME = f"env_0/{ROBOT}"
 EPISODE = "episode_000"
+MAP = "unknown"
 NS = 1_000_000_000
+REORDER_NS = NS
 BAG_MAGIC = b"#ROSBAG V2.0\n"
 PROBE_HEAD = 4096
 PROBE_SPAN = 65536
-TF_TOPICS = ("/tf", "/tf_static")
+STATIC_TF_TOPIC = "/tf_static"
+TF_TOPICS = ("/tf", STATIC_TF_TOPIC)
 MAPPED_TOPICS = frozenset(f"/{ROBOT_NAMESPACE}/{key}" for key in ("scan", "odom", "cmd_vel"))
 
 Message = tuple[str, int, typing.Any, typing.Any]
@@ -63,6 +67,14 @@ class Header(typing.Protocol):
 
 class Ros1Message(typing.Protocol):
     __dataclass_fields__: typing.ClassVar[dict[str, dataclasses.Field]]
+
+
+class Stamped(typing.Protocol):
+    header: Header
+
+
+class Transforms(typing.Protocol):
+    transforms: list[Stamped]
 
 
 class Ros2Message(typing.Protocol):
@@ -181,10 +193,10 @@ class MuSoHu(Importer):
         run = out / item
         if run.exists():
             shutil.rmtree(run)
-        types, skipped, start_ns = passthrough_types(src, wanted_topics(self.topics))
+        types, skipped = passthrough_types(src, wanted_topics(self.topics))
         for topic, reason in skipped:
             logger.warning("%s: %s not recorded, %s", src.name, topic, reason)
-        record_episode(run, self.body, read_bag(src, self.topics), passthrough_messages(src, types), start_ns, odom_track="/tf" not in types)
+        record_episode(run, self.body, read_bag(src, self.topics), passthrough_messages(src, types), odom_track="/tf" not in types)
         return item
 
     def attribution(self, item: str) -> Attribution:
@@ -429,8 +441,8 @@ def ros2_message_type(msgtype: str) -> type | None:
         return None
 
 
-def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], list[tuple[str, str]], int]:
-    """ROS 2 type of every passthrough topic, the skipped topics as (topic, reason), and the bag's first receive time."""
+def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], list[tuple[str, str]]]:
+    """ROS 2 type of every passthrough topic and the skipped topics as (topic, reason)."""
     from rosbags.highlevel import AnyReader
 
     types: dict[str, type] = {}
@@ -447,7 +459,7 @@ def passthrough_types(bag: Path, mapped: set[str]) -> tuple[dict[str, type], lis
                 skipped.append((topic, f"the ROS 1 {msgtype} has no {', '.join(lacking)}"))
             else:
                 types[topic] = cls
-        return types, skipped, reader.start_time
+        return types, skipped
 
 
 def passthrough_messages(bag: Path, types: dict[str, type]) -> Iterator[Passed]:
@@ -467,6 +479,31 @@ def passthrough_messages(bag: Path, types: dict[str, type]) -> Iterator[Passed]:
             )
 
 
+def measured_ns(msg: Ros1Message, received_ns: int) -> int:
+    """Measurement time of a ROS 1 message: its header stamp, a TFMessage's first transform stamp, else the receive time."""
+    fields = msg.__dataclass_fields__
+    if "header" in fields:
+        stamp = stamp_ns(typing.cast(Stamped, msg).header)
+    elif "transforms" in fields and (transforms := typing.cast(Transforms, msg).transforms):
+        stamp = stamp_ns(transforms[0].header)
+    else:
+        return received_ns
+    return stamp or received_ns
+
+
+def in_measured_order(messages: Iterable[Passed]) -> Iterator[Passed]:
+    """messages with their time replaced by the measurement time (the receive time for latched static tf), reordered within REORDER_NS of receive order."""
+    pending: list[tuple[int, int, str, type, typing.Any]] = []
+    for serial, (received, topic, msg_type, src) in enumerate(messages):
+        heapq.heappush(pending, (received if topic == STATIC_TF_TOPIC else measured_ns(src, received), serial, topic, msg_type, src))
+        while pending and pending[0][0] + REORDER_NS <= received:
+            t, _, topic, msg_type, src = heapq.heappop(pending)
+            yield t, topic, msg_type, src
+    while pending:
+        t, _, topic, msg_type, src = heapq.heappop(pending)
+        yield t, topic, msg_type, src
+
+
 def iso(ns: int) -> str:
     return (datetime.datetime.fromtimestamp(0, datetime.UTC) + datetime.timedelta(microseconds=ns // 1000)).isoformat()
 
@@ -476,12 +513,11 @@ def record_episode(
     body: Body,
     messages: list[Message],
     passthrough: Iterable[Passed] = (),
-    start_ns: int | None = None,
     *,
     odom_track: bool = True,
 ) -> Path:
-    """Write the fleet, the mapped messages with the odometry pose as the tf track when odom_track (a bag without /tf), and the passed-through messages as run/episodes/episode_000 through the recorder's episode writer, time counted from the earlier of the first mapped message and start_ns."""
-    from arena_runtime_msgs.msg import RobotDescriptor, RobotFleet, RobotState
+    """Write the fleet, the mapped messages with the odometry pose as the tf track when odom_track (a bag without /tf), and the passed-through messages as run/episodes/episode_000 through the recorder's episode writer, each at its measurement time counted from the earliest one, bracketed by a RUNNING and a SUCCESS episode record."""
+    from arena_runtime_msgs.msg import EpisodeRecord, RobotDescriptor, RobotFleet, RobotState
     from diagnostic_msgs.msg import KeyValue
     from geometry_msgs.msg import Transform, TransformStamped, Vector3
     from nav_msgs.msg import Odometry
@@ -497,15 +533,15 @@ def record_episode(
     types = {key: (definitions[key].name_template, definitions[key].msg_type) for key in ("scan", "cmd_vel")}
     types["odom"] = (f"/{ROBOT_NAMESPACE}/odom", Odometry)
 
-    origin_ns = min(t for _, t, *_ in messages)
-    if start_ns is not None:
-        origin_ns = min(origin_ns, start_ns)
+    passed_in_order = in_measured_order(passthrough)
+    first_passed = next(passed_in_order, None)
+    origin_ns = min([t for _, t, *_ in messages] + ([first_passed[0]] if first_passed else []))
     episode = run / "episodes" / EPISODE
     metadata = IngestionMetadata.create_episode_metadata(
         benchmark_id=run.name,
         planner=PLANNER,
         stage=run.name,
-        map_name="unknown",
+        map_name=MAP,
         episode_id=0,
         robot_model=ROBOT,
         env_ns_root=f"/{ENV_NAMESPACE}",
@@ -535,6 +571,12 @@ def record_episode(
         )
 
     fleet_record: Record = (origin_ns, definitions["robots_fleet"].name_template, RobotFleet, serialize_message(fleet))
+    record_topic = definitions["episode_record"].name_template
+
+    def episode_record(state: int) -> bytes:
+        return serialize_message(EpisodeRecord(episode_id=0, world=MAP, robots=[ROBOT], outcome_state=state))
+
+    running_record: Record = (origin_ns, record_topic, EpisodeRecord, episode_record(EpisodeRecord.RUNNING))
 
     def mapped() -> Iterator[Record]:
         for key, t, src, twist in messages:
@@ -551,7 +593,7 @@ def record_episode(
             yield t, topic, msg_type, serialize_message(msg)
 
     def passed() -> Iterator[Record]:
-        for t, topic, msg_type, src in passthrough:
+        for t, topic, msg_type, src in itertools.chain([first_passed] if first_passed else [], passed_in_order):
             msg = to_ros2(src, msg_type())
             rebase_all(msg, origin_ns)
             yield t, recorded_topic(topic), msg_type, serialize_message(msg)
@@ -560,10 +602,12 @@ def record_episode(
     writer.open_episode(episode, metadata)
     written = 0
     last_ns = origin_ns
-    for t, topic, msg_type, data in heapq.merge(iter([fleet_record]), mapped(), passed(), key=lambda record: record[0]):
+    for t, topic, msg_type, data in heapq.merge(iter([fleet_record, running_record]), mapped(), passed(), key=lambda record: record[0]):
         writer.write_message(topic, msg_type, data, t - origin_ns)
         written += 1
         last_ns = max(last_ns, t)
+    writer.write_message(record_topic, EpisodeRecord, episode_record(EpisodeRecord.SUCCESS), last_ns - origin_ns)
+    written += 1
     writer.close_episode()
     if metadata.rosbag2_message_count != written:
         raise RuntimeError(f"{episode}: {metadata.rosbag2_message_count} of {written} messages recorded, the log names the cause")

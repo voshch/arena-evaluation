@@ -11,6 +11,8 @@ BEAMS = 16
 STEP_NS = 100_000_000
 STAMP_LAG_NS = 20_000_000
 CMD_OFFSET_NS = 5_000_000
+BURST = 5
+BURST_GAP_NS = 1_000
 RANGE_MAX = 10.0
 COUNT = 40
 T0_NS = 1_700_000_000_000_000_000
@@ -67,6 +69,7 @@ def write_bag(
     twist_in_odom: bool = False,
     sensors: bool = False,
     markers: bool = False,
+    burst: bool = False,
 ) -> Path:
     """A rosbag1 file in the measured MuSoHu layout: odom with pose only, the velocity on /action under the same header stamp."""
     from rosbags.rosbag1 import Writer
@@ -284,7 +287,7 @@ def write_bag(
                 )
                 writer.write(
                     sensor_conns["/tf"],
-                    t + 3,
+                    T0_NS + (i // BURST + 1) * BURST * STEP_NS + (i % BURST) * BURST_GAP_NS if burst else t + 3,
                     ts.serialize_ros1(TFMessage(transforms=[odom_to_base]), TFMessage.__msgtype__),
                 )
                 trail = NavPath(
