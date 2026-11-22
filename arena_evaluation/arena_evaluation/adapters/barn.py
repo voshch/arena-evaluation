@@ -81,12 +81,11 @@ MANIFEST = {
                 "params": {
                     "metrics": ["barn_time"],
                     "group_cols": ["planner"],
-                    "filter": "barn_success == true",
+                    "filter": {"barn_success": True},
                 },
             },
-            "channels": {},
+            "channels": {"x": "planner", "color": "metric", "y": ["n", "mean", "std"]},
             "layout_group": "contestants",
-            "options": {"columns": ["planner", "metric", "n", "mean", "std"]},
         },
         {
             "id": "barn_native_metrics",
@@ -99,9 +98,8 @@ MANIFEST = {
                     "group_cols": ["planner"],
                 },
             },
-            "channels": {},
+            "channels": {"x": "planner", "color": "metric", "y": ["n", "mean", "std"]},
             "layout_group": "contestants",
-            "options": {"columns": ["planner", "metric", "n", "mean", "std"]},
         },
         {
             "id": "barn_score_per_world",
@@ -121,9 +119,8 @@ MANIFEST = {
                     "group_cols": ["planner", "world"],
                 },
             },
-            "channels": {},
+            "channels": {"x": "planner", "color": "world", "y": ["metric", "n", "mean", "std"]},
             "layout_group": "worlds",
-            "options": {"columns": ["planner", "world", "metric", "n", "mean", "std"]},
         },
     ],
 }

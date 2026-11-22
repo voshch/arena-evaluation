@@ -94,7 +94,9 @@ import pathlib
 import sys
 from arena_evaluation.presentation.manifest_registry import available_manifests, find_manifest_file, resolve_manifest
 from arena_evaluation.presentation.report_builder import ReportBuilder
+from arena_evaluation.processing.metrics.registry import load_metric_definitions
 
+load_metric_definitions()
 run = pathlib.Path(sys.argv[1])
 manifest = resolve_manifest("socnavbench", benchmark_dir=run)
 ReportBuilder.from_dirs([run], output_dir=run, manifest=manifest).build()
@@ -385,26 +387,54 @@ def test_suite_contest_and_manifest_load_through_their_identifiers(out: Path):
 
 
 def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path, out: Path, tmp_path: Path):
-    import polars as pl
+    from star_benchmark import write_benchmark
 
     run = tmp_path / "20261007-000000-socnavbench-socnavbench"
-    run.mkdir()
-    pl.DataFrame(
-        {
-            "planner": ["dwb", "dwb", "teb", "teb"],
-            "map": [
-                "socnavbench_eth",
-                "socnavbench_zara",
-                "socnavbench_eth",
-                "socnavbench_zara",
-            ],
-            "stage": ["t_ETH1", "t_zara2", "t_ETH1", "t_zara2"],
-            "episode": [0, 1, 2, 3],
-            "success": [True, True, False, True],
-            "collision_amount": [0, 0, 1, 0],
-            "time_to_goal": [18.0, 23.2, 20.0, 41.2],
-        }
-    ).write_parquet(run / "combined_metrics.parquet")
+    write_benchmark(
+        run,
+        [
+            {
+                "episode_id": 0,
+                "planner": "dwb",
+                "local_planner": "dwb",
+                "world": "socnavbench_eth",
+                "stage": "t_ETH1",
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 18.0,
+            },
+            {
+                "episode_id": 1,
+                "planner": "dwb",
+                "local_planner": "dwb",
+                "world": "socnavbench_zara",
+                "stage": "t_zara2",
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 23.2,
+            },
+            {
+                "episode_id": 2,
+                "planner": "teb",
+                "local_planner": "teb",
+                "world": "socnavbench_eth",
+                "stage": "t_ETH1",
+                "success": False,
+                "collision_amount": 1,
+                "time_to_goal": 20.0,
+            },
+            {
+                "episode_id": 3,
+                "planner": "teb",
+                "local_planner": "teb",
+                "world": "socnavbench_zara",
+                "stage": "t_zara2",
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 41.2,
+            },
+        ],
+    )
 
     seen = _subprocess(
         _REPORT,
@@ -418,15 +448,13 @@ def test_report_renders_the_metrics_per_contestant_and_per_episode(assets: Path,
 
     content = (run / "reports" / "socnavbench" / "report.html").read_text()
     assert "SocNavBench Report" in content
-    rows = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)]
+    rows = [re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", content, re.S)]
     assert ["planner", "Success", "Collisions", "Time to Goal (s)"] in rows
     assert ["dwb", "100%", "0.00", "20.60"] in rows
     assert ["teb", "50%", "0.50", "30.60"] in rows
-    assert ["Planner", "Stage", "Success", "Collisions", "Time to Goal (s)"] in rows
-    assert ["dwb", "t_ETH1", "100%", "0.00", "18.00"] in rows
-    assert ["dwb", "t_zara2", "100%", "0.00", "23.20"] in rows
-    assert ["teb", "t_ETH1", "0%", "1.00", "20.00"] in rows
-    assert ["teb", "t_zara2", "100%", "0.00", "41.20"] in rows
+    assert "Metrics per episode" in content
+    assert "t_ETH1" in content
+    assert "t_zara2" in content
 
 
 def test_runtime_resolves_a_bundled_world_and_scenario_from_the_exported_world_path(

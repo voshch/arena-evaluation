@@ -62,9 +62,8 @@ MANIFEST = {
                     "group_cols": ["planner", "stage"],
                 },
             },
-            "channels": {},
+            "channels": {"x": "planner", "color": "stage", "y": ["metric", "n", "mean", "std"]},
             "layout_group": "episodes",
-            "options": {"columns": ["planner", "stage", "metric", "n", "mean", "std"]},
         },
     ],
 }

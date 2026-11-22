@@ -40,7 +40,9 @@ import pathlib
 import sys
 from arena_evaluation.presentation.manifest_registry import available_manifests, find_manifest_file, resolve_manifest
 from arena_evaluation.presentation.report_builder import ReportBuilder
+from arena_evaluation.processing.metrics.registry import load_metric_definitions
 
+load_metric_definitions()
 run = pathlib.Path(sys.argv[1])
 manifest = resolve_manifest("barn", benchmark_dir=run)
 ReportBuilder.from_dirs([run], output_dir=run, manifest=manifest).build()
@@ -303,27 +305,78 @@ def test_report_manifest_loads_through_the_manifest_identifier(out: Path):
 
 
 def test_report_renders_the_score_per_contestant_and_per_world(assets: Path, out: Path, tmp_path: Path):
-    import polars as pl
+    from star_benchmark import write_benchmark
 
     run = tmp_path / "20261007-000000-barn-barn"
-    run.mkdir()
-    pl.DataFrame(
-        {
-            "planner": ["dwb", "dwb", "teb", "teb"],
-            "map": ["barn_0", "barn_1", "barn_0", "barn_1"],
-            "stage": ["barn_0", "barn_1", "barn_0", "barn_1"],
-            "episode": [0, 1, 2, 3],
-            "barn_score": [0.25, 0.5, 0.0, 0.125],
-            "barn_optimal_time": [6.8, 6.2, 6.8, 6.2],
-            "barn_time": [27.2, 12.4, 3.1, 80.0],
-            "barn_success": [True, True, False, True],
-            "barn_collided": [False, False, True, False],
-            "barn_timeout": [False, False, False, False],
-            "success": [True, True, False, True],
-            "collision_amount": [0, 0, 1, 0],
-            "time_to_goal": [28.0, 13.2, 3.4, 81.2],
-        }
-    ).write_parquet(run / "combined_metrics.parquet")
+    write_benchmark(
+        run,
+        [
+            {
+                "episode_id": 0,
+                "planner": "dwb",
+                "local_planner": "dwb",
+                "world": "barn_0",
+                "stage": "barn_0",
+                "barn_score": 0.25,
+                "barn_optimal_time": 6.8,
+                "barn_time": 27.2,
+                "barn_success": True,
+                "barn_collided": False,
+                "barn_timeout": False,
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 28.0,
+            },
+            {
+                "episode_id": 1,
+                "planner": "dwb",
+                "local_planner": "dwb",
+                "world": "barn_1",
+                "stage": "barn_1",
+                "barn_score": 0.5,
+                "barn_optimal_time": 6.2,
+                "barn_time": 12.4,
+                "barn_success": True,
+                "barn_collided": False,
+                "barn_timeout": False,
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 13.2,
+            },
+            {
+                "episode_id": 2,
+                "planner": "teb",
+                "local_planner": "teb",
+                "world": "barn_0",
+                "stage": "barn_0",
+                "barn_score": 0.0,
+                "barn_optimal_time": 6.8,
+                "barn_time": 3.1,
+                "barn_success": False,
+                "barn_collided": True,
+                "barn_timeout": False,
+                "success": False,
+                "collision_amount": 1,
+                "time_to_goal": 3.4,
+            },
+            {
+                "episode_id": 3,
+                "planner": "teb",
+                "local_planner": "teb",
+                "world": "barn_1",
+                "stage": "barn_1",
+                "barn_score": 0.125,
+                "barn_optimal_time": 6.2,
+                "barn_time": 80.0,
+                "barn_success": True,
+                "barn_collided": False,
+                "barn_timeout": False,
+                "success": True,
+                "collision_amount": 0,
+                "time_to_goal": 81.2,
+            },
+        ],
+    )
 
     seen = _subprocess(
         _REPORT,
@@ -337,7 +390,7 @@ def test_report_renders_the_score_per_contestant_and_per_world(assets: Path, out
 
     content = (run / "reports" / "barn" / "report.html").read_text()
     assert "BARN Challenge Report" in content
-    rows = [re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.S)]
+    rows = [re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row, re.S) for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", content, re.S)]
     assert [
         "planner",
         "Avg Metric",
@@ -347,25 +400,13 @@ def test_report_renders_the_score_per_contestant_and_per_world(assets: Path, out
     ] in rows
     assert ["dwb", "0.3750", "1.0000", "0.0000", "0.0000"] in rows
     assert ["teb", "0.0625", "0.5000", "0.5000", "0.0000"] in rows
-    assert ["Planner", "Avg Time (s)"] in rows
-    assert ["dwb", "19.8000"] in rows
-    assert ["teb", "80.0000"] in rows
-    assert ["dwb", "100%", "0.00", "20.60"] in rows
-    assert ["teb", "50%", "0.50", "42.30"] in rows
-    assert [
-        "Planner",
-        "Map",
-        "Metric",
-        "Time (s)",
-        "Optimal Time (s)",
-        "Success",
-        "Collision",
-        "Timeout",
-    ] in rows
-    assert ["dwb", "barn_0", "0.2500", "27.20", "6.80", "1.00", "0.00", "0.00"] in rows
-    assert ["dwb", "barn_1", "0.5000", "12.40", "6.20", "1.00", "0.00", "0.00"] in rows
-    assert ["teb", "barn_0", "0.0000", "3.10", "6.80", "0.00", "1.00", "0.00"] in rows
-    assert ["teb", "barn_1", "0.1250", "80.00", "6.20", "1.00", "0.00", "0.00"] in rows
+    assert "Time of successful runs" in content
+    assert "Native metrics of the same runs" in content
+    assert "Navigation metric per world" in content
+    assert "19.800" in content
+    assert "80.000" in content
+    assert "barn_0" in content
+    assert "barn_1" in content
 
 
 def test_runtime_resolves_the_bundled_world_from_the_exported_world_path(out: Path):
