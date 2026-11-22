@@ -686,12 +686,30 @@ def _status_evaluation(
     status: str,
     reason: str,
     record: pl.DataFrame | pl.LazyFrame | None = None,
+    facts: ScopedFactTables | None = None,
 ) -> EpisodeEvaluation:
-    """An episode's single status row, published without fact tables."""
+    """An episode's single status row, with the fact tables of an episode that could not be aligned."""
     return _finish_evaluation(
         episode_dir,
         ep.episode_id,
         [_status_row(ep, metadata, robot, status, reason, record)],
+        [facts] if facts is not None else None,
+    )
+
+
+def _unaligned_facts(ep: EpisodeDescriptor, metadata: RunMetadata | None, robot: str, record: pl.DataFrame | pl.LazyFrame | None, flags: pl.DataFrame | pl.LazyFrame | None = None) -> ScopedFactTables:
+    """The invalid fact row of an episode whose robot left no trajectory to evaluate."""
+    from arena_evaluation.processing.scoped_evaluator import unaligned_episode_facts
+
+    outcome_state, outcome_info = _record_outcome(record, metadata)
+    result, _ = outcome_verdict(outcome_state, outcome_info)
+    return unaligned_episode_facts(
+        run_id=ep.benchmark_id,
+        episode_id=ep.episode_id,
+        robot_id=robot,
+        result=result,
+        outcome_state=outcome_state,
+        integrity=_record_integrity(record, flags, metadata),
     )
 
 
@@ -893,7 +911,7 @@ class ProcessingPipeline:
                     bundle.episode_lifecycle,
                     bundle.episode_integrity,
                 ),
-                None,
+                _unaligned_facts(ep, metadata, robot_name, bundle.episode_lifecycle, bundle.episode_integrity),
                 None,
             )
 
@@ -1025,14 +1043,16 @@ class ProcessingPipeline:
                     (b.episode_lifecycle for b in bundles.values() if b.episode_lifecycle is not None),
                     None,
                 )
+                robot = _metadata_robot(metadata, bundles)
                 return _status_evaluation(
                     ep,
                     episode_dir,
                     metadata,
-                    _metadata_robot(metadata, bundles),
+                    robot,
                     "no_trajectory",
                     "no tf ground-truth or odometry rows",
                     any_record,
+                    _unaligned_facts(ep, metadata, robot, any_record),
                 )
 
             params_by_robot = {name: _robot_identity(bundle)[1] for name, bundle in robots.items()}

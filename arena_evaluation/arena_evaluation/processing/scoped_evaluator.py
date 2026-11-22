@@ -306,6 +306,27 @@ def _finalize_fact_row(
     return row
 
 
+def unaligned_episode_facts(*, run_id: str, episode_id: int, robot_id: str, result: str | None, outcome_state: int | None, integrity: Sequence[str]) -> ScopedFactTables:
+    """The fact tables of an episode with no trajectory to evaluate: its invalid episode row with every metric NULL for the missing track."""
+    _, invalid_reason = episode_validity(robot_tracks=None, outcome_state=outcome_state, integrity=integrity)
+    row: dict[str, object] = {
+        "run_id": run_id,
+        "episode_id": int(episode_id),
+        "robot_id": robot_id,
+        "result": result,
+        "invalid_reason": invalid_reason or "",
+    }
+    nullable = _fact_table(FactTable.EPISODES).null_reason_columns()
+    row["null_reason"] = _null_reason(row, nullable, codes=[f"{field}:{TOPIC_MISSING}:{ROBOT_TRACKS_TOPIC}" for field in nullable if row.get(field) is None])
+    return ScopedFactTables(
+        episodes=_frame([row], FactTable.EPISODES),
+        encounters=_empty_fact(FactTable.ENCOUNTERS),
+        contacts=_empty_fact(FactTable.CONTACTS),
+        pedestrians=_empty_fact(FactTable.PEDESTRIANS),
+        robots=_empty_fact(FactTable.ROBOTS),
+    )
+
+
 def _fleet_key(robot_name: str, fleet: Mapping[str, pl.DataFrame]) -> str:
     if robot_name in fleet:
         return robot_name
@@ -830,7 +851,7 @@ class ScopedEvaluator:
         provenance: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
         robot_tracks = _table(episode, ROBOT_TRACKS_TOPIC)
-        _, _ = outcome_verdict(episode.outcome_state, episode.outcome_info)
+        result, _ = outcome_verdict(episode.outcome_state, episode.outcome_info)
         pose_frame = metrics.get("pose_frame")
         integrity = metrics.get("integrity")
         _, invalid_reason = episode_validity(
@@ -843,6 +864,7 @@ class ScopedEvaluator:
             "episode_id": int(episode_id),
             "robot_id": _first_val(robot_tracks, "robot_id", str, str(episode.robot_name or "robot")),
             **_declared_fact_values(metrics, FactTable.EPISODES),
+            "result": result,
             "pose_frame": pose_frame if isinstance(pose_frame, str) and pose_frame else None,
             "invalid_reason": invalid_reason or "",
         }
