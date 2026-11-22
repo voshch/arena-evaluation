@@ -90,7 +90,6 @@ def test_trajectory_renderer_with_world_geometry_and_missing_world_notice(
     renderer.render_static(df, out)
     assert out.exists() and out.stat().st_size > 1000
 
-    # Missing world rows emit a notice and still render cleanly
     renderer_missing = TrajectoryRenderer(spec)
     renderer_missing.world_geometry = geom.filter(pl.col("world") == "other_world")
     renderer_missing.diagnostics = PlotDiagnostics()

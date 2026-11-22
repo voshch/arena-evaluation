@@ -66,7 +66,6 @@ def test_h2_snapshot_id_propagates_across_tools_and_changes_on_reprocess(
     assert s_res["snapshot_id"] == snap
     assert sl_res.snapshot_id == snap
 
-    # Modify an episode parquet file to simulate reprocessing
     ep0_robots = run_dir / "episodes" / "episode_000" / "metrics" / "fact_robots.parquet"
     df = pl.read_parquet(ep0_robots)
     df.with_columns(pl.lit(999.0).alias("energy_total_wh")).write_parquet(ep0_robots)
@@ -178,7 +177,6 @@ def test_h2_declaration_lint_reports_unresolvable_source_and_unknown_column(
     assert any("bad_col_query" in p for p in dirty["problems"])
     assert any("missing_source_plot" in p for p in dirty["problems"])
 
-    # Drop a required view column in fact_encounters on purpose so v_encounter_summary cannot resolve.
     for enc_path in (run_dir / "episodes").glob("*/metrics/fact_encounters.parquet"):
         enc_df = pl.read_parquet(enc_path)
         if "detour_time_s" in enc_df.columns:

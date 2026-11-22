@@ -34,7 +34,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     write_synthetic_benchmark(run_dir, include_swap=True)
     os.environ["ARENA_DATA_DIR"] = str(data_dir)
 
-    # Pin query & create verified finding
     q_res = query.evaluation_query(
         run_id="h5_run",
         query="SELECT planner, AVG(time_to_goal) AS mean_ttg FROM v_episode_summary GROUP BY planner ORDER BY planner",
@@ -58,7 +57,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         by="verifier",
     )
 
-    # Also leave an unverified proposed finding (must NOT appear in assembled report)
     findings.evaluation_finding_create(
         run_id="h5_run",
         claim="Unverified claim",
@@ -67,7 +65,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         author="analyst",
     )
 
-    # Store the comparison frame and its interval summary as derived tables
     comparison = analysis.evaluation_analysis(
         procedure="compare",
         run_id="h5_run",
@@ -80,11 +77,9 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     )
     assert comparison["derived_summary_table"] == "derived_cmp_ab_summary"
 
-    # 1. Draft
     draft = reporting.evaluation_report_draft(run_id="h5_run", title="H5 Reviewed Report")
     draft_id = draft["draft_id"]
 
-    # 2. Plot 1: interval (approved)
     p1 = reporting.evaluation_report_plot(
         run_id="h5_run",
         draft_id=draft_id,
@@ -99,7 +94,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     )
     assert p1["status"] == "rendered", p1
 
-    # View returns ImageContent + check report
     view_res = reporting.evaluation_report_view(run_id="h5_run", draft_id=draft_id, plot_id="cmp_interval")
     assert len(view_res.content) >= 2
 
@@ -118,7 +112,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         by="reporter",
     )
 
-    # 3. Plot 2: dropped plot
     reporting.evaluation_report_plot(
         run_id="h5_run",
         draft_id=draft_id,
@@ -139,7 +132,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
         by="reporter",
     )
 
-    # 4. Plot 3: bound to missing column -> failed check, appendix entry
     p3 = reporting.evaluation_report_plot(
         run_id="h5_run",
         draft_id=draft_id,
@@ -153,7 +145,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     )
     assert p3["status"] == "failed"
 
-    # 5. Assemble with SVG, PDF, LaTeX exports
     assembled = reporting.evaluation_report_assemble(
         run_id="h5_run",
         draft_id=draft_id,
@@ -174,7 +165,6 @@ def test_h5_draft_plot_view_review_assemble_with_exports_and_appendix(
     assert "broken_col" in html_text
     assert "dropped_bar" in html_text
 
-    # Check exports and sidecars
     exports = assembled["export_paths"]
     assert pathlib.Path(exports["svg"][0]).is_file()
     assert pathlib.Path(exports["svg"][0] + ".meta.yaml").is_file()

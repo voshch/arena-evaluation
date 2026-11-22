@@ -103,7 +103,6 @@ def test_paired_treatment_diff_edge_cases() -> None:
     assert empty_res.mean_diff is None
     assert empty_res.summary_frame.height == 1
 
-    # A constant difference has no standardised effect size: dz is NULL with its reason
     const_res = paired_treatment_diff(df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42)
     assert const_res.mean_diff == 2.0
     assert const_res.std_diff == 0.0
@@ -111,7 +110,6 @@ def test_paired_treatment_diff_edge_cases() -> None:
     assert const_res.summary_frame.item(0, "cohens_dz_null_reason") == "std_diff:zero_denominator"
     assert const_res.p_value == pytest.approx(1.0 / 101.0)
 
-    # Constant zero diff: no spread either, so dz stays NULL instead of a fabricated 0.0
     zero_df = df.with_columns(pl.lit(1.0).alias("val"))
     zero_res = paired_treatment_diff(zero_df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42)
     assert zero_res.cohens_dz is None
@@ -129,7 +127,6 @@ def test_paired_treatment_diff_edge_cases() -> None:
     assert one_cluster.ci_high == 2.0
     assert one_cluster.p_value == 1.0
 
-    # Missing cluster_col in pair_cols falls back to one cluster per pair
     no_cluster = paired_treatment_diff(
         df,
         "val",
@@ -162,7 +159,6 @@ def test_rank_swap_matrix_pin() -> None:
     assert single_regime.is_empty()
     assert single_regime.schema == RANK_SWAP_MATRIX_SCHEMA
 
-    # Fewer than 2 common entities -> total_pairs=0, kendall_tau=1.0
     one_entity = rank_swap_matrix(df.filter(pl.col("planner") == "p1"), "score")
     assert one_entity.height == 3
     assert one_entity["total_pairs"].to_list() == [0, 0, 0]
@@ -210,7 +206,6 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     )
     assert empty_kw.rankings_frame.schema == KENDALL_RANKINGS_SCHEMA
 
-    # A single judge cannot be concordant with itself: W is undefined
     one_judge = kendalls_w(
         pl.DataFrame(
             {
@@ -227,7 +222,6 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     assert one_judge.p_value is None
     assert "at least two of each" in one_judge.note
 
-    # Single entity -> m=2, k=1 -> concordance is undefined as well
     one_entity_kw = kendalls_w(
         pl.DataFrame(
             {

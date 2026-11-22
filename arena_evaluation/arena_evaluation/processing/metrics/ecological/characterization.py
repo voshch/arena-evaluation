@@ -261,7 +261,6 @@ class CharacterizationCalculator(BaseMetricCalculator):
         """Add per-sample step duration/distance from ground truth, power, acoustic level, acceleration and efficiency."""
         sample_times_ns = frame["t_ns"]
         ground_truth_x, ground_truth_y = self._ground_truth_xy(episode, sample_times_ns)
-        # The first sample has no previous step: its duration is NULL, never 0.
         dt = (sample_times_ns.diff().cast(pl.Float64) / _NANOSECONDS_PER_SECOND).clip(lower_bound=0.0)
         ds = ((ground_truth_x.diff() ** 2) + (ground_truth_y.diff() ** 2)).sqrt().clip(lower_bound=0.0)
 
@@ -318,7 +317,6 @@ class CharacterizationCalculator(BaseMetricCalculator):
             turn_rate = pl.lit(None, dtype=pl.Float64)
 
         ground_truth_x, ground_truth_y = self._ground_truth_xy(episode, out["t_ns"])
-        # The first sample has no previous step: its duration is NULL, never 0.
         step_dt = (out["t_ns"].diff().cast(pl.Float64) / _NANOSECONDS_PER_SECOND).clip(lower_bound=0.0)
         ground_truth_yaw = self._ground_truth_yaw(episode, out["t_ns"])
         lateral_speed = pl.when(step_dt > 1e-9).then((-ground_truth_x.diff() * ground_truth_yaw.sin() + ground_truth_y.diff() * ground_truth_yaw.cos()) / step_dt).otherwise(None)

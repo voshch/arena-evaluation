@@ -144,7 +144,6 @@ def test_extract_ped_tracks_derives_velocity_from_positions_but_leaves_the_first
 
     track = extract_episode_ped_tracks(_episode({"pedestrian_arena_peds": frame}))["Pedestrian_3"]
 
-    # The difference needs two poses, so the first sample is unmeasured (NaN), never a copy of the second.
     assert np.isnan(track.vx[0]) and np.isnan(track.vy[0])
     np.testing.assert_allclose(track.vx[1:], [1.0, 1.0], atol=1e-9)
     np.testing.assert_allclose(track.vy[1:], [0.0, 0.0], atol=1e-9)

@@ -231,7 +231,6 @@ class EnergyCalculator(BaseMetricCalculator):
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        # None without the robot's power definition: friction is then NULL, never an invented default.
         self._rolling_resistance = _load_rolling_resistance(robot_params.model)
 
     @classmethod

@@ -58,9 +58,6 @@ def test_metadata_exclude_none():
     assert dumped["is_reference"] is False
 
 
-# TopicParquetStore: the flat telemetry cache
-
-
 def _odometry(robot: str, stamps: list[int]) -> pl.DataFrame:
     n = len(stamps)
     return pl.DataFrame(

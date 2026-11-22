@@ -161,21 +161,12 @@ def _detect_windows(pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECT
     return detect_encounter_windows_lf(pairs, params).collect()
 
 
-# pedestrian_pairs_lf
-
-
 def test_pedestrian_pairs_refuse_a_pedestrian_without_a_recorded_radius() -> None:
     robot = _robot_tracks([{"t_ns": 0}])
     pedestrians = _pedestrian_tracks([{"t_ns": 0, "x": 5.0, "radius_m": None}])
 
     with pytest.raises(MetricInputError, match="radius_m"):
         pedestrian_pairs_lf(robot, pedestrians, robot_radius_m=0.5)
-
-
-# detect_encounter_windows_lf
-
-
-# fleet_pairs_lf
 
 
 def test_fleet_pairs_empty_fleet_returns_canonical_empty_frame() -> None:
@@ -212,8 +203,6 @@ def _pair_frame(edge_clearance_m: Sequence[float], t_s: Sequence[float] | None =
         schema=PAIR_SCHEMA,
     ).lazy()
 
-
-# contact_windows_lf: one row per contact bout, linked to its encounter
 
 _BOUT_SCHEMA: Final[pl.Schema] = pl.Schema(
     {

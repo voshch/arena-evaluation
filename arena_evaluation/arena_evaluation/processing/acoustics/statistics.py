@@ -8,7 +8,6 @@ from arena_evaluation.processing.acoustics.constants import NANOSECONDS_PER_SECO
 
 # A level below the human hearing threshold carries no energy worth publishing.
 MIN_DBA: float = 1.0
-# Guarantees a positive duration for zero-spaced samples.
 MIN_DT_S: float = 1e-6
 
 

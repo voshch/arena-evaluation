@@ -76,23 +76,18 @@ def test_h4_verify_gate_author_separation_and_attach_gate(
     fid = created.finding_id
     assert created.status == findings.FindingStatus.PROPOSED
 
-    # Proposed finding cannot be attached
     with pytest.raises(ToolError):
         findings.evaluation_finding_attach(run_id="h4_gate", finding_id=fid, report="standard")
 
-    # Mechanical verification passes
     ver = findings.evaluation_finding_verify(run_id="h4_gate", finding_id=fid)
     assert ver["mechanical_passed"] is True
 
-    # Author cannot verify own finding
     with pytest.raises(ToolError, match="author"):
         findings.evaluation_finding_status(run_id="h4_gate", finding_id=fid, status="verified", by="analyst")
 
-    # Different role (verifier) can set verified
     updated = findings.evaluation_finding_status(run_id="h4_gate", finding_id=fid, status="verified", by="verifier")
     assert updated.status == findings.FindingStatus.VERIFIED
 
-    # Now attach succeeds
     attached = findings.evaluation_finding_attach(run_id="h4_gate", finding_id=fid, report="standard")
     assert attached.finding.finding_id == fid
 
@@ -113,14 +108,12 @@ def test_h4_derived_table_lifecycle_stale_and_refresh_and_version_backup(
     )
     assert saved["derived_table"] == "derived_planner_counts"
 
-    # Queryable as derived_planner_counts
     q2 = query.evaluation_query(
         run_id="h4_derived",
         query="SELECT planner, n FROM derived_planner_counts ORDER BY planner",
     )
     assert len(q2["data"]) == 4
 
-    # Replace keeps v1 backup
     query.evaluation_query(
         run_id="h4_derived",
         query="SELECT planner, COUNT(*) AS n FROM v_episode_summary GROUP BY planner",
@@ -128,11 +121,9 @@ def test_h4_derived_table_lifecycle_stale_and_refresh_and_version_backup(
     )
     assert (run_dir / "analysis" / "derived" / "planner_counts.v1.parquet").is_file()
 
-    # Fresh before reprocess
     listed = analysis.evaluation_tables(run_id="h4_derived")
     assert listed["tables"][0]["status"] == "fresh"
 
-    # Modify an episode parquet -> snapshot changes -> derived table turns stale
     ep0 = run_dir / "episodes" / "episode_000" / "metrics" / "fact_robots.parquet"
     pl.read_parquet(ep0).with_columns(pl.lit(42.0).alias("energy_total_wh")).write_parquet(ep0)
 
@@ -311,7 +302,6 @@ def test_h4_derived_table_replace_and_describe_metric_null_fields(
     names = sorted(p.name for p in derived_dir(run_dir).iterdir() if not p.name.endswith(".lock"))
     assert names == ["r9_tbl.parquet", "r9_tbl.v1.parquet", "r9_tbl.yaml"]
 
-    # Non-mapping derived sidecar raises ValueError on replace
     (derived_dir(run_dir) / "r9_tbl.yaml").write_text("- not-a-mapping\n", encoding="utf-8")
     with pytest.raises(ValueError, match="not a YAML mapping"):
         save_derived_table(
@@ -323,7 +313,6 @@ def test_h4_derived_table_replace_and_describe_metric_null_fields(
             author="analyst",
         )
 
-    # NULL producer / fact_table in dim_metrics returns None (not "")
     dm_path = run_dir / "dim_metrics.parquet"
     dm = pl.read_parquet(dm_path).with_columns(
         pl.when(pl.col("metric") == "time_to_goal").then(pl.lit(None, dtype=pl.String)).otherwise(pl.col("producer")).alias("producer"),
@@ -366,14 +355,12 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
         author="analyst",
     )
 
-    # (c) Untouched run passes with equal hashes
     v_ok = findings.evaluation_finding_verify(run_id="h4_r12", finding_id=created.finding_id)
     assert v_ok["mechanical_passed"] is True
     rerun_chk = next(c for c in v_ok["checks"] if c["check"] == "evidence_rerun")
     assert rerun_chk["mode"] == "hash"
     assert rerun_chk["stored_hash"] == rerun_chk["rerun_hash"]
 
-    # (a) Edited evidence file fails evidence_integrity
     ev_parquet = run_dir / "analysis" / "evidence" / f"{ev_id}.parquet"
     ev_orig = pl.read_parquet(ev_parquet)
     ev_edited = ev_orig.with_columns(pl.when(pl.col("planner") == "planner_b").then(999.0).otherwise(pl.col("mean_ttg")).alias("mean_ttg"))
@@ -383,7 +370,6 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     assert any(c["check"] == "evidence_integrity" and not c["passed"] for c in v_tamper["checks"])
     ev_orig.write_parquet(ev_parquet)
 
-    # (d) Reprocess leaving planner_a intact passes and records new snapshot_id
     planner_b_eps = pl.read_parquet(run_dir / "dim_episodes.parquet").filter(pl.col("planner") == "planner_b")["episode_id"].to_list()
     for rob_path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
         df = pl.read_parquet(rob_path).with_columns(pl.when(pl.col("episode_id").is_in(planner_b_eps)).then(pl.col("time_to_goal") + 10.0).otherwise(pl.col("time_to_goal")).alias("time_to_goal"))
@@ -394,7 +380,6 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     assert snapshot_chk["passed"] is False
     assert v_reproc_ok["snapshot_id"] != q_res["snapshot_id"]
 
-    # (b) Changed data under claimed number fails and shows rerun_value
     for rob_path in (run_dir / "episodes").glob("*/metrics/fact_robots.parquet"):
         df = pl.read_parquet(rob_path).with_columns((pl.col("time_to_goal") + 500.0).alias("time_to_goal"))
         df.write_parquet(rob_path)
@@ -404,7 +389,6 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     assert num_chk["passed"] is False
     assert num_chk["rerun_value"] is not None and num_chk["rerun_value"] > 400.0
 
-    # (e) same-seed overlap raises flag without failing
     ev1 = query.evaluation_query(
         run_id="h4_r12",
         query="SELECT seed, AVG(time_to_goal) AS val FROM v_episode_summary WHERE seed IN (1, 2) GROUP BY seed ORDER BY seed",

@@ -1472,7 +1472,6 @@ class _RunnerExecMixin(_RunnerExecHost):
                     if self._shared is not None and all(self._run_dir.claimed(self._shared, key) for key in all_claim_keys):
                         _log.info(f"benchmark: every block of world {world_map} is claimed by other lanes, skipping it")
                         continue
-                    # gz-sim 8 stops answering world control once a robot with a depth camera was deleted and another spawned in the same session, so such robots get a fresh runtime per block
                     fresh_per_block = self._simulator == "gazebo" and any(robot_has_depth_camera(step.robot) for step in world_steps)
                     batches = [[index] for index in range(len(all_blocks))] if fresh_per_block else [list(range(len(all_blocks)))]
                     for batch_idx, batch in enumerate(batches):

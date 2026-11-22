@@ -22,7 +22,6 @@ CLIP_HIGH = 8.0
 
 _TIMEOUT_POLLS = round(TIMEOUT_S / POLL_S)
 
-# The BARN challenge replays one robot against one configured start/goal; a fleet has no single run to judge.
 MULTI_ROBOT_REFUSAL: typing.Final[str] = "not_applicable:multi_robot"
 
 BARN_COLLIDED = define_metric(

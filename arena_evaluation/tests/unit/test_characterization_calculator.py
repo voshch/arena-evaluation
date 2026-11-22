@@ -127,7 +127,6 @@ def test_calculate_missing_power_and_acoustics_never_models_the_level():
     calc = _calc()
     out = calc.calculate(ep, {})
 
-    # Missing power is an explicit null, never a silent zero; the level is never modelled from built-in constants.
     assert out["char_mean_efficiency"] is None
     assert out["char_leq_dba"] is None
     assert _series(calc, ep)["dba"].is_null().all()
@@ -217,7 +216,6 @@ def test_without_ground_truth_the_series_has_null_step_distances():
         topics={},
     )
     calc = _calc()
-    # No odometry fallback: without /tf ground truth the path rate is unavailable, so intensity is null.
     assert calc.calculate(episode, {})["char_mean_energy_intensity_j_m"] is None
     assert _series(calc, episode)["energy_intensity_j_m"].null_count() == 3
 
@@ -285,5 +283,4 @@ def test_joints_and_power_work_with_production_aligned_schema():
     assert joints_series["power_mech_w"].to_list() == [4.0, 4.0, 4.0]
     joints_out = calc.calculate(joints_only, {})
     assert joints_out["char_sample_count"] == 3
-    # Joints carry mechanical power, not an acoustic level: no built-in profile stands in for the recording.
     assert joints_out["char_leq_dba"] is None

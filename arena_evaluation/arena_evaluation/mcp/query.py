@@ -36,7 +36,6 @@ __all__ = [
 
 PREVIEW_ROWS: Final[int] = 200
 _SHOWN_LIMIT: Final[int] = 20
-# The engine, the validator and the declaration renderer all raise from this family.
 _QUERY_FAILURES: Final[tuple[type[BaseException], ...]] = (
     ValueError,
     KeyError,

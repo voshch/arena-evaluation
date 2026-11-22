@@ -27,7 +27,6 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _TWO_PI: typing.Final[float] = 2.0 * np.pi
 
-# The world asset is absent from disk: the route was never measurable, but the episode still ran.
 MISSING_WORLD: typing.Final[str] = "not_recorded:world"
 _GRID_OUTPUTS: typing.Final[tuple[str, ...]] = (
     "theta_star_length",
@@ -233,7 +232,6 @@ class TrajectoryMetricsCalculator(BaseMetricCalculator):
         try:
             grid = grid_for_map(episode.map, episode.run_dir, self.robot_params.robot_radius)
         except FileNotFoundError:
-            # The world asset is not on disk: the grid outputs were never measurable, the pose ones still are.
             for key in _GRID_OUTPUTS:
                 results[f"{key}_null_reason"] = MISSING_WORLD
             return results

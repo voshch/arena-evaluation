@@ -178,7 +178,6 @@ def test_attribution_shares_use_pedestrian_contacts_only(
     assert result.excluded_rows["non_pedestrian_contacts"] == 1
     assert set(result.summary["metric"].unique().to_list()) == {"robot_closing_share"}
     assert result.summary.schema["n_clusters"] == pl.Int64
-    # The cluster unit is the seed, not the episode.
     assert result.summary["n_clusters"].max() <= 8
 
 

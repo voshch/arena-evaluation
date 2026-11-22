@@ -274,7 +274,6 @@ def test_calculate_resolves_target_identifiers(target_agent_id: int | str) -> No
     calculator.metrics_config = {"target_agent_id": target_agent_id}
 
     out = calculator.calculate(episode, {})
-    # Both bodies keep their velocities, so no velocity change resolves the conflict and time carries all of it.
     assert out["probst_R_robot"] == pytest.approx(0.0, abs=1e-9)
     assert out["probst_R_time"] == pytest.approx(1.0, abs=1e-9)
     assert _sum_of(out, ("probst_R_robot", "probst_R_actor2", "probst_R_time")) == pytest.approx(1.0, abs=1e-9)

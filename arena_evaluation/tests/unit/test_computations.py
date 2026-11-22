@@ -369,8 +369,6 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
     assert log_by_p["p2"] == pytest.approx(0.5)
     assert log_by_p["ghost"] is None
 
-    # A partial dim_metrics must not silently decide a ranking direction: the error names every
-    # unresolved metric with its count, and a caller that knows the direction supplies it.
     partial_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bad_bench", rows, null_direction="time_to_goal"))
     with pytest.raises(ValueError, match=r"1 metric\(s\) have no 'higher'/'lower' direction"):
         resolve_metric_directions(partial_cat, ["time_to_goal"])

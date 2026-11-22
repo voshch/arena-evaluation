@@ -458,11 +458,9 @@ def test_scalars_follow_the_exposure_series(calc, derived_map, world_run_dir):
     assert near["ped_max_exposure_dba"] == pytest.approx(float(values.max()))
     assert near["ped_max_exposure_dba"] == pytest.approx(float(near_values.max()))
     assert near["ped_leq_exposure_dba"] == pytest.approx(_leq(near_values.to_list()))
-    # Each pedestrian is summarised on its own samples, never on the pool of them.
     assert far["ped_max_exposure_dba"] == pytest.approx(float(far_values.max()))
     assert far["ped_leq_exposure_dba"] == pytest.approx(_leq(far_values.to_list()))
     assert far["worst_case_acoustic_t_ns"] == 2 * SECOND_NS
-    # One row per (sample, reachable pedestrian).
     assert len(table) == 6
     assert near["ped_max_startle_factor"] == pytest.approx(18.0, abs=1e-3)
     assert far["ped_max_startle_factor"] == 0.0
@@ -618,7 +616,6 @@ def test_pedestrian_scope_reduces_to_that_pedestrian(calc, derived_map, world_ru
     far = pedestrian_result("ped_1")
     assert near["ped_max_exposure_dba"] == pytest.approx(60.0 - _att(3.0), abs=1e-3)
     assert far["ped_max_exposure_dba"] == pytest.approx(60.0 - 20.0 * math.log10(math.sqrt(18.0)), abs=1e-2)
-    # The pedestrian scope publishes the worst frame's t_ns discriminator, never the nested struct.
     assert set(near) == set(AcousticExposureCalculator.output_keys_for_scope(MetricScope.PEDESTRIAN))
     series = calc.series_table(episode)
     near_rows = series.filter(pl.col("ped_id") == "ped_0")
@@ -789,7 +786,6 @@ def test_leq_is_energy_equivalent_over_non_uniform_frame_spacing(calc, derived_m
     pairs = list(zip(table["t_ns"].to_list(), table["exposure_dba"].to_list()))
     assert len(pairs) == 3
     assert result["ped_leq_exposure_dba"] == pytest.approx(_energy_weighted_leq(pairs), abs=1e-6)
-    # A plain row mean would answer a different question on this spacing.
     plain_mean = 10.0 * np.log10(float(np.mean([10.0 ** (level / 10.0) for _, level in pairs])))
     assert abs(result["ped_leq_exposure_dba"] - plain_mean) > 0.5
 

@@ -189,7 +189,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             {
                 "episode_id": 0,
                 "contact_id": "c0",
-                # Only a pedestrian contact carries a closing share: a wall cannot close in.
                 "collider_kind": "pedestrian",
                 "v_close_robot_mps": 0.6,
                 "v_close_target_mps": 0.4,
@@ -199,7 +198,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
         ],
     )
 
-    # Write world geometry, series tables, and pedestrian telemetry from registry schemas
     geom_df = pl.DataFrame(
         [
             {
@@ -351,7 +349,6 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
     import yaml
 
     reports = {p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in _manifest_paths()}
-    # No legacy options.columns anywhere in manifests or plot recipes
     for rname, rdata in reports.items():
         for p in rdata["plots"]:
             opts = p.get("options") or {}
@@ -360,14 +357,12 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
         rdata = yaml.safe_load(rpath.read_text(encoding="utf-8"))
         assert "columns" not in (rdata.get("options") or {}), f"{rpath} uses options.columns"
 
-    # Characterization preserves 21 phase_kind filters and 18 smooth_window params
     ch_plots = reports["characterization"]["plots"]
     filtered = [p for p in ch_plots if "phase_kind" in str((p["data"].get("params") or {}).get("filter", "")) or "phase_kind" in str(p["data"].get("where", ""))]
     smoothed = [p for p in ch_plots if (p["data"].get("params") or {}).get("smooth_window")]
     assert len(filtered) == 21
     assert len(smoothed) == 18
 
-    # All group_summary bars declare err_plus/err_minus; all distribution_bins histograms declare bin_low/bin_high
     for rname, rdata in reports.items():
         for p in rdata["plots"]:
             comp = (p.get("data") or {}).get("computation")
@@ -379,7 +374,6 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
                 assert opts.get("bin_low") == "bin_low", f"{rname}:{p['id']} missing options.bin_low"
                 assert opts.get("bin_high") == "bin_high", f"{rname}:{p['id']} missing options.bin_high"
 
-    # Converted tables of the shipped reports preserve full source metric lists, labels, and formats
     _assert_converted_tables(
         reports,
         {
@@ -404,7 +398,6 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     if missing:
         pytest.skip(f"report(s) {', '.join(missing)} are in the asset store, not the repo: arena asset pull manifest <name>")
 
-    # Pivot heatmaps bind their real metrics, not success
     ev_plots = {p["id"]: p for p in reports["everything"]["plots"]}
     assert ev_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == ["spl_geodesic"]
     assert ev_plots["heatmap_ecot_pivot"]["data"]["params"]["metrics"] == ["e_cot"]
@@ -412,7 +405,6 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     sf_plots = {p["id"]: p for p in reports["safety"]["plots"]}
     assert sf_plots["heatmap_spl_pivot"]["data"]["params"]["metrics"] == ["spl_geodesic"]
 
-    # All 6 inter plots group by inter_planner
     for pid in ("bar_success_inter", "bar_spl_inter", "bar_passing_compliance_inter"):
         assert ev_plots[pid]["channels"]["x"] == "inter_planner"
         assert ev_plots[pid]["data"]["params"]["group_cols"] == ["inter_planner"]
@@ -422,7 +414,6 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     soc_plots = {p["id"]: p for p in reports["social"]["plots"]}
     assert soc_plots["violin_deflection_inter"]["channels"]["x"] == "inter_planner"
 
-    # contact_closing_share recipe is a bar on contact_attribution_summary
     try:
         ccs = PlotIdentifier(name="contact_closing_share").resolve_sync()
     except FileNotFoundError:
@@ -431,13 +422,11 @@ def test_asset_reports_preserve_their_pinned_bindings() -> None:
     assert ccs["data"]["stored_query"] == "contact_attribution_summary"
     assert ccs["channels"]["facet_col"] == "crowd_condition"
 
-    # standard, social, everything, safety bind both non-reference trajectory queries
     for rname in _ASSET_REPORTS:
         by_id = {p["id"]: p for p in reports[rname]["plots"]}
         assert by_id["trajectory_plot"]["data"]["stored_query"] == "robot_tracks_non_ref"
         assert by_id["pedestrian_trajectory_plot"]["data"]["stored_query"] == "pedestrian_arena_peds_non_ref"
 
-    # Converted tables of the asset reports preserve full source metric lists, labels, and formats
     _assert_converted_tables(
         reports,
         {

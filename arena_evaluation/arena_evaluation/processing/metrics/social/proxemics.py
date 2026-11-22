@@ -30,10 +30,6 @@ from arena_evaluation.storage.registry.series import SeriesProxemics
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 INTIMATE_CLEARANCE_M: Final[float] = 0.45
-# Three personal-space boundaries with different meanings, each named for what it measures: this one is the
-# edge clearance of the personal zone (1.20 m); PROBST_PERSONAL_SPACE_RADIUS_M (probst_responsibility.py) is the
-# body radius of Probst's pair (1.0 m); the edge-case intrusion boundary is PERSONAL_SPACE (0.5 m) in
-# edge_case/criticality.py.
 PERSONAL_ZONE_EDGE_CLEARANCE_M: Final[float] = 1.20
 
 PERSONAL_SPACE_SERIES_SCHEMA: Final[pl.Schema] = SeriesProxemics.polars_schema()

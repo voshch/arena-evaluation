@@ -306,12 +306,10 @@ def test_mcp_evaluation_save_plot_declaration(tmp_path: pathlib.Path) -> None:
     assert save_res["id"] == "mcp_custom_density_bar"
     assert save_res["type"] == "bar"
 
-    # Verify readable via read tool
     read_res = evaluation_read_plot_declaration("mcp_custom_density_bar", run_id="run-pres-save")
     assert read_res["spec"]["id"] == "mcp_custom_density_bar"
     assert read_res["spec"]["type"] == "bar"
 
-    # Error case: Invalid YAML
     with pytest.raises(ToolError, match="not valid YAML"):
         evaluation_save_plot_declaration(name="invalid_yaml", yaml_text="foo: [bar: 1")
 
@@ -327,7 +325,6 @@ def test_mcp_evaluation_render_plot_recipe(
 
     os.environ["ARENA_DATA_DIR"] = str(tmp_path / "data")
 
-    # Render recipe to PNG
     res_png = evaluation_render_plot(
         run_id="run-pres-001",
         declaration="scorecard_table",
@@ -346,7 +343,6 @@ def test_mcp_evaluation_render_plot_recipe(
     assert png_path.exists() and png_path.stat().st_size > 0
     assert png_path.read_bytes()[:8] == _PNG_MAGIC
 
-    # Render recipe to HTML (Plotly standalone)
     res_html = evaluation_render_plot(
         run_id="run-pres-001",
         declaration="scorecard_table",
@@ -362,7 +358,6 @@ def test_mcp_evaluation_render_plot_recipe(
     assert len(html_text) > 100_000
     assert "Planner Scorecard" in html_text
 
-    # Render recipe to SVG (Vector)
     res_svg = evaluation_render_plot(
         run_id="run-pres-001",
         declaration="scorecard_table",
@@ -419,15 +414,12 @@ def test_mcp_evaluation_render_plot_error_handling(
     _write_tables(run_dir, mcp_star_tables)
     os.environ["ARENA_DATA_DIR"] = str(tmp_path / "data")
 
-    # Error: Neither declaration nor spec_yaml
     with pytest.raises(ToolError, match="Must provide either 'declaration' or 'spec_yaml'"):
         evaluation_render_plot(run_id="run-pres-003")
 
-    # Error: Both declaration and spec_yaml
     with pytest.raises(ToolError, match="Cannot provide both 'declaration' and 'spec_yaml'"):
         evaluation_render_plot(run_id="run-pres-003", declaration="foo", spec_yaml="bar")
 
-    # Error: Non-existent declaration
     with pytest.raises(ToolError, match="Plot declaration 'non_existent_rec' not found"):
         evaluation_render_plot(run_id="run-pres-003", declaration="non_existent_rec")
 

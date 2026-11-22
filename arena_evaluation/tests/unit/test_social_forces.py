@@ -104,7 +104,6 @@ def test_an_unresolved_frame_is_null_not_zero(calc: SocialForcesCalculator):
     assert forces[0] == pytest.approx(_sfm(1.0))
     assert forces[1] is None
     results = calc.calculate(episode, {})
-    # Only the resolved frame contributes to the summaries.
     assert results["sfm_peak_force"] == pytest.approx(_sfm(1.0))
 
 

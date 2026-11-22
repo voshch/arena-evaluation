@@ -568,7 +568,6 @@ def kendalls_w(
 
     k = complete_df.get_column("entity").n_unique()
     m = complete_df.get_column("judge").n_unique()
-    # Concordance needs at least two judges to agree with each other and two entities to be ordered.
     if m < 2 or k < 2:
         return KendallWResult(
             entity_col=entity_col,
@@ -605,7 +604,6 @@ def kendalls_w(
     elif df == 2:
         p_value = float(math.exp(-0.5 * friedman_chi2))
     else:
-        # Wilson-Hilferty normal approximation for df > 2
         degrees = float(df)
         z = ((friedman_chi2 / degrees) ** (1.0 / 3.0) - (1.0 - 2.0 / (9.0 * degrees))) / math.sqrt(2.0 / (9.0 * degrees))
         p_value = float(0.5 * math.erfc(z / math.sqrt(2.0)))

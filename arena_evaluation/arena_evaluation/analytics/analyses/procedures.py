@@ -589,7 +589,6 @@ def _run_ranking_stability(catalog: BenchmarkCatalog, params: BaseModel) -> Anal
         )
     direction, higher, directions = _orientation(catalog, params.metric)
 
-    # Agreement across crowd conditions: the pair-swap count.
     conditions = tuple(str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort())
     n_swaps = (
         _swap_count(
@@ -910,7 +909,6 @@ def _run_attribution_shares(catalog: BenchmarkCatalog, params: BaseModel) -> Ana
             excluded=excluded,
         )
 
-    # Probst responsibility of the encounters these contacts belong to, pooled by contact.
     encounters = (
         catalog.get_table("fact_encounters")
         .select(

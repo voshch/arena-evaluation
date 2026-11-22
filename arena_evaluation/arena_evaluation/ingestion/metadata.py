@@ -104,7 +104,6 @@ class IngestionMetadata:
             env_ns_root=env_ns_root,
             is_reference=is_reference,
             reference_type=reference_type,
-            # The recorder fills modes and params from the episode record; empty until then.
             modes={},
             params={},
         )

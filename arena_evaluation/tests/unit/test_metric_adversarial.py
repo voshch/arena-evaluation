@@ -35,7 +35,6 @@ def test_efficiency_adversarial_zero_length() -> None:
     results = calc.calculate(episode, prior)
     assert results["path_efficiency"] is None
 
-    # An unavailable geodesic reference is null, not a fabricated 0.0
     prior = {"path_length_m": 10.0}
     results = calc.calculate(episode, prior)
     assert results["path_efficiency"] is None

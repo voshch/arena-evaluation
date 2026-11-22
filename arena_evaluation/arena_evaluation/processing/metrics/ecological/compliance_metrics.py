@@ -339,7 +339,6 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         dt_ped_s = pl.col("t_ns").diff().over("ped_id") * 1e-9
         dt_ped_safe = pl.when(dt_ped_s > 0).then(dt_ped_s).otherwise(1e-3)
 
-        # A first sample has no previous step, so its velocity stays NULL: it is unknown, not zero.
         peds_with_vel = peds_lf.with_columns(
             vx=pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan()).then(pl.col("x").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vx")),
             vy=pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan()).then(pl.col("y").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vy")),

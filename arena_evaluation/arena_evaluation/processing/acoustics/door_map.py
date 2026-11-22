@@ -56,7 +56,6 @@ class _LevelProto(typing.Protocol):
 
 logger = logging.getLogger(__name__)
 
-# Default transmission loss (dB) of a CLOSED door, re-exported under its historical name.
 DEFAULT_DOOR_TL_DB = DOOR_TRANSMISSION_LOSS_DB
 DEFAULT_RESOLUTION_M = 0.05
 
@@ -133,7 +132,6 @@ def _barrier_map_for_world(world_dir: str, resolution: float) -> BarrierMap:
         )
         for door in level.doors
     ]
-    # Zones give the walkable extent; they are not barriers.
     extent = [(point.x, point.y) for zone in level.zones for point in zone.polygon]
     return derive_barrier_map(walls=walls, doors=doors, extent=extent, resolution=resolution)
 

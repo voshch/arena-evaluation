@@ -40,9 +40,6 @@ def _robot_tracks(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-# 1. NATURALNESS & GEOMETRIC BASELINES (Theta*, ADE, FDE, MHD, Topology, PI)
-
-
 # 2. SOCIAL PROXEMICS, FORCES & MUTUAL ACCOMMODATION (Hall, Helbing, Trautman)
 
 
@@ -63,7 +60,6 @@ def test_literature_spl_and_path_efficiency() -> None:
         topics={"robot_collision_events": pl.DataFrame({"t_ns": [0, 1, 2], "event_count": [0, 0, 0]})},
     )
 
-    # Case 1: Optimal traversal. The episode SPL comes from the evaluator, carried on the contact row.
     prior_opt = {
         "path_length_m": 10.0,
         "theta_star_length": 10.0,

@@ -44,7 +44,6 @@ def _partial_coverage() -> pl.DataFrame:
     for seed in range(1, 7):
         rows.append(_row("planner_a", seed, 0.9, 10.0))
         rows.append(_row("planner_b", seed, 0.5, 20.0))
-    # A very good but sparsely evaluated planner: a fabricated 0.0 elsewhere would distort every split.
     rows.append(_row("planner_partial", 1, 1.0, 1.0))
     return pl.DataFrame(rows, schema=_COLUMNS)
 

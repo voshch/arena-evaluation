@@ -23,7 +23,6 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 _STEPS = ((0, 1, 1.0), (1, 0, 1.0), (1, 1, math.sqrt(2.0)), (1, -1, math.sqrt(2.0)))
 _OCTILE_MAX_RATIO = math.sqrt(4.0 - 2.0 * math.sqrt(2.0))
 
-# The world asset is absent from disk: the route was never measurable, but the episode still ran.
 MISSING_WORLD: typing.Final[str] = "not_recorded:world"
 _ROUTE_OUTPUTS: typing.Final[tuple[str, ...]] = (
     "ne",
@@ -376,11 +375,9 @@ class VlnMetricsCalculator(BaseMetricCalculator):
             ratio = reference_length / travelled_length if travelled_length > 0.0 else 1.0
             if ratio > 1.0:
                 if results["success_geodesic"]:
-                    # The sampled path came out shorter than the route: out of range, never clamped to one.
                     results["spl_geodesic"] = None
                     results["spl_geodesic_null_reason"] = REFERENCE_EXCEEDS_PATH
                 else:
-                    # A failed run scores zero whatever the ratio: the weight is never applied.
                     results["spl_geodesic"] = 0.0
             else:
                 results["spl_geodesic"] = float(results["success_geodesic"]) * ratio

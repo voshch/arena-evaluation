@@ -67,7 +67,6 @@ def get_config_asset(kind: str) -> ConfigAsset:
 
 def share_dir() -> pathlib.Path | None:
     """Return the installed share directory of arena_evaluation, or None when it is not installed."""
-    # An unset AMENT_PREFIX_PATH is a source checkout without ROS, the same state as a missing package.
     if not os.environ.get("AMENT_PREFIX_PATH"):
         return None
     try:

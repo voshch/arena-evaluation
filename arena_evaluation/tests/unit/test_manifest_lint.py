@@ -20,7 +20,6 @@ from arena_evaluation.presentation.viz_manifest import (
 def test_schema_only_lint_is_valid_without_a_benchmark() -> None:
     report = lint_declarations()
 
-    # the repo's shipped declarations; declarations in the asset store are not part of this lint
     assert report.valid is True
     assert report.schema_valid is True
     assert report.checked_manifests == 8

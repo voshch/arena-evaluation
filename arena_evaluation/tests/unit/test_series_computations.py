@@ -110,7 +110,6 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
 ) -> None:
     cat = BenchmarkCatalog.open(_write_series_benchmark(tmp_path / "bench"))
 
-    # Mean + std + bin_x=0.1 on dwb linear rows:
     res_std = run_computation(
         "series_profile",
         cat,
@@ -208,7 +207,6 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     )
     assert res_max.summary.sort("x").row(0, named=True)["value"] == pytest.approx(64.0)
 
-    # Smoothing (w=3) on bins {0.1, 0.2, 0.3, 0.4} (dropping NULL y bin 0.5):
     res_smooth = run_computation(
         "series_profile",
         cat,
@@ -241,7 +239,6 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
 ) -> None:
     cat = BenchmarkCatalog.open(_write_series_benchmark(tmp_path / "bench"))
 
-    # Source validation & missing filter column
     with pytest.raises(ValueError, match="Unsupported computation source"):
         run_computation(
             "series_profile",
@@ -274,7 +271,6 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
             },
         )
 
-    # NULL group label preserved through both series_profile and group_summary
     res_prof_null = run_computation(
         "series_profile",
         cat,
@@ -309,7 +305,6 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
         None,
     }
 
-    # Manifest bar (bar_idle_standby_power, filter: {phase_kind: idle}) & summary table
     bar_res = run_computation(
         "group_summary",
         cat,
@@ -340,7 +335,6 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
     sum_by_k = {(r["phase_kind"], r["speed_target_mps"]): r["mean"] for r in summary_res.summary.to_dicts()}
     assert sum_by_k[("idle", 0.0)] == pytest.approx((4.0 + 6.0 + 8.0 + 5.0) / 4.0)
 
-    # Contract for series_profile: schema binding + {} vs explicit defaults single evidence id
     assert "series_profile" in list_computations()
     assert COMPUTATIONS["series_profile"].params is SeriesProfileParams
     assert COMPUTATIONS["series_profile"].output is SeriesProfileAnalysis

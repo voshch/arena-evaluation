@@ -361,9 +361,6 @@ def test_unthrottled_callback_discards_message_when_clock_buffer_already_flushed
 # Clock handling
 
 
-# /tf: header-stamped writes, capped per frame family
-
-
 def test_tf_bone_frames_are_capped_while_root_frames_pass_every_stamp(tmp_path):
     node = _bare_node(current_time=1_000_000_000)
     read = _tf_bag(node, tmp_path)

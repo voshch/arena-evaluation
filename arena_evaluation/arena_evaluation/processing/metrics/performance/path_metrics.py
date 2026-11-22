@@ -235,7 +235,6 @@ class PathMetricsCalculator(BaseMetricCalculator):
         if len(t_ns) != len(pos_x_m):
             raise ValueError(f"path_metrics: {len(t_ns)} sample times for {len(pos_x_m)} resolved poses")
         if len(odom_x_m) != len(pos_x_m):
-            # No wheel-odometry stream: the odom columns are null at every sample, not absent from the row axis.
             odom_x_m, odom_y_m, odom_yaw_rad = (
                 _nan_array(len(pos_x_m)),
                 _nan_array(len(pos_x_m)),

@@ -109,7 +109,6 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
         )
         ev_id = str(cmp_res.structured_content["evidence_id"])
 
-        # 1. Unfounded structured number must be refused
         with pytest.raises(MCPToolError, match="not found in evidence"):
             await server.call_tool(
                 "evaluation_finding_create",
@@ -122,7 +121,6 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
                 },
             )
 
-        # Create valid proposed finding
         created = await server.call_tool(
             "evaluation_finding_create",
             {
@@ -134,7 +132,6 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
         )
         fid = str(created.structured_content["finding_id"])
 
-        # 2. Attaching unverified finding must be refused
         (run_dir / "report.html").write_text("<html></html>", encoding="utf-8")
         with pytest.raises(MCPToolError, match="only a verified finding"):
             await server.call_tool(
@@ -142,7 +139,6 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
                 {"run_id": "h6_refusals", "finding_id": fid},
             )
 
-        # 3. Self-verification by author role must be refused
         await server.call_tool(
             "evaluation_finding_verify",
             {"run_id": "h6_refusals", "finding_id": fid},
@@ -161,6 +157,5 @@ def test_h6_planted_refusals_are_enforced_by_mcp_server(
     with arena_data(tmp_path):
         asyncio.run(exercise())
 
-    # 4. Allowlist check: non-operator roles exclude operator and cross-role tools
     assert "evaluation_benchmark" not in roles.ROLES["verifier"]["tools"]
     assert "evaluation_finding_status" not in roles.ROLES["analyst"]["tools"]

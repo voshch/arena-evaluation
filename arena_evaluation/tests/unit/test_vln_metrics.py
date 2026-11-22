@@ -187,7 +187,6 @@ def test_skipping_a_leg_goal_lowers_ndtw_but_not_success() -> None:
     )
     assert out["success_geodesic"] is True
     assert out["ndtw"] < 0.8
-    # The commanded route is longer than the shortcut that was driven: NULL, not a clamped 1.0.
     assert out["spl_geodesic"] is None
     assert out["spl_geodesic_null_reason"] == "invalid_episode:reference_exceeds_path"
 

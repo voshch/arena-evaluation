@@ -222,7 +222,6 @@ def test_all_config_roots_orders_imported_before_share_and_source(
     if sd is not None and (sd / "configs").resolve() != _CONFIGS_DIR.resolve():
         assert roots.index((sd / "configs").resolve()) < roots.index(_CONFIGS_DIR.resolve())
 
-    # Dashboard has_report uses find_rendered_reports under reports/<name>/report.html
     run_dir = tmp_path / "run_1"
     run_dir.mkdir(parents=True)
     (run_dir / "manifest.yaml").write_text(

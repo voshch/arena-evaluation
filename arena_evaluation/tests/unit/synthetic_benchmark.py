@@ -95,7 +95,6 @@ def write_synthetic_benchmark(
                         }
                     )
 
-                    # Telemetry points for sensitivity rerun
                     for step in range(4):
                         tracks.append(
                             {
@@ -171,7 +170,6 @@ def write_synthetic_benchmark(
             schema=tracks_schema,
         ).write_parquet(tracks_path)
 
-    # Also ensure dim_pedestrians has robot_blind so v_episode_summary derives crowd_condition
     ped_schema = dimensions.DimPedestrians.polars_schema()
     ped_rows = [
         {
@@ -186,7 +184,6 @@ def write_synthetic_benchmark(
     ]
     pl.DataFrame(ped_rows, schema=ped_schema).write_parquet(directory / dimensions.DimPedestrians.relative_path())
 
-    # Ensure dim_metrics has canonical directions & units
     dm_schema = dimensions.DimMetrics.polars_schema()
     dm_rows = [
         {

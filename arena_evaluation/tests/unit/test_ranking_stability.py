@@ -47,7 +47,6 @@ def _build_synthetic_twin_episodes(
     for s_idx in range(n_seeds):
         actual_seed = seed_offset + s_idx
         for p in planners:
-            # Deterministic, non-overlapping performance
             jitter = ((s_idx % 5) - 2) * 0.01
             rows.append(
                 {
@@ -125,7 +124,6 @@ def test_seed_split_rank_stability_perfect_concordance() -> None:
     assert len(result.empirical_distribution) == 50
     assert np.all(result.empirical_distribution == 1.0)
 
-    # Validate output schemas
     assert result.splits_frame.schema == RANK_SPLITS_SCHEMA
     summary_df = result.to_frame()
     assert summary_df.schema == RANK_STABILITY_SCHEMA
@@ -269,7 +267,6 @@ def test_paired_cluster_bootstrap_rank_intervals() -> None:
         assert rec.ci_low == exp
         assert rec.ci_high == exp
 
-    # Ascending test (e.g. time_to_goal: lower is better)
     intervals_asc = paired_cluster_bootstrap_rank_intervals(
         df,
         "time_to_goal",
@@ -312,14 +309,11 @@ def test_discovery_verification_cohort_partitioning() -> None:
 
     assert len(unique_seeds_discovery) == 10
     assert len(unique_seeds_verification) == 10
-    # No seed overlap between cohorts
     assert set(unique_seeds_discovery).isdisjoint(set(unique_seeds_verification))
 
-    # All twin episodes for a seed share the same cohort
     seed_cohort_counts = split_df.group_by("seed").agg(n_cohorts=pl.col("cohort").n_unique())
     assert (seed_cohort_counts.get_column("n_cohorts") == 1).all()
 
-    # Test LazyFrame overload
     lazy_split = split_discovery_verification_seeds(df.lazy(), seed_col="seed")
     assert isinstance(lazy_split, pl.LazyFrame)
     assert_frame_equal(split_df, lazy_split.collect())

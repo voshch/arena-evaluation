@@ -2,7 +2,6 @@
 
 from typing import Final
 
-# Air and reference quantities.
 ACOUSTIC_REFERENCE_PRESSURE_PA: Final[float] = 20e-6
 ACOUSTIC_REFERENCE_PRESSURE_SQ_PA2: Final[float] = ACOUSTIC_REFERENCE_PRESSURE_PA * ACOUSTIC_REFERENCE_PRESSURE_PA
 

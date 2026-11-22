@@ -104,9 +104,6 @@ def _wall_grid(height: int = 20, width: int = 30, wall_rows=(5, 12)) -> np.ndarr
     return grid
 
 
-# _find_world_level
-
-
 def test_find_world_level_run_dir_without_world_skipped(tmp_path):
     run = tmp_path / "run"
     (run / "worlds" / "ae_nonesuch_map" / "scenarios").mkdir(parents=True)
@@ -119,9 +116,6 @@ def test_find_world_level_ws_root_fallback(tmp_path):
         found = _find_world_level("m4", run_dir=None)
     assert found is not None
     assert found[0] == ws_world
-
-
-# load_barrier_map / barrier_door_tl
 
 
 def test_load_barrier_map_unusable_ament_is_named_in_the_error(tmp_path):
@@ -160,9 +154,6 @@ def test_barrier_doors_carve_the_tl_map(tmp_path):
 
     opened = build_pixel_tl(barrier.occupancy, doors, open_doors={"env_0/world/main_door/2"})
     assert np.all(opened[mask] == 0.0)
-
-
-# _entity_matches_door
 
 
 # build_pixel_tl

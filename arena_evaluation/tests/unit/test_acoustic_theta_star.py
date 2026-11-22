@@ -229,9 +229,6 @@ class TestMultiPathRouting:
         assert att_through > att_around + 30.0, f"Wall must cost more: through={att_through:.1f}, free={att_around:.1f}"
 
 
-# 5. Searched targets are answered by the search, never by the pre-test
-
-
 def test_two_walls_pay_two_wall_losses():
     """Barriers are accumulated by the search: the line-of-sight pre-test cannot answer this pair."""
     grid = np.zeros((50, 50), dtype=np.uint8)
@@ -240,9 +237,6 @@ def test_two_walls_pay_two_wall_losses():
     att = _att(grid, 5, 25, 45, 25)
     expected = _expected_db(40, 0) + 2 * WALL_TL
     assert np.isclose(att, expected, atol=0.5), f"{att:.2f} vs {expected:.2f} dB"
-
-
-# 6. No staircase regression across multiple off-axis directions
 
 
 @pytest.mark.parametrize(

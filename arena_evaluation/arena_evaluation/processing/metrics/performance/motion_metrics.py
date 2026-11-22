@@ -24,7 +24,6 @@ from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
 MIN_DT_S: typing.Final[float] = 1e-6
 
-# Declared smoothing of the derivative estimator: what the reported acceleration and jerk peaks measure.
 SMOOTHING_WINDOW_S: Final[float] = 1.0
 SMOOTHING_POLYORDER: Final[int] = 2
 KINEMATICS_GRID_HZ: Final[float] = 20.0
