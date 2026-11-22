@@ -20,18 +20,7 @@ def test_save_plot_declaration_rejects_unknown_option_for_plot_type(tmp_path: Pa
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     try:
         run_id = _make_run_dir(tmp_path)
-        bad_yaml = (
-            "id: bad_box\n"
-            "title: Bad Box\n"
-            "type: box\n"
-            "data:\n"
-            "  source: fact_robots\n"
-            "channels:\n"
-            "  x: planner\n"
-            "  y: energy_total_wh\n"
-            "options:\n"
-            "  not_a_real_option: true\n"
-        )
+        bad_yaml = "id: bad_box\ntitle: Bad Box\ntype: box\ndata:\n  source: fact_robots\nchannels:\n  x: planner\n  y: energy_total_wh\noptions:\n  not_a_real_option: true\n"
         with pytest.raises(ToolError, match="unknown option.*not_a_real_option"):
             evaluation_save_plot_declaration("bad_box", bad_yaml, run_id=run_id)
     finally:
@@ -46,16 +35,7 @@ def test_save_plot_declaration_rejects_unknown_plot_type(tmp_path: Path) -> None
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     try:
         run_id = _make_run_dir(tmp_path)
-        bad_yaml = (
-            "id: unknown_kind\n"
-            "title: Unknown Kind\n"
-            "type: nonexistent_chart\n"
-            "data:\n"
-            "  source: fact_robots\n"
-            "channels:\n"
-            "  x: planner\n"
-            "  y: energy_total_wh\n"
-        )
+        bad_yaml = "id: unknown_kind\ntitle: Unknown Kind\ntype: nonexistent_chart\ndata:\n  source: fact_robots\nchannels:\n  x: planner\n  y: energy_total_wh\n"
         with pytest.raises(ToolError, match="unknown plot type.*nonexistent_chart"):
             evaluation_save_plot_declaration("unknown_kind", bad_yaml, run_id=run_id)
     finally:
@@ -70,18 +50,7 @@ def test_save_plot_declaration_accepts_supported_box_option(tmp_path: Path) -> N
     os.environ["ARENA_DATA_DIR"] = str(tmp_path)
     try:
         run_id = _make_run_dir(tmp_path)
-        good_yaml = (
-            "id: valid_box\n"
-            "title: Valid Box\n"
-            "type: box\n"
-            "data:\n"
-            "  source: fact_robots\n"
-            "channels:\n"
-            "  x: planner\n"
-            "  y: energy_total_wh\n"
-            "options:\n"
-            "  show_outliers: false\n"
-        )
+        good_yaml = "id: valid_box\ntitle: Valid Box\ntype: box\ndata:\n  source: fact_robots\nchannels:\n  x: planner\n  y: energy_total_wh\noptions:\n  show_outliers: false\n"
         res = evaluation_save_plot_declaration("valid_box", good_yaml, run_id=run_id)
         assert res["status"] == "saved"
         assert res["type"] == "box"
