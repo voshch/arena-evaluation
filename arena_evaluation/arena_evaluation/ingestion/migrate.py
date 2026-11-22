@@ -265,14 +265,9 @@ def _migrate_episode(episode_dir: pathlib.Path, *, force: bool, dry_run: bool) -
         synthesized = _synthesize_descriptor(topics, recording, metadata)
         if synthesized:
             fallbacks.append("synthesised robot_descriptor/robot_params from RunMetadata.robot_model and the installed arena_robots definition for " + ", ".join(synthesized))
-    backfilled: tuple[str, ...] = ()
-    if generation.name in (
-        legacy_schemas.LEGACY_2026_09,
-        legacy_schemas.LEGACY_2026_11,
-    ):
-        backfilled = _backfill_robot_parameters(topics)
-        if backfilled:
-            fallbacks.append("backfilled " + ", ".join(backfilled) + " from the installed arena_robots definition; the September fleet recorded no physical parameters")
+    backfilled = _backfill_robot_parameters(topics)
+    if backfilled:
+        fallbacks.append("backfilled " + ", ".join(backfilled) + " from the installed arena_robots definition; the recorded fleet carried no physical parameters")
     changed = needs_extraction or bool(synthesized) or bool(mapped) or bool(backfilled)
     if changed:
         MetadataWriter.write(metadata, metadata_path)

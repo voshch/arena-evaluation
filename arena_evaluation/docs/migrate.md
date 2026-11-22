@@ -106,7 +106,7 @@ descriptor tables **once**, from data that already exists:
 4. The rows are written to `topics/robot_descriptor.parquet` and `topics/robot_params.parquet`;
    `_synthesize_descriptor` returns the robot/model pairs, and the report lists the fallback.
 
-A recording **with** a fleet gets no synthesis. If a `legacy_2026_11` fleet records only sensor
+A recording **with** a fleet gets no synthesis. If a fleet of any generation lacks the physical
 parameters, `_backfill_robot_parameters` fills the missing `robot_radius`/`robot_mass_kg` from the
 **installed** `arena_robots` definition of the recorded model (vectorised, no invented default) and
 names the fallback in `migration_report.yaml`. The backfill lives in the migrated `topics/`; a later
