@@ -56,11 +56,7 @@ def latest_benchmark(
     environ: Mapping[str, str] = os.environ,
     share_directory: Callable[[str], str] = get_package_share_directory,
 ) -> pathlib.Path | None:
-    """The run folder with the newest manifest ``created_at``, addressed by its folder name.
-
-    Only folders that carry a manifest are runs; a stray folder is not one. The run id is the
-    folder name, never ``manifest.run_id``, so a copied folder keeps its own identity.
-    """
+    """The run folder with the newest manifest ``created_at``, addressed by its folder name."""
     resolved_root = root or benchmarks_root(environ=environ, share_directory=share_directory)
     if not resolved_root.is_dir():
         return None

@@ -759,7 +759,7 @@ def _convert_trajectory(plot: LegacyPlot, metric_map: MetricMap, known: Abstract
     )
 
 
-_ACOUSTIC_DROP: Final[str] = "acoustic plot types are registered but no recipe binds them to a report, and the report contract test forbids acoustic types in shipped manifests (L4-010); bind it ad hoc with evaluation_render_plot or ship a recipe first"
+_ACOUSTIC_DROP: Final[str] = "acoustic plot types are registered but no recipe binds them to a report, and the report contract test forbids acoustic types in shipped manifests; bind it ad hoc with evaluation_render_plot or ship a recipe first"
 
 _CONVERTERS = {
     "table": _convert_table,

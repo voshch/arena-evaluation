@@ -184,8 +184,7 @@ def _overlaps(a_start: int, a_end: int, b_start: int, b_end: int) -> bool:
 
 
 def _used_elevator_during_alarm(events: pl.DataFrame, end_t_ns: int | None, identity: RobotIdentity | None = None) -> int | None:
-    """Count of alarm (`schedule.active`) windows overlapped by elevator occupancy: nonzero `occupants` by anyone
-    aboard when `identity` is None, else the robot's own `members` membership (None when no elevator reports members)."""
+    """Count of alarm (`schedule.active`) windows overlapped by elevator occupancy, by anyone aboard when `identity` is None, else by the robot's own `members` (None when no elevator reports members)."""
     if identity is not None and len(events.filter((pl.col("kind") == "elevator") & (pl.col("field") == "members"))) == 0:
         return None
     alarm_windows = _windows(events, "schedule", "active", _parse_bool, end_t_ns)

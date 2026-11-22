@@ -65,9 +65,6 @@ class EvaluationDomain(Domain):
 
     def install(self, server: MCPServer) -> None:
         """Register evaluation tools with structured output schemas for dicts and BaseModels."""
-        # Decision X-007 makes ``storage.layout`` the one accepted storage -> processing edge:
-        # importing it here populates the shared metric registry in an MCP-only process, where
-        # no pipeline import triggers it before a fact schema is derived.
         from arena_evaluation.storage import layout as _layout  # noqa: F401
 
         for spec in self.tools:

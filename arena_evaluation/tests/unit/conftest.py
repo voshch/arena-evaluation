@@ -13,14 +13,7 @@ load_metric_definitions()
 
 @pytest.fixture(scope="session", autouse=True)
 def _restore_arena_logger_propagation() -> None:
-    """Undo the ROS ``launch`` logger class, which would hide Arena log records from ``caplog``.
-
-    ``arena_rclpy_mixins`` imports ``launch``, and ``launch.logging`` installs a logger class whose
-    instances set ``propagate = False``. Every Arena logger created after that import (as the
-    collected test modules are) would then never reach the root handler pytest captures. Restore the
-    stock class and let the already-created Arena loggers propagate again; this is test infrastructure
-    only and does not change where the application logs.
-    """
+    """Undo the ROS ``launch`` logger class so Arena log records reach ``caplog``."""
     logging.setLoggerClass(logging.Logger)
     for name, logger in list(logging.Logger.manager.loggerDict.items()):
         if isinstance(logger, logging.Logger) and name.split(".")[0] in {

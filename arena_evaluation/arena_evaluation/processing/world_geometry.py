@@ -79,11 +79,7 @@ def world_geometry_rows(world_name: str, run_dir: pathlib.Path | None) -> pl.Dat
 
 
 def _element_rows(world_name: str, elements: Iterable[_Element]) -> list[_Row]:
-    """One registry row per vertex, in the authored element and part order.
-
-    A part that is a vertex sequence is used as is; any other part is a shapely polygon whose
-    exterior ring, without its closing vertex, supplies the vertices.
-    """
+    """One registry row per vertex, in the authored element and part order."""
     return [
         {
             "world": world_name,

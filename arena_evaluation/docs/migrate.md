@@ -2,7 +2,7 @@
 
 > **Audited commit:** `arena_evaluation` `enhancement/evaluation-overhaul` @ **`f355ece2`** (2026-11-17),
 > the INT1 landing tree. The recording and declaration migrations were re-run end to end on the final
-> merged tree (2026-11-17); those results are quoted in §1.9 and §2.6. Claims that could not be
+> merged tree (2026-11-17); those results are quoted in section 1.9 and section 2.6. Claims that could not be
 > reproduced are marked **unverified**.
 
 The overhaul changed two file formats that users already have on disk. Both have a migration path,
@@ -11,9 +11,9 @@ leave an old artifact silently in place.
 
 | Old artifact | New artifact | Migration |
 |---|---|---|
-| A benchmark recorded before the native layout (`episodes/episode_NNN/*.mcap` + old metadata, old `topics/`) | The native layout (current metadata, `topics/`, `metrics/`, benchmark stamps) | `evaluation migrate` (§1) |
-| Pre-overhaul report manifests (`configs/benchmark/manifests/*.yaml`, `plot_declarations/*.yaml`) and their plot grammar | `configs/reports/<name>/report.yaml`, `configs/plots/<name>/plot.yaml`, `configs/queries/<name>/query.yaml` | Converter + MCP loop (§2) |
-| Old processed outputs (`metrics.parquet`, `combined_metrics.parquet`, stale/incomplete `metrics/fact_*.parquet`) | Recomputed facts and series | Quarantined by `migrate`; recomputed by `process --force-process` (§1.6) |
+| A benchmark recorded before the native layout (`episodes/episode_NNN/*.mcap` + old metadata, old `topics/`) | The native layout (current metadata, `topics/`, `metrics/`, benchmark stamps) | `evaluation migrate` (section 1) |
+| Pre-overhaul report manifests (`configs/benchmark/manifests/*.yaml`, `plot_declarations/*.yaml`) and their plot grammar | `configs/reports/<name>/report.yaml`, `configs/plots/<name>/plot.yaml`, `configs/queries/<name>/query.yaml` | Converter + MCP loop (section 2) |
+| Old processed outputs (`metrics.parquet`, `combined_metrics.parquet`, stale/incomplete `metrics/fact_*.parquet`) | Recomputed facts and series | Quarantined by `migrate`; recomputed by `process --force-process` (section 1.6) |
 
 ---
 
@@ -30,12 +30,12 @@ leave an old artifact silently in place.
 | `legacy_2026_09` | `task_generator_msgs/msg/EpisodeRecord` (`tm_*` fields) | native or absent | `task_generator_msgs/msg/RobotState[]` |
 | `legacy_2026_11` | `arena_runtime_msgs/msg/EpisodeRecord` | **no** `robot_*` fields | `RobotFleet` or absent |
 | `legacy_2026_11_11` | `arena_runtime_msgs/msg/EpisodeRecord` | `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain`, `robot_reaction_gain` | `RobotFleet` or absent |
-| `unknown` | any other present episode schema | — | any other present fleet schema |
+| `unknown` | any other present episode schema | none | any other present fleet schema |
 
 A recording with no `/state/episode` topic is classified from its remaining schemas
 (`_absent_episode_generation`): a crowd-less `AgentMeta` is `legacy_2026_11`, one with `robot_awareness` is `legacy_2026_11_11`; a
 `task_generator_msgs` fleet is `legacy_2026_09`; otherwise `native`. A **present** but unrecognised
-episode or fleet schema is `unknown` and is refused with its name — the migration does not try to
+episode or fleet schema is `unknown` and is refused with its name, the migration does not try to
 interpret a schema it does not know.
 
 ### 1.2 Command and flags
@@ -74,7 +74,7 @@ currently exposes `extract`, `run`, `process`, `report`, `plot` and `acoustic`, 
 | `tm_robots`, `tm_obstacles`, `tm_modules` | `modes.robots/obstacles/modules` | One axis per `tm_*` field; an absent field leaves that axis out. This is `legacy_modes()`. |
 | Nested `robots_params`, `obstacles_params` | `params["task.<mode>.<leaf>"]` | Flattened leaves of the first mode on each axis. This is `legacy_params()` / `flatten_params()`. |
 | `EpisodeRecord` fields | Native `EpisodeFields` | `episode_id, world, seed, outcome_*, goal_*, path_length, start_t_ns, integrity, robots` are mapped from the generation's record. |
-| `/state/robots` fleet | `robot_descriptor.parquet`, `robot_params.parquet` | Native and `legacy_2026_09` RobotState lists are read by the extractor; parameters are whatever the message carried (see §1.5). |
+| `/state/robots` fleet | `robot_descriptor.parquet`, `robot_params.parquet` | Native and `legacy_2026_09` RobotState lists are read by the extractor; parameters are whatever the message carried (see section 1.5). |
 | MCAP topics | `topics/*.parquet` | The recording is re-extracted through `MCAPReader` into the native table names; the old `topics/` is replaced atomically. |
 | Episode YAML | Rewritten native `RunMetadata` | The migrated metadata is validated by `RunMetadata.model_validate`; an incomplete mapping is a `MigrationError`. |
 
@@ -87,8 +87,8 @@ Nothing absent is invented. A field the generation did not carry is NULL and nam
 | `task_layer` on a `legacy_2026_09` EpisodeRecord | NULL; `not_recorded` (named in `EpisodeFields.not_recorded`). |
 | `robot_range_offset`, `robot_fov_offset`, `robot_repulsion_gain`, `robot_reaction_gain`, `robot_blind` (AgentMeta without the `robot_*` fields) | All five NULL with `not_recorded`; the crowd condition therefore has no source. |
 | `robot_range_offset`, `robot_fov_offset`, `robot_blind` (AgentMeta of `legacy_2026_11_11`) | NULL with `not_recorded`; `robot_repulsion_gain` and `robot_reaction_gain` are carried, `robot_awareness` and `robot_fov_gain` are never converted. |
-| No `/state/robots` fleet | `robot_descriptor`/`robot_params` synthesised (§1.5); the report's `fallbacks` says so. |
-| `conditions`, `phases`, `human_params` missing from an EpisodeRecord | NULL with `not_recorded` when the generation did not carry them. `legacy_schemas` parses the **recorded** `EpisodeRecord` definition, so a September record without these fields no longer raises (H-012 fixed). |
+| No `/state/robots` fleet | `robot_descriptor`/`robot_params` synthesised (section 1.5); the report's `fallbacks` says so. |
+| `conditions`, `phases`, `human_params` missing from an EpisodeRecord | NULL with `not_recorded` when the generation did not carry them. `legacy_schemas` parses the **recorded** `EpisodeRecord` definition, so a September record without these fields no longer raises. |
 | No environment token in topics or TF frames, or several | `MigrationError`, no writing. |
 | Metadata with neither `modes` nor `tm_*` | `MigrationError` pointing at the migration. |
 
@@ -102,9 +102,9 @@ descriptor tables **once**, from data that already exists:
    or an equal-length name/model pairing. An empty model list, or a count mismatch, is a
    `MigrationError`.
 3. For each model, `_installed_parameters` reads the installed `arena_robots` definition:
-   `caps/mobile.yaml` → `radius`, `model_params.yaml` → `mass.base_kg`, plus a finite
+   `caps/mobile.yaml` -> `radius`, `model_params.yaml` -> `mass.base_kg`, plus a finite
    `velocity_limits.angular` as `max_angular_vel` when declared. A missing package, definition,
-   radius or mass is a hinted `MigrationError` — **no default radius or mass is ever substituted**.
+   radius or mass is a hinted `MigrationError`, **no default radius or mass is ever substituted**.
 4. The rows are written to `topics/robot_descriptor.parquet` and `topics/robot_params.parquet`;
    `_synthesize_descriptor` returns the robot/model pairs, and the report lists the fallback.
 
@@ -113,7 +113,7 @@ parameters, `_backfill_robot_parameters` fills the missing `robot_radius`/`robot
 **installed** `arena_robots` definition of the recorded model (vectorised, no invented default) and
 names the fallback in `migration_report.yaml`. The backfill lives in the migrated `topics/`; a later
 `process --force-extract` rewrites those rows from the legacy fleet again, so re-run
-`evaluation migrate --force` after a forced re-extraction (§1.8).
+`evaluation migrate --force` after a forced re-extraction (section 1.8).
 
 ### 1.6 `migration_report.yaml`
 
@@ -151,7 +151,7 @@ episode's metadata and tables are left as they were.
 Before migrating, `storage/layout.retire_legacy_outputs` moves the pre-overhaul outputs under
 `<benchmark>/legacy/`, never deleting anything:
 
-- benchmark-level legacy files (`manifest.yaml`, `report_manifest.yaml`, `combined_metrics.parquet`, …);
+- benchmark-level legacy files (`manifest.yaml`, `report_manifest.yaml`, `combined_metrics.parquet`, ...);
 - every `metrics/fact_*.parquet` of an episode that is **not** complete (`metrics/.complete` absent).
 
 The native pipeline reads only the current layout. `process` refuses a run whose tables carry an old
@@ -163,14 +163,14 @@ evaluation process --benchmark-dir <run> --force-process
 
 `progress.csv` is runner state and is **not** migrated; copy it aside or re-record the run.
 
-### 1.8 Limits — what cannot be recovered
+### 1.8 Limits: what cannot be recovered
 
 - **One MCAP per episode folder.** Continuous recordings split by an `EpisodeRecord` are out of scope
-  (D-05); the migration refuses a layout it cannot map.
+; the migration refuses a layout it cannot map.
 - **No back-fill of missing measurements.** A topic the recording never wrote has no table; fields the
   generation did not carry stay NULL with a reason.
 - **The old processed values are not imported.** They are quarantined and recomputed; numbers can
-  change because the metric definitions changed (see §2.6).
+  change because the metric definitions changed (see section 2.6).
 - **A forced re-extraction discards the parameter backfill.** `process --force-extract` re-reads the
   MCAP and rewrites `topics/robot_params.parquet` from the legacy fleet, which carries no
   `robot_radius`/`robot_mass_kg`; `process` then refuses with the typed `MetricInputError`. Migrate
@@ -181,12 +181,12 @@ evaluation process --benchmark-dir <run> --force-process
   NULLs the acoustic/world metrics, naming every searched root; copy the world snapshot under the
   benchmark's `worlds/` tree or fix the install. The rest of `process` and `report` still runs.
 
-### 1.9 Executed proof (H-012 / H-010, 2026-11-17, on copies)
+### 1.9 Executed proof (2026-11-17, on copies)
 
 Both proofs were re-run end to end on the final merged tree; the source benchmarks were copied and
 never modified.
 
-**September 620-set `episode_433` (generation `legacy_2026_09`, the H-012 case).** The copy kept the
+**September 620-set `episode_433` (generation `legacy_2026_09`).** The copy kept the
 `episodes/episode_433` layout and a `worlds/` snapshot:
 
 ```bash
@@ -205,7 +205,7 @@ definition, and `unsupported` naming `task_layer`, `human_params`, `phases` and 
 `library_acoustic_partition` is not installed, so the acoustic metrics stay NULL and the report still
 builds.
 
-**`test-eval3-agent-mcp`, 5 episodes (generation `legacy_2026_11`, the H-010 case):**
+**`test-eval3-agent-mcp`, 5 episodes (generation `legacy_2026_11`):**
 
 ```bash
 evaluation migrate test-eval3-agent-mcp --report migration_report.yaml
@@ -216,9 +216,9 @@ evaluation report  --benchmark-dir test-eval3-agent-mcp --report-manifest standa
 # Report generation complete
 ```
 
-Both migrated corpora therefore reach `process` → `report` on the merged tree; the earlier failures
+Both migrated corpora therefore reach `process` -> `report` on the merged tree; the earlier failures
 (duplicate row keys, a legacy fleet without morphology) are fixed by the row-key contract and the
-parameter backfill. The only operational caveat is §1.8's forced re-extraction.
+parameter backfill. The only operational caveat is section 1.8's forced re-extraction.
 
 ---
 
@@ -236,7 +236,7 @@ parameter backfill. The only operational caveat is §1.8's forced re-extraction.
 The resolver accepts a named bundle, a path to `report.yaml`, or inline `{...}` YAML
 (`--report-manifest`). A run-local bundle lives under `<run>/analysis/reports/<name>/report.yaml`.
 
-### 2.2 Old grammar → new grammar
+### 2.2 Old grammar -> new grammar
 
 The converter's field mapping (from `presentation/legacy_manifest.py`, reproduced from
 `03 Implementation/12 Legacy Report Migration - Map, Required Queries and Converter.md`):
@@ -247,27 +247,27 @@ The converter's field mapping (from `presentation/legacy_manifest.py`, reproduce
 | `data_key` (a metric) | `data.source`/`params.metrics` + `channels.y` |
 | `data_key: timeseries_*` | `series_profile` over `series_*` (scope prefix + unit suffix resolved by unique prefix) |
 | `secondary_data_key` / `options.y` | second axis (`scatter`) or second metric |
-| `differentiate` | `channels.color` / `channels.x` (old `robot` → `robot_id`) |
+| `differentiate` | `channels.color` / `channels.x` (old `robot` -> `robot_id`) |
 | `group_by` / `options.group_by` | `channels.facet_col` or `params.group_cols` |
 | `filter` | `data.where` (source plots) or `params.filter` (computations) |
-| `auto_differentiate` | dropped — channels are explicit |
+| `auto_differentiate` | dropped, channels are explicit |
 | `table` + `options.columns` | `group_summary` + labels/formats |
 | `heatmap` + `options.metrics` | `correlation_matrix` |
 | `heatmap` + `options.x/y` | `group_summary` pivot (`color: mean`) |
 | `radar` + `options.metrics` | `radar_profile` |
 | `histogram` | `distribution_bins` |
 | `trajectory` (`path`/`pedestrian_path`) | `stored_query: robot_tracks_non_ref` / `pedestrian_arena_peds_non_ref` |
-| `acoustic_field*` | recorded drop; `acoustic_field` ships via A-028 |
+| `acoustic_field*` | recorded drop; `acoustic_field` ships with the shipped acoustic-field recipe |
 | notes-only `table` | recorded drop; text preserved under `carried_notes` |
 
-**Old data keys → the new binding.** A declaration now names one of three things instead of a
+**Old data keys -> the new binding.** A declaration now names one of three things instead of a
 `data_source`/`data_key` pair:
 
 | You want | Bind to |
 |---|---|
 | One row per episode/robot, the headline metrics | `v_episode_summary` (canonical view), optionally `data.where` |
 | A per-sample series (`series_*`) | `series_profile` over `series_<stem>` (or `timeseries` against the native time axis) |
-| A computed table (summary, correlation, ranking, …) | a registered computation (`group_summary`, `distribution_bins`, `radar_profile`, `composite_ranking`, `correlation_matrix`, `paired_diff`, `cluster_bootstrap_ci`, `series_profile`) with `params` |
+| A computed table (summary, correlation, ranking, ...) | a registered computation (`group_summary`, `distribution_bins`, `radar_profile`, `composite_ranking`, `correlation_matrix`, `paired_diff`, `cluster_bootstrap_ci`, `series_profile`) with `params` |
 | A reusable SQL question | `stored_query: <name>` from `configs/queries/<name>/query.yaml` |
 
 The first four are the whole grammar: a plot resolves a view, a stored query, or a computation, and
@@ -279,7 +279,7 @@ then binds its declared channels.
 the same `renamed:`/`removed:` shape. The loader also prefers `configs/legacy/legacy_metric_map.yaml`
 if that config kind is ever admitted (today the root admits only the five registered bundle kinds).
 
-`renamed` (old → new):
+`renamed` (old -> new):
 
 | old | new |
 |---|---|
@@ -296,8 +296,8 @@ if that config kind is ever admitted (today the root admits only the five regist
 
 | old | decision |
 |---|---|
-| `social_force_mean` / `_max` / `_ped_mean` / `_ped_max` | D-01/PR2 dropped the stored social-force scalars; social disturbance is `ci_mean`/`ci_max` plus pedestrian deflection |
-| `total_sound_energy_joules` | no equivalent registry metric; acoustic exposure is `sound_exposure_dose_pa2s` / the `acoustic_*` scalars — recorded dropped with a TODO |
+| `social_force_mean` / `_max` / `_ped_mean` / `_ped_max` | The stored social-force scalars; social disturbance is `ci_mean`/`ci_max` plus pedestrian deflection |
+| `total_sound_energy_joules` | no equivalent registry metric; acoustic exposure is `sound_exposure_dose_pa2s` / the `acoustic_*` scalars, recorded dropped with a TODO |
 
 Other renames the overhaul made (from the fix reports; each is verified in the merged registry):
 
@@ -309,11 +309,11 @@ Other renames the overhaul made (from the fix reports; each is verified in the m
 | `peak_power_w` | `power_peak_w` |
 | `spl` | `spl_geodesic` |
 
-The alias map that the pipeline itself applies (aligned calculator frame → registry column) is in
-`FIX1 - report.md` §“Authoritative old→new rename map”; it is not repeated here because it is
+The alias map that the pipeline itself applies (aligned calculator frame -> registry column) is in
+the audit report's "Authoritative old->new rename map"; it is not repeated here because it is
 pipeline plumbing, not a declaration rename.
 
-**B-019 status.** The audit asked for a 65-row old→new table generated from the two vocabularies.
+**Rename table status.** The audit asked for a 65-row old->new table generated from the two vocabularies.
 That exhaustive table is **not reproducible from the merged tree**: the audit's working map and the
 old vocabulary snapshot were never checked in (the former `tests/parity/metric_map.yaml` is gone), and
 only the converter's 9 `renamed` entries, 5 `removed` entries and the fix-round renames above are
@@ -345,7 +345,7 @@ Every conversion accounts for **every** old plot as `converted`, `dropped` (with
 (with the binding still to decide). Nothing is guessed: an unresolved metric or series column stays
 `TODO:`.
 
-Measured on the seven legacy manifests (FIX7, `177c3b41`, verified on the merged tree):
+Measured on the seven legacy manifests (`177c3b41`, verified on the merged tree):
 
 | Manifest | Old | Converted | Dropped | TODO |
 |---|---:|---:|---:|---:|
@@ -360,8 +360,8 @@ Measured on the seven legacy manifests (FIX7, `177c3b41`, verified on the merged
 
 The five TODOs are two all-metric correlation matrices (the metric list must be chosen) and three
 multi-metric power timeseries (one `series_profile` per metric). The seven hand-migrated report
-bundles ship **313** declared plots (FIX7 ported 11 clear regressions back from the old declarations;
-`297 → 313`).
+bundles ship **313** declared plots (11 clear regressions back from the old declarations;
+`297 -> 313`).
 
 ### 2.5 The four legacy `plot_declarations/` files
 
@@ -369,12 +369,12 @@ Nothing is deleted. The disposition is:
 
 | File | Disposition |
 |---|---|
-| `all_metrics.yaml` | best-effort conversion / archive — a code-driven schema |
-| `eval_iros_2023.yaml` | best-effort conversion / archive — a study declaration whose plots the new grammar can express (bar/line/trajectory/heatmap) |
+| `all_metrics.yaml` | best-effort conversion / archive, a code-driven schema |
+| `eval_iros_2023.yaml` | best-effort conversion / archive, a study declaration whose plots the new grammar can express (bar/line/trajectory/heatmap) |
 | `my_plots.yaml` | best-effort conversion / archive |
-| `sample_schema.yaml` | archive — unparseable documentation, not a declaration |
+| `sample_schema.yaml` | archive, unparseable documentation, not a declaration |
 
-### 2.6 MCP-assisted completion loop (FIX8 tools, FIX11 end-to-end)
+### 2.6 MCP-assisted completion loop
 
 The converter is exposed through the `evaluation` domain; the tools call the converter, never
 re-implement it:
@@ -382,7 +382,7 @@ re-implement it:
 | Step | Tool | What it does |
 |---|---|---|
 | 1. Migrate | `evaluation_migrate_manifest(source, target=, run_id=, dry_run=, overwrite=)` | Convert one legacy manifest; writes `<run>/analysis/reports/<target>/report.yaml` + `migration_report.yaml` only when `dry_run=False` and a `run_id` is given. |
-| 2. Mappings | `evaluation_manifest_mappings(manifest)` | The old→new metric/series mappings the converter applied, plus the unresolved entries. |
+| 2. Mappings | `evaluation_manifest_mappings(manifest)` | The old->new metric/series mappings the converter applied, plus the unresolved entries. |
 | 3. Deep lint | `evaluation_lint_declarations(run_id=, deep=True)` | Executes every plot's view/query/computation and binds its channels against the run; `valid=false` when any plot cannot bind. |
 | 4. Render/review | `evaluation_report_draft`, `evaluation_report_plot`, `evaluation_report_view`, `evaluation_report_review` | Render a plot, see the image and its checks, approve or reject it. |
 | 5. Assemble | `evaluation_report_assemble` | Build `report.html` from **approved** plots and verified findings only; `complete` reports whether every declared plot was approved. |
@@ -399,10 +399,9 @@ with `complete: true`.
 
 ## 3. Where to go next
 
-- Recording details and the generation table: `arena_evaluation/ingestion/README.md` §Migration.
+- Recording details and the generation table: `arena_evaluation/ingestion/README.md` section Migration.
 - Declarations, plot types and the quality gate: `arena_evaluation/presentation/README.md`.
 - Report/query/plot bundle layout: `configs/README.md`.
 - Storage layout and the quarantine directory: `arena_evaluation/storage/README.md`.
 - The converter's own map and required queries:
-  `03 Implementation/12 Legacy Report Migration - Map, Required Queries and Converter.md` and
-  `FIX7 - converter usage and stats for FIX8-FIX10.md`.
+  `03 Implementation/12 Legacy Report Migration - Map, Required Queries and Converter.md`.

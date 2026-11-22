@@ -3,7 +3,7 @@ description: Standard balanced arena_evaluation report covering performance, saf
   efficiency, naturalness, motion, smoothness, social interaction, ecology, and trade-off
   frontiers.
 units:
-  acceleration_mean: 'm/s²'
+  acceleration_mean: 'm/s^2'
   ade: 'm'
   aeps_linear_s: 's'
   angle_over_length: 'rad/m'
@@ -20,7 +20,7 @@ units:
   mean_velocity_mps: 'm/s'
   mhd: 'm'
   path_length_m: 'm'
-  personal_space_intrusion_integral: 'm·s'
+  personal_space_intrusion_integral: 'm*s'
   power_total_w: 'W'
   roughness_mean: 'rad/m'
   specific_cost_of_transport: ''

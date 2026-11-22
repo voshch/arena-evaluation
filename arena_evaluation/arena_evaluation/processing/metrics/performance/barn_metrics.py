@@ -198,7 +198,6 @@ class BARNScoreCalculator(BaseMetricCalculator):
         del prior_results
         nulls = dict.fromkeys(self.output_keys())
         if episode.fleet:
-            # Refused, not silently merged: every per-robot field of a fleet would answer for the wrong robot.
             return {
                 **nulls,
                 **{f"{key}_null_reason": MULTI_ROBOT_REFUSAL for key in nulls},

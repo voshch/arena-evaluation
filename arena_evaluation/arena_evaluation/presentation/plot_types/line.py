@@ -142,7 +142,7 @@ class LineRenderer(BasePlotRenderer):
             for rv in row_vals:
                 for cv in col_vals:
                     parts = [p for p in (cv, f"{facet_row}={rv}" if rv is not None else None) if p]
-                    titles.append(" · ".join(parts))
+                    titles.append(" / ".join(parts))
             fig = make_subplots(
                 rows=nrows,
                 cols=ncols,
@@ -269,7 +269,7 @@ class LineRenderer(BasePlotRenderer):
                     cell_parts = [p for p in (cv, f"{facet_row}={rv}" if rv is not None else None) if p]
                     finish_axes(
                         ax,
-                        title=" · ".join(cell_parts),
+                        title=" / ".join(cell_parts),
                         x_label=x_title if r_idx == nrows - 1 else "",
                         y_label=y_title if c_idx == 0 else "",
                         grid_axis="both",

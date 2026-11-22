@@ -43,11 +43,7 @@ def _require_identifier(value: str, what: str) -> str:
 
 
 def verdict_for(direction: str, ci_low: float, ci_high: float) -> str:
-    """Map a claim direction and its interval to ``verified``/``refuted``.
-
-    ``lower`` needs the whole interval below zero, ``higher`` above zero, and
-    ``different`` needs the interval to exclude zero on either side.
-    """
+    """Map a claim direction and its interval to ``verified``/``refuted``."""
     match direction:
         case "lower":
             verified = ci_high < 0.0

@@ -162,8 +162,6 @@ def test_replay_takes_gesture_outcome_from_the_record():
     results = _calc().calculate(_episode(phases, poses, snapshot), {})
     assert results["phase_outcomes"] == ["failed", "met"]
     assert results["phases_failed"] == 1
-    # The replay closes the gesture with the record's own flag, so it meets a phase the record marks failed:
-    # that is the contradiction D11 reports.
     assert results["judge_agrees"] is False
     assert results["judge_disagreements"] == ["phase 0 recorded as failed but met in replay"]
 

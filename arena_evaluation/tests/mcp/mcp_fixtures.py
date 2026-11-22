@@ -154,8 +154,6 @@ def write_star_schema(benchmark_dir: pathlib.Path, rows: list[dict]) -> None:
             [
                 {
                     **{name: row.get(name) for name in FACT_TABLES["episodes"].polars_schema().names()},
-                    # A written fact_episodes row is evaluated: the empty reason marks it
-                    # valid for ranking (L3-002), never NULL.
                     "invalid_reason": row.get("invalid_reason") or "",
                 }
                 for row in episode_rows

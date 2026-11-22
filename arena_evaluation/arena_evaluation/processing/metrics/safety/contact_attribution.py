@@ -200,11 +200,7 @@ class ContactContext:
 
 @dataclass(frozen=True, slots=True)
 class ContactAttributionRecord:
-    """Measured attribution scalars of a single contact event.
-
-    The two closing shares are views of ``v_close_robot_mps`` and ``v_close_target_mps``: computed
-    properties, not stored fields, so the ratio is never duplicated in storage.
-    """
+    """Measured attribution scalars of a single contact event."""
 
     contact_id: int
     t0_ns: int
@@ -330,7 +326,6 @@ def attribute_single_contact(
             v_target_impact = float(np.hypot(pvx_0, pvy_0))
             rel_impact = float(np.hypot(rvx_0 - pvx_0, rvy_0 - pvy_0))
     else:
-        # A wall or static collider is at rest by definition, so the relative speed is the robot's.
         v_target_impact = 0.0
         rel_impact = v_robot_impact
 
@@ -516,10 +511,7 @@ def detect_contact_events(
     *,
     merge_gap_ns: int,
 ) -> list[ContactEvent]:
-    """Contact intervals of one episode, each lasting at least one robot sample period.
-
-    A contact seen at a single robot sample would otherwise have an empty window; its end is moved one period later.
-    """
+    """Contact intervals of one episode, each lasting at least one robot sample period."""
     bouts = _contact_bouts(episode, robot, tracks, merge_gap_ns=merge_gap_ns)
     if not bouts:
         return bouts
@@ -620,11 +612,7 @@ def _event_from_fields(
 
 
 class ContactAttributionCalculator(BaseMetricCalculator):
-    """Per-contact closing speeds, impact speeds and frozen-robot clearance; no label and no cut.
-
-    The keys contact_t0_ns, contact_t_end_ns, obstacle_kind, obstacle_id, target_agent_id and static_point are
-    debug hooks that select one contact: metrics_config reads them, and they are not PARAMS.
-    """
+    """Per-contact closing speeds, impact speeds and frozen-robot clearance; no label and no cut."""
 
     NAME = "contact_attribution"
     CATEGORY = "safety"

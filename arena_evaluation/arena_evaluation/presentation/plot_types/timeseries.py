@@ -59,11 +59,7 @@ class _Curve(NamedTuple):
 
 
 class TimeseriesRenderer(BasePlotRenderer):
-    """Renders the mean over episodes of each signal per colour value, with its 10th to 90th percentile band.
-
-    Signals declared as ``y2`` share the time axis and are drawn dotted against a second, right-hand axis.
-    The option ``bin_width_s`` sets the time resolution of the mean and the band.
-    """
+    """Renders the mean over episodes of each signal per colour value with its 10th to 90th percentile band, ``y2`` signals on a right-hand axis."""
 
     PLOT_TYPE = "timeseries"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {
@@ -110,7 +106,7 @@ class TimeseriesRenderer(BasePlotRenderer):
                     parts.append(str(colour_value))
                 curves.append(
                     _Curve(
-                        name=" · ".join(parts) or y_col,
+                        name=" / ".join(parts) or y_col,
                         x=sub[_BIN].to_numpy(),
                         mean=sub["mean"].to_numpy(),
                         low=sub["low"].to_numpy(),

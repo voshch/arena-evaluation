@@ -277,13 +277,7 @@ def evaluation_lint_declarations(
         pydantic.Field(description="resolve every plot's query, stored query, computation, and channels, not only its schema"),
     ] = False,
 ) -> dict[str, Any]:
-    """Validate every stored query, plot recipe, and report manifest against the catalog and registry.
-
-    With ``deep=True`` each plot's data binding is executed and every channel is resolved
-    against the produced frame, so ``valid`` is false when a shipped or run-local plot
-    cannot bind (the shallow check misses those). ``plots`` carries one verdict per
-    declaration with the reason.
-    """
+    """Validate every stored query, plot recipe, and report manifest against the catalog and registry, executing each plot binding with ``deep=True``."""
     from arena_evaluation.presentation.lint import lint_declarations
 
     from .lint import deep_lint_declarations

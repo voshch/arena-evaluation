@@ -1,4 +1,4 @@
-"""A-028: the shipped acoustic-field recipe parses and is the one copy of its binding."""
+"""the shipped acoustic-field recipe parses and is the one copy of its binding."""
 
 from __future__ import annotations
 

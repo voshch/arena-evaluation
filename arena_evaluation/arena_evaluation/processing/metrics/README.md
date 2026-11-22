@@ -115,7 +115,7 @@ cabin, ride arrival = cabin entry within 3 s of being in another cabin or across
 | `mechanism_states` | list | per door and elevator: `progress` (0 closed, 1 open) and `locked` at every sample of `time`, the trajectory plot's animation input (`ecological/mechanism_states.py`) |
 
 Every robot-scope calculation reads the aligned episode frame, which is the robot's native `/tf`
-track for the whole episode window (D3). A teleport therefore no longer cuts the track to its
+track for the whole episode window. A teleport therefore no longer cuts the track to its
 longest single-floor segment; the episode frame carries the recorded pose source
 (`robot_tracks.pose_source`, `tf_gt`).
 

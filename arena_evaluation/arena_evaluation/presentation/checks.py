@@ -132,7 +132,6 @@ class DiagnosticInspector:
     @staticmethod
     def inspect(df: pl.DataFrame, spec: PlotSpec | None = None) -> PlotDiagnostics:
         """Verify technical preconditions: rows, declared columns, all-NULL metrics, min_rows."""
-        # differs from overhaul/source:checks.py:108-256: technical checks only, no advisory warnings
         issues: list[str] = []
         schema = df.schema
         row_count = df.height

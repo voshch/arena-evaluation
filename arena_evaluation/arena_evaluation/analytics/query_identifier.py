@@ -14,10 +14,7 @@ __all__ = ["QueryIdentifier"]
 
 
 class QueryIdentifier(AssetIdentifier[dict[str, object]]):
-    """A stored query declaration, resolved local first and then from the benchmark buckets.
-
-    It loads the parsed YAML; :mod:`arena_evaluation.analytics.queries` validates it into a
-    ``QueryDeclaration``, so this module imports nothing from the catalog that imports it."""
+    """A stored query declaration, resolved local first and then from the benchmark buckets."""
 
     _asset_type = "queries"
 

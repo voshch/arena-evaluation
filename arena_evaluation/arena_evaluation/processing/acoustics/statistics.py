@@ -43,11 +43,7 @@ def energy_equivalent_level_dba(levels_dba: np.ndarray, durations_s: np.ndarray)
 
 
 def rise_rates_dba_per_s(levels_dba: np.ndarray, t_ns: np.ndarray, *, gate_dba: float | None = None) -> np.ndarray:
-    """Signed level change rates (dBA/s) between consecutive samples a positive time apart.
-
-    A repeated timestamp carries no rate: it is dropped, never divided by a floor duration.
-    `gate_dba` keeps only the pairs whose later sample is at or above that level.
-    """
+    """Signed level change rates (dBA/s) between consecutive samples a positive time apart, over pairs whose later sample is at or above ``gate_dba``."""
     levels = np.asarray(levels_dba, dtype=np.float64)
     times = np.asarray(t_ns, dtype=np.int64)
     if len(levels) < 2 or len(times) != len(levels):

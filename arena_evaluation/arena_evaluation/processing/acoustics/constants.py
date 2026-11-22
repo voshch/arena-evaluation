@@ -24,8 +24,7 @@ NANOSECONDS_PER_SECOND: Final[float] = 1e9
 # The recorded topic every acoustic metric and the field renderer read.
 ROBOT_ACOUSTICS_TOPIC: Final[str] = "robot_acoustics"
 
-# ABI of the C surface `processing/acoustics/solver.cpp` exports; the loader verifies it
-# before binding so a library built from an older model cannot be used silently.
+# ABI of the C surface `processing/acoustics/solver.cpp` exports
 ACOUSTIC_SOLVER_ABI: Final[int] = 1
 ACOUSTIC_SOLVER_ABI_SYMBOL: Final[str] = "arena_acoustic_solver_abi"
 ACOUSTIC_SOLVER_SYMBOLS: Final[tuple[str, ...]] = (

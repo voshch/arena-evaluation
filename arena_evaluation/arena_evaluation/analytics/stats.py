@@ -208,12 +208,7 @@ def cluster_bootstrap_means(
 
 
 def contain_estimate(low: float, high: float, estimate: float) -> tuple[float, float]:
-    """Widen a percentile interval so it contains its own point estimate.
-
-    A bootstrap whose replicates differ only by rounding can lie entirely to one side of its estimate.
-    Both interval constructions in the layer (the OLAP analytics and the paired experiments) apply this
-    one rule, so they cannot disagree about whether they contain the estimate.
-    """
+    """Widen a percentile interval so it contains its own point estimate."""
     return min(low, estimate), max(high, estimate)
 
 
@@ -359,18 +354,7 @@ def cluster_bootstrap_p_value(
     n_boot: int = 2000,
     random_seed: int = 42,
 ) -> float:
-    """Two-sided p-value of H0: the pooled cluster mean is zero, from a shifted-null cluster bootstrap.
-
-    ``cluster_sums`` and ``cluster_counts`` are one pooled difference sum and one pair count per
-    cluster (scenario, seed, ...), the sufficient statistics of the pooled mean. A resample draws
-    whole clusters with replacement, so it keeps every pair inside a drawn cluster. The null
-    distribution is the centred bootstrap: each cluster sum is shifted by ``observed`` times its
-    count, which moves the resampled mean onto H0 while preserving the between-cluster spread.
-    The p-value is the share of null draws at least as far from zero as the observed estimate,
-    with the ``(1 + extremes) / (n_boot + 1)`` correction so a finite number of draws cannot
-    report p = 0. This is the single implementation both ``paired_treatment_diff`` and
-    ``experiments.stats.cluster_bootstrap`` report.
-    """
+    """Two-sided shifted-null p-value that the pooled cluster mean is zero, with the ``(1 + extremes) / (n_boot + 1)`` correction."""
     _require("n_boot", n_boot)
     return _ClusterBootstrap(
         sums=np.asarray(cluster_sums, dtype=np.float64),
@@ -677,12 +661,7 @@ def split_discovery_verification_seeds(
     discovery_fraction: float = 0.5,
     cohort_col: str = "cohort",
 ) -> pl.LazyFrame | pl.DataFrame:
-    """Partition seeds into ``'discovery'`` and ``'verification'`` cohorts by dense seed rank.
-
-    The split is deterministic: seeds are ordered by rank, never drawn at random, so the same frame
-    always yields the same cohorts. Fewer than two distinct seeds cannot form both cohorts and raise
-    instead of returning an empty verification side.
-    """
+    """Partition seeds into ``'discovery'`` and ``'verification'`` cohorts by dense seed rank, raising with fewer than two distinct seeds."""
     _require("discovery_fraction", discovery_fraction)
     distinct_seeds = _to_lazy(frame).select(pl.col(seed_col).n_unique()).collect().item()
     if int(distinct_seeds) < 2:

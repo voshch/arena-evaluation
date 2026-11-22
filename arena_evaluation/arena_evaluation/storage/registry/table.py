@@ -192,11 +192,7 @@ def defined_metrics() -> tuple[Metric, ...]:
 
 
 class Table:
-    """A stored table declared once: its name, kind, scope, row key and typed columns.
-
-    The table's own metadata lives under ``table_*`` names so that no column name can shadow it.
-    A fact table also stores the metrics of the shared store that list its scope.
-    """
+    """A stored table declared once: its name, kind, scope, row key and typed columns."""
 
     table_name: ClassVar[str]
     table_kind: ClassVar[TableKind]

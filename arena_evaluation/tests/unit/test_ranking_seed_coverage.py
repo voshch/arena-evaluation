@@ -1,4 +1,4 @@
-"""Seed coverage of the ranking products: a planner absent from a seed is reported, never scored 0.0 (L3-032)."""
+"""Seed coverage of the ranking products: a planner absent from a seed is reported, never scored 0.0."""
 
 from __future__ import annotations
 
@@ -56,8 +56,6 @@ def test_seed_split_stability_drops_a_half_without_observations() -> None:
     assert result.planners_ranked == 2
     assert result.seeds_ranked == 6
     assert result.partially_evaluated == ("planner_partial",)
-    # The two complete planners never swap: agreement stays perfect instead of being dragged down by a
-    # planner that would have scored 0.0 in every half it was missing from.
     assert result.mean_tau == pytest.approx(1.0)
     assert result.top_k_preservation_rate == pytest.approx(1.0)
     assert "planner_partial" in result.restriction
@@ -83,12 +81,9 @@ def test_rank_intervals_leave_the_unrankable_planner_null() -> None:
         )
         for row in intervals.to_dicts()
     }
-    # No fabricated best rank 1: the complete planners occupy ranks 1 and 2, the sparse one is NULL
-    # while still reporting how many seeds it covers.
     assert by_planner == {
         "planner_a": (1.0, 1.0, 1.0, 6),
         "planner_b": (2.0, 2.0, 2.0, 6),
         "planner_partial": (None, None, None, 1),
     }
-    # NULL ranks sort last, so a report does not present an unranked planner as the winner.
     assert intervals.get_column("planner").to_list()[-1] == "planner_partial"

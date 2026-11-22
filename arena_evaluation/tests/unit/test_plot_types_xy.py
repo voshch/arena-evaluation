@@ -15,7 +15,6 @@ from arena_evaluation.presentation.viz_manifest import PlotChannels, PlotSpec
 def test_histogram_renderer_prebinned_and_raw(tmp_path: pathlib.Path) -> None:
     import pytest
 
-    # differs from overhaul/source:plot_types/histogram.py:35: histogram rejects raw rows without pre-binned y
     raw_spec = PlotSpec(
         id="hist_raw",
         type="histogram",

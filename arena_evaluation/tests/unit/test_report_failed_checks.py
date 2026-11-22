@@ -69,6 +69,6 @@ def test_report_builder_records_failed_checks_in_appendix(
     assert checks.for_plot("missing_col_plot")
 
     html = report_path.read_text(encoding="utf-8")
-    assert "Appendix — Failed Checks" in html
+    assert "Appendix: Failed Checks" in html
     assert "empty_plot" in html
     assert "missing_col_plot" in html

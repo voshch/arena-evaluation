@@ -39,12 +39,7 @@ def cluster_bootstrap(
     level: float = 0.95,
     p_seed: int = DEFAULT_P_SEED,
 ) -> BootResult:
-    """Percentile bootstrap over whole clusters, with the shifted-null two-sided p-value.
-
-    ``p_seed`` seeds the shifted-null test on its own so the interval and the test are each
-    reproducible; the p-value itself is :func:`arena_evaluation.analytics.stats.cluster_bootstrap_p_value`
-    and tests the pooled mean of the drawn clusters.
-    """
+    """Percentile bootstrap over whole clusters, with the shifted-null two-sided p-value seeded by ``p_seed``."""
     clusters = [np.asarray(c, dtype=float) for c in clusters]
     clusters = [c[np.isfinite(c)] if c.ndim == 1 else c for c in clusters]
     clusters = [c for c in clusters if len(c) > 0]

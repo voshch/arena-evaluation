@@ -1,4 +1,4 @@
-"""Contract tests for PR5/H4: verified findings, derived tables, roles, audit, and write guard."""
+"""Contract tests: verified findings, derived tables, roles, audit, and write guard."""
 
 from __future__ import annotations
 
@@ -404,7 +404,7 @@ def test_h4_verify_finding_checks_integrity_rerun_reprocess_and_same_seed_flag(
     assert num_chk["passed"] is False
     assert num_chk["rerun_value"] is not None and num_chk["rerun_value"] > 400.0
 
-    # (e) G3: same-seed overlap raises flag without failing
+    # (e) same-seed overlap raises flag without failing
     ev1 = query.evaluation_query(
         run_id="h4_r12",
         query="SELECT seed, AVG(time_to_goal) AS val FROM v_episode_summary WHERE seed IN (1, 2) GROUP BY seed ORDER BY seed",
@@ -455,11 +455,7 @@ def _concurrent_process_worker(run_dir_str: str, worker_id: int) -> None:
 def test_h4_two_processes_concurrent_findings_and_derived_tables(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Two processes save one derived table concurrently and every save is counted.
-
-    This covers the derived-table lock only; it does not exercise the finding
-    lock, which guards the read-modify-write of one existing finding.
-    """
+    """Two processes save one derived table concurrently and every save is counted."""
     from arena_evaluation.analytics.derived import derived_dir
     from arena_evaluation.analytics.findings import load_findings
 

@@ -1,4 +1,4 @@
-"""Golden, schema-contract, and EvidenceStore tests for series-grain L3 computations."""
+"""Golden, schema-contract, and EvidenceStore tests for series-grain analysis computations."""
 
 from __future__ import annotations
 
@@ -111,8 +111,6 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     cat = BenchmarkCatalog.open(_write_series_benchmark(tmp_path / "bench"))
 
     # Mean + std + bin_x=0.1 on dwb linear rows:
-    # overhaul/source:presentation/plot_types/line.py:81-118
-    # Differs from line.py:84 (bin centre not rounded to 4 digits) and line.py:208,268 (n<2 error is None, not 0.0)
     res_std = run_computation(
         "series_profile",
         cat,
@@ -134,7 +132,7 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     assert by_x[0.1]["value"] == pytest.approx(12.0)
     assert by_x[0.1]["err_plus"] == pytest.approx(2.8284271247461903)
     assert by_x[0.1]["err_minus"] == pytest.approx(2.8284271247461903)
-    # bin 0.4: n=1 -> value=50.0, err is None (D1)
+    # bin 0.4: n=1 -> value=50.0, err is None
     assert by_x[0.4]["n"] == 1
     assert by_x[0.4]["value"] == pytest.approx(50.0)
     assert by_x[0.4]["err_plus"] is None
@@ -145,7 +143,7 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     assert by_x[0.5]["err_plus"] is None
 
     # sem and ci95 at bin 0.1 (n=2, std=sqrt(8)=2.8284271247461903):
-    # sem = sqrt(8)/sqrt(2) = 2.0, ci95 = 1.96 * 2.0 = 3.92 (line.py:105-112)
+    # sem = sqrt(8)/sqrt(2) = 2.0, ci95 = 1.96 * 2.0 = 3.92
     res_sem = run_computation(
         "series_profile",
         cat,
@@ -178,7 +176,7 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     row_ci95 = res_ci95.summary.sort("x").row(0, named=True)
     assert row_ci95["err_plus"] == pytest.approx(3.92)
 
-    # reduce="leq" & "max" on dba (line.py:98-101):
+    # reduce="leq" & "max" on dba:
     # bin 0.1 dba=[60.0, 64.0] -> leq = 10*log10((10^6 + 10^6.4)/2) = 62.44505355586191
     res_leq = run_computation(
         "series_profile",
@@ -211,8 +209,6 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     assert res_max.summary.sort("x").row(0, named=True)["value"] == pytest.approx(64.0)
 
     # Smoothing (w=3) on bins {0.1, 0.2, 0.3, 0.4} (dropping NULL y bin 0.5):
-    # overhaul/source:presentation/plot_types/line.py:171-185
-    # Differs from line.py:208,268: a NULL error in window gives NULL (D2)
     res_smooth = run_computation(
         "series_profile",
         cat,
@@ -235,7 +231,7 @@ def test_series_profile_bin_trim_reduce_error_and_smoothing_golden(
     assert smooth_by_x[0.1]["value"] == pytest.approx((12.0 + 12.0 + 22.0) / 3.0)
     assert smooth_by_x[0.2]["value"] == pytest.approx((12.0 + 22.0 + 33.0) / 3.0)
     assert smooth_by_x[0.1]["err_plus"] == pytest.approx((2.0 + 2.0 + 2.0) / 3.0)
-    # 0.3 window includes 0.4 (err=None) -> smoothed err is None (D2); n stays unsmoothed (n=2)
+    # 0.3 window includes 0.4 (err=None) -> smoothed err is None; n stays unsmoothed (n=2)
     assert smooth_by_x[0.3]["err_plus"] is None
     assert smooth_by_x[0.3]["n"] == 2
 
@@ -245,7 +241,7 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
 ) -> None:
     cat = BenchmarkCatalog.open(_write_series_benchmark(tmp_path / "bench"))
 
-    # Source validation & missing filter column (D4: error instead of silent skip)
+    # Source validation & missing filter column
     with pytest.raises(ValueError, match="Unsupported computation source"):
         run_computation(
             "series_profile",
@@ -314,7 +310,6 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
     }
 
     # Manifest bar (bar_idle_standby_power, filter: {phase_kind: idle}) & summary table
-    # overhaul/source:presentation/report_builder.py:489-531
     bar_res = run_computation(
         "group_summary",
         cat,
@@ -345,7 +340,7 @@ def test_series_source_validation_null_group_and_bar_summary_constants(
     sum_by_k = {(r["phase_kind"], r["speed_target_mps"]): r["mean"] for r in summary_res.summary.to_dicts()}
     assert sum_by_k[("idle", 0.0)] == pytest.approx((4.0 + 6.0 + 8.0 + 5.0) / 4.0)
 
-    # F4 contract for series_profile: schema binding + {} vs explicit defaults single evidence id
+    # Contract for series_profile: schema binding + {} vs explicit defaults single evidence id
     assert "series_profile" in list_computations()
     assert COMPUTATIONS["series_profile"].params is SeriesProfileParams
     assert COMPUTATIONS["series_profile"].output is SeriesProfileAnalysis

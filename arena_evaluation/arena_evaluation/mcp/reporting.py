@@ -106,7 +106,7 @@ def _resolver(run_dir: pathlib.Path, catalog: BenchmarkCatalog) -> DataResolver:
 
 
 def _derived_table_provenance(run_dir: pathlib.Path, source: str | None) -> dict[str, str]:
-    """The snapshot recorded by a ``derived_*`` table's sidecar, for the report card (H-022)."""
+    """The snapshot recorded by a ``derived_*`` table's sidecar, for the report card."""
     if not source or not source.startswith("derived_"):
         return {}
     stem = component(source.removeprefix("derived_"), "derived table name")

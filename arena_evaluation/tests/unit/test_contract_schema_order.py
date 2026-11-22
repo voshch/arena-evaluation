@@ -39,7 +39,7 @@ _SCRIPT = textwrap.dedent(
 def test_a_fresh_process_sees_the_full_fact_schema_and_a_clean_contract(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Importing the contract alone must load the metric definitions, not depend on an L2 import first."""
+    """Importing the contract alone must load the metric definitions, not depend on a metrics import first."""
     done = subprocess.run(
         [sys.executable, "-c", _SCRIPT, str(tmp_path)],
         capture_output=True,

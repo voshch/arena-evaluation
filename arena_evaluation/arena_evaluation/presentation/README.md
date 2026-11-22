@@ -175,8 +175,8 @@ The registry registers **18** renderer types; `PLOT_TYPE` is the key a declarati
 - `breakdown`: Stacked attribution shares per `x` and `color` component.
 - `trajectory_slice`: One pre-recorded XY path per frame.
 - `acoustic_field`: Spatial acoustic field. Its declaration `plots/acoustic_field/plot.yaml` is in the asset store, not the repo, and it is bound in `everything`.
-- `acoustic_field_animation`: Animated acoustic field (registered; not bound in a shipped report, see L4-010).
-  Both acoustic classes expose their static artifact as `render_seaborn` (D-06) and `render_static` delegates to it.
+- `acoustic_field_animation`: Animated acoustic field (registered; not bound in a shipped report).
+  Both acoustic classes expose their static artifact as `render_seaborn` and `render_static` delegates to it.
 
 ---
 
@@ -186,7 +186,7 @@ The registry registers **18** renderer types; `PLOT_TYPE` is the key a declarati
 
 1. the resolved frame is non-empty;
 2. every `require_columns` and every declared channel column exists;
-3. no declared numeric channel is **100 % NULL** — the issue names the metric and the
+3. no declared numeric channel is **100 % NULL**: the issue names the metric and the
    recorded `<column>_null_reason` (or the row-level `null_reason`);
 4. `checks.min_rows` holds.
 
@@ -204,10 +204,10 @@ also covers the page-level summary table.
 - External-asset mode (`external_assets=True`): the bundle moves to a sibling `plotly.min.js` and every
   figure becomes an `<img>` tag pointing to `plots/<id>.png`, so the HTML holds markup instead of megabytes of
   base64 + script.
-- Size budget: **inline ≤ 300 KB per plot** (the `everything` report measured 21.6 MB / 84 plots =
+- Size budget: **inline <= 300 KB per plot** (the `everything` report measured 21.6 MB / 84 plots =
   251 KB/plot, ~96 % of it base64 PNGs); use `external_assets=True` for reports over ~15 MB or
   ~50 plots. External mode measured **0.74 MB HTML + 4.85 MB `plotly.min.js`** for the same 84 plots
-  (9 KB/plot of HTML) with the PNGs unchanged on disk (12 MB) — a ~29× smaller page.
+  (9 KB/plot of HTML) with the PNGs unchanged on disk (12 MB), a ~29x smaller page.
 - `ReportBuilder.export_latex(path)` writes the **approved** tables and rendered figures
   of the last build as one LaTeX document: booktabs tables with every `_ & % $ # { } ~ ^ \`
   escaped, and `\includegraphics` blocks for the PNGs. The MCP reviewed-report loop
@@ -232,7 +232,7 @@ that accounts for **every** old plot as `converted`, `dropped` (with a reason) o
 (with the binding that must still be decided). Old metric names are translated through
 `presentation/legacy_metric_map.py` (or an external `--metric-map` YAML with the same
 `renamed:`/`removed:` shape); a name that is neither mapped nor in the metric registry
-stays a `TODO:` — the converter never guesses a rename. The map ships inside the package
+stays a `TODO:`, the converter never guesses a rename. The map ships inside the package
 rather than under `configs/legacy/` because the config root admits only the five
 registered bundle kinds.
 
@@ -266,5 +266,5 @@ becomes a second `y` entry or `options.y`.
 3. Register the class in `plot_types/__init__.py` (`RENDERER_REGISTRY`) and add one
    dispatch test through `StaticRenderer` + `PlotlyRenderer`.
 4. Preserve nulls cleanly and declare the checks in `PlotChecks` / `DiagnosticInspector`.
-5. The two acoustic classes keep D-06 explicit by implementing `render_seaborn` and letting
+5. The two acoustic classes keep the seaborn path explicit by implementing `render_seaborn` and letting
    `render_static` delegate to it; other types implement `render_static` directly.

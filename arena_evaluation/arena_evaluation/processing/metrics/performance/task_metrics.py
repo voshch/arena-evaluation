@@ -136,11 +136,7 @@ def _zones_for_world(world: str | None) -> list[ZoneGeometry] | None:
 
 
 class TaskReplayCalculator(BaseMetricCalculator):
-    """Replays the robot's recorded phases with the shared judge and compares its verdicts to the recorded ones.
-
-    A phase the record marks failed and the replay also does not meet is agreement, not a disagreement:
-    only a contradiction (the replay meets a failed phase, or misses one the record marks met) is reported.
-    """
+    """Replays the robot's recorded phases with the shared judge and compares its verdicts to the recorded ones."""
 
     NAME = "task_replay"
     CATEGORY = "performance"
@@ -268,8 +264,6 @@ def _replay_phase_step(
         if verdict is False:
             replay_violated.add(f"{index}:{j}")
 
-    # Only a contradiction between the replayed and the recorded verdict is a disagreement; a
-    # recorded failure that the replay also does not meet agrees.
     if index in met:
         if monitor.misfire is not None:
             return [f"phase {index} recorded as met but {monitor.misfire} in replay"]

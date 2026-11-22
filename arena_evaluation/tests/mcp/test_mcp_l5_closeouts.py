@@ -1,4 +1,4 @@
-"""L5 close-outs that needed the merged FIX1/FIX6/FIX7 code (L5-006, L5-012, X-002)."""
+"""Close-outs that needed the merged converter, report and authoring code."""
 
 from __future__ import annotations
 

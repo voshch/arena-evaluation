@@ -102,13 +102,7 @@ class RobotIdentity:
         return any(self.matches(m) for m in members)
 
     def entity_match_expr(self) -> pl.Expr:
-        """The ``matches`` predicate over a recorded ``entity`` column, in one vectorized expression.
-
-        A member matches when it is one of the robot's own spellings, when it is the underscore form
-        of the recorder name, or when its env prefix does not contradict the robot's and its last path
-        component is the robot's own. ``matches`` returns the same verdict row by row; metric frames
-        cannot afford that loop.
-        """
+        """The ``matches`` predicate over a recorded ``entity`` column, in one vectorized expression."""
         name = _norm_path_expr("entity")
         if self.env is None:
             env_ok = pl.lit(True)
@@ -245,8 +239,6 @@ class ElevatorGeom:
     activation_distance: float
     capacity: int | None = None
     destinations: list[str] = dataclasses.field(default_factory=list)
-    # Retained for the trajectory plot; the recorded elevator no longer carries a door kind,
-    # so it always keeps this default and is never populated from the world description.
     door_kind: str = "sliding_split"
 
     @property
@@ -469,7 +461,6 @@ def robot_track(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Ro
         # A missing speed stays unknown: it is never promoted to 0 m/s (a measured standstill).
         speed = np.abs(frame["speed_mps"].to_numpy().astype(np.float64))
     except pl.exceptions.ColumnNotFoundError:
-        # Registry parquet always supplies speed_mps; only hand-built pose-only test bundles hit this fallback.
         speed = calc.speed_from_pose(pos_x, pos_y, t_ns)
     return RobotTrack(
         t_ns,

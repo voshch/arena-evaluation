@@ -1,4 +1,4 @@
-"""Domain-wide contract (H-006): every evaluation tool returns an object, never a bare list."""
+"""Domain-wide contract: every evaluation tool returns an object, never a bare list."""
 
 from __future__ import annotations
 

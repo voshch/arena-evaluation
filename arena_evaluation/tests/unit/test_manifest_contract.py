@@ -137,8 +137,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 "robot_model": robots[episode_id % 2],
                 "world": "map_a",
                 "is_reference": False,
-                # An evaluated episode: the required invalid_reason is the empty string, not a dummy
-                # token, so the synthetic benchmark's episodes are valid for ranking (L3-002/L3-030).
                 "invalid_reason": "",
                 "success": episode_id % 4 != 0,
             }
@@ -191,7 +189,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             {
                 "episode_id": 0,
                 "contact_id": "c0",
-                # Only a pedestrian contact carries a closing share: a wall cannot close in (L3-013).
+                # Only a pedestrian contact carries a closing share: a wall cannot close in.
                 "collider_kind": "pedestrian",
                 "v_close_robot_mps": 0.6,
                 "v_close_target_mps": 0.4,
@@ -230,13 +228,10 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
     geom_df.write_parquet(bench / f"{DimWorldGeometry.table_name}.parquet")
     metric_dictionary().write_parquet(bench / "dim_metrics.parquet")
 
-    # A-028: the shipped acoustic-field plot needs the world's walls/doors in the run.
     world_dir = bench / "worlds" / "map_a"
     world_dir.mkdir(parents=True, exist_ok=True)
     (world_dir / "world.yaml").write_text(_TEST_WORLD_YAML, encoding="utf-8")
 
-    # One pedestrian per episode makes crowd_condition real (blind for the first half,
-    # visible for the second), so the E8/E9 crowd-condition declarations bind and render.
     ped_schema = dimensions.DimPedestrians.polars_schema()
     ped_rows: list[dict[str, object]] = []
     for episode_id in range(12):
@@ -300,8 +295,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
             {
                 **{name: _dummy_val(name, dtype, rng, step) for name, dtype in rt_schema.items()},
                 "t_ns": step * 1_000_000_000,
-                # A telemetry row carries its recorded keys: the trajectory query joins the episode on
-                # (episode_id, robot_id), so a dummy robot id would fan the sample out onto no episode.
                 "env_id": "env_0",
                 "robot_id": "robot_0",
                 "x": float(step),
@@ -311,8 +304,6 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
         ]
         pl.DataFrame(rt_rows, schema=rt_schema).write_parquet(topics_dir / f"{RobotTracks.table_name}.parquet")
 
-        # A-028: the acoustic-field recipe refuses to invent a source level, so the benchmark
-        # records one robot_acoustics sample per frame like the acoustics backend does.
         ra_schema = RobotAcoustics.polars_schema()
         ra_rows = [
             {
@@ -405,10 +396,7 @@ def test_shipped_reports_preserve_metrics_inter_planners_filters_and_trajectorie
 
 
 def test_asset_reports_preserve_their_pinned_bindings() -> None:
-    """The asset-store reports keep their pivots, inter-planner groupings, queries and tables.
-
-    They live in the asset store, so the test skips unless the reports and the contact plot resolve
-    from a local root or a benchmark bucket."""
+    """The asset-store reports keep their pivots, inter-planner groupings, queries and tables."""
     import yaml
 
     reports = {p.parent.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in _manifest_paths()}

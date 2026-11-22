@@ -173,11 +173,7 @@ def _door_mask(
     col0: int,
     row0: int,
 ) -> np.ndarray:
-    """Full-grid door mask evaluated only on the door's padded bounding box.
-
-    The box holds every cell whose sub-points can fall inside the door rectangle, so the mask is
-    identical to the whole-grid predicate while a door touches a few hundred cells, not the grid.
-    """
+    """Full-grid door mask evaluated only on the door's padded bounding box."""
     mask = np.zeros(shape, dtype=bool)
     col_lo, col_hi, row_lo, row_hi = _door_cell_bounds(door, resolution)
     col_lo, col_hi = max(col_lo, col0), min(col_hi, col0 + shape[1])
@@ -205,11 +201,7 @@ def _door_cell_bounds(door: DoorOpening, resolution: float) -> tuple[int, int, i
 
 
 def _door_rectangle_mask(left: np.ndarray, bottom: np.ndarray, door: DoorOpening, resolution: float) -> np.ndarray:
-    """A cell belongs to the door when any of its sub-points lies inside the door rectangle.
-
-    Sub-points sit inside the cell, never on its edges, so a door edge on a cell edge is exact, and a door thinner than
-    a cell still claims the cells that carry its wall line.
-    """
+    """A cell belongs to the door when any of its sub-points lies inside the door rectangle."""
     start, direction, length, half_width = _door_frame(door)
     mask = np.zeros((bottom.shape[0], left.shape[1]), dtype=bool)
     for fraction_x in _SUBSAMPLE_FRACTIONS:
@@ -237,10 +229,7 @@ def _door_cells_across(mask: np.ndarray, door: DoorOpening, resolution: float, c
 
 
 def _close_corner_leaks(barrier: np.ndarray, *, protected: np.ndarray) -> None:
-    """Close the free cell of every 2x2 checkerboard whose free pair touches only at the corner.
-
-    Door cells are never closed; they are the openings the walls leave on purpose.
-    """
+    """Close the free cell of every 2x2 checkerboard whose free pair touches only at the corner, never door cells."""
     while True:
         south_west, south_east = barrier[:-1, :-1], barrier[:-1, 1:]
         north_west, north_east = barrier[1:, :-1], barrier[1:, 1:]

@@ -52,11 +52,7 @@ class _IntervalData:
 
 
 class IntervalRenderer(BasePlotRenderer):
-    """Draw point estimates with the interval stored in two bound columns.
-
-    A declared ``color`` channel groups the estimates; the ``low`` and ``high``
-    options name the bound columns. A spec without both options is refused.
-    """
+    """Draw point estimates with the interval stored in the columns named by the ``low`` and ``high`` options."""
 
     PLOT_TYPE = "interval"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS | {

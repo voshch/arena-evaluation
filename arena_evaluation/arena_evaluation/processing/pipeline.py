@@ -237,8 +237,6 @@ def _process_job(
                 force_process=force_process,
             )
         except MetricInputError:
-            # A required input is missing: the benchmark must refuse the episode, so the failure
-            # travels to process_benchmark instead of becoming a status row.
             _log.exception(f"episode_{ep.episode_id:03d}: required metric input missing")
             raise
         except Exception as e:
@@ -250,11 +248,7 @@ def _process_job(
 
 
 def _align_bundle(bundle: TopicBundle, start_t_ns: int | None = None, end_t_ns: int | None = None) -> pl.DataFrame | None:
-    """Align the robot's recorded tables onto its native /tf track in registry vocabulary.
-
-    The source ``processing.native_bundle`` module is absent at the PR1 tip; its one alignment
-    implementation is carried here because every episode-scope calculator reads ``episode.data``.
-    """
+    """Align the robot's recorded tables onto its native /tf track in registry vocabulary."""
     track = _frame(bundle.robot_tracks)
     if track is None or track.height == 0:
         return None
@@ -409,11 +403,7 @@ def _fleet_poses(
     ego_robot_id: str,
     params_by_robot: typing.Mapping[str, RobotParams],
 ) -> dict[str, pl.DataFrame]:
-    """Recorded judge poses of every other robot, keyed by its full env-prefixed id and cut to the window.
-
-    The evaluated robot is excluded by identity, so it can never become its own encounter actor, and
-    every actor frame carries the radius recorded for that robot, never the evaluated robot's.
-    """
+    """Recorded judge poses of every other robot, keyed by its full env-prefixed id and cut to the window."""
     start_ns, end_ns = window
     fleet: dict[str, pl.DataFrame] = {}
     for name, bundle in robots.items():
@@ -495,7 +485,6 @@ def _episode_rows(record: pl.DataFrame) -> pl.DataFrame:
     if started is None:
         return df
     if df["episode_id"][started] is not None:
-        # the previous episode's latched result is not this episode's record
         df = df.filter(pl.col("episode_id") == df["episode_id"][started])
         states = df["outcome_state"].to_numpy()
         started = next(i for i, state in enumerate(states) if state == _RECORD_RUNNING)

@@ -49,7 +49,7 @@ carries none from `arena_robots.characterization`, the module the
 +---------------------------------------------------------------------+
 ```
 
-**Layer 3 — Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside the six canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, `v_pedestrian_summary`) and the `v_series_*` views. Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
+**Layer 3, Analysis (`analytics/`):** `BenchmarkCatalog.open(benchmark_dir)` registers the Star Schema dimensions, facts, telemetry, series, and `evidence_index` alongside the six canonical lazy views (`v_episode_summary`, `v_planner_scorecard`, `v_contacts`, `v_contact_summary`, `v_encounter_summary`, `v_pedestrian_summary`) and the `v_series_*` views. Guarded read-only SQL (`PolarsSQLEngine`), registered computations (`analytics/computations.py`), and the content-addressed `EvidenceStore` persist query/computation results under `analysis/evidence/<evidence_id>.parquet` indexed at `analysis/evidence_index.parquet`.
 
 ---
 

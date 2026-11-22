@@ -46,15 +46,7 @@ def _finite_positive(value: object) -> float | None:
 
 
 class PathEfficiencyCalculator(BaseMetricCalculator):
-    """Whole-mission route geodesic over travelled path length, and the relative throughput of the same mission.
-
-    The reference is the mission route through every commanded task goal, not just the current
-    start -> goal leg, and ``spl_geodesic`` uses the same reference. A null result carries its
-    reason: ``no_samples`` when the reference or the path is unavailable,
-    ``invalid_episode:reference_exceeds_path`` when the planned route is longer than the travelled
-    path. The travelled length is sampled ground truth, so it can undercount by a few percent; a
-    route longer than the path is that sampling anomaly, not an efficiency above one.
-    """
+    """Whole-mission route geodesic over travelled path length, and the relative throughput of the same mission."""
 
     NAME = "path_efficiency"
     CATEGORY = "performance"

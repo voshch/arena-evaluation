@@ -39,10 +39,7 @@ _LEGACY_BENCHMARK_FILES: Final[tuple[str, ...]] = (
 )
 _LAYOUT_HINT: Final[str] = "run the process command with --force-process on this benchmark (old outputs are moved to legacy/, not deleted)"
 
-# Decision X-007: this is the one accepted storage -> processing edge. A fact schema grows from the
-# shared metric store, so the native layout must load the registry before any schema is read. The
-# architecture guard pins exactly this module and symbol and stays strict; relocating the metric
-# registry into storage is post-PR refactoring, not a reason to widen the allow-list.
+# This is the one accepted storage -> processing edge.
 load_metric_definitions()
 
 

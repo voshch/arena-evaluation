@@ -148,11 +148,7 @@ def _to_lazy(frame: pl.LazyFrame | pl.DataFrame) -> pl.LazyFrame:
 
 
 def _stream_total(column: str, alias: str, token: str, topic: str) -> tuple[pl.Expr, pl.Expr | None]:
-    """Sum a per-episode stream count, NULL when no episode of the group recorded that stream.
-
-    The optional companion names the missing stream: a sum of zeros and a stream nobody recorded
-    look identical. It is only emitted for the mandatory encounter and contact streams.
-    """
+    """Sum a per-episode stream count, NULL when no episode of the group recorded that stream."""
     missing = pl.col(column).is_null().sum() == pl.len()
     total = pl.when(missing).then(pl.lit(None, dtype=pl.Int64)).otherwise(pl.col(column).fill_null(0).sum().cast(pl.Int64)).alias(alias)
     if not token:
@@ -210,8 +206,6 @@ def _merged_tables(source_dir: pathlib.Path, manifest: object) -> dict[str, pl.L
                 pl.lit(src.run_id, dtype=pl.String).alias("source_run_id"),
                 *(pl.lit(src.labels.get(k), dtype=pl.String).alias(k) for k in label_keys),
             )
-        # Every merged frame carries its source-run key, telemetry included: a telemetry row has no
-        # run of its own and would otherwise be attributed to whichever run happened to be first.
         for name, frame in tables.items():
             per_table.setdefault(name, []).append(frame.with_columns(pl.lit(src.run_id, dtype=pl.String).alias("run_id")))
     return {name: frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed") for name, frames in per_table.items()}
@@ -321,11 +315,7 @@ class BenchmarkCatalog:
         return cls(benchmark, variant=variant)
 
     def metric_dictionary(self) -> pl.LazyFrame:
-        """The published metric dictionary: metric, scope, fact table, dtype, unit, direction and description.
-
-        ``dim_metrics`` is the one table every consumer reads metric metadata from, so the catalog offers one
-        projection of it instead of each caller reshaping the table itself.
-        """
+        """The published metric dictionary: metric, scope, fact table, dtype, unit, direction and description."""
         return self.get_table("dim_metrics").select("metric", "scope", "fact_table", "dtype", "unit", "description", "direction")
 
     def is_protected_table(self, name: str) -> bool:
@@ -408,7 +398,7 @@ class BenchmarkCatalog:
                 pl.when(pl.col("local_planner").is_not_null() & (pl.col("local_planner") != "")).then(pl.col("local_planner")).when(pl.col("planner") != "").then(pl.col("planner")).otherwise(pl.lit(None, dtype=pl.String)).alias("local_planner"),
             )
             .with_columns(
-                pl.concat_str([pl.col("local_planner"), pl.col("world")], separator=" · ").alias("planner_world"),
+                pl.concat_str([pl.col("local_planner"), pl.col("world")], separator=" / ").alias("planner_world"),
                 (pl.col("invalid_reason").is_not_null() & (pl.col("invalid_reason") == "")).alias("is_valid_for_ranking"),
                 pl.when(pl.col("success").is_null() | pl.col("contact_rows").is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(pl.col("success") & (pl.col("pedestrian_contact_rows") == 0)).alias("success_without_pedestrian_contact"),
                 pl.when(pl.col("success").is_null()).then(pl.lit(f"success:{NullReason.NOT_RECORDED}")).when(pl.col("contact_rows").is_null()).then(pl.lit(f"contact_count:{NullReason.TOPIC_MISSING}")).otherwise(pl.lit(None, dtype=pl.String)).alias("success_without_pedestrian_contact_null_reason"),
@@ -451,8 +441,6 @@ class BenchmarkCatalog:
 
         enc_counts = fact_enc.group_by(_JOIN_KEYS).agg(encounter_count=pl.len().cast(pl.Int64))
         merged_extras = tuple(n for n in dim_ep.collect_schema().names() if n not in dimensions.DimEpisodes.polars_schema())
-        # A merged catalog adds the source-run key and its labels to dim_episodes; they are part of
-        # the identity of every aggregate, not a column the scorecard may drop (L3-060).
         common_group_cols = (
             *merged_extras,
             "world",

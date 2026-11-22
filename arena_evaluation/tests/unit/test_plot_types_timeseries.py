@@ -30,7 +30,7 @@ def _three_episodes_of_one_planner() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "episode_id": [1, 1, 1, 2, 2, 2, 3, 3, 3],
-            "planner_world": ["dwb · concourse_headon_aware"] * 9,
+            "planner_world": ["dwb / concourse_headon_aware"] * 9,
             "time_s": [0.0, 1.0, 2.0] * 3,
             "velocity_mps": [0.0, 0.5, 1.0, 0.3, 0.7, 1.2, 0.6, 0.9, 1.4],
         }

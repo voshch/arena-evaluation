@@ -17,14 +17,7 @@ def _bare_robot_name(robot_dir: str) -> str:
 
 
 def resample_fleet(fleet: dict[str, pl.DataFrame], t_ns: np.ndarray, ego: str | None) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Other robots' judge poses held onto the ego axis, keyed by the bare name the judge atoms use.
-
-    The fleet arrives keyed by the full env-prefixed id (``env_1_jackal``) while a condition names a
-    robot by its bare name (``jackal``), so both sides are normalized: the evaluated robot is
-    excluded by its full identity and every remaining robot is published under its bare name, which
-    keeps same-named robots of different envs addressable instead of resolving every atom to UNKNOWN.
-    Robots without a sample before an instant are left out.
-    """
+    """Other robots' judge poses held onto the ego axis, keyed by the bare name the judge atoms use."""
     out: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     for name, frame in fleet.items():
         if name == ego or frame is None or len(frame) == 0:

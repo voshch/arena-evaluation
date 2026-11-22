@@ -148,11 +148,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         return table.with_columns(accel.alias("accel_target")).drop(["duration_s", "ramp_s"])
 
     def _attach_phases(self, episode: AlignedEpisodeBundle) -> tuple[pl.DataFrame, float | None]:
-        """Aligned frame with phase labels/targets attached, and the fraction of samples the schedule recognised.
-
-        None when no phase markers were recorded: the coverage of a schedule that does not exist is
-        unknown, not zero, so the robot fact publishes null with the missing-topic reason.
-        """
+        """Aligned frame with phase labels/targets attached, and the fraction of samples the schedule recognised, None without phase markers."""
         out = episode.data
         topics = self.native_topics(episode)
         marked = "robot_characterization_phase" in topics
@@ -221,10 +217,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
         return out, phase_coverage
 
     def _ground_truth_xy(self, episode: AlignedEpisodeBundle, sample_times_ns: pl.Series) -> tuple[pl.Series, pl.Series]:
-        """Map-frame ground-truth x/y at ``sample_times_ns`` from the native /tf robot_tracks table, nulls without ground truth.
-
-        Wheel odometry is never a substitute: without a ground-truth track both series are entirely null.
-        """
+        """Map-frame ground-truth x/y at ``sample_times_ns`` from the native /tf robot_tracks table, nulls without ground truth."""
         empty = pl.Series("_gt_x", [None] * len(sample_times_ns), dtype=pl.Float64)
         tracks = self.native_topics(episode).get("robot_tracks")
         if tracks is None or tracks.is_empty():
@@ -318,12 +311,10 @@ class CharacterizationCalculator(BaseMetricCalculator):
         try:
             speed = out["speed_mps"].cast(pl.Float64).abs()
         except pl.exceptions.ColumnNotFoundError:
-            # Registry parquet always supplies speed_mps; only hand-built pose-only test bundles hit this fallback.
             speed = pl.when(out["_dt"] > 1e-6).then(out["_ds"] / out["_dt"]).otherwise(None)
         try:
             turn_rate = out["omega_z"].cast(pl.Float64).abs()
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit omega_z.
             turn_rate = pl.lit(None, dtype=pl.Float64)
 
         ground_truth_x, ground_truth_y = self._ground_truth_xy(episode, out["t_ns"])
@@ -395,12 +386,10 @@ class CharacterizationCalculator(BaseMetricCalculator):
         try:
             vx_col = series["speed_mps"].cast(pl.Float64).alias("vx_achieved_mps")
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit speed_mps.
             vx_col = pl.lit(None, dtype=pl.Float64).alias("vx_achieved_mps")
         try:
             wz_col = series["omega_z"].cast(pl.Float64).alias("wz_achieved_radps")
         except pl.exceptions.ColumnNotFoundError:
-            # Hand-built pose-only test bundles omit omega_z.
             wz_col = pl.lit(None, dtype=pl.Float64).alias("wz_achieved_radps")
         return series.select(
             pl.lit(run_id).alias("run_id"),

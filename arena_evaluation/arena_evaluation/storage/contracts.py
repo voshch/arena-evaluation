@@ -675,12 +675,7 @@ def check_benchmark(
     *,
     dimensions: Mapping[str, pl.DataFrame] | None = None,
 ) -> ContractReport:
-    """Run every publish-time check over the benchmark stored at ``path``.
-
-    A benchmark whose stored outputs predate the native layout is refused before any fact is read.
-    ``dimensions`` lets the publish boundary validate the dimensions it is about to write,
-    before any benchmark-level file exists; without it the stored ``dim_*.parquet`` are read.
-    """
+    """Run every publish-time check over the benchmark stored at ``path``, refusing one whose outputs predate the native layout."""
     benchmark_dir = pathlib.Path(path)
     check_benchmark_layout(benchmark_dir)
     episode_dirs = _episode_directories(benchmark_dir)
@@ -721,12 +716,7 @@ def enforce_benchmark_contract(
     *,
     dimensions: Mapping[str, pl.DataFrame] | None = None,
 ) -> ContractReport:
-    """Check the benchmark, write its report and raise when a rule is broken.
-
-    Called at the publish boundary with the dimensions still in memory: a failed check stops
-    processing before any benchmark-level table is published, and the YAML report keeps every
-    table and column that broke. A benchmark of an older layout is refused before any read.
-    """
+    """Check the benchmark, write its report and raise when a rule is broken."""
     check_benchmark_layout(benchmark_dir)
     report = check_benchmark(benchmark_dir, dimensions=dimensions)
     if report.ok:

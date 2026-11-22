@@ -50,11 +50,7 @@ def value_at(times: np.ndarray, values: list[str], t_ns: int) -> str:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class EvalContext:
-    """Recorded inputs of one robot's episode on one time axis, the ego robot being `robot`.
-
-    The two lookup caches are dicts that fill in lazily; the context itself is never rebound, so a
-    reader can share it across the metric boundary.
-    """
+    """Recorded inputs of one robot's episode on one time axis, the ego robot being `robot`."""
 
     events: pl.DataFrame
     t_ns: np.ndarray

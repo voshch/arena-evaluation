@@ -45,7 +45,7 @@ ACCELERATION_MEAN = define_metric(
     "acceleration_mean",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
-    unit="m/s²",
+    unit="m/s^2",
     description="Mean smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
     null_reason=True,
 )
@@ -53,7 +53,7 @@ JERK_MEAN = define_metric(
     "jerk_mean",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
-    unit="m/s³",
+    unit="m/s^3",
     description="Mean smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
     null_reason=True,
 )
@@ -61,7 +61,7 @@ JERK_MAX_MPS3 = define_metric(
     "jerk_max_mps3",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
-    unit="m/s³",
+    unit="m/s^3",
     description="Peak smoothed ground-truth jerk magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
     null_reason=True,
 )
@@ -69,7 +69,7 @@ MAX_ACCELERATION_MPS2 = define_metric(
     "max_acceleration_mps2",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER, MetricScope.ROBOT),
-    unit="m/s²",
+    unit="m/s^2",
     description="Peak smoothed ground-truth acceleration magnitude: Savitzky-Golay derivative of the recorded speed, 1.0 s window, order 2, at most 20 Hz; NULL, never a raw difference, when the window does not fit the recording.",
     null_reason=True,
 )
@@ -172,11 +172,7 @@ def _speed_from_pose(x_m: np.ndarray, y_m: np.ndarray, t_ns: np.ndarray) -> np.n
 
 
 def _smoothing_grid(t_ns: np.ndarray) -> tuple[np.ndarray, int, float] | None:
-    """Uniform grid, odd smoothing window and sample step, None when the declared window does not fit.
-
-    Never interpolate finer than the recorded samples: a coarser recording keeps its own step,
-    a finer one is thinned to ``KINEMATICS_GRID_HZ``.
-    """
+    """Uniform grid, odd smoothing window and sample step, None when the declared window does not fit."""
     step_s = max(
         1.0 / KINEMATICS_GRID_HZ,
         float(np.median(np.diff(t_ns))) / NANOSECONDS_PER_SECOND,
@@ -206,11 +202,7 @@ def _smooth_position_kinematics(
     x_m: np.ndarray,
     y_m: np.ndarray,
 ) -> Kinematics | None:
-    """Savitzky-Golay kinematics of an ascending, unique position track, None when the window does not fit.
-
-    Used where the recording has no speed stream: fitting the positions first keeps sample noise
-    out of the derived speed instead of amplifying it through finite differences.
-    """
+    """Savitzky-Golay kinematics of an ascending, unique position track, None when the window does not fit."""
     gridded = _smoothing_grid(t_ns)
     if gridded is None:
         return None
@@ -247,10 +239,7 @@ def _smooth_speed_kinematics(
 
 
 def episode_speed_mps(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray]:
-    """Recorded speed (m/s) and sample times (ns) of an episode, the speed-only fallback stream.
-
-    Used where the recording carries a speed stream but no ground-truth position track.
-    """
+    """Recorded speed (m/s) and sample times (ns) of an episode, the speed-only fallback stream."""
     frame = episode.data
     if frame is None or frame.height == 0:
         return np.array([]), np.array([], dtype=np.int64)
@@ -269,11 +258,7 @@ def episode_speed_mps(calculator: BaseMetricCalculator, episode: AlignedEpisodeB
 
 
 def episode_kinematics(calculator: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> Kinematics:
-    """Speed, acceleration and jerk of the scope view, smoothed over the declared window when it fits.
-
-    The recorded ground-truth speed stream is the signal (the same stream the metric always
-    reported); an episode without it derives the speed from the ground-truth pose track.
-    """
+    """Speed, acceleration and jerk of the scope view, smoothed over the declared window when it fits."""
     speed_mps, t_ns = episode_speed_mps(calculator, episode)
     if len(speed_mps) > 0:
         smoothed = _smooth_speed_kinematics(t_ns, speed_mps) if len(speed_mps) > 1 else None
@@ -340,14 +325,7 @@ def _motion_series_frame(
 
 
 class MotionMetricsCalculator(BaseMetricCalculator):
-    """Robot velocity, acceleration and jerk over the scope window's ground truth.
-
-    Acceleration and jerk are local-polynomial derivatives over a declared
-    ``SMOOTHING_WINDOW_S`` (1.0 s) window at ``SMOOTHING_POLYORDER`` 2, so the peaks
-    measure the smoothed trajectory rather than sample-rate noise. That is the only
-    derivative estimator: a recording too short for the window publishes NULL acceleration
-    and jerk, never a raw difference.
-    """
+    """Robot velocity, acceleration and jerk over the scope window's ground truth."""
 
     NAME = "motion_metrics"
     CATEGORY = "performance"
@@ -377,8 +355,6 @@ class MotionMetricsCalculator(BaseMetricCalculator):
 
     @classmethod
     def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
-        # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
-        # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
         return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:

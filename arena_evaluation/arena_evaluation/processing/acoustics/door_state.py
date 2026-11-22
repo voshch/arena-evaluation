@@ -27,13 +27,7 @@ class DoorStateTimeline:
         *,
         open_progress_threshold: float = OPEN_PROGRESS_THRESHOLD,
     ) -> DoorStateTimeline | None:
-        """Build the timeline from the flattened semantic snapshot table.
-
-        A door is open while its progress (0 closed, 1 open) is strictly above
-        ``open_progress_threshold`` (default ``OPEN_PROGRESS_THRESHOLD``, declared in
-        ``constants.DOOR_OPEN_PROGRESS_THRESHOLD``), whether it is opening or closing. State
-        labels are not used. A door reading without a progress row is an error.
-        """
+        """Build the timeline from the flattened semantic snapshot table: a door is open while its progress is above ``open_progress_threshold``."""
         if semantic is None:
             return None
         if isinstance(semantic, pl.LazyFrame):

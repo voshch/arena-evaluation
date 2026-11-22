@@ -30,18 +30,18 @@ __all__ = [
 
 
 def _converter() -> Any:  # noqa: ANN401 - lazy import returns legacy_manifest module
-    """Import the L4 legacy converter lazily and fail with a hint when it is not installed."""
+    """Import the legacy converter lazily and fail with a hint when it is not installed."""
     try:
         return importlib.import_module("arena_evaluation.presentation.legacy_manifest")
     except ImportError as exc:
         raise ToolError(
             "the legacy manifest converter is not available in this build",
-            hint=("requires arena_evaluation.presentation.legacy_manifest (the L4 migration converter); install the reporting layer that ships the converter, then call evaluation_migrate_manifest again"),
+            hint=("requires arena_evaluation.presentation.legacy_manifest (the migration converter); install the reporting layer that ships the converter, then call evaluation_migrate_manifest again"),
         ) from exc
 
 
 def _convert(source: str) -> tuple[Any, Any]:
-    """Run the L4 converter on one legacy manifest: its module and the migration object."""
+    """Run the converter on one legacy manifest: its module and the migration object."""
     converter = _converter()
     path = pathlib.Path(source).expanduser()
     if not path.is_file():
@@ -53,8 +53,6 @@ def _convert(source: str) -> tuple[Any, Any]:
     from arena_evaluation.processing.metrics.dictionary import metric_dictionary
 
     dictionary = metric_dictionary()
-    # The L4 converter takes in-memory metric maps, so this is the explicit boundary
-    # where the columnar dictionary becomes the converter's inputs.
     names = dictionary.get_column("metric").to_list()  # agent-contracts: ignore AC004
     fact_tables = dictionary.get_column("fact_table").to_list()  # agent-contracts: ignore AC004
     metrics = list(zip(names, fact_tables, strict=True))
@@ -93,15 +91,7 @@ def evaluation_migrate_manifest(
         Field(description="replace an existing report.yaml in the target bundle"),
     ] = False,
 ) -> dict[str, Any]:
-    """Convert a legacy manifest into the current grammar, reporting every unresolved plot.
-
-    The response carries the new-grammar skeleton, the per-plot accounting (converted,
-    dropped with a reason, or todo), and the old->new metric resolutions. A ``todo`` entry
-    is an unresolved binding: the agent must resolve it with
-    ``evaluation_metrics``/``evaluation_describe_metric`` and a stored query, never by
-    editing the skeleton blindly. The target bundle is written only with ``dry_run=False``
-    and a run id, under ``<run>/analysis/reports/<target>/``.
-    """
+    """Convert a legacy manifest into the current grammar, writing the target bundle under ``<run>/analysis/reports/<target>/`` only with ``dry_run=False`` and a run id."""
     converter, migration = _convert(source)
     target_name = component(target or str(migration.manifest.name), "target report name")
     if migration.manifest.name != target_name:

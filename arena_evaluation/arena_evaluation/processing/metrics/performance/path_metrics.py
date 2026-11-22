@@ -124,11 +124,7 @@ def _angle_difference_rad(first: np.ndarray, second: np.ndarray) -> np.ndarray:
 
 
 def _curvature_arrays(pos_x_m: np.ndarray, pos_y_m: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-sample Menger curvature, normalized curvature and roughness, NaN where a triple is undefined.
-
-    Curvature is defined at the middle sample of three consecutive distinct points, so the
-    first and last samples stay NaN, as do samples that repeat the previous position.
-    """
+    """Per-sample Menger curvature, normalized curvature and roughness, NaN where a triple is undefined."""
     sample_count = len(pos_x_m)
     curvature_inv_m = _nan_array(sample_count)
     normalized_curvature = _nan_array(sample_count)
@@ -207,20 +203,7 @@ def _build_geometry(
 
 
 class PathMetricsCalculator(BaseMetricCalculator):
-    """Path length, curvature and roughness of the ground-truth trajectory.
-
-    Metrics:
-    - path_length_m: total travelled path length at the scope it is evaluated on
-    - curvature_mean, curvature_max: Menger curvature at each distinct triple, aggregated
-    - roughness_mean, roughness_max: triangle roughness, aggregated
-    - angle_over_length: net heading change over the complete path
-
-    The per-sample ``path``/``path_odom``/``path_length_values``/``curvature``/
-    ``normalized_curvature``/``roughness`` keys live in :meth:`series_table`.
-
-    References:
-    - Math implementation ported from legacy scripts/metrics.py
-    """
+    """Path length, curvature and roughness of the ground-truth trajectory."""
 
     NAME = "path_metrics"
     CATEGORY = "performance"

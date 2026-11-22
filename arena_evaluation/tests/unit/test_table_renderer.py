@@ -11,7 +11,6 @@ from arena_evaluation.presentation.viz_manifest import PlotChannels, PlotSpec
 
 
 def test_table_renders_null_cell_and_null_reason(tmp_path: pathlib.Path) -> None:
-    # differs from overhaul/source:plot_types/table.py:38: table formats NULL cells as NULL or null_reason
     spec = PlotSpec(
         id="tbl_null",
         type="table",

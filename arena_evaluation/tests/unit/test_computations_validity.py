@@ -1,4 +1,4 @@
-"""Validity, exclusion and normalization contracts of the registered computations (L3-030, L3-031, L3-035, L3-036)."""
+"""Validity, exclusion and normalization contracts of the registered computations."""
 
 from __future__ import annotations
 

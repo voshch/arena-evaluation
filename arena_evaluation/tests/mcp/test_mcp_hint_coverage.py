@@ -1,4 +1,4 @@
-"""Every ``raise ToolError(...)`` in the MCP domain names the next action it wants (07 H1.5)."""
+"""Every ``raise ToolError(...)`` in the MCP domain names the next action it wants."""
 
 from __future__ import annotations
 

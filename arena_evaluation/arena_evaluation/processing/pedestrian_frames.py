@@ -52,14 +52,7 @@ PEDESTRIAN_FRAME_SCHEMA: Final[pl.Schema] = pl.Schema(
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
 class FrameGeometry:
-    """Robot state sampled onto the pedestrian frame axis, and the frame x pedestrian relative geometry.
-
-    ``frames`` carries one row per distinct pedestrian frame timestamp in time order, with
-    the frame-to-frame ``dt_s`` (the last frame carries a negligible 1e-6 s) and the robot
-    pose/velocity of the latest robot sample within ``tolerance_ns``; that state is null
-    where the recording has no such sample. ``pedestrians`` carries one row per pedestrian
-    and frame with the robot-relative displacement, distance and relative velocity.
-    """
+    """Robot state sampled onto the pedestrian frame axis, and the frame x pedestrian relative geometry."""
 
     frames: pl.DataFrame
     pedestrians: pl.DataFrame
@@ -187,10 +180,7 @@ def distances_to_pedestrians(
 
 
 def pedestrians_at(t_ns: pl.Series, peds: pl.DataFrame, tolerance_ns: int = TRACK_ALIGN_TOLERANCE_NS) -> pl.DataFrame:
-    """Every pedestrian of the latest frame at or before each robot time, within the tolerance: one row per robot time and pedestrian.
-
-    The frame a row came from is kept in ``frame_ns``; robot times with no frame in tolerance produce no rows.
-    """
+    """Every pedestrian of the latest frame at or before each robot time, within the tolerance: one row per robot time and pedestrian."""
     frames = peds.select(pl.col("t_ns").alias("frame_ns")).unique().sort("frame_ns")
     robot_times = pl.DataFrame({"t_ns": t_ns.cast(pl.Int64)}).sort("t_ns")
     matched = asof_join(

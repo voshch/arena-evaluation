@@ -103,7 +103,7 @@ def test_paired_treatment_diff_edge_cases() -> None:
     assert empty_res.mean_diff is None
     assert empty_res.summary_frame.height == 1
 
-    # A constant difference has no standardised effect size: dz is NULL with its reason (L3-034)
+    # A constant difference has no standardised effect size: dz is NULL with its reason
     const_res = paired_treatment_diff(df, "val", treatment_a="a", treatment_b="b", n_boot=100, random_seed=42)
     assert const_res.mean_diff == 2.0
     assert const_res.std_diff == 0.0
@@ -210,7 +210,7 @@ def test_kendalls_w_pin_all_df_branches() -> None:
     )
     assert empty_kw.rankings_frame.schema == KENDALL_RANKINGS_SCHEMA
 
-    # A single judge cannot be concordant with itself: W is undefined (L3-039)
+    # A single judge cannot be concordant with itself: W is undefined
     one_judge = kendalls_w(
         pl.DataFrame(
             {

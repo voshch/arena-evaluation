@@ -1,4 +1,4 @@
-"""Unit tests for the unified B11 configuration and run directory layout."""
+"""Unit tests for the unified configuration and run directory layout."""
 
 from __future__ import annotations
 

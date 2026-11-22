@@ -46,7 +46,7 @@ SFM_CUMULATIVE_FORCE = define_metric(
     "sfm_cumulative_force",
     pl.Float64,
     scopes=FORCE_SCOPES,
-    unit="N·s",
+    unit="N*s",
     description="Time integral of the Helbing social force from the robot onto the pedestrians.",
     null_reason=True,
 )
@@ -70,7 +70,7 @@ ESFM_CUMULATIVE_FORCE = define_metric(
     "esfm_cumulative_force",
     pl.Float64,
     scopes=FORCE_SCOPES,
-    unit="N·s",
+    unit="N*s",
     description="Time integral of the extended-SFM force with robot-heading anisotropy.",
     null_reason=True,
 )
@@ -94,7 +94,7 @@ ESFM_PED_CUMULATIVE_FORCE = define_metric(
     "esfm_ped_cumulative_force",
     pl.Float64,
     scopes=FORCE_SCOPES,
-    unit="N·s",
+    unit="N*s",
     description="Time integral of the extended-SFM force with pedestrian-heading anisotropy.",
     null_reason=True,
 )
@@ -138,12 +138,7 @@ def _anisotropy(angle_rad: pl.Expr) -> pl.Expr:
 
 
 def _force_expression(robot_radius_m: float) -> pl.Expr:
-    """Helbing repulsive magnitude of one pedestrian, clamped, zero beyond the cutoff, null while unresolved.
-
-    The contact distance is this robot's radius plus the pedestrian's own recorded ``radius_m``;
-    a pedestrian without one raises in :meth:`SocialForcesCalculator._geometry` instead of taking
-    a fleet-wide body size.
-    """
+    """Helbing repulsive magnitude of one pedestrian, clamped, zero beyond the cutoff, null while unresolved."""
     distance_m = pl.col("distance_m")
     combined_radius_m = robot_radius_m + pl.col("radius_m")
     return pl.when(distance_m.is_null()).then(pl.lit(None, dtype=pl.Float64)).when(distance_m <= SFM_CUTOFF_M).then((SFM_INTERACTION_STRENGTH_N * ((combined_radius_m - distance_m) / SFM_INTERACTION_RANGE_M).exp()).clip(upper_bound=SFM_MAX_FORCE_N)).otherwise(0.0)
@@ -260,7 +255,6 @@ class SocialForcesCalculator(BaseMetricCalculator):
         if frame_forces.height == 0 or frame_forces.select(pl.col("sfm_force_n").is_not_null().any()).item() is not True:
             return dict.fromkeys(keys)
         row = frame_forces.select(
-            # Row by row: a null force adds nothing and keeps its own frame's duration.
             sfm_cumulative_force=(pl.col("sfm_force_n") * pl.col("dt_s")).sum(),
             esfm_cumulative_force=(pl.col("esfm_force_n") * pl.col("dt_s")).sum(),
             esfm_ped_cumulative_force=(pl.col("esfm_ped_force_n") * pl.col("dt_s")).sum(),

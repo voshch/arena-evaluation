@@ -1,6 +1,6 @@
 # processing (Layer 1: extraction and dimensions)
 
-Reads each recorded episode's MCAP once into native tables, then writes the benchmark's dimension tables from them. The metric calculators in [metrics/](metrics/README.md) are layer 2 and return with PR2.
+Reads each recorded episode's MCAP once into native tables, then writes the benchmark's dimension tables from them. The metric calculators in [metrics/](metrics/README.md) are layer 2.
 
 ```
 episode_NNN.mcap

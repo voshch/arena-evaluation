@@ -169,10 +169,7 @@ def episode_table(episode: AlignedEpisodeBundle, topic: str) -> pl.DataFrame | N
 
 
 def resolve_robot_trajectory(calc: BaseMetricCalculator, episode: AlignedEpisodeBundle) -> tuple[Trajectory2D, np.ndarray]:
-    """Robot ground-truth Trajectory2D and yaw array from the flat robot_tracks table.
-
-    A missing velocity or yaw sample stays NaN: the recording holds no measurement for it.
-    """
+    """Robot ground-truth Trajectory2D and yaw array from the flat robot_tracks table."""
     radius_m = float(calc.robot_params.robot_radius)
     empty = np.array([], dtype=np.float64)
     empty_trajectory = Trajectory2D(

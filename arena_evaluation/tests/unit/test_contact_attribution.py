@@ -346,7 +346,7 @@ def test_a_coincident_pedestrian_leaves_the_closing_speeds_undefined() -> None:
 
 
 def test_episode_contact_counts_are_published_per_kind() -> None:
-    """D-01: counts by collider kind are views of the same detector, never a stored judgement."""
+    """counts by collider kind are views of the same detector, never a stored judgement."""
     t_s = _grid()
     zeros = np.zeros_like(t_s)
     contacts = [

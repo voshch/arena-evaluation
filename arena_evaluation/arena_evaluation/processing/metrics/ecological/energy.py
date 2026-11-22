@@ -32,8 +32,7 @@ MIN_STANDSTILL_BLOCK_S: Final[float] = 0.5
 MIN_PATH_LENGTH_M: Final[float] = 0.1
 MIN_MEAN_POWER_W: Final[float] = 0.01
 GRAVITY_MPS2: Final[float] = 9.81
-#: Longest NaN gap, seconds, that the series may be filled across; a longer gap stays NaN, so the
-#: integral is undefined instead of inventing power, velocity or battery over the gap.
+#: Longest NaN gap, seconds, that the series may be filled across; a longer gap stays NaN.
 MAX_FILL_GAP_S: Final[float] = 1.0
 
 SERIES_SCHEMA: Final[pl.Schema] = SeriesEnergy.polars_schema()
@@ -84,7 +83,7 @@ ENERGY_TOTAL_WH = _metric(
     "energy_total_wh",
     pl.Float64,
     "Wh",
-    "Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power (D-15), not the device energy counter, which is kept only as a cross-check in a test.",
+    "Energy the robot drew over its episode at ROBOT scope, and over the window at ENCOUNTER scope: the integral of recorded total power, not the device energy counter, which is kept only as a cross-check in a test.",
     MetricScope.ROBOT,
     MetricScope.ENCOUNTER,
 )
@@ -237,8 +236,6 @@ class EnergyCalculator(BaseMetricCalculator):
 
     @classmethod
     def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
-        # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
-        # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
         return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -312,7 +309,6 @@ class EnergyCalculator(BaseMetricCalculator):
             return dict.fromkeys(self.output_keys())
         episode_mean_w = prior_results.get("mean_power_w")
         if episode_mean_w is None:
-            # A direct call has no ROBOT-scope prior; read the episode through the same series path.
             full_series = _window_series(self.native_topics(full_episode))
             episode_mean_w = _reduce_or_none(full_series.total_w, np.nanmean) if full_series is not None else None
         return self._outputs(
@@ -472,11 +468,7 @@ def _window_series(topics: Mapping[str, pl.DataFrame | None]) -> _Series | None:
 
 
 def _bounded_fill(values: np.ndarray, time_s: np.ndarray) -> np.ndarray:
-    """Fill a NaN gap only when the samples bracketing it are at most MAX_FILL_GAP_S apart.
-
-    A longer gap keeps its NaN: the sample was never measured and no value is invented across it.
-    An all-NaN array is returned unchanged.
-    """
+    """Fill a NaN gap only when the samples bracketing it are at most MAX_FILL_GAP_S apart."""
     missing = np.isnan(values)
     if not missing.any():
         return values
@@ -515,8 +507,6 @@ def _median_filter_window3(values: np.ndarray) -> np.ndarray:
 
 def _integral_wh(values: np.ndarray, dt_s: np.ndarray) -> float | None:
     if np.isnan(values).any():
-        # Either every sample is missing, or a gap longer than the fill bound leaves the
-        # segment unmeasured: a partial integral would under-report the energy silently.
         return None
     return float(np.sum(values * dt_s) / JOULES_PER_WH)
 

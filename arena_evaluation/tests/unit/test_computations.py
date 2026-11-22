@@ -1,4 +1,4 @@
-"""Golden, schema-contract, and EvidenceStore round-trip tests for L3 computations."""
+"""Golden, schema-contract, and EvidenceStore round-trip tests for analysis computations."""
 
 from __future__ import annotations
 
@@ -228,7 +228,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     bench = _make_benchmark(tmp_path / "bench", rows)
     catalog = BenchmarkCatalog.open(bench)
 
-    # Wilson CI: overhaul/source:presentation/plot_types/bar.py:175-201
     res_ci95 = run_computation(
         "group_summary",
         catalog,
@@ -257,7 +256,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     assert teb_succ["err_plus"] == pytest.approx(0.3499642911798285)
     assert teb_succ["err_minus"] == pytest.approx(0.3499642911798285)
 
-    # Numeric std / sem / ci95: overhaul/source:presentation/plot_types/line.py:103-118
     dwb_ttg_ci95 = res_ci95.summary.filter((pl.col("planner") == "dwb") & (pl.col("metric") == "time_to_goal")).row(0, named=True)
     assert dwb_ttg_ci95["mean"] == pytest.approx(13.0)
     assert dwb_ttg_ci95["std"] == pytest.approx(2.581988897471611)
@@ -272,7 +270,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     dwb_sem = res_sem.summary.filter(pl.col("planner") == "dwb").row(0, named=True)
     assert dwb_sem["err_plus"] == pytest.approx(1.2909944487358056)
 
-    # n < 2: differs from overhaul/source:presentation/plot_types/bar.py:199-200 (undefined stays null)
     solo_ttg = res_ci95.summary.filter((pl.col("planner") == "solo") & (pl.col("metric") == "time_to_goal")).row(0, named=True)
     assert solo_ttg["n"] == 1
     assert solo_ttg["mean"] == pytest.approx(9.0)
@@ -285,7 +282,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
     assert ghost_ttg["mean"] is None
     assert ghost_ttg["std"] is None
 
-    # trim_percentile: overhaul/source:presentation/plot_types/line.py:86-92
     trim_rows = [
         {
             "episode_id": i,
@@ -312,8 +308,6 @@ def test_group_summary_wilson_numeric_trim_and_n_lt_2_nulls(
 def test_radar_profile_branches_log_scale_all_zero_and_null_group(
     tmp_path: pathlib.Path,
 ) -> None:
-    # Normalization: overhaul/source:presentation/plot_types/radar.py:46-65
-    # Null group mean: differs from overhaul/source:presentation/plot_types/radar.py:47 (null stays null)
     rows = [
         {
             "episode_id": 0,
@@ -376,7 +370,7 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
     assert log_by_p["ghost"] is None
 
     # A partial dim_metrics must not silently decide a ranking direction: the error names every
-    # unresolved metric with its count (H-021), and a caller that knows the direction supplies it.
+    # unresolved metric with its count, and a caller that knows the direction supplies it.
     partial_cat = BenchmarkCatalog.open(_make_benchmark(tmp_path / "bad_bench", rows, null_direction="time_to_goal"))
     with pytest.raises(ValueError, match=r"1 metric\(s\) have no 'higher'/'lower' direction"):
         resolve_metric_directions(partial_cat, ["time_to_goal"])
@@ -393,7 +387,6 @@ def test_radar_profile_branches_log_scale_all_zero_and_null_group(
 def test_composite_and_top_n_ranking_unrounded_precision(
     tmp_path: pathlib.Path,
 ) -> None:
-    # Differs from overhaul/source:mcp/analysis.py:122-150 (no 3-digit rounding before ranking)
     rows = [
         {
             "episode_id": 0,
@@ -446,7 +439,6 @@ def test_composite_and_top_n_ranking_unrounded_precision(
     assert ranks["a_second"] == (2, pytest.approx(0.99998))
     assert ranks["slow"] == (3, pytest.approx(0.5))
 
-    # Default top_n=3: overhaul/source:mcp/analysis.py:171-187
     top3 = run_computation(
         "top_n_ranking",
         cat,
@@ -462,7 +454,6 @@ def test_composite_and_top_n_ranking_unrounded_precision(
 def test_correlation_paired_diff_and_cluster_bootstrap_ci(
     tmp_path: pathlib.Path,
 ) -> None:
-    # Pairwise correlation: differs from overhaul/source:mcp/analysis.py:203 (pl.corr instead of DataFrame.corr)
     corr_rows = [
         {
             "episode_id": 0,

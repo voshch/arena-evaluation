@@ -66,7 +66,6 @@ class HistogramRenderer(BasePlotRenderer):
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly histogram from pre-binned counts."""
-        # differs from overhaul/source:plot_types/histogram.py:72: renders pre-binned distribution_bins only
         if df.is_empty():
             return None
         x_col, y_col, color_col = self._resolve_columns(df)

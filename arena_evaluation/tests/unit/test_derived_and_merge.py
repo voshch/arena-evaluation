@@ -1,4 +1,4 @@
-"""Unit tests for derived-table versioning/locking and the merged-benchmark catalog (L3-060..L3-063)."""
+"""Unit tests for derived-table versioning/locking and the merged-benchmark catalog."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _save(bench: pathlib.Path, frame: pl.DataFrame, version_label: str) -> dict[
 
 
 def test_derived_table_archives_each_replaced_version(tmp_path: pathlib.Path) -> None:
-    """Every superseded table keeps its own archived file; the sidecar counter names them (L3-063)."""
+    """Every superseded table keeps its own archived file; the sidecar counter names them."""
     bench = write_benchmark(tmp_path / "bench", _ROWS)
     first = pl.DataFrame({"v": [1, 2]})
     second = pl.DataFrame({"v": [3, 4]})
@@ -88,7 +88,7 @@ def test_derived_table_archives_each_replaced_version(tmp_path: pathlib.Path) ->
 
 
 def test_derived_table_refuses_a_nested_frame(tmp_path: pathlib.Path) -> None:
-    """A List column cannot be persisted as a derived table; the error says how to flatten it (L3-059)."""
+    """A List column cannot be persisted as a derived table; the error says how to flatten it."""
     bench = write_benchmark(tmp_path / "bench", _ROWS)
     nested = pl.DataFrame({"metric": ["ttg"], "seeds": [[1, 2, 3]]})
     with pytest.raises(ValueError, match="must be flat"):
@@ -146,7 +146,7 @@ def _two_runs(root: pathlib.Path) -> pathlib.Path:
 def test_merged_benchmark_stores_run_ids_and_keeps_labels_and_run_key(
     tmp_path: pathlib.Path,
 ) -> None:
-    """The manifest is root-relative, and the merged views keep the source-run key and its labels (L3-060)."""
+    """The manifest is root-relative, and the merged views keep the source-run key and its labels."""
     merged = _two_runs(tmp_path)
     manifest = load_merge_manifest(merged)
     assert manifest is not None
@@ -170,7 +170,7 @@ def test_merged_benchmark_stores_run_ids_and_keeps_labels_and_run_key(
 
 
 def test_merged_catalog_raises_for_a_missing_source(tmp_path: pathlib.Path) -> None:
-    """A merge that lost a source run fails loudly instead of publishing a smaller benchmark (L3-060)."""
+    """A merge that lost a source run fails loudly instead of publishing a smaller benchmark."""
     merged = _two_runs(tmp_path)
     import shutil
 

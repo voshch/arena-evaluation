@@ -28,7 +28,6 @@ from arena_evaluation.processing.windows import ENCOUNTER_EDGE_DISTANCE_M
 from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
-# Test modules of another group import this alias; delete it once they import ZoneGeometry from common.zones.
 _ZoneGeometry = ZoneGeometry
 
 SPEED_ZONE_VIOLATIONS = define_metric(
@@ -426,9 +425,6 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
             if passing_reason is not None:
                 result[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] = passing_reason
 
-        # 2. Zone/Door Metrics (Requires the world and its recorded semantic snapshot). The world file
-        # alone is not enough: without the recorded world semantics the zone/door occupancy is unknown,
-        # so the values stay null instead of collapsing to a fabricated zero.
         has_semantics = self._world_semantics_recorded(episode)
         if self.world is not None and episode.start_pos:
             loaded = self._load_world(self.world)

@@ -28,12 +28,7 @@ def _floats(values: list[str]) -> list[float]:
 
 
 class MechanismStatesCalculator(BaseMetricCalculator):
-    """Per door and elevator: opening progress and lock state at every episode sample.
-
-    This is not a scoped metric: `mechanism_states` is a non-scope fact table (change-point rows)
-    built by the evaluator from this episode-level series, so the calculator declares no OUTPUTS
-    and the registry does not run it in any scope. The evaluator calls it directly.
-    """
+    """Per door and elevator: opening progress and lock state at every episode sample, called directly by the evaluator and declaring no OUTPUTS."""
 
     NAME = "mechanism_states"
     CATEGORY = "ecological"

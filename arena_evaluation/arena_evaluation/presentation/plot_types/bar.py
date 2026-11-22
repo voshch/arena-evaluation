@@ -85,11 +85,7 @@ def _draw_errorbars(
 
 
 def _bar_groups(frame: pl.DataFrame, context: _BarContext) -> tuple[list[str], list[_BarGroup]]:
-    """Ordered bar series shared by the Plotly and Matplotlib panels.
-
-    ``palette_index`` is ``None`` for a single series, which paints each bar
-    with its own palette color; otherwise it selects one group color.
-    """
+    """Ordered bar series shared by the Plotly and Matplotlib panels, ``palette_index`` is ``None`` for a single series."""
     x_labels = label_values(frame, context.group_col).tolist()
     if len(context.y_cols) > 1:
         return x_labels, [_BarGroup(y_col, x_labels, series_values(frame, y_col), None, None, idx) for idx, y_col in enumerate(context.y_cols)]

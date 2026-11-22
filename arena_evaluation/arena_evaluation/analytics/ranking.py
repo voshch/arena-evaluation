@@ -327,11 +327,7 @@ def seed_split_rank_stability(
     descending: bool = True,
     seed: int = 42,
 ) -> RankStabilityResult:
-    """Compute ranking concordance across random seed halvings and top-k preservation rate.
-
-    Each split ranks only planners observed in both halves (see ``split_metrics``); a planner
-    missing from a half is dropped and named on the result, never scored with a fabricated 0.0.
-    """
+    """Compute ranking concordance across random seed halvings and top-k preservation rate, over planners observed in both halves."""
     if n_splits < 1:
         raise ValueError(f"n_splits must be >= 1, got {n_splits}")
     if k < 1:
@@ -503,8 +499,7 @@ def paired_cluster_bootstrap_rank_intervals(
     seed: int = 42,
     rank_method: str = "dense",
 ) -> pl.DataFrame:
-    """Compute median ranks and paired cluster-bootstrap CIs (cluster unit: ``seed_col``); only
-    planners observed on every seed are ranked, and partial planners keep a NULL interval row."""
+    """Compute median ranks and paired cluster-bootstrap CIs (cluster unit: ``seed_col``) for planners observed on every seed, partial planners keep a NULL interval row."""
     if n_bootstrap < 1:
         raise ValueError(f"n_bootstrap must be >= 1, got {n_bootstrap}")
     if not (0.0 < ci < 1.0):

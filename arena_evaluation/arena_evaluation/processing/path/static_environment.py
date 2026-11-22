@@ -104,7 +104,6 @@ def build_static_grid(
     padding_cells: int = DEFAULT_PADDING_CELLS,
 ) -> StaticGrid:
     """Lethal mask of a compacted level, drawn the way the evaluator's map is: rooms, cabins and doors are free and everything else blocks."""
-    # The simulator package is imported only when a world is rasterised, as in MapRegistry.
     from arena_simulation_setup.tree.World.model import (
         render_door_polygons,
         render_elevator_polygons,

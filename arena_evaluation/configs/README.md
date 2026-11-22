@@ -371,7 +371,7 @@ the bundle directory, a path to the YAML file, or (for reports) inline `{...}` Y
 `arena_evaluation/docs/migrate.md`; the declaration converter is
 `arena_evaluation/scripts/migrate_legacy_manifests.py`.
 
-Metric renames introduced by the overhaul are listed in `arena_evaluation/docs/migrate.md` §2.3
+Metric renames introduced by the overhaul are listed in `arena_evaluation/docs/migrate.md` section 2.3
 (the converter's checked-in `legacy_metric_map`, the `*_vs_planned_route` renames and the retired
 social-force/acoustic scalars). Ask the converter (`--dry-run`) rather than renaming by hand.
 
@@ -384,9 +384,9 @@ Each report defines `manifest_version`, `name`, optional `title`, `data_source`,
 
 Reusable single-grammar plot declarations live under `configs/plots/<name>/plot.yaml` and are referenced in reports with `uses: <name>`:
 
-- `multi_planner_radar` — radar profile bound to `radar_profile`
-- `scorecard_table` — planner scorecard table bound to `v_planner_scorecard`
-- `success_without_contact_panel` — bar panel of success without pedestrian contact
+- `multi_planner_radar`: radar profile bound to `radar_profile`
+- `scorecard_table`: planner scorecard table bound to `v_planner_scorecard`
+- `success_without_contact_panel`: bar panel of success without pedestrian contact
 
 The other four (`acoustic_field`, `contact_closing_share`, `encounter_hierarchy_treemap`, `success_without_contact_interval`) live in the asset store; pull one with `arena asset pull plot <name>`.
 

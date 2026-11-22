@@ -1,4 +1,4 @@
-"""P2 regressions: run-list keys, evidence truncation, and hinted save_as errors."""
+"""Regressions: run-list keys, evidence truncation, and hinted save_as errors."""
 
 from __future__ import annotations
 

@@ -98,12 +98,7 @@ CONTACT_WINDOW_SCHEMA = pl.Schema(
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class DetectorParams:
-    """Versioned parameters of the encounter and contact detectors.
-
-    ``encounter_edge_distance_m`` is surface-to-surface clearance: two bodies are in an
-    encounter while their edges are at most this far apart. Centre distance is reported in
-    ``min_distance_m`` but never decides membership.
-    """
+    """Versioned parameters of the encounter and contact detectors."""
 
     encounter_edge_distance_m: float = ENCOUNTER_EDGE_DISTANCE_M
     encounter_merge_gap_s: float = ENCOUNTER_MERGE_GAP_S
@@ -168,11 +163,7 @@ def fleet_pairs_lf(
     robot_radius_m: float,
     params: DetectorParams = DEFAULT_DETECTOR_PARAMS,
 ) -> pl.LazyFrame:
-    """One row per other-robot task-pose sample with this robot's pose at or before it.
-
-    The evaluated robot is dropped from its own fleet by full env-prefixed identity, and each
-    actor carries its own recorded ``radius_m`` rather than a fleet-wide default.
-    """
+    """One row per other-robot task-pose sample with this robot's pose at or before it."""
     if not fleet:
         return pl.LazyFrame(schema=PAIR_SCHEMA)
     ego_ids = robot_tracks.lazy().select(pl.col("robot_id").alias("actor_id")).unique()
@@ -246,13 +237,7 @@ def _pairs_lf(
 
 
 def detect_encounter_windows_lf(pairs: pl.LazyFrame, params: DetectorParams = DEFAULT_DETECTOR_PARAMS) -> pl.LazyFrame:
-    """Contiguous bouts whose surface clearance <= encounter_edge_distance_m, near gaps bridged.
-
-    Run-length ids over the boolean clearance mask give the bouts; a second run-length id over the
-    gap-bridged mask separates bouts that survive the merge window. A gap is bridged when the time
-    between the last in-encounter sample before it and the first in-encounter sample after it is
-    shorter than the merge gap. The onset row of each bout keeps the kinematics that classify the approach.
-    """
+    """Contiguous bouts whose surface clearance <= encounter_edge_distance_m, near gaps bridged."""
     merge_gap_ns = int(params.encounter_merge_gap_s * NS_PER_S)
     samples = pairs.sort(["actor_id", "t_ns"]).with_columns(in_encounter=pl.col("edge_clearance_m") <= params.encounter_edge_distance_m).with_columns(run_id=pl.col("in_encounter").rle_id().over("actor_id"))
     runs = (
@@ -332,12 +317,7 @@ def contact_windows_lf(
     encounters: pl.DataFrame | pl.LazyFrame,
     params: DetectorParams = DEFAULT_DETECTOR_PARAMS,
 ) -> pl.LazyFrame:
-    """Contact bouts of one episode, each linked to the encounter that encloses its onset.
-
-    ``intervals`` holds one row per contact bout with its raw ``collider_kind`` and ``obstacle_id``. Each obstacle id is
-    resolved to the encounter actor that carries it (by id, name or numeric suffix) before the bout is linked to it.
-    The bouts come from the contact calculator's detector; each row is stamped with the detector version and parameters.
-    """
+    """Contact bouts of one episode, each linked to the encounter that encloses its onset."""
     normalized_kind = pl.col("collider_kind").fill_null("static").str.to_lowercase()
     collider_kind = pl.when(normalized_kind.str.contains(PEDESTRIAN_KIND_PATTERN)).then(pl.lit(ACTOR_PEDESTRIAN)).when(normalized_kind.str.contains(ROBOT_KIND_PATTERN)).then(pl.lit(ACTOR_ROBOT)).when(normalized_kind.str.contains(WALL_KIND_PATTERN)).then(pl.lit("wall")).otherwise(pl.lit("static"))
     entity_id = pl.col("obstacle_id").fill_null("").str.replace(r"^env_[0-9]+/", "").str.split("/").list.first().fill_null("")

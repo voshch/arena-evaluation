@@ -1,4 +1,4 @@
-"""Contract tests for PR5/H2: self-describing lake, snapshot_id, merge runs, and declaration lint."""
+"""Contract tests: self-describing lake, snapshot_id, merge runs, and declaration lint."""
 
 from __future__ import annotations
 

@@ -189,12 +189,7 @@ def _summary_table_data(
     group_cols: list[str],
     summary_specs: Sequence[Any],
 ) -> dict[str, Any]:
-    """Pivot the long ``group_summary`` frame into one row per group and one column per metric.
-
-    ``group_summary`` aggregates by the group columns, so a repeated ``(group, metric)`` pair means two
-    means compete for one cell. The pivot is required to be one-to-one: a repeated pair is reported
-    instead of letting the last row read win the cell.
-    """
+    """Pivot the long ``group_summary`` frame into one row per group and one column per metric, reporting any repeated ``(group, metric)`` pair."""
     headers = [*group_cols, *[item.label for item in summary_specs]]
     keys = table.select([*group_cols, "metric"])
     repeated = keys.filter(keys.is_duplicated()).unique(maintain_order=True)
@@ -432,7 +427,6 @@ class ReportBuilder:
 
     def build(self) -> pathlib.Path | None:
         """Execute the report building process and return the generated HTML path."""
-        # differs from overhaul/source:report_builder.py:261-375: multi-catalog per-plot resolution, no MetricRegistry, keeps evidence_ids & snapshot_ids
         manifest = self._manifest_obj
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.plots_dir.mkdir(exist_ok=True)
@@ -600,7 +594,6 @@ class ReportBuilder:
 
     def _build_summary_tables(self, manifest: VizManifest, failures: list[PlotCheck]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """Build status and summary table payloads from manifest.data_source and manifest.summary."""
-        # differs from overhaul/source:report_builder.py:489-531: delegates aggregation to analytics group_summary
         source_name = manifest.data_source or EPISODE_SUMMARY_VIEW
         source_df = self._sources.frame(source_name, tag_run=True)
         status_table = _status_table_data(source_df) if source_df is not None else None

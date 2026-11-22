@@ -16,8 +16,7 @@ from .common.alignment import TRACK_ALIGN_TOLERANCE_NS, asof_values, interpolate
 if typing.TYPE_CHECKING:
     from ...storage.schemas import AlignedEpisodeBundle, RobotParams
 
-# A calculator may return `<output>_null_reason` next to a null output; the registry turns that
-# companion string into the output's provenance code instead of the generic no_samples.
+# A calculator may return `<output>_null_reason` next to a null output; the registry turns it into the output's provenance code.
 NULL_REASON_SUFFIX: typing.Final[str] = "_null_reason"
 
 
@@ -135,12 +134,7 @@ class BaseMetricCalculator(ABC):
         return self._ground_truth_frame(episode)
 
     def resolve_robot_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Map-frame native /tf pose (x, y, yaw) of the episode.
-
-        There is one pose source: the robot's native /tf track. The trailing estimate triple is
-        empty, because the aligned frame carries no wheel odometry and odometry never stands in
-        for the trajectory (D3).
-        """
+        """Map-frame native /tf pose (x, y, yaw) of the episode, the trailing estimate triple is empty."""
         empty = np.array([], dtype=np.float64)
         frame = self._ground_truth_frame(episode)
         if frame is None:
@@ -170,19 +164,12 @@ class BaseMetricCalculator(ABC):
         return frame
 
     def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
-        """Output key -> typed null_reason for nulls caused by an absent optional input stream.
-
-        The registry uses these codes instead of the generic `no_samples` when a calculator ran but
-        an optional input (a world snapshot, markers, an interaction stream) was not recorded.
-        """
+        """Output key -> typed null_reason for nulls caused by an absent optional input stream."""
         del episode
         return {}
 
     def resolve_native_pose(self, episode: AlignedEpisodeBundle) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Ground-truth robot pose on the native clock: (x, y, yaw, t_ns) float64 arrays, empty without ground truth.
-
-        The robot's /tf track is the only trajectory source; wheel odometry never stands in for it.
-        """
+        """Ground-truth robot pose on the native clock: (x, y, yaw, t_ns) float64 arrays, empty without ground truth."""
         empty = np.array([])
         tracks = self.native_topics(episode).get("robot_tracks")
         if tracks is None or not {"x", "y", "yaw"} <= set(tracks.columns):

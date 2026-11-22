@@ -747,11 +747,7 @@ def _merged_rows(existing: list[dict[str, str]], rows: list[dict[str, str]]) -> 
 
 
 def write_notes(path: pathlib.Path, notes: list[Note], mode: str) -> list[dict[str, str]]:
-    """Write notes.yaml under its file lock: replace, append or merge by label.
-
-    A replace keeps the ``finding:<id>`` rows attached by evaluation_finding_attach, so a
-    later notes write never deletes a finding note.
-    """
+    """Write notes.yaml under its file lock: replace, append or merge by label, keeping the ``finding:<id>`` rows on replace."""
     import yaml
 
     rows = [note.model_dump() for note in notes]

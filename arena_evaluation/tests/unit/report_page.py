@@ -9,11 +9,7 @@ _EXTERNAL_PREFIXES = ("data:", "http://", "https://", "#")
 
 
 class PageParts(HTMLParser):
-    """Count the figures, PNG images and bundles of a page; list relative references.
-
-    Script bodies are kept as text and never matched as markup, so a bundle that
-    contains HTML-looking strings does not change the counts.
-    """
+    """Count the figures, PNG images and bundles of a page; list relative references."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)

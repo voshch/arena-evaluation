@@ -58,7 +58,6 @@ class HeatmapRenderer(BasePlotRenderer):
 
     def render_plotly(self, df: pl.DataFrame) -> str | None:
         """Render an interactive Plotly heatmap."""
-        # differs from overhaul/source:plot_types/heatmap.py:65-79: binds pre-computed matrices without .corr() or .mean()
         extracted = self._extract_matrix(df)
         if extracted is None:
             return None

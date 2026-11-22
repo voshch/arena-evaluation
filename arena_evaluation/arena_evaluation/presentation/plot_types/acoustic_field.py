@@ -605,7 +605,7 @@ class AcousticFieldRenderer(BasePlotRenderer):
         return html
 
     def render_static(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:
-        """Dispatch the static frame to the seaborn renderer (D-06)."""
+        """Dispatch the static frame to the seaborn renderer."""
         self.render_seaborn(df, out_path)
 
     def render_seaborn(self, df: pl.DataFrame, out_path: pathlib.Path) -> None:

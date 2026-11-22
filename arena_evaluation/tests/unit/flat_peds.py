@@ -37,11 +37,7 @@ SCHEMA = pl.Schema(
 def flat_peds(
     frames: Sequence[tuple[int, Sequence[Mapping[str, object]]]],
 ) -> pl.DataFrame:
-    """Pedestrian rows of frames given as (t_ns, pedestrians).
-
-    A pedestrian gives x and y and may give ped_id, ped_name, yaw, vx, vy, animation_state, interaction_id and interaction_type;
-    a frame without pedestrians writes no rows, as the recorder does.
-    """
+    """Pedestrian rows of frames given as (t_ns, pedestrians)."""
     rows = []
     for t_ns, pedestrians in frames:
         for index, ped in enumerate(pedestrians):

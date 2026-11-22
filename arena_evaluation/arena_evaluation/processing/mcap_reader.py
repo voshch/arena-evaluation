@@ -424,14 +424,7 @@ def _check_map_frames(
 
 
 def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]) -> None:
-    """Move the map-frame positions of the stored tables into their environment frame, once, in place.
-
-    An environment's offset is its recorded map -> env/map transform (tf_static, else tf). Each position
-    column in _POSITION_COLUMNS and the episode phases leave the map frame here, so the stored tables,
-    the metrics and the plots all read one frame. An episode without a recorded transform keeps its
-    positions as recorded. The recorded transforms whose parent is the map frame (tf_static and tf) move
-    with the anchor too; a rotated environment frame, or an odometry frame that is not the map frame, is refused.
-    """
+    """Move the map-frame positions of the stored tables into their environment frame, once, in place."""
     anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"))
     if not anchors:
         return

@@ -226,7 +226,5 @@ def test_metric_rows_carry_integrity_of_the_last_record(tmp_path: pathlib.Path) 
 
     assert [row["robot"] for row in rows] == [ROBOT]
     assert rows[0]["integrity"] == [MOVED, RETASKED]
-    # Integrity is episode provenance, not a metric: the Star Schema keeps flat scalar facts and
-    # the list no longer reaches Parquet (invariant 3). Dimensions are benchmark-level.
     assert (episode_dir / "metrics" / "fact_episodes.parquet").exists()
     assert not (episode_dir / "metrics" / "dim_episodes.parquet").exists()

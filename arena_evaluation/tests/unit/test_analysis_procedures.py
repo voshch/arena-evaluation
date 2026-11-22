@@ -1,4 +1,4 @@
-"""Unit tests for the named analysis procedures (L3-080): pairing, selection, attribution, triage."""
+"""Unit tests for the named analysis procedures: pairing, selection, attribution, triage."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _catalog(tmp_path: pathlib.Path, *, include_swap: bool = False) -> tuple[Ben
 def test_compare_reports_a_null_pairing_key_instead_of_silent_nulls(
     tmp_path: pathlib.Path,
 ) -> None:
-    """An unrecorded crowd condition cannot form a pair; compare says so (H-005)."""
+    """An unrecorded crowd condition cannot form a pair; compare says so."""
     catalog, truth = _catalog(tmp_path)
     run = tmp_path / "benchmarks" / "syn_noswap"
     pedestrians = pl.read_parquet(run / "dim_pedestrians.parquet")
@@ -50,12 +50,11 @@ def test_compare_reports_a_null_pairing_key_instead_of_silent_nulls(
     assert "crowd_condition" in str(row["hint"])
     assert result.excluded_rows["crowd_condition:not_recorded"] == 64
     assert result.frame.is_empty()
-    # The catalog itself is untouched by the probe's rewrite of the pedestrian dimension.
     assert catalog is not unrecorded
 
 
 def test_compare_pairs_across_two_crowd_sizes(tmp_path: pathlib.Path) -> None:
-    """A cell with two crowd sizes yields twice the pairs, not one pooled cell (L3-045)."""
+    """A cell with two crowd sizes yields twice the pairs, not one pooled cell."""
     catalog, truth = _catalog(tmp_path)
     params = {
         "planner_a": truth.planted_diff_a,
@@ -68,8 +67,6 @@ def test_compare_pairs_across_two_crowd_sizes(tmp_path: pathlib.Path) -> None:
 
     run = tmp_path / "benchmarks" / "syn_noswap"
     episodes = pl.read_parquet(run / "dim_episodes.parquet")
-    # Crowd size is part of the cell: an unrecorded crowd size takes its whole cell out of the pairing
-    # instead of pooling two crowd sizes into one difference (L3-045).
     unrecorded = episodes.with_columns(pl.when(pl.col("seed") % 2 == 0).then(pl.lit(None, dtype=pl.Int64)).otherwise(pl.col("crowd_size")).alias("crowd_size"))
     unrecorded.write_parquet(run / "dim_episodes.parquet")
     halved = run_procedure("compare", BenchmarkCatalog.open(run), params)
@@ -81,7 +78,7 @@ def test_compare_pairs_across_two_crowd_sizes(tmp_path: pathlib.Path) -> None:
 def test_lead_measures_selects_on_discovery_and_counts_verification_pairs(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Selection happens on discovery seeds; separated pairs are counted on verification (L3-046, L3-059)."""
+    """Selection happens on discovery seeds; separated pairs are counted on verification."""
     catalog, _ = _catalog(tmp_path)
     result = run_procedure("lead_measures", catalog, {"n_boot": 100})
 
@@ -104,7 +101,7 @@ def test_lead_measures_selects_on_discovery_and_counts_verification_pairs(
 def test_ranking_stability_returns_one_declared_table_for_any_world_count(
     tmp_path: pathlib.Path,
 ) -> None:
-    """The frame schema does not depend on how many worlds the run contains (L3-051, L3-048)."""
+    """The frame schema does not depend on how many worlds the run contains."""
     catalog, _ = _catalog(tmp_path, include_swap=True)
     many = run_procedure(
         "ranking_stability",
@@ -150,7 +147,7 @@ def test_visibility_effect_bootstrap_weighs_rows_by_their_drawn_seed(
 def test_attribution_shares_use_pedestrian_contacts_only(
     tmp_path: pathlib.Path,
 ) -> None:
-    """A wall contact cannot close in, so it never enters the closing share (L3-050, D-01)."""
+    """A wall contact cannot close in, so it never enters the closing share."""
     catalog, truth = _catalog(tmp_path)
     run = tmp_path / "benchmarks" / "syn_noswap"
     contacts = pl.read_parquet(run / "episodes" / "episode_000" / "metrics" / "fact_contacts.parquet")
@@ -188,7 +185,7 @@ def test_attribution_shares_use_pedestrian_contacts_only(
 def test_triage_breaks_missingness_down_by_metric_and_reason(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Triage names the metric that is missing and why, per planner and world (L3-047)."""
+    """Triage names the metric that is missing and why, per planner and world."""
     catalog, _ = _catalog(tmp_path)
     result = run_procedure("triage", catalog, {"metrics": ["ci_max", "time_to_goal"]})
 

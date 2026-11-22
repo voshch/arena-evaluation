@@ -1,4 +1,4 @@
-"""Regression tests for the run-scoped SQL query store and list contracts (L3-015, L5-016, H-006)."""
+"""Regression tests for the run-scoped SQL query store and list contracts."""
 
 from __future__ import annotations
 

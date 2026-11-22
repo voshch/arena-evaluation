@@ -1,4 +1,4 @@
-"""Lint the shipped declarations: schema-only validity and per-manifest bindability (H-009)."""
+"""Lint the shipped declarations: schema-only validity and per-manifest bindability."""
 
 from __future__ import annotations
 

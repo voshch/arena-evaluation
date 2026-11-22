@@ -72,12 +72,7 @@ def _load_level(world_dir: str) -> _LevelProto:
 
 
 def _world_candidates(map_name: str, run_dir: pathlib.Path | str | None = None) -> list[tuple[str, pathlib.Path | None]]:
-    """Where a map's world may live, in declared lookup order, labelled for errors and provenance.
-
-    Order: the episode run snapshot (``run_dir/worlds/<map>``), then the installed
-    ``arena_simulation_setup`` share, then the ``ARENA_DIR`` source tree. A path of None marks a
-    location that cannot be used; its label says why.
-    """
+    """Where a map's world may live, in lookup order: run snapshot, installed ``arena_simulation_setup`` share, ``ARENA_DIR`` source tree, labelled for errors and provenance."""
     candidates: list[tuple[str, pathlib.Path | None]] = []
     if run_dir is not None:
         candidates.append(("run directory", pathlib.Path(run_dir) / "worlds" / map_name))
@@ -104,12 +99,7 @@ def _world_candidates(map_name: str, run_dir: pathlib.Path | str | None = None) 
 
 
 def resolve_world_dir(map_name: str, run_dir: pathlib.Path | str | None = None) -> tuple[pathlib.Path, str] | None:
-    """The world directory used for a map and the label of the copy it came from.
-
-    Lookup order is the declared legacy path: run snapshot, installed package, then ARENA_DIR
-    source tree. A directory is used only when its world loads; a format 1 world is accepted as
-    migration input (the loader emits a DeprecationWarning pointing at `touch_world --migrate`).
-    """
+    """The world directory used for a map and the label of the copy it came from, in the order run snapshot, installed package, ``ARENA_DIR`` source tree."""
     for label, path in _world_candidates(map_name, run_dir=run_dir):
         if path is None or not path.is_dir():
             continue
@@ -143,7 +133,7 @@ def _barrier_map_for_world(world_dir: str, resolution: float) -> BarrierMap:
         )
         for door in level.doors
     ]
-    # Zones give the walkable extent, so that agents standing in open space are on the grid. They are not barriers.
+    # Zones give the walkable extent; they are not barriers.
     extent = [(point.x, point.y) for zone in level.zones for point in zone.polygon]
     return derive_barrier_map(walls=walls, doors=doors, extent=extent, resolution=resolution)
 
@@ -153,10 +143,7 @@ def load_barrier_map(
     run_dir: pathlib.Path | str | None = None,
     resolution: float = DEFAULT_RESOLUTION_M,
 ) -> BarrierMap:
-    """The barrier grid of a world, derived from its zones, walls and doors.
-
-    The copy actually read is logged at INFO; `resolve_world_dir` reports it before loading.
-    """
+    """The barrier grid of a world, derived from its zones, walls and doors."""
     resolved = resolve_world_dir(map_name, run_dir=run_dir)
     if resolved is None:
         searched = "; ".join(label if path is None else f"{label} at {path}" for label, path in _world_candidates(map_name, run_dir=run_dir))
@@ -172,15 +159,7 @@ def load_barrier_map(
 
 
 def barrier_door_tl(barrier: BarrierMap, *, door_tl_db: float = DEFAULT_DOOR_TL_DB) -> dict[str, tuple[np.ndarray, float]]:
-    """Door masks keyed as the door-state timeline names them (``world/<name>``), with the closed-door TL per cell.
-
-    ``door_tl_db`` is a declared model parameter, defaulting to ``DEFAULT_DOOR_TL_DB`` (from
-    ``constants.DOOR_TRANSMISSION_LOSS_DB``) so a what-if run can vary it without changing code.
-    The solver charges every barrier cell a path enters, so a door's TL is shared by the cells it
-    crosses: each cell holds ``door_tl_db / door_cells_across``, a path through the whole door
-    pays the full TL once, and a grazing path that clips fewer of those cells pays only the
-    corresponding fraction, as an approximation of the closed-door transmission loss.
-    """
+    """Door masks keyed as the door-state timeline names them (``world/<name>``), each door cell holding ``door_tl_db / door_cells_across``."""
     return {f"world/{name}": (mask, door_tl_db / barrier.door_cells_across[name]) for name, mask in barrier.door_masks.items()}
 
 
@@ -190,20 +169,7 @@ _FLATTENED_WORLD_NAMESPACE = "world/"
 
 
 def _normalise_door_identity(name: str) -> str:
-    """Full door-id path of a geometry key or semantic entity, with the encoding decorations removed.
-
-    Accepted encodings, because the scene graph and the barrier map name a door differently:
-
-    - geometry keys: ``world/<door id>`` (the flattened world namespace of `barrier_door_tl`),
-      or ``<level>/<door id>``;
-    - semantic entities: ``env_<n>/<door id>``, ``env_<n>/<door id>/<level id>`` and
-      ``env_<n>/world/<door id>/<level id>``.
-
-    A leading ``env_<n>/`` and a trailing all-digit segment (the level id or a Gazebo model
-    instance) are metadata. The literal ``world/`` namespace is dropped so a flattened key
-    compares with the door's authored scene-graph name. The full remaining path is compared,
-    never the leaf.
-    """
+    """Full door-id path of a geometry key or semantic entity, without the ``env_<n>/`` prefix, the ``world/`` namespace and a trailing all-digit segment."""
     normalized = "/".join(part for part in name.split("/") if part)
     normalized = _ENV_PREFIX.sub("", normalized, count=1)
     normalized = _TRAILING_INSTANCE.sub("", normalized, count=1)

@@ -1,4 +1,4 @@
-"""Reviewed report loop after Phase 2: one builder page, real exports, honest appendices."""
+"""Reviewed report loop after the builder rework: one builder page, real exports, honest appendices."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ def test_failed_and_unverified_items_are_listed_not_dropped(tmp_path: pathlib.Pa
     assert "proposed" in statuses
     page = pathlib.Path(assembled["report_path"]).read_text(encoding="utf-8")
     assert broken in page
-    assert "Appendix — Excluded Plots and Findings" in page
+    assert "Appendix: Excluded Plots and Findings" in page
     assert "A claim nobody verified" not in page
 
 

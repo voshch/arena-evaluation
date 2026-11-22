@@ -1,4 +1,4 @@
-"""Tests verifying alignment helpers sit at a level both L1 pipeline and L2 metrics may import."""
+"""Tests verifying alignment helpers sit at a level both the processing pipeline and the metrics may import."""
 
 from __future__ import annotations
 

@@ -60,11 +60,7 @@ def plot_block(
     png_path: pathlib.Path,
     png_src: str | None = None,
 ) -> str:
-    """Build one plot block: interactive Plotly figure plus its static PNG.
-
-    ``png_src`` overrides the inline data URI with a relative asset reference, the
-    external-asset mode of the report writer.
-    """
+    """Build one plot block: interactive Plotly figure plus its static PNG, ``png_src`` replaces the inline data URI."""
     label = html.escape(title or plot_id)
     source = html.escape(png_src) if png_src else png_data_uri(png_path)
     return f"<figure class='plot-block' data-plot-id='{html.escape(plot_id)}'><div class='plot-interactive'>{interactive_html}</div><div class='plot-static'><img src='{source}' alt='{label} static render'/></div></figure>"

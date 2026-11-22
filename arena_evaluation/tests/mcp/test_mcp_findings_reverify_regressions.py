@@ -1,4 +1,4 @@
-"""Regression tests for re-verifying a finding after its dataset changed (H-003)."""
+"""Regression tests for re-verifying a finding after its dataset changed."""
 
 from __future__ import annotations
 

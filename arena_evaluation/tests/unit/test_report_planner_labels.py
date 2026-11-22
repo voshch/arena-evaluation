@@ -55,7 +55,7 @@ def test_summary_pairs_each_local_planner_with_its_world(
 
     summary = read_summary(write_benchmark(tmp_path / "bench", rows))
 
-    assert summary["planner_world"].to_list() == ["dwb · concourse_headon_aware"]
+    assert summary["planner_world"].to_list() == ["dwb / concourse_headon_aware"]
 
 
 def test_standard_report_never_reads_the_composite_planner_column() -> None:

@@ -89,8 +89,6 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
 
     @classmethod
     def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
-        # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
-        # `no_samples`, not a row-level `topic_missing` that would block the whole encounter or contact.
         return () if scope in (MetricScope.ENCOUNTER, MetricScope.CONTACT) else super().required_topics_for_scope(scope)
 
     @staticmethod
@@ -146,13 +144,7 @@ class CollisionMetricsCalculator(BaseMetricCalculator):
         scope_slice: ScopeSlice,
         column: str,
     ) -> int | None:
-        """Collision onsets of the window's own contact interval.
-
-        The rising edge is detected on the padded window the slice carries, then counted only when its
-        timestamp falls inside ``[t_start_ns, t_end_ns]``. The padding supplies the preceding state, and
-        the interval filter keeps a continued bout from being counted again by the next contact window of
-        the same collision (the detector splits one bout into several contact windows on the raw stream).
-        """
+        """Collision onsets of the window's own contact interval."""
         events = self.native_topics(episode).get(ROBOT_COLLISION_EVENTS_TOPIC)
         if events is None:
             return None

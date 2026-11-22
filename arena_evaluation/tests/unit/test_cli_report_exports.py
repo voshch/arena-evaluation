@@ -1,4 +1,4 @@
-"""The report CLI exports each approved figure as SVG/PDF and the report as LaTeX (L4-020)."""
+"""The report CLI exports each approved figure as SVG/PDF and the report as LaTeX."""
 
 from __future__ import annotations
 

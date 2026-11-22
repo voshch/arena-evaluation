@@ -50,7 +50,7 @@ class ConfigAsset:
     filename: str
 
 
-#: The flat configuration assets resolved through all_config_roots(). ``palette`` is the X-068
+#: The flat configuration assets resolved through all_config_roots(). ``palette`` is the
 #: asset that lives directly under ``configs/`` and is resolved through :func:`find_config_asset`.
 CONFIG_ASSETS: Final[dict[str, ConfigAsset]] = {
     "palette": ConfigAsset(name="palette", filename="color_palette.yaml"),

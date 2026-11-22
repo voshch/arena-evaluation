@@ -31,9 +31,6 @@ def is_inline(ref: str) -> bool:
 def _ensure_registered() -> None:
     """Register the manifest resolvers; benchmark.tree owns the config asset chain."""
     if not ManifestIdentifier._resolvers:
-        # The registration lives in benchmark/tree.py with the other config identifiers. Importing it
-        # here keeps a direct `import arena_evaluation.benchmark.tree` unnecessary (and the cycle gone)
-        # while a standalone presentation consumer can still resolve a bundled manifest.
         import arena_evaluation.benchmark.tree  # noqa: F401
 
 

@@ -3,7 +3,7 @@ description: Exhaustive master report containing every metric, visualization typ
   correlation, and trade-off frontier across all evaluation domains. Serves as inspiration
   for research analytics and autonomous MCP agents.
 units:
-  acceleration_mean: 'm/s²'
+  acceleration_mean: 'm/s^2'
   ade: 'm'
   adtw: 'm'
   aeps_linear_s: 's'
@@ -21,10 +21,10 @@ units:
   frechet_distance: 'm'
   friction_dissipation_j: 'J'
   idling_time: 's'
-  jerk_max_mps3: 'm/s³'
-  jerk_mean: 'm/s³'
+  jerk_max_mps3: 'm/s^3'
+  jerk_mean: 'm/s^3'
   kinetic_energy_demand_j: 'J'
-  max_acceleration_mps2: 'm/s²'
+  max_acceleration_mps2: 'm/s^2'
   max_speed_intimate_zone: 'm/s'
   max_speed_personal_zone: 'm/s'
   mean_velocity_mps: 'm/s'
@@ -32,7 +32,7 @@ units:
   path_efficiency: ''
   path_length_m: 'm'
   ped_path_deflection_m: 'm'
-  personal_space_intrusion_integral: 'm·s'
+  personal_space_intrusion_integral: 'm*s'
   power_peak_w: 'W'
   power_total_w: 'W'
   roughness_max: 'rad/m'

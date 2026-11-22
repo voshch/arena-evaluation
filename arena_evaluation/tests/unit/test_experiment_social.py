@@ -154,7 +154,7 @@ def test_analyze_pairs_the_arms_by_seed_within_each_case(tmp_path: pathlib.Path,
     )
     clearance = paired.filter(pl.col("metric") == "min_ped_clearance_m").row(0, named=True)
     assert clearance["off_minus_on"] == pytest.approx(-1.0)
-    # The two proxemics time metrics are paired like every other metric (L3-071/B-016).
+    # The two proxemics time metrics are paired like every other metric.
     intimate = paired.filter(pl.col("metric") == "time_in_intimate_zone").row(0, named=True)
     assert intimate["off_minus_on"] == pytest.approx(0.0)
     assert tables["descriptive"].select("intimate_s", "personal_s").columns == [

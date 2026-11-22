@@ -146,12 +146,12 @@ class SeriesCharacterization(
     speed_achieved_mps = Column(pl.Float64, unit="m/s", description="Speed the robot achieved at the sample.")
     accel_achieved_mps2 = Column(
         pl.Float64,
-        unit="m/s²",
+        unit="m/s^2",
         description="Acceleration the robot achieved at the sample, from the change of its speed.",
     )
     accel_target_mps2 = Column(
         pl.Float64,
-        unit="m/s²",
+        unit="m/s^2",
         description="Acceleration the schedule commanded at the sample.",
     )
     efficiency = Column(
@@ -295,12 +295,12 @@ class SeriesMotionMetrics(
     )
     acceleration_mps2 = Column(
         pl.Float64,
-        unit="m/s²",
+        unit="m/s^2",
         description="Smoothed ground-truth acceleration magnitude at the sample: a Savitzky-Golay derivative of the speed, 1.0 s window, order 2.",
     )
     jerk_mps3 = Column(
         pl.Float64,
-        unit="m/s³",
+        unit="m/s^3",
         description="Smoothed ground-truth jerk magnitude at the sample: a Savitzky-Golay derivative of the speed, 1.0 s window, order 2.",
     )
 

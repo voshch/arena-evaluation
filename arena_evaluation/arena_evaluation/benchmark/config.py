@@ -40,8 +40,6 @@ _STAGE_OWNED_PREFIXES = ("task.", "record.")
 
 _SUITE_METRIC_KEYS = frozenset({"max_collisions", "barn"})
 
-# Accepted runner back-compat: every shipped suite still spells its modes `tm_<axis>`
-# (decision R-026/X-064, see the FIX9 report), so the legacy keys stay until the corpus migrates.
 _LEGACY_MODE_PREFIX = "tm_"
 
 # Keys a stage carries that are not fields of Suite.Stage: they are parsed separately.

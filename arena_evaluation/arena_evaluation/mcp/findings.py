@@ -1,4 +1,4 @@
-"""MCP WP5 finding tools: thin gateway over :mod:`arena_evaluation.analytics.findings`."""
+"""MCP finding tools: thin gateway over :mod:`arena_evaluation.analytics.findings`."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ ComputationRunner = Callable[[pathlib.Path, Mapping[str, Any]], pl.DataFrame]
 
 
 def _computation_runners() -> dict[str, ComputationRunner]:
-    """Rerun each registered L3 computation, and the sensitivity rerun, keyed by evidence operation."""
+    """Rerun each registered analysis computation, and the sensitivity rerun, keyed by evidence operation."""
 
     def runner_for(name: str) -> ComputationRunner:
         def rerun(run_dir: pathlib.Path, params: Mapping[str, Any]) -> pl.DataFrame:

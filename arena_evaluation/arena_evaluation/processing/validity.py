@@ -1,4 +1,4 @@
-"""Ranking validity of one evaluated episode (08 H1.5)."""
+"""Ranking validity of one evaluated episode."""
 
 from __future__ import annotations
 
@@ -19,10 +19,7 @@ __all__ = [
 
 ROBOT_TRACKS_TOPIC: Final[str] = "robot_tracks"
 
-#: A single-sample ground-truth displacement larger than this is a pose jump, m. A speed gate alone is
-#: not usable: TF samples carry latency jitter, so a 0.17-0.8 m step inside 33 ms looks like 5-24 m/s
-#: while the trajectory stays continuous. Measured over the 620-episode fig6 set, the largest single
-#: step is 0.8 m and a speed-only gate flags 80/617 episodes that never teleport; only resets exceed 1 m.
+#: A single-sample ground-truth displacement larger than this is a pose jump, m.
 TELEPORT_STEP_M: Final[float] = 1.0
 
 #: ``arena_runtime_msgs/EpisodeRecord`` terminal states: 2 SUCCESS, 3 FAILED, 4 SKIPPED, 5 FATAL.

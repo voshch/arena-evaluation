@@ -371,8 +371,6 @@ def _descriptor_assignment(recording: pathlib.Path, metadata: RunMetadata, envir
         raise MigrationError(f"{recording}: no /state/robots fleet and RunMetadata.robot_model is empty; the robot descriptor cannot be synthesised (record a fleet message or the model list)")
     if not names:
         if len(models) == 1:
-            # A single-robot recording with no fleet and no robot topic name: the recorded model is
-            # the only robot identity there is, so the robot keeps the model's base name.
             base = models[0].partition("[")[0]
             return {base: models[0]}
         raise MigrationError(f"{recording}: no /state/robots fleet and no robot topic names a robot; the recorded models {models} cannot be assigned to robots")

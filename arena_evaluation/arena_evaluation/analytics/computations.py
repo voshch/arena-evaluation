@@ -209,7 +209,7 @@ def list_computations() -> tuple[str, ...]:
 def _dim_metrics_rows(
     catalog: BenchmarkCatalog,
 ) -> dict[str, tuple[str | None, str | None]]:
-    """Read the metric dictionary once, through the catalog's single accessor (X-022)."""
+    """Read the metric dictionary once, through the catalog's single accessor."""
     df = catalog.metric_dictionary().select("metric", "direction", "unit").collect()
     rows = df.iter_rows()  # agent-contracts: ignore metadata dict boundary
     return {str(m): (d, u) for m, d, u in rows}
@@ -236,11 +236,7 @@ def resolve_metric_directions(
     *,
     declared: Mapping[str, str] | None = None,
 ) -> MetricDirections:
-    """Resolve each metric's ``higher``/``lower`` side from the caller override or ``dim_metrics``.
-
-    A partial dictionary must not silently decide a ranking, so unresolved metrics are reported in
-    one error; a caller that knows a direction supplies it through ``declared``.
-    """
+    """Resolve each metric's ``higher``/``lower`` side from the caller override or ``dim_metrics``, one error naming every unresolved metric."""
     rows = _dim_metrics_rows(catalog)
     overrides = dict(declared or {})
     by_metric: dict[str, str] = {}
@@ -271,10 +267,7 @@ def resolve_metric_units(catalog: BenchmarkCatalog, metrics: Sequence[str]) -> d
 
 
 def null_reason_counts(df: pl.DataFrame, columns: Sequence[str], reason_columns: Sequence[str]) -> dict[str, int]:
-    """Count NULL cells of every ``columns`` entry by the ``<column>:<code>`` reason its row carries.
-
-    The one per-reason breakdown shared by the computations and the analysis procedures.
-    """
+    """Count NULL cells of every ``columns`` entry by the ``<column>:<code>`` reason its row carries."""
     if df.is_empty():
         return {}
     reasons = df.select(pl.concat_str([pl.col(name).fill_null("") for name in reason_columns], separator=";").alias("_reason"))
@@ -310,11 +303,7 @@ def _prepare(
     params: _BaseParams,
     needed_cols: Sequence[str],
 ) -> tuple[pl.DataFrame, dict[str, int], tuple[int, ...]]:
-    """Project ``needed_cols`` from the params' source view and drop excluded rows.
-
-    The returned mapping counts every exclusion by reason, including each NULL metric cell's
-    ``<metric>:<code>`` reason, so a metric missing for half the episodes cannot look like a smaller n.
-    """
+    """Project ``needed_cols`` from the params' source view and drop excluded rows, counting every exclusion by reason."""
     allowed = [
         _SOURCE_TABLE,
         *(n for n in sorted(catalog.table_names()) if n.startswith("v_series_")),

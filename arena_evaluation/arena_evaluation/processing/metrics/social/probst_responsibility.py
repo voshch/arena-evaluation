@@ -279,15 +279,10 @@ def _evaluate_pair_at_tce(pair: ProbstPair, idx_tce: int) -> ProbstResult:
     cc_plus_t = np.maximum(cc_target, 0.0)
     cc_minus_t = -np.minimum(cc_target, 0.0)
 
-    # Time is the signed residual of the conflict change. Eqs. 8-9 as printed subtract the escalating
-    # and the diminishing parts separately and then do not close: the shares would exceed 1.
     conflict_diff_time = np.diff(conflict) - cc_plus_r - cc_plus_t + cc_minus_r + cc_minus_t
     cc_plus_time = np.maximum(conflict_diff_time, 0.0)
     cc_minus_time = -np.minimum(conflict_diff_time, 0.0)
 
-    # Endpoint accounting closes the discretised Eq. 10: the conflict present at the first sample and
-    # the conflict left at the last sample were caused by neither party's velocity change, so they
-    # belong to the time share. They are what make the no-action case read R_Time = 100 %.
     parts = ProbstParts(
         c_total=float(np.sum(cc_plus_r) + np.sum(cc_plus_t) + np.sum(cc_plus_time) + conflict[0]),
         cc_minus_robot=float(np.sum(cc_minus_r)),
@@ -354,11 +349,7 @@ def rollup_probst_results(results: Sequence[ProbstResult]) -> ProbstResult:
 
 
 class ProbstResponsibilityCalculator(BaseMetricCalculator):
-    """Probst et al. (ICRA 2026) Conflict, Responsibility and Engagement calculator (Eqs. 1-12).
-
-    The keys target_agent_id, contact_t0_ns, window_start_ns and window_end_ns are debug hooks that select one
-    encounter or contact: metrics_config reads them, and they are not PARAMS.
-    """
+    """Probst et al. (ICRA 2026) Conflict, Responsibility and Engagement calculator (Eqs. 1-12)."""
 
     NAME = "probst_responsibility"
     CATEGORY = "social"
@@ -376,8 +367,6 @@ class ProbstResponsibilityCalculator(BaseMetricCalculator):
         PROBST_E_ACTOR2,
         PROBST_E_TIME,
     )
-    # Responsibility is not a judgement: a party can resolve a conflict it caused, so R_* has no better side.
-    # Engagement measures conflict intensification, so a lower value is the safer one.
     DIRECTIONS = {
         "probst_E_robot": Direction.LOWER,
         "probst_E_actor2": Direction.LOWER,

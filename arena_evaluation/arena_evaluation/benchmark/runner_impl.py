@@ -1417,7 +1417,7 @@ class _RunnerExecMixin(_RunnerExecHost):
             )
         }
         self._progress = BenchmarkProgressDisplay(
-            title=f"Arena Benchmark: {self._suite.name} • {self._contest.name}",
+            title=f"Arena Benchmark: {self._suite.name} | {self._contest.name}",
             total_steps=steps_total,
             env_n=self._env_n,
             run_id=self._run_id,

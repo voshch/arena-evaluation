@@ -50,7 +50,7 @@ __all__ = [
 ]
 
 #: Blocking keys a paired comparison must agree on: seeds are shared by arm, and world, scenario,
-#: crowd size and crowd condition are the cell the difference is taken in (H3, ledger L3-09).
+#: crowd size and crowd condition are the cell the difference is taken in.
 _PAIRING_KEYS: Final[tuple[str, ...]] = (
     "seed",
     "world",
@@ -188,7 +188,7 @@ class RankingStabilityParams(BaseModel):
 
 
 class VisibilityEffectParams(BaseModel):
-    """Parameters for the H1 visibility effect: rank swaps across crowd conditions vs across seed halves."""
+    """Parameters for the visibility effect: rank swaps across crowd conditions vs across seed halves."""
 
     metric: str = "time_to_goal"
     n_boot: int = Field(default=500, ge=50)
@@ -297,7 +297,7 @@ def _planner_intervals(
     *,
     cluster_col: str = "seed",
 ) -> dict[str, tuple[float, float]]:
-    """Per-planner seed-clustered interval of the metric mean: the seed spread D-12 asks for."""
+    """Per-planner seed-clustered interval of the metric mean: the seed spread."""
     usable = frame.filter(pl.col(metric).is_not_null() & pl.col(cluster_col).is_not_null())
     if usable.is_empty():
         return {}
@@ -503,7 +503,6 @@ def _run_compare(catalog: BenchmarkCatalog, params: BaseModel) -> AnalysisResult
             excluded={f"{params.metric}:no_pairing_key": valid.height},
         )
 
-    # A pairing key the benchmark never recorded cannot form a pair; say so instead of returning NULL.
     key_complete = valid
     null_keys: list[str] = []
     for key in pairing:
@@ -590,7 +589,7 @@ def _run_ranking_stability(catalog: BenchmarkCatalog, params: BaseModel) -> Anal
         )
     direction, higher, directions = _orientation(catalog, params.metric)
 
-    # Agreement across crowd conditions: the pair-swap count the H3 contract reports.
+    # Agreement across crowd conditions: the pair-swap count.
     conditions = tuple(str(c) for c in frame["crowd_condition"].drop_nulls().unique().sort())
     n_swaps = (
         _swap_count(
@@ -728,14 +727,12 @@ def _run_visibility_effect(catalog: BenchmarkCatalog, params: BaseModel) -> Anal
     tagged, first_half, second_half = _seed_half_frame(frame)
     seed_half_swaps = _swap_count(tagged, params.metric, "__seed_half", ("h1", "h2"), direction)
 
-    # The difference needs an interval: resample whole seeds and recompute both swap counts.
     seeds = np.asarray(_seeds(frame), dtype=np.int64)
     rng = np.random.default_rng(params.seed)
     deltas: list[float] = []
     for _ in range(params.n_boot):
         drawn = rng.choice(seeds, size=len(seeds), replace=True)
         drawn_seeds, draw_counts = np.unique(drawn, return_counts=True)
-        # One weight per drawn seed; a seed the replicate did not draw weighs 0 and drops out.
         weights = {int(seed): float(count) for seed, count in zip(drawn_seeds, draw_counts, strict=True)}
         weighted = frame.with_columns(pl.col("seed").replace_strict(weights, default=0.0, return_dtype=pl.Float64).alias("__weight")).filter(pl.col("__weight") > 0)
         boot_condition = _swap_count(

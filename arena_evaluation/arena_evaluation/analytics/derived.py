@@ -61,11 +61,7 @@ def save_derived_table(
     author: str,
     purpose: str = "",
 ) -> dict[str, Any]:
-    """Persist a derived table and its YAML sidecar, archiving the version it replaces.
-
-    The sidecar lock spans the read-archive-write, so each archived ``<name>.v<n>.parquet``
-    is named by the version the replaced sidecar carried.
-    """
+    """Persist a derived table and its YAML sidecar, archiving the replaced version as ``<name>.v<n>.parquet`` under the sidecar lock."""
     clean, root, parquet_path, sidecar_path = _table_paths(benchmark_dir, name)
     nested = [column for column, dtype in frame.schema.items() if isinstance(dtype, (pl.List, pl.Struct, pl.Array, pl.Object))]
     if nested:

@@ -1,4 +1,4 @@
-"""Regression tests for the all-NULL metric and blank-image gates (H-004, L4-011, L4-003)."""
+"""Regression tests for the all-NULL metric and blank-image gates."""
 
 from __future__ import annotations
 

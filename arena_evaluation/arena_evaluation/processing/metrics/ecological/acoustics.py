@@ -78,7 +78,7 @@ ACOUSTIC_SURGE_INDEX = define_metric(
     "acoustic_surge_index",
     pl.Float64,
     scopes=_SCOPES,
-    unit="dB²",
+    unit="dB^2",
     description="Variance of 1 s energy-equivalent A-weighted levels over the scope, in squared decibels.",
     null_reason=True,
 )
@@ -86,7 +86,7 @@ ACOUSTIC_COST = define_metric(
     "acoustic_cost",
     pl.Float64,
     scopes=_SCOPES,
-    unit="Pa²·s/m",
+    unit="Pa^2*s/m",
     description="Emitted sound pressure-squared exposure per metre of robot path over the scope.",
     null_reason=True,
 )

@@ -1,4 +1,4 @@
-"""Round-2 deep declaration lint: every plot binding is resolved, not only its schema."""
+"""Deep declaration lint: every plot binding is resolved, not only its schema."""
 
 from __future__ import annotations
 

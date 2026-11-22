@@ -49,13 +49,7 @@ IDLING_TIME = define_metric(
 
 
 class TimeMetricsCalculator(BaseMetricCalculator):
-    """Episode span, the robot's time to goal, and idling time.
-
-    Metrics:
-    - time_diff: Recorded episode duration in nanoseconds (EPISODE)
-    - time_to_goal: Seconds to this robot's first arrival at its goal (ROBOT)
-    - idling_time: Time with speed below 0.01 m/s (ROBOT)
-    """
+    """Episode span, the robot's time to goal, and idling time."""
 
     NAME = "time_metrics"
     CATEGORY = "performance"

@@ -73,7 +73,7 @@ def compute_snapshot_id(benchmark_dir: pathlib.Path) -> str:
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisResult:
-    """Immutable result of an analytical computation or procedure (D-18)."""
+    """Immutable result of an analytical computation or procedure."""
 
     frame: pl.DataFrame
     summary: pl.DataFrame

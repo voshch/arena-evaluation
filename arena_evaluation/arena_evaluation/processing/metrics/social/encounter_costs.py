@@ -231,11 +231,7 @@ def _planned(grid: StaticGrid | None, start_xy: np.ndarray, goal_xy: np.ndarray)
 
 
 def _refusal(route: RouteResult) -> str:
-    """Closed-vocabulary reason for a missing planned-route reference.
-
-    A missing recorded parameter stays distinct from a route the planner could not find; neither makes
-    the episode unrankable, so an unregistered ``invalid_episode:<why>`` is never written.
-    """
+    """Closed-vocabulary reason for a missing planned-route reference."""
     if route.null_reason == NullReason.NOT_RECORDED.value:
         return NullReason.NOT_RECORDED.value
     return NullReason.REFERENCE_MISSING.value

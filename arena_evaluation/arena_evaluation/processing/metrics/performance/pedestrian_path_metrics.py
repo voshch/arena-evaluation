@@ -41,12 +41,7 @@ class PedestrianPathMetricsCalculator(BaseMetricCalculator):
         return pl.col(column).cast(pl.Float64)
 
     def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
-        """1NF flat pedestrian path series, one row per recorded pedestrian sample; schema-typed when empty.
-
-        The series holds no held last position: consumers must use an as-of join to read a
-        pedestrian at another time. Duplicate recorded telemetry samples for the same key
-        collapse to the last row, so the published natural key is honest.
-        """
+        """1NF flat pedestrian path series, one row per recorded pedestrian sample; schema-typed when empty."""
         tracks = self.native_ped_frame(episode)
         if tracks is None or tracks.height == 0:
             return pl.DataFrame(schema=SERIES_SCHEMA)

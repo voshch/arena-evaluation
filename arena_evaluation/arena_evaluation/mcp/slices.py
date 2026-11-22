@@ -1,4 +1,4 @@
-"""MCP WP5 slice tools: drill down one interaction through the Star Schema."""
+"""MCP slice tools: drill down one interaction through the Star Schema."""
 
 from __future__ import annotations
 
@@ -125,11 +125,7 @@ def _preview(table: str, frame: pl.DataFrame, limit: int) -> TablePreview:
 
 
 def _null_reasons(frames: list[pl.DataFrame]) -> list[str]:
-    """Every distinct ``field:code`` provenance token across the sliced tables, sorted.
-
-    A fact row carries its missing fields as one ``field:code;field:code`` string; the slice
-    reports the individual tokens so an analyst can filter and count them.
-    """
+    """Every distinct ``field:code`` provenance token across the sliced tables, sorted."""
     tokens = (token for frame in frames if len(frame) > 0 for value in frame.get_column("null_reason").drop_nulls() for token in str(value).split(";") if token)
     return sorted(set(tokens))
 
@@ -167,12 +163,7 @@ def evaluation_slice(
     ] = None,
     preview_limit: PreviewLimit = PREVIEW_ROWS,
 ) -> SliceResponse:
-    """One interaction explained by its Star Schema rows: encounter, contacts, pedestrians, episode, collisions and series window.
-
-    Give an ``encounter_id`` ("why was this encounter risky"), a ``contact_id`` ("why was this contact
-    attributed to the robot") or just an ``episode_id`` ("everything that happened in this episode").
-    Unknown ids are a typed error naming the table, never a stack trace.
-    """
+    """One interaction explained by its Star Schema rows, selected by ``encounter_id``, ``contact_id`` or ``episode_id``."""
     if encounter_id is None and contact_id is None and episode_id is None:
         raise ToolError(
             "pass encounter_id, contact_id or episode_id",
@@ -293,11 +284,7 @@ def evaluation_worst_encounters(
         pydantic.Field(description="override direction when dim_metrics has NULL direction"),
     ] = None,
 ) -> EncounterRankingResponse:
-    """The encounters ranked worst first by one declared measure, reading direction from dim_metrics.
-
-    "Worst" is the opposite of the measure's declared direction, so ``min_clearance_m`` ranks the
-    closest encounter first and ``duration_s`` the longest. Nulls never outrank a measured value.
-    """
+    """The encounters ranked worst first by one declared measure, opposite to its declared direction, nulls last."""
     declared = FACT_TABLES[FactTable.ENCOUNTERS].polars_schema()
     if metric not in declared.names():
         raise ToolError(

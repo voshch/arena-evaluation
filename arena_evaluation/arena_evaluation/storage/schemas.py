@@ -239,8 +239,7 @@ class AlignedEpisodeBundle:
     peds: pl.DataFrame | None = None
     map: str | None = None
     topics: dict[str, pl.DataFrame] | None = None
-    # 1NF series frames of this robot episode by table stem, populated before scope evaluation so
-    # calculators with SERIES_DEPENDS_ON read the published tables instead of retired list outputs.
+    # 1NF series frames of this robot episode by table stem, populated before scope evaluation.
     series: dict[str, pl.DataFrame] = field(default_factory=dict)
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None

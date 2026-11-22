@@ -1,4 +1,4 @@
-"""End-to-end declaration migration on the merged tree (FIX11, item 7)."""
+"""End-to-end declaration migration on the merged tree."""
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ SOCIAL_COLUMNS = {
 def _social_run(tmp_path: pathlib.Path) -> pathlib.Path:
     from arena_evaluation.processing.metrics import MetricRegistry
 
-    # The fact schema grows from the shared metric store; load it before writing the rows.
     MetricRegistry.discover_calculators_cls()
     run_dir = tmp_path / "data" / "benchmarks" / "legacy_loop"
     write_benchmark(

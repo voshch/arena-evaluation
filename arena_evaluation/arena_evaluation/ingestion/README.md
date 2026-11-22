@@ -216,7 +216,7 @@ A present but unrecognised episode or fleet schema is `unknown` and is refused w
 - Report: every run writes `migration_report.yaml` with the generation, mapped fields, fallbacks, unsupported constructs and error of each episode, plus the retired files.
 - Failure: an episode that cannot be mapped is recorded as failed and the remaining episodes still migrate. The command exits non-zero with the list of failed episodes; a failed episode keeps its topics and YAML as they were.
 - Flags (exposed by the CLI): `--dry-run` detects and reports without writing, `--force` re-extracts even when the cache is current, `--report <path>` writes the report elsewhere.
-- Limits: one MCAP per episode folder (continuous recordings split by an EpisodeRecord are out of scope, D-05); no back-fill of missing measurements; old processed values are quarantined and recomputed, never imported; `progress.csv` is runner state and is not migrated.
+- Limits: one MCAP per episode folder (continuous recordings split by an EpisodeRecord are out of scope); no back-fill of missing measurements; old processed values are quarantined and recomputed, never imported; `progress.csv` is runner state and is not migrated.
 - `legacy_2026_09` records that predate `human_params`/`conditions`/`phases` are migrated with those fields NULL (`not_recorded`); a fleet of any generation without `robot_radius`/`robot_mass_kg` gets them backfilled from the installed `arena_robots` definition. After a forced `process --force-extract`, re-run `evaluation migrate --force` before processing (the re-extraction rewrites the backfilled parameter rows).
 
 The full generation table, NULL mapping, descriptor synthesis rule, `migration_report.yaml` schema and

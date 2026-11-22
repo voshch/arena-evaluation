@@ -1,4 +1,4 @@
-"""Contract tests for PR5/H3: named analyses, synthetic truth, and sensitivity reruns."""
+"""Contract tests: named analyses, synthetic truth, and sensitivity reruns."""
 
 from __future__ import annotations
 

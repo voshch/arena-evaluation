@@ -1,4 +1,4 @@
-"""Noisy synthetic benchmark for the H6 proof: a known effect, a non-zero-width CI."""
+"""Noisy synthetic benchmark for the hypothesis-to-report proof: a known effect, a non-zero-width CI."""
 
 from __future__ import annotations
 

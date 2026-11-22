@@ -1,4 +1,4 @@
-"""Regression tests for verifying findings on computation evidence (L3-021)."""
+"""Regression tests for verifying findings on computation evidence."""
 
 from __future__ import annotations
 

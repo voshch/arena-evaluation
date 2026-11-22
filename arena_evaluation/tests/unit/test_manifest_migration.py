@@ -1,4 +1,4 @@
-"""Golden tests for the legacy report-manifest converter (Round-2, R2-9)."""
+"""Golden tests for the legacy report-manifest converter."""
 
 from __future__ import annotations
 

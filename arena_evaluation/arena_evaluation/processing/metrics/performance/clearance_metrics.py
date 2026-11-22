@@ -112,8 +112,6 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
 
     @classmethod
     def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
-        # A window may legitimately lack an optional sensor stream; a missing stream is then per-metric
-        # `no_samples`, not a row-level `topic_missing` that would block the whole encounter.
         return () if scope == MetricScope.ENCOUNTER else super().required_topics_for_scope(scope)
 
     @staticmethod
@@ -147,11 +145,7 @@ class ClearanceMetricsCalculator(BaseMetricCalculator):
         pos_y: np.ndarray,
         peds_df: pl.DataFrame | None,
     ) -> np.ndarray:
-        """Per-sample clearance to the nearest pedestrian, each body's recorded radius subtracted.
-
-        A nearest pedestrian whose radius is null or NaN raises :class:`MetricInputError` because the
-        clearance would be an invented number.
-        """
+        """Per-sample clearance to the nearest pedestrian, each body's recorded radius subtracted."""
         if peds_df is None or len(peds_df) == 0:
             return np.full(len(t_ns), np.nan)
         nearest = distances_to_pedestrians(t_ns, pos_x, pos_y, peds_df, TRACK_ALIGN_TOLERANCE_NS).sort(["row", "distance"]).group_by("row", maintain_order=True).first()

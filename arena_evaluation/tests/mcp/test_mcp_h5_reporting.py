@@ -1,4 +1,4 @@
-"""Contract tests for PR5/H5: reviewed report loop, new plot types, appendix failures, and exports."""
+"""Contract tests: reviewed report loop, new plot types, appendix failures, and exports."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Regression tests for attaching findings to the report the assembler writes (H-002, H-016)."""
+"""Regression tests for attaching findings to the report the assembler writes."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def test_attach_without_a_report_name_uses_the_report_the_assembler_writes(run_d
     """The default attach target is the report evaluation_report_assemble writes."""
     pinned = query.evaluation_query(RUN_ID, EPISODE_IDS_SQL, pin_evidence=True)
     finding_id = _verified_finding("episode ids are recorded", pinned["evidence_id"])
-    draft = reporting.evaluation_report_draft(run_id=RUN_ID, title="FIX8 attach")
+    draft = reporting.evaluation_report_draft(run_id=RUN_ID, title="Attach")
     reporting.evaluation_report_assemble(run_id=RUN_ID, draft_id=draft["draft_id"])
 
     attached = evaluation_finding_attach(RUN_ID, finding_id)

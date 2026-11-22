@@ -28,12 +28,7 @@ def file_lock(path: pathlib.Path) -> Iterator[None]:
 
 @contextlib.contextmanager
 def staged_temp_path(path: pathlib.Path) -> Iterator[pathlib.Path]:
-    """Yield a sibling temporary path, renaming it onto ``path`` on success.
-
-    The caller writes the temporary file (text, bytes or Parquet); the context flushes it
-    and replaces ``path`` in one ``os.replace``. A failed body removes the temporary file
-    and leaves the original untouched.
-    """
+    """Yield a sibling temporary path, renaming it onto ``path`` on success and removing it on failure."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         mode = stat.S_IMODE(path.stat().st_mode)

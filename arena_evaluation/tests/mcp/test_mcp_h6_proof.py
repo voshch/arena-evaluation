@@ -1,4 +1,4 @@
-"""Contract proof tests for PR5/H6: scripted hypothesis-to-report loop over MCPServer."""
+"""Contract proof tests: scripted hypothesis-to-report loop over MCPServer."""
 
 from __future__ import annotations
 

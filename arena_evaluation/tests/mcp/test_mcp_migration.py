@@ -1,4 +1,4 @@
-"""Round-2 migration tools: the MCP adapter over the L4 legacy converter."""
+"""Migration tools: the MCP adapter over the legacy converter."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def _legacy_file(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 def test_migrate_manifest_refuses_with_a_hint_when_the_converter_is_absent(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    """Without the merged L4 converter the tool refuses loudly instead of inventing a migration."""
+    """Without the merged converter the tool refuses loudly instead of inventing a migration."""
     monkeypatch.setitem(sys.modules, _CONVERTER, None)
     with pytest.raises(ToolError, match="legacy manifest converter"):
         migration.evaluation_migrate_manifest(str(_legacy_file(tmp_path)))

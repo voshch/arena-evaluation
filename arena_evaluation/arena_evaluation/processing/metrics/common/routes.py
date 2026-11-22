@@ -85,15 +85,7 @@ def route_waypoints(
     phases: typing.Mapping[str, object] | None,
     topics: typing.Mapping[str, pl.DataFrame] | None,
 ) -> tuple[tuple[float, float], ...]:
-    """Mission waypoints in order: the start and every commanded task goal.
-
-    The route is the mission the robot was given, so a goal it did not reach stays in the
-    reference: filtering to reached goals would shorten the mission after the fact and make
-    ``path_efficiency`` and ``spl_geodesic`` disagree about the same episode. The recorded task
-    phases are authoritative; archived recordings made before phases were recorded fall back to
-    the distinct plan goals, and a single-leg episode then reduces to start -> goal. Without any
-    commanded goal the final goal is the reference.
-    """
+    """Mission waypoints in order: the start and every commanded task goal, reached or not."""
     commanded = _phase_waypoints(phases) or _planned_waypoints(topics)
     points: list[tuple[float, float]] = [start_pt]
     for waypoint in commanded:
@@ -105,10 +97,7 @@ def route_waypoints(
 
 
 def _truncate_to_goal_region(points: np.ndarray, goal: tuple[float, float], tolerance_m: float) -> tuple[float, np.ndarray]:
-    """A planned route up to its first entry into the goal's arrival radius: its length, and its points ending on the entry.
-
-    A route that never enters the radius is measured whole, so an unreached goal stays in the reference.
-    """
+    """A planned route up to its first entry into the goal's arrival radius: its length, and its points ending on the entry."""
     if math.dist(points[0], goal) <= tolerance_m:
         return 0.0, points[:1]
     kept: list[np.ndarray] = [points[0]]
@@ -130,12 +119,7 @@ def _truncate_to_goal_region(points: np.ndarray, goal: tuple[float, float], tole
 
 
 def plan_mission(*, grid: StaticGrid | None, waypoints: tuple[tuple[float, float], ...]) -> RouteResult:
-    """Whole-mission route: the per-leg routes in order, each leg ending on its goal's arrival radius.
-
-    The radius is the one that defines reaching a goal (time_metrics), so the reference and the
-    mission's completion agree. Every commanded goal stays in the mission, reached or not, and the
-    next leg starts at the arrival point. The first leg that cannot be planned refuses the mission.
-    """
+    """Whole-mission route: the per-leg routes in order, each leg ending on its goal's arrival radius."""
     if grid is None:
         return RouteResult(points=None, length_m=None, null_reason="no_map")
     if len(waypoints) < 2:

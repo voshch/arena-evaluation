@@ -1,4 +1,4 @@
-"""Regression tests for the MCP argv builders and the removed runner options (B-002, R-028)."""
+"""Regression tests for the MCP argv builders and the removed runner options."""
 
 from __future__ import annotations
 

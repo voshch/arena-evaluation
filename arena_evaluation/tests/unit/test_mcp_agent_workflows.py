@@ -1,4 +1,4 @@
-"""Unit tests for the WP5 analyst workflow MCP tools: interaction slices and findings."""
+"""Unit tests for the analyst workflow MCP tools: interaction slices and findings."""
 
 from __future__ import annotations
 

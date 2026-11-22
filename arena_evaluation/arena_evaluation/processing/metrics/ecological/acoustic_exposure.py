@@ -85,7 +85,7 @@ SOUND_EXPOSURE_DOSE_PA2S = define_metric(
     "sound_exposure_dose_pa2s",
     pl.Float64,
     scopes=(MetricScope.ENCOUNTER,),
-    unit="Pa²·s",
+    unit="Pa^2*s",
     description="Barrier-aware acoustic exposure dose integrated over the encounter window.",
     null_reason=True,
 )
@@ -517,13 +517,7 @@ class AcousticExposureCalculator(BaseMetricCalculator):
         return {key: f"{key}:topic_missing:world_semantics" for key in _PEDESTRIAN_KEYS}
 
     def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
-        """1NF flat pedestrian acoustic exposure series, one row per (sample, pedestrian).
-
-        `is_episode_worst_frame` marks the episode-global loudest frame for every pedestrian of that
-        frame (see the series declaration); the per-pedestrian worst instant is the published
-        `worst_case_acoustic_t_ns` metric, so a per-pedestrian filter must use the metric, not
-        this column.
-        """
+        """1NF flat pedestrian acoustic exposure series, one row per (sample, pedestrian)."""
         result = self._episode_result(episode, {})
         if not any(result.frame_exposure_dba):
             return pl.DataFrame(schema=SERIES_SCHEMA)

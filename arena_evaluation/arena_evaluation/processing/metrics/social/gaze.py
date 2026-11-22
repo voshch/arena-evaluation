@@ -145,8 +145,6 @@ class GazeMetricsCalculator(BaseMetricCalculator):
         if robot.height == 0:
             return pl.DataFrame(schema=SAMPLE_SCHEMA)
         counts = gaze_counts(robot, peds)
-        # A robot sample that matched no pedestrian looked at nobody: its count is a measured zero,
-        # not an unknown. The explicit literal states that, so no value is fabricated for a missing input.
         return (
             robot.select(pl.col("t_ns").alias("t_ns"))
             .join(counts, on="t_ns", how="left")

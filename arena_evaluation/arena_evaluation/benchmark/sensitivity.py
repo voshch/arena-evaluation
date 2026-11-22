@@ -1,4 +1,4 @@
-"""Sensitivity rerun facade of the runner layer (S2)."""
+"""Sensitivity rerun facade of the runner layer."""
 
 from __future__ import annotations
 

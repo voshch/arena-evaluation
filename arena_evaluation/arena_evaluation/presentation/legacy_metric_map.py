@@ -19,10 +19,10 @@ LEGACY_METRIC_MAP: Final[dict[str, dict[str, str]]] = {
         "time_to_goal_s": "time_to_goal",
     },
     "removed": {
-        "social_force_mean": ("D-01/PR2: stored social-force scalars were dropped; social disturbance is reported through the directional collision index (ci_mean/ci_max) and pedestrian deflection."),
-        "social_force_max": ("D-01/PR2: stored social-force scalars were dropped; see social_force_mean."),
-        "social_force_ped_mean": ("D-01/PR2: stored social-force scalars were dropped; see social_force_mean."),
-        "social_force_ped_max": ("D-01/PR2: stored social-force scalars were dropped; see social_force_mean."),
+        "social_force_mean": ("Stored social-force scalars were dropped; social disturbance is reported through the directional collision index (ci_mean/ci_max) and pedestrian deflection."),
+        "social_force_max": ("Stored social-force scalars were dropped; see social_force_mean."),
+        "social_force_ped_mean": ("Stored social-force scalars were dropped; see social_force_mean."),
+        "social_force_ped_max": ("Stored social-force scalars were dropped; see social_force_mean."),
         "total_sound_energy_joules": ("No equivalent registry metric: acoustic exposure is published as sound_exposure_dose_pa2s / the acoustic_* scalars; confirm the intended replacement before porting this plot (TODO in the migration report)."),
     },
 }

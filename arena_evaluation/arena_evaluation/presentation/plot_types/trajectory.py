@@ -76,11 +76,7 @@ def _finite_runs(mask: np.ndarray) -> list[np.ndarray]:
 
 
 def simplify_track(xs: np.ndarray, ys: np.ndarray, *, tolerance_m: float) -> tuple[np.ndarray, np.ndarray]:
-    """Douglas-Peucker simplification of one track: every dropped sample lies within ``tolerance_m`` of the line.
-
-    Corners and both ends are kept. Non-finite samples split the track into runs that stay separate
-    lines, as they do when drawn.
-    """
+    """Douglas-Peucker simplification of one track: every dropped sample lies within ``tolerance_m`` of the line."""
     x_parts: list[np.ndarray] = []
     y_parts: list[np.ndarray] = []
     for run in _finite_runs(np.isfinite(xs) & np.isfinite(ys)):
@@ -184,7 +180,6 @@ class TrajectoryRenderer(BasePlotRenderer):
 
     def render_plotly(self, df: pl.DataFrame) -> str | list[str] | None:
         """Render an interactive Plotly trajectory plot with dim_world_geometry."""
-        # differs from overhaul/source:plot_types/trajectory.py:16-18: uses dim_world_geometry; no processing/ imports, no theta*, no raster map
         if df.is_empty():
             return None
 

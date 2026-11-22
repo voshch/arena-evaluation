@@ -1,4 +1,4 @@
-"""Regression tests for free-form numbers on findings (L5-020, H-020)."""
+"""Regression tests for free-form numbers on findings."""
 
 from __future__ import annotations
 

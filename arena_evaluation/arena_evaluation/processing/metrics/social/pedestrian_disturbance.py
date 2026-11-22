@@ -104,10 +104,7 @@ def pedestrian_geometry_frame(peds: pl.DataFrame | None) -> pl.DataFrame:
 
 
 def desired_speed_mps(peds: pl.DataFrame) -> float | None:
-    """Mean recorded desired_speed of the pedestrians, None when every recorded value is non-positive.
-
-    The pedestrian track schema carries ``desired_speed``; a row that did not record one is null here.
-    """
+    """Mean recorded desired_speed of the pedestrians, None when every recorded value is non-positive."""
     values = peds["desired_speed"].drop_nulls().to_numpy().astype(np.float64)
     measured = values[np.isfinite(values) & (values > 0.0)]
     return float(np.mean(measured)) if measured.size > 0 else None

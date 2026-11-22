@@ -1,4 +1,4 @@
-"""Time alignment for the metric layer, re-exported from the processing-level module the L1 pipeline also imports."""
+"""Time alignment for the metric layer, re-exported from the processing-level module the processing pipeline also imports."""
 
 from arena_evaluation.processing.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,

@@ -17,8 +17,8 @@ _EXPERIMENTS_ROOT: pathlib.Path = pathlib.Path(experiments_package.__file__).par
 _PRESENTATION_ROOT: pathlib.Path = pathlib.Path(presentation_package.__file__).parent
 
 _STORAGE_ALLOWED: tuple[str, ...] = ("arena_evaluation.storage",)
-#: The one accepted L1->L2 edge (decision X-007): the fact schema self-loads the metric definitions
-#: (L1-019/X-001). The pin fixes the importing module and the exact symbol; any other
+#: The one accepted processing->metrics edge: the fact schema self-loads the metric definitions
+#:. The pin fixes the importing module and the exact symbol; any other
 #: storage -> processing import fails, and moving the registry into storage is post-PR work.
 _STORAGE_PINNED: dict[tuple[str, str], set[str]] = {
     (
@@ -44,8 +44,6 @@ _PRESENTATION_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.presentation",
 )
 _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
-    # X-005: the one-way lazy import that registers the config asset chain; benchmark.tree does not
-    # import this module, so it is an edge and not a cycle.
     ("manifest_registry.py", "arena_evaluation.benchmark.tree"): set(),
     (
         "plot_types/acoustic_field.py",
@@ -87,7 +85,7 @@ _PRESENTATION_PINNED: dict[tuple[str, str], set[str]] = {
     },
 }
 
-#: The one alignment implementation and the metric-layer module that re-exports it (FIX2).
+#: The one alignment implementation and the metric-layer module that re-exports it.
 _ALIGNMENT_MODULES: frozenset[str] = frozenset(
     {
         "processing/alignment.py",
@@ -379,7 +377,7 @@ def _strongly_connected(graph: dict[str, set[str]]) -> list[list[str]]:
     return components
 
 
-#: The reviewed module import cycles; the metrics one is the type-only X-008 cycle.
+#: The reviewed module import cycles; the metrics one is the type-only cycle.
 _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
     {
         # Type-only (TYPE_CHECKING) pair: exports annotates the builder it exports.
@@ -390,7 +388,7 @@ _ALLOWED_CYCLES: frozenset[frozenset[str]] = frozenset(
             }
         ),
         # The manifest identifier loads the model it identifies; the model resolves the
-        # default report by name. Presentation-internal, no cross-layer edge (X-005).
+        # default report by name. Presentation-internal, no cross-layer edge.
         frozenset(
             {
                 "arena_evaluation.presentation.manifest_identifier",

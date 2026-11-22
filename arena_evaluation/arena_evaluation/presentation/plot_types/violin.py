@@ -31,16 +31,12 @@ def _outlier_note(hidden: pl.DataFrame, groups: list[str]) -> str | None:
     counted = hidden.filter(pl.col("hidden") > 0).to_dicts()
     if not counted:
         return None
-    parts = [f"{' · '.join('NULL' if row[group] is None else str(row[group]) for group in groups) or 'all'} {row['hidden']}" for row in counted]
+    parts = [f"{' / '.join('NULL' if row[group] is None else str(row[group]) for group in groups) or 'all'} {row['hidden']}" for row in counted]
     return f"{_NOTE_LEAD} {', '.join(parts)}"
 
 
 class ViolinRenderer(BasePlotRenderer):
-    """Renders distribution violin plots using Plotly and Seaborn.
-
-    Values beyond 1.5 IQR of their group are left out of the drawing and the drawing names how many
-    were left out. The data itself is not changed.
-    """
+    """Renders distribution violin plots using Plotly and Seaborn, leaving out values beyond 1.5 IQR of their group and naming how many."""
 
     PLOT_TYPE = "violin"
     SUPPORTED_OPTIONS: ClassVar[frozenset[str]] = BasePlotRenderer.SUPPORTED_OPTIONS
