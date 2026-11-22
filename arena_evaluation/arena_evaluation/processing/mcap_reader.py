@@ -81,7 +81,6 @@ _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
     "robot_odom_controller": ("odom_x", "odom_y"),
     "robot_initialpose": ("pos_x", "pos_y"),
     "robot_goal_pose": ("pos_x", "pos_y"),
-    "robot_task_pose": ("pos_x", "pos_y"),
     "robot_plans": ("x", "y"),
     "robot_collision_contacts": ("obstacle_x", "obstacle_y"),
     "pedestrian_arena_peds": ("x", "y"),

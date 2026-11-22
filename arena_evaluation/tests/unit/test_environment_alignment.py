@@ -107,16 +107,30 @@ def test_stored_obstacles_of_collision_contacts_are_in_the_environment_frame(
     assert contact["obstacle_z"] == 0.0
 
 
-def test_stored_task_poses_and_odometry_are_in_the_environment_frame(
-    topics: pathlib.Path,
-) -> None:
+def test_stored_odometry_is_in_the_environment_frame(topics: pathlib.Path) -> None:
+    mcap_reader.align_to_environment(topics, PEDESTRIAN_FRAMES)
+
+    odom = _stored(topics, "robot_odom")
+
+    assert (odom["odom_x"], odom["odom_y"]) == pytest.approx((0.5, 0.5))
+
+
+def test_stored_task_poses_stay_where_the_judge_published_them(topics: pathlib.Path) -> None:
     mcap_reader.align_to_environment(topics, PEDESTRIAN_FRAMES)
 
     task = _stored(topics, "robot_task_pose")
-    odom = _stored(topics, "robot_odom")
 
-    assert (task["pos_x"], task["pos_y"]) == pytest.approx((2.0, 2.0))
-    assert (odom["odom_x"], odom["odom_y"]) == pytest.approx((0.5, 0.5))
+    assert (task["pos_x"], task["pos_y"]) == pytest.approx((12.0, 22.0))
+
+
+def test_stored_task_poses_meet_the_ground_truth_track_after_alignment(topics: pathlib.Path) -> None:
+    _write(topics, "robot_task_pose", [_robot(AT_50_NS, pos_x=0.5, pos_y=0.5, yaw=0.0)])
+    mcap_reader.align_to_environment(topics, PEDESTRIAN_FRAMES)
+
+    task = _stored(topics, "robot_task_pose")
+    track = _stored(topics, "robot_tracks")
+
+    assert (task["pos_x"], task["pos_y"]) == pytest.approx((track["x"], track["y"]))
 
 
 def test_stored_pedestrians_and_the_environment_map_are_in_the_environment_frame(
