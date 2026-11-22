@@ -284,3 +284,18 @@ def test_joints_and_power_work_with_production_aligned_schema():
     joints_out = calc.calculate(joints_only, {})
     assert joints_out["char_sample_count"] == 3
     assert joints_out["char_leq_dba"] is None
+
+
+def test_a_power_stream_without_samples_in_the_window_leaves_the_power_series_null():
+    sample = _sample_episode()
+    frame = sample.data.drop(["total_power_w", "total_level_af_dba"])
+    empty_power = pl.DataFrame(schema={"t_ns": pl.Int64, "total_power_w": pl.Float64, "total_mech_power_w": pl.Float64})
+    empty_acoustics = pl.DataFrame(schema={"t_ns": pl.Int64, "total_level_af_dba": pl.Float64})
+    ep = _episode(frame, topics={"robot_power": empty_power, "robot_acoustics": empty_acoustics})
+    calc = _calc()
+    out = calc.calculate(ep, {})
+
+    assert out["char_mean_efficiency"] is None
+    assert out["char_leq_dba"] is None
+    series = _series(calc, ep)
+    assert series["dba"].is_null().all()

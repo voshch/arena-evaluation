@@ -270,9 +270,9 @@ class CharacterizationCalculator(BaseMetricCalculator):
         )
 
         topics = self.native_topics(episode)
-        has_power = "robot_power" in topics
+        has_power = "total_power_w" in out.columns
         has_joints = "robot_joint_states" in topics
-        has_acoustics = "robot_acoustics" in topics
+        has_acoustics = "total_level_af_dba" in out.columns
 
         if has_joints:
             joints_table = (
@@ -289,7 +289,7 @@ class CharacterizationCalculator(BaseMetricCalculator):
                 joints_table.select(["t_ns", "_p_mech"]),
                 tolerance_ns=TRACK_ALIGN_TOLERANCE_NS,
             )
-        elif has_power:
+        elif "total_mech_power_w" in out.columns:
             out = out.with_columns(pl.col("total_mech_power_w").cast(pl.Float64).alias("_p_mech"))
         else:
             out = out.with_columns(pl.lit(None, dtype=pl.Float64).alias("_p_mech"))
