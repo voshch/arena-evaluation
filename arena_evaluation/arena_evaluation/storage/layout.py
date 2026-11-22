@@ -53,8 +53,8 @@ def _native_tables() -> tuple[type[Table], ...]:
 
 
 def registry_schema_hash() -> str:
-    """The SHA-256 over every native table name and Polars schema, sorted by stored name."""
-    entries = sorted((table.file_name().removesuffix(".parquet"), str(table.polars_schema())) for table in _native_tables())
+    """The SHA-256 over every native table name and its columns with their Polars types, independent of column order."""
+    entries = sorted((table.file_name().removesuffix(".parquet"), str(sorted((column, str(dtype)) for column, dtype in table.polars_schema().items()))) for table in _native_tables())
     payload = "\n".join(f"{name}\0{schema}" for name, schema in entries)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

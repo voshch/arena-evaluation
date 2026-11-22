@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import pathlib
+import subprocess
+import sys
 
 import polars as pl
 import pytest
@@ -145,3 +147,18 @@ def test_retiring_keeps_a_current_benchmark_stamp(tmp_path: pathlib.Path) -> Non
     retire_legacy_outputs(root)
 
     assert (root / "benchmark_layout.yaml").is_file()
+
+
+@pytest.mark.parametrize(
+    "imports",
+    [
+        "import arena_evaluation.ingestion.migrate",
+        "import arena_evaluation.cli",
+        "import arena_evaluation.processing.metrics.performance.search_metrics",
+    ],
+)
+def test_the_schema_hash_does_not_depend_on_which_module_registered_the_metrics_first(imports: str) -> None:
+    probe = f"{imports}\nfrom arena_evaluation.storage.layout import registry_schema_hash\nprint(registry_schema_hash())"
+    reference = "from arena_evaluation.storage.layout import registry_schema_hash\nprint(registry_schema_hash())"
+    hashes = [subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()[-1] for code in (probe, reference)]
+    assert hashes[0] == hashes[1]
