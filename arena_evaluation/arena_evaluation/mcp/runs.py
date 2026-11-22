@@ -1012,7 +1012,7 @@ async def evaluation_pipeline(
     workers: Workers = None,
     profile: Profile = False,
 ) -> dict[str, Any]:
-    """Start `arena evaluation run` as a job: re-extract, process and report in one go."""
+    """Start `arena evaluation run` as a job: extract from the cache, process and report in one go."""
     return await pipeline_job(
         "run",
         run_ids,

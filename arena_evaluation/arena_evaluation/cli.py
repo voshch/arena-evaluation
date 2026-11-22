@@ -184,10 +184,15 @@ Examples:
         parents=[run_parent],
         help="Layer 1: Extract topics from MCAP into fast Parquet files (cache).",
     )
-    subparsers.add_parser(
+    run_parser = subparsers.add_parser(
         "run",
         parents=[run_parent],
-        help="Full pipeline: Extract MCAP (overwrite) -> Process -> Parquet -> HTML report.",
+        help="Full pipeline: Extract MCAP (cached by default) -> Process -> Parquet -> HTML report.",
+    )
+    run_parser.add_argument(
+        "--force-extract",
+        action="store_true",
+        help="Force re-extraction of MCAP files, overwriting the topic cache and any migration backfill in it.",
     )
     process_parser = subparsers.add_parser(
         "process",
@@ -350,8 +355,6 @@ Examples:
     failed: list[pathlib.Path] = []
     if args.command in ("extract", "run", "process"):
         force_extract = args.force_extract
-        if args.command == "run":
-            force_extract = True
 
         if args.run_dir:
             for run_dir in args.run_dir:
