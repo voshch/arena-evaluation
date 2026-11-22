@@ -1,3 +1,4 @@
+import collections.abc
 import pathlib
 import re
 import signal
@@ -5,6 +6,7 @@ import subprocess
 import sys
 import time
 
+import domain_coordinator
 import pytest
 import yaml
 
@@ -15,6 +17,15 @@ RATE_HZ = 1000.0
 RESET_AT_S = 100.0
 ROSTER_HZ = 30.0
 HISTORY_PUBLISHED = "history published"
+
+
+@pytest.fixture(autouse=True)
+def _private_ros_domain(monkeypatch: pytest.MonkeyPatch) -> collections.abc.Iterator[None]:
+    """Run the recorder and its driver on a ROS domain held for the test against every other domain_coordinator claimer."""
+    domains = iter(range(120, 230))
+    with domain_coordinator.domain_id(selector=lambda: next(domains)) as domain:
+        monkeypatch.setenv("ROS_DOMAIN_ID", str(domain))
+        yield
 
 
 def _drive() -> None:
