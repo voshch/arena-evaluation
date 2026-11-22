@@ -92,11 +92,26 @@ def _not_found(name: str, hint: str) -> ToolError:
 
 
 def _validated_spec(parsed: dict[str, Any], label: str, hint: str) -> PlotSpec:
-    """Validate ``parsed`` as a PlotSpec, naming its origin by ``label`` in the error."""
+    """Validate ``parsed`` as a PlotSpec and verify its type and options against RENDERER_REGISTRY."""
+    from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
+
     try:
-        return PlotSpec.model_validate(parsed)
+        spec = PlotSpec.model_validate(parsed)
     except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
         raise ToolError(f"Invalid PlotSpec schema{label}: {exc}", hint=hint) from exc
+    renderer_cls = RENDERER_REGISTRY.get(spec.type)
+    if renderer_cls is None:
+        raise ToolError(
+            f"Invalid PlotSpec schema{label}: unknown plot type {spec.type!r}; supported: {sorted(RENDERER_REGISTRY)}",
+            hint=hint,
+        )
+    unknown_options = sorted(set(spec.options) - set(renderer_cls.SUPPORTED_OPTIONS))
+    if unknown_options:
+        raise ToolError(
+            f"Invalid PlotSpec schema{label}: unknown option(s) {unknown_options} for plot type {spec.type!r}; supported: {sorted(renderer_cls.SUPPORTED_OPTIONS)}",
+            hint=hint,
+        )
+    return spec
 
 
 def _render_error(plot_id: str | None, exc: Exception) -> ToolError:
