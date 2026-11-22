@@ -14,6 +14,7 @@ from typing import Final
 import numpy as np
 
 from arena_evaluation.storage.exceptions import MetricInputError
+from arena_evaluation.storage.registry import NullReason
 
 MAX_PATH_CELLS = 4096
 MIN_SEARCH_ITERATIONS: Final = 10000
@@ -64,6 +65,7 @@ class RouteResult:
     points: np.ndarray | None
     length_m: float | None
     null_reason: str | None
+    refusal: str | None = None
 
 
 def plan_route(grid: StaticGrid, start_xy: tuple[float, float], goal_xy: tuple[float, float]) -> RouteResult:
@@ -263,4 +265,4 @@ def _polyline_length(points: np.ndarray) -> float:
 
 
 def _refused(reason: str) -> RouteResult:
-    return RouteResult(points=None, length_m=None, null_reason=reason)
+    return RouteResult(points=None, length_m=None, null_reason=NullReason.NOT_APPLICABLE.value, refusal=reason)

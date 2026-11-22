@@ -103,7 +103,7 @@ def test_gap_below_two_radii_is_blocked_and_gap_of_two_radii_is_passable():
 
     blocked = plan_route(_grid(free=room, walls=walls_with_gap(0.5)), (4.0, 4.25), (6.0, 4.25))
     passable = plan_route(_grid(free=room, walls=walls_with_gap(0.7)), (4.0, 4.35), (6.0, 4.35))
-    assert blocked.null_reason == "no_path"
+    assert (blocked.null_reason, blocked.refusal) == ("not_applicable", "no_path")
     assert passable.null_reason is None
     assert passable.length_m == pytest.approx(2.0)
 
@@ -129,6 +129,6 @@ def test_endpoint_inside_the_inflated_area_gives_an_explicit_null(start, goal, r
         footprints=(shapely.box(4.0, 4.0, 6.0, 6.0),),
     )
     path = plan_route(grid, start, goal)
-    assert path.null_reason == reason
+    assert (path.null_reason, path.refusal) == ("not_applicable", reason)
     assert path.points is None
     assert path.length_m is None

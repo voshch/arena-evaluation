@@ -19,7 +19,7 @@ from arena_evaluation.processing.metrics.performance.vln_metrics import (
 from arena_evaluation.processing.path.static_environment import (
     build_static_grid_from_parts,
 )
-from arena_evaluation.processing.path.theta_star import StaticGrid
+from arena_evaluation.processing.path.theta_star import StaticGrid, plan_route
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 from robot_params_factory import make_robot_params
 
@@ -256,16 +256,17 @@ def test_goal_inputs_label_names_derived_inputs(inputs, gotos, instructions, lab
         ((2.0, 3.0), (15.0, 10.0), "goal_outside_grid"),
     ],
 )
-def test_refused_ne_route_carries_the_planner_reason(final, goal, reason) -> None:
+def test_refused_ne_route_is_not_applicable_and_the_planner_names_why(final, goal, reason) -> None:
     grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
     out = _run(_episode([START, final], "vln_refused_ne_route", goal=goal), grid, success=False)
     assert out["ne"] is None
-    assert out["ne_null_reason"] == reason
+    assert out["ne_null_reason"] == "not_applicable"
+    assert plan_route(grid, final, goal).refusal == reason
 
 
-def test_refused_route_returns_the_planner_reason() -> None:
+def test_refused_route_returns_a_vocabulary_null_reason() -> None:
     grid = StaticGrid(origin_xy=(0.0, 0.0), resolution_m=RES, lethal=np.zeros((50, 50), dtype=bool))
     assert _within(grid, (14.0, 10.0), (3.0, 3.0), TOLERANCE) == (
         False,
-        "start_outside_grid",
+        "not_applicable",
     )

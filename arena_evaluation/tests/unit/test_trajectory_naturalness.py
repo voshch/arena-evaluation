@@ -167,7 +167,7 @@ def test_diverged_first_sample_is_refused_without_a_straight_line_reference(
     )
 
     assert res["theta_star_length"] is None
-    assert res["theta_star_length_null_reason"] == "endpoint_not_finite"
+    assert res["theta_star_length_null_reason"] == "not_applicable"
     assert res["fde"] == pytest.approx(2.95)
     assert res["mhd"] is None
 
