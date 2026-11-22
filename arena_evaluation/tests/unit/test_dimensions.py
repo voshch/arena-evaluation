@@ -122,6 +122,22 @@ def _episode(episode_id: int, bundles: dict[str, TopicBundle]) -> dict[str, pl.D
     return episode_dimensions(run_id="bench", episode_id=episode_id, metadata=_metadata(), bundles=bundles)
 
 
+def test_the_seed_is_the_episodes_own_not_the_latched_or_the_next_queued_one():
+    lifecycle = pl.DataFrame(
+        {
+            "t_ns": [50, 60, 100, 900, 900],
+            "outcome_state": [3, 1, 1, 2, 0],
+            "seed": [6, 7, 7, 7, 8],
+            "start_t_ns": [None, 60, 60, 60, None],
+        }
+    )
+    bundle = _bundle()
+    bundle.episode_lifecycle = lifecycle
+    assert _episode(0, {"jackal": bundle})["dim_episodes"]["seed"].to_list() == [7]
+    bundle.episode_lifecycle = lifecycle.drop("seed").with_columns(seed=pl.lit(None, dtype=pl.Int64))
+    assert _episode(0, {"jackal": bundle})["dim_episodes"]["seed"].to_list() == [None]
+
+
 def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
     tmp_path: pathlib.Path,
 ):

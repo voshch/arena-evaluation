@@ -32,6 +32,7 @@ _ROBOT_PARAMETERS = (
 _TEXT_PARAMETERS = frozenset({"lidar_variant"})
 _NUMERIC_PARAMETERS = tuple(name for name in _ROBOT_PARAMETERS if name not in _TEXT_PARAMETERS)
 _NS_PER_SECOND = 1_000_000_000
+_RECORD_RUNNING = 1
 _ENTITY_FIELDS = ("zone", "activation_dist", "acoustic_tl_db", "initial_state")
 _PEDESTRIAN_CORE_FIELDS = {
     "ped_name": "ped_name",
@@ -226,10 +227,11 @@ def _stamped(frame: pl.DataFrame, run_id: str, episode_id: int, env_id: str) -> 
 def _seed_and_duration(
     lifecycle: pl.DataFrame | None,
 ) -> tuple[int | None, float | None]:
-    """The one recorded seed and the episode window from its first start stamp to its last lifecycle stamp."""
+    """The seed of the records the episode ran under and its window from its first start stamp to its last lifecycle stamp."""
     if lifecycle is None or lifecycle.height == 0:
         return None, None
-    seeds = lifecycle.get_column("seed").drop_nulls().unique()
+    running = lifecycle.filter(pl.col("outcome_state") == _RECORD_RUNNING)
+    seeds = (lifecycle if running.height == 0 else running).get_column("seed").drop_nulls().unique()
     seed = int(seeds.item()) if seeds.len() == 1 else None
     starts = lifecycle.get_column("start_t_ns").drop_nulls()
     if starts.len() == 0:

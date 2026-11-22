@@ -10,6 +10,7 @@ contrasts and its family of hypotheses, so it runs as its own command over a pro
 | `social.py` | A'/C, a planner that can read the interaction | `on` vs `off` (gesture + interaction ids + social cost layer) | `python -m arena_evaluation.experiments.social {generate,analyze}` |
 | `group.py` | C, the robot crossing a standing conversation | route and clearance measurement about the formation | `python -m arena_evaluation.experiments.group measure` |
 | `beckon.py` | B, a person beckons the robot over | walk-to vs ignore | `python -m arena_evaluation.experiments.beckon {generate,analyze}` |
+| `usar.py` | USAR search, a driver that stops to listen | `usar_sweep` contestants vs the `usar_baseline` driver that never stops | `python -m arena_evaluation.experiments.usar analyze` |
 | `blend_quality.py` | locomotion blend quality | replanned vs nominal trajectory | `python -m arena_evaluation.experiments.blend_quality` |
 
 `python -m <module> --help` is the console entry of every study; there is no separate `arena` verb for

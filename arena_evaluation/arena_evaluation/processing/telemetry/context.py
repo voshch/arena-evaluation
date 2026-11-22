@@ -200,6 +200,13 @@ def record_characterization_phase(sink: TableSink, envelope: Envelope[RosString]
     )
 
 
+def record_hearing_search_state(sink: TableSink, envelope: Envelope[RosString]) -> None:
+    sink.append(
+        "robot_hearing_search_state",
+        robot_row(envelope, state=str(envelope.body.data)),
+    )
+
+
 class ScheduleRecorder:
     """Keeps the characterization schedule the sweep actually ran: the latest valid payload per robot wins."""
 

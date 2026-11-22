@@ -61,7 +61,7 @@ Pedestrians and world entities are read once per environment, not once per robot
 
 The native tables are declared once in `storage/registry/telemetry.py`; this folder fills them.
 
-- robot: `robot_tracks`, `robot_odom`, `robot_cmd_vel`, `robot_scan_summary`, `robot_joint_states`, `robot_power`, `robot_collision_events`, `robot_plans`, `robot_descriptor`, `robot_params`, and the other `robot_*` tables
+- robot: `robot_tracks`, `robot_odom`, `robot_cmd_vel`, `robot_scan_summary`, `robot_joint_states`, `robot_power`, `robot_collision_events`, `robot_plans`, `robot_descriptor`, `robot_params`, `robot_hearing_search_state` (the search driver's latched JSON, read by `search_metrics`), and the other `robot_*` tables
 - pedestrian: `pedestrian_arena_peds`, `pedestrian_agent_states`, `pedestrian_gestures`, `pedestrian_animations`, `pedestrian_interactions`, `pedestrian_interaction_events`
 - episode and world: `episode_lifecycle`, `episode_integrity`, `world_semantics`
 - transforms: `tf`, `tf_static`

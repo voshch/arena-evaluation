@@ -193,6 +193,7 @@ class TopicBundle:
     robot_plans: pl.DataFrame | pl.LazyFrame | None = None
     robot_characterization_phase: pl.DataFrame | pl.LazyFrame | None = None
     robot_characterization_schedule: pl.DataFrame | pl.LazyFrame | None = None
+    robot_hearing_search_state: pl.DataFrame | pl.LazyFrame | None = None
     robot_initialpose: pl.DataFrame | pl.LazyFrame | None = None
     robot_task_pose: pl.DataFrame | pl.LazyFrame | None = None
     robot_goal_pose: pl.DataFrame | pl.LazyFrame | None = None
@@ -243,3 +244,5 @@ class AlignedEpisodeBundle:
     series: dict[str, pl.DataFrame] = field(default_factory=dict)
     env_offset: tuple[float, float] | None = None
     run_dir: pathlib.Path | None = None
+    window_ns: tuple[int | None, int | None] = (None, None)
+    timeout_s: float | None = None

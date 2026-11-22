@@ -1,0 +1,13 @@
+# Stop-rule sweep of the USAR study, paired against usar_baseline by experiments/usar.py: belief goals with every
+# stop rule at every listening time, one contestant per combination (listen-<stop_rule>-<listen_s>).
+# Quote false and 0 ("false"), the runner drops a bare false or 0.
+name: listen
+mobile: {driver: nav2, mapping: slam}
+acoustics: arena
+robot.hearing: call
+robot.hearing.belief.standalone.enabled: true
+robot.hearing.driver.enabled: true
+robot.hearing.driver.goal_rule: belief
+robot.hearing.driver.snap: true
+robot.hearing.driver.stop_rule: [every_goal, on_call, fixed_bend, fixed, room_entry, three_positions]
+robot.hearing.driver.listen_s: [0.5, 1.0, 1.5, 2.0, 3.0]

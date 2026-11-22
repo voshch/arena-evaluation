@@ -314,6 +314,7 @@ _ROUTES: tuple[tuple[Predicate, Handler], ...] = (
     (_topic("/acoustics"), _sink(sensors.record_acoustics)),
     (_topic("/characterization_phase"), _sink(context.record_characterization_phase)),
     (_topic("/characterization_schedule"), _recorder("_schedules")),
+    (_topic("/hearing/search_state"), _sink(context.record_hearing_search_state)),
     (_topic("/state/episode"), _episode),
     (_topic("/state/semantics"), _sink(context.record_semantics)),
     (_topic("/state/robots"), _fleet_snapshot),

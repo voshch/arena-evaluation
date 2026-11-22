@@ -351,6 +351,17 @@ class RobotCharacterizationPhase(
     label = _TEXT
 
 
+class RobotHearingSearchState(
+    _RobotTelemetry,
+    name="robot_hearing_search_state",
+    kind=TableKind.TELEMETRY,
+    scope=MetricScope.ROBOT,
+):
+    """Latched JSON state of the search driver of a robot."""
+
+    state = _TEXT
+
+
 class RobotCharacterizationSchedule(
     _RobotTelemetry,
     name="robot_characterization_schedule",

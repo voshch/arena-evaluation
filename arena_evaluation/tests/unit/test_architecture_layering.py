@@ -37,6 +37,7 @@ _EXPERIMENTS_ALLOWED: tuple[str, ...] = (
 )
 _EXPERIMENTS_PINNED: dict[tuple[str, str], set[str]] = {
     ("beckon.py", "arena_evaluation.benchmark.config"): {"_parse_duration"},
+    ("usar.py", "arena_evaluation.cli"): {"resolve_paths"},
 }
 _PRESENTATION_ALLOWED: tuple[str, ...] = (
     "arena_evaluation.storage",

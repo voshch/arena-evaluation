@@ -18,6 +18,7 @@ NS_PER_SECOND = 1_000_000_000
 _ENV_TOKEN = re.compile(r"(env_\d+)")
 _CONTROLLER_SUFFIX = "_controller"
 _POWER_PUBLISHER = "power_publisher"
+_HEARING = "hearing"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -61,13 +62,13 @@ def topic_parts(topic: str) -> list[str]:
 
 
 def robot_id_of(parts: Sequence[str], env_id: str) -> str:
-    """Robot named by the segment before the topic name; controller and power-publisher segments name their robot's parent."""
+    """Robot named by the segment before the topic name; controller, power-publisher and hearing segments name their robot's parent."""
     if len(parts) < 2:
         raise ValueError(f"{'/'.join(parts)!r} names no robot; a robot topic has a robot segment before its name")
     segment = parts[-2]
     if segment == env_id:
         return env_id
-    if segment.endswith(_CONTROLLER_SUFFIX) or segment == _POWER_PUBLISHER:
+    if segment.endswith(_CONTROLLER_SUFFIX) or segment in (_POWER_PUBLISHER, _HEARING):
         segment = parts[-3] if len(parts) >= 3 else segment
     return f"{env_id}_{segment}"
 
