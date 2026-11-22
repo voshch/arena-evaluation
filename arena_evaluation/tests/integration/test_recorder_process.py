@@ -12,6 +12,8 @@ import yaml
 
 NAMESPACE = "/recorder_process_test/env"
 RESET_NAMESPACE = "/recorder_reset_test/env"
+MISSED_NAMESPACE = "/recorder_missed_test/env"
+MISSED_START_S = 40.0
 TICKS = 3000
 RATE_HZ = 1000.0
 RESET_AT_S = 100.0
@@ -178,6 +180,77 @@ def _drive_reset(clock: str) -> None:
     rclpy.shutdown()
 
 
+def _drive_missed() -> None:
+    """Latch a finished episode and the QUEUED and RUNNING records of the next one before the recorder runs, then start, tick and finish that episode as the runner does."""
+    import rclpy
+    import rclpy.executors
+    from arena_evaluation_msgs.srv import RecordEpisode
+    from builtin_interfaces.msg import Time
+    from rclpy.qos import DurabilityPolicy, QoSProfile
+    from rosgraph_msgs.msg import Clock
+    from arena_runtime_msgs.msg import EpisodeRecord
+
+    rclpy.init()
+    node = rclpy.create_node("recorder_missed_test_driver")
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
+
+    def call(**fields: object) -> None:
+        future = client.call_async(RecordEpisode.Request(**fields))
+        executor.spin_until_future_complete(future, timeout_sec=20.0)
+        response = future.result()
+        assert response is not None and response.success, response
+
+    def tick(sim_s: float) -> None:
+        stamp_ns = round(sim_s * 1e9)
+        message = Clock()
+        message.clock.sec = stamp_ns // 1_000_000_000
+        message.clock.nanosec = stamp_ns % 1_000_000_000
+        clock.publish(message)
+
+    client = node.create_client(RecordEpisode, f"{MISSED_NAMESPACE}/start_episode")
+    records = node.create_publisher(
+        EpisodeRecord,
+        f"{MISSED_NAMESPACE}/state/episode",
+        QoSProfile(depth=20, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+    )
+    clock = node.create_publisher(Clock, "/clock", 10)
+
+    records.publish(EpisodeRecord(episode_id=6, outcome_state=EpisodeRecord.RUNNING, start_time=Time(sec=1)))
+    records.publish(EpisodeRecord(episode_id=6, outcome_state=EpisodeRecord.SUCCESS))
+    records.publish(EpisodeRecord(episode_id=7, outcome_state=EpisodeRecord.QUEUED))
+    records.publish(EpisodeRecord(episode_id=7, outcome_state=EpisodeRecord.RUNNING, start_time=Time(sec=int(MISSED_START_S))))
+    print(HISTORY_PUBLISHED, flush=True)
+
+    assert client.wait_for_service(timeout_sec=60.0)
+    deadline = time.monotonic() + 30.0
+    while min(records.get_subscription_count(), clock.get_subscription_count()) == 0 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert min(records.get_subscription_count(), clock.get_subscription_count()) > 0
+
+    for step in range(1, 31):
+        tick(MISSED_START_S + step / ROSTER_HZ)
+        time.sleep(1.0 / ROSTER_HZ)
+    call(command=RecordEpisode.Request.COMMAND_START, episode_id=7)
+    for step in range(31, 91):
+        tick(MISSED_START_S + step / ROSTER_HZ)
+        time.sleep(1.0 / ROSTER_HZ)
+    records.publish(EpisodeRecord(episode_id=7, outcome_state=EpisodeRecord.SUCCESS))
+    for step in range(91, 101):
+        tick(MISSED_START_S + step / ROSTER_HZ)
+        time.sleep(1.0 / ROSTER_HZ)
+    call(
+        command=RecordEpisode.Request.COMMAND_STOP,
+        episode_id=7,
+        outcome_state=EpisodeRecord.SUCCESS,
+        outcome_info="done",
+    )
+
+    executor.shutdown()
+    node.destroy_node()
+    rclpy.shutdown()
+
+
 def _recorder(record_dir: pathlib.Path, namespace: str) -> subprocess.Popen:
     return subprocess.Popen(
         [
@@ -209,6 +282,10 @@ def _terminate(recorder: subprocess.Popen) -> str:
 
 
 def _messages(mcap: pathlib.Path, topic: str, msg_type: type) -> list:
+    return [message for _, message in _stamped_messages(mcap, topic, msg_type)]
+
+
+def _stamped_messages(mcap: pathlib.Path, topic: str, msg_type: type) -> list:
     import rosbag2_py
     from rclpy.serialization import deserialize_message
 
@@ -219,9 +296,9 @@ def _messages(mcap: pathlib.Path, topic: str, msg_type: type) -> list:
     )
     messages = []
     while reader.has_next():
-        name, data, _ = reader.read_next()
+        name, data, stamp_ns = reader.read_next()
         if name == topic:
-            messages.append(deserialize_message(data, msg_type))
+            messages.append((stamp_ns, deserialize_message(data, msg_type)))
     return messages
 
 
@@ -332,8 +409,51 @@ def test_recorder_records_into_an_episode_whose_bag_was_left_unclosed(
     assert [path.name for path in (episode / "episode_000_unclosed_0").iterdir()] == ["episode_000_0.mcap"]
 
 
+def test_recorder_writes_the_records_its_episode_published_before_the_recorder_subscribed(tmp_path: pathlib.Path) -> None:
+    from arena_runtime_msgs.msg import EpisodeRecord
+
+    driver = subprocess.Popen(
+        [sys.executable, __file__, "missed"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    assert driver.stdout is not None
+    early = []
+    for line in driver.stdout:
+        early.append(line)
+        if line.strip() == HISTORY_PUBLISHED:
+            break
+    recorder = _recorder(tmp_path, MISSED_NAMESPACE)
+    try:
+        try:
+            driven, _ = driver.communicate(timeout=120.0)
+        except subprocess.TimeoutExpired:
+            driver.kill()
+            driven, _ = driver.communicate()
+    finally:
+        output = _terminate(recorder)
+
+    assert early and early[-1].strip() == HISTORY_PUBLISHED, "".join(early) + driven
+    assert driver.returncode == 0, driven
+    assert recorder.returncode == 0, output
+    episodes = tmp_path / "episodes"
+    assert sorted(path.name for path in episodes.iterdir() if path.is_dir()) == ["episode_000"], output
+    mcap = episodes / "episode_000" / "episode_000.mcap"
+    records = _stamped_messages(mcap, f"{MISSED_NAMESPACE}/state/episode".strip("/"), EpisodeRecord)
+    assert [(msg.episode_id, msg.outcome_state) for _, msg in records] == [
+        (7, EpisodeRecord.QUEUED),
+        (7, EpisodeRecord.RUNNING),
+        (7, EpisodeRecord.SUCCESS),
+    ], output
+    running_ns = next(stamp for stamp, msg in records if msg.outcome_state == EpisodeRecord.RUNNING)
+    assert running_ns == round(MISSED_START_S * 1e9)
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "reset":
         _drive_reset(sys.argv[2])
+    elif sys.argv[1] == "missed":
+        _drive_missed()
     else:
         _drive()

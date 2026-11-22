@@ -117,6 +117,8 @@ def _bare_node(**overrides) -> DataRecorderNode:
     node.tf_qos = object()
     node.latched_qos = object()
     node._seen_episodes = set()
+    node._record_history = {}
+    node._written_records = set()
     node.episodes_recorded = 0
     node._episode_id_offset = 0
     node.episodes_root = None

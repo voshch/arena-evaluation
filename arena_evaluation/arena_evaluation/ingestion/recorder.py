@@ -96,6 +96,13 @@ def initialpose_topic(frame_id: str, env_namespace: str) -> str:
     return f"{env_root}/{robot}/initialpose" if robot else f"{env_root}/initialpose"
 
 
+def _running_ns(history: dict[int, EpisodeRecord]) -> int | None:
+    """The sim time the episode's RUNNING record names as its start, None before one with a stamp arrived."""
+    running = history.get(EpisodeRecord.RUNNING)
+    stamp = _stamp_ns(running.start_time) if running is not None else 0
+    return stamp if stamp > 0 else None
+
+
 def _stamp_ns(stamp: Time) -> int:
     """A ROS time stamp in nanoseconds."""
     return int(stamp.sec) * _NS_PER_SECOND + int(stamp.nanosec)
@@ -165,6 +172,11 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.FATAL,
 }
 
+_EPISODE_HISTORY_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    depth=20,
+)
 _DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans", "initialpose"})
 _ENV_TOPIC_KEYS = frozenset(
     {
@@ -357,6 +369,8 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self.is_shutting_down = False
         self.episodes_recorded = 0
         self._seen_episodes = set()
+        self._record_history: dict[int, dict[int, EpisodeRecord]] = {}
+        self._written_records: set[tuple[int, int]] = set()
         self.recorded_topics: set[str] = set()
         self._recorded_rows: dict[str, RecordedTopic] = {}
         self._unresolved_types: set[str] = set()
@@ -527,6 +541,7 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)  # pyright: ignore[reportArgumentType]
             self.subs.append(sub)
             if key == "episode_record":
+                self.subs.append(self.create_subscription(msg_type, topic_name, self.episode_record_history_callback, _EPISODE_HISTORY_QOS))
                 self.get_logger().info(f"Subscribed to EpisodeRecord on {topic_name}")
             elif key == "robots_fleet":
                 self.get_logger().info(f"Subscribed to RobotFleet on {topic_name}")
@@ -712,6 +727,10 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         self.episodes_recorded += 1
         self._log_info(f"New episode detected ({source}): episode_id={episode_id}")
         self._start_episode_recording(episode_id)
+        self._record_history = {key: records for key, records in self._record_history.items() if key >= episode_id}
+        history = self._record_history.get(episode_id, {})
+        for state in sorted(history):
+            self._ingest_record(history[state], replay_before_ns=_running_ns(history))
         return True
 
     def _stop_episode(self, episode_id: int, outcome_state: int = 0, outcome_info: str = "") -> None:
@@ -757,9 +776,23 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
         outcome_label = _OUTCOME_LABELS.get(outcome_state, f"UNKNOWN({outcome_state})")
         self._log_info(f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}")
 
+        self._record_history.setdefault(int(msg.episode_id), {})[int(outcome_state)] = msg
         if msg.episode_id not in self._seen_episodes and outcome_state == EpisodeRecord.RUNNING:
             self._begin_episode(msg.episode_id, source="episode_record")
+        self._ingest_record(msg)
 
+    def episode_record_history_callback(self, msg: EpisodeRecord):
+        """Keep every record of the env's latched history, writing those of the episode being recorded."""
+        self._record_history.setdefault(int(msg.episode_id), {})[int(msg.outcome_state)] = msg
+        if int(msg.episode_id) == self.current_sim_episode_id and int(msg.episode_id) in self._seen_episodes:
+            self._ingest_record(msg, replay_before_ns=_running_ns(self._record_history[int(msg.episode_id)]))
+
+    def _ingest_record(self, msg: EpisodeRecord, replay_before_ns: int | None = None):
+        """Write one record of the current episode once, at its RUNNING stamp when it arrives after the episode began."""
+        key = (int(msg.episode_id), int(msg.outcome_state))
+        if key in self._written_records or int(msg.episode_id) != self.current_sim_episode_id:
+            return
+        self._written_records.add(key)
         self._update_metadata_from_episode(msg)
         if msg.world:
             self._snapshot_world(msg.world)
@@ -770,7 +803,10 @@ class DataRecorderNode(ROSParamServer, EpisodeWriter):
             if self._pre_clock_buffer is not None:
                 self._pre_clock_buffer.append((topic, msg))
             return
-        self._write_to_bag_at(topic, msg, self.current_time)
+        stamp = self.current_time
+        if replay_before_ns is not None and int(msg.outcome_state) <= EpisodeRecord.RUNNING:
+            stamp = min(stamp, replay_before_ns)
+        self._write_to_bag_at(topic, msg, stamp)
 
     def semantic_snapshot_callback(self, msg: bytes):
         env_namespace = self.get_namespace().strip("/")
