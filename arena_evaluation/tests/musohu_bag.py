@@ -364,10 +364,13 @@ def listed(cache: Path, *items: str) -> Path:
     return path
 
 
+BODY = {"radius_m": 0.25, "mass_kg": 70.0}
+
+
 def convert(bag: Path, out: Path, **topics: str | None) -> Path:
     pytest.importorskip("rosbag2_py")
     from arena_evaluation.adapters.musohu import MuSoHu, Topics
 
     listed(out.parent / "cache", bag.stem)
-    importer = MuSoHu(cache=out.parent / "cache", topics=Topics(**topics))
+    importer = MuSoHu(cache=out.parent / "cache", topics=Topics(**topics), **BODY)
     return out / importer.convert(bag.stem, bag, out)

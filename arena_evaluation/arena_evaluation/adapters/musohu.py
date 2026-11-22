@@ -80,6 +80,14 @@ class Topics:
 DEFAULT_TOPICS = Topics()
 
 
+@attrs.frozen
+class Body:
+    """The demonstrator's footprint radius in m and mass in kg, recorded as the robot_radius and robot_mass_kg fleet params."""
+
+    radius_m: float
+    mass_kg: float
+
+
 class MuSoHu(Importer):
     """One Dataverse bag becomes out/<bag stem>/episodes/episode_000, a reference episode of the robot model human in the recorder's layout."""
 
@@ -92,10 +100,13 @@ class MuSoHu(Importer):
         *,
         topics: Topics = DEFAULT_TOPICS,
         dataset_api: str = DATASET_API,
+        radius_m: float | str | None = None,
+        mass_kg: float | str | None = None,
     ):
         super().__init__(cache, provider)
         self.topics = topics
         self.dataset_api = dataset_api
+        self.body = None if radius_m is None or mass_kg is None else Body(float(radius_m), float(mass_kg))
         self._listing: dict | None = None
 
     @classmethod
@@ -165,13 +176,15 @@ class MuSoHu(Importer):
 
     def convert(self, item: str, src: Path, out: Path) -> str:
         self.entry(item)
+        if self.body is None:
+            raise ValueError("musohu records the demonstrator's body as the robot params: pass --param radius_m=<m> --param mass_kg=<kg>")
         run = out / item
         if run.exists():
             shutil.rmtree(run)
         types, skipped, start_ns = passthrough_types(src, wanted_topics(self.topics))
         for topic, reason in skipped:
             logger.warning("%s: %s not recorded, %s", src.name, topic, reason)
-        record_episode(run, read_bag(src, self.topics), passthrough_messages(src, types), start_ns)
+        record_episode(run, self.body, read_bag(src, self.topics), passthrough_messages(src, types), start_ns, odom_track="/tf" not in types)
         return item
 
     def attribution(self, item: str) -> Attribution:
@@ -460,13 +473,20 @@ def iso(ns: int) -> str:
 
 def record_episode(
     run: Path,
+    body: Body,
     messages: list[Message],
     passthrough: Iterable[Passed] = (),
     start_ns: int | None = None,
+    *,
+    odom_track: bool = True,
 ) -> Path:
-    """Write the mapped and the passed-through messages as run/episodes/episode_000 through the recorder's episode writer, time counted from the earlier of the first mapped message and start_ns."""
+    """Write the fleet, the mapped messages with the odometry pose as the tf track when odom_track (a bag without /tf), and the passed-through messages as run/episodes/episode_000 through the recorder's episode writer, time counted from the earlier of the first mapped message and start_ns."""
+    from arena_runtime_msgs.msg import RobotDescriptor, RobotFleet, RobotState
+    from diagnostic_msgs.msg import KeyValue
+    from geometry_msgs.msg import Transform, TransformStamped, Vector3
     from nav_msgs.msg import Odometry
     from rclpy.serialization import serialize_message
+    from tf2_msgs.msg import TFMessage
 
     from arena_evaluation.ingestion.episode_writer import EpisodeWriter
     from arena_evaluation.ingestion.metadata import IngestionMetadata
@@ -497,6 +517,25 @@ def record_episode(
     )
     metadata.recording_started_at = iso(origin_ns)
 
+    fleet = RobotFleet(
+        robots=[
+            RobotState(
+                descriptor=RobotDescriptor(name=ROBOT, model=ROBOT, ns=f"/{ROBOT_NAMESPACE}", frame=FRAME, base_frame=f"{FRAME}/base_link"),
+                params=[KeyValue(key="robot_radius", value=str(body.radius_m)), KeyValue(key="robot_mass_kg", value=str(body.mass_kg))],
+            )
+        ]
+    )
+
+    def track(odom: Odometry) -> TransformStamped:
+        position = odom.pose.pose.position
+        return TransformStamped(
+            header=odom.header,
+            child_frame_id=f"{FRAME}/base_link",
+            transform=Transform(translation=Vector3(x=position.x, y=position.y, z=position.z), rotation=odom.pose.pose.orientation),
+        )
+
+    fleet_record: Record = (origin_ns, definitions["robots_fleet"].name_template, RobotFleet, serialize_message(fleet))
+
     def mapped() -> Iterator[Record]:
         for key, t, src, twist in messages:
             topic, msg_type = types[key]
@@ -507,6 +546,8 @@ def record_episode(
                 msg.child_frame_id = robot_frame(msg.child_frame_id)
                 if twist is not None:
                     to_ros2(twist, msg.twist)
+                if odom_track:
+                    yield t, "/tf", TFMessage, serialize_message(TFMessage(transforms=[track(msg)]))
             yield t, topic, msg_type, serialize_message(msg)
 
     def passed() -> Iterator[Record]:
@@ -519,7 +560,7 @@ def record_episode(
     writer.open_episode(episode, metadata)
     written = 0
     last_ns = origin_ns
-    for t, topic, msg_type, data in heapq.merge(mapped(), passed(), key=lambda record: record[0]):
+    for t, topic, msg_type, data in heapq.merge(iter([fleet_record]), mapped(), passed(), key=lambda record: record[0]):
         writer.write_message(topic, msg_type, data, t - origin_ns)
         written += 1
         last_ns = max(last_ns, t)
