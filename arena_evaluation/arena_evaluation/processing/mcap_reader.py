@@ -32,6 +32,7 @@ from arena_evaluation.processing.telemetry.peds import (
     ENGINE_TABLE,
     PedestrianRecorder,
     agent_meta,
+    agent_meta_gains_only,
     agent_meta_without_robot_fields,
 )
 from arena_evaluation.processing.telemetry.tracks import (
@@ -223,14 +224,16 @@ def _command(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
 
 def _agent_meta(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
     schema_text = envelope.schema.data.decode("utf-8", "replace")
-    meta = (
-        agent_meta(envelope.body)
-        if legacy_schemas.agent_meta_has_crowd(schema_text)
-        else agent_meta_without_robot_fields(
+    crowd = legacy_schemas.agent_meta_crowd(schema_text)
+    if crowd == legacy_schemas.CROWD_NATIVE:
+        meta = agent_meta(envelope.body)
+    elif crowd == legacy_schemas.CROWD_GAINS:
+        meta = agent_meta_gains_only(envelope.body)
+    else:
+        meta = agent_meta_without_robot_fields(
             envelope.body,
             has_agent_type=legacy_schemas.agent_meta_has_agent_type(schema_text),
         )
-    )
     ingest._pedestrians.record_meta(envelope, meta)
 
 

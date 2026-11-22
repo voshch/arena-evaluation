@@ -445,13 +445,14 @@ class PedestrianAgentStates(
     kind=TableKind.TELEMETRY,
     scope=MetricScope.PEDESTRIAN,
 ):
-    """Crowd-engine state of each pedestrian, with the four robot-interaction settings of its agent."""
+    """Crowd-engine state of each pedestrian, with the five robot-interaction settings of its agent."""
 
     row_key: ClassVar[tuple[str, ...]] = ("env_id", "t_ns", "ped_id")
-    robot_awareness = _FLOAT32
-    robot_fov_gain = _FLOAT32
+    robot_range_offset = _FLOAT32
+    robot_fov_offset = _FLOAT32
     robot_repulsion_gain = _FLOAT32
     robot_reaction_gain = _FLOAT32
+    robot_blind = _FLAG
 
 
 class PedestrianGestures(

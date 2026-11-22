@@ -73,7 +73,7 @@ def _write_query_fixture_benchmark(root: pathlib.Path) -> pathlib.Path:
                 "episode_id": 0,
                 "env_id": "env_0",
                 "ped_id": "p0",
-                "robot_awareness": 0.0,
+                "robot_blind": True,
             }
         ],
         dimensions.DimPedestrians.polars_schema(),

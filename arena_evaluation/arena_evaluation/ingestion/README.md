@@ -202,11 +202,12 @@ Supported generations, detected from the MCAP channel and schema records:
 
 | Generation | EpisodeRecord | AgentMeta | Fleet |
 |---|---|---|---|
-| `native` | `arena_runtime_msgs` | carries the four `robot_*` settings | `RobotFleet` |
+| `native` | `arena_runtime_msgs` | carries the five `robot_*` settings | `RobotFleet` |
 | `legacy_2026_09` | `task_generator_msgs` (`tm_*` fields) | native or absent | `task_generator_msgs/RobotState[]` |
 | `legacy_2026_11` | `arena_runtime_msgs` | no `robot_*` fields | `RobotFleet` or absent |
+| `legacy_2026_11_11` | `arena_runtime_msgs` | `robot_awareness`, `robot_fov_gain` and the two gains | `RobotFleet` or absent |
 
-A present but unrecognised episode or fleet schema is `unknown` and is refused with its name. Genuinely missing constructs are reported, never invented: an absent `task_layer`, `modes` or `params` on the old EpisodeRecord is NULL (`not_recorded`); an old AgentMeta leaves `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain` and `robot_reaction_gain` NULL; a recording with no `/state/robots` fleet gets `robot_descriptor`/`robot_params` synthesised once from its recorded `RunMetadata.robot_model` and the installed `arena_robots` definition, and a missing model or definition is a hinted `MigrationError`, never a default radius or mass.
+A present but unrecognised episode or fleet schema is `unknown` and is refused with its name. Genuinely missing constructs are reported, never invented: an absent `task_layer`, `modes` or `params` on the old EpisodeRecord is NULL (`not_recorded`); an old AgentMeta leaves `robot_range_offset`, `robot_fov_offset`, `robot_repulsion_gain`, `robot_reaction_gain` and `robot_blind` NULL, and a `legacy_2026_11_11` one carries only the two gains; a recording with no `/state/robots` fleet gets `robot_descriptor`/`robot_params` synthesised once from its recorded `RunMetadata.robot_model` and the installed `arena_robots` definition, and a missing model or definition is a hinted `MigrationError`, never a default radius or mass.
 
 - Metadata: the `tm_robots`, `tm_obstacles` and `tm_modules` fields become the `robots`, `obstacles` and `modules` axes of `modes`; the nested `robots_params` and `obstacles_params` become `params` under `task.<mode>.<leaf>`. An episode with neither `modes` nor the `tm_*` fields is refused, pointing at the migration.
 - Environment: taken from the topic names, then from the transform frames. A recording that names no environment, or several, is refused.

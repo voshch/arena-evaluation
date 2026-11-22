@@ -27,13 +27,13 @@ ENGINE = pl.DataFrame(
         "ped_id": ["Pedestrian_1", "Pedestrian_1", "Pedestrian_2"],
         "t_ns": [0, 1, 0],
         "radius_m": [0.25, 0.25, 0.4],
-        "robot_awareness": [0.0, None, 1.0],
+        "robot_blind": [True, None, False],
     },
     schema={
         "ped_id": pl.String,
         "t_ns": pl.Int64,
         "radius_m": pl.Float64,
-        "robot_awareness": pl.Float32,
+        "robot_blind": pl.Boolean,
     },
 )
 
@@ -63,4 +63,4 @@ def test_recorded_constants_join_onto_each_pedestrian_row_by_ped_id() -> None:
     joined = _with_pedestrian_constants({PEDESTRIAN_ARENA_PEDS_TOPIC: ARENA, PEDESTRIAN_AGENT_STATES_TOPIC: ENGINE})[PEDESTRIAN_ARENA_PEDS_TOPIC]
 
     assert joined.get_column("radius_m").to_list() == [0.25, 0.25, 0.4]
-    assert joined.get_column("robot_awareness").to_list() == [0.0, 0.0, 1.0]
+    assert joined.get_column("robot_blind").to_list() == [True, True, False]

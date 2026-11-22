@@ -103,7 +103,7 @@ class DimRobots(_EpisodeKey, name="dim_robots", kind=TableKind.DIMENSION):
 
 
 class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSION):
-    """One row per pedestrian of each episode: its recorded attributes and its four crowd settings."""
+    """One row per pedestrian of each episode: its recorded attributes and its five crowd settings."""
 
     key = ("run_id", "episode_id", "env_id", "ped_id")
 
@@ -117,18 +117,11 @@ class DimPedestrians(_EpisodeKey, name="dim_pedestrians", kind=TableKind.DIMENSI
     spawn_y = _optional(pl.Float64, "Spawn position of the pedestrian, y.", unit="m")
     spawn_yaw = _optional(pl.Float64, "Spawn heading of the pedestrian.", unit="rad")
     waypoints_count = _optional(pl.Int64, "Number of waypoints of the pedestrian's route.")
-    robot_awareness = _optional(
-        pl.Float32,
-        unit="1",
-        description="How aware the pedestrian is of robots: 0 blind, 1 fully aware.",
-    )
-    robot_fov_gain = _optional(
-        pl.Float32,
-        unit="1",
-        description="Robot field-of-view multiplier of the pedestrian, 1 nominal.",
-    )
+    robot_range_offset = _optional(pl.Float32, "Shift of the range at which the pedestrian sees robots, capped at its vision range.", unit="m")
+    robot_fov_offset = _optional(pl.Float32, "Shift of the pedestrian's field of view for robots.", unit="deg")
     robot_repulsion_gain = _optional(pl.Float32, unit="1", description="Repulsion multiplier from robots, 1 nominal.")
     robot_reaction_gain = _optional(pl.Float32, unit="1", description="Robot reaction-range multiplier, 1 nominal.")
+    robot_blind = _optional(pl.Boolean, "Whether robots are invisible to the pedestrian.")
 
 
 class DimWorldEntities(_EpisodeKey, name="dim_world_entities", kind=TableKind.DIMENSION):

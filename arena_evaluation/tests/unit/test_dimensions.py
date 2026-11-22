@@ -49,8 +49,8 @@ def _track(stamps_s: list[float], env: str, robot: str) -> pl.DataFrame:
     )
 
 
-def _pedestrians(awareness: list[float | None], env: str) -> pl.DataFrame:
-    count = len(awareness)
+def _pedestrians(blind: list[bool | None], env: str) -> pl.DataFrame:
+    count = len(blind)
     names = [f"ped_{index}" for index in range(count)]
     return pl.DataFrame(
         {
@@ -65,12 +65,13 @@ def _pedestrians(awareness: list[float | None], env: str) -> pl.DataFrame:
             "policy": ["orca"] * count,
             "desired_speed": [1.2] * count,
             "radius_m": [0.3] * count,
-            "robot_awareness": awareness,
-            "robot_fov_gain": [1.0] * count,
+            "robot_range_offset": [0.0] * count,
+            "robot_fov_offset": [0.0] * count,
             "robot_repulsion_gain": [1.0] * count,
             "robot_reaction_gain": [1.0] * count,
+            "robot_blind": blind,
         },
-        schema_overrides={"robot_awareness": pl.Float64},
+        schema_overrides={"robot_blind": pl.Boolean},
     )
 
 
@@ -94,7 +95,7 @@ def _bundle(
     robot: str = "jackal",
     stamps: list[float] | None = None,
     params: dict[str, str] | None = None,
-    awareness: list[float | None] | None = None,
+    blind: list[bool | None] | None = None,
 ) -> TopicBundle:
     stamps = [0.0, 0.1, 0.2] if stamps is None else stamps
     descriptor = pl.DataFrame({"env_id": [env], "robot_id": [robot], "name": [robot], "model": ["turtlebot3"]})
@@ -112,8 +113,8 @@ def _bundle(
                 "param_value": list(params.values()),
             }
         )
-    if awareness is not None:
-        bundle.pedestrian_agent_states = _pedestrians(awareness, env)
+    if blind is not None:
+        bundle.pedestrian_agent_states = _pedestrians(blind, env)
     return bundle
 
 
@@ -126,8 +127,8 @@ def test_stacked_episodes_satisfy_the_contract_and_round_trip_through_parquet(
 ):
     stacked = stack(
         [
-            _episode(0, {"jackal": _bundle(awareness=[1.0])}),
-            _episode(1, {"jackal": _bundle(awareness=[0.0])}),
+            _episode(0, {"jackal": _bundle(blind=[False])}),
+            _episode(1, {"jackal": _bundle(blind=[True])}),
         ]
     )
 

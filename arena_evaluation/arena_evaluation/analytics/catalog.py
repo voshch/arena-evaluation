@@ -163,12 +163,12 @@ def _stream_total(column: str, alias: str, token: str, topic: str) -> tuple[pl.E
 
 def _crowd_condition_view(dim_peds: pl.LazyFrame) -> pl.LazyFrame:
     """Derive per-episode ``crowd_condition`` and its ``null_reason`` from ``dim_pedestrians``."""
-    non_null, min_aw, max_aw = (
-        pl.col("robot_awareness").is_not_null().sum(),
-        pl.col("robot_awareness").min(),
-        pl.col("robot_awareness").max(),
+    non_null, any_blind, all_blind = (
+        pl.col("robot_blind").is_not_null().sum(),
+        pl.col("robot_blind").any(),
+        pl.col("robot_blind").all(),
     )
-    condition = pl.when(non_null == 0).then(pl.lit(None, dtype=pl.String)).when((min_aw == 0.0) & (max_aw == 0.0)).then(pl.lit("blind")).when((min_aw == 1.0) & (max_aw == 1.0)).then(pl.lit("visible")).otherwise(pl.lit("mixed")).alias("crowd_condition")
+    condition = pl.when(non_null == 0).then(pl.lit(None, dtype=pl.String)).when(all_blind).then(pl.lit("blind")).when(~any_blind).then(pl.lit("visible")).otherwise(pl.lit("mixed")).alias("crowd_condition")
     reason = pl.when(non_null == 0).then(pl.lit(str(NullReason.NOT_RECORDED))).otherwise(pl.lit(None, dtype=pl.String)).alias("crowd_condition_null_reason")
     return dim_peds.group_by("run_id", "episode_id", "env_id").agg(condition, reason)
 

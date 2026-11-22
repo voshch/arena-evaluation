@@ -59,6 +59,23 @@ OLD_AGENT_META = (
         TIME,
     ),
 )
+_CROWD_BASE = "std_msgs/Header header\nstring[] policies\nint32[] agent_id\nstring[] name\nstring[] handedness\nstring[] agent_type\nstring[] source_name\nint32[] source_seq"
+CURRENT_AGENT_META = (
+    "arena_humansim_msgs/msg/AgentMeta",
+    _msgdef(
+        _CROWD_BASE + "\nfloat32[] robot_range_offset\nfloat32[] robot_fov_offset\nfloat32[] robot_repulsion_gain\nfloat32[] robot_reaction_gain\nbool[] robot_blind",
+        HEADER,
+        TIME,
+    ),
+)
+GAINS_AGENT_META = (
+    "arena_humansim_msgs/msg/AgentMeta",
+    _msgdef(
+        _CROWD_BASE + "\nfloat32[] robot_awareness\nfloat32[] robot_fov_gain\nfloat32[] robot_repulsion_gain\nfloat32[] robot_reaction_gain",
+        HEADER,
+        TIME,
+    ),
+)
 
 _METADATA = {
     "benchmark_id": "bench",
@@ -148,10 +165,8 @@ def test_the_september_generation_is_detected_and_mapped_without_a_native_field(
     assert row["seed"] == 7
 
 
-def test_an_old_agent_meta_leaves_the_crowd_settings_null(
-    tmp_path: pathlib.Path,
-) -> None:
-    records: list[tuple[str, tuple[str, str], dict, int]] = [
+def _crowd_records(agent_meta: tuple[str, str], crowd: dict) -> list[tuple[str, tuple[str, str], dict, int]]:
+    return [
         (
             "/env_0/state/episode",
             EPISODE_RECORD,
@@ -179,7 +194,7 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
         ),
         (
             "/env_0/agent_meta",
-            OLD_AGENT_META,
+            agent_meta,
             {
                 "header": _header(0, 0, "env_0/map"),
                 "policies": ["orca"],
@@ -189,6 +204,7 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
                 "agent_type": ["adult"],
                 "source_name": [""],
                 "source_seq": [0],
+                **crowd,
             },
             2 * SEC,
         ),
@@ -221,6 +237,12 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
             3 * SEC,
         ),
     ]
+
+
+def test_an_old_agent_meta_leaves_the_crowd_settings_null(
+    tmp_path: pathlib.Path,
+) -> None:
+    records = _crowd_records(OLD_AGENT_META, {})
     episode = _episode(tmp_path / "episode_000", records)
 
     assert legacy_schemas.detect(episode / "episode_000.mcap").name == "legacy_2026_11"
@@ -229,9 +251,65 @@ def test_an_old_agent_meta_leaves_the_crowd_settings_null(
 
     states = pl.read_parquet(episode / "topics" / "pedestrian_agent_states.parquet")
     assert states.height == 1
-    assert states["robot_awareness"].to_list() == [None]
+    assert states["robot_blind"].to_list() == [None]
     generation = legacy_schemas.detect(episode / "episode_000.mcap")
     assert any("AgentMeta has no robot_* fields" in note for note in generation.unsupported)
+
+
+def test_a_current_agent_meta_carries_the_five_crowd_settings(
+    tmp_path: pathlib.Path,
+) -> None:
+    records = _crowd_records(
+        CURRENT_AGENT_META,
+        {
+            "robot_range_offset": [-1.5],
+            "robot_fov_offset": [-30.0],
+            "robot_repulsion_gain": [0.5],
+            "robot_reaction_gain": [2.0],
+            "robot_blind": [True],
+        },
+    )
+    episode = _episode(tmp_path / "episode_000", records)
+
+    assert legacy_schemas.detect(episode / "episode_000.mcap").name == "native"
+
+    migrate_episode(episode)
+
+    row = pl.read_parquet(episode / "topics" / "pedestrian_agent_states.parquet").row(0, named=True)
+    assert row["robot_range_offset"] == pytest.approx(-1.5)
+    assert row["robot_fov_offset"] == pytest.approx(-30.0)
+    assert row["robot_repulsion_gain"] == pytest.approx(0.5)
+    assert row["robot_reaction_gain"] == pytest.approx(2.0)
+    assert row["robot_blind"] is True
+
+
+def test_the_nov_11_agent_meta_carries_only_the_two_gains(
+    tmp_path: pathlib.Path,
+) -> None:
+    records = _crowd_records(
+        GAINS_AGENT_META,
+        {
+            "robot_awareness": [0.0],
+            "robot_fov_gain": [0.3],
+            "robot_repulsion_gain": [0.5],
+            "robot_reaction_gain": [2.0],
+        },
+    )
+    episode = _episode(tmp_path / "episode_000", records)
+
+    generation = legacy_schemas.detect(episode / "episode_000.mcap")
+    assert generation.name == "legacy_2026_11_11"
+    assert any("robot_blind are NULL" in note for note in generation.unsupported)
+
+    migrate_episode(episode)
+
+    row = pl.read_parquet(episode / "topics" / "pedestrian_agent_states.parquet").row(0, named=True)
+    assert row["robot_repulsion_gain"] == pytest.approx(0.5)
+    assert row["robot_reaction_gain"] == pytest.approx(2.0)
+    assert row["robot_range_offset"] is None
+    assert row["robot_fov_offset"] is None
+    assert row["robot_blind"] is None
+    assert "robot_awareness" not in row
 
 
 def test_a_missing_robot_definition_is_a_loud_migration_error(

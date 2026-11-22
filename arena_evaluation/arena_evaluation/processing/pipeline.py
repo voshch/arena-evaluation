@@ -436,10 +436,11 @@ def _calculator_topic_names(bundle: TopicBundle) -> set[str]:
 # Per-pedestrian constants only the engine table records; joined onto the arena rows by ped_id.
 _PEDESTRIAN_CONSTANT_COLUMNS: typing.Final[tuple[str, ...]] = (
     "radius_m",
-    "robot_awareness",
-    "robot_fov_gain",
+    "robot_range_offset",
+    "robot_fov_offset",
     "robot_repulsion_gain",
     "robot_reaction_gain",
+    "robot_blind",
 )
 
 

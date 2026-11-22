@@ -22,17 +22,18 @@ leave an old artifact silently in place.
 ### 1.1 Supported generations
 
 `processing/legacy_schemas.py` classifies a recording from its MCAP channel and schema records
-(`detect()`), before any calculator sees a message. Four names are possible:
+(`detect()`), before any calculator sees a message. Five names are possible:
 
 | Generation | `EpisodeRecord` schema | `AgentMeta` | Fleet |
 |---|---|---|---|
-| `native` | `arena_runtime_msgs/msg/EpisodeRecord` | carries the four `robot_*` settings | `RobotFleet` |
+| `native` | `arena_runtime_msgs/msg/EpisodeRecord` | carries the five `robot_*` settings (`robot_range_offset`, `robot_fov_offset`, `robot_repulsion_gain`, `robot_reaction_gain`, `robot_blind`) | `RobotFleet` |
 | `legacy_2026_09` | `task_generator_msgs/msg/EpisodeRecord` (`tm_*` fields) | native or absent | `task_generator_msgs/msg/RobotState[]` |
 | `legacy_2026_11` | `arena_runtime_msgs/msg/EpisodeRecord` | **no** `robot_*` fields | `RobotFleet` or absent |
+| `legacy_2026_11_11` | `arena_runtime_msgs/msg/EpisodeRecord` | `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain`, `robot_reaction_gain` | `RobotFleet` or absent |
 | `unknown` | any other present episode schema | — | any other present fleet schema |
 
 A recording with no `/state/episode` topic is classified from its remaining schemas
-(`_absent_episode_generation`): a crowd-less `AgentMeta` is `legacy_2026_11`; a
+(`_absent_episode_generation`): a crowd-less `AgentMeta` is `legacy_2026_11`, one with `robot_awareness` is `legacy_2026_11_11`; a
 `task_generator_msgs` fleet is `legacy_2026_09`; otherwise `native`. A **present** but unrecognised
 episode or fleet schema is `unknown` and is refused with its name — the migration does not try to
 interpret a schema it does not know.
@@ -84,7 +85,8 @@ Nothing absent is invented. A field the generation did not carry is NULL and nam
 | Missing construct | Result |
 |---|---|
 | `task_layer` on a `legacy_2026_09` EpisodeRecord | NULL; `not_recorded` (named in `EpisodeFields.not_recorded`). |
-| `robot_awareness`, `robot_fov_gain`, `robot_repulsion_gain`, `robot_reaction_gain` (AgentMeta without the `robot_*` fields) | All four NULL with `not_recorded`; the crowd condition therefore has no source. |
+| `robot_range_offset`, `robot_fov_offset`, `robot_repulsion_gain`, `robot_reaction_gain`, `robot_blind` (AgentMeta without the `robot_*` fields) | All five NULL with `not_recorded`; the crowd condition therefore has no source. |
+| `robot_range_offset`, `robot_fov_offset`, `robot_blind` (AgentMeta of `legacy_2026_11_11`) | NULL with `not_recorded`; `robot_repulsion_gain` and `robot_reaction_gain` are carried, `robot_awareness` and `robot_fov_gain` are never converted. |
 | No `/state/robots` fleet | `robot_descriptor`/`robot_params` synthesised (§1.5); the report's `fallbacks` says so. |
 | `conditions`, `phases`, `human_params` missing from an EpisodeRecord | NULL with `not_recorded` when the generation did not carry them. `legacy_schemas` parses the **recorded** `EpisodeRecord` definition, so a September record without these fields no longer raises (H-012 fixed). |
 | No environment token in topics or TF frames, or several | `MigrationError`, no writing. |

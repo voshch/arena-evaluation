@@ -30,7 +30,7 @@ def test_compare_reports_a_null_pairing_key_instead_of_silent_nulls(
     catalog, truth = _catalog(tmp_path)
     run = tmp_path / "benchmarks" / "syn_noswap"
     pedestrians = pl.read_parquet(run / "dim_pedestrians.parquet")
-    pedestrians.with_columns(pl.lit(None, dtype=pl.Float64).alias("robot_awareness")).write_parquet(run / "dim_pedestrians.parquet")
+    pedestrians.with_columns(pl.lit(None, dtype=pl.Boolean).alias("robot_blind")).write_parquet(run / "dim_pedestrians.parquet")
     unrecorded = BenchmarkCatalog.open(run)
     assert unrecorded.get_table("v_episode_summary").select(pl.col("crowd_condition").null_count()).collect().item() == 128
 

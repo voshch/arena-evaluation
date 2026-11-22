@@ -247,7 +247,7 @@ def full_registry_bench(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Pat
                 "episode_id": episode_id,
                 "env_id": "env_0",
                 "ped_id": f"ped_{episode_id}",
-                "robot_awareness": 0.0 if episode_id < 6 else 1.0,
+                "robot_blind": episode_id < 6,
             }
         )
         ped_rows.append(ped_row)

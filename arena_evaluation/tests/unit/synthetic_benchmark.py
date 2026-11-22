@@ -91,7 +91,7 @@ def write_synthetic_benchmark(
                             "collision_amount_static": 0,
                             "ci_max": None,
                             "null_reason": "ci_max:not_recorded",
-                            "robot_awareness": 0.0 if cond == "blind" else 1.0,
+                            "robot_blind": cond == "blind",
                         }
                     )
 
@@ -171,7 +171,7 @@ def write_synthetic_benchmark(
             schema=tracks_schema,
         ).write_parquet(tracks_path)
 
-    # Also ensure dim_pedestrians has robot_awareness so v_episode_summary derives crowd_condition
+    # Also ensure dim_pedestrians has robot_blind so v_episode_summary derives crowd_condition
     ped_schema = dimensions.DimPedestrians.polars_schema()
     ped_rows = [
         {
@@ -180,7 +180,7 @@ def write_synthetic_benchmark(
             "episode_id": r["episode_id"],
             "env_id": "env_0",
             "ped_id": "ped_0",
-            "robot_awareness": r["robot_awareness"],
+            "robot_blind": r["robot_blind"],
         }
         for r in rows
     ]

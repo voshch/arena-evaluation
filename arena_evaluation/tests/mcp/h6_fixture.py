@@ -63,7 +63,7 @@ def write_noisy_benchmark(directory: pathlib.Path) -> dict[str, Any]:
                             "collision_amount_static": 0,
                             "ci_max": None,
                             "null_reason": "ci_max:not_recorded",
-                            "robot_awareness": 0.0 if condition == "blind" else 1.0,
+                            "robot_blind": condition == "blind",
                         }
                     )
                     episode_id += 1
@@ -79,7 +79,7 @@ def write_noisy_benchmark(directory: pathlib.Path) -> dict[str, Any]:
                 "episode_id": row["episode_id"],
                 "env_id": "env_0",
                 "ped_id": "ped_0",
-                "robot_awareness": row["robot_awareness"],
+                "robot_blind": row["robot_blind"],
             }
             for row in rows
         ],

@@ -242,10 +242,11 @@ _EXPECTED: dict[str, tuple[tuple[str, pa.DataType, bool], ...]] = {
         ("interaction_type", pa.int64(), True),
         ("gait_phase", pa.float64(), True),
         ("gait_cadence", pa.float64(), True),
-        ("robot_awareness", pa.float32(), True),
-        ("robot_fov_gain", pa.float32(), True),
+        ("robot_range_offset", pa.float32(), True),
+        ("robot_fov_offset", pa.float32(), True),
         ("robot_repulsion_gain", pa.float32(), True),
         ("robot_reaction_gain", pa.float32(), True),
+        ("robot_blind", pa.bool_(), True),
     ),
     "pedestrian_gestures": (
         ("t_ns", pa.int64(), False),

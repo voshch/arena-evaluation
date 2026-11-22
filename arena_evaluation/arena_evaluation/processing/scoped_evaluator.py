@@ -505,7 +505,7 @@ class ScopedEvaluator:
             ped_id = str(ped_df.get_column("ped_id")[0])
             times = ped_df.get_column("t_ns").drop_nulls()
             lo, hi = times.min(), times.max()
-            awareness = _first_val(ped_df, "robot_awareness", _float)
+            blind = _first_val(ped_df, "robot_blind", bool)
             slices.append(
                 ScopedEvaluator._scope_slice(
                     MetricScope.PEDESTRIAN,
@@ -519,7 +519,7 @@ class ScopedEvaluator:
                         "ped_id": ped_id,
                         "ped_name": _first_val(ped_df, "ped_name", str, ped_id),
                         "ped_policy": _first_val(ped_df, "policy", str),
-                        "is_blind": None if awareness is None else awareness == 0.0,
+                        "is_blind": blind,
                         "desired_speed": _first_val(ped_df, "desired_speed", _float),
                         "radius_m": _first_val(ped_df, "radius_m", _float),
                         "spawn_x": _first_val(ped_df, "x", _float),

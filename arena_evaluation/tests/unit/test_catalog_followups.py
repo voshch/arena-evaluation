@@ -58,7 +58,7 @@ def _write_benchmark(root: pathlib.Path, *, include_pedestrians: bool = True) ->
                 "duration_s": 10.0,
                 "outcome_state": 2,
                 "outcome_info": "finished",
-                "null_reason": None if include_pedestrians else f"robot_awareness:{NullReason.NOT_RECORDED}",
+                "null_reason": None if include_pedestrians else f"robot_blind:{NullReason.NOT_RECORDED}",
             }
             for episode_id in (0, 1, 2)
         ],
@@ -88,7 +88,7 @@ def _write_benchmark(root: pathlib.Path, *, include_pedestrians: bool = True) ->
                     "episode_id": episode_id,
                     "env_id": "env_0",
                     "ped_id": "ped_0",
-                    "robot_awareness": 1.0,
+                    "robot_blind": False,
                 }
                 for episode_id in (0, 1, 2)
             ],

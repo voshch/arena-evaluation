@@ -38,12 +38,13 @@ AGENT_STATES_SCHEMA = "arena_humansim_msgs/msg/AgentStates"
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class CrowdSettings:
-    """The four robot-interaction settings latched in the agent metadata of one pedestrian."""
+    """The robot-interaction settings latched in the agent metadata of one pedestrian; None where the generation did not carry one."""
 
-    robot_awareness: float
-    robot_fov_gain: float
+    robot_range_offset: float | None
+    robot_fov_offset: float | None
     robot_repulsion_gain: float
     robot_reaction_gain: float
+    robot_blind: bool | None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -104,19 +105,21 @@ class _Agent:
         }
 
     def crowd_columns(self) -> dict[str, Any]:
-        """The four crowd settings of the agent; None where the agent metadata did not carry the agent."""
+        """The five crowd settings of the agent; None where the agent metadata did not carry the agent."""
         if self.crowd is None:
             return {
-                "robot_awareness": None,
-                "robot_fov_gain": None,
+                "robot_range_offset": None,
+                "robot_fov_offset": None,
                 "robot_repulsion_gain": None,
                 "robot_reaction_gain": None,
+                "robot_blind": None,
             }
         return {
-            "robot_awareness": self.crowd.robot_awareness,
-            "robot_fov_gain": self.crowd.robot_fov_gain,
+            "robot_range_offset": self.crowd.robot_range_offset,
+            "robot_fov_offset": self.crowd.robot_fov_offset,
             "robot_repulsion_gain": self.crowd.robot_repulsion_gain,
             "robot_reaction_gain": self.crowd.robot_reaction_gain,
+            "robot_blind": self.crowd.robot_blind,
         }
 
 
@@ -155,22 +158,48 @@ class _CrowdAgentMetaProto(Protocol):
     policies: Sequence[str]
     agent_id: Sequence[int]
     agent_type: Sequence[str]
-    robot_awareness: Sequence[float]
-    robot_fov_gain: Sequence[float]
+    robot_range_offset: Sequence[float]
+    robot_fov_offset: Sequence[float]
+    robot_repulsion_gain: Sequence[float]
+    robot_reaction_gain: Sequence[float]
+    robot_blind: Sequence[bool]
+
+
+class _GainsAgentMetaProto(Protocol):
+    policies: Sequence[str]
+    agent_id: Sequence[int]
+    agent_type: Sequence[str]
     robot_repulsion_gain: Sequence[float]
     robot_reaction_gain: Sequence[float]
 
 
 def agent_meta(meta: _CrowdAgentMetaProto) -> AgentMeta:
-    """The normalised metadata of a generation whose AgentMeta carries the four robot settings."""
+    """The normalised metadata of the native generation, whose AgentMeta carries the five robot settings."""
     policies = tuple(str(policy) for policy in meta.policies)
     types = {int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)}
     crowd = {
-        int(agent_id): CrowdSettings(float(awareness), float(fov), float(repulsion), float(reaction))
-        for agent_id, awareness, fov, repulsion, reaction in zip(
+        int(agent_id): CrowdSettings(float(range_offset), float(fov_offset), float(repulsion), float(reaction), bool(blind))
+        for agent_id, range_offset, fov_offset, repulsion, reaction, blind in zip(
             meta.agent_id,
-            meta.robot_awareness,
-            meta.robot_fov_gain,
+            meta.robot_range_offset,
+            meta.robot_fov_offset,
+            meta.robot_repulsion_gain,
+            meta.robot_reaction_gain,
+            meta.robot_blind,
+            strict=True,
+        )
+    }
+    return AgentMeta(policies=policies, types_by_id=types, crowd_by_id=crowd)
+
+
+def agent_meta_gains_only(meta: _GainsAgentMetaProto) -> AgentMeta:
+    """The normalised metadata of the 2026-11-11 AgentMeta: only the two gains carry over, the offsets and blindness stay absent."""
+    policies = tuple(str(policy) for policy in meta.policies)
+    types = {int(agent_id): _text_or_none(agent_type) for agent_id, agent_type in zip(meta.agent_id, meta.agent_type, strict=True)}
+    crowd = {
+        int(agent_id): CrowdSettings(None, None, float(repulsion), float(reaction), None)
+        for agent_id, repulsion, reaction in zip(
+            meta.agent_id,
             meta.robot_repulsion_gain,
             meta.robot_reaction_gain,
             strict=True,

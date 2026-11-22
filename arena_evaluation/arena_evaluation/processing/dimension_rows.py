@@ -44,10 +44,11 @@ _PEDESTRIAN_CORE_FIELDS = {
     "spawn_yaw": "yaw",
 }
 _PEDESTRIAN_ENGINE_FIELDS = {
-    "robot_awareness": "robot_awareness",
-    "robot_fov_gain": "robot_fov_gain",
+    "robot_range_offset": "robot_range_offset",
+    "robot_fov_offset": "robot_fov_offset",
     "robot_repulsion_gain": "robot_repulsion_gain",
     "robot_reaction_gain": "robot_reaction_gain",
+    "robot_blind": "robot_blind",
 }
 _PEDESTRIAN_FIELDS = {**_PEDESTRIAN_CORE_FIELDS, **_PEDESTRIAN_ENGINE_FIELDS}
 

@@ -79,6 +79,10 @@ class _EpisodeRecordProto(typing.Protocol):
 NATIVE: typing.Final[str] = "native"
 LEGACY_2026_09: typing.Final[str] = "legacy_2026_09"
 LEGACY_2026_11: typing.Final[str] = "legacy_2026_11"
+LEGACY_2026_11_11: typing.Final[str] = "legacy_2026_11_11"
+CROWD_NATIVE: typing.Final[str] = "native"
+CROWD_GAINS: typing.Final[str] = "gains"
+CROWD_NONE: typing.Final[str] = "none"
 UNKNOWN: typing.Final[str] = "unknown"
 
 NATIVE_EPISODE_SCHEMA: typing.Final[str] = "arena_runtime_msgs/msg/EpisodeRecord"
@@ -89,7 +93,14 @@ _SUPPORTED_FLEETS: typing.Final[tuple[str, ...]] = (
     "arena_runtime_msgs/msg/RobotState",
     "task_generator_msgs/msg/RobotState",
 )
-_ROBOT_SETTINGS: typing.Final[tuple[str, ...]] = (
+_NATIVE_ROBOT_SETTINGS: typing.Final[tuple[str, ...]] = (
+    "robot_range_offset",
+    "robot_fov_offset",
+    "robot_repulsion_gain",
+    "robot_reaction_gain",
+    "robot_blind",
+)
+_GAINS_ROBOT_SETTINGS: typing.Final[tuple[str, ...]] = (
     "robot_awareness",
     "robot_fov_gain",
     "robot_repulsion_gain",
@@ -194,7 +205,7 @@ class RecordingGeneration:
     episode_schema: str | None
     fleet_schema: str | None
     agent_meta_schema: str | None
-    agent_meta_has_crowd: bool
+    agent_meta_crowd: str
     unsupported: tuple[str, ...]
 
 
@@ -252,18 +263,23 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
     episode_topic = _topic_by_suffix(topics, "/state/episode")
     agent_text = topics[agent_topic][1] if agent_topic is not None else ""
     episode_text = topics[episode_topic][1] if episode_topic is not None else ""
-    crowd = "robot_awareness" in agent_text
+    crowd = agent_meta_crowd(agent_text)
     unsupported: list[str] = []
     if episode is None:
         unsupported.append("no /state/episode topic; the generation is inferred from the present schemas")
-        if agent_meta is not None and not crowd:
+        if agent_meta is not None and crowd == CROWD_NONE:
             name = LEGACY_2026_11
+        elif agent_meta is not None and crowd == CROWD_GAINS:
+            name = LEGACY_2026_11_11
         elif fleet is not None and fleet.startswith("task_generator_msgs/"):
             name = LEGACY_2026_09
         else:
             name = NATIVE
     elif episode == NATIVE_EPISODE_SCHEMA:
-        name = NATIVE if crowd or agent_meta is None else LEGACY_2026_11
+        if agent_meta is None or crowd == CROWD_NATIVE:
+            name = NATIVE
+        else:
+            name = LEGACY_2026_11_11 if crowd == CROWD_GAINS else LEGACY_2026_11
     elif episode == LEGACY_EPISODE_SCHEMA:
         name = LEGACY_2026_09
     else:
@@ -283,14 +299,16 @@ def detect(recording: pathlib.Path) -> RecordingGeneration:
         unsupported.append(f"fleet schema {fleet!r} is not supported")
     if agent_meta is None:
         unsupported.append("no /agent_meta topic; the crowd settings are NULL")
-    elif not crowd:
+    elif crowd == CROWD_GAINS:
+        unsupported.append("AgentMeta has robot_awareness and robot_fov_gain; robot_range_offset, robot_fov_offset and robot_blind are NULL (not_recorded)")
+    elif crowd == CROWD_NONE:
         unsupported.append("AgentMeta has no robot_* fields; the crowd settings are NULL")
     return RecordingGeneration(
         name=name,
         episode_schema=episode,
         fleet_schema=fleet,
         agent_meta_schema=agent_meta,
-        agent_meta_has_crowd=crowd,
+        agent_meta_crowd=crowd,
         unsupported=tuple(unsupported),
     )
 
@@ -300,9 +318,13 @@ def recording_topics(recording: pathlib.Path) -> tuple[str, ...]:
     return tuple(_topic_schemas(recording))
 
 
-def agent_meta_has_crowd(schema_text: str) -> bool:
-    """Whether the recorded AgentMeta schema declares the four robot interaction settings."""
-    return all(setting in schema_text for setting in _ROBOT_SETTINGS)
+def agent_meta_crowd(schema_text: str) -> str:
+    """Which robot interaction settings the recorded AgentMeta schema declares: native, gains or none."""
+    if all(setting in schema_text for setting in _NATIVE_ROBOT_SETTINGS):
+        return CROWD_NATIVE
+    if all(setting in schema_text for setting in _GAINS_ROBOT_SETTINGS):
+        return CROWD_GAINS
+    return CROWD_NONE
 
 
 def agent_meta_has_agent_type(schema_text: str) -> bool:
