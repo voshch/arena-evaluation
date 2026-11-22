@@ -106,7 +106,7 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
     recorded = _recorded_parameters(parameter_rows, robot_id)
     missing = [key for field, key in _REQUIRED_RECORDED_FIELDS.items() if field not in recorded]
     if missing:
-        raise MetricInputError(f"robot {robot_id!r} has no recorded parameter(s) {missing}")
+        raise MetricInputError(f"robot {robot_id!r} has no recorded parameter(s) {missing}; a recording from before the fleet carried them needs `arena evaluation migrate <run dir>` first")
     return RobotParams(
         model=model,
         robot_radius=recorded["robot_radius"],
