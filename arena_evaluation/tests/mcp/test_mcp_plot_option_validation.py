@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from arena_evaluation.mcp.presentation import evaluation_save_plot_declaration
+from arena_evaluation.mcp.presentation import evaluation_read_plot_declaration, evaluation_save_plot_declaration
 from arena_mcp.core.errors import ToolError
 
 
@@ -59,3 +59,28 @@ def test_save_plot_declaration_accepts_supported_box_option(tmp_path: Path) -> N
             os.environ.pop("ARENA_DATA_DIR", None)
         else:
             os.environ["ARENA_DATA_DIR"] = prev
+
+
+def test_save_and_read_plot_declaration_resolve_type_through_uses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARENA_DATA_DIR", str(tmp_path))
+    run_id = _make_run_dir(tmp_path)
+    derived_yaml = "uses: scorecard_table\ntitle: Derived Scorecard\noptions:\n  note: derived\n"
+    res = evaluation_save_plot_declaration("derived_scorecard", derived_yaml, run_id=run_id)
+    assert res["status"] == "saved"
+    read = evaluation_read_plot_declaration("derived_scorecard", run_id=run_id)
+    assert read["spec"]["uses"] == "scorecard_table"
+
+
+def test_save_plot_declaration_rejects_option_unknown_to_the_used_recipe_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARENA_DATA_DIR", str(tmp_path))
+    run_id = _make_run_dir(tmp_path)
+    derived_yaml = "uses: scorecard_table\noptions:\n  show_outliers: false\n"
+    with pytest.raises(ToolError, match="unknown option.*show_outliers.*'table'"):
+        evaluation_save_plot_declaration("derived_bad", derived_yaml, run_id=run_id)
+
+
+def test_save_plot_declaration_rejects_uses_of_a_missing_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARENA_DATA_DIR", str(tmp_path))
+    run_id = _make_run_dir(tmp_path)
+    with pytest.raises(ToolError, match="not_a_recipe.*not found"):
+        evaluation_save_plot_declaration("derived_missing", "uses: not_a_recipe\n", run_id=run_id)
