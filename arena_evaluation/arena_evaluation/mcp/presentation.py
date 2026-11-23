@@ -21,6 +21,7 @@ from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
+from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
 from arena_evaluation.presentation.resolver import (
     DataResolver,
@@ -99,8 +100,6 @@ def _validated_spec(
     recipe_dirs: tuple[pathlib.Path, ...],
 ) -> PlotSpec:
     """Validate ``parsed`` as a PlotSpec whose ``uses:``-resolved type and options RENDERER_REGISTRY supports."""
-    from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
-
     try:
         spec = PlotSpec.model_validate(parsed)
         resolved = DataResolver(recipe_dirs=recipe_dirs).resolve_spec(spec) if spec.uses else spec
