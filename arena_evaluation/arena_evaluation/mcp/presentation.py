@@ -311,6 +311,7 @@ def evaluation_render_plot(
     )
 
     try:
+        spec = resolver.resolve_spec(spec)
         df, diagnostics = resolver.resolve(spec)
     except (
         KeyError,

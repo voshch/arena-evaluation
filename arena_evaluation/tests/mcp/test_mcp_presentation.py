@@ -404,6 +404,27 @@ def test_mcp_evaluation_render_plot_inline_yaml_and_overrides(
     assert out_file.exists() and out_file.stat().st_size > 0
 
 
+def test_mcp_evaluation_render_plot_inline_spec_through_uses(
+    tmp_path: pathlib.Path,
+    mcp_star_tables: dict[str, pl.DataFrame],
+) -> None:
+    run_dir = tmp_path / "data" / "benchmarks" / "run-pres-uses"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_tables(run_dir, mcp_star_tables)
+
+    os.environ["ARENA_DATA_DIR"] = str(tmp_path / "data")
+
+    res = evaluation_render_plot(
+        run_id="run-pres-uses",
+        spec_yaml="uses: scorecard_table\ntitle: Derived Scorecard\n",
+        output_format="png",
+    )
+    sc = res.structured_content
+    assert sc is not None and sc["spec_id"] == "scorecard_table"
+    out_file = pathlib.Path(sc["plot_path"])
+    assert out_file.read_bytes()[:8] == _PNG_MAGIC
+
+
 def test_mcp_evaluation_render_plot_error_handling(
     tmp_path: pathlib.Path,
     mcp_star_tables: dict[str, pl.DataFrame],
