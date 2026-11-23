@@ -21,6 +21,7 @@ from arena_evaluation.analytics.catalog import BenchmarkCatalog
 from arena_evaluation.analytics.evidence import EvidenceStore
 from arena_evaluation.analytics.queries import QueryCatalog
 from arena_evaluation.analytics.sql_engine import PolarsSQLEngine
+from arena_evaluation.presentation.plot_types import RENDERER_REGISTRY
 from arena_evaluation.presentation.plotly_renderer import PlotlyRenderer
 from arena_evaluation.presentation.resolver import (
     DataResolver,
@@ -91,12 +92,32 @@ def _not_found(name: str, hint: str) -> ToolError:
     return ToolError(f"Plot declaration {name!r} not found", hint=hint)
 
 
-def _validated_spec(parsed: dict[str, Any], label: str, hint: str) -> PlotSpec:
-    """Validate ``parsed`` as a PlotSpec, naming its origin by ``label`` in the error."""
+def _validated_spec(
+    parsed: dict[str, Any],
+    label: str,
+    hint: str,
+    *,
+    recipe_dirs: tuple[pathlib.Path, ...],
+) -> PlotSpec:
+    """Validate ``parsed`` as a PlotSpec whose ``uses:``-resolved type and options RENDERER_REGISTRY supports."""
     try:
-        return PlotSpec.model_validate(parsed)
+        spec = PlotSpec.model_validate(parsed)
+        resolved = DataResolver(recipe_dirs=recipe_dirs).resolve_spec(spec) if spec.uses else spec
     except (yaml.YAMLError, pydantic.ValidationError, ValueError, OSError) as exc:
         raise ToolError(f"Invalid PlotSpec schema{label}: {exc}", hint=hint) from exc
+    renderer_cls = RENDERER_REGISTRY.get(resolved.type)
+    if renderer_cls is None:
+        raise ToolError(
+            f"Invalid PlotSpec schema{label}: unknown plot type {resolved.type!r}; supported: {sorted(RENDERER_REGISTRY)}",
+            hint=hint,
+        )
+    unknown_options = sorted(set(resolved.options) - set(renderer_cls.SUPPORTED_OPTIONS))
+    if unknown_options:
+        raise ToolError(
+            f"Invalid PlotSpec schema{label}: unknown option(s) {unknown_options} for plot type {resolved.type!r}; supported: {sorted(renderer_cls.SUPPORTED_OPTIONS)}",
+            hint=hint,
+        )
+    return spec
 
 
 def _render_error(plot_id: str | None, exc: Exception) -> ToolError:
@@ -159,6 +180,7 @@ def evaluation_read_plot_declaration(
         parsed,
         f" in declaration '{safe_name}'",
         "fix the PlotSpec fields; evaluation_plot_declarations shows a valid declaration",
+        recipe_dirs=extra,
     )
     return {"name": safe_name, "yaml": text, "spec": spec.model_dump()}
 
@@ -175,6 +197,7 @@ def evaluation_save_plot_declaration(
 ) -> dict[str, Any]:
     """Validate against PlotSpec and save a plot declaration recipe to the run's analysis/plots or package catalog."""
     safe_name = _plot_name(name, "name")
+    run_root = run_analysis_root(run_path(run_id)) if run_id is not None else None
     parsed = _as_mapping(
         parse_yaml(yaml_text, "yaml_text"),
         "Plot declaration YAML must be a mapping",
@@ -184,10 +207,11 @@ def evaluation_save_plot_declaration(
         parsed,
         "",
         "fix the PlotSpec fields; evaluation_plot_declarations shows a valid document",
+        recipe_dirs=(run_root,) if run_root is not None else (),
     )
 
-    if run_id is not None:
-        file_path = bundle_path(run_analysis_root(run_path(run_id)), "plot", safe_name)
+    if run_root is not None:
+        file_path = bundle_path(run_root, "plot", safe_name)
     else:
         dirs = recipe_search_dirs()
         target_root = next((d for d in dirs if d.is_dir()), dirs[0])
@@ -265,7 +289,12 @@ def evaluation_render_plot(
         )
         spec_label = ""
         spec_hint = "fix the PlotSpec fields; evaluation_plot_declarations shows a valid document"
-    spec = _validated_spec(deep_merge(raw, overrides or {}), spec_label, spec_hint)
+    spec = _validated_spec(
+        deep_merge(raw, overrides or {}),
+        spec_label,
+        spec_hint,
+        recipe_dirs=(run_analysis_root(benchmark_path),),
+    )
 
     catalog = BenchmarkCatalog.open(benchmark_path)
     sql_engine = PolarsSQLEngine(catalog)
@@ -281,6 +310,7 @@ def evaluation_render_plot(
     )
 
     try:
+        spec = resolver.resolve_spec(spec)
         df, diagnostics = resolver.resolve(spec)
     except (
         KeyError,
