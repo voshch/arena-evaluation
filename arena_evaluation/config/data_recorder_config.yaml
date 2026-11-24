@@ -1,6 +1,10 @@
 max_episodes: 1000 # terminates simulation upon reaching xth episode
 max_time: 12000 # terminates simulation after x seconds
 
+# Opt-in topics recorded on top of the defaults, by key of ingestion/topics.py or recorded_topics row.
+# planner_camera: the planner's egocentric camera, exported with `arena evaluation video`.
+# optional_topics: [planner_camera]
+
 # Per-topic throttle rates in Hz, keyed by the exact topic name subscribed
 # (for example "/env_0/jackal/scan"). A topic absent here keeps the rate of its
 # TopicDefinition; 0 means unthrottled. The former record_frequencies key

@@ -268,6 +268,10 @@ Examples:
 
     add_acoustic_commands(subparsers)
 
+    from arena_evaluation.cli_video import add_video_commands
+
+    add_video_commands(subparsers)
+
     args = parser.parse_args(argv)
 
     if args.list_manifests:
@@ -318,6 +322,12 @@ Examples:
         migrated = sum(1 for episode in report.episodes if episode.migrated)
         verb = "Would migrate" if args.dry_run else "Migrated"
         print(f"{verb} {migrated} episode folder(s) to the native layout")
+        return 0
+
+    if args.command == "video":
+        from arena_evaluation.cli_video import handle_video
+
+        handle_video(args)
         return 0
 
     # acoustic subcommand handler
