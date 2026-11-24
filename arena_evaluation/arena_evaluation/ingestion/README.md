@@ -127,6 +127,16 @@ the held messages of non-latched topics predate it and are dropped.
 | `/tf_static` | `tf2_msgs/TFMessage` | latched |
 | `/clock` | `rosgraph_msgs/Clock` | time tracking |
 
+Opt-in topics (`recorded: false`), recorded only when listed under `optional_topics` in `config/data_recorder_config.yaml`:
+
+| Key | Topic | Message Type | Throttle |
+|---|---|---|---|
+| `planner_camera` | `/{ns}/vln_camera/image` | `sensor_msgs/Image` | 10 Hz |
+
+`planner_camera` is the egocentric camera the VLN and frontier planners see. Raw 640x480 RGB at 10 Hz adds about
+9 MB per second of episode to the bag. `arena evaluation video --benchmark-dir <run>` turns it into one
+`episodes/<id>/video/<topic>.mp4` per robot and episode, in recorded time (the last image is held over gaps).
+
 `initialpose` is subscribed once at the environment: the row is written under
 `/{parent_ns}/{robot}/initialpose` when the header frame names a robot (`env_N/<robot>/<frame>`),
 and stays at `/{parent_ns}/initialpose` when it names none.

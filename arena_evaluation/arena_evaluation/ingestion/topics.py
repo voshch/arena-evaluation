@@ -33,7 +33,7 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
     from nav2_msgs.msg import CollisionMonitorState
     from nav_msgs.msg import OccupancyGrid, Path
-    from sensor_msgs.msg import JointState, LaserScan
+    from sensor_msgs.msg import Image, JointState, LaserScan
     from std_msgs.msg import String
     from tf2_msgs.msg import TFMessage
 
@@ -113,6 +113,13 @@ def get_topics(namespace: str, parent_namespace: str = "") -> dict[str, TopicDef
             Acoustics,
             throttled=True,
             throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+        ),
+        "planner_camera": TopicDefinition(
+            f"{ns}/vln_camera/image",
+            Image,
+            throttled=True,
+            throttle_rate_hz=SENSOR_THROTTLE_RATE_HZ,
+            recorded=False,
         ),
         "characterization_phase": TopicDefinition(f"{ns}/characterization_phase", String, throttled=False),
         "characterization_schedule": TopicDefinition(
