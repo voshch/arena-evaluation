@@ -5,7 +5,8 @@ import pytest
 from arena_evaluation.processing.metrics.performance.task_event_metrics import TaskEventMetricsCalculator
 from arena_evaluation.processing.metrics.registry import MetricRegistry
 from arena_evaluation.processing.pipeline import _record_tasks
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from robot_params_factory import make_robot_params
 
 
 def event(task, kind, robot, t):
@@ -13,12 +14,12 @@ def event(task, kind, robot, t):
 
 
 def bundle(tasks, robot="env_0_r1", span_s=100.0):
-    data = pl.DataFrame({"time_ns": [0, int(span_s * 1e9)]})
+    data = pl.DataFrame({"t_ns": [0, int(span_s * 1e9)]})
     return AlignedEpisodeBundle(episode_id=0, data=data, start_pos=[0.0, 0.0], goal_pos=[1.0, 0.0], robot_name=robot, tasks=tasks)
 
 
 def run(tasks, robot="env_0_r1", span_s=100.0):
-    return TaskEventMetricsCalculator(RobotParams()).calculate(bundle(tasks, robot, span_s), {})
+    return TaskEventMetricsCalculator(make_robot_params()).calculate(bundle(tasks, robot, span_s), {})
 
 
 FULL_RUN = [
@@ -58,8 +59,8 @@ def test_full_run_busy_and_idle_per_robot():
 
 
 def test_span_without_aligned_data_ends_at_the_last_event():
-    episode = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0]}), start_pos=[0.0, 0.0], goal_pos=[1.0, 0.0], robot_name="env_0_r1", tasks=FULL_RUN)
-    res = TaskEventMetricsCalculator(RobotParams()).calculate(episode, {})
+    episode = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0]}), start_pos=[0.0, 0.0], goal_pos=[1.0, 0.0], robot_name="env_0_r1", tasks=FULL_RUN)
+    res = TaskEventMetricsCalculator(make_robot_params()).calculate(episode, {})
     assert res["busy_s"] == 55.0
     assert res["idle_s"] == 5.0
 
@@ -131,27 +132,30 @@ def test_unfinished_task_is_pending_and_busy_until_episode_end():
 
 def test_record_without_tasks_yields_no_metrics():
     res = run([])
-    assert set(res) == set(TaskEventMetricsCalculator.output_keys())
+    assert set(res) == {*TaskEventMetricsCalculator.output_keys(), *TaskEventMetricsCalculator.CHILD_OUTPUTS}
     assert all(value is None for value in res.values())
 
 
 def test_bundle_defaults_to_no_tasks():
-    plain = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"time_ns": [0]}), start_pos=[], goal_pos=[])
+    plain = AlignedEpisodeBundle(episode_id=0, data=pl.DataFrame({"t_ns": [0]}), start_pos=[], goal_pos=[])
     assert plain.tasks == []
 
 
 def test_registry_registers_task_events():
-    registry = MetricRegistry(RobotParams())
+    registry = MetricRegistry(make_robot_params())
     assert isinstance(registry.calculators["task_events"], TaskEventMetricsCalculator)
+
+
+def _record(tasks):
+    return pl.DataFrame({"t_ns": list(range(1, len(tasks) + 1)), "episode_id": [1] * len(tasks), "outcome_state": [1] * len(tasks), "tasks_json": tasks})
 
 
 def test_record_tasks_takes_last_nonempty_row():
     first = json.dumps([event("a", "started", "r1", 1.0)])
     last = json.dumps([event("a", "started", "r1", 1.0), event("a", "met", "r1", 4.0)])
-    record = pl.DataFrame({"time_ns": [1, 2, 3], "tasks": [first, last, ""]})
-    assert [e["kind"] for e in _record_tasks(record)] == ["started", "met"]
+    assert [e["kind"] for e in _record_tasks(_record([first, last, ""]))] == ["started", "met"]
 
 
-@pytest.mark.parametrize("record", [pl.DataFrame({"time_ns": [1, 2]}), pl.DataFrame({"time_ns": [1], "tasks": [""]}), pl.DataFrame({"time_ns": [1], "tasks": ["not json"]})])
-def test_record_tasks_tolerates_old_recordings(record):
-    assert _record_tasks(record) == []
+@pytest.mark.parametrize("tasks", [[""], ["not json"], ["[]"], ['{"task": "a"}']])
+def test_record_tasks_tolerates_old_recordings(tasks):
+    assert _record_tasks(_record(tasks)) == []

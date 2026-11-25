@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>arena_evaluation</name>
-  <version>0.0.0</version>
+  <version>1.0.0</version>
   <description>Record, evaluate, and plot navigational metrics to evaluate ROS navigation planners</description>
   <maintainer email="trannamtruong98@gmail.com">NamTruongTran</maintainer>
   <license>BSD</license>
@@ -39,6 +39,7 @@
   <exec_depend>arena_mcp</exec_depend>
 
   <test_depend>task_generator</test_depend>
+  <test_depend>domain_coordinator</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

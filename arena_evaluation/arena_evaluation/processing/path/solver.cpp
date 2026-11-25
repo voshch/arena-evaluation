@@ -5,6 +5,15 @@
 #include <limits>
 #include <algorithm>
 
+// ABI of the C surface below. arena_evaluation/processing/path/theta_star.py verifies it
+// before binding, so a stale library from an older search raises instead of returning a
+// different route.
+#define ARENA_THETA_STAR_SOLVER_ABI 1
+
+extern "C" int arena_theta_star_solver_abi(void) {
+    return ARENA_THETA_STAR_SOLVER_ABI;
+}
+
 using namespace std;
 
 static bool line_of_sight(
@@ -54,6 +63,7 @@ extern "C" {
         float* out_path_x,
         float* out_path_y,
         int max_path_len,
+        int max_iterations,
         float* out_length
     ) {
         if (start_x < 0 || start_x >= width || start_y < 0 || start_y >= height) return 0;
@@ -80,7 +90,9 @@ extern "C" {
         float step_dist[] = {1.0f, 1.0f, 1.0f, 1.0f,
                               1.41421356f, 1.41421356f, 1.41421356f, 1.41421356f};
 
+        int iterations = 0;
         while (!pq.empty()) {
+            if (iterations++ >= max_iterations) return -1;
             Node curr = pq.top();
             pq.pop();
 
@@ -132,15 +144,11 @@ extern "C" {
 
         vector<pair<int, int>> path;
         int curr_idx = goal_idx;
-        int steps = 0;
         int max_steps = width * height;
-        while (curr_idx != start_idx && curr_idx >= 0 && curr_idx < width * height && steps++ < max_steps) {
-            int cx = curr_idx % width;
-            int cy = curr_idx / width;
-            path.push_back({cx, cy});
-            int next_idx = parent[curr_idx];
-            if (next_idx == curr_idx || next_idx < 0) break;
-            curr_idx = next_idx;
+        for (int steps = 0; curr_idx != start_idx; ++steps) {
+            if (steps >= max_steps || parent[curr_idx] < 0 || parent[curr_idx] == curr_idx) return -2;
+            path.push_back({curr_idx % width, curr_idx / width});
+            curr_idx = parent[curr_idx];
         }
         path.push_back({start_x, start_y});
         

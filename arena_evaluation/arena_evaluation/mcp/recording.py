@@ -12,28 +12,47 @@ EnvId = Annotated[int | None, pydantic.Field(description="env id, the only env w
 NO_RECORDER = "the env records only with record.dir set and record.auto true, a benchmark always records"
 
 
-async def _record(env_id: int | None, stop: bool, episode_id: int, outcome_state: int = 0, outcome_info: str = "") -> dict[str, Any]:
+async def _record(
+    env_id: int | None,
+    episode_id: int,
+    *,
+    stop: bool,
+    outcome_state: int = 0,
+    outcome_info: str = "",
+) -> dict[str, Any]:
     from arena_evaluation_msgs.srv import RecordEpisode
 
     node = await tg(env_id)
     command = RecordEpisode.Request.COMMAND_STOP if stop else RecordEpisode.Request.COMMAND_START
-    request = RecordEpisode.Request(command=command, episode_id=episode_id, outcome_state=outcome_state, outcome_info=outcome_info)
+    request = RecordEpisode.Request(
+        command=command,
+        episode_id=episode_id,
+        outcome_state=outcome_state,
+        outcome_info=outcome_info,
+    )
     response = await ROS.call(RecordEpisode, f"{node}/start_episode", request, hint=NO_RECORDER)
     if not response.success:
-        raise ToolError(f"recorder refused to {'stop' if stop else 'start'} episode {episode_id}: {response.message}")
+        raise ToolError(
+            f"recorder refused to {'stop' if stop else 'start'} episode {episode_id}: {response.message}",
+            hint="evaluation_recorded_topics shows the env's recorder state, or pass another env_id",
+        )
     return {"recorder": f"{node}/start_episode", "message": response.message}
 
 
-@domain.tool(destructive=True)
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_record_start(episode_id: Annotated[int, pydantic.Field(ge=0)], env_id: EnvId = None) -> dict[str, Any]:
     """Open a new episode recording on an env's recorder, closing the open one."""
-    return await _record(env_id, False, episode_id)
+    return await _record(env_id, episode_id, stop=False)
 
 
-@domain.tool(destructive=True)
+@domain.tool(read_only=False, destructive=True, idempotent=False)
 async def evaluation_record_stop(
     episode_id: Annotated[int, pydantic.Field(ge=0)],
-    outcome: Annotated[Literal["success", "failed", "skipped", "fatal"], pydantic.Field(description="terminal outcome stored in the episode metadata")],
+    outcome: Annotated[
+        Literal["success", "failed", "skipped", "fatal"],
+        pydantic.Field(description="terminal outcome stored in the episode metadata"),
+    ],
+    *,
     info: str = "",
     env_id: EnvId = None,
 ) -> dict[str, Any]:
@@ -41,7 +60,7 @@ async def evaluation_record_stop(
     from arena_runtime_msgs.msg import EpisodeRecord
 
     states = {name: value for value, name in msgs.constants(EpisodeRecord).items()}
-    return await _record(env_id, True, episode_id, outcome_state=states[outcome], outcome_info=info)
+    return await _record(env_id, episode_id, stop=True, outcome_state=states[outcome], outcome_info=info)
 
 
 @domain.tool(read_only=True)
@@ -50,5 +69,10 @@ async def evaluation_recorded_topics(env_id: EnvId = None) -> dict[str, Any]:
     from arena_runtime_msgs.msg import RecordedTopics
 
     node = await tg(env_id)
-    msg = await ROS.latest(RecordedTopics, f"{node}/state/recorded_topics", qos=LATCHED, hint="the task generator latches it once its backend is up")
+    msg = await ROS.latest(
+        RecordedTopics,
+        f"{node}/state/recorded_topics",
+        qos=LATCHED,
+        hint="the task generator latches it once its backend is up",
+    )
     return {"env": node, "topics": [msgs.to_dict(row) for row in msg.topics]}

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
-import logging
 import re
 import typing
 from collections import defaultdict
@@ -9,34 +7,84 @@ from collections import defaultdict
 import numpy as np
 import polars as pl
 from arena_simulation_setup.shared.conditions import EpisodeCondition, Node
-from arena_simulation_setup.shared.judge import NodeMonitor, Sample, WallGrid, operator_verdict, values_equal, zone_polygons
-
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.compliance_metrics import (
-    _extract_zone_geometry,
-    _reconstruct_events,
-    _ZoneGeometry,
+from arena_simulation_setup.shared.judge import (
+    NodeMonitor,
+    WallGrid,
+    operator_verdict,
+    zone_polygons,
 )
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.processing.metrics.common.alignment import asof_index
+from arena_evaluation.processing.metrics.common.caching import load_world, world_cache
+from arena_evaluation.processing.metrics.common.context import (
+    EvalContext as _EvalContext,
+)
+from arena_evaluation.processing.metrics.common.events import (
+    reconstruct_events as _reconstruct_events,
+)
+from arena_evaluation.processing.metrics.common.resampling import (
+    resample_fleet as _resample_fleet,
+)
+from arena_evaluation.processing.metrics.common.rosters import (
+    entity_roster as _entity_roster,
+)
+from arena_evaluation.processing.metrics.common.rosters import (
+    ped_roster as _ped_roster,
+)
+from arena_evaluation.processing.metrics.common.rosters import (
+    strip_env,
+)
+from arena_evaluation.processing.metrics.common.zones import (
+    ZoneGeometry,
+    extract_zone_geometry,
+)
+from arena_evaluation.processing.pedestrian_frames import frames_of
+from arena_evaluation.storage.registry import MetricScope, define_metric
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 if typing.TYPE_CHECKING:
-    import shapely
     from arena_simulation_setup.tree.World import Level
 
-logger = logging.getLogger(__name__)
+CLAUSES_FAILED = define_metric(
+    "clauses_failed",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of condition clauses whose verdict is FALSE; NULL when the conditions, world or robot samples were not recorded.",
+    null_reason=True,
+)
+CLAUSES_PASSED = define_metric(
+    "clauses_passed",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of condition clauses whose verdict is TRUE; NULL when the conditions, world or robot samples were not recorded.",
+    null_reason=True,
+)
+CLAUSES_TOTAL = define_metric(
+    "clauses_total",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of condition clauses evaluated for the episode; NULL when the conditions, world or robot samples were not recorded.",
+    null_reason=True,
+)
+CLAUSES_UNKNOWN = define_metric(
+    "clauses_unknown",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of condition clauses whose verdict is UNKNOWN; NULL when the conditions, world or robot samples were not recorded.",
+    null_reason=True,
+)
+CONDITION_SUCCESS = define_metric(
+    "condition_success",
+    pl.Boolean,
+    scopes=(MetricScope.ROBOT,),
+    description="Episode verdict: TRUE when every clause passes, FALSE when any fails, NULL when undecided or its inputs were not recorded.",
+    null_reason=True,
+)
 
-_ENV_PREFIX = re.compile(r"^env_\d+/")
 _ROBOT_DIR_PREFIX = re.compile(r"^env_\d+_")
-_WORLD_OBJECT_PREFIX = "world_"
 
-_level_cache: dict[str, Level | None] = {}
-_world_cache: dict[str, list[_ZoneGeometry] | None] = {}
 _wall_cache: dict[str, WallGrid | None] = {}
-
-
-def _strip_env(name: str) -> str:
-    """Drop the leading `env_<n>/` segment, keeping the rest incl. any level suffix."""
-    return _ENV_PREFIX.sub("", name, count=1)
 
 
 def bare_robot_name(robot_dir: str) -> str:
@@ -44,123 +92,27 @@ def bare_robot_name(robot_dir: str) -> str:
     return _ROBOT_DIR_PREFIX.sub("", robot_dir, count=1)
 
 
-def _values_equal(recorded: str, expected: str) -> bool:
-    return values_equal(recorded, expected)
-
-
-def _entity_roster(snapshot: pl.DataFrame | None) -> dict[str, str]:
-    """Bare entity name -> recorded sim_path, for names resolving to a single sim_path, a world entity also by its name without the level suffix or the world object prefix."""
-    if snapshot is None or len(snapshot) == 0 or "entity" not in snapshot.columns:
-        return {}
-    paths: dict[str, set[str]] = defaultdict(set)
-    for entity in snapshot["entity"].unique().to_list():
-        paths[_strip_env(entity)].add(entity)
-    unsuffixed: dict[str, set[str]] = defaultdict(set)
-    for bare, recorded in paths.items():
-        if "/" in bare:
-            unsuffixed[bare.rsplit("/", 1)[0]] |= recorded
-        if bare.startswith(_WORLD_OBJECT_PREFIX):
-            unsuffixed[bare.removeprefix(_WORLD_OBJECT_PREFIX)] |= recorded
-    roster = {name: next(iter(p)) for name, p in unsuffixed.items() if name not in paths and len(p) == 1}
-    return roster | {bare: next(iter(p)) for bare, p in paths.items() if len(p) == 1}
-
-
-def _ped_aliases(name: str) -> list[str]:
-    """Names an atom may use for a recorded ped: env-stripped, plus without a level suffix on multi-level worlds."""
-    bare = _strip_env(name)
-    return [bare, bare.rsplit("/", 1)[0]] if "/" in bare else [bare]
-
-
-def _ped_roster(data: pl.DataFrame) -> dict[str, str]:
-    """Bare ped name -> recorded name, only for names that resolve uniquely on the axis."""
-    if "peds_names" not in data.columns:
-        return {}
-    grouped: dict[str, set[str]] = defaultdict(set)
-    for names in data["peds_names"].to_list():
-        if not names:
-            continue
-        for name in names:
-            for alias in _ped_aliases(name):
-                grouped[alias].add(name)
-    return {bare: next(iter(full)) for bare, full in grouped.items() if len(full) == 1}
-
-
-def _entity_field_series(events: pl.DataFrame, entity: str, field: str) -> tuple[np.ndarray, list[str]]:
-    """Sorted (event times, values) for one recorded entity and field."""
-    rows = events.filter((pl.col("entity") == entity) & (pl.col("field") == field)).sort("time_ns")
-    return rows["time_ns"].to_numpy(), rows["current"].to_list()
-
-
-def _entity_family_series(events: pl.DataFrame, entity: str, family: str) -> dict[str, tuple[np.ndarray, list[str]]]:
-    """Sorted (event times, values) of every `<family>.<member>` field of one recorded entity, keyed by member."""
-    prefix = f"{family}."
-    rows = events.filter((pl.col("entity") == entity) & pl.col("field").str.starts_with(prefix)).sort("time_ns")
-    series: dict[str, tuple[np.ndarray, list[str]]] = {}
-    for (field,), group in rows.group_by(["field"], maintain_order=True):
-        ordered = group.sort("time_ns")
-        series[str(field).removeprefix(prefix)] = (ordered["time_ns"].to_numpy(), ordered["current"].to_list())
-    return series
-
-
-def robot_holding_series(events: pl.DataFrame, robot: str) -> tuple[np.ndarray, list[str]] | None:
-    """Sorted (event times, comma-joined held objects) of the robot entity's `holding` field, None when the recording never measured holding."""
-    rows = events.filter((pl.col("kind") == "robot") & (pl.col("field") == "holding") & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot)).sort("time_ns")
-    if len(rows) == 0:
-        return None
-    return rows["time_ns"].to_numpy(), rows["current"].to_list()
-
-
-def _value_at(times: np.ndarray, values: list[str], t_ns: int) -> str:
-    """Stepwise value at `t_ns`, holding the earliest known (seed) value before it."""
-    idx = int(np.searchsorted(times, t_ns, side="right")) - 1
-    if idx < 0:
-        idx = 0
-    return values[idx]
-
-
-def _first_true(series: np.ndarray) -> int | None:
-    idxs = np.flatnonzero(series)
-    return int(idxs[0]) if len(idxs) else None
-
-
-def judge_zone_geometry(flattened: Level) -> list[_ZoneGeometry]:
+def judge_zone_geometry(flattened: Level) -> list[ZoneGeometry]:
     """Every polygon the online judge resolves by name on a flattened world: zones, doors and elevator cabins."""
-    zones = _extract_zone_geometry(flattened, require_annotation=False)
+    zones = extract_zone_geometry(flattened, require_annotation=False)
     known = {zone.name for zone in zones}
-    zones.extend(_ZoneGeometry(name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False) for name, polygon in zone_polygons(flattened).items() if name not in known)
+    zones.extend(ZoneGeometry(name=name, polygon=polygon, max_speed=None, quiet=False, restricted=False) for name, polygon in zone_polygons(flattened).items() if name not in known)
     return zones
 
 
 def _flattened_level(world_name: str) -> Level | None:
     """The world compacted into the flattened map frame, None when the world asset is not available locally."""
-    if world_name in _level_cache:
-        return _level_cache[world_name]
-
-    from arena_simulation_setup.tree.World import WorldIdentifier
-
-    try:
-        view = WorldIdentifier(world_name).resolve_sync()
-        world = view.load()
-    except FileNotFoundError as e:
-        logger.warning("condition_compliance: world '%s' not available locally: %s", world_name, e)
-        _level_cache[world_name] = None
-        return None
-
-    origins = view.level_origins()
-    if origins is None:
-        origins = {level_id: (0.0, 0.0) for level_id in world.levels}
-    flattened = world.compact_world(origins)
-    _level_cache[world_name] = flattened
-    return flattened
+    loaded = load_world(world_name)
+    return None if loaded is None else loaded.flattened
 
 
-def load_zone_geometry(world_name: str) -> list[_ZoneGeometry] | None:
+def load_zone_geometry(world_name: str) -> list[ZoneGeometry] | None:
     """Zone, door and elevator polygons of a world in the flattened map frame, None when the world asset is not available locally."""
-    if world_name in _world_cache:
-        return _world_cache[world_name]
+    if world_name in world_cache:
+        return world_cache[world_name]
     flattened = _flattened_level(world_name)
     zones = None if flattened is None else judge_zone_geometry(flattened)
-    _world_cache[world_name] = zones
+    world_cache[world_name] = zones
     return zones
 
 
@@ -174,109 +126,45 @@ def load_wall_grid(world_name: str) -> WallGrid | None:
     return walls
 
 
-def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, time_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
-    """Per instant, the gesture clips of every pedestrian in the peds message held at it, None when the recording carries no ped_gestures table."""
-    if gestures is None or peds is None or len(peds) == 0 or "peds_ids" not in peds.columns:
+def robot_holding_series(events: pl.DataFrame, robot: str) -> tuple[np.ndarray, list[str]] | None:
+    """Sorted (event times, comma-joined held objects) of the robot entity's `holding` field, None when the recording never measured holding."""
+    rows = events.filter((pl.col("kind") == "robot") & (pl.col("field") == "holding") & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot)).sort("t_ns")
+    if len(rows) == 0:
         return None
-    playing: dict[int, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for t, ped_id, clip in zip(gestures["time_ns"].to_list(), gestures["ped_id"].to_list(), gestures["clip"].to_list(), strict=True):
-        playing[int(t)][int(ped_id)].add(str(clip))
-    peds = peds.sort("time_ns")
-    times = peds["time_ns"].to_numpy()
+    return rows["t_ns"].to_numpy(), rows["current"].to_list()
+
+
+def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
+    """Per instant, the gesture clips of every pedestrian in the frame held at it, None when the recording carries no pedestrian_gestures table."""
+    if gestures is None or peds is None or len(peds) == 0:
+        return None
+    if not {"t_ns", "ped_id", "clip"} <= set(gestures.columns):
+        return None
+    if not {"t_ns", "ped_id"} <= set(peds.columns):
+        return None
+    playing: dict[int, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for t, ped_id, clip in zip(
+        gestures["t_ns"].to_numpy(),
+        gestures["ped_id"].to_numpy(),
+        gestures["clip"].to_numpy(),
+        strict=True,
+    ):
+        playing[int(t)][str(ped_id)].add(str(clip))
+    frames = frames_of(peds)
+    times = np.array([int(frame["t_ns"][0]) for frame in frames], dtype=np.int64)
     rows: list[dict[str, frozenset[str]]] = []
-    for t, names, ids in zip(times.tolist(), peds["peds_names"].to_list(), peds["peds_ids"].to_list(), strict=True):
-        at = playing.get(int(t), {})
-        rows.append({_strip_env(name): frozenset(at.get(int(ped_id), ())) for name, ped_id in zip(names or [], ids or [], strict=True)})
-    idx = np.searchsorted(times, time_ns, side="right") - 1
+    for k, frame in enumerate(frames):
+        rows.append({strip_env(str(name)): frozenset(playing.get(int(times[k]), {}).get(str(ped_id), ())) for name, ped_id in zip(frame["ped_name"], frame["ped_id"], strict=True)})
+    idx = asof_index(times, t_ns)
     return [rows[i] if i >= 0 else {} for i in idx]
-
-
-@dataclasses.dataclass
-class _EvalContext:
-    """Recorded inputs of one robot's episode on one time axis, the ego robot being `robot`."""
-
-    events: pl.DataFrame
-    time_ns: np.ndarray
-    pos_x: np.ndarray
-    pos_y: np.ndarray
-    data: pl.DataFrame
-    zones_by_name: dict[str, _ZoneGeometry]
-    entity_roster: dict[str, str]
-    ped_roster: dict[str, str]
-    pose_valid: bool = True
-    yaw: np.ndarray | None = None
-    fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(default_factory=dict)
-    walls: WallGrid | None = None
-    clips: list[dict[str, frozenset[str]]] | None = None
-    holding: tuple[np.ndarray, list[str]] | None = None
-    _fields: dict[tuple[str, str], tuple[np.ndarray, list[str]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
-    _families: dict[tuple[str, str], dict[str, tuple[np.ndarray, list[str]]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
-    _ped_rows: tuple[list, list] | None = dataclasses.field(default=None, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if "peds_names" in self.data.columns and "peds_positions" in self.data.columns:
-            self._ped_rows = (self.data["peds_names"].to_list(), self.data["peds_positions"].to_list())
-
-    def field_at(self, entity: str, field: str, t_ns: int) -> str | None:
-        key = (entity, field)
-        if key not in self._fields:
-            recorded = self.entity_roster.get(entity)
-            series = None if recorded is None else _entity_field_series(self.events, recorded, field)
-            self._fields[key] = None if series is None or len(series[0]) == 0 else series
-        series = self._fields[key]
-        if series is None:
-            return None
-        return _value_at(series[0], series[1], t_ns)
-
-    def family_at(self, entity: str, family: str, t_ns: int) -> dict[str, str] | None:
-        key = (entity, family)
-        if key not in self._families:
-            recorded = self.entity_roster.get(entity)
-            self._families[key] = None if recorded is None else _entity_family_series(self.events, recorded, family)
-        members = self._families[key]
-        if members is None:
-            return None
-        return {member: _value_at(times, values, t_ns) for member, (times, values) in members.items()}
-
-    def peds_at(self, i: int) -> dict[str, tuple[float, float]]:
-        if self._ped_rows is None:
-            return {}
-        names = self._ped_rows[0][i]
-        positions = self._ped_rows[1][i]
-        if not names or not positions:
-            return {}
-        peds: dict[str, tuple[float, float]] = {}
-        for j, name in enumerate(names):
-            if 3 * j + 1 >= len(positions):
-                break
-            for alias in _ped_aliases(name):
-                if self.ped_roster.get(alias, name) == name:
-                    peds[alias] = (positions[3 * j], positions[3 * j + 1])
-        return peds
-
-    def sample(self, i: int) -> Sample:
-        robots: dict[str, tuple[float, float, float]] = {}
-        if self.pose_valid:
-            robots["robot"] = (float(self.pos_x[i]), float(self.pos_y[i]), float(self.yaw[i]) if self.yaw is not None else 0.0)
-        for name, (xs, ys, yaws) in self.fleet.items():
-            robots[name] = (float(xs[i]), float(ys[i]), float(yaws[i]))
-        t_ns = int(self.time_ns[i])
-        known = frozenset(self.ped_roster) | frozenset(self.fleet)
-        clips = self.clips[i] if self.clips is not None else {}
-        holding = None if self.holding is None else {"robot": frozenset(item for item in _value_at(self.holding[0], self.holding[1], t_ns).split(",") if item)}
-        return Sample(t=t_ns / 1e9, robots=robots, peds=self.peds_at(i), field=lambda entity, field: self.field_at(entity, field, t_ns), known=known, clips=clips, walls=self.walls, family=lambda entity, family: self.family_at(entity, family, t_ns), holding=holding)
-
-    @property
-    def polygons(self) -> dict[str, shapely.Polygon | shapely.MultiPolygon]:
-        return {name: zone.polygon for name, zone in self.zones_by_name.items()}
 
 
 def _node_series(node: Node, ctx: _EvalContext) -> tuple[np.ndarray | None, bool]:
     """Boolean series of one condition node stepped over the context axis in time order, (None, False) when any sample cannot resolve it."""
     polygons = ctx.polygons
     monitor = NodeMonitor(node, "robot")
-    series = np.zeros(len(ctx.time_ns), dtype=bool)
-    for i in range(len(ctx.time_ns)):
+    series = np.zeros(len(ctx.t_ns), dtype=bool)
+    for i in range(len(ctx.t_ns)):
         value = monitor.step(ctx.sample(i), polygons)
         if value is None:
             return None, False
@@ -284,43 +172,18 @@ def _node_series(node: Node, ctx: _EvalContext) -> tuple[np.ndarray | None, bool
     return series, True
 
 
-def _operator_verdict(
-    op: str,
-    p_series: np.ndarray | None,
-    p_ok: bool,
-    q_series: np.ndarray | None,
-    q_ok: bool,
-) -> bool | None:
-    return operator_verdict(op, p_series, p_ok, q_series, q_ok)
-
-
 def _clause_verdict(clause: dict, ctx: _EvalContext) -> bool | None:
     """Score one clause dict, returning UNKNOWN (None) on any malformed or unresolvable input."""
     try:
         cond = EpisodeCondition.parse(clause)
-    except Exception:
+    except (ValueError, TypeError, KeyError):
         return None
 
     p_series, p_ok = _node_series(cond.p_node, ctx)
     if cond.q_node is None:
-        return _operator_verdict(cond.op, p_series, p_ok, None, False)
+        return operator_verdict(cond.op, p_series, p_ok, None, False)
     q_series, q_ok = _node_series(cond.q_node, ctx)
-    return _operator_verdict(cond.op, p_series, p_ok, q_series, q_ok)
-
-
-def _resample_fleet(fleet: dict[str, pl.DataFrame], time_ns: np.ndarray, ego: str | None) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Other robots' judge poses held onto the ego axis, robots without a sample before an instant are left out."""
-    out: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
-    for name, frame in fleet.items():
-        if name == ego or frame is None or len(frame) == 0:
-            continue
-        frame = frame.sort("time_ns")
-        times = frame["time_ns"].to_numpy()
-        idx = np.searchsorted(times, time_ns, side="right") - 1
-        if np.any(idx < 0):
-            continue
-        out[name] = (frame["pos_x"].to_numpy()[idx], frame["pos_y"].to_numpy()[idx], frame["yaw"].to_numpy()[idx])
-    return out
+    return operator_verdict(cond.op, p_series, p_ok, q_series, q_ok)
 
 
 class ConditionComplianceCalculator(BaseMetricCalculator):
@@ -345,33 +208,25 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
 
     NAME = "condition_compliance"
     CATEGORY = "ecological"
-    REQUIRED_TOPICS = ["odom"]
+    REQUIRED_TOPICS = ["robot_tracks"]
+    PARAMS = ()
 
-    UNITS = {
-        "condition_success": "",
-        "clauses_total": "",
-        "clauses_passed": "",
-        "clauses_failed": "",
-        "clauses_unknown": "",
+    OUTPUTS = (
+        CONDITION_SUCCESS,
+        CLAUSES_TOTAL,
+        CLAUSES_PASSED,
+        CLAUSES_FAILED,
+        CLAUSES_UNKNOWN,
+    )
+    DIRECTIONS = {
+        "condition_success": Direction.HIGHER,
+        "clauses_passed": Direction.HIGHER,
+        "clauses_failed": Direction.LOWER,
+        "clauses_unknown": Direction.LOWER,
     }
+    PRIMARY_OUTPUTS = ["condition_success", "clauses_failed"]
 
-    world: str | None = None
-
-    def __init__(self, robot_params: RobotParams) -> None:
-        super().__init__(robot_params)
-        self._world_cache = _world_cache
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "condition_success",
-            "clauses_total",
-            "clauses_passed",
-            "clauses_failed",
-            "clauses_unknown",
-        ]
-
-    def _load_world(self, world_name: str) -> list[_ZoneGeometry] | None:
+    def _load_world(self, world_name: str) -> list[ZoneGeometry] | None:
         return load_zone_geometry(world_name)
 
     def calculate(
@@ -380,7 +235,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         del prior_results
-        empty = dict.fromkeys(self.output_keys())
+        empty = {metric.name: None for metric in self.OUTPUTS}
 
         conditions = episode.conditions
         if not conditions:
@@ -393,29 +248,37 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
             return empty
 
         pos_x, pos_y, yaw, _ox, _oy, _oyaw = self.resolve_robot_pose(episode)
-        if episode.data is None or "time_ns" not in episode.data.columns or len(episode.data) == 0:
+        if episode.data is None or len(episode.data) == 0:
             return empty
 
-        time_ns = episode.data["time_ns"].to_numpy()
-        if len(time_ns) == 0 or len(pos_x) != len(time_ns):
+        t_ns = episode.data["t_ns"].to_numpy()
+        if len(t_ns) == 0 or len(pos_x) != len(t_ns):
             return empty
 
+        peds_df = self.native_ped_frame(episode)
+        peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
         events = _reconstruct_events(episode.semantic_snapshot)
         ctx = _EvalContext(
             events=events,
-            time_ns=time_ns,
+            t_ns=t_ns,
             pos_x=pos_x,
             pos_y=pos_y,
             data=episode.data,
             zones_by_name={zone.name: zone for zone in zones},
             entity_roster=_entity_roster(episode.semantic_snapshot),
-            ped_roster=_ped_roster(episode.data),
+            ped_roster=_ped_roster(peds_df),
             pose_valid=bool(episode.start_pos),
             yaw=yaw,
-            fleet=_resample_fleet(episode.fleet, time_ns, bare_robot_name(episode.robot_name or "")),
+            fleet=_resample_fleet(episode.fleet, t_ns, episode.robot_name or ""),
             walls=load_wall_grid(self.world),
-            clips=clips_on_axis(episode.peds, episode.topics.get("ped_gestures") if episode.topics else None, time_ns),
+            clips=clips_on_axis(
+                peds_df,
+                episode.topics.get("pedestrian_gestures") if episode.topics else None,
+                t_ns,
+            ),
             holding=robot_holding_series(events, bare_robot_name(episode.robot_name or "")),
+            peds_frames=peds_frames,
+            peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )
 
         verdicts = [_clause_verdict(clause, ctx) for clause in conditions]
@@ -424,11 +287,11 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
         unknown = sum(1 for v in verdicts if v is None)
 
         if failed:
-            success: float | None = 0.0
+            success: bool | None = False
         elif unknown:
             success = None
         else:
-            success = 1.0
+            success = True
 
         return {
             "condition_success": success,

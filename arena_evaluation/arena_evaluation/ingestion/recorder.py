@@ -1,42 +1,129 @@
 from __future__ import annotations
 
+import dataclasses
+import math
 import os
 import pathlib
 import re
-import shutil
 import signal
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Final, TypedDict, Unpack
 
 import rclpy
 import rosbag2_py
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from arena_rclpy_mixins.params import Param, Range, declare
+from arena_rclpy_mixins.ROSParamServer import ROSParamServer
 from arena_rclpy_mixins.spin import create_executor, spin_node
 from arena_runtime.env.task_layer import decode_modes
 from arena_runtime_msgs.msg import EpisodeRecord, RecordedTopics, RobotFleet
-from arena_simulation_setup import params as world_params
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.serialization import serialize_message
 from rosgraph_msgs.msg import Clock
 from tf2_msgs.msg import TFMessage
 
+from arena_evaluation.storage.manifest import MetadataWriter
+from arena_evaluation.storage.schemas import caps_snapshot_path
+
+from .episode_writer import EpisodeWriter
+from .metadata import IngestionMetadata
+from .topics import DEFAULT_THROTTLE_RATE_HZ
+
 if TYPE_CHECKING:
     from arena_evaluation_msgs.srv import RecordEpisode
     from arena_runtime_msgs.msg import RecordedTopic
+    from builtin_interfaces.msg import Time
     from rcl_interfaces.msg import ParameterValue
     from rclpy.context import Context
 
     from .topics import TopicDefinition
+
+_NS_PER_SECOND: Final[int] = 1_000_000_000
+_NS_PER_MILLISECOND: Final[int] = 1_000_000
+_ODOM_THROTTLE_RATE_HZ: Final[float] = 50.0
+_WORLD_FRAMES: Final[frozenset[str]] = frozenset({"map", "odom", "world"})
+
+
+def min_interval_ns(rate_hz: float) -> int:
+    """The smallest gap between two samples of a rate_hz stream in whole nanoseconds, 0 when unthrottled."""
+    if rate_hz <= 0.0:
+        return 0
+    return math.ceil(_NS_PER_SECOND / rate_hz)
+
+
+def resolve_rate_hz(overrides: Mapping[str, float], topic_name: str, default_hz: float) -> float:
+    """The record_rates_hz entry of the exact topic name when present, else the topic's default rate."""
+    return float(overrides.get(topic_name, default_hz))
+
+
+def _checked_rates(rates: Mapping[str, object]) -> dict[str, float]:
+    """A record_rates_hz mapping as floats, refusing a rate below 0 Hz."""
+    checked: dict[str, float] = {}
+    for topic_name, rate in rates.items():
+        if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+            raise TypeError(f"record_rates_hz[{topic_name!r}] must be numeric, got {type(rate).__name__}")
+        value = float(rate)
+        if value < 0.0:
+            raise ValueError(f"record_rates_hz[{topic_name!r}] is {value}: a throttle rate is >= 0 Hz, 0 meaning unthrottled")
+        checked[topic_name] = value
+    return checked
+
+
+def robot_from_frame(frame_id: str, env_namespace: str) -> str | None:
+    """The robot segment before a frame name, None for a world frame or the environment itself."""
+    parts = [part for part in frame_id.strip("/").split("/") if part]
+    if len(parts) < 2:
+        return None
+    robot = parts[-2]
+    env = env_namespace.strip("/").rsplit("/", 1)[-1]
+    if robot in _WORLD_FRAMES or robot == env:
+        return None
+    return robot
+
+
+def initialpose_topic(frame_id: str, env_namespace: str) -> str:
+    """The topic an initial pose is recorded under: the robot its frame names, else the environment."""
+    env = env_namespace.strip("/")
+    env_root = f"/{env}" if env else ""
+    robot = robot_from_frame(frame_id, env)
+    return f"{env_root}/{robot}/initialpose" if robot else f"{env_root}/initialpose"
+
+
+def _running_ns(history: dict[int, EpisodeRecord]) -> int | None:
+    """The sim time the episode's RUNNING record names as its start, None before one with a stamp arrived."""
+    running = history.get(EpisodeRecord.RUNNING)
+    stamp = _stamp_ns(running.start_time) if running is not None else 0
+    return stamp if stamp > 0 else None
+
+
+def _stamp_ns(stamp: Time) -> int:
+    """A ROS time stamp in nanoseconds."""
+    return int(stamp.sec) * _NS_PER_SECOND + int(stamp.nanosec)
+
+
+@dataclasses.dataclass(slots=True)
+class RateGate:
+    """Accept a nanosecond timestamp stream at most once per interval, both boundaries included."""
+
+    interval_ns: int
+    last_ns: int | None = None
+
+    def accept(self, t_ns: int) -> bool:
+        """Whether the sample at t_ns passes, opening the next interval from its own stamp."""
+        if self.interval_ns <= 0:
+            return True
+        if self.last_ns is not None and t_ns - self.last_ns < self.interval_ns:
+            return False
+        self.last_ns = t_ns
+        return True
 
 
 def _state_types() -> dict[str, tuple[type, str, bool]]:
@@ -45,21 +132,40 @@ def _state_types() -> dict[str, tuple[type, str, bool]]:
     try:
         from arena_humansim_msgs.msg import AgentStates, InteractionFrame
 
-        types["arena_humansim_msgs/msg/InteractionFrame"] = (InteractionFrame, "interactions", True)
-        types["arena_humansim_msgs/msg/AgentStates"] = (AgentStates, "agent_states", False)
+        types["arena_humansim_msgs/msg/InteractionFrame"] = (
+            InteractionFrame,
+            "interactions",
+            True,
+        )
+        types["arena_humansim_msgs/msg/AgentStates"] = (
+            AgentStates,
+            "agent_states",
+            False,
+        )
     except ImportError:
         pass
     try:
         from arena_people_msgs.msg import AnimationStates, Pedestrians
 
-        types["arena_people_msgs/msg/AnimationStates"] = (AnimationStates, "animation_states", False)
+        types["arena_people_msgs/msg/AnimationStates"] = (
+            AnimationStates,
+            "animation_states",
+            False,
+        )
         types["arena_people_msgs/msg/Pedestrians"] = (Pedestrians, "arena_peds", False)
     except ImportError:
         pass
     return types
 
 
-_OUTCOME_LABELS = {0: "QUEUED", 1: "RUNNING", 2: "SUCCESS", 3: "FAILED", 4: "SKIPPED", 5: "FATAL"}
+_OUTCOME_LABELS = {
+    0: "QUEUED",
+    1: "RUNNING",
+    2: "SUCCESS",
+    3: "FAILED",
+    4: "SKIPPED",
+    5: "FATAL",
+}
 _TERMINAL_OUTCOMES = {
     EpisodeRecord.SUCCESS,
     EpisodeRecord.FAILED,
@@ -67,14 +173,29 @@ _TERMINAL_OUTCOMES = {
     EpisodeRecord.FATAL,
 }
 
-_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans"})
-_ENV_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "peds", "agent_states", "agent_meta", "interactions", "semantic_snapshot", "map", "door_mask", "tf", "tf_humans", "tf_static"})
-
-
-from arena_evaluation.storage.manifest import MetadataWriter
-
-from .episode_writer import EpisodeWriter
-from .metadata import IngestionMetadata
+_EPISODE_HISTORY_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    depth=20,
+)
+_DESERIALIZED_TOPIC_KEYS = frozenset({"episode_record", "robots_fleet", "tf", "tf_humans", "initialpose"})
+_ENV_TOPIC_KEYS = frozenset(
+    {
+        "episode_record",
+        "robots_fleet",
+        "peds",
+        "agent_states",
+        "agent_meta",
+        "interactions",
+        "semantic_snapshot",
+        "map",
+        "door_mask",
+        "tf",
+        "tf_humans",
+        "tf_static",
+        "initialpose",
+    }
+)
 
 
 class _NodeKwargs(TypedDict, total=False):
@@ -90,140 +211,87 @@ class _NodeKwargs(TypedDict, total=False):
 
 
 class _RecorderConfig(TypedDict, total=False):
-    record_frequencies: dict[str, float]
+    record_rates_hz: dict[str, float]
     tf_frames: list[tuple[str, float]]
     optional_topics: list[str]
 
 
-def copy_scenario(source: pathlib.Path, target: pathlib.Path) -> bool:
-    """Copy the scenario directory `source` to `target` in one rename, False when `target` already exists."""
-    if target.exists():
-        return False
-    partial = target.parent / f".{target.name}.{os.getpid()}.partial"
-    shutil.rmtree(partial, ignore_errors=True)
-    shutil.copytree(source, partial)
-    try:
-        partial.rename(target)
-    except OSError:
-        shutil.rmtree(partial, ignore_errors=True)
-        if not target.exists():
-            raise
-        return False
-    return True
-
-
 _RECORDER_PARAMS = (
-    Param[str]("record_data_dir", "", "Directory the run is recorded into (empty or auto:/ = a new timestamped run)."),
-    Param[str]("benchmark_id", "unknown", "Benchmark run id the recording belongs to."),
-    Param[str]("contestant", "unknown", "Contestant name of the recorded planner."),
-    Param[str]("stage", "unknown", "Benchmark stage the recording belongs to."),
-    Param[str]("map", "unknown", "Map the episodes run on."),
-    Param[str]("world", "unknown", "World the episodes run in."),
-    Param[str]("suite_name", "", "Benchmark suite the run belongs to."),
-    Param[str]("contest_name", "", "Contest the run belongs to."),
-    Param[str]("local_planner", "", "Local planner under test."),
-    Param[str]("inter_planner", "", "Intermediate planner under test."),
-    Param[str]("robot", "", "Robot model of the run."),
-    Param[int]("episodes_requested", 0, "Number of episodes the run asked for (0 = unspecified).", constraint=Range(lo=0)),
-    Param[bool]("is_reference", False, "Mark the recording as a reference run."),
-    Param[str]("reference_type", "", "Kind of reference the recording is (empty = none)."),
-    Param[int]("episode_id_offset", 0, "Offset added to the recorded episode ids."),
-    Param[str]("workspace_dir", "", "Workspace directory the run was started from."),
-    world_params.WORLD_LIGHTING,
-    world_params.KG_DERIVE,
-    Param[str]("data_recorder_autoprefix", "", "Run id chosen for an automatic run directory (empty = generated at start)."),
+    Param[str](
+        "record_data_dir",
+        "",
+        description="Directory the run is recorded into (empty or auto:/ = a new timestamped run).",
+    ),
+    Param[str](
+        "benchmark_id",
+        "unknown",
+        description="Benchmark run id the recording belongs to.",
+    ),
+    Param[str]("contestant", "unknown", description="Contestant name of the recorded planner."),
+    Param[str]("stage", "unknown", description="Benchmark stage the recording belongs to."),
+    Param[str]("map", "unknown", description="Map the episodes run on."),
+    Param[str]("world", "unknown", description="World the episodes run in."),
+    Param[str]("suite_name", "", description="Benchmark suite the run belongs to."),
+    Param[str]("contest_name", "", description="Contest the run belongs to."),
+    Param[str]("local_planner", "", description="Local planner under test."),
+    Param[str]("inter_planner", "", description="Intermediate planner under test."),
+    Param[str]("robot", "", description="Robot model of the run."),
+    Param[int](
+        "episodes_requested",
+        0,
+        constraint=Range(lo=0),
+        description="Number of episodes the run asked for (0 = unspecified).",
+    ),
+    Param[bool]("is_reference", False, description="Mark the recording as a reference run."),
+    Param[str](
+        "reference_type",
+        "",
+        description="Kind of reference the recording is (empty = none).",
+    ),
+    Param[int]("episode_id_offset", 0, description="Offset added to the recorded episode ids."),
+    Param[str]("workspace_dir", "", description="Workspace directory the run was started from."),
+    Param[str](
+        "world.lighting",
+        "authored",
+        description="Lighting mode of the world the episodes run in.",
+    ),
+    Param[str](
+        "kg.derive",
+        "auto",
+        description="Mode in which the knowledge graph of the world is derived.",
+    ),
+    Param[str](
+        "data_recorder_autoprefix",
+        "",
+        description="Run id chosen for an automatic run directory (empty = generated at start).",
+    ),
 )
 
 
-class DataRecorderNode(Node, EpisodeWriter):
+class DataRecorderNode(ROSParamServer, EpisodeWriter):
     def __init__(self, **node_kwargs: Unpack[_NodeKwargs]):
-        super().__init__('arena_evaluation_data_recorder', automatically_declare_parameters_from_overrides=True, **node_kwargs)
+        super().__init__(
+            "arena_evaluation_data_recorder",
+            automatically_declare_parameters_from_overrides=True,
+            **node_kwargs,
+        )
 
         self.base_dir = get_package_share_directory("arena_evaluation")
 
         handles = {param.name: declare(self, param) for param in _RECORDER_PARAMS}
 
-        record_data_dir = str(handles["record_data_dir"].value or "")
-
-        if not record_data_dir:
-            for idx, arg in enumerate(sys.argv):
-                if arg in ("--dir", "-d") and idx + 1 < len(sys.argv):
-                    record_data_dir = sys.argv[idx + 1]
-                    break
-                elif arg.startswith("--dir="):
-                    record_data_dir = arg[6:].strip()
-                    break
-
-        if not record_data_dir:
-            record_data_dir = "auto:/"
-
+        record_data_dir = str(handles["record_data_dir"].value or "") or self._parse_cli_dir() or "auto:/"
         workspace_root = pathlib.Path(self.base_dir).parents[3]
-        ws_data = (workspace_root / "data").resolve()
-        ws_runs = (workspace_root / "data" / "runs").resolve()
-
-        map_val = str(handles["map"].value or handles["world"].value or "")
-        robot_val = str(handles["robot"].value or "")
-        planner_val = str(handles["local_planner"].value or handles["contestant"].value or "")
-        bench_id_val = str(handles["benchmark_id"].value or "")
-
-        def _generate_run_id() -> str:
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            if bench_id_val and bench_id_val != "unknown":
-                return f"{ts}-{bench_id_val}" if not bench_id_val.startswith(ts) else bench_id_val
-            details = []
-            if map_val and map_val != "unknown":
-                details.append(pathlib.Path(map_val).stem)
-            if robot_val and robot_val != "unknown":
-                details.append(robot_val)
-            if planner_val and planner_val != "unknown":
-                details.append(planner_val)
-            if details:
-                return f"{ts}-{'-'.join(details)}"
-            return f"{ts}-run"
-
-        if record_data_dir.startswith("auto:/"):
-            param_value = handles["data_recorder_autoprefix"].value
-            if not param_value:
-                run_id = _generate_run_id()
-                self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
-            else:
-                run_id = str(param_value)
-            self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
-            record_data_dir_path = self.run_dir / "episodes"
-        else:
-            p = pathlib.Path(record_data_dir)
-            if not p.is_absolute():
-                p = workspace_root / p
-            p_resolved = p.resolve()
-
-            # If pointing to base "data", "data/runs", or "runs", generate data/runs/<run_id>/episodes
-            if p_resolved == ws_data or p_resolved == ws_runs or (p.name in ("data", "runs") and (p_resolved.parent in (workspace_root.resolve(), ws_data))):
-                param_value = handles["data_recorder_autoprefix"].value
-                if not param_value:
-                    run_id = _generate_run_id()
-                    self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
-                else:
-                    run_id = str(param_value)
-                self.run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
-                record_data_dir_path = self.run_dir / "episodes"
-            elif p.name == "episodes":
-                record_data_dir_path = p_resolved
-                self.run_dir = record_data_dir_path.parent
-            else:
-                self.run_dir = p_resolved
-                record_data_dir_path = p_resolved / "episodes"
+        self.run_dir, record_data_dir_path = self._resolve_run_dirs(handles, record_data_dir, workspace_root)
 
         self.episodes_root = record_data_dir_path.resolve()
         self.episodes_root.mkdir(parents=True, exist_ok=True)
-        if self.run_dir.exists():
-            try:
-                self.run_dir.chmod(0o777)
-            except Exception:
-                pass
-        try:
-            self.episodes_root.chmod(0o777)
-        except Exception:
-            pass
+        for directory in (self.run_dir, self.episodes_root):
+            if directory.exists():
+                try:
+                    directory.chmod(0o777)
+                except OSError:
+                    pass
 
         self.benchmark_id = str(handles["benchmark_id"].value or "unknown")
         self.planner = str(handles["contestant"].value or "unknown")
@@ -243,14 +311,15 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.world_lighting = str(handles["world.lighting"].value)
         self.kg_derive = str(handles["kg.derive"].value)
         self._snapshot_worlds: set[str] = set()
-        self._snapshot_scenarios: set[tuple[str, str]] = set()
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         self.env_ns_root = f"/{env_namespace}" if env_namespace else ""
 
         self.robot_model = str(handles["robot"].value or "unknown")
         self.current_sim_episode_id: int | None = None
         self.known_robots = set()
+        self._robot_params: dict[str, dict[str, str]] = {}
+        self._robot_snapshots: dict[str, dict[str, Any]] = {}
 
         self.current_episode_id: int | None = None
         self.current_episode_dir: pathlib.Path | None = None
@@ -262,7 +331,7 @@ class DataRecorderNode(Node, EpisodeWriter):
         self._open_log_file()
 
         self.config = self.read_config()
-        self.freqs = self.config.get("record_frequencies", {"default": 20.0})
+        self.record_rates_hz = self.config.get("record_rates_hz", {})
         self.tf_frames = [(re.compile(pattern), float(ms)) for pattern, ms in self.config.get("tf_frames", [])]
 
         self._log_info(f"Recorder ready. Episodes root: {self.episodes_root}")
@@ -271,13 +340,11 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.current_time = None
         self._pre_clock_buffer = []
         self._clock_received_count = 0
-        self.last_recorded_times: dict[str, int] = {}
+        self._throttle_gates: dict[str, RateGate] = {}
         self.writer_lock = threading.Lock()
-        # guards the tf merge state against the start_episode service callback group
+        # guards the tf frame-family state against the start_episode service callback group
         self._tf_lock = threading.Lock()
-        self._tf_pending: dict[tuple[str, str], Any] = {}
         self._tf_last_written: dict[tuple[str, str], int] = {}
-        self._tf_last_flush = 0
         self.writer: rosbag2_py.SequentialWriter | None = None
         self.topics_metadata: dict[str, rosbag2_py.TopicMetadata] = {}
         self._topic_registry: dict[str, rosbag2_py.TopicMetadata] = {}
@@ -305,6 +372,8 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.is_shutting_down = False
         self.episodes_recorded = 0
         self._seen_episodes = set()
+        self._record_history: dict[int, dict[int, EpisodeRecord]] = {}
+        self._written_records: set[tuple[int, int]] = set()
         self.recorded_topics: set[str] = set()
         self._recorded_rows: dict[str, RecordedTopic] = {}
         self._unresolved_types: set[str] = set()
@@ -321,7 +390,12 @@ class DataRecorderNode(Node, EpisodeWriter):
             RecordEpisode = None
         if RecordEpisode is not None:
             self.service_cb_group = MutuallyExclusiveCallbackGroup()
-            self._start_service = self.create_service(RecordEpisode, "start_episode", self._start_episode_service_callback, callback_group=self.service_cb_group)
+            self._start_service = self.create_service(
+                RecordEpisode,
+                "start_episode",
+                self._start_episode_service_callback,
+                callback_group=self.service_cb_group,
+            )
             self._log_info("start_episode service ready")
         else:
             self._start_service = None
@@ -331,7 +405,7 @@ class DataRecorderNode(Node, EpisodeWriter):
         if self.log_file is not None and not self.log_file.closed:
             try:
                 self.log_file.close()
-            except Exception:
+            except OSError:
                 pass
         if self.run_dir != self.episodes_root:
             self.log_file_path = self.run_dir / "recorder.log"
@@ -339,9 +413,69 @@ class DataRecorderNode(Node, EpisodeWriter):
             self.log_file_path = self.episodes_root / "recorder.log"
         try:
             self.log_file = open(self.log_file_path, "a", buffering=1)
-        except Exception as e:
-            print(f"[DataRecorder] Failed to open log file at {self.log_file_path}: {e}", flush=True)
+        except OSError as e:
+            print(
+                f"[DataRecorder] Failed to open log file at {self.log_file_path}: {e}",
+                flush=True,
+            )
             self.log_file = None
+
+    @staticmethod
+    def _parse_cli_dir() -> str:
+        for idx, arg in enumerate(sys.argv):
+            if arg in ("--dir", "-d") and idx + 1 < len(sys.argv):
+                return sys.argv[idx + 1]
+            if arg.startswith("--dir="):
+                return arg[6:].strip()
+        return ""
+
+    @staticmethod
+    def _generate_run_id(handles: dict[str, Any]) -> str:
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        bench_id_val = str(handles["benchmark_id"].value or "")
+        if bench_id_val and bench_id_val != "unknown":
+            return f"{ts}-{bench_id_val}" if not bench_id_val.startswith(ts) else bench_id_val
+        map_val = str(handles["map"].value or handles["world"].value or "")
+        robot_val = str(handles["robot"].value or "")
+        planner_val = str(handles["local_planner"].value or handles["contestant"].value or "")
+        details = [
+            pathlib.Path(map_val).stem if map_val and map_val != "unknown" else "",
+            robot_val if robot_val and robot_val != "unknown" else "",
+            planner_val if planner_val and planner_val != "unknown" else "",
+        ]
+        parts = [item for item in details if item]
+        return f"{ts}-{'-'.join(parts)}" if parts else f"{ts}-run"
+
+    def _resolve_run_dirs(
+        self,
+        handles: dict[str, Any],
+        record_data_dir: str,
+        workspace_root: pathlib.Path,
+    ) -> tuple[pathlib.Path, pathlib.Path]:
+        ws_data = (workspace_root / "data").resolve()
+        ws_runs = (workspace_root / "data" / "runs").resolve()
+
+        def _auto_dirs() -> tuple[pathlib.Path, pathlib.Path]:
+            param_value = handles["data_recorder_autoprefix"].value
+            if not param_value:
+                run_id = self._generate_run_id(handles)
+                self.set_parameters([Parameter("data_recorder_autoprefix", Parameter.Type.STRING, run_id)])
+            else:
+                run_id = str(param_value)
+            run_dir = (workspace_root / "data" / "runs" / run_id).resolve()
+            return run_dir, run_dir / "episodes"
+
+        if record_data_dir.startswith("auto:/"):
+            return _auto_dirs()
+        p = pathlib.Path(record_data_dir)
+        if not p.is_absolute():
+            p = workspace_root / p
+        p_resolved = p.resolve()
+        if p_resolved in (ws_data, ws_runs) or (p.name in ("data", "runs") and p_resolved.parent in (workspace_root.resolve(), ws_data)):
+            return _auto_dirs()
+        if p.name == "episodes":
+            return p_resolved.parent, p_resolved
+        return p_resolved, p_resolved / "episodes"
 
     def _start_episode_recording(self, episode_id: int):
         """Close any current writer and open a fresh one for this episode."""
@@ -353,14 +487,13 @@ class DataRecorderNode(Node, EpisodeWriter):
         self._close_current_writer()
 
         with self._tf_lock:
-            self._tf_pending = {}
             self._tf_last_written = {}
-            self._tf_last_flush = 0
+        self._throttle_gates.clear()
 
         ep_name = f"episode_{global_episode_id:03d}"
         buffered = self._pre_clock_buffer
         if buffered:
-            kept = [entry for entry in buffered if entry[0].strip('/') in self.latched_topic_names]
+            kept = [entry for entry in buffered if entry[0].strip("/") in self.latched_topic_names]
             self._log_info(f"Dropping {len(buffered) - len(kept)} pre-clock messages that arrived before {ep_name}")
             buffered[:] = kept
 
@@ -372,7 +505,7 @@ class DataRecorderNode(Node, EpisodeWriter):
         self._open_writer()
 
     def _setup_subscriptions(self):
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         env_prefix = f"/{env_namespace}" if env_namespace else ""
 
         self.subs = []
@@ -384,43 +517,34 @@ class DataRecorderNode(Node, EpisodeWriter):
         for key, t_def in topics_dict.items():
             if key not in _ENV_TOPIC_KEYS or not self._records(key, t_def):
                 continue
-
-            topic_name = t_def.name_template
             msg_type = t_def.msg_type
-
-            if isinstance(msg_type, type) and msg_type.__name__ in ("Pedestrians", "AgentFrame", "AgentMeta", "InteractionFrame", "EpisodeRecord", "RobotFleet") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
+            if (
+                isinstance(msg_type, type)
+                and msg_type.__name__
+                in (
+                    "Pedestrians",
+                    "AgentFrame",
+                    "AgentMeta",
+                    "InteractionFrame",
+                    "EpisodeRecord",
+                    "RobotFleet",
+                )
+                and not msg_type.__module__.startswith(("arena_", "task_generator_"))
+            ):
                 continue
 
+            topic_name = t_def.name_template
             if key != "tf_humans":
                 self._register_topic(topic_name, msg_type)
-
-            qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
             if t_def.qos_transient_local:
-                self.latched_topic_names.add(topic_name.strip('/'))
+                self.latched_topic_names.add(topic_name.strip("/"))
 
-            if key == "episode_record":
-                qos_profile = QoSProfile(
-                    reliability=QoSReliabilityPolicy.RELIABLE,
-                    durability=QoSDurabilityPolicy.VOLATILE,
-                    depth=1,
-                )
-                callback = self.episode_record_callback
-            elif key == "robots_fleet":
-                callback = self.robots_fleet_callback
-            elif key == "semantic_snapshot":
-                callback = self.semantic_snapshot_callback
-            elif key in ("tf", "tf_humans"):
-                qos_profile = self.tf_qos
-                callback = self._tf_callback
-            elif t_def.throttled:
-                callback = self._create_throttled_callback(topic_name)
-            else:
-                callback = self._create_unthrottled_callback(topic_name)
-
+            qos_profile, callback = self._env_topic_binding(key, t_def)
             raw = key not in _DESERIALIZED_TOPIC_KEYS
             sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=raw)  # pyright: ignore[reportArgumentType]
             self.subs.append(sub)
             if key == "episode_record":
+                self.subs.append(self.create_subscription(msg_type, topic_name, self.episode_record_history_callback, _EPISODE_HISTORY_QOS))
                 self.get_logger().info(f"Subscribed to EpisodeRecord on {topic_name}")
             elif key == "robots_fleet":
                 self.get_logger().info(f"Subscribed to RobotFleet on {topic_name}")
@@ -432,10 +556,37 @@ class DataRecorderNode(Node, EpisodeWriter):
             depth=1,
         )
         topic_name = f"{env_prefix}/state/recorded_topics"
-        self.subs.append(self.create_subscription(RecordedTopics, topic_name, self.recorded_topics_callback, recorded_topics_qos))
+        self.subs.append(
+            self.create_subscription(
+                RecordedTopics,
+                topic_name,
+                self.recorded_topics_callback,
+                recorded_topics_qos,
+            )
+        )
         self.get_logger().info(f"Subscribed to RecordedTopics on {topic_name}")
 
         self.create_timer(1.0, self.discover_topics)
+
+    def _env_topic_binding(self, key: str, t_def: TopicDefinition) -> tuple[QoSProfile, Callable[..., Any]]:
+        qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
+        if key == "episode_record":
+            return QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.VOLATILE,
+                depth=1,
+            ), self.episode_record_callback
+        if key == "robots_fleet":
+            return qos_profile, self.robots_fleet_callback
+        if key == "semantic_snapshot":
+            return qos_profile, self.semantic_snapshot_callback
+        if key == "initialpose":
+            return qos_profile, self.initialpose_callback
+        if key in ("tf", "tf_humans"):
+            return self.tf_qos, self._tf_callback
+        topic_name = t_def.name_template
+        callback = self._create_throttled_callback(topic_name, rate_hz=t_def.throttle_rate_hz) if t_def.throttled else self._create_unthrottled_callback(topic_name)
+        return qos_profile, callback
 
     def recorded_topics_callback(self, msg: RecordedTopics):
         for row in msg.topics:
@@ -448,7 +599,7 @@ class DataRecorderNode(Node, EpisodeWriter):
         """Subscribe the env rows (robot_ns None) or one robot's rows of the backend-declared recorded topics."""
         from .topics import recorded_topic_definition
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         for key, row in self._recorded_rows.items():
             if row.robot_scoped != (robot_ns is not None):
                 continue
@@ -471,10 +622,10 @@ class DataRecorderNode(Node, EpisodeWriter):
                 depth=t_def.depth or default_qos.depth,
             )
             if t_def.qos_transient_local:
-                self.latched_topic_names.add(topic_name.strip('/'))
+                self.latched_topic_names.add(topic_name.strip("/"))
 
             if t_def.throttled:
-                callback = self._create_throttled_callback(topic_name)
+                callback = self._create_throttled_callback(topic_name, rate_hz=t_def.throttle_rate_hz)
             else:
                 callback = self._create_unthrottled_callback(topic_name)
 
@@ -482,7 +633,7 @@ class DataRecorderNode(Node, EpisodeWriter):
             self.get_logger().info(f"Subscribed to recorded topic: {topic_name}")
 
     def discover_topics(self):
-        namespace = self.get_namespace().strip('/')
+        namespace = self.get_namespace().strip("/")
         ns_prefix = f"/{namespace}" if namespace else ""
         env_prefix = ns_prefix.rsplit("/", 1)[0] + "/"
 
@@ -495,18 +646,15 @@ class DataRecorderNode(Node, EpisodeWriter):
                 continue
 
             name_lower = name.lower()
-            is_scan = "scan" in name_lower or "lidar" in name_lower
             is_odom = "odom" in name_lower
 
             if is_odom and "nav_msgs/msg/Odometry" in types:
-                self._subscribe_discovered(name, Odometry)
+                self._subscribe_discovered(name, Odometry, rate_hz=_ODOM_THROTTLE_RATE_HZ)
                 if self.robot_model in ("unknown", ""):
                     for part in reversed(name.split("/")):
                         if part and part not in ("odom", "eval_sim", "arena_env_node", "arena") and "velocity_controller" not in part and not part.startswith("env_"):
                             self.robot_model = part
-                            if self.current_metadata is not None and self.current_metadata_path is not None:
-                                self.current_metadata.robot_model = [part]
-                                MetadataWriter.write(self.current_metadata, self.current_metadata_path)
+                            self._record_robot_model_metadata(part, replace=True)
                             break
 
     def _discover_state_topic(self, topic_name: str, types: list[str]) -> None:
@@ -519,17 +667,34 @@ class DataRecorderNode(Node, EpisodeWriter):
                 continue
             self._register_topic(topic_name, msg_type)
             if latched:
-                self.latched_topic_names.add(topic_name.strip('/'))
-                sub = self.create_subscription(msg_type, topic_name, self._create_unthrottled_callback(topic_name), self.latched_qos)
+                self.latched_topic_names.add(topic_name.strip("/"))
+                sub = self.create_subscription(
+                    msg_type,
+                    topic_name,
+                    self._create_unthrottled_callback(topic_name),
+                    self.latched_qos,
+                )
             else:
-                sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos)
+                sub = self.create_subscription(
+                    msg_type,
+                    topic_name,
+                    self._create_throttled_callback(topic_name),
+                    self.qos,
+                )
             self.subs.append(sub)
             self._log_info(f"Discovered state topic: {topic_name} [{type_name}]{' latched' if latched else ''}")
             return
 
-    def _subscribe_discovered(self, topic_name: str, msg_type: type):
+    def _subscribe_discovered(self, topic_name: str, msg_type: type, *, rate_hz: float) -> None:
+        """Subscribe a discovered topic, throttled at rate_hz."""
         self._register_topic(topic_name, msg_type)
-        sub = self.create_subscription(msg_type, topic_name, self._create_throttled_callback(topic_name), self.qos, raw=True)
+        sub = self.create_subscription(
+            msg_type,
+            topic_name,
+            self._create_throttled_callback(topic_name, rate_hz=rate_hz),
+            self.qos,
+            raw=True,
+        )
         self.subs.append(sub)
         self.get_logger().info(f"Dynamically subscribed to: {topic_name}")
 
@@ -541,8 +706,7 @@ class DataRecorderNode(Node, EpisodeWriter):
 
         if self.current_time is not None and new_time < self.current_time:
             self._log_warn(f"Backward time jump detected: {self.current_time} -> {new_time}")
-            self._flush_tf(self.current_time, force=True)
-            self.last_recorded_times.clear()
+            self._throttle_gates.clear()
             with self._tf_lock:
                 self._tf_last_written.clear()
 
@@ -558,8 +722,6 @@ class DataRecorderNode(Node, EpisodeWriter):
                         self._write_to_bag_at(topic, buffered_msg, self.current_time)
             self._pre_clock_buffer = None
 
-        self._flush_tf(self.current_time)
-
     def _begin_episode(self, episode_id: int, source: str = "episode_record") -> bool:
         """Open a writer for a new episode unless one was already started for it."""
         if episode_id in self._seen_episodes:
@@ -568,6 +730,10 @@ class DataRecorderNode(Node, EpisodeWriter):
         self.episodes_recorded += 1
         self._log_info(f"New episode detected ({source}): episode_id={episode_id}")
         self._start_episode_recording(episode_id)
+        self._record_history = {key: records for key, records in self._record_history.items() if key >= episode_id}
+        history = self._record_history.get(episode_id, {})
+        for state in sorted(history):
+            self._ingest_record(history[state], replay_before_ns=_running_ns(history))
         return True
 
     def _stop_episode(self, episode_id: int, outcome_state: int = 0, outcome_info: str = "") -> None:
@@ -582,11 +748,6 @@ class DataRecorderNode(Node, EpisodeWriter):
                 MetadataWriter.write(self.current_metadata, self.current_metadata_path)
             except Exception as e:
                 self._log_error(f"Failed to write outcome metadata: {e}")
-        if self.current_time is None:
-            with self._tf_lock:
-                self._tf_pending.clear()
-        else:
-            self._flush_tf(self.current_time, force=True)
         self._close_current_writer()
         self._pre_episode_buffer.clear()
 
@@ -601,7 +762,11 @@ class DataRecorderNode(Node, EpisodeWriter):
             response.message = f"recording episode {self.current_episode_id}"
         elif command == request.COMMAND_STOP:  # pyright: ignore[reportAttributeAccessIssue]
             self._log_info(f"stop_episode service called: episode_id={episode_id} outcome={request.outcome_state}")
-            self._stop_episode(episode_id, outcome_state=int(request.outcome_state), outcome_info=str(request.outcome_info))
+            self._stop_episode(
+                episode_id,
+                outcome_state=int(request.outcome_state),
+                outcome_info=str(request.outcome_info),
+            )
             response.success = True
             response.message = "stopped"
         else:
@@ -614,122 +779,165 @@ class DataRecorderNode(Node, EpisodeWriter):
         outcome_label = _OUTCOME_LABELS.get(outcome_state, f"UNKNOWN({outcome_state})")
         self._log_info(f"EpisodeRecord received: episode_id={msg.episode_id} outcome={outcome_state} ({outcome_label}) info={msg.outcome_info!r}")
 
+        self._record_history.setdefault(int(msg.episode_id), {})[int(outcome_state)] = msg
         if msg.episode_id not in self._seen_episodes and outcome_state == EpisodeRecord.RUNNING:
             self._begin_episode(msg.episode_id, source="episode_record")
+        self._ingest_record(msg)
 
+    def episode_record_history_callback(self, msg: EpisodeRecord):
+        """Keep every record of the env's latched history, writing those of the episode being recorded."""
+        self._record_history.setdefault(int(msg.episode_id), {})[int(msg.outcome_state)] = msg
+        if int(msg.episode_id) == self.current_sim_episode_id and int(msg.episode_id) in self._seen_episodes:
+            self._ingest_record(msg, replay_before_ns=_running_ns(self._record_history[int(msg.episode_id)]))
+
+    def _ingest_record(self, msg: EpisodeRecord, replay_before_ns: int | None = None):
+        """Write one record of the current episode once, at its RUNNING stamp when it arrives after the episode began."""
+        key = (int(msg.episode_id), int(msg.outcome_state))
+        if key in self._written_records or int(msg.episode_id) != self.current_sim_episode_id:
+            return
+        self._written_records.add(key)
         self._update_metadata_from_episode(msg)
         if msg.world:
             self._snapshot_world(msg.world)
-            self._snapshot_scenario(msg)
 
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         topic = f"/{env_namespace}/state/episode" if env_namespace else "/state/episode"
+        if self.current_time is None:
+            if self._pre_clock_buffer is not None:
+                self._pre_clock_buffer.append((topic, msg))
+            return
+        stamp = self.current_time
+        if replay_before_ns is not None and int(msg.outcome_state) <= EpisodeRecord.RUNNING:
+            stamp = min(stamp, replay_before_ns)
+        self._write_to_bag_at(topic, msg, stamp)
+
+    def semantic_snapshot_callback(self, msg: bytes):
+        env_namespace = self.get_namespace().strip("/")
+        now = self.current_time or self.get_clock().now().nanoseconds
+        topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
+        self._write_to_bag_at(topic, msg, now)
+
+    def initialpose_callback(self, msg: PoseWithCovarianceStamped) -> None:
+        """Record the env-level initial pose under the robot its header frame names, else env-scoped."""
+        topic = initialpose_topic(msg.header.frame_id, self.env_ns_root)
+        self._register_topic(topic, PoseWithCovarianceStamped)
         if self.current_time is None:
             if self._pre_clock_buffer is not None:
                 self._pre_clock_buffer.append((topic, msg))
             return
         self._write_to_bag_at(topic, msg, self.current_time)
 
-    def semantic_snapshot_callback(self, msg: bytes):
-        env_namespace = self.get_namespace().strip('/')
-        now = self.current_time or self.get_clock().now().nanoseconds
-        topic = f"/{env_namespace}/state/semantics" if env_namespace else "/state/semantics"
-        self._write_to_bag_at(topic, msg, now)
-
     def _records(self, key: str, t_def: TopicDefinition) -> bool:
         """Default topics always, the others only when listed under optional_topics in data_recorder_config.yaml."""
         return t_def.recorded or key in self.config.get("optional_topics", [])
 
     def robots_fleet_callback(self, msg: RobotFleet):
-        env_namespace = self.get_namespace().strip('/')
+        env_namespace = self.get_namespace().strip("/")
         now = self.current_time or self.get_clock().now().nanoseconds
         topic = f"/{env_namespace}/state/robots" if env_namespace else "/state/robots"
         self._write_to_bag_at(topic, msg, now)
 
-        from .topics import get_topics
-
         for state in msg.robots:
             robot = state.descriptor
-            robot_ns = robot.ns.strip('/')
-
+            robot_ns = robot.ns.strip("/")
+            params = {item.key: item.value for item in state.params}
+            if self._robot_params.get(robot_ns) != params:
+                self._robot_params[robot_ns] = params
+                snapshot = self._snapshot_robot_caps(robot_ns, robot.model, params)
+                if snapshot is not None:
+                    self._robot_snapshots[robot_ns] = snapshot
             if robot_ns not in self.known_robots:
-                self.get_logger().info(f"Discovered new robot from RobotFleet: {robot_ns} (Model: {robot.model})")
-                self.known_robots.add(robot_ns)
+                self._subscribe_new_robot(robot_ns, robot.model, env_namespace)
 
-                topics_dict = get_topics(namespace=robot_ns, parent_namespace=env_namespace)
+    def _subscribe_new_robot(self, robot_ns: str, robot_model: str, env_namespace: str) -> None:
+        from .topics import get_topics
 
-                for key, t_def in topics_dict.items():
-                    if key in _ENV_TOPIC_KEYS or not self._records(key, t_def):
-                        continue
+        self.get_logger().info(f"Discovered new robot from RobotFleet: {robot_ns} (Model: {robot_model})")
+        self.known_robots.add(robot_ns)
 
-                    topic_name = t_def.name_template
-                    msg_type = t_def.msg_type
+        for key, t_def in get_topics(namespace=robot_ns, parent_namespace=env_namespace).items():
+            if key in _ENV_TOPIC_KEYS or not self._records(key, t_def):
+                continue
+            msg_type = t_def.msg_type
+            if isinstance(msg_type, type) and msg_type.__name__ == "CollisionEvents" and not msg_type.__module__.startswith(("arena_", "task_generator_")):
+                continue
+            topic_name = t_def.name_template
+            self._register_topic(topic_name, msg_type)
+            if t_def.qos_transient_local:
+                self.latched_topic_names.add(topic_name.strip("/"))
+            qos_profile, callback = self._env_topic_binding(key, t_def)
+            self.subs.append(self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=True))
+            self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
 
-                    if isinstance(msg_type, type) and msg_type.__name__ in ("CollisionEvents") and not msg_type.__module__.startswith("arena_") and not msg_type.__module__.startswith("task_generator_"):
-                        continue
+        self._subscribe_recorded_rows(robot_ns)
+        ns_prefix = f"/{robot_ns}" if robot_ns else ""
+        cmd_vel_topic, odom_topic = self._control_topics(self._robot_snapshots.get(robot_ns))
+        for rel, msg_type, rate_hz in (
+            (odom_topic, Odometry, _ODOM_THROTTLE_RATE_HZ),
+            (cmd_vel_topic, TwistStamped, DEFAULT_THROTTLE_RATE_HZ),
+        ):
+            if rel and "/" in rel:
+                topic = f"{ns_prefix}/{rel}"
+                self._register_topic(topic, msg_type)
+                self.subs.append(
+                    self.create_subscription(
+                        msg_type,
+                        topic,
+                        self._create_throttled_callback(topic, rate_hz=rate_hz),
+                        self.qos,
+                        raw=True,
+                    )
+                )
 
-                    self._register_topic(topic_name, msg_type)
+        if self.robot_model == "unknown":
+            self.robot_model = robot_model
+        self._record_robot_model_metadata(robot_model)
 
-                    qos_profile = self.latched_qos if t_def.qos_transient_local else self.qos
-                    if t_def.qos_transient_local:
-                        self.latched_topic_names.add(topic_name.strip('/'))
+    def _record_robot_model_metadata(self, robot_model: str, *, replace: bool = False) -> None:
+        if self.current_metadata is None or self.current_metadata_path is None:
+            return
+        if replace or "unknown" in self.current_metadata.robot_model:
+            self.current_metadata.robot_model = []
+        if robot_model not in self.current_metadata.robot_model:
+            self.current_metadata.robot_model.append(robot_model)
+        try:
+            MetadataWriter.write(self.current_metadata, self.current_metadata_path)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to write episode metadata: {e}")
 
-                    if t_def.throttled:
-                        callback = self._create_throttled_callback(topic_name)
-                    else:
-                        callback = self._create_unthrottled_callback(topic_name)
+    def _snapshot_robot_caps(self, robot_ns: str, model: str, params: dict[str, str]) -> dict[str, Any] | None:
+        """Write the effective caps of a robot instance to its caps snapshot file."""
+        from arena_robots.fleet import instance_caps
 
-                    sub = self.create_subscription(msg_type, topic_name, callback, qos_profile, raw=True)
-                    self.subs.append(sub)
-                    self.get_logger().info(f"Subscribed to robot topic: {topic_name}")
-
-                self._subscribe_recorded_rows(robot_ns)
-
-                ns_prefix = f"/{robot_ns}" if robot_ns else ""
-                cmd_vel_topic, odom_topic = self._control_topics(robot.model)
-                for rel, msg_type in ((odom_topic, Odometry), (cmd_vel_topic, TwistStamped)):
-                    if rel and "/" in rel:
-                        topic = f"{ns_prefix}/{rel}"
-                        self._register_topic(topic, msg_type)
-                        self.subs.append(self.create_subscription(msg_type, topic, self._create_throttled_callback(topic), self.qos, raw=True))
-
-                if self.robot_model == "unknown":
-                    self.robot_model = robot.model
-
-                if self.current_metadata is not None and self.current_metadata_path is not None:
-                    if "unknown" in self.current_metadata.robot_model:
-                        self.current_metadata.robot_model = []
-
-                    if robot.model not in self.current_metadata.robot_model:
-                        self.current_metadata.robot_model.append(robot.model)
-
-                    try:
-                        MetadataWriter.write(self.current_metadata, self.current_metadata_path)
-                    except Exception as e:
-                        self.get_logger().warn(f"Failed to write episode metadata: {e}")
+        runtime_hash = params.get("caps:hash")
+        request = {key: value for key, value in params.items() if key != "caps:hash"}
+        try:
+            snapshot = instance_caps(model.partition("[")[0], request).snapshot()
+        except Exception as e:
+            self._log_warn(f"Robot {robot_ns}: caps of {model} do not resolve from {request}: {e}")
+            return None
+        if runtime_hash is not None and runtime_hash != snapshot["hash"]:
+            self._log_warn(f"Robot {robot_ns}: caps hash {snapshot['hash']} differs from the runtime's {runtime_hash}")
+            snapshot["runtime_hash"] = runtime_hash
+        path = caps_snapshot_path(self.run_dir, robot_ns)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.safe_dump(snapshot, sort_keys=False))
+        except Exception as e:
+            self._log_error(f"Failed to write the caps snapshot of {robot_ns}: {e}")
+        return snapshot
 
     @staticmethod
-    def _control_topics(model: str) -> tuple[str, str]:
-        """The model's controller-side (cmd_vel_topic, odom_topic), relative to the robot namespace."""
-        try:
-            path = os.path.join(get_package_share_directory("arena_robots"), "robots", model.partition("[")[0], "model_params.yaml")
-            with open(path) as f:
-                control = (yaml.safe_load(f) or {}).get("control", {})
-        except Exception:
+    def _control_topics(snapshot: dict[str, Any] | None) -> tuple[str, str]:
+        """The (cmd_vel_topic, odom_topic) of a caps snapshot's body, relative to the robot namespace."""
+        body = None if snapshot is None else snapshot["effective"].get("body")
+        if body is None:
             return "", ""
-        return str(control.get("cmd_vel_topic", "")), str(control.get("odom_topic", ""))
+        return str(body["cmd_vel_topic"]), str(body["odom_topic"])
 
-    def _resolve_throttle_ms(self, topic_name: str) -> float:
-        topic_lower = topic_name.lower()
-        for key, ms in self.freqs.items():
-            if key == "default":
-                continue
-            if key.lower() in topic_lower:
-                return float(ms)
-        return float(self.freqs.get("default", 20.0))
-
-    def _create_throttled_callback(self, topic_name: str) -> Callable[[object], None]:
-        throttle_ms = self._resolve_throttle_ms(topic_name)
+    def _create_throttled_callback(self, topic_name: str, *, rate_hz: float = DEFAULT_THROTTLE_RATE_HZ) -> Callable[[object], None]:
+        """A callback through the topic's rate gate, overridden by record_rates_hz by exact name."""
+        interval_ns = min_interval_ns(resolve_rate_hz(self.record_rates_hz, topic_name, rate_hz))
 
         def callback(msg: object) -> None:
             if self.current_time is None:
@@ -737,12 +945,18 @@ class DataRecorderNode(Node, EpisodeWriter):
                     self._pre_clock_buffer.append((topic_name, msg))
                 return
             now = self.current_time
-            last_time = self.last_recorded_times.get(topic_name, 0)
-            if (now - last_time) / 1e6 >= throttle_ms:
+            if self._throttle_gate(topic_name, interval_ns).accept(now):
                 self._write_to_bag_at(topic_name, msg, now)
-                self.last_recorded_times[topic_name] = now
 
         return callback
+
+    def _throttle_gate(self, topic_name: str, interval_ns: int) -> RateGate:
+        """The rate gate of a topic, created on its first message after the last reset."""
+        gate = self._throttle_gates.get(topic_name)
+        if gate is None:
+            gate = RateGate(interval_ns)
+            self._throttle_gates[topic_name] = gate
+        return gate
 
     def _create_unthrottled_callback(self, topic_name: str) -> Callable[[object], None]:
         def callback(msg: object) -> None:
@@ -755,39 +969,36 @@ class DataRecorderNode(Node, EpisodeWriter):
 
         return callback
 
-    def _tf_callback(self, msg: TFMessage):
-        """Merge the per-window transforms of /tf, newest wins per (frame, child) pair."""
+    def _tf_callback(self, msg: TFMessage) -> None:
+        """Write each transform at its header stamp, one TFMessage per stamp, capped per frame pair."""
         if self.current_time is None:
             if self._pre_clock_buffer is not None:
                 self._pre_clock_buffer.append(("/tf", msg))
             return
-        now = self.current_time
+        by_stamp: dict[int, list[TransformStamped]] = {}
         with self._tf_lock:
             for transform in msg.transforms:
-                child = transform.child_frame_id
-                interval_ms = 0.0
-                for pattern, ms in self.tf_frames:
-                    if pattern.search(child):
-                        interval_ms = ms
-                        break
-                key = (transform.header.frame_id, child)
-                if (now - self._tf_last_written.get(key, 0)) / 1e6 >= interval_ms:
-                    self._tf_pending[key] = transform
+                stamp_ns = _stamp_ns(transform.header.stamp)
+                if self._accept_transform(transform, stamp_ns):
+                    by_stamp.setdefault(stamp_ns, []).append(transform)
+        for stamp_ns in sorted(by_stamp):
+            self._write_to_bag_at("/tf", TFMessage(transforms=by_stamp[stamp_ns]), stamp_ns)
 
-    def _flush_tf(self, now: int, force: bool = False):
-        """Write the merged transforms as one TFMessage. Never called under writer_lock."""
-        window_ms = self._resolve_throttle_ms("/tf")
-        with self._tf_lock:
-            if not self._tf_pending:
-                return
-            if not force and (now - self._tf_last_flush) / 1e6 < window_ms:
-                return
-            taken = self._tf_pending
-            self._tf_pending = {}
-            for key in taken:
-                self._tf_last_written[key] = now
-            self._tf_last_flush = now
-        self._write_to_bag_at("/tf", TFMessage(transforms=list(taken.values())), now)
+    def _accept_transform(self, transform: TransformStamped, stamp_ns: int) -> bool:
+        """Whether the transform passes its family interval, its stamp recorded when it does. Call under _tf_lock."""
+        key = (transform.header.frame_id, transform.child_frame_id)
+        last_ns = self._tf_last_written.get(key)
+        if last_ns is not None and stamp_ns - last_ns < self._tf_interval_ns(transform.child_frame_id):
+            return False
+        self._tf_last_written[key] = stamp_ns
+        return True
+
+    def _tf_interval_ns(self, child_frame_id: str) -> int:
+        """The tf_frames cap of a child frame, the /tf rate when no family pattern matches."""
+        for pattern, ms in self.tf_frames:
+            if pattern.search(child_frame_id):
+                return math.ceil(float(ms) * _NS_PER_MILLISECOND)
+        return min_interval_ns(resolve_rate_hz(self.record_rates_hz, "/tf", DEFAULT_THROTTLE_RATE_HZ))
 
     def _log_info(self, msg: str):
         full_msg = f"[DataRecorder] [INFO] {msg}"
@@ -879,7 +1090,12 @@ class DataRecorderNode(Node, EpisodeWriter):
         if name in self._snapshot_worlds:
             return
         self._snapshot_worlds.add(name)
-        threading.Thread(target=self._write_world_snapshot, args=(name, level_filter), name=f"world_snapshot_{name}", daemon=True).start()
+        threading.Thread(
+            target=self._write_world_snapshot,
+            args=(name, level_filter),
+            name=f"world_snapshot_{name}",
+            daemon=True,
+        ).start()
 
     def _write_world_snapshot(self, name: str, level_filter: set[str] | None) -> None:
         from arena_simulation_setup.tree.World import WorldIdentifier, save_snapshot
@@ -890,36 +1106,15 @@ class DataRecorderNode(Node, EpisodeWriter):
         try:
             view = WorldIdentifier(name).resolve_sync()
             world = view.load(validate=False, level_filter=level_filter, derive=self.kg_derive)
-            save_snapshot(world, directory, self.world_lighting, level_origins=view.level_origins())
+            save_snapshot(
+                world,
+                directory,
+                self.world_lighting,
+                level_origins=view.level_origins(),
+            )
             self._log_info(f"Wrote world snapshot: {directory}")
         except Exception as e:
             self._log_error(f"Failed to write the world snapshot of {name}: {e}")
-
-    def _snapshot_scenario(self, msg: EpisodeRecord) -> None:
-        """Copy the scenario an episode runs to run_dir/worlds/<world>/scenarios/<file> once per run, off the callback thread."""
-        from arena_simulation_setup.tree.World import WorldIdentifier
-
-        from arena_evaluation.processing.metrics.edge_case.provenance import scenario_file
-
-        scenario = scenario_file(decode_modes(msg.modes), self._record_params(msg), msg.task_layer)
-        if scenario is None:
-            return
-        name, _ = WorldIdentifier.split_filter(msg.world)
-        if (name, scenario) in self._snapshot_scenarios:
-            return
-        self._snapshot_scenarios.add((name, scenario))
-        threading.Thread(target=self._write_scenario_snapshot, args=(name, scenario), name=f"scenario_snapshot_{scenario}", daemon=True).start()
-
-    def _write_scenario_snapshot(self, name: str, scenario: str) -> None:
-        from arena_simulation_setup.tree.World import WorldIdentifier
-
-        directory = self.run_dir / "worlds" / name / "scenarios" / scenario
-        try:
-            source = WorldIdentifier(name).resolve_sync().scenario(scenario).resolve_sync().path
-            if copy_scenario(pathlib.Path(source), directory):
-                self._log_info(f"Wrote scenario snapshot: {directory}")
-        except Exception as e:
-            self._log_error(f"Failed to write the scenario snapshot of {name}/{scenario}: {e}")
 
     def _update_metadata_from_episode(self, msg: EpisodeRecord):
         """Update the current episode's metadata with live EpisodeRecord data."""
@@ -965,12 +1160,19 @@ class DataRecorderNode(Node, EpisodeWriter):
         return mapping.get(val.type, lambda v: str(v))(val)
 
     def read_config(self) -> _RecorderConfig:
+        """The recorder config; a missing file keeps the defaults, a file still carrying record_frequencies is refused."""
         config_path = os.path.join(self.base_dir, "config", "data_recorder_config.yaml")
         try:
             with open(config_path) as f:
-                return yaml.safe_load(f)
-        except Exception:
-            return {"record_frequencies": {"default": 20.0}, "tf_frames": []}
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            return {"record_rates_hz": {}, "tf_frames": []}
+        if "record_frequencies" in config:
+            raise ValueError("data_recorder_config.yaml still sets record_frequencies, which the recorder no longer reads: replace it with record_rates_hz (exact topic name -> rate in Hz, 0 = unthrottled) and rebuild arena_evaluation so the installed share copy is refreshed")
+        return {
+            "record_rates_hz": _checked_rates(config.get("record_rates_hz") or {}),
+            "tf_frames": list(config.get("tf_frames") or []),
+        }
 
     def finalize(self):
         """Close the current episode writer and write final metadata."""
@@ -1036,5 +1238,5 @@ def main(args: list[str] | None = None):
     os._exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

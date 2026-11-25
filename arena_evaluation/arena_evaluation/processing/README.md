@@ -1,14 +1,16 @@
-# processing (Layer 3: Offline Metric Computation)
+# processing (Layer 1: extraction and dimensions)
 
-Computes navigational and ecological metrics from recorded episode MCAP files offline without requiring active ROS 2 nodes.
-
-Pipeline data flow:
+Reads each recorded episode's MCAP once into native tables, then writes the benchmark's dimension tables from them. The metric calculators in [metrics/](metrics/README.md) are layer 2.
 
 ```
-MCAPReader -> TopicParquetStore -> TopicAligner -> MetricRegistry -> ParquetStore
+episode_NNN.mcap
+  -> MCAPReader        flat tables, one per topic family
+  -> topics/           the native tables of the episode, one Parquet file each
+  -> dimension_rows    the dimension rows of the episode
+  -> benchmark root    dim_*.parquet, stacked over the episodes, checked, written once
 ```
 
-Each `episode_XXX.mcap` is aligned directly onto its odom axis.
+Runs recorded before the native layout are converted once by `arena evaluation migrate`; see [ingestion/README.md](../ingestion/README.md).
 
 ---
 
@@ -16,126 +18,56 @@ Each `episode_XXX.mcap` is aligned directly onto its odom axis.
 
 | File | Purpose |
 |---|---|
-| `mcap_reader.py` | Decodes MCAP to `TopicBundle` (one DataFrame per topic) |
-| `parquet_store.py` | Reads and writes extraction cache (`TopicParquetStore`) and output metrics (`ParquetStore`) |
-| `topic_aligner.py` | Aligns multi-rate topics onto the odom time axis |
-| `pipeline.py` | `ProcessingPipeline` orchestrates benchmark processing |
-| `recorded_episodes.py` | `RecordedEpisodes`: per-step frames of the episodes of one run directory, recorded or imported |
-| `map_registry.py` | Discovers, converts (PGM to PNG), and caches map images |
-| `metrics/` | Metric calculators (performance, social, ecological, naturalness, edge_case) |
+| `mcap_reader.py` | `MCAPReader` streams one recording into flat tables; `load_bundles` reads the episode's tables back as one `TopicBundle` per robot |
+| `telemetry/` | Shapes recorded messages into flat rows: `tracks`, `sensors`, `peds`, `events`, `context`, `messages`, and `writer`, which buffers the rows per table |
+| `parquet_store.py` | `TopicParquetStore`: the extraction cache of an episode's `topics/` folder |
+| `pipeline.py` | `ProcessingPipeline`: extracts an episode, a run directory or a benchmark, and writes the benchmark's dimensions |
+| `dimension_rows.py` | `episode_dimensions`: the dimension rows one episode contributes |
+| `world_geometry.py` | `benchmark_world_geometry`, `world_geometry_rows`: the walls, doors, elevator polygons, zones and object footprints of the benchmark's worlds, one row per vertex |
+| `pose_anchor.py` | Classifies the ground-truth pose stream as dense, sparse or absent |
+| `map_registry.py` | `MapRegistry`: the map image of a world, resolved the way the runtime does, and cached |
+| `metrics/` | Layer 2: metric calculators, see [metrics/README.md](metrics/README.md) |
+| `acoustics/`, `path/` | Layer 2: the acoustic propagation solver with its door geometry, and the reference path solver |
+| `pose_segments.py` | Layer 2: teleport detection on a recorded pose track |
 
 ---
 
-## mcap_reader.py - MCAPReader
+## Extraction
 
-Reads episode MCAP files using Python `mcap` libraries and produces a `TopicBundle`.
+- `extract_benchmark` discovers the episodes of a benchmark, extracts each one (in worker processes when `workers` is above 1), then writes the dimensions once at the benchmark root.
+- `extract_episode` skips an episode whose MCAP is missing, with a warning. A current `topics/` cache is reused unless `force_extract` is set; otherwise `topics/` is rebuilt from the MCAP and marked complete.
+- `extract_run_dir` extracts one `episode_NNN` folder and writes no dimensions.
 
-```python
-from arena_evaluation.processing.mcap_reader import MCAPReader
+## Dimensions
 
-bundle = MCAPReader(path).read()
-```
+The benchmark step reads each episode's metadata YAML and its `topics/` bundles, builds the episode dimension rows, stacks them, adds the metric dictionary and the geometry of every named world, checks the result against the registry contract (`storage/contracts.py`) and writes each table once (`storage/star_schema.py`). An episode without a `topics/` folder is skipped with a warning, so the episode dimensions have no rows for it; its world still counts for the geometry.
 
-Positions in the shared `map` frame (`tf_gt`, `plan`, `initialpose`, `peds`, episode start and goal) are moved into the env's world frame by the recorded `map -> env_<n>/map` anchor. A world swap moves the anchor mid-recording, so each row takes the anchor in effect at its `time_ns`: the last one at or before it, a later message winning a tie, the first one for rows before any.
+| Table | One row per | Key |
+|---|---|---|
+| `dim_episodes` | episode and robot | `run_id`, `episode_id`, `robot_id` |
+| `dim_robots` | robot of an environment | `run_id`, `episode_id`, `env_id`, `robot_id` |
+| `dim_pedestrians` | pedestrian of an environment | `run_id`, `episode_id`, `env_id`, `ped_id` |
+| `dim_world_entities` | world entity of an environment | `run_id`, `episode_id`, `env_id`, `entity_name` |
+| `dim_world_geometry` | vertex of a world's walls, doors, elevator polygons, zones or object footprints | `world`, `element_kind`, `element_name`, `part_idx`, `vertex_idx` |
+| `dim_metrics` | metric and scope | `metric`, `scope` |
 
-### Extracted Fields per Topic
+Pedestrians and world entities are read once per environment, not once per robot. Every NULL carries its reason in `null_reason`.
 
-| Topic | Polars Columns |
-|---|---|
-| odom | `time_ns`, `stamp_ns`, `pos_x`, `pos_y`, `yaw`, `vel_linear`, `vel_angular` |
-| odom_controller | same as odom, from the controller's `<*_controller>/odom`; preferred over odom when present |
-| scan | `time_ns`, `scan_ranges`, `scan_min` |
-| cmd_vel | `time_ns`, `linear_x`, `linear_y`, `linear_z`, `angular_x`, `angular_y`, `angular_z` |
-| cmd_vel_controller | same as cmd_vel, from the controller's stamped `<*_controller>/cmd_vel`; used when the bare cmd_vel is absent |
-| joint_states | `time_ns`, `name`, `position`, `velocity`, `effort` |
-| power | `time_ns`, `total_power_w`, `static_power_w`, `total_mechanical_power_w`, `total_thermal_power_w`, `joint_*_power_w` |
-| energy | `time_ns`, `total_energy_consumed_wh`, `battery_soc_percent` |
-| acoustics | `time_ns`, `total_level_af_dba`, `total_level_zf_db`, `baseline_level_dba`, `drivetrain_level_dba`, `uncertainty_1sigma_dba`, `validity_flags` |
-| characterization_phase | `time_ns`, `label` |
-| peds | `time_ns`, `peds_frame_id`, `num_pedestrians`, `peds_names`, `peds_ids`, `peds_positions`, `peds_headings`, `peds_twists`, `peds_animation_states`, `peds_interaction_ids`, `peds_interaction_types` (per-ped lists in `peds_ids` order) |
-| peds_physics | same as peds, from the crowd engine's `agent_states` in the engine frame |
-| ped_gestures | `time_ns`, `ped_id`, `slot`, `clip`, `hand`, `at_x`, `at_y`, `at_z`, `render_pose_override`, one row per playing gesture, present (possibly empty) whenever the recorded `Pedestrians` schema carries `gestures` |
-| interactions | one row per interaction per `InteractionFrame`: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `outcome`, `object_id`, `participants`, `queue`, `arrived`, `holding`, `duration`; an empty frame adds no row. Kept as its own frame, not aligned onto odom |
-| interaction_events | one row per lifecycle edge: `time_ns`, `stamp_ns`, `interaction_id`, `interaction_type`, `event`, `event_name`, `participants` |
-| animation_states | one row per (ped, overlay slot), `slot` empty for a base-only ped: `time_ns`, `ped_id`, `ped_name`, `base`, `base_phase`, `slot`, `kind`, `channel`, `phase`, `clip`, `animation`, `playhead`, `duration`, `weight`, `loop` |
-| episode_record | `time_ns`, `episode_id`, `outcome_state`, `outcome_info`, `goal_uuid`, `integrity` (list of reasons the episode is compromised, empty when intact or recorded before the field existed), `phases`, `params` (YAML mapping of the full param names of the selected modes to their values; a bag recorded before `modes` maps its `tm_*` fields and leaf params to the same form, one without params leaves it empty) |
-| collision_events | `time_ns`, `collision_event` |
-| collision_monitor_state | `time_ns`, `action_type`, `polygon_name` |
-| tf / tf_static | `time_ns`, frame/child/trans/rot columns |
-| tf_gt | `time_ns`, `stamp_ns_gt`, `pos_x_gt`, `pos_y_gt`, `yaw_gt`, `frame_id` |
+`dim_world_geometry` is the world model flattened to one row per vertex: `element_kind` is `wall`, `door`, `elevator`, `zone` or `object`; `element_name` is `wall_<index>` for a wall and the entity name otherwise; `part_idx` is the polygon index within the element (0 for a wall or a zone); `vertex_idx` is the vertex order along the segment or open ring; `x` and `y` are metres in the compacted map frame that `path/static_environment.py` rasterises. The pipeline writes it once per named world of the benchmark; a world that does not resolve is skipped with a warning and has no rows, and a plot then draws without it.
 
----
+`dim_metrics` is the metric dictionary: the fact table, dtype, unit, description, direction and producing calculator of every metric at every scope it is stored at. The pipeline adds it from the metric declarations (`metrics/dictionary.py`), not from the episodes, and it holds no metric value.
 
-## topic_aligner.py - TopicAligner
+## Telemetry
 
-Aligns topics onto the odom time axis using `join_asof` with backward-looking tolerance.
+The native tables are declared once in `storage/registry/telemetry.py`; this folder fills them.
 
-```python
-aligned_df = TopicAligner(tolerance_ns=100_000_000).align(bundle)
-```
+- robot: `robot_tracks`, `robot_odom`, `robot_cmd_vel`, `robot_scan_summary`, `robot_joint_states`, `robot_power`, `robot_collision_events`, `robot_plans`, `robot_descriptor`, `robot_params`, `robot_hearing_search_state` (the search driver's latched JSON, read by `search_metrics`), and the other `robot_*` tables
+- pedestrian: `pedestrian_arena_peds`, `pedestrian_agent_states`, `pedestrian_gestures`, `pedestrian_animations`, `pedestrian_interactions`, `pedestrian_interaction_events`
+- episode and world: `episode_lifecycle`, `episode_integrity`, `world_semantics`
+- transforms: `tf`, `tf_static`
 
-- Odom is the primary time axis.
-- Columns are preserved without prefixes.
-- Missing values in the aligned frame appear as nulls.
+Positions in the shared `map` frame are moved into the environment's frame by the `map -> env_<n>/map` transform in effect at each row's time. A row before the first transform uses the first one, so a world swap during a recording is handled row by row. A recorded message whose bytes are corrupt, or whose schema cannot be decoded, is skipped; an undecodable schema logs one warning per topic.
 
----
+## Pose stream
 
-## pipeline.py - ProcessingPipeline
-
-Orchestrates extraction and metric computation.
-
-```python
-fm = FolderManager(data_root=Path("/opt/arena_ws/data"))
-ProcessingPipeline(fm, workers=-1).process_benchmark("my_benchmark")
-```
-
-For each episode:
-1. Reads `episode_XXX.yaml` metadata.
-2. Loads `RobotParams`.
-3. Loads cached topics or extracts them via `MCAPReader`.
-4. Resolves the pose stream (`pose_anchor.py`): dense `tf_gt` as is, sparse `tf_gt` anchors the odom track onto the map frame with one rigid fit, none leaves the track in the odom frame without pedestrian-relative metrics.
-5. Aligns topics with `TopicAligner`.
-6. Computes metrics with `MetricRegistry`.
-7. Attaches run identifiers and writes `metrics.parquet`.
-
-Every recorded episode yields a row. `status` is `evaluated`, `path_only` (no map-frame pose), `no_trajectory`, `no_recording` or `error`, with `status_reason`; rows without a trajectory carry the runtime verdict in `result` and `success` and null metrics. `pose_source` (`tf`, `anchored`, `tf_sparse`, `odom`), `pose_samples` and `pose_anchor_residual_m` say how the robot pose was obtained. `integrity` (`List(String)`) holds the reasons the episode is compromised from the last recorded `EpisodeRecord`, or from the episode yaml when none was recorded, and is empty when the episode is intact. The report lists every non-`evaluated` row above the summary.
-
----
-
-## Open-Loop Characterization
-
-Characterization is evaluated by `CharacterizationCalculator` (`metrics/ecological/characterization.py`). It maps recorded `characterization_phase` markers across working points and outputs per-episode timeseries columns. The presentation layer derives working point aggregates directly from `combined_metrics.parquet`.
-
----
-
-## Metric Calculator Framework
-
-### Adding a Metric
-
-1. Create a file in `metrics/<category>/`.
-2. Subclass `BaseMetricCalculator` and define class attributes.
-3. Implement `output_keys()` and `calculate()`.
-4. Set `UNITS` dictionary for display labels.
-
-```python
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
-
-class MyMetricCalculator(BaseMetricCalculator):
-    NAME = "my_metric"
-    CATEGORY = "performance"
-    REQUIRES_PEDSIM = False
-    DEPENDS_ON = ["path_metrics"]
-    REQUIRED_TOPICS = ["odom"]
-    UNITS = {"my_value": "m/s"}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return ["my_value"]
-
-    def calculate(self, episode: AlignedEpisodeBundle, robot_params: RobotParams, prior_results: dict) -> dict:
-        return {"my_value": 1.0}
-```
-
-`MetricRegistry` discovers all `BaseMetricCalculator` classes, orders them topologically by `DEPENDS_ON`, and handles errors gracefully with `None` fills.
-
+- `pose_anchor.classify` calls a ground-truth track dense when the median gap between its samples is at most 0.2 s, sparse when the gap is longer, and absent when it is empty. `resolve_pose_source` names the stream `tf` (dense) or `tf_sparse` (sparse). Odometry is never a pose source.

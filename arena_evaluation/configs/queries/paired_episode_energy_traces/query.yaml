@@ -1,0 +1,37 @@
+name: paired_episode_energy_traces
+title: "Paired Episode Energy & Battery SoC Traces"
+description: "Single-episode power and battery SoC trajectories for paired blind vs. aware seeds per local_planner (no cross-episode averaging)"
+parameters:
+  n_seeds:
+    type: integer
+    default: 3
+    description: "Number of paired seeds to include in the grid"
+sql: |
+  SELECT
+      CAST(e.seed AS VARCHAR) AS seed,
+      e.local_planner,
+      e.world,
+      ROUND(s.time_s * 2.0) / 2.0 AS time_s,
+      AVG(s.power_total_w) AS power_total_w,
+      AVG(s.battery_soc_pct) AS battery_soc_pct
+  FROM series_energy s
+  JOIN dim_episodes e
+    ON s.run_id = e.run_id
+   AND s.episode_id = e.episode_id
+   AND s.robot_id = e.robot_id
+  WHERE NOT COALESCE(e.is_reference, FALSE)
+    AND e.inter_planner IN (
+        SELECT MIN(inter_planner)
+        FROM dim_episodes
+        WHERE NOT COALESCE(is_reference, FALSE)
+    )
+    AND e.seed IN (
+        SELECT DISTINCT seed
+        FROM dim_episodes
+        WHERE NOT COALESCE(is_reference, FALSE)
+          AND seed IS NOT NULL
+        ORDER BY seed
+        LIMIT :n_seeds
+    )
+  GROUP BY e.seed, e.local_planner, e.world, ROUND(s.time_s * 2.0) / 2.0
+  ORDER BY e.seed, e.local_planner, e.world, time_s

@@ -1,31 +1,22 @@
 #!/usr/bin/env python3
-"""Render acoustic field overlays for each test scenario (visual inspection).
-
-Shows the RECEIVED level in dBA (source - attenuation), not raw attenuation,
-with a 3 dB (double-energy) colorbar. Source defaults to 60 dBA.
-
-Rendering matches the main AcousticFieldRenderer style:
-- Black background for walls (NaN in the field array)
-- Cyan contour outlines for all doors
-- Bright green contour outlines for open doors
-
-Usage:
-    python render_scenario_fields.py [out_dir] [--source-dba 60]
-"""
+"""Render acoustic field overlays for each test scenario (visual inspection)."""
 
 import argparse
 import pathlib
+import sys
 
 import numpy as np
 
-import sys
-
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST  # noqa: E402
+try:
+    from acoustic_scenarios import scenarios, build, door_pixels, RES, WALL_TL, MIC_DIST
+    from arena_evaluation.processing.acoustics.impedance_grid import (
+        compute_attenuations,
+    )
+except ImportError as exc:  # a standalone render script without the test tree
+    raise SystemExit(f"missing acoustic rendering dependency: {exc}") from exc
 
 DOOR_TL = 25.0
-
-from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations  # noqa: E402
 
 
 def _door_mask(grid, spec) -> np.ndarray:
@@ -40,8 +31,18 @@ def _door_mask(grid, spec) -> np.ndarray:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("out_dir", nargs="?", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parent / "test_images" / "fields_dba")
-    ap.add_argument("--source-dba", type=float, default=60.0, help="source level at 1 m (default 60)")
+    ap.add_argument(
+        "out_dir",
+        nargs="?",
+        type=pathlib.Path,
+        default=pathlib.Path(__file__).resolve().parent / "test_images" / "fields_dba",
+    )
+    ap.add_argument(
+        "--source-dba",
+        type=float,
+        default=60.0,
+        help="source level at 1 m (default 60)",
+    )
     args = ap.parse_args()
     OUT = args.out_dir
     SOURCE = args.source_dba
@@ -104,10 +105,26 @@ def main() -> None:
             cty = np.linspace(0, h * RES, h)
             ctx = np.linspace(0, w * RES, w)
             # Cyan outline for ALL doors
-            ax.contour(ctx, cty, np.flipud(door_mask.astype(np.uint8)), levels=[0.5], colors=["#00ffd5"], linewidths=1.5, alpha=0.85)
+            ax.contour(
+                ctx,
+                cty,
+                np.flipud(door_mask.astype(np.uint8)),
+                levels=[0.5],
+                colors=["#00ffd5"],
+                linewidths=1.5,
+                alpha=0.85,
+            )
             # Bright green outline for OPEN doors
             if open_door_mask.any():
-                ax.contour(ctx, cty, np.flipud(open_door_mask.astype(np.uint8)), levels=[0.5], colors=["#00ff00"], linewidths=2.5, alpha=0.9)
+                ax.contour(
+                    ctx,
+                    cty,
+                    np.flipud(open_door_mask.astype(np.uint8)),
+                    levels=[0.5],
+                    colors=["#00ff00"],
+                    linewidths=2.5,
+                    alpha=0.9,
+                )
 
         ax.plot(sxp, syp, "g*", markersize=12, label="Source")
         ax.plot(tx / RES, ty / RES, "r^", markersize=10, label="Target")

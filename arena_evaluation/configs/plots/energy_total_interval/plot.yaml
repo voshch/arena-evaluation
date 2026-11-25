@@ -1,0 +1,21 @@
+id: energy_total_interval
+type: interval
+title: Total Energy Consumption by Local Planner and World (cluster bootstrap 95% CI)
+layout_group: overview
+data:
+  computation: cluster_bootstrap_ci
+  params:
+    metric: energy_total_wh
+    group_cols:
+      - local_planner
+      - world
+    cluster_col: seed
+    n_boot: 2000
+    ci_level: 0.95
+channels:
+  x: local_planner
+  y: estimate
+  color: world
+options:
+  low: ci_low
+  high: ci_high

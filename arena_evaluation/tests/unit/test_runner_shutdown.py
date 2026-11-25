@@ -39,7 +39,12 @@ _SCRIPT = textwrap.dedent(
 
 
 def _start(mode: str) -> subprocess.Popen[str]:
-    process = subprocess.Popen([sys.executable, "-c", _SCRIPT, mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(
+        [sys.executable, "-c", _SCRIPT, mode],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     assert process.stdout is not None
     assert process.stdout.readline().strip() == "running"
     return process

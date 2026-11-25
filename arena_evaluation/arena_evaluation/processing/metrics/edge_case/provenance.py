@@ -12,6 +12,8 @@ import yaml
 from arena_simulation_setup.generative.scenario.formats import PROVENANCE
 from arena_simulation_setup.shared.pathing import Point
 
+from arena_evaluation.storage.exceptions import MetricInputError
+
 from .criticality import FORMATION_RADIUS_M
 
 if typing.TYPE_CHECKING:
@@ -53,6 +55,17 @@ class Provenance:
         return sorted({name for step in OWN_STEPS for name in self.owned.get(step, ())})
 
 
+def _encounter(raw: Mapping[str, typing.Any], origin: Point) -> Encounter:
+    """One encounter, its point moved into the map frame; a malformed one is an input error, never a silent unscored case."""
+    point = raw.get("point")
+    if "agent" not in raw or not isinstance(point, list | tuple) or len(point) != 2:
+        raise MetricInputError(f"edge_case encounters name an agent and a 2-d point; got {dict(raw)!r}")
+    return Encounter(
+        agent=str(raw["agent"]),
+        point=(float(point[0]) + origin[0], float(point[1]) + origin[1]),
+    )
+
+
 def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) -> Provenance:
     """A provenance mapping with the formation center and encounter points moved from their level frame by `origin` into the map frame."""
     owned = {str(step): tuple(str(name) for name in names or ()) for step, names in (raw.get("owned") or {}).items()}
@@ -65,9 +78,16 @@ def parse_provenance(raw: Mapping[str, typing.Any], origin: Point = (0.0, 0.0)) 
             radius=float(spec.get("radius", FORMATION_RADIUS_M)),
             variant=str(spec.get("variant", "")),
         )
-    encounters = tuple(Encounter(agent=str(e["agent"]), point=(float(e["point"][0]) + origin[0], float(e["point"][1]) + origin[1])) for e in raw.get("encounters") or ())
+    encounters = tuple(_encounter(e, origin) for e in raw.get("encounters") or ())
     hold_s = float((raw.get("robot") or {}).get("hold_s") or 0.0)
-    return Provenance(id=str(raw.get("id", "")), steps=tuple(str(s) for s in raw.get("steps") or ()), owned=owned, formation=formation, encounters=encounters, hold_s=hold_s)
+    return Provenance(
+        id=str(raw.get("id", "")),
+        steps=tuple(str(s) for s in raw.get("steps") or ()),
+        owned=owned,
+        formation=formation,
+        encounters=encounters,
+        hold_s=hold_s,
+    )
 
 
 def human_radii(scenario: Mapping[str, typing.Any]) -> dict[str, float]:
@@ -135,14 +155,22 @@ def _read_provenance(world: str, scenario: str, run_dir: Path | None) -> tuple[l
     try:
         scenario_view = view.scenario(scenario).resolve_sync()
     except FileNotFoundError as e:
-        logger.warning("edge_case: scenario '%s' of world '%s' not available locally: %s", scenario, world, e)
+        logger.warning(
+            "edge_case: scenario '%s' of world '%s' not available locally: %s",
+            scenario,
+            world,
+            e,
+        )
         return [], None
     path = Path(scenario_view.path) / PROVENANCE
     if not path.is_file():
         return [path], None
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     scenario_doc = scenario_view.read()
-    provenance = attrs.evolve(parse_provenance(raw, _level_origin(view, scenario_doc)), radii=human_radii(scenario_doc))
+    provenance = attrs.evolve(
+        parse_provenance(raw, _level_origin(view, scenario_doc)),
+        radii=human_radii(scenario_doc),
+    )
     return [path, Path(scenario_view.scenario_path), view.world_path], provenance
 
 

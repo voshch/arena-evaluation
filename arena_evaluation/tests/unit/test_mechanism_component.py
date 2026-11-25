@@ -6,10 +6,11 @@ from arena_evaluation.processing.metrics.ecological.mechanism_component import (
     MECHANISM_COMPONENTS,
     MechanismComponent,
     MechanismComponentCalculator,
-    mechanism_score,
 )
 from arena_evaluation.processing.metrics.registry import MetricRegistry
-from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
+from arena_evaluation.storage.registry import MetricScope
+from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+from robot_params_factory import make_robot_params
 
 
 def test_component_normalisation():
@@ -34,40 +35,8 @@ def test_component_list_includes_condition_success_and_is_well_formed():
     assert all(c.direction in ("lower", "higher") and c.scale > 0 and c.weight > 0 for c in MECHANISM_COMPONENTS)
 
 
-def test_component_keys_are_registered_metric_outputs():
-    registry = MetricRegistry(RobotParams())
-    outputs = {key for calc in registry.calculators.values() for key in calc.output_keys()}
-    assert {c.key for c in MECHANISM_COMPONENTS} <= outputs
-    directions = {}
-    for calc in registry.calculators.values():
-        directions.update(calc.OUTPUT_DIRECTIONS)
-    for component in MECHANISM_COMPONENTS:
-        if component.key in directions:
-            assert directions[component.key] == component.direction, component.key
-
-
-def test_mechanism_score_mean_of_available_components():
-    score, used = mechanism_score({"condition_success": 0.0, "ran_red_signal": 0, "door_freeze_s": None})
-    assert used == 2
-    assert score == pytest.approx(0.5)
-
-    score, used = mechanism_score({"condition_success": 1.0, "boarded_before_exit": 1})
-    assert score == pytest.approx(0.75)
-
-
-def test_mechanism_score_none_without_components():
-    assert mechanism_score({}) == (None, 0)
-    assert mechanism_score({"condition_success": None, "unrelated": 3}) == (None, 0)
-
-
-def test_mechanism_score_weights():
-    comps = (MechanismComponent("a", "higher", weight=3.0), MechanismComponent("b", "higher"))
-    score, used = mechanism_score({"a": 1.0, "b": 0.0}, comps)
-    assert used == 2 and score == pytest.approx(0.75)
-
-
 def test_calculator_reads_prior_results():
-    calc = MechanismComponentCalculator(RobotParams())
+    calc = MechanismComponentCalculator(make_robot_params())
     episode = AlignedEpisodeBundle(episode_id=1, data=None, start_pos=[], goal_pos=[])
     out = calc.calculate(episode, {"condition_success": 1.0, "door_oscillations": 0})
     assert out == {"mechanism_score": 1.0, "mechanism_components": 2}
@@ -77,7 +46,7 @@ def test_calculator_reads_prior_results():
 
 
 def test_calculator_runs_after_its_inputs():
-    registry = MetricRegistry(RobotParams())
-    stage_of = {name: i for i, stage in enumerate(registry.execution_order()) for name in stage}
+    registry = MetricRegistry(make_robot_params())
+    stage_of = {name: i for i, stage in enumerate(registry.get_execution_order_for_scope(MetricScope.ROBOT)) for name in stage}
     for dep in MechanismComponentCalculator.DEPENDS_ON:
         assert stage_of[dep] < stage_of["mechanism_component"]

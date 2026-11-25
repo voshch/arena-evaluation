@@ -1,1134 +1,618 @@
+"""MCAP ingestion coordinator: streams recorded messages into flat telemetry tables and loads per-robot topic bundles."""
+
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
-import math
 import pathlib
 import re
-import shutil
 import typing
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Mapping
 
 import numpy as np
 import polars as pl
-import pyarrow as pa
 import pyarrow.parquet as pq
+import yaml
 from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
-from arena_evaluation.storage.legacy import legacy_modes, legacy_params
+from arena_evaluation.processing import legacy_schemas
+from arena_evaluation.processing.telemetry import context, events, sensors, tracks
+from arena_evaluation.processing.telemetry.messages import (
+    Envelope,
+    RobotRef,
+    env_id_in,
+    is_controller_topic,
+    robot_id_of,
+    topic_parts,
+    yaw_from_orientation,
+)
+from arena_evaluation.processing.telemetry.peds import (
+    ARENA_TABLE,
+    ENGINE_TABLE,
+    PedestrianRecorder,
+    agent_meta,
+    agent_meta_gains_only,
+    agent_meta_without_robot_fields,
+)
+from arena_evaluation.processing.telemetry.tracks import (
+    _WORLD_FRAMES,
+    LEGACY_BASE_FRAMES,
+    Pose3,
+    is_ground_truth,
+)
+from arena_evaluation.processing.telemetry.writer import (
+    ENV_TABLES,
+    FLUSH_ROW_LIMIT,
+    GLOBAL_TABLES,
+    ROBOT_TABLES,
+    TableSink,
+)
 from arena_evaluation.storage.schemas import TopicBundle
 
 if typing.TYPE_CHECKING:
-    from arena_runtime_msgs.msg import SemanticEntityState
+    from arena_runtime_msgs.msg import RobotFleet
     from mcap.records import Schema
-    from rcl_interfaces.msg import ParameterValue
-    from std_msgs.msg import Header
+    from tf2_msgs.msg import TFMessage
 
 _log = logging.getLogger(__name__)
-_BUNDLE_FIELDS = frozenset(f.name for f in dataclasses.fields(TopicBundle))
-
-INTERACTION_EVENT_NAMES = {0: "ACTIVATED", 1: "HOLD_ONSET", 2: "RELEASED", 3: "INTERRUPTED", 4: "CANCELED"}
-MEMBER_ROLE_PARTICIPANT = 0
-MEMBER_ROLE_QUEUED = 1
-ENV_STATE_TABLES = ("peds_physics", "ped_gestures", "interactions", "interaction_events", "animation_states")
-KEPT_EMPTY_TABLES = ("ped_gestures",)
-
 Anchor = tuple[int, float, float]
+Predicate = Callable[[str, "Schema"], bool]
+Handler = Callable[["_Ingest", str, Envelope], None]
+Decoder = Callable[[bytes], object]
+
+_AGENT_META_SCHEMA = "arena_humansim_msgs/msg/AgentMeta"
+_INTERACTION_FRAME_SCHEMA = "arena_humansim_msgs/msg/InteractionFrame"
+_ANIMATION_STATES_SCHEMA = "arena_people_msgs/msg/AnimationStates"
+_GOAL_POSE_SCHEMA = "geometry_msgs/msg/PoseStamped"
+_OCCUPANCY_GRID_SCHEMA = "nav_msgs/msg/OccupancyGrid"
+_STATIC_ANCHOR_CHILD = re.compile(r"(env_\d+)(?:/map)?")
+_MAP_ANCHOR_CHILD = re.compile(r"(env_\d+)/map")
+_UNMAPPED_FRAMES = ("", "map")
+# Yaw (degrees) and translation (metres) below which a recorded map-frame transform counts as the identity.
+_ALIGNED_TOLERANCE = 1e-6
+_MAP_PARENT = pl.col("parent_frame").is_in(list(_UNMAPPED_FRAMES))
+_CHILD_ENVIRONMENT = pl.col("child_frame").str.extract(r"(env_\d+)", 1)
+# Stored tables whose x/y columns are map-frame positions. Odometry is map-aligned in this runtime: the recorded map -> odom transform is the identity.
+# The engine's agent states are already in the environment frame, so they are not listed.
+_POSITION_COLUMNS: dict[str, tuple[str, str]] = {
+    "robot_tracks": ("x", "y"),
+    "robot_odom": ("odom_x", "odom_y"),
+    "robot_odom_controller": ("odom_x", "odom_y"),
+    "robot_initialpose": ("pos_x", "pos_y"),
+    "robot_goal_pose": ("pos_x", "pos_y"),
+    "robot_plans": ("x", "y"),
+    "robot_collision_contacts": ("obstacle_x", "obstacle_y"),
+    "pedestrian_arena_peds": ("x", "y"),
+    "pedestrian_gestures": ("at_x", "at_y"),
+    "environment_map": ("origin_x", "origin_y"),
+}
 
 
-def anchor_at(anchors: list[Anchor], time_ns: int) -> tuple[float, float]:
-    """The anchor in effect at time_ns: the last one at or before it, the first one before any."""
+def recorded_base_frames(run_dir: pathlib.Path) -> frozenset[str]:
+    """Lowercase base frames named by the run's caps snapshots, `LEGACY_BASE_FRAMES` for a run without any."""
+    names = {str(yaml.safe_load(path.read_text())["effective"]["body"]["base_frame"]).lower() for path in (run_dir / "robots").glob("*/caps_snapshot.yaml")}
+    return frozenset(names) or LEGACY_BASE_FRAMES
+
+
+def anchor_at(anchors: list[Anchor], t_ns: int) -> tuple[float, float]:
+    """The anchor in effect at t_ns: the last one at or before it, the first one before any."""
     ox, oy = anchors[0][1:]
     for t, ax, ay in anchors[1:]:
-        if t > time_ns:
+        if t > t_ns:
             break
         ox, oy = ax, ay
     return ox, oy
 
 
-def by_anchor(anchors: list[Anchor], value: typing.Callable[[float, float], pl.Expr]) -> pl.Expr:
-    """`value(ox, oy)` of the anchor in effect at each row's time_ns, as in anchor_at."""
+def by_anchor(anchors: list[Anchor], value: Callable[[float, float], pl.Expr]) -> pl.Expr:
+    """`value(ox, oy)` of the anchor in effect at each row's t_ns, as in anchor_at."""
     (_, ox, oy), *later = anchors
     if not later:
         return value(ox, oy)
     chain = None
     for t, ax, ay in reversed(later):
-        cond = pl.col("time_ns") >= t
+        cond = pl.col("t_ns") >= t
         chain = pl.when(cond).then(value(ax, ay)) if chain is None else chain.when(cond).then(value(ax, ay))
     assert chain is not None
     return chain.otherwise(value(ox, oy))
 
 
-def nearest_return(ranges: Iterable[float], range_min: float, range_max: float) -> float:
-    """Nearest valid LaserScan return, range_max when nothing is in range."""
-    valid = [r for r in ranges if range_min <= r < range_max]
-    return min(valid) if valid else range_max
+def _topic(*suffixes: str, schema: str | None = None) -> Predicate:
+    """Match a topic suffix, and optionally the schema name that the recorder understands."""
+    return lambda topic, message_schema: topic.endswith(suffixes) and (schema is None or message_schema.name == schema)
 
 
-# Topic -> explicit PyArrow schema.  Only needed when RecordBatch.from_pydict
-# cannot infer column types from data (e.g. semantic_snapshot where each row
-# populates exactly one value_* column, leaving the rest None).
-_PEDS_SCHEMA = pa.schema(
-    [
-        ("time_ns", pa.int64()),
-        ("peds_frame_id", pa.string()),
-        ("num_pedestrians", pa.int64()),
-        ("peds_names", pa.list_(pa.string())),
-        ("peds_positions", pa.list_(pa.float64())),
-        ("peds_headings", pa.list_(pa.float64())),
-        ("peds_twists", pa.list_(pa.float64())),
-        ("peds_ids", pa.list_(pa.int64())),
-        ("peds_animation_states", pa.list_(pa.int64())),
-        ("peds_interaction_ids", pa.list_(pa.int64())),
-        ("peds_interaction_types", pa.list_(pa.int64())),
-    ]
-)
-
-_TOPIC_SCHEMAS: dict[str, pa.Schema] = {
-    "peds": _PEDS_SCHEMA,
-    "peds_physics": _PEDS_SCHEMA,
-    "semantic_snapshot": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("env_id", pa.int64()),
-            ("world", pa.string()),
-            ("entity", pa.string()),
-            ("kind", pa.string()),
-            ("field", pa.string()),
-            ("field_kind", pa.string()),
-            ("value_str", pa.string()),
-            ("value_num", pa.float64()),
-            ("value_bool", pa.bool_()),
-            ("value_list", pa.list_(pa.string())),
-        ]
-    ),
-    "collision_events": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("collision_event", pa.int64()),
-            ("collision_wall", pa.int64()),
-            ("collision_static", pa.int64()),
-            ("collision_pedestrian", pa.int64()),
-            ("collision_obstacle_ids", pa.list_(pa.string())),
-        ]
-    ),
-    "episode_record": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("episode_id", pa.int64()),
-            ("outcome_state", pa.int64()),
-            ("outcome_info", pa.string()),
-            ("goal_uuid", pa.string()),
-            ("integrity", pa.list_(pa.string())),
-            ("phases", pa.string()),
-            ("tasks", pa.string()),
-            ("params", pa.string()),
-            ("conditions", pa.string()),
-        ]
-    ),
-    "interactions": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("stamp_ns", pa.int64()),
-            ("interaction_id", pa.int64()),
-            ("interaction_type", pa.int64()),
-            ("outcome", pa.int64()),
-            ("object_id", pa.string()),
-            ("participants", pa.list_(pa.int64())),
-            ("queue", pa.list_(pa.int64())),
-            ("arrived", pa.bool_()),
-            ("holding", pa.bool_()),
-            ("duration", pa.float64()),
-        ]
-    ),
-    "interaction_events": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("stamp_ns", pa.int64()),
-            ("interaction_id", pa.int64()),
-            ("interaction_type", pa.int64()),
-            ("event", pa.int64()),
-            ("event_name", pa.string()),
-            ("participants", pa.list_(pa.int64())),
-        ]
-    ),
-    "animation_states": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("ped_id", pa.int64()),
-            ("ped_name", pa.string()),
-            ("base", pa.string()),
-            ("base_phase", pa.float64()),
-            ("slot", pa.string()),
-            ("kind", pa.string()),
-            ("channel", pa.string()),
-            ("phase", pa.string()),
-            ("clip", pa.string()),
-            ("animation", pa.string()),
-            ("playhead", pa.float64()),
-            ("duration", pa.float64()),
-            ("weight", pa.float64()),
-            ("loop", pa.bool_()),
-        ]
-    ),
-    "ped_gestures": pa.schema(
-        [
-            ("time_ns", pa.int64()),
-            ("ped_id", pa.int64()),
-            ("slot", pa.string()),
-            ("clip", pa.string()),
-            ("hand", pa.string()),
-            ("at_x", pa.float64()),
-            ("at_y", pa.float64()),
-            ("at_z", pa.float64()),
-            ("render_pose_override", pa.bool_()),
-        ]
-    ),
-    "characterization_schedule": pa.schema(
-        [
-            ("phase_label", pa.string()),
-            ("phase_kind", pa.string()),
-            ("vx_target", pa.float64()),
-            ("vy_target", pa.float64()),
-            ("wz_target", pa.float64()),
-            ("duration_s", pa.float64()),
-            ("ramp_s", pa.float64()),
-            ("turn_radius_m", pa.float64()),
-        ]
-    ),
-}
-
-
-def _ped_fields(schema: Schema, cache: dict[int, tuple[bool, bool, bool]]) -> tuple[bool, bool, bool]:
-    """Whether a recorded pedestrian schema carries animation_state, interaction_id and gestures, by schema id."""
-    if schema.id not in cache:
-        text = schema.data.decode()
-        cache[schema.id] = (
-            re.search(r"^\s*uint8(\[\])?\s+animation_state\b", text, re.M) is not None,
-            re.search(r"^\s*int32(\[\])?\s+interaction_id\b", text, re.M) is not None and re.search(r"^\s*uint8(\[\])?\s+interaction_type\b", text, re.M) is not None,
-            re.search(r"^\s*Gesture\[\]\s+gestures\b", text, re.M) is not None,
-        )
-    return cache[schema.id]
-
-
-class _RecordedParam(typing.Protocol):
-    name: str
-    value: ParameterValue
-
-
-class _DecodedRecord(typing.Protocol):
-    """An EpisodeRecord decoded from the bag's own schema, whose fields differ across versions."""
-
-    __slots__: typing.ClassVar[tuple[str, ...]]
-    params: list[_RecordedParam]
-    robots_params: list[_RecordedParam]
-    obstacles_params: list[_RecordedParam]
-    tm_robots: str
-    tm_obstacles: str
-    tm_modules: list[str]
+def _is_transform_topic(topic: str, _schema: Schema) -> bool:
+    """The global and per-environment /tf and /tf_static topics; human skeleton transforms are never robot ground truth."""
+    return topic in ("tf", "tf_static") or (topic.endswith(("/tf", "/tf_static")) and "/humans/" not in topic)
 
 
 class MCAPReader:
-    """Reads an MCAP file and produces a TopicBundle of raw DataFrames."""
+    """Streams MCAP recordings into flat, episode-wide telemetry tables and loads one TopicBundle per robot."""
 
-    def __init__(self, data_path: pathlib.Path):
+    def __init__(
+        self,
+        data_path: pathlib.Path,
+        *,
+        flush_rows: int = FLUSH_ROW_LIMIT,
+        environment: str | None = None,
+    ) -> None:
+        self._flush_rows = flush_rows
+        self._environment = environment
         self.data_path = data_path
 
-    @staticmethod
-    def _quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
-        """Convert quaternion to yaw angle."""
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        return math.atan2(siny_cosp, cosy_cosp)
-
-    @staticmethod
-    def _stamp_ns(header: Header) -> int:
-        """Header stamp (sim time) in ns."""
-        return int(header.stamp.sec) * 1_000_000_000 + int(header.stamp.nanosec)
-
-    @classmethod
-    def _record_params(cls, ros_msg: _DecodedRecord) -> dict[str, typing.Any]:
-        """Full-name params of a decoded EpisodeRecord, an old schema's tm_* fields and leaf params mapped to them."""
-        if "params" in ros_msg.__slots__:
-            return {p.name: cls._param_value_to_py(p.value) for p in ros_msg.params}
-        modes = legacy_modes(robots=ros_msg.tm_robots, obstacles=ros_msg.tm_obstacles, modules=ros_msg.tm_modules)
-        robots_params = {p.name: cls._param_value_to_py(p.value) for p in ros_msg.robots_params}
-        obstacles_params = {p.name: cls._param_value_to_py(p.value) for p in ros_msg.obstacles_params}
-        return legacy_params(modes, robots_params, obstacles_params)
-
-    @staticmethod
-    def _param_value_to_py(val: ParameterValue) -> bool | int | float | str | list[int] | list[bool] | list[float] | list[str]:
-        p_type = val.type
-        if p_type == 1:
-            return val.bool_value
-        elif p_type == 2:
-            return val.integer_value
-        elif p_type == 3:
-            return val.double_value
-        elif p_type == 4:
-            return val.string_value
-        elif p_type == 5:
-            return list(val.byte_array_value)
-        elif p_type == 6:
-            return list(val.bool_array_value)
-        elif p_type == 7:
-            return list(val.integer_array_value)
-        elif p_type == 8:
-            return list(val.double_array_value)
-        elif p_type == 9:
-            return list(val.string_array_value)
-        return str(val)
-
-    def read(self, out_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
-        """Stream the MCAP into per-topic parquet under out_dir and return lazy TopicBundles over it."""
+    def read(self, out_dir: pathlib.Path) -> dict[str, TopicBundle]:
+        """Stream every recording into flat tables under out_dir and return one TopicBundle per robot."""
         if self.data_path.is_dir():
-            mcap_files = sorted(list(self.data_path.glob("*.mcap")))
-            if not mcap_files:
+            files = sorted(self.data_path.glob("*.mcap"))
+            if not files:
                 raise FileNotFoundError(f"No MCAP file found in directory: {self.data_path}")
         else:
-            mcap_files = [self.data_path]
-
-        for path_item in mcap_files:
-            if not path_item.exists():
-                raise FileNotFoundError(f"MCAP file not found: {path_item}")
-
-        path = self.data_path.resolve()
-        run_dir = path if path.is_dir() else path.parent
-
-        def new_robot_data() -> dict[str, defaultdict[str, list]]:
-            return {
-                "odom": defaultdict(list),
-                "odom_controller": defaultdict(list),
-                "scan": defaultdict(list),
-                "cmd_vel": defaultdict(list),
-                "cmd_vel_controller": defaultdict(list),
-                "joint_states": defaultdict(list),
-                "collision_events": defaultdict(list),
-                "collision_monitor_state": defaultdict(list),
-                "power": defaultdict(list),
-                "energy": defaultdict(list),
-                "acoustics": defaultdict(list),
-                "plan": defaultdict(list),
-                "initialpose": defaultdict(list),
-                "task_pose": defaultdict(list),
-                "tf_gt": defaultdict(list),
-                "characterization_phase": defaultdict(list),
-                "characterization_schedule": defaultdict(list),
-            }
-
-        def new_env_data() -> dict[str, defaultdict[str, list]]:
-            return {"peds": defaultdict(list), "episode_record": defaultdict(list), **{name: defaultdict(list) for name in ENV_STATE_TABLES}}
-
-        env_data = defaultdict(new_env_data)
-
-        global_data = {
-            "tf": defaultdict(list),
-            "tf_static": defaultdict(list),
-            "semantic_snapshot": defaultdict(list),
-        }
-
-        robot_data = defaultdict(new_robot_data)
-
-        env_prefix = None
-        gesture_envs: set[str] = set()
-
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        writers = {}
-        accumulated_count = 0
-
-        def flush_buffers():
-            for topic_name, topic_data in global_data.items():
-                if not topic_data or not any(len(column) for column in topic_data.values()):
-                    continue
-
-                schema_override = _TOPIC_SCHEMAS.get(topic_name)
-                batch = pa.RecordBatch.from_pydict(dict(topic_data), schema=schema_override)
-                writer_key = ("__global__", topic_name)
-
-                if writer_key not in writers:
-                    final_path = out_dir / f"{topic_name}.parquet"
-                    writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
-                writers[writer_key].write_batch(batch)
-                topic_data.clear()
-
-            for env_name, e_data in env_data.items():
-                for topic_name, topic_data in e_data.items():
-                    if not topic_data or not any(len(column) for column in topic_data.values()):
-                        continue
-
-                    batch = pa.RecordBatch.from_pydict(dict(topic_data), schema=_TOPIC_SCHEMAS.get(topic_name))
-                    writer_key = (env_name, topic_name)
-
-                    if writer_key not in writers:
-                        env_dir = out_dir / env_name
-                        env_dir.mkdir(parents=True, exist_ok=True)
-                        final_path = env_dir / f"{topic_name}.parquet"
-                        writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
-                    writers[writer_key].write_batch(batch)
-                    topic_data.clear()
-
-            for robot_name, r_data in robot_data.items():
-                for topic_name, topic_data in r_data.items():
-                    if not topic_data or not any(len(column) for column in topic_data.values()):
-                        continue
-
-                    batch = pa.RecordBatch.from_pydict(dict(topic_data), schema=_TOPIC_SCHEMAS.get(topic_name))
-                    writer_key = (robot_name, topic_name)
-
-                    if writer_key not in writers:
-                        robot_dir = out_dir / robot_name
-                        robot_dir.mkdir(parents=True, exist_ok=True)
-                        final_path = robot_dir / f"{topic_name}.parquet"
-                        writers[writer_key] = pq.ParquetWriter(final_path, schema=batch.schema, compression="zstd")
-                    writers[writer_key].write_batch(batch)
-                    topic_data.clear()
-
+            files = [self.data_path]
+        for path in files:
+            if not path.exists():
+                raise FileNotFoundError(f"MCAP file not found: {path}")
+        run_dir = self.data_path.resolve()
+        base_frames = recorded_base_frames(run_dir if run_dir.is_dir() else run_dir.parent)
+        ingest = _Ingest(
+            TableSink(out_dir, flush_rows=self._flush_rows),
+            environment=self._environment,
+            base_frames=base_frames,
+        )
         try:
-            for mfile in mcap_files:
-                with open(mfile, "rb") as f:
-                    reader = NonSeekingReader(f, decoder_factories=[DecoderFactory()])
-
-                    msg_count = 0
-                    decoders = {}
-                    collision_kind_schema_cache: dict[int, bool] = {}
-                    phases_schema_cache: dict[int, bool] = {}
-                    tasks_schema_cache: dict[int, bool] = {}
-                    integrity_schema_cache: dict[int, bool] = {}
-
-                    schema_fields: dict[int, tuple[bool, bool, bool]] = {}
-
-                    for schema, channel, message in reader.iter_messages(log_time_order=False):
-                        if schema is None:
-                            continue
-                        try:
-                            decoder = decoders.get(message.channel_id)
-                            if decoder is None:
-                                for factory in reader._decoder_factories:
-                                    decoder = factory.decoder_for(channel.message_encoding, schema)
-                                    if decoder is not None:
-                                        decoders[message.channel_id] = decoder
-                                        break
-                            if decoder is None:
-                                continue
-                            ros_msg = decoder(message.data)
-                            msg_count += 1
-                        except Exception as e:
-                            import logging
-
-                            logging.getLogger(__name__).warning(f"Error reading MCAP message on {channel.topic} at index {msg_count}: {e}")
-                            continue
-
-                        topic = channel.topic
-                        ts_ns = message.log_time
-                        appended = False
-
-                        parts = [p for p in topic.strip('/').split('/') if p]
-
-                        env_key = "env_0"
-                        match = re.search(r'(env_\d+)', topic)
-                        if match:
-                            env_key = match.group(1)
-
-                        def get_robot_name(parts: list[str], env_key: str) -> str:
-                            if len(parts) < 2:
-                                return f"{env_key}_unknown"
-                            base = parts[-2]
-                            if base == env_key:
-                                return env_key
-                            if base.endswith("_controller"):
-                                base = parts[-3] if len(parts) >= 3 else base
-                            elif base == "power_publisher":
-                                base = parts[-3] if len(parts) >= 3 else base
-                            return f"{env_key}_{base}"
-
-                        # Odom
-                        if topic.endswith("/odom"):
-                            robot_name = get_robot_name(parts, env_key)
-
-                            target = robot_data[robot_name]["odom_controller" if len(parts) >= 2 and parts[-2].endswith("_controller") else "odom"]
-                            target["time_ns"].append(ts_ns)
-                            target["stamp_ns"].append(self._stamp_ns(ros_msg.header))
-                            target["pos_x"].append(ros_msg.pose.pose.position.x)
-                            target["pos_y"].append(ros_msg.pose.pose.position.y)
-
-                            yaw = self._quaternion_to_yaw(ros_msg.pose.pose.orientation.x, ros_msg.pose.pose.orientation.y, ros_msg.pose.pose.orientation.z, ros_msg.pose.pose.orientation.w)
-                            target["yaw"].append(yaw)
-                            target["vel_linear"].append(ros_msg.twist.twist.linear.x)
-                            target["vel_angular"].append(ros_msg.twist.twist.angular.z)
-                            appended = True
-
-                        # Scan
-                        elif topic.endswith("/scan") or topic.endswith("/lidar"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["scan"]
-                            target["time_ns"].append(ts_ns)
-                            target["scan_ranges"].append(list(ros_msg.ranges))
-                            target["scan_min"].append(nearest_return(ros_msg.ranges, ros_msg.range_min, ros_msg.range_max))
-                            target["scan_range_max"].append(ros_msg.range_max)
-                            appended = True
-
-                        # Cmd_vel
-                        elif topic.endswith("/cmd_vel"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["cmd_vel_controller" if len(parts) >= 2 and parts[-2].endswith("_controller") else "cmd_vel"]
-                            twist = ros_msg.twist if schema.name == "geometry_msgs/msg/TwistStamped" else ros_msg
-                            target["time_ns"].append(ts_ns)
-                            target["linear_x"].append(twist.linear.x)
-                            target["linear_y"].append(twist.linear.y)
-                            target["linear_z"].append(twist.linear.z)
-                            target["angular_x"].append(twist.angular.x)
-                            target["angular_y"].append(twist.angular.y)
-                            target["angular_z"].append(twist.angular.z)
-                            appended = True
-                        # Joint states
-                        elif topic.endswith("/joint_states"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["joint_states"]
-                            target["time_ns"].append(ts_ns)
-                            target["name"].append(list(ros_msg.name))
-                            target["position"].append(list(ros_msg.position))
-                            target["velocity"].append(list(ros_msg.velocity))
-                            target["effort"].append(list(ros_msg.effort))
-                            appended = True
-
-                        # Pedestrians
-                        elif topic.endswith("/arena_peds") or topic.endswith("/peds") or topic.endswith("/agent_states"):
-                            target = env_data[env_key]["peds_physics" if topic.endswith("/agent_states") else "peds"]
-                            target["time_ns"].append(ts_ns)
-                            target["peds_frame_id"].append(ros_msg.header.frame_id)
-
-                            names: list[str] = []
-                            rendered: list = []
-                            has_gestures = False
-                            if schema.name == "arena_humansim_msgs/msg/AgentFrame":
-                                humans = np.frombuffer(ros_msg.kind, dtype=np.uint8) == 0
-                                zeros = np.zeros(int(humans.sum()))
-                                names = [str(i) for i in np.asarray(ros_msg.agent_id)[humans].tolist()]
-                                positions = np.column_stack((np.asarray(ros_msg.x, dtype=np.float64)[humans], np.asarray(ros_msg.y, dtype=np.float64)[humans], zeros)).ravel().tolist()
-                                headings = np.asarray(ros_msg.theta, dtype=np.float64)[humans].tolist()
-                                twists = np.column_stack((np.asarray(ros_msg.vx, dtype=np.float64)[humans], np.asarray(ros_msg.vy, dtype=np.float64)[humans], zeros)).ravel().tolist()
-                                ids = np.asarray(ros_msg.agent_id, dtype=np.int64)[humans].tolist()
-                                has_anim, has_interaction, _ = _ped_fields(schema, schema_fields)
-                                frame_anim = np.frombuffer(bytes(ros_msg.animation_state), dtype=np.uint8) if has_anim else np.zeros(0, dtype=np.uint8)
-                                anim_states = frame_anim[humans].tolist() if len(frame_anim) == len(humans) else [0] * len(ids)
-                                frame_iids = ros_msg.interaction_id if has_interaction else []
-                                if has_interaction and len(frame_iids) == len(humans):
-                                    interaction_ids = np.asarray(frame_iids, dtype=np.int64)[humans].tolist()
-                                    interaction_types = np.frombuffer(bytes(ros_msg.interaction_type), dtype=np.uint8)[humans].tolist()
-                                else:
-                                    interaction_ids = [-1] * len(ids)
-                                    interaction_types = [0] * len(ids)
-                            elif schema.name == "arena_people_msgs/msg/Pedestrians":
-                                rendered = list(ros_msg.pedestrians)
-                                names = [str(p.name) for p in rendered]
-                                positions, headings, twists = [], [], []
-                                for p in rendered:
-                                    # Positions: flattened list [x1, y1, z1, x2, y2, z2, ...]
-                                    positions.extend([p.pose.position.x, p.pose.position.y, p.pose.position.z])
-
-                                    # Headings: calculate yaw from quaternion
-                                    yaw = self._quaternion_to_yaw(p.pose.orientation.x, p.pose.orientation.y, p.pose.orientation.z, p.pose.orientation.w)
-                                    headings.append(yaw)
-
-                                    # Twists: flattened list of linear velocities [vx1, vy1, vz1, vx2, vy2, vz2, ...]
-                                    twists.extend([p.twist.linear.x, p.twist.linear.y, p.twist.linear.z])
-                                ids = [int(p.id) for p in rendered]
-                                has_anim, has_interaction, has_gestures = _ped_fields(schema, schema_fields)
-                                anim_states = [int(p.animation_state) for p in rendered] if has_anim else [0] * len(ids)
-                                interaction_ids = [int(p.interaction_id) for p in rendered] if has_interaction else [-1] * len(ids)
-                                interaction_types = [int(p.interaction_type) for p in rendered] if has_interaction else [0] * len(ids)
-                            else:
-                                agents = [a for a in ros_msg.agents if a.kind == 0]
-                                names = [str(a.agent_id) for a in agents]
-                                positions, headings, twists = [], [], []
-                                for p in agents:
-                                    positions.extend([p.pose.x, p.pose.y, 0.0])
-                                    headings.append(p.pose.theta)
-                                    twists.extend([p.velocity.x, p.velocity.y, p.velocity.z])
-                                ids = [int(p.agent_id) for p in agents]
-                                has_anim, _, _ = _ped_fields(schema, schema_fields)
-                                anim_states = [int(p.animation_state) for p in agents] if has_anim else [0] * len(ids)
-                                interaction_ids = [-1] * len(agents)
-                                interaction_types = [0] * len(agents)
-
-                            target["peds_names"].append(names)
-                            target["num_pedestrians"].append(len(ids))
-                            target["peds_positions"].append(positions)
-                            target["peds_headings"].append(headings)
-                            target["peds_twists"].append(twists)
-                            target["peds_ids"].append(ids)
-                            target["peds_animation_states"].append(anim_states)
-                            target["peds_interaction_ids"].append(interaction_ids)
-                            target["peds_interaction_types"].append(interaction_types)
-
-                            if has_gestures:
-                                gesture_envs.add(env_key)
-                            gestures = env_data[env_key]["ped_gestures"]
-                            for p in rendered if has_gestures else ():
-                                pid = int(p.id)
-                                for g in p.gestures:
-                                    gestures["time_ns"].append(ts_ns)
-                                    gestures["ped_id"].append(pid)
-                                    gestures["slot"].append(g.slot)
-                                    gestures["clip"].append(g.clip)
-                                    gestures["hand"].append(g.hand)
-                                    gestures["at_x"].append(g.at.x)
-                                    gestures["at_y"].append(g.at.y)
-                                    gestures["at_z"].append(g.at.z)
-                                    gestures["render_pose_override"].append(bool(g.render_pose_override))
-
-                            appended = True
-
-                        # Interaction lifecycle (humansim)
-                        elif topic.endswith("/interactions") and schema.name == "arena_humansim_msgs/msg/InteractionFrame":
-                            stamp = self._stamp_ns(ros_msg.header)
-                            rows = env_data[env_key]["interactions"]
-                            offsets = [int(o) for o in ros_msg.member_offset]
-                            member_ids = [int(m) for m in ros_msg.member_id]
-                            member_roles = list(bytes(ros_msg.member_role))
-                            interaction_types = list(bytes(ros_msg.interaction_type))
-                            outcomes = list(bytes(ros_msg.outcome))
-                            for i, iid in enumerate(ros_msg.interaction_id):
-                                members = list(zip(member_ids[offsets[i] : offsets[i + 1]], member_roles[offsets[i] : offsets[i + 1]], strict=True))
-                                rows["time_ns"].append(ts_ns)
-                                rows["stamp_ns"].append(stamp)
-                                rows["interaction_id"].append(int(iid))
-                                rows["interaction_type"].append(interaction_types[i])
-                                rows["outcome"].append(outcomes[i])
-                                rows["object_id"].append(str(ros_msg.object_id[i]))
-                                rows["participants"].append([m for m, role in members if role == MEMBER_ROLE_PARTICIPANT])
-                                rows["queue"].append([m for m, role in members if role == MEMBER_ROLE_QUEUED])
-                                rows["arrived"].append(bool(ros_msg.arrived[i]))
-                                rows["holding"].append(bool(ros_msg.holding[i]))
-                                rows["duration"].append(float(ros_msg.duration[i]))
-                            events = env_data[env_key]["interaction_events"]
-                            for ev in ros_msg.events:
-                                events["time_ns"].append(ts_ns)
-                                events["stamp_ns"].append(stamp)
-                                events["interaction_id"].append(ev.interaction_id)
-                                events["interaction_type"].append(ev.interaction_type)
-                                events["event"].append(ev.event)
-                                events["event_name"].append(INTERACTION_EVENT_NAMES.get(ev.event, str(ev.event)))
-                                events["participants"].append(list(ev.participants))
-                            appended = True
-
-                        # Animation states
-                        elif topic.endswith("/animation_states") and schema.name == "arena_people_msgs/msg/AnimationStates":
-                            rows = env_data[env_key]["animation_states"]
-                            for ped in ros_msg.peds:
-                                for s in list(ped.slots) or [None]:
-                                    rows["time_ns"].append(ts_ns)
-                                    rows["ped_id"].append(int(ped.id))
-                                    rows["ped_name"].append(ped.name)
-                                    rows["base"].append(ped.base)
-                                    rows["base_phase"].append(float(ped.base_phase))
-                                    rows["slot"].append(s.slot if s is not None else "")
-                                    rows["kind"].append(s.kind if s is not None else "")
-                                    rows["channel"].append(s.channel if s is not None else "")
-                                    rows["phase"].append(s.phase if s is not None else "")
-                                    rows["clip"].append(s.clip if s is not None else "")
-                                    rows["animation"].append(s.animation if s is not None else "")
-                                    rows["playhead"].append(float(s.playhead) if s is not None else None)
-                                    rows["duration"].append(float(s.duration) if s is not None else None)
-                                    rows["weight"].append(float(s.weight) if s is not None else None)
-                                    rows["loop"].append(bool(s.loop) if s is not None else None)
-                            appended = True
-
-                        # Acoustics (ego-noise estimates from the M4 model)
-                        elif topic.endswith("/acoustics"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["acoustics"]
-                            target["time_ns"].append(ts_ns)
-                            target["total_level_af_dba"].append(ros_msg.total_level_af_dba)
-                            target["total_level_zf_db"].append(ros_msg.total_level_zf_db)
-                            target["baseline_level_dba"].append(ros_msg.baseline_level_dba)
-                            target["drivetrain_level_dba"].append(ros_msg.drivetrain_level_dba)
-                            target["uncertainty_1sigma_dba"].append(ros_msg.uncertainty_1sigma_dba)
-                            target["validity_flags"].append(ros_msg.validity_flags)
-                            appended = True
-
-                        # Characterization phase markers (open-loop sweeps)
-                        elif topic.endswith("/characterization_phase"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["characterization_phase"]
-                            target["time_ns"].append(ts_ns)
-                            target["label"].append(str(ros_msg.data))
-                            appended = True
-
-                        # Characterization schedule: the phase table the sweep actually ran, latest wins
-                        elif topic.endswith("/characterization_schedule"):
-                            rows = self._schedule_rows(str(ros_msg.data))
-                            if rows is not None:
-                                robot_name = get_robot_name(parts, env_key)
-                                target = robot_data[robot_name]["characterization_schedule"]
-                                target.clear()
-                                for column, values in rows.items():
-                                    target[column].extend(values)
-                                appended = True
-
-                        # Episode records
-                        elif topic.endswith("/state/episode"):
-                            target = env_data[env_key]["episode_record"]
-                            target["time_ns"].append(ts_ns)
-                            target["episode_id"].append(ros_msg.episode_id)
-                            target["outcome_state"].append(ros_msg.outcome_state)
-                            target["outcome_info"].append(ros_msg.outcome_info)
-                            target["goal_uuid"].append(ros_msg.goal_uuid)
-
-                            has_integrity = integrity_schema_cache.get(schema.id)
-                            if has_integrity is None:
-                                has_integrity = re.search(r"^\s*string\[\]\s+integrity\b", schema.data.decode(), re.M) is not None
-                                integrity_schema_cache[schema.id] = has_integrity
-                            target["integrity"].append(list(ros_msg.integrity) if has_integrity else [])
-
-                            has_phases = phases_schema_cache.get(schema.id)
-                            if has_phases is None:
-                                has_phases = re.search(r"^\s*string\s+phases\b", schema.data.decode(), re.M) is not None
-                                phases_schema_cache[schema.id] = has_phases
-                            target["phases"].append(ros_msg.phases if has_phases else "")
-
-                            has_tasks = tasks_schema_cache.get(schema.id)
-                            if has_tasks is None:
-                                has_tasks = re.search(r"^\s*string\s+tasks\b", schema.data.decode(), re.M) is not None
-                                tasks_schema_cache[schema.id] = has_tasks
-                            target["tasks"].append(ros_msg.tasks if has_tasks else "")
-
-                            params_yaml = ""
-                            try:
-                                import yaml
-
-                                params_yaml = yaml.dump(self._record_params(ros_msg))
-                            except Exception:
-                                pass
-                            target["params"].append(params_yaml)
-                            target["conditions"].append(str(ros_msg.conditions or "") if "conditions" in ros_msg.__slots__ else "")
-                            appended = True
-
-                        # Semantic snapshot (latched, one row per annotated entity)
-                        elif topic.endswith("/state/semantics"):
-                            target = global_data["semantic_snapshot"]
-                            for ent in ros_msg.entities:
-                                self._append_semantic_entity(target, ts_ns, ros_msg.env_id, ros_msg.world, ent)
-                            appended = True
-
-                        elif topic.endswith("/collision_events"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["collision_events"]
-                            target["time_ns"].append(ts_ns)
-                            target["collision_event"].append(len(ros_msg.events))
-
-                            has_kind = collision_kind_schema_cache.get(schema.id)
-                            if has_kind is None:
-                                has_kind = re.search(r"^\s*string\s+kind\b", schema.data.decode(), re.M) is not None
-                                collision_kind_schema_cache[schema.id] = has_kind
-
-                            wall_count = None
-                            static_count = None
-                            pedestrian_count = None
-                            if has_kind:
-                                wall_count = 0
-                                static_count = 0
-                                pedestrian_count = 0
-                                for ev in ros_msg.events:
-                                    if ev.kind == "wall":
-                                        wall_count += 1
-                                    elif ev.kind == "static":
-                                        static_count += 1
-                                    elif ev.kind == "pedestrian":
-                                        pedestrian_count += 1
-                            target["collision_wall"].append(wall_count)
-                            target["collision_static"].append(static_count)
-                            target["collision_pedestrian"].append(pedestrian_count)
-                            target["collision_obstacle_ids"].append(sorted({ev.obstacle_id for ev in ros_msg.events}))
-                            appended = True
-
-                        # Collision Monitor State (Nav2)
-                        elif topic.endswith("/collision_monitor_state"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["collision_monitor_state"]
-                            target["time_ns"].append(ts_ns)
-                            target["action_type"].append(ros_msg.action_type)
-                            target["polygon_name"].append(ros_msg.polygon_name)
-                            appended = True
-
-                        # Power
-                        elif topic.endswith("/power_publisher/power"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["power"]
-                            target["time_ns"].append(ts_ns)
-                            target["total_power_w"].append(ros_msg.total_power_w)
-                            target["static_power_w"].append(ros_msg.static_power_w)
-                            target["total_mechanical_power_w"].append(ros_msg.total_mechanical_power_w)
-                            target["total_thermal_power_w"].append(ros_msg.total_thermal_power_w)
-                            target["joint_names"].append(list(ros_msg.joint_names))
-                            target["joint_mechanical_power_w"].append(list(ros_msg.joint_mechanical_power_w))
-                            target["joint_thermal_power_w"].append(list(ros_msg.joint_thermal_power_w))
-                            target["joint_total_power_w"].append(list(ros_msg.joint_total_power_w))
-                            appended = True
-
-                        # Energy
-                        elif topic.endswith("/power_publisher/energy"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["energy"]
-                            target["time_ns"].append(ts_ns)
-                            target["total_energy_consumed_wh"].append(ros_msg.total_energy_consumed_wh)
-                            target["battery_soc_percent"].append(ros_msg.battery_soc_percent)
-                            appended = True
-
-                        # Global plan
-                        elif topic.endswith("/plan") or topic.endswith("/global_plan"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["plan"]
-                            target["time_ns"].append(ts_ns)
-                            poses_x = []
-                            poses_y = []
-                            poses_yaw = []
-                            for pose_stamped in ros_msg.poses:
-                                poses_x.append(pose_stamped.pose.position.x)
-                                poses_y.append(pose_stamped.pose.position.y)
-                                poses_yaw.append(self._quaternion_to_yaw(pose_stamped.pose.orientation.x, pose_stamped.pose.orientation.y, pose_stamped.pose.orientation.z, pose_stamped.pose.orientation.w))
-                            target["poses_x"].append(poses_x)
-                            target["poses_y"].append(poses_y)
-                            target["poses_yaw"].append(poses_yaw)
-                            appended = True
-
-                        # Task pose
-                        elif topic.endswith("/task_pose"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["task_pose"]
-                            target["time_ns"].append(ts_ns)
-                            target["stamp_ns"].append(self._stamp_ns(ros_msg.header))
-                            target["pos_x"].append(ros_msg.pose.position.x)
-                            target["pos_y"].append(ros_msg.pose.position.y)
-                            target["yaw"].append(self._quaternion_to_yaw(ros_msg.pose.orientation.x, ros_msg.pose.orientation.y, ros_msg.pose.orientation.z, ros_msg.pose.orientation.w))
-                            appended = True
-
-                        # Initialpose
-                        elif topic.endswith("/initialpose"):
-                            robot_name = get_robot_name(parts, env_key)
-                            target = robot_data[robot_name]["initialpose"]
-                            target["time_ns"].append(ts_ns)
-                            target["pos_x"].append(ros_msg.pose.pose.position.x)
-                            target["pos_y"].append(ros_msg.pose.pose.position.y)
-                            target["yaw"].append(self._quaternion_to_yaw(ros_msg.pose.pose.orientation.x, ros_msg.pose.pose.orientation.y, ros_msg.pose.pose.orientation.z, ros_msg.pose.pose.orientation.w))
-                            appended = True
-
-                        # TF processing
-                        elif topic in ("/tf", "tf", "/tf_static", "tf_static"):
-                            target_dict = global_data["tf_static"] if "static" in topic else global_data["tf"]
-                            for t in ros_msg.transforms:
-                                target_dict["time_ns"].append(ts_ns)
-                                target_dict["frame_id"].append(t.header.frame_id)
-                                target_dict["child_frame_id"].append(t.child_frame_id)
-                                target_dict["trans_x"].append(t.transform.translation.x)
-                                target_dict["trans_y"].append(t.transform.translation.y)
-                                target_dict["trans_z"].append(t.transform.translation.z)
-                                target_dict["rot_x"].append(t.transform.rotation.x)
-                                target_dict["rot_y"].append(t.transform.rotation.y)
-                                target_dict["rot_z"].append(t.transform.rotation.z)
-                                target_dict["rot_w"].append(t.transform.rotation.w)
-                                appended = True
-
-                                # Detect ground-truth map/world/odom -> base_link transform if available
-                                parent = t.header.frame_id.strip('/')
-                                child = t.child_frame_id.strip('/')
-                                parent_lower = parent.lower()
-                                child_lower = child.lower()
-
-                                is_world_frame = parent_lower in ("map", "world", "odom") or parent_lower.endswith("/map") or parent_lower.endswith("/world") or parent_lower.endswith("/odom")
-                                is_base_frame = child_lower.endswith("base_link") or child_lower.endswith("base_footprint") or "base_link" in child_lower or "base_footprint" in child_lower
-
-                                # Filter by env_prefix if detected
-                                if env_prefix and env_prefix not in child_lower:
-                                    continue
-
-                                if is_world_frame and is_base_frame:
-                                    child_parts = child.split('/')
-                                    # /tf carries every env, so the env comes from the frame, not the topic.
-                                    robot_name = get_robot_name(child_parts, self._frame_env(child, env_key))
-
-                                    yaw_val = self._quaternion_to_yaw(t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w)
-                                    target = robot_data[robot_name]["tf_gt"]
-                                    target["time_ns"].append(ts_ns)
-                                    target["stamp_ns_gt"].append(self._stamp_ns(t.header))
-                                    target["pos_x_gt"].append(t.transform.translation.x)
-                                    target["pos_y_gt"].append(t.transform.translation.y)
-                                    target["yaw_gt"].append(yaw_val)
-                                    target["frame_id"].append(parent)
-                                    appended = True
-
-                        if appended:
-                            accumulated_count += 1
-                            if accumulated_count >= 10000:
-                                flush_buffers()
-                                accumulated_count = 0
+            for path in files:
+                self._stream(path, ingest)
         finally:
-            flush_buffers()
-            for writer in writers.values():
-                writer.close()
-            for env_key in gesture_envs:
-                if (env_key, "ped_gestures") not in writers:
-                    (out_dir / env_key).mkdir(parents=True, exist_ok=True)
-                    pq.write_table(_TOPIC_SCHEMAS["ped_gestures"].empty_table(), out_dir / env_key / "ped_gestures.parquet", compression="zstd")
-            for env_dir in (d for d in out_dir.iterdir() if d.is_dir()):
-                engine_peds = env_dir / "peds_physics.parquet"
-                arena_peds = env_dir / "peds.parquet"
-                if engine_peds.exists() and not arena_peds.exists():
-                    shutil.copyfile(engine_peds, arena_peds)
+            ingest.finish()
+        align_to_environment(out_dir, ingest.pedestrian_frames(), base_frames)
+        return load_bundles(out_dir)
 
-        return self.load_bundles(out_dir, run_dir, map_name_fallback=map_name_fallback)
+    def _stream(self, path: pathlib.Path, ingest: _Ingest) -> None:
+        factory = DecoderFactory()
+        decoders: dict[int, Decoder | None] = {}
+        with path.open("rb") as handle:
+            for schema, channel, message in NonSeekingReader(handle).iter_messages(log_time_order=False):
+                if schema is None:
+                    continue
+                if message.channel_id not in decoders:
+                    decoders[message.channel_id] = factory.decoder_for(channel.message_encoding, schema)
+                    if decoders[message.channel_id] is None and ingest.accepts(channel.topic, schema):
+                        _log.warning(f"{channel.topic}: schema {schema.name!r} ({schema.encoding}) cannot be decoded; its messages are skipped")
+                decoder = decoders[message.channel_id]
+                if decoder is None:
+                    continue
+                try:
+                    body = decoder(message.data)
+                except Exception as error:
+                    _log.warning(f"Error reading MCAP message on {channel.topic}: {error}")
+                    continue
+                ingest.route(channel.topic, schema, body, message.log_time)
 
-    @staticmethod
-    def _frame_env(frame: str, default: str) -> str:
-        """The env_N segment of a frame id, else default."""
-        match = re.search(r"(env_\d+)", frame)
-        return match.group(1) if match else default
 
-    @staticmethod
-    def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
-        """EpisodeRecord.phases with every robot's map_poses moved by (-ox, -oy)."""
-        if not payload:
-            return payload
+def _sink(record: Callable[..., None]) -> Handler:
+    """Route a message to a module-level recorder that takes the episode sink first."""
+    return lambda ingest, _topic, envelope: record(ingest._sink, envelope)
+
+
+def _recorder(attribute: str) -> Handler:
+    """Route a message to one ingest recorder's ``record`` method."""
+    return lambda ingest, _topic, envelope: getattr(ingest, attribute).record(envelope)
+
+
+def _frame(table: str) -> Handler:
+    """Route an agent frame to a pedestrian table."""
+    return lambda ingest, _topic, envelope: ingest._pedestrians.record_frame(table, envelope)
+
+
+def _grid(kind: str) -> Handler:
+    """Route an occupancy grid to its table."""
+    return lambda ingest, _topic, envelope: context.record_occupancy_grid(ingest._sink, envelope, kind)
+
+
+def _both_events(first: Callable[..., None], second: Callable[..., None]) -> Handler:
+    """Route one interaction frame to both of its recorders."""
+
+    def _handle(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+        first(ingest._sink, envelope)
+        second(ingest._sink, envelope)
+
+    return _handle
+
+
+def _odometry(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    table = "robot_odom_controller" if is_controller_topic(topic) else "robot_odom"
+    ingest._kinematics.record_odometry(table, envelope)
+
+
+def _command(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    table = "robot_cmd_vel_controller" if is_controller_topic(topic) else "robot_cmd_vel"
+    ingest._kinematics.record_command(table, envelope)
+
+
+def _agent_meta(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+    schema_text = envelope.schema.data.decode("utf-8", "replace")
+    crowd = legacy_schemas.agent_meta_crowd(schema_text)
+    if crowd == legacy_schemas.CROWD_NATIVE:
+        meta = agent_meta(envelope.body)
+    elif crowd == legacy_schemas.CROWD_GAINS:
+        meta = agent_meta_gains_only(envelope.body)
+    else:
+        meta = agent_meta_without_robot_fields(
+            envelope.body,
+            has_agent_type=legacy_schemas.agent_meta_has_agent_type(schema_text),
+        )
+    ingest._pedestrians.record_meta(envelope, meta)
+
+
+def _episode(ingest: _Ingest, _topic: str, envelope: Envelope) -> None:
+    context.record_episode(
+        ingest._sink,
+        envelope,
+        legacy_schemas.episode_fields(envelope.body, envelope.schema),
+    )
+
+
+def _fleet_snapshot(ingest: _Ingest, topic: str, envelope: Envelope[RobotFleet]) -> None:
+    env_id = env_id_in(topic) or ingest._environment
+    if env_id is None:
+        raise ValueError(f"fleet topic {topic!r} names no environment")
+    ingest._fleet.record(
+        envelope.t_ns,
+        env_id,
+        legacy_schemas.fleet_robots(envelope.body, envelope.schema),
+    )
+
+
+def _initial_pose(ingest: _Ingest, topic: str, envelope: Envelope) -> None:
+    parts = topic_parts(topic)
+    if len(parts) >= 2 and parts[-2] == env_id_in(topic):
+        ingest._warn_skipped(topic, "an environment-level initial pose names no robot")
+        return
+    context.record_initial_pose(ingest._sink, envelope)
+
+
+def _transforms(ingest: _Ingest, topic: str, envelope: Envelope[TFMessage]) -> None:
+    context.record_transforms(ingest._sink, "tf_static" if "static" in topic else "tf", envelope)
+    for transform in envelope.body.transforms:
+        parent, child = transform.header.frame_id, transform.child_frame_id
+        if not is_ground_truth(parent, child, ingest._base_frames):
+            continue
+        child_env = env_id_in(child)
+        if child_env is None:
+            raise ValueError(f"ground-truth frame {child!r} names no environment")
+        translation, rotation = (
+            transform.transform.translation,
+            transform.transform.rotation,
+        )
+        ingest._kinematics.record_ground_truth(
+            Envelope(
+                t_ns=envelope.t_ns,
+                ref=RobotRef(
+                    env_id=child_env,
+                    robot_id=robot_id_of(child.strip("/").split("/"), child_env),
+                ),
+                schema=envelope.schema,
+                body=transform,
+            ),
+            Pose3(
+                x=float(translation.x),
+                y=float(translation.y),
+                z=float(translation.z),
+                yaw=yaw_from_orientation(rotation),
+            ),
+        )
+
+
+_ROUTES: tuple[tuple[Predicate, Handler], ...] = (
+    (_topic("/odom"), _odometry),
+    (_topic("/scan", "/lidar"), _recorder("_scans")),
+    (_topic("/cmd_vel"), _command),
+    (_topic("/joint_states"), _sink(sensors.record_joint_states)),
+    (_topic("/agent_meta", schema=_AGENT_META_SCHEMA), _agent_meta),
+    (_topic("/arena_peds", "/peds", "/pedestrians"), _frame(ARENA_TABLE)),
+    (_topic("/agent_states", "/agent_frame"), _frame(ENGINE_TABLE)),
+    (
+        _topic("/interactions", schema=_INTERACTION_FRAME_SCHEMA),
+        _both_events(events.record_interactions, events.record_interaction_events),
+    ),
+    (
+        _topic("/animation_states", schema=_ANIMATION_STATES_SCHEMA),
+        _sink(events.record_animations),
+    ),
+    (_topic("/acoustics"), _sink(sensors.record_acoustics)),
+    (_topic("/characterization_phase"), _sink(context.record_characterization_phase)),
+    (_topic("/characterization_schedule"), _recorder("_schedules")),
+    (_topic("/hearing/search_state"), _sink(context.record_hearing_search_state)),
+    (_topic("/state/episode"), _episode),
+    (_topic("/state/semantics"), _sink(context.record_semantics)),
+    (_topic("/state/robots"), _fleet_snapshot),
+    (_topic("/collision_events"), _sink(events.record_collision_events)),
+    (_topic("/collision_monitor_state"), _sink(events.record_collision_monitor)),
+    (_topic("/power_publisher/power"), _sink(sensors.record_power)),
+    (_topic("/power_publisher/energy"), _sink(sensors.record_energy)),
+    (_topic("/plan", "/global_plan"), _recorder("_plans")),
+    (_topic("/task_pose"), _sink(context.record_task_pose)),
+    (_topic("/goal_pose", schema=_GOAL_POSE_SCHEMA), _sink(context.record_goal_pose)),
+    (_topic("/map", schema=_OCCUPANCY_GRID_SCHEMA), _grid("map")),
+    (_topic("/door_mask", schema=_OCCUPANCY_GRID_SCHEMA), _grid("door_mask")),
+    (_topic("/initialpose"), _initial_pose),
+    (_is_transform_topic, _transforms),
+)
+
+
+class _Ingest:
+    """Routes decoded messages to their recorders and writes the tables that need the whole recording."""
+
+    def __init__(self, sink: TableSink, *, environment: str | None = None, base_frames: frozenset[str] = LEGACY_BASE_FRAMES) -> None:
+        self._sink = sink
+        self._environment = environment
+        self._base_frames = base_frames
+        self._warned_topics: set[str] = set()
+        self._kinematics = tracks.KinematicsRecorder(sink)
+        self._pedestrians = PedestrianRecorder(sink)
+        self._scans = sensors.ScanRecorder(sink)
+        self._plans = context.PlanRecorder(sink)
+        self._fleet = context.FleetRecorder(sink)
+        self._schedules = context.ScheduleRecorder()
+
+    def accepts(self, topic: str, schema: Schema) -> bool:
+        """Whether the reader routes this recorded topic to a recorder."""
+        return self._handler(topic, schema) is not None
+
+    def _handler(self, topic: str, schema: Schema) -> Handler | None:
+        return next((handle for accepts, handle in _ROUTES if accepts(topic, schema)), None)
+
+    def route(self, topic: str, schema: Schema, body: object, t_ns: int) -> None:
+        """Dispatch a decoded message to the recorder that accepts its topic, or skip it."""
+        handler = self._handler(topic, schema)
+        if handler is None:
+            return
+        env_id = env_id_in(topic) or self._environment
+        if env_id is None and not _is_transform_topic(topic, schema) and not topic.endswith("/state/semantics"):
+            self._warn_skipped(topic, "names no environment")
+            return
+        ref = None if env_id is None or _is_transform_topic(topic, schema) else RobotRef(env_id=env_id, robot_id=robot_id_of(topic_parts(topic), env_id))
+        handler(self, topic, Envelope(t_ns=t_ns, ref=ref, schema=schema, body=body))
+
+    def _warn_skipped(self, topic: str, reason: str) -> None:
+        """Log one warning per skipped topic, naming it and the reason."""
+        if topic in self._warned_topics:
+            return
+        self._warned_topics.add(topic)
+        _log.warning(f"{topic}: {reason}; skipped")
+
+    def pedestrian_frames(self) -> dict[tuple[str, str], frozenset[str]]:
+        return self._pedestrians.frames()
+
+    def finish(self) -> None:
+        self._kinematics.finalize()
+        self._schedules.write(self._sink)
+        self._sink.close()
+
+
+def _scoped(out_dir: pathlib.Path, name: str, column: str, value: str) -> pl.LazyFrame | None:
+    """The table when it exists and holds a row for this scope value."""
+    path = out_dir / f"{name}.parquet"
+    if not path.exists():
+        return None
+    frame = pl.scan_parquet(path).filter(pl.col(column) == value)
+    return frame if frame.head(1).collect().height else None
+
+
+def load_bundles(out_dir: pathlib.Path) -> dict[str, TopicBundle]:
+    """One TopicBundle per robot: the episode's stored tables, filtered to that robot and its environment."""
+    global_frames = {name: _lazy_table(out_dir, name) for name in GLOBAL_TABLES}
+    return {robot_id: _robot_bundle(out_dir, global_frames, env_id, robot_id) for env_id, robot_id in _robot_refs(out_dir)}
+
+
+def _robot_bundle(
+    out_dir: pathlib.Path,
+    global_frames: Mapping[str, pl.LazyFrame | None],
+    env_id: str,
+    robot_id: str,
+) -> TopicBundle:
+    frames: dict[str, pl.LazyFrame | None] = {name: _scoped(out_dir, name, "robot_id", robot_id) for name in ROBOT_TABLES}
+    frames |= {name: _scoped(out_dir, name, "env_id", env_id) for name in ENV_TABLES}
+    odom_controller = frames.pop("robot_odom_controller")
+    cmd_vel_controller = frames.pop("robot_cmd_vel_controller")
+    frames["robot_odom"] = _first_present(odom_controller, frames["robot_odom"])
+    frames["robot_cmd_vel"] = _first_present(frames["robot_cmd_vel"], cmd_vel_controller)
+    return TopicBundle(**global_frames, **frames)
+
+
+def _check_map_frames(
+    env_id: str,
+    shifts: list[Anchor],
+    pedestrian_frames: Mapping[tuple[str, str], frozenset[str]],
+) -> None:
+    for table in (ARENA_TABLE,):
+        unmapped = sorted(frame for frame in pedestrian_frames.get((env_id, table), frozenset()) if frame not in _UNMAPPED_FRAMES)
+        if unmapped:
+            offsets = [anchor[1:] for anchor in shifts]
+            raise ValueError(f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map")
+
+
+def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]], base_frames: frozenset[str] = LEGACY_BASE_FRAMES) -> None:
+    """Move the map-frame positions of the stored tables into their environment frame, once, in place."""
+    anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"), base_frames)
+    if not anchors:
+        return
+    _refuse_rotated_or_unaligned_frames(out_dir, anchors)
+    for env_id in sorted({env_id for env_id, _robot_id in _robot_refs(out_dir)}):
+        if env_id not in anchors:
+            raise ValueError(f"{env_id}: no map -> {env_id}/map anchor in tf_static, anchors recorded: {dict(sorted(anchors.items()))}")
+        shifts = anchors[env_id]
+        if any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts):
+            _check_map_frames(env_id, shifts, pedestrian_frames)
+    for name, (x_column, y_column) in _POSITION_COLUMNS.items():
+        path = out_dir / f"{name}.parquet"
+        if path.exists():
+            _rewrite_columns(
+                path,
+                [x_column, y_column],
+                lambda frame, x_col=x_column, y_col=y_column: frame.with_columns(
+                    _in_environment(anchors, x_col, lambda value, ox, _oy: value - ox),
+                    _in_environment(anchors, y_col, lambda value, _ox, oy: value - oy),
+                ),
+            )
+    lifecycle = out_dir / "episode_lifecycle.parquet"
+    if lifecycle.exists():
+        _rewrite_columns(
+            lifecycle,
+            ["phases_yaml"],
+            lambda frame: _shift_episode_phases(frame, anchors),
+        )
+    for name in ("tf_static", "tf"):
+        if (out_dir / f"{name}.parquet").exists():
+            _rewrite_columns(
+                out_dir / f"{name}.parquet",
+                ["tx", "ty"],
+                lambda frame: frame.with_columns(
+                    _in_environment(
+                        anchors,
+                        "tx",
+                        lambda value, ox, _oy: value - ox,
+                        env=_CHILD_ENVIRONMENT,
+                        where=_MAP_PARENT,
+                    ),
+                    _in_environment(
+                        anchors,
+                        "ty",
+                        lambda value, _ox, oy: value - oy,
+                        env=_CHILD_ENVIRONMENT,
+                        where=_MAP_PARENT,
+                    ),
+                ),
+                keys=("parent_frame", "child_frame", "t_ns"),
+            )
+
+
+def _in_environment(
+    anchors: Mapping[str, list[Anchor]],
+    column: str,
+    shifted: Callable[[pl.Expr, float, float], pl.Expr],
+    *,
+    env: pl.Expr | None = None,
+    where: pl.Expr | None = None,
+) -> pl.Expr:
+    """`column` of each row selected by `where`, moved by the offset of its environment in effect at the row's t_ns."""
+    env_expr = pl.col("env_id") if env is None else env
+    where_expr = pl.lit(True) if where is None else where
+    expr = pl.col(column)
+    for env_id, shifts in anchors.items():
+        moved = by_anchor(shifts, lambda ox, oy: shifted(pl.col(column), ox, oy))
+        expr = pl.when(where_expr & (env_expr == env_id)).then(moved).otherwise(expr)
+    return expr.alias(column)
+
+
+def _shift_episode_phases(frame: pl.DataFrame, anchors: Mapping[str, list[Anchor]]) -> pl.DataFrame:
+    def shifted(row: Mapping[str, typing.Any]) -> str:
+        env_anchors = anchors.get(row["env_id"])
+        if env_anchors is None:
+            return row["phases_yaml"]
+        return _shift_map_poses(row["phases_yaml"], *anchor_at(env_anchors, int(row["t_ns"])))
+
+    return frame.with_columns(pl.struct(["env_id", "t_ns", "phases_yaml"]).map_elements(shifted, return_dtype=pl.String).alias("phases_yaml"))
+
+
+def _rewrite_columns(
+    path: pathlib.Path,
+    names: list[str],
+    transform: Callable[[pl.DataFrame], pl.DataFrame],
+    keys: tuple[str, ...] = ("env_id", "t_ns"),
+) -> None:
+    """Replace the named columns of a stored table with their transformed values; every other column and the arrow schema stay as written."""
+    table = pq.read_table(path)
+    needed = list(dict.fromkeys([*keys, *names]))
+    frame = pl.from_arrow(table.select(needed))
+    if not isinstance(frame, pl.DataFrame):
+        raise TypeError(f"Expected DataFrame from arrow table {path}, got {type(frame).__name__}")
+    shifted = transform(frame).to_arrow()
+    for name in names:
+        index = table.schema.get_field_index(name)
+        field = table.schema.field(index)
+        table = table.set_column(index, field, shifted.column(name).cast(field.type))
+    pq.write_table(table, path)
+
+
+def _map_parented_transforms(out_dir: pathlib.Path) -> pl.DataFrame | None:
+    """Every recorded transform whose parent is the map frame, static and dynamic, with its yaw in degrees."""
+    frames = [frame.select("parent_frame", "child_frame", "t_ns", "tx", "ty", "qz", "qw") for name in ("tf_static", "tf") if (frame := _lazy_table(out_dir, name)) is not None]
+    if not frames:
+        return None
+    transforms = pl.concat(frames).filter(_MAP_PARENT).collect()
+    yaw_deg = np.degrees(2.0 * np.arctan2(transforms["qz"].to_numpy(), transforms["qw"].to_numpy()))
+    return transforms.with_columns(pl.Series("yaw_deg", yaw_deg))
+
+
+def _refuse_rotated_or_unaligned_frames(out_dir: pathlib.Path, anchors: Mapping[str, list[Anchor]]) -> None:
+    """Refuse the recorded map frames a translation-only alignment cannot place: a rotated environment frame, or an odometry frame that is not the map frame."""
+    transforms = _map_parented_transforms(out_dir)
+    if transforms is None:
+        return
+    for env_id in anchors:
+        rotated = transforms.filter((pl.col("child_frame") == f"{env_id}/map") & (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)).head(1)
+        if rotated.height > 0:
+            yaw_deg = float(rotated["yaw_deg"][0])
+            raise ValueError(f"{env_id}: the recorded map -> {env_id}/map transform is rotated ({yaw_deg:.3f} deg); only translated environment frames are supported")
+    unaligned = transforms.filter(pl.col("child_frame").str.contains("odom") & ((pl.col("tx").abs() > _ALIGNED_TOLERANCE) | (pl.col("ty").abs() > _ALIGNED_TOLERANCE) | (pl.col("yaw_deg").abs() > _ALIGNED_TOLERANCE)))
+    if unaligned.height:
+        row = unaligned.row(0, named=True)
+        raise ValueError(f"{row['child_frame']}: the recorded map -> odom transform is not the identity (translation {row['tx']}, {row['ty']}; yaw {row['yaw_deg']:.3f} deg), so odometry and ground truth cannot be placed in the environment frame by the anchor alone")
+
+
+def _lazy_table(out_dir: pathlib.Path, name: str) -> pl.LazyFrame | None:
+    path = out_dir / f"{name}.parquet"
+    return pl.scan_parquet(path) if path.exists() else None
+
+
+def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
+    """EpisodeRecord.phases with every robot's map_poses moved by (-ox, -oy)."""
+    if not payload:
+        return payload
+    try:
         robots = json.loads(payload)
         for entry in robots.values():
             entry["map_poses"] = [None if pose is None else [pose[0] - ox, pose[1] - oy, *pose[2:]] for pose in entry["map_poses"]]
         return json.dumps(robots)
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        _log.warning(f"Failed to offset episode phases: {error}")
+        return payload
 
-    @staticmethod
-    def _schedule_rows(payload: str) -> dict[str, list] | None:
-        """Columns of a recorded characterization schedule, None when the payload is not one."""
-        rows: dict[str, list] = defaultdict(list)
-        try:
-            for phase in json.loads(payload)["phases"]:
-                rows["phase_label"].append(str(phase["name"]))
-                rows["phase_kind"].append(str(phase["kind"]))
-                rows["vx_target"].append(float(phase["vx_target"]))
-                rows["vy_target"].append(float(phase["vy_target"]))
-                rows["wz_target"].append(float(phase["wz_target"]))
-                rows["duration_s"].append(float(phase["duration_s"]))
-                rows["ramp_s"].append(float(phase["ramp_s"]))
-                rows["turn_radius_m"].append(float(phase["radius_m"]))
-        except (ValueError, KeyError, TypeError) as e:
-            _log.warning(f"characterization_schedule payload rejected: {e!r}")
-            return None
-        return dict(rows)
 
-    @staticmethod
-    def _append_semantic_field(
-        target: dict,
-        ts_ns: int,
-        env_id: int,
-        world: str,
-        entity: str,
-        kind: str,
-        field: str,
-        field_kind: str,
-        value_str: str | None = None,
-        value_num: float | None = None,
-        value_bool: bool | None = None,
-        value_list: list | None = None,
-    ) -> None:
-        """Append one long-format (entity, field) row of the flattened semantic snapshot."""
-        target["time_ns"].append(ts_ns)
-        target["env_id"].append(env_id)
-        target["world"].append(world)
-        target["entity"].append(entity)
-        target["kind"].append(kind)
-        target["field"].append(field)
-        target["field_kind"].append(field_kind)
-        target["value_str"].append(value_str)
-        target["value_num"].append(value_num)
-        target["value_bool"].append(value_bool)
-        target["value_list"].append(value_list)
+def _env_anchors(tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None, base_frames: frozenset[str]) -> dict[str, list[Anchor]]:
+    anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD, base_frames)
+    for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD, base_frames).items():
+        anchors.setdefault(env_id, dynamic)
+    return {env_id: [anchor for index, anchor in enumerate(values) if index == 0 or anchor[1:] != values[index - 1][1:]] for env_id, values in anchors.items()}
 
-    @staticmethod
-    def _append_semantic_entity(target: dict, ts_ns: int, env_id: int, world: str, ent: SemanticEntityState) -> None:
-        """Flatten one SemanticEntityState into long-format rows."""
-        for name, value in zip(ent.discrete_names, ent.discrete_values, strict=True):
-            MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "discrete", value_str=str(value))
-        for name, value in zip(ent.continuous_names, ent.continuous_values, strict=True):
-            MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "continuous", value_num=float(value))
-        for name, value in zip(ent.predicate_names, ent.predicate_values, strict=True):
-            MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, name, "predicate", value_bool=bool(value))
-        MCAPReader._append_semantic_field(target, ts_ns, env_id, world, ent.entity, ent.kind, "members", "members", value_list=list(ent.members))
 
-    @staticmethod
-    def load_bundles(topics_dir: pathlib.Path, run_dir: pathlib.Path, map_name_fallback: str | None = None) -> dict[str, TopicBundle]:
-        # Reconstruct dict[str, TopicBundle]
-        bundles = {}
+def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str], base_frames: frozenset[str]) -> dict[str, list[Anchor]]:
+    anchors: defaultdict[str, list[Anchor]] = defaultdict(list)
+    if frame is None:
+        return dict(anchors)
+    parent = pl.col("parent_frame").str.strip_chars("/").str.to_lowercase()
+    child = pl.col("child_frame").str.strip_chars("/").str.to_lowercase()
+    env = child.str.extract(f"^{child_pattern.pattern}$", 1)
+    world_re = "|".join(re.escape(name) for name in _WORLD_FRAMES)
+    world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(rf"/(?:{world_re})$")
+    filtered = frame.with_columns(parent.alias("_parent"), child.alias("_child"), env.alias("_env")).filter(pl.col("_env").is_not_null() & ((pl.col("_parent") == "") | world_match) & ~child.str.extract(r"([^/]*)$", 1).is_in(sorted(base_frames))).select("_env", "t_ns", "tx", "ty").collect()
+    # agent-contracts: ignore materialize anchor tuples from filtered tf frame
+    for env_id, t_ns, tx, ty in filtered.iter_rows():
+        anchors[env_id].append((t_ns, tx, ty))
+    return dict(anchors)
 
-        def load_parquet(path: pathlib.Path) -> pl.LazyFrame | None:
-            if path.exists():
-                lf = pl.scan_parquet(path)
-                if "time_ns" in lf.collect_schema().names():
-                    lf = lf.sort("time_ns", maintain_order=True)
-                return lf
-            return None
 
-        # Load global data
-        global_bundle = TopicBundle()
-        for t_name in ("tf", "tf_static", "semantic_snapshot"):
-            lf = load_parquet(topics_dir / f"{t_name}.parquet")
-            if lf is not None:
-                setattr(global_bundle, t_name, lf)
+def _robot_refs(out_dir: pathlib.Path) -> list[tuple[str, str]]:
+    frames = [pl.scan_parquet(out_dir / f"{name}.parquet").select("env_id", "robot_id") for name in ROBOT_TABLES if (out_dir / f"{name}.parquet").exists()]
+    if not frames:
+        return []
+    refs = pl.concat(frames).unique().sort("robot_id").collect()
+    # agent-contracts: ignore materialize (env_id, robot_id) keys for bundle dict
+    return [(env_id, robot_id) for env_id, robot_id in refs.iter_rows()]
 
-        # Build each robot's bundle
-        robot_dirs = [d for d in topics_dir.iterdir() if d.is_dir()]
 
-        env_anchors: dict[str, list[Anchor]] = {}
-        if isinstance(global_bundle.tf_static, pl.LazyFrame):
-            try:
-                tf_df = global_bundle.tf_static.collect()
-                for row in tf_df.iter_rows(named=True):
-                    parent = row["frame_id"].strip('/').lower()
-                    child = row["child_frame_id"].strip('/').lower()
-                    parent_is_world = parent in ("map", "world", "odom", "") or parent.endswith("/map") or parent.endswith("/world") or parent.endswith("/odom")
-                    is_robot_base = child.endswith("base_link") or child.endswith("base_footprint") or "base_link" in child or "base_footprint" in child
-                    if parent_is_world and not is_robot_base:
-                        match = re.match(r'^(env_\d+)(?:/map)?$', child)
-                        if match:
-                            env_anchors.setdefault(match.group(1), []).append((row["time_ns"], row["trans_x"], row["trans_y"]))
-            except Exception:
-                pass
-
-        if isinstance(global_bundle.tf, pl.LazyFrame):
-            try:
-                tf_anchors: dict[str, list[Anchor]] = {}
-                tf_df = global_bundle.tf.collect()
-                for row in tf_df.iter_rows(named=True):
-                    parent = row["frame_id"].strip('/').lower()
-                    child = row["child_frame_id"].strip('/').lower()
-                    parent_is_world = parent in ("map", "world", "odom", "") or parent.endswith("/map") or parent.endswith("/world") or parent.endswith("/odom")
-                    is_robot_base = child.endswith("base_link") or child.endswith("base_footprint") or "base_link" in child or "base_footprint" in child
-                    if parent_is_world and not is_robot_base:
-                        match = re.match(r'^(env_\d+)/map$', child)
-                        if match:
-                            tf_anchors.setdefault(match.group(1), []).append((row["time_ns"], row["trans_x"], row["trans_y"]))
-                for env, anchors in tf_anchors.items():
-                    env_anchors.setdefault(env, anchors)
-            except Exception:
-                pass
-
-        env_anchors = {env: [a for i, a in enumerate(anchors) if i == 0 or a[1:] != anchors[i - 1][1:]] for env, anchors in env_anchors.items()}
-
-        # If no explicit robot dirs but we have data, maybe it was named "unknown"
-        for robot_dir in robot_dirs:
-            robot_name = robot_dir.name
-
-            # Skip pure environment directories (e.g. env_0) if odom.parquet is absent and other robot directories exist
-            has_odom = (robot_dir / "odom.parquet").exists() or (robot_dir / "odom_controller.parquet").exists()
-            if not has_odom and any((d / "odom.parquet").exists() or (d / "odom_controller.parquet").exists() for d in robot_dirs if d != robot_dir):
-                continue
-
-            rb = TopicBundle()
-
-            match = re.search(r'(env_\d+)', robot_name)
-            env_key = match.group(1) if match else "env_0"
-            if env_anchors and env_key not in env_anchors:
-                raise ValueError(f"{env_key}: no map -> {env_key}/map anchor in tf_static, anchors recorded: {dict(sorted(env_anchors.items()))}")
-
-            # Copy global references
-            rb.tf = global_bundle.tf
-            rb.tf_static = global_bundle.tf_static
-            rb.semantic_snapshot = global_bundle.semantic_snapshot
-
-            # Load env references
-            env_dir = topics_dir / env_key
-            rb.peds = load_parquet(env_dir / "peds.parquet")
-            rb.episode_record = load_parquet(env_dir / "episode_record.parquet")
-            for t_name in ENV_STATE_TABLES:
-                setattr(rb, t_name, load_parquet(env_dir / f"{t_name}.parquet"))
-
-            shifts = env_anchors.get(env_key, [(0, 0.0, 0.0)])
-            shifted = any(ox != 0.0 or oy != 0.0 for _, ox, oy in shifts)
-
-            if rb.episode_record is not None and shifted:
-                try:
-                    import json
-
-                    ep_df = rb.episode_record.collect() if isinstance(rb.episode_record, pl.LazyFrame) else rb.episode_record
-
-                    if len(ep_df) > 0:
-                        new_starts = []
-                        new_goals = []
-                        new_phases = []
-                        for row in ep_df.iter_rows(named=True):
-                            s = json.loads(row.get("start_pos", "[]"))
-                            g = json.loads(row.get("goal_pos", "[]"))
-                            ox, oy = anchor_at(shifts, row["time_ns"])
-                            new_phases.append(MCAPReader._shift_map_poses(row.get("phases") or "", ox, oy))
-                            if len(s) >= 2:
-                                s[0] -= ox
-                                s[1] -= oy
-                            if len(g) >= 2:
-                                g[0] -= ox
-                                g[1] -= oy
-                            new_starts.append(json.dumps(s))
-                            new_goals.append(json.dumps(g))
-
-                        ep_df = ep_df.with_columns([pl.Series("start_pos", new_starts), pl.Series("goal_pos", new_goals)])
-                        if "phases" in ep_df.columns:
-                            ep_df = ep_df.with_columns(pl.Series("phases", new_phases))
-                        rb.episode_record = ep_df.lazy() if isinstance(rb.episode_record, pl.LazyFrame) else ep_df
-                except Exception as e:
-                    import logging
-
-                    logging.getLogger(__name__).warning(f"Failed to offset episode_record coordinates: {e}")
-                    pass
-
-            for table in ("peds", "peds_physics") if shifted else ():
-                peds = getattr(rb, table)
-                if peds is None:
-                    continue
-                if "peds_frame_id" in peds.collect_schema().names():
-                    frames = set(peds.select(pl.col("peds_frame_id").str.strip_chars("/")).unique().collect()["peds_frame_id"].to_list()) - {"", "map"}
-                    if frames:
-                        raise ValueError(f"{env_key}: {table} stamped {sorted(frames)}, offsets {[a[1:] for a in shifts]} are only valid for frame map")
-                try:
-                    shifted_positions = by_anchor(shifts, lambda ox, oy: pl.col("peds_positions").list.eval(pl.when(pl.int_range(0, pl.element().len()) % 3 == 0).then(pl.element() - ox).when(pl.int_range(0, pl.element().len()) % 3 == 1).then(pl.element() - oy).otherwise(pl.element()))).alias("peds_positions")
-                    setattr(rb, table, peds.with_columns([shifted_positions]))
-                except Exception:
-                    pass
-            if rb.ped_gestures is not None and shifted:
-                rb.ped_gestures = rb.ped_gestures.with_columns([by_anchor(shifts, lambda ox, _: pl.col("at_x") - ox).alias("at_x"), by_anchor(shifts, lambda _, oy: pl.col("at_y") - oy).alias("at_y")])
-
-            for parquet in sorted(robot_dir.glob("*.parquet")):
-                t_name = parquet.stem
-                if t_name not in _BUNDLE_FIELDS:
-                    continue
-                lf = load_parquet(parquet)
-                if lf is None:
-                    continue
-                if shifted:
-                    if t_name == "initialpose":
-                        try:
-                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("pos_x") - ox).alias("pos_x"), by_anchor(shifts, lambda _, oy: pl.col("pos_y") - oy).alias("pos_y")])
-                        except Exception:
-                            pass
-                    elif t_name == "tf_gt":
-                        try:
-                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("pos_x_gt") - ox).alias("pos_x_gt"), by_anchor(shifts, lambda _, oy: pl.col("pos_y_gt") - oy).alias("pos_y_gt")])
-                        except Exception:
-                            pass
-                    elif t_name == "plan":
-                        try:
-                            lf = lf.with_columns([by_anchor(shifts, lambda ox, _: pl.col("poses_x").list.eval(pl.element() - ox)).alias("poses_x"), by_anchor(shifts, lambda _, oy: pl.col("poses_y").list.eval(pl.element() - oy)).alias("poses_y")])
-                        except Exception:
-                            pass
-                setattr(rb, t_name, lf)
-
-            # TEMP: until fixed in isaac, the bare odom topic is shared with Isaac's zero-twist publisher
-            controller_odom = load_parquet(robot_dir / "odom_controller.parquet")
-            if controller_odom is not None:
-                rb.odom = controller_odom
-
-            if rb.cmd_vel is None:
-                rb.cmd_vel = load_parquet(robot_dir / "cmd_vel_controller.parquet")
-
-            bundles[robot_name] = rb
-
-        return bundles
+def _first_present(*frames: pl.LazyFrame | None) -> pl.LazyFrame | None:
+    return next((frame for frame in frames if frame is not None), None)

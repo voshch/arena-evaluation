@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from arena_evaluation.benchmark import runner
+
+_UNIT_TESTS = Path(__file__).resolve().parent / "unit"
+if str(_UNIT_TESTS) not in sys.path:
+    sys.path.insert(0, str(_UNIT_TESTS))
 
 _ROS_SKIP_REASON = "ROS2 not discoverable, source install/setup.bash to enable"
 
@@ -56,6 +60,8 @@ class _Messages(logging.Handler):
 
 @pytest.fixture
 def runner_log() -> Iterator[list[str]]:
+    from arena_evaluation.benchmark import runner
+
     handler = _Messages()
     runner._log.addHandler(handler)
     yield handler.messages

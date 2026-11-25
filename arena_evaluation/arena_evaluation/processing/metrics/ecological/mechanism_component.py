@@ -4,8 +4,15 @@ import dataclasses
 import math
 import typing
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+import polars as pl
+
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+
+# The registry refuses an empty unit for a float metric and defines no dimensionless marker;
+# "1" is the UCUM code for a dimensionless ratio.
+DIMENSIONLESS_UNIT: typing.Final[str] = "1"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,7 +61,10 @@ MECHANISM_COMPONENTS: tuple[MechanismComponent, ...] = (
 )
 
 
-def mechanism_score(results: dict[str, typing.Any], components: typing.Sequence[MechanismComponent] = MECHANISM_COMPONENTS) -> tuple[float | None, int]:
+def mechanism_score(
+    results: dict[str, typing.Any],
+    components: typing.Sequence[MechanismComponent] = MECHANISM_COMPONENTS,
+) -> tuple[float | None, int]:
     """Weighted mean of the available component scores and how many were available."""
     total = 0.0
     weight = 0.0
@@ -71,24 +81,39 @@ def mechanism_score(results: dict[str, typing.Any], components: typing.Sequence[
     return total / weight, used
 
 
+MECHANISM_SCORE = define_metric(
+    "mechanism_score",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit=DIMENSIONLESS_UNIT,
+    description="Weighted mean of the available normalised mechanism component scores, 0 to 1 with 1 best. NULL when no component was measured.",
+    null_reason=True,
+)
+MECHANISM_COMPONENT_COUNT = define_metric(
+    "mechanism_components",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of measured mechanism component scores that contributed to mechanism_score.",
+    required=True,
+)
+
+
 class MechanismComponentCalculator(BaseMetricCalculator):
     """`mechanism` component: weighted mean of the normalised scores of every available `MECHANISM_COMPONENTS` key."""
 
     NAME = "mechanism_component"
     CATEGORY = "ecological"
-    DEPENDS_ON = ["condition_compliance", "mechanism_metrics", "regime_metrics", "semantic_interaction_metrics"]
+    DEPENDS_ON = [
+        "condition_compliance",
+        "mechanism_metrics",
+        "regime_metrics",
+        "semantic_interaction_metrics",
+    ]
 
-    UNITS = {
-        "mechanism_score": "",
-        "mechanism_components": "",
-    }
-
+    OUTPUTS = (MECHANISM_SCORE, MECHANISM_COMPONENT_COUNT)
+    DIRECTIONS = {"mechanism_score": Direction.HIGHER}
     PRIMARY_OUTPUTS = ["mechanism_score"]
-    OUTPUT_DIRECTIONS = {"mechanism_score": "higher"}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return ["mechanism_score", "mechanism_components"]
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del episode

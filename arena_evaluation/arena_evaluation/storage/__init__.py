@@ -1,16 +1,13 @@
 from .exceptions import (
     ArenaEvaluationError,
     CircularDependencyError,
+    ContractViolationError,
     ManifestGenerationError,
-    MetricCalculationError,
-    RobotNotFoundError,
     SchemaViolationError,
 )
 from .schemas import (
     AlignedEpisodeBundle,
-    PlotSpec,
     RobotParams,
-    RunDescriptor,
     RunMetadata,
     TopicBundle,
 )
@@ -18,14 +15,11 @@ from .schemas import (
 __all__ = [
     "RunMetadata",
     "RobotParams",
-    "RunDescriptor",
     "TopicBundle",
     "AlignedEpisodeBundle",
-    "PlotSpec",
     "ArenaEvaluationError",
-    "MetricCalculationError",
     "CircularDependencyError",
+    "ContractViolationError",
     "SchemaViolationError",
-    "RobotNotFoundError",
     "ManifestGenerationError",
 ]

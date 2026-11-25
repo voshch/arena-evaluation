@@ -1,0 +1,45 @@
+name: pedestrian_exposure_by_planner
+title: "Pedestrian Acoustic Exposure and Behaviour by Local Planner"
+description: "One row per pedestrian of a non-reference episode, with the episode-level planner, world, stage and
+  crowd condition and the pedestrian-scope acoustic-exposure and behaviour metrics. The episode identity is
+  collapsed to one row per (run_id, episode_id) before the join: dim_episodes holds one row per robot while a
+  pedestrian belongs to the episode, so joining it row-wise would repeat every pedestrian once per robot."
+parameters:
+  planner:
+    type: string
+    default: "all"
+    description: "Filter by planner name or 'all'"
+  crowd_condition:
+    type: string
+    default: "all"
+    description: "Filter by crowd condition ('all', 'visible', 'blind', 'mixed')"
+sql: |
+  WITH episode_identity AS (
+      SELECT
+          run_id,
+          episode_id,
+          MAX(planner) AS planner,
+          MAX(world) AS world,
+          MAX(stage) AS stage,
+          MAX(crowd_condition) AS crowd_condition
+      FROM v_episode_summary
+      WHERE is_reference IS NOT TRUE
+      GROUP BY run_id, episode_id
+  )
+  SELECT
+      e.planner,
+      e.world,
+      e.stage,
+      e.crowd_condition,
+      p.ped_id,
+      p.ped_policy,
+      p.ped_max_exposure_dba,
+      p.ped_leq_exposure_dba,
+      p.ped_max_startle_factor,
+      p.ped_path_deflection_m
+  FROM fact_pedestrians p
+  JOIN episode_identity e
+    ON p.run_id = e.run_id AND p.episode_id = e.episode_id
+  WHERE (:planner = 'all' OR e.planner = :planner)
+    AND (:crowd_condition = 'all' OR e.crowd_condition = :crowd_condition)
+  ORDER BY e.planner, e.world, e.stage, p.ped_id

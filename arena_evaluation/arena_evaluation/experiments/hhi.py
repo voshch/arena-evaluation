@@ -1,16 +1,4 @@
-"""Study A - two-person contact interactions, hug and handshake with the robot as bystander (EVALUATION.md section A).
-
-generate: L scenarios per contact kind on map_empty, each run in two arms that share scenario and seeds:
-  contact     - the pair walks to its meeting points, closes to contact, the clip plays, holds, releases
-  locomotion  - same approach and meeting points, holds at the standing distance, no clip (motion-matched control)
-  In both arms the pair then separates to its exit points and stands.
-
-analyze: paired contact - locomotion differences per (planner, interaction, metric), cluster bootstrap over
-  scenarios, Holm within the family; plus the release-time window check (post-release stall share vs time share).
-
-    python -m arena_evaluation.experiments.hhi generate --scenarios 15
-    python -m arena_evaluation.experiments.hhi analyze --benchmark-dir <data_root>/<run_id>
-"""
+"""Study A: two-person contact interactions (hug and handshake) with the robot as bystander."""
 
 from __future__ import annotations
 
@@ -25,7 +13,14 @@ import numpy as np
 import polars as pl
 import yaml
 
-from arena_evaluation.experiments.stats import DEFAULT_BOOT, cluster_bootstrap, holm, paired_differences, summarize_family
+from arena_evaluation.experiments.source import episode_summary
+from arena_evaluation.experiments.stats import (
+    DEFAULT_BOOT,
+    cluster_bootstrap,
+    holm,
+    paired_differences,
+    summarize_family,
+)
 
 KINDS = {"hug": "HUG", "shake": "SHAKE_HAND"}
 ARMS = {"contact": "enabled", "loco": "locomotion_only"}
@@ -54,10 +49,7 @@ def _default_scenarios_dir() -> pathlib.Path:
 
 
 def _default_suite_path() -> pathlib.Path:
-    return _ROOT.parents[2] / "configs" / "benchmark" / "suites" / "hhi_contact.yaml"
-
-
-# -- generation --------------------------------------------------------------------------------
+    return _ROOT.parents[2] / "configs" / "suites" / "hhi_contact" / "suite.yaml"
 
 
 class Geometry(typing.NamedTuple):
@@ -73,7 +65,9 @@ class Geometry(typing.NamedTuple):
     wait_s: float
 
 
-def _pair(points: typing.Sequence[np.ndarray]) -> tuple[tuple[float, float], tuple[float, float]]:
+def _pair(
+    points: typing.Sequence[np.ndarray],
+) -> tuple[tuple[float, float], tuple[float, float]]:
     a, b = points
     return (float(a[0]), float(a[1])), (float(b[0]), float(b[1]))
 
@@ -136,7 +130,14 @@ def _r(v: float) -> float:
     return round(float(v), 3)
 
 
-def agent_yaml(name: str, interaction: str, meet: tuple[float, float], exit_: tuple[float, float], hold_s: float, wait_s: float) -> dict:
+def agent_yaml(
+    name: str,
+    interaction: str,
+    meet: tuple[float, float],
+    exit_: tuple[float, float],
+    hold_s: float,
+    wait_s: float,
+) -> dict:
     return {
         "name": name,
         "mode": "behavior_tree",
@@ -146,9 +147,19 @@ def agent_yaml(name: str, interaction: str, meet: tuple[float, float], exit_: tu
             "contact_seq": {
                 "steps": {
                     "wait": {"duration": {"mean": _r(wait_s), "std": 0.0}},
-                    "approach": {"kind": "go_to", "target_pose": {"x": _r(meet[0]), "y": _r(meet[1])}},
-                    "contact": {"interaction": interaction, "attention": {"gaze": "partner"}, "duration": {"mean": _r(hold_s), "std": 0.0}},
-                    "separate": {"kind": "go_to", "target_pose": {"x": _r(exit_[0]), "y": _r(exit_[1])}},
+                    "approach": {
+                        "kind": "go_to",
+                        "target_pose": {"x": _r(meet[0]), "y": _r(meet[1])},
+                    },
+                    "contact": {
+                        "interaction": interaction,
+                        "attention": {"gaze": "partner"},
+                        "duration": {"mean": _r(hold_s), "std": 0.0},
+                    },
+                    "separate": {
+                        "kind": "go_to",
+                        "target_pose": {"x": _r(exit_[0]), "y": _r(exit_[1])},
+                    },
                     "rest": {"duration": {"mean": 10_000.0, "std": 0.0}},
                 },
             },
@@ -164,8 +175,15 @@ def scenario_yaml(geo: Geometry) -> dict:
             {
                 "name": f"partner_{i}",
                 "model": models[i],
-                "pose": [_r(geo.ped_start[i][0]), _r(geo.ped_start[i][1]), _r(geo.axis + (0.0 if i == 0 else math.pi))],
-                "agent": {"agent_type": f"./partner_{i}.yaml", "desired_velocity": PED_SPEED},
+                "pose": [
+                    _r(geo.ped_start[i][0]),
+                    _r(geo.ped_start[i][1]),
+                    _r(geo.axis + (0.0 if i == 0 else math.pi)),
+                ],
+                "agent": {
+                    "agent_type": f"./partner_{i}.yaml",
+                    "desired_velocity": PED_SPEED,
+                },
             }
             for i in range(2)
         ],
@@ -176,7 +194,14 @@ def stage_name(kind: str, k: int, arm: str) -> str:
     return f"hhi_{kind}_{k:02d}_{arm}"
 
 
-def generate(n_scenarios: int, *, seed: int = 0, scenarios_dir: pathlib.Path | None = None, suite_path: pathlib.Path | None = None, episodes: int = EPISODES) -> dict:
+def generate(
+    n_scenarios: int,
+    *,
+    seed: int = 0,
+    scenarios_dir: pathlib.Path | None = None,
+    suite_path: pathlib.Path | None = None,
+    episodes: int = EPISODES,
+) -> dict:
     """Write L scenarios per kind under map_empty/scenarios and the paired suite; returns the suite dict."""
     scenarios_dir = scenarios_dir or _default_scenarios_dir()
     suite_path = suite_path or _default_suite_path()
@@ -190,10 +215,31 @@ def generate(n_scenarios: int, *, seed: int = 0, scenarios_dir: pathlib.Path | N
             out = scenarios_dir / name
             out.mkdir(parents=True, exist_ok=True)
             for i in range(2):
-                (out / f"partner_{i}.yaml").write_text(yaml.safe_dump(agent_yaml(f"{name}_partner_{i}", interaction, geo.ped_meet[i], geo.ped_exit[i], geo.hold_s, geo.wait_s), sort_keys=False))
+                (out / f"partner_{i}.yaml").write_text(
+                    yaml.safe_dump(
+                        agent_yaml(
+                            f"{name}_partner_{i}",
+                            interaction,
+                            geo.ped_meet[i],
+                            geo.ped_exit[i],
+                            geo.hold_s,
+                            geo.wait_s,
+                        ),
+                        sort_keys=False,
+                    )
+                )
             (out / "scenario.yaml").write_text(yaml.safe_dump(scenario_yaml(geo), sort_keys=False))
             scenario_seed = SEED_BASE + 100 * len(manifest)
-            manifest.append({"scenario": name, "seed": scenario_seed, "hold_s": _r(geo.hold_s), "lead_s": _r(geo.lead_s), "wait_s": _r(geo.wait_s), "axis_deg": _r(math.degrees(geo.axis) % 360.0)})
+            manifest.append(
+                {
+                    "scenario": name,
+                    "seed": scenario_seed,
+                    "hold_s": _r(geo.hold_s),
+                    "lead_s": _r(geo.lead_s),
+                    "wait_s": _r(geo.wait_s),
+                    "axis_deg": _r(math.degrees(geo.axis) % 360.0),
+                }
+            )
             for arm, mode in ARMS.items():
                 stages.append(
                     {
@@ -205,7 +251,13 @@ def generate(n_scenarios: int, *, seed: int = 0, scenarios_dir: pathlib.Path | N
                         "episodes": episodes,
                         "seed": scenario_seed,
                         "timeout": TIMEOUT,
-                        "config": {"scenario": {"file": name, "contact_mode": mode, "standing_distance": STANDING_DISTANCE}},
+                        "config": {
+                            "scenario": {
+                                "file": name,
+                                "contact_mode": mode,
+                                "standing_distance": STANDING_DISTANCE,
+                            }
+                        },
                     }
                 )
     suite = {"stages": stages}
@@ -217,15 +269,16 @@ def generate(n_scenarios: int, *, seed: int = 0, scenarios_dir: pathlib.Path | N
     )
     suite_path.parent.mkdir(parents=True, exist_ok=True)
     suite_path.write_text(header + yaml.safe_dump(suite, sort_keys=False))
-    (suite_path.parent / f"{suite_path.stem}.scenarios.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (suite_path.parent / "scenarios.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     return suite
 
-
-# -- analysis ----------------------------------------------------------------------------------
 
 FAMILY_METRICS = {
     "success": "success",
     "ttg": "time_to_goal",
+}
+#: The episode-scope HHI metrics the HHI calculator publishes on the episode row.
+HHI_FAMILY_METRICS = {
     "stalls": "hhi_stall_count",
     "passes_between": "hhi_passes_between",
 }
@@ -233,57 +286,65 @@ FAMILY_METRICS = {
 
 def load_episodes(metrics: pl.DataFrame) -> pl.DataFrame:
     """Tag every HHI episode row with interaction / scenario / arm / seed index, dropping other stages."""
-    parsed = metrics.with_columns(pl.col("stage").str.extract_groups(STAGE_RE.pattern).alias("_m")).unnest("_m")
-    parsed = parsed.filter(pl.col("kind").is_not_null())
-    if "is_reference" in parsed.columns:
-        parsed = parsed.filter(~pl.col("is_reference").fill_null(False))
-    if "status" in parsed.columns:
-        parsed = parsed.filter(pl.col("status") == "evaluated")
-    parsed = parsed.sort("episode").with_columns((pl.col("episode").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
-    return parsed.with_columns(pl.col("scenario").cast(pl.Int64), pl.col("kind").replace({"shake": "shake_hand"}).alias("interaction"))
+    parsed = metrics.drop("scenario").with_columns(pl.col("stage").str.extract_groups(STAGE_RE.pattern).alias("_m")).unnest("_m")
+    parsed = parsed.filter(pl.col("kind").is_not_null() & ~pl.col("is_reference").fill_null(False) & pl.col("success").is_not_null())
+    parsed = parsed.sort("episode_id").with_columns((pl.col("episode_id").rank("ordinal").over(["planner", "stage"]) - 1).cast(pl.Int64).alias("seed"))
+    return parsed.with_columns(
+        pl.col("scenario").cast(pl.Int64),
+        pl.col("kind").replace({"shake": "shake_hand"}).alias("interaction"),
+    )
 
 
 def paper_outcomes(df: pl.DataFrame) -> pl.DataFrame:
     """Success is the goal before the timeout with zero collisions, and time to goal is kept only over successes."""
-    success = pl.col("success").cast(pl.Float64).fill_null(0.0) > 0.5
-    if "collision_amount" in df.columns:
-        success = success & (pl.col("collision_amount").fill_null(0) == 0)
-    return df.with_columns(success.alias("success"), pl.when(success).then(pl.col("time_to_goal")).otherwise(None).alias("time_to_goal"))
+    collisions = pl.when(pl.col("collision_amount") == 0).then(False).when(pl.col("collision_amount") > 0).then(True).otherwise(None)
+    success = (pl.col("success").cast(pl.Float64) > 0.5) & ~collisions
+    return df.with_columns(
+        success.alias("success"),
+        pl.when(success).then(pl.col("time_to_goal")).otherwise(None).alias("time_to_goal"),
+    )
 
 
-def family_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
-    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them."""
-    parts = []
-    for label, column in FAMILY_METRICS.items():
-        if column not in df.columns:
-            continue
-        diffs = paired_differences(df.with_columns(pl.col(column).cast(pl.Float64)), cell=["planner", "interaction"], metric=column, arm="arm", treatment="contact", control="loco")
-        if diffs.height:
-            parts.append(diffs.with_columns(pl.lit(label).alias("metric")))
-    if not parts:
-        return pl.DataFrame()
-    return summarize_family(pl.concat(parts), cell=["planner", "interaction", "metric"], n_boot=n_boot, seed=seed)
-
-
-def window_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
+def window_table(episodes: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0) -> pl.DataFrame:
     """Contact arm, per planner: pooled post-release share of stall onsets minus pooled post-release share of time, resampled by scenario."""
-    need = {"hhi_stalls_post", "hhi_stall_count", "hhi_share_post", "hhi_episode_s"}
-    if not need <= set(df.columns):
+    need = {
+        "hhi_stalls_post",
+        "hhi_stall_count",
+        "hhi_share_post",
+        "hhi_episode_s",
+        "hhi_release_s",
+    }
+    missing = sorted(need - set(episodes.columns))
+    if missing:
+        raise ValueError(f"window_table missing required columns: {missing}")
+    if episodes.is_empty():
         return pl.DataFrame()
-    contact = df.filter((pl.col("arm") == "contact") & pl.col("hhi_release_s").is_not_null())
-    rows = []
+    contact = episodes.filter((pl.col("arm") == "contact") & pl.col("hhi_release_s").is_not_null())
+    if contact.is_empty():
+        return pl.DataFrame()
+    rows: list[dict[str, object]] = []
     rng = np.random.default_rng(seed)
 
     def excess(drawn: list[np.ndarray]) -> float:
         m = np.concatenate(drawn)
         stalls = m[:, 1].sum()
-        return float(m[:, 0].sum() / stalls - m[:, 2].sum() / m[:, 3].sum()) if stalls > 0 else float("nan")
+        ep_s = m[:, 3].sum()
+        return float(m[:, 0].sum() / stalls - m[:, 2].sum() / ep_s) if stalls > 0 and ep_s > 0 else float("nan")
 
     for (planner,), group in contact.group_by(["planner"], maintain_order=True):
         clusters = []
         for _, g in group.group_by(["interaction", "scenario"], maintain_order=True):
             post_time = (g["hhi_share_post"] * g["hhi_episode_s"]).to_numpy()
-            clusters.append(np.column_stack([g["hhi_stalls_post"].to_numpy(), g["hhi_stall_count"].to_numpy(), post_time, g["hhi_episode_s"].to_numpy()]).astype(float))
+            clusters.append(
+                np.column_stack(
+                    [
+                        g["hhi_stalls_post"].to_numpy(),
+                        g["hhi_stall_count"].to_numpy(),
+                        post_time,
+                        g["hhi_episode_s"].to_numpy(),
+                    ]
+                ).astype(float)
+            )
         res = cluster_bootstrap(clusters, excess, n_boot=n_boot, rng=rng)
         m = np.concatenate(clusters) if clusters else np.zeros((0, 4))
         rows.append(
@@ -300,15 +361,19 @@ def window_table(df: pl.DataFrame, *, n_boot: int = DEFAULT_BOOT, seed: int = 0)
             }
         )
     out = pl.DataFrame(rows)
-    return out.with_columns(pl.Series("p_holm", holm(out["p"].to_list()))) if out.height else out
+    return out.with_columns(pl.Series("p_holm", holm(out["p"].to_numpy()))) if out.height else out
 
 
-def manipulation_check(df: pl.DataFrame) -> pl.DataFrame:
+def manipulation_check(episodes: pl.DataFrame) -> pl.DataFrame:
     """Median rendered pair gap during the hold per arm and interaction: contact must sit near contact distance."""
-    if "hhi_pair_gap_hold" not in df.columns:
+    need = {"hhi_pair_gap_hold", "hhi_hold_onset_s", "hhi_release_s"}
+    missing = sorted(need - set(episodes.columns))
+    if missing:
+        raise ValueError(f"manipulation_check missing required columns: {missing}")
+    if episodes.is_empty():
         return pl.DataFrame()
     return (
-        df.group_by(["interaction", "arm"])
+        episodes.group_by(["interaction", "arm"])
         .agg(
             pl.col("hhi_pair_gap_hold").median().alias("pair_gap_median"),
             pl.col("hhi_hold_onset_s").is_not_null().mean().alias("held_share"),
@@ -319,21 +384,52 @@ def manipulation_check(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _metrics_path(benchmark_dir: pathlib.Path) -> pathlib.Path:
-    for candidate in (benchmark_dir / "combined_metrics.parquet", benchmark_dir / "metrics.parquet"):
-        if candidate.exists():
-            return candidate
-    found = sorted(benchmark_dir.rglob("combined_metrics.parquet"))
-    if not found:
-        raise FileNotFoundError(f"no combined_metrics.parquet under {benchmark_dir}, run `arena evaluation process --benchmark-dir {benchmark_dir}` first")
-    return found[0]
+def family_table(
+    df: pl.DataFrame,
+    *,
+    n_boot: int = DEFAULT_BOOT,
+    seed: int = 0,
+) -> pl.DataFrame:
+    """Study A hypotheses: contact - locomotion per (planner, interaction, metric), Holm-corrected across all of them."""
+    missing = sorted(set(HHI_FAMILY_METRICS.values()) - set(df.columns))
+    if missing:
+        raise ValueError(f"family_table missing required columns: {missing}")
+    metrics = {**FAMILY_METRICS, **HHI_FAMILY_METRICS}
+    parts = []
+    for label, column in metrics.items():
+        diffs = paired_differences(
+            df.with_columns(pl.col(column).cast(pl.Float64)),
+            cell=["planner", "interaction"],
+            metric=column,
+            arm="arm",
+            treatment="contact",
+            control="loco",
+        )
+        if diffs.height:
+            parts.append(diffs.with_columns(pl.lit(label).alias("metric")))
+    if not parts:
+        return pl.DataFrame()
+    return summarize_family(
+        pl.concat(parts),
+        cell=["planner", "interaction", "metric"],
+        n_boot=n_boot,
+        seed=seed,
+    )
 
 
-def analyze(benchmark_dir: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, out_dir: pathlib.Path | None = None) -> dict[str, pl.DataFrame]:
-    df = load_episodes(pl.read_parquet(_metrics_path(benchmark_dir)))
-    if "time_to_goal" in df.columns and "success" in df.columns:
-        df = paper_outcomes(df)
-    tables = {"family_a": family_table(df, n_boot=n_boot), "windows": window_table(df, n_boot=n_boot), "manipulation_check": manipulation_check(df)}
+def analyze(
+    benchmark_dir: pathlib.Path,
+    *,
+    n_boot: int = DEFAULT_BOOT,
+    out_dir: pathlib.Path | None = None,
+) -> dict[str, pl.DataFrame]:
+    """Study A family, window, and manipulation-check analysis over the Star Schema."""
+    df = paper_outcomes(load_episodes(episode_summary(benchmark_dir)))
+    tables = {
+        "family_a": family_table(df, n_boot=n_boot),
+        "windows": window_table(df, n_boot=n_boot),
+        "manipulation_check": manipulation_check(df),
+    }
     out_dir = out_dir or benchmark_dir / "hhi"
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
@@ -343,7 +439,11 @@ def analyze(benchmark_dir: pathlib.Path, *, n_boot: int = DEFAULT_BOOT, out_dir:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="arena_evaluation.experiments.hhi", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        prog="arena_evaluation.experiments.hhi",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("generate", help="write the scenarios and the paired suite")
     g.add_argument("--scenarios", type=int, default=15, help="scenarios per contact kind (L)")
@@ -357,7 +457,13 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--out", type=pathlib.Path, default=None)
     args = p.parse_args(argv)
     if args.cmd == "generate":
-        suite = generate(args.scenarios, seed=args.seed, scenarios_dir=args.scenarios_dir, suite_path=args.suite, episodes=args.episodes)
+        suite = generate(
+            args.scenarios,
+            seed=args.seed,
+            scenarios_dir=args.scenarios_dir,
+            suite_path=args.suite,
+            episodes=args.episodes,
+        )
         print(f"{len(suite['stages'])} stages x {args.episodes} episodes per contestant")
         return 0
     with pl.Config(tbl_rows=200, tbl_cols=20, fmt_str_lengths=40):

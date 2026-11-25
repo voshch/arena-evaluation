@@ -5,124 +5,182 @@ import pathlib
 
 import pytest
 
-pl = pytest.importorskip("polars")
+pytest.importorskip("polars")
 
-from arena_evaluation.processing.mcap_reader import MCAPReader
+import polars as pl
 
-TF_COLUMNS = ("trans_z", "rot_x", "rot_y", "rot_z")
+from arena_evaluation.processing.mcap_reader import align_to_environment, load_bundles
+
+ENV = "env_3"
+JACKAL = "env_3_jackal"
+PEDESTRIAN_FRAMES = {(ENV, "pedestrian_arena_peds"): frozenset({"map", ""})}
 
 
-def _tf(rows: list[tuple[int, str, str, float, float]]) -> pl.DataFrame:
-    frame = {
-        "time_ns": [r[0] for r in rows],
-        "frame_id": [r[1] for r in rows],
-        "child_frame_id": [r[2] for r in rows],
-        "trans_x": [r[3] for r in rows],
-        "trans_y": [r[4] for r in rows],
+def _tf(t_ns: int, parent: str, child: str, tx: float, ty: float) -> dict:
+    return {
+        "t_ns": t_ns,
+        "parent_frame": parent,
+        "child_frame": child,
+        "tx": tx,
+        "ty": ty,
+        "tz": 0.0,
+        "qx": 0.0,
+        "qy": 0.0,
+        "qz": 0.0,
+        "qw": 1.0,
     }
-    frame.update({c: [0.0] * len(rows) for c in TF_COLUMNS})
-    frame["rot_w"] = [1.0] * len(rows)
-    return pl.DataFrame(frame)
 
 
-def _odom(robot_dir: pathlib.Path) -> None:
-    robot_dir.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame({"time_ns": [0], "pos_x": [0.0], "pos_y": [0.0], "yaw": [0.0]}).write_parquet(robot_dir / "odom.parquet")
+def _robot(t_ns: int, env: str, robot: str, **columns: object) -> dict:
+    return {"t_ns": t_ns, "env_id": env, "robot_id": robot, **columns}
 
 
-def _load(topics: pathlib.Path) -> dict:
-    return MCAPReader(topics / "run.mcap").load_bundles(topics, topics)
+def _env(t_ns: int, env: str, **columns: object) -> dict:
+    return {"t_ns": t_ns, "env_id": env, **columns}
+
+
+def _write(topics: pathlib.Path, name: str, rows: list[dict]) -> None:
+    pl.DataFrame(rows).write_parquet(topics / f"{name}.parquet")
+
+
+def _load(topics: pathlib.Path, frames: dict | None = None) -> dict:
+    align_to_environment(topics, PEDESTRIAN_FRAMES if frames is None else frames)
+    return load_bundles(topics)
 
 
 @pytest.fixture
 def shifted_env(tmp_path: pathlib.Path) -> pathlib.Path:
     topics = tmp_path / "topics"
-    env_dir = topics / "env_3"
-    robot_dir = topics / "env_3_jackal"
-    env_dir.mkdir(parents=True)
-    _odom(robot_dir)
-    _tf(
+    topics.mkdir()
+    _write(
+        topics,
+        "tf_static",
         [
-            (0, "map", "env_3/map", 10.0, 20.0),
-            (0, "map", "env_3/map", 10.0, 20.0),
-            (0, "map", "env_3/jackal/base_link", 99.0, 99.0),
-            (0, "world", "camera", 5.0, 5.0),
-            (100, "", "env_3", 30.0, 40.0),
-        ]
-    ).write_parquet(topics / "tf_static.parquet")
-    phases = {"jackal": {"phases": [{"goto": "kitchen"}], "map_poses": [[12.0, 23.0, 0.5], None]}}
-    pl.DataFrame(
-        {
-            "time_ns": [50, 150],
-            "episode_id": [1, 2],
-            "start_pos": [json.dumps([11.0, 21.0, 0.3]), json.dumps([31.0, 41.0])],
-            "goal_pos": [json.dumps([15.0, 25.0]), json.dumps([1.0])],
-            "phases": [json.dumps(phases), ""],
+            _tf(0, "map", "env_3/map", 10.0, 20.0),
+            _tf(0, "map", "env_3/map", 10.0, 20.0),
+            _tf(0, "map", "env_3/jackal/base_link", 99.0, 99.0),
+            _tf(0, "world", "camera", 5.0, 5.0),
+            _tf(100, "", "env_3", 30.0, 40.0),
+        ],
+    )
+    _write(
+        topics,
+        "robot_odom",
+        [_robot(0, ENV, JACKAL, odom_x=0.0, odom_y=0.0, odom_yaw=0.0)],
+    )
+    _write(
+        topics,
+        "robot_initialpose",
+        [
+            _robot(50, ENV, JACKAL, pos_x=12.0, pos_y=22.0, yaw=0.0),
+            _robot(150, ENV, JACKAL, pos_x=33.0, pos_y=44.0, yaw=0.0),
+        ],
+    )
+    _write(
+        topics,
+        "robot_tracks",
+        [_robot(50, ENV, JACKAL, x=10.5, y=20.5, yaw=0.0, pose_source="tf_gt")],
+    )
+    _write(
+        topics,
+        "robot_plans",
+        [
+            _robot(150, ENV, JACKAL, plan_id=0, waypoint_idx=0, x=30.0, y=40.0, yaw=0.0),
+            _robot(150, ENV, JACKAL, plan_id=0, waypoint_idx=1, x=31.0, y=42.0, yaw=0.0),
+        ],
+    )
+    _write(
+        topics,
+        "pedestrian_arena_peds",
+        [
+            _env(50, ENV, ped_id="Pedestrian_11", x=11.0, y=22.0),
+            _env(50, ENV, ped_id="Pedestrian_13", x=13.0, y=24.0),
+            _env(150, ENV, ped_id="Pedestrian_32", x=32.0, y=43.0),
+        ],
+    )
+    _write(
+        topics,
+        "pedestrian_gestures",
+        [
+            _env(
+                50,
+                ENV,
+                ped_id="Pedestrian_1",
+                slot="arm",
+                clip="",
+                hand="r",
+                at_x=11.0,
+                at_y=22.0,
+                at_z=1.0,
+                render_pose_override=False,
+            ),
+            _env(
+                150,
+                ENV,
+                ped_id="Pedestrian_1",
+                slot="arm",
+                clip="",
+                hand="r",
+                at_x=32.0,
+                at_y=43.0,
+                at_z=1.0,
+                render_pose_override=False,
+            ),
+        ],
+    )
+    phases = {
+        "jackal": {
+            "phases": [{"goto": "kitchen"}],
+            "map_poses": [[12.0, 23.0, 0.5], None],
         }
-    ).write_parquet(env_dir / "episode_record.parquet")
-    pl.DataFrame({"time_ns": [50, 150], "peds_frame_id": ["/map", ""], "peds_positions": [[11.0, 22.0, 0.0, 13.0, 24.0, 1.0], [32.0, 43.0, 0.0]]}).write_parquet(env_dir / "peds.parquet")
-    pl.DataFrame({"time_ns": [50, 150], "pos_x": [12.0, 33.0], "pos_y": [22.0, 44.0], "yaw": [0.0, 0.0]}).write_parquet(robot_dir / "initialpose.parquet")
-    pl.DataFrame({"time_ns": [50], "pos_x_gt": [10.5], "pos_y_gt": [20.5], "yaw_gt": [0.0]}).write_parquet(robot_dir / "tf_gt.parquet")
-    pl.DataFrame({"time_ns": [150], "poses_x": [[30.0, 31.0]], "poses_y": [[40.0, 42.0]]}).write_parquet(robot_dir / "plan.parquet")
-    pl.DataFrame({"time_ns": [0], "note": ["kept out of the bundle"]}).write_parquet(robot_dir / "notes.parquet")
+    }
+    _write(
+        topics,
+        "episode_lifecycle",
+        [
+            _env(50, ENV, episode_id=1, outcome_state=2, phases_yaml=json.dumps(phases)),
+            _env(150, ENV, episode_id=2, outcome_state=2, phases_yaml=""),
+        ],
+    )
     return topics
 
 
-def test_episode_record_start_goal_and_map_poses_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    record = _load(shifted_env)["env_3_jackal"].episode_record.collect()
+def test_episode_phases_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
+    record = _load(shifted_env)[JACKAL].episode_lifecycle.collect().sort("t_ns", maintain_order=True)
 
-    assert [json.loads(s) for s in record["start_pos"]] == [[1.0, 1.0, 0.3], [1.0, 1.0]]
-    assert [json.loads(g) for g in record["goal_pos"]] == [[5.0, 5.0], [1.0]]
-    assert json.loads(record["phases"][0])["jackal"]["map_poses"] == [[2.0, 3.0, 0.5], None]
-    assert record["phases"][1] == ""
-
-
-def test_pose_topics_and_pedestrians_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    bundle = _load(shifted_env)["env_3_jackal"]
-
-    assert bundle.initialpose.collect().select("pos_x", "pos_y").rows() == [(2.0, 2.0), (3.0, 4.0)]
-    assert bundle.tf_gt.collect().select("pos_x_gt", "pos_y_gt").rows() == [(0.5, 0.5)]
-    plan = bundle.plan.collect()
-    assert plan["poses_x"].to_list() == [[0.0, 1.0]]
-    assert plan["poses_y"].to_list() == [[0.0, 2.0]]
-    assert bundle.peds.collect()["peds_positions"].to_list() == [[1.0, 2.0, 0.0, 3.0, 4.0, 1.0], [2.0, 3.0, 0.0]]
+    assert json.loads(record["phases_yaml"][0])["jackal"]["map_poses"] == [
+        [2.0, 3.0, 0.5],
+        None,
+    ]
+    assert record["phases_yaml"][1] == ""
 
 
-def test_parquet_files_outside_the_bundle_fields_are_ignored(shifted_env: pathlib.Path):
-    bundle = _load(shifted_env)["env_3_jackal"]
+def test_unparseable_phases_leave_the_episode_unshifted(shifted_env: pathlib.Path):
+    _write(
+        shifted_env,
+        "episode_lifecycle",
+        [_env(50, ENV, episode_id=1, phases_yaml="not json")],
+    )
 
-    assert bundle.available() >= {"odom", "episode_record", "peds", "initialpose", "tf_gt", "plan", "tf_static"}
-    assert "notes" not in vars(bundle)
+    record = _load(shifted_env)[JACKAL].episode_lifecycle.collect()
 
-
-def test_unparseable_start_pose_leaves_the_episode_record_unshifted(shifted_env: pathlib.Path):
-    env_dir = shifted_env / "env_3"
-    pl.DataFrame({"time_ns": [50], "start_pos": ["not json"], "goal_pos": ["[]"]}).write_parquet(env_dir / "episode_record.parquet")
-
-    bundle = _load(shifted_env)["env_3_jackal"]
-
-    assert bundle.episode_record.collect()["start_pos"].to_list() == ["not json"]
-    assert bundle.tf_gt.collect().select("pos_x_gt", "pos_y_gt").rows() == [(0.5, 0.5)]
-
-
-def test_record_without_pose_columns_gains_empty_ones(shifted_env: pathlib.Path):
-    pl.DataFrame({"time_ns": [50], "episode_id": [1]}).write_parquet(shifted_env / "env_3" / "episode_record.parquet")
-
-    record = _load(shifted_env)["env_3_jackal"].episode_record.collect()
-
-    assert record.select("start_pos", "goal_pos").rows() == [("[]", "[]")]
-    assert "phases" not in record.columns
+    assert record["phases_yaml"].to_list() == ["not json"]
 
 
 def test_pedestrians_in_another_frame_refuse_the_map_offset(shifted_env: pathlib.Path):
-    pl.DataFrame({"time_ns": [50], "peds_frame_id": ["env_3/odom"], "peds_positions": [[1.0, 2.0, 0.0]]}).write_parquet(shifted_env / "env_3" / "peds.parquet")
-
     with pytest.raises(ValueError, match="only valid for frame map"):
-        _load(shifted_env)
+        _load(shifted_env, {(ENV, "pedestrian_arena_peds"): frozenset({"env_3/odom"})})
 
 
 def test_robot_of_an_env_without_an_anchor_is_refused(shifted_env: pathlib.Path):
-    _odom(shifted_env / "env_5_burger")
+    _write(
+        shifted_env,
+        "robot_odom",
+        [
+            _robot(0, ENV, JACKAL, odom_x=0.0, odom_y=0.0, odom_yaw=0.0),
+            _robot(0, "env_5", "env_5_burger", odom_x=0.0, odom_y=0.0, odom_yaw=0.0),
+        ],
+    )
 
     with pytest.raises(ValueError, match="env_5: no map -> env_5/map anchor"):
         _load(shifted_env)
@@ -130,66 +188,18 @@ def test_robot_of_an_env_without_an_anchor_is_refused(shifted_env: pathlib.Path)
 
 def test_dynamic_tf_anchors_apply_when_tf_static_has_none(tmp_path: pathlib.Path):
     topics = tmp_path / "topics"
-    robot_dir = topics / "env_4_jackal"
-    _odom(robot_dir)
-    _tf([(0, "map", "env_4/map", 2.0, 3.0), (0, "map", "env_4", 7.0, 7.0), (0, "odom", "env_4/jackal/base_link", 9.0, 9.0)]).write_parquet(topics / "tf.parquet")
-    pl.DataFrame({"time_ns": [0], "pos_x_gt": [5.0], "pos_y_gt": [5.0], "yaw_gt": [0.0]}).write_parquet(robot_dir / "tf_gt.parquet")
+    topics.mkdir()
+    _write(
+        topics,
+        "tf",
+        [_tf(0, "map", "env_4/map", 2.0, 3.0), _tf(0, "map", "env_4", 7.0, 7.0)],
+    )
+    _write(
+        topics,
+        "robot_tracks",
+        [_robot(0, "env_4", "env_4_jackal", x=5.0, y=5.0, yaw=0.0, pose_source="tf_gt")],
+    )
 
-    gt = _load(topics)["env_4_jackal"].tf_gt.collect()
+    bundle = _load(topics, {})["env_4_jackal"]
 
-    assert gt.select("pos_x_gt", "pos_y_gt").rows() == [(3.0, 2.0)]
-
-
-def test_malformed_tf_tables_are_ignored_and_poses_stay_unshifted(tmp_path: pathlib.Path):
-    topics = tmp_path / "topics"
-    robot_dir = topics / "env_6_jackal"
-    _odom(robot_dir)
-    pl.DataFrame({"time_ns": [0], "frame_id": ["map"]}).write_parquet(topics / "tf_static.parquet")
-    pl.DataFrame({"time_ns": [0], "frame_id": ["map"]}).write_parquet(topics / "tf.parquet")
-    pl.DataFrame({"time_ns": [0], "pos_x_gt": [5.0], "pos_y_gt": [6.0], "yaw_gt": [0.0]}).write_parquet(robot_dir / "tf_gt.parquet")
-
-    bundle = _load(topics)["env_6_jackal"]
-
-    assert bundle.tf_gt.collect().select("pos_x_gt", "pos_y_gt").rows() == [(5.0, 6.0)]
-    assert bundle.tf_static is not None
-
-
-def test_env_directory_without_odometry_is_not_a_robot_when_robots_exist(tmp_path: pathlib.Path):
-    topics = tmp_path / "topics"
-    _odom(topics / "env_0_jackal")
-    (topics / "env_0").mkdir()
-    pl.DataFrame({"time_ns": [0], "peds_positions": [[1.0, 1.0, 0.0]]}).write_parquet(topics / "env_0" / "peds.parquet")
-
-    bundles = _load(topics)
-
-    assert set(bundles) == {"env_0_jackal"}
-    assert bundles["env_0_jackal"].peds.collect()["peds_positions"].to_list() == [[1.0, 1.0, 0.0]]
-
-
-def test_empty_episode_record_passes_through_the_offset(shifted_env: pathlib.Path):
-    pl.DataFrame({"time_ns": [], "start_pos": []}, schema={"time_ns": pl.Int64, "start_pos": pl.Utf8}).write_parquet(shifted_env / "env_3" / "episode_record.parquet")
-
-    record = _load(shifted_env)["env_3_jackal"].episode_record.collect()
-
-    assert record.columns == ["time_ns", "start_pos"]
-    assert len(record) == 0
-
-
-def test_gesture_targets_move_by_the_anchor_in_effect(shifted_env: pathlib.Path):
-    pl.DataFrame(
-        {
-            "time_ns": [50, 150],
-            "ped_id": [1, 1],
-            "slot": ["arm", "arm"],
-            "clip": ["", ""],
-            "hand": ["r", "r"],
-            "at_x": [11.0, 32.0],
-            "at_y": [22.0, 43.0],
-            "at_z": [1.0, 1.0],
-            "render_pose_override": [False, False],
-        }
-    ).write_parquet(shifted_env / "env_3" / "ped_gestures.parquet")
-
-    gestures = _load(shifted_env)["env_3_jackal"].ped_gestures.collect()
-
-    assert gestures.select("at_x", "at_y", "at_z").rows() == [(1.0, 2.0, 1.0), (2.0, 3.0, 1.0)]
+    assert bundle.robot_tracks.collect().select("x", "y").rows() == [(3.0, 2.0)]

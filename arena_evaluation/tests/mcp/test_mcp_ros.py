@@ -56,8 +56,17 @@ rclpy.shutdown()
 
 
 def test_recording_and_benchmark_state_reach_the_env_nodes(tmp_path):
-    ros = {"ROS_DOMAIN_ID": str(int(os.environ["ROS_DOMAIN_ID"]) + 100 if os.environ.get("ROS_DOMAIN_ID") else 90 + os.getpid() % 10), "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
-    peer = subprocess.Popen([sys.executable, "-c", PEER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env={**os.environ, **ros})
+    ros = {
+        "ROS_DOMAIN_ID": str(int(os.environ["ROS_DOMAIN_ID"]) + 100 if os.environ.get("ROS_DOMAIN_ID") else 90 + os.getpid() % 10),
+        "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
+    }
+    peer = subprocess.Popen(
+        [sys.executable, "-c", PEER],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        env={**os.environ, **ros},
+    )
     assert peer.stdout is not None
     seen: list[str] = []
     deadline = time.monotonic() + 30
@@ -76,7 +85,12 @@ def test_recording_and_benchmark_state_reach_the_env_nodes(tmp_path):
         out["watch"] = payload(await client.call_tool("evaluation_watch", {"timeout_s": 15}))
         out["topics"] = payload(await client.call_tool("evaluation_recorded_topics", {}))
         out["start"] = payload(await client.call_tool("evaluation_record_start", {"episode_id": 3}))
-        out["stop"] = payload(await client.call_tool("evaluation_record_stop", {"episode_id": 3, "outcome": "failed", "info": "timeout"}))
+        out["stop"] = payload(
+            await client.call_tool(
+                "evaluation_record_stop",
+                {"episode_id": 3, "outcome": "failed", "info": "timeout"},
+            )
+        )
         out["other_env"] = error_text(await client.call_tool("evaluation_record_start", {"episode_id": 1, "env_id": 5}))
         return out
 
@@ -90,4 +104,7 @@ def test_recording_and_benchmark_state_reach_the_env_nodes(tmp_path):
     assert out["start"]["message"] == "recording episode 3"
     assert "cannot pick an env" in out["other_env"]
     requests = [json.loads(line) for line in calls.splitlines() if line.startswith("{")]
-    assert requests == [{"command": 1, "episode_id": 3, "outcome_state": 0, "outcome_info": ""}, {"command": 2, "episode_id": 3, "outcome_state": 3, "outcome_info": "timeout"}]
+    assert requests == [
+        {"command": 1, "episode_id": 3, "outcome_state": 0, "outcome_info": ""},
+        {"command": 2, "episode_id": 3, "outcome_state": 3, "outcome_info": "timeout"},
+    ]

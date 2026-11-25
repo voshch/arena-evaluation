@@ -1,6 +1,6 @@
 # Metrics
 
-Metric calculators for the Arena evaluation pipeline. Subclasses of `BaseMetricCalculator` are registered by `MetricRegistry` and executed in topological order based on `DEPENDS_ON`. Results are saved to `combined_metrics.parquet`, one row per episode.
+Metric calculators for the Arena evaluation pipeline. Subclasses of `BaseMetricCalculator` are registered by `MetricRegistry` and executed in topological order based on `DEPENDS_ON`. Each calculator publishes typed columns into the per-episode `metrics/fact_<scope>.parquet` tables and, where it declares one, `metrics/series_<stem>.parquet`; there is no `combined_metrics.parquet`, and the benchmark-wide views are lazy scans over those files (`v_episode_summary` restores one row per episode).
 
 ## Categories
 
@@ -8,7 +8,7 @@ Metric calculators for the Arena evaluation pipeline. Subclasses of `BaseMetricC
 |---|---|
 | `social/` | Robot and pedestrian interaction: social forces, proxemics, gaze, disturbance |
 | `ecological/` | Energy, acoustics, world condition compliance |
-| `performance/` | Path, motion, time, collision, efficiency, clearance |
+| `performance/` | Path, motion, time, collision, efficiency, clearance, search |
 | `naturalness/` | Trajectory naturalness against unobstructed baselines |
 | `edge_case/` | Criticality of generated edge-case scenarios against the case's own agents, formation panel |
 
@@ -16,19 +16,19 @@ Metric calculators for the Arena evaluation pipeline. Subclasses of `BaseMetricC
 
 Each calculator declares:
 
-- `NAME`, `CATEGORY`, `REQUIRES_PEDSIM`, `DEPENDS_ON` (execution order edges), `REQUIRED_TOPICS` (topic gates; list or tuple entries indicate alternative acceptable topics), `UNITS`, `PRIMARY_OUTPUTS` (keys for default comparisons), `OUTPUT_DIRECTIONS` ("lower" or "higher" per output).
+- `NAME`, `CATEGORY`, `REQUIRES_PEDSIM`, `DEPENDS_ON` (execution order edges), `REQUIRED_TOPICS` (topic gates; list or tuple entries indicate alternative acceptable topics), `PRIMARY_OUTPUTS` (keys for default comparisons) and `DIRECTIONS` ("lower" or "higher" per output; the metric dictionary materialises them as `dim_metrics.direction`).
 - `output_keys()`: List of produced metric keys.
 - `calculate(episode, prior_results)`: Computes metric dictionary with all declared keys (filled with `None` on missing data or errors).
 
 ## Conventions
 
 - **Multi-rate data:** `AlignedEpisodeBundle.topics` contains native-rate topic dataframes. Rate-sensitive calculators compute on their native time base; `episode.data` is aligned to the odom time axis for trajectory metrics.
-- **Ground truth priority:** `resolve_native_pose` uses `tf_gt` ground truth pose when available, falling back to odom. Ground truth velocity is computed by differentiating ground truth positions.
+- **Ground truth priority:** `resolve_native_pose` uses the `robot_tracks` ground-truth pose when available, falling back to odom. Ground truth velocity is computed by differentiating ground truth positions.
 - **Proxemic distance:** `*_zone` metrics calculate edge-to-edge distance `d_eff = d_center - (r_robot + r_ped)` based on Hall's proxemic zones (0.45 m, 1.2 m, 3.6 m). The legacy `proxemics` calculator uses center-to-center distance.
 - **Energy units:** Energy is reported in watt-hours (Wh). `specific_cost_of_transport` uses total energy consumed.
 - **VLN metrics:** `vln_metrics` scores against a geodesic distance field from the goal (the robot's last goto in `EpisodeRecord.phases`, read from its map-frame `map_poses`, so planners without a global plan are scored against their real goal), an 8-connected Dijkstra over the Theta* grid (same map, robot-radius dilation and start/goal clearing). `ne` is the any-angle Theta* length from the final pose, `osr` whether the pose nearest to the goal on the field is within the goal tolerance by the same measure, `success_geodesic` is `success` with `ne` within it, `spl_geodesic` weights that by the Theta* length (chained the same way) (Anderson et al. 2018), `ndtw` compares the robot path to the Theta* path, chained through the earlier gotos of the recorded phases, both resampled every 0.25 m (Ilharco et al. 2019), `sdtw` is `success_geodesic * ndtw`, and `stuck` flags a failed episode with a 10 s stretch moving under 0.2 m and turning under 15 degrees (VLN-PE). The success threshold is the `tolerance_radius` of that last goto, the one the task generator judged it by, so a VLN suite sets `task.episode.goto_pose.tolerance.radius` to 3.0 (VLN-CE). Geodesic outputs are `None` when the map does not resolve or the pose falls on an unreachable cell, every geodesic output is `None` for recordings without a goto phase, and every output but `ne` and `stuck` is `None` when that goto carries no tolerance. `goal_inputs` labels what the planner was given, joined by `+`: `pose`, `pose:oracle` (a pose inside a named target, which hands over the grounding), `instruction` (authored text or the named target), `instruction:route` (walking directions rendered from the map) or `instruction:coordinates` (the bare goal coordinates), so tables can keep native and derived inputs apart.
 - **Task replay:** `task_replay` re-judges each phase of the robot's `EpisodeRecord.phases` entry over its recorded span with the predicates the node used online (`arena_simulation_setup.shared.judge`), from the robot's `task_pose` stream (the pose the online judge saw), the other robots' `task_pose`, recorded pedestrians and their gesture clips (`ped_gestures`, joined to the `peds` message held at each pose by `ped_id`), the semantic snapshot, the world's zone, door and elevator cabin polygons and its wall grid (`robot sees <ped>` is unknown without one). Gesture and reach results and the moment of a goto's signal are taken from the record. `judge_agrees` is true when every phase the record closed as met or failed is met by the replay within its span, every phase still active at the end is not, and the replay's set of violated conditions equals the recorded one. `goal_condition_rate` is phases met over phases submitted. `unsafe` counts the recorded condition violations, which never count against `success`. Without a `task_pose` stream or the world's zones the verdict columns stay empty, and without a `ped_gestures` table a `<ped> plays <clip>` atom is unknown.
-- **Task events:** `task_events` scores any task layer from `EpisodeRecord.tasks`, the JSON list of `{task, kind, robot, t, detail}` events (`kind` one of `allocated`, `assigned`, `started`, `met`, `failed`, `reassigned`, `dropped`, `released`; `t` in sim seconds since episode start) that `AlignedEpisodeBundle.tasks` carries (the last non-empty list among the episode's own records, `[]` for recordings without the field). Events without a task id (`allocated`) are ignored. A task's final outcome is the last of its `met`, `failed` and `dropped` events, and a task without one is `pending`. Every output is `None` when the record holds no task events.
+- **Task events:** `task_events` scores any task layer from `EpisodeRecord.tasks`, the JSON list of `{task, kind, robot, t, detail}` events (`kind` one of `allocated`, `assigned`, `started`, `met`, `failed`, `reassigned`, `dropped`, `released`; `t` in sim seconds since episode start) that `AlignedEpisodeBundle.tasks` carries (the last non-empty `tasks_json` list among the episode's own `episode_lifecycle` rows, `[]` for recordings without the field). Events without a task id (`allocated`) are ignored. A task's final outcome is the last of its `met`, `failed` and `dropped` events, and a task without one is `pending`. Every output is `None` when the record holds no task events.
 
   | Key | Unit | Definition |
   |---|---|---|
@@ -39,7 +39,7 @@ Each calculator declares:
   | `makespan_s` | s | first `started` of any task to the last `met`, `None` without a met task |
   | `busy_s` | s | this robot's summed `started` to ending event (`met`, `failed`, `dropped` of that task) intervals, an unfinished one runs to the episode end |
   | `idle_s` | s | episode span minus `busy_s`, the span being the aligned data length, at least the last event |
-  | `task_ids`, `task_outcomes`, `task_durations_s` | list | per task in the time order of its first event: id, final outcome, first `started` to the final ending event (`None` when it never started or ended) |
+  | `task_ids`, `task_outcomes`, `task_durations_s` | rows of `fact_task_outcomes` | per task in the time order of its first event (`task_idx`): `task_id`, final `outcome`, `duration_s` from first `started` to the final ending event (`None` when it never started or ended) |
 
   `busy_s` and `idle_s` belong to the robot whose episode row it is, the other keys are team-wide and repeat on every robot's row. Directions: `task_success_rate` higher, `makespan_s`, `idle_s`, `tasks_failed`, `task_reassignments` lower.
 - **Edge cases:** `edge_case_criticality` and `edge_case_formation` score an episode only when the scenario its `scenario` task mode ran (the `file` param in the namespace of that mode in the runtime the episode recorded as `task_layer`, from the episode's `params`) has a `provenance.yaml` beside its `scenario.yaml`, every output is `None` otherwise. The world and the scenario are read from the run snapshot first (`<run_dir>/worlds/<world>/`, where the recorder copies the directory of each scenario the run ran to `scenarios/<file>/`), else through the world's scenario resolver, and a changed provenance, scenario or world file is read again. The robot pose is resampled at 10 Hz, each sample holds the pedestrians of the latest `peds` message at most 0.1 s old by scenario name, and each pedestrian counts as a disc of the `radius` its scenario `humans` entry pins in its `agent` block, else 0.3 m. Stimuli come from the `timeline` semantic entity, whose `stimulus.<agent>.<need>` fields hold the sim time the agent took that stimulus (stamps more than 0.1 s before the first robot pose belong to an earlier episode and are ignored). `*_at` times are seconds since the first robot pose.
@@ -53,12 +53,12 @@ Each calculator declares:
   - `edge_case_intrusion_s`: the time a scored agent is within 0.5 m edge to edge.
   - `edge_case_collided`, `edge_case_collision_with`, `edge_case_collision_at`, `edge_case_collision_robot_closing`, `edge_case_collision_ped_closing`, `edge_case_collision_fault`: the first contact (edge-to-edge distance at or under 0), the robot's and the pedestrian's speed toward each other at that moment and who was closing at 0.05 m/s or more (`robot`, `pedestrian`, `mutual`, `static`).
   - `edge_case_formation_*` follows the provenance `D` members against the provenance `formation` (`center` in the robot's level frame like the encounter points, both moved into the map frame by the level origin, `radius`, `variant`): `edge_case_formation_variant`, `edge_case_formation_members` (the `D` members), `edge_case_formation_absent` (members never recorded, the formation is scored on the others), `edge_case_formation_seen` (any member recorded), `edge_case_formation_formed_at` (the first moment every recorded member stands within the radius of the center, or of their centroid in that sample without one, from the members' first `form` stimulus on when one was taken), `edge_case_formation_held_s` (how long they stayed), `edge_case_formation_broke_at` (the first moment after that one stood outside or left the recording), `edge_case_formation_arrived` (the most members within the radius at once), `edge_case_formation_form_fired_at` and `edge_case_formation_break_fired_at` (the first `form` and `break` stimulus a member took).
-- **Sidewalk metrics:** `sidewalk_metrics` scores an episode on a world with `sidewalk` and `crosswalk` zones (all outputs `None` otherwise): `sidewalk_route_completion`, `sidewalk_off_sidewalk`, `sidewalk_freezes`, `sidewalk_failures_per_100m` and `sidewalk_mean_speed`, defined in [configs/benchmark/README.md](../../../configs/benchmark/README.md#sidewalkbench).
-- **Reference metrics:** Reference metrics (`pfi`, `mar`, `ped_path_deflection_m`) are computed across runs in `pipeline.process_benchmark`.
+- **Sidewalk metrics:** `sidewalk_metrics` scores an episode on a world with `sidewalk` and `crosswalk` zones (all outputs `None` otherwise): `sidewalk_route_completion`, `sidewalk_off_sidewalk`, `sidewalk_freezes`, `sidewalk_failures_per_100m` and `sidewalk_mean_speed`, defined in [configs/README.md](../../../configs/README.md#sidewalkbench).
+- **Reference metrics:** Reference metrics (`pfi_vs_planned_route`, `mar_vs_planned_route`, `ped_path_deflection_m`) are computed across runs in `pipeline.process_benchmark`.
 
 ## Data Sources
 
-Per-topic Parquet files are extracted by `MCAPReader` and aligned by `TopicAligner` onto the odom time axis.
+Per-topic Parquet files are extracted by `MCAPReader` into the episode's `topics/` folder.
 
 ## Usage
 
@@ -120,14 +120,18 @@ cabin, ride arrival = cabin entry within 3 s of being in another cabin or across
 | `door_freeze_s` | s | robot stationary within a door's activation radius while the door is steady (`open`/`closed`) |
 | `door_oscillations` | count | door re-openings after the first within one robot visit of its activation radius |
 | `ran_red_signal` | count | robot entries into the signal's disc while `stop`: preset params `position`/`radius`, else the same-named door |
-| `time_waiting_at_doors_robot` | s | robot is a door member while the door is `triggered` and not `open` (everyone: `time_waiting_at_doors`) |
-| `elevator_rides_robot` | count | `just_arrived` rises with the robot in the cabin members within 3 s (everyone: `elevator_rides`) |
-| `used_elevator_during_alarm_robot` | count | alarm windows overlapped by the robot being an elevator member (everyone: `used_elevator_during_alarm`) |
+| `time_waiting_at_doors_anyone` | s | seconds a door is `triggered` and not `open` while anyone waits (episode scope) |
+| `time_waiting_at_doors_robot` | s | seconds a door is `triggered` and not `open` while the robot is a door member (NULL when members are never recorded and anyone waited) |
+| `elevator_rides_anyone` | count | `just_arrived` rises with occupants aboard (episode scope) |
+| `elevator_rides_robot` | count | `just_arrived` rises with the robot in the cabin members within 3 s |
+| `used_elevator_during_alarm_anyone` | count | alarm windows overlapped by elevator occupancy (episode scope) |
+| `used_elevator_during_alarm_robot` | count | alarm windows overlapped by the robot being an elevator member (NULL when no elevator reports members) |
 | `mechanism_states` | list | per door and elevator: `progress` (0 closed, 1 open) and `locked` at every sample of `time`, the trajectory plot's animation input (`ecological/mechanism_states.py`) |
 
-Teleports that land within 2 s of an elevator arrival (`just_arrived` rising) or a stair crossing
-(`just_crossed` rising on a `stairs` or `escalator` entity) are rides and no longer cut the
-episode to its longest single-floor segment (`pose_segments.ride_arrival_times`).
+Every robot-scope calculation reads the aligned episode frame, which is the robot's native `/tf`
+track for the whole episode window. A teleport therefore no longer cuts the track to its
+longest single-floor segment; the episode frame carries the recorded pose source
+(`robot_tracks.pose_source`, `tf_gt`).
 
 ### `mechanism` component
 
@@ -144,3 +148,21 @@ a "lower is better" value x maps to `1 / (1 + x / scale)` (0 -> 1, x == scale ->
 | `blocked_closing_door_s`, `cabin_door_blocking_s` | lower | 5 s |
 | `alarm_egress_blocking_s`, `door_freeze_s` | lower | 10 s |
 | `ped_mechanism_delay_seconds`, `elevator_wait_to_board_s`, `time_waiting_at_doors_robot` | lower | 30 s |
+
+## Search metrics (search_metrics)
+
+Scores an episode whose robot phases hold a judge-only goto on a named pedestrian (`dispatch: false`, the `search` task mode), the person being that goto's target, its radius the find radius. Code: `performance/search_metrics.py`, columns of `fact_robots`. Every key is NULL on an episode without such a phase. Times are seconds since the first robot pose. The budget is the stage `timeout` the run's manifest gives the episode (`timeout_peds` for an `unhindered_peds` reference), 180 s without one. The find is the moment the robot's recorded `met` list first holds the phase, so `search_found`, `search_time_to_find_s`, `search_tsr`, `search_spl`, `search_stopped_s` and `search_driving_s` are NULL without a semantic snapshot. The `search_found_*` keys need the person's track in `pedestrian_arena_peds` and the world's wall grid, `search_spl` the world and the track, the counters the `robot_hearing_search_state` table (NULL without it).
+
+| Key | Unit | Definition |
+|---|---|---|
+| `search_found` | bool | the search phase closed as met before the budget |
+| `search_time_to_find_s` | s | time of the find, the budget when not found |
+| `search_found_1m`, `search_found_1_5m`, `search_found_3m` | bool | the robot sees the person within 1, 1.5 and 3 m at some moment before the budget, replayed from the recorded paths with the same line-of-sight test as `robot sees` (`WallGrid.clear` on the segment, no find-radius or `line_of_sight` setting involved) |
+| `search_time_to_find_1m_s`, `search_time_to_find_1_5m_s`, `search_time_to_find_3m_s` | s | first such moment, the budget when never |
+| `search_tsr` | | time-weighted success, `search_found * (1 - search_time_to_find_s / budget)` (ESARBench) |
+| `search_spl` | | `search_found * L0 / max(L, L0)`, `L` the driven path to the find, `L0` the Theta* length from the start to the person's position at the find, less the find radius |
+| `search_stops`, `search_listened_s`, `search_goals_sent`, `search_goals_failed`, `search_calls` | count, s | the last `robot_hearing_search_state` message of the episode, NULL without it |
+| `search_stopped_s` | s | time under 0.05 m/s before the find, all causes |
+| `search_driving_s` | s | `search_time_to_find_s - search_stopped_s` |
+
+`PRIMARY_OUTPUTS` are `search_time_to_find_s`, `search_found` and `search_tsr`.

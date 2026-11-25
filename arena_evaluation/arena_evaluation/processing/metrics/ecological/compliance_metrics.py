@@ -1,119 +1,106 @@
 from __future__ import annotations
 
-import dataclasses
-import logging
 import typing
 
 import numpy as np
 import polars as pl
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.mechanism_common import entity_name, robot_env_snapshot
+from arena_evaluation.processing.metrics.base import (
+    NULL_REASON_SUFFIX,
+    BaseMetricCalculator,
+    Direction,
+)
+from arena_evaluation.processing.metrics.common.alignment import asof_position
+from arena_evaluation.processing.metrics.common.caching import load_world
+from arena_evaluation.processing.metrics.common.events import reconstruct_events
+from arena_evaluation.processing.metrics.common.zones import (
+    DoorGeometry,
+    ZoneGeometry,
+    extract_door_geometry,
+    extract_zone_geometry,
+    zone_membership,
+)
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    entity_name,
+    robot_env_snapshot,
+)
+from arena_evaluation.processing.windows import ENCOUNTER_EDGE_DISTANCE_M
+from arena_evaluation.storage.registry import MetricScope, NullReason, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle, RobotParams
 
-if typing.TYPE_CHECKING:
-    from collections.abc import Sequence
+_ZoneGeometry = ZoneGeometry
 
-    import shapely
-    from arena_simulation_setup.tree.World import Level
-
-logger = logging.getLogger(__name__)
-
-
-@dataclasses.dataclass
-class _ZoneGeometry:
-    name: str
-    polygon: shapely.Polygon | shapely.MultiPolygon
-    max_speed: float | None
-    quiet: bool
-    restricted: bool
-
-
-@dataclasses.dataclass
-class _DoorGeometry:
-    name: str
-    center_x: float
-    center_y: float
-    radius: float
-
-
-def _extract_zone_geometry(flattened: Level, require_annotation: bool = True) -> list[_ZoneGeometry]:
-    import shapely
-
-    zones: list[_ZoneGeometry] = []
-    for zone in flattened.zones:
-        if len(zone.polygon) < 3:
-            continue
-
-        max_speed = None
-        quiet = False
-        restricted = False
-        has_annotation = False
-        for cfg in zone.semantics:
-            if cfg.role == "state" and cfg.name == "max_speed":
-                has_annotation = True
-                if cfg.value is not None:
-                    max_speed = float(cfg.value)
-            elif cfg.role == "predicate" and cfg.name == "quiet":
-                has_annotation = True
-                quiet = bool(cfg.value)
-            elif cfg.role == "predicate" and cfg.name == "restricted":
-                has_annotation = True
-                restricted = bool(cfg.value)
-
-        if require_annotation and not has_annotation:
-            continue
-
-        polygon = shapely.Polygon([(corner.x, corner.y) for corner in zone.polygon])
-        zones.append(_ZoneGeometry(name=zone.name, polygon=polygon, max_speed=max_speed, quiet=quiet, restricted=restricted))
-    return zones
+SPEED_ZONE_VIOLATIONS = define_metric(
+    "speed_zone_violations",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of contiguous speed-limit violations inside speed-capped zones; NULL when the robot speed stream is absent or not finite.",
+    null_reason=True,
+)
+SPEED_ZONE_VIOLATION_SECONDS = define_metric(
+    "speed_zone_violation_seconds",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Seconds spent above a zone's speed limit inside speed-capped zones; NULL when the robot speed stream is absent or not finite.",
+    null_reason=True,
+)
+QUIET_ZONE_DWELL_SECONDS = define_metric(
+    "quiet_zone_dwell_seconds",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Seconds the robot spends inside quiet zones; NULL when the world semantics or the robot samples were not recorded.",
+    null_reason=True,
+)
+RESTRICTED_ZONE_ENTRIES = define_metric(
+    "restricted_zone_entries",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    description="Count of entries into restricted zones; NULL when the world semantics or the robot samples were not recorded.",
+    null_reason=True,
+)
+DOORWAY_BLOCKING_TIME = define_metric(
+    "doorway_blocking_time",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Seconds the robot blocks an open doorway while stationary; NULL when the speed stream, door states or world were not recorded.",
+    null_reason=True,
+)
+PASSING_RULE_COMPLIANCE = define_metric(
+    "passing_rule_compliance",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="1",
+    description="Share of head-on pedestrian encounters passed on the configured side; NULL without an encounter or a recorded pedestrian radius.",
+    null_reason=True,
+)
 
 
-def _extract_door_geometry(flattened: Level) -> list[_DoorGeometry]:
-    doors: list[_DoorGeometry] = []
-    for door in flattened.all_doors:
-        center_x = (door.start.x + door.end.x) / 2.0
-        center_y = (door.start.y + door.end.y) / 2.0
-        radius = max(door.activation_distance)
-        doors.append(_DoorGeometry(name=door.name, center_x=center_x, center_y=center_y, radius=radius))
-    return doors
+_ZONE_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
+    "doorway_blocking_time",
+    "quiet_zone_dwell_seconds",
+    "restricted_zone_entries",
+    "speed_zone_violation_seconds",
+    "speed_zone_violations",
+)
+
+_SPEED_OUTPUT_KEYS: typing.Final[tuple[str, ...]] = (
+    "doorway_blocking_time",
+    "speed_zone_violation_seconds",
+    "speed_zone_violations",
+)
 
 
-def _offset_zones(zones: list[_ZoneGeometry], offset: tuple[float, float]) -> list[_ZoneGeometry]:
-    """World-frame zones translated into the recorded map frame by the env packing offset."""
-    if offset == (0.0, 0.0):
-        return zones
-    import shapely.affinity
-
-    return [dataclasses.replace(zone, polygon=shapely.affinity.translate(zone.polygon, offset[0], offset[1])) for zone in zones]
+def _null_speed_metrics(result: dict[str, typing.Any], reason: str) -> None:
+    """Every speed-reading metric NULL with its reason, so an unknown speed never becomes a zero."""
+    for key in _SPEED_OUTPUT_KEYS:
+        result[key] = None
+        result[f"{key}{NULL_REASON_SUFFIX}"] = reason
 
 
-def _offset_doors(doors: list[_DoorGeometry], offset: tuple[float, float]) -> list[_DoorGeometry]:
-    """World-frame door centers translated into the recorded map frame."""
-    if offset == (0.0, 0.0):
-        return doors
-    return [dataclasses.replace(door, center_x=door.center_x + offset[0], center_y=door.center_y + offset[1]) for door in doors]
-
-
-class _PolygonZone(typing.Protocol):
-    @property
-    def polygon(self) -> shapely.Polygon | shapely.MultiPolygon: ...
-
-
-def _zone_membership(pos_x: np.ndarray, pos_y: np.ndarray, zones: Sequence[_PolygonZone]) -> np.ndarray:
-    import shapely
-
-    idx = np.full(len(pos_x), -1, dtype=np.int64)
-    for i in range(len(pos_x)):
-        point = shapely.Point(pos_x[i], pos_y[i])
-        for j, zone in enumerate(zones):
-            if zone.polygon.covers(point):
-                idx[i] = j
-                break
-    return idx
-
-
-def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[_ZoneGeometry]) -> tuple[int, float]:
+def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> tuple[int, float]:
     mask = np.zeros(len(zone_idx), dtype=bool)
     for i, j in enumerate(zone_idx):
         if j == -1:
@@ -133,7 +120,7 @@ def _speed_zone_metrics(zone_idx: np.ndarray, speed: np.ndarray, dt: np.ndarray,
     return violations, seconds
 
 
-def _quiet_zone_dwell(zone_idx: np.ndarray, dt: np.ndarray, zones: list[_ZoneGeometry]) -> float:
+def _quiet_zone_dwell(zone_idx: np.ndarray, dt: np.ndarray, zones: list[ZoneGeometry]) -> float:
     total = 0.0
     for i in range(len(dt)):
         j = zone_idx[i]
@@ -142,7 +129,7 @@ def _quiet_zone_dwell(zone_idx: np.ndarray, dt: np.ndarray, zones: list[_ZoneGeo
     return total
 
 
-def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[_ZoneGeometry]) -> int:
+def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[ZoneGeometry]) -> int:
     entries = 0
     for i in range(1, len(zone_idx)):
         j = zone_idx[i]
@@ -153,90 +140,18 @@ def _restricted_zone_entries(zone_idx: np.ndarray, zones: list[_ZoneGeometry]) -
     return entries
 
 
-_RECONSTRUCTED_EVENTS_SCHEMA = {
-    "time_ns": pl.Int64,
-    "entity": pl.Utf8,
-    "kind": pl.Utf8,
-    "field": pl.Utf8,
-    "previous": pl.Utf8,
-    "current": pl.Utf8,
-}
-
-
-def _stringify_snapshot_value(row: dict) -> str:
-    """Native snapshot value to the event wire convention: lowercase bool, str(float), raw string, members as sorted comma-joined names."""
-    if row["field_kind"] == "predicate":
-        return "true" if row["value_bool"] else "false"
-    if row["field_kind"] == "continuous":
-        return str(row["value_num"])
-    if row["field_kind"] == "members":
-        members = row.get("value_list")
-        return ",".join(sorted(str(m) for m in members)) if members else ""
-    return row["value_str"] if row["value_str"] is not None else ""
-
-
-def _reconstruct_events(snapshot: pl.DataFrame | None) -> pl.DataFrame:
-    """Event-equivalent (time_ns, entity, kind, field, previous, current) rows, derived by
-    keeping only the change points of each entity+field's stepwise snapshot series. The first
-    kept row per series is the seed value (from the episode's seed snapshot), `previous` empty.
-    Members rows are kept as field `members` (see `_stringify_snapshot_value`), so membership
-    changes are change points like any other field.
-    """
-    empty = pl.DataFrame(schema=_RECONSTRUCTED_EVENTS_SCHEMA)
-    if snapshot is None or len(snapshot) == 0:
-        return empty
-
-    rows = snapshot.sort("time_ns")
-    if len(rows) == 0:
-        return empty
-
-    out_time: list[int] = []
-    out_entity: list[str] = []
-    out_kind: list[str] = []
-    out_field: list[str] = []
-    out_previous: list[str] = []
-    out_current: list[str] = []
-
-    for (entity, kind, field), group in rows.group_by(["entity", "kind", "field"]):
-        previous: str | None = None
-        for row in group.sort("time_ns").iter_rows(named=True):
-            current = _stringify_snapshot_value(row)
-            if current != previous:
-                out_time.append(row["time_ns"])
-                out_entity.append(entity)
-                out_kind.append(kind)
-                out_field.append(field)
-                out_previous.append(previous if previous is not None else "")
-                out_current.append(current)
-                previous = current
-
-    if not out_time:
-        return empty
-
-    return pl.DataFrame(
-        {
-            "time_ns": out_time,
-            "entity": out_entity,
-            "kind": out_kind,
-            "field": out_field,
-            "previous": out_previous,
-            "current": out_current,
-        }
-    ).sort("time_ns")
-
-
 def _door_open_series(events: pl.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Per-door sorted (time_ns, is_open) event series keyed by authored door name."""
-    door_events = events.filter((pl.col("kind") == "door") & (pl.col("field") == "state")).sort("time_ns")
+    """Per-door sorted (t_ns, is_open) event series keyed by authored door name."""
+    door_events = events.filter((pl.col("kind") == "door") & (pl.col("field") == "state")).sort("t_ns")
     result: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if len(door_events) == 0:
         return result
 
     for _, group in door_events.group_by("entity"):
-        g = group.sort("time_ns")
+        g = group.sort("t_ns")
         name = entity_name(str(g["entity"][0]))
-        times = g["time_ns"].to_numpy()
-        is_open = np.array([v == "open" for v in g["current"].to_list()])
+        times = g["t_ns"].to_numpy()
+        is_open = np.array([v == "open" for v in g["current"]], dtype=bool)
         result[name] = (times, is_open)
     return result
 
@@ -247,7 +162,7 @@ def _is_open_at(door_series: dict[str, tuple[np.ndarray, np.ndarray]], name: str
         return False
 
     times, is_open = entry
-    idx = int(np.searchsorted(times, t_ns, side="right")) - 1
+    idx = asof_position(times, t_ns)
     if idx < 0:
         return False
     return bool(is_open[idx])
@@ -273,60 +188,50 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
     """
 
     NAME = "compliance_metrics"
+    SERIES_KEY = ("t_ns",)
+    SERIES_REQUIRED_TOPICS = ("robot_tracks",)
     CATEGORY = "ecological"
     REQUIRES_PEDSIM = True
     DEPENDS_ON = ["motion_metrics"]
-    REQUIRED_TOPICS = [("tf_gt", "odom"), "peds"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom"), "pedestrian_arena_peds"]
     passing_convention = "right"
 
-    UNITS = {
-        "speed_zone_violations": "",
-        "speed_zone_violation_seconds": "s",
-        "quiet_zone_dwell_seconds": "s",
-        "restricted_zone_entries": "",
-        "doorway_blocking_time": "s",
-        "passing_rule_compliance": "",
+    OUTPUTS = (
+        SPEED_ZONE_VIOLATIONS,
+        SPEED_ZONE_VIOLATION_SECONDS,
+        QUIET_ZONE_DWELL_SECONDS,
+        RESTRICTED_ZONE_ENTRIES,
+        DOORWAY_BLOCKING_TIME,
+        PASSING_RULE_COMPLIANCE,
+    )
+    DIRECTIONS = {
+        "speed_zone_violations": Direction.LOWER,
+        "speed_zone_violation_seconds": Direction.LOWER,
+        "quiet_zone_dwell_seconds": Direction.LOWER,
+        "restricted_zone_entries": Direction.LOWER,
+        "doorway_blocking_time": Direction.LOWER,
+        "passing_rule_compliance": Direction.HIGHER,
     }
+    PRIMARY_OUTPUTS = ["speed_zone_violations", "passing_rule_compliance"]
 
     STATIONARY_THRESHOLD = 0.05
 
-    world: str | None = None
-
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        self._world_cache: dict[str, tuple[list[_ZoneGeometry], list[_DoorGeometry]] | None] = {}
+        self._world_cache: dict[str, tuple[list[ZoneGeometry], list[DoorGeometry]] | None] = {}
 
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return [
-            "speed_zone_violations",
-            "speed_zone_violation_seconds",
-            "quiet_zone_dwell_seconds",
-            "restricted_zone_entries",
-            "doorway_blocking_time",
-            "passing_rule_compliance",
-        ]
-
-    def _load_world(self, world_name: str) -> tuple[list[_ZoneGeometry], list[_DoorGeometry]] | None:
+    def _load_world(self, world_name: str) -> tuple[list[ZoneGeometry], list[DoorGeometry]] | None:
         if world_name in self._world_cache:
             return self._world_cache[world_name]
 
-        from arena_simulation_setup.tree.World import WorldIdentifier
-
-        try:
-            view = WorldIdentifier(world_name).resolve_sync()
-            world = view.load()
-        except FileNotFoundError as e:
-            logger.warning("compliance_metrics: world '%s' not available locally: %s", world_name, e)
+        loaded = load_world(world_name)
+        if loaded is None:
             self._world_cache[world_name] = None
             return None
-
-        origins = view.level_origins()
-        if origins is None:
-            origins = {level_id: (0.0, 0.0) for level_id in world.levels}
-        flattened = world.compact_world(origins)
-
-        result = (_extract_zone_geometry(flattened), _extract_door_geometry(flattened))
+        result = (
+            extract_zone_geometry(loaded.flattened),
+            extract_door_geometry(loaded.flattened),
+        )
         self._world_cache[world_name] = result
         return result
 
@@ -336,28 +241,28 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         pos_x: np.ndarray,
         pos_y: np.ndarray,
         speed: np.ndarray,
-        time_ns: np.ndarray,
-        doors: list[_DoorGeometry],
-    ) -> float:
+        t_ns: np.ndarray,
+        doors: list[DoorGeometry],
+    ) -> float | None:
         if not doors:
             return 0.0
 
-        events = _reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
+        events = reconstruct_events(robot_env_snapshot(episode.semantic_snapshot, episode.robot_name))
         if len(events) == 0:
             return 0.0
 
         door_series = _door_open_series(events)
         n = len(pos_x)
         if n < 2:
-            return 0.0
+            return None
 
-        dt = np.diff(time_ns) / 1e9
+        dt = np.diff(t_ns) / 1e9
 
         total = 0.0
         for i in range(n - 1):
-            if speed[i] > self.STATIONARY_THRESHOLD:
+            if not np.isfinite(speed[i]) or speed[i] > self.STATIONARY_THRESHOLD:
                 continue
-            t = int(time_ns[i])
+            t = int(t_ns[i])
             for door in doors:
                 dx = pos_x[i] - door.center_x
                 dy = pos_y[i] - door.center_y
@@ -366,119 +271,143 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
                     break
         return total
 
-    def _compute_passing_compliance(self, episode: AlignedEpisodeBundle) -> float | None:
+    @staticmethod
+    def _recorded_speed(episode: AlignedEpisodeBundle) -> np.ndarray | None:
+        """Recorded absolute speed in m/s, None when the recording carries no speed stream."""
+        frame = episode.data
+        if frame is None or len(frame) == 0:
+            return None
+        try:
+            return np.abs(frame["speed_mps"].to_numpy().astype(np.float64))
+        except pl.exceptions.ColumnNotFoundError:
+            return None
+
+    def _passing_inputs(self, episode: AlignedEpisodeBundle) -> tuple[pl.DataFrame | None, np.ndarray | None]:
+        """Pedestrian frame and recorded radii in frame order, radii None when a sample has no usable radius."""
         peds_df = self.native_ped_frame(episode)
-        if peds_df is None or "peds_positions" not in peds_df.columns:
+        if peds_df is None or len(peds_df) == 0:
+            return None, None
+        try:
+            radii = peds_df["radius_m"].to_numpy().astype(np.float64)
+        except pl.exceptions.ColumnNotFoundError:
+            return peds_df, None
+        return peds_df, radii if np.isfinite(radii).all() else None
+
+    def _passing_null_reason(self, episode: AlignedEpisodeBundle) -> str | None:
+        """NOT_RECORDED when a pedestrian the head-on pairing reads has no recorded radius."""
+        peds_df, radii = self._passing_inputs(episode)
+        if peds_df is None:
+            return None
+        return None if radii is not None else NullReason.NOT_RECORDED.value
+
+    def _compute_passing_compliance(self, episode: AlignedEpisodeBundle) -> float | None:
+        peds_df, radii = self._passing_inputs(episode)
+        if peds_df is None or radii is None:
             return None
 
         pos_x, pos_y, yaw, t_odom = self.resolve_native_pose(episode)
         if len(pos_x) == 0:
+            if episode.data is None or len(episode.data) == 0:
+                return None
+            pos_x, pos_y, yaw, _, _, _ = self.resolve_robot_pose(episode)
+            t_odom = episode.data["t_ns"].to_numpy().astype(np.int64)
+
+        if len(pos_x) < 2:
             return None
 
-        peds_time_ns = peds_df["time_ns"].to_numpy()
-        N = len(peds_time_ns)
-        if N == 0:
+        peds_time_ns = peds_df["t_ns"].unique().sort().to_numpy()
+        n_times = len(peds_time_ns)
+        if n_times == 0:
             return None
 
         vx_full, vy_full = self.velocity_from_pose(pos_x, pos_y, t_odom)
         rvx = self.values_at_times(vx_full, t_odom, peds_time_ns)
         rvy = self.values_at_times(vy_full, t_odom, peds_time_ns)
         rpx, rpy, _ = self.pose_at_times(peds_time_ns, pos_x, pos_y, yaw, t_odom)
-        dt = np.diff(peds_time_ns, prepend=peds_time_ns[0]) / 1e9
 
-        peds_positions = peds_df["peds_positions"].to_list()
-        num_peds_col = peds_df["num_pedestrians"].to_numpy() if "num_pedestrians" in peds_df.columns else None
-        peds_twists_list = peds_df["peds_twists"].to_list() if "peds_twists" in peds_df.columns else None
+        robot_interp_lf = pl.LazyFrame(
+            {
+                "t_ns": peds_time_ns,
+                "rx": rpx,
+                "ry": rpy,
+                "rvx": rvx,
+                "rvy": rvy,
+            }
+        ).sort("t_ns")
 
-        in_encounter = False
-        min_dist = float('inf')
-        lat_offset_at_min = 0.0
+        peds_lf = peds_df.lazy().sort(["ped_id", "t_ns"])
+        dt_ped_s = pl.col("t_ns").diff().over("ped_id") * 1e-9
+        dt_ped_safe = pl.when(dt_ped_s > 0).then(dt_ped_s).otherwise(1e-3)
 
-        encounters_total = 0
+        peds_with_vel = peds_lf.with_columns(
+            vx=pl.when(pl.col("vx").is_null() | pl.col("vx").is_nan()).then(pl.col("x").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vx")),
+            vy=pl.when(pl.col("vy").is_null() | pl.col("vy").is_nan()).then(pl.col("y").diff().over("ped_id") / dt_ped_safe).otherwise(pl.col("vy")),
+        )
+
+        joined = peds_with_vel.join(robot_interp_lf, on="t_ns", how="inner")
+
+        dx = pl.col("x") - pl.col("rx")
+        dy = pl.col("y") - pl.col("ry")
+        dist = (dx.pow(2) + dy.pow(2)).sqrt()
+        edge_clearance = dist - (self.robot_params.robot_radius + pl.col("radius_m"))
+        speed_r = (pl.col("rvx").pow(2) + pl.col("rvy").pow(2)).sqrt()
+        speed_p = (pl.col("vx").pow(2) + pl.col("vy").pow(2)).sqrt()
+        denom = speed_r * speed_p
+        cos_angle = pl.when(denom > 1e-6).then((pl.col("rvx") * pl.col("vx") + pl.col("rvy") * pl.col("vy")) / denom).otherwise(0.0)
+
+        is_head_on = (edge_clearance <= ENCOUNTER_EDGE_DISTANCE_M) & (speed_r > 0.05) & (speed_p > 0.05) & (cos_angle < -0.3)
+        lat_offset = pl.col("rvx") * dy - pl.col("rvy") * dx
+
+        pairs_analyzed = (
+            joined.with_columns(
+                dist=dist,
+                is_head_on=is_head_on,
+                lat_offset=lat_offset,
+            )
+            .group_by("t_ns")
+            .agg(
+                head_on_found=pl.col("is_head_on").any(),
+                curr_min_dist=pl.col("dist").filter(pl.col("is_head_on")).min(),
+                curr_lat=pl.col("lat_offset").filter(pl.col("is_head_on")).sort_by(pl.col("dist").filter(pl.col("is_head_on"))).first(),
+            )
+            .sort("t_ns")
+            .with_columns(
+                head_on_found=pl.col("head_on_found").fill_null(False),
+            )
+            .with_columns(
+                bout_id=pl.col("head_on_found").rle_id(),
+            )
+            .collect()
+        )
+
+        bouts = pairs_analyzed.filter(pl.col("head_on_found")).partition_by("bout_id", maintain_order=True)
+        if not bouts:
+            return None
+
+        encounters_total = len(bouts)
         encounters_compliant = 0
 
-        prev_peds_arr: np.ndarray | None = None
-        for i in range(N):
-            peds_arr = self._parse_peds(peds_positions[i], num_peds_col[i] if num_peds_col is not None else None)
-            if peds_arr.shape[0] == 0:
-                prev_peds_arr = None
+        for bout in bouts:
+            min_idx = bout["curr_min_dist"].arg_min()
+            if min_idx is None:
                 continue
-
-            ped_vels = None
-            if peds_twists_list is not None and i < len(peds_twists_list):
-                tw_raw = peds_twists_list[i]
-                if tw_raw and len(tw_raw) > 0:
-                    import ast
-
-                    if isinstance(tw_raw, str):
-                        try:
-                            tw_raw = ast.literal_eval(tw_raw)
-                        except Exception:
-                            tw_raw = []
-                    tw_arr = np.array(tw_raw, dtype=np.float64)
-                    if tw_arr.size > 0 and len(tw_arr) % 3 == 0:
-                        ped_vels = tw_arr.reshape(-1, 3)
-
-            # Finite difference fallback if twists missing
-            if ped_vels is None and prev_peds_arr is not None and prev_peds_arr.shape == peds_arr.shape:
-                dt_i = max(float(dt[i]), 1e-3)
-                ped_vels = (peds_arr - prev_peds_arr) / dt_i
-            prev_peds_arr = peds_arr
-
-            rx, ry = float(rpx[i]), float(rpy[i])
-            vr_x, vr_y = float(rvx[i]), float(rvy[i])
-            speed_r = np.hypot(vr_x, vr_y)
-
-            head_on_found = False
-            curr_min_dist = float('inf')
-            curr_lat = 0.0
-
-            for j in range(peds_arr.shape[0]):
-                vp_x, vp_y = 0.0, 0.0
-                if ped_vels is not None and j < ped_vels.shape[0]:
-                    vp_x, vp_y = float(ped_vels[j, 0]), float(ped_vels[j, 1])
-                speed_p = np.hypot(vp_x, vp_y)
-
-                px, py = float(peds_arr[j, 0]), float(peds_arr[j, 1])
-                dist = np.hypot(px - rx, py - ry)
-
-                if dist <= 4.0 and speed_r > 0.05 and speed_p > 0.05:
-                    cos_angle = (vr_x * vp_x + vr_y * vp_y) / (speed_r * speed_p)
-                    # Opposing direction: approaching each other within 120 degrees
-                    if cos_angle < -0.3:
-                        head_on_found = True
-                        if dist < curr_min_dist:
-                            curr_min_dist = dist
-                            # Positive when pedestrian is to the robot's left (robot passes on right)
-                            curr_lat = vr_x * (py - ry) - vr_y * (px - rx)
-
-            if head_on_found:
-                if not in_encounter:
-                    in_encounter = True
-                    min_dist = float('inf')
-
-                if curr_min_dist < min_dist:
-                    min_dist = curr_min_dist
-                    lat_offset_at_min = curr_lat
-            else:
-                if in_encounter:
-                    in_encounter = False
-                    encounters_total += 1
-                    if self.passing_convention == "right" and lat_offset_at_min >= 0.0:
-                        encounters_compliant += 1
-                    elif self.passing_convention == "left" and lat_offset_at_min <= 0.0:
-                        encounters_compliant += 1
-
-        if in_encounter:
-            encounters_total += 1
-            if self.passing_convention == "right" and lat_offset_at_min >= 0.0:
+            lat_at_min = bout["curr_lat"][min_idx]
+            if self.passing_convention == "right" and lat_at_min >= 0.0:
                 encounters_compliant += 1
-            elif self.passing_convention == "left" and lat_offset_at_min <= 0.0:
+            elif self.passing_convention == "left" and lat_at_min <= 0.0:
                 encounters_compliant += 1
 
-        if encounters_total == 0:
-            return 1.0
         return float(encounters_compliant) / encounters_total
+
+    @staticmethod
+    def _world_semantics_recorded(episode: AlignedEpisodeBundle) -> bool:
+        return episode.semantic_snapshot is not None and episode.semantic_snapshot.height > 0
+
+    def missing_input_provenance(self, episode: AlignedEpisodeBundle) -> dict[str, str]:
+        """Zone and door compliance needs the recorded world semantics; without it the values are unknown."""
+        if not self._world_semantics_recorded(episode):
+            return {key: f"{key}:topic_missing:world_semantics" for key in _ZONE_OUTPUT_KEYS}
+        return {}
 
     def calculate(
         self,
@@ -486,38 +415,43 @@ class ComplianceMetricsCalculator(BaseMetricCalculator):
         prior_results: dict[str, typing.Any],
     ) -> dict[str, typing.Any]:
         del prior_results
-        result: dict[str, float | None] = {k: None for k in self.output_keys()}
+        result: dict[str, typing.Any] = {metric.name: None for metric in self.OUTPUTS}
 
         # 1. Passing Rule Compliance (Independent of world)
         result["passing_rule_compliance"] = self._compute_passing_compliance(episode)
+        if result["passing_rule_compliance"] is None:
+            passing_reason = self._passing_null_reason(episode)
+            if passing_reason is not None:
+                result[f"passing_rule_compliance{NULL_REASON_SUFFIX}"] = passing_reason
 
-        # 2. Zone/Door Metrics (Requires world)
+        has_semantics = self._world_semantics_recorded(episode)
         if self.world is not None and episode.start_pos:
             loaded = self._load_world(self.world)
-            if loaded is not None:
+            if loaded is not None and has_semantics:
                 zones, doors = loaded
                 pos_x, pos_y, _yaw, _ox, _oy, _oyaw = self.resolve_robot_pose(episode)
 
-                if episode.data is not None and len(episode.data) > 0 and "vel_linear" in episode.data.columns:
-                    speed = np.abs(episode.data["vel_linear"].to_numpy())
-                    time_ns = episode.data["time_ns"].to_numpy()
+                if episode.data is not None and len(episode.data) > 0:
+                    t_ns = episode.data["t_ns"].to_numpy()
                     n = len(pos_x)
-                    if n > 0 and len(speed) == n:
-                        dt = np.diff(time_ns) / 1e9
-                        zone_idx = _zone_membership(pos_x, pos_y, zones)
-                        violations, violation_seconds = _speed_zone_metrics(zone_idx, speed, dt, zones)
-                        quiet_seconds = _quiet_zone_dwell(zone_idx, dt, zones)
-                        restricted_entries = _restricted_zone_entries(zone_idx, zones)
-                        doorway_blocking = self._doorway_blocking_time(episode, pos_x, pos_y, speed, time_ns, doors)
+                    if n > 0 and len(t_ns) == n:
+                        dt = np.diff(t_ns) / 1e9
+                        zone_idx = zone_membership(pos_x, pos_y, zones)
+                        result["quiet_zone_dwell_seconds"] = _quiet_zone_dwell(zone_idx, dt, zones)
+                        result["restricted_zone_entries"] = _restricted_zone_entries(zone_idx, zones)
 
-                        result.update(
-                            {
-                                "speed_zone_violations": violations,
-                                "speed_zone_violation_seconds": violation_seconds,
-                                "quiet_zone_dwell_seconds": quiet_seconds,
-                                "restricted_zone_entries": restricted_entries,
-                                "doorway_blocking_time": doorway_blocking,
-                            }
-                        )
+                        speed = self._recorded_speed(episode)
+                        if speed is None:
+                            _null_speed_metrics(
+                                result,
+                                f"{NullReason.TOPIC_MISSING.value}:robot_odom",
+                            )
+                        elif len(speed) != n or not np.isfinite(speed).all():
+                            _null_speed_metrics(result, NullReason.NO_SAMPLES.value)
+                        else:
+                            violations, violation_seconds = _speed_zone_metrics(zone_idx, speed, dt, zones)
+                            result["speed_zone_violations"] = violations
+                            result["speed_zone_violation_seconds"] = violation_seconds
+                            result["doorway_blocking_time"] = self._doorway_blocking_time(episode, pos_x, pos_y, speed, t_ns, doors)
 
         return result

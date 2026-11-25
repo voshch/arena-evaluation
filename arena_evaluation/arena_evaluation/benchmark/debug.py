@@ -1,11 +1,4 @@
-"""Process introspection, process stopping and benchmark console logs.
-
-Shared by the evaluation CLI (``ps`` / ``kill`` / ``console``) and the
-evaluation MCP domain (``evaluation_ps`` / ``evaluation_kill`` /
-``evaluation_console``). The console log is the runner's own
-``benchmarks/<run_id>/runner.log``, ``runner.<lane>.log`` for a lane of a
-shared run, tailed in place.
-"""
+"""Process introspection, process stopping and benchmark console logs."""
 
 from __future__ import annotations
 
@@ -244,7 +237,6 @@ def latest_running_run_id() -> str | None:
     pid = find_runner_pid(None)
     if pid is None:
         return None
-    pids = running_pids_by_run_id()
     # The pid-level map might not match (no --run-id); fall back to a
     # cmdline scan for the newest runner's run id.
     for pid2, cmdline in _ps_lines():
@@ -275,13 +267,34 @@ def kill_processes(
     if pids:
         for pid in pids:
             if pid in protected:
-                results.append({"pid": pid, "kind": "caller", "command": f"pid {pid}", "status": "refused: this process or one of its parents"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "caller",
+                        "command": f"pid {pid}",
+                        "status": "refused: this process or one of its parents",
+                    }
+                )
             elif pid in arena:
                 targets.append(arena[pid])
             elif is_pid_alive(pid):
-                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "refused: not an arena process"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "unknown",
+                        "command": f"pid {pid}",
+                        "status": "refused: not an arena process",
+                    }
+                )
             else:
-                results.append({"pid": pid, "kind": "unknown", "command": f"pid {pid}", "status": "already_dead"})
+                results.append(
+                    {
+                        "pid": pid,
+                        "kind": "unknown",
+                        "command": f"pid {pid}",
+                        "status": "already_dead",
+                    }
+                )
     else:
         targets = [proc for proc in arena.values() if proc["pid"] not in protected and (everything or proc["kind"] == kind)]
     for proc in targets:
@@ -316,7 +329,15 @@ def _stop(pid: int, *, force: bool, grace_s: float) -> str:
         else:
             os.kill(pid, sig)
 
-    steps = ((signal.SIGKILL, 2.0, "force_killed"),) if force else ((signal.SIGINT, grace_s, "stopped"), (signal.SIGTERM, 5.0, "terminated"), (signal.SIGKILL, 2.0, "force_killed"))
+    steps = (
+        ((signal.SIGKILL, 2.0, "force_killed"),)
+        if force
+        else (
+            (signal.SIGINT, grace_s, "stopped"),
+            (signal.SIGTERM, 5.0, "terminated"),
+            (signal.SIGKILL, 2.0, "force_killed"),
+        )
+    )
     for sig, wait, outcome in steps:
         try:
             send(sig)

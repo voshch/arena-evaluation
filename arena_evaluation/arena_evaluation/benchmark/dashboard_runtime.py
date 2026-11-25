@@ -77,7 +77,15 @@ async def _live_views() -> dict[int, dict[str, typing.Any]]:
     if viz is None:
         return {}
     listed = await _tool_result(viz[2])
-    return {view["env_id"]: {"web_port": view["web_port"], "grpc_port": view["grpc_port"], "url": view["url"]} for view in listed["views"] if view["alive"]}
+    return {
+        view["env_id"]: {
+            "web_port": view["web_port"],
+            "grpc_port": view["grpc_port"],
+            "url": view["url"],
+        }
+        for view in listed["views"]
+        if view["alive"]
+    }
 
 
 @functools.cache
@@ -92,9 +100,22 @@ def _actions() -> dict[str, _Action]:
     viz = _viz_tools()
     if viz is not None:
         start, stop, _ = viz
-        views = {"view": _Action(start, "env", {"web_port": 0, "grpc_port": 0}), "view_stop": _Action(stop, "env")}
+        views = {
+            "view": _Action(
+                start,
+                "env",
+                {"web_port": 0, "grpc_port": 0},
+                hidden=("memory_limit", "max_rate_hz"),
+            ),
+            "view_stop": _Action(stop, "env"),
+        }
     return {
-        "spawn": _Action(runtime.runtime_spawn_env, "runtime", {"wait_ready": False, "headless": True}, ("launch_args", "ns", "timeout_s")),
+        "spawn": _Action(
+            runtime.runtime_spawn_env,
+            "runtime",
+            {"wait_ready": False, "headless": True},
+            ("launch_args", "ns", "timeout_s"),
+        ),
         "despawn": _Action(runtime.runtime_despawn_env, "env", {"wait": False}, ("timeout_s",)),
         "despawn_all": _Action(runtime.runtime_despawn_env, "runtime", {"wait": False}, ("timeout_s",)),
         "reset": _Action(episode_reset, "env", {"wait": False}, ("timeout_s",)),
@@ -122,20 +143,35 @@ def _args_model(action: str) -> type[pydantic.BaseModel]:
     if spec.settable:
         for name, parameter in inspect.signature(spec.tool).parameters.items():
             if name not in skip:
-                fields[name] = (hints[name], ... if parameter.default is inspect.Parameter.empty else parameter.default)
+                fields[name] = (
+                    hints[name],
+                    ... if parameter.default is inspect.Parameter.empty else parameter.default,
+                )
     return pydantic.create_model(f"{action}_args", __config__=pydantic.ConfigDict(extra="forbid"), **fields)
 
 
 def _validated(action: str, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
     model = _args_model(action)
     try:
-        checked = model.model_validate({name: value for name, value in body.items() if name in model.model_fields}, strict=True)
+        checked = model.model_validate(
+            {name: value for name, value in body.items() if name in model.model_fields},
+            strict=True,
+        )
     except pydantic.ValidationError as exc:
-        raise ControlError(400, "; ".join(f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors())) from exc
+        raise ControlError(
+            400,
+            "; ".join(f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in exc.errors()),
+        ) from exc
     return {name: getattr(checked, name) for name in model.model_fields}
 
 
-_TOOL_PARAM_BOUNDS = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "enum")
+_TOOL_PARAM_BOUNDS = (
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "enum",
+)
 _PARAM_TYPES: dict[str, typing.Any] = {
     "bool": bool,
     "integer": int,
@@ -153,7 +189,11 @@ def _tool_param(name: str, schema: dict[str, typing.Any]) -> dict[str, typing.An
     for branch in schema.get("anyOf", []):
         if branch.get("type") != "null":
             flat = branch | flat
-    param: dict[str, typing.Any] = {"name": name, "type": flat.get("type"), "description": flat.get("description", "")}
+    param: dict[str, typing.Any] = {
+        "name": name,
+        "type": flat.get("type"),
+        "description": flat.get("description", ""),
+    }
     if "default" in flat:
         param["default"] = flat["default"]
     return param | {key: flat[key] for key in _TOOL_PARAM_BOUNDS if key in flat}
@@ -163,7 +203,11 @@ def _annotations(tool: Callable[..., typing.Any]) -> dict[str, bool]:
     from arena_mcp.core.domain import tool_spec
 
     hints = tool_spec(tool).annotations
-    return {"destructive": bool(hints.destructive_hint), "read_only": bool(hints.read_only_hint), "idempotent": bool(hints.idempotent_hint)}
+    return {
+        "destructive": bool(hints.destructive_hint),
+        "read_only": bool(hints.read_only_hint),
+        "idempotent": bool(hints.idempotent_hint),
+    }
 
 
 def _action_docs() -> dict[str, dict[str, typing.Any]]:
@@ -234,7 +278,11 @@ class RuntimeBridge:
         self._poked = asyncio.Event()
         self._views: set[int] = set()
 
-    def run[T](self, coro: Coroutine[typing.Any, typing.Any, T], timeout: float = CALL_TIMEOUT_S) -> T:
+    def run[T](
+        self,
+        coro: Coroutine[typing.Any, typing.Any, T],
+        timeout: float = CALL_TIMEOUT_S,
+    ) -> T:
         from arena_mcp.core import ToolError
 
         future = asyncio.run_coroutine_threadsafe(coro, self.loop)
@@ -242,7 +290,11 @@ class RuntimeBridge:
             return future.result(timeout)
         except TimeoutError as exc:
             future.cancel()
-            raise ControlError(504, f"the runtime did not answer within {timeout:.0f}s", "the runtime may be busy resetting or dead, the summary shows its sim state") from exc
+            raise ControlError(
+                504,
+                f"the runtime did not answer within {timeout:.0f}s",
+                "the runtime may be busy resetting or dead, the summary shows its sim state",
+            ) from exc
         except ToolError as exc:
             raise ControlError(409, exc.message, exc.hint) from exc
 
@@ -268,7 +320,11 @@ class RuntimeBridge:
                 self._refresher = asyncio.run_coroutine_threadsafe(self._refresh(), self.loop)
         age = time.monotonic() - cache[0]
         if isinstance(cache[1], ControlError):
-            raise ControlError(cache[1].status, f"{cache[1].message} (refresh failed {age:.1f}s ago)", cache[1].hint)
+            raise ControlError(
+                cache[1].status,
+                f"{cache[1].message} (refresh failed {age:.1f}s ago)",
+                cache[1].hint,
+            )
         return cache[1] | {"age_s": age, "now": time.time()}
 
     def poke(self) -> None:
@@ -307,13 +363,28 @@ class RuntimeBridge:
         runtime_actions = {name: spec for name, spec in _actions().items() if spec.scope != "run"}
         spec = runtime_actions.get(action)
         if spec is None:
-            raise ControlError(404, f"no runtime action {action!r}", f"actions: {', '.join(sorted(runtime_actions))}")
+            raise ControlError(
+                404,
+                f"no runtime action {action!r}",
+                f"actions: {', '.join(sorted(runtime_actions))}",
+            )
         per_env = spec.scope == "env"
         if per_env != (env_id is not None):
-            raise ControlError(404, f"{action} is {'an env' if per_env else 'a runtime'} action", f"POST /api/runtime/{'envs/<env_id>/' if per_env else ''}{action}")
-        handler = {"spawn": self._spawn, "despawn_all": self._despawn_all, "reset": self._reset}.get(action, self._invoke)
+            raise ControlError(
+                404,
+                f"{action} is {'an env' if per_env else 'a runtime'} action",
+                f"POST /api/runtime/{'envs/<env_id>/' if per_env else ''}{action}",
+            )
+        handler = {
+            "spawn": self._spawn,
+            "despawn_all": self._despawn_all,
+            "reset": self._reset,
+        }.get(action, self._invoke)
         try:
-            return self.run(self._guarded(action, handler(action, env_id, body)), timeout=CALL_TIMEOUT_S + 10.0)
+            return self.run(
+                self._guarded(action, handler(action, env_id, body)),
+                timeout=CALL_TIMEOUT_S + 10.0,
+            )
         finally:
             self.poke()
 
@@ -327,26 +398,71 @@ class RuntimeBridge:
         if not isinstance(run_id, str) or not _RUN_ID_RE.match(run_id):
             raise ControlError(400, f"run ids are letters, digits, '_', '.' and '-', got {run_id!r}")
         if (data_root / run_id).exists():
-            raise ControlError(409, f"run {run_id} already exists in {data_root}", "pick another run id, or resume it with arena evaluation benchmark --resume")
+            raise ControlError(
+                409,
+                f"run {run_id} already exists in {data_root}",
+                "pick another run id, or resume it with arena evaluation benchmark --resume",
+            )
         tokens = _launch_tokens(body.get("args", ""))
         owner, runtime_up = self.run(_domain_busy())
         if owner is not None:
-            raise ControlError(409, f"benchmark run {owner} already runs on this ROS domain", "wait for it or stop it first")
+            raise ControlError(
+                409,
+                f"benchmark run {owner} already runs on this ROS domain",
+                "wait for it or stop it first",
+            )
         if runtime_up:
-            raise ControlError(409, "a runtime is up on this ROS domain, the benchmark starts its own", "stop the runtime first (Stop on the Targets page, or arena runtime down)")
+            raise ControlError(
+                409,
+                "a runtime is up on this ROS domain, the benchmark starts its own",
+                "stop the runtime first (Stop on the Targets page, or arena runtime down)",
+            )
         log_dir = data_root / ".web"
         log_dir.mkdir(parents=True, exist_ok=True)
         log = log_dir / f"{run_id}.log"
-        argv = ["ros2", "run", "arena_evaluation", "benchmark", "--suite", suite, "--contest", contest, "--run-id", run_id, "--data-root", str(data_root), *tokens]
+        argv = [
+            "ros2",
+            "run",
+            "arena_evaluation",
+            "benchmark",
+            "--suite",
+            suite,
+            "--contest",
+            contest,
+            "--run-id",
+            run_id,
+            "--data-root",
+            str(data_root),
+            *tokens,
+        ]
         with log.open("w") as out:
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
-        return {"run_id": run_id, "pid": proc.pid, "log": str(log), "command": shlex.join(argv)}
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        return {
+            "run_id": run_id,
+            "pid": proc.pid,
+            "log": str(log),
+            "command": shlex.join(argv),
+        }
 
-    async def _guarded(self, action: str, work: Coroutine[typing.Any, typing.Any, dict[str, typing.Any]]) -> dict[str, typing.Any]:
+    async def _guarded(
+        self,
+        action: str,
+        work: Coroutine[typing.Any, typing.Any, dict[str, typing.Any]],
+    ) -> dict[str, typing.Any]:
         owner = await _benchmark_owner()
         if owner is not None:
             work.close()
-            raise ControlError(409, f"benchmark run {owner} owns this runtime, the dashboard only watches it", "stop the run first, evaluation_stop or Ctrl-C on the runner")
+            raise ControlError(
+                409,
+                f"benchmark run {owner} owns this runtime, the dashboard only watches it",
+                "stop the run first, evaluation_stop or Ctrl-C on the runner",
+            )
         return {"action": action, "result": await work}
 
     async def _snapshot(self) -> dict[str, typing.Any]:
@@ -355,10 +471,26 @@ class RuntimeBridge:
         from arena_mcp.core import ROS
 
         state = await runtime_state()
-        base = {"now": time.time(), "domain": os.environ.get("ROS_DOMAIN_ID", "0"), "hold_reason": HOLD_REASON}
+        base = {
+            "now": time.time(),
+            "domain": os.environ.get("ROS_DOMAIN_ID", "0"),
+            "hold_reason": HOLD_REASON,
+        }
         if not state["running"]:
-            return base | {"running": False, "hint": state["hint"], "envs": [], "benchmark": None, "viewport": False}
-        envs, sim_time, benchmark, viewport, views = await asyncio.gather(runtime_envs(), ROS.sim_time(), _benchmark_owner(), self._viewport_up(), _live_views())
+            return base | {
+                "running": False,
+                "hint": state["hint"],
+                "envs": [],
+                "benchmark": None,
+                "viewport": False,
+            }
+        envs, sim_time, benchmark, viewport, views = await asyncio.gather(
+            runtime_envs(),
+            ROS.sim_time(),
+            _benchmark_owner(),
+            self._viewport_up(),
+            _live_views(),
+        )
         episodes = await asyncio.gather(*(_episode(env["env_id"]) for env in envs))
         return base | {
             "running": True,
@@ -395,7 +527,10 @@ class RuntimeBridge:
             _task_modes(),
             asyncio.to_thread(_launch_args_of_env),
         )
-        suites, contests = await asyncio.gather(asyncio.to_thread(_config_names, "suite"), asyncio.to_thread(_config_names, "contest"))
+        suites, contests = await asyncio.gather(
+            asyncio.to_thread(_config_names, "suite"),
+            asyncio.to_thread(_config_names, "contest"),
+        )
         return {
             "robots": sorted({entry["model"] for entry in robots}),
             "worlds": worlds,
@@ -426,7 +561,10 @@ class RuntimeBridge:
         return {"kind": kind, "world": world, "items": items}
 
     async def _env_task(self, env_id: int) -> dict[str, typing.Any]:
-        from arena_runtime.env.episode_mcp import episode_task_modes, episode_task_modes_active
+        from arena_runtime.env.episode_mcp import (
+            episode_task_modes,
+            episode_task_modes_active,
+        )
         from arena_runtime.env.task_layer import TM_AXES, task_layer, task_layer_name
 
         active = typing.cast("dict[str, list[str]]", (await episode_task_modes_active(env_id))["modes"])
@@ -438,7 +576,10 @@ class RuntimeBridge:
             for mode in active.get(axis, []):
                 for entry in declared.get(mode, []):
                     params[f"{namespaces[axis][mode]}.{entry['name']}"] = entry["value"]
-        return {"modes": {axis: list(names) for axis, names in active.items()}, "params": params}
+        return {
+            "modes": {axis: list(names) for axis, names in active.items()},
+            "params": params,
+        }
 
     async def _camera(self, env_id: int) -> bytes:
         try:
@@ -489,12 +630,25 @@ class RuntimeBridge:
         params = _mapping(body, "params")
         undeclared = sorted(set(params) - set(declared))
         if undeclared:
-            raise ControlError(400, f"parameters not declared by the selected modes: {', '.join(undeclared)}", f"declared: {', '.join(sorted(declared)) or 'none, select modes first'}")
+            raise ControlError(
+                400,
+                f"parameters not declared by the selected modes: {', '.join(undeclared)}",
+                f"declared: {', '.join(sorted(declared)) or 'none, select modes first'}",
+            )
         _check_param_types(params, declared)
         selected = dict(token.split(":=", 1) for token in selection_args(modes))
         args |= selected | {name: value_to_launch_str(value) for name, value in params.items()}
         spawned = [await spec.tool(**spec.fixed, **kwargs, launch_args=args) for _ in range(count)]
-        return {"launch_args": args, "spawned": [{"env_id": entry["env_id"], "job": entry["job"]["id"] if "job" in entry else None} for entry in spawned]}
+        return {
+            "launch_args": args,
+            "spawned": [
+                {
+                    "env_id": entry["env_id"],
+                    "job": entry["job"]["id"] if "job" in entry else None,
+                }
+                for entry in spawned
+            ],
+        }
 
     async def _despawn_all(self, action: str, _env_id: int | None, body: dict[str, typing.Any]) -> dict[str, typing.Any]:
         from arena_runtime.mcp import runtime_envs
@@ -515,7 +669,11 @@ class RuntimeBridge:
         modes, params = _modes(body), _mapping(body, "params")
         if modes or params:
             _check_param_types(params, (await _task_schema()).param_types(None))
-            await episode_queue(env_id=env_id, modes=typing.cast("dict[str, str | list[str]]", modes) or None, params=params or None)
+            await episode_queue(
+                env_id=env_id,
+                modes=typing.cast("dict[str, str | list[str]]", modes) or None,
+                params=params or None,
+            )
         return await spec.tool(**spec.fixed, **kwargs, env_id=env_id)
 
 
@@ -532,7 +690,11 @@ def _as_control_error(exc: Exception) -> ControlError:
 def _config_name(body: dict[str, typing.Any], kind: str) -> str:
     name = body.get(kind, "")
     if not isinstance(name, str) or not _CONFIG_NAME_RE.match(name.strip()):
-        raise ControlError(400, f"{kind} must be a {kind} name, got {name!r}", f"the {kind} list shows the local ones")
+        raise ControlError(
+            400,
+            f"{kind} must be a {kind} name, got {name!r}",
+            f"the {kind} list shows the local ones",
+        )
     return name.strip()
 
 
@@ -624,7 +786,13 @@ async def _task_modes() -> dict[str, dict[str, typing.Any]]:
     for axis, modes in schema.registry.items():
         out[axis] = {
             "multi": axis in schema.layer.multi_axes(),
-            "modes": {mode: {"namespace": schema.namespaces[axis][mode], "params": [_param(schema.namespaces[axis][mode], entry) for entry in entries]} for mode, entries in sorted(modes.items())},
+            "modes": {
+                mode: {
+                    "namespace": schema.namespaces[axis][mode],
+                    "params": [_param(schema.namespaces[axis][mode], entry) for entry in entries],
+                }
+                for mode, entries in sorted(modes.items())
+            },
         }
     return out
 
@@ -655,13 +823,28 @@ async def _offline_catalog(kind: str, world: str) -> list[str]:
 def _spawn_fields(launch_args: list[dict[str, str]], planners: list[str]) -> list[dict[str, typing.Any]]:
     """Launch arguments the spawn form renders itself, each with the catalog kind or the fixed list its values come from."""
     described = {arg["name"]: arg["description"] for arg in launch_args}
-    sources: dict[str, tuple[str | None, list[str] | None]] = {"robot": ("robots", None), "world": ("worlds", None), "robot.planner": (None, planners)}
-    return [{"name": name, "description": described.get(name, ""), "catalog": catalog, "items": items} for name, (catalog, items) in sources.items()]
+    sources: dict[str, tuple[str | None, list[str] | None]] = {
+        "robot": ("robots", None),
+        "world": ("worlds", None),
+        "robot.planner": (None, planners),
+    }
+    return [
+        {
+            "name": name,
+            "description": described.get(name, ""),
+            "catalog": catalog,
+            "items": items,
+        }
+        for name, (catalog, items) in sources.items()
+    ]
 
 
 def _launch_args_of_env() -> list[dict[str, str]]:
     """The arguments env.launch.py declares, with the task mode selectors."""
-    from arena_rclpy_mixins.launch_argument import UnreadableLaunchFile, declared_arguments
+    from arena_rclpy_mixins.launch_argument import (
+        UnreadableLaunchFile,
+        declared_arguments,
+    )
     from arena_runtime.env.task_layer import TM_AXES, mode_param, mode_param_description
 
     found: dict[str, str] = {mode_param(axis): mode_param_description(axis) for axis in TM_AXES}
@@ -677,7 +860,10 @@ def _launch_args_of_env() -> list[dict[str, str]]:
 def _sims() -> list[str]:
     from arena_bringup.defaults import available_sims, installed_features
 
-    return [*available_sims(installed_features(os.environ.get("INSTALLED", ""))), "dummy"]
+    return [
+        *available_sims(installed_features(os.environ.get("INSTALLED", ""))),
+        "dummy",
+    ]
 
 
 async def _episode(env_id: int) -> dict[str, typing.Any]:

@@ -4,7 +4,6 @@ import os
 import pathlib
 import sys
 
-from arena_evaluation.presentation.report_builder import ReportBuilder
 from arena_evaluation.processing.pipeline import ProcessingPipeline
 from arena_evaluation.storage.data_root import latest_benchmark
 from arena_evaluation.storage.folder_manager import FolderManager
@@ -69,7 +68,28 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def _main_impl() -> int | None:
+def _validate_config(path: pathlib.Path, kind: str) -> tuple[str, tuple[str, ...]]:
+    """Parse one suite or contest bundle; return its name and the suite stages without an explicit seed."""
+    import yaml
+
+    from arena_evaluation.benchmark.config import Contest, Suite
+
+    config_path = path / f"{kind}.yaml" if path.is_dir() else path
+    if not config_path.is_file():
+        raise ValueError(f"{path}: no {kind}.yaml")
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    name = config_path.parent.name if config_path.name == f"{kind}.yaml" else config_path.stem
+    if kind == "contest":
+        return Contest.parse(name, data).name, ()
+    if not isinstance(data, dict) or not isinstance(data.get("stages"), list):
+        raise ValueError(f"{config_path}: a suite needs a mapping with a stages list")
+    if not all(isinstance(stage, dict) for stage in data["stages"]):
+        raise ValueError(f"{config_path}: every suite stage must be a mapping")
+    suite = Suite.parse(name, data)
+    return suite.name, tuple(stage.name for stage in suite.stages if stage.seed is None)
+
+
+def _main_impl(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(
         description="Arena Evaluation Pipeline CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -89,6 +109,12 @@ Examples:
 
   # With no input dir, operate on the most recent benchmark under $ARENA_DATA_DIR/benchmarks:
   evaluation run
+
+  # Migrate a run recorded before the native layout, one episode folder at a time:
+  evaluation migrate /opt/arena_ws/data/benchmarks/my_benchmark
+
+  # Check a suite or contest definition without running it:
+  evaluation validate --suite configs/suites/basic
 """,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -108,18 +134,13 @@ Examples:
         type=pathlib.Path,
         nargs="+",
         metavar="DIR",
-        help="Path to one or more episode directories (episode_NNN with episode_NNN.yaml and the MCAP). process and extract handle each alone, report and plot merge their metrics.parquet",
+        help="Path to one or more episode directories (episode_NNN with episode_NNN.yaml and the MCAP). process and extract handle each alone, report and plot merge their Star Schema tables",
     )
     run_parent.add_argument(
         "--output-dir",
         type=pathlib.Path,
         metavar="DIR",
         help="Optional path to output directory for reports and plots. Defaults to the first input directory.",
-    )
-    run_parent.add_argument(
-        "--generate-gifs",
-        action="store_true",
-        help="Generate animated GIFs for trajectories (computationally intensive).",
     )
     run_parent.add_argument(
         "--profile",
@@ -137,39 +158,61 @@ Examples:
         type=str,
         default=None,
         metavar="NAME|PATH|{...}",
-        help="Report manifest: a name from configs/benchmark/manifests/, a path to a YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
+        help="Report manifest: a name from configs/reports/, a path to a YAML file, or inline {...} YAML. Used by run/report/plot; ignored otherwise.",
     )
     run_parent.add_argument(
         "--list-manifests",
         action="store_true",
         help="List the available named report manifests and exit.",
     )
-    run_parent.set_defaults(force_extract=False)
+    run_parent.add_argument(
+        "--export",
+        action="append",
+        choices=("svg", "pdf", "latex"),
+        default=None,
+        help=("Also export every approved plot as SVG or PDF, and/or the approved tables and figures as LaTeX. Repeatable."),
+    )
+    run_parent.add_argument(
+        "--generate-gifs",
+        action="store_true",
+        help=("Render each trajectory or animation plot's GIF side artefact during the report build."),
+    )
+    run_parent.set_defaults(force_extract=False, force_process=False)
 
     subparsers.add_parser(
         "extract",
         parents=[run_parent],
-        help="Layer 3: Extract topics from MCAP into fast Parquet files (cache).",
+        help="Layer 1: Extract topics from MCAP into fast Parquet files (cache).",
     )
-    subparsers.add_parser(
+    run_parser = subparsers.add_parser(
         "run",
         parents=[run_parent],
-        help="Full pipeline: Extract MCAP (overwrite) -> Process -> Parquet -> HTML report.",
+        help="Full pipeline: Extract MCAP (cached by default) -> Process -> Parquet -> HTML report.",
+    )
+    run_parser.add_argument(
+        "--force-extract",
+        action="store_true",
+        help="Force re-extraction of MCAP files, overwriting the topic cache and any migration backfill in it.",
     )
     process_parser = subparsers.add_parser(
         "process",
         parents=[run_parent],
-        help="Layer 3: Compute metrics and write metrics.parquet (uses cached extraction by default).",
+        help="Layer 2: Compute metrics and write the Star Schema tables (uses cached extraction by default).",
     )
     process_parser.add_argument(
         "--force-extract",
         action="store_true",
         help="Force re-extraction of MCAP files, overwriting the topic cache.",
     )
+    process_parser.add_argument(
+        "--force-process",
+        action="store_true",
+        help="Recompute a run whose Star Schema tables already carry the current layout stamp.",
+    )
     subparsers.add_parser(
         "report",
         parents=[run_parent],
-        help="Layer 5: Generate an interactive HTML report from existing metrics.parquet.",
+        help="Layer 5: Generate an interactive HTML report from the existing Star Schema tables.",
     )
     subparsers.add_parser(
         "plot",
@@ -177,11 +220,55 @@ Examples:
         help="Layer 5: Generate static PNG plots only (no HTML report).",
     )
 
-    from arena_evaluation.cli_acoustic import setup_acoustic_subparsers
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Convert a run recorded before the native layout (old metadata and MCAP) to the current layout, in place.",
+    )
+    migrate_parser.add_argument(
+        "run_dir",
+        type=pathlib.Path,
+        help="Run directory, or one episode folder, to migrate. A run directory is migrated episode by episode.",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what the migration would map without writing any metadata or table.",
+    )
+    migrate_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract and rewrite an episode even when its topics and metadata are already current.",
+    )
+    migrate_parser.add_argument(
+        "--report",
+        type=pathlib.Path,
+        metavar="PATH",
+        help="Where to write migration_report.yaml (default: <run>/migration_report.yaml).",
+    )
 
-    setup_acoustic_subparsers(subparsers)
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Check a suite or contest definition without running it.",
+    )
+    validate_group = validate_parser.add_mutually_exclusive_group(required=True)
+    validate_group.add_argument(
+        "--suite",
+        type=pathlib.Path,
+        metavar="FILE",
+        help="Suite bundle directory or suite.yaml to validate.",
+    )
+    validate_group.add_argument(
+        "--contest",
+        type=pathlib.Path,
+        metavar="FILE",
+        help="Contest bundle directory or contest.yaml to validate.",
+    )
 
-    args = parser.parse_args()
+    from arena_evaluation.cli_acoustic import add_acoustic_commands
+
+    add_acoustic_commands(subparsers)
+
+    args = parser.parse_args(argv)
 
     if args.list_manifests:
         from arena_evaluation.presentation.manifest_registry import available_manifests
@@ -193,11 +280,51 @@ Examples:
 
     args = resolve_paths(args)
 
+    if args.command == "validate":
+        kind = "suite" if args.suite is not None else "contest"
+        config_path = args.suite if args.suite is not None else args.contest
+        try:
+            name, seedless = _validate_config(config_path, kind)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        if seedless:
+            print(
+                f"warning: {len(seedless)} stage(s) without an explicit seed: {', '.join(seedless)}",
+                file=sys.stderr,
+            )
+        print(f"valid {kind}: {name}")
+        return 0
+
+    if args.command == "migrate":
+        from arena_evaluation.ingestion.migrate import (
+            MigrationError,
+            migrate_benchmark,
+        )
+
+        try:
+            report = migrate_benchmark(
+                args.run_dir,
+                dry_run=args.dry_run,
+                force=args.force,
+                report_path=args.report,
+            )
+        except MigrationError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        if report.failures:
+            print(f"Error: {report.failure_message()}", file=sys.stderr)
+            return 1
+        migrated = sum(1 for episode in report.episodes if episode.migrated)
+        verb = "Would migrate" if args.dry_run else "Migrated"
+        print(f"{verb} {migrated} episode folder(s) to the native layout")
+        return 0
+
     # acoustic subcommand handler
     if args.command == "acoustic":
-        from arena_evaluation.cli_acoustic import _handle_acoustic
+        from arena_evaluation.cli_acoustic import handle_acoustic
 
-        _handle_acoustic(args)
+        handle_acoustic(args)
         return 0
 
     if args.benchmark_dir is None and args.run_dir is None:
@@ -228,8 +355,6 @@ Examples:
     failed: list[pathlib.Path] = []
     if args.command in ("extract", "run", "process"):
         force_extract = args.force_extract
-        if args.command == "run":
-            force_extract = True
 
         if args.run_dir:
             for run_dir in args.run_dir:
@@ -241,9 +366,13 @@ Examples:
                     pipeline.extract_run_dir(run_dir)
                 else:
                     print(f"Processing single run: {run_dir}")
-                    out = pipeline.process_run_dir(run_dir, force_extract=force_extract)
+                    out = pipeline.process_run_dir(
+                        run_dir,
+                        force_extract=force_extract,
+                        force_process=args.force_process,
+                    )
                     if out:
-                        print(f"Metrics written to: {out}")
+                        print(f"Star Schema tables written to: {out}")
                     else:
                         print(f"Processing failed for {run_dir} - see errors above.")
                         failed.append(run_dir)
@@ -258,8 +387,15 @@ Examples:
                     pipeline.extract_benchmark(benchmark_dir.name)
                 else:
                     print(f"Processing benchmark: {benchmark_dir.name}")
-                    if pipeline.process_benchmark(benchmark_dir.name, force_extract=force_extract) is None:
-                        print(f"Processing failed for {benchmark_dir} - no combined metrics written.")
+                    if (
+                        pipeline.process_benchmark(
+                            benchmark_dir.name,
+                            force_extract=force_extract,
+                            force_process=args.force_process,
+                        )
+                        is None
+                    ):
+                        print(f"Processing failed for {benchmark_dir} - no Star Schema tables written.")
                         failed.append(benchmark_dir)
 
     if args.command in ("run", "report", "plot"):
@@ -268,20 +404,25 @@ Examples:
             output_dir = target_dirs[0]
 
         from arena_evaluation.presentation.manifest_registry import resolve_manifest
+        from arena_evaluation.presentation.report_builder import ReportBuilder
 
         manifest_obj = resolve_manifest(args.report_manifest, benchmark_dir=target_dirs[0])
 
         print(f"Building report/plots from {len(target_dirs)} sources into: {output_dir}")
-        generate_gifs = args.generate_gifs
         _ctx = profiler.phase("report") if profiler else contextlib.nullcontext()
         with _ctx:
+            requested_exports = tuple(args.export or ())
             builder = ReportBuilder.from_dirs(
                 target_dirs,
                 output_dir=output_dir,
                 manifest=manifest_obj,
-                generate_gifs=generate_gifs,
+                generate_gifs=args.generate_gifs,
+                vector_formats=tuple(name for name in requested_exports if name in ("svg", "pdf")),
             )
             builder.build()
+            if "latex" in requested_exports:
+                latex = builder.export_latex(builder.output_dir / "report.tex")
+                print(f"Exported {len(latex.tables)} table(s) and {len(latex.figures)} figure(s) to {latex.path}")
         print("Report generation complete.")
 
     if profiler is not None:

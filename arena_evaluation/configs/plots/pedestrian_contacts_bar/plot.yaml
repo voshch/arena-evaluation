@@ -1,0 +1,19 @@
+id: pedestrian_contacts_bar
+type: bar
+title: Pedestrian Contacts by Local Planner and World
+layout_group: safety
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - contact_count_pedestrian
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

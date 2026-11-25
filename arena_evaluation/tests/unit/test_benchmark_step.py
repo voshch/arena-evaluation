@@ -1,8 +1,4 @@
-"""Tests for the benchmark grid model: Step keys, StepErrorKind, StepResult.
-
-Covers :mod:`arena_evaluation.benchmark.step`. Contestants and stages are
-represented by lightweight stand-ins (only ``.name`` is ever read).
-"""
+"""Tests for the benchmark grid model: Step keys, StepErrorKind, StepResult."""
 
 from __future__ import annotations
 
@@ -14,9 +10,7 @@ import pytest
 from arena_evaluation.benchmark.step import Step, StepErrorKind, StepResult
 
 
-# ---------------------------------------------------------------------------
 # helpers
-# ---------------------------------------------------------------------------
 
 # Named tuple stand-ins: hashable and value-equal, unlike SimpleNamespace.
 _Name = collections.namedtuple("_Name", ["name"])
@@ -30,65 +24,10 @@ def _stage(name: str) -> _Name:
     return _Name(name)
 
 
-# ---------------------------------------------------------------------------
 # Step.key
-# ---------------------------------------------------------------------------
 
 
-def test_step_key_plain():
-    step = Step(contestant=_contestant("planner_a"), stage=_stage("stage_one"))
-    assert step.key == "planner_a/stage_one"
-
-
-def test_step_key_uses_names_not_objects():
-    step = Step(contestant=_contestant("teb"), stage=_stage("indoor_10"), episodes=5)
-    assert step.key == "teb/indoor_10"
-
-
-def test_step_key_reference_type_matches_name_suffix():
-    """Reference whose type is a suffix of the contestant name keeps the plain key."""
-    step = Step(
-        contestant=_contestant("dwb"),
-        stage=_stage("s1"),
-        is_reference=True,
-        reference_type="dwb",
-    )
-    assert step.key == "dwb/s1"
-
-
-def test_step_key_reference_type_not_suffix():
-    step = Step(
-        contestant=_contestant("dwb"),
-        stage=_stage("s1"),
-        is_reference=True,
-        reference_type="unobstructed_robot",
-    )
-    assert step.key == "dwb_unobstructed_robot/s1"
-
-
-def test_step_key_reference_without_type_falls_back_to_plain():
-    step = Step(
-        contestant=_contestant("peds"),
-        stage=_stage("s1"),
-        is_reference=True,
-        reference_type=None,
-    )
-    assert step.key == "peds/s1"
-
-
-def test_step_key_type_without_reference_flag_ignored():
-    step = Step(
-        contestant=_contestant("teb"),
-        stage=_stage("s1"),
-        is_reference=False,
-        reference_type="unobstructed_robot",
-    )
-    assert step.key == "teb/s1"
-
-
-# ---------------------------------------------------------------------------
 # Step defaults / immutability
-# ---------------------------------------------------------------------------
 
 
 def test_step_defaults():
@@ -114,9 +53,7 @@ def test_step_equality_and_hash():
     assert a != c
 
 
-# ---------------------------------------------------------------------------
 # StepErrorKind
-# ---------------------------------------------------------------------------
 
 
 def test_step_error_kind_members_and_values():
@@ -144,9 +81,7 @@ def test_step_error_kind_invalid_raises():
         StepErrorKind("not_a_kind")
 
 
-# ---------------------------------------------------------------------------
 # StepResult
-# ---------------------------------------------------------------------------
 
 
 def test_step_result_defaults():

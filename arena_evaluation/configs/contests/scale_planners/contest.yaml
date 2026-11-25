@@ -1,0 +1,123 @@
+# Larger benchmark planners: five nav2 local planners crossed with four inter-planners. The social cost layer is on for every robot, so no robot is blind.
+name: scale_planners
+contestants:
+- name: dwb-navigate_to_pose_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: dwb-navigate_w_replanning_time
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_w_replanning_time
+    params_overlay: social_cost_layer
+- name: dwb-navigate_w_replanning_distance
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_w_replanning_distance
+    params_overlay: social_cost_layer
+- name: dwb-navigate_through_poses_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: dwb
+    inter_planner: navigate_through_poses_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: graceful-navigate_to_pose_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: graceful-navigate_w_replanning_time
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_w_replanning_time
+    params_overlay: social_cost_layer
+- name: graceful-navigate_w_replanning_distance
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_w_replanning_distance
+    params_overlay: social_cost_layer
+- name: graceful-navigate_through_poses_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: graceful
+    inter_planner: navigate_through_poses_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: mppi-navigate_to_pose_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: mppi-navigate_w_replanning_time
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_w_replanning_time
+    params_overlay: social_cost_layer
+- name: mppi-navigate_w_replanning_distance
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_w_replanning_distance
+    params_overlay: social_cost_layer
+- name: mppi-navigate_through_poses_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: mppi
+    inter_planner: navigate_through_poses_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: regulated_pure_pursuit-navigate_to_pose_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: regulated_pure_pursuit
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: regulated_pure_pursuit-navigate_w_replanning_time
+  mobile:
+    driver: nav2
+    local_planner: regulated_pure_pursuit
+    inter_planner: navigate_w_replanning_time
+    params_overlay: social_cost_layer
+- name: regulated_pure_pursuit-navigate_w_replanning_distance
+  mobile:
+    driver: nav2
+    local_planner: regulated_pure_pursuit
+    inter_planner: navigate_w_replanning_distance
+    params_overlay: social_cost_layer
+- name: regulated_pure_pursuit-navigate_through_poses_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: regulated_pure_pursuit
+    inter_planner: navigate_through_poses_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: hateb-navigate_to_pose_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: hateb
+    inter_planner: navigate_to_pose_w_replanning_and_recovery
+    params_overlay: social_cost_layer
+- name: hateb-navigate_w_replanning_time
+  mobile:
+    driver: nav2
+    local_planner: hateb
+    inter_planner: navigate_w_replanning_time
+    params_overlay: social_cost_layer
+- name: hateb-navigate_w_replanning_distance
+  mobile:
+    driver: nav2
+    local_planner: hateb
+    inter_planner: navigate_w_replanning_distance
+    params_overlay: social_cost_layer
+- name: hateb-navigate_through_poses_w_replanning_and_recovery
+  mobile:
+    driver: nav2
+    local_planner: hateb
+    inter_planner: navigate_through_poses_w_replanning_and_recovery
+    params_overlay: social_cost_layer

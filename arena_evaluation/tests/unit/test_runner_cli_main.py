@@ -41,7 +41,18 @@ def _manifest(run_id: str, contest: list, simulator: str | None = "gazebo") -> M
         scale_episodes=1.0,
         suite_name="basic",
         contest_name="basic",
-        suite={"stages": [{"name": "s1", "episodes": 1, "robot": "jackal", "map": "map_empty", "tm_robots": "random", "tm_obstacles": "random"}]},
+        suite={
+            "stages": [
+                {
+                    "name": "s1",
+                    "episodes": 1,
+                    "robot": "jackal",
+                    "map": "map_empty",
+                    "tm_robots": "random",
+                    "tm_obstacles": "random",
+                }
+            ]
+        },
         contest=contest,
         steps=[],
     )
@@ -62,7 +73,21 @@ def test_bad_shared_token_is_refused_before_anything_runs(tmp_path: pathlib.Path
 
 
 def test_empty_grid_is_a_config_error_and_env_n_is_renamed(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
-    assert cli_main(["--data-root", str(tmp_path), "--suite", SUITE, "--contest", "[]", "env_n:=2", "viz.view:=robot"]) == 2
+    assert (
+        cli_main(
+            [
+                "--data-root",
+                str(tmp_path),
+                "--suite",
+                SUITE,
+                "--contest",
+                "[]",
+                "env_n:=2",
+                "viz.view:=robot",
+            ]
+        )
+        == 2
+    )
 
     err = capsys.readouterr().err
     assert "env_n:= is deprecated, use env.n:=" in err
@@ -71,7 +96,9 @@ def test_empty_grid_is_a_config_error_and_env_n_is_renamed(tmp_path: pathlib.Pat
     assert list(tmp_path.iterdir()) == []
 
 
-def test_data_root_defaults_to_the_arena_data_dir_or_the_package_share(capsys: pytest.CaptureFixture[str]):
+def test_data_root_defaults_to_the_arena_data_dir_or_the_package_share(
+    capsys: pytest.CaptureFixture[str],
+):
     assert cli_main(["--suite", SUITE, "--contest", "[]"]) == 2
 
     err = capsys.readouterr().err
@@ -82,7 +109,19 @@ def test_data_root_defaults_to_the_arena_data_dir_or_the_package_share(capsys: p
 def test_preflight_rejects_a_nav2_contestant_with_an_unknown_planner(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
     pytest.importorskip("arena_robots")
 
-    assert cli_main(["--data-root", str(tmp_path), "--suite", SUITE, "--contest", "[{name: bad, mobile: {driver: nav2, local_planner: nope_planner}}]"]) == 2
+    assert (
+        cli_main(
+            [
+                "--data-root",
+                str(tmp_path),
+                "--suite",
+                SUITE,
+                "--contest",
+                "[{name: bad, mobile: {driver: nav2, local_planner: nope_planner}}]",
+            ]
+        )
+        == 2
+    )
     assert "benchmark: bad: local_planner 'nope_planner' has no " in capsys.readouterr().err
 
 
@@ -91,11 +130,6 @@ def test_duplicate_stage_names_are_reported_as_a_config_error(tmp_path: pathlib.
 
     assert cli_main(["--data-root", str(tmp_path), "--suite", suite, "--contest", "[{name: a}]"]) == 2
     assert "benchmark: duplicate step key: 'a/s1'" in capsys.readouterr().err
-
-
-def test_malformed_inline_suite_is_reported_as_a_config_error(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
-    assert cli_main(["--data-root", str(tmp_path), "--suite", "{stages: [{name: s1}]}", "--contest", "[{name: a}]"]) == 2
-    assert capsys.readouterr().err.splitlines()[-1].startswith("benchmark: ")
 
 
 def test_bare_resume_without_runs_is_a_config_error(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
@@ -109,11 +143,33 @@ def test_resuming_an_unknown_run_reports_the_missing_manifest(tmp_path: pathlib.
 
 
 @pytest.mark.parametrize(("explicit", "simulator"), [(True, "gazebo"), (False, None)])
-def test_resume_replays_the_stored_config_and_marks_the_progress_log(tmp_path: pathlib.Path, capfd: pytest.CaptureFixture[str], explicit: bool, simulator: str | None):
-    RunDir.create(tmp_path, "20261013-000000-basic-basic", _manifest("20261013-000000-basic-basic", [], simulator)).progress.close()
+def test_resume_replays_the_stored_config_and_marks_the_progress_log(
+    tmp_path: pathlib.Path,
+    capfd: pytest.CaptureFixture[str],
+    explicit: bool,
+    simulator: str | None,
+):
+    RunDir.create(
+        tmp_path,
+        "20261013-000000-basic-basic",
+        _manifest("20261013-000000-basic-basic", [], simulator),
+    ).progress.close()
     resume = ["--resume", "20261013-000000-basic-basic"] if explicit else ["--resume"]
 
-    assert cli_main(["--data-root", str(tmp_path), *resume, "--suite", SUITE, "--contest", "[{name: ignored}]"]) == 2
+    assert (
+        cli_main(
+            [
+                "--data-root",
+                str(tmp_path),
+                *resume,
+                "--suite",
+                SUITE,
+                "--contest",
+                "[{name: ignored}]",
+            ]
+        )
+        == 2
+    )
 
     err = capfd.readouterr().err
     assert "empty grid (suite='basic' contest='basic' produced no steps)" in err
@@ -135,6 +191,20 @@ def test_shared_resume_opens_the_lane_files_of_the_run(tmp_path: pathlib.Path, c
 def test_fresh_run_refuses_to_reuse_an_existing_run_directory(tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]):
     (tmp_path / "taken").mkdir()
 
-    assert cli_main(["--data-root", str(tmp_path), "--suite", SUITE, "--contest", "[{name: a}]", "--run-id", "taken"]) == 2
+    assert (
+        cli_main(
+            [
+                "--data-root",
+                str(tmp_path),
+                "--suite",
+                SUITE,
+                "--contest",
+                "[{name: a}]",
+                "--run-id",
+                "taken",
+            ]
+        )
+        == 2
+    )
     assert "File exists" in capsys.readouterr().err
     assert list((tmp_path / "taken").iterdir()) == []

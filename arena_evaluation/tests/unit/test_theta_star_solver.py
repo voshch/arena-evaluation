@@ -1,15 +1,55 @@
-import math
+import pathlib
+import subprocess
 
 import numpy as np
 import pytest
 
 from arena_evaluation.processing.path import theta_star
 from arena_evaluation.processing.path.theta_star import (
-    GeometricThetaStar,
+    StaticGrid,
     _line_of_sight,
-    compute_theta_star_for_episode,
-    load_map_solver,
+    plan_route,
 )
+from arena_evaluation.storage.exceptions import MetricInputError
+
+PACKAGE_ROOT = pathlib.Path(theta_star.__file__).resolve().parents[3]
+SOLVER_SOURCE = PACKAGE_ROOT / "arena_evaluation/processing/path/solver.cpp"
+ENV_SO_VAR = "ARENA_THETA_STAR_SO"
+
+
+def _compile(tmp_path: pathlib.Path, name: str, body: str) -> pathlib.Path:
+    """Compile a stand-in solver library from `body`."""
+    source = tmp_path / f"{name}.cpp"
+    source.write_text(body, encoding="utf-8")
+    library = tmp_path / f"{name}.so"
+    subprocess.run(
+        [
+            "g++",
+            "-O3",
+            "-fPIC",
+            "-shared",
+            "-std=c++17",
+            str(source),
+            "-o",
+            str(library),
+        ],
+        check=True,
+    )
+    return library
+
+
+def _use_library(monkeypatch: pytest.MonkeyPatch, path: pathlib.Path) -> None:
+    """Point the loader at `path` and forget the previously loaded library."""
+    monkeypatch.setenv(ENV_SO_VAR, str(path))
+    theta_star._solver_library.cache_clear()
+
+
+def _open(size: int = 40, resolution: float = 0.1, origin: tuple[float, float] = (0.0, 0.0)) -> StaticGrid:
+    return StaticGrid(
+        origin_xy=origin,
+        resolution_m=resolution,
+        lethal=np.zeros((size, size), dtype=bool),
+    )
 
 
 def test_line_of_sight_leaving_the_grid_is_blocked():
@@ -18,142 +58,99 @@ def test_line_of_sight_leaving_the_grid_is_blocked():
     assert _line_of_sight(grid, 0, 0, 7, 0) is False
 
 
-@pytest.mark.parametrize("blocked", [(0, 1), (1, 0)])
-def test_line_of_sight_diagonal_step_refuses_to_cut_an_occupied_corner(blocked: tuple[int, int]):
-    grid = np.zeros((3, 3), dtype=bool)
-    grid[blocked] = True
+def test_cell_of_floors_each_point_into_its_cell_and_rejects_points_outside():
+    grid = _open(size=10, resolution=0.5, origin=(-1.0, 2.0))
 
-    assert _line_of_sight(grid, 0, 0, 1, 1) is False
-
-
-@pytest.mark.parametrize(("start", "end"), [((0, 0), (2, 2)), ((2, 2), (0, 0)), ((0, 0), (1, 3)), ((3, 1), (0, 0))])
-def test_line_of_sight_through_free_cells_in_every_direction(start: tuple[int, int], end: tuple[int, int]):
-    grid = np.zeros((4, 4), dtype=bool)
-
-    assert _line_of_sight(grid, *start, *end) is True
+    assert grid.cell_of(-1.0, 2.0) == (0, 0)
+    assert grid.cell_of(0.2, 3.3) == (2, 2)
+    assert grid.cell_of(4.0, 2.0) is None
+    assert grid.cell_of(float("inf"), 2.0) is None
 
 
-def test_line_of_sight_stops_at_an_obstacle_on_the_line():
-    grid = np.zeros((5, 5), dtype=bool)
-    grid[0, 2] = True
-
-    assert _line_of_sight(grid, 0, 0, 4, 0) is False
-
-
-def test_integer_grid_treats_occupied_and_unknown_cells_as_obstacles():
-    grid = np.array([[0, 100, -1], [50, 51, 0]], dtype=np.int16)
-
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    assert solver.dilated_grid.tolist() == [[False, True, True], [False, True, False]]
-    assert (solver.width, solver.height) == (3, 2)
-
-
-def test_float_grid_thresholds_at_one_half():
-    grid = np.array([[0.2, 0.5, 0.9]])
-
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    assert solver.dilated_grid.tolist() == [[False, False, True]]
+def test_missing_search_library_raises_metric_input_error_with_the_path_and_the_build(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
+    missing_library = tmp_path / "solver.so"
+    monkeypatch.setenv(ENV_SO_VAR, str(missing_library))
+    grid = _open()
+    grid.lethal[0:30, 20] = True
+    theta_star._solver_library.cache_clear()
+    try:
+        with pytest.raises(MetricInputError) as raised:
+            plan_route(grid, (1.0, 1.0), (3.0, 1.0))
+    finally:
+        theta_star._solver_library.cache_clear()
+    assert str(missing_library) in str(raised.value)
+    assert ENV_SO_VAR in str(raised.value)
+    assert "arena build" in str(raised.value)
+    assert "cmake" in str(raised.value)
+    assert not missing_library.exists()
 
 
-def test_non_positive_resolution_falls_back_to_five_centimeters():
-    solver = GeometricThetaStar(np.zeros((2, 2), dtype=bool), resolution=0.0, robot_radius=0.0)
-
-    assert solver.resolution == pytest.approx(0.05)
-
-
-def test_robot_radius_inflates_obstacles_by_a_disk():
-    grid = np.zeros((7, 7), dtype=bool)
-    grid[3, 3] = True
-
-    solver = GeometricThetaStar(grid, resolution=0.05, robot_radius=0.1)
-
-    assert int(solver.dilated_grid.sum()) == 13
-    assert solver.dilated_grid[3, 1] and solver.dilated_grid[1, 3]
-    assert not solver.dilated_grid[1, 1]
+def test_the_default_library_sits_next_to_the_module():
+    """Without an override the loader looks where the CMake build writes."""
+    assert theta_star._SOLVER_LIBRARY == (pathlib.Path(theta_star.__file__).resolve().parent / "solver.so")
 
 
-def test_obstacle_grid_clears_the_window_around_each_cell_clipped_to_the_map():
-    solver = GeometricThetaStar(np.ones((6, 6), dtype=bool), resolution=0.1, robot_radius=0.0)
-
-    cleared = solver.obstacle_grid((0, 0), (5, 5))
-
-    assert int((~cleared).sum()) == 18
-    assert not cleared[2, 2] and not cleared[3, 3]
-    assert cleared[0, 5] and cleared[5, 0]
-    assert solver.dilated_grid.all()
+def test_the_solver_source_declares_the_wrappers_abi():
+    """The C++ ABI constant and the Python one cannot drift apart."""
+    source = SOLVER_SOURCE.read_text(encoding="utf-8")
+    assert f"#define ARENA_THETA_STAR_SOLVER_ABI {theta_star.THETA_STAR_SOLVER_ABI}" in source
+    assert theta_star.THETA_STAR_SOLVER_ABI_SYMBOL in source
 
 
-def test_world_and_grid_coordinates_round_trip_through_origin_and_resolution():
-    solver = GeometricThetaStar(np.zeros((10, 10), dtype=bool), resolution=0.5, origin=(-1.0, 2.0), robot_radius=0.0)
-
-    assert solver.world_to_grid(0.0, 3.0) == (2, 2)
-    assert solver.world_to_grid(0.2, 3.3) == (2, 3)
-    assert solver.grid_to_world(2, 2) == (0.0, 3.0)
-
-
-def test_out_of_map_endpoints_return_the_straight_segment_and_cache_it():
-    solver = GeometricThetaStar(np.zeros((10, 10), dtype=bool), resolution=0.1, robot_radius=0.0)
-
-    pts, length = solver.solve((-3.0, 0.0), (0.0, 4.0), map_id="theta_test_out_of_map")
-    again = solver.solve((-3.0, 0.0), (0.0, 4.0), map_id="theta_test_out_of_map")
-
-    assert pts.tolist() == [[-3.0, 0.0], [0.0, 4.0]]
-    assert length == pytest.approx(5.0)
-    assert again[0] is pts
+def test_a_library_without_the_abi_symbol_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    """A library from before the ABI (the old import-time g++ build) raises instead of binding."""
+    stale = _compile(
+        tmp_path,
+        "stale",
+        'extern "C" void solve_geometric_theta_star() {}\n',
+    )
+    _use_library(monkeypatch, stale)
+    try:
+        with pytest.raises(MetricInputError, match=theta_star.THETA_STAR_SOLVER_ABI_SYMBOL):
+            theta_star._solver_library()
+    finally:
+        theta_star._solver_library.cache_clear()
 
 
-def test_unreachable_goal_falls_back_to_the_euclidean_segment():
-    grid = np.zeros((30, 30), dtype=bool)
-    grid[16:25, 16] = True
-    grid[16:25, 24] = True
-    grid[16, 16:25] = True
-    grid[24, 16:25] = True
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    pts, length = solver.solve((0.5, 0.5), (2.0, 2.0), map_id="theta_test_walled_goal")
-
-    assert pts.tolist() == [[0.5, 0.5], [2.0, 2.0]]
-    assert length == pytest.approx(math.hypot(1.5, 1.5))
-
-
-def test_detour_around_a_wall_is_longer_than_the_line_and_keeps_exact_endpoints():
-    grid = np.zeros((40, 40), dtype=bool)
-    grid[0:30, 20] = True
-    solver = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    pts, length = solver.solve((1.03, 1.0), (3.07, 1.0), map_id="theta_test_wall_detour")
-
-    assert pts[0].tolist() == [1.03, 1.0]
-    assert pts[-1].tolist() == [3.07, 1.0]
-    assert len(pts) >= 3
-    assert pts[:, 1].max() >= 3.0
-    assert length > 2 * math.hypot(1.0, 2.0) - 0.2
+def test_a_library_with_another_abi_version_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    """A library built from a different search does not plan under this ABI."""
+    foreign = _compile(
+        tmp_path,
+        "foreign",
+        'extern "C" int arena_theta_star_solver_abi(void) { return 999; }\nextern "C" void solve_geometric_theta_star() {}\n',
+    )
+    _use_library(monkeypatch, foreign)
+    try:
+        with pytest.raises(MetricInputError, match="ABI 999"):
+            theta_star._solver_library()
+    finally:
+        theta_star._solver_library.cache_clear()
 
 
-@pytest.mark.parametrize("name", ["", "unknown"])
-def test_unnamed_maps_have_no_solver(name: str):
-    assert load_map_solver(name) is None
+def test_a_library_missing_the_search_symbol_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    """An ABI match without the search symbol is still not loadable."""
+    partial = _compile(
+        tmp_path,
+        "partial",
+        'extern "C" int arena_theta_star_solver_abi(void) { return 1; }\n',
+    )
+    _use_library(monkeypatch, partial)
+    try:
+        with pytest.raises(MetricInputError, match=theta_star.THETA_STAR_SOLVER_SYMBOL):
+            theta_star._solver_library()
+    finally:
+        theta_star._solver_library.cache_clear()
 
 
-def test_episode_path_without_a_map_is_the_euclidean_segment():
-    res = compute_theta_star_for_episode("unknown", (1.0, 1.0), (4.0, 5.0))
-
-    assert res.success is True
-    assert res.geodesic_length == pytest.approx(5.0)
-    assert res.path_x.tolist() == [1.0, 4.0]
-    assert res.path_y.tolist() == [1.0, 5.0]
-
-
-def test_episode_path_reuses_the_cached_map_solver():
-    grid = np.zeros((40, 40), dtype=bool)
-    grid[0:30, 20] = True
-    theta_star._solver_instances["theta_test_cached_map_0.0"] = GeometricThetaStar(grid, resolution=0.1, robot_radius=0.0)
-
-    res = compute_theta_star_for_episode("theta_test_cached_map", (1.0, 1.0), (3.0, 1.0), robot_radius=0.0)
-
-    assert load_map_solver("theta_test_cached_map", robot_radius=0.0) is theta_star._solver_instances["theta_test_cached_map_0.0"]
-    assert res.success is True
-    assert len(res.path_points) >= 3
-    assert res.geodesic_length > 2.0
+def test_a_library_that_cannot_be_loaded_names_the_build_step(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    """A file that is not a shared library raises the hinted error instead of a bare OSError."""
+    broken = tmp_path / "broken.so"
+    broken.write_text("not a shared library\n", encoding="utf-8")
+    _use_library(monkeypatch, broken)
+    try:
+        with pytest.raises(MetricInputError) as raised:
+            theta_star._solver_library()
+    finally:
+        theta_star._solver_library.cache_clear()
+    assert "arena build" in str(raised.value)
+    assert ENV_SO_VAR in str(raised.value)

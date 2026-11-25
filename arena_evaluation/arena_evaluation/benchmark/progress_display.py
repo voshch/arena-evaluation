@@ -84,7 +84,13 @@ class BenchmarkProgressDisplay:
                 }
                 for index, info in sorted(self.active_slots.items())
             ]
-            counts = {"completed": self.completed_steps, "ok": self.ok_steps, "failed": self.failed_steps, "partial": self.partial_steps, "skipped": self.skipped_steps}
+            counts = {
+                "completed": self.completed_steps,
+                "ok": self.ok_steps,
+                "failed": self.failed_steps,
+                "partial": self.partial_steps,
+                "skipped": self.skipped_steps,
+            }
         return {
             "run_id": self.run_id,
             "lane": self.lane,
@@ -272,7 +278,6 @@ class BenchmarkProgressDisplay:
             ok = self.ok_steps
             failed = self.failed_steps
             partial = self.partial_steps
-            skipped = self.skipped_steps
             slots_snapshot = {k: dict(v) for k, v in self.active_slots.items()}
 
         table = Table.grid(padding=(0, 1))
@@ -289,9 +294,21 @@ class BenchmarkProgressDisplay:
 
         # Active Envs Table
         if slots_snapshot:
-            worker_table = Table(show_header=True, header_style="bold blue", box=None, padding=(0, 2), expand=False)
+            worker_table = Table(
+                show_header=True,
+                header_style="bold blue",
+                box=None,
+                padding=(0, 2),
+                expand=False,
+            )
             worker_table.add_column("Env", style="cyan", no_wrap=True)
-            worker_table.add_column("Contestant / Stage", style="white", no_wrap=True, overflow="ellipsis", max_width=60)
+            worker_table.add_column(
+                "Contestant / Stage",
+                style="white",
+                no_wrap=True,
+                overflow="ellipsis",
+                max_width=60,
+            )
             worker_table.add_column("State", style="yellow", no_wrap=True)
             worker_table.add_column("Episode", justify="right", style="magenta", no_wrap=True)
             worker_table.add_column("Sim / Wall", justify="right", style="green", no_wrap=True)

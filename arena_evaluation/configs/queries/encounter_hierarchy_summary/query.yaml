@@ -1,0 +1,19 @@
+name: encounter_hierarchy_summary
+title: "Encounter Hierarchy Summary"
+description: "Encounter counts aggregated by world, local_planner, and approach_type for readable treemap/sunburst hierarchies"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+sql: |
+  SELECT
+      world,
+      local_planner,
+      approach_type,
+      SUM(encounter_count) AS encounter_count,
+      SUM(contact_encounters) AS contact_encounters
+  FROM v_encounter_summary
+  WHERE (:world = 'all' OR world = :world)
+  GROUP BY world, local_planner, approach_type
+  ORDER BY world, local_planner, approach_type

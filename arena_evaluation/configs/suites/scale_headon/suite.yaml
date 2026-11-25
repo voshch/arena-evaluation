@@ -1,0 +1,24 @@
+# Head-on concourse with pedestrians aware and blind: the same layout and seed in both stages. The robots' social cost layer is set in the contest.
+stages:
+- name: headon_aware
+  map: concourse_headon_aware
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 10
+  seed: 2026
+  timeout: 240s
+  config:
+    scenario:
+      file: default
+- name: headon_blind
+  map: concourse_headon_blind
+  robot: jackal
+  tm_robots: scenario
+  tm_obstacles: scenario
+  episodes: 10
+  seed: 2026
+  timeout: 240s
+  config:
+    scenario:
+      file: default

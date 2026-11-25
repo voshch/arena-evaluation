@@ -1,24 +1,29 @@
 from __future__ import annotations
 
+import os
 import pathlib
+from collections.abc import Callable, Mapping
 
 from ament_index_python.packages import get_package_share_directory
 
+from .data_root import benchmarks_root
 from .manifest import MetadataWriter
 from .schemas import EpisodeDescriptor
 
 
 class FolderManager:
-    """Manages directory paths within data_root for evaluation runs."""
+    """Paths of the benchmarks root, the directory whose children are the `benchmarks/<id>` runs."""
 
-    def __init__(self, data_root: pathlib.Path | None = None):
-        if data_root is None:
-            self.data_root = pathlib.Path(get_package_share_directory("arena_evaluation")) / "data"
-        else:
-            self.data_root = pathlib.Path(data_root).resolve()
-
-        if not self.data_root.exists():
-            self.data_root.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        data_root: pathlib.Path | str | None = None,
+        *,
+        environ: Mapping[str, str] = os.environ,
+        share_directory: Callable[[str], str] = get_package_share_directory,
+    ):
+        root = pathlib.Path(data_root) if data_root is not None else benchmarks_root(environ=environ, share_directory=share_directory)
+        self.data_root = root.resolve()
+        self.data_root.mkdir(parents=True, exist_ok=True)
 
     def _safe_resolve(self, target: pathlib.Path) -> pathlib.Path:
         """Resolve path and ensure it remains within data_root."""
@@ -29,16 +34,13 @@ class FolderManager:
             raise ValueError(f"Path {resolved} is outside data_root {self.data_root}") from None
         return resolved
 
+    def benchmark_dir(self, benchmark_id: str) -> pathlib.Path:
+        """Return the benchmark's directory under the benchmarks root."""
+        return self._safe_resolve(self.data_root / benchmark_id)
+
     def episodes_dir(self, benchmark_id: str) -> pathlib.Path:
-        """Return the episodes directory for a benchmark or run."""
-        for cand in [
-            self.data_root / benchmark_id / "episodes",
-            self.data_root / "runs" / benchmark_id / "episodes",
-            self.data_root / "benchmarks" / benchmark_id / "episodes",
-        ]:
-            if cand.exists():
-                return self._safe_resolve(cand)
-        return self._safe_resolve(self.data_root / benchmark_id / "episodes")
+        """Return the episodes directory of a benchmark."""
+        return self._safe_resolve(self.benchmark_dir(benchmark_id) / "episodes")
 
     def episode_dir(self, benchmark_id: str, episode_id: int) -> pathlib.Path:
         """Return the directory for a specific episode."""
@@ -73,10 +75,7 @@ class FolderManager:
         if not yaml_path.exists():
             return None
 
-        try:
-            meta = MetadataWriter.read(yaml_path)
-        except Exception:
-            return None
+        meta = MetadataWriter.read(yaml_path)
         return EpisodeDescriptor(
             episode_dir=str(ep_dir),
             benchmark_id=benchmark_id or meta.benchmark_id or ep_dir.parent.parent.name,
@@ -101,14 +100,3 @@ class FolderManager:
     def extracted_topics_path_for_episode(self, episode_dir: pathlib.Path) -> pathlib.Path:
         """Return topics directory for an episode."""
         return self._safe_resolve(episode_dir / "topics")
-
-    def combined_metrics_path(self, benchmark_id: str) -> pathlib.Path:
-        """Get path for combined benchmark metrics Parquet file."""
-        for cand in [
-            self.data_root / benchmark_id / "combined_metrics.parquet",
-            self.data_root / "runs" / benchmark_id / "combined_metrics.parquet",
-            self.data_root / "benchmarks" / benchmark_id / "combined_metrics.parquet",
-        ]:
-            if cand.parent.exists():
-                return self._safe_resolve(cand)
-        return self._safe_resolve(self.data_root / benchmark_id / "combined_metrics.parquet")

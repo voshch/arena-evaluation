@@ -183,7 +183,12 @@ class LockstepMonitor:
     def open(self, key: object, now: float, env: str = "") -> None:
         """env scopes the beat counts to channels whose topic lies under that namespace."""
         with self._lock:
-            w = _Window(active=self._active, channels=set(self._channels), env=env, base=self._counters)
+            w = _Window(
+                active=self._active,
+                channels=set(self._channels),
+                env=env,
+                base=self._counters,
+            )
             if self._waiting:
                 w.stalled_on |= self._waiting
                 w.stall_since = now
@@ -219,7 +224,18 @@ def format_table(header: typing.Sequence[str], table: typing.Sequence[typing.Seq
 
 def format_report(rows: typing.Sequence[tuple[str, str, LockstepSummary]]) -> str:
     """One line per (contestant, stage): verdict, stalls, longest stall, mean rtf, gated ticks, beats received/due, beat channels, stalled channels."""
-    header = ("contestant", "stage", "verdict", "stalls", "max_stall_s", "rtf", "ticks", "beats", "beat_channels", "stalled_on")
+    header = (
+        "contestant",
+        "stage",
+        "verdict",
+        "stalls",
+        "max_stall_s",
+        "rtf",
+        "ticks",
+        "beats",
+        "beat_channels",
+        "stalled_on",
+    )
     table = [
         (
             contestant,

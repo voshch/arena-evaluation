@@ -1,0 +1,10 @@
+# Baseline of the USAR study on a generate_usar suite bundle: the search driver goes to the nearest
+# frontier and never stops to listen. Every other USAR contest is paired against it (experiments/usar.py).
+- name: baseline
+  mobile: {driver: nav2, mapping: slam}
+  acoustics: arena
+  robot.hearing: call
+  robot.hearing.belief.standalone.enabled: true
+  robot.hearing.driver.enabled: true
+  robot.hearing.driver.goal_rule: nearest
+  robot.hearing.driver.stop_rule: never

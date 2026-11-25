@@ -2,11 +2,79 @@ from __future__ import annotations
 
 import typing
 
-from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+import polars as pl
+
+from arena_evaluation.processing.metrics.base import BaseMetricCalculator, Direction
 from arena_evaluation.processing.metrics.ecological.condition_metrics import bare_robot_name
+from arena_evaluation.storage.registry import MetricScope, define_metric
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 _ENDINGS = ("met", "failed", "dropped")
+
+TASKS_TOTAL = define_metric(
+    "tasks_total",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of distinct task ids in the recorded task events.",
+    null_reason=True,
+)
+TASKS_MET = define_metric(
+    "tasks_met",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of tasks whose final recorded outcome is met.",
+    null_reason=True,
+)
+TASKS_FAILED = define_metric(
+    "tasks_failed",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of tasks whose final recorded outcome is failed, dropped and pending tasks count in neither this nor tasks_met.",
+    null_reason=True,
+)
+TASK_REASSIGNMENTS = define_metric(
+    "task_reassignments",
+    pl.Int64,
+    scopes=(MetricScope.ROBOT,),
+    unit="",
+    description="Number of reassigned task events.",
+    null_reason=True,
+)
+TASK_SUCCESS_RATE = define_metric(
+    "task_success_rate",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="1",
+    description="Tasks met over distinct task ids, 0 to 1.",
+    null_reason=True,
+)
+MAKESPAN_S = define_metric(
+    "makespan_s",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Seconds from the first started task event to the last met one, NULL without a met task.",
+    null_reason=True,
+)
+BUSY_S = define_metric(
+    "busy_s",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Summed seconds from this robot's started task events to their ending event, an unfinished task runs to the episode end.",
+    null_reason=True,
+)
+IDLE_S = define_metric(
+    "idle_s",
+    pl.Float64,
+    scopes=(MetricScope.ROBOT,),
+    unit="s",
+    description="Episode span minus busy_s, the span being the aligned data length and at least the last task event.",
+    null_reason=True,
+)
 
 
 def _events(tasks: list[dict]) -> list[dict]:
@@ -18,8 +86,8 @@ def _events(tasks: list[dict]) -> list[dict]:
 def _span_s(episode: AlignedEpisodeBundle, last_event_s: float) -> float:
     """Episode length in seconds: the aligned data span, at least the last task event."""
     span = 0.0
-    if episode.data is not None and "time_ns" in episode.data.columns and len(episode.data) > 1:
-        time_ns = episode.data["time_ns"]
+    if episode.data is not None and "t_ns" in episode.data.columns and len(episode.data) > 1:
+        time_ns = episode.data["t_ns"]
         span = float(time_ns[-1] - time_ns[0]) / 1e9
     return max(span, last_event_s)
 
@@ -30,30 +98,20 @@ class TaskEventMetricsCalculator(BaseMetricCalculator):
     NAME = "task_events"
     CATEGORY = "performance"
 
-    UNITS = {
-        "tasks_total": "",
-        "tasks_met": "",
-        "tasks_failed": "",
-        "task_reassignments": "",
-        "task_success_rate": "",
-        "makespan_s": "s",
-        "busy_s": "s",
-        "idle_s": "s",
-        "task_ids": "",
-        "task_outcomes": "",
-        "task_durations_s": "s",
+    OUTPUTS = (TASKS_TOTAL, TASKS_MET, TASKS_FAILED, TASK_REASSIGNMENTS, TASK_SUCCESS_RATE, MAKESPAN_S, BUSY_S, IDLE_S)
+    CHILD_OUTPUTS = ("task_ids", "task_outcomes", "task_durations_s")
+    DIRECTIONS = {
+        "task_success_rate": Direction.HIGHER,
+        "makespan_s": Direction.LOWER,
+        "idle_s": Direction.LOWER,
+        "tasks_failed": Direction.LOWER,
+        "task_reassignments": Direction.LOWER,
     }
-
     PRIMARY_OUTPUTS = ["task_success_rate", "makespan_s", "idle_s"]
-    OUTPUT_DIRECTIONS = {"task_success_rate": "higher", "makespan_s": "lower", "idle_s": "lower", "tasks_failed": "lower", "task_reassignments": "lower"}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return list(cls.UNITS.keys())
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
         del prior_results
-        results: dict[str, typing.Any] = dict.fromkeys(self.output_keys())
+        results: dict[str, typing.Any] = dict.fromkeys((*self.output_keys(), *self.CHILD_OUTPUTS))
         events = _events(episode.tasks)
         if not events:
             return results

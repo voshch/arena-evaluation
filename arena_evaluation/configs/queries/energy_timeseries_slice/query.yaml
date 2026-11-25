@@ -1,0 +1,30 @@
+name: energy_timeseries_slice
+title: "Energy & Power Time-Series Slice"
+description: "Binned power, battery SoC, and linear velocity time-series slice from v_series_energy"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+  local_planner:
+    type: string
+    default: "all"
+    description: "Filter by local planner or 'all'"
+sql: |
+  SELECT
+      episode_id,
+      robot_id,
+      world,
+      local_planner,
+      planner_world,
+      time_s,
+      power_total_w,
+      power_static_w,
+      power_mechanical_w,
+      power_thermal_w,
+      battery_soc_pct,
+      velocity_linear_mps
+  FROM v_series_energy
+  WHERE (:world = 'all' OR world = :world)
+    AND (:local_planner = 'all' OR local_planner = :local_planner)
+  ORDER BY episode_id, time_s

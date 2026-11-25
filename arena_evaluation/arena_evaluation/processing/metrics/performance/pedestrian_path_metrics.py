@@ -1,67 +1,75 @@
+"""Pedestrian trajectories as a flat 1NF series table."""
+
 from __future__ import annotations
 
 import typing
 
-import numpy as np
+import polars as pl
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
+from arena_evaluation.storage.registry.series import SeriesPedestrianPathMetrics
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
+
+NANOSECONDS_PER_SECOND: typing.Final[float] = 1e9
+
+SERIES_SCHEMA: typing.Final[pl.Schema] = SeriesPedestrianPathMetrics.polars_schema()
+
+_REQUIRED_TRACK_COLUMNS: typing.Final[frozenset[str]] = frozenset({"t_ns", "ped_id", "x", "y"})
 
 
 class PedestrianPathMetricsCalculator(BaseMetricCalculator):
-    """Calculates time-synchronized pedestrian trajectory paths."""
+    """Time-synchronized pedestrian trajectories, published only as the ``series_pedestrian_path`` table."""
 
     NAME = "pedestrian_path_metrics"
     CATEGORY = "performance"
     DEPENDS_ON = []
-    REQUIRED_TOPICS = ["peds"]
+    REQUIRED_TOPICS = ["pedestrian_arena_peds"]
     REQUIRES_PEDSIM = True
 
-    UNITS = {"pedestrian_path": "m"}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return ["pedestrian_path"]
+    OUTPUTS = ()
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        del episode, prior_results
+        return {}
 
-        if episode.data is None or "peds_positions" not in episode.data.columns:
-            return {"pedestrian_path": []}
+    @staticmethod
+    def _optional_track_column(tracks: pl.DataFrame, column: str) -> pl.Expr:
+        """Optional telemetry column cast to Float64, null when the recording predates it."""
+        # agent-contracts: ignore MCAP schema evolution
+        if column not in tracks.columns:
+            return pl.lit(None, dtype=pl.Float64)
+        return pl.col(column).cast(pl.Float64)
 
-        peds_positions = episode.data["peds_positions"].to_list()
+    def series_table(self, episode: AlignedEpisodeBundle, run_id: str = "", robot_id: str = "") -> pl.DataFrame:
+        """1NF flat pedestrian path series, one row per recorded pedestrian sample; schema-typed when empty."""
+        tracks = self.native_ped_frame(episode)
+        if tracks is None or tracks.height == 0:
+            return pl.DataFrame(schema=SERIES_SCHEMA)
+        missing = sorted(_REQUIRED_TRACK_COLUMNS - set(tracks.columns))
+        if missing:
+            raise ValueError(f"pedestrian_arena_peds lacks {missing}; the telemetry contract is (t_ns, ped_id, x, y, z, yaw, vx, vy, speed_mps)")
 
-        T = len(peds_positions)
-        if T == 0:
-            return {"pedestrian_path": []}
+        present = tracks.filter(pl.col("x").is_not_null() & ~pl.col("x").is_nan() & pl.col("y").is_not_null() & ~pl.col("y").is_nan()).sort(["t_ns", "ped_id"])
+        if present.height == 0:
+            return pl.DataFrame(schema=SERIES_SCHEMA)
 
-        max_peds = 0
-        for step_peds in peds_positions:
-            if isinstance(step_peds, list):
-                max_peds = max(max_peds, len(step_peds) // 3)
-
-        if max_peds == 0:
-            return {"pedestrian_path": []}
-
-        paths = [[[float('nan'), float('nan'), float('nan')] for _ in range(T)] for _ in range(max_peds)]
-
-        for t, step_peds in enumerate(peds_positions):
-            if not isinstance(step_peds, list):
-                if t > 0:
-                    for k in range(max_peds):
-                        paths[k][t] = paths[k][t - 1]
-                continue
-
-            num_peds = len(step_peds) // 3
-            for k in range(num_peds):
-                paths[k][t] = [step_peds[3 * k], step_peds[3 * k + 1], step_peds[3 * k + 2]]
-
-            for k in range(num_peds, max_peds):
-                if t > 0:
-                    paths[k][t] = paths[k][t - 1]
-
-        valid_paths = []
-        for path in paths:
-            if any(not np.isnan(pt[0]) for pt in path):
-                valid_paths.append(path)
-
-        return {"pedestrian_path": valid_paths}
+        present = present.unique(subset=["t_ns", "ped_id"], keep="last", maintain_order=True)
+        min_t = present["t_ns"].min()
+        if not isinstance(min_t, (int, float)):
+            return pl.DataFrame(schema=SERIES_SCHEMA)
+        first_t_ns = int(min_t)
+        return present.select(
+            run_id=pl.lit(run_id, dtype=pl.String),
+            episode_id=pl.lit(int(episode.episode_id), dtype=pl.Int64),
+            robot_id=pl.lit(robot_id or (episode.robot_name or "robot"), dtype=pl.String),
+            t_ns=pl.col("t_ns").cast(pl.Int64),
+            time_s=(pl.col("t_ns").cast(pl.Float64) - first_t_ns) / NANOSECONDS_PER_SECOND,
+            ped_id=pl.col("ped_id").cast(pl.String),
+            x_m=pl.col("x").cast(pl.Float64),
+            y_m=pl.col("y").cast(pl.Float64),
+            z_m=self._optional_track_column(tracks, "z"),
+            yaw_rad=self._optional_track_column(tracks, "yaw"),
+            vx_mps=self._optional_track_column(tracks, "vx"),
+            vy_mps=self._optional_track_column(tracks, "vy"),
+            speed_mps=self._optional_track_column(tracks, "speed_mps"),
+        )

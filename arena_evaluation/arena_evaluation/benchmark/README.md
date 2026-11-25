@@ -53,8 +53,8 @@ Run output structure in `$ARENA_DATA_DIR/benchmarks/<run_id>/`:
 |   |   |-- episode_000.mcap
 |   |   `-- episode_000.yaml
 |   `-- ...
-|-- combined_metrics.parquet   # Processed metrics
-`-- report_manifest.yaml       # Used report manifest
+|-- analysis/                  # Run-local reports/<name>/report.yaml, plots/<name>/plot.yaml, queries/<name>/query.yaml, evidence/
+`-- reports/<name>/            # Rendered report.html with the Plotly bundle inline, plots/*.png
 ```
 
 ## Liveness
@@ -105,7 +105,9 @@ Episode budgets are sim time, enforced by the task generator through its `task.e
 The runner keeps only a stall guard: while an episode result is pending it samples the sim
 clock once a second and gives up after 60 wall seconds of a frozen clock outside a reset
 (`<env_ns>/state/resetting`), cancelling the goal exactly like the old wall-clock timeout and
-recording `episode_timeout` / `sim stalled 60s`.
+recording `episode_timeout` / `sim stalled 60s` on the step. The cancelled episode still gets its
+`progress.csv` row: its SKIPPED `EpisodeRecord` (`outcome_info='cancelled'`), the same
+`error_kind` and `error_detail`, and the lockstep columns of its window, which name the stall.
 
 The live display shows both clocks: the env table's `Sim / Wall` column counts the current
 episode in sim seconds against wall seconds, so the ratio is the live rtf, and each completed

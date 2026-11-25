@@ -58,7 +58,11 @@ def _ros_envs() -> Iterator[dict[str, str]]:
     """Candidate ROS domains for the test, away from the session's own; a shared host may run anything on any of them."""
     offset = int(os.environ.get("ROS_DOMAIN_ID", "0")) * 7 + os.getpid()
     for step in range(8):
-        yield {**os.environ, "ROS_DOMAIN_ID": str(180 + (offset + step * 5) % 52), "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
+        yield {
+            **os.environ,
+            "ROS_DOMAIN_ID": str(180 + (offset + step * 5) % 52),
+            "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
+        }
 
 
 def _wait_for_line(proc: subprocess.Popen[str], expected: str, timeout: float = 20.0) -> None:
@@ -93,7 +97,21 @@ BLOCK_VIEW_TOOLS = "import sys; sys.modules['rerun_utils.mcp'] = None; from aren
 def _serve(tmp_path: pathlib.Path, launcher: list[str]) -> Iterator[tuple[str, dict[str, str]]]:
     for env in _ros_envs():
         port = _free_port()
-        proc = subprocess.Popen([sys.executable, *launcher, "serve", "--runtime", "--port", str(port), "--data-root", str(tmp_path)], stdout=subprocess.PIPE, text=True, env=env)
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                *launcher,
+                "serve",
+                "--runtime",
+                "--port",
+                str(port),
+                "--data-root",
+                str(tmp_path),
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
         try:
             _wait_for_line(proc, f"viz: http://127.0.0.1:{port}/runtime")
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runtime", timeout=60) as response:
@@ -114,14 +132,24 @@ def dashboard(tmp_path: pathlib.Path) -> Iterator[tuple[str, dict[str, str]]]:
 
 
 @pytest.fixture
-def dashboard_without_view_tools(tmp_path: pathlib.Path) -> Iterator[tuple[str, dict[str, str]]]:
+def dashboard_without_view_tools(
+    tmp_path: pathlib.Path,
+) -> Iterator[tuple[str, dict[str, str]]]:
     """A dashboard whose process cannot import rerun_utils.mcp."""
     yield from _serve(tmp_path, ["-c", BLOCK_VIEW_TOOLS])
 
 
 def _call(url: str, body: object | None = None, header: bool = True) -> tuple[int, dict]:
     data = None if body is None else json.dumps(body).encode()
-    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **({"X-Arena-Dashboard": "1"} if header else {})}, method="GET" if body is None else "POST")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            **({"X-Arena-Dashboard": "1"} if header else {}),
+        },
+        method="GET" if body is None else "POST",
+    )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.status, json.loads(response.read())
@@ -129,7 +157,9 @@ def _call(url: str, body: object | None = None, header: bool = True) -> tuple[in
         return exc.code, json.loads(exc.read())
 
 
-def test_runtime_page_reports_no_runtime_and_refuses_controls(dashboard: tuple[str, dict[str, str]]):
+def test_runtime_page_reports_no_runtime_and_refuses_controls(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, env = dashboard
 
     status, identity = _call(f"{base}/api/identity")
@@ -159,12 +189,27 @@ def test_options_seed_and_benchmark_starts_are_checked(dashboard: tuple[str, dic
     status, options = _call(f"{base}/api/runtime/options")
     seed = _call(f"{base}/api/runtime/envs/0/reset", {"seed": "abc"})
     no_suite = _call(f"{base}/api/runs", {"contest": "basic"})
-    bad_id = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic", "run_id": "../escape"})
+    bad_id = _call(
+        f"{base}/api/runs",
+        {"suite": "basic", "contest": "basic", "run_id": "../escape"},
+    )
     taken = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic", "run_id": "taken"})
-    bad_args = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic", "args": "sim:=flatsim oops"})
+    bad_args = _call(
+        f"{base}/api/runs",
+        {"suite": "basic", "contest": "basic", "args": "sim:=flatsim oops"},
+    )
     forged = _call(f"{base}/api/runs", {"suite": "basic", "contest": "basic"}, header=False)
 
-    assert status == 200 and {"robots", "worlds", "planners", "task_modes", "launch_args", "sims", "suites", "contests"} <= set(options)
+    assert status == 200 and {
+        "robots",
+        "worlds",
+        "planners",
+        "task_modes",
+        "launch_args",
+        "sims",
+        "suites",
+        "contests",
+    } <= set(options)
     assert {"robot", "world", "robot.planner", "task.robots"} <= {arg["name"] for arg in options["launch_args"]}
     assert options["sims"][-1] == "dummy" and "basic" in options["suites"] and "basic" in options["contests"]
     assert set(options["task_modes"]) <= {"robots", "obstacles", "modules"} and options["task_modes"]
@@ -173,7 +218,16 @@ def test_options_seed_and_benchmark_starts_are_checked(dashboard: tuple[str, dic
         for mode in axis["modes"].values():
             for param in mode["params"]:
                 assert param["name"] == f"{mode['namespace']}.{param['leaf']}"
-                assert {"type", "default", "label", "description", "choices", "catalog", "range", "read_only"} <= set(param)
+                assert {
+                    "type",
+                    "default",
+                    "label",
+                    "description",
+                    "choices",
+                    "catalog",
+                    "range",
+                    "read_only",
+                } <= set(param)
                 assert param["label"]
     assert all("pair" not in param or param["pair"] in ("int_pair", "float_pair") for axis in options["task_modes"].values() for mode in axis["modes"].values() for param in mode["params"])
     assert "docs" not in options
@@ -182,13 +236,22 @@ def test_options_seed_and_benchmark_starts_are_checked(dashboard: tuple[str, dic
     assert no_suite[0] == 400 and "suite must be a suite name" in no_suite[1]["error"]
     assert bad_id[0] == 400 and "run ids are" in bad_id[1]["error"]
     assert taken[0] == 409 and "run taken already exists" in taken[1]["error"]
-    assert bad_args == (400, {"error": "launch arguments are key:=value, got oops", "hint": None})
+    assert bad_args == (
+        400,
+        {"error": "launch arguments are key:=value, got oops", "hint": None},
+    )
     assert forged[0] == 403
 
 
 def test_a_benchmark_runner_locks_the_controls(dashboard: tuple[str, dict[str, str]]):
     base, env = dashboard
-    runner = subprocess.Popen([sys.executable, "-c", RUNNER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+    runner = subprocess.Popen(
+        [sys.executable, "-c", RUNNER],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
     try:
         _wait_for_line(runner, "ready")
         deadline = time.monotonic() + 20
@@ -201,7 +264,9 @@ def test_a_benchmark_runner_locks_the_controls(dashboard: tuple[str, dict[str, s
     assert status == 409 and out["error"] == "benchmark run r-owner owns this runtime, the dashboard only watches it"
 
 
-def test_catalog_answers_every_kind_offline_from_the_asset_tree(dashboard: tuple[str, dict[str, str]]):
+def test_catalog_answers_every_kind_offline_from_the_asset_tree(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
 
@@ -222,14 +287,22 @@ def test_catalog_answers_every_kind_offline_from_the_asset_tree(dashboard: tuple
     assert unknown[0] == 400 and "kinds:" in unknown[1]["hint"]
 
 
-def test_spawn_validates_modes_and_params_against_the_task_layer(dashboard: tuple[str, dict[str, str]]):
+def test_spawn_validates_modes_and_params_against_the_task_layer(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
     axis, spec = next(iter(options["task_modes"].items()))
 
     bad_axis = _call(f"{base}/api/runtime/spawn", {"modes": {"nothing": ["x"]}})
     bad_mode = _call(f"{base}/api/runtime/spawn", {"modes": {axis: ["nothing"]}})
-    undeclared = _call(f"{base}/api/runtime/spawn", {"modes": {axis: [next(iter(spec["modes"]))]}, "params": {"task.nothing.at_all": 1}})
+    undeclared = _call(
+        f"{base}/api/runtime/spawn",
+        {
+            "modes": {axis: [next(iter(spec["modes"]))]},
+            "params": {"task.nothing.at_all": 1},
+        },
+    )
     bad_shape = _call(f"{base}/api/runtime/spawn", {"modes": {axis: 3}})
 
     assert bad_axis[0] == 400 and "unknown task axis" in bad_axis[1]["error"]
@@ -238,7 +311,9 @@ def test_spawn_validates_modes_and_params_against_the_task_layer(dashboard: tupl
     assert bad_shape[0] == 400 and "modes." in bad_shape[1]["error"]
 
 
-def test_snapshot_reports_its_age_and_the_answer_time(dashboard: tuple[str, dict[str, str]]):
+def test_snapshot_reports_its_age_and_the_answer_time(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
 
     first = _call(f"{base}/api/runtime")[1]
@@ -263,10 +338,18 @@ def test_stopping_an_unknown_run_is_404_and_a_forged_stop_is_403(dashboard: tupl
     assert forged[0] == 403
 
 
-def test_a_failing_background_refresh_replaces_the_cached_snapshot_with_the_error(dashboard: tuple[str, dict[str, str]]):
+def test_a_failing_background_refresh_replaces_the_cached_snapshot_with_the_error(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, env = dashboard
     good_status, good = _call(f"{base}/api/runtime")
-    stand_in = subprocess.Popen([sys.executable, "-c", SIM_STAND_IN], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+    stand_in = subprocess.Popen(
+        [sys.executable, "-c", SIM_STAND_IN],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
     try:
         _wait_for_line(stand_in, "ready")
         deadline = time.monotonic() + 40
@@ -287,7 +370,9 @@ def test_a_failing_background_refresh_replaces_the_cached_snapshot_with_the_erro
     assert after_status == 200 and after["running"] is False
 
 
-def test_actions_describe_each_tool_with_the_bounds_of_its_own_signature(dashboard: tuple[str, dict[str, str]]):
+def test_actions_describe_each_tool_with_the_bounds_of_its_own_signature(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
     actions = options["actions"]
@@ -308,7 +393,9 @@ def test_actions_describe_each_tool_with_the_bounds_of_its_own_signature(dashboa
     assert all(entry["doc"] for entry in actions.values())
 
 
-def test_request_bodies_are_checked_against_the_tools_own_bounds(dashboard: tuple[str, dict[str, str]]):
+def test_request_bodies_are_checked_against_the_tools_own_bounds(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
 
     step = _call(f"{base}/api/runtime/step", {"seconds": 0})
@@ -324,7 +411,9 @@ def test_request_bodies_are_checked_against_the_tools_own_bounds(dashboard: tupl
     assert seed[0] == 400 and "seed: Input should be less than or equal to 2147483647" in seed[1]["error"]
 
 
-def test_options_name_the_spawn_fields_with_their_catalogs_and_the_layers_multi_axes(dashboard: tuple[str, dict[str, str]]):
+def test_options_name_the_spawn_fields_with_their_catalogs_and_the_layers_multi_axes(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
 
@@ -337,29 +426,55 @@ def test_options_name_the_spawn_fields_with_their_catalogs_and_the_layers_multi_
     assert options["task_modes"]["modules"]["multi"] is True and options["task_modes"]["robots"]["multi"] is False
 
 
-def test_spawn_params_are_checked_against_their_declared_type(dashboard: tuple[str, dict[str, str]]):
+def test_spawn_params_are_checked_against_their_declared_type(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
-    wrong = {"bool": "yes", "integer": "x", "double": "x", "string": 5, "bool_array": "x", "integer_array": "x", "double_array": "x", "string_array": "x"}
+    wrong = {
+        "bool": "yes",
+        "integer": "x",
+        "double": "x",
+        "string": 5,
+        "bool_array": "x",
+        "integer_array": "x",
+        "double_array": "x",
+        "string_array": "x",
+    }
     axis, mode, param = next((axis, name, param) for axis, spec in options["task_modes"].items() for name, mode in spec["modes"].items() for param in mode["params"] if param["type"] in wrong and not param["read_only"])
 
-    answer = _call(f"{base}/api/runtime/spawn", {"modes": {axis: [mode]}, "params": {param["name"]: wrong[param["type"]]}})
+    answer = _call(
+        f"{base}/api/runtime/spawn",
+        {"modes": {axis: [mode]}, "params": {param["name"]: wrong[param["type"]]}},
+    )
 
     assert answer[0] == 400 and f"{param['name']} is declared as {param['type']}" in answer[1]["error"]
 
 
-def test_actions_carry_the_annotations_of_their_tools_registration(dashboard: tuple[str, dict[str, str]]):
+def test_actions_carry_the_annotations_of_their_tools_registration(
+    dashboard: tuple[str, dict[str, str]],
+):
     base, _ = dashboard
     _, options = _call(f"{base}/api/runtime/options")
     actions = options["actions"]
 
-    assert actions["despawn"]["annotations"] == {"destructive": True, "read_only": False, "idempotent": False}
-    assert actions["step"]["annotations"] == {"destructive": False, "read_only": False, "idempotent": False}
+    assert actions["despawn"]["annotations"] == {
+        "destructive": True,
+        "read_only": False,
+        "idempotent": False,
+    }
+    assert actions["step"]["annotations"] == {
+        "destructive": False,
+        "read_only": False,
+        "idempotent": False,
+    }
     assert actions["lockstep_stop"]["annotations"]["idempotent"] is True
     assert all(set(entry["annotations"]) == {"destructive", "read_only", "idempotent"} for entry in actions.values())
 
 
-def test_options_leave_out_the_view_actions_when_rerun_utils_has_no_tools(dashboard_without_view_tools: tuple[str, dict[str, str]]):
+def test_options_leave_out_the_view_actions_when_rerun_utils_has_no_tools(
+    dashboard_without_view_tools: tuple[str, dict[str, str]],
+):
     base, _ = dashboard_without_view_tools
 
     status, options = _call(f"{base}/api/runtime/options")
@@ -372,7 +487,9 @@ def test_options_leave_out_the_view_actions_when_rerun_utils_has_no_tools(dashbo
     assert view_status == 404 and "no runtime action 'view'" in view["error"]
 
 
-def test_view_actions_come_from_the_rerun_tools_registration(dashboard: tuple[str, dict[str, str]]):
+def test_view_actions_come_from_the_rerun_tools_registration(
+    dashboard: tuple[str, dict[str, str]],
+):
     pytest.importorskip("rerun_utils.mcp")
     base, _ = dashboard
 

@@ -1,0 +1,42 @@
+name: planner_scorecard_overview
+title: "Planner Performance Scorecard Overview"
+description: "Overview scorecard across planners, scenarios, and crowd conditions comparing success rates, traversal time, and energy consumption"
+parameters:
+  world:
+    type: string
+    default: "all"
+    description: "Filter by simulation world or 'all'"
+  scenario:
+    type: string
+    default: "all"
+    description: "Filter by scenario name or 'all'"
+  planner:
+    type: string
+    default: "all"
+    description: "Filter by planner name or 'all'"
+sql: |
+  SELECT
+      world,
+      scenario,
+      crowd_condition,
+      planner,
+      dispatcher,
+      robot_model,
+      episodes_count,
+      valid_episodes,
+      excluded_episodes,
+      success_rate,
+      success_without_pedestrian_contact_rate,
+      mean_time_to_goal,
+      mean_path_efficiency,
+      mean_energy_total_wh,
+      total_encounters,
+      total_contacts,
+      pedestrian_contacts,
+      static_contacts,
+      other_robot_contacts
+  FROM v_planner_scorecard
+  WHERE (:world = 'all' OR world = :world)
+    AND (:scenario = 'all' OR scenario = :scenario)
+    AND (:planner = 'all' OR planner = :planner)
+  ORDER BY world, scenario, crowd_condition, planner

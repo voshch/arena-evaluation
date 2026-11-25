@@ -21,6 +21,9 @@ import typing
 import urllib.parse
 import urllib.request
 
+from arena_evaluation.storage.config_layout import find_rendered_reports
+from arena_evaluation.storage.star_schema import has_star_schema
+
 if typing.TYPE_CHECKING:
     from .dashboard_runtime import RuntimeBridge
     from .state import Manifest
@@ -39,7 +42,14 @@ RECENT_ROWS = 30
 LOG_TAIL_BYTES = 262144
 MAX_BODY_BYTES = 65536
 CONTROL_HEADER = "X-Arena-Dashboard"
-OUTCOMES = {"0": "queued", "1": "running", "2": "success", "3": "failed", "4": "skipped", "5": "fatal"}
+OUTCOMES = {
+    "0": "queued",
+    "1": "running",
+    "2": "success",
+    "3": "failed",
+    "4": "skipped",
+    "5": "fatal",
+}
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
 _WILDCARD_HOSTS = ("", "0.0.0.0", "::")
 _PAGE = pathlib.Path(__file__).with_name("dashboard.html")
@@ -148,12 +158,20 @@ def run_status(path: pathlib.Path, *, running: dict[str, int] | None = None, lig
         "steps_total": len(planned),
         "steps": counts | {"pending": len(planned) - sum(counts.values())},
         "active": [{"key": step.key, "env_id": step.env_id, "started_at": step.started_at} for step in steps.values() if step.status == "in_progress"],
-        "failed": [{"key": step.key, "error_kind": None if step.error_kind is None else step.error_kind.value, "error_detail": step.error_detail} for step in steps.values() if step.status == "failed"],
+        "failed": [
+            {
+                "key": step.key,
+                "error_kind": None if step.error_kind is None else step.error_kind.value,
+                "error_detail": step.error_detail,
+            }
+            for step in steps.values()
+            if step.status == "failed"
+        ],
         "episodes_logged": None if light else len(progress_rows(path)),
         "lanes": lanes,
         "runner_pids": pids,
-        "has_combined_metrics": (path / "combined_metrics.parquet").is_file(),
-        "has_report": (path / "report.html").is_file(),
+        "has_star_schema": has_star_schema(path),
+        "has_report": bool(find_rendered_reports(path)),
     }
 
 
@@ -167,7 +185,14 @@ def live_lanes(path: pathlib.Path, now: float | None = None) -> list[dict[str, t
         except (OSError, ValueError):
             continue
         age = max(now - data["updated_at"], 0.0)
-        lanes.append(data | {"file": live.name, "age_s": round(age, 1), "stale": not data["finished"] and age > STALE_S})
+        lanes.append(
+            data
+            | {
+                "file": live.name,
+                "age_s": round(age, 1),
+                "stale": not data["finished"] and age > STALE_S,
+            }
+        )
     return lanes
 
 
@@ -261,7 +286,32 @@ def list_runs(data_root: pathlib.Path, limit: int = 100) -> list[dict[str, typin
             status = run_status(path, running=running, light=True)
         except RunStatusError:
             continue
-        runs.append({key: status[key] for key in ("run_id", "suite", "contest", "simulator", "created_at", "state", "steps_total", "steps", "lanes")} | {"live": [{"lane": lane["lane"], "stale": lane["stale"], "finished": lane["finished"]} for lane in live_lanes(path)]})
+        runs.append(
+            {
+                key: status[key]
+                for key in (
+                    "run_id",
+                    "suite",
+                    "contest",
+                    "simulator",
+                    "created_at",
+                    "state",
+                    "steps_total",
+                    "steps",
+                    "lanes",
+                )
+            }
+            | {
+                "live": [
+                    {
+                        "lane": lane["lane"],
+                        "stale": lane["stale"],
+                        "finished": lane["finished"],
+                    }
+                    for lane in live_lanes(path)
+                ]
+            }
+        )
     return runs
 
 
@@ -276,7 +326,9 @@ def log_tail(path: pathlib.Path, lines: int) -> dict[str, list[str]]:
     return tails
 
 
-def _signature(path: pathlib.Path) -> tuple[tuple[tuple[str, int, int], ...], tuple[tuple[str, int, int], ...]]:
+def _signature(
+    path: pathlib.Path,
+) -> tuple[tuple[tuple[str, int, int], ...], tuple[tuple[str, int, int], ...]]:
     live, run = [], []
     with contextlib.suppress(FileNotFoundError):
         for entry in os.scandir(path):
@@ -298,7 +350,12 @@ def url(host: str, port: int, run_id: str | None = None) -> str:
 class DashboardServer(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], data_root: pathlib.Path, runtime: RuntimeBridge | None = None) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        data_root: pathlib.Path,
+        runtime: RuntimeBridge | None = None,
+    ) -> None:
         self.data_root = data_root.resolve()
         self.runtime = runtime
         self.stopping = threading.Event()
@@ -311,7 +368,12 @@ class DashboardServer(http.server.ThreadingHTTPServer):
         return path
 
     def identity(self) -> dict[str, typing.Any]:
-        return {"app": APP, "data_root": str(self.data_root), "pid": os.getpid(), "runtime": self.runtime is not None}
+        return {
+            "app": APP,
+            "data_root": str(self.data_root),
+            "pid": os.getpid(),
+            "runtime": self.runtime is not None,
+        }
 
     def shutdown(self) -> None:
         self.stopping.set()
@@ -336,7 +398,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             elif parts == ["api", "identity"]:
                 self._json(self.dashboard.identity())
             elif parts == ["api", "runs"]:
-                self._json({"data_root": str(self.dashboard.data_root), "runs": list_runs(self.dashboard.data_root)})
+                self._json(
+                    {
+                        "data_root": str(self.dashboard.data_root),
+                        "runs": list_runs(self.dashboard.data_root),
+                    }
+                )
             elif len(parts) >= 3 and parts[:2] == ["api", "runs"]:
                 self._run(self.dashboard.run_dir(parts[2]), parts[3:], query)
             elif parts[:2] == ["api", "runtime"]:
@@ -356,7 +423,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         parts = [urllib.parse.unquote(part) for part in urllib.parse.urlsplit(self.path).path.split("/") if part]
         try:
             if self.headers.get(CONTROL_HEADER) != "1":
-                raise ControlError(403, f"control requests need the {CONTROL_HEADER}: 1 header", "the dashboard page sends it, other origins cannot")
+                raise ControlError(
+                    403,
+                    f"control requests need the {CONTROL_HEADER}: 1 header",
+                    "the dashboard page sends it, other origins cannot",
+                )
             length = int(self.headers.get("Content-Length") or 0)
             if length > MAX_BODY_BYTES:
                 raise ControlError(413, f"request body over {MAX_BODY_BYTES} bytes")
@@ -387,7 +458,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _bridge(self) -> RuntimeBridge:
         if self.dashboard.runtime is None:
-            raise ControlError(404, "this dashboard serves no runtime page", "start it with arena evaluation serve --runtime")
+            raise ControlError(
+                404,
+                "this dashboard serves no runtime page",
+                "start it with arena evaluation serve --runtime",
+            )
         return self.dashboard.runtime
 
     def _runtime_get(self, rest: list[str], query: dict[str, list[str]]) -> None:
@@ -434,7 +509,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         sent = time.monotonic()
         while not self.dashboard.stopping.wait(EVENT_POLL_S):
             live, run = _signature(path)
-            events = [name for name, changed in (("run", run != last_run), ("live", live != last_live)) if changed]
+            events = [
+                name
+                for name, changed in (
+                    ("run", run != last_run),
+                    ("live", live != last_live),
+                )
+                if changed
+            ]
             last_live, last_run = live, run
             if events:
                 self.wfile.write("".join(f"event: {name}\ndata: {{}}\n\n" for name in events).encode())
@@ -484,11 +566,25 @@ def probe(host: str, port: int) -> dict[str, typing.Any] | None:
 def shutdown_runtime() -> dict[str, typing.Any]:
     """Stop this container's runtime with the arena CLI, which owns it; this dashboard is not part of that process tree."""
     try:
-        done = subprocess.run(["arena", "runtime", "down"], capture_output=True, text=True, timeout=180, check=False)
+        done = subprocess.run(
+            ["arena", "runtime", "down"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
     except OSError as exc:
-        raise ControlError(502, f"cannot run arena runtime down: {exc}", "run the dashboard inside an arena container") from exc
+        raise ControlError(
+            502,
+            f"cannot run arena runtime down: {exc}",
+            "run the dashboard inside an arena container",
+        ) from exc
     if done.returncode != 0:
-        raise ControlError(409, f"arena runtime down failed: {(done.stderr or done.stdout).strip()[:200]}", "the runtime may already be down")
+        raise ControlError(
+            409,
+            f"arena runtime down failed: {(done.stderr or done.stdout).strip()[:200]}",
+            "the runtime may already be down",
+        )
     return {"shutdown": True}
 
 
@@ -527,7 +623,16 @@ def _exit_on_eof(server: DashboardServer) -> None:
     server.shutdown()
 
 
-def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None, exit_with: int | None = None, *, runtime: bool = False, exit_on_eof: bool = False) -> int:
+def serve(
+    host: str,
+    port: int,
+    data_root: pathlib.Path,
+    run_id: str | None = None,
+    exit_with: int | None = None,
+    *,
+    runtime: bool = False,
+    exit_on_eof: bool = False,
+) -> int:
     """Serve until interrupted, exit_with is gone or stdin closes (exit_on_eof), printing `viz: <url>` with the bound port once listening; reuse a dashboard of the same data root already on the port."""
     data_root = data_root.resolve()
     try:
@@ -537,7 +642,10 @@ def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = No
         if problem is not None:
             print(f"dashboard: {problem}", file=sys.stderr)
             return 2
-        print(f"dashboard: reusing the dashboard already serving {data_root} on port {port}", file=sys.stderr)
+        print(
+            f"dashboard: reusing the dashboard already serving {data_root} on port {port}",
+            file=sys.stderr,
+        )
         print(VIZ_PREFIX + url(host, port, run_id), flush=True)
         return 0
     if runtime:
@@ -545,11 +653,24 @@ def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = No
 
         server.runtime = RuntimeBridge()
     bound = server.server_address[1]
-    print(VIZ_PREFIX + (url(host, bound, run_id) if run_id or not runtime else f"{url(host, bound)}runtime"), flush=True)
+    print(
+        VIZ_PREFIX + (url(host, bound, run_id) if run_id or not runtime else f"{url(host, bound)}runtime"),
+        flush=True,
+    )
     if exit_with is not None:
-        threading.Thread(target=_exit_with, args=(server, exit_with), name="dashboard-exit-with", daemon=True).start()
+        threading.Thread(
+            target=_exit_with,
+            args=(server, exit_with),
+            name="dashboard-exit-with",
+            daemon=True,
+        ).start()
     if exit_on_eof:
-        threading.Thread(target=_exit_on_eof, args=(server,), name="dashboard-exit-on-eof", daemon=True).start()
+        threading.Thread(
+            target=_exit_on_eof,
+            args=(server,),
+            name="dashboard-exit-on-eof",
+            daemon=True,
+        ).start()
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
@@ -564,7 +685,21 @@ def serve(host: str, port: int, data_root: pathlib.Path, run_id: str | None = No
 
 def start_child(host: str, port: int, data_root: pathlib.Path, run_id: str | None = None) -> tuple[str, subprocess.Popen[str]]:
     """Start the dashboard as a child process and return its URL once it listens or reuses a running one."""
-    argv = [sys.executable, "-m", "arena_evaluation.benchmark.cli", "serve", "--host", host, "--port", str(port), "--data-root", str(data_root), "--exit-with", str(os.getpid()), *(["--run-id", run_id] if run_id else [])]
+    argv = [
+        sys.executable,
+        "-m",
+        "arena_evaluation.benchmark.cli",
+        "serve",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--data-root",
+        str(data_root),
+        "--exit-with",
+        str(os.getpid()),
+        *(["--run-id", run_id] if run_id else []),
+    ]
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
     assert proc.stdout is not None
     line = proc.stdout.readline()
@@ -586,16 +721,56 @@ def stop_child(proc: subprocess.Popen[str], grace_s: float = 5.0) -> None:
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--host", default=DEFAULT_HOST, help=f"address to listen on (default {DEFAULT_HOST}, 0.0.0.0 for every interface)")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port to listen on (default {DEFAULT_PORT}, 0 picks a free one and prints it); a dashboard of the same data root already there is reused, anything else exits 2")
-    parser.add_argument("--data-root", default=None, metavar="PATH", help="benchmarks root to serve (default $ARENA_DATA_DIR/benchmarks)")
-    parser.add_argument("--run-id", default=None, help="run whose page the printed URL opens (default the run list)")
-    parser.add_argument("--runtime", action="store_true", help="also serve the runtime page (/runtime): the envs of the runtime on this ROS domain, their episodes and camera, spawn, despawn, reset, pause, step and lockstep controls")
-    parser.add_argument("--exit-with", type=int, default=None, metavar="PID", help="stop serving once process PID is gone (benchmark --viz passes its own pid)")
-    parser.add_argument("--exit-on-eof", action="store_true", help="stop serving once stdin closes (arena web runs each target's dashboard this way, so it ends with the hub's exec session)")
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"address to listen on (default {DEFAULT_HOST}, 0.0.0.0 for every interface)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"port to listen on (default {DEFAULT_PORT}, 0 picks a free one and prints it); a dashboard of the same data root already there is reused, anything else exits 2",
+    )
+    parser.add_argument(
+        "--data-root",
+        default=None,
+        metavar="PATH",
+        help="benchmarks root to serve (default $ARENA_DATA_DIR/benchmarks)",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="run whose page the printed URL opens (default the run list)",
+    )
+    parser.add_argument(
+        "--runtime",
+        action="store_true",
+        help="also serve the runtime page (/runtime): the envs of the runtime on this ROS domain, their episodes and camera, spawn, despawn, reset, pause, step and lockstep controls",
+    )
+    parser.add_argument(
+        "--exit-with",
+        type=int,
+        default=None,
+        metavar="PID",
+        help="stop serving once process PID is gone (benchmark --viz passes its own pid)",
+    )
+    parser.add_argument(
+        "--exit-on-eof",
+        action="store_true",
+        help="stop serving once stdin closes (arena web runs each target's dashboard this way, so it ends with the hub's exec session)",
+    )
 
 
 def serve_args(args: argparse.Namespace) -> int:
     from arena_evaluation.storage.data_root import benchmarks_root
 
-    return serve(args.host, args.port, pathlib.Path(args.data_root) if args.data_root else benchmarks_root(), args.run_id, args.exit_with, runtime=args.runtime, exit_on_eof=args.exit_on_eof)
+    return serve(
+        args.host,
+        args.port,
+        pathlib.Path(args.data_root) if args.data_root else benchmarks_root(),
+        args.run_id,
+        args.exit_with,
+        runtime=args.runtime,
+        exit_on_eof=args.exit_on_eof,
+    )

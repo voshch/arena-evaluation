@@ -1,0 +1,945 @@
+title: Standard Benchmark Report
+description: Standard balanced arena_evaluation report covering performance, safety,
+  efficiency, naturalness, motion, smoothness, social interaction, ecology, and trade-off
+  frontiers.
+units:
+  acceleration_mean: 'm/s^2'
+  ade: 'm'
+  aeps_linear_s: 's'
+  angle_over_length: 'rad/m'
+  curvature_mean: '1/m'
+  energy_mechanical_wh: 'Wh'
+  energy_static_wh: 'Wh'
+  energy_thermal_wh: 'Wh'
+  energy_total_wh: 'Wh'
+  fde: 'm'
+  frechet_distance: 'm'
+  friction_dissipation_j: 'J'
+  idling_time: 's'
+  kinetic_energy_demand_j: 'J'
+  mean_velocity_mps: 'm/s'
+  mhd: 'm'
+  path_length_m: 'm'
+  personal_space_intrusion_integral: 'm*s'
+  power_total_w: 'W'
+  roughness_mean: 'rad/m'
+  specific_cost_of_transport: ''
+  spl_geodesic: ''
+  success: '%'
+  time_s: 's'
+  time_to_goal: 's'
+  total_time_in_personal_space: 's'
+  total_time_looked_at_by_pedestrians: 's'
+  total_time_looking_at_pedestrians: 's'
+  tti_min: 's'
+  velocity_linear_mps: 'm/s'
+summary_group_by:
+- local_planner
+- world
+summary:
+- metric: success
+  label: Success
+  format: '{:.0%}'
+- metric: spl_geodesic
+  label: SPL
+  format: '{:.2f}'
+- metric: time_to_goal
+  label: Avg Time to Goal
+  format: '{:.1f}'
+- metric: path_length_m
+  label: Avg Path Length
+  format: '{:.1f}'
+- metric: collision_amount
+  label: Collisions
+  format: '{:.1f}'
+- metric: specific_cost_of_transport
+  label: S-CoT
+  format: '{:.2f}'
+groups:
+- id: overview
+  title: Performance Overview
+- id: safety
+  title: Safety & Collision Metrics
+- id: efficiency
+  title: Efficiency Metrics
+- id: naturalness
+  title: Trajectory Naturalness & Deviation
+- id: motion
+  title: Motion Dynamics Metrics
+- id: smoothness
+  title: Path Smoothness Metrics
+- id: social
+  title: Social & Pedestrian Interaction
+- id: ecological
+  title: Ecological & Energy Metrics
+- id: tradeoffs
+  title: Multi-Objective Trade-Off Frontiers
+- id: details
+  title: Detailed Run Traces & Analysis
+plots:
+- id: box_collisions_local
+  type: box
+  title: Collision Amount by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: collision_amount
+  layout_group: safety
+- id: box_collisions_inter
+  type: box
+  title: Collision Amount by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: collision_amount
+  layout_group: safety
+- id: box_jerk_local
+  type: box
+  title: Mean Jerk by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: jerk_mean
+  layout_group: motion
+- id: box_jerk_inter
+  type: box
+  title: Mean Jerk by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: jerk_mean
+  layout_group: motion
+- id: violin_scot_local
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: specific_cost_of_transport
+  layout_group: ecological
+- id: violin_scot_inter
+  type: violin
+  title: Specific Cost of Transport (S-CoT) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: specific_cost_of_transport
+  layout_group: ecological
+- id: overview_table
+  title: Benchmark Executive Overview
+  layout_group: overview
+  type: table
+  data:
+    computation: group_summary
+    params:
+      group_cols:
+      - planner_world
+      - crowd_condition
+      metrics:
+      - success
+      - spl_geodesic
+      - time_to_goal
+      - path_length_m
+      - path_efficiency
+      - collision_amount
+      - specific_cost_of_transport
+  channels:
+    x: planner_world
+    color: crowd_condition
+    y:
+    - metric
+    - n
+    - mean
+    - std
+  options:
+    labels:
+      success: Success
+      spl_geodesic: SPL
+      time_to_goal: Avg Time
+      path_length_m: Avg Path
+      path_efficiency: Path Effic.
+      collision_amount: Collisions
+      specific_cost_of_transport: S-CoT
+    format:
+      success: '{:.0%}'
+      spl_geodesic: '{:.2f}'
+      time_to_goal: '{:.1f}'
+      path_length_m: '{:.1f}'
+      path_efficiency: '{:.2f}'
+      collision_amount: '{:.1f}'
+      specific_cost_of_transport: '{:.2f}'
+- id: e8_success_contact_panel
+  uses: success_without_contact_panel
+  data:
+    computation: group_summary
+    params:
+      group_cols:
+      - local_planner
+      - world
+      - crowd_condition
+  channels:
+    x: local_planner
+    color: world
+  title: Success without Pedestrian Contact by Local Planner, World and Crowd Condition
+  layout_group: overview
+- id: e8_success_contact_interval
+  uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      metric: success
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+  title: Success Rate by Local Planner and World (cluster bootstrap 95% CI)
+  layout_group: overview
+- id: interval_time_to_goal
+  uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      metric: time_to_goal
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+  title: Time to Goal by Local Planner and World (cluster bootstrap 95% CI)
+  layout_group: overview
+- id: interval_energy_total
+  uses: success_without_contact_interval
+  data:
+    computation: cluster_bootstrap_ci
+    params:
+      metric: energy_total_wh
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+  title: Total Energy Usage by Local Planner and World (cluster bootstrap 95% CI)
+  layout_group: overview
+- id: radar_local_planner
+  uses: multi_planner_radar
+  data:
+    computation: radar_profile
+    params:
+      group_col: local_planner
+  channels:
+    color: local_planner
+  title: Performance Overview by Local Planner
+  layout_group: overview
+- id: radar_inter_planner
+  type: radar
+  title: Performance Overview by Inter-Planner
+  data:
+    computation: radar_profile
+    params:
+      group_col: inter_planner
+      metrics:
+      - success
+      - path_efficiency
+      - roughness_mean
+  channels:
+    x: metric
+    y: normalized_score
+    color: inter_planner
+  layout_group: overview
+- id: correlation_matrix
+  type: heatmap
+  title: Metrics Correlation Matrix
+  data:
+    computation: correlation_matrix
+    params:
+      metrics:
+      - success
+      - time_to_goal
+      - path_length_m
+      - mean_velocity_mps
+      - energy_total_wh
+      - personal_space_intrusion_integral
+  channels:
+    x: metric_x
+    y: metric_y
+    color: pearson_r
+  layout_group: overview
+- id: heatmap_success_pivot
+  type: heatmap
+  title: Success Rate Pivot Grid (Local vs Inter Planner)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - planner_world
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: planner_world
+    color: mean
+  layout_group: overview
+- id: heatmap_spl_pivot
+  type: heatmap
+  title: SPL Pivot Grid (Local vs Inter Planner)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - planner_world
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: planner_world
+    color: mean
+  layout_group: overview
+- id: bar_success_local
+  type: bar
+  title: Success Rate by Local Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+    y: mean
+  layout_group: safety
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_success_inter
+  type: bar
+  title: Success Rate by Inter-Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - success
+      group_cols:
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: mean
+  layout_group: safety
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_spl_local
+  type: bar
+  title: Success weighted by Path Length (SPL) by Local Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+    y: mean
+  layout_group: safety
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_spl_inter
+  type: bar
+  title: Success weighted by Path Length (SPL) by Inter-Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - spl_geodesic
+      group_cols:
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: mean
+  layout_group: safety
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_collision_breakdown
+  type: bar
+  title: Collision Fault Attribution by Obstacle & Crowd Condition
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - collision_amount_pedestrian
+      - collision_amount_static
+      - collision_amount_wall
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    facet_col: world
+    y: mean
+    color: metric
+  layout_group: safety
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: box_tti_min_local
+  type: box
+  title: Minimum Time to Collision (TTI min) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: tti_min
+  layout_group: safety
+- id: violin_efficiency_local
+  type: violin
+  title: Geodesic Path Efficiency (vs Theta*) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: path_efficiency
+  layout_group: efficiency
+- id: violin_efficiency_inter
+  type: violin
+  title: Geodesic Path Efficiency (vs Theta*) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: path_efficiency
+  layout_group: efficiency
+- id: violin_time_local
+  type: violin
+  title: Time to Goal by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: time_to_goal
+  layout_group: efficiency
+- id: violin_time_inter
+  type: violin
+  title: Time to Goal by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: time_to_goal
+  layout_group: efficiency
+- id: box_idling_local
+  type: box
+  title: Idling Time by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: idling_time
+  layout_group: efficiency
+- id: box_idling_inter
+  type: box
+  title: Idling Time by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: idling_time
+  layout_group: efficiency
+- id: histogram_path_length_local
+  type: histogram
+  title: Path Length Distribution by Local Planner and World
+  data:
+    computation: distribution_bins
+    params:
+      metric: path_length_m
+      group_cols:
+      - planner_world
+      nbins: 20
+  channels:
+    x: bin_center
+    y: count
+    color: planner_world
+  layout_group: efficiency
+  options:
+    bin_low: bin_low
+    bin_high: bin_high
+- id: box_relative_throughput_local
+  type: box
+  title: Relative Throughput (vs Unobstructed) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: relative_throughput
+  layout_group: efficiency
+- id: box_ade_local
+  type: box
+  title: Average Displacement Error (ADE vs Theta*) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: ade
+  layout_group: naturalness
+- id: box_ade_inter
+  type: box
+  title: Average Displacement Error (ADE vs Theta*) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: ade
+  layout_group: naturalness
+- id: box_fde_local
+  type: box
+  title: Final Displacement Error (FDE) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: fde
+  layout_group: naturalness
+- id: box_frechet_local
+  type: box
+  title: "Discrete Fr\xE9chet Distance (vs Theta*) by Local Planner"
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: frechet_distance
+  layout_group: naturalness
+- id: violin_mhd_local
+  type: violin
+  title: Modified Hausdorff Distance (MHD vs Theta*) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: mhd
+  layout_group: naturalness
+- id: box_topological_complexity_local
+  type: box
+  title: Topological Complexity (Net Winding Number) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: topological_complexity
+  layout_group: naturalness
+- id: violin_velocity_local
+  type: violin
+  title: Mean Velocity by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: mean_velocity_mps
+  layout_group: motion
+- id: violin_velocity_inter
+  type: violin
+  title: Mean Velocity by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: mean_velocity_mps
+  layout_group: motion
+- id: box_acceleration_local
+  type: box
+  title: Mean Acceleration by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: acceleration_mean
+  layout_group: motion
+- id: box_acceleration_inter
+  type: box
+  title: Mean Acceleration by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: acceleration_mean
+  layout_group: motion
+- id: violin_curvature_local
+  type: violin
+  title: Curvature Mean by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: curvature_mean
+  layout_group: smoothness
+- id: violin_curvature_inter
+  type: violin
+  title: Curvature Mean by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: curvature_mean
+  layout_group: smoothness
+- id: violin_roughness_local
+  type: violin
+  title: Roughness Mean by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: roughness_mean
+  layout_group: smoothness
+- id: violin_roughness_inter
+  type: violin
+  title: Roughness Mean by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: roughness_mean
+  layout_group: smoothness
+- id: box_angle_over_length_local
+  type: box
+  title: Angle Over Length by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: angle_over_length
+  layout_group: smoothness
+- id: encounter_hierarchy_sunburst
+  uses: encounter_hierarchy_treemap
+  title: Encounter Counts by Crowd Condition, Local Planner and Approach (Sunburst)
+  layout_group: social
+  options:
+    mode: sunburst
+- id: violin_psii_local
+  type: violin
+  title: Personal Space Intrusion Integral (PSII Depth) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: personal_space_intrusion_integral
+  layout_group: social
+- id: violin_psii_inter
+  type: violin
+  title: Personal Space Intrusion Integral (PSII Depth) by Inter-Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: inter_planner
+    y: personal_space_intrusion_integral
+  layout_group: social
+- id: bar_passing_compliance_local
+  type: bar
+  title: Passing Rule Compliance (Right-Hand Passing) by Local Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - passing_rule_compliance
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    color: world
+    y: mean
+  layout_group: social
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_passing_compliance_inter
+  type: bar
+  title: Passing Rule Compliance (Right-Hand Passing) by Inter-Planner
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - passing_rule_compliance
+      group_cols:
+      - inter_planner
+  channels:
+    x: inter_planner
+    y: mean
+  layout_group: social
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: box_ci_max_local
+  type: box
+  title: Directional Collision Index (CI Max) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: ci_max
+  layout_group: social
+- id: violin_personal_space_local
+  type: violin
+  title: Time in Personal Space by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: total_time_in_personal_space
+  layout_group: social
+- id: box_looking_at_peds_local
+  type: box
+  title: Time Looking at Pedestrians by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: total_time_looking_at_pedestrians
+  layout_group: social
+- id: box_looked_at_by_peds_local
+  type: box
+  title: Time Looked at by Pedestrians by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: total_time_looked_at_by_pedestrians
+  layout_group: social
+- id: encounter_energy_breakdown
+  type: bar
+  title: Encounter Energy Breakdown
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_static_wh
+      - energy_mechanical_wh
+      - energy_thermal_wh
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    facet_col: world
+    y: mean
+    color: metric
+  layout_group: ecological
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: bar_energy_breakdown
+  type: bar
+  title: Energy Breakdown (%)
+  data:
+    computation: group_summary
+    params:
+      metrics:
+      - energy_static_wh
+      - energy_mechanical_wh
+      - energy_thermal_wh
+      group_cols:
+      - local_planner
+      - world
+  channels:
+    x: local_planner
+    facet_col: world
+    y: mean
+    color: metric
+  layout_group: ecological
+  options:
+    err_plus: err_plus
+    err_minus: err_minus
+- id: box_ecot_local
+  type: box
+  title: Effective Cost of Transport (E-CoT) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: e_cot
+  layout_group: ecological
+- id: box_kinetic_energy_demand_local
+  type: box
+  title: Kinetic Energy Demand (J) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: kinetic_energy_demand_j
+  layout_group: ecological
+- id: box_friction_dissipation_local
+  type: box
+  title: Friction Dissipation (J) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: friction_dissipation_j
+  layout_group: ecological
+- id: timeseries_power
+  type: timeseries
+  title: Power & Battery Over Time
+  data:
+    source: v_series_energy
+  channels:
+    x: time_s
+    y: power_total_w
+    y2: battery_soc_pct
+    color: planner_world
+  options:
+    bin_width_s: 0.5
+  layout_group: ecological
+- id: timeseries_velocity
+  type: timeseries
+  title: Velocity Over Time
+  data:
+    source: v_series_energy
+  channels:
+    x: time_s
+    y: velocity_linear_mps
+    color: planner_world
+  options:
+    bin_width_s: 0.5
+  layout_group: ecological
+- id: box_aeps_local
+  type: box
+  title: Acoustic Exposure in Personal Space (AEPS) by Local Planner
+  data:
+    source: v_episode_summary
+  channels:
+    x: local_planner
+    color: world
+    y: aeps_linear_s
+  layout_group: ecological
+- id: planner_scorecard_table
+  type: table
+  title: Planner Scorecard Table
+  data:
+    source: v_planner_scorecard
+  channels:
+    x: local_planner
+    y:
+    - episodes_count
+    - success_rate
+    - mean_time_to_goal
+    - mean_path_efficiency
+  layout_group: tradeoffs
+- id: planner_metric_correlation_heatmap
+  type: heatmap
+  title: Planner Metric Correlation Heatmap
+  data:
+    computation: correlation_matrix
+    params:
+      metrics:
+      - success
+      - time_to_goal
+      - path_length_m
+      - mean_velocity_mps
+      - personal_space_intrusion_integral
+  channels:
+    x: metric_x
+    y: metric_y
+    color: pearson_r
+  layout_group: tradeoffs
+- id: encounter_hierarchy_treemap
+  uses: encounter_hierarchy_treemap
+  title: Encounter Hierarchy Treemap
+  layout_group: tradeoffs
+- id: scatter_spl_vs_energy
+  type: scatter
+  title: Safety-Energy Frontier (SPL vs. Total Energy)
+  data:
+    source: v_episode_summary
+  channels:
+    x: energy_total_wh
+    y: spl_geodesic
+    color: planner_world
+  layout_group: tradeoffs
+- id: scatter_time_vs_ecot
+  type: scatter
+  title: Efficiency-Holistic Frontier (Time to Goal vs. E-CoT)
+  data:
+    source: v_episode_summary
+  channels:
+    x: time_to_goal
+    y: e_cot
+    color: planner_world
+  layout_group: tradeoffs
+- id: scatter_velocity_vs_psii
+  type: scatter
+  title: Speed-Comfort Frontier (Mean Velocity vs. PSII)
+  data:
+    source: v_episode_summary
+  channels:
+    x: mean_velocity_mps
+    y: personal_space_intrusion_integral
+    color: planner_world
+  layout_group: tradeoffs
+- id: contact_closing_share
+  uses: contact_closing_share
+  title: Robot Closing Share by Local Planner and Crowd Condition
+  channels:
+    x: local_planner
+  layout_group: safety
+- id: trajectory_plot
+  type: trajectory
+  title: Spatial Robot Navigation Trajectories with Map Overlays
+  data:
+    stored_query: robot_tracks_non_ref
+  channels:
+    x: x
+    y: y
+    color: robot_id
+  layout_group: spatial_trajectories
+- id: pedestrian_trajectory_plot
+  type: trajectory
+  title: Spatial Pedestrian Trajectories & Encounter Corridors
+  data:
+    stored_query: pedestrian_arena_peds_non_ref
+  channels:
+    x: x
+    y: y
+    color: ped_id
+  layout_group: spatial_trajectories

@@ -1,0 +1,19 @@
+id: reference_relative_throughput_bar
+type: bar
+title: Relative Throughput by Local Planner and World (Reference-Only)
+layout_group: reference
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - relative_throughput
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

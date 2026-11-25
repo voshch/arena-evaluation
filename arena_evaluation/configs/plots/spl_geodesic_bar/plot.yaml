@@ -1,0 +1,19 @@
+id: spl_geodesic_bar
+type: bar
+title: Geodesic SPL by Local Planner and World
+layout_group: overview
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - spl_geodesic
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

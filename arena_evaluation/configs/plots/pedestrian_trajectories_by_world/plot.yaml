@@ -1,0 +1,11 @@
+id: pedestrian_trajectories_by_world
+type: trajectory
+title: Pedestrian Trajectories by Local Planner and World
+layout_group: details
+data:
+  source: v_series_pedestrian_path_metrics
+channels:
+  x: x_m
+  y: y_m
+  color: planner_world
+  facet_col: world

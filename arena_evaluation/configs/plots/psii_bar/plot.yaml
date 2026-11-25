@@ -1,0 +1,19 @@
+id: psii_bar
+type: bar
+title: Personal Space Intrusion Integral (PSII) by Local Planner and World
+layout_group: social
+data:
+  computation: group_summary
+  params:
+    metrics:
+      - personal_space_intrusion_integral
+    group_cols:
+      - local_planner
+      - world
+channels:
+  x: local_planner
+  y: mean
+  color: world
+options:
+  err_plus: err_plus
+  err_minus: err_minus

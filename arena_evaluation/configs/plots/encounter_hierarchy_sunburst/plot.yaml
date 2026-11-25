@@ -1,0 +1,14 @@
+id: encounter_hierarchy_sunburst
+type: hierarchy
+title: Contact Encounters Sunburst by World, Local Planner, and Approach
+layout_group: social
+data:
+  stored_query: encounter_hierarchy_summary
+channels:
+  hierarchy:
+    - world
+    - local_planner
+    - approach_type
+  y: contact_encounters
+options:
+  mode: sunburst

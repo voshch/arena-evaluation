@@ -10,9 +10,11 @@ import json
 import pathlib
 
 import pytest
+import yaml
 
 pytest.importorskip("controller_manager_msgs")
 
+from arena_robots.caps import MobileSpec, RobotCaps
 from arena_robots.characterization import (
     ANGULAR_DWELL_S,
     ARC_RADIUS_FACTORS,
@@ -29,12 +31,15 @@ from arena_robots.characterization import (
 )
 
 
-def _caps(tmp_path: pathlib.Path, name: str, body: str) -> pathlib.Path:
-    """Write a caps/mobile.yaml for a fictional robot and return its caps root."""
-    caps = tmp_path / name / "caps"
-    caps.mkdir(parents=True)
-    (caps / "mobile.yaml").write_text(body)
-    return tmp_path
+def _mobile(tmp_path: pathlib.Path, body: str, **overrides: object) -> MobileSpec:
+    """The mobile cap of a fictional robot written from body, with the instance's cap overrides applied."""
+    robot = tmp_path / "robot"
+    robot.mkdir(parents=True)
+    (robot / "caps.yaml").write_text(yaml.safe_dump({"mobile": yaml.safe_load(body)}))
+    return RobotCaps(robot, overrides=dict(overrides)).mobile
+
+
+_ACTIONS = "actions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n"
 
 
 def test_schedule_structure():
@@ -83,7 +88,19 @@ def test_ramp_tests():
 def test_angular_sweep():
     phases = build_schedule()
     angular = [p for p in phases if p.kind == PhaseKind.ANGULAR]
-    assert [p.wz_target for p in angular] == [-2.5, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert [p.wz_target for p in angular] == [
+        -2.5,
+        -2.0,
+        -1.5,
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+    ]
     assert all(p.duration_s == ANGULAR_DWELL_S for p in angular)
     assert all(p.vx_target == 0.0 for p in angular)
 
@@ -166,12 +183,7 @@ def test_modes_select_blocks():
 
 
 def test_resolve_envelope_from_caps(tmp_path: pathlib.Path):
-    caps_dir = _caps(
-        tmp_path,
-        "some_robot",
-        "radius: 0.42\nactions:\n  continuous:\n    linear:\n      min: -1.5\n      max: 3.0\n    angular:\n      min: -4.0\n      max: 4.0\n",
-    )
-    assert resolve_envelope("some_robot", caps_dir=caps_dir) == {
+    assert resolve_envelope(_mobile(tmp_path, f"radius: 0.42\n{_ACTIONS}")) == {
         "vx_max": 3.0,
         "vy_max": 0.0,
         "wz_max": 4.0,
@@ -180,22 +192,31 @@ def test_resolve_envelope_from_caps(tmp_path: pathlib.Path):
     }
 
 
+def test_resolve_envelope_follows_the_instance_cap_overrides(tmp_path: pathlib.Path):
+    mobile = _mobile(
+        tmp_path,
+        f"radius: 0.42\n{_ACTIONS}",
+        **{"mobile.radius": 0.6, "mobile.actions.continuous.linear.max": 1.0, "mobile.is_holonomic": True},
+    )
+    assert resolve_envelope(mobile) == {
+        "vx_max": 1.0,
+        "vy_max": 1.0,
+        "wz_max": 4.0,
+        "radius": 0.6,
+        "is_holonomic": True,
+    }
+
+
 def test_resolve_envelope_holonomic_without_a_lateral_limit(tmp_path: pathlib.Path):
     # No robot in the fleet declares actions.continuous.lateral, so a holonomic
     # robot sweeps sideways up to its forward limit.
-    caps_dir = _caps(
-        tmp_path,
-        "omni_robot",
-        "is_holonomic: true\nradius: 0.3\nactions:\n  continuous:\n    linear:\n      max: 2.0\n",
-    )
-    env = resolve_envelope("omni_robot", caps_dir=caps_dir)
+    env = resolve_envelope(_mobile(tmp_path, f"is_holonomic: true\nradius: 0.3\n{_ACTIONS}"))
     assert env["is_holonomic"] is True
-    assert env["vy_max"] == 2.0
+    assert env["vy_max"] == 3.0
 
 
-def test_resolve_envelope_fallback(tmp_path: pathlib.Path):
-    # Unknown robot with no caps file -> generic defaults.
-    assert resolve_envelope("ghost_robot", caps_dir=tmp_path) == {
+def test_resolve_envelope_fallback():
+    assert resolve_envelope(None) == {
         "vx_max": VX_MAX,
         "vy_max": 0.0,
         "wz_max": 2.5,
@@ -205,12 +226,7 @@ def test_resolve_envelope_fallback(tmp_path: pathlib.Path):
 
 
 def test_schedule_uses_resolved_envelope(tmp_path: pathlib.Path):
-    caps_dir = _caps(
-        tmp_path,
-        "big_robot",
-        "radius: 0.6\nactions:\n  continuous:\n    linear:\n      max: 3.0\n    angular:\n      max: 4.0\n",
-    )
-    env = resolve_envelope("big_robot", caps_dir=caps_dir)
+    env = resolve_envelope(_mobile(tmp_path, f"radius: 0.6\n{_ACTIONS}"))
     phases = build_schedule(
         vx_max=float(env["vx_max"]),
         wz_max=float(env["wz_max"]),
@@ -251,7 +267,11 @@ def test_custom_arc_factors_change_targets_and_respect_the_rated_wz_limit():
 
 
 def test_sweep_defaults_keys_are_accepted_by_build_schedule():
-    assert set(SWEEP_DEFAULTS) == {"arc_speed_factors", "arc_radius_factors", "ramp_horizons_s"}
+    assert set(SWEEP_DEFAULTS) == {
+        "arc_speed_factors",
+        "arc_radius_factors",
+        "ramp_horizons_s",
+    }
     assert build_schedule(**SWEEP_DEFAULTS) == build_schedule()
 
 

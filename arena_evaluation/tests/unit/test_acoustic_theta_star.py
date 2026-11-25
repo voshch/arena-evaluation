@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""Theta* solver verification tests.
-
-These tests assert properties that *only* hold with Theta* any-angle path
-planning and would fail (or be meaningless) against the old 8-connected
-Dijkstra:
-
-  1. Radial symmetry / circular wavefront:
-       In an empty grid, attenuation must equal 20*log10(r) within tight
-       tolerance for *all* directions, not just the 8 grid-aligned ones.
-
-  2. True Euclidean distance recovery:
-       The solver must return exactly 20*log10(max(d, mic)) (closed-form) for
-       unobstructed point pairs.  The old staircase distance must NOT appear.
-
-  3. Single-wall crossing:
-       After one air->wall transition the cost must be
-       20*log10(max(euclidean_dist, mic)) + wall_TL within tolerance.
-
-  4. Multi-path wall routing:
-       The solver prefers the shortest *total-cost* path (around vs through).
-
-  5. No staircase regression:
-       For pixels at non-45-degree angles the old Dijkstra bias is > 0.3 dB;
-       Theta* must stay within 0.15 dB of the closed-form value.
-
-Reference: Daniel et al. (2010), "Theta*: Any-angle path planning on grids",
-Journal of Artificial Intelligence Research, 39, 533-579.
-"""
+"""Attenuation-solver verification tests."""
 
 from __future__ import annotations
 
@@ -36,16 +9,25 @@ import pytest
 from arena_evaluation.processing.acoustics.impedance_grid import compute_attenuations
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 RES = 0.05  # 5 cm/px  (matches real maps)
 MIC = 0.01  # near-field floor, inactive at the tested distances
 WALL_TL = 47.0
 
 
-def _att(grid, sx_px, sy_px, tx_px, ty_px, *, res=RES, mic=MIC, wall_tl=WALL_TL, pixel_tl=None) -> float:
+def _att(
+    grid,
+    sx_px,
+    sy_px,
+    tx_px,
+    ty_px,
+    *,
+    res=RES,
+    mic=MIC,
+    wall_tl=WALL_TL,
+    pixel_tl=None,
+) -> float:
     """Single-target convenience wrapper (pixel-space coordinates)."""
     tx = np.array([float(tx_px)], dtype=np.float32)
     ty = np.array([float(ty_px)], dtype=np.float32)
@@ -69,9 +51,7 @@ def _expected_db(dx_px, dy_px, *, res=RES, mic=MIC) -> float:
     return 20.0 * np.log10(max(d, mic))
 
 
-# ---------------------------------------------------------------------------
 # 1. Radial symmetry (circular wavefront)
-# ---------------------------------------------------------------------------
 
 
 class TestRadialSymmetry:
@@ -130,9 +110,7 @@ class TestRadialSymmetry:
         assert abs(a - exp) < 0.15, f"Off-axis (dx={dx}, dy={dy}) error {a - exp:.3f} dB — staircase bias still present"
 
 
-# ---------------------------------------------------------------------------
 # 2. True Euclidean distance recovery (no staircase)
-# ---------------------------------------------------------------------------
 
 
 class TestEuclideanRecovery:
@@ -171,9 +149,7 @@ class TestEuclideanRecovery:
         assert abs(att - euclidean_db) < abs(att - staircase_db), f"Solver returned {att:.3f} dB, staircase={staircase_db:.3f}, euclidean={euclidean_db:.3f} — Dijkstra bias still present"
 
 
-# ---------------------------------------------------------------------------
 # 3. Single wall crossing with Euclidean distance
-# ---------------------------------------------------------------------------
 
 
 class TestSingleWallCrossing:
@@ -208,6 +184,14 @@ class TestSingleWallCrossing:
         # Diagonal crossing forces grid steps near the wall, so allow wider tolerance
         assert np.isclose(att, expected, atol=1.0), f"Diagonal wall crossing: {att:.2f} vs {expected:.2f} dB"
 
+    @pytest.mark.parametrize("crossing_y", [10, 18, 30, 41])
+    def test_every_crossing_height_pays_one_wall_loss_on_the_euclidean_distance(self, scenario, crossing_y):
+        """The searched path keeps the Euclidean distance at every height, not only on the source row."""
+        grid, W, H = scenario
+        att = _att(grid, 5, crossing_y, 45, crossing_y)
+        expected = _expected_db(40, 0) + WALL_TL
+        assert np.isclose(att, expected, atol=0.3), f"y={crossing_y}: {att:.2f} vs {expected:.2f} dB"
+
     def test_wall_tl_paid_exactly_once(self, scenario):
         """Crossing the same wall multiple times on a loop should not happen — but
         verify TL is paid once: difference between wall and free-space == WALL_TL."""
@@ -218,9 +202,7 @@ class TestSingleWallCrossing:
         assert np.isclose(att_wall - att_free, WALL_TL, atol=0.3), f"Wall TL contribution: {att_wall - att_free:.2f} dB, expected {WALL_TL}"
 
 
-# ---------------------------------------------------------------------------
 # 4. Around-wall routing (multi-path pruning)
-# ---------------------------------------------------------------------------
 
 
 class TestMultiPathRouting:
@@ -247,9 +229,14 @@ class TestMultiPathRouting:
         assert att_through > att_around + 30.0, f"Wall must cost more: through={att_through:.1f}, free={att_around:.1f}"
 
 
-# ---------------------------------------------------------------------------
-# 5. No staircase regression across multiple off-axis directions
-# ---------------------------------------------------------------------------
+def test_two_walls_pay_two_wall_losses():
+    """Barriers are accumulated by the search: the line-of-sight pre-test cannot answer this pair."""
+    grid = np.zeros((50, 50), dtype=np.uint8)
+    grid[:, 20] = 1
+    grid[:, 30] = 1
+    att = _att(grid, 5, 25, 45, 25)
+    expected = _expected_db(40, 0) + 2 * WALL_TL
+    assert np.isclose(att, expected, atol=0.5), f"{att:.2f} vs {expected:.2f} dB"
 
 
 @pytest.mark.parametrize(

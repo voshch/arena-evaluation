@@ -11,9 +11,7 @@ def _ros_gate():
         pytest.skip("ROS2 not available")
 
 
-# ---------------------------------------------------------------------------
 # Suite.parse
-# ---------------------------------------------------------------------------
 
 
 def _make_stage_dict(**overrides: object) -> dict:
@@ -72,15 +70,30 @@ def test_suite_parse_launch_args_defaults_empty():
 def test_suite_parse_launch_args_from_launch_mapping():
     from arena_evaluation.benchmark.config import Suite
 
-    obj = {"stages": [_make_stage_dict()], "launch": {"sim.isaac.physics": "newton", "headless": True}}
+    obj = {
+        "stages": [_make_stage_dict()],
+        "launch": {"sim.isaac.physics": "newton", "headless": True, "env.n": 2},
+    }
     result = Suite.parse("test_suite", obj)
 
-    assert result.launch_args == {"sim.isaac.physics": "newton", "headless": "True"}
+    assert result.launch_args == {
+        "sim.isaac.physics": "newton",
+        "headless": "true",
+        "env.n": "2",
+    }
 
 
-# ---------------------------------------------------------------------------
+def test_suite_parse_launch_rejects_a_non_scalar_value():
+    from arena_evaluation.benchmark.config import Suite
+
+    with pytest.raises(ValueError, match="must be a bool, number or string"):
+        Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "launch": {"human.robots": ["a", "b"]}},
+        )
+
+
 # Suite.Stage.parse
-# ---------------------------------------------------------------------------
 
 
 def test_stage_parse_happy_path():
@@ -109,14 +122,14 @@ def test_stage_parse_missing_timeout_defaults_to_60():
     assert result.timeout == 60.0
 
 
-def test_stage_parse_seed_defaults_to_hash():
+def test_stage_parse_without_seed_stays_none():
     from arena_evaluation.benchmark.config import Suite
 
     obj = _make_stage_dict()
     obj.pop("seed", None)
     result = Suite.Stage.parse(obj)
 
-    assert isinstance(result.seed, int)
+    assert result.seed is None
 
 
 def test_stage_parse_takes_any_case_of_a_vocabulary_name_on_every_axis():
@@ -177,44 +190,45 @@ def test_stage_parse_modules_axis_takes_a_comma_list():
     assert result.modes["modules"] == ",".join(names)
 
 
-def test_stage_seed_hashes_the_legacy_keys_of_the_raw_stage():
-    import hashlib
-    import json
-
+def test_stage_parse_keeps_an_explicit_seed():
     from arena_evaluation.benchmark.config import Suite
 
-    raw = {"name": "s", "episodes": 2, "robot": "jackal", "map": "map1", "tm_obstacles": "random", "tm_robots": "scenario", "config": {"scenario": {"file": "x"}}}
-    expected = 0x7FFFFFFF & int.from_bytes(hashlib.sha1(json.dumps({k: v for k, v in raw.items() if k != "config"}).encode()).digest()[-4:], byteorder="big")
-    assert Suite.Stage.parse(raw).seed == expected
+    raw = {
+        "name": "s",
+        "episodes": 2,
+        "robot": "jackal",
+        "map": "map1",
+        "tm_obstacles": "random",
+        "tm_robots": "scenario",
+        "config": {"scenario": {"file": "x"}},
+        "seed": 1234,
+    }
+    assert Suite.Stage.parse(raw).seed == 1234
 
 
-def test_every_shipped_suite_keeps_its_stage_seeds():
-    import hashlib
-    import json
+def test_every_shipped_suite_keeps_its_explicit_seeds_and_leaves_others_unset():
     import pathlib
 
     import yaml
 
     from arena_evaluation.benchmark.config import Suite
 
-    def old_seed(raw: dict) -> int:
-        legacy = {key: value for key, value in raw.items() if key not in ("timeout", "timeout_peds", "optim")}
-        for key in ("tm_robots", "tm_obstacles"):
-            if key in legacy:
-                legacy[key] = legacy[key].lower()
-        return 0x7FFFFFFF & int.from_bytes(hashlib.sha1(json.dumps({k: v for k, v in legacy.items() if k != "config"}).encode()).digest()[-4:], byteorder="big")
-
-    suites = sorted((pathlib.Path(__file__).parents[1] / "configs" / "benchmark" / "suites").rglob("*.yaml"))
-    checked = 0
+    suites = sorted((pathlib.Path(__file__).parents[1] / "configs" / "suites").rglob("suite.yaml"))
+    explicit = 0
+    unset = 0
     for path in suites:
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict) or "stages" not in data or "task_layer" in data:
             continue
-        for raw, stage in zip(data["stages"], Suite.parse(path.stem, data).stages, strict=True):
-            if "seed" not in raw and "modes" not in raw:
-                assert stage.seed == old_seed(raw), (path.name, raw["name"])
-                checked += 1
-    assert checked
+        for raw, stage in zip(data["stages"], Suite.parse(path.parent.name, data).stages, strict=True):
+            if "seed" in raw:
+                assert stage.seed == raw["seed"], (path.parent.name, raw["name"])
+                explicit += 1
+            else:
+                assert stage.seed is None, (path.parent.name, raw["name"])
+                unset += 1
+    assert explicit
+    assert unset
 
 
 def test_stage_parse_invalid_mode_name_raises():
@@ -230,7 +244,12 @@ def test_stage_parse_passes_on_the_message_of_the_runtime_validator():
 
     from arena_evaluation.benchmark.config import Suite
 
-    for modes in ({"robots": ""}, {"obstacles": ""}, {"robots": "random,random"}, {"robots": "NOT_A_VALID_MODE"}):
+    for modes in (
+        {"robots": ""},
+        {"obstacles": ""},
+        {"robots": "random,random"},
+        {"robots": "NOT_A_VALID_MODE"},
+    ):
         stage = _make_stage_dict(modes=modes)
         stage.pop("tm_robots")
         stage.pop("tm_obstacles")
@@ -242,9 +261,35 @@ def test_stage_parse_passes_on_the_message_of_the_runtime_validator():
         assert str(parsed.value) == str(validated.value)
 
 
-# ---------------------------------------------------------------------------
+def test_suite_parse_warns_about_an_unknown_top_level_key(caplog):
+    import logging
+
+    from arena_evaluation.benchmark.config import Suite
+
+    logger = logging.getLogger("arena_evaluation.benchmark.config")
+    logger.propagate = True
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        suite = Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "metric": {"max_collisions": 5}},
+        )
+
+    assert suite.metrics == {}
+    assert "unknown top-level keys ['metric']" in caplog.text
+
+
+def test_suite_parse_accepts_the_name_key_without_warning(caplog):
+    import logging
+
+    from arena_evaluation.benchmark.config import Suite
+
+    with caplog.at_level(logging.WARNING):
+        Suite.parse("test_suite", {"name": "other", "stages": [_make_stage_dict()]})
+
+    assert "unknown top-level keys" not in caplog.text
+
+
 # Contest.parse - list form
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_list_happy_path():
@@ -306,16 +351,25 @@ def test_contest_parse_list_duplicate_names_raises():
 def test_contest_parse_list_all_keys_except_name_go_to_args():
     from arena_evaluation.benchmark.config import Contest
 
-    obj = [{"name": "p", "mobile.local_planner": "teb", "mobile.inter_planner": "foo", "mobile.agent": "bar"}]
+    obj = [
+        {
+            "name": "p",
+            "mobile.local_planner": "teb",
+            "mobile.inter_planner": "foo",
+            "mobile.agent": "bar",
+        }
+    ]
     result = Contest.parse("c", obj)
 
     c = result.contestants[0]
-    assert c.args == {"mobile.local_planner": "teb", "mobile.inter_planner": "foo", "mobile.agent": "bar"}
+    assert c.args == {
+        "mobile.local_planner": "teb",
+        "mobile.inter_planner": "foo",
+        "mobile.agent": "bar",
+    }
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - list form (dict-cap)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_list_dict_cap():
@@ -357,9 +411,7 @@ def test_contest_parse_list_dict_cap_no_driver():
     assert cap["local_planner"] == "teb"
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - dict-wrapped list form (name + contestants)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_dict_with_contestants_list():
@@ -415,9 +467,7 @@ def test_contest_parse_dict_with_contestants_list_and_description():
     assert result.contestants[0].name == "p1"
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - sweep form
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_sweep_one_axis():
@@ -438,7 +488,10 @@ def test_contest_parse_sweep_one_axis():
 def test_contest_parse_sweep_two_axes():
     from arena_evaluation.benchmark.config import Contest
 
-    obj = {"mobile.local_planner": ["dwa", "teb"], "mobile.global_planner": ["navfn", "smac"]}
+    obj = {
+        "mobile.local_planner": ["dwa", "teb"],
+        "mobile.global_planner": ["navfn", "smac"],
+    }
     result = Contest.parse("c", obj)
 
     assert len(result.contestants) == 4
@@ -513,16 +566,20 @@ def test_contest_parse_invalid_type_raises():
         Contest.parse("c", "not_a_valid_type")  # type: ignore[arg-type]
 
 
-# ---------------------------------------------------------------------------
 # Contest.parse - sweep form (dict-cap)
-# ---------------------------------------------------------------------------
 
 
 def test_contest_parse_sweep_dict_cap_one_inner_axis():
     """Dict-form cap with one sweep axis inside."""
     from arena_evaluation.benchmark.config import Contest
 
-    obj = {"mobile": {"driver": "nav2", "local_planner": ["teb", "dwa"], "inter_planner": "bypass"}}
+    obj = {
+        "mobile": {
+            "driver": "nav2",
+            "local_planner": ["teb", "dwa"],
+            "inter_planner": "bypass",
+        }
+    }
     result = Contest.parse("c", obj)
 
     assert len(result.contestants) == 2
@@ -540,7 +597,13 @@ def test_contest_parse_sweep_dict_cap_two_inner_axes():
     """Dict-form cap with two sweep axes -> cartesian product."""
     from arena_evaluation.benchmark.config import Contest
 
-    obj = {"mobile": {"driver": "nav2", "local_planner": ["teb", "dwa"], "inter_planner": ["polite", "aggressive"]}}
+    obj = {
+        "mobile": {
+            "driver": "nav2",
+            "local_planner": ["teb", "dwa"],
+            "inter_planner": ["polite", "aggressive"],
+        }
+    }
     result = Contest.parse("c", obj)
 
     assert len(result.contestants) == 4
@@ -557,13 +620,23 @@ def test_contest_parse_sweep_dict_cap_no_axes():
 
     assert len(result.contestants) == 1
     assert result.contestants[0].name == "single"
-    assert result.contestants[0].args["mobile"] == {"driver": "nav2", "local_planner": "teb"}
+    assert result.contestants[0].args["mobile"] == {
+        "driver": "nav2",
+        "local_planner": "teb",
+    }
 
 
 def test_contest_parse_sweep_dict_cap_with_prefix():
     from arena_evaluation.benchmark.config import Contest
 
-    obj = {"name": "basic", "mobile": {"driver": "nav2", "inter_planner": "bypass", "local_planner": ["teb", "dwa"]}}
+    obj = {
+        "name": "basic",
+        "mobile": {
+            "driver": "nav2",
+            "inter_planner": "bypass",
+            "local_planner": ["teb", "dwa"],
+        },
+    }
     result = Contest.parse("c", obj)
 
     names = [c.name for c in result.contestants]
@@ -577,27 +650,53 @@ def test_shipped_landmarks_suite_and_contest_parse():
 
     from arena_evaluation.benchmark.config import Contest, Suite
 
-    configs = pathlib.Path(__file__).parents[1] / "configs" / "benchmark"
-    suite = Suite.parse("landmarks", yaml.safe_load((configs / "suites" / "landmarks.yaml").read_text()))
-    contest = Contest.parse("landmarks", yaml.safe_load((configs / "contests" / "landmarks.yaml").read_text()))
+    configs = pathlib.Path(__file__).parents[1] / "configs"
+    suite = Suite.parse(
+        "landmarks",
+        yaml.safe_load((configs / "suites" / "landmarks" / "suite.yaml").read_text()),
+    )
+    contest = Contest.parse(
+        "landmarks",
+        yaml.safe_load((configs / "contests" / "landmarks" / "contest.yaml").read_text()),
+    )
 
     assert {stage.map for stage in suite.stages} == {"hospital_1"}
     assert all(stage.config["scenario"]["file"].startswith("landmark_") and stage.modes["robots"] == "scenario" for stage in suite.stages)
     assert len({stage.name for stage in suite.stages}) == len(suite.stages) == 5
     assert {stage.robot for stage in suite.stages} == {"jackal"}
-    assert suite.launch_args["lockstep"] == "True" and suite.launch_args["lockstep.paused"] == "False"
+    assert suite.launch_args["lockstep"] == "true" and suite.launch_args["lockstep.paused"] == "false"
     wordings = {c.name: c.args["mobile"].get("wording") for c in contest.contestants}
     assert wordings["nav2"] is None and wordings["omnivla-edge-pose"] is None
     assert {name.rsplit("-", 1)[1] for name, wording in wordings.items() if wording} == {"goal", "route"}
     assert all(name.endswith(wording) for name, wording in wordings.items() if wording)
     cameras = {c.args["mobile"]["planner"]: c.parts["camera"] for c in contest.contestants if c.name != "nav2"}
-    assert set(cameras) == {"cma", "navid", "navila", "streamvln", "omnivla", "omnivla-edge", "pi05", "navdp", "iplanner", "viplanner", "socialnav", "citywalker", "xmobility"}
+    assert set(cameras) == {
+        "cma",
+        "navid",
+        "navila",
+        "streamvln",
+        "omnivla",
+        "omnivla-edge",
+        "pi05",
+        "navdp",
+        "iplanner",
+        "viplanner",
+        "socialnav",
+        "citywalker",
+        "xmobility",
+    }
     assert cameras["cma"] == "vln_rgbd" and cameras["navila"] == "vln_navila"
     assert next(c for c in contest.contestants if c.name == "nav2").parts == {}
     assert {c.parts["camera"] for c in contest.contestants if c.args["mobile"].get("config.variant") == "uninavid"} == {"vln_uninavid"}
 
 
-@pytest.mark.parametrize(("contest", "planners"), [("edge_case_differential", {"cadrl", "her-drl", "sicnav"}), ("edge_case_omnidirectional", {"rlrvo", "kdma", "navistar", "cd-sarl"})])
+@pytest.mark.parametrize(
+    ("contest", "planners"),
+    [
+        ("edge_case_differential", {"cadrl", "her-drl", "sicnav"}),
+        ("edge_case_omnidirectional", {"rlrvo", "kdma", "navistar", "cd-sarl"}),
+    ],
+)
 def test_shipped_edge_case_contests_parse(contest, planners):
     import pathlib
 
@@ -605,7 +704,7 @@ def test_shipped_edge_case_contests_parse(contest, planners):
 
     from arena_evaluation.benchmark.config import Contest
 
-    path = pathlib.Path(__file__).parents[1] / "configs" / "benchmark" / "contests" / f"{contest}.yaml"
+    path = pathlib.Path(__file__).parents[1] / "configs" / "contests" / contest / "contest.yaml"
     parsed = Contest.parse(contest, yaml.safe_load(path.read_text()))
     assert parsed.contestants[0].name == "nav2" and parsed.contestants[0].args["mobile"]["driver"] == "nav2"
     assert {c.args["mobile"]["planner"] for c in parsed.contestants[1:]} == planners
@@ -617,18 +716,42 @@ def test_a_generated_edge_case_suite_parses():
 
     from arena_evaluation.benchmark.config import Suite
 
-    suite = Suite.parse("edge", build({"hospital_1": ["normal__u_001", "normal__u_002"]}, robot="jackal", episodes=3, seed=7, timeout="2m"))
-    assert [stage.name for stage in suite.stages] == ["hospital_1.normal__u_001", "hospital_1.normal__u_002"]
+    suite = Suite.parse(
+        "edge",
+        build(
+            {"hospital_1": ["normal__u_001", "normal__u_002"]},
+            robot="jackal",
+            episodes=3,
+            seed=7,
+            timeout="2m",
+        ),
+    )
+    assert [stage.name for stage in suite.stages] == [
+        "hospital_1.normal__u_001",
+        "hospital_1.normal__u_002",
+    ]
     assert all(stage.map == "hospital_1" and stage.robot == "jackal" and stage.episodes == 3 and stage.seed == 7 for stage in suite.stages)
     assert {(stage.modes["robots"], stage.modes["obstacles"]) for stage in suite.stages} == {("scenario", "scenario")}
-    assert [stage.config["scenario"]["file"] for stage in suite.stages] == ["normal__u_001", "normal__u_002"]
+    assert [stage.config["scenario"]["file"] for stage in suite.stages] == [
+        "normal__u_001",
+        "normal__u_002",
+    ]
     assert suite.stages[0].timeout == 120.0 and suite.launch_args == {"human": "arena"}
 
 
 def test_contest_parse_list_parts_stay_out_of_args():
     from arena_evaluation.benchmark.config import Contest
 
-    result = Contest.parse("c", [{"name": "cma", "parts": {"camera": "vln_rgbd"}, "mobile": {"driver": "vla", "planner": "cma"}}])
+    result = Contest.parse(
+        "c",
+        [
+            {
+                "name": "cma",
+                "parts": {"camera": "vln_rgbd"},
+                "mobile": {"driver": "vla", "planner": "cma"},
+            }
+        ],
+    )
 
     assert result.contestants[0].parts == {"camera": "vln_rgbd"}
     assert result.contestants[0].args == {"mobile": {"driver": "vla", "planner": "cma"}}
@@ -637,7 +760,18 @@ def test_contest_parse_list_parts_stay_out_of_args():
 def test_contest_parse_sweep_shares_parts():
     from arena_evaluation.benchmark.config import Contest
 
-    result = Contest.parse("c", {"name": "navid", "parts": {"camera": "vln_navid"}, "mobile": {"driver": "vla", "planner": "navid", "wording": ["goal", "route"]}})
+    result = Contest.parse(
+        "c",
+        {
+            "name": "navid",
+            "parts": {"camera": "vln_navid"},
+            "mobile": {
+                "driver": "vla",
+                "planner": "navid",
+                "wording": ["goal", "route"],
+            },
+        },
+    )
 
     assert [c.name for c in result.contestants] == ["navid-goal", "navid-route"]
     assert all(c.parts == {"camera": "vln_navid"} and "parts" not in c.args for c in result.contestants)
@@ -659,14 +793,20 @@ def test_robot_with_parts_replaces_items_of_the_same_key():
     assert robot_with_parts("jackal[2,camera=[a,b],lidar=x],burger", {"camera": "vln_rgbd"}) == "jackal[2,lidar=x,camera=vln_rgbd],burger[camera=vln_rgbd]"
 
 
-# ---------------------------------------------------------------------------
 # _parse_duration
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("text", "seconds"),
-    [("60", 60.0), ("60.0", 60.0), ("500ms", 0.5), ("5s", 5.0), ("5m", 300.0), ("1h", 3600.0), ("1h30m", 5400.0)],
+    [
+        ("60", 60.0),
+        ("60.0", 60.0),
+        ("500ms", 0.5),
+        ("5s", 5.0),
+        ("5m", 300.0),
+        ("1h", 3600.0),
+        ("1h30m", 5400.0),
+    ],
 )
 def test_parse_duration_reads_plain_numbers_and_units(text, seconds):
     from arena_evaluation.benchmark.config import _parse_duration
@@ -700,14 +840,20 @@ def test_suite_parse_metrics_unknown_key_raises():
     from arena_evaluation.benchmark.config import Suite
 
     with pytest.raises(ValueError, match="unknown keys"):
-        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_colisions": 1}})
+        Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "metrics": {"max_colisions": 1}},
+        )
 
 
 def test_suite_parse_metrics_nonpositive_raises():
     from arena_evaluation.benchmark.config import Suite
 
     with pytest.raises(ValueError, match="max_collisions"):
-        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 0}})
+        Suite.parse(
+            "test_suite",
+            {"stages": [_make_stage_dict()], "metrics": {"max_collisions": 0}},
+        )
 
 
 def test_suite_parse_metrics_barn_reference():
@@ -715,14 +861,32 @@ def test_suite_parse_metrics_barn_reference():
 
     barn = {"start": [2.25, 3], "goal": [2.25, 13], "path_length": {"map1": 11.5}}
     suite = Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": barn}})
-    assert suite.metrics == {"barn": {"start": [2.25, 3.0], "goal": [2.25, 13.0], "path_length": {"map1": 11.5}}}
+    assert suite.metrics == {
+        "barn": {
+            "start": [2.25, 3.0],
+            "goal": [2.25, 13.0],
+            "path_length": {"map1": 11.5},
+        }
+    }
 
 
 def test_suite_parse_metrics_barn_reference_junk_raises():
     from arena_evaluation.benchmark.config import Suite
 
     with pytest.raises(ValueError, match="suite metrics: barn: path_length"):
-        Suite.parse("test_suite", {"stages": [_make_stage_dict()], "metrics": {"barn": {"start": [0, 0], "goal": [0, 1], "path_length": {"map1": -1}}}})
+        Suite.parse(
+            "test_suite",
+            {
+                "stages": [_make_stage_dict()],
+                "metrics": {
+                    "barn": {
+                        "start": [0, 0],
+                        "goal": [0, 1],
+                        "path_length": {"map1": -1},
+                    }
+                },
+            },
+        )
 
 
 def test_stage_fields_are_plain_yaml_once_task_modes_are_values():

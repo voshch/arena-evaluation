@@ -100,14 +100,14 @@ class EpisodeWriter:
 
         storage_options = rosbag2_py.StorageOptions(
             uri=mcap_uri,
-            storage_id='mcap',
+            storage_id="mcap",
             max_bagfile_size=0,
             max_cache_size=0,
             storage_config_uri=mcap_config_path,
         )
         converter_options = rosbag2_py.ConverterOptions(
-            input_serialization_format='cdr',
-            output_serialization_format='cdr',
+            input_serialization_format="cdr",
+            output_serialization_format="cdr",
         )
 
         try:
@@ -119,10 +119,14 @@ class EpisodeWriter:
 
                 if self._pre_episode_buffer:
                     self._log_info(f"Flushing {len(self._pre_episode_buffer)} pre-episode buffered messages to writer")
-                    for topic_name, serialized_msg, timestamp_ns in self._pre_episode_buffer:
+                    for (
+                        topic_name,
+                        serialized_msg,
+                        timestamp_ns,
+                    ) in self._pre_episode_buffer:
                         self._ensure_topic_in_bag(topic_name)
-                        self.writer.write(topic_name.strip('/'), serialized_msg, timestamp_ns)  # pyright: ignore[reportArgumentType]
-                        self.recorded_topics.add(topic_name.strip('/'))
+                        self.writer.write(topic_name.strip("/"), serialized_msg, timestamp_ns)  # pyright: ignore[reportArgumentType]
+                        self.recorded_topics.add(topic_name.strip("/"))
                     self._pre_episode_buffer.clear()
             self._log_info(f"MCAP writer opened for {ep_name}")
         except Exception as e:
@@ -184,7 +188,7 @@ class EpisodeWriter:
         """Write serialized bytes to the open episode, buffer latched topics while none is open, drop the rest."""
         with self.writer_lock:
             if self.writer is None:
-                topic_stripped = topic_name.strip('/')
+                topic_stripped = topic_name.strip("/")
                 if topic_stripped in self.latched_topic_names:
                     if len(self._pre_episode_buffer) < 10000:
                         self._pre_episode_buffer.append((topic_name, serialized_msg, timestamp_ns))
@@ -196,8 +200,8 @@ class EpisodeWriter:
                 return
             try:
                 self._ensure_topic_in_bag(topic_name)
-                self.writer.write(topic_name.strip('/'), serialized_msg, timestamp_ns)  # pyright: ignore[reportArgumentType]
-                self.recorded_topics.add(topic_name.strip('/'))
+                self.writer.write(topic_name.strip("/"), serialized_msg, timestamp_ns)  # pyright: ignore[reportArgumentType]
+                self.recorded_topics.add(topic_name.strip("/"))
                 self._write_success_count += 1
                 if self._write_success_count <= 5 or self._write_success_count % 500 == 0:
                     self._log_info(f"Write success count reached {self._write_success_count}")
@@ -209,22 +213,22 @@ class EpisodeWriter:
         if topic_name in self._topic_registry:
             return
         try:
-            parts = msg_type.__module__.split('.')
+            parts = msg_type.__module__.split(".")
             type_str = f"{parts[0]}/msg/{msg_type.__name__}"
         except AttributeError:
             type_str = str(msg_type)
 
         self._topic_registry[topic_name] = rosbag2_py.TopicMetadata(
             id=0,
-            name=topic_name.strip('/'),
+            name=topic_name.strip("/"),
             type=type_str,
-            serialization_format='cdr',
+            serialization_format="cdr",
         )
 
     def _ensure_topic_in_bag(self, topic_name: str):
         """Lazily call create_topic on first write. Must be called under writer_lock."""
         assert self.writer is not None
-        strip = topic_name.strip('/')
+        strip = topic_name.strip("/")
         if strip not in self.topics_metadata and topic_name in self._topic_registry:
             self.writer.create_topic(self._topic_registry[topic_name])
             self.topics_metadata[strip] = self._topic_registry[topic_name]

@@ -1,0 +1,14 @@
+id: encounter_hierarchy_treemap
+type: hierarchy
+title: Encounter Breakdown by World, Local Planner, and Approach
+layout_group: social
+data:
+  stored_query: encounter_hierarchy_summary
+channels:
+  hierarchy:
+    - world
+    - local_planner
+    - approach_type
+  y: encounter_count
+options:
+  mode: treemap

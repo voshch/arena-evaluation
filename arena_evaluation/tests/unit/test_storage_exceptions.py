@@ -1,9 +1,4 @@
-"""Unit tests for arena_evaluation.storage.exceptions.
-
-Verifies the domain exception hierarchy: every concrete exception derives
-from ArenaEvaluationError, stays catchable as a plain Exception, and
-preserves constructor args.
-"""
+"""Unit tests for arena_evaluation.storage.exceptions."""
 
 from __future__ import annotations
 
@@ -13,17 +8,13 @@ from arena_evaluation.storage.exceptions import (
     ArenaEvaluationError,
     CircularDependencyError,
     ManifestGenerationError,
-    MetricCalculationError,
-    RobotNotFoundError,
     SchemaViolationError,
 )
 
 _ALL_EXCEPTIONS = [
     ArenaEvaluationError,
-    MetricCalculationError,
     CircularDependencyError,
     SchemaViolationError,
-    RobotNotFoundError,
     ManifestGenerationError,
 ]
 

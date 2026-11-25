@@ -7,7 +7,11 @@ import typing
 import numpy as np
 
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
-from arena_evaluation.processing.metrics.ecological.mechanism_common import SemanticView, entity_level, entity_name
+from arena_evaluation.processing.metrics.ecological.mechanism_common import (
+    SemanticView,
+    entity_level,
+    entity_name,
+)
 from arena_evaluation.storage.schemas import AlignedEpisodeBundle
 
 PROGRESS_FIELD = {"door": "progress", "elevator": "cabin_door_progress"}
@@ -24,24 +28,19 @@ def _floats(values: list[str]) -> list[float]:
 
 
 class MechanismStatesCalculator(BaseMetricCalculator):
-    """Per door and elevator: opening progress and lock state at every sample of `time`."""
+    """Per door and elevator: opening progress and lock state at every episode sample, called directly by the evaluator and declaring no OUTPUTS."""
 
     NAME = "mechanism_states"
     CATEGORY = "ecological"
-    DEPENDS_ON = ["time_metrics"]
-    REQUIRED_TOPICS = [("tf_gt", "odom")]
-    UNITS = {"mechanism_states": ""}
-
-    @classmethod
-    def output_keys(cls) -> list[str]:
-        return ["mechanism_states"]
+    REQUIRED_TOPICS = [("robot_tracks", "robot_odom")]
 
     def calculate(self, episode: AlignedEpisodeBundle, prior_results: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        time_ns = prior_results.get("time")
-        if not time_ns:
+        del prior_results
+        frame = episode.data
+        if frame is None or len(frame) == 0:
             return {"mechanism_states": None}
         view = SemanticView.from_episode(episode)
-        query = np.asarray(time_ns, dtype=np.int64)
+        query = frame["t_ns"].to_numpy().astype(np.int64)
         states = []
         for kind, field in PROGRESS_FIELD.items():
             for entity in view.entities(kind):
@@ -55,7 +54,7 @@ class MechanismStatesCalculator(BaseMetricCalculator):
                         "level": entity_level(entity),
                         "kind": kind,
                         "progress": _floats(progress.sample(query)),
-                        "locked": [v == "true" for v in locked.sample(query)] if locked is not None else [False] * len(query),
+                        "locked": [v == "true" for v in locked.sample(query)] if locked is not None else [None] * len(query),
                     }
                 )
         return {"mechanism_states": states or None}

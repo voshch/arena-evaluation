@@ -1,62 +1,110 @@
-# Wrapper for the per-pixel TL solver.
+"""C++ acoustic attenuation solver wrapper."""
+
+from __future__ import annotations
+
 import ctypes
-import logging
-import subprocess
+import functools
+import os
 from pathlib import Path
+from typing import Final
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from arena_evaluation.processing.acoustics.constants import (
+    ACOUSTIC_SOLVER_ABI,
+    ACOUSTIC_SOLVER_ABI_SYMBOL,
+    ACOUSTIC_SOLVER_SYMBOLS,
+    MIC_DISTANCE_M,
+    WALL_TRANSMISSION_LOSS_DB,
+)
+from arena_evaluation.storage.exceptions import MetricInputError
 
-# Find the C++ source file
 _SRC_DIR = Path(__file__).parent
-_CPP_FILE = _SRC_DIR / "solver.cpp"
-_SO_FILE = _SRC_DIR / "solver.so"
+_DEFAULT_SO_FILE = _SRC_DIR / "solver.so"
+_ENV_SO_VAR: Final[str] = "ARENA_ACOUSTIC_SOLVER_SO"
+_BUILD_HINT: Final[str] = "run `arena build` (the arena_acoustics_solver CMake target), or `cmake -S arena_evaluation -B build -DARENA_SOLVERS_ONLY=ON && cmake --build build`, or set ARENA_ACOUSTIC_SOLVER_SO to a library built elsewhere (needs a C++17 compiler)"
 
 
-def _compile_solver():
-    if _SO_FILE.exists():
-        if _CPP_FILE.stat().st_mtime <= _SO_FILE.stat().st_mtime:
-            return
+def solver_library_path() -> Path:
+    """The library that is loaded: $ARENA_ACOUSTIC_SOLVER_SO when set, else `solver.so` next to this module."""
+    override = os.environ.get(_ENV_SO_VAR)
+    return Path(override) if override else _DEFAULT_SO_FILE
 
-    logger.info("Compiling C++ acoustic solver: %s -> %s", _CPP_FILE, _SO_FILE)
-    cmd = [
-        "g++",
-        "-O3",
-        "-ffast-math",
-        "-fPIC",
-        "-shared",
-        "-std=c++11",
-        str(_CPP_FILE),
-        "-o",
-        str(_SO_FILE),
+
+def solver_abi(lib: ctypes.CDLL) -> int:
+    """The ABI version the loaded library exports, verified against the wrapper's ABI."""
+    try:
+        exported = lib.arena_acoustic_solver_abi
+    except AttributeError as error:
+        raise MetricInputError(f"acoustic solver {solver_library_path()} exports no {ACOUSTIC_SOLVER_ABI_SYMBOL}, so it predates ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}") from error
+    exported.restype = ctypes.c_int
+    exported.argtypes = []
+    return int(exported())
+
+
+def _verify_library(lib: ctypes.CDLL) -> None:
+    """Raise MetricInputError unless the library exports the wrapper's ABI and solver symbols."""
+    so_path = solver_library_path()
+    abi = solver_abi(lib)
+    if abi != ACOUSTIC_SOLVER_ABI:
+        raise MetricInputError(f"acoustic solver {so_path} exports ABI {abi}, this package needs ABI {ACOUSTIC_SOLVER_ABI}; {_BUILD_HINT}")
+    missing = [symbol for symbol in ACOUSTIC_SOLVER_SYMBOLS if not _exports(lib, symbol)]
+    if missing:
+        raise MetricInputError(f"acoustic solver {so_path} exports ABI {abi} but no {', '.join(missing)}; {_BUILD_HINT}")
+
+
+def _exports(lib: ctypes.CDLL, symbol: str) -> bool:
+    """Whether the loaded library defines `symbol`; ctypes raises AttributeError when it does not."""
+    try:
+        getattr(lib, symbol)
+    except AttributeError:
+        return False
+    return True
+
+
+@functools.cache
+def _solver_library() -> ctypes.CDLL:
+    """Load the built C++17 acoustic solver library and bind its C ABI; never compiles."""
+    so_path = solver_library_path()
+    if not so_path.is_file():
+        raise MetricInputError(f"acoustic solver library not found at {so_path}; {_BUILD_HINT}")
+    try:
+        lib = ctypes.CDLL(str(so_path))
+    except OSError as error:
+        raise MetricInputError(f"acoustic solver library {so_path} could not be loaded: {error}; {_BUILD_HINT}") from error
+    _verify_library(lib)
+
+    lib.solve_acoustic_field.argtypes = [
+        np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags="C_CONTIGUOUS"),  # grid
+        ctypes.c_int,  # width
+        ctypes.c_int,  # height
+        ctypes.c_float,  # resolution
+        ctypes.c_float,  # start_x
+        ctypes.c_float,  # start_y
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # target_xs
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # target_ys
+        ctypes.c_int,  # num_targets
+        ctypes.c_float,  # wall_tl
+        ctypes.c_float,  # mic_distance
+        ctypes.c_void_p,  # pixel_tl (NULL when None)
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"),  # out_attenuations
     ]
+    lib.solve_acoustic_field.restype = None
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to compile C++ solver:\n{result.stderr}")
-
-
-# Compile on import
-_compile_solver()
-_lib = ctypes.CDLL(str(_SO_FILE))
-
-_lib.solve_acoustic_field.argtypes = [
-    np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags='C_CONTIGUOUS'),  # grid
-    ctypes.c_int,  # width
-    ctypes.c_int,  # height
-    ctypes.c_float,  # resolution
-    ctypes.c_float,  # start_x
-    ctypes.c_float,  # start_y
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_xs
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # target_ys
-    ctypes.c_int,  # num_targets
-    ctypes.c_float,  # wall_tl
-    ctypes.c_float,  # mic_distance
-    ctypes.c_void_p,  # pixel_tl (NULL when None)
-    np.ctypeslib.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS'),  # out_attenuations
-]
-_lib.solve_acoustic_field.restype = None
+    lib.solve_acoustic_grid.argtypes = [
+        np.ctypeslib.ndpointer(dtype=np.uint8, ndim=2, flags="C_CONTIGUOUS"),  # grid
+        ctypes.c_int,  # width
+        ctypes.c_int,  # height
+        ctypes.c_float,  # resolution
+        ctypes.c_float,  # start_x
+        ctypes.c_float,  # start_y
+        ctypes.c_float,  # wall_tl
+        ctypes.c_float,  # mic_distance
+        ctypes.c_void_p,  # pixel_tl (NULL when None)
+        np.ctypeslib.ndpointer(dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"),  # out_field
+    ]
+    lib.solve_acoustic_grid.restype = None
+    return lib
 
 
 def compute_attenuations(
@@ -66,11 +114,11 @@ def compute_attenuations(
     start_y_px: float,
     target_xs_px: np.ndarray,
     target_ys_px: np.ndarray,
-    wall_tl: float = 47.0,
-    mic_distance: float = 1.0,
+    wall_tl: float = WALL_TRANSMISSION_LOSS_DB,
+    mic_distance: float = MIC_DISTANCE_M,
     pixel_tl: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Compute acoustic attenuation from start pixel to target pixels, with mic_distance as the near-field floor (m)."""
+    """Attenuation from start pixel to target pixels; `wall_tl` applies only without a `pixel_tl` map."""
     if not isinstance(occupancy_grid, np.ndarray) or occupancy_grid.dtype != np.uint8:
         occupancy_grid = np.ascontiguousarray(occupancy_grid, dtype=np.uint8)
 
@@ -82,21 +130,14 @@ def compute_attenuations(
 
     num_targets = len(target_xs_px)
     if len(target_ys_px) != num_targets:
-        raise ValueError("target_xs_px and target_ys_px must have the same length.")
+        raise MetricInputError(f"target_xs_px and target_ys_px must have the same length, got {num_targets} and {len(target_ys_px)}")
 
     out_attenuations = np.empty(num_targets, dtype=np.float32)
 
     height, width = occupancy_grid.shape
+    tl_ptr = _pixel_tl_pointer(pixel_tl, height, width)
 
-    # pixel_tl: None -> pass a NULL pointer; otherwise C-contiguous float32
-    tl_ptr = None
-    if pixel_tl is not None:
-        if pixel_tl.shape != (height, width):
-            raise ValueError(f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}")
-        pixel_tl = np.ascontiguousarray(pixel_tl, dtype=np.float32)
-        tl_ptr = pixel_tl.ctypes.data_as(ctypes.c_void_p)
-
-    _lib.solve_acoustic_field(
+    _solver_library().solve_acoustic_field(
         occupancy_grid,
         width,
         height,
@@ -113,6 +154,48 @@ def compute_attenuations(
     )
 
     return out_attenuations
+
+
+def compute_acoustic_field(
+    occupancy_grid: np.ndarray,
+    resolution: float,
+    start_x_px: float,
+    start_y_px: float,
+    wall_tl: float = WALL_TRANSMISSION_LOSS_DB,
+    mic_distance: float = MIC_DISTANCE_M,
+    pixel_tl: np.ndarray | None = None,
+) -> np.ndarray:
+    """Full 2D attenuation field (rows, columns) from start pixel; `wall_tl` applies only without a `pixel_tl` map."""
+    occupancy_grid = np.ascontiguousarray(occupancy_grid, dtype=np.uint8)
+
+    height, width = occupancy_grid.shape
+    out_field = np.empty((height, width), dtype=np.float32)
+    tl_ptr = _pixel_tl_pointer(pixel_tl, height, width)
+
+    _solver_library().solve_acoustic_grid(
+        occupancy_grid,
+        width,
+        height,
+        float(resolution),
+        float(start_x_px),
+        float(start_y_px),
+        float(wall_tl),
+        float(mic_distance),
+        tl_ptr,
+        out_field,
+    )
+
+    return out_field
+
+
+def _pixel_tl_pointer(pixel_tl: np.ndarray | None, height: int, width: int) -> ctypes.c_void_p | None:
+    """The C pointer of a per-cell transmission-loss map, NULL when there is none."""
+    if pixel_tl is None:
+        return None
+    if pixel_tl.shape != (height, width):
+        raise MetricInputError(f"pixel_tl shape {pixel_tl.shape} != grid shape {(height, width)}")
+    contiguous = np.ascontiguousarray(pixel_tl, dtype=np.float32)
+    return contiguous.ctypes.data_as(ctypes.c_void_p)
 
 
 def downsample_occupancy(grid: np.ndarray, ds: int) -> np.ndarray:

@@ -1,0 +1,10 @@
+id: roughness_mean_violin
+type: violin
+title: Path Roughness Distribution by Local Planner and World
+layout_group: smoothness
+data:
+  source: v_episode_summary
+channels:
+  x: local_planner
+  y: roughness_mean
+  color: world
