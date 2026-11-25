@@ -1,4 +1,4 @@
-"""The eleven fact tables of one evaluated episode: identity and recorded columns; metric columns come from the metric layer."""
+"""The twelve fact tables of one evaluated episode: identity and recorded columns; metric columns come from the metric layer."""
 
 from __future__ import annotations
 
@@ -214,6 +214,25 @@ class FactPhaseOutcomes(_RunEpisodeRobot, name="phase_outcomes", kind=TableKind.
         description="Outcome token of the phase: met, failed, dropped or pending.",
     )
     met = Column(pl.Boolean, description="Whether the replay marks the phase met.")
+
+
+class FactTaskOutcomes(_RunEpisodeRobot, name="task_outcomes", kind=TableKind.FACT):
+    """Task rows: one row per task id of the recorded task events."""
+
+    key = ("run_id", "episode_id", "robot_id", "task_idx")
+
+    task_idx = Column(pl.Int64, description="Index of the task in the time order of its first event.")
+    task_id = Column(pl.String, description="Identifier of the task.")
+    outcome = Column(
+        pl.String,
+        description="Final outcome of the task: met, failed, dropped or pending.",
+    )
+    duration_s = Column(
+        pl.Float64,
+        null_reason=True,
+        unit="s",
+        description="Seconds from the first started event to the final ending event of the task.",
+    )
 
 
 class FactJudgeDisagreements(_RunEpisodeRobot, name="judge_disagreements", kind=TableKind.FACT):

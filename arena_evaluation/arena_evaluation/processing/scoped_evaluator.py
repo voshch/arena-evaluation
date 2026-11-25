@@ -1,4 +1,4 @@
-"""Multi-resolution scoped evaluator: one episode in, eleven typed fact tables out."""
+"""Multi-resolution scoped evaluator: one episode in, twelve typed fact tables out."""
 
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ def _default_fact_field(table: FactTable) -> pl.DataFrame:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ScopedFactTables:
-    """The eleven typed fact tables of one evaluated episode."""
+    """The twelve typed fact tables of one evaluated episode."""
 
     episodes: pl.DataFrame
     encounters: pl.DataFrame
@@ -155,6 +155,7 @@ class ScopedFactTables:
     edge_cases: pl.DataFrame = _default_fact_field(FactTable.EDGE_CASES)
     formations: pl.DataFrame = _default_fact_field(FactTable.FORMATIONS)
     phase_outcomes: pl.DataFrame = _default_fact_field(FactTable.PHASE_OUTCOMES)
+    task_outcomes: pl.DataFrame = _default_fact_field(FactTable.TASK_OUTCOMES)
     judge_disagreements: pl.DataFrame = _default_fact_field(FactTable.JUDGE_DISAGREEMENTS)
     mechanism_states: pl.DataFrame = _default_fact_field(FactTable.MECHANISM_STATES)
     collisions: pl.DataFrame = _default_fact_field(FactTable.COLLISIONS)
@@ -165,7 +166,7 @@ class ScopedFactTables:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class EvaluatedEpisode:
-    """One robot's episode: its eleven fact tables, its series tables and its episode metrics row."""
+    """One robot's episode: its twelve fact tables, its series tables and its episode metrics row."""
 
     facts: ScopedFactTables
     series: dict[str, pl.DataFrame]
@@ -753,6 +754,7 @@ class ScopedEvaluator:
                 edge_cases=self._edge_case_fact_frame(**child_ctx),
                 formations=self._formation_fact_frame(**child_ctx),
                 phase_outcomes=self._phase_outcome_fact_frame(**child_ctx),
+                task_outcomes=self._task_outcome_fact_frame(**child_ctx),
                 judge_disagreements=self._judge_disagreement_fact_frame(**child_ctx),
                 mechanism_states=self._mechanism_state_fact_frame(materialized, **child_ctx),
                 collisions=self._collision_fact_frame(materialized, **child_ctx),
@@ -1061,6 +1063,20 @@ class ScopedEvaluator:
             robot_id=robot_id,
             extra_columns={"met": pl.col("outcome") == "met"},
         )
+
+    def _task_outcome_fact_frame(self, *, run_id: str, episode_id: int, robot_id: str, metrics: Mapping[str, Any]) -> pl.DataFrame:
+        ids, outcomes, durations = (metrics.get(key) for key in ("task_ids", "task_outcomes", "task_durations_s"))
+        if not isinstance(ids, list) or not ids or not isinstance(outcomes, list) or not isinstance(durations, list):
+            return _empty_fact(FactTable.TASK_OUTCOMES)
+        frame = pl.DataFrame(
+            {
+                "task_idx": pl.int_range(0, len(ids), eager=True),
+                "task_id": pl.Series("task_id", ids, dtype=pl.String),
+                "outcome": pl.Series("outcome", outcomes, dtype=pl.String),
+                "duration_s": pl.Series("duration_s", durations, dtype=pl.Float64),
+            }
+        )
+        return self._finalize_child_frame(frame, FactTable.TASK_OUTCOMES, run_id, episode_id, robot_id)
 
     def _judge_disagreement_fact_frame(self, *, run_id: str, episode_id: int, robot_id: str, metrics: Mapping[str, Any]) -> pl.DataFrame:
         return self._list_fact_frame(

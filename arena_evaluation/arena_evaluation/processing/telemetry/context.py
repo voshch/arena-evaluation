@@ -54,6 +54,7 @@ def record_episode(sink: TableSink, envelope: Envelope[object], fields: EpisodeF
             path_length_m=fields.path_length,
             start_t_ns=fields.start_t_ns,
             phases_yaml=fields.phases,
+            tasks_json=fields.tasks,
             params_yaml=fields.params_yaml,
             conditions_yaml=fields.conditions,
             world=fields.world,

@@ -55,7 +55,7 @@ Every `EpisodeRecord` of the current episode rewrites `integrity` in `episode_XX
 list of reasons the episode is compromised, empty when it is intact. Reasons accrue during the
 episode, so the yaml holds the latest list.
 
-The same rewrite stores `task_layer`, the name of the task runtime from `EpisodeRecord.task_layer` (empty in recordings made before it, which mean the default runtime and which scenario provenance looks up namespaces in), `modes`, the selection per axis decoded from `EpisodeRecord.modes` (axis to list of mode names), and `params`, the effective params of the selected modes under their full names. Episode files written before `modes` (with `tm_robots`, `tm_obstacles`, `tm_modules`, `robots_params` and `obstacles_params`) are not read by the recorder; the Migration section maps them once.
+The same rewrite stores `task_layer`, the name of the task runtime from `EpisodeRecord.task_layer` (empty in recordings made before it, which mean the default runtime and which scenario provenance looks up namespaces in), `modes`, the selection per axis decoded from `EpisodeRecord.modes` (axis to list of mode names), `params`, the effective params of the selected modes under their full names, and `tasks_json`, the task events of `EpisodeRecord.tasks` (a native record from before the field, and every legacy generation, stores NULL). Episode files written before `modes` (with `tm_robots`, `tm_obstacles`, `tm_modules`, `robots_params` and `obstacles_params`) are not read by the recorder; the Migration section maps them once.
 
 A bag directory `episode_XXX/episode_XXX/` that an earlier recorder left unclosed is kept as
 `episode_XXX/episode_XXX_unclosed_N/` and the episode is recorded as usual.

@@ -16,7 +16,7 @@ class MetricScope(StrEnum):
 
 
 class FactTable(StrEnum):
-    """The eleven fact tables: five scoped tables and six child tables."""
+    """The twelve fact tables: five scoped tables and seven child tables."""
 
     EPISODES = "episodes"
     ENCOUNTERS = "encounters"
@@ -26,6 +26,7 @@ class FactTable(StrEnum):
     EDGE_CASES = "edge_cases"
     FORMATIONS = "formations"
     PHASE_OUTCOMES = "phase_outcomes"
+    TASK_OUTCOMES = "task_outcomes"
     JUDGE_DISAGREEMENTS = "judge_disagreements"
     MECHANISM_STATES = "mechanism_states"
     COLLISIONS = "collisions"

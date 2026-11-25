@@ -74,6 +74,7 @@ class _EpisodeRecordProto(typing.Protocol):
     obstacles_params: Iterable[object]
     conditions: str
     phases: str
+    tasks: str
 
 
 NATIVE: typing.Final[str] = "native"
@@ -132,6 +133,7 @@ _NATIVE_EPISODE_FIELDS: typing.Final[frozenset[str]] = frozenset(
         "phases",
     }
 )
+_NATIVE_OPTIONAL_FIELDS: typing.Final[frozenset[str]] = frozenset({"tasks"})
 _LEGACY_REQUIRED_FIELDS: typing.Final[frozenset[str]] = frozenset(
     {
         "episode_id",
@@ -250,6 +252,7 @@ class EpisodeFields:
     human_params_json: str | None
     conditions: str | None
     phases: str | None
+    tasks: str | None
     not_recorded: tuple[str, ...]
 
 
@@ -353,7 +356,7 @@ def _validated_fields(
 def episode_schema(name: str, definition: str) -> EpisodeSchema:
     """The declared fields of one recorded EpisodeRecord schema; loud on an unsupported construction."""
     if name == NATIVE_EPISODE_SCHEMA:
-        known, required = _NATIVE_EPISODE_FIELDS, _NATIVE_EPISODE_FIELDS
+        known, required = _NATIVE_EPISODE_FIELDS | _NATIVE_OPTIONAL_FIELDS, _NATIVE_EPISODE_FIELDS
     elif name == LEGACY_EPISODE_SCHEMA:
         known, required = _LEGACY_EPISODE_FIELDS, _LEGACY_REQUIRED_FIELDS
     else:
@@ -560,6 +563,7 @@ def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> E
         )
         conditions = (str(typed.conditions) or None) if schema.carries("conditions") else None
         phases = (str(typed.phases) or None) if schema.carries("phases") else None
+        tasks = None
         not_recorded = _legacy_not_recorded(schema)
     else:
         modes = {mode.key: mode.value for mode in typed.modes}
@@ -570,6 +574,7 @@ def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> E
         params_payload = yaml.dump(params) if params else None
         conditions = str(typed.conditions) or None
         phases = str(typed.phases) or None
+        tasks = (str(typed.tasks) or None) if schema.carries("tasks") else None
         not_recorded = ()
     return EpisodeFields(
         episode_id=int(typed.episode_id),
@@ -590,6 +595,7 @@ def _episode_fields(record: object, schema: EpisodeSchema, *, legacy: bool) -> E
         human_params_json=json.dumps(human) if human else None,
         conditions=conditions,
         phases=phases,
+        tasks=tasks,
         not_recorded=not_recorded,
     )
 

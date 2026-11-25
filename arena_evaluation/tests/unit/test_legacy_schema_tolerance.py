@@ -102,6 +102,70 @@ def test_a_native_schema_missing_a_field_is_loud_and_named() -> None:
         legacy_schemas.episode_schema(legacy_schemas.NATIVE_EPISODE_SCHEMA, definition)
 
 
+_NATIVE_EPISODE = (
+    "uint32 episode_id\n"
+    "string world\n"
+    "int64 seed\n"
+    "string task_layer\n"
+    "diagnostic_msgs/KeyValue[] modes\n"
+    "string[] robots\n"
+    "uint8 outcome_state\n"
+    "string outcome_info\n"
+    "string goal_uuid\n"
+    "float32 goal_dist_start\n"
+    "float32 goal_dist_min\n"
+    "float32 path_length\n"
+    "builtin_interfaces/Time start_time\n"
+    "string[] integrity\n"
+    "rcl_interfaces/Parameter[] params\n"
+    "rcl_interfaces/Parameter[] human_params\n"
+    "string conditions\n"
+    "string phases\n"
+)
+
+
+def _native_record(**overrides: object) -> types.SimpleNamespace:
+    values: dict[str, object] = {
+        "episode_id": 1,
+        "world": "w",
+        "seed": 1,
+        "task_layer": "task_generator",
+        "modes": [],
+        "robots": ["jackal"],
+        "outcome_state": 2,
+        "outcome_info": "",
+        "goal_uuid": "goal",
+        "goal_dist_start": 1.0,
+        "goal_dist_min": 0.5,
+        "path_length": 2.0,
+        "start_time": types.SimpleNamespace(sec=1, nanosec=0),
+        "integrity": [],
+        "params": [],
+        "human_params": [],
+        "conditions": "",
+        "phases": "",
+    }
+    values.update(overrides)
+    return types.SimpleNamespace(**values)
+
+
+def test_a_native_record_carries_tasks_only_when_its_schema_declares_them() -> None:
+    without = legacy_schemas.episode_fields(_native_record(), _Schema(legacy_schemas.NATIVE_EPISODE_SCHEMA, _NATIVE_EPISODE))
+    declared = _Schema(legacy_schemas.NATIVE_EPISODE_SCHEMA, _NATIVE_EPISODE + "string tasks\n")
+    with_tasks = legacy_schemas.episode_fields(_native_record(tasks='[{"task": "a"}]'), declared)
+    empty = legacy_schemas.episode_fields(_native_record(tasks=""), declared)
+
+    assert without.tasks is None
+    assert with_tasks.tasks == '[{"task": "a"}]'
+    assert empty.tasks is None
+
+
+def test_a_legacy_record_has_no_tasks() -> None:
+    fields = legacy_schemas.episode_fields(_sept_record(), _sept_schema())
+
+    assert fields.tasks is None
+
+
 _FLEET = "task_generator_msgs/msg/RobotFleet"
 _ROBOT_STATE = "MSG: task_generator_msgs/RobotState\nRobotDescriptor descriptor\nRobotCap[] caps\ndiagnostic_msgs/KeyValue[] params\n"
 _DESCRIPTOR = "MSG: task_generator_msgs/RobotDescriptor\nstring name\nstring model\nstring ns\nstring frame\n"

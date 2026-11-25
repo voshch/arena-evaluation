@@ -397,6 +397,14 @@ def _robot_phases(record: pl.DataFrame | pl.LazyFrame, robot_dir: str) -> dict |
     )
 
 
+def _record_tasks(record: pl.DataFrame | pl.LazyFrame) -> list[dict]:
+    """The task events of the last EpisodeRecord row whose `tasks_json` is a non-empty list, [] without."""
+    return next(
+        ([event for event in value if isinstance(event, dict)] for value in _record_json_values(record, "tasks_json") if isinstance(value, list)),
+        [],
+    )
+
+
 def _fleet_poses(
     robots: dict[str, TopicBundle],
     window: tuple[int | None, int | None],
@@ -987,12 +995,14 @@ class ProcessingPipeline:
 
         conditions = None
         phases = None
+        tasks: list[dict] = []
         outcome_state = None
         outcome_info = None
         er = _frame(bundle.episode_lifecycle)
         if er is not None and len(er) > 0:
             conditions = _record_conditions(er)
             phases = _robot_phases(er, robot_name)
+            tasks = _record_tasks(er) if "tasks_json" in er.columns else []
             outcome_state, outcome_info = _record_outcome(er, metadata)
 
         integrity = _record_integrity(bundle.episode_lifecycle, bundle.episode_integrity, metadata)
@@ -1008,6 +1018,7 @@ class ProcessingPipeline:
             semantic_snapshot=_frame(bundle.world_semantics),
             conditions=conditions,
             phases=phases,
+            tasks=tasks,
             fleet=_fleet_poses(robots, window, ego_robot_id=robot_name, params_by_robot=params_by_robot),
             outcome_state=outcome_state,
             outcome_info=outcome_info,

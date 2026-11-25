@@ -65,6 +65,7 @@ class EvalContext:
     fleet: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = dataclasses.field(default_factory=dict)
     walls: WallGrid | None = None
     clips: list[dict[str, frozenset[str]]] | None = None
+    holding: tuple[np.ndarray, list[str]] | None = None
     _fields: dict[tuple[str, str], tuple[np.ndarray, np.ndarray] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     _families: dict[tuple[str, str], dict[str, tuple[np.ndarray, np.ndarray]] | None] = dataclasses.field(default_factory=dict, init=False, repr=False)
     peds_frames: list[pl.DataFrame] = dataclasses.field(default_factory=list)
@@ -130,6 +131,7 @@ class EvalContext:
         t_ns = int(self.t_ns[i])
         known = frozenset(self.ped_roster) | frozenset(self.fleet)
         clips = self.clips[i] if self.clips is not None else {}
+        holding = None if self.holding is None else {"robot": frozenset(item for item in value_at(self.holding[0], self.holding[1], t_ns).split(",") if item)}
         return Sample(
             t=t_ns / 1e9,
             robots=robots,
@@ -139,6 +141,7 @@ class EvalContext:
             clips=clips,
             walls=self.walls,
             family=lambda entity, family: self.family_at(entity, family, t_ns),
+            holding=holding,
         )
 
     @property

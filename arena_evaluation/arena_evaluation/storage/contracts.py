@@ -81,6 +81,7 @@ _FACT_PARENT: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
     FactTable.EDGE_CASES.value: ("dim_episodes", _IDENTITY_KEYS),
     FactTable.FORMATIONS.value: ("dim_episodes", _IDENTITY_KEYS),
     FactTable.PHASE_OUTCOMES.value: ("dim_episodes", _IDENTITY_KEYS),
+    FactTable.TASK_OUTCOMES.value: ("dim_episodes", _IDENTITY_KEYS),
     FactTable.JUDGE_DISAGREEMENTS.value: ("dim_episodes", _IDENTITY_KEYS),
     FactTable.MECHANISM_STATES.value: ("dim_episodes", _IDENTITY_KEYS),
     FactTable.COLLISIONS.value: ("dim_episodes", _IDENTITY_KEYS),

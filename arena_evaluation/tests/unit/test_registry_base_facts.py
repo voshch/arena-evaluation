@@ -1,4 +1,4 @@
-"""Golden schemas of the eleven fact tables' identity, recorded columns, row keys, and null reasons."""
+"""Golden schemas of the twelve fact tables' identity, recorded columns, row keys, and null reasons."""
 
 from __future__ import annotations
 
@@ -118,6 +118,18 @@ _EXPECTED_SCHEMAS: dict[FactTable, pl.Schema] = {
             "null_reason": pl.String,
         }
     ),
+    FactTable.TASK_OUTCOMES: pl.Schema(
+        {
+            "run_id": pl.String,
+            "episode_id": pl.Int64,
+            "robot_id": pl.String,
+            "task_idx": pl.Int64,
+            "task_id": pl.String,
+            "outcome": pl.String,
+            "duration_s": pl.Float64,
+            "null_reason": pl.String,
+        }
+    ),
     FactTable.JUDGE_DISAGREEMENTS: pl.Schema(
         {
             "run_id": pl.String,
@@ -167,6 +179,7 @@ _EXPECTED_KEYS: dict[str, tuple[str, ...]] = {
     "edge_cases": ("run_id", "episode_id", "robot_id", "case_idx", "kind", "ordinal"),
     "formations": ("run_id", "episode_id", "robot_id"),
     "phase_outcomes": ("run_id", "episode_id", "robot_id", "phase_idx"),
+    "task_outcomes": ("run_id", "episode_id", "robot_id", "task_idx"),
     "judge_disagreements": ("run_id", "episode_id", "robot_id", "disagreement_idx"),
     "mechanism_states": ("run_id", "episode_id", "robot_id"),
     "collisions": ("run_id", "episode_id", "robot_id", "collision_idx"),
@@ -178,7 +191,7 @@ def _declared_schema(table: FactTable) -> pl.Schema:
     return pl.Schema({name: column.dtype for name, column in FACT_TABLES[table]._columns.items()})
 
 
-def test_the_registry_holds_the_eleven_fact_tables() -> None:
+def test_the_registry_holds_the_twelve_fact_tables() -> None:
     assert set(FACT_TABLES) == set(FactTable)
 
 

@@ -580,6 +580,7 @@ class EpisodeLifecycle(
     path_length_m = _FLOAT
     start_t_ns = _INT
     phases_yaml = _TEXT
+    tasks_json = _TEXT
     params_yaml = _TEXT
     conditions_yaml = _TEXT
     world = _TEXT

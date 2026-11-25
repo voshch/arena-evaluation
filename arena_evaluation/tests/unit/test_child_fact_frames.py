@@ -49,6 +49,21 @@ def test_edge_case_rows_keep_each_list_element() -> None:
     assert_frame_equal(frame.select(expected.columns), expected)
 
 
+def test_task_outcome_rows_keep_each_task() -> None:
+    frame = _evaluator()._task_outcome_fact_frame(
+        **_IDENTITY,
+        metrics={"task_ids": ["a", "b"], "task_outcomes": ["met", "pending"], "task_durations_s": [4.0, None]},
+    )
+    assert frame.columns == _declared(FactTable.TASK_OUTCOMES)
+    expected = pl.DataFrame(
+        {"task_idx": [0, 1], "task_id": ["a", "b"], "outcome": ["met", "pending"], "duration_s": [4.0, None]},
+        schema={"task_idx": pl.Int64, "task_id": pl.String, "outcome": pl.String, "duration_s": pl.Float64},
+    )
+    assert_frame_equal(frame.select(expected.columns), expected)
+    assert frame["null_reason"][0] == ""
+    assert frame["null_reason"][1].startswith("duration_s:")
+
+
 def test_judge_disagreement_rows_keep_their_text() -> None:
     frame = _evaluator()._judge_disagreement_fact_frame(**_IDENTITY, metrics={"judge_disagreements": ["replay ends early"]})
     assert frame.columns == _declared(FactTable.JUDGE_DISAGREEMENTS)

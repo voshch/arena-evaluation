@@ -126,6 +126,14 @@ def load_wall_grid(world_name: str) -> WallGrid | None:
     return walls
 
 
+def robot_holding_series(events: pl.DataFrame, robot: str) -> tuple[np.ndarray, list[str]] | None:
+    """Sorted (event times, comma-joined held objects) of the robot entity's `holding` field, None when the recording never measured holding."""
+    rows = events.filter((pl.col("kind") == "robot") & (pl.col("field") == "holding") & (pl.col("entity").str.replace(r"^env_\d+/", "") == robot)).sort("t_ns")
+    if len(rows) == 0:
+        return None
+    return rows["t_ns"].to_numpy(), rows["current"].to_list()
+
+
 def clips_on_axis(peds: pl.DataFrame | None, gestures: pl.DataFrame | None, t_ns: np.ndarray) -> list[dict[str, frozenset[str]]] | None:
     """Per instant, the gesture clips of every pedestrian in the frame held at it, None when the recording carries no pedestrian_gestures table."""
     if gestures is None or peds is None or len(peds) == 0:
@@ -249,8 +257,9 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
 
         peds_df = self.native_ped_frame(episode)
         peds_frames = frames_of(peds_df) if peds_df is not None and len(peds_df) > 0 else []
+        events = _reconstruct_events(episode.semantic_snapshot)
         ctx = _EvalContext(
-            events=_reconstruct_events(episode.semantic_snapshot),
+            events=events,
             t_ns=t_ns,
             pos_x=pos_x,
             pos_y=pos_y,
@@ -267,6 +276,7 @@ class ConditionComplianceCalculator(BaseMetricCalculator):
                 episode.topics.get("pedestrian_gestures") if episode.topics else None,
                 t_ns,
             ),
+            holding=robot_holding_series(events, bare_robot_name(episode.robot_name or "")),
             peds_frames=peds_frames,
             peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )

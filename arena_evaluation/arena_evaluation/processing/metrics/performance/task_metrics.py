@@ -22,6 +22,7 @@ from arena_evaluation.processing.metrics.ecological.condition_metrics import (
     clips_on_axis,
     load_wall_grid,
     load_zone_geometry,
+    robot_holding_series,
 )
 from arena_evaluation.processing.metrics.ecological.mechanism_common import (
     RobotIdentity,
@@ -207,6 +208,7 @@ class TaskReplayCalculator(BaseMetricCalculator):
             fleet=resample_fleet(episode.fleet, t_ns, robot),
             walls=load_wall_grid(self.world),
             clips=clips_on_axis(peds_df, gestures, t_ns),
+            holding=robot_holding_series(events, robot),
             peds_frames=peds_frames,
             peds_times=np.array([int(frame["t_ns"][0]) for frame in peds_frames], dtype=np.int64),
         )

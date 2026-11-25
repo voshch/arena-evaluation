@@ -89,6 +89,7 @@ Nothing absent is invented. A field the generation did not carry is NULL and nam
 | `robot_range_offset`, `robot_fov_offset`, `robot_blind` (AgentMeta of `legacy_2026_11_11`) | NULL with `not_recorded`; `robot_repulsion_gain` and `robot_reaction_gain` are carried, `robot_awareness` and `robot_fov_gain` are never converted. |
 | No `/state/robots` fleet | `robot_descriptor`/`robot_params` synthesised (section 1.5); the report's `fallbacks` says so. |
 | `conditions`, `phases`, `human_params` missing from an EpisodeRecord | NULL with `not_recorded` when the generation did not carry them. `legacy_schemas` parses the **recorded** `EpisodeRecord` definition, so a September record without these fields no longer raises. |
+| `tasks` missing from an EpisodeRecord | NULL in `tasks_json`. A native record from before the field is read as it is, `tasks` being the one native field `legacy_schemas` does not require. |
 | No environment token in topics or TF frames, or several | `MigrationError`, no writing. |
 | Metadata with neither `modes` nor `tm_*` | `MigrationError` pointing at the migration. |
 
