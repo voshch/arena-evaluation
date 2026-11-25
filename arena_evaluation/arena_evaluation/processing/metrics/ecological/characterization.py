@@ -8,6 +8,9 @@ import typing
 
 import polars as pl
 
+if typing.TYPE_CHECKING:
+    from arena_robots.caps import MobileSpec
+
 from arena_evaluation.processing.metrics.base import BaseMetricCalculator
 from arena_evaluation.processing.metrics.common.alignment import (
     TRACK_ALIGN_TOLERANCE_NS,
@@ -107,11 +110,20 @@ class CharacterizationCalculator(BaseMetricCalculator):
         "turn_radius_m": pl.Float64,
     }
 
+    def _mobile(self) -> MobileSpec | None:
+        """The mobile cap of this robot's instance, None when its recording carries none."""
+        from pathlib import Path
+
+        from arena_robots.caps import MobileSpec
+
+        raw = self.robot_params.mobile
+        return None if raw is None else MobileSpec(path=Path(f"{self.robot_params.model}/caps.yaml"), raw=raw)
+
     def _rebuilt_schedule(self) -> pl.DataFrame:
         """The default schedule for this robot's envelope, for recordings that carry no schedule table."""
         from arena_robots.characterization import build_schedule, resolve_envelope
 
-        envelope = resolve_envelope(self.robot_params.model)
+        envelope = resolve_envelope(self._mobile())
         schedule = build_schedule(
             vx_max=float(envelope["vx_max"]),
             vy_max=float(envelope["vy_max"]),

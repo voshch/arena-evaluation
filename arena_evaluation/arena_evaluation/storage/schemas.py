@@ -75,6 +75,25 @@ class RobotParams:
     laser_max_range: float | None
     base_mass: float
     component_masses: dict[str, float]
+    snapshot: dict[str, typing.Any] | None
+
+    @property
+    def mobile(self) -> dict[str, typing.Any] | None:
+        """The mobile cap of the recorded caps snapshot, None without one."""
+        return self._effective("mobile")
+
+    @property
+    def power(self) -> dict[str, typing.Any] | None:
+        """The power fact block of the recorded caps snapshot, None without one."""
+        return self._effective("power")
+
+    @property
+    def acoustics(self) -> dict[str, typing.Any] | None:
+        """The acoustics fact block of the recorded caps snapshot, None without one."""
+        return self._effective("acoustics")
+
+    def _effective(self, block: str) -> dict[str, typing.Any] | None:
+        return None if self.snapshot is None else self.snapshot["effective"].get(block)
 
     @property
     def mass(self) -> float:
@@ -98,7 +117,7 @@ _REQUIRED_RECORDED_FIELDS: typing.Final[dict[str, str]] = {
 }
 
 
-def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams:
+def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str, snapshot: dict[str, typing.Any] | None = None) -> RobotParams:
     """The recorded parameters of one robot from its descriptor and parameter rows, never a default."""
     descriptor_rows = _declared_rows(rows, RobotDescriptor, robot_id)
     parameter_rows = _declared_rows(rows, RobotParamRows, robot_id)
@@ -114,7 +133,13 @@ def robot_params_from_recorded(rows: pl.DataFrame, robot_id: str) -> RobotParams
         laser_max_range=recorded.get("laser_max_range"),
         base_mass=recorded["base_mass"],
         component_masses={},
+        snapshot=snapshot,
     )
+
+
+def caps_snapshot_path(run_dir: pathlib.Path, robot_ns: str) -> pathlib.Path:
+    """Where a run keeps the caps snapshot of the robot at `robot_ns`."""
+    return run_dir / "robots" / robot_ns.strip("/").replace("/", "_") / "caps_snapshot.yaml"
 
 
 def _declared_rows(rows: pl.DataFrame, table: type[Table], robot_id: str) -> pl.DataFrame:

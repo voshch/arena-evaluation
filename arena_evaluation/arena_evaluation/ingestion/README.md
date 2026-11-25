@@ -103,6 +103,11 @@ world with, which a level-filtered snapshot cannot derive from its own levels.
 Env offsets and other runtime state stay out. Evaluation reads world geometry from there before the
 package worlds. The recorder copies no scenario directories: the edge-case provenance that reads them moves with the metric layer.
 
+### Robot caps snapshot
+
+When the recorder first sees a robot in the `RobotFleet` state, and again when its fleet params change, it resolves the instance's effective caps from the model and the params (`arena_robots.fleet.instance_caps`) and writes the snapshot to
+`<run_dir>/robots/<robot ns, / as _>/caps_snapshot.yaml`: `format: arena-caps/1`, `model`, `request`, `effective`, `provenance` and `hash`. The snapshot hash is checked against the `caps:hash` the runtime put into the fleet params, a mismatch logs a warning and adds `runtime_hash` to the file. A fleet entry without `caps:hash` is recorded without the check, a model that does not resolve logs a warning and has no snapshot. The controller topics (`body.cmd_vel_topic`, `body.odom_topic`) are subscribed from it, and the processing pipeline reads it back into `RobotParams`, see the [storage README](../storage/README.md).
+
 ### Recorded Topics
 
 All topics use simulation time from `/clock`. Messages that arrive before the first `/clock` tick are held and

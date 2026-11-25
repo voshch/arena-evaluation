@@ -385,6 +385,7 @@ def pick_block(
 def robot_has_depth_camera(robot: str) -> bool:
     """True when a `robot:=` entry resolves to a depth sensor, False for anything that does not resolve."""
     from arena_robots import assembly as arena_assembly  # noqa: PLC0415
+    from arena_robots.request import InstanceRequest  # noqa: PLC0415
     from arena_robots.Robot import RobotIdentifier  # noqa: PLC0415
     from arena_robots.Sensor import SensorType  # noqa: PLC0415
     from arena_robots.SetupFile import Config  # noqa: PLC0415
@@ -397,14 +398,11 @@ def robot_has_depth_camera(robot: str) -> bool:
         try:
             for config in Config.parse(desugar_robot_entry(entry)):
                 view = RobotIdentifier.parse(config.robot).resolve_sync()
-                if view.assembly is None:
-                    sensors = view.model_params.sensors
-                else:
-                    request, _, _ = arena_assembly.build_request(view.assembly, config.parts)
-                    sensors = view.effective_sensors(request, frames=config.frames)
+                request = InstanceRequest.of(view, config)
+                sensors = view.effective_sensors(request.parts, frames=request.frames or None)
                 if any(sensor.type == SensorType.DEPTH for sensor in sensors):
                     return True
-        except (RuntimeError, FileNotFoundError, arena_assembly.AssemblyError):
+        except (RuntimeError, ValueError, FileNotFoundError, arena_assembly.AssemblyError):
             continue
     return False
 

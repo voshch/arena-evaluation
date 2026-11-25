@@ -200,10 +200,11 @@ def test_unhindered_peds_steps_join_the_block_of_their_robot_and_world():
     ]
 
 
-def test_robot_without_an_assembly_is_judged_by_its_model_sensors():
+def test_a_preset_robot_is_judged_by_the_sensors_of_its_expansion():
     pytest.importorskip("arena_robots")
 
     assert robot_has_depth_camera("ridgeback_plus") is False
+    assert robot_has_depth_camera("rbvogui_plus[front_cam=camera/d435_depth]") is True
 
 
 def test_default_run_id_names_lane_and_config_stems():

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import pathlib
 import shutil
 import typing
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 
 import polars as pl
 import yaml
@@ -472,37 +473,23 @@ def _backfill_robot_parameters(topics: pathlib.Path) -> tuple[str, ...]:
 
 def _installed_parameters(model: str) -> dict[str, str]:
     """The recorded parameters of one model from the installed arena_robots definition; a missing one is loud."""
-    from ament_index_python.packages import get_package_share_directory
-
-    base = model.partition("[")[0]
     try:
-        share = pathlib.Path(get_package_share_directory("arena_robots"))
-    except (ImportError, OSError, KeyError) as error:
-        raise MigrationError(f"arena_robots is not installed, so the parameters of {model!r} cannot be resolved; record a /state/robots fleet in the episode") from error
-    root = share / "robots" / base
-    radius = _yaml_value(root / "caps" / "mobile.yaml", ("radius",))
-    mass = _yaml_value(root / "model_params.yaml", ("mass", "base_kg"))
-    missing = [name for name, value in (("radius", radius), ("mass.base_kg", mass)) if value is None]
+        from arena_robots.fleet import instance_caps
+
+        caps = instance_caps(model.partition("[")[0], {})
+    except Exception as error:
+        raise MigrationError(f"the installed arena_robots definition of {model!r} does not resolve, so its parameters cannot be read; record a /state/robots fleet in the episode") from error
+    mobile = caps.mobile if "mobile" in caps.available else None
+    radius = None if mobile is None else mobile.radius
+    mass = caps.body.mass or None
+    missing = [name for name, value in (("mobile.radius", radius), ("body.mass", mass)) if value is None]
     if missing:
         raise MigrationError(f"the installed arena_robots definition of {model!r} lacks {missing}; the descriptor cannot be synthesised with an invented value")
     parameters = {"robot_radius": str(radius), "robot_mass_kg": str(mass)}
-    angular = _yaml_value(root / "caps" / "mobile.yaml", ("velocity_limits", "angular"))
-    if isinstance(angular, list) and angular:
-        parameters["max_angular_vel"] = str(max(abs(float(value)) for value in angular))
+    angular = None if mobile is None or mobile.limits is None else mobile.limits.velocity.get("angular")
+    if angular is not None and math.isfinite(angular.min) and math.isfinite(angular.max):
+        parameters["max_angular_vel"] = str(max(abs(angular.min), abs(angular.max)))
     return parameters
-
-
-def _yaml_value(path: pathlib.Path, keys: Sequence[str]) -> object:
-    """One value of a nested YAML mapping, None when the file or any key is absent."""
-    try:
-        value: object = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return None
-    for key in keys:
-        if not isinstance(value, Mapping) or key not in value:
-            return None
-        value = value[key]
-    return value
 
 
 def _robot_names(recording: pathlib.Path, environment: str) -> tuple[str, ...]:

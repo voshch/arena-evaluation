@@ -14,6 +14,7 @@ _FIXTURE_ROBOT: typing.Final[dict[str, typing.Any]] = {
     "laser_max_range": 30.0,
     "base_mass": 0.0,
     "component_masses": {},
+    "snapshot": None,
 }
 
 

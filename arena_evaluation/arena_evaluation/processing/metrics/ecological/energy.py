@@ -5,12 +5,10 @@ from __future__ import annotations
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final
 
 import numpy as np
 import polars as pl
-import yaml
 
 from arena_evaluation.processing.metrics.base import (
     BaseMetricCalculator,
@@ -231,7 +229,7 @@ class EnergyCalculator(BaseMetricCalculator):
 
     def __init__(self, robot_params: RobotParams) -> None:
         super().__init__(robot_params)
-        self._rolling_resistance = _load_rolling_resistance(robot_params.model)
+        self._rolling_resistance = _rolling_resistance(robot_params.power)
 
     @classmethod
     def required_topics_for_scope(cls, scope: MetricScope) -> tuple[str | tuple[str, ...], ...]:
@@ -373,15 +371,8 @@ class EnergyCalculator(BaseMetricCalculator):
         return float(np.sum(self._rolling_resistance * mass_kg * GRAVITY_MPS2 * np.abs(velocity_mps) * dt_s))
 
 
-def _load_rolling_resistance(model: str) -> float | None:
-    try:
-        from ament_index_python.packages import get_package_share_directory
-
-        power_path = Path(get_package_share_directory("arena_robots")) / "robots" / model / "telemetry" / "power.yaml"
-        data = yaml.safe_load(power_path.read_text())
-    except (OSError, ImportError, KeyError, yaml.YAMLError):
-        return None
-    power_system = data.get("power_system") if isinstance(data, dict) else None
+def _rolling_resistance(power: dict[str, typing.Any] | None) -> float | None:
+    power_system = None if power is None else power.get("power_system")
     coefficient = power_system.get("rolling_resistance_crr") if isinstance(power_system, dict) else None
     try:
         return float(coefficient) if coefficient is not None else None

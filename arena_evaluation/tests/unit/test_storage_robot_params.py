@@ -102,3 +102,12 @@ def test_a_descriptor_row_without_a_model_is_not_a_descriptor():
 
     with pytest.raises(MetricInputError, match="has no descriptor row"):
         robot_params_from_recorded(rows, "jackal")
+
+
+def test_the_caps_snapshot_rides_on_the_recorded_parameters():
+    snapshot = {"effective": {"mobile": {"radius": 0.5}}}
+
+    params = robot_params_from_recorded(_rows(("robot_radius", "0.43"), ("robot_mass_kg", "18.4")), "jackal", snapshot)
+
+    assert params.snapshot is snapshot
+    assert params.mobile == {"radius": 0.5}

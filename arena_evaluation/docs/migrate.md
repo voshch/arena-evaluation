@@ -101,10 +101,11 @@ descriptor tables **once**, from data that already exists:
 2. Models come from `RunMetadata.robot_model` (`_descriptor_assignment`): one model for every robot,
    or an equal-length name/model pairing. An empty model list, or a count mismatch, is a
    `MigrationError`.
-3. For each model, `_installed_parameters` reads the installed `arena_robots` definition:
-   `caps/mobile.yaml` -> `radius`, `model_params.yaml` -> `mass.base_kg`, plus a finite
-   `velocity_limits.angular` as `max_angular_vel` when declared. A missing package, definition,
-   radius or mass is a hinted `MigrationError`, **no default radius or mass is ever substituted**.
+3. For each model, `_installed_parameters` resolves the effective caps of the installed `arena_robots`
+   definition (`arena_robots.fleet.instance_caps`): `mobile.radius`, `body.mass` (summed from the rendered
+   URDF), plus a finite angular bound of `mobile.limits.velocity` as `max_angular_vel` when declared. A model that
+   does not resolve, or a missing radius or mass, is a hinted `MigrationError`, **no default radius or mass is
+   ever substituted**.
 4. The rows are written to `topics/robot_descriptor.parquet` and `topics/robot_params.parquet`;
    `_synthesize_descriptor` returns the robot/model pairs, and the report lists the fallback.
 

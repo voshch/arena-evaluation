@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 import polars as pl
 import pyarrow.parquet as pq
+import yaml
 from mcap.reader import NonSeekingReader
 from mcap_ros2.decoder import DecoderFactory
 
@@ -36,8 +37,8 @@ from arena_evaluation.processing.telemetry.peds import (
     agent_meta_without_robot_fields,
 )
 from arena_evaluation.processing.telemetry.tracks import (
-    _BASE_FRAME_MARKERS,
     _WORLD_FRAMES,
+    LEGACY_BASE_FRAMES,
     Pose3,
     is_ground_truth,
 )
@@ -87,6 +88,12 @@ _POSITION_COLUMNS: dict[str, tuple[str, str]] = {
     "pedestrian_gestures": ("at_x", "at_y"),
     "environment_map": ("origin_x", "origin_y"),
 }
+
+
+def recorded_base_frames(run_dir: pathlib.Path) -> frozenset[str]:
+    """Lowercase base frames named by the run's caps snapshots, `LEGACY_BASE_FRAMES` for a run without any."""
+    names = {str(yaml.safe_load(path.read_text())["effective"]["body"]["base_frame"]).lower() for path in (run_dir / "robots").glob("*/caps_snapshot.yaml")}
+    return frozenset(names) or LEGACY_BASE_FRAMES
 
 
 def anchor_at(anchors: list[Anchor], t_ns: int) -> tuple[float, float]:
@@ -147,16 +154,19 @@ class MCAPReader:
         for path in files:
             if not path.exists():
                 raise FileNotFoundError(f"MCAP file not found: {path}")
+        run_dir = self.data_path.resolve()
+        base_frames = recorded_base_frames(run_dir if run_dir.is_dir() else run_dir.parent)
         ingest = _Ingest(
             TableSink(out_dir, flush_rows=self._flush_rows),
             environment=self._environment,
+            base_frames=base_frames,
         )
         try:
             for path in files:
                 self._stream(path, ingest)
         finally:
             ingest.finish()
-        align_to_environment(out_dir, ingest.pedestrian_frames())
+        align_to_environment(out_dir, ingest.pedestrian_frames(), base_frames)
         return load_bundles(out_dir)
 
     def _stream(self, path: pathlib.Path, ingest: _Ingest) -> None:
@@ -267,7 +277,7 @@ def _transforms(ingest: _Ingest, topic: str, envelope: Envelope[TFMessage]) -> N
     context.record_transforms(ingest._sink, "tf_static" if "static" in topic else "tf", envelope)
     for transform in envelope.body.transforms:
         parent, child = transform.header.frame_id, transform.child_frame_id
-        if not is_ground_truth(parent, child):
+        if not is_ground_truth(parent, child, ingest._base_frames):
             continue
         child_env = env_id_in(child)
         if child_env is None:
@@ -335,9 +345,10 @@ _ROUTES: tuple[tuple[Predicate, Handler], ...] = (
 class _Ingest:
     """Routes decoded messages to their recorders and writes the tables that need the whole recording."""
 
-    def __init__(self, sink: TableSink, *, environment: str | None = None) -> None:
+    def __init__(self, sink: TableSink, *, environment: str | None = None, base_frames: frozenset[str] = LEGACY_BASE_FRAMES) -> None:
         self._sink = sink
         self._environment = environment
+        self._base_frames = base_frames
         self._warned_topics: set[str] = set()
         self._kinematics = tracks.KinematicsRecorder(sink)
         self._pedestrians = PedestrianRecorder(sink)
@@ -423,9 +434,9 @@ def _check_map_frames(
             raise ValueError(f"{env_id}: {table} stamped {unmapped}, offsets {offsets} are only valid for frame map")
 
 
-def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]]) -> None:
+def align_to_environment(out_dir: pathlib.Path, pedestrian_frames: Mapping[tuple[str, str], frozenset[str]], base_frames: frozenset[str] = LEGACY_BASE_FRAMES) -> None:
     """Move the map-frame positions of the stored tables into their environment frame, once, in place."""
-    anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"))
+    anchors = _env_anchors(_lazy_table(out_dir, "tf"), _lazy_table(out_dir, "tf_static"), base_frames)
     if not anchors:
         return
     _refuse_rotated_or_unaligned_frames(out_dir, anchors)
@@ -571,14 +582,14 @@ def _shift_map_poses(payload: str, ox: float, oy: float) -> str:
         return payload
 
 
-def _env_anchors(tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None) -> dict[str, list[Anchor]]:
-    anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD)
-    for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD).items():
+def _env_anchors(tf: pl.LazyFrame | None, tf_static: pl.LazyFrame | None, base_frames: frozenset[str]) -> dict[str, list[Anchor]]:
+    anchors = _anchors_by_env(tf_static, _STATIC_ANCHOR_CHILD, base_frames)
+    for env_id, dynamic in _anchors_by_env(tf, _MAP_ANCHOR_CHILD, base_frames).items():
         anchors.setdefault(env_id, dynamic)
     return {env_id: [anchor for index, anchor in enumerate(values) if index == 0 or anchor[1:] != values[index - 1][1:]] for env_id, values in anchors.items()}
 
 
-def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]) -> dict[str, list[Anchor]]:
+def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str], base_frames: frozenset[str]) -> dict[str, list[Anchor]]:
     anchors: defaultdict[str, list[Anchor]] = defaultdict(list)
     if frame is None:
         return dict(anchors)
@@ -586,9 +597,8 @@ def _anchors_by_env(frame: pl.LazyFrame | None, child_pattern: re.Pattern[str]) 
     child = pl.col("child_frame").str.strip_chars("/").str.to_lowercase()
     env = child.str.extract(f"^{child_pattern.pattern}$", 1)
     world_re = "|".join(re.escape(name) for name in _WORLD_FRAMES)
-    base_re = "|".join(re.escape(marker) for marker in _BASE_FRAME_MARKERS)
     world_match = parent.is_in(list(_WORLD_FRAMES)) | parent.str.contains(rf"/(?:{world_re})$")
-    filtered = frame.with_columns(parent.alias("_parent"), child.alias("_child"), env.alias("_env")).filter(pl.col("_env").is_not_null() & ((pl.col("_parent") == "") | world_match) & ~child.str.contains(base_re)).select("_env", "t_ns", "tx", "ty").collect()
+    filtered = frame.with_columns(parent.alias("_parent"), child.alias("_child"), env.alias("_env")).filter(pl.col("_env").is_not_null() & ((pl.col("_parent") == "") | world_match) & ~child.str.extract(r"([^/]*)$", 1).is_in(sorted(base_frames))).select("_env", "t_ns", "tx", "ty").collect()
     # agent-contracts: ignore materialize anchor tuples from filtered tf frame
     for env_id, t_ns, tx, ty in filtered.iter_rows():
         anchors[env_id].append((t_ns, tx, ty))

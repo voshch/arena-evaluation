@@ -9,7 +9,9 @@ Suites take their task-mode names and params from the selected task runtime, see
 [task runtimes](../../arena_runtime/arena_runtime/arena_runtime/env/README.md#task-runtimes).
 The characterization metric rebuilds the default schedule of a recording that
 carries none from `arena_robots.characterization`, the module the
-`characterization` robot mode publishes from.
+`characterization` robot mode publishes from. Both read the envelope from the
+robot instance's recorded caps snapshot, so a robot with cap overrides is swept and
+scored with its own limits.
 
 ## Architecture Overview
 
@@ -127,6 +129,10 @@ arena_evaluation_msgs/         <- Sibling package: ROS 2 message and service def
 |-- msg/BenchmarkState.msg     <- Live benchmark progress
 `-- srv/                       <- RecordEpisode, ChangeDirectory services
 ```
+
+### Robot facts
+
+The recorder writes the effective caps of every robot instance to `<run_dir>/robots/<robot ns>/caps_snapshot.yaml` (`arena-caps/1`: `effective`, `provenance`, `hash`). The metrics read the mobile, power and acoustics models of a robot only from that snapshot through `RobotParams`, and the recorder subscribes the controller topics from its `body` block. The radius and mass are the recorded fleet parameters. A unit test fails on any read of robot definition files by path outside the migration. See the [ingestion](arena_evaluation/ingestion/README.md#robot-caps-snapshot) and [storage](arena_evaluation/storage/README.md) READMEs.
 
 ---
 
