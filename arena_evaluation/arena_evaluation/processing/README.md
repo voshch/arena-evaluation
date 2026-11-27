@@ -66,6 +66,8 @@ The native tables are declared once in `storage/registry/telemetry.py`; this fol
 - episode and world: `episode_lifecycle`, `episode_integrity`, `world_semantics`
 - transforms: `tf`, `tf_static`
 
+`robot_tracks` comes from the map, world or odom to base-frame transforms. A base frame under a recorded pedestrian's name (`<ped_name>/base_link`, which the human simulator broadcasts) belongs to that pedestrian and gets no track.
+
 Positions in the shared `map` frame are moved into the environment's frame by the `map -> env_<n>/map` transform in effect at each row's time. A row before the first transform uses the first one, so a world swap during a recording is handled row by row. A recorded message whose bytes are corrupt, or whose schema cannot be decoded, is skipped; an undecodable schema logs one warning per topic.
 
 ## Pose stream

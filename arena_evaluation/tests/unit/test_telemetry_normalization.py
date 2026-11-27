@@ -42,6 +42,10 @@ def _odometry(x: float, y: float) -> dict:
 
 
 def _ground_truth_bag(path: pathlib.Path) -> pathlib.Path:
+    return _write_bag(path, _ground_truth_records())
+
+
+def _ground_truth_records() -> list[tuple[str, tuple[str, str], dict, int]]:
     records = []
     for step in range(GROUND_TRUTH_STEPS):
         x, y, yaw = _ground_truth_pose(step)
@@ -56,7 +60,7 @@ def _ground_truth_bag(path: pathlib.Path) -> pathlib.Path:
             )
         )
         records.append(("/env_0/jackal/odom", ODOMETRY, _odometry(x, y), t_ns))
-    return _write_bag(path, records)
+    return records
 
 
 def _pedestrian_bag(path: pathlib.Path) -> pathlib.Path:
@@ -118,6 +122,33 @@ def _pedestrian_bag(path: pathlib.Path) -> pathlib.Path:
             ("/env_0/peds", PEDESTRIANS, frame, SEC),
         ],
     )
+
+
+def _pedestrian_tf_bag(path: pathlib.Path) -> pathlib.Path:
+    pedestrian = {
+        "id": 1,
+        "name": "env_0/Pedestrian_0",
+        "pose": {"position": {"x": 3.0, "y": 1.0, "z": 0.0}, "orientation": {"w": 1.0}},
+        "twist": {},
+        "animation_state": 0,
+        "interaction_id": -1,
+        "interaction_type": 0,
+        "agent_type": "adult",
+        "gait_phase": 0.0,
+        "gait_cadence": 0.0,
+        "gestures": [],
+    }
+    records = [
+        (
+            "/tf",
+            TF_MESSAGE,
+            {"transforms": [_transform("map", "env_0/Pedestrian_0/base_link", 3.0 + 0.1 * step, 1.0)]},
+            step * GROUND_TRUTH_DT_NS,
+        )
+        for step in range(GROUND_TRUTH_STEPS)
+    ]
+    records.append(("/env_0/peds", PEDESTRIANS, {"header": _header(frame_id="map"), "pedestrians": [pedestrian]}, (GROUND_TRUTH_STEPS - 1) * GROUND_TRUTH_DT_NS))
+    return _write_bag(path, [*records, *_ground_truth_records()])
 
 
 def _odometry_only_bag(path: pathlib.Path) -> pathlib.Path:
@@ -183,6 +214,13 @@ def test_each_pedestrian_row_carries_that_pedestrians_position(
     peds = bundles[ROBOT].pedestrian_arena_peds.collect().sort("ped_id")
 
     np.testing.assert_allclose(peds.select("x", "y").to_numpy(), [[1.0, 2.0], [-4.0, 0.5], [6.0, -3.0]])
+
+
+def test_a_pedestrian_tf_base_frame_is_not_a_robot(tmp_path: pathlib.Path) -> None:
+    bundles = MCAPReader(_pedestrian_tf_bag(tmp_path / "run.mcap")).read(tmp_path / "telemetry")
+
+    assert sorted(bundles) == [ROBOT]
+    assert pl.read_parquet(tmp_path / "telemetry" / "robot_tracks.parquet")["robot_id"].unique().to_list() == [ROBOT]
 
 
 def test_every_ingested_table_leads_with_a_non_null_monotonic_int64_t_ns(

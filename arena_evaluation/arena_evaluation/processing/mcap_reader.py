@@ -387,7 +387,7 @@ class _Ingest:
         return self._pedestrians.frames()
 
     def finish(self) -> None:
-        self._kinematics.finalize()
+        self._kinematics.finalize(self._pedestrians.names())
         self._schedules.write(self._sink)
         self._sink.close()
 

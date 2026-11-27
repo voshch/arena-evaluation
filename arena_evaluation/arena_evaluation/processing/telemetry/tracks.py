@@ -89,12 +89,14 @@ class KinematicsRecorder:
     def __init__(self, sink: TableSink) -> None:
         self._sink = sink
         self._poses: dict[RobotRef, list[tuple[int, Pose3]]] = defaultdict(list)
+        self._namespaces: dict[RobotRef, str] = {}
         self._odometry: dict[tuple[str, RobotRef], list[_Odometry]] = defaultdict(list)
 
     def record_ground_truth(self, envelope: Envelope[TransformStamped], pose: Pose3) -> None:
         if envelope.ref is None:
             raise ValueError("KinematicsRecorder.record_ground_truth requires an envelope with a RobotRef")
         self._poses[envelope.ref].append((envelope.t_ns, pose))
+        self._namespaces[envelope.ref] = envelope.body.child_frame_id.strip("/").rpartition("/")[0]
 
     def record_odometry(self, table: str, envelope: Envelope[Odometry]) -> None:
         if envelope.ref is None:
@@ -127,8 +129,9 @@ class KinematicsRecorder:
             ),
         )
 
-    def finalize(self) -> None:
-        tracks = {ref: _ground_truth_track(samples) for ref, samples in self._poses.items()}
+    def finalize(self, pedestrians: frozenset[str]) -> None:
+        """Write the tracks and odometry tables, leaving out the ground truth under a pedestrian's frame namespace."""
+        tracks = {ref: _ground_truth_track(samples) for ref, samples in self._poses.items() if self._namespaces[ref] not in pedestrians}
         for ref, track in tracks.items():
             self._write_track(ref, track)
         for (table, ref), samples in self._odometry.items():

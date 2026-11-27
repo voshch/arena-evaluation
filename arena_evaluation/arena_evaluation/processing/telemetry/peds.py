@@ -130,6 +130,7 @@ class PedestrianRecorder:
         self._sink = sink
         self._meta: dict[str, AgentMeta] = {}
         self._frames: dict[tuple[str, str], set[str]] = defaultdict(set)
+        self._names: set[str] = set()
 
     def record_meta(self, envelope: Envelope[RosAgentMeta], meta: AgentMeta) -> None:
         """Keep the normalised agent metadata of one environment."""
@@ -143,6 +144,7 @@ class PedestrianRecorder:
         env_id = envelope.ref.env_id
         self._frames[(env_id, table)].add(envelope.body.header.frame_id.strip("/"))
         for agent in _agents(envelope, self._meta.get(env_id, AgentMeta())):
+            self._names.add(agent.name.strip("/"))
             columns = agent.table_columns()
             if table == ENGINE_TABLE:
                 columns |= agent.crowd_columns()
@@ -152,6 +154,10 @@ class PedestrianRecorder:
 
     def frames(self) -> dict[tuple[str, str], frozenset[str]]:
         return {key: frozenset(frames) for key, frames in self._frames.items()}
+
+    def names(self) -> frozenset[str]:
+        """Every recorded pedestrian name, which is also the namespace of its tf frame."""
+        return frozenset(self._names)
 
 
 class _CrowdAgentMetaProto(Protocol):
